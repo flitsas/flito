@@ -23,6 +23,7 @@ import flitoDemoRoutes from './modules/flito-demo/flito-demo.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
+import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -170,6 +171,7 @@ export function createApp() {
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
+  app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma
