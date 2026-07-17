@@ -13,6 +13,7 @@
     "test:integration-keyed": "vitest run -t \"\\[keyed\\]\"",
     "db:generate": "drizzle-kit generate",
     "db:apply": "tsx src/scripts/db-apply.ts",
+  "flito:seed": "tsx src/scripts/flito-seed.ts",
     "laft:backfill-pii": "tsx src/scripts/laft-encrypt-pii-backfill.ts",
     "traspaso:reconcile-paso": "tsx src/scripts/reconcile-traspaso-paso.ts"
   },
