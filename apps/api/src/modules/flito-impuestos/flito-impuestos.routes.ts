@@ -5,21 +5,29 @@
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
+import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { EstadoImpuesto } from '@operaciones/shared-types';
 import {
   cargarFacturaVentaIndividual, cargarFacturasVentaMasivo, ImpuestoError,
   type ArchivoSubido, type ImpuestoCtx,
 } from './flito-factura-venta.service.js';
+import {
+  colaImpuestos, detalleImpuesto, enviarAlGestor, reactivar, rechazar, reversar,
+} from './flito-impuestos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 const OPERACIONES = requireRole('operaciones');
+const LECTURA = requireRole('operaciones', 'gestor_impuestos', 'auditor');
+const OPS_O_GESTOR = requireRole('operaciones', 'gestor_impuestos');
+const ESTADOS = ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
@@ -72,6 +80,86 @@ router.post('/facturas-venta', OPERACIONES, upload.array('archivos', 50), async 
     const resultado = await cargarFacturasVentaMasivo(files.map(aArchivo), ctx);
     await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva facturas de venta: ${resultado.conciliados.length} conciliadas, ${resultado.enRevision.length} en revisión, ${resultado.duplicados.length} duplicadas, ${resultado.noAsociados.length} sin asociar` });
     res.json(resultado);
+  } catch (e) { handleError(res, e); }
+});
+
+// Tras una mutación devolvemos el detalle; si el actor ya no puede verlo, confirmación mínima.
+async function responderDetalle(res: Response, ctx: ImpuestoCtx, imp: { id: string; estado: string; motivoRechazo: string | null }): Promise<void> {
+  const d = await detalleImpuesto(imp.id, ctx);
+  res.json(d ?? { id: imp.id, estado: imp.estado, motivoRechazo: imp.motivoRechazo });
+}
+
+// GET / — cola con las 2 fronteras (?estado=a,b&buscar=)
+router.get('/', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoImpuesto(req.user!);
+  const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
+  const estados = estadoRaw
+    ? estadoRaw.split(',').map((s) => s.trim()).filter((s): s is EstadoImpuesto => (ESTADOS as readonly string[]).includes(s))
+    : undefined;
+  const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
+  res.json(await colaImpuestos(ctx, estados, buscar));
+});
+
+// GET /:id — detalle (404-no-403 para el gestor ajeno)
+router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoImpuesto(req.user!);
+  const d = await detalleImpuesto(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
+  res.json(d);
+});
+
+// POST /enviar — Pendiente → En gestión, atómico (CA-04). Solo Operaciones.
+const enviarSchema = z.object({ ids: z.array(z.string().uuid()).min(1) });
+router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = enviarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  const ctx = await contextoImpuesto(req.user!);
+  const resultado = await enviarAlGestor(parsed.data.ids, ctx);
+  if (resultado.enviados.length > 0) {
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: resultado.enviados.join(','), detail: `Enviados al gestor: ${resultado.enviados.length} (pendiente→en_gestion)` });
+  }
+  res.json(resultado);
+});
+
+const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
+
+// POST /:id/rechazar — rechazo del gestor. Operaciones o gestor.
+router.post('/:id/rechazar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  const parsed = motivoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const imp = await rechazar(req.params.id, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `Rechazo: ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, imp);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/reactivar — Rechazado → Pendiente. Solo Operaciones.
+router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = motivoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const imp = await reactivar(req.params.id, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `Reactivación (rechazado→pendiente): ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, imp);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/reversar — reversa manual. Solo Operaciones, motivo ≥5.
+const reversarSchema = z.object({
+  estadoDestino: z.enum([EstadoImpuesto.SIN_FACTURA, EstadoImpuesto.RETENIDO, EstadoImpuesto.PENDIENTE, EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO, EstadoImpuesto.RECHAZADO, EstadoImpuesto.NO_APLICA]),
+  motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
+});
+router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = reversarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const imp = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `Reversa → ${parsed.data.estadoDestino}: ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, imp);
   } catch (e) { handleError(res, e); }
 });
 
