@@ -18,6 +18,7 @@ import integracionesRoutes from './modules/integraciones/integraciones.routes.js
 import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
+import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -160,6 +161,7 @@ export function createApp() {
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
+  app.use('/api/flito/sync', flitoSyncRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma
