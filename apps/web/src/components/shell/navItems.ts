@@ -7,13 +7,13 @@ export interface NavItem {
   page: PageSlug;
   to: string;
   label: string;
-  section: 'general' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'admin';
+  section: 'general' | 'gestion' | 'flito' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'admin';
   keywords?: string;  // términos de búsqueda alternativos para Command Palette
 }
 
 // Orden estable de secciones en la navegación (no depende del orden de NAV_ITEMS).
 export const SECTION_ORDER: NavItem['section'][] = [
-  'general', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'admin',
+  'general', 'gestion', 'flito', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'admin',
 ];
 
 /** Sección del ítem de nav que mejor coincide con la ruta actual (prefijo más largo). */
@@ -29,6 +29,7 @@ export function activeSectionForPath(pathname: string, items: NavItem[]): NavIte
 export const SECTION_LABEL: Record<NavItem['section'], string> = {
   general:       'General',
   gestion:       'Gestión',
+  flito:         'FLITO',
   transito:      'Tránsito',
   flota:         'Flota',
   mantenimiento: 'Mantenimiento',
@@ -45,6 +46,8 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'soat',        to: '/soat',                            section: 'gestion',       label: 'SOAT',                    keywords: 'seguro poliza solicitud' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   { page: 'tax_reader',  to: '/tax-reader',                      section: 'gestion',       label: 'Lectura Impuestos',       keywords: 'impuesto vehicular caldas antioquia' },
+  { page: 'flito_tablero',  to: '/flito/tablero',                section: 'flito',         label: 'Tablero FLITO',           keywords: 'flito operaciones indicadores retenidos estancados diferencias' },
+  { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'flito',         label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'users',       to: '/transito/organismos',             section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion admin' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },
