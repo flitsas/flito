@@ -7,24 +7,37 @@
 // para ese uso). Las reglas caras: 3 fronteras de la cola (CA-01/CA-09), envío atómico (CA-04),
 // aislamiento 404-no-403 (CA-09), RN-05/RN-06.
 
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
+import { createHash } from 'crypto';
+import JSZip from 'jszip';
+import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
+  auditLogs,
   clients,
   flitoCompradores,
   flitoProveedoresSoat,
+  flitoRevisiones,
   flitoSoat,
+  flitoSoportes,
   flitoTramites,
   organismosTransitoConfig,
   users,
   vehicles,
 } from '../../db/schema.js';
 import {
+  CampoSoat,
+  CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
   ESTADOS_SOAT_VISIBLES_GESTOR,
   EstadoSoat,
+  FlujoRevision,
+  MotivoRevision,
   TipoPropiedad,
+  type ExtraccionSoat,
 } from '@operaciones/shared-types';
+import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
+import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import { uploadEntityDocument } from '../../services/storage.js';
 
 export interface SoatCtx {
   userId: number;
@@ -371,4 +384,326 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
     .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
     .where(eq(flitoSoat.id, id)).returning();
   return { soat: updated, anterior };
+}
+
+// ═══════════════════════ Carga de factura → Pagado (Fase 3, RN-03) ═══════════
+// La factura validada por OCR es la ÚNICA vía a `Pagado` (RN-03): no hay marca manual. El estado es
+// consecuencia del soporte, no de un clic. Porta packages/server/src/soat/soat.servicio.ts sobre el
+// motor OCR Anthropic (modules/flito-ocr) y el storage S3/MinIO.
+
+export interface ArchivoSubido {
+  originalname: string;
+  mimetype: string;
+  buffer: Buffer;
+  size: number;
+}
+
+/** Campos que sí bloquean el avance a Pagado. Vigencia/expedición NO están (D-7): se leen sin exigir. */
+const CAMPOS_REQUERIDOS_SOAT: readonly CampoSoat[] = [
+  CampoSoat.NUMERO_POLIZA, CampoSoat.VALOR_TOTAL, CampoSoat.ASEGURADORA,
+];
+
+const normalizarLlave = (v: string | null | undefined): string => (v ?? '').toUpperCase().replace(/[\s-]/g, '');
+
+export interface Veredicto { aprobada: boolean; motivo?: MotivoRevision; detalle?: string }
+
+/**
+ * Decide si la extracción alcanza para cerrar sin humano. Tres condiciones EN ORDEN, porque el
+ * motivo cambia el mensaje y la acción: (1) que haya llave leída, (2) que la llave cruce con ESTE
+ * registro, (3) que la llave y los campos requeridos superen el umbral. Compara `confianza` numérica
+ * contra el umbral (no el flag `confiable`), para que reevaluar con otro umbral —el del proveedor en
+ * la carga masiva— dé el resultado correcto. RN-04/CA-06.
+ */
+export function evaluarExtraccionSoat(
+  extraccion: ExtraccionSoat,
+  esperado: { vin: string; placa: string | null },
+  umbral: number,
+): Veredicto {
+  const placa = extraccion[CampoSoat.PLACA];
+  const vin = extraccion[CampoSoat.VIN];
+
+  if (!placa?.valor && !vin?.valor) {
+    return { aprobada: false, motivo: MotivoRevision.SIN_LLAVE_DE_CRUCE,
+      detalle: 'La factura no permitió leer ni placa ni VIN, así que no se puede saber a qué vehículo pertenece.' };
+  }
+
+  const placaCruza = !!placa?.valor && normalizarLlave(placa.valor) === normalizarLlave(esperado.placa);
+  const vinCruza = !!vin?.valor && normalizarLlave(vin.valor) === normalizarLlave(esperado.vin);
+  if (!placaCruza && !vinCruza) {
+    return { aprobada: false, motivo: MotivoRevision.LLAVE_NO_CRUZA,
+      detalle: `La factura dice placa "${placa?.valor ?? '—'}" / VIN "${vin?.valor ?? '—'}", pero el registro es placa ${esperado.placa ?? '—'} / VIN ${esperado.vin}.` };
+  }
+
+  const llaveConfiable = (placaCruza && placa!.confianza >= umbral) || (vinCruza && vin!.confianza >= umbral);
+  const dudosos = CAMPOS_REQUERIDOS_SOAT.filter((c) => {
+    const e = extraccion[c];
+    return !e || e.valor === null || e.confianza < umbral;
+  });
+
+  if (!llaveConfiable || dudosos.length > 0) {
+    const faltantes = dudosos.length > 0 ? dudosos.join(', ') : 'la llave de cruce';
+    return { aprobada: false, motivo: MotivoRevision.CONFIANZA_INSUFICIENTE,
+      detalle: `La lectura no superó el umbral de ${umbral} en: ${faltantes}.` };
+  }
+  return { aprobada: true };
+}
+
+// Tx de drizzle (mismo truco de tipado que flito-sync: no hay alias exportado).
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+const TIPO_FACTURA_SOAT = 'factura_soat';
+
+/** Bitácora en la MISMA tx que el cambio, con la identidad del actor. Trazabilidad atómica del pago. */
+async function auditEnTx(tx: Tx, ctx: SoatCtx, resourceId: string, detail: string): Promise<void> {
+  await tx.insert(auditLogs).values({
+    userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'flito_soat', resourceId, detail,
+  });
+}
+
+/**
+ * Lleva el SOAT a `Pagado` dentro de una tx. Es el ÚNICO punto que escribe `pagado` (RN-03): revalida
+ * que exista factura (belt-and-suspenders CA-11), copia el valor DESDE la factura (no de un cálculo)
+ * y registra en bitácora qué campos no exigidos pasaron sin ser confiables (D-7), por si mañana se
+ * quiere alertar sobre pólizas por vencer.
+ */
+async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: EstadoSoat, extraccion: ExtraccionSoat, ctx: SoatCtx, soporteId: string | null): Promise<void> {
+  const [{ n }] = await tx.select({ n: count() }).from(flitoSoportes)
+    .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT)));
+  if (Number(n) === 0) throw new SoatError(400, 'No se puede marcar pagado un SOAT sin factura cargada');
+
+  const valorTotal = extraccion[CampoSoat.VALOR_TOTAL]?.valor ?? null;
+  await tx.update(flitoSoat).set({
+    estado: EstadoSoat.PAGADO,
+    extraccion,
+    valorPagado: valorTotal, // numeric acepta el string ya normalizado a pesos enteros
+    pagadoEn: new Date(),
+    motivoRechazo: null,
+    updatedAt: new Date(),
+  }).where(eq(flitoSoat.id, soatId));
+
+  const noExigidosSinLeer = CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR.filter((c) => !extraccion[c]?.confiable);
+  await auditEnTx(tx, ctx, soatId,
+    `Pago confirmado por factura (${estadoAnterior}→pagado). Valor ${valorTotal ?? '—'}, ` +
+    `póliza ${extraccion[CampoSoat.NUMERO_POLIZA]?.valor ?? '—'}, aseguradora ${extraccion[CampoSoat.ASEGURADORA]?.valor ?? '—'}` +
+    `${soporteId ? `, soporte ${soporteId}` : ''}. VIN ${vin}.` +
+    (noExigidosSinLeer.length ? ` No exigidos sin leer: ${noExigidosSinLeer.join(', ')}.` : ''));
+}
+
+/**
+ * Marca pagado un SOAT desde una extracción ya validada, en su propia tx. Exportada (§9.2) para usos
+ * fuera de la carga directa; la carga usa `pagarEnTx` para hacer soporte+pago atómicos.
+ */
+export async function marcarPagado(soatId: string, extraccion: ExtraccionSoat, ctx: SoatCtx): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [soat] = await tx.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
+    if (!soat) throw new SoatError(404, 'El SOAT no existe');
+    const [sop] = await tx.select({ id: flitoSoportes.id }).from(flitoSoportes)
+      .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT)))
+      .orderBy(desc(flitoSoportes.subidoEn)).limit(1);
+    await pagarEnTx(tx, soat.id, soat.vin, soat.estado as EstadoSoat, extraccion, ctx, sop?.id ?? null);
+  });
+}
+
+// Datos de un SOAT necesarios para leer y archivar su factura: llave, compañía (carpeta S3) y umbral.
+interface DatosCarga {
+  soatId: string; vin: string; placa: string | null; estado: EstadoSoat;
+  companiaId: number; document: string | null; carpeta: string | null; umbralOcr: string | null;
+}
+
+async function datosCargaPorId(id: string): Promise<DatosCarga | null> {
+  const [r] = await db.select({
+    soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
+    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    umbralOcr: flitoProveedoresSoat.umbralOcr,
+  }).from(flitoSoat)
+    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
+    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .where(eq(flitoSoat.id, id)).limit(1);
+  return r ? { ...r, estado: r.estado as EstadoSoat } : null;
+}
+
+/** Duplicado por hash (CA-08): un mismo archivo no se concilia dos veces. */
+async function facturaDuplicada(hash: string): Promise<boolean> {
+  const [dup] = await db.select({ id: flitoSoportes.id }).from(flitoSoportes)
+    .where(and(eq(flitoSoportes.hash, hash), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT))).limit(1);
+  return !!dup;
+}
+
+/** Sube la factura a S3 y devuelve su storage_key. Va ANTES de tocar la BD (CA-11). */
+async function archivarFactura(datos: DatosCarga, archivo: ArchivoSubido): Promise<string> {
+  const carpeta = carpetaDe({ id: datos.companiaId, document: datos.document, flitoCarpetaStorage: datos.carpeta }, 'soat/facturas');
+  return uploadEntityDocument(carpeta, datos.soatId, archivo.originalname, archivo.buffer, archivo.mimetype);
+}
+
+// Persiste soporte + (pago | revisión) en una sola tx. `aprobada` decide el desenlace.
+async function persistirCarga(datos: DatosCarga, archivo: ArchivoSubido, hash: string, storageKey: string, extraccion: ExtraccionSoat, veredicto: Veredicto, ctx: SoatCtx): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [soporte] = await tx.insert(flitoSoportes).values({
+      tipo: TIPO_FACTURA_SOAT, nombreArchivo: archivo.originalname, contentType: archivo.mimetype,
+      storageKey, hash, tamanoBytes: archivo.size, soatId: datos.soatId,
+      subidoPorId: ctx.userId, subidoPorNombre: ctx.username,
+    }).returning({ id: flitoSoportes.id });
+
+    if (veredicto.aprobada) {
+      await pagarEnTx(tx, datos.soatId, datos.vin, datos.estado, extraccion, ctx, soporte.id);
+    } else {
+      // El SOAT se queda En adquisición (CA-06): el documento existe, pero ningún dato del OCR se da
+      // por válido sin confirmación humana (RN-04). Los gestores no resuelven esta cola (RN-05).
+      await tx.insert(flitoRevisiones).values({
+        modulo: FlujoRevision.SOAT, motivo: veredicto.motivo!, detalle: veredicto.detalle!,
+        registroId: datos.soatId, soporteId: soporte.id,
+        placaSugerida: extraccion[CampoSoat.PLACA]?.valor ?? null,
+        extraccion, resuelto: false,
+      });
+      await auditEnTx(tx, ctx, datos.soatId, `OCR a revisión (${veredicto.motivo}): ${veredicto.detalle} Soporte ${soporte.id}.`);
+    }
+  });
+}
+
+/**
+ * Carga de la factura de un SOAT puntual. Única vía a `Pagado` (RN-03). Se LEE y VERIFICA antes de
+ * guardar: si la factura no corresponde a este SOAT (sin llave o llave que contradice), se descarta
+ * sin archivarla — sería un comprobante de otro vehículo colgado del registro equivocado.
+ */
+export async function cargarFactura(id: string, archivo: ArchivoSubido, ctx: SoatCtx): Promise<Awaited<ReturnType<typeof detalle>>> {
+  const soat = await buscarConAcceso(id, ctx); // frontera del gestor (404-no-403)
+  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  if (soat.estado !== EstadoSoat.EN_ADQUISICION) {
+    throw new SoatError(400, `Solo se puede cargar factura de un SOAT en adquisición. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
+  }
+
+  const datos = await datosCargaPorId(id);
+  if (!datos) throw new SoatError(404, 'El SOAT no existe');
+
+  const umbral = umbralPara(datos.umbralOcr);
+  const extraccion = await extraerFacturaSoat(docDe(archivo, umbral));
+  const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
+
+  if (!veredicto.aprobada && (veredicto.motivo === MotivoRevision.SIN_LLAVE_DE_CRUCE || veredicto.motivo === MotivoRevision.LLAVE_NO_CRUZA)) {
+    throw new SoatError(400, `${veredicto.detalle} No corresponde a este SOAT, así que no se guardó.`);
+  }
+
+  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+  if (await facturaDuplicada(hash)) {
+    throw new SoatError(409, 'Esta factura ya fue cargada antes (mismo archivo). No se concilia dos veces.');
+  }
+
+  const storageKey = await archivarFactura(datos, archivo);
+  await persistirCarga(datos, archivo, hash, storageKey, extraccion, veredicto, ctx);
+
+  return detalle(soat.id, ctx);
+}
+
+const docDe = (archivo: ArchivoSubido, umbral: number): DocumentoAAnalizar => ({
+  nombreArchivo: archivo.originalname, contentType: archivo.mimetype, contenido: archivo.buffer, umbral,
+});
+
+// ─────────────────────────── Carga masiva ────────────────────────────────────
+
+export interface ItemCarga { archivo: string; placa: string | null; soatId: string | null; detalle: string }
+export interface ResultadoCargaMasiva {
+  pagados: ItemCarga[]; enRevision: ItemCarga[]; duplicados: ItemCarga[]; noAsociados: ItemCarga[];
+}
+
+/**
+ * SOAT en adquisición que cruce por placa o VIN, respetando la frontera del gestor. Devuelve también
+ * lo necesario para archivar (compañía) y el umbral del proveedor.
+ */
+async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx: SoatCtx): Promise<DatosCarga | null> {
+  if (!placa && !vin) return null;
+  const llave: ReturnType<typeof sql>[] = [];
+  if (placa) llave.push(sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarLlave(placa)}`);
+  if (vin) llave.push(sql`UPPER(${vehicles.vin}) = ${normalizarLlave(vin)}`);
+
+  const conds = [
+    eq(flitoSoat.estado, EstadoSoat.EN_ADQUISICION),
+    eq(clients.soatAutogestionable, false),
+    or(...llave)!,
+  ];
+  if (esGestor(ctx)) {
+    if (!ctx.proveedorSoatId) return null;
+    conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
+  }
+
+  const [r] = await db.select({
+    soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
+    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    umbralOcr: flitoProveedoresSoat.umbralOcr,
+  }).from(flitoSoat)
+    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
+    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .where(and(...conds)).limit(1);
+  return r ? { ...r, estado: r.estado as EstadoSoat } : null;
+}
+
+/**
+ * Carga masiva de comprobantes. El gestor sube varios PDF/imágenes —o un ZIP— sin clasificar nada:
+ * el OCR lee placa/VIN (o la placa del nombre del archivo como respaldo, §8.4) y cada comprobante se
+ * cruza SOLO con un SOAT en adquisición. Los que cruzan y superan el umbral pasan a Pagado; los que
+ * no, a revisión. Un comprobante que no cruza con ningún SOAT NO va a revisión (no hay contra qué
+ * compararlo): se informa y no se guarda. Un archivo que falla no afecta a los demás.
+ */
+export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatCtx): Promise<ResultadoCargaMasiva> {
+  const res: ResultadoCargaMasiva = { pagados: [], enRevision: [], duplicados: [], noAsociados: [] };
+  const expandidos = await expandir(archivos);
+
+  for (const archivo of expandidos) {
+    try {
+      const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+      if (await facturaDuplicada(hash)) {
+        res.duplicados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: 'Ya cargada antes (mismo archivo).' });
+        continue;
+      }
+
+      const extraccion = await extraerFacturaSoat(docDe(archivo, umbralPara(null)));
+      const placaLeida = extraccion[CampoSoat.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
+      const vinLeido = extraccion[CampoSoat.VIN]?.valor ?? null;
+
+      const datos = await buscarEnAdquisicion(placaLeida, vinLeido, ctx);
+      if (!datos) {
+        res.noAsociados.push({ archivo: archivo.originalname, placa: placaLeida, soatId: null,
+          detalle: 'No cruza con ningún SOAT en adquisición. No se guardó.' });
+        continue;
+      }
+
+      const umbral = umbralPara(datos.umbralOcr);
+      const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
+      const storageKey = await archivarFactura(datos, archivo);
+      await persistirCarga(datos, archivo, hash, storageKey, extraccion, veredicto, ctx);
+
+      const item: ItemCarga = { archivo: archivo.originalname, placa: datos.placa, soatId: datos.soatId, detalle: veredicto.aprobada ? 'Pagado.' : (veredicto.detalle ?? 'En revisión.') };
+      (veredicto.aprobada ? res.pagados : res.enRevision).push(item);
+    } catch (e) {
+      const msg = e instanceof SoatError ? e.message : 'Error procesando el archivo.';
+      res.noAsociados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: msg });
+    }
+  }
+  return res;
+}
+
+/** Un ZIP es una caja: se abre y se procesa cada archivo que trae (PDF/imagen). */
+async function expandir(archivos: ArchivoSubido[]): Promise<ArchivoSubido[]> {
+  const salida: ArchivoSubido[] = [];
+  for (const archivo of archivos) {
+    const esZip = archivo.mimetype.includes('zip') || archivo.originalname.toLowerCase().endsWith('.zip');
+    if (!esZip) { salida.push(archivo); continue; }
+
+    const zip = await JSZip.loadAsync(archivo.buffer);
+    for (const entrada of Object.values(zip.files)) {
+      if (entrada.dir) continue;
+      if (entrada.name.startsWith('__MACOSX/')) continue;
+      const base = entrada.name.split('/').pop() || entrada.name;
+      if (base.startsWith('.')) continue;
+      const buffer = Buffer.from(await entrada.async('nodebuffer'));
+      const lower = base.toLowerCase();
+      const mimetype = lower.endsWith('.pdf') ? 'application/pdf'
+        : /\.(jpg|jpeg)$/.test(lower) ? 'image/jpeg'
+        : lower.endsWith('.png') ? 'image/png'
+        : 'application/octet-stream';
+      salida.push({ originalname: base, mimetype, buffer, size: buffer.length });
+    }
+  }
+  return salida;
 }
