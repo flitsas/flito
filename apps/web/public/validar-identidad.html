@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1e3a8a">
+<title>Validaci&oacute;n de Identidad — FLIT</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;background:#f1f5f9;color:#0f172a;min-height:100vh}
+  .wrap{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+  header{background:linear-gradient(135deg,#1e3a8a,#3b82f6);color:#fff;padding:24px 22px;text-align:center}
+  header h1{margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:.2px}
+  header p{margin:0;font-size:11px;color:#bfdbfe}
+  main{flex:1;padding:18px 16px 80px}
+  .card{background:#fff;border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+  .card h2{margin:0 0 6px;font-size:13px;font-weight:800;color:#1e3a8a;text-transform:uppercase;letter-spacing:.4px}
+  .card p{margin:0 0 4px;font-size:13px;color:#475569;line-height:1.5}
+  .info{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-top:10px;font-size:12px;color:#1e40af}
+  .info strong{color:#0f172a}
+  .step{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fff;border-radius:10px;margin-bottom:10px;border:1px solid #e2e8f0;transition:.2s}
+  .step.active{border-color:#3b82f6;background:#eff6ff}
+  .step.done{border-color:#10b981;background:#f0fdf4}
+  .step .num{width:28px;height:28px;border-radius:50%;background:#cbd5e1;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+  .step.active .num{background:#3b82f6}
+  .step.done .num{background:#10b981}
+  .step .lbl{flex:1;font-size:13px;font-weight:700;color:#1e293b}
+  .step .sub{font-size:10px;color:#64748b;font-weight:500}
+  .btn{display:block;width:100%;padding:14px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer;letter-spacing:.3px;transition:.2s;-webkit-appearance:none}
+  .btn:disabled{background:#94a3b8;cursor:not-allowed}
+  .btn.ghost{background:#fff;color:#475569;border:1px solid #cbd5e1}
+  video{width:100%;border-radius:10px;background:#000;display:block}
+  canvas{display:none}
+  .preview{width:100%;border-radius:10px;border:2px solid #10b981;display:block}
+  .scanner-wrap{position:relative;width:100%;background:#000;border-radius:10px;overflow:hidden;aspect-ratio:3/4}
+  .scanner-wrap video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+  .scan-ring{position:absolute;top:50%;left:50%;width:78%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none}
+  .scan-ring::before{content:"";position:absolute;inset:0;border-radius:50%;border:2px dashed rgba(255,255,255,.3)}
+  .scan-ring::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:3px solid transparent;border-top-color:#10b981;border-right-color:#10b981;animation:rotate 1.6s linear infinite;box-shadow:0 0 18px rgba(16,185,129,.55)}
+  @keyframes rotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  .scan-line{position:absolute;left:11%;right:11%;top:50%;height:2px;background:linear-gradient(90deg,transparent,#10b981,transparent);box-shadow:0 0 10px #10b981;animation:scanLine 2.4s ease-in-out infinite;pointer-events:none}
+  @keyframes scanLine{0%,100%{top:18%;opacity:.4}50%{top:82%;opacity:1}}
+  .scan-corners{position:absolute;inset:8%;pointer-events:none}
+  .scan-corners span{position:absolute;width:22px;height:22px;border:3px solid #10b981}
+  .scan-corners span:nth-child(1){top:0;left:0;border-right:none;border-bottom:none;border-radius:6px 0 0 0}
+  .scan-corners span:nth-child(2){top:0;right:0;border-left:none;border-bottom:none;border-radius:0 6px 0 0}
+  .scan-corners span:nth-child(3){bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 6px}
+  .scan-corners span:nth-child(4){bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 6px 0}
+  .scan-status{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.85);color:#10b981;padding:6px 14px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.3px;backdrop-filter:blur(8px);display:flex;align-items:center;gap:6px}
+  .scan-status .dot{width:6px;height:6px;background:#10b981;border-radius:50%;animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+  .doc-frame{position:absolute;inset:8% 6%;pointer-events:none;border:2px dashed #10b981;border-radius:8px;box-shadow:0 0 0 9999px rgba(0,0,0,.35)}
+  .doc-frame .label{position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:#10b981;color:#fff;padding:3px 10px;border-radius:4px;font-size:9px;font-weight:800;white-space:nowrap}
+  .actions{display:flex;gap:10px;margin-top:12px}
+  .actions .btn{flex:1}
+  .alert{padding:12px 14px;border-radius:10px;font-size:12px;line-height:1.5;margin:10px 0}
+  .alert-error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+  .alert-ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+  .spinner{display:inline-block;width:18px;height:18px;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;vertical-align:middle;margin-right:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .resultado{text-align:center;padding:30px 20px}
+  .resultado .icon{font-size:64px;margin-bottom:14px}
+  .resultado h2{margin:0 0 8px;font-size:22px;font-weight:900}
+  .resultado.ok h2{color:#10b981}
+  .resultado.fail h2{color:#ef4444}
+  .resultado p{margin:0;color:#475569;font-size:14px;line-height:1.6}
+  footer{padding:14px;text-align:center;font-size:10px;color:#94a3b8}
+  .hint{font-size:11px;color:#64748b;margin-top:8px;text-align:center;line-height:1.4}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Validaci&oacute;n de Identidad</h1>
+    <p id="hdr-sub">Verificaci&oacute;n biom&eacute;trica</p>
+  </header>
+  <main id="main"><div class="card"><p style="text-align:center;color:#64748b">Cargando...</p></div></main>
+  <footer>FLIT Operaciones &middot; Verificaci&oacute;n biom&eacute;trica</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const main = document.getElementById('main');
+const token = new URLSearchParams(location.search).get('t');
+let info = null, fotoRostro = null, fotoCedula = null, fotoCedulaReverso = null, stream = null, modo = 'rostro';
+let geo = { lat: null, lng: null, ciudadGeo: null };
+
+const pedirGeolocalizacion = () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      geo.lat = pos.coords.latitude;
+      geo.lng = pos.coords.longitude;
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${geo.lat}&lon=${geo.lng}&zoom=10&accept-language=es`)
+        .then(r => r.json())
+        .then(d => { const a = d.address || {}; geo.ciudadGeo = [a.city || a.town || a.village || a.municipality, a.state || a.region, a.country].filter(Boolean).join(', '); })
+        .catch(() => {});
+    },
+    () => {},
+    { timeout: 8000, enableHighAccuracy: false }
+  );
+};
+
+const render = (html) => { main.innerHTML = html; };
+const stopStream = () => { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } };
+const toBase64 = (v) => { const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0); return c.toDataURL('image/jpeg', 0.85); };
+const fmtFecha = iso => { try { return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
+
+const cargarInfo = async () => {
+  if (!token) { render('<div class="card"><div class="alert alert-error">Enlace inv&aacute;lido o incompleto.</div></div>'); return; }
+  try {
+    const r = await fetch('/api/validacion-identidad/info/' + encodeURIComponent(token));
+    const j = await r.json();
+    if (!j.ok) { render(`<div class="card"><div class="alert ${j.estado === 'aprobado' ? 'alert-ok' : 'alert-error'}">${j.message}</div></div>`); return; }
+    info = j;
+    const sub = $('hdr-sub');
+    if (sub) sub.textContent = j.modalidad === 'traspaso' ? 'Traspaso de Veh\u00edculo' : 'Matr\u00edcula Inicial de Veh\u00edculo';
+    pantallaInicio();
+  } catch (e) { render('<div class="card"><div class="alert alert-error">Error de conexi&oacute;n: ' + e.message + '</div></div>'); }
+};
+
+const rolLabel = () => {
+  if (info.modalidad === 'traspaso') {
+    if (info.parte === 'vendedor') return 'VENDEDOR (titular saliente)';
+    if (info.parte === 'comprador') return 'COMPRADOR (adquirente)';
+    return 'PARTE DEL TRASPASO';
+  }
+  return 'PROPIETARIO / COMPRADOR';
+};
+
+const pantallaInicio = () => {
+  render(`
+    <div class="card">
+      <h2>Hola ${info.nombre || ''}</h2>
+      <p>Est&aacute;s identificado como <strong>${rolLabel()}</strong> en el siguiente tr&aacute;mite:</p>
+      <div class="info">
+        <div><strong>Vehiculo:</strong> ${info.placa || '—'}${info.vehiculo ? ' · ' + info.vehiculo : ''}</div>
+        <div style="margin-top:4px"><strong>Documento:</strong> ${info.tipoDoc} ${info.documento}</div>
+        <div style="margin-top:4px;font-size:11px;color:#1e40af">Este enlace expira el ${fmtFecha(info.expiraAt)}</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>&iquest;Qu&eacute; vamos a hacer?</h2>
+      <div class="step active"><div class="num">1</div><div><div class="lbl">Tu rostro (selfie)</div><div class="sub">Cara visible, buena luz, sin gafas oscuras</div></div></div>
+      <div class="step"><div class="num">2</div><div><div class="lbl">Foto FRONTAL de tu c&eacute;dula</div><div class="sub">Lado con foto, nombre y n&uacute;mero de c&eacute;dula</div></div></div>
+      <div class="step"><div class="num">3</div><div><div class="lbl">Foto del REVERSO de tu c&eacute;dula</div><div class="sub">Lado con c&oacute;digo de barras y huella</div></div></div>
+      <div class="step"><div class="num">4</div><div><div class="lbl">Verificaci&oacute;n autom&aacute;tica</div><div class="sub">Sistema biometrico en 10-20 segundos</div></div></div>
+    </div>
+    <p style="font-size:11px;color:#64748b;text-align:center;margin:12px 0;line-height:1.6;">
+      Al continuar, usted autoriza el tratamiento de sus datos personales, biom&eacute;tricos y de ubicaci&oacute;n conforme a la <strong>Ley 1581 de 2012</strong> (Habeas Data) y la <strong>Resoluci&oacute;n 17145 de 2023</strong> del Ministerio de Transporte, exclusivamente para la verificaci&oacute;n de identidad en este tr&aacute;mite.
+    </p>
+    <button class="btn" onclick="iniciarCaptura('rostro')">Empezar verificacion</button>
+    <p class="hint">Se solicitar&aacute; acceso temporal a la c&aacute;mara y geolocalizaci&oacute;n para fines de auditor&iacute;a del tr&aacute;mite</p>
+  `);
+};
+
+window.iniciarCaptura = async (which) => {
+  modo = which;
+  const labels = {
+    rostro: {
+      titulo: 'Captura biom&eacute;trica facial',
+      sub: 'Centra tu rostro dentro del marco circular. Mant&eacute;n buena iluminaci&oacute;n. Ret&iacute;rate las gafas y mascarillas.',
+      overlay: `<div class="scan-corners"><span></span><span></span><span></span><span></span></div><div class="scan-ring"></div><div class="scan-line"></div><div class="scan-status"><span class="dot"></span>Escaneando rostro...</div>`
+    },
+    cedula: {
+      titulo: 'Documento de identidad — FRENTE',
+      sub: 'Lado con foto, nombre y n&uacute;mero de c&eacute;dula. Documento sobre superficie plana, sin reflejos.',
+      overlay: `<div class="doc-frame"><span class="label">CENTRA EL FRENTE DE LA CEDULA</span></div>`
+    },
+    reverso: {
+      titulo: 'Documento de identidad — REVERSO',
+      sub: 'Otro lado de la c&eacute;dula: c&oacute;digo de barras / huella dactilar / QR.',
+      overlay: `<div class="doc-frame"><span class="label">CENTRA EL REVERSO DE LA CEDULA</span></div>`
+    }
+  };
+  const { titulo, sub, overlay } = labels[which];
+  render(`
+    <div class="card">
+      <h2>${titulo}</h2>
+      <p>${sub}</p>
+      <div class="scanner-wrap" style="margin-top:14px">
+        <video id="video" autoplay playsinline muted></video>
+        ${overlay}
+      </div>
+      <div class="actions">
+        <button class="btn ghost" onclick="cancelarCaptura()">Cancelar</button>
+        <button class="btn" onclick="capturar()">Capturar</button>
+      </div>
+    </div>
+  `);
+  try {
+    const constraints = which === 'rostro'
+      ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 960 } }, audio: false }
+      : { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    $('video').srcObject = stream;
+  } catch (e) {
+    render('<div class="card"><div class="alert alert-error">No se pudo acceder a la c&aacute;mara: ' + e.message + '</div><button class="btn ghost" style="margin-top:12px" onclick="pantallaInicio()">Volver</button></div>');
+  }
+};
+
+window.cancelarCaptura = () => { stopStream(); pantallaInicio(); };
+
+window.capturar = () => {
+  const v = $('video');
+  if (!v || !v.videoWidth) { render('<div class="card"><div class="alert alert-error">La c&aacute;mara a&uacute;n no est&aacute; lista. Espera un momento.</div></div>'); setTimeout(() => renderCapture(), 2000); return; }
+  const b64 = toBase64(v);
+  stopStream();
+  if (modo === 'rostro') { fotoRostro = b64; previewRostro(); }
+  else if (modo === 'cedula') { fotoCedula = b64; previewCedula(); }
+  else { fotoCedulaReverso = b64; previewReverso(); }
+};
+
+const previewRostro = () => {
+  render(`<div class="card"><h2>Selfie capturada (1/3)</h2><p>Se ve bien tu rostro? Si quieres, repitela.</p><img class="preview" src="${fotoRostro}"><div class="actions"><button class="btn ghost" onclick="iniciarCaptura('rostro')">Repetir</button><button class="btn" onclick="iniciarCaptura('cedula')">Continuar</button></div></div>`);
+};
+const previewCedula = () => {
+  render(`<div class="card"><h2>C&eacute;dula FRONTAL capturada (2/3)</h2><p>Se lee bien el numero y el nombre? Si esta borrosa, repitela.</p><img class="preview" src="${fotoCedula}"><div class="actions"><button class="btn ghost" onclick="iniciarCaptura('cedula')">Repetir</button><button class="btn" onclick="iniciarCaptura('reverso')">Continuar al reverso</button></div></div>`);
+};
+const previewReverso = () => {
+  render(`<div class="card"><h2>C&eacute;dula REVERSO capturada (3/3)</h2><p>Se ve bien el c&oacute;digo de barras / huella? Ya casi terminamos.</p><img class="preview" src="${fotoCedulaReverso}"><div class="actions"><button class="btn ghost" onclick="iniciarCaptura('reverso')">Repetir</button><button class="btn" onclick="enviarValidacion()">Enviar para validar</button></div></div>`);
+};
+
+window.pantallaInicio = pantallaInicio;
+
+window.enviarValidacion = async () => {
+  render(`
+    <div class="card resultado">
+      <div class="spinner" style="width:54px;height:54px;border-width:4px;border-color:rgba(30,58,138,.18);border-top-color:#1e3a8a;display:inline-block"></div>
+      <h2 style="color:#1e3a8a;margin-top:18px;font-size:18px;letter-spacing:.3px">VERIFICACI&Oacute;N FORENSE EN CURSO</h2>
+      <p style="margin-top:6px">Procesando captura biom&eacute;trica, contraste con documento oficial y verificaci&oacute;n de prueba de vida. <strong>No cierres esta ventana.</strong></p>
+      <div style="margin-top:18px;display:flex;flex-direction:column;gap:6px;text-align:left;font-size:11px;color:#64748b">
+        <div>Captura facial recibida</div>
+        <div>Documento frente recibido</div>
+        <div>Documento reverso recibido</div>
+        <div style="color:#1e3a8a;font-weight:700">An&aacute;lisis biom&eacute;trico forense en proceso...</div>
+      </div>
+    </div>
+  `);
+  try {
+    const r = await fetch('/api/validacion-identidad/completar/' + encodeURIComponent(token), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fotoRostro, fotoCedula, fotoCedulaReverso, lat: geo.lat, lng: geo.lng, ciudadGeo: geo.ciudadGeo })
+    });
+    const raw = await r.text();
+    let j = {};
+    try { j = raw ? JSON.parse(raw) : {}; } catch {
+      render(`<div class="card resultado fail"><h2>Error del servidor</h2><p>No se pudo procesar la respuesta (HTTP ${r.status}). Si acaba de enviar las fotos, espere 1 minuto y pulse Reintentar.</p><button class="btn" style="margin-top:18px" onclick="reintentar()">Reintentar</button></div>`);
+      return;
+    }
+    if (!j.ok) {
+      const retry = (r.status === 409 || r.status === 503 || j.retryable) ? '<button class="btn" style="margin-top:18px" onclick="reintentar()">Reintentar</button>' : '<button class="btn ghost" style="margin-top:18px" onclick="pantallaInicio()">Volver al inicio</button>';
+      render(`<div class="card resultado fail"><div class="icon">X</div><h2>Error</h2><p>${j.message || 'Error desconocido'}</p>${retry}</div>`);
+      return;
+    }
+    if (j.aprobado) {
+      render(`<div class="card resultado ok"><h2>Validacion exitosa</h2><p>Tu identidad ha sido verificada correctamente. Ya puedes cerrar esta ventana.</p>${j.score ? '<p style="margin-top:14px;font-size:11px;color:#64748b">Score de coincidencia: <strong>' + j.score + '/100</strong></p>' : ''}</div>`);
+    } else {
+      render(`<div class="card resultado fail"><h2>No fue posible validar</h2><p>${j.motivo || 'Verifica que la luz sea buena, que tu rostro est&eacute; visible y que la c&eacute;dula sea original.'}</p>${j.score ? '<p style="margin-top:10px;font-size:11px;color:#64748b">Score: ' + j.score + '/100</p>' : ''}<button class="btn" style="margin-top:18px" onclick="reintentar()">Reintentar</button></div>`);
+    }
+  } catch (e) {
+    render('<div class="card"><div class="alert alert-error">Error de conexi&oacute;n: ' + (e.message || 'red interrumpida') + '. El an&aacute;lisis puede tardar hasta 2 minutos; si se cort&oacute;, espere y pulse Reintentar.</div><button class="btn" style="margin-top:12px" onclick="reintentar()">Reintentar</button></div>');
+  }
+};
+
+window.reintentar = () => { fotoRostro = null; fotoCedula = null; fotoCedulaReverso = null; pantallaInicio(); };
+
+pedirGeolocalizacion();
+cargarInfo();
+</script>
+</body>
+</html>

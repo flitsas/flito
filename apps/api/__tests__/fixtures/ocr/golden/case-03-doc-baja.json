@@ -1,0 +1,38 @@
+{
+  "id": "case-03-doc-baja",
+  "descripcion": "Documento del propietario parcialmente legible (confianza baja) pero válido; resto alta. No dispara segunda pasada (confianza global ≥ 65, sin warnings).",
+  "responses": [
+    {
+      "tier": "haiku",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "HBN732", "confianza": "alta" },
+        "marca": { "valor": "MAZDA", "confianza": "alta" },
+        "linea": { "valor": "CX-30", "confianza": "alta" },
+        "modelo": { "valor": 2022, "confianza": "alta" },
+        "clase": { "valor": "CAMIONETA", "confianza": "alta" },
+        "propietarioNombre": { "valor": "MARTHA LUCIA OSPINA", "confianza": "alta" },
+        "propietarioDocumento": { "valor": "43890215", "confianza": "baja" },
+        "tipoDocumento": { "valor": "CC", "confianza": "alta" },
+        "celular": { "valor": "3009988776", "confianza": "alta" },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 67000000, "confianza": "alta" },
+        "r2_impuesto": { "valor": 1250000, "confianza": "alta" },
+        "r5_totalCargo": { "valor": 1310000, "confianza": "alta" },
+        "r11_totalPagar": { "valor": 1495000, "confianza": "alta" },
+        "formularioNo": { "valor": "9930471", "confianza": "alta" }
+      }
+    }
+  ],
+  "expected": {
+    "documentType": "individual",
+    "modelTier": "haiku",
+    "confidenceMin": 80,
+    "fields": {
+      "placa": "HBN732",
+      "modelo": 2022,
+      "impuesto": 1250000,
+      "totalPagar": 1495000
+    }
+  }
+}

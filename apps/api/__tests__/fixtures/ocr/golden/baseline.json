@@ -1,0 +1,13 @@
+{
+  "_comment": "Baseline del golden-set OCR de flota (impuesto vehicular Antioquia). Regenerar SOLO de forma intencional con UPDATE_OCR_GOLDEN=1 npm run test -w apps/api -- ocr.golden y revisar el diff. Ver docs/FLOTA-OCR-GOLDEN.md.",
+  "metric": "confidence_avg",
+  "gateDropPp": 5,
+  "aggregate": 91.8,
+  "perCase": {
+    "case-01-clean": 100,
+    "case-02-nombre-media": 93,
+    "case-03-doc-baja": 86,
+    "case-04-sello-impuesto-null": 80,
+    "case-05-two-pass-sonnet": 100
+  }
+}

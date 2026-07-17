@@ -1,0 +1,108 @@
+/* =============================================================
+   FLIT design tokens
+   Fuente: .claude/agents/flit-design-guardian/references/flit_design_tokens.json
+   (prototipo_flit_original.pdf)
+
+   Las variables `--flit-*` viven en :root (prefijo dedicado → CERO colisión
+   con los tokens Aura `--color-*`). Se consumen mediante dos scopes:
+     · `.flit-auth` — pantalla de login (Fase FLIT-LOGIN).
+     · `.flit-app`  — AppShell del sistema (Fase FLIT-FOUNDATION/SHELL).
+   El tema Aura del resto de la app NO se altera: la migración es gradual.
+   ============================================================= */
+
+:root {
+  /* Fondos */
+  --flit-bg-app: #EAF2FF;
+  --flit-bg-modal: #EEF5FF;
+  --flit-bg-card: #FFFFFF;
+  --flit-bg-table-header: #F4F6FA;
+
+  /* Marca */
+  --flit-cyan: #4FD4CC;
+  --flit-blue: #4F74C9;
+  --flit-blue-dark: #162744;
+  --flit-blue-text: #526FB8;
+  --flit-green: #70CF3A;
+
+  /* Texto */
+  --flit-text-primary: #162744;
+  --flit-text-secondary: #59677D;
+  --flit-text-muted: #7D8798;
+  --flit-text-inverse: #FFFFFF;
+  --flit-text-brand-title: #526FB8;
+
+  /* Bordes */
+  --flit-border-soft: #DDE5F0;
+  --flit-border-input: #D9DEE8;
+  --flit-border-focus: #4F74C9;
+
+  /* Estado */
+  --flit-success: #70CF3A;
+  --flit-info: #4F74C9;
+  --flit-warning: #F05A35;
+  --flit-danger: #E43D30;
+  --flit-draft: #59677D;
+  --flit-muted: #7D8798;
+
+  /* Gradientes */
+  --flit-gradient-primary: linear-gradient(90deg, #4FD4CC 0%, #4F74C9 100%);
+  --flit-gradient-success: linear-gradient(90deg, #4FD4CC 0%, #70CF3A 100%);
+  --flit-gradient-sidebar: linear-gradient(180deg, #4FD4CC 0%, #4F74C9 100%);
+  --flit-gradient-danger: linear-gradient(90deg, #F05A35 0%, #E43D30 100%);
+
+  /* Radios */
+  --flit-radius-sm: 8px;
+  --flit-radius-md: 12px;
+  --flit-radius-lg: 18px;
+  --flit-radius-xl: 24px;
+  --flit-radius-card: 18px;
+  --flit-radius-input: 10px;
+  --flit-radius-pill: 999px;
+  --flit-radius-sidebar: 56px;
+
+  /* Componentes */
+  --flit-input-height: 48px;
+  --flit-button-height: 56px;
+  --flit-topbar-height: 64px;
+  /* Altura por construcción del FlitNavBar (solo lg+): triggers h-9 (36px)
+     + my-1.5 arriba/abajo (6px + 6px) = 48px. Si la barra envuelve a 2 filas
+     en lg justos, la altura real será mayor — los offsets sticky que consumen
+     este token quedarían cortos; ver nota en FlitNavBar.tsx. */
+  --flit-navbar-height: 48px;
+
+  /* Sombras */
+  --flit-shadow-card: 0 8px 24px rgba(22, 39, 68, 0.08);
+  --flit-shadow-modal: 0 24px 60px rgba(22, 39, 68, 0.18);
+  --flit-shadow-button: 0 10px 22px rgba(79, 116, 201, 0.22);
+
+  /* Tipografía */
+  --flit-font: 'Inter Variable', Inter, Poppins, Montserrat, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Movimiento */
+  --flit-duration-fast: 120ms;
+  --flit-duration-base: 180ms;
+  --flit-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Scopes — solo aplican familia tipográfica + fondo base. */
+.flit-auth,
+.flit-app {
+  font-family: var(--flit-font);
+  background: var(--flit-bg-app);
+  color: var(--flit-text-primary);
+}
+
+/* Anillo de foco azul FLIT consistente (WCAG 2.2 — foco visible). */
+.flit-auth .flit-focus:focus-visible,
+.flit-app .flit-focus:focus-visible {
+  outline: none;
+  border-color: var(--flit-border-focus);
+  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.28);
+}
+
+/* Foco claro sobre superficies con gradiente (sidebar). */
+.flit-app .flit-focus-light:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.65);
+}

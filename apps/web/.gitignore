@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist.bak.*/
+.vite/
+.env.local
+.env.*.local
+
+# Playwright artifacts
+test-results/
+playwright-report/
+.last-run.json

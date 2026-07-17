@@ -1,0 +1,38 @@
+{
+  "id": "case-02-nombre-media",
+  "descripcion": "Nombre del propietario legible con esfuerzo (confianza media); resto alta. Una sola pasada.",
+  "responses": [
+    {
+      "tier": "haiku",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "TQF205", "confianza": "alta" },
+        "marca": { "valor": "RENAULT", "confianza": "alta" },
+        "linea": { "valor": "LOGAN", "confianza": "media" },
+        "modelo": { "valor": 2019, "confianza": "alta" },
+        "clase": { "valor": "AUTOMOVIL", "confianza": "alta" },
+        "propietarioNombre": { "valor": "ANDRES FELIPE LONDONO", "confianza": "media" },
+        "propietarioDocumento": { "valor": "1037654982", "confianza": "alta" },
+        "tipoDocumento": { "valor": "CC", "confianza": "alta" },
+        "celular": { "valor": null, "confianza": null },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 31000000, "confianza": "alta" },
+        "r2_impuesto": { "valor": 540000, "confianza": "alta" },
+        "r5_totalCargo": { "valor": 590000, "confianza": "alta" },
+        "r11_totalPagar": { "valor": 715000, "confianza": "alta" },
+        "formularioNo": { "valor": "7720519", "confianza": "media" }
+      }
+    }
+  ],
+  "expected": {
+    "documentType": "individual",
+    "modelTier": "haiku",
+    "confidenceMin": 88,
+    "fields": {
+      "placa": "TQF205",
+      "modelo": 2019,
+      "impuesto": 540000,
+      "totalPagar": 715000
+    }
+  }
+}

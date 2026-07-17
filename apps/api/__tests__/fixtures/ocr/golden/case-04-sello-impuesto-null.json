@@ -1,0 +1,39 @@
+{
+  "id": "case-04-sello-impuesto-null",
+  "descripcion": "Sello 'PROCESADO' tapa el renglón de impuesto y el total a cargo (valor=null). El total a pagar (sección F) sí es legible. Math se omite (skipped). No dispara segunda pasada.",
+  "responses": [
+    {
+      "tier": "haiku",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "PRC619", "confianza": "alta" },
+        "marca": { "valor": "KIA", "confianza": "alta" },
+        "linea": { "valor": "PICANTO", "confianza": "alta" },
+        "modelo": { "valor": 2018, "confianza": "alta" },
+        "clase": { "valor": "AUTOMOVIL", "confianza": "alta" },
+        "propietarioNombre": { "valor": "JORGE ENRIQUE VALENCIA", "confianza": "alta" },
+        "propietarioDocumento": { "valor": "16785432", "confianza": "alta" },
+        "tipoDocumento": { "valor": "CC", "confianza": "alta" },
+        "celular": { "valor": null, "confianza": null },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 22000000, "confianza": "media" },
+        "r2_impuesto": { "valor": null, "confianza": null },
+        "r5_totalCargo": { "valor": null, "confianza": null },
+        "r11_totalPagar": { "valor": 980000, "confianza": "alta" },
+        "formularioNo": { "valor": "6610238", "confianza": "alta" }
+      }
+    }
+  ],
+  "expected": {
+    "documentType": "individual",
+    "modelTier": "haiku",
+    "confidenceMin": 75,
+    "mathCheck": "skipped",
+    "fields": {
+      "placa": "PRC619",
+      "modelo": 2018,
+      "impuesto": null,
+      "totalPagar": 980000
+    }
+  }
+}

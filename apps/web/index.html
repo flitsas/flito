@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FLIT Operaciones</title>
+    <!-- FIONA PR1: preload del Inter Variable auto-hospedado (mismo origen) para
+         descubrir/priorizar el font del texto LCP sin esperar el parse del CSS.
+         crossorigin obligatorio: las fuentes se piden en modo CORS anónimo. -->
+    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      // Aura — anti-flash theme bootstrap. Debe ejecutarse ANTES del primer paint.
+      // Inline en <head> para que aplique data-theme antes del CSS y evite flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem('aura-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+          // Si stored === 'system' o no existe, no setear data-theme y dejar
+          // que `prefers-color-scheme` resuelva nativamente.
+        } catch (e) {
+          // localStorage bloqueado — fallback al esquema del SO via CSS.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "operaciones-system",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "build:api": "npm run build -w apps/api",
+    "build:web": "npm run build -w apps/web",
+    "build": "npm run build:api && npm run build:web",
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check:hooks": "node scripts/scan-rules-of-hooks.mjs",
+    "smoke:prod": "bash scripts/smoke-prod.sh",
+    "smoke:traspaso-gates": "bash scripts/smoke-traspaso-gates-prod.sh",
+    "synthetic:check": "bash scripts/synthetic-check.sh",
+    "synthetic:test-alert": "ssh -i ~/.ssh/<SSH_KEY> root@<PROD_HOST> '/var/www/operaciones/scripts/synthetic-check.sh --test-alert'",
+    "rollback:dist:dry-run": "ssh -i ~/.ssh/<SSH_KEY> root@<PROD_HOST> 'bash /var/www/operaciones/scripts/rollback-dist.sh --dry-run'",
+    "rollback:dist:verify": "ssh -i ~/.ssh/<SSH_KEY> root@<PROD_HOST> 'bash /var/www/operaciones/scripts/rollback-dist.sh --verify'",
+    "test:shared-types": "npm run test -w apps/api -- --run ../../packages/shared-types/__tests__",
+    "traspaso:reconcile-paso": "npm run traspaso:reconcile-paso -w apps/api",
+    "traspaso:reconcile-paso:prod": "bash scripts/reconcile-traspaso-paso-prod.sh",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:migrate": "npm run db:migrate -w apps/api"
+  }
+}

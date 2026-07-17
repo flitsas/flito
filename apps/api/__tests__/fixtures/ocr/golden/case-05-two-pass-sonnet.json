@@ -1,0 +1,59 @@
+{
+  "id": "case-05-two-pass-sonnet",
+  "descripcion": "Escaneo de baja calidad: la primera pasada (Haiku) reporta todo en confianza baja (global < 65) y dispara la segunda pasada (Sonnet), que recupera los campos en alta. El resultado final proviene de Sonnet.",
+  "responses": [
+    {
+      "tier": "haiku",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "ZUL884", "confianza": "baja" },
+        "marca": { "valor": "NISSAN", "confianza": "baja" },
+        "linea": { "valor": "VERSA", "confianza": "baja" },
+        "modelo": { "valor": 2020, "confianza": "baja" },
+        "clase": { "valor": "AUTOMOVIL", "confianza": "baja" },
+        "propietarioNombre": { "valor": "CAMILO ANDRES RIOS", "confianza": "baja" },
+        "propietarioDocumento": { "valor": "80234517", "confianza": "baja" },
+        "tipoDocumento": { "valor": "CC", "confianza": "baja" },
+        "celular": { "valor": null, "confianza": null },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 39000000, "confianza": "baja" },
+        "r2_impuesto": { "valor": 760000, "confianza": "baja" },
+        "r5_totalCargo": { "valor": 815000, "confianza": "baja" },
+        "r11_totalPagar": { "valor": 940000, "confianza": "baja" },
+        "formularioNo": { "valor": "5520913", "confianza": "baja" }
+      }
+    },
+    {
+      "tier": "sonnet",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "ZUL884", "confianza": "alta" },
+        "marca": { "valor": "NISSAN", "confianza": "alta" },
+        "linea": { "valor": "VERSA", "confianza": "alta" },
+        "modelo": { "valor": 2020, "confianza": "alta" },
+        "clase": { "valor": "AUTOMOVIL", "confianza": "alta" },
+        "propietarioNombre": { "valor": "CAMILO ANDRES RIOS", "confianza": "alta" },
+        "propietarioDocumento": { "valor": "80234517", "confianza": "alta" },
+        "tipoDocumento": { "valor": "CC", "confianza": "alta" },
+        "celular": { "valor": null, "confianza": null },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 39000000, "confianza": "alta" },
+        "r2_impuesto": { "valor": 760000, "confianza": "alta" },
+        "r5_totalCargo": { "valor": 815000, "confianza": "alta" },
+        "r11_totalPagar": { "valor": 940000, "confianza": "alta" },
+        "formularioNo": { "valor": "5520913", "confianza": "alta" }
+      }
+    }
+  ],
+  "expected": {
+    "documentType": "individual",
+    "modelTier": "sonnet",
+    "confidenceMin": 90,
+    "fields": {
+      "placa": "ZUL884",
+      "modelo": 2020,
+      "impuesto": 760000,
+      "totalPagar": 940000
+    }
+  }
+}

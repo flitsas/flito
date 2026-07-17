@@ -1,0 +1,29 @@
+name: Prod smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL base (default prod canónica)'
+        required: false
+        default: 'https://operaciones.flitsas.com'
+  schedule:
+    # Lunes 06:00 UTC ≈ 01:00 COT — señal semanal sin bloquear merges
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: prod-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke prod (HTTP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run smoke (sin SSH)
+        run: bash scripts/smoke-prod.sh
+        env:
+          BASE_URL: ${{ inputs.base_url }}

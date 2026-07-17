@@ -1,0 +1,38 @@
+{
+  "id": "case-01-clean",
+  "descripcion": "Formulario individual nítido — los 5 campos críticos en confianza alta. Una sola pasada (Haiku).",
+  "responses": [
+    {
+      "tier": "haiku",
+      "payload": {
+        "_documentType": "individual",
+        "placa": { "valor": "KXR418", "confianza": "alta" },
+        "marca": { "valor": "CHEVROLET", "confianza": "alta" },
+        "linea": { "valor": "ONIX", "confianza": "alta" },
+        "modelo": { "valor": 2021, "confianza": "alta" },
+        "clase": { "valor": "AUTOMOVIL", "confianza": "alta" },
+        "propietarioNombre": { "valor": "LAURA QUINTERO MEJIA", "confianza": "alta" },
+        "propietarioDocumento": { "valor": "79456123", "confianza": "alta" },
+        "tipoDocumento": { "valor": "CC", "confianza": "alta" },
+        "celular": { "valor": "3104567890", "confianza": "media" },
+        "email": { "valor": null, "confianza": null },
+        "r1_avaluoComercial": { "valor": 48000000, "confianza": "alta" },
+        "r2_impuesto": { "valor": 902000, "confianza": "alta" },
+        "r5_totalCargo": { "valor": 951000, "confianza": "alta" },
+        "r11_totalPagar": { "valor": 1182000, "confianza": "alta" },
+        "formularioNo": { "valor": "8841207", "confianza": "alta" }
+      }
+    }
+  ],
+  "expected": {
+    "documentType": "individual",
+    "modelTier": "haiku",
+    "confidenceMin": 90,
+    "fields": {
+      "placa": "KXR418",
+      "modelo": 2021,
+      "impuesto": 902000,
+      "totalPagar": 1182000
+    }
+  }
+}

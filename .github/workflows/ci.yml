@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancela runs viejos del mismo branch/PR cuando llega un push nuevo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts),
+    # por eso NO se necesitan servicios externos en CI.
+    env:
+      # @playwright/test está en devDeps de apps/web; CI no corre e2e, así que
+      # evitamos descargar navegadores en el npm ci.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: Build shared-types (tsc)
+        run: npm run build -w @operaciones/shared-types
+
+      - name: Test shared-types (vitest)
+        run: npm run test:shared-types
+
+      # OPS-13 — gate de Rules of Hooks: falla si un hook se llama tras un early
+      # return o dentro de un condicional (clase de bug de #147 = pantalla blanca).
+      # Sólo lee fuentes (sin build) → falla rápido. No reemplaza
+      # eslint-plugin-react-hooks (pendiente CI de tom, OPS-12).
+      - name: Rules of Hooks scan (web)
+        run: npm run check:hooks
+
+      # Typecheck = lint (no hay ESLint configurado). El build de API es `tsc`,
+      # el de web es `tsc --noEmit && vite build`.
+      - name: Build API (tsc)
+        run: npm run build:api
+
+      - name: Test API (vitest)
+        run: npm run test -w apps/api
+
+      - name: Build web (typecheck + vite)
+        run: npm run build:web
+
+      # FIONA F3 — gate de presupuesto de bundle: falla si el chunk `index`
+      # (entry de /login) supera su budget gzip. Atrapa regresiones de tamaño
+      # (imports estáticos pesados, pérdida de code-splitting).
+      - name: Bundle budget (web)
+        run: npm run check:bundle

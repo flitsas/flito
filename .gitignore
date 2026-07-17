@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secretos: nunca commitear .env, pero permitir .env.example como plantilla pública.
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+*.env
+!.env.example
+
+.DS_Store
+*.log
+uploads/
+service-account*.json
