@@ -4,8 +4,10 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() { return 'bytea'; },
 });
 import { sql } from 'drizzle-orm';
+// FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from '@operaciones/shared-types';
 
-export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor']);
+export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'operaciones', 'gestor_impuestos']);
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -59,6 +61,10 @@ export const users = pgTable('users', {
   esMecanico: boolean('es_mecanico').notNull().default(false),
   especialidades: text('especialidades').array().notNull().default(sql`'{}'::text[]`),
   esConductor: boolean('es_conductor').notNull().default(false),
+  // FLITO (migración): atadura de visibilidad del gestor SOAT (rol `proveedor`) a su
+  // proveedor SOAT — hace cumplir CA-09 en la consulta. El gestor de impuestos
+  // (rol `gestor_impuestos`) reutiliza `transito_codigo` como organismo (CA-10).
+  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   sessionInvalidatedAt: timestamp('session_invalidated_at', { withTimezone: true }),
 });
@@ -74,6 +80,16 @@ export const clients = pgTable('clients', {
   city: varchar('city', { length: 100 }),
   notes: text('notes'),
   active: boolean('active').notNull().default(true),
+  // FLITO (migración): parametrización por compañía. Si un módulo es autogestionable,
+  // los trámites de esta compañía no entran a ese módulo FLITO (RN-02 SOAT / RN-03 Imp).
+  soatAutogestionable: boolean('soat_autogestionable').notNull().default(false),
+  impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
+  logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
+  // Carpeta lógica en S3 donde se replican facturas/soportes (reinterpreta la
+  // "carpeta OneDrive por compañía" del diseño original; decisión D-3).
+  flitoCarpetaStorage: varchar('flito_carpeta_storage', { length: 300 }),
+  // Tolerancia (en pesos) entre valor liquidado y pagado antes de marcar para revisión.
+  flitoToleranciaValorImpuesto: numeric('flito_tolerancia_valor_impuesto', { precision: 14, scale: 2 }).notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentIdx: index('idx_clients_document').on(t.document),
@@ -259,6 +275,11 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // TRAM-MT-02 Fase 2b (mig 0089): logo subido a MinIO (prioridad sobre logo_url).
   logoStorageKey: varchar('logo_storage_key', { length: 500 }),
   activo: boolean('activo').notNull().default(true),
+  // FLITO (migración): umbral OCR y SLA sobrescribibles por organismo (§6.2 Impuestos).
+  // La MODALIDAD de gestión NO vive aquí: vive en flitoOrganismoVigencias (CA-04, sin
+  // sobrescritura destructiva). La ausencia de vigencia = SIN_CLASIFICAR (RN-01 Imp).
+  flitoUmbralOcr: numeric('flito_umbral_ocr', { precision: 4, scale: 3 }),
+  flitoSlaHoras: integer('flito_sla_horas'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2362,3 +2383,203 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
   anioIdx: index('idx_laft_audit_plan_anio').on(t.anio, t.tipo),
   estadoIdx: index('idx_laft_audit_plan_estado').on(t.estado),
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// FLITO — SOAT e Impuestos (migración packages/ → Operaciones)
+// Ver docs/MIGRACION_FLITO_A_OPERACIONES.md §5. Dominio anclado al VIN (SOAT) y al
+// trámite (Impuestos). Los estados y campos OCR viven en @operaciones/shared-types.
+// FK a entidades del grande son `integer` (clients/vehicles/users) o `varchar(5)`
+// (organismos_transito_config.codigo); las entidades internas FLITO usan `uuid`.
+// ════════════════════════════════════════════════════════════════════════════
+
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'en_adquisicion', 'pagado', 'rechazado']);
+export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica']);
+export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
+export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['sin_clasificar', 'requiere_gestion', 'autogestionado']);
+
+// Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo).
+export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 150 }).notNull().unique(),
+  estrategia: varchar('estrategia', { length: 40 }).notNull().default('portal'),
+  umbralOcr: numeric('umbral_ocr', { precision: 4, scale: 3 }),
+  slaHoras: integer('sla_horas'),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Modalidad de gestión del organismo con vigencia temporal (CA-04: nunca se
+// sobrescribe; la vigente es la única con hasta=NULL — índice parcial único abajo).
+export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  modalidad: flitoModalidadEnum('modalidad').notNull(),
+  desde: timestamp('desde', { withTimezone: true }).notNull(),
+  hasta: timestamp('hasta', { withTimezone: true }),
+  motivo: text('motivo').notNull(),
+  actorId: integer('actor_id').references(() => users.id),
+  actorNombre: varchar('actor_nombre', { length: 150 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_vig_organismo').on(t.organismoCodigo),
+  // CA-04: a lo sumo una vigencia vigente (hasta IS NULL) por organismo.
+  vigenteUnica: uniqueIndex('uq_flito_vig_vigente').on(t.organismoCodigo).where(sql`hasta IS NULL`),
+}));
+
+// SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
+export const flitoSoat = pgTable('flito_soat', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  vin: varchar('vin', { length: 17 }).notNull().unique(),
+  vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
+  estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
+  // Denormalizados y congelados: el SOAT vive más que sus trámites.
+  companiaId: integer('compania_id').notNull().references(() => clients.id),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
+  proveedorSobrescrito: boolean('proveedor_sobrescrito').notNull().default(false),
+  enviadoPorId: integer('enviado_por_id').references(() => users.id),
+  enviadoEn: timestamp('enviado_en', { withTimezone: true }),
+  pagadoEn: timestamp('pagado_en', { withTimezone: true }),
+  valorPagado: numeric('valor_pagado', { precision: 14, scale: 2 }),
+  motivoRechazo: text('motivo_rechazo'),
+  extraccion: jsonb('extraccion').$type<ExtraccionSoat>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  estadoIdx: index('idx_flito_soat_estado').on(t.estado),
+  proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
+}));
+
+// Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
+export const flitoTramites = pgTable('flito_tramites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
+  estado: flitoTramiteEstadoEnum('estado').notNull(),
+  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
+  companiaId: integer('compania_id').notNull().references(() => clients.id),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
+  // Muchos trámites → un SOAT (por VIN). Sostiene CA-03 (anular+recrear no re-adquiere).
+  soatId: uuid('soat_id').references(() => flitoSoat.id),
+  valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
+  processStatus: integer('process_status').notNull(),
+  plateComplete: varchar('plate_complete', { length: 20 }),
+  sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
+}));
+
+// Impuesto, uno por trámite (tramite_id UNIQUE).
+export const flitoImpuestos = pgTable('flito_impuestos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
+  estado: flitoImpuestoEstadoEnum('estado').notNull().default('sin_factura'),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  companiaId: integer('compania_id').notNull().references(() => clients.id),
+  // Snapshot de la modalidad al crear el registro (CA-04).
+  modalidadAplicada: flitoModalidadEnum('modalidad_aplicada').notNull(),
+  valorLiquidado: numeric('valor_liquidado', { precision: 14, scale: 2 }),
+  valorPagado: numeric('valor_pagado', { precision: 14, scale: 2 }),
+  marcadoPorDiferencia: boolean('marcado_por_diferencia').notNull().default(false),
+  // Factura de venta = precondición del envío. Referencia por id (sin FK dura: evita
+  // ciclo con flito_soportes, igual que en el modelo original).
+  facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
+  extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  enviadoPorId: integer('enviado_por_id').references(() => users.id),
+  enviadoEn: timestamp('enviado_en', { withTimezone: true }),
+  pagadoEn: timestamp('pagado_en', { withTimezone: true }),
+  motivoRechazo: text('motivo_rechazo'),
+  extraccion: jsonb('extraccion').$type<ExtraccionImpuesto>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
+  organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+}));
+
+// Comprador(es) del vehículo. Múltiple propietario → varias filas (orden 0 = principal).
+export const flitoCompradores = pgTable('flito_compradores', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  nombreCompleto: varchar('nombre_completo', { length: 200 }).notNull(),
+  numeroDocumento: varchar('numero_documento', { length: 30 }).notNull(),
+  correo: varchar('correo', { length: 150 }),
+  celular: varchar('celular', { length: 30 }),
+  direccion: varchar('direccion', { length: 300 }),
+  orden: integer('orden').notNull().default(0),
+  porcentajeParticipacion: numeric('porcentaje_participacion', { precision: 5, scale: 2 }),
+}, (t) => ({
+  tramiteIdx: index('idx_flito_compradores_tramite').on(t.tramiteId),
+}));
+
+// Soporte (archivo) en S3: storage_key sustituye a driveItemId+ruta (decisión D-3).
+export const flitoSoportes = pgTable('flito_soportes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tipo: varchar('tipo', { length: 40 }).notNull(),
+  nombreArchivo: varchar('nombre_archivo', { length: 300 }).notNull(),
+  contentType: varchar('content_type', { length: 100 }).notNull(),
+  storageKey: varchar('storage_key', { length: 500 }).notNull(),
+  hash: varchar('hash', { length: 64 }).notNull(),
+  tamanoBytes: bigint('tamano_bytes', { mode: 'number' }).notNull(),
+  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
+  impuestoId: uuid('impuesto_id').references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
+  subidoPorId: integer('subido_por_id').references(() => users.id),
+  subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
+  subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+}));
+
+// Cola de revisión OCR (CA-06/CA-07). Los gestores no la resuelven (RN-04/RN-05).
+export const flitoRevisiones = pgTable('flito_revisiones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  modulo: varchar('modulo', { length: 20 }).notNull(),
+  motivo: varchar('motivo', { length: 40 }).notNull(),
+  detalle: text('detalle').notNull(),
+  registroId: uuid('registro_id'),
+  soporteId: uuid('soporte_id').notNull().references(() => flitoSoportes.id, { onDelete: 'cascade' }),
+  placaSugerida: varchar('placa_sugerida', { length: 10 }),
+  extraccion: jsonb('extraccion').notNull(),
+  resuelto: boolean('resuelto').notNull().default(false),
+  resueltoPorId: integer('resuelto_por_id').references(() => users.id),
+  resueltoEn: timestamp('resuelto_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  resueltoIdx: index('idx_flito_revisiones_resuelto').on(t.resuelto),
+}));
+
+// Regla de enrutamiento a proveedor SOAT por ámbito (compañía 10 / organismo 20 / global 30).
+export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambito: varchar('ambito', { length: 20 }).notNull(),
+  companiaId: integer('compania_id').references(() => clients.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo, { onDelete: 'cascade' }),
+  proveedorSoatId: uuid('proveedor_soat_id').notNull().references(() => flitoProveedoresSoat.id, { onDelete: 'cascade' }),
+  prioridad: integer('prioridad').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Andamiaje del FLIT simulado (NO es dominio FLITO). Referencia compañía/organismo por
+// llaves EXTERNAS (nit, código), sin FK. Se retira cuando exista el adaptador FLIT real.
+export const flitoMockTramite = pgTable('flito_mock_tramite', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
+  processStatus: integer('process_status').notNull(),
+  plateComplete: varchar('plate_complete', { length: 20 }),
+  vin: varchar('vin', { length: 17 }).notNull(),
+  placa: varchar('placa', { length: 10 }).notNull(),
+  marca: varchar('marca', { length: 60 }).notNull(),
+  linea: varchar('linea', { length: 80 }).notNull(),
+  cilindraje: integer('cilindraje').notNull(),
+  capacidad: integer('capacidad').notNull(),
+  tipoVehiculo: varchar('tipo_vehiculo', { length: 40 }).notNull(),
+  companiaNit: varchar('compania_nit', { length: 20 }).notNull(),
+  organismoCodigo: varchar('organismo_codigo', { length: 10 }).notNull(),
+  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
+  compradores: jsonb('compradores').notNull(),
+  valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

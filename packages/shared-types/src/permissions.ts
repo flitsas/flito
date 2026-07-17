@@ -20,6 +20,11 @@ export const USER_ROLES = [
   'supervisor_flota',
   'conductor',
   'auditor',
+  // FLITO (migración packages/ → Operaciones): rol de operaciones del dominio FLITO
+  // (superusuario FUNCIONAL de SOAT/Impuestos, NO admin global) y gestor de impuestos
+  // (atado a un organismo). Gestor SOAT reutiliza `proveedor`; auditoría reutiliza `auditor`.
+  'operaciones',
+  'gestor_impuestos',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -38,6 +43,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   supervisor_flota: 'Supervisor de flota',
   conductor: 'Conductor',
   auditor: 'Auditor (revisor fiscal)',
+  operaciones: 'Operaciones (FLITO)',
+  gestor_impuestos: 'Gestor de Impuestos',
 };
 
 // ============================================================================
@@ -69,6 +76,16 @@ export const PAGES = {
   pesv_raci: 'PESV — Matriz RACI',
   pesv_normativa: 'PESV — Tracker normativo',
   pesv_retencion: 'PESV — Retención documental',
+  // FLITO (migración packages/ → Operaciones). El slug `soat` de arriba se REUTILIZA
+  // para el portal SOAT de FLITO (reemplaza el módulo SOAT legacy). El resto son nuevos.
+  flito_tramites: 'FLITO — Trámites',
+  flito_impuestos: 'FLITO — Impuestos',
+  flito_revisiones: 'FLITO — Revisión OCR',
+  flito_compuerta: 'FLITO — Compuerta de entrega',
+  flito_parametrizacion: 'FLITO — Parametrización',
+  flito_tablero: 'FLITO — Tablero',
+  flito_bitacora: 'FLITO — Bitácora',
+  flito_demo: 'FLITO — Demo',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -82,6 +99,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_demo'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -99,9 +117,16 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Conductor: ve solo su jornada propia + reporta incidentes desde móvil.
   conductor: ['dashboard', 'pesv'],
   transito: ['dashboard', 'transito'],
+  // Proveedor = Gestor SOAT de FLITO: ve su cola SOAT (filtrada por proveedor en el servidor).
   proveedor: ['dashboard', 'soat'],
-  // Auditor: read-only LAFT — auditoría interna o revisor fiscal externo.
-  auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'],
+  // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
+  // incluye en ningún requireRole de mutación FLITO — solo lectura.
+  auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
+    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora'],
+  // FLITO — Operaciones: superusuario FUNCIONAL del dominio FLITO (no admin global).
+  operaciones: ['dashboard', 'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_demo'],
+  // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
+  gestor_impuestos: ['dashboard', 'flito_impuestos'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

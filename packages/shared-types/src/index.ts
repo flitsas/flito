@@ -43,3 +43,11 @@ export * from './traspaso-permisos.js';
 
 export const SoatStatus = z.enum(['pendiente', 'enviado', 'comprado', 'verificado', 'rechazado']);
 export type SoatStatus = z.infer<typeof SoatStatus>;
+
+// ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
+// Dominio de estados SOAT/Impuestos, modalidad de organismo, soportes y reglas.
+export * from './flito-estados.js';
+// Campos OCR (SOAT / impuesto / factura de venta) con confianza por campo y motivos de revisión.
+export * from './flito-ocr.js';
+// Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
+export * from './flito-roles.js';
