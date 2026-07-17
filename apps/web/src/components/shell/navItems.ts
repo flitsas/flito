@@ -47,6 +47,8 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   { page: 'tax_reader',  to: '/tax-reader',                      section: 'gestion',       label: 'Lectura Impuestos',       keywords: 'impuesto vehicular caldas antioquia' },
   { page: 'flito_tablero',  to: '/flito/tablero',                section: 'flito',         label: 'Tablero FLITO',           keywords: 'flito operaciones indicadores retenidos estancados diferencias' },
+  { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'flito',         label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
+  { page: 'flito_compuerta', to: '/flito/compuerta',             section: 'flito',         label: 'Compuerta de entrega',    keywords: 'flito compuerta entregar habilitado asignado' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'flito',         label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'users',       to: '/transito/organismos',             section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion admin' },
