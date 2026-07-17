@@ -19,6 +19,7 @@ import {
 import {
   colaImpuestos, detalleImpuesto, enviarAlGestor, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
+import { cargarRecibos } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 
 const router = Router();
@@ -160,6 +161,21 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
     const imp = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `Reversa → ${parsed.data.estadoDestino}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, imp);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
+// gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
+// deduce de la carpeta.
+router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', 50), async (req: Request, res: Response) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
+  const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx);
+    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos: ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
+    res.json(resultado);
   } catch (e) { handleError(res, e); }
 });
 
