@@ -9,13 +9,13 @@ export interface NavItem {
   label: string;
   /** Si se define, el ítem solo se muestra a estos roles (además del permiso de página). */
   roles?: string[];
-  section: 'general' | 'gestion' | 'flito' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'admin';
+  section: 'general' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'admin';
   keywords?: string;  // términos de búsqueda alternativos para Command Palette
 }
 
 // Orden estable de secciones en la navegación (no depende del orden de NAV_ITEMS).
 export const SECTION_ORDER: NavItem['section'][] = [
-  'general', 'gestion', 'flito', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'admin',
+  'general', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'admin',
 ];
 
 /** Sección del ítem de nav que mejor coincide con la ruta actual (prefijo más largo). */
@@ -31,7 +31,6 @@ export function activeSectionForPath(pathname: string, items: NavItem[]): NavIte
 export const SECTION_LABEL: Record<NavItem['section'], string> = {
   general:       'General',
   gestion:       'Gestión',
-  flito:         'FLITO',
   transito:      'Tránsito',
   flota:         'Flota',
   mantenimiento: 'Mantenimiento',
@@ -47,15 +46,16 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'clients',     to: '/clients',                         section: 'gestion',       label: 'Clientes',                keywords: 'empresa nit razon social' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   // FLITO — vista unificada de despacho (SOAT + Impuestos + entrega en una sola pantalla) y sus
-  // herramientas. Reemplaza el SOAT y la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos
-  // solo se muestran a los gestores (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
-  { page: 'flito_tramites', to: '/flito/tramites',               section: 'flito',         label: 'Trámites',                keywords: 'flito tramites unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
-  { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'flito',         label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
-  { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'flito',        label: 'Parametrización',         keywords: 'flito parametrizacion companias proveedores organismos modalidad reglas umbral sla' },
-  { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'flito',         label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
-  { page: 'flito_demo',     to: '/flito/demo',                   section: 'flito',         label: 'Panel de demo',           keywords: 'flito demo simulado flit crear tramite anular recrear sincronizar' },
-  { page: 'soat',           to: '/flito/soat',                   section: 'flito',         label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
-  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'flito',         label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
+  // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
+  // la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos solo se muestran a los gestores
+  // (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
+  { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Trámites',                keywords: 'flito tramites unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
+  { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
+  { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
+  { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
+  { page: 'flito_demo',     to: '/flito/demo',                   section: 'gestion',       label: 'Panel de demo',           keywords: 'flito demo simulado flit crear tramite anular recrear sincronizar' },
+  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
+  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'users',       to: '/transito/organismos',             section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion admin' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },

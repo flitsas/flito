@@ -24,7 +24,6 @@ import {
 const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
   general: IconHome,
   gestion: IconClipboard,
-  flito: IconClipboard,
   transito: IconRoad,
   flota: IconTruck,
   mantenimiento: IconWrench,

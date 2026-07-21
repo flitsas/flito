@@ -117,22 +117,6 @@ export default function FlitNavBar() {
           const isRouteSection = routeSection === section;
           const isOpen = openSection === section;
 
-          // FLITO (§correcciones-UX): NO se encierra en un único desplegable. Cada ítem del dominio es
-          // un tab de primer nivel — la vista unificada de Trámites es el centro del flujo, no una
-          // entrada más escondida bajo "FLITO".
-          if (section === 'flito') {
-            return items.map((it) => (
-              <li key={it.to} className="flex">
-                <NavLink
-                  to={it.to}
-                  className="flit-focus-light my-1.5 flex h-9 items-center whitespace-nowrap rounded-lg px-3 text-sm font-medium text-white/90 transition-colors hover:bg-white/15 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
-                >
-                  {it.label}
-                </NavLink>
-              </li>
-            ));
-          }
-
           // Módulo de un solo ítem → link directo, sin dropdown.
           if (items.length === 1) {
             const it = items[0];
