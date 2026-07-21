@@ -28,7 +28,18 @@ const ORG_LIST = [
   },
 ];
 
+const FLITO_ORG = [
+  { codigo: '05001', nombre: 'STRIA TTEyTTO MEDELLIN', alias: null, activo: true,
+    modalidadVigente: 'requiere_gestion', umbralOcr: 0.8, slaHoras: 48, diferenciaValorActiva: false, tramitesRetenidos: 2 },
+];
+
 test.describe('Tránsito · Organismos STT (admin)', () => {
+  // El panel de autogestión FLITO consume /flito/parametrizacion/organismos; por defecto vacío
+  // para que los tests de la tabla superior no golpeen la red (se sobrescribe donde importa).
+  test.beforeEach(async ({ page }) => {
+    await page.route(/\/api\/flito\/parametrizacion\/organismos/, (route) => jsonRoute(200, [])(route));
+  });
+
   test('lista organismos y abre modal editar', async ({ page }) => {
     await page.route('**/api/transito/organismos-config', (route) => jsonRoute(200, ORG_LIST)(route));
 
@@ -104,5 +115,18 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
 
     await expect(page.locator('[role="status"]', { hasText: /plantilla guardada/i })).toBeVisible();
     expect(putChecklist?.hide).toEqual(expect.arrayContaining(['contrato_compraventa']));
+  });
+
+  test('muestra el panel de autogestión FLITO (modalidad) por secretaría', async ({ page }) => {
+    await page.route('**/api/transito/organismos-config', (route) => jsonRoute(200, ORG_LIST)(route));
+    await page.route(/\/api\/flito\/parametrizacion\/organismos(\?|$)/, (route) => jsonRoute(200, FLITO_ORG)(route));
+
+    await loginAs(page, ADMIN_USER);
+    await page.goto('/transito/organismos');
+
+    await expect(page.getByRole('heading', { name: /autogestión flito por secretaría/i })).toBeVisible();
+    // La fila del panel muestra la modalidad y el botón Gestionar (admin edita).
+    await expect(page.getByRole('cell', { name: /requiere gestión/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Gestionar' }).first()).toBeVisible();
   });
 });

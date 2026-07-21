@@ -10,6 +10,9 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { useAuth } from '../lib/auth';
+import { puedeOperar } from '../lib/permissions';
+import { FlitoOrganismosModalidadPanel } from '../components/flito/autogestionPanels';
 
 interface OrganismoConfig {
   codigo: string;
@@ -74,6 +77,7 @@ const inputCls =
   'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none';
 
 export default function TransitoOrganismos() {
+  const { user } = useAuth();
   const [rows, setRows] = useState<OrganismoConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -184,6 +188,16 @@ export default function TransitoOrganismos() {
           </table>
         </div>
       </div>
+
+      <section className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Autogestión FLITO por secretaría</h2>
+          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Modalidad de gestión (con vigencias), umbral OCR, SLA y diferencia de valor de impuestos por organismo.
+          </p>
+        </div>
+        <FlitoOrganismosModalidadPanel editable={puedeOperar(user?.role)} />
+      </section>
 
       {editing && (
         <EditModal

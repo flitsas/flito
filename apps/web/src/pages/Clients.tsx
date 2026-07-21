@@ -4,6 +4,9 @@ import toast from 'react-hot-toast';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import { flitInp, FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import { useAuth } from '../lib/auth';
+import { puedeOperar } from '../lib/permissions';
+import { FlitoCompaniasPanel } from '../components/flito/autogestionPanels';
 
 interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
@@ -12,6 +15,7 @@ interface Client {
 }
 
 export default function Clients() {
+  const { user } = useAuth();
   const [clients, setClients] = useState<Client[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
@@ -98,6 +102,18 @@ export default function Clients() {
           </FlitCard>
         ))}
       </div>
+
+      {puedeOperar(user?.role) && (
+        <section className="space-y-2">
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Autogestión FLITO por compañía</h2>
+            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              Interruptores de autogestión (SOAT · Impuestos · Logística), tolerancia de valor y carpeta de storage.
+            </p>
+          </div>
+          <FlitoCompaniasPanel editable={puedeOperar(user?.role)} />
+        </section>
+      )}
     </div>
   );
 }

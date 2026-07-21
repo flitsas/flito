@@ -57,7 +57,7 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
-  { page: 'users',       to: '/transito/organismos',             section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion admin' },
+  { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },
   { page: 'maintenance', to: '/maintenance',                     section: 'mantenimiento', label: 'Mantenimiento',           keywords: 'taller orden trabajo' },
   { page: 'maintenance', to: '/maintenance/work-orders',         section: 'mantenimiento', label: 'Órdenes de trabajo',      keywords: 'wo work order taller' },

@@ -161,7 +161,7 @@ function AppRoutes() {
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />
         <Route path="/transito/traspaso" element={<ProtectedRoute page="transito"><Lazy><TransitoTraspasoExpediente /></Lazy></ProtectedRoute>} />
-        <Route path="/transito/organismos" element={<ProtectedRoute page="users"><Lazy><TransitoOrganismos /></Lazy></ProtectedRoute>} />
+        <Route path="/transito/organismos" element={<ProtectedRoute page="transito_organismos"><Lazy><TransitoOrganismos /></Lazy></ProtectedRoute>} />
         <Route path="/drive" element={<ProtectedRoute page="drive"><Lazy><DriveViewer /></Lazy></ProtectedRoute>} />
         <Route path="/laft" element={<ProtectedRoute page="laft"><Lazy><Laft /></Lazy></ProtectedRoute>} />
         <Route path="/laft/unusual" element={<ProtectedRoute page="laft_unusual"><Lazy><LaftUnusual /></Lazy></ProtectedRoute>} />
