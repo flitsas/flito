@@ -53,6 +53,13 @@ test.describe('Tránsito · Bandeja branding (#128)', () => {
 });
 
 test.describe('Tránsito · Bandeja (flujo matrícula)', () => {
+  // TransitoBandeja pide /organismos-config/<codigo> para el header; sin mock, la API real de la demo
+  // responde 401 → SESSION_ENDED → logout → login (el flujo nunca arranca).
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/transito/organismos-config/05001', (route) =>
+      jsonRoute(200, { codigo: '05001', alias: 'STT Medellín', logoUrl: null })(route));
+  });
+
   test('happy path: tomar → asignar placa → confirmar → solicitud_soat', async ({ page }) => {
     const TID = 42;
     let pendientes = [tramiteBase(TID)];
