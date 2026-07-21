@@ -73,7 +73,9 @@ export default function FlitoTablero() {
     setSincronizando(true);
     setError(null);
     try {
-      const r = await api.post<ResumenSync>('/flito/sync/sincronizar');
+      // initialDate por defecto: últimos 30 días (para el selector de fecha, ir a Trámites).
+      const desde = new Date(); desde.setDate(desde.getDate() - 30);
+      const r = await api.post<ResumenSync>('/flito/sync/sincronizar', { initialDate: desde.toISOString().slice(0, 10) });
       setSync(r);
       cargar();
     } catch (e) { setError(errorMessage(e)); }

@@ -37,7 +37,15 @@ export interface FilaImpuesto {
   enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
 export interface TramiteFila {
-  tramiteId: string; idFlit: string; estado: string; companiaNombre: string; organismoNombre: string;
+  tramiteId: string; idFlit: string;
+  /** Estado crudo de FLIT (todos los estados se muestran). */
+  estado: string;
+  /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
+  asignado: boolean;
+  tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
+  companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
+  organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
+  facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
   compradorPrincipal: Comprador | null; compradores: Comprador[];
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null;
@@ -68,6 +76,15 @@ function proyeccion() {
     impuestoValorPagado: flitoImpuestos.valorPagado,
     impuestoMarcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia,
     impuestoExtraccion: flitoImpuestos.extraccion,
+    // Integración FLIT (Fase 8): estado crudo, datos del reporte y emparejamientos.
+    flitEstado: flitoTramites.flitEstado,
+    tipoTramite: flitoTramites.tipoTramite,
+    ciudad: flitoTramites.ciudad,
+    companiaId: flitoTramites.companiaId,
+    companiaNit: flitoTramites.companiaNit,
+    transitoNombreFlit: flitoTramites.transitoNombreFlit,
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    fechaAprobacion: flitoTramites.fechaAprobacion,
     // Extras de presentación.
     sincronizadoEn: flitoTramites.sincronizadoEn,
     organismoAlias: organismosTransitoConfig.alias,
@@ -83,15 +100,16 @@ function proyeccion() {
     soatEnviadoEn: flitoSoat.enviadoEn,
     soatMotivoRechazo: flitoSoat.motivoRechazo,
     impuestoId: flitoImpuestos.id,
-    impuestoFacturaVentaSoporteId: flitoImpuestos.facturaVentaSoporteId,
     impuestoExtraccionFacturaVenta: flitoImpuestos.extraccionFacturaVenta,
     impuestoValorLiquidado: flitoImpuestos.valorLiquidado,
     impuestoEnviadoEn: flitoImpuestos.enviadoEn,
     impuestoMotivoRechazo: flitoImpuestos.motivoRechazo,
   }).from(flitoTramites)
-    .innerJoin(clients, eq(flitoTramites.companiaId, clients.id))
+    // leftJoin (no inner): compañía y secretaría pueden faltar (empresa inexistente / sin emparejar);
+    // el trámite se muestra igual, con su indicador. El vehículo siempre existe (se upserta por VIN).
+    .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id));
@@ -115,15 +133,26 @@ function coincidenciaDe(extraccion: unknown): number | null {
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
 function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
-  const veredicto = decidir(f);
+  // decidir() (compuerta) exige autogestión booleana; sin compañía emparejada, se asume false.
+  const veredicto = decidir({ ...f, soatAutogestionable: f.soatAutogestionable ?? false, impuestosAutogestionable: f.impuestosAutogestionable ?? false, companiaNombre: f.companiaNombre ?? '' });
   const orden = [...compradores].sort((a, b) => a.orden - b.orden);
   const principal = orden[0] ?? null;
+  const asignado = (f.flitEstado ?? '').trim().toLowerCase() === 'asignado';
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
-    estado: f.estadoTramite ?? '',
+    estado: f.flitEstado ?? f.estadoTramite ?? '—',
+    asignado,
+    tipoTramite: f.tipoTramite,
+    ciudad: f.ciudad,
+    fechaAprobacion: f.fechaAprobacion ? f.fechaAprobacion.toISOString() : null,
     companiaNombre: f.companiaNombre,
-    organismoNombre: f.organismoAlias ?? f.organismoCodigo ?? '—',
+    empresaExiste: f.companiaId !== null,
+    empresaNit: f.companiaNit,
+    organismoNombre: f.organismoAlias ?? f.transitoNombreFlit,
+    secretariaEmparejada: f.organismoCodigo !== null,
+    transitoNombre: f.transitoNombreFlit,
+    facturaVentaFlitId: f.facturaVentaFlitId,
     vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo },
     compradorPrincipal: principal,
     compradores: orden,
@@ -132,9 +161,9 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
       valorPagado: num(f.soatValorPagado), enviadoEn: f.soatEnviadoEn ? f.soatEnviadoEn.toISOString() : null,
       estancado: estancadoSoat(f.soatEstado, f.soatEnviadoEn, f.soatSlaHoras), motivoRechazo: f.soatMotivoRechazo,
     } : null,
-    soatAutogestionado: f.soatAutogestionable,
+    soatAutogestionado: f.soatAutogestionable ?? false,
     impuesto: f.impuestoId ? {
-      id: f.impuestoId, estado: f.impuestoEstado!, tieneFacturaVenta: f.impuestoFacturaVentaSoporteId !== null,
+      id: f.impuestoId, estado: f.impuestoEstado!, tieneFacturaVenta: f.facturaVentaFlitId !== null,
       coincidenciaFacturaVenta: coincidenciaDe(f.impuestoExtraccionFacturaVenta),
       valorLiquidado: num(f.impuestoValorLiquidado), valorPagado: num(f.impuestoValorPagado),
       marcadoPorDiferencia: f.impuestoMarcadoPorDiferencia ?? false,

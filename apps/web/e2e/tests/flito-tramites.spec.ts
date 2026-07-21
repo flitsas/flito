@@ -12,7 +12,9 @@ const PROVEEDORES = [
 
 const TRAMITES = [
   {
-    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'asignado',
+    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
+    tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
+    transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
     companiaNombre: 'Concesionario Norte', organismoNombre: 'STT Manizales',
     vehiculo: { vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' },
     compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' },
@@ -23,7 +25,9 @@ const TRAMITES = [
     listoParaEntregar: false,
   },
   {
-    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'asignado',
+    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'Asignado', asignado: true,
+    tipoTramite: 'Traspaso', ciudad: 'Pereira', empresaExiste: true, empresaNit: '900222', secretariaEmparejada: true,
+    transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
     companiaNombre: 'Concesionario Sur', organismoNombre: 'STT Pereira',
     vehiculo: { vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid' },
     compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' },
@@ -78,7 +82,7 @@ test.describe('FLITO — Trámites unificado', () => {
     // El botón queda deshabilitado hasta elegir aseguradora.
     const confirmar = page.getByRole('button', { name: 'Solicitar SOAT', exact: true }).last();
     await expect(confirmar).toBeDisabled();
-    await page.getByRole('combobox').selectOption(PROVEEDORES[0].id);
+    await page.getByRole('combobox').last().selectOption(PROVEEDORES[0].id);
     await confirmar.click();
 
     await expect.poll(() => solicitudSoat).not.toBeNull();
@@ -96,7 +100,7 @@ test.describe('FLITO — Trámites unificado', () => {
       }) }));
 
     await page.goto('/flito/tramites');
-    await page.getByLabel('Seleccionar todos').check();
+    await page.getByLabel('Seleccionar accionables').check();
     await page.getByRole('button', { name: 'Entregar', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Resultado de la entrega/i })).toBeVisible();
     await expect(page.getByText(/1 trámite\(s\) entregado/i)).toBeVisible();
@@ -109,7 +113,7 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await page.goto('/flito/tramites');
     await expect(page.getByText('FLIT-1001')).toBeVisible();
-    await expect(page.getByLabel('Seleccionar todos')).toHaveCount(0);
+    await expect(page.getByLabel('Seleccionar accionables')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toHaveCount(0);
   });
 });
