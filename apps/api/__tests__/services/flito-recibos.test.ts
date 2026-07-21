@@ -29,7 +29,7 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 const uploadMock = vi.fn().mockResolvedValue('flito/impuestos/recibos/k.pdf');
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
-const { evaluarReciboImpuesto } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+const { evaluarReciboImpuesto, evaluarDiferencia } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
 
 beforeEach(() => { selectMock.mockReset(); insertMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); extraerMock.mockReset(); uploadMock.mockClear(); });
 
@@ -55,6 +55,26 @@ describe('evaluarReciboImpuesto — solo placa (llave) + valorTotal bloquean', (
   it('placa ausente → CONFIANZA_INSUFICIENTE', () => {
     const e = { [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95) };
     expect(evaluarReciboImpuesto(e, 0.85).aprobada).toBe(false);
+  });
+});
+
+// ─────────────────────── evaluarDiferencia (D-5, Fase 7) ─────────────────────
+
+describe('evaluarDiferencia — marca de diferencia de valor por organismo (D-5)', () => {
+  it('organismo con flag apagado → nunca marca, aunque haya diferencia', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: false, valorLiquidado: '100000', tolerancia: '0' }, '999999')).toBe(false);
+  });
+  it('flag encendido + diferencia sobre tolerancia → marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '1000' }, '105000')).toBe(true);
+  });
+  it('flag encendido pero diferencia dentro de la tolerancia → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '5000' }, '104000')).toBe(false);
+  });
+  it('flag encendido pero sin valorLiquidado fiable → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: null, tolerancia: '0' }, '104000')).toBe(false);
+  });
+  it('flag encendido pero sin valorPagado → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '0' }, null)).toBe(false);
   });
 });
 

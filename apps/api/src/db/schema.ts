@@ -280,6 +280,10 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // sobrescritura destructiva). La ausencia de vigencia = SIN_CLASIFICAR (RN-01 Imp).
   flitoUmbralOcr: numeric('flito_umbral_ocr', { precision: 4, scale: 3 }),
   flitoSlaHoras: integer('flito_sla_horas'),
+  // FLITO Fase 7 (D-5 / CA-09): activa la marca de diferencia de valor de impuestos en la
+  // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
+  // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
+  flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
