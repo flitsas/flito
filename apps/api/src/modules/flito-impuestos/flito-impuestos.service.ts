@@ -35,7 +35,7 @@ const SELECT_COLA = {
   id: flitoImpuestos.id, tramiteId: flitoImpuestos.tramiteId, idFlit: flitoTramites.idFlit,
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
-  marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaSoporteId: flitoImpuestos.facturaVentaSoporteId,
+  marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
   enviadoEn: flitoImpuestos.enviadoEn, motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
   organismoNombre: organismosTransitoConfig.alias, organismoSla: organismosTransitoConfig.flitoSlaHoras,
@@ -101,7 +101,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       companiaNombre: r.companiaNombre, organismoCodigo: r.organismoCodigo, organismoNombre: r.organismoNombre,
       valorLiquidado: r.valorLiquidado === null ? null : Number(r.valorLiquidado),
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
-      marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaSoporteId !== null,
+      marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       estancado: estaEstancado(r.estado, r.enviadoEn, r.organismoSla),
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
@@ -129,6 +129,18 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
   }
   return row.imp;
+}
+
+/**
+ * Id de la factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
+ * Devuelve null si el impuesto no es accesible o su trámite aún no trae factura. Integración FLIT.
+ */
+export async function facturaVentaFlitIdConAcceso(id: string, ctx: ImpuestoCtx): Promise<string | null> {
+  const imp = await buscarConAcceso(id, ctx);
+  if (!imp) return null;
+  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId })
+    .from(flitoTramites).where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
+  return t?.facturaVentaFlitId ?? null;
 }
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {
