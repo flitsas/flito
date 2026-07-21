@@ -121,9 +121,9 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
-    estado: f.estadoTramite,
+    estado: f.estadoTramite ?? '',
     companiaNombre: f.companiaNombre,
-    organismoNombre: f.organismoAlias ?? f.organismoCodigo,
+    organismoNombre: f.organismoAlias ?? f.organismoCodigo ?? '—',
     vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo },
     compradorPrincipal: principal,
     compradores: orden,

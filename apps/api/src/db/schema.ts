@@ -2458,21 +2458,53 @@ export const flitoSoat = pgTable('flito_soat', {
 export const flitoTramites = pgTable('flito_tramites', {
   id: uuid('id').primaryKey().defaultRandom(),
   idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
-  estado: flitoTramiteEstadoEnum('estado').notNull(),
-  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
-  companiaId: integer('compania_id').notNull().references(() => clients.id),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  // Estado FLITO-interno (ciclo de entrega). La VERDAD del estado FLIT vive en flitEstado (texto).
+  estado: flitoTramiteEstadoEnum('estado'),
+  // Estado crudo tal como lo reporta FLIT (Borrador, Asignado, Aprobado, …). Fuente de verdad para
+  // gating (solo 'Asignado' habilita SOAT/impuestos) y visualización. Integración FLIT (Fase 8).
+  flitEstado: varchar('flit_estado', { length: 60 }),
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  ciudad: varchar('ciudad', { length: 120 }),
+  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }),
+  companiaId: integer('compania_id').references(() => clients.id),
+  // NIT crudo de la compañía gestora (CompaniaGestora). Si companiaId es null, la empresa aún no existe.
+  companiaNit: varchar('compania_nit', { length: 30 }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  // Nombre crudo de la secretaría en FLIT. Si organismoCodigo es null, no cruzó por nombre.
+  transitoNombreFlit: varchar('transito_nombre_flit', { length: 200 }),
   vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
   // Muchos trámites → un SOAT (por VIN). Sostiene CA-03 (anular+recrear no re-adquiere).
   soatId: uuid('soat_id').references(() => flitoSoat.id),
   valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
-  processStatus: integer('process_status').notNull(),
+  // Id S3 de la factura de venta en FLIT (campo `factura`). Vacío = aún sin factura → no se solicita impuesto.
+  facturaVentaFlitId: varchar('factura_venta_flit_id', { length: 120 }),
+  fechaAprobacion: timestamp('fecha_aprobacion', { withTimezone: true }),
+  // Payload completo de FLIT para trazabilidad/depuración.
+  flitRaw: jsonb('flit_raw'),
+  processStatus: integer('process_status'),
   plateComplete: varchar('plate_complete', { length: 20 }),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
+  flitEstadoIdx: index('idx_flito_tramites_flit_estado').on(t.flitEstado),
+  companiaNitIdx: index('idx_flito_tramites_compania_nit').on(t.companiaNit),
+}));
+
+// Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
+// diferencia detectada al sincronizar (origen 'api') o por acción del usuario deja una fila.
+export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  campo: varchar('campo', { length: 60 }).notNull(),
+  valorAnterior: text('valor_anterior'),
+  valorNuevo: text('valor_nuevo'),
+  origen: varchar('origen', { length: 10 }).notNull(),
+  usuarioId: integer('usuario_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteIdx: index('idx_flito_tramite_historial_tramite').on(t.tramiteId, t.createdAt),
 }));
 
 // Impuesto, uno por trámite (tramite_id UNIQUE).
