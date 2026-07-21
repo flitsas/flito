@@ -94,6 +94,8 @@ export default function FlitoTramites() {
 
   // Historial del trámite (modal).
   const [historial, setHistorial] = useState<{ idFlit: string; items: HistorialItem[] } | null>(null);
+  // Crear empresa (cliente) desde un trámite con empresa inexistente (NIT precargado).
+  const [crearEmpresa, setCrearEmpresa] = useState<TramiteFila | null>(null);
 
   // Filtros de columna (cliente): además del buscar global (placa/VIN/id/comprador).
   const [fEstado, setFEstado] = useState('');
@@ -306,6 +308,10 @@ export default function FlitoTramites() {
                     {f.organismoNombre ?? '—'}
                     <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{f.companiaNombre ?? (f.empresaNit ? `NIT ${f.empresaNit}` : '—')}</div>
                     <CeldaIndicadores fila={f} />
+                    {esOperaciones && !f.empresaExiste && f.empresaNit && (
+                      <button className="mt-1 text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+                        onClick={() => setCrearEmpresa(f)}>Crear empresa</button>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-xs">{f.ciudad ?? '—'}</td>
                   <td className="px-3 py-2"><CeldaSoat fila={f} /></td>
@@ -343,6 +349,12 @@ export default function FlitoTramites() {
 
       {resultado && <ModalResultado resultado={resultado} onCerrar={() => setResultado(null)} />}
       {historial && <ModalHistorial idFlit={historial.idFlit} items={historial.items} onCerrar={() => setHistorial(null)} />}
+
+      {crearEmpresa && (
+        <ModalCrearEmpresa fila={crearEmpresa}
+          onCerrar={() => setCrearEmpresa(null)}
+          onCreado={() => { setCrearEmpresa(null); setRecarga((n) => n + 1); }} />
+      )}
     </div>
   );
 }
@@ -375,6 +387,44 @@ function ModalHistorial({ idFlit, items, onCerrar }: { idFlit: string; items: Hi
         </div>
       )}
       <button className={`${flitBtnPrimary} mt-3`} style={flitBtnPrimaryStyle} onClick={onCerrar}>Cerrar</button>
+    </FlitModal>
+  );
+}
+
+// Crear la empresa (cliente) de un trámite cuya compañía FLIT no existe. El NIT viene precargado del
+// trámite; al crearla el backend re-vincula los trámites de ese NIT (los deja accionables sin re-sync).
+function ModalCrearEmpresa({ fila, onCerrar, onCreado }: { fila: TramiteFila; onCerrar: () => void; onCreado: () => void }) {
+  const [nombre, setNombre] = useState(fila.companiaNombre ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const crear = async () => {
+    setGuardando(true); setError(null);
+    try {
+      const r = await api.post<{ revinculados: number; yaExistia: boolean }>('/flito/tramites/crear-empresa', { nombre, nit: fila.empresaNit });
+      void r;
+      onCreado();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <FlitModal title="Crear empresa" onClose={onCerrar}>
+      <div className="space-y-3">
+        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          Trámite <span className="font-semibold">{fila.idFlit}</span> · la compañía de FLIT aún no existe. Al crearla se
+          vinculan automáticamente los trámites con este NIT.
+        </p>
+        <FlitField label="NIT"><input className={flitInp} value={fila.empresaNit ?? ''} readOnly /></FlitField>
+        <FlitField label="Nombre o razón social *">
+          <input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Razón social de la empresa" autoFocus />
+        </FlitField>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex gap-2">
+          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={guardando || !nombre.trim()} onClick={crear}>{guardando ? 'Creando…' : 'Crear empresa'}</button>
+          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cancelar</button>
+        </div>
+      </div>
     </FlitModal>
   );
 }

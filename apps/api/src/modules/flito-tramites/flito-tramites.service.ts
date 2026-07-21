@@ -71,6 +71,39 @@ export async function historial(tramiteId: string): Promise<HistorialItem[]> {
   return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
 }
 
+export interface ResultadoCrearEmpresa { companiaId: number; yaExistia: boolean; revinculados: number }
+
+/**
+ * Crea la empresa (cliente) de un trámite cuya compañía FLIT no existía aún y la re-vincula: fija
+ * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, dejándolos accionables sin
+ * esperar a un nuevo sync. El cambio queda en el historial con origen 'usuario'. Idempotente: si ya
+ * existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
+ */
+export async function crearEmpresaDesdeTramite(nombre: string, nit: string, ctx: TramitesCtx): Promise<ResultadoCrearEmpresa> {
+  const doc = nit.trim();
+  const [existente] = await db.select({ id: clients.id }).from(clients).where(eq(clients.document, doc)).limit(1);
+  let companiaId: number;
+  let yaExistia = false;
+  if (existente) { companiaId = existente.id; yaExistia = true; }
+  else {
+    const [creada] = await db.insert(clients)
+      .values({ name: nombre.trim(), document: doc, documentType: 'NIT' })
+      .returning({ id: clients.id });
+    companiaId = creada.id;
+  }
+  const pendientes = await db.select({ id: flitoTramites.id }).from(flitoTramites)
+    .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`));
+  if (pendientes.length > 0) {
+    const ids = pendientes.map((t) => t.id);
+    await db.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
+    await db.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
+      tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
+      origen: 'usuario', usuarioId: ctx.userId,
+    })));
+  }
+  return { companiaId, yaExistia, revinculados: pendientes.length };
+}
+
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }
 export interface ResultadoSolicitudSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
 export interface ResultadoSolicitudImpuestos { enviados: number; yaEnviados: number; requierenFactura: TramiteReferencia[]; noAplica: number; retenidos: TramiteReferencia[] }
