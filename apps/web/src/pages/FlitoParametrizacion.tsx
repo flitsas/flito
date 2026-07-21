@@ -3,6 +3,7 @@
 // (modalidad con vigencias, no sobrescritura destructiva — CA-04) y reglas de proveedor por ámbito.
 // Toda escritura es de Operaciones; Auditoría entra en solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
   AmbitoReglaProveedor, MODALIDAD_ORGANISMO_LABEL, ModalidadOrganismo,
@@ -41,7 +42,7 @@ const MODALIDAD_TONO: Record<ModalidadOrganismo, ChipTone> = {
 
 export default function FlitoParametrizacion() {
   const { user } = useAuth();
-  const editable = user?.role === 'operaciones';
+  const editable = puedeOperar(user?.role);
   const [tab, setTab] = useState<Tab>('companias');
 
   return (

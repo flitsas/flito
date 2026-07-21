@@ -25,9 +25,9 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('operaciones');
-const LECTURA = requireRole('operaciones', 'gestor_impuestos', 'auditor');
-const OPS_O_GESTOR = requireRole('operaciones', 'gestor_impuestos');
+const OPERACIONES = requireRole('admin', 'operaciones');
+const LECTURA = requireRole('admin', 'operaciones', 'gestor_impuestos', 'auditor');
+const OPS_O_GESTOR = requireRole('admin', 'operaciones', 'gestor_impuestos');
 const ESTADOS = ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];

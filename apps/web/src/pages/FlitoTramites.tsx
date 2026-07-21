@@ -3,6 +3,7 @@
 // Es la vista de quien despacha (Operaciones); Auditoría entra en solo lectura. Los gestores NO entran:
 // cada uno sigue en su propia cola. Las reglas viven en el backend; aquí solo se orquesta y reporta.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -18,14 +19,22 @@ import {
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 
-interface FilaSoat { id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null }
-interface FilaImpuesto { id: string; estado: EstadoImpuesto; tieneFacturaVenta: boolean; valorPagado: number | null }
+interface FilaSoat {
+  id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
+  enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+}
+interface FilaImpuesto {
+  id: string; estado: EstadoImpuesto; tieneFacturaVenta: boolean; coincidenciaFacturaVenta: number | null;
+  valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
+  enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+}
 interface TramiteFila {
   tramiteId: string; idFlit: string; estado: string; companiaNombre: string; organismoNombre: string;
-  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null };
+  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
   compradorPrincipal: { nombreCompleto: string; numeroDocumento: string } | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null;
-  listoParaEntregar: boolean;
+  soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
+  valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
 
@@ -45,6 +54,7 @@ const TONO_IMP: Record<EstadoImpuesto, ChipTone> = {
 };
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
+const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
 
 function useDebounce<T>(valor: T, ms: number): T {
   const [dif, setDif] = useState(valor);
@@ -54,7 +64,7 @@ function useDebounce<T>(valor: T, ms: number): T {
 
 export default function FlitoTramites() {
   const { user } = useAuth();
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
 
   const [texto, setTexto] = useState('');
   const buscar = useDebounce(texto, 300);
@@ -103,6 +113,15 @@ export default function FlitoTramites() {
 
   const solicitarImpuestos = () => ejecutar(async () => ({ tipo: 'impuestos', impuestos: await api.post<ResImpuestos>('/flito/tramites/solicitar-impuestos', { tramiteIds: ids() }) }));
   const entregar = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'entrega', entrega: await api.post<ResEntrega>('/flito/tramites/entregar', { tramiteIds }) }));
+
+  // §correcciones-UX punto 2: la factura de venta (precondición del envío de impuestos) se carga DESDE
+  // esta misma vista, por fila, sin ir a otra pantalla.
+  const cargarFacturaVenta = async (impuestoId: string, file: File) => {
+    setEnProceso(true); setError(null);
+    try { await api.upload(`/flito/impuestos/${impuestoId}/factura-venta`, file, 'archivo'); refrescar(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setEnProceso(false); }
+  };
 
   return (
     <div className="space-y-4">
@@ -158,7 +177,8 @@ export default function FlitoTramites() {
                   </FlitTh>
                 )}
                 <FlitTh>Trámite</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Comprador</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>SOAT</FlitTh><FlitTh>Impuestos</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Organismo / Compañía</FlitTh><FlitTh>SOAT</FlitTh><FlitTh>Factura venta</FlitTh>
+                <FlitTh>Impuestos</FlitTh><FlitTh>Sincronizado</FlitTh><FlitTh>Estado</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -174,7 +194,7 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</td>
                   <td className="px-3 py-2">
                     <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>
-                    <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.marca} {f.vehiculo.linea}</div>
+                    <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.marca} {f.vehiculo.linea}{f.vehiculo.tipoVehiculo ? ` · ${f.vehiculo.tipoVehiculo}` : ''}</div>
                     <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.vin}</div>
                   </td>
                   <td className="px-3 py-2 text-sm">
@@ -188,7 +208,9 @@ export default function FlitoTramites() {
                   </td>
                   <td className="px-3 py-2 text-sm">{f.organismoNombre}<div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{f.companiaNombre}</div></td>
                   <td className="px-3 py-2"><CeldaSoat fila={f} /></td>
+                  <td className="px-3 py-2"><CeldaFacturaVenta fila={f} esOperaciones={esOperaciones} enProceso={enProceso} onCargar={cargarFacturaVenta} /></td>
                   <td className="px-3 py-2"><CeldaImpuesto fila={f} /></td>
+                  <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{fecha(f.sincronizadoEn)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone="neutral">{f.estado}</StatusChip>
@@ -238,26 +260,62 @@ function GrupoFiltro<T extends string>({ titulo, estados, etiqueta, seleccion, o
 function CeldaSoat({ fila }: { fila: TramiteFila }) {
   if (fila.soatAutogestionado) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Autogestionado</span>;
   if (!fila.soat) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin registro</span>;
-  const v = pesos(fila.soat.valorPagado);
+  const s = fila.soat;
+  const v = pesos(s.valorPagado);
   return (
-    <Link to="/flito/soat" className="block space-y-0.5">
-      <StatusChip tone={TONO_SOAT[fila.soat.estado]}>{ESTADO_SOAT_LABEL[fila.soat.estado]}</StatusChip>
-      {fila.soat.proveedorSoatNombre && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{fila.soat.proveedorSoatNombre}</p>}
+    <div className="space-y-0.5">
+      <StatusChip tone={TONO_SOAT[s.estado]}>{ESTADO_SOAT_LABEL[s.estado]}</StatusChip>
+      {s.estancado && <div><StatusChip tone="danger">SLA vencido</StatusChip></div>}
+      {s.proveedorSoatNombre && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{s.proveedorSoatNombre}</p>}
+      {s.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(s.enviadoEn)}</p>}
       {v && <p className="text-xs font-semibold tabular-nums">{v}</p>}
-    </Link>
+      {s.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={s.motivoRechazo}>{s.motivoRechazo.slice(0, 40)}</p>}
+    </div>
+  );
+}
+
+function CeldaFacturaVenta({ fila, esOperaciones, enProceso, onCargar }: {
+  fila: TramiteFila; esOperaciones: boolean; enProceso: boolean; onCargar: (impuestoId: string, file: File) => void;
+}) {
+  if (!fila.impuesto) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>;
+  const imp = fila.impuesto;
+  const coincidencia = imp.coincidenciaFacturaVenta != null ? Math.round(imp.coincidenciaFacturaVenta * 100) : null;
+  if (imp.tieneFacturaVenta) {
+    return (
+      <div className="space-y-0.5">
+        <StatusChip tone="success">Cargada</StatusChip>
+        {coincidencia != null && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Coincidencia {coincidencia}%</p>}
+      </div>
+    );
+  }
+  // Precondición pendiente: solo relevante mientras el impuesto espera factura (sin_factura).
+  const necesita = imp.estado === EstadoImpuesto.SIN_FACTURA;
+  if (!necesita) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>;
+  if (!esOperaciones) return <span className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>Falta</span>;
+  return (
+    <label className={`inline-flex cursor-pointer items-center rounded-[999px] border px-3 py-1 text-xs font-medium ${enProceso ? 'opacity-50' : ''}`}
+      style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' }}>
+      Cargar factura
+      <input type="file" accept="application/pdf,image/*" className="hidden" disabled={enProceso}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onCargar(imp.id, f); e.target.value = ''; }} />
+    </label>
   );
 }
 
 function CeldaImpuesto({ fila }: { fila: TramiteFila }) {
   if (!fila.impuesto) return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin registro</span>;
-  const necesitaFactura = fila.impuesto.estado === EstadoImpuesto.SIN_FACTURA && !fila.impuesto.tieneFacturaVenta;
-  const v = pesos(fila.impuesto.valorPagado);
+  const imp = fila.impuesto;
+  const liq = pesos(imp.valorLiquidado);
+  const pag = pesos(imp.valorPagado);
   return (
-    <Link to="/flito/impuestos" className="block space-y-0.5">
-      <StatusChip tone={TONO_IMP[fila.impuesto.estado]}>{ESTADO_IMPUESTO_LABEL[fila.impuesto.estado]}</StatusChip>
-      {necesitaFactura && <p className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>Falta factura de venta</p>}
-      {v && <p className="text-xs font-semibold tabular-nums">{v}</p>}
-    </Link>
+    <div className="space-y-0.5">
+      <StatusChip tone={TONO_IMP[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
+      {imp.estancado && <div><StatusChip tone="danger">SLA vencido</StatusChip></div>}
+      {imp.marcadoPorDiferencia && <div><StatusChip tone="warning">Diferencia de valor</StatusChip></div>}
+      {liq && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Liquidado {liq}</p>}
+      {pag && <p className="text-xs font-semibold tabular-nums">{pag}</p>}
+      {imp.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={imp.motivoRechazo}>{imp.motivoRechazo.slice(0, 40)}</p>}
+    </div>
   );
 }
 
