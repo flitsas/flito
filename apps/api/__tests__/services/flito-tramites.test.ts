@@ -170,4 +170,15 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
       .set('Authorization', `Bearer ${token}`).send({ tramiteIds: [] });
     expect(res.status).toBe(400);
   });
+
+  it('GET /:id/historial → mapea los cambios (auditor puede leer)', async () => {
+    selectMock.mockReturnValueOnce(chain([
+      { id: 'h1', campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api', usuarioNombre: null, creadoEn: new Date('2026-07-10T00:00:00Z') },
+    ]));
+    const token = await testToken({ role: 'auditor' });
+    const res = await request(app).get('/api/flito/tramites/t1/historial').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({ campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api' });
+    expect(typeof res.body[0].creadoEn).toBe('string');
+  });
 });

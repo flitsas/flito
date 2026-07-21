@@ -218,10 +218,15 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
     finally { setEnviando(false); }
   };
 
-  const subirFacturaVenta = (file: File) => ejecutar(() => {
-    const form = new FormData(); form.append('archivo', file);
-    return api.post(`/flito/impuestos/${imp.id}/factura-venta`, form);
-  });
+  // Factura de venta: viene de FLIT. Ver/descargar via presigned (el endpoint redirige; se sigue el
+  // redirect y se abre el blob). Integración FLIT (Fase 8).
+  const verFactura = async () => {
+    setError(null);
+    try {
+      const blob = await api.get<Blob>(`/flito/impuestos/${imp.id}/factura-venta`);
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { setError(errorMessage(e)); }
+  };
 
   return (
     <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
@@ -237,7 +242,14 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
           <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
-          <Dato k="Factura de venta" v={imp.tieneFacturaVenta ? 'Cargada' : 'Falta'} />
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Factura de venta</dt>
+            <dd className="text-sm">
+              {imp.tieneFacturaVenta
+                ? <button className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }} onClick={verFactura}>En FLIT · Ver / descargar</button>
+                : <span style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>}
+            </dd>
+          </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
 
@@ -247,13 +259,6 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
 
         {!soloLectura && accion === 'idle' && (
           <div className="flex flex-wrap gap-2 pt-1">
-            {sinFactura && esOperaciones && (
-              <label className={`${flitBtnPrimary} cursor-pointer`} style={flitBtnPrimaryStyle}>
-                {enviando ? 'Cargando…' : 'Cargar factura de venta'}
-                <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFacturaVenta(f); e.target.value = ''; }} />
-              </label>
-            )}
             {enGestion && (esOperaciones || esGestor) && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
             )}

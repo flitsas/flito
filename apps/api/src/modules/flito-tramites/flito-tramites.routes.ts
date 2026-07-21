@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  entregar, listar, solicitarAmbos, solicitarImpuestos, solicitarSoat, type TramitesCtx,
+  entregar, historial, listar, solicitarAmbos, solicitarImpuestos, solicitarSoat, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
@@ -29,6 +29,11 @@ function bad(res: Response): void { res.status(400).json({ error: 'Datos inváli
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
   res.json(await listar(buscar));
+});
+
+// GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  res.json(await historial(req.params.id));
 });
 
 // POST /solicitar-soat — envío al gestor SOAT del lote, fijando proveedor. Solo Operaciones.

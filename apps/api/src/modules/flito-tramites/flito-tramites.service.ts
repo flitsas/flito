@@ -11,8 +11,8 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoImpuestos, flitoProveedoresSoat, flitoSoat, flitoTramites,
-  organismosTransitoConfig, vehicles,
+  clients, flitoCompradores, flitoImpuestos, flitoProveedoresSoat, flitoSoat, flitoTramiteHistorial,
+  flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
@@ -51,6 +51,24 @@ export interface TramiteFila {
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
+}
+
+export interface HistorialItem {
+  id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null;
+  origen: string; usuarioNombre: string | null; creadoEn: string;
+}
+
+/** Historial de cambios de un trámite (auditoría campo por campo). Más reciente primero. */
+export async function historial(tramiteId: string): Promise<HistorialItem[]> {
+  const rows = await db.select({
+    id: flitoTramiteHistorial.id, campo: flitoTramiteHistorial.campo,
+    valorAnterior: flitoTramiteHistorial.valorAnterior, valorNuevo: flitoTramiteHistorial.valorNuevo,
+    origen: flitoTramiteHistorial.origen, usuarioNombre: users.name, creadoEn: flitoTramiteHistorial.createdAt,
+  }).from(flitoTramiteHistorial)
+    .leftJoin(users, eq(flitoTramiteHistorial.usuarioId, users.id))
+    .where(eq(flitoTramiteHistorial.tramiteId, tramiteId))
+    .orderBy(desc(flitoTramiteHistorial.createdAt));
+  return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
 }
 
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }

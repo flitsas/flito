@@ -43,6 +43,7 @@ interface TramiteFila {
 // Un trámite habilita SOAT/impuestos solo si está Asignado y con empresa + secretaría emparejadas.
 const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secretariaEmparejada;
 interface Proveedor { id: string; nombre: string; activo: boolean }
+interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
 
 interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
 interface Ref { tramiteId: string; idFlit: string; placa: string | null }
@@ -90,6 +91,9 @@ export default function FlitoTramites() {
   const [fechaInicial, setFechaInicial] = useState(hace30);
   const [sincronizando, setSincronizando] = useState(false);
   const [resumenSync, setResumenSync] = useState<string | null>(null);
+
+  // Historial del trámite (modal).
+  const [historial, setHistorial] = useState<{ idFlit: string; items: HistorialItem[] } | null>(null);
 
   // Filtros de columna (cliente): además del buscar global (placa/VIN/id/comprador).
   const [fEstado, setFEstado] = useState('');
@@ -139,6 +143,32 @@ export default function FlitoTramites() {
 
   const solicitarImpuestos = () => ejecutar(async () => ({ tipo: 'impuestos', impuestos: await api.post<ResImpuestos>('/flito/tramites/solicitar-impuestos', { tramiteIds: ids() }) }));
   const entregar = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'entrega', entrega: await api.post<ResEntrega>('/flito/tramites/entregar', { tramiteIds }) }));
+
+  // Ver la factura de venta de FLIT: el endpoint (auth) redirige a la URL S3 prefirmada; se descarga el
+  // blob (fetch sigue el redirect) y se abre en una pestaña.
+  const verFactura = async (impuestoId: string) => {
+    setError(null);
+    try {
+      const blob = await api.get<Blob>(`/flito/impuestos/${impuestoId}/factura-venta`);
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { setError(errorMessage(e)); }
+  };
+
+  const descargarZip = async () => {
+    const impuestoIds = todas.filter((f) => seleccion.has(f.tramiteId) && f.impuesto && f.facturaVentaFlitId).map((f) => f.impuesto!.id);
+    if (impuestoIds.length === 0) { setError('Ninguno de los seleccionados tiene factura de venta en FLIT.'); return; }
+    setError(null);
+    try { await api.downloadPost('/flito/impuestos/facturas-venta/zip', 'facturas-venta.zip', { ids: impuestoIds }); }
+    catch (e) { setError(errorMessage(e)); }
+  };
+
+  const verHistorial = async (f: TramiteFila) => {
+    setError(null);
+    try {
+      const items = await api.get<HistorialItem[]>(`/flito/tramites/${f.tramiteId}/historial`);
+      setHistorial({ idFlit: f.idFlit, items });
+    } catch (e) { setError(errorMessage(e)); }
+  };
 
   const sincronizar = async () => {
     setSincronizando(true); setError(null); setResumenSync(null);
@@ -214,6 +244,7 @@ export default function FlitoTramites() {
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos</button>
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos</button>
             <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(ids())}>Entregar</button>
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={descargarZip}>Descargar facturas (zip)</button>
             <button className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }} onClick={limpiar}>Limpiar</button>
           </div>
         </FlitCard>
@@ -278,13 +309,15 @@ export default function FlitoTramites() {
                   </td>
                   <td className="px-3 py-2 text-xs">{f.ciudad ?? '—'}</td>
                   <td className="px-3 py-2"><CeldaSoat fila={f} /></td>
-                  <td className="px-3 py-2"><CeldaFacturaVenta fila={f} /></td>
+                  <td className="px-3 py-2"><CeldaFacturaVenta fila={f} onVer={verFactura} /></td>
                   <td className="px-3 py-2"><CeldaImpuesto fila={f} /></td>
                   <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{fecha(f.sincronizadoEn)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
                       {f.listoParaEntregar && <StatusChip tone="success">Listo para entregar</StatusChip>}
+                      <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-text-muted)' }}
+                        onClick={() => verHistorial(f)}>Historial</button>
                     </div>
                   </td>
                 </FlitTr>
@@ -309,7 +342,40 @@ export default function FlitoTramites() {
       )}
 
       {resultado && <ModalResultado resultado={resultado} onCerrar={() => setResultado(null)} />}
+      {historial && <ModalHistorial idFlit={historial.idFlit} items={historial.items} onCerrar={() => setHistorial(null)} />}
     </div>
+  );
+}
+
+function ModalHistorial({ idFlit, items, onCerrar }: { idFlit: string; items: HistorialItem[]; onCerrar: () => void }) {
+  const fh = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+  return (
+    <FlitModal title={`Historial · ${idFlit}`} onClose={onCerrar} wide>
+      {items.length === 0 ? (
+        <FlitEmpty>Sin cambios registrados todavía.</FlitEmpty>
+      ) : (
+        <div className="max-h-[60vh] overflow-y-auto">
+          <FlitTable>
+            <thead>
+              <FlitTr><FlitTh>Fecha</FlitTh><FlitTh>Campo</FlitTh><FlitTh>Antes</FlitTh><FlitTh>Después</FlitTh><FlitTh>Origen</FlitTh><FlitTh>Usuario</FlitTh></FlitTr>
+            </thead>
+            <tbody>
+              {items.map((h) => (
+                <FlitTr key={h.id}>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{fh(h.creadoEn)}</td>
+                  <td className="px-3 py-1.5 text-sm font-medium">{h.campo}</td>
+                  <td className="px-3 py-1.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{h.valorAnterior ?? '—'}</td>
+                  <td className="px-3 py-1.5 text-xs font-semibold">{h.valorNuevo ?? '—'}</td>
+                  <td className="px-3 py-1.5"><StatusChip tone={h.origen === 'api' ? 'neutral' : 'active'}>{h.origen === 'api' ? 'FLIT' : 'usuario'}</StatusChip></td>
+                  <td className="px-3 py-1.5 text-xs">{h.usuarioNombre ?? '—'}</td>
+                </FlitTr>
+              ))}
+            </tbody>
+          </FlitTable>
+        </div>
+      )}
+      <button className={`${flitBtnPrimary} mt-3`} style={flitBtnPrimaryStyle} onClick={onCerrar}>Cerrar</button>
+    </FlitModal>
   );
 }
 
@@ -375,9 +441,19 @@ function CeldaIndicadores({ fila }: { fila: TramiteFila }) {
   return <div className="mt-1 flex flex-wrap gap-1">{chips}</div>;
 }
 
-// Factura de venta: viene de FLIT (id S3). Ver/descargar llega en P2.2; aquí solo el estado.
-function CeldaFacturaVenta({ fila }: { fila: TramiteFila }) {
-  if (fila.facturaVentaFlitId) return <StatusChip tone="success">En FLIT</StatusChip>;
+// Factura de venta: viene de FLIT (id S3). Ver/descargar via presigned (P2.2).
+function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (impuestoId: string) => void }) {
+  if (fila.facturaVentaFlitId) {
+    return (
+      <div className="space-y-1">
+        <StatusChip tone="success">En FLIT</StatusChip>
+        {fila.impuesto && (
+          <button className="block text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+            onClick={() => onVer(fila.impuesto!.id)}>Ver / descargar</button>
+        )}
+      </div>
+    );
+  }
   if (fila.asignado && fila.impuesto && fila.impuesto.estado === EstadoImpuesto.SIN_FACTURA) {
     return <span className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>;
   }
