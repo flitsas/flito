@@ -1,7 +1,7 @@
 // FLITO — Parametrización (Fase 6). Porta packages/client/src/paginas/parametrizacion/* al kit flit/.
 // Proveedores SOAT y reglas de proveedor por ámbito. La autogestión de compañías se administra
-// en Clientes (/clients) y la modalidad de organismos en Tránsito (/transito/organismos) —
-// ambas vía <FlitoCompaniasPanel>/<FlitoOrganismosModalidadPanel> (§correcciones-UX P2.3b).
+// inline en Clientes (/clients, checkboxes por fila) y la modalidad de organismos como columna en
+// Tránsito → Organismos (/transito/organismos, modal GestionOrganismo) (§correcciones-UX).
 // Toda escritura es de Operaciones; Auditoría entra en solo lectura.
 
 import { puedeOperar } from '../lib/permissions';

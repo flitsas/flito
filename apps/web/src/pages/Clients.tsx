@@ -3,19 +3,26 @@ import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
-import { flitInp, FlitCard, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import {
+  flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle,
+} from '../components/flit/flitPageKit';
 import { useAuth } from '../lib/auth';
 import { puedeOperar } from '../lib/permissions';
-import { FlitoCompaniasPanel } from '../components/flito/autogestionPanels';
 
+// Un cliente ES una compañía FLITO (misma tabla). Por eso la autogestión de SOAT/Impuestos/Logística
+// se administra aquí, en línea, junto a la información de la empresa (§correcciones-UX).
 interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
   phone: string | null; email: string | null; address: string | null;
   city: string | null; notes: string | null; active: boolean;
+  soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
 }
+
+type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable';
 
 export default function Clients() {
   const { user } = useAuth();
+  const editable = puedeOperar(user?.role);
   const [clients, setClients] = useState<Client[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
@@ -34,16 +41,41 @@ export default function Clients() {
       setForm({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
       load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Error';
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : 'Error');
     }
   };
+
+  // Toggle de autogestión: PATCH del flag suelto (endpoint FLITO, permitido a operaciones/admin).
+  // Optimista con reversión si falla.
+  const toggleFlag = async (c: Client, campo: FlagCampo) => {
+    const valor = !c[campo];
+    setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: valor } : x)));
+    try {
+      await api.patch(`/flito/parametrizacion/companias/${c.id}`, { [campo]: valor });
+    } catch (err) {
+      setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: !valor } : x)));
+      toast.error(err instanceof Error ? err.message : 'No se pudo actualizar');
+    }
+  };
+
+  const CeldaFlag = ({ c, campo, label }: { c: Client; campo: FlagCampo; label: string }) => (
+    <td className="px-3 py-2 text-center">
+      <input
+        type="checkbox"
+        className="h-4 w-4 cursor-pointer align-middle disabled:cursor-not-allowed"
+        checked={c[campo]}
+        disabled={!editable}
+        aria-label={`Autogestión ${label} de ${c.name}`}
+        onChange={() => toggleFlag(c, campo)}
+      />
+    </td>
+  );
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Cartera de clientes"
-        subtitle={`${clients.length} registros`}
+        subtitle={`${clients.length} registros · autogestión SOAT · Impuestos · Logística por compañía`}
         actions={<GradientButton type="button" onClick={() => setShowForm(!showForm)}>Nuevo cliente</GradientButton>}
       />
 
@@ -67,53 +99,43 @@ export default function Clients() {
         </FlitCard>
       )}
 
-      <div className="space-y-2">
-        {clients.map((c) => (
-          <FlitCard key={c.id} className="!py-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[10px]" style={{ background: 'var(--flit-bg-app)' }}>
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6} style={{ color: 'var(--flit-blue)' }}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75" />
-                </svg>
-              </div>
-              <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1 lg:grid-cols-5">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Nombre</p>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{c.name}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Documento</p>
-                  <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.documentType} {c.document || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Teléfono</p>
-                  <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.phone || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Email</p>
-                  <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.email || '—'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Ciudad</p>
-                  <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.city || '—'}</p>
-                </div>
-              </div>
-            </div>
-          </FlitCard>
-        ))}
-      </div>
-
-      {puedeOperar(user?.role) && (
-        <section className="space-y-2">
-          <div>
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Autogestión FLITO por compañía</h2>
-            <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-              Interruptores de autogestión (SOAT · Impuestos · Logística), tolerancia de valor y carpeta de storage.
-            </p>
-          </div>
-          <FlitoCompaniasPanel editable={puedeOperar(user?.role)} />
-        </section>
-      )}
+      <FlitCard>
+        {clients.length === 0 ? <FlitEmpty>No hay clientes.</FlitEmpty> : (
+          <FlitTable>
+            <thead>
+              <FlitTr>
+                <FlitTh>Empresa</FlitTh>
+                <FlitTh>Documento</FlitTh>
+                <FlitTh>Ciudad</FlitTh>
+                <FlitTh>Teléfono</FlitTh>
+                <FlitTh>Email</FlitTh>
+                <FlitTh center>SOAT</FlitTh>
+                <FlitTh center>Impuestos</FlitTh>
+                <FlitTh center>Logística</FlitTh>
+              </FlitTr>
+            </thead>
+            <tbody>
+              {clients.map((c) => (
+                <FlitTr key={c.id}>
+                  <td className="px-3 py-2 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{c.name}</td>
+                  <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.documentType ?? 'NIT'} {c.document || '—'}</td>
+                  <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.city || '—'}</td>
+                  <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.phone || '—'}</td>
+                  <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{c.email || '—'}</td>
+                  <CeldaFlag c={c} campo="soatAutogestionable" label="SOAT" />
+                  <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
+                  <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
+                </FlitTr>
+              ))}
+            </tbody>
+          </FlitTable>
+        )}
+        {editable && (
+          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Marca «Autogestiona» cuando la compañía tramita SOAT, impuestos o logística por su cuenta (FLITO no la gestiona).
+          </p>
+        )}
+      </FlitCard>
     </div>
   );
 }
