@@ -2,11 +2,20 @@
 // sistema externo. Cuando exista el endpoint real se agrega un adaptador HTTP con esta
 // misma interfaz y se cambia FLIT_ADAPTER=http; ni la sincronización ni los módulos se enteran.
 
-import { and, asc, eq, isNotNull } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoMockTramite } from '../../db/schema.js';
 import { EstadoTramiteFlito, PROCESS_STATUS_ASIGNADO } from '@operaciones/shared-types';
-import type { CompradorFlit, FlitPort, TramiteFlit } from './flit.port.js';
+import type { CompradorFlit, FlitPort, RangoSync, TramiteFlit } from './flit.port.js';
+
+// Etiqueta al estilo de FLIT real (texto capitalizado) para poblar estadoFlit desde el mock.
+const ESTADO_FLIT_LABEL: Record<EstadoTramiteFlito, string> = {
+  [EstadoTramiteFlito.ASIGNADO]: 'Asignado',
+  [EstadoTramiteFlito.ENTREGADO]: 'Entregado',
+  [EstadoTramiteFlito.APROBADO]: 'Aprobado',
+  [EstadoTramiteFlito.RECHAZADO]: 'Rechazado',
+  [EstadoTramiteFlito.ANULADO]: 'Anulado',
+};
 
 /**
  * Códigos de processStatus del FLIT simulado. Solo el 5 (Asignado) viene de la
@@ -55,50 +64,46 @@ export function estadoDesdeProcessStatus(processStatus: number): EstadoTramiteFl
 type MockRow = typeof flitoMockTramite.$inferSelect;
 
 function aDto(fila: MockRow): TramiteFlit {
+  const estado = estadoDesdeProcessStatus(fila.processStatus);
   return {
     idFlit: fila.idFlit,
-    processStatus: fila.processStatus,
-    plateComplete: fila.plateComplete,
+    estadoFlit: ESTADO_FLIT_LABEL[estado],
     vin: fila.vin,
     placa: fila.placa,
-    marca: fila.marca,
-    linea: fila.linea,
-    cilindraje: fila.cilindraje,
-    capacidad: fila.capacidad,
-    tipoVehiculo: fila.tipoVehiculo,
+    ciudad: null,
+    tipoTramite: null,
+    facturaVentaFlitId: null, // el mock no tiene factura de venta en S3.
     companiaNit: fila.companiaNit,
+    transitoNombre: null,     // el mock ya trae el código DIVIPOLA.
     organismoCodigo: fila.organismoCodigo,
+    fechaAprobacion: null,
     tipoPropiedad: fila.tipoPropiedad,
     compradores: (fila.compradores as CompradorFlit[]) ?? [],
     valorImpuestoLiquidado: fila.valorImpuestoLiquidado === null ? null : Number(fila.valorImpuestoLiquidado),
+    raw: fila,
+    marca: fila.marca,
+    linea: fila.linea,
+    processStatus: fila.processStatus,
   };
 }
 
 export function createFlitMockAdapter(): FlitPort {
   return {
-    // El filtro reproduce la regla literal: estado asignado Y plateComplete con valor. Un
-    // trámite asignado sin placa completa no sirve para adquirir SOAT ni liquidar impuestos.
-    async obtenerTramitesAsignados(): Promise<TramiteFlit[]> {
-      const filas = await db
-        .select()
-        .from(flitoMockTramite)
-        .where(and(eq(flitoMockTramite.processStatus, PROCESS_STATUS.ASIGNADO), isNotNull(flitoMockTramite.plateComplete)))
-        .orderBy(asc(flitoMockTramite.createdAt));
+    // El mock devuelve TODOS los trámites simulados (cualquier estado), como el reporte real.
+    async obtenerTramites(_rango: RangoSync): Promise<TramiteFlit[]> {
+      const filas = await db.select().from(flitoMockTramite).orderBy(asc(flitoMockTramite.createdAt));
       return filas.map(aDto);
     },
 
-    async obtenerTramite(idFlit: string): Promise<TramiteFlit | null> {
-      const [fila] = await db.select().from(flitoMockTramite).where(eq(flitoMockTramite.idFlit, idFlit)).limit(1);
-      return fila ? aDto(fila) : null;
+    async obtenerUrlFactura(_facturaId: string): Promise<string | null> {
+      return null; // el mock no aloja facturas en S3.
     },
 
     async marcarEntregado(idFlit: string): Promise<void> {
-      const [updated] = await db
-        .update(flitoMockTramite)
+      // Solo lectura hacia FLIT; en el mock local reflejamos el paso para depurar la demo.
+      await db.update(flitoMockTramite)
         .set({ processStatus: PROCESS_STATUS.ENTREGADO, updatedAt: new Date() })
-        .where(eq(flitoMockTramite.idFlit, idFlit))
-        .returning();
-      if (!updated) throw new Error(`El trámite ${idFlit} no existe en FLIT`);
+        .where(eq(flitoMockTramite.idFlit, idFlit));
     },
   };
 }
