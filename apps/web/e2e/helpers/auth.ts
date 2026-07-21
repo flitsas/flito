@@ -16,6 +16,25 @@ export const PROVEEDOR_USER = {
   allowedPages: ['vehicles', 'soat'],
 };
 
+// FLITO — Operaciones: superusuario funcional del dominio (mutaciones). Sus páginas
+// derivan de ROLE_DEFAULT_PAGES.operaciones; no hace falta allowedPages.
+export const OPERACIONES_USER = {
+  id: 7,
+  username: 'e2e_operaciones',
+  name: 'Operaciones E2E',
+  role: 'operaciones' as const,
+  allowedPages: [] as string[],
+};
+
+// FLITO — Auditoría: mismas vistas FLITO pero solo lectura (sin flito_demo).
+export const AUDITOR_USER = {
+  id: 8,
+  username: 'e2e_auditor',
+  name: 'Auditoría E2E',
+  role: 'auditor' as const,
+  allowedPages: [] as string[],
+};
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>
