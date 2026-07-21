@@ -54,6 +54,13 @@ function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
   );
 }
 
+// El backend real siempre devuelve el objeto completo; esto solo protege contra respuestas
+// malformadas (mock/proxy) que, sin error boundary, dejarían el shell en blanco.
+function esResumenValido(r: unknown): r is TableroResumen {
+  return !!r && typeof r === 'object' && !Array.isArray(r)
+    && 'revisionesPendientes' in r && 'estancados' in r && 'soat' in r && 'impuestos' in r;
+}
+
 export default function FlitoTablero() {
   const { user } = useAuth();
   const [data, setData] = useState<TableroResumen | null>(null);
@@ -65,7 +72,11 @@ export default function FlitoTablero() {
 
   const cargar = () => {
     setError(null);
-    api.get<TableroResumen>('/flito/tablero').then(setData).catch((e) => setError(errorMessage(e)));
+    api.get<TableroResumen>('/flito/tablero')
+      // Blindaje: un shape inesperado (p.ej. lista vacía) no debe reventar el render y
+      // dejar el shell en blanco. Exigimos las claves anidadas que consume la vista.
+      .then((r) => setData(esResumenValido(r) ? r : null))
+      .catch((e) => setError(errorMessage(e)));
   };
   useEffect(cargar, []);
 
