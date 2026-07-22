@@ -136,6 +136,17 @@ describe('cerrarLote — respeta la parametrización de entregas parciales', () 
   });
 });
 
+// ───────────────────────── entregar — firma obligatoria (RN-03) ─────
+
+describe('entregar — RN-03', () => {
+  it('rechaza la entrega sin firma del receptor', async () => {
+    await expect(svc.entregar('acta1', { receptorNombre: 'Ana', receptorDocumento: '123' }, ctx)).rejects.toThrow(/firma/i);
+  });
+  it('rechaza la entrega sin datos del receptor', async () => {
+    await expect(svc.entregar('acta1', { receptorNombre: '', receptorDocumento: '', firma: 'x' }, ctx)).rejects.toThrow(/receptor/i);
+  });
+});
+
 // ───────────────────────── actaDetalle — documentos + bitácora (CA-13) ─────
 
 describe('actaDetalle — arma cabecera, documentos y bitácora', () => {

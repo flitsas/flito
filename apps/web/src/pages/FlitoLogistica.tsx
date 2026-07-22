@@ -66,7 +66,6 @@ export default function FlitoLogistica() {
   const [cerrarOpen, setCerrarOpen] = useState(false);
   const [motivoModal, setMotivoModal] = useState<{ tipo: 'novedad' | 'devolucion'; id: string } | null>(null);
   const [despacharActa, setDespacharActa] = useState<ActaFila | null>(null);
-  const [entregarActa, setEntregarActa] = useState<ActaFila | null>(null);
   const [actaDetalle, setActaDetalle] = useState<ActaDetalle | null>(null);
 
   const cargar = () => {
@@ -203,10 +202,7 @@ export default function FlitoLogistica() {
                         <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Despachar</button>
                       )}
                       {esOperaciones && a.estado === 'despachada' && (
-                        <>
-                          <button className="text-xs font-semibold" style={{ color: 'var(--flit-success)' }} onClick={() => setEntregarActa(a)}>Entregar</button>
-                          <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} onClick={() => setMotivoModal({ tipo: 'devolucion', id: a.id })}>Devolver</button>
-                        </>
+                        <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} onClick={() => setMotivoModal({ tipo: 'devolucion', id: a.id })}>Devolver</button>
                       )}
                     </div>
                   </td>
@@ -232,10 +228,6 @@ export default function FlitoLogistica() {
       {despacharActa && facetas && (
         <DespacharModal mensajeros={facetas.mensajeros} busy={busy} onClose={() => setDespacharActa(null)}
           onDespachar={(mensajeroId) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, { mensajeroId })).then(() => setDespacharActa(null))} />
-      )}
-      {entregarActa && (
-        <EntregarModal busy={busy} onClose={() => setEntregarActa(null)}
-          onEntregar={(datos) => accion(() => api.post(`/flito/logistica/actas/${entregarActa.id}/entregar`, datos)).then(() => setEntregarActa(null))} />
       )}
     </div>
   );
@@ -358,20 +350,3 @@ function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros
   );
 }
 
-function EntregarModal({ busy, onClose, onEntregar }: { busy: boolean; onClose: () => void; onEntregar: (datos: { receptorNombre: string; receptorDocumento: string }) => void }) {
-  const [nombre, setNombre] = useState('');
-  const [documento, setDocumento] = useState('');
-  return (
-    <FlitModal title="Registrar entrega" onClose={onClose}>
-      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>La firma digital en el dispositivo y la evidencia (foto/ubicación) llegan con la PWA del mensajero (Fase 2). Aquí se registra la recepción.</p>
-      <div className="space-y-3">
-        <FlitField label="Nombre del receptor"><input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} /></FlitField>
-        <FlitField label="Documento del receptor"><input className={flitInp} value={documento} onChange={(e) => setDocumento(e.target.value)} /></FlitField>
-      </div>
-      <div className="mt-4 flex justify-end gap-2">
-        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !nombre.trim() || !documento.trim()} onClick={() => onEntregar({ receptorNombre: nombre.trim(), receptorDocumento: documento.trim() })}>Confirmar entrega</button>
-      </div>
-    </FlitModal>
-  );
-}

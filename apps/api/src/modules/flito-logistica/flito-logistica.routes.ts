@@ -151,7 +151,10 @@ router.post('/actas/:id/despachar', OPERACIONES, async (req: Request, res: Respo
 });
 
 // POST /actas/:id/entregar — recepción del acta (RN-03: identidad del receptor). CA-11: mensajero solo la suya.
-const entregarSchema = z.object({ receptorNombre: z.string().trim().min(1), receptorDocumento: z.string().trim().min(1), lat: z.string().optional(), lng: z.string().optional() });
+const entregarSchema = z.object({
+  receptorNombre: z.string().trim().min(1), receptorDocumento: z.string().trim().min(1),
+  firma: z.string().min(1), foto: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+});
 router.post('/actas/:id/entregar', CAMPO, async (req: Request, res: Response) => {
   const parsed = entregarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }

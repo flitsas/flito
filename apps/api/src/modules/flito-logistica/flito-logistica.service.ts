@@ -19,7 +19,7 @@ import {
   flitoProveedoresLogistica, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
-import { presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import { getEntityDocumentStream, presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 
 const log = loggerFor('flito-logistica');
 
@@ -341,28 +341,49 @@ export async function despachar(actaId: string, mensajeroId: number, ctx: Logist
   });
 }
 
-export interface EntregaInput { receptorNombre: string; receptorDocumento: string; lat?: string | null; lng?: string | null }
+export interface EntregaInput { receptorNombre: string; receptorDocumento: string; firma?: string; foto?: string | null; lat?: string | null; lng?: string | null }
+
+/** Decodifica un dataURL (o base64 pelado) a Buffer. */
+function bufDesdeDataUrl(dataUrl: string): Buffer {
+  const b64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : dataUrl;
+  return Buffer.from(b64, 'base64');
+}
 
 /**
- * Entrega con recepción. RN-03: ningún documento pasa a 'entregado' sin identidad del receptor. En la
- * Fase 1 (consola) se registra la recepción; la firma digital + evidencia estructurada (foto/GPS) y el
- * cierre en el momento son de la Fase 2 (PWA). CA-11: un mensajero solo entrega sus propias actas.
+ * Entrega con firma digital (Fase 2). RN-03: ningún documento pasa a 'entregado' sin firma del receptor
+ * y evidencia. El acta queda sellada con firma, nombre/documento del receptor, hora y ubicación (§9.5);
+ * el GPS es best-effort (RN-07: solo en este evento). CA-11: un mensajero solo entrega sus propias actas.
+ * El PDF del acta se regenera con la firma embebida (CA-13).
  */
 export async function entregar(actaId: string, datos: EntregaInput, ctx: LogisticaCtx): Promise<{ documentos: number }> {
   if (!datos.receptorNombre?.trim() || !datos.receptorDocumento?.trim()) throw new LogisticaError('La entrega requiere nombre y documento del receptor (RN-03)');
-  return db.transaction(async (tx) => {
+  if (!datos.firma?.trim()) throw new LogisticaError('La entrega requiere la firma del receptor (RN-03)');
+
+  // Valida estado y pertenencia ANTES de subir la evidencia (evita huérfanos en storage).
+  const acta0 = await cargarActa(db, actaId);
+  if (acta0.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta0.estado}"`);
+  if (ctx.role === 'mensajero' && acta0.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes entregar tus propias actas', 403);
+
+  const firmaKey = await uploadEntityDocument('flito-logistica-firmas', actaId, 'firma.png', bufDesdeDataUrl(datos.firma), 'image/png');
+  const fotoKey = datos.foto?.trim() ? await uploadEntityDocument('flito-logistica-evidencia', actaId, 'evidencia.jpg', bufDesdeDataUrl(datos.foto), 'image/jpeg') : null;
+
+  const res = await db.transaction(async (tx) => {
     const acta = await cargarActa(tx, actaId);
     if (acta.estado !== EstadoActaLogistica.DESPACHADA) throw new LogisticaError(`El acta no se puede entregar en estado "${acta.estado}"`);
-    if (ctx.role === 'mensajero' && acta.mensajeroId !== ctx.userId) throw new LogisticaError('Solo puedes entregar tus propias actas', 403);
     await tx.update(flitoLogisticaActas).set({
       estado: EstadoActaLogistica.ENTREGADA, receptorNombre: datos.receptorNombre.trim(),
-      receptorDocumento: datos.receptorDocumento.trim(), entregadoLat: datos.lat ?? null, entregadoLng: datos.lng ?? null,
-      entregadoEn: new Date(), updatedAt: new Date(),
+      receptorDocumento: datos.receptorDocumento.trim(), firmaStorageKey: firmaKey, fotoStorageKey: fotoKey,
+      entregadoLat: datos.lat ?? null, entregadoLng: datos.lng ?? null, entregadoEn: new Date(), updatedAt: new Date(),
     }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.ENTREGADO, ctx, { lat: datos.lat, lng: datos.lng });
     return { documentos: docs.length };
   });
+
+  // PDF firmado (CA-13), best-effort: no rompe la entrega si el storage falla al regenerar.
+  try { await generarActaPdf(actaId); }
+  catch (e) { log.warn({ actaId, err: (e as Error).message }, 'no se pudo regenerar el PDF firmado del acta'); }
+  return res;
 }
 
 /** Devolución: el receptor no estaba o rechazó (CA-10). Motivo obligatorio; se reprograma sin re-clasificar. */
@@ -587,7 +608,9 @@ export async function generarActaPdf(actaId: string): Promise<string> {
   const [cab] = await db.select({
     id: flitoLogisticaActas.id, companiaNombre: clients.name, direccion: flitoLogisticaActas.direccionEntrega,
     contactoNombre: flitoLogisticaActas.contactoNombre, contactoDoc: flitoLogisticaActas.contactoDocumento,
-    creadoEn: flitoLogisticaActas.createdAt,
+    creadoEn: flitoLogisticaActas.createdAt, firmaStorageKey: flitoLogisticaActas.firmaStorageKey,
+    receptorNombre: flitoLogisticaActas.receptorNombre, receptorDocumento: flitoLogisticaActas.receptorDocumento,
+    entregadoEn: flitoLogisticaActas.entregadoEn,
   }).from(flitoLogisticaActas)
     .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
     .where(eq(flitoLogisticaActas.id, actaId)).limit(1);
@@ -622,12 +645,28 @@ export async function generarActaPdf(actaId: string): Promise<string> {
     linea(`•  ${TIPO_DOCUMENTO_LOGISTICA_LABEL[d.tipo as TipoDocumentoLogistica] ?? d.tipo}  —  ${d.placa ?? '—'}  (${d.idFlit})`, { x: 48 });
   });
   if (docs.length > maxLineas) linea(`… y ${docs.length - maxLineas} documento(s) más`, { x: 48, size: 9 });
-  y = 110;
+
+  // Zona de firma: si el acta ya fue entregada, embebe la firma capturada y los datos del receptor
+  // (PDF "firmado", CA-13); si no, deja las líneas en blanco para firma manuscrita de respaldo.
+  y = 120;
   linea('Recibí a satisfacción los documentos relacionados:', { size: 9 });
-  y = 70;
-  linea('Nombre: ______________________________    C.C.: ________________', { size: 10 });
-  y = 45;
-  linea('Firma: ______________________________', { size: 10 });
+  if (cab.firmaStorageKey) {
+    try {
+      const chunks: Buffer[] = [];
+      for await (const c of await getEntityDocumentStream(cab.firmaStorageKey)) chunks.push(c as Buffer);
+      const img = await pdf.embedPng(Buffer.concat(chunks));
+      const dims = img.scale(Math.min(180 / img.width, 60 / img.height));
+      page.drawImage(img, { x: 40, y: 55, width: dims.width, height: dims.height });
+    } catch { /* si falla el embebido, cae a las líneas de abajo */ }
+    y = 48;
+    linea(`Recibió: ${cab.receptorNombre ?? '—'}   C.C.: ${cab.receptorDocumento ?? '—'}`, { size: 10 });
+    if (cab.entregadoEn) linea(`Entregado: ${cab.entregadoEn.toISOString().slice(0, 16).replace('T', ' ')}`, { size: 8 });
+  } else {
+    y = 70;
+    linea('Nombre: ______________________________    C.C.: ________________', { size: 10 });
+    y = 45;
+    linea('Firma: ______________________________', { size: 10 });
+  }
 
   const bytes = await pdf.save();
   const key = await uploadEntityDocument('flito-logistica-actas', actaId, `acta-${actaId}.pdf`, Buffer.from(bytes), 'application/pdf');

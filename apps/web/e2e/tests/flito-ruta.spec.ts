@@ -75,13 +75,13 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
     expect(idemKey).toBeTruthy();
   });
 
-  test('registrar entrega envía nombre y documento del receptor', async ({ page }) => {
+  test('registrar entrega exige la firma del receptor (RN-03) y la envía', async ({ page }) => {
     await loginAs(page, MENSAJERO_USER);
     await page.route(/\/api\/flito\/logistica\/mi-ruta/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RUTA) }));
-    let body: unknown = null;
+    let body: Record<string, unknown> | null = null;
     await page.route(/\/api\/flito\/logistica\/actas\/acta-1\/entregar$/, async (route) => {
-      body = route.request().postDataJSON();
+      body = route.request().postDataJSON() as Record<string, unknown>;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ documentos: 1 }) });
     });
 
@@ -89,8 +89,23 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
     await page.getByRole('button', { name: 'Entregar', exact: true }).click();
     await page.getByPlaceholder('Nombre del receptor').fill('María Ruiz');
     await page.getByPlaceholder('Documento del receptor').fill('30303030');
-    await page.getByRole('button', { name: 'Confirmar entrega' }).click();
+
+    // Sin firma, el botón de confirmar está deshabilitado (RN-03).
+    const confirmar = page.getByRole('button', { name: 'Confirmar entrega' });
+    await expect(confirmar).toBeDisabled();
+
+    // Firma en el canvas: dispara PointerEvents que la delegación de React captura (bubbles).
+    await page.getByLabel('Firma del receptor').evaluate((el: HTMLCanvasElement) => {
+      const r = el.getBoundingClientRect();
+      const pe = (type: string, x: number, y: number) =>
+        el.dispatchEvent(new PointerEvent(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true, pointerId: 1 }));
+      pe('pointerdown', 20, 20); pe('pointermove', 90, 60); pe('pointermove', 140, 30); pe('pointerup', 140, 30);
+    });
+
+    await expect(confirmar).toBeEnabled();
+    await confirmar.click();
     await expect.poll(() => body).not.toBeNull();
     expect(body).toMatchObject({ receptorNombre: 'María Ruiz', receptorDocumento: '30303030' });
+    expect(typeof body!.firma).toBe('string'); // la firma viaja en el cuerpo
   });
 });

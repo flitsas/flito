@@ -7,6 +7,9 @@ import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { flitInp } from '../components/flit/flitPageKit';
 import { submitCampo, usePendingQueue } from '../lib/offlineQueue';
+import { obtenerUbicacion } from '../lib/geo';
+import FirmaCanvas from '../components/flito/FirmaCanvas';
+import Escaner, { escaneoDisponible } from '../components/flito/Escaner';
 
 interface RutaDocumento { id: string; tipo: string; tipoLabel: string; placa: string | null; idFlit: string }
 interface RutaRecogida { organismoCodigo: string; organismoNombre: string | null; documentos: RutaDocumento[] }
@@ -89,12 +92,38 @@ export default function FlitoRuta() {
   );
 }
 
+const normCodigo = (s: string) => s.toUpperCase().replace(/[\s-]/g, '');
+
 function Recogida({ org, busy, enviar }: { org: RutaRecogida; busy: boolean; enviar: Enviar }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [escaneando, setEscaneando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
   const toggle = (id: string) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // Escaneo (opcional): empareja el código con la placa o el id FLIT del documento y lo marca.
+  const onScan = (code: string) => {
+    setEscaneando(false);
+    const c = normCodigo(code);
+    const match = org.documentos.find((d) => (d.placa && normCodigo(d.placa) === c) || normCodigo(d.idFlit) === c);
+    if (match) { setSel((p) => new Set(p).add(match.id)); setAviso(`Verificado: ${match.placa ?? match.idFlit}`); }
+    else setAviso(`Sin coincidencia para "${code}"`);
+  };
+
+  const confirmar = async () => {
+    const geo = await obtenerUbicacion(); // RN-07: ubicación solo en este evento
+    enviar('/flito/logistica/recoger', { documentoIds: [...sel], ...geo }, `Recogida (${sel.size})`, `${sel.size} recogido(s)`);
+    setSel(new Set());
+  };
+
   return (
     <div className="rounded-xl border bg-white p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <div className="mb-2 font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{org.organismoNombre ?? org.organismoCodigo}</div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{org.organismoNombre ?? org.organismoCodigo}</span>
+        {escaneoDisponible() && (
+          <button className={btnGhost} style={{ color: 'var(--flit-blue-text)' }} onClick={() => { setAviso(null); setEscaneando(true); }}>Escanear</button>
+        )}
+      </div>
+      {aviso && <div className="mb-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{aviso}</div>}
       <ul className="space-y-2">
         {org.documentos.map((d) => (
           <li key={d.id} className="flex items-center justify-between gap-2">
@@ -109,10 +138,10 @@ function Recogida({ org, busy, enviar }: { org: RutaRecogida; busy: boolean; env
           </li>
         ))}
       </ul>
-      <button className={`${btn} mt-3`} style={btnPrimaryStyle} disabled={busy || sel.size === 0}
-        onClick={() => { enviar('/flito/logistica/recoger', { documentoIds: [...sel] }, `Recogida (${sel.size})`, `${sel.size} recogido(s)`); setSel(new Set()); }}>
+      <button className={`${btn} mt-3`} style={btnPrimaryStyle} disabled={busy || sel.size === 0} onClick={confirmar}>
         Confirmar recogida ({sel.size})
       </button>
+      {escaneando && <Escaner onScan={onScan} onClose={() => setEscaneando(false)} />}
     </div>
   );
 }
@@ -121,6 +150,25 @@ function Entrega({ acta, busy, enviar }: { acta: RutaEntrega; busy: boolean; env
   const [abierto, setAbierto] = useState(false);
   const [nombre, setNombre] = useState('');
   const [documento, setDocumento] = useState('');
+  const [firma, setFirma] = useState<string | null>(null);
+  const [foto, setFoto] = useState<string | null>(null);
+
+  const onFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => setFoto(reader.result as string);
+    reader.readAsDataURL(f);
+  };
+
+  const confirmar = async () => {
+    const geo = await obtenerUbicacion(); // RN-07: solo en el evento de entrega
+    enviar(`/flito/logistica/actas/${acta.actaId}/entregar`,
+      { receptorNombre: nombre.trim(), receptorDocumento: documento.trim(), firma, ...(foto ? { foto } : {}), ...geo },
+      `Entrega ${acta.companiaNombre ?? ''}`, 'Entrega registrada');
+    setAbierto(false);
+  };
+
   return (
     <div className="rounded-xl border bg-white p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
       <div className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{acta.companiaNombre ?? 'Empresa'}</div>
@@ -140,11 +188,17 @@ function Entrega({ acta, busy, enviar }: { acta: RutaEntrega; busy: boolean; env
         <div className="space-y-2">
           <input className={flitInp} placeholder="Nombre del receptor" value={nombre} onChange={(e) => setNombre(e.target.value)} />
           <input className={flitInp} placeholder="Documento del receptor" value={documento} onChange={(e) => setDocumento(e.target.value)} />
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>La firma en pantalla y la evidencia (foto/ubicación) se añaden en el siguiente incremento.</p>
-          <div className="flex gap-2">
+          <div>
+            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma del receptor</span>
+            <FirmaCanvas onChange={setFirma} />
+          </div>
+          <label className="block text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+            {foto ? '✓ Foto adjunta (cambiar)' : 'Adjuntar foto (opcional)'}
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onFoto} />
+          </label>
+          <div className="flex gap-2 pt-1">
             <button className={btnGhost} onClick={() => setAbierto(false)} style={{ color: 'var(--flit-text-secondary)' }}>Cancelar</button>
-            <button className={`${btn} flex-1`} style={btnPrimaryStyle} disabled={busy || !nombre.trim() || !documento.trim()}
-              onClick={() => { enviar(`/flito/logistica/actas/${acta.actaId}/entregar`, { receptorNombre: nombre.trim(), receptorDocumento: documento.trim() }, `Entrega ${acta.companiaNombre ?? ''}`, 'Entrega registrada'); setAbierto(false); }}>
+            <button className={`${btn} flex-1`} style={btnPrimaryStyle} disabled={busy || !nombre.trim() || !documento.trim() || !firma} onClick={confirmar}>
               Confirmar entrega
             </button>
           </div>
