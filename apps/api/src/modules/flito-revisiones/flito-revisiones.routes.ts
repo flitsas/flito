@@ -18,8 +18,8 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('operaciones');
-const LECTURA = requireRole('operaciones', 'auditor');
+const OPERACIONES = requireRole('admin', 'operaciones');
+const LECTURA = requireRole('admin', 'operaciones', 'auditor');
 
 const MODULOS = Object.values(FlujoRevision) as string[];
 

@@ -1,6 +1,7 @@
 // FLITO Compuerta de entrega (Fase 6). Porta paginas/compuerta.tsx al kit flit/ + api.
 // La compuerta HABILITA, no entrega: el paso a Entregado lo ejecuta Operaciones (revalidado en backend).
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -38,7 +39,7 @@ export default function FlitoCompuerta() {
   const [error, setError] = useState<string | null>(null);
   const [entregando, setEntregando] = useState<string | null>(null);
 
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
 
   const cargar = () => {
     setError(null);

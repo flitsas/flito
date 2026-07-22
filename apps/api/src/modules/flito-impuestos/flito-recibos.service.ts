@@ -66,17 +66,22 @@ export interface ResultadoRecibos { conciliados: ItemRecibo[]; enRevision: ItemR
 interface Candidato {
   impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string;
   placa: string | null; companiaId: number; document: string | null; carpeta: string | null; valorLiquidado: string | null;
+  // D-5 (Fase 7): activación de diferencia de valor por organismo + tolerancia de la compañía.
+  diferenciaActiva: boolean; tolerancia: string;
 }
 const SELECT_CAND = {
   impuestoId: flitoImpuestos.id, estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   tramiteIdFlit: flitoTramites.idFlit, placa: vehicles.plate, companiaId: clients.id, document: clients.document,
   carpeta: clients.flitoCarpetaStorage, valorLiquidado: flitoImpuestos.valorLiquidado,
+  diferenciaActiva: organismosTransitoConfig.flitoDiferenciaValorActiva,
+  tolerancia: clients.flitoToleranciaValorImpuesto,
 } as const;
 function fromCandidatos() {
   return db.select(SELECT_CAND).from(flitoImpuestos)
     .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
-    .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id));
+    .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
+    .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo));
 }
 
 /**
@@ -197,19 +202,38 @@ async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, tipo: 
 
 /**
  * Conciliación → PAGADO. La diferencia de valor (CA-09) está APAGADA por defecto (D-5): el
- * valorLiquidado de FLIT no es confiable y el total pagado incluye el servicio de FLITO. El valor se
- * guarda igual (lo consume Liquidaciones), pero no se marca ni crea revisión. Activarla por organismo
- * con fuente fiable es Fase 7.
+ * valorLiquidado de FLIT no siempre es fiable y el total pagado incluye el servicio de FLITO. Se
+ * ACTIVA por organismo (`flitoDiferenciaValorActiva`, Fase 7) donde la fuente sí lo es: si el
+ * |pagado - liquidado| supera la tolerancia de la compañía, se MARCA para revisión (marcadoPorDiferencia)
+ * pero NO bloquea el pago. El valor se guarda siempre (lo consume Liquidaciones).
  */
 async function conciliar(tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto, soporteId: string, ctx: ImpuestoCtx): Promise<void> {
   const valorPagado = aNumero(extraccion[CampoImpuesto.VALOR_TOTAL]?.valor);
+  const marcadoPorDiferencia = evaluarDiferencia(cand, valorPagado);
   await tx.update(flitoImpuestos).set({
-    estado: EstadoImpuesto.PAGADO, extraccion, valorPagado, marcadoPorDiferencia: false,
+    estado: EstadoImpuesto.PAGADO, extraccion, valorPagado, marcadoPorDiferencia,
     pagadoEn: new Date(), motivoRechazo: null, updatedAt: new Date(),
   }).where(eq(flitoImpuestos.id, cand.impuestoId));
+  const notaDiferencia = marcadoPorDiferencia
+    ? ` MARCADO por diferencia de valor: pagado ${valorPagado ?? '—'} vs liquidado ${cand.valorLiquidado ?? '—'} supera la tolerancia ${cand.tolerancia}.`
+    : '';
   await auditEnTx(tx, ctx, cand.impuestoId,
     `Pago conciliado (en_gestion→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${cand.valorLiquidado ?? '—'}, ` +
-    `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.`);
+    `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.${notaDiferencia}`);
+}
+
+/**
+ * D-5: ¿hay que marcar diferencia de valor? Solo si el organismo la tiene activa, hay valor
+ * liquidado (fuente fiable) y pagado, y su diferencia absoluta excede la tolerancia de la compañía.
+ * No bloquea el pago; solo levanta la marca para que Operaciones la revise.
+ */
+export function evaluarDiferencia(cand: Pick<Candidato, 'diferenciaActiva' | 'valorLiquidado' | 'tolerancia'>, valorPagado: string | null): boolean {
+  if (!cand.diferenciaActiva || cand.valorLiquidado === null || valorPagado === null) return false;
+  const liquidado = Number(cand.valorLiquidado);
+  const pagado = Number(valorPagado);
+  const tolerancia = Number(cand.tolerancia) || 0;
+  if (!Number.isFinite(liquidado) || !Number.isFinite(pagado)) return false;
+  return Math.abs(pagado - liquidado) > tolerancia;
 }
 
 async function aRevision(tx: Tx, soporteId: string, extraccion: ExtraccionImpuesto, veredicto: Veredicto, impuestoId: string, placa: string | null, ctx: ImpuestoCtx): Promise<void> {

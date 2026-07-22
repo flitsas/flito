@@ -4,6 +4,7 @@
 // La visibilidad la impone el servidor: Operaciones ve todo; el gestor solo su proveedor y nunca
 // los Pendiente; Auditoría es solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -38,7 +39,7 @@ const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGA
 
 export default function FlitoSoat() {
   const { user } = useAuth();
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
   const esGestor = user?.role === 'proveedor';
   const soloLectura = user?.role === 'auditor';
 

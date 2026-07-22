@@ -13,7 +13,7 @@ import { auditLogs } from '../../db/schema.js';
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('operaciones', 'auditor');
+const LECTURA = requireRole('admin', 'operaciones', 'auditor');
 
 // Recursos que pertenecen al dominio FLITO dentro de audit_logs.
 const RECURSOS_FLITO = ['flito_soat', 'flito_impuesto', 'flito_tramite', 'flito_revision'] as const;

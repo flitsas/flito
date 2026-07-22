@@ -30,8 +30,8 @@ const router = Router();
 router.use(authMiddleware);
 
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
-const LECTURA = requireRole('operaciones', 'auditor');
-const ESCRITURA = requireRole('operaciones');
+const LECTURA = requireRole('admin', 'operaciones', 'auditor');
+const ESCRITURA = requireRole('admin', 'operaciones');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 
@@ -180,6 +180,7 @@ async function organismoDto(codigo: string) {
     modalidadVigente: modalidad,
     umbralOcr: org.flitoUmbralOcr === null ? null : Number(org.flitoUmbralOcr),
     slaHoras: org.flitoSlaHoras,
+    diferenciaValorActiva: org.flitoDiferenciaValorActiva,
     tramitesRetenidos: ret?.n ?? 0,
   };
 }
@@ -293,6 +294,8 @@ router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res
 const actualizarOrganismoSchema = z.object({
   umbralOcr: z.number().min(0).max(1).nullable().optional(),
   slaHoras: z.number().int().min(1).nullable().optional(),
+  // D-5 (Fase 7): activa/desactiva la marca de diferencia de valor de impuestos por organismo.
+  diferenciaValorActiva: z.boolean().optional(),
 });
 
 router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
@@ -304,12 +307,14 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   const set: Partial<typeof organismosTransitoConfig.$inferInsert> = {};
   if (cambios.umbralOcr !== undefined) set.flitoUmbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
   if (cambios.slaHoras !== undefined) set.flitoSlaHoras = cambios.slaHoras;
+  if (cambios.diferenciaValorActiva !== undefined) set.flitoDiferenciaValorActiva = cambios.diferenciaValorActiva;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
   const [updated] = await db.update(organismosTransitoConfig).set(set).where(eq(organismosTransitoConfig.codigo, codigo)).returning();
   if (!updated) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 
-  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}` });
+  const detalleDif = cambios.diferenciaValorActiva === undefined ? '' : `; diferencia de valor ${cambios.diferenciaValorActiva ? 'activada' : 'desactivada'}`;
+  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}` });
   res.json(await organismoDto(codigo));
 });
 

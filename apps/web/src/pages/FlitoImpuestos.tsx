@@ -4,6 +4,7 @@
 // (→ Pagado) y rechazo/reactivación/reversa. Operaciones ve todo; el gestor solo su organismo y
 // nunca los Pendiente; Auditoría es solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -41,7 +42,7 @@ const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.EN_GESTION, EstadoImpue
 
 export default function FlitoImpuestos() {
   const { user } = useAuth();
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
   const esGestor = user?.role === 'gestor_impuestos';
   const soloLectura = user?.role === 'auditor';
 

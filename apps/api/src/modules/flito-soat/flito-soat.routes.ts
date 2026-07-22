@@ -35,9 +35,9 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-const LECTURA = requireRole('operaciones', 'proveedor', 'auditor');
-const OPERACIONES = requireRole('operaciones');
-const OPS_O_GESTOR = requireRole('operaciones', 'proveedor');
+const LECTURA = requireRole('admin', 'operaciones', 'proveedor', 'auditor');
+const OPERACIONES = requireRole('admin', 'operaciones');
+const OPS_O_GESTOR = requireRole('admin', 'operaciones', 'proveedor');
 
 const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGADO, EstadoSoat.RECHAZADO] as const;
 

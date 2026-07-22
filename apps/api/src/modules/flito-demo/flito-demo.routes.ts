@@ -15,7 +15,7 @@ import { PROCESS_STATUS, estadoDesdeProcessStatus, processStatusDesdeEstado } fr
 
 const router = Router();
 router.use(authMiddleware);
-router.use(requireRole('operaciones'));
+router.use(requireRole('admin', 'operaciones'));
 
 // Crear/mover trámites solo tiene sentido con FLIT simulado. Con FLIT_ADAPTER=http este panel
 // escribiría en una tabla que la sincronización ya no lee: el trámite se crearía y no aparecería

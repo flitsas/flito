@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { puedeOperar } from '../lib/permissions';
+import FlitoTablero from './FlitoTablero';
 import { useCountUp } from '../lib/useCountUp';
 import Sparkline from '../components/flit/Sparkline';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -99,6 +101,10 @@ export default function Dashboard() {
 
   const saludLabel = pctVigentes >= 90 ? 'Excelente' : pctVigentes >= 70 ? 'Bueno' : 'Atención';
   const saludTone: ChipTone = pctVigentes >= 90 ? 'success' : pctVigentes >= 70 ? 'active' : 'warning';
+
+  // ---------- Inicio del dominio FLITO: admin/operaciones ven el tablero FLITO como home. ----------
+  // (§correcciones-UX punto 4: el tablero de inicio, antes vacío, ahora es el tablero de Operaciones.)
+  if (puedeOperar(user?.role)) return <FlitoTablero />;
 
   // ---------- Vista no-admin: header + tarjeta guía ⌘K. ----------
   if (user?.role !== 'admin') {

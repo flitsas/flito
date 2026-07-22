@@ -3,6 +3,7 @@
 // (modalidad con vigencias, no sobrescritura destructiva — CA-04) y reglas de proveedor por ámbito.
 // Toda escritura es de Operaciones; Auditoría entra en solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
   AmbitoReglaProveedor, MODALIDAD_ORGANISMO_LABEL, ModalidadOrganismo,
@@ -25,7 +26,8 @@ interface Compania {
 interface Proveedor { id: string; nombre: string; estrategia: string | null; umbralOcr: number | null; slaHoras: number | null; activo: boolean }
 interface Organismo {
   codigo: string; nombre: string; alias: string | null; activo: boolean;
-  modalidadVigente: ModalidadOrganismo; umbralOcr: number | null; slaHoras: number | null; tramitesRetenidos: number;
+  modalidadVigente: ModalidadOrganismo; umbralOcr: number | null; slaHoras: number | null;
+  diferenciaValorActiva: boolean; tramitesRetenidos: number;
 }
 interface Regla {
   id: string; ambito: AmbitoReglaProveedor; companiaId: number | null; companiaNombre: string | null;
@@ -40,7 +42,7 @@ const MODALIDAD_TONO: Record<ModalidadOrganismo, ChipTone> = {
 
 export default function FlitoParametrizacion() {
   const { user } = useAuth();
-  const editable = user?.role === 'operaciones';
+  const editable = puedeOperar(user?.role);
   const [tab, setTab] = useState<Tab>('companias');
 
   return (
@@ -268,7 +270,12 @@ function TabOrganismos({ editable }: { editable: boolean }) {
             {data.map((o) => (
               <FlitTr key={o.codigo}>
                 <td className="px-3 py-2"><div className="font-medium">{o.nombre}</div><div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{o.codigo}</div></td>
-                <td className="px-3 py-2"><StatusChip tone={MODALIDAD_TONO[o.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[o.modalidadVigente]}</StatusChip></td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-col items-start gap-1">
+                    <StatusChip tone={MODALIDAD_TONO[o.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[o.modalidadVigente]}</StatusChip>
+                    {o.diferenciaValorActiva && <StatusChip tone="warning">Dif. valor activa</StatusChip>}
+                  </div>
+                </td>
                 <td className="px-3 py-2 text-sm tabular-nums">{o.tramitesRetenidos > 0 ? <StatusChip tone="warning">{o.tramitesRetenidos}</StatusChip> : '0'}</td>
                 <td className="px-3 py-2 text-sm tabular-nums">{o.umbralOcr ?? '—'}</td>
                 <td className="px-3 py-2 text-sm tabular-nums">{o.slaHoras ?? '—'}</td>
@@ -290,6 +297,7 @@ function GestionOrganismo({ organismo, onClose, onCambio }: { organismo: Organis
   const [motivo, setMotivo] = useState('');
   const [umbral, setUmbral] = useState(organismo.umbralOcr != null ? String(organismo.umbralOcr) : '');
   const [sla, setSla] = useState(organismo.slaHoras != null ? String(organismo.slaHoras) : '');
+  const [diferencia, setDiferencia] = useState(organismo.diferenciaValorActiva);
   const [vigencias, setVigencias] = useState<Vigencia[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -309,6 +317,7 @@ function GestionOrganismo({ organismo, onClose, onCambio }: { organismo: Organis
     try {
       await api.patch(`/flito/parametrizacion/organismos/${organismo.codigo}`, {
         umbralOcr: umbral.trim() === '' ? null : Number(umbral), slaHoras: sla.trim() === '' ? null : Number(sla),
+        diferenciaValorActiva: diferencia,
       });
       onCambio();
     } catch (e) { setError(errorMessage(e)); }
@@ -342,6 +351,10 @@ function GestionOrganismo({ organismo, onClose, onCambio }: { organismo: Organis
             <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
             <FlitField label="SLA en horas"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
           </div>
+          <Interruptor label="Marcar diferencia de valor de impuestos (D-5)" checked={diferencia} onChange={setDiferencia} />
+          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Al conciliar el recibo, si el valor pagado difiere del liquidado más allá de la tolerancia de la compañía, se marca para revisión (no bloquea el pago). Actívalo solo donde el valor liquidado sea de fuente fiable.
+          </p>
           <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={guardando} onClick={guardarParams}>Guardar parámetros</button>
         </div>
 

@@ -13,7 +13,7 @@ const PROVEEDORES = [
 ];
 const ORGANISMOS = [
   { codigo: 'STT-MZL', nombre: 'STT Manizales', alias: 'Manizales', activo: true,
-    modalidadVigente: 'requiere_gestion', umbralOcr: 0.8, slaHoras: 48, tramitesRetenidos: 0 },
+    modalidadVigente: 'requiere_gestion', umbralOcr: 0.8, slaHoras: 48, diferenciaValorActiva: false, tramitesRetenidos: 0 },
 ];
 
 async function mock(page: import('@playwright/test').Page) {

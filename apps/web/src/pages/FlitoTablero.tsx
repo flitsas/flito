@@ -1,6 +1,7 @@
 // FLITO Tablero (Fase 6). Porta packages/client/src/paginas/tablero.tsx al kit flit/ + api.
 // Lo que el proceso por Excel y correo no dejaba ver: retenciones, estancamientos y diferencias.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, type EstadoImpuesto, type EstadoSoat,
@@ -60,7 +61,7 @@ export default function FlitoTablero() {
   const [sync, setSync] = useState<ResumenSync | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
 
-  const puedeSincronizar = user?.role === 'operaciones';
+  const puedeSincronizar = puedeOperar(user?.role);
 
   const cargar = () => {
     setError(null);

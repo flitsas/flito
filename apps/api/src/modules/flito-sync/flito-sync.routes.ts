@@ -12,7 +12,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // Dispara una corrida de sincronización y devuelve el resultado. Solo `operaciones`.
-router.post('/sincronizar', requireRole('operaciones'), async (req: Request, res: Response) => {
+router.post('/sincronizar', requireRole('admin', 'operaciones'), async (req: Request, res: Response) => {
   try {
     const resultado = await sincronizar();
     await audit(req, {
