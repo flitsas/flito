@@ -9,7 +9,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   actaDetalle, cerrarLote, despachar, documentoDetalle, entregar, facetas, listar, listarActas,
-  LogisticaError, recoger, registrarDevolucion, registrarNovedad, reversar, urlActaPdf,
+  LogisticaError, miRuta, recoger, registrarDevolucion, registrarNovedad, reversar, urlActaPdf,
   type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
 
@@ -54,6 +54,11 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 // GET /facetas — valores para los dropdowns de filtro, compañías cerrables y mensajeros.
 router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
   res.json(await facetas());
+});
+
+// GET /mi-ruta — ruta del mensajero (PWA): recogidas por organismo + entregas asignadas (CA-11).
+router.get('/mi-ruta', CAMPO, async (req: Request, res: Response) => {
+  res.json(await miRuta(ctxDe(req.user!)));
 });
 
 // GET /actas — panel de despacho/entrega (todas las actas con su estado y mensajero).

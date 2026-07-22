@@ -455,6 +455,72 @@ export async function listarActas(): Promise<ActaFila[]> {
   }));
 }
 
+// ── Ruta del mensajero (PWA de campo, CA-11) ─────────────────────────────────
+
+export interface RutaDocumento { id: string; tipo: string; tipoLabel: string; placa: string | null; idFlit: string }
+export interface RutaRecogida { organismoCodigo: string; organismoNombre: string | null; documentos: RutaDocumento[] }
+export interface RutaEntrega {
+  actaId: string; companiaNombre: string | null; direccionEntrega: string | null;
+  contactoNombre: string | null; documentos: RutaDocumento[];
+}
+export interface MiRuta { recogidas: RutaRecogida[]; entregas: RutaEntrega[] }
+
+const docLabel = (tipo: string): string => TIPO_DOCUMENTO_LOGISTICA_LABEL[tipo as TipoDocumentoLogistica] ?? tipo;
+
+/**
+ * Ruta del mensajero: recogidas por organismo (documentos 'generado'; §4 excluye la asignación de
+ * rutas, así que la recogida es por organismo, no asignada) y entregas (actas 'despachada'). Un
+ * mensajero solo ve SUS actas despachadas (CA-11); admin ve todas (para pruebas/seguimiento).
+ */
+export async function miRuta(ctx: LogisticaCtx): Promise<MiRuta> {
+  // Recogidas: documentos aún en el organismo, agrupados por organismo.
+  const gen = await db.select({
+    id: flitoLogisticaDocumentos.id, tipo: flitoLogisticaDocumentos.tipo, placa: vehicles.plate,
+    idFlit: flitoTramites.idFlit, organismoCodigo: flitoLogisticaDocumentos.organismoCodigo,
+    organismoNombre: organismosTransitoConfig.alias,
+  }).from(flitoLogisticaDocumentos)
+    .innerJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+    .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoLogisticaDocumentos.organismoCodigo, organismosTransitoConfig.codigo))
+    .where(eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.GENERADO));
+
+  const porOrg = new Map<string, RutaRecogida>();
+  for (const d of gen) {
+    const r = porOrg.get(d.organismoCodigo) ?? { organismoCodigo: d.organismoCodigo, organismoNombre: d.organismoNombre, documentos: [] };
+    r.documentos.push({ id: d.id, tipo: d.tipo, tipoLabel: docLabel(d.tipo), placa: d.placa, idFlit: d.idFlit });
+    porOrg.set(d.organismoCodigo, r);
+  }
+
+  // Entregas: actas despachadas de este mensajero (o todas, si admin/operaciones).
+  const soloMias = ctx.role === 'mensajero';
+  const actaCond = soloMias
+    ? and(eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA), eq(flitoLogisticaActas.mensajeroId, ctx.userId))
+    : eq(flitoLogisticaActas.estado, EstadoActaLogistica.DESPACHADA);
+  const actas = await db.select({
+    actaId: flitoLogisticaActas.id, companiaNombre: clients.name,
+    direccionEntrega: flitoLogisticaActas.direccionEntrega, contactoNombre: flitoLogisticaActas.contactoNombre,
+  }).from(flitoLogisticaActas)
+    .leftJoin(clients, eq(flitoLogisticaActas.companiaId, clients.id))
+    .where(actaCond);
+
+  const entregas: RutaEntrega[] = [];
+  for (const a of actas) {
+    const docs = await db.select({
+      id: flitoLogisticaDocumentos.id, tipo: flitoLogisticaDocumentos.tipo, placa: vehicles.plate, idFlit: flitoTramites.idFlit,
+    }).from(flitoLogisticaDocumentos)
+      .innerJoin(flitoTramites, eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id))
+      .innerJoin(vehicles, eq(flitoLogisticaDocumentos.vehiculoId, vehicles.id))
+      .where(eq(flitoLogisticaDocumentos.actaId, a.actaId));
+    entregas.push({
+      actaId: a.actaId, companiaNombre: a.companiaNombre, direccionEntrega: a.direccionEntrega,
+      contactoNombre: a.contactoNombre,
+      documentos: docs.map((d) => ({ id: d.id, tipo: d.tipo, tipoLabel: docLabel(d.tipo), placa: d.placa, idFlit: d.idFlit })),
+    });
+  }
+
+  return { recogidas: [...porOrg.values()], entregas };
+}
+
 // ── Detalle del acta (CA-13: documentos + bitácora del despacho) ─────────────
 
 export interface ActaDocumento { id: string; tipo: string; tipoLabel: string; estado: string; estadoLabel: string; placa: string | null; vin: string | null; idFlit: string }

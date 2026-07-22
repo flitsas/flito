@@ -89,8 +89,9 @@ export const PAGES = {
   flito_tablero: 'FLITO — Tablero',
   flito_bitacora: 'FLITO — Bitácora',
   // FLITO Logística: consola de Operaciones (trazabilidad por documento, actas, despacho).
-  // La página de ruta del mensajero (PWA) se añade en la Fase 2.
   flito_logistica: 'FLITO — Logística',
+  // FLITO Logística — ruta del mensajero (PWA de campo, Fase 2): recogidas y entregas asignadas.
+  flito_logistica_ruta: 'FLITO — Mi ruta (mensajero)',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -104,7 +105,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -132,8 +133,8 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
   gestor_impuestos: ['dashboard', 'flito_impuestos'],
-  // FLITO Logística — Mensajero: hoy solo el tablero; su página de ruta (PWA) llega en la Fase 2.
-  mensajero: ['dashboard'],
+  // FLITO Logística — Mensajero: su ruta de campo (PWA). No accede a la consola de Operaciones.
+  mensajero: ['dashboard', 'flito_logistica_ruta'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

@@ -54,6 +54,7 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
+  { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
   { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },

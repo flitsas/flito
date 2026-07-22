@@ -210,4 +210,18 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
       .set('Authorization', `Bearer ${token}`).send({ motivo: '' });
     expect(res.status).toBe(400);
   });
+
+  it('mensajero ve su ruta (GET /mi-ruta → 200)', async () => {
+    selectMock.mockReturnValue(chain([])); // recogidas + actas vacías
+    const token = await testToken({ role: 'mensajero' });
+    const res = await request(app).get('/api/flito/logistica/mi-ruta').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ recogidas: [], entregas: [] });
+  });
+
+  it('auditor NO accede a la ruta del mensajero (403: no es rol de campo)', async () => {
+    const token = await testToken({ role: 'auditor' });
+    const res = await request(app).get('/api/flito/logistica/mi-ruta').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(403);
+  });
 });

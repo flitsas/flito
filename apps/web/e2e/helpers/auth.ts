@@ -35,13 +35,13 @@ export const AUDITOR_USER = {
   allowedPages: [] as string[],
 };
 
-// FLITO Logística — Mensajero (PWA de campo, Fase 2). Se define ya para los specs de rol.
+// FLITO Logística — Mensajero (PWA de campo, Fase 2). Solo su ruta; no la consola de Operaciones.
 export const MENSAJERO_USER = {
   id: 9,
   username: 'e2e_mensajero',
   name: 'Mensajero E2E',
   role: 'mensajero' as const,
-  allowedPages: ['dashboard', 'flito_logistica'],
+  allowedPages: ['flito_logistica_ruta'],
 };
 
 export async function loginAs(page: Page, user = ADMIN_USER) {
