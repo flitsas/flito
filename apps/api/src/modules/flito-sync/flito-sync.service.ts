@@ -13,10 +13,11 @@ import {
 } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
-  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, ModalidadOrganismo, soatBloqueaReencolado,
+  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, ModalidadOrganismo, resolverCodigoOrganismoFlit,
+  soatBloqueaReencolado,
 } from '@operaciones/shared-types';
 import {
-  companiaPorNit, modalidadVigente, organismoPorCodigo, organismoPorNombre, resolverProveedor,
+  companiaPorNit, modalidadVigente, organismoPorCodigo, resolverProveedor,
   type CompaniaRow,
 } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { getFlitAdapter } from './flit.adapter.js';
@@ -91,10 +92,12 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   const compania = tf.companiaNit ? await companiaPorNit(tf.companiaNit) : null;
   if (tf.companiaNit && !compania) r.companiasFaltantes += 1;
 
-  const organismo = tf.organismoCodigo
-    ? await organismoPorCodigo(tf.organismoCodigo)
-    : (tf.transitoNombre ? await organismoPorNombre(tf.transitoNombre) : null);
-  if (tf.transitoNombre && !organismo) r.organismosSinEmparejar += 1;
+  // FLIT no trae el código DIVIPOLA: se resuelve por ciudad (respaldo: nombre) contra el catálogo
+  // nacional y luego se busca la config del organismo. Si ese organismo no está configurado, el
+  // trámite queda sin emparejar (no se auto-provisiona): al configurarlo, el próximo sync lo enlaza.
+  const codigoOrganismo = tf.organismoCodigo ?? resolverCodigoOrganismoFlit({ ciudad: tf.ciudad, nombre: tf.transitoNombre });
+  const organismo = codigoOrganismo ? await organismoPorCodigo(codigoOrganismo) : null;
+  if ((tf.ciudad || tf.transitoNombre) && !organismo) r.organismosSinEmparejar += 1;
 
   const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null);
   const { tramiteId, esNuevo, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, r);

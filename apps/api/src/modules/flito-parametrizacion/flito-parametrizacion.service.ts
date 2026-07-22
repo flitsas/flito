@@ -123,20 +123,6 @@ export async function organismoPorCodigo(codigo: string): Promise<OrganismoRow |
   return organismo ?? null;
 }
 
-/**
- * Organismo por NOMBRE de secretaría (integración FLIT: el reporte trae la secretaría por nombre,
- * no por código). Match sobre el alias, normalizando acentos/espacios/puntuación: exacto y, si no,
- * por contención. Devuelve null si no cruza (el sync lo marca "sin emparejar").
- */
-const normalizarNombre = (s: string): string =>
-  s.normalize('NFD').toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-export async function organismoPorNombre(nombre: string): Promise<OrganismoRow | null> {
-  const objetivo = normalizarNombre(nombre);
-  if (!objetivo) return null;
-  const filas = await db.select().from(organismosTransitoConfig);
-  const conAlias = filas.filter((o) => o.alias);
-  return conAlias.find((o) => normalizarNombre(o.alias!) === objetivo)
-    ?? conAlias.find((o) => { const a = normalizarNombre(o.alias!); return a.includes(objetivo) || objetivo.includes(a); })
-    ?? null;
-}
+// El emparejamiento del reporte de FLIT (que no trae código DIVIPOLA) vive en shared-types
+// (resolverCodigoOrganismoFlit): resuelve por ciudad/nombre contra el catálogo nacional y el sync
+// busca aquí la config por código. Ver organismos-transito.ts.
