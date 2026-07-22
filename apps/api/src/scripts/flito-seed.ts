@@ -18,7 +18,7 @@ import {
   organismosTransitoConfig,
   users,
 } from '../db/schema.js';
-import { AmbitoReglaProveedor, ModalidadOrganismo, PRIORIDAD_POR_AMBITO } from '@operaciones/shared-types';
+import { AmbitoReglaProveedor, ModalidadOrganismo, ORGANISMOS_TRANSITO, PRIORIDAD_POR_AMBITO } from '@operaciones/shared-types';
 
 export const CONTRASENA_DEMO = 'flito2026';
 
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const porNombre = (prefijo: string) => companias.find((c) => c.name.startsWith(prefijo))!;
 
   // ── Organismos (organismos_transito_config) + modalidad con vigencias ───────
+  // Cinco con alias/ajustes explícitos (cubren las 3 modalidades + SIN clasificar).
   await db.insert(organismosTransitoConfig).values([
     { codigo: ORG.MEDELLIN, alias: 'Secretaría de Movilidad de Medellín', flitoSlaHoras: 48 },
     { codigo: ORG.ENVIGADO, alias: 'Tránsito de Envigado', flitoUmbralOcr: '0.700', flitoSlaHoras: 72 },
@@ -51,6 +52,12 @@ async function main(): Promise<void> {
     { codigo: ORG.CALI, alias: 'Secretaría de Tránsito de Cali' },
     { codigo: ORG.BARRANQUILLA, alias: 'Tránsito de Barranquilla' },
   ]).onConflictDoNothing();
+  // El resto del catálogo nacional entra como config para que CUALQUIER ciudad del reporte de FLIT
+  // empareje su secretaría. Quedan SIN clasificar (sin vigencia) → sus impuestos se RETIENEN hasta
+  // que se les asigne modalidad (CA-03). Sin esto, los trámites de esas ciudades quedaban huérfanos.
+  await db.insert(organismosTransitoConfig)
+    .values(ORGANISMOS_TRANSITO.map((o) => ({ codigo: o.codigo, alias: `Tránsito de ${o.ciudad}` })))
+    .onConflictDoNothing();
 
   const ahora = new Date();
   // Antioquia (Medellín/Envigado) requiere gestión; Bogotá/Cali autogestionan. Barranquilla

@@ -61,6 +61,7 @@ export const ORGANISMOS_TRANSITO: readonly OrganismoTransito[] = [
   { nombre: 'STRIA TTOyTTE MCPAL FUNZA', ciudad: 'Funza', codigo: '25286' },
   { nombre: 'STRIA TTEyTTO MOSQUERA', ciudad: 'Mosquera', codigo: '25473' },
   { nombre: 'STRIA TTEyTTO MADRID', ciudad: 'Madrid', codigo: '25430' },
+  { nombre: 'STRIA TTOyTTE MCPAL LA CALERA', ciudad: 'La Calera', codigo: '25377' },
   { nombre: 'STRIA TTEyTTO FACATATIVA', ciudad: 'Facatativá', codigo: '25269' },
   { nombre: 'STRIA TTEyTTO GIRARDOTA', ciudad: 'Girardota', codigo: '05308' },
   { nombre: 'STRIA TTEyTTO BARBOSA', ciudad: 'Barbosa', codigo: '05079' },

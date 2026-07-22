@@ -18,7 +18,7 @@ describe('resolverCodigoOrganismoFlit', () => {
   });
 
   it('devuelve null si no cruza por ciudad ni por nombre', () => {
-    expect(resolverCodigoOrganismoFlit({ ciudad: 'LA CALERA', nombre: 'STRIA TTOyTTE MCPAL LA CALERA/CUND' })).toBeNull();
+    expect(resolverCodigoOrganismoFlit({ ciudad: 'MUNICIPIO INEXISTENTE', nombre: 'STRIA DESCONOCIDA' })).toBeNull();
     expect(resolverCodigoOrganismoFlit({ ciudad: null, nombre: null })).toBeNull();
   });
 });
