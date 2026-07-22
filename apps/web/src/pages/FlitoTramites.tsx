@@ -64,6 +64,9 @@ const TONO_IMP: Record<EstadoImpuesto, ChipTone> = {
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
+const fechaHora = (iso: string | null) => iso
+  ? new Date(iso).toLocaleString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : null;
 
 function useDebounce<T>(valor: T, ms: number): T {
   const [dif, setDif] = useState(valor);
@@ -88,11 +91,17 @@ export default function FlitoTramites() {
   const [enProceso, setEnProceso] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
-  // Sincronización manual con fecha inicial elegible (finalDate = hoy, en el backend).
+  // Sincronización: por defecto es INCREMENTAL (el backend arranca desde la última fecha sincronizada).
+  // La fecha inicial solo se elige a mano si no hay sync previo (primera vez) o si se activa el switch.
   const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
   const [fechaInicial, setFechaInicial] = useState(hace30);
+  const [ultimaSync, setUltimaSync] = useState<string | null>(null);
+  const [fechaManual, setFechaManual] = useState(false); // switch para revelar/usar el campo de fecha
   const [sincronizando, setSincronizando] = useState(false);
   const [resumenSync, setResumenSync] = useState<string | null>(null);
+  // Sin sync previo (primera vez) → hay que elegir fecha. Con sync previo → oculto salvo switch.
+  const primeraVez = ultimaSync === null;
+  const mostrarCampoFecha = primeraVez || fechaManual;
 
   // Historial del trámite (modal).
   const [historial, setHistorial] = useState<{ idFlit: string; items: HistorialItem[] } | null>(null);
@@ -116,6 +125,8 @@ export default function FlitoTramites() {
   useEffect(() => {
     if (!esOperaciones) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
+    api.get<{ ultimaSincronizacion: string | null }>('/flito/sync/estado')
+      .then((e) => setUltimaSync(e.ultimaSincronizacion)).catch(() => setUltimaSync(null));
   }, [esOperaciones]);
 
   const todas = data ?? [];
@@ -177,12 +188,16 @@ export default function FlitoTramites() {
   const sincronizar = async () => {
     setSincronizando(true); setError(null); setResumenSync(null);
     try {
-      const r = await api.post<Record<string, number>>('/flito/sync/sincronizar', { initialDate: fechaInicial });
+      // Manual (o primera vez) → manda la fecha elegida; si no, sync incremental (el backend usa la última).
+      const cuerpo = mostrarCampoFecha ? { initialDate: fechaInicial } : {};
+      const r = await api.post<Record<string, number> & { ultimaSincronizacion?: string }>('/flito/sync/sincronizar', cuerpo);
       setResumenSync(
         `${r.tramitesLeidos ?? 0} traídos de FLIT · ${r.tramitesNuevos ?? 0} nuevos · `
         + `${r.tramitesActualizados ?? 0} con cambios · ${r.tramitesSinCambios ?? 0} sin cambios · `
         + `${r.companiasFaltantes ?? 0} sin empresa · ${r.organismosSinEmparejar ?? 0} sin secretaría`,
       );
+      if (r.ultimaSincronizacion) setUltimaSync(r.ultimaSincronizacion);
+      setFechaManual(false); // tras sincronizar, vuelve a modo incremental
       refrescar();
     } catch (e) { setError(errorMessage(e)); }
     finally { setSincronizando(false); }
@@ -204,43 +219,41 @@ export default function FlitoTramites() {
       <PageHeaderCard title="Trámites"
         subtitle="Todos los trámites de FLIT. Solo los Asignados (con empresa y secretaría) habilitan SOAT e impuestos."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <input className={`${flitInp} max-w-[14rem]`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
             {esOperaciones && (
-              <>
-                <label className="flex items-center gap-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-                  Desde
-                  <input type="date" className={`${flitInp} h-10`} value={fechaInicial} max={new Date().toISOString().slice(0, 10)}
-                    onChange={(e) => setFechaInicial(e.target.value)} />
-                </label>
-                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={sincronizando || !fechaInicial} onClick={sincronizar}>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-right text-[11px] leading-tight" style={{ color: 'var(--flit-text-muted)' }}>
+                  <div>Última actualización</div>
+                  <div className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{fechaHora(ultimaSync) ?? 'Nunca sincronizado'}</div>
+                </div>
+                {/* Campo de fecha: oculto por defecto; visible la primera vez o al activar "Elegir fecha". */}
+                {!primeraVez && (
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: 'var(--flit-text-muted)' }}>
+                    <input type="checkbox" checked={fechaManual} onChange={(e) => setFechaManual(e.target.checked)} />
+                    Elegir fecha
+                  </label>
+                )}
+                {mostrarCampoFecha && (
+                  <label className="flex items-center gap-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                    Desde
+                    <input type="date" className={`${flitInp} h-10`} value={fechaInicial} max={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setFechaInicial(e.target.value)} />
+                  </label>
+                )}
+                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                  disabled={sincronizando || (mostrarCampoFecha && !fechaInicial)}
+                  title={mostrarCampoFecha ? 'Sincroniza desde la fecha elegida' : 'Sincroniza desde la última actualización'}
+                  onClick={sincronizar}>
                   {sincronizando ? 'Sincronizando…' : 'Sincronizar FLIT'}
                 </button>
-              </>
+              </div>
             )}
           </div>
         } />
 
       {resumenSync && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}><strong style={{ color: 'var(--flit-blue-text)' }}>Sincronización:</strong> {resumenSync}</p></FlitCard>}
-
-      <FlitCard>
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-end gap-3">
-            <FiltroSelect label="Estado" value={fEstado} onChange={setFEstado} opciones={opciones.estados} />
-            <FiltroSelect label="Trámite" value={fTramite} onChange={setFTramite} opciones={opciones.tramites} />
-            <FiltroSelect label="Tránsito" value={fTransito} onChange={setFTransito} opciones={opciones.transitos} />
-            <FiltroSelect label="Ciudad" value={fCiudad} onChange={setFCiudad} opciones={opciones.ciudades} />
-            <FiltroTexto label="Compañía" value={fCompania} onChange={setFCompania} />
-          </div>
-          <GrupoFiltro titulo="SOAT" estados={Object.values(EstadoSoat)} etiqueta={(e) => ESTADO_SOAT_LABEL[e]} seleccion={soatSel} onCambio={setSoatSel} />
-          <GrupoFiltro titulo="Impuestos" estados={Object.values(EstadoImpuesto)} etiqueta={(e) => ESTADO_IMPUESTO_LABEL[e]} seleccion={impSel} onCambio={setImpSel} />
-          {hayFiltros && (
-            <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-              onClick={() => { setSoatSel([]); setImpSel([]); setFEstado(''); setFTramite(''); setFTransito(''); setFCiudad(''); setFCompania(''); }}>Limpiar filtros</button>
-          )}
-        </div>
-      </FlitCard>
 
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
@@ -258,14 +271,36 @@ export default function FlitoTramites() {
         </FlitCard>
       )}
 
-      {data && filas.length === 0 && (
+      {data && todas.length === 0 && (
         <FlitCard>
-          <FlitEmpty>{buscar || hayFiltros ? 'Ningún trámite coincide con el filtro.' : 'No hay trámites. Sincroniza desde FLIT para traer trámites en estado Asignado.'}</FlitEmpty>
+          <FlitEmpty>{buscar ? 'Ningún trámite coincide con la búsqueda.' : 'No hay trámites. Sincroniza desde FLIT para traer trámites.'}</FlitEmpty>
         </FlitCard>
       )}
 
-      {filas.length > 0 && (
+      {todas.length > 0 && (
         <FlitCard>
+          {/* Filtros embebidos en la parte superior de la tabla. */}
+          <div className="mb-3 space-y-2 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
+            <div className="flex flex-wrap items-end gap-3">
+              <FiltroSelect label="Estado" value={fEstado} onChange={setFEstado} opciones={opciones.estados} />
+              <FiltroSelect label="Trámite" value={fTramite} onChange={setFTramite} opciones={opciones.tramites} />
+              <FiltroSelect label="Tránsito" value={fTransito} onChange={setFTransito} opciones={opciones.transitos} />
+              <FiltroSelect label="Ciudad" value={fCiudad} onChange={setFCiudad} opciones={opciones.ciudades} />
+              <FiltroTexto label="Compañía" value={fCompania} onChange={setFCompania} />
+            </div>
+            <GrupoFiltro titulo="SOAT" estados={Object.values(EstadoSoat)} etiqueta={(e) => ESTADO_SOAT_LABEL[e]} seleccion={soatSel} onCambio={setSoatSel} />
+            <GrupoFiltro titulo="Impuestos" estados={Object.values(EstadoImpuesto)} etiqueta={(e) => ESTADO_IMPUESTO_LABEL[e]} seleccion={impSel} onCambio={setImpSel} />
+            <div className="flex items-center gap-3">
+              <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{filas.length} de {todas.length} trámites</span>
+              {hayFiltros && (
+                <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
+                  onClick={() => { setSoatSel([]); setImpSel([]); setFEstado(''); setFTramite(''); setFTransito(''); setFCiudad(''); setFCompania(''); }}>Limpiar filtros</button>
+              )}
+            </div>
+          </div>
+          {filas.length === 0 ? (
+            <FlitEmpty>Ningún trámite coincide con el filtro.</FlitEmpty>
+          ) : (
           <FlitTable>
             <thead>
               <FlitTr>
@@ -277,8 +312,8 @@ export default function FlitoTramites() {
                   </FlitTh>
                 )}
                 <FlitTh>Trámite</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Comprador</FlitTh>
-                <FlitTh>Tránsito / Compañía</FlitTh><FlitTh>Ciudad</FlitTh><FlitTh>SOAT</FlitTh><FlitTh>Factura venta</FlitTh>
-                <FlitTh>Impuestos</FlitTh><FlitTh>Sincronizado</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Tránsito / Compañía</FlitTh><FlitTh>Ciudad</FlitTh><FlitTh>SOAT</FlitTh>
+                <FlitTh>Impuestos</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -292,14 +327,22 @@ export default function FlitoTramites() {
                         onChange={() => setSeleccion((s) => { const x = new Set(s); x.has(f.tramiteId) ? x.delete(f.tramiteId) : x.add(f.tramiteId); return x; })} />
                     </td>
                   )}
-                  <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
-                    {f.idFlit}
-                    {f.tipoTramite && <div className="text-[11px]">{f.tipoTramite}</div>}
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</div>
+                    {f.tipoTramite && <div className="text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{f.tipoTramite}</div>}
+                    {/* Estado del trámite: al hacer click abre el historial (cursor pointer + hover). */}
+                    <button type="button" onClick={() => verHistorial(f)} title="Ver historial del trámite"
+                      className="mt-1 block cursor-pointer rounded transition-opacity hover:opacity-70">
+                      <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
+                    </button>
+                    <div className="mt-1"><SemaforoChip semaforo={f.semaforo} /></div>
+                    {f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 align-top">
                     <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>
                     <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.marca} {f.vehiculo.linea}{f.vehiculo.tipoVehiculo ? ` · ${f.vehiculo.tipoVehiculo}` : ''}</div>
                     <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.vin}</div>
+                    <div className="mt-1"><CeldaFacturaVenta fila={f} onVer={verFactura} /></div>
                   </td>
                   <td className="px-3 py-2 text-sm">
                     {f.compradorPrincipal ? (
@@ -327,24 +370,14 @@ export default function FlitoTramites() {
                         onClick={() => setCrearEmpresa(f)}>Crear empresa</button>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-xs">{f.ciudad ?? '—'}</td>
-                  <td className="px-3 py-2"><CeldaSoat fila={f} /></td>
-                  <td className="px-3 py-2"><CeldaFacturaVenta fila={f} onVer={verFactura} /></td>
-                  <td className="px-3 py-2"><CeldaImpuesto fila={f} /></td>
-                  <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{fecha(f.sincronizadoEn)}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col items-start gap-1">
-                      <SemaforoChip semaforo={f.semaforo} />
-                      <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
-                      {f.listoParaEntregar && <StatusChip tone="success">Listo para entregar</StatusChip>}
-                      <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-text-muted)' }}
-                        onClick={() => verHistorial(f)}>Historial</button>
-                    </div>
-                  </td>
+                  <td className="px-3 py-2 text-xs align-top">{f.ciudad ?? '—'}</td>
+                  <td className="px-3 py-2 align-top"><CeldaSoat fila={f} /></td>
+                  <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} /></td>
                 </FlitTr>
               ))}
             </tbody>
           </FlitTable>
+          )}
         </FlitCard>
       )}
 
@@ -519,23 +552,16 @@ function CeldaIndicadores({ fila }: { fila: TramiteFila }) {
   return <div className="mt-1 flex flex-wrap gap-1">{chips}</div>;
 }
 
-// Factura de venta: viene de FLIT (id S3). Ver/descargar via presigned (P2.2).
+// Factura de venta (viene de FLIT, id S3). Con factura → botón para verla; sin factura → aviso.
 function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (impuestoId: string) => void }) {
   if (fila.facturaVentaFlitId) {
-    return (
-      <div className="space-y-1">
-        <StatusChip tone="success">En FLIT</StatusChip>
-        {fila.impuesto && (
-          <button className="block text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-            onClick={() => onVer(fila.impuesto!.id)}>Ver / descargar</button>
-        )}
-      </div>
-    );
+    // El visor va por el impuesto (presigned S3). Sin impuesto todavía no hay a qué apuntar.
+    return fila.impuesto
+      ? <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+          onClick={() => onVer(fila.impuesto!.id)}>Ver factura de venta</button>
+      : <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Factura en FLIT</span>;
   }
-  if (fila.asignado && fila.impuesto && fila.impuesto.estado === EstadoImpuesto.SIN_FACTURA) {
-    return <span className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>;
-  }
-  return <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>;
+  return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Sin factura de venta</span>;
 }
 
 function CeldaImpuesto({ fila }: { fila: TramiteFila }) {
