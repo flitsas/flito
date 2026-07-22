@@ -120,12 +120,15 @@ describe('authMiddleware — propaga allowedPages del JWT a req.user', () => {
 // (8/7/4) y páginas en 2 (27/23). Estos tests fallan si el catálogo se vuelve
 // a duplicar/desincronizar.
 describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
-  it('ALL_ROLES ⊆ USER_ROLES, son 8 y contiene auditor', async () => {
+  it('ALL_ROLES ⊆ USER_ROLES, son 10 (8 base + FLITO operaciones/gestor_impuestos) y contiene auditor', async () => {
     const shared = await import('@operaciones/shared-types');
     const valid = new Set<string>(shared.USER_ROLES);
     for (const r of shared.ALL_ROLES) expect(valid.has(r)).toBe(true);
-    expect(shared.USER_ROLES).toHaveLength(8);
+    // 8 roles base + `operaciones` y `gestor_impuestos` de la migración FLITO.
+    expect(shared.USER_ROLES).toHaveLength(10);
     expect(shared.ALL_ROLES).toContain('auditor');
+    expect(shared.ALL_ROLES).toContain('operaciones');
+    expect(shared.ALL_ROLES).toContain('gestor_impuestos');
   });
 
   it('catálogo PAGES idéntico entre API, web y la fuente única', async () => {
@@ -151,8 +154,21 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     }
   });
 
-  it('auditor → read-only LAFT (dashboard + 4 páginas LAFT)', () => {
+  it('auditor → read-only LAFT (4 páginas) + vistas FLITO de solo lectura (migración D-2)', () => {
     const pages = getEffectivePages({ role: 'auditor' }).sort();
-    expect(pages).toEqual(['dashboard', 'laft_audit_plan', 'laft_dashboard', 'laft_manual', 'laft_oficial'].sort());
+    expect(pages).toEqual([
+      'dashboard', 'laft_audit_plan', 'laft_dashboard', 'laft_manual', 'laft_oficial',
+      'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora',
+    ].sort());
+  });
+
+  it('roles FLITO → páginas por defecto correctas', () => {
+    const ops = getEffectivePages({ role: 'operaciones' });
+    expect(ops).toContain('flito_tramites');
+    expect(ops).toContain('soat');
+    expect(ops).toContain('flito_demo');
+    expect(ops).not.toContain('laft');
+    const gi = getEffectivePages({ role: 'gestor_impuestos' }).sort();
+    expect(gi).toEqual(['dashboard', 'flito_impuestos'].sort());
   });
 });

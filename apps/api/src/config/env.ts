@@ -89,6 +89,17 @@ const envSchema = z.object({
   // Opt-in deliberado: si está vacío, el cron registra la alarma sin destinatarios y
   // emite log warn — NO falla el flujo. Política PO: no setear emails por defecto.
   LAFT_COMPLIANCE_RECIPIENTS: z.string().optional(),
+  // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
+  // Adaptador del origen de trámites: `mock` (andamiaje demo, sin FLIT real) o
+  // `http` (integración real contra FLIT 1.0). Ver MIGRACION_FLITO §3.2.
+  FLIT_ADAPTER: z.enum(['mock', 'http']).default('mock'),
+  // Umbral de confianza OCR por defecto (0..1). Sobrescribible por proveedor/organismo.
+  // Un campo bajo este umbral cae en la cola de revisión (RN-04/CA-06).
+  OCR_UMBRAL_DEFECTO: z.coerce.number().min(0).max(1).default(0.85),
+  // Cron de sincronización desde FLIT (formato de 6 campos, con segundos). Default: cada 5 min.
+  SYNC_CRON: z.string().default('0 */5 * * * *'),
+  // Habilita el job de sincronización FLITO. Default true; 'false'/'0' lo apaga.
+  SYNC_HABILITADO: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
 }).superRefine((data, ctx) => {
   // Bloquea CORS_ORIGIN='*' en producción (XSS cross-origin).
   if (data.NODE_ENV === 'production') {
