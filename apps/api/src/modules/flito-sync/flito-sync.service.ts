@@ -62,7 +62,7 @@ export function decidirEstadoImpuesto(impuestosAutogestionable: boolean, modalid
 
 function nuevoResultado(): ResultadoSync {
   return {
-    tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
+    tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
     impuestosCreados: 0, impuestosRetenidos: 0, impuestosNoAplica: 0, companiasFaltantes: 0,
     organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
   };
@@ -100,9 +100,12 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   if ((tf.ciudad || tf.transitoNombre) && !organismo) r.organismosSinEmparejar += 1;
 
   const vehiculoId = await upsertVehiculo(tx, tf, compania?.id ?? null);
-  const { tramiteId, esNuevo, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, r);
+  const { tramiteId, esNuevo, huboCambios, soatId } = await upsertTramite(tx, tf, vehiculoId, compania?.id ?? null, organismo?.codigo ?? null, r);
 
-  if (esNuevo) r.tramitesNuevos += 1; else r.tramitesActualizados += 1;
+  // Nuevo / actualizado (llegó con diferencias, deja rastro) / sin cambios (idéntico, sin rastro).
+  if (esNuevo) r.tramitesNuevos += 1;
+  else if (huboCambios) r.tramitesActualizados += 1;
+  else r.tramitesSinCambios += 1;
 
   // SOAT/impuestos requieren compañía y organismo emparejados y estado Asignado.
   if (esAsignado(tf.estadoFlit) && compania && organismo) {
@@ -139,7 +142,7 @@ async function registrarDiferencias(tx: Tx, tramiteId: string, previo: Record<st
 
 async function upsertTramite(
   tx: Tx, tf: TramiteFlit, vehiculoId: number, companiaId: number | null, organismoCodigo: string | null, r: ResultadoSync,
-): Promise<{ tramiteId: string; esNuevo: boolean; soatId: string | null }> {
+): Promise<{ tramiteId: string; esNuevo: boolean; huboCambios: boolean; soatId: string | null }> {
   const [existente] = await tx.select().from(flitoTramites).where(eq(flitoTramites.idFlit, tf.idFlit)).limit(1);
   const fechaAprobacion = tf.fechaAprobacion ? new Date(tf.fechaAprobacion) : null;
 
@@ -164,6 +167,7 @@ async function upsertTramite(
   };
 
   let row: typeof flitoTramites.$inferSelect;
+  let huboCambios = false;
   if (existente) {
     // Historial de campos observables antes de pisar (origen 'api').
     const cambios = await registrarDiferencias(tx, existente.id, {
@@ -177,6 +181,7 @@ async function upsertTramite(
       compania_id: companiaId === null ? null : String(companiaId),
       organismo_codigo: organismoCodigo, tipo_tramite: tf.tipoTramite, ciudad: tf.ciudad,
     });
+    huboCambios = cambios.length > 0;
     [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
     if (cambios.includes('flit_estado')) {
       await auditSistema(tx, { action: 'update', resource: 'flito_tramite', resourceId: row.id, detail: `Estado FLIT: "${existente.flitEstado ?? '—'}" → "${tf.estadoFlit}" (trámite ${tf.idFlit}).` });
@@ -196,7 +201,7 @@ async function upsertTramite(
     })));
   }
 
-  return { tramiteId: row.id, esNuevo: !existente, soatId: row.soatId };
+  return { tramiteId: row.id, esNuevo: !existente, huboCambios, soatId: row.soatId };
 }
 
 /** Resuelve el SOAT (RN-01: por VIN, exento si la compañía autogestiona). Igual que el mock. */

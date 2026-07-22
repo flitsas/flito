@@ -176,7 +176,11 @@ export default function FlitoTramites() {
     setSincronizando(true); setError(null); setResumenSync(null);
     try {
       const r = await api.post<Record<string, number>>('/flito/sync/sincronizar', { initialDate: fechaInicial });
-      setResumenSync(`${r.tramitesLeidos ?? 0} leídos · ${r.tramitesNuevos ?? 0} nuevos · ${r.tramitesActualizados ?? 0} actualizados · ${r.companiasFaltantes ?? 0} sin empresa · ${r.organismosSinEmparejar ?? 0} sin secretaría`);
+      setResumenSync(
+        `${r.tramitesLeidos ?? 0} traídos de FLIT · ${r.tramitesNuevos ?? 0} nuevos · `
+        + `${r.tramitesActualizados ?? 0} con cambios · ${r.tramitesSinCambios ?? 0} sin cambios · `
+        + `${r.companiasFaltantes ?? 0} sin empresa · ${r.organismosSinEmparejar ?? 0} sin secretaría`,
+      );
       refrescar();
     } catch (e) { setError(errorMessage(e)); }
     finally { setSincronizando(false); }

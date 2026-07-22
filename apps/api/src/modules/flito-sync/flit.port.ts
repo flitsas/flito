@@ -70,6 +70,8 @@ export interface ResultadoSync {
   tramitesLeidos: number;
   tramitesNuevos: number;
   tramitesActualizados: number;
+  /** Ya existían y llegaron IGUAL (sin diferencias): no dejan rastro de auditoría. */
+  tramitesSinCambios: number;
   soatCreados: number;
   soatBloqueadosPorVin: number;
   impuestosCreados: number;
