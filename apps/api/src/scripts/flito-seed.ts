@@ -34,10 +34,11 @@ async function main(): Promise<void> {
 
   // ── Compañías (sobre clients) ──────────────────────────────────────────────
   const companias = await db.insert(clients).values([
-    { name: 'TESLA COLOMBIA S.A.S.', document: '901234567', documentType: 'NIT', flitoCarpetaStorage: 'FLIT/Clientes/Tesla', flitoToleranciaValorImpuesto: '0' },
+    { name: 'TESLA COLOMBIA S.A.S.', document: '901789698', documentType: 'NIT', flitoCarpetaStorage: 'FLIT/Clientes/Tesla', flitoToleranciaValorImpuesto: '0' },
     { name: 'BANCOLOMBIA S.A.', document: '890903938', documentType: 'NIT', flitoCarpetaStorage: 'FLIT/Clientes/Bancolombia', flitoToleranciaValorImpuesto: '20000' },
-    // CA-01 SOAT: autogestiona SOAT → sus trámites no aparecen en cola de SOAT.
-    { name: 'RENTING ANDINO S.A.S.', document: '900456789', documentType: 'NIT', soatAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/RentingAndino', flitoToleranciaValorImpuesto: '0' },
+    // CA-01 SOAT: autogestiona SOAT → sus trámites no aparecen en cola de SOAT. NIT = gestora real
+    // frecuente en el reporte de FLIT (empareja sus trámites por CompaniaGestora).
+    { name: 'RENTING S.A.S', document: '811011779', documentType: 'NIT', soatAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/Renting', flitoToleranciaValorImpuesto: '0' },
     // CA-05 Impuestos: autogestiona impuestos → no entra al módulo, sin importar la modalidad.
     { name: 'LOGÍSTICA DEL CARIBE S.A.S.', document: '900789123', documentType: 'NIT', impuestosAutogestionable: true, logisticaAutogestionable: true, flitoCarpetaStorage: 'FLIT/Clientes/LogisticaCaribe', flitoToleranciaValorImpuesto: '0' },
   ]).returning();

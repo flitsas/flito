@@ -43,7 +43,9 @@ export async function modalidadVigente(organismoCodigo: string): Promise<Modalid
     )
     .limit(1);
 
-  return (vigencia?.modalidad as ModalidadOrganismo) ?? ModalidadOrganismo.SIN_CLASIFICAR;
+  // Default sin vigencia: AUTOGESTIONADO (salvo que se marque explícitamente "Requiere gestión",
+  // FLITO no gestiona los impuestos del organismo).
+  return (vigencia?.modalidad as ModalidadOrganismo) ?? ModalidadOrganismo.AUTOGESTIONADO;
 }
 
 /**

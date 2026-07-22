@@ -58,8 +58,8 @@ describe('decidir — SOAT resuelto', () => {
   it('sin registro de SOAT y sin autogestión → no resuelve', () => {
     expect(decidir({ ...filaOk(), soatEstado: null, soatValorPagado: null }).soatResuelto).toBe(false);
   });
-  it('SOAT en adquisición (no pagado) → no resuelve', () => {
-    expect(decidir({ ...filaOk(), soatEstado: EstadoSoat.EN_ADQUISICION }).soatResuelto).toBe(false);
+  it('SOAT solicitado (no pagado) → no resuelve', () => {
+    expect(decidir({ ...filaOk(), soatEstado: EstadoSoat.SOLICITADO }).soatResuelto).toBe(false);
   });
 });
 
@@ -67,16 +67,13 @@ describe('decidir — Impuestos resueltos', () => {
   it('impuesto pagado resuelve', () => {
     expect(decidir(filaOk()).impuestosResueltos).toBe(true);
   });
-  it('no_aplica resuelve (exención)', () => {
-    expect(decidir({ ...filaOk(), impuestoEstado: EstadoImpuesto.NO_APLICA, impuestoValorPagado: null }).impuestosResueltos).toBe(true);
+  it('sin registro de impuesto (exento por autogestión) → resuelve', () => {
+    expect(decidir({ ...filaOk(), impuestoEstado: null, impuestoValorPagado: null }).impuestosResueltos).toBe(true);
   });
-  it('RETENIDO NO resuelve (CA-13, el peor de los dos errores)', () => {
-    const v = decidir({ ...filaOk(), impuestoEstado: EstadoImpuesto.RETENIDO, impuestoValorPagado: null });
+  it('impuesto con registro no pagado (solicitado) NO resuelve', () => {
+    const v = decidir({ ...filaOk(), impuestoEstado: EstadoImpuesto.SOLICITADO, impuestoValorPagado: null });
     expect(v.impuestosResueltos).toBe(false);
-    expect(v.impuestosDetalle).toMatch(/retenido/i);
-  });
-  it('sin registro de impuesto → no resuelve', () => {
-    expect(decidir({ ...filaOk(), impuestoEstado: null, impuestoValorPagado: null }).impuestosResueltos).toBe(false);
+    expect(v.impuestosDetalle).toMatch(/solicitado/i);
   });
   it('pagado marcado por diferencia igual resuelve, con detalle', () => {
     const v = decidir({ ...filaOk(), impuestoMarcadoPorDiferencia: true });
@@ -93,7 +90,7 @@ describe('decidir — habilitado y valores', () => {
     expect(decidir({ ...filaOk(), estadoTramite: EstadoTramiteFlito.ENTREGADO }).habilitado).toBe(false);
   });
   it('valores solo si hubo pago; null (no cero) para exento/no pagado', () => {
-    const v = decidir({ ...filaOk(), soatAutogestionable: true, soatEstado: null, soatValorPagado: null, impuestoEstado: EstadoImpuesto.NO_APLICA, impuestoValorPagado: null });
+    const v = decidir({ ...filaOk(), soatAutogestionable: true, soatEstado: null, soatValorPagado: null, impuestoEstado: null, impuestoValorPagado: null });
     expect(v.valorSoat).toBeNull();
     expect(v.valorImpuesto).toBeNull();
   });
@@ -119,7 +116,7 @@ describe('entregar — revalida antes de escribir', () => {
   });
 
   it('no habilitado (SOAT sin pagar): 400 y NO toca FLIT ni BD', async () => {
-    selectMock.mockReturnValueOnce(chain([{ ...filaOk(), soatEstado: EstadoSoat.EN_ADQUISICION }]));
+    selectMock.mockReturnValueOnce(chain([{ ...filaOk(), soatEstado: EstadoSoat.SOLICITADO }]));
     await expect(entregar('t1', ctx)).rejects.toBeInstanceOf(CompuertaError);
     expect(marcarEntregadoMock).not.toHaveBeenCalled();
     expect(transactionMock).not.toHaveBeenCalled();
@@ -144,7 +141,7 @@ describe('registrarHabilitaciones — deja constancia solo de los habilitados (a
   });
 
   it('no escribe nada si el trámite no queda habilitado', async () => {
-    selectMock.mockReturnValueOnce(chain([{ ...filaOk(), impuestoEstado: EstadoImpuesto.RETENIDO }]));
+    selectMock.mockReturnValueOnce(chain([{ ...filaOk(), impuestoEstado: EstadoImpuesto.SOLICITADO }]));
     const insertValues = vi.fn().mockResolvedValue([]);
     const exec = { insert: () => ({ values: insertValues }) } as never;
     await registrarHabilitaciones({ tramiteId: 't1' }, exec);

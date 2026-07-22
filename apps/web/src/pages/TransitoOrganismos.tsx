@@ -13,7 +13,7 @@ import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
 import { useAuth } from '../lib/auth';
 import { puedeOperar } from '../lib/permissions';
-import { GestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
+import { PanelGestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
 
 interface OrganismoConfig {
   codigo: string;
@@ -87,8 +87,7 @@ export default function TransitoOrganismos() {
   const [rows, setRows] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState<OrganismoConfig | null>(null);
-  const [gestion, setGestion] = useState<Organismo | null>(null);
+  const [editing, setEditing] = useState<Fila | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,18 +181,7 @@ export default function TransitoOrganismos() {
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.alias || '—'}</td>
                   <td className="px-4 py-3">
                     {r.modalidad ? (
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <StatusChip tone={MODALIDAD_TONO[r.modalidad.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[r.modalidad.modalidadVigente]}</StatusChip>
-                        {r.modalidad.tramitesRetenidos > 0 && <StatusChip tone="warning">{r.modalidad.tramitesRetenidos} retenidos</StatusChip>}
-                        <button
-                          type="button"
-                          onClick={() => setGestion(r.modalidad)}
-                          className="flit-focus rounded-[999px] px-2 py-0.5 text-[11px] font-semibold"
-                          style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}
-                        >
-                          {editable ? 'Gestionar' : 'Ver'}
-                        </button>
-                      </div>
+                      <StatusChip tone={MODALIDAD_TONO[r.modalidad.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[r.modalidad.modalidadVigente]}</StatusChip>
                     ) : (
                       <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>
                     )}
@@ -219,18 +207,10 @@ export default function TransitoOrganismos() {
         </div>
       </div>
 
-      {gestion && (
-        <GestionOrganismo
-          organismo={gestion}
-          editable={editable}
-          onClose={() => setGestion(null)}
-          onCambio={() => { load(); setGestion(null); }}
-        />
-      )}
-
       {editing && (
         <EditModal
           row={editing}
+          editable={editable}
           onClose={() => setEditing(null)}
           onSaved={() => { load(); setEditing(null); }}
           onReload={load}
@@ -240,9 +220,9 @@ export default function TransitoOrganismos() {
   );
 }
 
-type EditTab = 'general' | 'plantilla';
+type EditTab = 'general' | 'plantilla' | 'autogestion';
 
-function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; onClose: () => void; onSaved: () => void; onReload: () => void }) {
+function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; editable: boolean; onClose: () => void; onSaved: () => void; onReload: () => void }) {
   const [tab, setTab] = useState<EditTab>('general');
   const [cfg, setCfg] = useState<OrganismoConfig>(row);
   const [alias, setAlias] = useState(row.alias ?? '');
@@ -327,10 +307,17 @@ function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; 
       </p>
       <div className="mb-4 flex flex-wrap gap-2">
         {tabBtn('general', 'General')}
+        {tabBtn('autogestion', 'Autogestión')}
         {tabBtn('plantilla', 'Plantilla documentos')}
       </div>
 
-      {tab === 'general' ? (
+      {tab === 'autogestion' && (
+        row.modalidad
+          ? <PanelGestionOrganismo organismo={row.modalidad} editable={editable} onCambio={onReload} />
+          : <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Este organismo aún no tiene datos de modalidad FLITO.</p>
+      )}
+
+      {tab === 'general' && (
         <form onSubmit={submitGeneral} className="space-y-4">
           <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
             Alias (nombre corto en bandeja)
@@ -395,7 +382,9 @@ function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; 
             <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Guardar'}</GradientButton>
           </div>
         </form>
-      ) : (
+      )}
+
+      {tab === 'plantilla' && (
         <PlantillaDocumentosTab organismoCodigo={row.codigo} onClose={onClose} />
       )}
     </FlitModal>

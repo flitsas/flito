@@ -37,36 +37,43 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
 ];
 
 /**
- * Estado del SOAT. Independiente del ciclo del trámite — esa independencia es lo
- * que resuelve el riesgo de doble adquisición (FEATURE_SOAT §7).
+ * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:
  *
- *   Pendiente ──> En adquisición ──> Pagado
- *                      └──> Rechazado ──> (vuelve a Pendiente tras corrección)
+ *   Pendiente ──> Solicitado ──> Pagado
+ *                     └──> Con novedad ──> (se corrige y vuelve a Pendiente/Solicitado)
  *
- * Reemplaza el `soat_status` legacy ('pendiente/enviado/comprado/verificado/rechazado').
+ * - Pendiente:   aún no se ha solicitado.
+ * - Solicitado:  enviado al gestor.
+ * - Con novedad: no se pudo marcar pagado (gestor lo devolvió, OCR de baja confianza,
+ *                diferencia de valor…). Requiere corrección; se comporta como Pendiente.
+ * - Pagado:      el gestor cargó el comprobante y el OCR lo extrajo y asoció al vehículo.
+ *
+ * La AUTOGESTIÓN no es un estado: se deriva de banderas (compañía) / modalidad (organismo)
+ * y no genera registro (se muestra "Autogestionado").
+ * Independiente del ciclo del trámite — eso resuelve el riesgo de doble adquisición (RN-01).
  */
 export const EstadoSoat = {
   PENDIENTE: 'pendiente',
-  EN_ADQUISICION: 'en_adquisicion',
+  SOLICITADO: 'solicitado',
+  CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
-  RECHAZADO: 'rechazado',
 } as const;
 
 export type EstadoSoat = (typeof EstadoSoat)[keyof typeof EstadoSoat];
 
 export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
   pendiente: 'Pendiente',
-  en_adquisicion: 'En adquisición',
+  solicitado: 'Solicitado',
+  con_novedad: 'Con novedad',
   pagado: 'Pagado',
-  rechazado: 'Rechazado',
 };
 
 /**
- * RN-01: un SOAT se adquiere una sola vez por VIN. Ningún evento del trámite
- * libera un VIN en estos estados.
+ * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
+ * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
  */
 export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
-  'en_adquisicion', 'pagado',
+  'solicitado', 'pagado',
 ];
 
 export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
@@ -75,51 +82,36 @@ export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
 
 /** Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6. */
 export const ESTADOS_SOAT_VISIBLES_GESTOR: readonly EstadoSoat[] = [
-  'en_adquisicion', 'pagado',
+  'solicitado', 'pagado',
 ];
 
-/**
- * Estado de Impuestos.
- *
- *   Sin factura ──> Pendiente ──> En gestión ──> Pagado
- *                                      └──> Rechazado ──> (vuelve a Pendiente)
- *   Retenido   (organismo sin clasificar)
- *   No aplica  (organismo autogestionado o compañía autogestionable)
- */
+/** Estado de Impuestos: mismos cuatro estados que SOAT (ver EstadoSoat). */
 export const EstadoImpuesto = {
-  SIN_FACTURA: 'sin_factura',
-  RETENIDO: 'retenido',
   PENDIENTE: 'pendiente',
-  EN_GESTION: 'en_gestion',
+  SOLICITADO: 'solicitado',
+  CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
-  RECHAZADO: 'rechazado',
-  NO_APLICA: 'no_aplica',
 } as const;
 
 export type EstadoImpuesto = (typeof EstadoImpuesto)[keyof typeof EstadoImpuesto];
 
 export const ESTADO_IMPUESTO_LABEL: Record<EstadoImpuesto, string> = {
-  sin_factura: 'Sin factura de venta',
-  retenido: 'Retenido por organismo sin clasificar',
-  pendiente: 'Pendiente de envío',
-  en_gestion: 'En gestión',
+  pendiente: 'Pendiente',
+  solicitado: 'Solicitado',
+  con_novedad: 'Con novedad',
   pagado: 'Pagado',
-  rechazado: 'Rechazado',
-  no_aplica: 'No aplica',
 };
 
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
-  'en_gestion', 'pagado',
+  'solicitado', 'pagado',
 ];
 
 /**
- * Modalidad de gestión del organismo (FEATURE_IMPUESTOS §6.1).
- * `Sin clasificar` NO es un default: es la ausencia de decisión y retiene los
- * trámites (RN-01 de Impuestos prohíbe asumir cualquiera de las otras dos).
+ * Modalidad de gestión del organismo. Dos valores; el DEFAULT (sin vigencia) es AUTOGESTIONADO:
+ * salvo que se marque explícitamente "Requiere gestión", FLITO no gestiona sus impuestos.
  */
 export const ModalidadOrganismo = {
-  SIN_CLASIFICAR: 'sin_clasificar',
   REQUIERE_GESTION: 'requiere_gestion',
   AUTOGESTIONADO: 'autogestionado',
 } as const;
@@ -127,7 +119,6 @@ export const ModalidadOrganismo = {
 export type ModalidadOrganismo = (typeof ModalidadOrganismo)[keyof typeof ModalidadOrganismo];
 
 export const MODALIDAD_ORGANISMO_LABEL: Record<ModalidadOrganismo, string> = {
-  sin_clasificar: 'Sin clasificar',
   requiere_gestion: 'Requiere gestión FLITO',
   autogestionado: 'Autogestionado por el organismo',
 };

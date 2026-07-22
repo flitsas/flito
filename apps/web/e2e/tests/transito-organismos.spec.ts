@@ -117,7 +117,7 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
     expect(putChecklist?.hide).toEqual(expect.arrayContaining(['contrato_compraventa']));
   });
 
-  test('la tabla única muestra la modalidad FLITO por secretaría (columna + Gestionar)', async ({ page }) => {
+  test('la tabla única muestra la modalidad FLITO por secretaría (columna + Editar › Autogestión)', async ({ page }) => {
     await page.route('**/api/transito/organismos-config', (route) => jsonRoute(200, ORG_LIST)(route));
     await page.route(/\/api\/flito\/parametrizacion\/organismos(\?|$)/, (route) => jsonRoute(200, FLITO_ORG)(route));
 
@@ -127,9 +127,9 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
     // Modalidad integrada como columna de la MISMA tabla (no una segunda tabla).
     await expect(page.getByRole('columnheader', { name: /Modalidad FLITO/i })).toBeVisible();
     await expect(page.getByText(/requiere gestión/i).first()).toBeVisible();
-    await expect(page.getByText(/2 retenidos/i)).toBeVisible();
-    // El botón Gestionar abre el modal de modalidad.
-    await page.getByRole('button', { name: 'Gestionar' }).first().click();
-    await expect(page.getByRole('heading', { name: /STRIA TTEyTTO MEDELLIN/ })).toBeVisible();
+    // La autogestión vive dentro de la acción Editar → pestaña "Autogestión" (ya no hay botón "Gestionar").
+    await page.getByRole('button', { name: 'Editar' }).first().click();
+    await page.getByRole('button', { name: 'Autogestión' }).click();
+    await expect(page.getByText(/Modalidad de gestión/i)).toBeVisible();
   });
 });

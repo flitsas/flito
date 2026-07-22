@@ -135,7 +135,7 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
   }
 
   // Cruce SOLO contra EN_GESTION del organismo del gestor (CA-07/CA-10).
-  const candidato = await buscarCandidato(placa, EstadoImpuesto.EN_GESTION, organismoCodigo);
+  const candidato = await buscarCandidato(placa, EstadoImpuesto.SOLICITADO, organismoCodigo);
   if (!candidato) {
     // ¿Es la segunda copia (la otra marca) de un pago ya conciliado? Se adjunta, no se rechaza.
     if (await adjuntarComplemento(archivo, placa, tipo, organismoCodigo, hash, ctx, res)) return;
@@ -218,7 +218,7 @@ async function conciliar(tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto
     ? ` MARCADO por diferencia de valor: pagado ${valorPagado ?? '—'} vs liquidado ${cand.valorLiquidado ?? '—'} supera la tolerancia ${cand.tolerancia}.`
     : '';
   await auditEnTx(tx, ctx, cand.impuestoId,
-    `Pago conciliado (en_gestion→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${cand.valorLiquidado ?? '—'}, ` +
+    `Pago conciliado (solicitado→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${cand.valorLiquidado ?? '—'}, ` +
     `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.${notaDiferencia}`);
 }
 

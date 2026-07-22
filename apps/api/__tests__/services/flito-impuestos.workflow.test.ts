@@ -60,7 +60,7 @@ describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
 
   it('gestor consulta un impuesto de OTRO organismo → 404 (no 403)', async () => {
     selectMock.mockReturnValueOnce(chain([{ t: '05001' }])); // contexto gestor: organismo 05001
-    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'en_gestion' }, autogestion: false }]));
+    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'solicitado' }, autogestion: false }]));
     const r = await request(await buildApp()).get(`/api/flito/impuestos/${UUID}`).set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(404);
   });

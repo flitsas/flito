@@ -18,8 +18,6 @@ interface TableroResumen {
   soat: Record<string, number>;
   impuestos: Record<string, number>;
   revisionesPendientes: { soat: number; impuestos: number };
-  organismosSinClasificar: number;
-  tramitesRetenidos: number;
   estancados: { soat: number; impuestos: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
@@ -28,7 +26,7 @@ interface TableroResumen {
 interface ResumenSync {
   ejecutadoEn?: string;
   tramitesLeidos?: number; tramitesNuevos?: number; soatCreados?: number;
-  soatBloqueadosPorVin?: number; impuestosCreados?: number; impuestosRetenidos?: number;
+  soatBloqueadosPorVin?: number; impuestosCreados?: number;
 }
 
 function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
@@ -122,16 +120,13 @@ export default function FlitoTablero() {
             <li className="flex justify-between gap-3"><span>SOAT creados</span><span className="font-medium tabular-nums">{sync.soatCreados ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>SOAT bloqueados por VIN (RN-01)</span><span className="font-medium tabular-nums">{sync.soatBloqueadosPorVin ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>Impuestos creados</span><span className="font-medium tabular-nums">{sync.impuestosCreados ?? 0}</span></li>
-            <li className="flex justify-between gap-3"><span>Impuestos retenidos</span><span className="font-medium tabular-nums">{sync.impuestosRetenidos ?? 0}</span></li>
           </ul>
         </FlitCard>
       )}
 
       {data && (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {kpi('Organismos sin clasificar', data.organismosSinClasificar, 'Sin modalidad, retienen trámites.', 'danger')}
-            {kpi('Trámites retenidos', data.tramitesRetenidos, 'Esperan que se clasifique su organismo.', 'danger')}
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {kpi('Revisiones pendientes', data.revisionesPendientes.soat + data.revisionesPendientes.impuestos, `SOAT ${data.revisionesPendientes.soat} · Impuestos ${data.revisionesPendientes.impuestos}`, 'warning')}
             {kpi('Estancados por SLA', data.estancados.soat + data.estancados.impuestos, `SOAT ${data.estancados.soat} · Impuestos ${data.estancados.impuestos}`, 'warning')}
             {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}

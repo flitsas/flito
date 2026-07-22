@@ -106,7 +106,7 @@ describe('resolver — SOAT delega en marcarPagado tras atar el soporte', () => 
   it('con SOAT en adquisición: ata soporte y llama marcarPagado', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, extraccion: {}, soporteId: 's1', motivo: 'sin_llave' }]))
-      .mockReturnValueOnce(chain([{ id: 'soat1', estado: EstadoSoat.EN_ADQUISICION }]));
+      .mockReturnValueOnce(chain([{ id: 'soat1', estado: EstadoSoat.SOLICITADO }]));
     await resolver('r1', 'soat1', { placa: 'QTQ100' }, 'valida', ctx);
     expect(marcarPagadoMock).toHaveBeenCalledOnce();
     expect(marcarPagadoMock.mock.calls[0][0]).toBe('soat1');
@@ -127,7 +127,7 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
   it('impuesto EN_GESTION → no lanza (transición a pagado en tx)', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.IMPUESTOS, extraccion: {}, soporteId: 's1', motivo: 'x' }]))
-      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.EN_GESTION, valorLiquidado: '100' }]));
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.SOLICITADO, valorLiquidado: '100' }]));
     await expect(resolver('r1', 'imp1', { [CampoImpuesto.VALOR_TOTAL]: '634900' }, 'valida', ctx)).resolves.toBeUndefined();
     expect(transactionMock).toHaveBeenCalled();
   });
@@ -139,10 +139,10 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
     await expect(resolver('r1', 'imp1', {}, 'm', ctx)).rejects.toMatchObject({ status: 400 });
   });
 
-  it('factura de venta contra impuesto que ya no espera factura → 400', async () => {
+  it('factura de venta contra impuesto que ya no espera factura (ya solicitado) → 400', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.FACTURA_VENTA, extraccion: {}, soporteId: 's1', motivo: 'cruce_ambiguo' }]))
-      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.PENDIENTE }]));
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.SOLICITADO }]));
     await expect(resolver('r1', 'imp1', {}, 'm', ctx)).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -11,7 +11,7 @@ const HABILITADO = {
 };
 const NO_HABILITADO = {
   tramiteId: 't2', idFlit: 'FLIT-2', placa: 'XYZ789', companiaNombre: 'Concesionario Norte', estadoTramite: 'asignado',
-  soatResuelto: false, soatDetalle: 'SOAT en estado "en_adquisicion"', impuestosResueltos: true, impuestosDetalle: 'Impuesto pagado y conciliado',
+  soatResuelto: false, soatDetalle: 'SOAT en estado "solicitado"', impuestosResueltos: true, impuestosDetalle: 'Impuesto pagado y conciliado',
   valorSoat: null, valorImpuesto: 634900, habilitado: false,
 };
 

@@ -24,13 +24,12 @@ const { default: tableroRoutes } = await import('../../src/modules/flito-tablero
 beforeEach(() => { selectMock.mockReset(); listarCompuertaMock.mockClear().mockResolvedValue([{}, {}]); });
 
 describe('resumen — agrega los indicadores de Operaciones', () => {
-  it('mapea conteos por estado y deriva retenidos/estancados/diferencias', async () => {
+  it('mapea conteos por estado y deriva estancados/diferencias', async () => {
     selectMock
-      .mockReturnValueOnce(chain([{ estado: EstadoSoat.PAGADO, total: 3 }, { estado: EstadoSoat.EN_ADQUISICION, total: 2 }])) // soat
-      .mockReturnValueOnce(chain([{ estado: EstadoImpuesto.PAGADO, total: 1 }, { estado: EstadoImpuesto.RETENIDO, total: 4 }])) // impuestos
+      .mockReturnValueOnce(chain([{ estado: EstadoSoat.PAGADO, total: 3 }, { estado: EstadoSoat.SOLICITADO, total: 2 }])) // soat
+      .mockReturnValueOnce(chain([{ estado: EstadoImpuesto.PAGADO, total: 1 }, { estado: EstadoImpuesto.SOLICITADO, total: 4 }])) // impuestos
       .mockReturnValueOnce(chain([{ n: 2 }]))  // revisiones soat
       .mockReturnValueOnce(chain([{ n: 1 }]))  // revisiones impuestos
-      .mockReturnValueOnce(chain([{ n: 5 }]))  // organismos sin clasificar
       .mockReturnValueOnce(chain([{ n: 1 }]))  // diferencias de valor
       .mockReturnValueOnce(chain([{ n: 0 }]))  // estancados soat
       .mockReturnValueOnce(chain([{ n: 3 }])); // estancados impuestos
@@ -38,12 +37,10 @@ describe('resumen — agrega los indicadores de Operaciones', () => {
     const r = await resumen();
 
     expect(r.soat[EstadoSoat.PAGADO]).toBe(3);
-    expect(r.soat[EstadoSoat.EN_ADQUISICION]).toBe(2);
-    expect(r.soat[EstadoSoat.RECHAZADO]).toBe(0); // estado sin filas → 0
-    expect(r.impuestos[EstadoImpuesto.RETENIDO]).toBe(4);
-    expect(r.tramitesRetenidos).toBe(4);
+    expect(r.soat[EstadoSoat.SOLICITADO]).toBe(2);
+    expect(r.soat[EstadoSoat.CON_NOVEDAD]).toBe(0); // estado sin filas → 0
+    expect(r.impuestos[EstadoImpuesto.SOLICITADO]).toBe(4);
     expect(r.revisionesPendientes).toEqual({ soat: 2, impuestos: 1 });
-    expect(r.organismosSinClasificar).toBe(5);
     expect(r.diferenciasDeValor).toBe(1);
     expect(r.estancados).toEqual({ soat: 0, impuestos: 3 });
     expect(r.compuertaHabilitados).toBe(2);

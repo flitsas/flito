@@ -75,8 +75,6 @@ export interface ResultadoSync {
   soatCreados: number;
   soatBloqueadosPorVin: number;
   impuestosCreados: number;
-  impuestosRetenidos: number;
-  impuestosNoAplica: number;
   companiasFaltantes: number;
   organismosSinEmparejar: number;
   ejecutadoEn: string;

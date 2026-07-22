@@ -18,7 +18,7 @@ export interface Organismo {
 }
 
 export const MODALIDAD_TONO: Record<ModalidadOrganismo, ChipTone> = {
-  sin_clasificar: 'warning', requiere_gestion: 'active', autogestionado: 'neutral',
+  requiere_gestion: 'active', autogestionado: 'neutral',
 };
 
 function Interruptor({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -36,6 +36,18 @@ interface Vigencia { id: string; modalidad: ModalidadOrganismo; desde: string; h
 // parámetros OCR/SLA y marca de diferencia de valor (D-5).
 export function GestionOrganismo({ organismo, editable, onClose, onCambio }: {
   organismo: Organismo; editable: boolean; onClose: () => void; onCambio: () => void;
+}) {
+  return (
+    <FlitModal title={`${organismo.nombre} (${organismo.codigo})`} onClose={onClose} wide>
+      <PanelGestionOrganismo organismo={organismo} editable={editable} onCambio={onCambio} />
+    </FlitModal>
+  );
+}
+
+// Panel reutilizable (sin envoltura de modal) de modalidad + OCR/SLA + vigencias de un organismo.
+// Se embebe en la acción "Editar" del organismo (fusiona el antiguo botón "Gestionar").
+export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
+  organismo: Organismo; editable: boolean; onCambio: () => void;
 }) {
   const [modalidad, setModalidad] = useState<ModalidadOrganismo>(organismo.modalidadVigente);
   const [motivo, setMotivo] = useState('');
@@ -69,7 +81,6 @@ export function GestionOrganismo({ organismo, editable, onClose, onCambio }: {
   };
 
   return (
-    <FlitModal title={`${organismo.nombre} (${organismo.codigo})`} onClose={onClose} wide>
       <div className="space-y-4">
         {!editable && <p className="text-sm text-blue-800">Solo lectura · Auditoría observa la modalidad, no la modifica.</p>}
         <div className="space-y-2">
@@ -124,6 +135,5 @@ export function GestionOrganismo({ organismo, editable, onClose, onCambio }: {
           )}
         </div>
       </div>
-    </FlitModal>
   );
 }

@@ -110,8 +110,8 @@ async function buildApp() {
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 7, username: 'gestor@x.io', role: role as never })}`;
 const UUID = '00000000-0000-0000-0000-000000000001';
 
-const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'en_adquisicion', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
-const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'en_adquisicion', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
+const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
+const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
 const extraccionCruza = {
   [CampoSoat.PLACA]: campo('QTQ100', 0.95), [CampoSoat.VIN]: campo('9BWZZZ377VT004251', 0.95),
   [CampoSoat.NUMERO_POLIZA]: campo('FLIT-1', 0.95), [CampoSoat.VALOR_TOTAL]: campo('250000', 0.95),

@@ -20,7 +20,7 @@ export function FlitTable({ children }: { children: ReactNode }) {
       className="overflow-hidden bg-white"
       style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
     >
-      <div className="overflow-x-auto">{children}</div>
+      <div className="overflow-x-auto"><table className="w-full">{children}</table></div>
     </div>
   );
 }

@@ -21,8 +21,6 @@ export interface TableroResumen {
   soat: Record<string, number>;
   impuestos: Record<string, number>;
   revisionesPendientes: { soat: number; impuestos: number };
-  organismosSinClasificar: number;
-  tramitesRetenidos: number;
   estancados: { soat: number; impuestos: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
@@ -52,17 +50,6 @@ async function contarRevisiones(modulo: FlujoRevision): Promise<number> {
   return Number(r.n);
 }
 
-/** Organismos referenciados por trámites vivos que aún no tienen modalidad clasificada (sin vigencia). */
-async function organismosSinClasificar(): Promise<number> {
-  const [r] = await db.select({ n: sql<number>`COUNT(DISTINCT ${flitoTramites.organismoCodigo})` })
-    .from(flitoTramites)
-    .where(and(
-      notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS]),
-      sql`NOT EXISTS (SELECT 1 FROM flito_organismo_vigencias v WHERE v.organismo_codigo = ${flitoTramites.organismoCodigo} AND v.hasta IS NULL)`,
-    ));
-  return Number(r.n);
-}
-
 async function diferenciasDeValor(): Promise<number> {
   const [r] = await db.select({ n: count() }).from(flitoImpuestos)
     .where(and(eq(flitoImpuestos.marcadoPorDiferencia, true), eq(flitoImpuestos.estado, EstadoImpuesto.PAGADO)));
@@ -75,7 +62,7 @@ async function contarEstancados(): Promise<{ soat: number; impuestos: number }> 
     .innerJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(and(
-      eq(flitoSoat.estado, EstadoSoat.EN_ADQUISICION),
+      eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
       eq(clients.soatAutogestionable, false),
       isNotNull(flitoProveedoresSoat.slaHoras),
       isNotNull(flitoSoat.enviadoEn),
@@ -86,7 +73,7 @@ async function contarEstancados(): Promise<{ soat: number; impuestos: number }> 
     .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
     .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .where(and(
-      eq(flitoImpuestos.estado, EstadoImpuesto.EN_GESTION),
+      eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),
       eq(clients.impuestosAutogestionable, false),
       isNotNull(organismosTransitoConfig.flitoSlaHoras),
       isNotNull(flitoImpuestos.enviadoEn),
@@ -99,10 +86,9 @@ async function contarEstancados(): Promise<{ soat: number; impuestos: number }> 
 /** Resumen del tablero de Operaciones. */
 export async function resumen(): Promise<TableroResumen> {
   const [soat, impuestos] = await Promise.all([contarSoat(), contarImpuestos()]);
-  const [revisionSoat, revisionImpuestos, sinClasificar, habilitados, diferencias, estancados] = await Promise.all([
+  const [revisionSoat, revisionImpuestos, habilitados, diferencias, estancados] = await Promise.all([
     contarRevisiones(FlujoRevision.SOAT),
     contarRevisiones(FlujoRevision.IMPUESTOS),
-    organismosSinClasificar(),
     listarCompuerta(true),
     diferenciasDeValor(),
     contarEstancados(),
@@ -112,8 +98,6 @@ export async function resumen(): Promise<TableroResumen> {
     soat,
     impuestos,
     revisionesPendientes: { soat: revisionSoat, impuestos: revisionImpuestos },
-    organismosSinClasificar: sinClasificar,
-    tramitesRetenidos: impuestos[EstadoImpuesto.RETENIDO] ?? 0,
     estancados,
     diferenciasDeValor: diferencias,
     compuertaHabilitados: habilitados.length,

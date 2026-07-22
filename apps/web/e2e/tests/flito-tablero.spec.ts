@@ -5,11 +5,9 @@ import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 // Operaciones sincroniza; Auditoría observa en solo lectura. Backend mockeado.
 
 const RESUMEN = {
-  soat: { pendiente: 2, en_adquisicion: 1, pagado: 5, rechazado: 0 },
-  impuestos: { sin_factura: 1, retenido: 3, pendiente: 0, en_gestion: 2, pagado: 4, rechazado: 0, no_aplica: 1 },
+  soat: { pendiente: 2, solicitado: 1, con_novedad: 0, pagado: 5 },
+  impuestos: { pendiente: 0, solicitado: 2, con_novedad: 0, pagado: 4 },
   revisionesPendientes: { soat: 2, impuestos: 1 },
-  organismosSinClasificar: 5,
-  tramitesRetenidos: 3,
   estancados: { soat: 0, impuestos: 2 },
   diferenciasDeValor: 1,
   compuertaHabilitados: 4,
@@ -27,7 +25,7 @@ test.describe('FLITO — Tablero', () => {
 
     await page.goto('/flito/tablero');
     await expect(page.getByRole('heading', { name: 'Tablero', exact: true })).toBeVisible();
-    await expect(page.getByText('Organismos sin clasificar')).toBeVisible();
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
     await expect(page.getByText('SOAT por estado')).toBeVisible();
     await expect(page.getByText('Impuestos por estado')).toBeVisible();
     await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toBeVisible();

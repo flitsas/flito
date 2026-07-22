@@ -91,7 +91,7 @@ const auth = async (role: string) => `Bearer ${await testToken({ sub: 5, usernam
 const UUID = '00000000-0000-0000-0000-0000000000dd';
 
 const candidato = {
-  impuestoId: UUID, estado: 'en_gestion', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
+  impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
   companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000',
 };
 const reciboOk = { [CampoImpuesto.PLACA]: campo('QTQ100', 0.95), [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95), [CampoImpuesto.NUMERO_RECIBO]: campo('R-1', 0.95) };

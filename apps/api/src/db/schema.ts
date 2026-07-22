@@ -2398,10 +2398,14 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // (organismos_transito_config.codigo); las entidades internas FLITO usan `uuid`.
 // ════════════════════════════════════════════════════════════════════════════
 
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'en_adquisicion', 'pagado', 'rechazado']);
-export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica']);
+// Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
+// flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
+// rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
-export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['sin_clasificar', 'requiere_gestion', 'autogestionado']);
+// Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
+export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
 
 // Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo).
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
@@ -2513,7 +2517,7 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
 export const flitoImpuestos = pgTable('flito_impuestos', {
   id: uuid('id').primaryKey().defaultRandom(),
   tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
-  estado: flitoImpuestoEstadoEnum('estado').notNull().default('sin_factura'),
+  estado: flitoImpuestoEstadoEnum('estado').notNull().default('pendiente'),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
   companiaId: integer('compania_id').notNull().references(() => clients.id),
   // Snapshot de la modalidad al crear el registro (CA-04).

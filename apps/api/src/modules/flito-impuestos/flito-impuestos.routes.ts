@@ -27,7 +27,7 @@ router.use(authMiddleware);
 const OPERACIONES = requireRole('admin');
 const LECTURA = requireRole('admin', 'gestor_impuestos', 'auditor');
 const OPS_O_GESTOR = requireRole('admin', 'gestor_impuestos');
-const ESTADOS = ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica'] as const;
+const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
@@ -168,7 +168,7 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 
 // POST /:id/reversar — reversa manual. Solo Operaciones, motivo ≥5.
 const reversarSchema = z.object({
-  estadoDestino: z.enum([EstadoImpuesto.SIN_FACTURA, EstadoImpuesto.RETENIDO, EstadoImpuesto.PENDIENTE, EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO, EstadoImpuesto.RECHAZADO, EstadoImpuesto.NO_APLICA]),
+  estadoDestino: z.enum([EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
 });
 router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {

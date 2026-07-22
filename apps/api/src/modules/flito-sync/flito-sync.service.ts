@@ -49,21 +49,18 @@ async function auditSistema(exec: DbOrTx, entry: { action: 'create' | 'update'; 
 }
 
 /**
- * Estado inicial del impuesto (RN-01 Impuestos). La modalidad decide y `sin_clasificar` NO es un
- * default sino una retención (CA-03). Compañía/organismo autogestionado → no aplica; sin clasificar →
- * retenido; requiere gestión → sin factura (a la espera de la factura de venta, que ahora llega de FLIT).
+ * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
+ * está en modalidad `requiere_gestion`. En cualquier otro caso es autogestionado (exento) y NO se
+ * crea registro de impuesto (la UI lo muestra "Autogestionado", igual que el SOAT autogestionado).
  */
-export function decidirEstadoImpuesto(impuestosAutogestionable: boolean, modalidad: ModalidadOrganismo): EstadoImpuesto {
-  if (impuestosAutogestionable) return EstadoImpuesto.NO_APLICA;
-  if (modalidad === ModalidadOrganismo.AUTOGESTIONADO) return EstadoImpuesto.NO_APLICA;
-  if (modalidad === ModalidadOrganismo.SIN_CLASIFICAR) return EstadoImpuesto.RETENIDO;
-  return EstadoImpuesto.SIN_FACTURA;
+export function flitoGestionaImpuesto(impuestosAutogestionable: boolean, modalidad: ModalidadOrganismo): boolean {
+  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
 }
 
 function nuevoResultado(): ResultadoSync {
   return {
     tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
-    impuestosCreados: 0, impuestosRetenidos: 0, impuestosNoAplica: 0, companiasFaltantes: 0,
+    impuestosCreados: 0, companiasFaltantes: 0,
     organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
   };
 }
@@ -272,24 +269,17 @@ async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, comp
   }
 
   const modalidad = await modalidadVigente(organismoCodigo);
-  let estado = decidirEstadoImpuesto(compania.impuestosAutogestionable, modalidad);
-  // La factura de venta de FLIT es la precondición: con factura, el impuesto está listo para enviar.
-  if (estado === EstadoImpuesto.SIN_FACTURA && tf.facturaVentaFlitId) estado = EstadoImpuesto.PENDIENTE;
+  // Autogestionado (compañía o organismo) → exento: no se crea registro (como el SOAT autogestionado).
+  if (!flitoGestionaImpuesto(compania.impuestosAutogestionable, modalidad)) return;
 
   const [impuesto] = await tx.insert(flitoImpuestos).values({
-    tramiteId, estado, organismoCodigo, companiaId: compania.id, modalidadAplicada: modalidad,
+    tramiteId, estado: EstadoImpuesto.PENDIENTE, organismoCodigo, companiaId: compania.id, modalidadAplicada: modalidad,
     valorLiquidado: numOrNull(tf.valorImpuestoLiquidado),
-    ...(tf.facturaVentaFlitId ? { extraccionFacturaVenta: null } : {}),
   }).returning();
-
-  if (estado === EstadoImpuesto.RETENIDO) r.impuestosRetenidos += 1;
-  else if (estado === EstadoImpuesto.NO_APLICA) r.impuestosNoAplica += 1;
-  else r.impuestosCreados += 1;
+  r.impuestosCreados += 1;
 
   await auditSistema(tx, {
     action: 'create', resource: 'flito_impuesto', resourceId: impuesto.id,
-    detail: estado === EstadoImpuesto.RETENIDO
-      ? `Impuesto RETENIDO: el organismo ${organismoCodigo} no tiene modalidad clasificada (trámite ${tf.idFlit}).`
-      : `Impuesto creado en "${estado}" (trámite ${tf.idFlit}, modalidad ${modalidad}).`,
+    detail: `Impuesto creado en "pendiente" (trámite ${tf.idFlit}, organismo ${organismoCodigo}).`,
   });
 }

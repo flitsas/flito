@@ -21,7 +21,7 @@ const TRAMITES = [
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' }],
     soat: { id: 's1', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     soatAutogestionado: false,
-    impuesto: { id: 'i1', estado: 'sin_factura', tieneFacturaVenta: false, valorPagado: null },
+    impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
     listoParaEntregar: false,
   },
   {
@@ -47,7 +47,7 @@ const TRAMITES = [
     compradores: [{ nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' }],
     soat: { id: 's3', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     soatAutogestionado: false,
-    impuesto: { id: 'i3', estado: 'sin_factura', tieneFacturaVenta: false, valorPagado: null },
+    impuesto: { id: 'i3', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
     listoParaEntregar: false,
   },
 ];
@@ -55,8 +55,17 @@ const TRAMITES = [
 async function mockLista(page: import('@playwright/test').Page) {
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
+  // Facetas para los dropdowns (endpoint sin query).
+  await page.route(/\/api\/flito\/tramites\/facetas/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      estados: ['Asignado'], tramites: ['Matricula', 'Traspaso'], ciudades: ['Manizales', 'Pereira', 'Armenia'],
+      transitos: ['STT Manizales', 'STT Pereira', 'STT Armenia'],
+    }) }));
+  // Listado paginado: { items, total, page, pageSize }.
   await page.route(/\/api\/flito\/tramites\?/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TRAMITES) }));
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      items: TRAMITES, total: TRAMITES.length, page: 1, pageSize: 50,
+    }) }));
 }
 
 test.describe('FLITO — Trámites unificado', () => {
@@ -71,9 +80,9 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     // Un trámite listo para entregar muestra su chip.
     await expect(page.getByText('Listo para entregar')).toBeVisible();
-    // Filtros de estado por grupo.
-    await expect(page.getByText('SOAT:')).toBeVisible();
-    await expect(page.getByText('Impuestos:')).toBeVisible();
+    // Filtros multiselect embebidos en el encabezado de columna (SOAT/Impuestos por estado).
+    await expect(page.getByRole('columnheader', { name: /SOAT/ }).getByText('Todos')).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Impuestos/ }).getByText('Todos')).toBeVisible();
   });
 
   test('seleccionar filas abre la barra de acciones y el diálogo de proveedor', async ({ page }) => {

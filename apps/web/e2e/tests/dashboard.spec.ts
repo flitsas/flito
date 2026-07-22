@@ -7,8 +7,6 @@ const RESUMEN_TABLERO = {
   soat: { pendiente: 3, pagado: 10 },
   impuestos: { pendiente: 2, pagado: 8 },
   revisionesPendientes: { soat: 1, impuestos: 2 },
-  organismosSinClasificar: 4,
-  tramitesRetenidos: 5,
   estancados: { soat: 1, impuestos: 0 },
   diferenciasDeValor: 3,
   compuertaHabilitados: 6,
@@ -36,8 +34,7 @@ test.describe('Dashboard', () => {
     // Acción de sincronización (solo para quien opera).
     await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toBeVisible();
     // KPIs del resumen.
-    await expect(page.getByText('Organismos sin clasificar')).toBeVisible();
-    await expect(page.getByText('Trámites retenidos')).toBeVisible();
+    await expect(page.getByText('Revisiones pendientes')).toBeVisible();
     await expect(page.getByText('Habilitados para entrega')).toBeVisible();
   });
 

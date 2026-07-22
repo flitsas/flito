@@ -18,7 +18,7 @@ import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.j
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** Lo único que ve un gestor de impuestos. Pendiente NO está: su trabajo arranca al recibir el envío. */
-const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO];
+const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
 
 const esGestor = (ctx: ImpuestoCtx) => ctx.role === 'gestor_impuestos';
 
@@ -60,7 +60,7 @@ export async function colaImpuestos(ctx: ImpuestoCtx, estados?: EstadoImpuesto[]
   if (esGestor(ctx)) {
     if (!ctx.transitoCodigo) return []; // sin organismo no hay frontera → nada
     conds.push(eq(flitoImpuestos.organismoCodigo, ctx.transitoCodigo));
-    const visibles = estados?.length ? estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.EN_GESTION];
+    const visibles = estados?.length ? estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
     if (visibles.length === 0) return [];
     conds.push(inArray(flitoImpuestos.estado, visibles));
   } else if (estados?.length) {
@@ -110,7 +110,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
 }
 
 function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoImpuesto.EN_GESTION || !slaHoras || !enviadoEn) return false;
+  if (estado !== EstadoImpuesto.SOLICITADO || !slaHoras || !enviadoEn) return false;
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
 }
 
@@ -184,9 +184,9 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];
-    await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.EN_GESTION, enviadoPorId: ctx.userId, enviadoEn: new Date(), updatedAt: new Date() })
+    await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: new Date(), updatedAt: new Date() })
       .where(inArray(flitoImpuestos.id, idsEnviados));
-    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, 'Envío al gestor (pendiente→en_gestion).');
+    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, 'Envío al gestor (pendiente→solicitado).');
     return idsEnviados;
   });
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
@@ -196,11 +196,11 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
 export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
-  if (imp.estado !== EstadoImpuesto.EN_GESTION) throw new ImpuestoError(400, 'Solo se puede rechazar un impuesto en gestión');
+  if (imp.estado !== EstadoImpuesto.SOLICITADO) throw new ImpuestoError(400, 'Solo se puede rechazar un impuesto en gestión');
   if (!motivo?.trim()) throw new ImpuestoError(400, 'El motivo del rechazo es obligatorio');
   return db.transaction(async (tx) => {
-    const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.RECHAZADO, motivoRechazo: motivo.trim(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
-    await auditEnTx(tx, ctx, id, `Rechazo (en_gestion→rechazado): ${motivo.trim()}`);
+    const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
+    await auditEnTx(tx, ctx, id, `Rechazo (solicitado→con_novedad): ${motivo.trim()}`);
     return u;
   });
 }
@@ -209,7 +209,7 @@ export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Pr
 export async function reactivar(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
   const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
-  if (imp.estado !== EstadoImpuesto.RECHAZADO) throw new ImpuestoError(400, `Solo un impuesto rechazado vuelve a Pendiente. Este está en "${ESTADO_IMPUESTO_LABEL[imp.estado as EstadoImpuesto]}".`);
+  if (imp.estado !== EstadoImpuesto.CON_NOVEDAD) throw new ImpuestoError(400, `Solo un impuesto rechazado vuelve a Pendiente. Este está en "${ESTADO_IMPUESTO_LABEL[imp.estado as EstadoImpuesto]}".`);
   if (!motivo?.trim()) throw new ImpuestoError(400, 'El motivo de la corrección es obligatorio');
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();

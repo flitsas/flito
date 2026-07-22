@@ -80,21 +80,18 @@ describe('solicitarSoat — deduplica por SOAT (RN-01) y clasifica', () => {
 // ───────────────────────────── solicitarImpuestos — clasificación ───────────
 
 describe('solicitarImpuestos — solo los Pendientes van al gestor; el resto se reporta', () => {
-  it('clasifica por estado del impuesto', async () => {
+  it('solo Pendiente es enviable; el resto (ya solicitado/pagado/exento) es no enviable', async () => {
     selectMock.mockReturnValueOnce(chain([
       { tramiteId: 't1', idFlit: 'F1', placa: 'AAA111', impuestoId: 'i1', impuestoEstado: EstadoImpuesto.PENDIENTE },
-      { tramiteId: 't2', idFlit: 'F2', placa: 'BBB222', impuestoId: 'i2', impuestoEstado: EstadoImpuesto.SIN_FACTURA },
-      { tramiteId: 't3', idFlit: 'F3', placa: 'CCC333', impuestoId: 'i3', impuestoEstado: EstadoImpuesto.RETENIDO },
-      { tramiteId: 't4', idFlit: 'F4', placa: 'DDD444', impuestoId: 'i4', impuestoEstado: EstadoImpuesto.NO_APLICA },
-      { tramiteId: 't5', idFlit: 'F5', placa: 'EEE555', impuestoId: null, impuestoEstado: null },
+      { tramiteId: 't2', idFlit: 'F2', placa: 'BBB222', impuestoId: 'i2', impuestoEstado: EstadoImpuesto.SOLICITADO },
+      { tramiteId: 't3', idFlit: 'F3', placa: 'CCC333', impuestoId: 'i3', impuestoEstado: EstadoImpuesto.PAGADO },
+      { tramiteId: 't4', idFlit: 'F4', placa: 'DDD444', impuestoId: null, impuestoEstado: null }, // exento: sin registro
     ]));
     enviarImpuestosMock.mockResolvedValueOnce({ enviados: ['i1'], yaEnviados: [] });
-    const r = await solicitarImpuestos(['t1', 't2', 't3', 't4', 't5'], ctx);
+    const r = await solicitarImpuestos(['t1', 't2', 't3', 't4'], ctx);
     expect(enviarImpuestosMock.mock.calls[0][0]).toEqual(['i1']);
     expect(r.enviados).toBe(1);
-    expect(r.requierenFactura).toHaveLength(1);
-    expect(r.retenidos).toHaveLength(1);
-    expect(r.noAplica).toBe(1);
+    expect(r.noEnviables).toBe(3);
   });
 });
 
@@ -122,25 +119,26 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       tramiteId: 't1', idFlit: 'F1', estadoTramite: 'asignado', placa: 'QTQ100', companiaNombre: 'ACME',
       soatAutogestionable: true, impuestosAutogestionable: false,
       soatEstado: null, soatValorPagado: null, soatExtraccion: null,
-      impuestoEstado: 'no_aplica', impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
+      impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
       sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: 'Tránsito X', organismoCodigo: '11001',
       vin: 'VIN123', marca: 'Renault', linea: 'Logan', tipoVehiculo: 'automovil',
       soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null, soatMotivoRechazo: null,
-      impuestoId: 'i1', impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
+      impuestoId: null, impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
       impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoMotivoRechazo: null,
     };
     selectMock
-      .mockReturnValueOnce(chain([fila]))  // proyeccion
+      .mockReturnValueOnce(chain([{ total: 1 }]))  // count (paginación)
+      .mockReturnValueOnce(chain([fila]))  // proyeccion (página)
       .mockReturnValueOnce(chain([         // compradores
         { tramiteId: 't1', nombreCompleto: 'B', numeroDocumento: '2', correo: null, celular: null, direccion: null, orden: 1, porcentajeParticipacion: null },
         { tramiteId: 't1', nombreCompleto: 'A', numeroDocumento: '1', correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null },
       ]));
-    const [f] = await listar();
+    const { items: [f] } = await listar();
     expect(f.organismoNombre).toBe('Tránsito X');
     expect(f.vehiculo).toMatchObject({ marca: 'Renault', linea: 'Logan' });
     expect(f.compradorPrincipal?.numeroDocumento).toBe('1'); // orden 0 primero
     expect(f.soatAutogestionado).toBe(true);
-    // compañía autogestiona SOAT + impuesto no_aplica + asignado ⇒ listo para entregar (decidir real)
+    // compañía autogestiona SOAT + impuesto exento (sin registro) + asignado ⇒ listo para entregar
     expect(f.listoParaEntregar).toBe(true);
   });
 });
