@@ -36,7 +36,7 @@ const dbMock = (await import('../../src/db/client.js')).db as unknown as {
   insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
 };
 
-const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+const ctx = { userId: 1, username: 'op', role: 'admin' };
 
 beforeEach(() => {
   selectMock.mockReset();
@@ -170,7 +170,7 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
   });
 
   it('Operaciones con body inválido → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/tramites/entregar')
       .set('Authorization', `Bearer ${token}`).send({ tramiteIds: [] });
     expect(res.status).toBe(400);
@@ -184,7 +184,7 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
   });
 
   it('POST /crear-empresa con body inválido (sin nombre) → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/tramites/crear-empresa')
       .set('Authorization', `Bearer ${token}`).send({ nit: '900123' });
     expect(res.status).toBe(400);
@@ -196,7 +196,7 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
       .mockReturnValueOnce(chain([{ id: 't1' }, { id: 't2' }])); // trámites pendientes de ese NIT
     dbMock.insert.mockReturnValue(chain([{ id: 99 }])); // clients.returning + historial
     dbMock.update.mockReturnValue(chain([]));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/tramites/crear-empresa')
       .set('Authorization', `Bearer ${token}`).send({ nombre: 'ACME SAS', nit: '900123' });
     expect(res.status).toBe(200);

@@ -9,8 +9,8 @@ import { entregar, evaluar, listar, CompuertaError, type CompuertaCtx } from './
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin', 'operaciones');
-const LECTURA = requireRole('admin', 'operaciones', 'auditor');
+const OPERACIONES = requireRole('admin');
+const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): CompuertaCtx {
   return { userId: user.sub, username: user.username, role: user.role };

@@ -2,15 +2,13 @@
 // y las ataduras de visibilidad del gestor. Ver docs/MIGRACION_FLITO_A_OPERACIONES.md §9.
 //
 // Decisión de migración (D-1/D-2):
-//   OPERACIONES       → rol nuevo `operaciones`
+//   OPERACIONES       → ES el admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`)
 //   GESTOR_SOAT       → rol existente `proveedor`  (ya filtrado en SOAT)
 //   GESTOR_IMPUESTOS  → rol nuevo `gestor_impuestos`
 //   AUDITORIA         → rol existente `auditor`    (+ páginas FLITO de solo lectura)
 
 import type { UserRole } from './permissions.js';
 
-/** Rol de operaciones FLITO (superusuario funcional del dominio FLITO, NO admin global). */
-export const FLITO_OPERACIONES_ROLE = 'operaciones' as const satisfies UserRole;
 /** Gestor SOAT = proveedor. Atado a un proveedor SOAT (users.proveedor_soat_id). */
 export const FLITO_GESTOR_SOAT_ROLE = 'proveedor' as const satisfies UserRole;
 /** Gestor de Impuestos. Atado a un organismo de tránsito (users.organismo_id). */

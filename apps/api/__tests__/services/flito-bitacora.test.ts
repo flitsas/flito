@@ -30,7 +30,7 @@ const fila = (over: Record<string, unknown> = {}) => ({
 describe('GET / — registros del dominio FLITO', () => {
   it('mapea userEmail→actorNombre y devuelve los items', async () => {
     selectMock.mockReturnValue(chain([fila()]));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/bitacora').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body[0]).toMatchObject({ resource: 'flito_soat', resourceId: 's1', action: 'update', actorNombre: 'op@flitsas.io', actorId: 7, detalle: 'algo' });
@@ -52,14 +52,14 @@ describe('GET / — registros del dominio FLITO', () => {
 
 describe('GET /:resource/:resourceId — historia de una entidad', () => {
   it('recurso desconocido → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/bitacora/otra_cosa/x').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(400);
   });
 
   it('recurso FLITO válido → 200 con historia', async () => {
     selectMock.mockReturnValue(chain([fila({ resource: 'flito_tramite', resourceId: 't1' })]));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/bitacora/flito_tramite/t1').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body[0].resource).toBe('flito_tramite');

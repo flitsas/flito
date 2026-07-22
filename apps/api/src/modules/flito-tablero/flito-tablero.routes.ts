@@ -8,7 +8,7 @@ import { resumen } from './flito-tablero.service.js';
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'operaciones', 'auditor');
+const LECTURA = requireRole('admin', 'auditor');
 
 // GET / — resumen de indicadores.
 router.get('/', LECTURA, async (_req: Request, res: Response) => {

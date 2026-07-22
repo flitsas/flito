@@ -83,7 +83,8 @@ async function main(): Promise<void> {
   // ── Usuarios (roles del grande: operaciones/proveedor/gestor_impuestos/auditor) ─
   const hash = await argon2.hash(CONTRASENA_DEMO);
   await db.insert(users).values([
-    { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'operaciones' },
+    // El operador FLITO ES admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
+    { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'admin' },
     // Dos gestores del MISMO proveedor: permite demostrar CA-04 (toma atómica de la misma cola).
     { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
     { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },

@@ -23,7 +23,7 @@ function hoyYyyymmdd(): string {
 }
 
 // Dispara una sincronización desde `initialDate` (elegida por el usuario) hasta hoy. Solo admin/operaciones.
-router.post('/sincronizar', requireRole('admin', 'operaciones'), async (req: Request, res: Response) => {
+router.post('/sincronizar', requireRole('admin'), async (req: Request, res: Response) => {
   const initialDate = aYyyymmdd(req.body?.initialDate);
   if (!initialDate) { res.status(400).json({ error: 'initialDate es requerida (YYYY-MM-DD)' }); return; }
   const finalDate = hoyYyyymmdd();

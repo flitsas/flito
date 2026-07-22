@@ -38,7 +38,7 @@ describe('GET /:id/factura-venta — ver/descargar (redirect a S3 prefirmado)', 
   it('con factura válida → 302 a la URL prefirmada', async () => {
     mockAcceso('fac-123');
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-123.pdf?sig=abc');
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/impuestos/i1/factura-venta').set('Authorization', `Bearer ${token}`).redirects(0);
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('https://flit-bucket.s3/fac-123.pdf?sig=abc');
@@ -46,7 +46,7 @@ describe('GET /:id/factura-venta — ver/descargar (redirect a S3 prefirmado)', 
 
   it('trámite sin factura de venta en FLIT → 404', async () => {
     mockAcceso(null);
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/impuestos/i1/factura-venta').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(404);
     expect(obtenerUrlFacturaMock).not.toHaveBeenCalled();
@@ -55,7 +55,7 @@ describe('GET /:id/factura-venta — ver/descargar (redirect a S3 prefirmado)', 
   it('factura no disponible en FLIT (presigned null) → 404', async () => {
     mockAcceso('fac-123');
     obtenerUrlFacturaMock.mockResolvedValue(null);
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/impuestos/i1/factura-venta').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(404);
   });
@@ -69,7 +69,7 @@ describe('GET /:id/factura-venta — ver/descargar (redirect a S3 prefirmado)', 
 
 describe('POST /facturas-venta/zip — descarga varias en un zip', () => {
   it('body inválido (ids vacío) → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/impuestos/facturas-venta/zip').set('Authorization', `Bearer ${token}`).send({ ids: [] });
     expect(res.status).toBe(400);
   });
@@ -78,7 +78,7 @@ describe('POST /facturas-venta/zip — descarga varias en un zip', () => {
     mockAcceso('fac-1');
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1.pdf');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: () => Promise.resolve(new TextEncoder().encode('%PDF fake').buffer) }));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/impuestos/facturas-venta/zip').set('Authorization', `Bearer ${token}`)
       .send({ ids: ['00000000-0000-0000-0000-000000000001'] });
     expect(res.status).toBe(200);

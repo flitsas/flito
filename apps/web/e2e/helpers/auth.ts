@@ -16,14 +16,14 @@ export const PROVEEDOR_USER = {
   allowedPages: ['vehicles', 'soat'],
 };
 
-// FLITO — Operaciones: superusuario funcional del dominio (mutaciones). Sus páginas
-// derivan de ROLE_DEFAULT_PAGES.operaciones; no hace falta allowedPages.
+// FLITO — el operador del dominio ES admin (despliegue FLITO-only; el rol `operaciones` se
+// fusionó en `admin`). Se conserva el nombre OPERACIONES_USER para no tocar los specs.
 export const OPERACIONES_USER = {
   id: 7,
   username: 'e2e_operaciones',
   name: 'Operaciones E2E',
-  role: 'operaciones' as const,
-  allowedPages: [] as string[],
+  role: 'admin' as const,
+  allowedPages: ['*'],
 };
 
 // FLITO — Auditoría: mismas vistas FLITO pero solo lectura.

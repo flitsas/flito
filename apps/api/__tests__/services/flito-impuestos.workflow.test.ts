@@ -68,7 +68,7 @@ describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
 
 describe('flito-impuestos — envío atómico y estados', () => {
   it('enviar con ids vacío → 400', async () => {
-    const r = await request(await buildApp()).post('/api/flito/impuestos/enviar').set('Authorization', await auth('operaciones')).send({ ids: [] });
+    const r = await request(await buildApp()).post('/api/flito/impuestos/enviar').set('Authorization', await auth('admin')).send({ ids: [] });
     expect(r.status).toBe(400);
   });
 
@@ -78,7 +78,7 @@ describe('flito-impuestos — envío atómico y estados', () => {
     const txInsert = vi.fn().mockReturnValue(chain([])); // audit
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ select: txSelect, update: txUpdate, insert: txInsert }));
 
-    const r = await request(await buildApp()).post('/api/flito/impuestos/enviar').set('Authorization', await auth('operaciones')).send({ ids: [UUID] });
+    const r = await request(await buildApp()).post('/api/flito/impuestos/enviar').set('Authorization', await auth('admin')).send({ ids: [UUID] });
     expect(r.status).toBe(200);
     expect(r.body.enviados).toEqual([UUID]);
     expect(txUpdate).toHaveBeenCalledTimes(1);
@@ -86,12 +86,12 @@ describe('flito-impuestos — envío atómico y estados', () => {
 
   it('rechazar un impuesto que no está En gestión → 400', async () => {
     selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'pendiente' }, autogestion: false }])); // buscarConAcceso
-    const r = await request(await buildApp()).post(`/api/flito/impuestos/${UUID}/rechazar`).set('Authorization', await auth('operaciones')).send({ motivo: 'no procede' });
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${UUID}/rechazar`).set('Authorization', await auth('admin')).send({ motivo: 'no procede' });
     expect(r.status).toBe(400);
   });
 
   it('reversar con motivo < 5 → 400', async () => {
-    const r = await request(await buildApp()).post(`/api/flito/impuestos/${UUID}/reversar`).set('Authorization', await auth('operaciones')).send({ estadoDestino: 'pendiente', motivo: 'x' });
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${UUID}/reversar`).set('Authorization', await auth('admin')).send({ estadoDestino: 'pendiente', motivo: 'x' });
     expect(r.status).toBe(400);
   });
 });

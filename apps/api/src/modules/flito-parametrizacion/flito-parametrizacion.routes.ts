@@ -30,8 +30,8 @@ const router = Router();
 router.use(authMiddleware);
 
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
-const LECTURA = requireRole('admin', 'operaciones', 'auditor');
-const ESCRITURA = requireRole('admin', 'operaciones');
+const LECTURA = requireRole('admin', 'auditor');
+const ESCRITURA = requireRole('admin');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 

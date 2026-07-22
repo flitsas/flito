@@ -24,9 +24,9 @@ import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin', 'operaciones');
-const LECTURA = requireRole('admin', 'operaciones', 'gestor_impuestos', 'auditor');
-const OPS_O_GESTOR = requireRole('admin', 'operaciones', 'gestor_impuestos');
+const OPERACIONES = requireRole('admin');
+const LECTURA = requireRole('admin', 'gestor_impuestos', 'auditor');
+const OPS_O_GESTOR = requireRole('admin', 'gestor_impuestos');
 const ESTADOS = ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
