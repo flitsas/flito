@@ -1,7 +1,7 @@
 // HUM-05 / TRAM-MT-02 — E2E Organismos STT (admin).
 // API mockeada; no requiere BD ni rol real en CI.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { jsonRoute } from '../helpers/pesv-fixtures';
 

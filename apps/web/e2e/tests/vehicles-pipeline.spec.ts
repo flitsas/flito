@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 // SPRINT-CONSOLIDACION-JUN-2026 #2 — Pipeline «Progreso global» (#140).

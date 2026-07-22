@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,

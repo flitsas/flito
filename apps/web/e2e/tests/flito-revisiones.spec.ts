@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Revisiones OCR (Fase 6). Cola resoluble campo por campo (RN-04/RN-05): nada se da por

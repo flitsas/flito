@@ -16,7 +16,7 @@
 // Cuando el backend gane versioning per-item, el test sigue siendo válido
 // porque el frontend ya muestra el ConflictDialog ante cualquier 409 del PATCH.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   LIDER_PESV_USER, LIDER_PESV_ALT_USER, loginAsUser, stubPesvSiblings,
   buildDiagDetail, build24Items, jsonRoute, type NivelRubrica,

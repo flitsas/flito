@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 // Cubre Sprint Compliance S6 — auditorías + hallazgos + comunicaciones + contratistas.
@@ -40,7 +40,9 @@ test.describe('PESV Auditorías (S6 Paso 22)', () => {
   });
 
   test('detalle auditoría carga hallazgos', async ({ page }) => {
-    await page.route('**/api/pesv/auditorias?**', (route) =>
+    // Glob sin `?` obligatorio: la carga de la página pide /api/pesv/auditorias sin query.
+    // (El route de /auditorias/1 se registra después y gana para esa ruta por precedencia.)
+    await page.route('**/api/pesv/auditorias**', (route) =>
       route.fulfill({ status: 200, contentType: 'application/json',
         body: JSON.stringify({ data: [{ id: 1, anio: 2026, tipo: 'interna', alcance: 'X', fechaPlanificada: '2026-12-15', estado: 'en_curso', evidenciaKeys: [] }] }),
       })

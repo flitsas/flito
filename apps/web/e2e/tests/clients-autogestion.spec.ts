@@ -1,7 +1,7 @@
 // Clientes (/clients) — una sola tabla: info de empresa + checkboxes de autogestión FLITO
 // (SOAT/Impuestos/Logística) inline. Un cliente ES una compañía FLITO (§correcciones-UX).
 // Solo Operaciones/admin lo ven; backend mockeado.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 
 const CLIENTES = [

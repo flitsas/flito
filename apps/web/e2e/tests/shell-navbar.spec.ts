@@ -1,7 +1,7 @@
 // Shell sin sidebar — FlitNavBar horizontal (decisión PO 2026-06-12).
 // Cubre: visibilidad en desktop, dropdown disclosure (abrir/navegar/Esc),
 // filtrado por permisos y drawer mobile como única nav en <lg.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
 
 // El home (/) renderiza <FlitoTablero>, que consume /flito/tablero como OBJETO (no lista).

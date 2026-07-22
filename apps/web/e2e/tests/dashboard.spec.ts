@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
 
 // Home de operadores/admin: Dashboard.tsx short-circuita a <FlitoTablero> cuando puedeOperar(role)

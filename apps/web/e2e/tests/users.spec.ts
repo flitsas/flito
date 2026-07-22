@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
 
 // USR-8: E2E del módulo Usuarios. Verifica el cierre del Sprint USR:

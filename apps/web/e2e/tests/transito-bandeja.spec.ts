@@ -8,7 +8,7 @@
 //
 // API mockeada con page.route (estado mutable), patrón de los specs PESV.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs } from '../helpers/auth';
 import { jsonRoute } from '../helpers/pesv-fixtures';
 

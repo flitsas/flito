@@ -4,7 +4,7 @@
 // tarjeta de la Lista resume el wizard (continuarTramite → GET /tramites/:id).
 // Patrón de mocks idéntico a tramite-wizard.spec (catch-all + rutas específicas).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { jsonRoute } from '../helpers/pesv-fixtures';
 
