@@ -6,10 +6,10 @@
 // solo se resuelven para trámites 'Asignado' con compañía y secretaría ya emparejadas. Cada diferencia
 // detectada deja historial (origen 'api'). Idempotente; cada trámite en su propia transacción.
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  auditLogs, flitoCompradores, flitoImpuestos, flitoSoat, flitoTramiteHistorial, flitoTramites, vehicles,
+  auditLogs, flitoCompradores, flitoImpuestos, flitoSoat, flitoTramiteHistorial, flitoTramites, systemKv, vehicles,
 } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
@@ -84,6 +84,29 @@ export async function sincronizar(rango: RangoSync, flit: FlitPort = getFlitAdap
 
   log.info({ ...r, ms: Date.now() - inicio }, 'sincronización FLIT');
   return r;
+}
+
+// ── Estado de sincronización (persistido en system_kv) ───────────────────────
+// Guarda cuándo se sincronizó por última vez para (a) mostrar "última actualización" y (b) usar esa
+// fecha como initialDate del próximo sync (incremental): traer solo lo aparecido/cambiado desde entonces.
+const KV_ULTIMA_SYNC = 'flito.ultima_sincronizacion';
+
+/** ISO del último sync exitoso, o null si nunca se sincronizó. */
+export async function leerUltimaSincronizacion(): Promise<string | null> {
+  const [row] = await db.select({ v: systemKv.v }).from(systemKv).where(eq(systemKv.k, KV_ULTIMA_SYNC)).limit(1);
+  const at = (row?.v as { at?: string } | undefined)?.at;
+  return typeof at === 'string' ? at : null;
+}
+
+export async function guardarUltimaSincronizacion(atIso: string): Promise<void> {
+  await db.insert(systemKv).values({ k: KV_ULTIMA_SYNC, v: { at: atIso } })
+    .onConflictDoUpdate({ target: systemKv.k, set: { v: { at: atIso }, updatedAt: new Date() } });
+}
+
+/** ¿Ya hay trámites FLITO en local? (para saber si es la primera sincronización). */
+export async function hayTramites(): Promise<boolean> {
+  const [row] = await db.select({ n: sql<number>`count(*)` }).from(flitoTramites).limit(1);
+  return Number(row?.n ?? 0) > 0;
 }
 
 async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promise<void> {
