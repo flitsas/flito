@@ -15,6 +15,8 @@ export const FLITO_GESTOR_SOAT_ROLE = 'proveedor' as const satisfies UserRole;
 export const FLITO_GESTOR_IMPUESTOS_ROLE = 'gestor_impuestos' as const satisfies UserRole;
 /** Auditoría FLITO = auditor (revisor fiscal), solo lectura. */
 export const FLITO_AUDITORIA_ROLE = 'auditor' as const satisfies UserRole;
+/** Mensajero de Logística. Atado a su ruta/actas (users.id = actas.mensajero_id) — CA-11. */
+export const FLITO_MENSAJERO_ROLE = 'mensajero' as const satisfies UserRole;
 
 /**
  * Un gestor solo ve lo suyo: el gestor SOAT (`proveedor`) está atado a un proveedor

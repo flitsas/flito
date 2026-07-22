@@ -35,6 +35,15 @@ export const AUDITOR_USER = {
   allowedPages: [] as string[],
 };
 
+// FLITO Logística — Mensajero (PWA de campo, Fase 2). Se define ya para los specs de rol.
+export const MENSAJERO_USER = {
+  id: 9,
+  username: 'e2e_mensajero',
+  name: 'Mensajero E2E',
+  role: 'mensajero' as const,
+  allowedPages: ['dashboard', 'flito_logistica'],
+};
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>

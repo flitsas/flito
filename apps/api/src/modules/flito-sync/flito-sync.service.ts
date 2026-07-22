@@ -20,6 +20,7 @@ import {
   companiaPorNit, modalidadVigente, organismoPorCodigo, resolverProveedor,
   type CompaniaRow,
 } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import { registrarDocumentosDesdeFlit } from '../flito-logistica/flito-logistica.service.js';
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores } from './mapeo-compradores.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
@@ -32,6 +33,8 @@ type DbOrTx = typeof db | Tx;
 const ACTOR_SISTEMA = 'sistema';
 const numOrNull = (v: number | null): string | null => (v === null ? null : String(v));
 export const esAsignado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'asignado';
+/** Logística arranca cuando el trámite está aprobado y el organismo emitió los documentos (§8). */
+export const esAprobado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'aprobado';
 
 /** Mapea el estado crudo de FLIT al enum interno FLITO cuando aplica; null si no tiene equivalente. */
 export function estadoEnumDesdeFlit(estadoFlit: string): EstadoTramiteFlito | null {
@@ -60,7 +63,7 @@ export function flitoGestionaImpuesto(impuestosAutogestionable: boolean, modalid
 function nuevoResultado(): ResultadoSync {
   return {
     tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
-    impuestosCreados: 0, companiasFaltantes: 0,
+    impuestosCreados: 0, documentosLogisticaCreados: 0, companiasFaltantes: 0,
     organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
   };
 }
@@ -131,6 +134,17 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   if (esAsignado(tf.estadoFlit) && compania && organismo) {
     await resolverSoat(tx, tf, tramiteId, soatId, vehiculoId, compania, organismo.codigo, r);
     await resolverImpuesto(tx, tf, tramiteId, compania, organismo.codigo, r);
+  }
+
+  // Logística (Fase 1): al aprobar el trámite, si FLIT reporta los documentos emitidos y el organismo
+  // está emparejado (el documento congela su código, NOT NULL), se dan de alta en 'generado'. Si FLIT
+  // no reporta la emisión, no se crea nada (diseño defensivo, Q2). RN-05 se valida en el servicio.
+  if (esAprobado(tf.estadoFlit) && tf.documentosGenerados?.length && organismo) {
+    r.documentosLogisticaCreados += await registrarDocumentosDesdeFlit(tx, {
+      tramiteId, organismoCodigo: organismo.codigo, companiaId: compania?.id ?? null,
+      companiaNit: tf.companiaNit, vehiculoId, logisticaAutogestionable: compania?.logisticaAutogestionable ?? false,
+      documentos: tf.documentosGenerados,
+    });
   }
 }
 

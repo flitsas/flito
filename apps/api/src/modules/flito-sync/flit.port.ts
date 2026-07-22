@@ -5,6 +5,8 @@
 // flito_mock_tramite para demo/tests. La sincronización solo pide "dame el reporte de este rango";
 // cómo lo consigue el adaptador no es asunto suyo. Ver docs/integracion/integracionFlit.md.
 
+import type { TipoDocumentoLogistica } from '@operaciones/shared-types';
+
 export interface CompradorFlit {
   nombreCompleto: string;
   numeroDocumento: string;
@@ -12,6 +14,17 @@ export interface CompradorFlit {
   celular: string | null;
   direccion: string | null;
   porcentajeParticipacion?: number | null;
+}
+
+/**
+ * Documento físico (LT/placa) que el organismo emitió para un trámite aprobado. Logística Fase 1:
+ * el sync los da de alta en 'generado'. DEPENDENCIA: el reporte real de FLIT debe exponer esta
+ * emisión; hoy el adaptador http la deja indefinida (defensivo: sin dato, no se crea nada).
+ */
+export interface DocumentoFlit {
+  tipo: TipoDocumentoLogistica;
+  identificador?: string | null;
+  raw?: unknown;
 }
 
 /**
@@ -38,6 +51,11 @@ export interface TramiteFlit {
   tipoPropiedad: string;
   compradores: CompradorFlit[];
   valorImpuestoLiquidado: number | null;
+  /**
+   * Documentos físicos emitidos por el organismo (Logística). Presente solo cuando FLIT reporta la
+   * emisión; ausente/indefinido → el sync no da de alta documentos (diseño defensivo, Q2).
+   */
+  documentosGenerados?: DocumentoFlit[];
   /** Payload crudo completo, para trazabilidad (flit_raw). */
   raw: unknown;
   // Solo mock (el reporte real no los trae):
@@ -75,6 +93,8 @@ export interface ResultadoSync {
   soatCreados: number;
   soatBloqueadosPorVin: number;
   impuestosCreados: number;
+  /** Documentos de logística creados al aprobar el trámite (Fase 1). */
+  documentosLogisticaCreados: number;
   companiasFaltantes: number;
   organismosSinEmparejar: number;
   ejecutadoEn: string;

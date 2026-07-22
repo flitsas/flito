@@ -124,8 +124,8 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const shared = await import('@operaciones/shared-types');
     const valid = new Set<string>(shared.USER_ROLES);
     for (const r of shared.ALL_ROLES) expect(valid.has(r)).toBe(true);
-    // 8 roles base + `gestor_impuestos` de FLITO. El antiguo `operaciones` se fusionó en `admin`.
-    expect(shared.USER_ROLES).toHaveLength(9);
+    // 8 roles base + `gestor_impuestos` + `mensajero` de FLITO. El antiguo `operaciones` se fusionó en `admin`.
+    expect(shared.USER_ROLES).toHaveLength(10);
     expect(shared.ALL_ROLES).toContain('auditor');
     expect(shared.ALL_ROLES).not.toContain('operaciones');
     expect(shared.ALL_ROLES).toContain('gestor_impuestos');
@@ -158,7 +158,7 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const pages = getEffectivePages({ role: 'auditor' }).sort();
     expect(pages).toEqual([
       'dashboard', 'laft_audit_plan', 'laft_dashboard', 'laft_manual', 'laft_oficial',
-      'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora',
+      'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
     ].sort());
   });
 
