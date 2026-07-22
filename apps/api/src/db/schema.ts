@@ -2682,6 +2682,16 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   actaIdx: index('idx_flito_log_doc_acta').on(t.actaId),
 }));
 
+// Idempotencia de las escrituras de campo (RN-06/CA-06): la PWA del mensajero encola escrituras
+// offline con una clave propia; un reenvío con la misma clave devuelve la respuesta ya guardada en
+// vez de re-ejecutar, así una sincronización repetida no duplica recogidas/entregas.
+export const flitoLogisticaIdempotencia = pgTable('flito_logistica_idempotencia', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  status: integer('status').notNull(),
+  response: jsonb('response').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Bitácora de transición por documento: sostiene CA-07 (actor, hora, ubicación de cada transición),
 // RN-04 (motivo) y RN-07 (lat/lng solo en recogida/entrega). Más natural que un diff campo-a-campo.
 export const flitoLogisticaEventos = pgTable('flito_logistica_documento_eventos', {

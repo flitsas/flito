@@ -46,6 +46,35 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
     expect(body).toMatchObject({ documentoIds: ['doc-1'] });
   });
 
+  test('offline: encola la recogida y la sincroniza (idempotente) al reconectar', async ({ page, context }) => {
+    await loginAs(page, MENSAJERO_USER);
+    await page.route(/\/api\/flito\/logistica\/mi-ruta/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RUTA) }));
+    let sent: unknown = null;
+    let idemKey: string | undefined;
+    await page.route(/\/api\/flito\/logistica\/recoger$/, async (route) => {
+      sent = route.request().postDataJSON();
+      idemKey = route.request().headers()['idempotency-key'];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recogidos: 1, clasificados: 1, omitidos: 0 }) });
+    });
+
+    await page.goto('/flito/ruta');
+    await expect(page.getByText('STT Medellín')).toBeVisible();
+
+    // Sin señal: la recogida se encola, no se envía.
+    await context.setOffline(true);
+    await page.getByRole('checkbox').first().check();
+    await page.getByRole('button', { name: /Confirmar recogida/ }).click();
+    await expect(page.getByText(/sin sincronizar/)).toBeVisible(); // cola visible (CA-15)
+    expect(sent).toBeNull();
+
+    // Al recuperar señal, la cola se vacía sola y envía con clave de idempotencia (RN-06).
+    await context.setOffline(false);
+    await expect.poll(() => sent).not.toBeNull();
+    expect(sent).toMatchObject({ documentoIds: ['doc-1'] });
+    expect(idemKey).toBeTruthy();
+  });
+
   test('registrar entrega envía nombre y documento del receptor', async ({ page }) => {
     await loginAs(page, MENSAJERO_USER);
     await page.route(/\/api\/flito\/logistica\/mi-ruta/, (route) =>

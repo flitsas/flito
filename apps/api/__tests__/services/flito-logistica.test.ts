@@ -224,4 +224,15 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
     const res = await request(app).get('/api/flito/logistica/mi-ruta').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(403);
   });
+
+  it('idempotencia (RN-06): un reenvío con la misma clave devuelve la respuesta guardada sin re-ejecutar', async () => {
+    // buscarIdempotencia encuentra la respuesta previa → se devuelve tal cual, sin tocar recoger().
+    selectMock.mockReturnValueOnce(chain([{ status: 200, response: { recogidos: 2, clasificados: 2, omitidos: 0 } }]));
+    const token = await testToken({ role: 'mensajero' });
+    const res = await request(app).post('/api/flito/logistica/recoger')
+      .set('Authorization', `Bearer ${token}`).set('Idempotency-Key', 'k-repetida')
+      .send({ documentoIds: ['00000000-0000-0000-0000-000000000001'] });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ recogidos: 2, clasificados: 2 });
+  });
 });

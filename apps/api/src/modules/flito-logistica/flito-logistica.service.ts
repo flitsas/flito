@@ -15,8 +15,8 @@ import {
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoProveedoresLogistica,
-  flitoTramites, organismosTransitoConfig, users, vehicles,
+  clients, flitoLogisticaActas, flitoLogisticaDocumentos, flitoLogisticaEventos, flitoLogisticaIdempotencia,
+  flitoProveedoresLogistica, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { presignedGetEntityDocument, uploadEntityDocument } from '../../services/storage.js';
@@ -642,6 +642,20 @@ export async function urlActaPdf(actaId: string): Promise<string> {
   if (!a) throw new LogisticaError('Acta no encontrada', 404);
   const key = a.key ?? await generarActaPdf(actaId);
   return presignedGetEntityDocument(key, 300);
+}
+
+// ── Idempotencia de escrituras offline (RN-06/CA-06) ─────────────────────────
+
+/** Respuesta ya emitida para una clave de idempotencia, o null si es la primera vez. */
+export async function buscarIdempotencia(key: string): Promise<{ status: number; body: unknown } | null> {
+  const [row] = await db.select({ status: flitoLogisticaIdempotencia.status, response: flitoLogisticaIdempotencia.response })
+    .from(flitoLogisticaIdempotencia).where(eq(flitoLogisticaIdempotencia.idempotencyKey, key)).limit(1);
+  return row ? { status: row.status, body: row.response } : null;
+}
+
+/** Guarda la respuesta de una escritura para deduplicar reenvíos. No pisa si ya existe. */
+export async function guardarIdempotencia(key: string, status: number, body: unknown): Promise<void> {
+  await db.insert(flitoLogisticaIdempotencia).values({ idempotencyKey: key, status, response: body }).onConflictDoNothing();
 }
 
 export { ESTADO_ACTA_LOGISTICA_LABEL };

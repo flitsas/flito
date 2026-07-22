@@ -1,11 +1,12 @@
 // FLITO Logística — Mi ruta (mensajero). PWA de campo, Fase 2. Vista mobile-first: recogidas por
-// organismo y entregas de sus actas despachadas. Incremento 2 (online): verificación por checklist y
-// registro de entrega/novedad. El escaneo de códigos, la firma y la operación offline se añaden en
-// los incrementos siguientes. CA-11: el backend ya acota /mi-ruta a las actas del propio mensajero.
+// organismo y entregas de sus actas despachadas. Las escrituras pasan por la cola offline (Inc 3):
+// con señal se envían directo; sin señal se encolan y se reenvían al reconectar (RN-06/CA-06), con la
+// cola de pendientes visible (CA-15). El escaneo de códigos y la firma llegan en el Incremento 4.
 
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { flitInp } from '../components/flit/flitPageKit';
+import { submitCampo, usePendingQueue } from '../lib/offlineQueue';
 
 interface RutaDocumento { id: string; tipo: string; tipoLabel: string; placa: string | null; idFlit: string }
 interface RutaRecogida { organismoCodigo: string; organismoNombre: string | null; documentos: RutaDocumento[] }
@@ -16,28 +17,33 @@ const btn = 'w-full rounded-xl px-4 py-3 text-sm font-semibold text-white active
 const btnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
 const btnGhost = 'rounded-lg px-3 py-2 text-sm font-semibold active:opacity-70';
 
+/** Envía una escritura de campo por la cola offline. */
+type Enviar = (path: string, body: unknown, label: string, ok: string) => void;
+
 export default function FlitoRuta() {
   const [ruta, setRuta] = useState<MiRuta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { count, online, flushing, flush } = usePendingQueue();
 
   const cargar = () => {
     setError(null);
     api.get<MiRuta>('/flito/logistica/mi-ruta').then(setRuta).catch((e) => setError(errorMessage(e)));
   };
   useEffect(cargar, []);
+  // Al vaciarse la cola (reconexión), refresca la ruta.
+  useEffect(() => { if (online && count === 0) cargar(); }, [online, count]);
 
-  const accion = async (fn: () => Promise<unknown>, ok: string) => {
+  const enviar: Enviar = async (path, body, label, ok) => {
     setBusy(true); setError(null); setMsg(null);
-    try { await fn(); setMsg(ok); cargar(); }
-    catch (e) { setError(errorMessage(e)); }
+    try {
+      const { queued } = await submitCampo(path, body, label);
+      setMsg(queued ? 'Guardado sin conexión — se enviará al recuperar señal.' : ok);
+      if (!queued) cargar();
+    } catch (e) { setError(errorMessage(e)); }
     finally { setBusy(false); }
   };
-
-  if (!ruta) {
-    return <div className="p-4 text-sm" style={{ color: 'var(--flit-text-muted)' }}>{error ?? 'Cargando tu ruta…'}</div>;
-  }
 
   return (
     <div className="mx-auto max-w-md space-y-5 p-3 pb-24">
@@ -46,31 +52,44 @@ export default function FlitoRuta() {
         <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Recoge en el organismo y entrega a la empresa.</p>
       </header>
 
+      {/* Estado de conexión + cola de pendientes (CA-15) */}
+      {(!online || count > 0) && (
+        <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm"
+          style={{ background: online ? 'rgba(240,90,53,0.12)' : 'rgba(89,103,125,0.14)', color: online ? 'var(--flit-warning)' : 'var(--flit-text-secondary)' }}>
+          <span>{online ? '' : 'Sin conexión · '}{count > 0 ? `${count} cambio(s) sin sincronizar` : 'Trabajando offline'}</span>
+          {count > 0 && online && (
+            <button className="font-semibold underline disabled:opacity-50" disabled={flushing} onClick={flush}>
+              {flushing ? 'Sincronizando…' : 'Reintentar'}
+            </button>
+          )}
+        </div>
+      )}
+
       {msg && <div className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(112,207,58,0.14)', color: 'var(--flit-success)' }}>{msg}</div>}
       {error && <div className="rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(228,61,48,0.14)', color: 'var(--flit-danger)' }}>{error}</div>}
 
-      {/* Recogidas por organismo */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Recogidas ({ruta.recogidas.reduce((n, o) => n + o.documentos.length, 0)})</h2>
-        {ruta.recogidas.length === 0 && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No hay documentos por recoger.</p>}
-        {ruta.recogidas.map((org) => (
-          <Recogida key={org.organismoCodigo} org={org} busy={busy} onAccion={accion} />
-        ))}
-      </section>
+      {!ruta ? (
+        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando tu ruta…</p>
+      ) : (
+        <>
+          <section className="space-y-3">
+            <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Recogidas ({ruta.recogidas.reduce((n, o) => n + o.documentos.length, 0)})</h2>
+            {ruta.recogidas.length === 0 && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No hay documentos por recoger.</p>}
+            {ruta.recogidas.map((org) => <Recogida key={org.organismoCodigo} org={org} busy={busy} enviar={enviar} />)}
+          </section>
 
-      {/* Entregas */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Entregas ({ruta.entregas.length})</h2>
-        {ruta.entregas.length === 0 && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No tienes actas despachadas.</p>}
-        {ruta.entregas.map((acta) => (
-          <Entrega key={acta.actaId} acta={acta} busy={busy} onAccion={accion} />
-        ))}
-      </section>
+          <section className="space-y-3">
+            <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Entregas ({ruta.entregas.length})</h2>
+            {ruta.entregas.length === 0 && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No tienes actas despachadas.</p>}
+            {ruta.entregas.map((acta) => <Entrega key={acta.actaId} acta={acta} busy={busy} enviar={enviar} />)}
+          </section>
+        </>
+      )}
     </div>
   );
 }
 
-function Recogida({ org, busy, onAccion }: { org: RutaRecogida; busy: boolean; onAccion: (fn: () => Promise<unknown>, ok: string) => void }) {
+function Recogida({ org, busy, enviar }: { org: RutaRecogida; busy: boolean; enviar: Enviar }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const toggle = (id: string) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
@@ -84,21 +103,21 @@ function Recogida({ org, busy, onAccion }: { org: RutaRecogida; busy: boolean; o
               <span className="text-sm">{d.tipoLabel} · <span className="tabular-nums">{d.placa ?? d.idFlit}</span></span>
             </label>
             <button className={btnGhost} style={{ color: 'var(--flit-danger)' }} disabled={busy}
-              onClick={() => { const m = prompt('Motivo de la novedad (faltante/dañado):'); if (m?.trim()) onAccion(() => api.post(`/flito/logistica/documentos/${d.id}/novedad`, { motivo: m.trim() }), 'Novedad registrada'); }}>
+              onClick={() => { const m = prompt('Motivo de la novedad (faltante/dañado):'); if (m?.trim()) enviar(`/flito/logistica/documentos/${d.id}/novedad`, { motivo: m.trim() }, 'Novedad', 'Novedad registrada'); }}>
               Novedad
             </button>
           </li>
         ))}
       </ul>
       <button className={`${btn} mt-3`} style={btnPrimaryStyle} disabled={busy || sel.size === 0}
-        onClick={() => onAccion(() => api.post('/flito/logistica/recoger', { documentoIds: [...sel] }), `${sel.size} recogido(s)`)}>
+        onClick={() => { enviar('/flito/logistica/recoger', { documentoIds: [...sel] }, `Recogida (${sel.size})`, `${sel.size} recogido(s)`); setSel(new Set()); }}>
         Confirmar recogida ({sel.size})
       </button>
     </div>
   );
 }
 
-function Entrega({ acta, busy, onAccion }: { acta: RutaEntrega; busy: boolean; onAccion: (fn: () => Promise<unknown>, ok: string) => void }) {
+function Entrega({ acta, busy, enviar }: { acta: RutaEntrega; busy: boolean; enviar: Enviar }) {
   const [abierto, setAbierto] = useState(false);
   const [nombre, setNombre] = useState('');
   const [documento, setDocumento] = useState('');
@@ -113,7 +132,7 @@ function Entrega({ acta, busy, onAccion }: { acta: RutaEntrega; busy: boolean; o
         <div className="flex gap-2">
           <button className={`${btn} flex-1`} style={btnPrimaryStyle} onClick={() => setAbierto(true)}>Entregar</button>
           <button className={btnGhost} style={{ color: 'var(--flit-danger)' }} disabled={busy}
-            onClick={() => { const m = prompt('Motivo de la devolución:'); if (m?.trim()) onAccion(() => api.post(`/flito/logistica/actas/${acta.actaId}/devolucion`, { motivo: m.trim() }), 'Devolución registrada'); }}>
+            onClick={() => { const m = prompt('Motivo de la devolución:'); if (m?.trim()) enviar(`/flito/logistica/actas/${acta.actaId}/devolucion`, { motivo: m.trim() }, 'Devolución', 'Devolución registrada'); }}>
             Devolver
           </button>
         </div>
@@ -125,7 +144,7 @@ function Entrega({ acta, busy, onAccion }: { acta: RutaEntrega; busy: boolean; o
           <div className="flex gap-2">
             <button className={btnGhost} onClick={() => setAbierto(false)} style={{ color: 'var(--flit-text-secondary)' }}>Cancelar</button>
             <button className={`${btn} flex-1`} style={btnPrimaryStyle} disabled={busy || !nombre.trim() || !documento.trim()}
-              onClick={() => onAccion(() => api.post(`/flito/logistica/actas/${acta.actaId}/entregar`, { receptorNombre: nombre.trim(), receptorDocumento: documento.trim() }), 'Entrega registrada')}>
+              onClick={() => { enviar(`/flito/logistica/actas/${acta.actaId}/entregar`, { receptorNombre: nombre.trim(), receptorDocumento: documento.trim() }, `Entrega ${acta.companiaNombre ?? ''}`, 'Entrega registrada'); setAbierto(false); }}>
               Confirmar entrega
             </button>
           </div>

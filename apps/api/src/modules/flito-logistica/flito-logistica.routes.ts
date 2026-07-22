@@ -8,9 +8,9 @@ import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  actaDetalle, cerrarLote, despachar, documentoDetalle, entregar, facetas, listar, listarActas,
-  LogisticaError, miRuta, recoger, registrarDevolucion, registrarNovedad, reversar, urlActaPdf,
-  type FiltrosLogistica, type LogisticaCtx,
+  actaDetalle, buscarIdempotencia, cerrarLote, despachar, documentoDetalle, entregar, facetas,
+  guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, recoger, registrarDevolucion,
+  registrarNovedad, reversar, urlActaPdf, type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
 
 const router = Router();
@@ -36,6 +36,26 @@ async function ejecutar(res: Response, fn: () => Promise<unknown>): Promise<unkn
     return await fn();
   } catch (error) {
     if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.extra ? { detalle: error.extra } : {}) }); return undefined; }
+    throw error;
+  }
+}
+
+/**
+ * Envuelve una escritura de campo con idempotencia (RN-06/CA-06). Si la petición trae `Idempotency-Key`
+ * y ya se procesó, devuelve la respuesta guardada sin re-ejecutar; así un reenvío offline no duplica.
+ */
+async function conIdempotencia(req: Request, res: Response, run: () => Promise<{ status?: number; body: unknown }>): Promise<void> {
+  const key = req.header('Idempotency-Key') || undefined;
+  if (key) {
+    const prev = await buscarIdempotencia(key);
+    if (prev) { res.status(prev.status).json(prev.body); return; }
+  }
+  try {
+    const { status = 200, body } = await run();
+    if (key) await guardarIdempotencia(key, status, body);
+    res.status(status).json(body);
+  } catch (error) {
+    if (error instanceof LogisticaError) { res.status(error.status).json({ error: error.message, ...(error.extra ? { detalle: error.extra } : {}) }); return; }
     throw error;
   }
 }
@@ -89,10 +109,11 @@ const recogerSchema = z.object({ documentoIds: z.array(z.string().uuid()).min(1)
 router.post('/recoger', CAMPO, async (req: Request, res: Response) => {
   const parsed = recogerSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => recoger(parsed.data.documentoIds, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!)));
-  if (r === undefined) return;
-  await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Recogida: ${JSON.stringify(r)}` });
-  res.json(r);
+  await conIdempotencia(req, res, async () => {
+    const r = await recoger(parsed.data.documentoIds, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Recogida: ${JSON.stringify(r)}` });
+    return { body: r };
+  });
 });
 
 // POST /documentos/:id/novedad — motivo obligatorio; bloquea el avance (RN-04).
@@ -100,10 +121,11 @@ const motivoSchema = z.object({ motivo: z.string().trim().min(1) });
 router.post('/documentos/:id/novedad', CAMPO, async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
-  const r = await ejecutar(res, () => registrarNovedad(req.params.id, parsed.data.motivo, ctxDe(req.user!)));
-  if (r === undefined && res.headersSent) return;
-  await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Novedad: ${parsed.data.motivo}` });
-  res.json({ ok: true });
+  await conIdempotencia(req, res, async () => {
+    await registrarNovedad(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica', resourceId: req.params.id, detail: `Novedad: ${parsed.data.motivo}` });
+    return { body: { ok: true } };
+  });
 });
 
 // POST /cerrar-lote — genera el acta de una empresa con sus documentos clasificados (CA-04/08/09).
@@ -133,20 +155,22 @@ const entregarSchema = z.object({ receptorNombre: z.string().trim().min(1), rece
 router.post('/actas/:id/entregar', CAMPO, async (req: Request, res: Response) => {
   const parsed = entregarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => entregar(req.params.id, parsed.data, ctxDe(req.user!)));
-  if (r === undefined) return;
-  await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
-  res.json(r);
+  await conIdempotencia(req, res, async () => {
+    const r = await entregar(req.params.id, parsed.data, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Entrega a ${parsed.data.receptorNombre}` });
+    return { body: r };
+  });
 });
 
 // POST /actas/:id/devolucion — receptor ausente/rechazo; motivo obligatorio (CA-10).
 router.post('/actas/:id/devolucion', CAMPO, async (req: Request, res: Response) => {
   const parsed = motivoSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
-  const r = await ejecutar(res, () => registrarDevolucion(req.params.id, parsed.data.motivo, ctxDe(req.user!)));
-  if (r === undefined) return;
-  await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Devolución: ${parsed.data.motivo}` });
-  res.json(r);
+  await conIdempotencia(req, res, async () => {
+    const r = await registrarDevolucion(req.params.id, parsed.data.motivo, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Devolución: ${parsed.data.motivo}` });
+    return { body: r };
+  });
 });
 
 // POST /documentos/:id/reversar — reversa con justificación (RN-08). Solo Operaciones.
