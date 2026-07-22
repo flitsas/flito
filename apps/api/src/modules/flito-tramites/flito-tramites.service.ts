@@ -36,8 +36,19 @@ export interface FilaImpuesto {
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
+/**
+ * Semáforo de gestión FLITO del trámite (lo que le falta a FLITO por resolver):
+ *   autogestionada — la empresa autogestiona SOAT e impuestos → FLITO no gestiona (gris).
+ *   rojo   — ni SOAT ni impuesto resueltos.
+ *   amarillo — uno de los dos resuelto.
+ *   verde  — ambos resueltos (listo para entregar).
+ * "Resuelto" = pagado o no_aplica (mismo criterio que la compuerta).
+ */
+export type SemaforoTramite = 'autogestionada' | 'rojo' | 'amarillo' | 'verde';
+
 export interface TramiteFila {
   tramiteId: string; idFlit: string;
+  semaforo: SemaforoTramite;
   /** Estado crudo de FLIT (todos los estados se muestran). */
   estado: string;
   /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
@@ -189,9 +200,17 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   const orden = [...compradores].sort((a, b) => a.orden - b.orden);
   const principal = orden[0] ?? null;
   const asignado = (f.flitEstado ?? '').trim().toLowerCase() === 'asignado';
+  // Semáforo de gestión: gris si la empresa autogestiona SOAT e impuestos; si no, rojo/amarillo/verde
+  // según cuántos de los dos estén resueltos (pagado o no_aplica, según la compuerta).
+  const autogestionadaTotal = (f.soatAutogestionable ?? false) && (f.impuestosAutogestionable ?? false);
+  const semaforo: SemaforoTramite = autogestionadaTotal ? 'autogestionada'
+    : (veredicto.soatResuelto && veredicto.impuestosResueltos) ? 'verde'
+      : (veredicto.soatResuelto || veredicto.impuestosResueltos) ? 'amarillo'
+        : 'rojo';
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
+    semaforo,
     estado: f.flitEstado ?? f.estadoTramite ?? '—',
     asignado,
     tipoTramite: f.tipoTramite,

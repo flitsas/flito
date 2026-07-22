@@ -28,8 +28,10 @@ interface FilaImpuesto {
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
+type SemaforoTramite = 'autogestionada' | 'rojo' | 'amarillo' | 'verde';
 interface TramiteFila {
   tramiteId: string; idFlit: string; estado: string; asignado: boolean;
+  semaforo: SemaforoTramite;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
@@ -309,8 +311,16 @@ export default function FlitoTramites() {
                     ) : '—'}
                   </td>
                   <td className="px-3 py-2 text-sm">
-                    {f.organismoNombre ?? '—'}
-                    <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{f.companiaNombre ?? (f.empresaNit ? `NIT ${f.empresaNit}` : '—')}</div>
+                    <div>{f.organismoNombre ?? '—'}</div>
+                    {/* Empresa gestora (CompaniaGestora de FLIT ↔ cliente FLITO): nombre arriba, NIT abajo. */}
+                    <div className="mt-1">
+                      {f.empresaExiste
+                        ? <>
+                            <div>{f.companiaNombre}</div>
+                            {f.empresaNit && <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>NIT {f.empresaNit}</div>}
+                          </>
+                        : <div className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{f.empresaNit ? `NIT ${f.empresaNit} · sin empresa` : 'sin empresa'}</div>}
+                    </div>
                     <CeldaIndicadores fila={f} />
                     {esOperaciones && !f.empresaExiste && f.empresaNit && (
                       <button className="mt-1 text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
@@ -324,6 +334,7 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{fecha(f.sincronizadoEn)}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
+                      <SemaforoChip semaforo={f.semaforo} />
                       <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
                       {f.listoParaEntregar && <StatusChip tone="success">Listo para entregar</StatusChip>}
                       <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-text-muted)' }}
@@ -445,6 +456,19 @@ function GrupoFiltro<T extends string>({ titulo, estados, etiqueta, seleccion, o
       </FlitPillGroup>
     </div>
   );
+}
+
+// Semáforo de gestión FLITO: gris (autogestionada) · rojo (nada resuelto) · amarillo (uno) · verde (ambos).
+const SEMAFORO: Record<SemaforoTramite, { tone: ChipTone; label: string }> = {
+  autogestionada: { tone: 'neutral', label: 'Autogestionada' },
+  rojo: { tone: 'danger', label: 'SOAT e impuestos pendientes' },
+  amarillo: { tone: 'warning', label: 'Falta uno (SOAT o impuestos)' },
+  verde: { tone: 'success', label: 'SOAT e impuestos listos' },
+};
+function SemaforoChip({ semaforo }: { semaforo: SemaforoTramite }) {
+  const s = SEMAFORO[semaforo];
+  if (!s) return null;
+  return <StatusChip tone={s.tone}>{s.label}</StatusChip>;
 }
 
 function CeldaSoat({ fila }: { fila: TramiteFila }) {
