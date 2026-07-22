@@ -107,7 +107,7 @@ describe('decidir — habilitado y valores', () => {
 // ───────────────────────────── entregar — revalida ──────────────────────────
 
 describe('entregar — revalida antes de escribir', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
 
   it('habilitado: marca en FLIT y persiste Entregado', async () => {
     selectMock.mockReturnValueOnce(chain([filaOk()]))   // carga para entregar

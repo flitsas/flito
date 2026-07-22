@@ -7,14 +7,15 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  entregar, listar, solicitarAmbos, solicitarImpuestos, solicitarSoat, type TramitesCtx,
+  crearEmpresaDesdeTramite, entregar, historial, listar, solicitarAmbos, solicitarImpuestos,
+  solicitarSoat, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('admin', 'operaciones');
-const LECTURA = requireRole('admin', 'operaciones', 'auditor');
+const OPERACIONES = requireRole('admin');
+const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): TramitesCtx {
   return { userId: user.sub, username: user.username, role: user.role };
@@ -29,6 +30,22 @@ function bad(res: Response): void { res.status(400).json({ error: 'Datos inváli
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
   res.json(await listar(buscar));
+});
+
+// GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  res.json(await historial(req.params.id));
+});
+
+// POST /crear-empresa — crea la empresa (cliente) de un trámite con empresa inexistente y re-vincula
+// por NIT los trámites pendientes. Solo Operaciones.
+const crearEmpresaSchema = z.object({ nombre: z.string().trim().min(1), nit: z.string().trim().min(1) });
+router.post('/crear-empresa', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = crearEmpresaSchema.safeParse(req.body);
+  if (!parsed.success) { bad(res); return; }
+  const r = await crearEmpresaDesdeTramite(parsed.data.nombre, parsed.data.nit, ctxDe(req.user!));
+  await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Empresa ${parsed.data.nit} ${r.yaExistia ? 'reutilizada' : 'creada'}; ${r.revinculados} trámites re-vinculados` });
+  res.json(r);
 });
 
 // POST /solicitar-soat — envío al gestor SOAT del lote, fijando proveedor. Solo Operaciones.

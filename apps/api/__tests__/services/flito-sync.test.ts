@@ -6,7 +6,6 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 
 const { decidirEstadoImpuesto } = await import('../../src/modules/flito-sync/flito-sync.service.js');
-const { estadoDesdeProcessStatus, PROCESS_STATUS } = await import('../../src/modules/flito-sync/flit-mock.adapter.js');
 const { mapearCompradores } = await import('../../src/modules/flito-sync/mapeo-compradores.js');
 const { intervalMsFromCron } = await import('../../src/modules/flito-sync/flito-sync.cron.js');
 
@@ -24,17 +23,6 @@ describe('decidirEstadoImpuesto', () => {
   });
   it('compañía autogestiona impuestos → NO_APLICA aunque el organismo requiera gestión', () => {
     expect(decidirEstadoImpuesto(true, 'requiere_gestion')).toBe('no_aplica');
-  });
-});
-
-// ───────────── processStatus desconocido NO cae en Asignado (§6.1) ──────────────────────────
-
-describe('estadoDesdeProcessStatus', () => {
-  it('5 → asignado', () => {
-    expect(estadoDesdeProcessStatus(PROCESS_STATUS.ASIGNADO)).toBe('asignado');
-  });
-  it('desconocido → lanza (no asume asignado)', () => {
-    expect(() => estadoDesdeProcessStatus(999)).toThrow(/FLITO no conoce/);
   });
 });
 

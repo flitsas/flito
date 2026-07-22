@@ -36,9 +36,6 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
   'anulado', 'rechazado',
 ];
 
-/** `processStatus === 5` es Asignado (SOAT_IMPUESTOS_TRAMITES.txt). */
-export const PROCESS_STATUS_ASIGNADO = 5;
-
 /**
  * Estado del SOAT. Independiente del ciclo del trámite — esa independencia es lo
  * que resuelve el riesgo de doble adquisición (FEATURE_SOAT §7).

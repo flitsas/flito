@@ -19,7 +19,6 @@ import ocrRoutes from './modules/vehicles/ocr.routes.js';
 import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
-import flitoDemoRoutes from './modules/flito-demo/flito-demo.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
@@ -170,7 +169,6 @@ export function createApp() {
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   app.use('/api/flito/sync', flitoSyncRoutes);
-  app.use('/api/flito/demo', flitoDemoRoutes);
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);

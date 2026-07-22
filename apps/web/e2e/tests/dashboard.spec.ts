@@ -1,57 +1,57 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
 
-test.describe('Dashboard', () => {
-  test('admin ve métricas de SOAT y flota cuando entra a /', async ({ page }) => {
-    await loginAs(page, ADMIN_USER);
+// Home de operadores/admin: Dashboard.tsx short-circuita a <FlitoTablero> cuando puedeOperar(role)
+// (§correcciones-UX #4). El resumen viene de /flito/tablero como OBJETO.
+const RESUMEN_TABLERO = {
+  soat: { pendiente: 3, pagado: 10 },
+  impuestos: { pendiente: 2, pagado: 8 },
+  revisionesPendientes: { soat: 1, impuestos: 2 },
+  organismosSinClasificar: 4,
+  tramitesRetenidos: 5,
+  estancados: { soat: 1, impuestos: 0 },
+  diferenciasDeValor: 3,
+  compuertaHabilitados: 6,
+};
 
-    await page.route('**/api/soat/stats', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          totalVehicles: 25,
-          pendiente: 3,
-          enviado: 1,
-          comprado: 5,
-          verificado: 14,
-          rechazado: 2,
-        }),
-      })
-    );
-    await page.route('**/api/fleet/documents/expiring**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total: 4, items: [] }) })
-    );
-    await page.route('**/api/rndc/manifiestos**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], total: 0 }) })
-    );
+async function mockTablero(page: import('@playwright/test').Page) {
+  // Dashboard.tsx dispara fetch de /soat/stats, /fleet, /rndc para admin aunque luego renderice
+  // <FlitoTablero>; sin mock responderían 401 → SESSION_ENDED → logout. Catch-all vacío + tablero válido.
+  await page.route('**/api/**', (route) => {
+    if (route.request().url().includes('/auth/me')) return route.fallback();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+  await page.route('**/api/flito/tablero', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RESUMEN_TABLERO) }));
+}
+
+test.describe('Dashboard', () => {
+  test('admin ve el Tablero FLITO en la home (KPIs de atención + sincronizar)', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockTablero(page);
 
     await page.goto('/');
     await expect(page).toHaveURL('/');
-    await expect(page.getByText(/Admin E2E|Buenos|Buenas/i).first()).toBeVisible();
-    // 25 vehículos aparece como número grande en alguna card
-    await expect(page.getByText(/25/).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Tablero', exact: true })).toBeVisible();
+    // Acción de sincronización (solo para quien opera).
+    await expect(page.getByRole('button', { name: /Sincronizar desde FLIT/i })).toBeVisible();
+    // KPIs del resumen.
+    await expect(page.getByText('Organismos sin clasificar')).toBeVisible();
+    await expect(page.getByText('Trámites retenidos')).toBeVisible();
+    await expect(page.getByText('Habilitados para entrega')).toBeVisible();
   });
 
-  // FLOTA-04 — sección «Atención operativa» + deep links.
-  test('admin ve «Atención operativa» con SOAT pendiente, vencidos y por vencer (deep links)', async ({ page }) => {
+  test('admin ve los conteos por estado (SOAT / Impuestos) del Tablero FLITO', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
-    await page.route('**/api/soat/stats', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ totalVehicles: 25, pendiente: 2, enviado: 0, comprado: 5, verificado: 14, rechazado: 2 }) }));
-    // Forma real del endpoint: { data, count }. 1 vencido + 3 por vencer.
-    await page.route('**/api/fleet/documents/expiring**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 3, data: [{ estado: 'por_vencer' }, { estado: 'por_vencer' }, { estado: 'vencido' }] }) }));
-    await page.route('**/api/rndc/manifiestos**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [], total: 0 }) }));
+    await mockTablero(page);
 
     await page.goto('/');
-    const section = page.getByRole('region', { name: 'Atención operativa' });
-    await expect(section).toBeVisible();
-    await expect(section.getByText(/2 solicitudes SOAT pendientes de compra/)).toBeVisible();
-    await expect(section.getByText(/1 documento vencido/)).toBeVisible();
-    await expect(section.getByText(/3 documentos por vencer en 60 días/)).toBeVisible();
-    await expect(section.getByRole('link', { name: /Ir a SOAT/ })).toHaveAttribute('href', '/soat');
-    await expect(section.getByRole('link', { name: /Ver vencimientos/ }).first()).toHaveAttribute('href', '/fleet?tab=vencimientos');
+    await expect(page.getByRole('heading', { name: 'SOAT por estado' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Impuestos por estado' })).toBeVisible();
+    // Totales: SOAT 3+10=13, Impuestos 2+8=10.
+    await expect(page.getByText('13 en total')).toBeVisible();
+    await expect(page.getByText('10 en total')).toBeVisible();
+    await expect(page.getByText('Diferencias de valor')).toBeVisible();
   });
 
   test('proveedor ve saludo minimal sin métricas', async ({ page }) => {

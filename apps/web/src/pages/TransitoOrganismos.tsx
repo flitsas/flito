@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import {
   TRAMITE_TIPOLOGIAS,
   getTipologia,
+  MODALIDAD_ORGANISMO_LABEL,
   type ChecklistOverride,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -10,6 +11,9 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { useAuth } from '../lib/auth';
+import { puedeOperar } from '../lib/permissions';
+import { GestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
 
 interface OrganismoConfig {
   codigo: string;
@@ -26,6 +30,10 @@ interface OrganismoConfig {
   userCount: number;
   updatedAt: string | null;
 }
+
+// Fila = config de la secretaría (alias/logo/checklist) + su modalidad FLITO (autogestión),
+// fusionadas por código para mostrarse en UNA sola tabla (§correcciones-UX).
+type Fila = OrganismoConfig & { modalidad: Organismo | null };
 
 const LOGO_MAX_BYTES = 512 * 1024; // 512 KB — alineado con el límite del backend.
 const LOGO_ACCEPT = 'image/png,image/jpeg,image/webp,image/svg+xml';
@@ -74,16 +82,23 @@ const inputCls =
   'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none';
 
 export default function TransitoOrganismos() {
-  const [rows, setRows] = useState<OrganismoConfig[]>([]);
+  const { user } = useAuth();
+  const editable = puedeOperar(user?.role);
+  const [rows, setRows] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
   const [editing, setEditing] = useState<OrganismoConfig | null>(null);
+  const [gestion, setGestion] = useState<Organismo | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<OrganismoConfig[]>('/transito/organismos-config');
-      setRows(Array.isArray(data) ? data : []);
+      const [config, modalidades] = await Promise.all([
+        api.get<OrganismoConfig[]>('/transito/organismos-config'),
+        api.get<Organismo[]>('/flito/parametrizacion/organismos').catch(() => [] as Organismo[]),
+      ]);
+      const porCodigo = new Map((modalidades ?? []).map((m) => [m.codigo, m]));
+      setRows((Array.isArray(config) ? config : []).map((r) => ({ ...r, modalidad: porCodigo.get(r.codigo) ?? null })));
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -134,6 +149,7 @@ export default function TransitoOrganismos() {
                 <Th>Municipio</Th>
                 <Th>Código</Th>
                 <Th>Alias</Th>
+                <Th>Modalidad FLITO</Th>
                 <Th>Usuarios</Th>
                 <Th>Estado</Th>
                 <ThRight>Acciones</ThRight>
@@ -141,10 +157,10 @@ export default function TransitoOrganismos() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={6} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={6} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin resultados</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin resultados</td></tr>
               )}
               {!loading && filtered.map((r) => (
                 <tr key={r.codigo} className="border-t hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -164,6 +180,24 @@ export default function TransitoOrganismos() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.codigo}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.alias || '—'}</td>
+                  <td className="px-4 py-3">
+                    {r.modalidad ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <StatusChip tone={MODALIDAD_TONO[r.modalidad.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[r.modalidad.modalidadVigente]}</StatusChip>
+                        {r.modalidad.tramitesRetenidos > 0 && <StatusChip tone="warning">{r.modalidad.tramitesRetenidos} retenidos</StatusChip>}
+                        <button
+                          type="button"
+                          onClick={() => setGestion(r.modalidad)}
+                          className="flit-focus rounded-[999px] px-2 py-0.5 text-[11px] font-semibold"
+                          style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}
+                        >
+                          {editable ? 'Gestionar' : 'Ver'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.userCount}</td>
                   <td className="px-4 py-3">
                     <StatusChip tone={r.activo ? 'success' : 'neutral'}>{r.activo ? 'Activo' : 'Inactivo'}</StatusChip>
@@ -184,6 +218,15 @@ export default function TransitoOrganismos() {
           </table>
         </div>
       </div>
+
+      {gestion && (
+        <GestionOrganismo
+          organismo={gestion}
+          editable={editable}
+          onClose={() => setGestion(null)}
+          onCambio={() => { load(); setGestion(null); }}
+        />
+      )}
 
       {editing && (
         <EditModal

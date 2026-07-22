@@ -1,6 +1,6 @@
 // TRAM-TRASPASO-F1.5 — wizard de traspaso 6 pasos (alineado a CEA), placa-first.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 const VEH = { ok: true, data: { vehiculo: { marca: 'Mazda', linea: 'CX-30', modelo: '2024', placa: 'ABC123', vin: 'VIN88' } } };

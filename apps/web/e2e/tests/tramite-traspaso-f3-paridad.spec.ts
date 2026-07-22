@@ -1,7 +1,7 @@
 // TRAM-TRASPASO-F3 — paridad CEA: paso 5 Fasecolda/ML/impuesto, paso 4 SIMIT
 // comprador bloqueante + OCR, gate biométrico del contrato/FUR.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 function tramite88(paso: number, extra: Record<string, unknown> = {}) {

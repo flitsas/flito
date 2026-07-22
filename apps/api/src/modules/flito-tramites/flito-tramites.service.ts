@@ -11,8 +11,8 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoImpuestos, flitoProveedoresSoat, flitoSoat, flitoTramites,
-  organismosTransitoConfig, vehicles,
+  clients, flitoCompradores, flitoImpuestos, flitoProveedoresSoat, flitoSoat, flitoTramiteHistorial,
+  flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
@@ -36,13 +36,83 @@ export interface FilaImpuesto {
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
+/**
+ * Semáforo de gestión FLITO del trámite (lo que le falta a FLITO por resolver):
+ *   autogestionada — la empresa autogestiona SOAT e impuestos → FLITO no gestiona (gris).
+ *   rojo   — ni SOAT ni impuesto resueltos.
+ *   amarillo — uno de los dos resuelto.
+ *   verde  — ambos resueltos (listo para entregar).
+ * "Resuelto" = pagado o no_aplica (mismo criterio que la compuerta).
+ */
+export type SemaforoTramite = 'autogestionada' | 'rojo' | 'amarillo' | 'verde';
+
 export interface TramiteFila {
-  tramiteId: string; idFlit: string; estado: string; companiaNombre: string; organismoNombre: string;
+  tramiteId: string; idFlit: string;
+  semaforo: SemaforoTramite;
+  /** Estado crudo de FLIT (todos los estados se muestran). */
+  estado: string;
+  /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
+  asignado: boolean;
+  tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
+  companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
+  organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
+  facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
   compradorPrincipal: Comprador | null; compradores: Comprador[];
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
+}
+
+export interface HistorialItem {
+  id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null;
+  origen: string; usuarioNombre: string | null; creadoEn: string;
+}
+
+/** Historial de cambios de un trámite (auditoría campo por campo). Más reciente primero. */
+export async function historial(tramiteId: string): Promise<HistorialItem[]> {
+  const rows = await db.select({
+    id: flitoTramiteHistorial.id, campo: flitoTramiteHistorial.campo,
+    valorAnterior: flitoTramiteHistorial.valorAnterior, valorNuevo: flitoTramiteHistorial.valorNuevo,
+    origen: flitoTramiteHistorial.origen, usuarioNombre: users.name, creadoEn: flitoTramiteHistorial.createdAt,
+  }).from(flitoTramiteHistorial)
+    .leftJoin(users, eq(flitoTramiteHistorial.usuarioId, users.id))
+    .where(eq(flitoTramiteHistorial.tramiteId, tramiteId))
+    .orderBy(desc(flitoTramiteHistorial.createdAt));
+  return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
+}
+
+export interface ResultadoCrearEmpresa { companiaId: number; yaExistia: boolean; revinculados: number }
+
+/**
+ * Crea la empresa (cliente) de un trámite cuya compañía FLIT no existía aún y la re-vincula: fija
+ * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, dejándolos accionables sin
+ * esperar a un nuevo sync. El cambio queda en el historial con origen 'usuario'. Idempotente: si ya
+ * existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
+ */
+export async function crearEmpresaDesdeTramite(nombre: string, nit: string, ctx: TramitesCtx): Promise<ResultadoCrearEmpresa> {
+  const doc = nit.trim();
+  const [existente] = await db.select({ id: clients.id }).from(clients).where(eq(clients.document, doc)).limit(1);
+  let companiaId: number;
+  let yaExistia = false;
+  if (existente) { companiaId = existente.id; yaExistia = true; }
+  else {
+    const [creada] = await db.insert(clients)
+      .values({ name: nombre.trim(), document: doc, documentType: 'NIT' })
+      .returning({ id: clients.id });
+    companiaId = creada.id;
+  }
+  const pendientes = await db.select({ id: flitoTramites.id }).from(flitoTramites)
+    .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`));
+  if (pendientes.length > 0) {
+    const ids = pendientes.map((t) => t.id);
+    await db.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
+    await db.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
+      tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
+      origen: 'usuario', usuarioId: ctx.userId,
+    })));
+  }
+  return { companiaId, yaExistia, revinculados: pendientes.length };
 }
 
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }
@@ -68,6 +138,15 @@ function proyeccion() {
     impuestoValorPagado: flitoImpuestos.valorPagado,
     impuestoMarcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia,
     impuestoExtraccion: flitoImpuestos.extraccion,
+    // Integración FLIT (Fase 8): estado crudo, datos del reporte y emparejamientos.
+    flitEstado: flitoTramites.flitEstado,
+    tipoTramite: flitoTramites.tipoTramite,
+    ciudad: flitoTramites.ciudad,
+    companiaId: flitoTramites.companiaId,
+    companiaNit: flitoTramites.companiaNit,
+    transitoNombreFlit: flitoTramites.transitoNombreFlit,
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    fechaAprobacion: flitoTramites.fechaAprobacion,
     // Extras de presentación.
     sincronizadoEn: flitoTramites.sincronizadoEn,
     organismoAlias: organismosTransitoConfig.alias,
@@ -83,15 +162,16 @@ function proyeccion() {
     soatEnviadoEn: flitoSoat.enviadoEn,
     soatMotivoRechazo: flitoSoat.motivoRechazo,
     impuestoId: flitoImpuestos.id,
-    impuestoFacturaVentaSoporteId: flitoImpuestos.facturaVentaSoporteId,
     impuestoExtraccionFacturaVenta: flitoImpuestos.extraccionFacturaVenta,
     impuestoValorLiquidado: flitoImpuestos.valorLiquidado,
     impuestoEnviadoEn: flitoImpuestos.enviadoEn,
     impuestoMotivoRechazo: flitoImpuestos.motivoRechazo,
   }).from(flitoTramites)
-    .innerJoin(clients, eq(flitoTramites.companiaId, clients.id))
+    // leftJoin (no inner): compañía y secretaría pueden faltar (empresa inexistente / sin emparejar);
+    // el trámite se muestra igual, con su indicador. El vehículo siempre existe (se upserta por VIN).
+    .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id));
@@ -115,15 +195,34 @@ function coincidenciaDe(extraccion: unknown): number | null {
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
 function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
-  const veredicto = decidir(f);
+  // decidir() (compuerta) exige autogestión booleana; sin compañía emparejada, se asume false.
+  const veredicto = decidir({ ...f, soatAutogestionable: f.soatAutogestionable ?? false, impuestosAutogestionable: f.impuestosAutogestionable ?? false, companiaNombre: f.companiaNombre ?? '' });
   const orden = [...compradores].sort((a, b) => a.orden - b.orden);
   const principal = orden[0] ?? null;
+  const asignado = (f.flitEstado ?? '').trim().toLowerCase() === 'asignado';
+  // Semáforo de gestión: gris si la empresa autogestiona SOAT e impuestos; si no, rojo/amarillo/verde
+  // según cuántos de los dos estén resueltos (pagado o no_aplica, según la compuerta).
+  const autogestionadaTotal = (f.soatAutogestionable ?? false) && (f.impuestosAutogestionable ?? false);
+  const semaforo: SemaforoTramite = autogestionadaTotal ? 'autogestionada'
+    : (veredicto.soatResuelto && veredicto.impuestosResueltos) ? 'verde'
+      : (veredicto.soatResuelto || veredicto.impuestosResueltos) ? 'amarillo'
+        : 'rojo';
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
-    estado: f.estadoTramite,
+    semaforo,
+    estado: f.flitEstado ?? f.estadoTramite ?? '—',
+    asignado,
+    tipoTramite: f.tipoTramite,
+    ciudad: f.ciudad,
+    fechaAprobacion: f.fechaAprobacion ? f.fechaAprobacion.toISOString() : null,
     companiaNombre: f.companiaNombre,
-    organismoNombre: f.organismoAlias ?? f.organismoCodigo,
+    empresaExiste: f.companiaId !== null,
+    empresaNit: f.companiaNit,
+    organismoNombre: f.organismoAlias ?? f.transitoNombreFlit,
+    secretariaEmparejada: f.organismoCodigo !== null,
+    transitoNombre: f.transitoNombreFlit,
+    facturaVentaFlitId: f.facturaVentaFlitId,
     vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo },
     compradorPrincipal: principal,
     compradores: orden,
@@ -132,9 +231,9 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
       valorPagado: num(f.soatValorPagado), enviadoEn: f.soatEnviadoEn ? f.soatEnviadoEn.toISOString() : null,
       estancado: estancadoSoat(f.soatEstado, f.soatEnviadoEn, f.soatSlaHoras), motivoRechazo: f.soatMotivoRechazo,
     } : null,
-    soatAutogestionado: f.soatAutogestionable,
+    soatAutogestionado: f.soatAutogestionable ?? false,
     impuesto: f.impuestoId ? {
-      id: f.impuestoId, estado: f.impuestoEstado!, tieneFacturaVenta: f.impuestoFacturaVentaSoporteId !== null,
+      id: f.impuestoId, estado: f.impuestoEstado!, tieneFacturaVenta: f.facturaVentaFlitId !== null,
       coincidenciaFacturaVenta: coincidenciaDe(f.impuestoExtraccionFacturaVenta),
       valorLiquidado: num(f.impuestoValorLiquidado), valorPagado: num(f.impuestoValorPagado),
       marcadoPorDiferencia: f.impuestoMarcadoPorDiferencia ?? false,

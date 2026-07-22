@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Trámites unificado (Fase 6). Vista de despacho: una fila por trámite,
@@ -12,7 +12,9 @@ const PROVEEDORES = [
 
 const TRAMITES = [
   {
-    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'asignado',
+    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
+    tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
+    transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
     companiaNombre: 'Concesionario Norte', organismoNombre: 'STT Manizales',
     vehiculo: { vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' },
     compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' },
@@ -23,7 +25,9 @@ const TRAMITES = [
     listoParaEntregar: false,
   },
   {
-    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'asignado',
+    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'Asignado', asignado: true,
+    tipoTramite: 'Traspaso', ciudad: 'Pereira', empresaExiste: true, empresaNit: '900222', secretariaEmparejada: true,
+    transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
     companiaNombre: 'Concesionario Sur', organismoNombre: 'STT Pereira',
     vehiculo: { vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid' },
     compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' },
@@ -32,6 +36,19 @@ const TRAMITES = [
     soatAutogestionado: false,
     impuesto: { id: 'i2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
     listoParaEntregar: true,
+  },
+  {
+    tramiteId: 'aaaaaaaa-0000-0000-0000-000000000003', idFlit: 'FLIT-1003', estado: 'Asignado', asignado: true,
+    tipoTramite: 'Matricula', ciudad: 'Armenia', empresaExiste: false, empresaNit: '900333', secretariaEmparejada: true,
+    transitoNombre: 'STT Armenia', facturaVentaFlitId: null,
+    companiaNombre: null, organismoNombre: 'STT Armenia',
+    vehiculo: { vin: 'VIN0000000000003', placa: 'DEF456', marca: 'Mazda', linea: '2' },
+    compradorPrincipal: { nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' },
+    compradores: [{ nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' }],
+    soat: { id: 's3', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
+    soatAutogestionado: false,
+    impuesto: { id: 'i3', estado: 'sin_factura', tieneFacturaVenta: false, valorPagado: null },
+    listoParaEntregar: false,
   },
 ];
 
@@ -78,7 +95,7 @@ test.describe('FLITO — Trámites unificado', () => {
     // El botón queda deshabilitado hasta elegir aseguradora.
     const confirmar = page.getByRole('button', { name: 'Solicitar SOAT', exact: true }).last();
     await expect(confirmar).toBeDisabled();
-    await page.getByRole('combobox').selectOption(PROVEEDORES[0].id);
+    await page.getByRole('combobox').last().selectOption(PROVEEDORES[0].id);
     await confirmar.click();
 
     await expect.poll(() => solicitudSoat).not.toBeNull();
@@ -96,11 +113,34 @@ test.describe('FLITO — Trámites unificado', () => {
       }) }));
 
     await page.goto('/flito/tramites');
-    await page.getByLabel('Seleccionar todos').check();
+    await page.getByLabel('Seleccionar accionables').check();
     await page.getByRole('button', { name: 'Entregar', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Resultado de la entrega/i })).toBeVisible();
     await expect(page.getByText(/1 trámite\(s\) entregado/i)).toBeVisible();
     await expect(page.getByText('SOAT sin resolver')).toBeVisible();
+  });
+
+  test('operaciones crea la empresa de un trámite con empresa inexistente (NIT precargado)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    let body: Record<string, unknown> | null = null;
+    await page.route(/\/api\/flito\/tramites\/crear-empresa$/, async (route) => {
+      body = route.request().postDataJSON() as Record<string, unknown>;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ companiaId: 99, yaExistia: false, revinculados: 1 }) });
+    });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1003')).toBeVisible();
+    await expect(page.getByText('Empresa no existe')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Crear empresa' }).first().click();
+    await expect(page.getByRole('heading', { name: 'Crear empresa' })).toBeVisible();
+    await expect(page.getByLabel('NIT', { exact: true })).toHaveValue('900333');
+    await page.getByLabel(/Nombre o razón social/).fill('ACME SAS');
+    await page.getByRole('button', { name: 'Crear empresa', exact: true }).last().click();
+
+    await expect.poll(() => body).not.toBeNull();
+    expect(body).toMatchObject({ nombre: 'ACME SAS', nit: '900333' });
   });
 
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {
@@ -109,7 +149,7 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await page.goto('/flito/tramites');
     await expect(page.getByText('FLIT-1001')).toBeVisible();
-    await expect(page.getByLabel('Seleccionar todos')).toHaveCount(0);
+    await expect(page.getByLabel('Seleccionar accionables')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toHaveCount(0);
   });
 });

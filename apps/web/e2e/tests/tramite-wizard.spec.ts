@@ -8,7 +8,7 @@
 // hidratación de `continuarTramite` (resume un trámite en paso 5) en vez de
 // teclear los 5 pasos, lo que sería frágil (polling de identidad, OCR, etc.).
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { jsonRoute } from '../helpers/pesv-fixtures';
 

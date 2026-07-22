@@ -249,17 +249,5 @@ export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<Ex
   return r as ExtraccionImpuesto;
 }
 
-/** Factura de venta. Doble llave placa+vin; valorVehiculo es la base gravable (§8.3). */
-export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVenta> {
-  const campos = [
-    CampoFacturaVenta.PLACA, CampoFacturaVenta.VIN, CampoFacturaVenta.NUMERO_FACTURA,
-    CampoFacturaVenta.FECHA_FACTURA, CampoFacturaVenta.VALOR_VEHICULO,
-  ] as const;
-  const escalacion = [CampoFacturaVenta.PLACA, CampoFacturaVenta.VIN, CampoFacturaVenta.VALOR_VEHICULO];
-  const r = await extraer(doc, PROMPT_FACTURA_VENTA, campos, escalacion, {
-    [CampoFacturaVenta.PLACA]: placaN, [CampoFacturaVenta.VIN]: vinN,
-    [CampoFacturaVenta.NUMERO_FACTURA]: textoExactoN, [CampoFacturaVenta.FECHA_FACTURA]: normalizarFecha,
-    [CampoFacturaVenta.VALOR_VEHICULO]: normalizarPesos,
-  });
-  return r as ExtraccionFacturaVenta;
-}
+// Integración FLIT (Fase 8): la factura de venta viene de FLIT (no se analiza con OCR). El extractor
+// `extraerFacturaVenta` se retiró; SOAT y recibo de impuesto mantienen su OCR.

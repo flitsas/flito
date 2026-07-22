@@ -122,3 +122,7 @@ export async function organismoPorCodigo(codigo: string): Promise<OrganismoRow |
     .limit(1);
   return organismo ?? null;
 }
+
+// El emparejamiento del reporte de FLIT (que no trae código DIVIPOLA) vive en shared-types
+// (resolverCodigoOrganismoFlit): resuelve por ciudad/nombre contra el catálogo nacional y el sync
+// busca aquí la config por código. Ver organismos-transito.ts.

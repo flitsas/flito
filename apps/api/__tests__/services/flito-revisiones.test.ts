@@ -83,7 +83,7 @@ describe('camposEsperados', () => {
 // ───────────────────────────── resolver — enrutamiento y guardas ─────────────
 
 describe('resolver — guardas', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
 
   it('404 si la revisión no existe', async () => {
     selectMock.mockReturnValueOnce(chain([]));
@@ -102,7 +102,7 @@ describe('resolver — guardas', () => {
 });
 
 describe('resolver — SOAT delega en marcarPagado tras atar el soporte', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
   it('con SOAT en adquisición: ata soporte y llama marcarPagado', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, extraccion: {}, soporteId: 's1', motivo: 'sin_llave' }]))
@@ -122,7 +122,7 @@ describe('resolver — SOAT delega en marcarPagado tras atar el soporte', () => 
 });
 
 describe('resolver — impuesto en gestión pasa a pagado; factura de venta reactiva a pendiente', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
 
   it('impuesto EN_GESTION → no lanza (transición a pagado en tx)', async () => {
     selectMock
@@ -148,7 +148,7 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
 });
 
 describe('descartar — exige motivo ≥5 y deja el soporte huérfano', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
   it('400 si el motivo es corto', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, soporteId: 's1', motivo: 'x' }]));
     await expect(descartar('r1', 'no', ctx)).rejects.toMatchObject({ status: 400 });
@@ -176,7 +176,7 @@ describe('rutas — la cola es de Operaciones; los gestores no entran', () => {
 
   it('Operaciones lista la cola (200)', async () => {
     selectMock.mockReturnValue(chain([]));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/revisiones').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);

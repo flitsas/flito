@@ -106,7 +106,7 @@ describe('recibos — RBAC', () => {
 describe('recibos — flujo', () => {
   it('archivo idéntico ya cargado → duplicado (CA-08 por hash), sin OCR', async () => {
     selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }])); // dedup por hash
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.duplicados).toHaveLength(1);
     expect(extraerMock).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('recibos — flujo', () => {
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));  // adjuntarComplemento: PAGADO
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.noAsociados).toHaveLength(1);
     expect(uploadMock).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe('recibos — flujo', () => {
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.conciliados).toHaveLength(1);
     expect(txUpdate).toHaveBeenCalledTimes(1); // → PAGADO
@@ -147,7 +147,7 @@ describe('recibos — flujo', () => {
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.enRevision).toHaveLength(1);
     expect(txUpdate).not.toHaveBeenCalled(); // NO pasó a pagado

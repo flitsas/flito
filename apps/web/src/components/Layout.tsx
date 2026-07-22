@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import AppShell from './flit/AppShell';
 import CommandPalette from './shell/CommandPalette';
+import ErrorBoundary from './ErrorBoundary';
 import { prefetchCoreRoutes } from '../lib/prefetchCoreRoutes';
 
 // Layout FLIT 2026 — AppShell sin sidebar (decisión PO 2026-06-12): topbar +
@@ -47,7 +48,10 @@ export default function Layout() {
           data-vt="page-main"
           className="animate-in fade-in slide-in-from-bottom-2 duration-500 ease-out motion-reduce:animate-none"
         >
-          <Outlet />
+          {/* Keyed por ruta → un crash de página no tumba el shell y se recupera al navegar. */}
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </div>
       </AppShell>
 

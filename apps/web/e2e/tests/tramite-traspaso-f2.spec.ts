@@ -1,7 +1,7 @@
 // TRAM-TRASPASO-F2 — capa legal CEA en el paso 6 del traspaso:
 // checklist + generación de documentos (proxy CEA) + gate de firma por contrato.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 function tramite88(extra: Record<string, unknown> = {}) {

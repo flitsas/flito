@@ -49,14 +49,14 @@ export interface CompuertaDto extends Veredicto {
   idFlit: string;
   placa: string | null;
   companiaNombre: string;
-  estadoTramite: string;
+  estadoTramite: string | null;
 }
 
 // Fila cruda del trámite con todo lo que la regla del §10 necesita, ya cargado por join.
 interface FilaCompuerta {
   tramiteId: string;
   idFlit: string;
-  estadoTramite: string;
+  estadoTramite: string | null;
   placa: string | null;
   companiaNombre: string;
   soatAutogestionable: boolean;

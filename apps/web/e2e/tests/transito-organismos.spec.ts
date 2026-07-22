@@ -1,7 +1,7 @@
 // HUM-05 / TRAM-MT-02 — E2E Organismos STT (admin).
 // API mockeada; no requiere BD ni rol real en CI.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 import { jsonRoute } from '../helpers/pesv-fixtures';
 
@@ -28,7 +28,18 @@ const ORG_LIST = [
   },
 ];
 
+const FLITO_ORG = [
+  { codigo: '05001', nombre: 'STRIA TTEyTTO MEDELLIN', alias: null, activo: true,
+    modalidadVigente: 'requiere_gestion', umbralOcr: 0.8, slaHoras: 48, diferenciaValorActiva: false, tramitesRetenidos: 2 },
+];
+
 test.describe('Tránsito · Organismos STT (admin)', () => {
+  // El panel de autogestión FLITO consume /flito/parametrizacion/organismos; por defecto vacío
+  // para que los tests de la tabla superior no golpeen la red (se sobrescribe donde importa).
+  test.beforeEach(async ({ page }) => {
+    await page.route(/\/api\/flito\/parametrizacion\/organismos/, (route) => jsonRoute(200, [])(route));
+  });
+
   test('lista organismos y abre modal editar', async ({ page }) => {
     await page.route('**/api/transito/organismos-config', (route) => jsonRoute(200, ORG_LIST)(route));
 
@@ -104,5 +115,21 @@ test.describe('Tránsito · Organismos STT (admin)', () => {
 
     await expect(page.locator('[role="status"]', { hasText: /plantilla guardada/i })).toBeVisible();
     expect(putChecklist?.hide).toEqual(expect.arrayContaining(['contrato_compraventa']));
+  });
+
+  test('la tabla única muestra la modalidad FLITO por secretaría (columna + Gestionar)', async ({ page }) => {
+    await page.route('**/api/transito/organismos-config', (route) => jsonRoute(200, ORG_LIST)(route));
+    await page.route(/\/api\/flito\/parametrizacion\/organismos(\?|$)/, (route) => jsonRoute(200, FLITO_ORG)(route));
+
+    await loginAs(page, ADMIN_USER);
+    await page.goto('/transito/organismos');
+
+    // Modalidad integrada como columna de la MISMA tabla (no una segunda tabla).
+    await expect(page.getByRole('columnheader', { name: /Modalidad FLITO/i })).toBeVisible();
+    await expect(page.getByText(/requiere gestión/i).first()).toBeVisible();
+    await expect(page.getByText(/2 retenidos/i)).toBeVisible();
+    // El botón Gestionar abre el modal de modalidad.
+    await page.getByRole('button', { name: 'Gestionar' }).first().click();
+    await expect(page.getByRole('heading', { name: /STRIA TTEyTTO MEDELLIN/ })).toBeVisible();
   });
 });

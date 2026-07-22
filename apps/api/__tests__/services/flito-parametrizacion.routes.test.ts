@@ -48,7 +48,7 @@ async function buildApp() {
   return app;
 }
 
-const auth = async (role: 'operaciones' | 'auditor' | 'gestor_impuestos' | 'proveedor') =>
+const auth = async (role: 'admin' | 'auditor' | 'gestor_impuestos' | 'proveedor') =>
   `Bearer ${await testToken({ sub: 1, username: 'u', role })}`;
 
 // ───────────────────────────── RBAC (D-2: gestores no entran) ────────────────
@@ -88,7 +88,7 @@ describe('parametrización — RBAC', () => {
   it('operaciones → lectura 200', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 1, name: 'Acme', document: '900', soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false, flitoCarpetaStorage: null, flitoToleranciaValorImpuesto: '0' }]));
     const app = await buildApp();
-    const r = await request(app).get('/api/flito/parametrizacion/companias').set('Authorization', await auth('operaciones'));
+    const r = await request(app).get('/api/flito/parametrizacion/companias').set('Authorization', await auth('admin'));
     expect(r.status).toBe(200);
     expect(r.body).toHaveLength(1);
     expect(r.body[0].nit).toBe('900');
@@ -101,14 +101,14 @@ describe('parametrización — validaciones', () => {
   it('cambiar modalidad con motivo < 5 → 400 (motivo obligatorio y explicativo)', async () => {
     const app = await buildApp();
     const r = await request(app).post('/api/flito/parametrizacion/organismos/11001/modalidad')
-      .set('Authorization', await auth('operaciones')).send({ modalidad: 'requiere_gestion', motivo: 'x' });
+      .set('Authorization', await auth('admin')).send({ modalidad: 'requiere_gestion', motivo: 'x' });
     expect(r.status).toBe(400);
   });
 
   it('regla por compañía sin companiaId → 400', async () => {
     const app = await buildApp();
     const r = await request(app).post('/api/flito/parametrizacion/reglas-proveedor-soat')
-      .set('Authorization', await auth('operaciones'))
+      .set('Authorization', await auth('admin'))
       .send({ ambito: 'compania', proveedorSoatId: '00000000-0000-0000-0000-000000000001' });
     expect(r.status).toBe(400);
   });
@@ -120,7 +120,7 @@ describe('parametrización — validaciones', () => {
       .mockReturnValueOnce(chain([{ id: 'regla-global-existente' }]));
     const app = await buildApp();
     const r = await request(app).post('/api/flito/parametrizacion/reglas-proveedor-soat')
-      .set('Authorization', await auth('operaciones'))
+      .set('Authorization', await auth('admin'))
       .send({ ambito: 'global', proveedorSoatId: '00000000-0000-0000-0000-000000000001' });
     expect(r.status).toBe(409);
   });
@@ -132,7 +132,7 @@ describe('parametrización — validaciones', () => {
       .mockReturnValueOnce(chain([{ modalidad: 'requiere_gestion' }]));
     const app = await buildApp();
     const r = await request(app).post('/api/flito/parametrizacion/organismos/11001/modalidad')
-      .set('Authorization', await auth('operaciones')).send({ modalidad: 'requiere_gestion', motivo: 'ya está clasificado así' });
+      .set('Authorization', await auth('admin')).send({ modalidad: 'requiere_gestion', motivo: 'ya está clasificado así' });
     expect(r.status).toBe(400);
   });
 });

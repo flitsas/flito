@@ -1,9 +1,9 @@
-// FLITO — puerto de integración con FLIT 1.0. Portado de packages/server/src/puertos.
+// FLITO — puerto de integración con FLIT. Portado de packages/server/src/puertos.
 //
-// Hoy lo implementa un mock con trámites en base de datos (flito_mock_tramite). Cuando
-// exista el endpoint real se agrega un adaptador HTTP contra OperationApi/api/OperationLookUp
-// y se cambia FLIT_ADAPTER=http. La sincronización solo pide "dame los trámites en este
-// estado"; cómo los consigue el adaptador no es asunto suyo.
+// FLIT es de SOLO LECTURA para FLITO: el reporte trae TODOS los trámites en cualquier estado y esa
+// es la fuente de verdad. El adaptador `http` consume el endpoint real (público); el `mock` lee de
+// flito_mock_tramite para demo/tests. La sincronización solo pide "dame el reporte de este rango";
+// cómo lo consigue el adaptador no es asunto suyo. Ver docs/integracion/integracionFlit.md.
 
 export interface CompradorFlit {
   nombreCompleto: string;
@@ -14,32 +14,54 @@ export interface CompradorFlit {
   porcentajeParticipacion?: number | null;
 }
 
+/**
+ * Un trámite tal como lo entrega FLIT. Superset: los campos del reporte real conviven con los que
+ * solo produce el mock (marca/línea/processStatus…), marcados opcionales.
+ */
 export interface TramiteFlit {
   idFlit: string;
-  processStatus: number;
-  plateComplete: string | null;
+  /** Estado CRUDO de FLIT (Borrador, Asignado, Aprobado, …). Fuente de verdad; gating por 'Asignado'. */
+  estadoFlit: string;
   vin: string;
-  placa: string;
-  marca: string;
-  linea: string;
-  cilindraje: number;
-  capacidad: number;
-  tipoVehiculo: string;
-  /** Llaves externas: FLIT no conoce los ids internos de FLITO. */
-  companiaNit: string;
-  organismoCodigo: string;
+  placa: string | null;
+  ciudad: string | null;
+  tipoTramite: string | null;
+  /** Id S3 de la factura de venta en FLIT (campo `factura`). Vacío → null (aún sin factura). */
+  facturaVentaFlitId: string | null;
+  /** NIT de la compañía gestora (CompaniaGestora). Puede no existir aún en FLITO. */
+  companiaNit: string | null;
+  /** Nombre de la secretaría en FLIT (real). El match a código DIVIPOLA lo hace el sync por nombre. */
+  transitoNombre: string | null;
+  /** Código DIVIPOLA si el adaptador ya lo conoce (mock). El http lo deja null y se resuelve por nombre. */
+  organismoCodigo: string | null;
+  fechaAprobacion: string | null;
   tipoPropiedad: string;
   compradores: CompradorFlit[];
-  /** Valor del impuesto ya liquidado por el organismo. FLITO no lo calcula; puede venir nulo. */
   valorImpuestoLiquidado: number | null;
+  /** Payload crudo completo, para trazabilidad (flit_raw). */
+  raw: unknown;
+  // Solo mock (el reporte real no los trae):
+  marca?: string | null;
+  linea?: string | null;
+  processStatus?: number;
+}
+
+export interface RangoSync {
+  /** yyyymmdd. Fecha desde la que se piden registros (la elige el usuario). */
+  initialDate: string;
+  /** yyyymmdd. Siempre hoy. */
+  finalDate: string;
 }
 
 export interface FlitPort {
-  /** Trámites en estado Asignado: processStatus === 5 y plateComplete con valor. */
-  obtenerTramitesAsignados(): Promise<TramiteFlit[]>;
-  /** Un trámite puntual, para re-consultar sin traer toda la cola. */
-  obtenerTramite(idFlit: string): Promise<TramiteFlit | null>;
-  /** Escribe hacia FLIT el paso a Entregado. La compuerta habilita, no ejecuta. */
+  /** Reporte de FLIT en el rango dado: TODOS los trámites, en cualquier estado. */
+  obtenerTramites(rango: RangoSync): Promise<TramiteFlit[]>;
+  /** URL prefirmada para ver/descargar la factura de venta (S3), o null si el id no es válido. */
+  obtenerUrlFactura(facturaId: string): Promise<string | null>;
+  /**
+   * Paso a Entregado. Integración de SOLO LECTURA: no hay endpoint de escritura en FLIT, así que
+   * es un no-op (la entrega se registra localmente). Se conserva por la compuerta.
+   */
   marcarEntregado(idFlit: string): Promise<void>;
 }
 
@@ -48,11 +70,14 @@ export interface ResultadoSync {
   tramitesLeidos: number;
   tramitesNuevos: number;
   tramitesActualizados: number;
+  /** Ya existían y llegaron IGUAL (sin diferencias): no dejan rastro de auditoría. */
+  tramitesSinCambios: number;
   soatCreados: number;
   soatBloqueadosPorVin: number;
   impuestosCreados: number;
   impuestosRetenidos: number;
   impuestosNoAplica: number;
-  tramitesReconciliados: number;
+  companiasFaltantes: number;
+  organismosSinEmparejar: number;
   ejecutadoEn: string;
 }

@@ -32,11 +32,16 @@ vi.mock('../../src/modules/flito-compuerta/flito-compuerta.service.js', async (o
 
 const { listar, solicitarSoat, solicitarImpuestos, entregar } = await import('../../src/modules/flito-tramites/flito-tramites.service.js');
 const { default: tramitesRoutes } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
+const dbMock = (await import('../../src/db/client.js')).db as unknown as {
+  insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
+};
 
-const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+const ctx = { userId: 1, username: 'op', role: 'admin' };
 
 beforeEach(() => {
   selectMock.mockReset();
+  dbMock.insert.mockReset();
+  dbMock.update.mockReset();
   enviarSoatMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   enviarImpuestosMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   entregarCompuertaMock.mockClear().mockResolvedValue({});
@@ -165,9 +170,48 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
   });
 
   it('Operaciones con body inválido → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/tramites/entregar')
       .set('Authorization', `Bearer ${token}`).send({ tramiteIds: [] });
     expect(res.status).toBe(400);
+  });
+
+  it('POST /crear-empresa → gestor (proveedor) recibe 403', async () => {
+    const token = await testToken({ role: 'proveedor' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nombre: 'ACME', nit: '900123' });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /crear-empresa con body inválido (sin nombre) → 400', async () => {
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nit: '900123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /crear-empresa → crea el cliente y reporta re-vinculados', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))                 // no existe cliente con ese NIT
+      .mockReturnValueOnce(chain([{ id: 't1' }, { id: 't2' }])); // trámites pendientes de ese NIT
+    dbMock.insert.mockReturnValue(chain([{ id: 99 }])); // clients.returning + historial
+    dbMock.update.mockReturnValue(chain([]));
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nombre: 'ACME SAS', nit: '900123' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ companiaId: 99, yaExistia: false, revinculados: 2 });
+    expect(dbMock.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('GET /:id/historial → mapea los cambios (auditor puede leer)', async () => {
+    selectMock.mockReturnValueOnce(chain([
+      { id: 'h1', campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api', usuarioNombre: null, creadoEn: new Date('2026-07-10T00:00:00Z') },
+    ]));
+    const token = await testToken({ role: 'auditor' });
+    const res = await request(app).get('/api/flito/tramites/t1/historial').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({ campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api' });
+    expect(typeof res.body[0].creadoEn).toBe('string');
   });
 });

@@ -18,7 +18,7 @@ import {
   organismosTransitoConfig,
   users,
 } from '../db/schema.js';
-import { AmbitoReglaProveedor, ModalidadOrganismo, PRIORIDAD_POR_AMBITO } from '@operaciones/shared-types';
+import { AmbitoReglaProveedor, ModalidadOrganismo, ORGANISMOS_TRANSITO, PRIORIDAD_POR_AMBITO } from '@operaciones/shared-types';
 
 export const CONTRASENA_DEMO = 'flito2026';
 
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   const porNombre = (prefijo: string) => companias.find((c) => c.name.startsWith(prefijo))!;
 
   // ── Organismos (organismos_transito_config) + modalidad con vigencias ───────
+  // Cinco con alias/ajustes explícitos (cubren las 3 modalidades + SIN clasificar).
   await db.insert(organismosTransitoConfig).values([
     { codigo: ORG.MEDELLIN, alias: 'Secretaría de Movilidad de Medellín', flitoSlaHoras: 48 },
     { codigo: ORG.ENVIGADO, alias: 'Tránsito de Envigado', flitoUmbralOcr: '0.700', flitoSlaHoras: 72 },
@@ -51,6 +52,12 @@ async function main(): Promise<void> {
     { codigo: ORG.CALI, alias: 'Secretaría de Tránsito de Cali' },
     { codigo: ORG.BARRANQUILLA, alias: 'Tránsito de Barranquilla' },
   ]).onConflictDoNothing();
+  // El resto del catálogo nacional entra como config para que CUALQUIER ciudad del reporte de FLIT
+  // empareje su secretaría. Quedan SIN clasificar (sin vigencia) → sus impuestos se RETIENEN hasta
+  // que se les asigne modalidad (CA-03). Sin esto, los trámites de esas ciudades quedaban huérfanos.
+  await db.insert(organismosTransitoConfig)
+    .values(ORGANISMOS_TRANSITO.map((o) => ({ codigo: o.codigo, alias: `Tránsito de ${o.ciudad}` })))
+    .onConflictDoNothing();
 
   const ahora = new Date();
   // Antioquia (Medellín/Envigado) requiere gestión; Bogotá/Cali autogestionan. Barranquilla
@@ -83,7 +90,8 @@ async function main(): Promise<void> {
   // ── Usuarios (roles del grande: operaciones/proveedor/gestor_impuestos/auditor) ─
   const hash = await argon2.hash(CONTRASENA_DEMO);
   await db.insert(users).values([
-    { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'operaciones' },
+    // El operador FLITO ES admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
+    { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'admin' },
     // Dos gestores del MISMO proveedor: permite demostrar CA-04 (toma atómica de la misma cola).
     { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
     { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
@@ -106,9 +114,9 @@ async function main(): Promise<void> {
     gestor.envigado  Gestor Impuestos — solo Envigado
     auditoria        Auditoría — solo lectura
 
-  NO hay trámites (son de FLIT). Entra como operaciones, créalos en /api/flito/demo
-  y sincroniza. Barranquilla (${ORG.BARRANQUILLA}) quedó SIN clasificar: sus trámites
-  se RETIENEN (CA-03).\n${linea}\n`);
+  NO hay trámites (son de FLIT). Entra como operaciones y sincroniza desde el Tablero
+  (o POST /api/flito/sync/sincronizar) contra FLIT real. Barranquilla (${ORG.BARRANQUILLA})
+  quedó SIN clasificar: sus trámites se RETIENEN (CA-03).\n${linea}\n`);
   process.exit(0);
 }
 
