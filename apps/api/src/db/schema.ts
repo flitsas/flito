@@ -2596,26 +2596,3 @@ export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
   prioridad: integer('prioridad').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
-
-// Andamiaje del FLIT simulado (NO es dominio FLITO). Referencia compañía/organismo por
-// llaves EXTERNAS (nit, código), sin FK. Se retira cuando exista el adaptador FLIT real.
-export const flitoMockTramite = pgTable('flito_mock_tramite', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
-  processStatus: integer('process_status').notNull(),
-  plateComplete: varchar('plate_complete', { length: 20 }),
-  vin: varchar('vin', { length: 17 }).notNull(),
-  placa: varchar('placa', { length: 10 }).notNull(),
-  marca: varchar('marca', { length: 60 }).notNull(),
-  linea: varchar('linea', { length: 80 }).notNull(),
-  cilindraje: integer('cilindraje').notNull(),
-  capacidad: integer('capacidad').notNull(),
-  tipoVehiculo: varchar('tipo_vehiculo', { length: 40 }).notNull(),
-  companiaNit: varchar('compania_nit', { length: 20 }).notNull(),
-  organismoCodigo: varchar('organismo_codigo', { length: 10 }).notNull(),
-  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
-  compradores: jsonb('compradores').notNull(),
-  valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});

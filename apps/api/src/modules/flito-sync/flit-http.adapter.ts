@@ -1,5 +1,5 @@
 // FLITO — adaptador HTTP de FLIT (real). Consume el reporte público de trámites y el file-manager de
-// facturas. Solo lectura. Ver docs/integracion/integracionFlit.md. Se activa con FLIT_ADAPTER=http.
+// facturas. Solo lectura. Ver docs/integracion/integracionFlit.md.
 
 import { loggerFor } from '../../shared/logger.js';
 import type { FlitPort, RangoSync, TramiteFlit } from './flit.port.js';

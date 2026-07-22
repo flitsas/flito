@@ -53,7 +53,6 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
   { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
-  { page: 'flito_demo',     to: '/flito/demo',                   section: 'gestion',       label: 'Panel de demo',           keywords: 'flito demo simulado flit crear tramite anular recrear sincronizar' },
   { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },

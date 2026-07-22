@@ -23,7 +23,6 @@ const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
 const FlitoParametrizacion = lazy(() => import('./pages/FlitoParametrizacion'));
-const FlitoDemo = lazy(() => import('./pages/FlitoDemo'));
 const Users = lazy(() => import('./pages/Users'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
@@ -157,7 +156,6 @@ function AppRoutes() {
         <Route path="/flito/compuerta" element={<ProtectedRoute page="flito_compuerta"><Lazy><FlitoCompuerta /></Lazy></ProtectedRoute>} />
         <Route path="/flito/parametrizacion" element={<ProtectedRoute page="flito_parametrizacion"><Lazy><FlitoParametrizacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
-        <Route path="/flito/demo" element={<ProtectedRoute page="flito_demo"><Lazy><FlitoDemo /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />
         <Route path="/transito/traspaso" element={<ProtectedRoute page="transito"><Lazy><TransitoTraspasoExpediente /></Lazy></ProtectedRoute>} />

@@ -106,9 +106,9 @@ async function main(): Promise<void> {
     gestor.envigado  Gestor Impuestos — solo Envigado
     auditoria        Auditoría — solo lectura
 
-  NO hay trámites (son de FLIT). Entra como operaciones, créalos en /api/flito/demo
-  y sincroniza. Barranquilla (${ORG.BARRANQUILLA}) quedó SIN clasificar: sus trámites
-  se RETIENEN (CA-03).\n${linea}\n`);
+  NO hay trámites (son de FLIT). Entra como operaciones y sincroniza desde el Tablero
+  (o POST /api/flito/sync/sincronizar) contra FLIT real. Barranquilla (${ORG.BARRANQUILLA})
+  quedó SIN clasificar: sus trámites se RETIENEN (CA-03).\n${linea}\n`);
   process.exit(0);
 }
 

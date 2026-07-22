@@ -86,7 +86,6 @@ export const PAGES = {
   flito_parametrizacion: 'FLITO — Parametrización',
   flito_tablero: 'FLITO — Tablero',
   flito_bitacora: 'FLITO — Bitácora',
-  flito_demo: 'FLITO — Demo',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -100,7 +99,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_demo'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -127,7 +126,7 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // FLITO — Operaciones: superusuario FUNCIONAL del dominio FLITO (no admin global). Incluye
   // Clientes (autogestión de compañías) y Organismos de tránsito (modalidad) donde se reubicó la
   // parametrización (§correcciones-UX P2.3b).
-  operaciones: ['dashboard', 'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_demo', 'clients', 'transito_organismos'],
+  operaciones: ['dashboard', 'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'clients', 'transito_organismos'],
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
   gestor_impuestos: ['dashboard', 'flito_impuestos'],
 };

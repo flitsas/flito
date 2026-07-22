@@ -26,7 +26,7 @@ export const OPERACIONES_USER = {
   allowedPages: [] as string[],
 };
 
-// FLITO — Auditoría: mismas vistas FLITO pero solo lectura (sin flito_demo).
+// FLITO — Auditoría: mismas vistas FLITO pero solo lectura.
 export const AUDITOR_USER = {
   id: 8,
   username: 'e2e_auditor',

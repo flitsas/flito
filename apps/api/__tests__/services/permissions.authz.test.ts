@@ -166,7 +166,7 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const ops = getEffectivePages({ role: 'operaciones' });
     expect(ops).toContain('flito_tramites');
     expect(ops).toContain('soat');
-    expect(ops).toContain('flito_demo');
+    expect(ops).toContain('flito_tablero');
     expect(ops).not.toContain('laft');
     const gi = getEffectivePages({ role: 'gestor_impuestos' }).sort();
     expect(gi).toEqual(['dashboard', 'flito_impuestos'].sort());

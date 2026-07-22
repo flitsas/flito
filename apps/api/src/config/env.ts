@@ -90,9 +90,6 @@ const envSchema = z.object({
   // emite log warn — NO falla el flujo. Política PO: no setear emails por defecto.
   LAFT_COMPLIANCE_RECIPIENTS: z.string().optional(),
   // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
-  // Adaptador del origen de trámites: `mock` (andamiaje demo, sin FLIT real) o
-  // `http` (integración real contra FLIT 1.0). Ver MIGRACION_FLITO §3.2.
-  FLIT_ADAPTER: z.enum(['mock', 'http']).default('mock'),
   // Umbral de confianza OCR por defecto (0..1). Sobrescribible por proveedor/organismo.
   // Un campo bajo este umbral cae en la cola de revisión (RN-04/CA-06).
   OCR_UMBRAL_DEFECTO: z.coerce.number().min(0).max(1).default(0.85),
