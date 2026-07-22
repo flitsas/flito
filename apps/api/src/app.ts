@@ -22,6 +22,11 @@ import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flitoDemoRoutes from './modules/flito-demo/flito-demo.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
+import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
+import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
+import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
+import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
+import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -168,6 +173,11 @@ export function createApp() {
   app.use('/api/flito/demo', flitoDemoRoutes);
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
+  app.use('/api/flito/revisiones', flitoRevisionesRoutes);
+  app.use('/api/flito/compuerta', flitoCompuertaRoutes);
+  app.use('/api/flito/tramites', flitoTramitesRoutes);
+  app.use('/api/flito/tablero', flitoTableroRoutes);
+  app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma
