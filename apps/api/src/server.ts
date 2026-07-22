@@ -19,6 +19,7 @@ import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
+import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -51,6 +52,8 @@ const server = app.listen(env.PORT, () => {
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
+    // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
+    startFlitSync();
   }
 });
 
@@ -83,6 +86,7 @@ function shutdown(signal: string) {
   stopAnthropicHealthCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
+  stopFlitSync();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

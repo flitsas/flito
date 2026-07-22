@@ -15,6 +15,15 @@ import { lazy, Suspense } from 'react';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Vehicles = lazy(() => import('./pages/Vehicles'));
 const Soat = lazy(() => import('./pages/Soat'));
+const FlitoTramites = lazy(() => import('./pages/FlitoTramites'));
+const FlitoTablero = lazy(() => import('./pages/FlitoTablero'));
+const FlitoBitacora = lazy(() => import('./pages/FlitoBitacora'));
+const FlitoCompuerta = lazy(() => import('./pages/FlitoCompuerta'));
+const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
+const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
+const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
+const FlitoParametrizacion = lazy(() => import('./pages/FlitoParametrizacion'));
+const FlitoDemo = lazy(() => import('./pages/FlitoDemo'));
 const Users = lazy(() => import('./pages/Users'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
@@ -140,6 +149,15 @@ function AppRoutes() {
         <Route path="/tramite" element={<ProtectedRoute page="tramite"><Lazy><TramiteDigital /></Lazy></ProtectedRoute>} />
         <Route path="/tramite/traspaso" element={<ProtectedRoute><Lazy><TramiteTraspasoGate /></Lazy></ProtectedRoute>} />
         <Route path="/tax-reader" element={<ProtectedRoute page="tax_reader"><Lazy><TaxReader /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/tramites" element={<ProtectedRoute page="flito_tramites"><Lazy><FlitoTramites /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/tablero" element={<ProtectedRoute page="flito_tablero"><Lazy><FlitoTablero /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/soat" element={<ProtectedRoute page="soat"><Lazy><FlitoSoat /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/compuerta" element={<ProtectedRoute page="flito_compuerta"><Lazy><FlitoCompuerta /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/parametrizacion" element={<ProtectedRoute page="flito_parametrizacion"><Lazy><FlitoParametrizacion /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/demo" element={<ProtectedRoute page="flito_demo"><Lazy><FlitoDemo /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />
         <Route path="/transito/traspaso" element={<ProtectedRoute page="transito"><Lazy><TransitoTraspasoExpediente /></Lazy></ProtectedRoute>} />
