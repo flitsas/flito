@@ -41,6 +41,7 @@ import firmaWebhookRoutes from './modules/firma/webhook.routes.js';
 import driveRoutes from './modules/drive/drive.routes.js';
 import procesadorRoutes, { publicRouter as procesadorPublicRoutes } from './modules/drive/procesador.routes.js';
 import rumRoutes from './modules/rum/rum.routes.js';
+import filesRoutes from './modules/files/files.routes.js';
 import laftCounterpartiesRoutes from './modules/laft/counterparties.routes.js';
 import laftAuditRoutes from './modules/laft/audit.routes.js';
 import laftListsRoutes from './modules/laft/lists.routes.js';
@@ -161,6 +162,7 @@ export function createApp() {
 
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
+  app.use('/api/files', filesRoutes); // descargas por token HMAC firmado — pública (el token es la auth)
   app.use('/api/auth', authRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/vehicles', vehiclesRoutes);
