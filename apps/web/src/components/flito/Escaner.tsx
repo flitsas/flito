@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { parseLicenciaTransito } from '@operaciones/shared-types';
-import { ocrNumeroLt, precargarOcr } from '../../lib/ocrLt';
+import { ocrListo, ocrNumeroLt, precargarOcr } from '../../lib/ocrLt';
 
 export function escaneoDisponible(): boolean {
   return typeof window !== 'undefined' && 'BarcodeDetector' in window;
@@ -107,9 +107,12 @@ export default function Escaner({ onScan, onClose }: { onScan: (code: string, nu
                 const recorte = recortarDebajo(v, code.boundingBox);
                 let numeroLt: string | null = null;
                 try {
+                  // El primer OCR descarga ~4 MB (worker+modelo): esperamos a que esté listo antes de
+                  // arrancar el reloj, para que la primera LT no se pierda por timeout. Luego 20 s de tope.
+                  await ocrListo();
                   numeroLt = await Promise.race([
                     ocrNumeroLt(recorte),
-                    new Promise<null>((r) => window.setTimeout(() => r(null), 9000)),
+                    new Promise<null>((r) => window.setTimeout(() => r(null), 20000)),
                   ]);
                 } catch { /* OCR falló → queda manual */ }
                 setLeyendo(false);

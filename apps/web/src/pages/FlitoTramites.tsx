@@ -10,6 +10,10 @@ import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
 import { parseLicenciaTransito } from '@operaciones/shared-types';
+import {
+  ESTADO_LOGISTICA_SIMPLE_LABEL, ESTADOS_LOGISTICA_SIMPLE_ORDEN, simplificarEstadoLogistica,
+  type EstadoLogisticaSimple,
+} from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -775,32 +779,23 @@ function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?:
 
 // Tracking logístico de la LT: línea horizontal con un punto por paso y, arriba, el estado actual
 // (estilo seguimiento de pedido). Novedad/Devuelta se marcan en rojo sobre el paso donde ocurren.
-const PASOS_LOG = [
-  { key: 'pendiente', label: 'Pendiente' },
-  { key: 'recogido', label: 'Recogida' },
-  { key: 'clasificado', label: 'Clasificada' },
-  { key: 'en_acta', label: 'En acta' },
-  { key: 'despachado', label: 'Despachada' },
-  { key: 'entregado', label: 'Entregada' },
-];
-const LOG_MAPA: Record<string, { idx: number; danger: boolean }> = {
-  pendiente: { idx: 0, danger: false }, recogido: { idx: 1, danger: false }, clasificado: { idx: 2, danger: false },
-  en_acta: { idx: 3, danger: false }, despachado: { idx: 4, danger: false }, entregado: { idx: 5, danger: false },
-  novedad: { idx: 1, danger: true }, devuelto: { idx: 4, danger: true },
-};
-const LOG_LABEL: Record<string, string> = {
-  pendiente: 'Pendiente de recogida', recogido: 'Recogida', clasificado: 'Clasificada', en_acta: 'En acta',
-  despachado: 'Despachada', entregado: 'Entregada', novedad: 'Novedad', devuelto: 'Devuelta',
+// Tracking con el vocabulario SIMPLE (4 pasos lineales; «Con novedad» es un desvío lateral, no un paso).
+const PASOS_LOG = ESTADOS_LOGISTICA_SIMPLE_ORDEN.map((key) => ({ key, label: ESTADO_LOGISTICA_SIMPLE_LABEL[key] }));
+const IDX_SIMPLE: Record<EstadoLogisticaSimple, { idx: number; danger: boolean }> = {
+  pendiente: { idx: 0, danger: false }, registrada: { idx: 1, danger: false },
+  despachada: { idx: 2, danger: false }, entregada: { idx: 3, danger: false },
+  novedad: { idx: 1, danger: true }, // se pinta en rojo sobre el paso de recogida
 };
 
 function TrackingLogistica({ estado }: { estado: string | null }) {
   if (!estado) return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>No aplica</span>;
-  const info = LOG_MAPA[estado] ?? { idx: 0, danger: false };
-  const color = info.danger ? 'var(--flit-danger)' : estado === 'entregado' ? 'var(--flit-success)' : 'var(--flit-blue-text)';
+  const simple = simplificarEstadoLogistica(estado);
+  const info = IDX_SIMPLE[simple];
+  const color = info.danger ? 'var(--flit-danger)' : simple === 'entregada' ? 'var(--flit-success)' : 'var(--flit-blue-text)';
   const pct = (info.idx / (PASOS_LOG.length - 1)) * 100;
   return (
     <div className="min-w-[190px]">
-      <div className="mb-2 text-[11px] font-semibold" style={{ color }}>{LOG_LABEL[estado] ?? estado}</div>
+      <div className="mb-2 text-[11px] font-semibold" style={{ color }}>{ESTADO_LOGISTICA_SIMPLE_LABEL[simple]}</div>
       <div className="relative flex items-center justify-between px-0.5">
         <div className="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ background: 'var(--flit-border-soft)' }} />
         <div className="absolute left-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ width: `calc(${pct}% - 4px)`, background: color }} />

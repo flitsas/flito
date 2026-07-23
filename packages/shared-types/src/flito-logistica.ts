@@ -66,6 +66,65 @@ export const ESTADOS_LOGISTICA_BLOQUEAN_ACTA: readonly EstadoDocumentoLogistica[
   'novedad', 'devuelto',
 ];
 
+// ── Estado SIMPLIFICADO (vista de negocio) ───────────────────────────────────
+// El ciclo interno tiene más matices (recogido/clasificado/en_acta…), pero la operación y el cliente
+// razonan con 5 estados. Este es el vocabulario que se muestra en la consola, el tracking y la ruta.
+// El estado interno del documento sigue siendo el de arriba; aquí solo se COLAPSA para presentar.
+//
+//   Pendiente de recogida → Registrada → Despachada → Entregada         (Con novedad = lateral)
+//
+// - Pendiente de recogida: el trámite está aprobado pero el mensajero aún no escaneó la LT.
+// - Registrada:  el mensajero la recogió y quedó clasificada a su trámite. Lista para armar el acta.
+// - Despachada:  se generó el acta y el mensajero salió a entregarla (ya lleva la firma de Operaciones).
+// - Entregada:   el mensajero la entregó y el receptor firmó. Estado TERMINAL.
+// - Con novedad: hubo una novedad (o devolución) en cualquier punto del ciclo.
+export const EstadoLogisticaSimple = {
+  PENDIENTE: 'pendiente',
+  REGISTRADA: 'registrada',
+  DESPACHADA: 'despachada',
+  ENTREGADA: 'entregada',
+  NOVEDAD: 'novedad',
+} as const;
+
+export type EstadoLogisticaSimple = (typeof EstadoLogisticaSimple)[keyof typeof EstadoLogisticaSimple];
+
+export const ESTADO_LOGISTICA_SIMPLE_LABEL: Record<EstadoLogisticaSimple, string> = {
+  pendiente: 'Pendiente de recogida',
+  registrada: 'Registrada',
+  despachada: 'Despachada',
+  entregada: 'Entregada',
+  novedad: 'Con novedad',
+};
+
+/** Pasos lineales del tracking (la novedad NO va en la línea: es un desvío lateral). */
+export const ESTADOS_LOGISTICA_SIMPLE_ORDEN: readonly EstadoLogisticaSimple[] = [
+  'pendiente', 'registrada', 'despachada', 'entregada',
+];
+
+/**
+ * Colapsa el estado INTERNO del documento (o null = LT aún no escaneada) al vocabulario de 5 estados.
+ * `generado` y ausencia de documento = «Pendiente de recogida»; `recogido`/`clasificado`/`en_acta` =
+ * «Registrada»; `despachado` = «Despachada»; `entregado` = «Entregada»; `novedad`/`devuelto` = «Con novedad».
+ */
+export function simplificarEstadoLogistica(interno: string | null | undefined): EstadoLogisticaSimple {
+  switch (interno) {
+    case 'recogido':
+    case 'clasificado':
+    case 'en_acta':
+      return 'registrada';
+    case 'despachado':
+      return 'despachada';
+    case 'entregado':
+      return 'entregada';
+    case 'novedad':
+    case 'devuelto':
+      return 'novedad';
+    case 'generado':
+    default:
+      return 'pendiente';
+  }
+}
+
 /** Estado del acta (agrupación por empresa para despacho/entrega). */
 export const EstadoActaLogistica = {
   GENERADA: 'generada',

@@ -14,20 +14,27 @@ import { submitCampo, usePendingQueue } from '../lib/offlineQueue';
 import { obtenerUbicacion } from '../lib/geo';
 import FirmaCanvas from '../components/flito/FirmaCanvas';
 import Escaner, { escaneoDisponible } from '../components/flito/Escaner';
+import { precargarOcr } from '../lib/ocrLt';
 
 interface RutaDocumento { id: string; placa: string | null; idFlit: string; numeroLt: string | null }
 interface RutaEntrega { actaId: string; companiaNombre: string | null; direccionEntrega: string | null; contactoNombre: string | null; documentos: RutaDocumento[] }
 interface MiRuta { entregas: RutaEntrega[] }
-type ResultadoEscaneo = 'recogido' | 'novedad' | 'duplicado' | 'sin_match' | 'no_gestionable';
-interface RespuestaEscaneo { resultado: ResultadoEscaneo; motivo?: string | null }
+// Validación de una LT SIN persistir: el mensajero escanea en lote y solo confirma al final.
+type Validacion = 'validando' | 'relacionada' | 'novedad' | 'sin_match' | 'no_gestionable' | 'ya_registrada' | 'sin_conexion' | 'error';
+interface RespuestaValidacion { resultado: 'relacionada' | 'novedad' | 'sin_match' | 'no_gestionable' | 'ya_registrada'; motivo?: string | null }
+type Confirmacion = 'pendiente' | 'confirmando' | 'confirmada' | 'encolada' | 'error';
 
-// Una fila de la tabla de recogidas: datos del código + N.º de LT (OCR) + estado del emparejamiento.
-type EstadoFila = 'enviando' | 'encolado' | 'error' | ResultadoEscaneo;
+// Una fila de la tabla de recogidas: datos del código + N.º de LT (OCR) + validación del match + confirmación.
 interface FilaLt {
   key: number; rawValue: string;
   placa: string; vin: string; propietario: string | null; numeroLicencia: string; combustible: string | null;
-  numeroLt: string; ltGuardado: string; estado: EstadoFila; detalle?: string | null;
+  numeroLt: string; validacion: Validacion; motivo?: string | null;
+  confirmacion: Confirmacion; confirmMotivo?: string | null;
 }
+
+// La LT se relaciona con un trámite → registrable al confirmar. `sin_conexion`: no se pudo validar
+// offline; se encola al confirmar y el servidor decide al sincronizar.
+const REGISTRABLE: Validacion[] = ['relacionada', 'novedad', 'sin_conexion'];
 
 // Botones grandes y cómodos para el pulgar (py-3.5, texto base).
 const btn = 'w-full rounded-xl px-4 py-3.5 text-base font-semibold text-white active:opacity-80 disabled:opacity-50';
@@ -35,15 +42,23 @@ const btnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
 const btnGhost = 'rounded-lg px-4 py-2.5 text-sm font-semibold active:opacity-70';
 
 const GRIS = 'rgba(89,103,125,0.12)';
-const ESTADO: Record<EstadoFila, { texto: string; color: string; bg: string }> = {
-  enviando: { texto: 'Enviando…', color: 'var(--flit-text-secondary)', bg: GRIS },
-  recogido: { texto: '✓ Registrada', color: 'var(--flit-success)', bg: 'rgba(112,207,58,0.16)' },
-  duplicado: { texto: 'Ya registrada', color: 'var(--flit-text-secondary)', bg: GRIS },
-  novedad: { texto: 'Novedad', color: 'var(--flit-warning)', bg: 'rgba(240,90,53,0.16)' },
+// Chip por resultado de validación (mientras no se confirme).
+const VAL_UI: Record<Validacion, { texto: string; color: string; bg: string }> = {
+  validando: { texto: 'Validando…', color: 'var(--flit-text-secondary)', bg: GRIS },
+  relacionada: { texto: '✓ Relacionada', color: 'var(--flit-blue-text)', bg: 'rgba(48,102,190,0.14)' },
+  novedad: { texto: 'Novedad (VIN)', color: 'var(--flit-warning)', bg: 'rgba(240,90,53,0.16)' },
   sin_match: { texto: 'Sin trámite', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.14)' },
   no_gestionable: { texto: 'No gestionable', color: 'var(--flit-text-secondary)', bg: GRIS },
-  encolado: { texto: 'En cola', color: 'var(--flit-text-secondary)', bg: GRIS },
+  ya_registrada: { texto: 'Ya registrada', color: 'var(--flit-text-secondary)', bg: GRIS },
+  sin_conexion: { texto: 'Sin validar (offline)', color: 'var(--flit-text-secondary)', bg: GRIS },
   error: { texto: 'Error', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.14)' },
+};
+// Cuando ya se confirmó (o está en curso), el chip de confirmación manda sobre el de validación.
+const CONF_UI: Partial<Record<Confirmacion, { texto: string; color: string; bg: string }>> = {
+  confirmando: { texto: 'Registrando…', color: 'var(--flit-text-secondary)', bg: GRIS },
+  confirmada: { texto: '✓ Registrada', color: 'var(--flit-success)', bg: 'rgba(112,207,58,0.16)' },
+  encolada: { texto: 'En cola', color: 'var(--flit-text-secondary)', bg: GRIS },
+  error: { texto: 'Error al registrar', color: 'var(--flit-danger)', bg: 'rgba(228,61,48,0.14)' },
 };
 
 export default function FlitoRuta() {
@@ -112,41 +127,56 @@ function PanelRecogida() {
   const [filas, setFilas] = useState<FilaLt[]>([]);
   const [pegar, setPegar] = useState('');
   const [ltManual, setLtManual] = useState('');
-  const geo = useRef<{ lat?: string; lng?: string }>({});
+  const [confirmando, setConfirmando] = useState(false);
+  const [resumen, setResumen] = useState<string | null>(null);
+  const porRaw = useRef<Map<string, number>>(new Map()); // rawValue → key de fila (dedup del re-escaneo)
+
+  // Precarga el worker de OCR apenas se muestra el panel: para cuando el mensajero abra la cámara y
+  // escanee la primera LT, el modelo (~4 MB) ya está en memoria/IndexedDB y no se pierde el número.
+  useEffect(() => { precargarOcr(); }, []);
 
   const parsedPegar = pegar.trim() ? parseLicenciaTransito(pegar.trim()) : null;
 
   const actualizar = (key: number, patch: Partial<FilaLt>) =>
     setFilas((f) => f.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
-  // Procesa un código: extrae, agrega la fila y la envía al backend (match por placa+VIN).
+  // Valida el match de una LT contra los trámites aprobados SIN persistir nada.
+  const validar = async (key: number, rawValue: string) => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      actualizar(key, { validacion: 'sin_conexion', motivo: 'Sin conexión: se registrará al confirmar.' });
+      return;
+    }
+    try {
+      const r = await api.post<RespuestaValidacion>('/flito/logistica/validar-lt', { rawValue });
+      actualizar(key, { validacion: r.resultado, motivo: r.motivo ?? null });
+    } catch (e) {
+      actualizar(key, { validacion: 'error', motivo: errorMessage(e) });
+    }
+  };
+
+  // Agrega (o actualiza) una LT escaneada. NO persiste: solo la valida. Si el mismo código ya está en
+  // la lista, no duplica: actualiza su N.º de LT (por si el reintento de OCR ahora sí lo trajo).
   const procesar = async (rawValue: string, numeroLt?: string | null) => {
     const p = parseLicenciaTransito(rawValue);
     if (!p) return; // ilegible: se ignora
-    if (!geo.current.lat) geo.current = await obtenerUbicacion(); // RN-07: ubicación de la recogida
+    const lt = (numeroLt ?? '').trim();
+    const existente = porRaw.current.get(rawValue);
+    if (existente != null) { if (lt) actualizar(existente, { numeroLt: lt }); return; }
     const key = Date.now() + Math.random();
-    const lt = numeroLt ?? '';
+    porRaw.current.set(rawValue, key);
+    setResumen(null);
     setFilas((f) => [{
       key, rawValue, placa: p.placa, vin: p.vin, propietario: p.propietarioNombre,
-      numeroLicencia: p.numeroLicencia, combustible: p.combustible, numeroLt: lt, ltGuardado: lt, estado: 'enviando',
+      numeroLicencia: p.numeroLicencia, combustible: p.combustible, numeroLt: lt,
+      validacion: 'validando', confirmacion: 'pendiente',
     }, ...f]);
-    try {
-      const { queued, result } = await submitCampo('/flito/logistica/escanear', { rawValue, numeroLt: lt || undefined, ...geo.current }, `LT ${p.placa}`);
-      if (queued) { actualizar(key, { estado: 'encolado' }); return; }
-      const r = result as RespuestaEscaneo;
-      actualizar(key, { estado: r.resultado, detalle: r.motivo ?? null });
-    } catch (e) { actualizar(key, { estado: 'error', detalle: errorMessage(e) }); }
+    await validar(key, rawValue);
   };
 
-  // Corrige el N.º de LT en una fila ya registrada (re-envía para actualizarlo en el backend).
-  const editarLt = async (fila: FilaLt, valor: string) => {
-    const v = valor.trim();
-    actualizar(fila.key, { numeroLt: v });
-    if (!v || v === fila.ltGuardado || fila.estado === 'enviando' || fila.estado === 'error') return;
-    try {
-      await submitCampo('/flito/logistica/escanear', { rawValue: fila.rawValue, numeroLt: v, ...geo.current }, `LT ${fila.placa}`);
-      actualizar(fila.key, { ltGuardado: v });
-    } catch { /* best-effort */ }
+  // Quita una fila de la lista (p. ej. una LT que no trajo número y no se pudo leer).
+  const borrar = (fila: FilaLt) => {
+    porRaw.current.delete(fila.rawValue);
+    setFilas((f) => f.filter((r) => r.key !== fila.key));
   };
 
   const agregarPegado = () => {
@@ -155,18 +185,36 @@ function PanelRecogida() {
     setPegar(''); setLtManual('');
   };
 
-  const abrir = async () => { geo.current = await obtenerUbicacion(); setEscaneando(true); };
+  // Registra en el backend TODAS las LT relacionadas que aún no se han confirmado (una por una;
+  // idempotente y con cola offline). Aquí es donde la LT pasa a 'Registrada'.
+  const confirmables = filas.filter((r) => REGISTRABLE.includes(r.validacion) && r.confirmacion !== 'confirmada' && r.confirmacion !== 'confirmando');
+  const confirmar = async () => {
+    if (!confirmables.length) return;
+    setConfirmando(true); setResumen(null);
+    const geo = await obtenerUbicacion(); // RN-07: ubicación de la recogida
+    let ok = 0; let colas = 0; let err = 0;
+    for (const fila of confirmables) {
+      actualizar(fila.key, { confirmacion: 'confirmando' });
+      try {
+        const { queued } = await submitCampo('/flito/logistica/escanear', { rawValue: fila.rawValue, numeroLt: fila.numeroLt || undefined, ...geo }, `LT ${fila.placa}`);
+        if (queued) { actualizar(fila.key, { confirmacion: 'encolada' }); colas += 1; }
+        else { actualizar(fila.key, { confirmacion: 'confirmada' }); ok += 1; }
+      } catch (e) { actualizar(fila.key, { confirmacion: 'error', confirmMotivo: errorMessage(e) }); err += 1; }
+    }
+    setConfirmando(false);
+    setResumen(`${ok} registrada(s)${colas ? ` · ${colas} en cola` : ''}${err ? ` · ${err} con error` : ''}`);
+  };
 
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Recoger licencias</h2>
-        {filas.length > 0 && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{filas.length} cargada(s)</span>}
+        {filas.length > 0 && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{filas.length} escaneada(s)</span>}
       </div>
 
       <div className="rounded-xl border bg-white p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
         {escaneoDisponible() && (
-          <button className={btn} style={btnPrimaryStyle} onClick={abrir}>📷 Escanear {filas.length ? 'otra LT' : 'LT'}</button>
+          <button className={btn} style={btnPrimaryStyle} onClick={() => setEscaneando(true)}>📷 Escanear {filas.length ? 'otra LT' : 'LT'}</button>
         )}
         {/* Respaldo si no hay cámara/BarcodeDetector: pegar el contenido + N.º de LT a mano. */}
         <details className="mt-2">
@@ -187,8 +235,18 @@ function PanelRecogida() {
           {filas.map((f) => (
             <TarjetaLt key={f.key} fila={f}
               onChangeLt={(v) => actualizar(f.key, { numeroLt: v })}
-              onBlurLt={(v) => editarLt(f, v)} />
+              onBorrar={() => borrar(f)} />
           ))}
+        </div>
+      )}
+
+      {/* Confirmación en lote: nada se registra hasta pulsar este botón. */}
+      {filas.length > 0 && (
+        <div className="sticky bottom-3 z-10">
+          <button className={btn} style={btnPrimaryStyle} disabled={confirmando || confirmables.length === 0} onClick={confirmar}>
+            {confirmando ? 'Registrando…' : `Confirmar recogida${confirmables.length ? ` (${confirmables.length})` : ''}`}
+          </button>
+          {resumen && <p className="mt-1.5 text-center text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>{resumen}</p>}
         </div>
       )}
 
@@ -197,24 +255,32 @@ function PanelRecogida() {
   );
 }
 
-function TarjetaLt({ fila, onChangeLt, onBlurLt }: { fila: FilaLt; onChangeLt: (v: string) => void; onBlurLt: (v: string) => void }) {
-  const e = ESTADO[fila.estado];
+function TarjetaLt({ fila, onChangeLt, onBorrar }: { fila: FilaLt; onChangeLt: (v: string) => void; onBorrar: () => void }) {
+  const ui = CONF_UI[fila.confirmacion] ?? VAL_UI[fila.validacion];
+  const bloqueado = fila.confirmacion === 'confirmada' || fila.confirmacion === 'confirmando';
   return (
     <div className="rounded-xl border bg-white p-3.5" style={{ borderColor: 'var(--flit-border-soft)' }}>
       <div className="flex items-start justify-between gap-2">
         <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{fila.placa}</span>
-        <span className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold" style={{ color: e.color, background: e.bg }}>{e.texto}</span>
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold" style={{ color: ui.color, background: ui.bg }}>{ui.texto}</span>
+          {!bloqueado && (
+            <button type="button" aria-label="Quitar LT" onClick={onBorrar}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm active:opacity-70"
+              style={{ color: 'var(--flit-danger)', background: 'rgba(228,61,48,0.10)' }}>✕</button>
+          )}
+        </div>
       </div>
       <label className="mt-2.5 block">
         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>N.º de LT</span>
-        <input className={`${flitInp} tabular-nums`} inputMode="numeric" value={fila.numeroLt} placeholder="—"
-          onChange={(ev) => onChangeLt(ev.target.value)} onBlur={(ev) => onBlurLt(ev.target.value)} />
+        <input className={`${flitInp} tabular-nums`} inputMode="numeric" value={fila.numeroLt} placeholder="—" disabled={bloqueado}
+          onChange={(ev) => onChangeLt(ev.target.value)} />
       </label>
       <div className="mt-2.5 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{fila.propietario ?? '—'}</div>
       <div className="mt-0.5 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>
         VIN {fila.vin} · Lic. {fila.numeroLicencia}{fila.combustible ? ` · ${fila.combustible}` : ''}
       </div>
-      {fila.detalle && <div className="mt-1.5 text-xs" style={{ color: e.color }}>{fila.detalle}</div>}
+      {(fila.confirmMotivo || fila.motivo) && <div className="mt-1.5 text-xs" style={{ color: ui.color }}>{fila.confirmMotivo ?? fila.motivo}</div>}
     </div>
   );
 }

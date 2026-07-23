@@ -12,8 +12,9 @@
 import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
-  ESTADO_DOCUMENTO_LOGISTICA_LABEL, parseLicenciaTransito, puedeEntrarEnActa,
-  type EstadoDocumentoLogistica as TEstadoDoc,
+  ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
+  parseLicenciaTransito, puedeEntrarEnActa, simplificarEstadoLogistica,
+  type EstadoDocumentoLogistica as TEstadoDoc, type EstadoLogisticaSimple as TEstadoSimple,
 } from '@operaciones/shared-types';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { db } from '../../db/client.js';
@@ -34,6 +35,15 @@ type DbOrTx = typeof db | Tx;
 
 const LT = 'licencia_transito' as const;
 const ESTADO_PENDIENTE = 'pendiente'; // trámite aprobado aún sin LT escaneada (estado sintético de la consola)
+// Estados internos que agrupa cada estado SIMPLE (para traducir filtros de la consola). 'pendiente' se
+// resuelve aparte (documento nulo o 'generado'), por eso no aparece aquí.
+const ESTADOS_INTERNOS_POR_SIMPLE: Record<TEstadoSimple, TEstadoDoc[]> = {
+  pendiente: [EstadoDocumentoLogistica.GENERADO],
+  registrada: [EstadoDocumentoLogistica.RECOGIDO, EstadoDocumentoLogistica.CLASIFICADO, EstadoDocumentoLogistica.EN_ACTA],
+  despachada: [EstadoDocumentoLogistica.DESPACHADO],
+  entregada: [EstadoDocumentoLogistica.ENTREGADO],
+  novedad: [EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO],
+};
 const normPlaca = (s: string): string => s.toUpperCase().replace(/[\s-]/g, '');
 const aprobadoSql = sql`lower(${flitoTramites.flitEstado}) = 'aprobado'`;
 
@@ -152,6 +162,53 @@ export async function escanearLt(rawValue: string, numeroLt: string | null, evid
   return { resultado, documentoId: salida.documentoId, placa, vin, idFlit: t.idFlit, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre, motivo };
 }
 
+// ── Validación de una LT (sin persistir) ─────────────────────────────────────
+
+export interface ResultadoValidacion {
+  resultado: 'relacionada' | 'novedad' | 'sin_match' | 'no_gestionable' | 'ya_registrada';
+  placa: string; vin: string;
+  idFlit?: string; numeroLicencia?: string; propietarioNombre?: string | null; motivo?: string | null;
+}
+
+/**
+ * Valida una LT contra los trámites aprobados SIN cambiar ningún estado. La usa el mensajero mientras
+ * escanea en lote: ve al instante si cada LT se relaciona con un trámite, pero nada se registra hasta que
+ * pulsa «Confirmar recogida» (ahí se llama a escanearLt por cada LT relacionada). Espejo de la búsqueda
+ * de escanearLt, pero de solo lectura: 'relacionada' (placa+VIN OK), 'novedad' (VIN distinto), 'sin_match',
+ * 'no_gestionable' (compañía autogestionada) o 'ya_registrada' (ya existe documento para ese trámite).
+ */
+export async function validarLt(rawValue: string): Promise<ResultadoValidacion> {
+  const p = parseLicenciaTransito(rawValue);
+  if (!p) throw new LogisticaError('No se pudo leer el código de la licencia. Reintenta el escaneo.');
+  const placa = normPlaca(p.placa);
+  const vin = p.vin.toUpperCase();
+
+  const [t] = await db.select({
+    tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit, organismoCodigo: flitoTramites.organismoCodigo,
+    companiaId: flitoTramites.companiaId, vin: vehicles.vin, autogestionable: clients.logisticaAutogestionable,
+  }).from(flitoTramites)
+    .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
+    .where(and(aprobadoSql, sql`upper(replace(${vehicles.plate}, '-', '')) = ${placa}`))
+    .limit(1);
+
+  if (!t) return { resultado: 'sin_match', placa, vin, motivo: 'No hay ningún trámite aprobado con esta placa.' };
+  if (t.autogestionable) return { resultado: 'no_gestionable', placa, vin, idFlit: t.idFlit, motivo: 'La logística de esta compañía es autogestionada por el cliente; FLITO no la gestiona.' };
+  if (!t.companiaId) return { resultado: 'sin_match', placa, vin, idFlit: t.idFlit, motivo: 'El trámite de esta placa aún no tiene compañía FLITO asignada.' };
+  if (!t.organismoCodigo) return { resultado: 'sin_match', placa, vin, idFlit: t.idFlit, motivo: 'El trámite de esta placa no tiene organismo emparejado.' };
+
+  const [existe] = await db.select({ id: flitoLogisticaDocumentos.id }).from(flitoLogisticaDocumentos)
+    .where(and(eq(flitoLogisticaDocumentos.tramiteId, t.tramiteId), eq(flitoLogisticaDocumentos.tipo, LT))).limit(1);
+  if (existe) return { resultado: 'ya_registrada', placa, vin, idFlit: t.idFlit, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre, motivo: 'Esta LT ya fue registrada.' };
+
+  const vinCoincide = vin === (t.vin ?? '').toUpperCase();
+  return {
+    resultado: vinCoincide ? 'relacionada' : 'novedad',
+    placa, vin, idFlit: t.idFlit, numeroLicencia: p.numeroLicencia, propietarioNombre: p.propietarioNombre,
+    motivo: vinCoincide ? null : `El VIN del código (${vin}) no coincide con el del trámite (${t.vin ?? '—'}).`,
+  };
+}
+
 // ── Listado de la consola: trámites APROBADOS + su estado logístico ──────────
 
 export interface TramiteFila {
@@ -160,6 +217,7 @@ export interface TramiteFila {
   companiaId: number | null; companiaNombre: string | null; companiaNit: string | null;
   organismoCodigo: string | null; organismoNombre: string | null;
   docId: string | null; estado: string; estadoLabel: string;
+  estadoSimple: TEstadoSimple; estadoSimpleLabel: string;
   numeroLicencia: string | null; numeroLt: string | null;
   actaId: string | null; motivo: string | null; actualizadoEn: string | null;
 }
@@ -206,10 +264,16 @@ function construirCondiciones(f: FiltrosLogistica): SQL[] {
     )!);
   }
   if (f.estados?.length) {
-    const otros = f.estados.filter((e) => e !== ESTADO_PENDIENTE);
+    // Los filtros llegan en el vocabulario SIMPLE (5 estados); se traducen a los estados internos.
     const parts: SQL[] = [];
-    if (f.estados.includes(ESTADO_PENDIENTE)) parts.push(sql`${flitoLogisticaDocumentos.id} is null`);
-    if (otros.length) parts.push(inArray(flitoLogisticaDocumentos.estado, otros as TEstadoDoc[]));
+    // «Pendiente de recogida» = sin documento (aún no escaneada) o documento en 'generado'.
+    if (f.estados.includes(EstadoLogisticaSimple.PENDIENTE)) {
+      parts.push(or(sql`${flitoLogisticaDocumentos.id} is null`, eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.GENERADO))!);
+    }
+    const internos = f.estados
+      .filter((e) => e !== EstadoLogisticaSimple.PENDIENTE)
+      .flatMap((e) => ESTADOS_INTERNOS_POR_SIMPLE[e as TEstadoSimple] ?? []);
+    if (internos.length) parts.push(inArray(flitoLogisticaDocumentos.estado, internos));
     if (parts.length) conds.push(parts.length === 1 ? parts[0] : or(...parts)!);
   }
   if (f.empresas?.length) conds.push(inArray(flitoTramites.companiaNit, f.empresas));
@@ -220,6 +284,7 @@ function construirCondiciones(f: FiltrosLogistica): SQL[] {
 
 function aFila(f: FilaCruda): TramiteFila {
   const estado = f.estadoDoc ?? ESTADO_PENDIENTE;
+  const estadoSimple = simplificarEstadoLogistica(f.estadoDoc);
   return {
     tramiteId: f.tramiteId, idFlit: f.idFlit,
     placa: f.placa, vin: f.vin, propietario: f.propietarioLt ?? f.propietarioTramite,
@@ -227,6 +292,7 @@ function aFila(f: FilaCruda): TramiteFila {
     organismoCodigo: f.organismoCodigo, organismoNombre: f.organismoNombre,
     docId: f.docId, estado,
     estadoLabel: f.estadoDoc ? (ESTADO_DOCUMENTO_LOGISTICA_LABEL[f.estadoDoc as TEstadoDoc] ?? f.estadoDoc) : 'Pendiente de recogida',
+    estadoSimple, estadoSimpleLabel: ESTADO_LOGISTICA_SIMPLE_LABEL[estadoSimple],
     numeroLicencia: f.numeroLicencia, numeroLt: f.numeroLt,
     actaId: f.actaId, motivo: f.motivo,
     actualizadoEn: f.actualizadoEn ? f.actualizadoEn.toISOString() : null,
@@ -506,9 +572,9 @@ export async function facetas(): Promise<FacetasLogistica> {
     db.select({ id: users.id, nombre: users.name }).from(users).where(eq(users.role, 'mensajero')),
   ]);
   return {
-    estados: [ESTADO_PENDIENTE, EstadoDocumentoLogistica.RECOGIDO, EstadoDocumentoLogistica.CLASIFICADO,
-      EstadoDocumentoLogistica.EN_ACTA, EstadoDocumentoLogistica.DESPACHADO, EstadoDocumentoLogistica.ENTREGADO,
-      EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO],
+    // Vocabulario SIMPLE (5 estados) para los filtros de la consola.
+    estados: [EstadoLogisticaSimple.PENDIENTE, EstadoLogisticaSimple.REGISTRADA,
+      EstadoLogisticaSimple.DESPACHADA, EstadoLogisticaSimple.ENTREGADA, EstadoLogisticaSimple.NOVEDAD],
     empresas: empresas.filter((e): e is { nit: string; nombre: string | null } => !!e.nit),
     organismos: organismos.filter((o): o is { codigo: string; nombre: string | null } => !!o.codigo),
     companiasCerrables: cerrables.filter((c): c is { companiaId: number; nombre: string | null; disponibles: number } => c.companiaId !== null),

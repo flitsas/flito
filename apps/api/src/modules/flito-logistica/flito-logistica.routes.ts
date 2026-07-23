@@ -10,7 +10,7 @@ import { audit } from '../../shared/middleware/audit.js';
 import {
   actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
   guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
-  registrarNovedad, reversar, tramiteDetalle, urlActaPdf, type FiltrosLogistica, type LogisticaCtx,
+  registrarNovedad, reversar, tramiteDetalle, urlActaPdf, validarLt, type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
 
 const router = Router();
@@ -101,6 +101,16 @@ router.get('/actas/:id/pdf', LECTURA, async (req: Request, res: Response) => {
 // GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
+  if (r !== undefined) res.json(r);
+});
+
+// POST /validar-lt — valida el match de una LT SIN persistir (el mensajero escanea en lote; solo al
+// confirmar se llama a /escanear por cada LT relacionada). Solo lectura → sin idempotencia ni auditoría.
+const validarSchema = z.object({ rawValue: z.string().min(1) });
+router.post('/validar-lt', CAMPO, async (req: Request, res: Response) => {
+  const parsed = validarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const r = await ejecutar(res, () => validarLt(parsed.data.rawValue));
   if (r !== undefined) res.json(r);
 });
 

@@ -11,11 +11,14 @@
 import type { Worker } from 'tesseract.js';
 
 let workerPromise: Promise<Worker> | null = null;
+// PSM ausente en el import de tipos; se carga junto al worker y se cachea para no reimportar.
+let PSM_CACHE: typeof import('tesseract.js').PSM | null = null;
 
 async function getWorker(): Promise<Worker> {
   if (!workerPromise) {
     workerPromise = (async () => {
       const { createWorker, PSM } = await import('tesseract.js');
+      PSM_CACHE = PSM;
       const worker = await createWorker('eng', 1, {
         workerPath: '/tesseract/worker.min.js',
         corePath: '/tesseract/tesseract-core-lstm.wasm.js', // archivo exacto → sin auto-selección de variantes
@@ -36,14 +39,14 @@ async function getWorker(): Promise<Worker> {
 /** Dispara la carga del worker (para solaparla con el usuario apuntando la cámara). No lanza. */
 export function precargarOcr(): void { getWorker().catch(() => {}); }
 
-/**
- * Extrae el N.º de LT de una imagen recortada (la banda bajo el código). Devuelve `LT` + 11 dígitos,
- * o null si no reconoce el patrón. Tolerante: si pierde el prefijo pero hay 11 dígitos, los prefija.
- */
-export async function ocrNumeroLt(source: HTMLCanvasElement): Promise<string | null> {
-  const worker = await getWorker();
-  const { data } = await worker.recognize(source);
-  const txt = (data.text || '').toUpperCase().replace(/[^LT0-9]/g, '');
+/** Promesa que resuelve cuando el worker está listo (para esperar antes del primer OCR). No lanza. */
+export async function ocrListo(): Promise<boolean> {
+  try { await getWorker(); return true; } catch { return false; }
+}
+
+/** Extrae "LT"+11 dígitos del texto crudo de Tesseract, tolerante al prefijo mal leído. */
+function parsearLt(texto: string): string | null {
+  const txt = (texto || '').toUpperCase().replace(/[^LT0-9]/g, '');
   // Caso limpio: "LT" + 11 dígitos.
   const limpio = txt.match(/LT(\d{11})/);
   if (limpio) return `LT${limpio[1]}`;
@@ -51,5 +54,30 @@ export async function ocrNumeroLt(source: HTMLCanvasElement): Promise<string | n
   // número son los ÚLTIMOS 11 dígitos del bloque (11–13); los de más vienen del prefijo mal leído.
   const digitos = txt.replace(/\D/g, '');
   if (digitos.length >= 11 && digitos.length <= 13) return `LT${digitos.slice(-11)}`;
+  return null;
+}
+
+/**
+ * Extrae el N.º de LT de una imagen recortada (la banda bajo el código). Devuelve `LT` + 11 dígitos,
+ * o null si no reconoce el patrón. Robusto: espera a que el worker esté listo (el primer uso descarga
+ * ~4 MB) y, si la lectura en línea única no encuentra el número, reintenta con otro modo de segmentación.
+ */
+export async function ocrNumeroLt(source: HTMLCanvasElement): Promise<string | null> {
+  const worker = await getWorker();
+  const { data } = await worker.recognize(source);
+  const lt = parsearLt(data.text || '');
+  if (lt) return lt;
+  // Segundo intento con SPARSE_TEXT: útil cuando el número queda partido o con ruido alrededor.
+  if (PSM_CACHE) {
+    try {
+      await worker.setParameters({ tessedit_pageseg_mode: PSM_CACHE.SPARSE_TEXT });
+      const alt = await worker.recognize(source);
+      return parsearLt(alt.data.text || '');
+    } catch {
+      /* best-effort */
+    } finally {
+      await worker.setParameters({ tessedit_pageseg_mode: PSM_CACHE.SINGLE_LINE }).catch(() => {});
+    }
+  }
   return null;
 }
