@@ -18,7 +18,9 @@ server {
     # API → contenedor api (misma red de compose). Sin URI en proxy_pass para
     # que el path original /api/... llegue intacto al backend Express.
     location /api/ {
-        client_max_body_size 25m;
+        # Lotes de PDFs (SOAT/impuestos: multer acepta hasta 50 archivos x 15MB).
+        # Debe coincidir con el client_max_body_size del reverse-proxy del HOST.
+        client_max_body_size 100m;
         proxy_pass http://${API_HOST}:${API_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
