@@ -37,6 +37,12 @@ ENV NODE_ENV=production \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /app
 
+# poppler-utils: el OCR local (flito-ocr-local) invoca pdftotext/pdftoppm como
+# binarios externos (fallback cuando no hay ANTHROPIC_API_KEY).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 # npm ci -w exige que TODOS los manifests del workspace estén presentes para
 # validar el lockfile, aunque solo instale las deps de apps/api.
 COPY package.json package-lock.json ./
@@ -52,6 +58,8 @@ COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/shared-types/dist packages/shared-types/dist
 # SQL plano de migraciones (db-apply.js las lee de src/db/migrations en runtime).
 COPY apps/api/src/db/migrations apps/api/src/db/migrations
+# Modelo Tesseract (eng.traineddata.gz): flito-ocr-local lo carga de vendor/tesseract.
+COPY apps/api/vendor apps/api/vendor
 
 RUN chown -R node:node /app
 USER node
