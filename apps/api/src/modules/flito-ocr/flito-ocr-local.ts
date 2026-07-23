@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createWorker, type Worker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js'; // solo tipo (se borra en compilación): no exige el módulo al arrancar
 import { loggerFor } from '../../shared/logger.js';
 import type { CampoCrudo, ConfianzaCategorica } from './flito-ocr.prompts.js';
 
@@ -45,7 +45,11 @@ function ejecutar(cmd: string, args: string[], input?: Buffer, timeoutMs = 25000
 let workerP: Promise<Worker> | null = null;
 async function getWorker(): Promise<Worker> {
   if (!workerP) {
-    workerP = createWorker('eng', 1, { langPath: LANG_DIR, cachePath: os.tmpdir(), gzip: true })
+    // Import DINÁMICO: `tesseract.js` solo se carga si el fallback local se ejecuta de verdad (sin
+    // ANTHROPIC_API_KEY + OCR_LOCAL=1). Así el servidor arranca aunque el paquete no esté instalado
+    // en el deploy (p. ej. cuando se usa el OCR de Anthropic y no hace falta el fallback).
+    workerP = import('tesseract.js')
+      .then(({ createWorker }) => createWorker('eng', 1, { langPath: LANG_DIR, cachePath: os.tmpdir(), gzip: true }))
       .catch((e) => { workerP = null; throw e; });
   }
   return workerP;
