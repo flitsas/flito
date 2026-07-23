@@ -1,0 +1,338 @@
+name: CD - Build & Deploy to VPS
+
+on:
+  push:
+    branches: [release, staging, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  # Nombres de imagen UNIFICADOS con prefijo ghcr.io/, igual que el pull del
+  # docker-compose.prod.yml en el VPS. El ambiente se diferencia por TAG
+  # (dev/qa/pdn), no por nombre de repo.
+  API_IMAGE: ghcr.io/flitsas/flito/api
+  WEB_IMAGE: ghcr.io/flitsas/flito/web
+
+jobs:
+  # ── Resolver ambiente según la rama ─────────────────────────────────────────
+  # develop -> dev, staging -> qa, release -> pdn.
+  # Centraliza el mapeo rama -> {ambiente, dominio, tag, puertos} en un solo lugar.
+  setup:
+    name: Resolve environment
+    runs-on: ubuntu-latest
+    outputs:
+      env_name: ${{ steps.env.outputs.env_name }}
+      gh_env: ${{ steps.env.outputs.gh_env }}
+      front_domain: ${{ steps.env.outputs.front_domain }}
+      api_domain: ${{ steps.env.outputs.api_domain }}
+      image_tag: ${{ steps.env.outputs.image_tag }}
+      deploy_tag: ${{ steps.env.outputs.deploy_tag }}
+      front_port: ${{ steps.env.outputs.front_port }}
+      api_port: ${{ steps.env.outputs.api_port }}
+    steps:
+      - name: Map branch to environment
+        id: env
+        run: |
+          # Puertos por ambiente — front: DEV 4051 / QA 5051 / PDN 6051;
+          #                        api:   DEV 4052 / QA 5052 / PDN 6052.
+          # gh_env: nombre del GitHub Environment donde viven los secrets del VPS
+          # (Environments configurados: develop/staging/production). env_name
+          # (dev/qa/pdn) se usa para tags de imagen y COMPOSE_PROJECT_NAME.
+          # api_domain: dominio público directo de la API (el reverse-proxy del
+          # host lo enruta a 127.0.0.1:<api_port>); el tráfico del SPA va por el
+          # proxy /api del contenedor web, así que CORS usa solo front_domain.
+          case "${{ github.ref_name }}" in
+            release)
+              env_name=pdn
+              gh_env=production
+              front_domain=operaciones.flitsas.online
+              api_domain=api.operaciones.flitsas.online
+              image_tag=pdn
+              front_port=6051; api_port=6052
+              ;;
+            staging)
+              env_name=qa
+              gh_env=staging
+              front_domain=qa.operaciones.flitsas.online
+              api_domain=api.qa.operaciones.flitsas.online
+              image_tag=qa
+              front_port=5051; api_port=5052
+              ;;
+            develop)
+              env_name=dev
+              gh_env=develop
+              front_domain=dev.operaciones.flitsas.online
+              api_domain=api.dev.operaciones.flitsas.online
+              image_tag=dev
+              front_port=4051; api_port=4052
+              ;;
+            *)
+              echo "::error::Rama no soportada para deploy: ${{ github.ref_name }}"
+              exit 1
+              ;;
+          esac
+          # Tag con el que se DESPLIEGA (lo que el VPS hace pull):
+          #   PDN -> sha-<commit> inmutable (rollback determinista en producción).
+          #   DEV/QA -> tag móvil del ambiente (siempre lo último de la rama).
+          if [ "$env_name" = "pdn" ]; then
+            deploy_tag="sha-${GITHUB_SHA}"
+          else
+            deploy_tag="$image_tag"
+          fi
+          {
+            echo "env_name=$env_name"
+            echo "gh_env=$gh_env"
+            echo "front_domain=$front_domain"
+            echo "api_domain=$api_domain"
+            echo "image_tag=$image_tag"
+            echo "deploy_tag=$deploy_tag"
+            echo "front_port=$front_port"
+            echo "api_port=$api_port"
+          } >> "$GITHUB_OUTPUT"
+          echo "Ambiente: $env_name | front: $front_domain ($front_port) | api: $api_domain ($api_port) | build-tag: $image_tag | deploy-tag: $deploy_tag"
+
+  build-api:
+    name: Build & push api image
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # El driver docker-container de Buildx baja moby/buildkit de Docker Hub al
+      # arrancar y a veces da timeout (context deadline exceeded). La pre-descargamos
+      # con reintentos; si queda local, Buildx no la vuelve a bajar.
+      - name: Pre-pull BuildKit (reintentos ante timeouts de Docker Hub)
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull moby/buildkit:buildx-stable-1 && exit 0
+            echo "Intento $i fallo; reintentando en 15s..."
+            sleep 15
+          done
+          echo "No se pudo descargar moby/buildkit tras 5 intentos"; exit 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata — api
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.API_IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=${{ needs.setup.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ github.ref_name == 'release' }}
+
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          # Contexto = raíz del repo (npm workspaces necesita el lockfile raíz).
+          context: .
+          file: ./apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  build-web:
+    name: Build & push web image
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pre-pull BuildKit (reintentos ante timeouts de Docker Hub)
+        run: |
+          for i in 1 2 3 4 5; do
+            docker pull moby/buildkit:buildx-stable-1 && exit 0
+            echo "Intento $i fallo; reintentando en 15s..."
+            sleep 15
+          done
+          echo "No se pudo descargar moby/buildkit tras 5 intentos"; exit 1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata — web
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.WEB_IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=${{ needs.setup.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ github.ref_name == 'release' }}
+
+      # El frontend usa rutas RELATIVAS /api (proxy nginx del contenedor web),
+      # por eso la MISMA imagen sirve para los 3 ambientes: sin build-args de URL.
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./apps/web/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+  deploy-to-vps:
+    name: Deploy to VPS (${{ needs.setup.outputs.env_name }})
+    needs: [setup, build-api, build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # GitHub Environment por ambiente: cada uno (develop/staging/production) tiene
+    # SUS PROPIOS secrets (HOSTINGER_SSH_*, HOSTINGER_DEPLOY_PATH, GHCR_PAT,
+    # GHCR_USERNAME). Así un mismo workflow despliega al destino correcto según la rama.
+    environment:
+      name: ${{ needs.setup.outputs.gh_env }}
+      url: https://${{ needs.setup.outputs.front_domain }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Copia robusta vía appleboy/scp-action (mismo manejo de clave/host-key que
+      # el paso de deploy). Crea el directorio destino automáticamente.
+      - name: Copy compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: 22
+          source: docker-compose.prod.yml
+          # target debe ser directorio (trailing slash) para no anidar rutas.
+          target: ${{ secrets.HOSTINGER_DEPLOY_PATH }}/
+          overwrite: true
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: 22
+          script: |
+            set -eo pipefail
+            DEPLOY_PATH="${{ secrets.HOSTINGER_DEPLOY_PATH }}"
+            cd "$DEPLOY_PATH"
+
+            if [ ! -f docker-compose.prod.yml ]; then
+              echo "::error::docker-compose.prod.yml no encontrado en $DEPLOY_PATH"
+              ls -la "$DEPLOY_PATH" || true
+              exit 1
+            fi
+            if [ ! -f .env ]; then
+              echo "::error::.env no encontrado en $DEPLOY_PATH (secrets de la API: DATABASE_URL, JWT_SECRET, PII_*, etc. — plantilla: apps/api/.env.example)"
+              exit 1
+            fi
+
+            # Tag + puertos + proyecto según ambiente (override del .env del VPS).
+            # deploy_tag: sha-<commit> inmutable en PDN; tag móvil (dev/qa) en DEV/QA.
+            # COMPOSE_PROJECT_NAME único por ambiente: aísla contenedores/volúmenes
+            # de flito-dev/qa/pdn entre sí (y del resto de proyectos del VPS).
+            export API_TAG=${{ needs.setup.outputs.deploy_tag }}
+            export WEB_TAG=${{ needs.setup.outputs.deploy_tag }}
+            export FRONTEND_PORT=${{ needs.setup.outputs.front_port }}
+            export API_PORT=${{ needs.setup.outputs.api_port }}
+            export COMPOSE_PROJECT_NAME=flito-${{ needs.setup.outputs.env_name }}
+            export CORS_ORIGIN=https://${{ needs.setup.outputs.front_domain }}
+            export PUBLIC_URL=https://${{ needs.setup.outputs.front_domain }}
+
+            # GHCR login: el usuario DEBE ser el dueño del PAT (GHCR_USERNAME), NO
+            # github.actor (si el merge lo hace otro usuario, ese login falla).
+            GHCR_USER="${{ secrets.GHCR_USERNAME }}"
+            if [ -z "$GHCR_USER" ]; then
+              GHCR_USER="${{ vars.GHCR_USERNAME }}"
+            fi
+            if [ -z "$GHCR_USER" ]; then
+              # Fallback: PAT del equipo asociado a deploys exitosos previos (mismo
+              # esquema que flit, donde GHCR_USERNAME no está configurado como secret).
+              GHCR_USER="jormancopeteflit"
+              echo "::warning::GHCR_USERNAME no configurado; usando fallback $GHCR_USER. Configura secret GHCR_USERNAME en el repo."
+            fi
+            if ! echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
+              echo "::error::docker login ghcr.io falló para usuario $GHCR_USER"
+              exit 1
+            fi
+
+            # Pull de imágenes del ambiente
+            docker compose -f docker-compose.prod.yml pull
+
+            # Migraciones ANTES de levantar la nueva versión (idempotente; el
+            # runner db-apply lleva tracking propio). --no-deps: no necesita redis.
+            echo "Aplicando migraciones de BD..."
+            docker compose -f docker-compose.prod.yml run --rm --no-deps api node dist/scripts/db-apply.js
+
+            # Levantar/actualizar servicios
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            # Limpieza de imágenes colgantes
+            docker image prune -f
+
+            # Health check: directo a los contenedores (bypass del nginx del host)
+            echo "Waiting for application to start..."
+            sleep 15
+            ok=0
+            for i in 1 2 3 4 5 6; do
+              if curl -fsS http://127.0.0.1:${{ needs.setup.outputs.front_port }}/ > /dev/null \
+                 && curl -fsS http://127.0.0.1:${{ needs.setup.outputs.api_port }}/api/health > /dev/null; then
+                echo "Health check OK (attempt $i)"
+                ok=1
+                break
+              fi
+              echo "Attempt $i failed, retrying in 5s..."
+              sleep 5
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "Health check FAILED"
+              docker compose -f docker-compose.prod.yml ps
+              docker compose -f docker-compose.prod.yml logs --tail=100
+              exit 1
+            fi
+            echo "Deploy OK."
+
+      - name: Notify success
+        if: success()
+        run: echo "Deploy a ${{ needs.setup.outputs.env_name }} (https://${{ needs.setup.outputs.front_domain }}) exitoso."
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "Deploy a ${{ needs.setup.outputs.env_name }} FALLIDO. Revisa los logs arriba."
+          echo "Rollback manual: ssh al VPS y ejecuta:"
+          echo "  cd <deploy-path> && export API_TAG=<tag-anterior> WEB_TAG=<tag-anterior> && docker compose -f docker-compose.prod.yml up -d"
