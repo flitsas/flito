@@ -72,6 +72,22 @@ services:
     restart: *restart
     logging: *default-logging
 
+  # ── MinIO (almacenamiento de archivos S3-compatible) — interno ────────────
+  # Guarda los archivos (comprobantes SOAT, actas, firmas, fotos) en un volumen
+  # del VPS, sin depender de un S3 externo. La API lo alcanza como minio:9000 por
+  # HTTP (S3_USE_SSL=false). Las credenciales root = S3_ACCESS_KEY/S3_SECRET_KEY
+  # del .env (mismas que usa la API). El bucket lo crea la API sola al primer uso.
+  minio:
+    image: minio/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+    restart: *restart
+    logging: *default-logging
+
   # ── API (Express) — API_PORT ──────────────────────────────────────────────
   api:
     image: ghcr.io/flitsas/flito/api:${API_TAG:-latest}
@@ -88,11 +104,19 @@ services:
       REDIS_URL: redis://redis:6379
       CORS_ORIGIN: ${CORS_ORIGIN:-https://dev.operaciones.flitsas.online}
       PUBLIC_URL: ${PUBLIC_URL:-https://dev.operaciones.flitsas.online}
+      # Almacenamiento → MinIO local del compose (archivos en el volumen del VPS,
+      # sin S3 externo). Estas ganan sobre el env_file: solo las credenciales
+      # (S3_ACCESS_KEY/S3_SECRET_KEY) se toman del .env.
+      S3_ENDPOINT: minio
+      S3_PORT: '9000'
+      S3_USE_SSL: 'false'
     ports:
       - '127.0.0.1:${API_PORT:-4052}:${API_PORT:-4052}'
     depends_on:
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.PORT||4052)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -124,3 +148,4 @@ services:
 
 volumes:
   redis-data:
+  minio-data:
