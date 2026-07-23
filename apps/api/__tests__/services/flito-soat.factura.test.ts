@@ -110,8 +110,8 @@ async function buildApp() {
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 7, username: 'gestor@x.io', role: role as never })}`;
 const UUID = '00000000-0000-0000-0000-000000000001';
 
-const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'en_adquisicion', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
-const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'en_adquisicion', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
+const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
+const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
 const extraccionCruza = {
   [CampoSoat.PLACA]: campo('QTQ100', 0.95), [CampoSoat.VIN]: campo('9BWZZZ377VT004251', 0.95),
   [CampoSoat.NUMERO_POLIZA]: campo('FLIT-1', 0.95), [CampoSoat.VALOR_TOTAL]: campo('250000', 0.95),
@@ -131,7 +131,7 @@ describe('flito-soat carga factura — RBAC y validación', () => {
   });
   it('sin archivo → 400', async () => {
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones'));
+      .set('Authorization', await auth('admin'));
     expect(r.status).toBe(400);
   });
 });
@@ -143,7 +143,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     extraerMock.mockResolvedValueOnce({ ...extraccionCruza, [CampoSoat.PLACA]: campo('XYZ999', 0.95), [CampoSoat.VIN]: campo('OTRO', 0.95) });
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(400);
     expect(uploadMock).not.toHaveBeenCalled(); // no se subió nada
   });
@@ -155,7 +155,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'sop-previo' }])); // facturaDuplicada → existe
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(409);
     expect(uploadMock).not.toHaveBeenCalled();
   });
@@ -166,14 +166,14 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     extraerMock.mockRejectedValueOnce(new OcrNoDisponibleError(503, 'Servicio de IA no configurado'));
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(503);
   });
 
   it('SOAT que no está En adquisición → 400 (no hay factura que cargar)', async () => {
     selectMock.mockReturnValueOnce(chain([{ soat: { ...soatEnAdquisicion.soat, estado: 'pagado' }, soatAutogestionable: false }]));
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(400);
   });
 
@@ -194,7 +194,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     selectMock.mockReturnValueOnce(chain([])); // detalle → buscarConAcceso vacío → null → responde {id}
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF-real'), 'QTQ100.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF-real'), 'QTQ100.pdf');
 
     expect(r.status).toBe(200);
     expect(uploadMock).toHaveBeenCalledTimes(1);   // se archivó (CA-11: storage antes de pagar)
@@ -218,7 +218,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     selectMock.mockReturnValueOnce(chain([])); // detalle vacío
 
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
-      .set('Authorization', await auth('operaciones')).attach('archivo', Buffer.from('%PDF'), 'QTQ100.pdf');
+      .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'QTQ100.pdf');
 
     expect(r.status).toBe(200);
     expect(txUpdate).not.toHaveBeenCalled();   // NO pasó a Pagado (RN-03: solo con lectura confiable)

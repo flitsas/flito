@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
@@ -17,7 +17,7 @@ const SOAT = [
   },
   {
     id: 's2', vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid',
-    estado: 'en_adquisicion', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
+    estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: ['FLIT-1002'], enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
@@ -46,7 +46,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     await expect(page.getByText('XYZ789')).toBeVisible();
 
-    await page.getByRole('button', { name: 'En adquisición', exact: true }).click();
+    await page.getByRole('button', { name: 'Solicitado', exact: true }).click();
     await expect(page.getByText('XYZ789')).toBeVisible();
     await expect(page.getByText('ABC123')).toHaveCount(0);
 

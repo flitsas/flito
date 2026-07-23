@@ -4,6 +4,7 @@
 // (→ Pagado) y rechazo/reactivación/reversa. Operaciones ve todo; el gestor solo su organismo y
 // nunca los Pendiente; Auditoría es solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -26,27 +27,25 @@ interface ImpuestoItem {
 }
 
 const TONO: Record<EstadoImpuesto, ChipTone> = {
-  sin_factura: 'draft', retenido: 'warning', pendiente: 'draft', en_gestion: 'active',
-  pagado: 'success', rechazado: 'danger', no_aplica: 'neutral',
+  pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
 };
 const pesos = (v: number | null) => v === null ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
-  EstadoImpuesto.SIN_FACTURA, EstadoImpuesto.RETENIDO, EstadoImpuesto.PENDIENTE,
-  EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO, EstadoImpuesto.RECHAZADO, EstadoImpuesto.NO_APLICA,
+  EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
 ];
-const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO];
+const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
 
 export default function FlitoImpuestos() {
   const { user } = useAuth();
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
   const esGestor = user?.role === 'gestor_impuestos';
   const soloLectura = user?.role === 'auditor';
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
-  const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.EN_GESTION : 'todos');
+  const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   const [buscar, setBuscar] = useState('');
   const [data, setData] = useState<ImpuestoItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -206,9 +205,8 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  const enGestion = imp.estado === EstadoImpuesto.EN_GESTION;
-  const rechazado = imp.estado === EstadoImpuesto.RECHAZADO;
-  const sinFactura = imp.estado === EstadoImpuesto.SIN_FACTURA;
+  const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
+  const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
@@ -217,10 +215,15 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
     finally { setEnviando(false); }
   };
 
-  const subirFacturaVenta = (file: File) => ejecutar(() => {
-    const form = new FormData(); form.append('archivo', file);
-    return api.post(`/flito/impuestos/${imp.id}/factura-venta`, form);
-  });
+  // Factura de venta: viene de FLIT. Ver/descargar via presigned (el endpoint redirige; se sigue el
+  // redirect y se abre el blob). Integración FLIT (Fase 8).
+  const verFactura = async () => {
+    setError(null);
+    try {
+      const blob = await api.get<Blob>(`/flito/impuestos/${imp.id}/factura-venta`);
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { setError(errorMessage(e)); }
+  };
 
   return (
     <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
@@ -236,7 +239,14 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
           <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
-          <Dato k="Factura de venta" v={imp.tieneFacturaVenta ? 'Cargada' : 'Falta'} />
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Factura de venta</dt>
+            <dd className="text-sm">
+              {imp.tieneFacturaVenta
+                ? <button className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }} onClick={verFactura}>En FLIT · Ver / descargar</button>
+                : <span style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>}
+            </dd>
+          </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
 
@@ -246,13 +256,6 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
 
         {!soloLectura && accion === 'idle' && (
           <div className="flex flex-wrap gap-2 pt-1">
-            {sinFactura && esOperaciones && (
-              <label className={`${flitBtnPrimary} cursor-pointer`} style={flitBtnPrimaryStyle}>
-                {enviando ? 'Cargando…' : 'Cargar factura de venta'}
-                <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) subirFacturaVenta(f); e.target.value = ''; }} />
-              </label>
-            )}
             {enGestion && (esOperaciones || esGestor) && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
             )}
@@ -366,12 +369,15 @@ function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () =
           </div>
         </div>
       ) : (
-        <div className="space-y-3 text-sm">
-          <GrupoResultado titulo="Conciliados" tono="success" items={resultado.conciliados} />
-          <GrupoResultado titulo="En revisión" tono="warning" items={resultado.enRevision} />
-          <GrupoResultado titulo="Complementos" tono="active" items={resultado.complementos} />
-          <GrupoResultado titulo="Duplicados" tono="neutral" items={resultado.duplicados} />
-          <GrupoResultado titulo="Sin asociar" tono="danger" items={resultado.noAsociados} />
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <StatusChip tone="success">Conciliados {resultado.conciliados.length}</StatusChip>
+            <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
+            <StatusChip tone="active">Complementos {resultado.complementos.length}</StatusChip>
+            <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
+            <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
+          </div>
+          <TablaResultadoOcr resultado={resultado} />
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
         </div>
       )}
@@ -379,18 +385,35 @@ function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () =
   );
 }
 
-function GrupoResultado({ titulo, tono, items }: { titulo: string; tono: ChipTone; items: { archivo: string; detalle: string }[] }) {
-  if (items.length === 0) return null;
+// Resultado del OCR masivo en TABLA: cada recibo analizado en su propia fila.
+function TablaResultadoOcr({ resultado }: { resultado: ResultadoRecibos }) {
+  const filas: { archivo: string; detalle: string; resultado: string; tono: ChipTone }[] = [
+    ...resultado.conciliados.map((i) => ({ ...i, resultado: 'Conciliado', tono: 'success' as ChipTone })),
+    ...resultado.enRevision.map((i) => ({ ...i, resultado: 'En revisión', tono: 'warning' as ChipTone })),
+    ...resultado.complementos.map((i) => ({ ...i, resultado: 'Complemento', tono: 'active' as ChipTone })),
+    ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
+    ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
+  ];
+  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
+  const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
   return (
-    <div>
-      <StatusChip tone={tono}>{titulo} ({items.length})</StatusChip>
-      <ul className="mt-1 space-y-0.5">
-        {items.map((i, idx) => (
-          <li key={idx} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <span className="font-medium">{i.archivo}</span> — {i.detalle}
-          </li>
-        ))}
-      </ul>
+    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+            <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, idx) => (
+            <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
+              <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
+              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

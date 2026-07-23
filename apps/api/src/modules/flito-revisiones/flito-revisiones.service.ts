@@ -167,7 +167,7 @@ export async function resolver(id: string, registroId: string, campos: Record<st
 async function resolverSoat(revisionId: string, soporteId: string, soatId: string, extraccion: ExtraccionSoat, motivo: string, ctx: RevisionCtx): Promise<void> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
   if (!soat) throw new RevisionError(404, 'El SOAT indicado no existe');
-  if (soat.estado !== EstadoSoat.EN_ADQUISICION) {
+  if (soat.estado !== EstadoSoat.SOLICITADO) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un SOAT en adquisición');
   }
 
@@ -189,18 +189,17 @@ async function resolverSoat(revisionId: string, soporteId: string, soatId: strin
 async function resolverFacturaVenta(revisionId: string, soporteId: string, motivoOriginal: string, impuestoId: string, extraccion: ExtraccionFacturaVenta, motivo: string, ctx: RevisionCtx): Promise<void> {
   const [impuesto] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, impuestoId)).limit(1);
   if (!impuesto) throw new RevisionError(404, 'El impuesto indicado no existe');
-  if (impuesto.estado !== EstadoImpuesto.SIN_FACTURA) {
-    throw new RevisionError(400, 'Ese impuesto ya no está esperando factura de venta: la factura solo se ata antes del envío.');
+  if (impuesto.estado !== EstadoImpuesto.PENDIENTE) {
+    throw new RevisionError(400, 'La factura de venta solo se ata antes del envío (impuesto en Pendiente).');
   }
 
   await db.transaction(async (tx) => {
     await tx.update(flitoSoportes).set({ impuestoId }).where(eq(flitoSoportes.id, soporteId));
     await tx.update(flitoImpuestos).set({
-      facturaVentaSoporteId: soporteId, extraccionFacturaVenta: extraccion,
-      estado: EstadoImpuesto.PENDIENTE, updatedAt: new Date(),
+      facturaVentaSoporteId: soporteId, extraccionFacturaVenta: extraccion, updatedAt: new Date(),
     }).where(eq(flitoImpuestos.id, impuestoId));
     await auditEnTx(tx, ctx, 'flito_impuesto', impuestoId,
-      `Factura de venta atada a mano (sin_factura→pendiente). Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
+      `Factura de venta atada a mano. Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
   });
 }
 
@@ -216,7 +215,7 @@ async function resolverImpuesto(revisionId: string, soporteId: string, motivoOri
     return;
   }
 
-  if (impuesto.estado !== EstadoImpuesto.EN_GESTION) {
+  if (impuesto.estado !== EstadoImpuesto.SOLICITADO) {
     throw new RevisionError(400, 'Solo se puede conciliar un documento contra un impuesto en gestión');
   }
 

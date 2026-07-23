@@ -5,36 +5,21 @@ import { describe, it, expect, vi } from 'vitest';
 // PostgreSQL real (smoke E2E de sincronización).
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
 
-const { decidirEstadoImpuesto } = await import('../../src/modules/flito-sync/flito-sync.service.js');
-const { estadoDesdeProcessStatus, PROCESS_STATUS } = await import('../../src/modules/flito-sync/flit-mock.adapter.js');
+const { flitoGestionaImpuesto } = await import('../../src/modules/flito-sync/flito-sync.service.js');
 const { mapearCompradores } = await import('../../src/modules/flito-sync/mapeo-compradores.js');
 const { intervalMsFromCron } = await import('../../src/modules/flito-sync/flito-sync.cron.js');
 
-// ───────────── RN-01 Impuestos / CA-03: la modalidad decide, sin default silencioso ─────────
+// ───────────── RN-01 Impuestos: FLITO gestiona solo si no se autogestiona (compañía ni organismo) ──
 
-describe('decidirEstadoImpuesto', () => {
-  it('organismo SIN_CLASIFICAR → RETENIDO (CA-03: retiene, no asume modalidad)', () => {
-    expect(decidirEstadoImpuesto(false, 'sin_clasificar')).toBe('retenido');
+describe('flitoGestionaImpuesto', () => {
+  it('organismo REQUIERE_GESTION + compañía no autogestiona → FLITO gestiona (crea registro)', () => {
+    expect(flitoGestionaImpuesto(false, 'requiere_gestion')).toBe(true);
   });
-  it('organismo AUTOGESTIONADO → NO_APLICA', () => {
-    expect(decidirEstadoImpuesto(false, 'autogestionado')).toBe('no_aplica');
+  it('organismo AUTOGESTIONADO → NO gestiona (exento, sin registro)', () => {
+    expect(flitoGestionaImpuesto(false, 'autogestionado')).toBe(false);
   });
-  it('organismo REQUIERE_GESTION → SIN_FACTURA (espera factura de venta)', () => {
-    expect(decidirEstadoImpuesto(false, 'requiere_gestion')).toBe('sin_factura');
-  });
-  it('compañía autogestiona impuestos → NO_APLICA aunque el organismo requiera gestión', () => {
-    expect(decidirEstadoImpuesto(true, 'requiere_gestion')).toBe('no_aplica');
-  });
-});
-
-// ───────────── processStatus desconocido NO cae en Asignado (§6.1) ──────────────────────────
-
-describe('estadoDesdeProcessStatus', () => {
-  it('5 → asignado', () => {
-    expect(estadoDesdeProcessStatus(PROCESS_STATUS.ASIGNADO)).toBe('asignado');
-  });
-  it('desconocido → lanza (no asume asignado)', () => {
-    expect(() => estadoDesdeProcessStatus(999)).toThrow(/FLITO no conoce/);
+  it('compañía autogestiona impuestos → NO gestiona aunque el organismo requiera gestión', () => {
+    expect(flitoGestionaImpuesto(true, 'requiere_gestion')).toBe(false);
   });
 });
 

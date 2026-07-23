@@ -20,7 +20,8 @@
 //   - aria-live=polite presente para "Guardado hace Xs".
 //   - <fieldset><legend> de RubricaRadioGroup + radios reales.
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
+import type { Page } from '@playwright/test';
 import {
   LIDER_PESV_USER, loginAsUser, stubPesvSiblings,
   buildDiagDetail, build24Items, buildPreflight, jsonRoute,

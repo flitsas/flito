@@ -42,9 +42,9 @@ describe('resolverProveedor — especificidad', () => {
 });
 
 describe('modalidadVigente', () => {
-  it('sin vigencia abierta → SIN_CLASIFICAR (no es default, es ausencia de decisión)', async () => {
+  it('sin vigencia abierta → AUTOGESTIONADO (default: FLITO no gestiona salvo marca explícita)', async () => {
     selectMock.mockReturnValueOnce(chain([]));
-    expect(await modalidadVigente('11001')).toBe('sin_clasificar');
+    expect(await modalidadVigente('11001')).toBe('autogestionado');
   });
 
   it('con vigencia abierta → su modalidad', async () => {

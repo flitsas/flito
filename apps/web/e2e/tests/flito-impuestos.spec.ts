@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
 // FLITO — Impuestos (Fase 6). Cola por organismo: factura de venta como
@@ -14,7 +14,7 @@ const IMPUESTOS = [
   },
   {
     id: 'i2', tramiteId: 't2', idFlit: 'FLIT-1002', placa: 'XYZ789', vin: 'VIN0000000000002',
-    estado: 'en_gestion', compradorNombre: 'Luis Gómez', compradorDocumento: '20202020',
+    estado: 'solicitado', compradorNombre: 'Luis Gómez', compradorDocumento: '20202020',
     companiaNombre: 'Concesionario Sur', organismoCodigo: 'STT-PER', organismoNombre: 'STT Pereira',
     valorLiquidado: 200000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
@@ -40,7 +40,7 @@ test.describe('FLITO — Impuestos', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     await expect(page.getByText('XYZ789')).toBeVisible();
 
-    await page.getByRole('button', { name: 'En gestión', exact: true }).click();
+    await page.getByRole('button', { name: 'Solicitado', exact: true }).click();
     await expect(page.getByText('XYZ789')).toBeVisible();
     await expect(page.getByText('ABC123')).toHaveCount(0);
 

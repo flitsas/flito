@@ -7,7 +7,9 @@ import { sql } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from '@operaciones/shared-types';
 
-export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'operaciones', 'gestor_impuestos']);
+// El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
+// omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
+export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos']);
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -280,6 +282,10 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // sobrescritura destructiva). La ausencia de vigencia = SIN_CLASIFICAR (RN-01 Imp).
   flitoUmbralOcr: numeric('flito_umbral_ocr', { precision: 4, scale: 3 }),
   flitoSlaHoras: integer('flito_sla_horas'),
+  // FLITO Fase 7 (D-5 / CA-09): activa la marca de diferencia de valor de impuestos en la
+  // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
+  // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
+  flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2392,10 +2398,14 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // (organismos_transito_config.codigo); las entidades internas FLITO usan `uuid`.
 // ════════════════════════════════════════════════════════════════════════════
 
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'en_adquisicion', 'pagado', 'rechazado']);
-export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica']);
+// Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
+// flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
+// rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
-export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['sin_clasificar', 'requiere_gestion', 'autogestionado']);
+// Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
+export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
 
 // Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo).
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
@@ -2454,28 +2464,60 @@ export const flitoSoat = pgTable('flito_soat', {
 export const flitoTramites = pgTable('flito_tramites', {
   id: uuid('id').primaryKey().defaultRandom(),
   idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
-  estado: flitoTramiteEstadoEnum('estado').notNull(),
-  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
-  companiaId: integer('compania_id').notNull().references(() => clients.id),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  // Estado FLITO-interno (ciclo de entrega). La VERDAD del estado FLIT vive en flitEstado (texto).
+  estado: flitoTramiteEstadoEnum('estado'),
+  // Estado crudo tal como lo reporta FLIT (Borrador, Asignado, Aprobado, …). Fuente de verdad para
+  // gating (solo 'Asignado' habilita SOAT/impuestos) y visualización. Integración FLIT (Fase 8).
+  flitEstado: varchar('flit_estado', { length: 60 }),
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  ciudad: varchar('ciudad', { length: 120 }),
+  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }),
+  companiaId: integer('compania_id').references(() => clients.id),
+  // NIT crudo de la compañía gestora (CompaniaGestora). Si companiaId es null, la empresa aún no existe.
+  companiaNit: varchar('compania_nit', { length: 30 }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  // Nombre crudo de la secretaría en FLIT. Si organismoCodigo es null, no cruzó por nombre.
+  transitoNombreFlit: varchar('transito_nombre_flit', { length: 200 }),
   vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
   // Muchos trámites → un SOAT (por VIN). Sostiene CA-03 (anular+recrear no re-adquiere).
   soatId: uuid('soat_id').references(() => flitoSoat.id),
   valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
-  processStatus: integer('process_status').notNull(),
+  // Id S3 de la factura de venta en FLIT (campo `factura`). Vacío = aún sin factura → no se solicita impuesto.
+  facturaVentaFlitId: varchar('factura_venta_flit_id', { length: 120 }),
+  fechaAprobacion: timestamp('fecha_aprobacion', { withTimezone: true }),
+  // Payload completo de FLIT para trazabilidad/depuración.
+  flitRaw: jsonb('flit_raw'),
+  processStatus: integer('process_status'),
   plateComplete: varchar('plate_complete', { length: 20 }),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
+  flitEstadoIdx: index('idx_flito_tramites_flit_estado').on(t.flitEstado),
+  companiaNitIdx: index('idx_flito_tramites_compania_nit').on(t.companiaNit),
+}));
+
+// Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
+// diferencia detectada al sincronizar (origen 'api') o por acción del usuario deja una fila.
+export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  campo: varchar('campo', { length: 60 }).notNull(),
+  valorAnterior: text('valor_anterior'),
+  valorNuevo: text('valor_nuevo'),
+  origen: varchar('origen', { length: 10 }).notNull(),
+  usuarioId: integer('usuario_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteIdx: index('idx_flito_tramite_historial_tramite').on(t.tramiteId, t.createdAt),
 }));
 
 // Impuesto, uno por trámite (tramite_id UNIQUE).
 export const flitoImpuestos = pgTable('flito_impuestos', {
   id: uuid('id').primaryKey().defaultRandom(),
   tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
-  estado: flitoImpuestoEstadoEnum('estado').notNull().default('sin_factura'),
+  estado: flitoImpuestoEstadoEnum('estado').notNull().default('pendiente'),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
   companiaId: integer('compania_id').notNull().references(() => clients.id),
   // Snapshot de la modalidad al crear el registro (CA-04).
@@ -2559,27 +2601,4 @@ export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
   proveedorSoatId: uuid('proveedor_soat_id').notNull().references(() => flitoProveedoresSoat.id, { onDelete: 'cascade' }),
   prioridad: integer('prioridad').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-// Andamiaje del FLIT simulado (NO es dominio FLITO). Referencia compañía/organismo por
-// llaves EXTERNAS (nit, código), sin FK. Se retira cuando exista el adaptador FLIT real.
-export const flitoMockTramite = pgTable('flito_mock_tramite', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  idFlit: varchar('id_flit', { length: 60 }).notNull().unique(),
-  processStatus: integer('process_status').notNull(),
-  plateComplete: varchar('plate_complete', { length: 20 }),
-  vin: varchar('vin', { length: 17 }).notNull(),
-  placa: varchar('placa', { length: 10 }).notNull(),
-  marca: varchar('marca', { length: 60 }).notNull(),
-  linea: varchar('linea', { length: 80 }).notNull(),
-  cilindraje: integer('cilindraje').notNull(),
-  capacidad: integer('capacidad').notNull(),
-  tipoVehiculo: varchar('tipo_vehiculo', { length: 40 }).notNull(),
-  companiaNit: varchar('compania_nit', { length: 20 }).notNull(),
-  organismoCodigo: varchar('organismo_codigo', { length: 10 }).notNull(),
-  tipoPropiedad: varchar('tipo_propiedad', { length: 30 }).notNull(),
-  compradores: jsonb('compradores').notNull(),
-  valorImpuestoLiquidado: numeric('valor_impuesto_liquidado', { precision: 14, scale: 2 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

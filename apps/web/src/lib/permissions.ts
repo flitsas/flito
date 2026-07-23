@@ -25,3 +25,10 @@ export function effectivePages(user: { role: string; allowedPages?: string[] | n
 export function hasPage(user: { role: string; allowedPages?: string[] | null } | null, page: PageSlug): boolean {
   return effectivePages(user).has(page);
 }
+
+// FLITO: `operaciones` es funcionalmente el mismo perfil que `admin` (superusuario del dominio).
+// Ambos operan/mutan; los gestores y auditoría son roles acotados aparte.
+export function puedeOperar(role: string | undefined): boolean {
+  // El operador FLITO ES el admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
+  return role === 'admin';
+}

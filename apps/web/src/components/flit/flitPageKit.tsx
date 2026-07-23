@@ -20,16 +20,16 @@ export function FlitTable({ children }: { children: ReactNode }) {
       className="overflow-hidden bg-white"
       style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
     >
-      <div className="overflow-x-auto">{children}</div>
+      <div className="overflow-x-auto"><table className="w-full">{children}</table></div>
     </div>
   );
 }
 
-export function FlitTh({ children }: { children?: ReactNode }) {
+export function FlitTh({ children, center }: { children?: ReactNode; center?: boolean }) {
   return (
     <th
       scope="col"
-      className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide"
+      className={`px-4 py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide`}
       style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}
     >
       {children}

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 
 test.describe('Manifiesto público QR (/m/:token)', () => {
   test('token válido muestra datos del manifiesto sin requerir login', async ({ page }) => {

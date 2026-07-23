@@ -100,7 +100,7 @@ export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
     const visibles = estados?.length
       ? estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
-      : [EstadoSoat.EN_ADQUISICION];
+      : [EstadoSoat.SOLICITADO];
     if (visibles.length === 0) return [];
     conds.push(inArray(flitoSoat.estado, visibles));
   } else if (estados?.length) {
@@ -213,7 +213,7 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
 
 /** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
 function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoSoat.EN_ADQUISICION || !slaHoras || !enviadoEn) return false;
+  if (estado !== EstadoSoat.SOLICITADO || !slaHoras || !enviadoEn) return false;
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
 }
 
@@ -299,7 +299,7 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatI
     if (idsEnviados.length === 0) return [];
 
     await tx.update(flitoSoat).set({
-      estado: EstadoSoat.EN_ADQUISICION,
+      estado: EstadoSoat.SOLICITADO,
       enviadoPorId: ctx.userId,
       enviadoEn: new Date(),
       updatedAt: new Date(),
@@ -322,10 +322,10 @@ export class SoatError extends Error {
 export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const soat = await buscarConAcceso(id, ctx);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
-  if (soat.estado !== EstadoSoat.EN_ADQUISICION) throw new SoatError(400, 'Solo se puede rechazar un SOAT en adquisición');
+  if (soat.estado !== EstadoSoat.SOLICITADO) throw new SoatError(400, 'Solo se puede rechazar un SOAT en adquisición');
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del rechazo es obligatorio');
   const [updated] = await db.update(flitoSoat)
-    .set({ estado: EstadoSoat.RECHAZADO, motivoRechazo: motivo.trim(), updatedAt: new Date() })
+    .set({ estado: EstadoSoat.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() })
     .where(eq(flitoSoat.id, id)).returning();
   return updated;
 }
@@ -334,7 +334,7 @@ export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promis
 export async function reactivar(id: string, motivo: string): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
-  if (soat.estado !== EstadoSoat.RECHAZADO) {
+  if (soat.estado !== EstadoSoat.CON_NOVEDAD) {
     throw new SoatError(400, `Solo un SOAT rechazado vuelve a Pendiente. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo de la corrección es obligatorio');
@@ -372,7 +372,7 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
 export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
-  if (soat.estado === EstadoSoat.EN_ADQUISICION) {
+  if (soat.estado === EstadoSoat.SOLICITADO) {
     throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del cambio de proveedor es obligatorio');
@@ -569,7 +569,7 @@ async function persistirCarga(datos: DatosCarga, archivo: ArchivoSubido, hash: s
 export async function cargarFactura(id: string, archivo: ArchivoSubido, ctx: SoatCtx): Promise<Awaited<ReturnType<typeof detalle>>> {
   const soat = await buscarConAcceso(id, ctx); // frontera del gestor (404-no-403)
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
-  if (soat.estado !== EstadoSoat.EN_ADQUISICION) {
+  if (soat.estado !== EstadoSoat.SOLICITADO) {
     throw new SoatError(400, `Solo se puede cargar factura de un SOAT en adquisición. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
   }
 
@@ -617,7 +617,7 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
   if (vin) llave.push(sql`UPPER(${vehicles.vin}) = ${normalizarLlave(vin)}`);
 
   const conds = [
-    eq(flitoSoat.estado, EstadoSoat.EN_ADQUISICION),
+    eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
     eq(clients.soatAutogestionable, false),
     or(...llave)!,
   ];

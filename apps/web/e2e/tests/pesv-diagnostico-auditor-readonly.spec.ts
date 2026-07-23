@@ -10,7 +10,7 @@
 //     /api/pesv/export/diagnostico/:id/estandar/:codigo.
 //   - "Exportar expediente completo (ZIP)" → /api/pesv/export/diagnostico/:id.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   COMPLIANCE_USER, loginAsUser, stubPesvSiblings,
   buildDiagDetail, build24Items, jsonRoute,

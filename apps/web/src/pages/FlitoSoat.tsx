@@ -4,6 +4,7 @@
 // La visibilidad la impone el servidor: Operaciones ve todo; el gestor solo su proveedor y nunca
 // los Pendiente; Auditoría es solo lectura.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -27,23 +28,23 @@ interface SoatItem {
 interface Proveedor { id: string; nombre: string; activo: boolean }
 
 const TONO: Record<EstadoSoat, ChipTone> = {
-  pendiente: 'draft', en_adquisicion: 'active', pagado: 'success', rechazado: 'danger',
+  pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
 };
 const pesos = (v: number | null) => v === null ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
-const ESTADOS_OPERACIONES: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGADO, EstadoSoat.RECHAZADO];
-const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGADO];
+const ESTADOS_OPERACIONES: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
+const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
 
 export default function FlitoSoat() {
   const { user } = useAuth();
-  const esOperaciones = user?.role === 'operaciones';
+  const esOperaciones = puedeOperar(user?.role);
   const esGestor = user?.role === 'proveedor';
   const soloLectura = user?.role === 'auditor';
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
-  const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.EN_ADQUISICION : 'todos');
+  const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
   const [buscar, setBuscar] = useState('');
   const [data, setData] = useState<SoatItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -222,8 +223,8 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
-  const enAdquisicion = soat.estado === EstadoSoat.EN_ADQUISICION;
-  const rechazado = soat.estado === EstadoSoat.RECHAZADO;
+  const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
+  const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
@@ -389,7 +390,7 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. El OCR cruza cada comprobante con un SOAT en adquisición: los que superan el umbral pasan a Pagado; el resto va a revisión.
+            Sube varios PDF/imágenes o un ZIP. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp}
             onChange={(e) => setArchivos(Array.from(e.target.files ?? []))} />
@@ -403,11 +404,14 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
           </div>
         </div>
       ) : (
-        <div className="space-y-3 text-sm">
-          <GrupoResultado titulo="Pagados" tono="success" items={resultado.pagados} />
-          <GrupoResultado titulo="En revisión" tono="warning" items={resultado.enRevision} />
-          <GrupoResultado titulo="Duplicados" tono="neutral" items={resultado.duplicados} />
-          <GrupoResultado titulo="Sin asociar" tono="danger" items={resultado.noAsociados} />
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <StatusChip tone="success">Pagados {resultado.pagados.length}</StatusChip>
+            <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
+            <StatusChip tone="neutral">Duplicados {resultado.duplicados.length}</StatusChip>
+            <StatusChip tone="danger">Sin asociar {resultado.noAsociados.length}</StatusChip>
+          </div>
+          <TablaResultadoOcr resultado={resultado} />
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onListo}>Listo</button>
         </div>
       )}
@@ -415,18 +419,35 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
   );
 }
 
-function GrupoResultado({ titulo, tono, items }: { titulo: string; tono: ChipTone; items: { archivo: string; detalle: string }[] }) {
-  if (items.length === 0) return null;
+// Resultado del OCR masivo en TABLA: cada archivo analizado en su propia fila (archivo · resultado ·
+// detalle), en vez de listas apretadas.
+function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
+  const filas: { archivo: string; detalle: string; resultado: string; tono: ChipTone }[] = [
+    ...resultado.pagados.map((i) => ({ ...i, resultado: 'Pagado', tono: 'success' as ChipTone })),
+    ...resultado.enRevision.map((i) => ({ ...i, resultado: 'En revisión', tono: 'warning' as ChipTone })),
+    ...resultado.duplicados.map((i) => ({ ...i, resultado: 'Duplicado', tono: 'neutral' as ChipTone })),
+    ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
+  ];
+  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
+  const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
   return (
-    <div>
-      <StatusChip tone={tono}>{titulo} ({items.length})</StatusChip>
-      <ul className="mt-1 space-y-0.5">
-        {items.map((i, idx) => (
-          <li key={idx} className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <span className="font-medium">{i.archivo}</span> — {i.detalle}
-          </li>
-        ))}
-      </ul>
+    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+            <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, idx) => (
+            <tr key={idx} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
+              <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
+              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

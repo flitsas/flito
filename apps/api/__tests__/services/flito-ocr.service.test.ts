@@ -9,7 +9,7 @@ const anthropicMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
 
 const {
-  extraerFacturaSoat, extraerReciboImpuesto, extraerFacturaVenta,
+  extraerFacturaSoat, extraerReciboImpuesto,
   placaDesdeNombre, normalizarPesos, normalizarFecha, OcrNoDisponibleError,
 } = await import('../../src/modules/flito-ocr/flito-ocr.service.js');
 
@@ -153,13 +153,12 @@ describe('flito-ocr — degradación y robustez', () => {
 
   it('imagen (jpg): también extrae (media_type imagen, no PDF)', async () => {
     anthropicMock.mockResolvedValue(respuesta({
-      placa: { valor: 'QTQ100', confianza: 'alta' }, vin: { valor: 'VIN', confianza: 'alta' },
-      numeroFactura: { valor: 'FE-1', confianza: 'alta' }, fechaFactura: { valor: null, confianza: null },
-      valorVehiculo: { valor: '80000000', confianza: 'alta' },
+      placa: { valor: 'QTQ100', confianza: 'alta' }, valorTotal: { valor: '634900', confianza: 'alta' },
+      numeroRecibo: { valor: 'R-1', confianza: 'alta' }, fechaPago: { valor: null, confianza: null }, anioGravable: { valor: null, confianza: null },
     }));
-    const r = await extraerFacturaVenta(doc({ contentType: 'image/jpeg', nombreArchivo: 'f.jpg' }));
-    expect(r.valorVehiculo!.valor).toBe('80000000');
-    expect(r.numeroFactura!.valor).toBe('FE-1');
+    const r = await extraerReciboImpuesto(doc({ contentType: 'image/jpeg', nombreArchivo: 'f.jpg' }));
+    expect(r.valorTotal!.valor).toBe('634900');
+    expect(r.numeroRecibo!.valor).toBe('R-1');
   });
 });
 

@@ -32,11 +32,16 @@ vi.mock('../../src/modules/flito-compuerta/flito-compuerta.service.js', async (o
 
 const { listar, solicitarSoat, solicitarImpuestos, entregar } = await import('../../src/modules/flito-tramites/flito-tramites.service.js');
 const { default: tramitesRoutes } = await import('../../src/modules/flito-tramites/flito-tramites.routes.js');
+const dbMock = (await import('../../src/db/client.js')).db as unknown as {
+  insert: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>;
+};
 
-const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+const ctx = { userId: 1, username: 'op', role: 'admin' };
 
 beforeEach(() => {
   selectMock.mockReset();
+  dbMock.insert.mockReset();
+  dbMock.update.mockReset();
   enviarSoatMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   enviarImpuestosMock.mockClear().mockResolvedValue({ enviados: [], yaEnviados: [] });
   entregarCompuertaMock.mockClear().mockResolvedValue({});
@@ -75,21 +80,18 @@ describe('solicitarSoat — deduplica por SOAT (RN-01) y clasifica', () => {
 // ───────────────────────────── solicitarImpuestos — clasificación ───────────
 
 describe('solicitarImpuestos — solo los Pendientes van al gestor; el resto se reporta', () => {
-  it('clasifica por estado del impuesto', async () => {
+  it('solo Pendiente es enviable; el resto (ya solicitado/pagado/exento) es no enviable', async () => {
     selectMock.mockReturnValueOnce(chain([
       { tramiteId: 't1', idFlit: 'F1', placa: 'AAA111', impuestoId: 'i1', impuestoEstado: EstadoImpuesto.PENDIENTE },
-      { tramiteId: 't2', idFlit: 'F2', placa: 'BBB222', impuestoId: 'i2', impuestoEstado: EstadoImpuesto.SIN_FACTURA },
-      { tramiteId: 't3', idFlit: 'F3', placa: 'CCC333', impuestoId: 'i3', impuestoEstado: EstadoImpuesto.RETENIDO },
-      { tramiteId: 't4', idFlit: 'F4', placa: 'DDD444', impuestoId: 'i4', impuestoEstado: EstadoImpuesto.NO_APLICA },
-      { tramiteId: 't5', idFlit: 'F5', placa: 'EEE555', impuestoId: null, impuestoEstado: null },
+      { tramiteId: 't2', idFlit: 'F2', placa: 'BBB222', impuestoId: 'i2', impuestoEstado: EstadoImpuesto.SOLICITADO },
+      { tramiteId: 't3', idFlit: 'F3', placa: 'CCC333', impuestoId: 'i3', impuestoEstado: EstadoImpuesto.PAGADO },
+      { tramiteId: 't4', idFlit: 'F4', placa: 'DDD444', impuestoId: null, impuestoEstado: null }, // exento: sin registro
     ]));
     enviarImpuestosMock.mockResolvedValueOnce({ enviados: ['i1'], yaEnviados: [] });
-    const r = await solicitarImpuestos(['t1', 't2', 't3', 't4', 't5'], ctx);
+    const r = await solicitarImpuestos(['t1', 't2', 't3', 't4'], ctx);
     expect(enviarImpuestosMock.mock.calls[0][0]).toEqual(['i1']);
     expect(r.enviados).toBe(1);
-    expect(r.requierenFactura).toHaveLength(1);
-    expect(r.retenidos).toHaveLength(1);
-    expect(r.noAplica).toBe(1);
+    expect(r.noEnviables).toBe(3);
   });
 });
 
@@ -117,25 +119,26 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       tramiteId: 't1', idFlit: 'F1', estadoTramite: 'asignado', placa: 'QTQ100', companiaNombre: 'ACME',
       soatAutogestionable: true, impuestosAutogestionable: false,
       soatEstado: null, soatValorPagado: null, soatExtraccion: null,
-      impuestoEstado: 'no_aplica', impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
+      impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
       sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: 'Tránsito X', organismoCodigo: '11001',
       vin: 'VIN123', marca: 'Renault', linea: 'Logan', tipoVehiculo: 'automovil',
       soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null, soatMotivoRechazo: null,
-      impuestoId: 'i1', impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
+      impuestoId: null, impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
       impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoMotivoRechazo: null,
     };
     selectMock
-      .mockReturnValueOnce(chain([fila]))  // proyeccion
+      .mockReturnValueOnce(chain([{ total: 1 }]))  // count (paginación)
+      .mockReturnValueOnce(chain([fila]))  // proyeccion (página)
       .mockReturnValueOnce(chain([         // compradores
         { tramiteId: 't1', nombreCompleto: 'B', numeroDocumento: '2', correo: null, celular: null, direccion: null, orden: 1, porcentajeParticipacion: null },
         { tramiteId: 't1', nombreCompleto: 'A', numeroDocumento: '1', correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null },
       ]));
-    const [f] = await listar();
+    const { items: [f] } = await listar();
     expect(f.organismoNombre).toBe('Tránsito X');
     expect(f.vehiculo).toMatchObject({ marca: 'Renault', linea: 'Logan' });
     expect(f.compradorPrincipal?.numeroDocumento).toBe('1'); // orden 0 primero
     expect(f.soatAutogestionado).toBe(true);
-    // compañía autogestiona SOAT + impuesto no_aplica + asignado ⇒ listo para entregar (decidir real)
+    // compañía autogestiona SOAT + impuesto exento (sin registro) + asignado ⇒ listo para entregar
     expect(f.listoParaEntregar).toBe(true);
   });
 });
@@ -165,9 +168,48 @@ describe('rutas — lectura Operaciones/Auditoría; acciones solo Operaciones; g
   });
 
   it('Operaciones con body inválido → 400', async () => {
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).post('/api/flito/tramites/entregar')
       .set('Authorization', `Bearer ${token}`).send({ tramiteIds: [] });
     expect(res.status).toBe(400);
+  });
+
+  it('POST /crear-empresa → gestor (proveedor) recibe 403', async () => {
+    const token = await testToken({ role: 'proveedor' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nombre: 'ACME', nit: '900123' });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /crear-empresa con body inválido (sin nombre) → 400', async () => {
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nit: '900123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST /crear-empresa → crea el cliente y reporta re-vinculados', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([]))                 // no existe cliente con ese NIT
+      .mockReturnValueOnce(chain([{ id: 't1' }, { id: 't2' }])); // trámites pendientes de ese NIT
+    dbMock.insert.mockReturnValue(chain([{ id: 99 }])); // clients.returning + historial
+    dbMock.update.mockReturnValue(chain([]));
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post('/api/flito/tramites/crear-empresa')
+      .set('Authorization', `Bearer ${token}`).send({ nombre: 'ACME SAS', nit: '900123' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ companiaId: 99, yaExistia: false, revinculados: 2 });
+    expect(dbMock.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('GET /:id/historial → mapea los cambios (auditor puede leer)', async () => {
+    selectMock.mockReturnValueOnce(chain([
+      { id: 'h1', campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api', usuarioNombre: null, creadoEn: new Date('2026-07-10T00:00:00Z') },
+    ]));
+    const token = await testToken({ role: 'auditor' });
+    const res = await request(app).get('/api/flito/tramites/t1/historial').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toMatchObject({ campo: 'flit_estado', valorAnterior: 'Borrador', valorNuevo: 'Asignado', origen: 'api' });
+    expect(typeof res.body[0].creadoEn).toBe('string');
   });
 });

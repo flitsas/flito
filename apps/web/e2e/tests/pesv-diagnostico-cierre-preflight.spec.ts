@@ -13,7 +13,7 @@
 //   - Confirmar → POST /cerrar 200 + redirect a /auditoria.
 //   - Intentar cerrar de nuevo → 409 "ya cerrado".
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   LIDER_PESV_USER, loginAsUser, stubPesvSiblings,
   buildDiagDetail, build24Items, buildPreflight, jsonRoute,

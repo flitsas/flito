@@ -90,7 +90,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
 
   const candidatos = useMemo(() => {
     if (modulo === 'soat') return soats.map((s) => ({ id: s.id, placa: s.placa, vin: s.vin, etiqueta: `${s.placa} · ${s.marca ?? ''} ${s.linea ?? ''}`.trim() }));
-    const estado = modulo === 'factura_venta' ? EstadoImpuesto.SIN_FACTURA : EstadoImpuesto.EN_GESTION;
+    const estado = modulo === 'factura_venta' ? EstadoImpuesto.PENDIENTE : EstadoImpuesto.SOLICITADO;
     return impuestos.filter((i) => i.estado === estado).map((i) => ({ id: i.id, placa: i.placa, vin: i.vin, etiqueta: `${i.placa} · ${i.idFlit}` }));
   }, [modulo, soats, impuestos]);
 

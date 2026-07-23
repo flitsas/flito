@@ -7,14 +7,15 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  entregar, listar, solicitarAmbos, solicitarImpuestos, solicitarSoat, type TramitesCtx,
+  crearEmpresaDesdeTramite, entregar, facetas, historial, listar, solicitarAmbos, solicitarImpuestos,
+  solicitarSoat, type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('operaciones');
-const LECTURA = requireRole('operaciones', 'auditor');
+const OPERACIONES = requireRole('admin');
+const LECTURA = requireRole('admin', 'auditor');
 
 function ctxDe(user: { sub: number; username: string; role: string }): TramitesCtx {
   return { userId: user.sub, username: user.username, role: user.role };
@@ -25,10 +26,49 @@ const soatSchema = loteSchema.extend({ proveedorSoatId: z.string().uuid() });
 
 function bad(res: Response): void { res.status(400).json({ error: 'Datos inválidos' }); }
 
-// GET / — tabla unificada (?buscar=)
+// GET / — tabla unificada, PAGINADA y filtrada en servidor.
+// Query: buscar, estado, tipoTramite, transito, ciudad, compania, soat=a,b, impuesto=c,d, page, pageSize.
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+const lista = (v: unknown): string[] | undefined => {
+  const s = str(v);
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+};
 router.get('/', LECTURA, async (req: Request, res: Response) => {
-  const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
-  res.json(await listar(buscar));
+  const q = req.query;
+  const filtros: FiltrosListado = {
+    buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
+    empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
+    page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
+  };
+  res.json(await listar(filtros));
+});
+
+// GET /facetas — valores distintos para los dropdowns de filtro.
+router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await facetas());
+});
+
+// GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  res.json(await historial(req.params.id));
+});
+
+// POST /crear-empresa — crea la empresa (cliente) de un trámite con empresa inexistente y re-vincula
+// por NIT los trámites pendientes. Solo Operaciones.
+const crearEmpresaSchema = z.object({
+  nombre: z.string().trim().min(1), nit: z.string().trim().min(1),
+  soatAutogestionable: z.boolean().optional(), impuestosAutogestionable: z.boolean().optional(),
+  logisticaAutogestionable: z.boolean().optional(),
+});
+router.post('/crear-empresa', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = crearEmpresaSchema.safeParse(req.body);
+  if (!parsed.success) { bad(res); return; }
+  const d = parsed.data;
+  const r = await crearEmpresaDesdeTramite(d.nombre, d.nit, {
+    soat: d.soatAutogestionable ?? false, impuestos: d.impuestosAutogestionable ?? false, logistica: d.logisticaAutogestionable ?? false,
+  }, ctxDe(req.user!));
+  await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Empresa ${parsed.data.nit} ${r.yaExistia ? 'reutilizada' : 'creada'}; ${r.revinculados} trámites re-vinculados` });
+  res.json(r);
 });
 
 // POST /solicitar-soat — envío al gestor SOAT del lote, fijando proveedor. Solo Operaciones.
@@ -45,7 +85,7 @@ router.post('/solicitar-impuestos', OPERACIONES, async (req: Request, res: Respo
   const parsed = loteSchema.safeParse(req.body);
   if (!parsed.success) { bad(res); return; }
   const r = await solicitarImpuestos(parsed.data.tramiteIds, ctxDe(req.user!));
-  await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud impuestos: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.requierenFactura.length} requieren factura, ${r.retenidos.length} retenidos, ${r.noAplica} no aplican` });
+  await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Solicitud impuestos: ${r.enviados} enviados, ${r.yaEnviados} ya enviados, ${r.noEnviables} no enviables` });
   res.json(r);
 });
 

@@ -31,8 +31,8 @@ export default function FlitNavBar() {
 
   const allowed = useMemo(() => effectivePages(user), [user]);
   const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => allowed.has(it.page)),
-    [allowed],
+    () => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))),
+    [allowed, user],
   );
 
   const grouped: SectionGroup[] = useMemo(

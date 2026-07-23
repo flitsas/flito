@@ -49,14 +49,14 @@ export interface CompuertaDto extends Veredicto {
   idFlit: string;
   placa: string | null;
   companiaNombre: string;
-  estadoTramite: string;
+  estadoTramite: string | null;
 }
 
 // Fila cruda del trámite con todo lo que la regla del §10 necesita, ya cargado por join.
 interface FilaCompuerta {
   tramiteId: string;
   idFlit: string;
-  estadoTramite: string;
+  estadoTramite: string | null;
   placa: string | null;
   companiaNombre: string;
   soatAutogestionable: boolean;
@@ -123,26 +123,21 @@ export function decidir(f: FilaCompuerta): Veredicto {
     soatDetalle = `SOAT en estado "${f.soatEstado}"`;
   }
 
+  // La exención de impuestos ya no es un estado: si FLITO gestiona (compañía no autogestiona +
+  // organismo requiere_gestion) el sync crea el registro; si es autogestionado, NO hay registro. Así,
+  // "sin registro" = exento (resuelto), y con registro sólo resuelve cuando está Pagado.
   let impuestosResueltos: boolean;
   let impuestosDetalle: string;
   if (!f.impuestoEstado) {
-    impuestosResueltos = false;
-    impuestosDetalle = 'El trámite aún no tiene registro de impuesto';
+    impuestosResueltos = true;
+    impuestosDetalle = f.impuestosAutogestionable
+      ? 'La compañía autogestiona sus impuestos'
+      : 'El organismo autogestiona sus impuestos';
   } else if (f.impuestoEstado === EstadoImpuesto.PAGADO) {
     impuestosResueltos = true;
     impuestosDetalle = f.impuestoMarcadoPorDiferencia
       ? 'Impuesto pagado, marcado para revisión por diferencia de valor'
       : 'Impuesto pagado y conciliado';
-  } else if (f.impuestoEstado === EstadoImpuesto.NO_APLICA) {
-    impuestosResueltos = true;
-    impuestosDetalle = f.impuestosAutogestionable
-      ? 'La compañía autogestiona sus impuestos'
-      : 'El organismo autogestiona sus impuestos';
-  } else if (f.impuestoEstado === EstadoImpuesto.RETENIDO) {
-    // §6.1 "el peor de los dos errores": si esto resolviera, un organismo sin clasificar dejaría
-    // entregar trámites sin impuesto pagado ni exención configurada.
-    impuestosResueltos = false;
-    impuestosDetalle = 'Retenido: el organismo no tiene modalidad de gestión clasificada';
   } else {
     impuestosResueltos = false;
     impuestosDetalle = `Impuesto en estado "${f.impuestoEstado}"`;

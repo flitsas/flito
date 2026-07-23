@@ -30,8 +30,8 @@ const router = Router();
 router.use(authMiddleware);
 
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
-const LECTURA = requireRole('operaciones', 'auditor');
-const ESCRITURA = requireRole('operaciones');
+const LECTURA = requireRole('admin', 'auditor');
+const ESCRITURA = requireRole('admin');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 
@@ -170,8 +170,6 @@ async function organismoDto(codigo: string) {
   const [org] = await db.select().from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
   if (!org) return null;
   const modalidad = await modalidadVigente(codigo);
-  const [ret] = await db.select({ n: sql<number>`count(*)::int` }).from(flitoImpuestos)
-    .where(and(eq(flitoImpuestos.organismoCodigo, codigo), eq(flitoImpuestos.estado, EstadoImpuesto.RETENIDO)));
   return {
     codigo: org.codigo,
     nombre: org.alias ?? org.codigo,
@@ -180,7 +178,7 @@ async function organismoDto(codigo: string) {
     modalidadVigente: modalidad,
     umbralOcr: org.flitoUmbralOcr === null ? null : Number(org.flitoUmbralOcr),
     slaHoras: org.flitoSlaHoras,
-    tramitesRetenidos: ret?.n ?? 0,
+    diferenciaValorActiva: org.flitoDiferenciaValorActiva,
   };
 }
 
@@ -188,12 +186,6 @@ router.get('/organismos', LECTURA, async (_req: Request, res: Response) => {
   const filas = await db.select().from(organismosTransitoConfig).orderBy(asc(organismosTransitoConfig.codigo));
   const dtos = await Promise.all(filas.map((o) => organismoDto(o.codigo)));
   res.json(dtos.filter(Boolean));
-});
-
-router.get('/organismos/sin-clasificar', LECTURA, async (_req: Request, res: Response) => {
-  const filas = await db.select().from(organismosTransitoConfig).orderBy(asc(organismosTransitoConfig.codigo));
-  const dtos = await Promise.all(filas.map((o) => organismoDto(o.codigo)));
-  res.json(dtos.filter((d): d is NonNullable<typeof d> => !!d && d.modalidadVigente === ModalidadOrganismo.SIN_CLASIFICAR));
 });
 
 router.get('/organismos/:codigo/vigencias', LECTURA, async (req: Request, res: Response) => {
@@ -214,7 +206,6 @@ router.get('/organismos/:codigo/vigencias', LECTURA, async (req: Request, res: R
 
 const cambiarModalidadSchema = z.object({
   modalidad: z.enum([
-    ModalidadOrganismo.SIN_CLASIFICAR,
     ModalidadOrganismo.REQUIERE_GESTION,
     ModalidadOrganismo.AUTOGESTIONADO,
   ]),
@@ -222,9 +213,9 @@ const cambiarModalidadSchema = z.object({
 });
 
 /**
- * Cambia la modalidad: cierra la vigencia anterior y abre una nueva. NUNCA sobrescribe
- * (CA-04) — los trámites gestionados bajo la modalidad anterior conservan su estado. El
- * motivo es obligatorio: es lo único que explicará a quien audite por qué cambió.
+ * Cambia la modalidad: cierra la vigencia anterior y abre una nueva (CA-04, nunca sobrescribe). Los
+ * impuestos ya sincronizados conservan su estado; los nuevos trámites toman la modalidad vigente en el
+ * próximo sync. El motivo es obligatorio para la auditoría.
  */
 router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
@@ -239,60 +230,27 @@ router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res
   if (anterior === modalidad) { res.status(400).json({ error: `El organismo ya está en modalidad "${modalidad}"` }); return; }
 
   const ahora = new Date();
-
-  // Clasificar un organismo debe liberar lo retenido que esperaba justamente esta
-  // decisión (CA-03). No los resuelve: los deja donde corresponde según la nueva modalidad.
-  const liberados = await db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     await tx.update(flitoOrganismoVigencias).set({ hasta: ahora })
       .where(and(eq(flitoOrganismoVigencias.organismoCodigo, codigo), sql`hasta IS NULL`));
-
     await tx.insert(flitoOrganismoVigencias).values({
-      organismoCodigo: codigo,
-      modalidad,
-      desde: ahora,
-      hasta: null,
-      motivo: motivo.trim(),
-      actorId: req.user!.sub,
-      actorNombre: req.user!.username,
+      organismoCodigo: codigo, modalidad, desde: ahora, hasta: null,
+      motivo: motivo.trim(), actorId: req.user!.sub, actorNombre: req.user!.username,
     });
-
-    if (anterior !== ModalidadOrganismo.SIN_CLASIFICAR) return [] as { id: string; nuevoEstado: string }[];
-
-    const retenidos = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
-      .where(and(eq(flitoImpuestos.organismoCodigo, codigo), eq(flitoImpuestos.estado, EstadoImpuesto.RETENIDO)));
-    if (retenidos.length === 0) return [];
-
-    const nuevoEstado = modalidad === ModalidadOrganismo.AUTOGESTIONADO
-      ? EstadoImpuesto.NO_APLICA
-      : EstadoImpuesto.SIN_FACTURA;
-
-    await tx.update(flitoImpuestos).set({ estado: nuevoEstado, modalidadAplicada: modalidad })
-      .where(and(eq(flitoImpuestos.organismoCodigo, codigo), eq(flitoImpuestos.estado, EstadoImpuesto.RETENIDO)));
-
-    return retenidos.map((r) => ({ id: r.id, nuevoEstado }));
   });
 
   await audit(req, {
-    action: 'update',
-    resource: 'flito_organismo',
-    resourceId: codigo,
+    action: 'update', resource: 'flito_organismo', resourceId: codigo,
     detail: `Modalidad ${anterior} → ${modalidad}. Motivo: ${motivo.trim()}`,
   });
-  for (const lib of liberados) {
-    await audit(req, {
-      action: 'update',
-      resource: 'flito_impuesto',
-      resourceId: lib.id,
-      detail: `Liberado por clasificación del organismo ${codigo}: retenido → ${lib.nuevoEstado}`,
-    });
-  }
-
   res.json(await organismoDto(codigo));
 });
 
 const actualizarOrganismoSchema = z.object({
   umbralOcr: z.number().min(0).max(1).nullable().optional(),
   slaHoras: z.number().int().min(1).nullable().optional(),
+  // D-5 (Fase 7): activa/desactiva la marca de diferencia de valor de impuestos por organismo.
+  diferenciaValorActiva: z.boolean().optional(),
 });
 
 router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
@@ -304,12 +262,14 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   const set: Partial<typeof organismosTransitoConfig.$inferInsert> = {};
   if (cambios.umbralOcr !== undefined) set.flitoUmbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
   if (cambios.slaHoras !== undefined) set.flitoSlaHoras = cambios.slaHoras;
+  if (cambios.diferenciaValorActiva !== undefined) set.flitoDiferenciaValorActiva = cambios.diferenciaValorActiva;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
   const [updated] = await db.update(organismosTransitoConfig).set(set).where(eq(organismosTransitoConfig.codigo, codigo)).returning();
   if (!updated) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 
-  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}` });
+  const detalleDif = cambios.diferenciaValorActiva === undefined ? '' : `; diferencia de valor ${cambios.diferenciaValorActiva ? 'activada' : 'desactivada'}`;
+  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}` });
   res.json(await organismoDto(codigo));
 });
 

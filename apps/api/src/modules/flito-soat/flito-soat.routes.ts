@@ -35,11 +35,11 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-const LECTURA = requireRole('operaciones', 'proveedor', 'auditor');
-const OPERACIONES = requireRole('operaciones');
-const OPS_O_GESTOR = requireRole('operaciones', 'proveedor');
+const LECTURA = requireRole('admin', 'proveedor', 'auditor');
+const OPERACIONES = requireRole('admin');
+const OPS_O_GESTOR = requireRole('admin', 'proveedor');
 
-const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGADO, EstadoSoat.RECHAZADO] as const;
+const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD] as const;
 
 function handleError(res: Response, e: unknown): void {
   if (e instanceof SoatError) { res.status(e.status).json({ error: e.message }); return; }
@@ -117,7 +117,7 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 
 // POST /:id/reversar — reversa manual (RN-06). Solo Operaciones, motivo ≥5.
 const reversarSchema = z.object({
-  estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.EN_ADQUISICION, EstadoSoat.PAGADO, EstadoSoat.RECHAZADO]),
+  estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
 });
 router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {

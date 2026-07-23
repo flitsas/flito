@@ -83,7 +83,7 @@ describe('camposEsperados', () => {
 // ───────────────────────────── resolver — enrutamiento y guardas ─────────────
 
 describe('resolver — guardas', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
 
   it('404 si la revisión no existe', async () => {
     selectMock.mockReturnValueOnce(chain([]));
@@ -102,11 +102,11 @@ describe('resolver — guardas', () => {
 });
 
 describe('resolver — SOAT delega en marcarPagado tras atar el soporte', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
   it('con SOAT en adquisición: ata soporte y llama marcarPagado', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, extraccion: {}, soporteId: 's1', motivo: 'sin_llave' }]))
-      .mockReturnValueOnce(chain([{ id: 'soat1', estado: EstadoSoat.EN_ADQUISICION }]));
+      .mockReturnValueOnce(chain([{ id: 'soat1', estado: EstadoSoat.SOLICITADO }]));
     await resolver('r1', 'soat1', { placa: 'QTQ100' }, 'valida', ctx);
     expect(marcarPagadoMock).toHaveBeenCalledOnce();
     expect(marcarPagadoMock.mock.calls[0][0]).toBe('soat1');
@@ -122,12 +122,12 @@ describe('resolver — SOAT delega en marcarPagado tras atar el soporte', () => 
 });
 
 describe('resolver — impuesto en gestión pasa a pagado; factura de venta reactiva a pendiente', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
 
   it('impuesto EN_GESTION → no lanza (transición a pagado en tx)', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.IMPUESTOS, extraccion: {}, soporteId: 's1', motivo: 'x' }]))
-      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.EN_GESTION, valorLiquidado: '100' }]));
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.SOLICITADO, valorLiquidado: '100' }]));
     await expect(resolver('r1', 'imp1', { [CampoImpuesto.VALOR_TOTAL]: '634900' }, 'valida', ctx)).resolves.toBeUndefined();
     expect(transactionMock).toHaveBeenCalled();
   });
@@ -139,16 +139,16 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
     await expect(resolver('r1', 'imp1', {}, 'm', ctx)).rejects.toMatchObject({ status: 400 });
   });
 
-  it('factura de venta contra impuesto que ya no espera factura → 400', async () => {
+  it('factura de venta contra impuesto que ya no espera factura (ya solicitado) → 400', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.FACTURA_VENTA, extraccion: {}, soporteId: 's1', motivo: 'cruce_ambiguo' }]))
-      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.PENDIENTE }]));
+      .mockReturnValueOnce(chain([{ id: 'imp1', estado: EstadoImpuesto.SOLICITADO }]));
     await expect(resolver('r1', 'imp1', {}, 'm', ctx)).rejects.toMatchObject({ status: 400 });
   });
 });
 
 describe('descartar — exige motivo ≥5 y deja el soporte huérfano', () => {
-  const ctx = { userId: 1, username: 'op', role: 'operaciones' };
+  const ctx = { userId: 1, username: 'op', role: 'admin' };
   it('400 si el motivo es corto', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, soporteId: 's1', motivo: 'x' }]));
     await expect(descartar('r1', 'no', ctx)).rejects.toMatchObject({ status: 400 });
@@ -176,7 +176,7 @@ describe('rutas — la cola es de Operaciones; los gestores no entran', () => {
 
   it('Operaciones lista la cola (200)', async () => {
     selectMock.mockReturnValue(chain([]));
-    const token = await testToken({ role: 'operaciones' });
+    const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/revisiones').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { LoginPage } from '../pages/LoginPage';
 
 const VALID_USER = { username: 'e2e_admin', password: 'Test2026!' };

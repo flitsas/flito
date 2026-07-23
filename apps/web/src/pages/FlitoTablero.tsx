@@ -1,6 +1,7 @@
 // FLITO Tablero (Fase 6). Porta packages/client/src/paginas/tablero.tsx al kit flit/ + api.
 // Lo que el proceso por Excel y correo no dejaba ver: retenciones, estancamientos y diferencias.
 
+import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, type EstadoImpuesto, type EstadoSoat,
@@ -17,8 +18,6 @@ interface TableroResumen {
   soat: Record<string, number>;
   impuestos: Record<string, number>;
   revisionesPendientes: { soat: number; impuestos: number };
-  organismosSinClasificar: number;
-  tramitesRetenidos: number;
   estancados: { soat: number; impuestos: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
@@ -27,7 +26,7 @@ interface TableroResumen {
 interface ResumenSync {
   ejecutadoEn?: string;
   tramitesLeidos?: number; tramitesNuevos?: number; soatCreados?: number;
-  soatBloqueadosPorVin?: number; impuestosCreados?: number; impuestosRetenidos?: number;
+  soatBloqueadosPorVin?: number; impuestosCreados?: number;
 }
 
 function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
@@ -53,6 +52,13 @@ function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
   );
 }
 
+// El backend real siempre devuelve el objeto completo; esto solo protege contra respuestas
+// malformadas (mock/proxy) que, sin error boundary, dejarían el shell en blanco.
+function esResumenValido(r: unknown): r is TableroResumen {
+  return !!r && typeof r === 'object' && !Array.isArray(r)
+    && 'revisionesPendientes' in r && 'estancados' in r && 'soat' in r && 'impuestos' in r;
+}
+
 export default function FlitoTablero() {
   const { user } = useAuth();
   const [data, setData] = useState<TableroResumen | null>(null);
@@ -60,11 +66,15 @@ export default function FlitoTablero() {
   const [sync, setSync] = useState<ResumenSync | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
 
-  const puedeSincronizar = user?.role === 'operaciones';
+  const puedeSincronizar = puedeOperar(user?.role);
 
   const cargar = () => {
     setError(null);
-    api.get<TableroResumen>('/flito/tablero').then(setData).catch((e) => setError(errorMessage(e)));
+    api.get<TableroResumen>('/flito/tablero')
+      // Blindaje: un shape inesperado (p.ej. lista vacía) no debe reventar el render y
+      // dejar el shell en blanco. Exigimos las claves anidadas que consume la vista.
+      .then((r) => setData(esResumenValido(r) ? r : null))
+      .catch((e) => setError(errorMessage(e)));
   };
   useEffect(cargar, []);
 
@@ -72,7 +82,9 @@ export default function FlitoTablero() {
     setSincronizando(true);
     setError(null);
     try {
-      const r = await api.post<ResumenSync>('/flito/sync/sincronizar');
+      // initialDate por defecto: últimos 30 días (para el selector de fecha, ir a Trámites).
+      const desde = new Date(); desde.setDate(desde.getDate() - 30);
+      const r = await api.post<ResumenSync>('/flito/sync/sincronizar', { initialDate: desde.toISOString().slice(0, 10) });
       setSync(r);
       cargar();
     } catch (e) { setError(errorMessage(e)); }
@@ -108,16 +120,13 @@ export default function FlitoTablero() {
             <li className="flex justify-between gap-3"><span>SOAT creados</span><span className="font-medium tabular-nums">{sync.soatCreados ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>SOAT bloqueados por VIN (RN-01)</span><span className="font-medium tabular-nums">{sync.soatBloqueadosPorVin ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>Impuestos creados</span><span className="font-medium tabular-nums">{sync.impuestosCreados ?? 0}</span></li>
-            <li className="flex justify-between gap-3"><span>Impuestos retenidos</span><span className="font-medium tabular-nums">{sync.impuestosRetenidos ?? 0}</span></li>
           </ul>
         </FlitCard>
       )}
 
       {data && (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-            {kpi('Organismos sin clasificar', data.organismosSinClasificar, 'Sin modalidad, retienen trámites.', 'danger')}
-            {kpi('Trámites retenidos', data.tramitesRetenidos, 'Esperan que se clasifique su organismo.', 'danger')}
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {kpi('Revisiones pendientes', data.revisionesPendientes.soat + data.revisionesPendientes.impuestos, `SOAT ${data.revisionesPendientes.soat} · Impuestos ${data.revisionesPendientes.impuestos}`, 'warning')}
             {kpi('Estancados por SLA', data.estancados.soat + data.estancados.impuestos, `SOAT ${data.estancados.soat} · Impuestos ${data.estancados.impuestos}`, 'warning')}
             {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}

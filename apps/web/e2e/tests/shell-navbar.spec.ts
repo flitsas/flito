@@ -1,14 +1,25 @@
 // Shell sin sidebar — FlitNavBar horizontal (decisión PO 2026-06-12).
 // Cubre: visibilidad en desktop, dropdown disclosure (abrir/navegar/Esc),
 // filtrado por permisos y drawer mobile como única nav en <lg.
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
+
+// El home (/) renderiza <FlitoTablero>, que consume /flito/tablero como OBJETO (no lista).
+// Sin este shape el dashboard antes reventaba y dejaba el shell en blanco.
+const TABLERO_VACIO = {
+  soat: {}, impuestos: {}, revisionesPendientes: { soat: 0, impuestos: 0 },
+  organismosSinClasificar: 0, tramitesRetenidos: 0, estancados: { soat: 0, impuestos: 0 },
+  diferenciasDeValor: 0, compuertaHabilitados: 0,
+};
 
 async function mockApi(page: import('@playwright/test').Page) {
   await page.route('**/api/**', async (route) => {
     if (route.request().url().includes('/auth/me')) return route.fallback();
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
+  // Registrado después → tiene prioridad para /flito/tablero.
+  await page.route('**/api/flito/tablero', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TABLERO_VACIO) }));
 }
 
 test.describe('Shell · FlitNavBar (desktop)', () => {

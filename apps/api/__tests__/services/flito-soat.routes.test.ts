@@ -53,24 +53,24 @@ describe('flito-soat — RBAC', () => {
 
 describe('flito-soat — validaciones y errores', () => {
   it('enviar con ids vacío → 400', async () => {
-    const r = await request(await buildApp()).post('/api/flito/soat/enviar').set('Authorization', await auth('operaciones')).send({ ids: [] });
+    const r = await request(await buildApp()).post('/api/flito/soat/enviar').set('Authorization', await auth('admin')).send({ ids: [] });
     expect(r.status).toBe(400);
   });
   it('reversar con motivo < 5 → 400', async () => {
     const r = await request(await buildApp()).post('/api/flito/soat/00000000-0000-0000-0000-000000000001/reversar')
-      .set('Authorization', await auth('operaciones')).send({ estadoDestino: 'pendiente', motivo: 'x' });
+      .set('Authorization', await auth('admin')).send({ estadoDestino: 'pendiente', motivo: 'x' });
     expect(r.status).toBe(400);
   });
   it('reactivar un SOAT inexistente → 404 (SoatError)', async () => {
     selectMock.mockReturnValueOnce(chain([])); // no existe
     const r = await request(await buildApp()).post('/api/flito/soat/00000000-0000-0000-0000-000000000001/reactivar')
-      .set('Authorization', await auth('operaciones')).send({ motivo: 'corregido' });
+      .set('Authorization', await auth('admin')).send({ motivo: 'corregido' });
     expect(r.status).toBe(404);
   });
   it('reactivar un SOAT que no está Rechazado → 400', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'x', estado: 'pagado' }]));
     const r = await request(await buildApp()).post('/api/flito/soat/00000000-0000-0000-0000-000000000001/reactivar')
-      .set('Authorization', await auth('operaciones')).send({ motivo: 'corregido' });
+      .set('Authorization', await auth('admin')).send({ motivo: 'corregido' });
     expect(r.status).toBe(400);
   });
 });

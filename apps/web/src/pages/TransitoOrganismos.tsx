@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import {
   TRAMITE_TIPOLOGIAS,
   getTipologia,
+  MODALIDAD_ORGANISMO_LABEL,
   type ChecklistOverride,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -10,6 +11,9 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { useAuth } from '../lib/auth';
+import { puedeOperar } from '../lib/permissions';
+import { PanelGestionOrganismo, MODALIDAD_TONO, type Organismo } from '../components/flito/autogestionPanels';
 
 interface OrganismoConfig {
   codigo: string;
@@ -26,6 +30,10 @@ interface OrganismoConfig {
   userCount: number;
   updatedAt: string | null;
 }
+
+// Fila = config de la secretaría (alias/logo/checklist) + su modalidad FLITO (autogestión),
+// fusionadas por código para mostrarse en UNA sola tabla (§correcciones-UX).
+type Fila = OrganismoConfig & { modalidad: Organismo | null };
 
 const LOGO_MAX_BYTES = 512 * 1024; // 512 KB — alineado con el límite del backend.
 const LOGO_ACCEPT = 'image/png,image/jpeg,image/webp,image/svg+xml';
@@ -74,16 +82,22 @@ const inputCls =
   'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none';
 
 export default function TransitoOrganismos() {
-  const [rows, setRows] = useState<OrganismoConfig[]>([]);
+  const { user } = useAuth();
+  const editable = puedeOperar(user?.role);
+  const [rows, setRows] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState<OrganismoConfig | null>(null);
+  const [editing, setEditing] = useState<Fila | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<OrganismoConfig[]>('/transito/organismos-config');
-      setRows(Array.isArray(data) ? data : []);
+      const [config, modalidades] = await Promise.all([
+        api.get<OrganismoConfig[]>('/transito/organismos-config'),
+        api.get<Organismo[]>('/flito/parametrizacion/organismos').catch(() => [] as Organismo[]),
+      ]);
+      const porCodigo = new Map((modalidades ?? []).map((m) => [m.codigo, m]));
+      setRows((Array.isArray(config) ? config : []).map((r) => ({ ...r, modalidad: porCodigo.get(r.codigo) ?? null })));
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -134,6 +148,7 @@ export default function TransitoOrganismos() {
                 <Th>Municipio</Th>
                 <Th>Código</Th>
                 <Th>Alias</Th>
+                <Th>Modalidad FLITO</Th>
                 <Th>Usuarios</Th>
                 <Th>Estado</Th>
                 <ThRight>Acciones</ThRight>
@@ -141,10 +156,10 @@ export default function TransitoOrganismos() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={6} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</td></tr>
               )}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={6} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin resultados</td></tr>
+                <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin resultados</td></tr>
               )}
               {!loading && filtered.map((r) => (
                 <tr key={r.codigo} className="border-t hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -164,6 +179,13 @@ export default function TransitoOrganismos() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.codigo}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.alias || '—'}</td>
+                  <td className="px-4 py-3">
+                    {r.modalidad ? (
+                      <StatusChip tone={MODALIDAD_TONO[r.modalidad.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[r.modalidad.modalidadVigente]}</StatusChip>
+                    ) : (
+                      <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.userCount}</td>
                   <td className="px-4 py-3">
                     <StatusChip tone={r.activo ? 'success' : 'neutral'}>{r.activo ? 'Activo' : 'Inactivo'}</StatusChip>
@@ -188,6 +210,7 @@ export default function TransitoOrganismos() {
       {editing && (
         <EditModal
           row={editing}
+          editable={editable}
           onClose={() => setEditing(null)}
           onSaved={() => { load(); setEditing(null); }}
           onReload={load}
@@ -197,9 +220,9 @@ export default function TransitoOrganismos() {
   );
 }
 
-type EditTab = 'general' | 'plantilla';
+type EditTab = 'general' | 'plantilla' | 'autogestion';
 
-function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; onClose: () => void; onSaved: () => void; onReload: () => void }) {
+function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; editable: boolean; onClose: () => void; onSaved: () => void; onReload: () => void }) {
   const [tab, setTab] = useState<EditTab>('general');
   const [cfg, setCfg] = useState<OrganismoConfig>(row);
   const [alias, setAlias] = useState(row.alias ?? '');
@@ -284,10 +307,17 @@ function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; 
       </p>
       <div className="mb-4 flex flex-wrap gap-2">
         {tabBtn('general', 'General')}
+        {tabBtn('autogestion', 'Autogestión')}
         {tabBtn('plantilla', 'Plantilla documentos')}
       </div>
 
-      {tab === 'general' ? (
+      {tab === 'autogestion' && (
+        row.modalidad
+          ? <PanelGestionOrganismo organismo={row.modalidad} editable={editable} onCambio={onReload} />
+          : <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Este organismo aún no tiene datos de modalidad FLITO.</p>
+      )}
+
+      {tab === 'general' && (
         <form onSubmit={submitGeneral} className="space-y-4">
           <label className="block text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
             Alias (nombre corto en bandeja)
@@ -352,7 +382,9 @@ function EditModal({ row, onClose, onSaved, onReload }: { row: OrganismoConfig; 
             <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando…' : 'Guardar'}</GradientButton>
           </div>
         </form>
-      ) : (
+      )}
+
+      {tab === 'plantilla' && (
         <PlantillaDocumentosTab organismoCodigo={row.codigo} onClose={onClose} />
       )}
     </FlitModal>

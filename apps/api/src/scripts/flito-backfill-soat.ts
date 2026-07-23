@@ -19,20 +19,20 @@ import { EstadoSoat } from '@operaciones/shared-types';
 
 const APPLY = process.argv.includes('--apply');
 
-type FlitoEstado = 'pendiente' | 'en_adquisicion' | 'pagado' | 'rechazado';
+type FlitoEstado = 'pendiente' | 'solicitado' | 'con_novedad' | 'pagado';
 
 function traducirEstado(legacy: string): FlitoEstado {
   switch (legacy) {
-    case 'enviado': return EstadoSoat.EN_ADQUISICION;
+    case 'enviado': return EstadoSoat.SOLICITADO;
     case 'comprado':
     case 'verificado': return EstadoSoat.PAGADO;
-    case 'rechazado': return EstadoSoat.RECHAZADO;
+    case 'rechazado': return EstadoSoat.CON_NOVEDAD;
     default: return EstadoSoat.PENDIENTE; // 'pendiente'
   }
 }
 
 // Precedencia para dedup por vehículo: el SOAT más avanzado gana (refleja la realidad del VIN).
-const RANK: Record<FlitoEstado, number> = { pagado: 4, en_adquisicion: 3, pendiente: 2, rechazado: 1 };
+const RANK: Record<FlitoEstado, number> = { pagado: 4, solicitado: 3, pendiente: 2, con_novedad: 1 };
 
 interface Fila {
   srId: number;
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
   const clientesValidos = new Set((await db.select({ id: clients.id }).from(clients)).map((c) => c.id));
 
   const aInsertar: (typeof flitoSoat.$inferInsert)[] = [];
-  const porEstado: Record<FlitoEstado, number> = { pendiente: 0, en_adquisicion: 0, pagado: 0, rechazado: 0 };
+  const porEstado: Record<FlitoEstado, number> = { pendiente: 0, solicitado: 0, pagado: 0, con_novedad: 0 };
   const omitidos = { sinVin: 0, sinCompania: 0, companiaInexistente: 0, sinOrganismo: 0, organismoInexistente: 0, vinYaEnFlito: 0 };
   const ejemplosOmitidos: string[] = [];
   const omitir = (motivo: keyof typeof omitidos, detalle: string) => {
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
       enviadoEn: noPendiente ? ganador.updatedAt : null,
       pagadoEn: estado === EstadoSoat.PAGADO ? (ganador.purchaseDate ? new Date(ganador.purchaseDate) : ganador.updatedAt) : null,
       valorPagado: null, // el legacy no guarda el valor cobrado; queda para reconciliación
-      motivoRechazo: estado === EstadoSoat.RECHAZADO ? (ganador.notes ?? 'Rechazado (migrado del modelo legacy)') : null,
+      motivoRechazo: estado === EstadoSoat.CON_NOVEDAD ? (ganador.notes ?? 'Rechazado (migrado del modelo legacy)') : null,
     });
     porEstado[estado] += 1;
     vinsExistentes.add(ganador.vin); // evita colisión si el mismo VIN aparece dos veces
@@ -129,9 +129,9 @@ async function main(): Promise<void> {
   console.log(`  vehículos distintos:      ${porVehiculo.size}`);
   console.log(`  a insertar (dedup VIN):   ${aInsertar.length}`);
   console.log(`    · pendiente:        ${porEstado.pendiente}`);
-  console.log(`    · en_adquisicion:   ${porEstado.en_adquisicion}`);
+  console.log(`    · solicitado:       ${porEstado.solicitado}`);
   console.log(`    · pagado:           ${porEstado.pagado}`);
-  console.log(`    · rechazado:        ${porEstado.rechazado}`);
+  console.log(`    · con_novedad:       ${porEstado.con_novedad}`);
   console.log(`  omitidos:                 ${Object.values(omitidos).reduce((a, b) => a + b, 0)}`);
   for (const [k, v] of Object.entries(omitidos)) if (v) console.log(`    · ${k}: ${v}`);
   if (ejemplosOmitidos.length) { console.log('  ejemplos de omitidos:'); ejemplosOmitidos.forEach((e) => console.log(`    ${e}`)); }

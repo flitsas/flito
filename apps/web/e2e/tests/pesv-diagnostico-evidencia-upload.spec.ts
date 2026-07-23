@@ -13,7 +13,7 @@
 //     audita con action='view' (verificado vía interceptor de request).
 //   - DELETE → 204 + chip desaparece.
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import {
   LIDER_PESV_USER, loginAsUser, stubPesvSiblings,
   buildDiagDetail, build24Items, jsonRoute,

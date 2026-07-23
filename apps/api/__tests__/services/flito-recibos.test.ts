@@ -29,7 +29,7 @@ vi.mock('../../src/modules/flito-ocr/flito-ocr.service.js', async (orig) => {
 const uploadMock = vi.fn().mockResolvedValue('flito/impuestos/recibos/k.pdf');
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 
-const { evaluarReciboImpuesto } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
+const { evaluarReciboImpuesto, evaluarDiferencia } = await import('../../src/modules/flito-impuestos/flito-recibos.service.js');
 
 beforeEach(() => { selectMock.mockReset(); insertMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); extraerMock.mockReset(); uploadMock.mockClear(); });
 
@@ -58,6 +58,26 @@ describe('evaluarReciboImpuesto — solo placa (llave) + valorTotal bloquean', (
   });
 });
 
+// ─────────────────────── evaluarDiferencia (D-5, Fase 7) ─────────────────────
+
+describe('evaluarDiferencia — marca de diferencia de valor por organismo (D-5)', () => {
+  it('organismo con flag apagado → nunca marca, aunque haya diferencia', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: false, valorLiquidado: '100000', tolerancia: '0' }, '999999')).toBe(false);
+  });
+  it('flag encendido + diferencia sobre tolerancia → marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '1000' }, '105000')).toBe(true);
+  });
+  it('flag encendido pero diferencia dentro de la tolerancia → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '5000' }, '104000')).toBe(false);
+  });
+  it('flag encendido pero sin valorLiquidado fiable → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: null, tolerancia: '0' }, '104000')).toBe(false);
+  });
+  it('flag encendido pero sin valorPagado → no marca', () => {
+    expect(evaluarDiferencia({ diferenciaActiva: true, valorLiquidado: '100000', tolerancia: '0' }, null)).toBe(false);
+  });
+});
+
 // ─────────────────────────── Ruta POST /recibos ──────────────────────────────
 
 async function buildApp() {
@@ -71,7 +91,7 @@ const auth = async (role: string) => `Bearer ${await testToken({ sub: 5, usernam
 const UUID = '00000000-0000-0000-0000-0000000000dd';
 
 const candidato = {
-  impuestoId: UUID, estado: 'en_gestion', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
+  impuestoId: UUID, estado: 'solicitado', organismoCodigo: '08001', tramiteIdFlit: 'FLIT-1', placa: 'QTQ100',
   companiaId: 1, document: '900', carpeta: null, valorLiquidado: '500000',
 };
 const reciboOk = { [CampoImpuesto.PLACA]: campo('QTQ100', 0.95), [CampoImpuesto.VALOR_TOTAL]: campo('634900', 0.95), [CampoImpuesto.NUMERO_RECIBO]: campo('R-1', 0.95) };
@@ -86,7 +106,7 @@ describe('recibos — RBAC', () => {
 describe('recibos — flujo', () => {
   it('archivo idéntico ya cargado → duplicado (CA-08 por hash), sin OCR', async () => {
     selectMock.mockReturnValueOnce(chain([{ impuestoId: UUID }])); // dedup por hash
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.duplicados).toHaveLength(1);
     expect(extraerMock).not.toHaveBeenCalled();
@@ -97,7 +117,7 @@ describe('recibos — flujo', () => {
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));  // adjuntarComplemento: PAGADO
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.noAsociados).toHaveLength(1);
     expect(uploadMock).not.toHaveBeenCalled();
@@ -112,7 +132,7 @@ describe('recibos — flujo', () => {
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.conciliados).toHaveLength(1);
     expect(txUpdate).toHaveBeenCalledTimes(1); // → PAGADO
@@ -127,7 +147,7 @@ describe('recibos — flujo', () => {
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 
-    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('operaciones')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
+    const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.enRevision).toHaveLength(1);
     expect(txUpdate).not.toHaveBeenCalled(); // NO pasó a pagado

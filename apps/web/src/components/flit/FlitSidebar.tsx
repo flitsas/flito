@@ -24,7 +24,6 @@ import {
 const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
   general: IconHome,
   gestion: IconClipboard,
-  flito: IconClipboard,
   transito: IconRoad,
   flota: IconTruck,
   mantenimiento: IconWrench,
@@ -59,7 +58,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
   const allowed = useMemo(() => effectivePages(user), [user]);
 
   const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => allowed.has(it.page)),
+    () => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))),
     [allowed],
   );
 

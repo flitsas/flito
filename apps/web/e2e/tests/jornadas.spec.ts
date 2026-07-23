@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
 
 // Jornadas — control de tiempos Decreto 1079/2015 (4h continuas, 10h jornada, 60h sem).

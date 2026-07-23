@@ -5,6 +5,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
+import archiver from 'archiver';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -12,23 +13,21 @@ import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { EstadoImpuesto } from '@operaciones/shared-types';
+import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import {
-  cargarFacturaVentaIndividual, cargarFacturasVentaMasivo, ImpuestoError,
-  type ArchivoSubido, type ImpuestoCtx,
-} from './flito-factura-venta.service.js';
-import {
-  colaImpuestos, detalleImpuesto, enviarAlGestor, reactivar, rechazar, reversar,
+  colaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
 import { cargarRecibos } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
+import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 
 const router = Router();
 router.use(authMiddleware);
 
-const OPERACIONES = requireRole('operaciones');
-const LECTURA = requireRole('operaciones', 'gestor_impuestos', 'auditor');
-const OPS_O_GESTOR = requireRole('operaciones', 'gestor_impuestos');
-const ESTADOS = ['sin_factura', 'retenido', 'pendiente', 'en_gestion', 'pagado', 'rechazado', 'no_aplica'] as const;
+const OPERACIONES = requireRole('admin');
+const LECTURA = requireRole('admin', 'gestor_impuestos', 'auditor');
+const OPS_O_GESTOR = requireRole('admin', 'gestor_impuestos');
+const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
@@ -61,27 +60,46 @@ function handleError(res: Response, e: unknown): void {
   throw e;
 }
 
-// POST /:id/factura-venta — carga la factura de venta de UN impuesto (precondición). Solo Operaciones.
-router.post('/:id/factura-venta', OPERACIONES, upload.single('archivo'), async (req: Request, res: Response) => {
-  if (!req.file) { res.status(400).json({ error: 'Falta el archivo de la factura de venta' }); return; }
-  try {
-    const ctx = await contextoImpuesto(req.user!);
-    await cargarFacturaVentaIndividual(req.params.id, aArchivo(req.file), ctx);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', resourceId: req.params.id, detail: `Factura de venta: ${req.file.originalname}` });
-    res.json({ ok: true });
-  } catch (e) { handleError(res, e); }
+// GET /:id/factura-venta — ver/descargar la factura de venta (viene de FLIT, S3). Redirige a la URL
+// prefirmada. Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
+router.get('/:id/factura-venta', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  const ctx = await contextoImpuesto(req.user!);
+  const facturaId = await facturaVentaFlitIdConAcceso(req.params.id, ctx);
+  if (!facturaId) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
+  const url = await getFlitAdapter().obtenerUrlFactura(facturaId);
+  if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return; }
+  res.redirect(url);
 });
 
-// POST /facturas-venta — carga MASIVA de facturas de venta (varios archivos o ZIP). Solo Operaciones.
-router.post('/facturas-venta', OPERACIONES, upload.array('archivos', 50), async (req: Request, res: Response) => {
-  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
-  if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
-  try {
-    const ctx = await contextoImpuesto(req.user!);
-    const resultado = await cargarFacturasVentaMasivo(files.map(aArchivo), ctx);
-    await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva facturas de venta: ${resultado.conciliados.length} conciliadas, ${resultado.enRevision.length} en revisión, ${resultado.duplicados.length} duplicadas, ${resultado.noAsociados.length} sin asociar` });
-    res.json(resultado);
-  } catch (e) { handleError(res, e); }
+// POST /facturas-venta/zip — descarga varias facturas de venta en un zip. Operaciones o gestor.
+const zipSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100) });
+router.post('/facturas-venta/zip', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  const parsed = zipSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  const ctx = await contextoImpuesto(req.user!);
+  const flit = getFlitAdapter();
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="facturas-venta.zip"');
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', () => { try { res.destroy(); } catch { /* ya cerrado */ } });
+  archive.pipe(res);
+
+  let incluidas = 0;
+  for (const id of parsed.data.ids) {
+    try {
+      const facturaId = await facturaVentaFlitIdConAcceso(id, ctx);
+      if (!facturaId) continue;
+      const url = await flit.obtenerUrlFactura(facturaId);
+      if (!url) continue;
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      archive.append(Buffer.from(await r.arrayBuffer()), { name: `${facturaId}.pdf` });
+      incluidas += 1;
+    } catch { /* omitir la factura fallida, no tumbar el zip */ }
+  }
+  await audit(req, { action: 'export', resource: 'flito_impuesto', detail: `Descarga zip de facturas de venta: ${incluidas}/${parsed.data.ids.length}` });
+  await archive.finalize();
 });
 
 // Tras una mutación devolvemos el detalle; si el actor ya no puede verlo, confirmación mínima.
@@ -150,7 +168,7 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 
 // POST /:id/reversar — reversa manual. Solo Operaciones, motivo ≥5.
 const reversarSchema = z.object({
-  estadoDestino: z.enum([EstadoImpuesto.SIN_FACTURA, EstadoImpuesto.RETENIDO, EstadoImpuesto.PENDIENTE, EstadoImpuesto.EN_GESTION, EstadoImpuesto.PAGADO, EstadoImpuesto.RECHAZADO, EstadoImpuesto.NO_APLICA]),
+  estadoDestino: z.enum([EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
 });
 router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) => {
