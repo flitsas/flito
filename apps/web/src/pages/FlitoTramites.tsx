@@ -69,6 +69,9 @@ type Resultado =
 // pagado verde. La autogestión (sin registro) se pinta aparte en gris.
 const TONO_SOAT: Record<EstadoSoat, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
+
+// Derecho de trámite: mismo valor fijo que el reporte de costos de Finanzas (COSTOS_FIJOS.derechoTramite).
+const DERECHO_TRAMITE = 75000;
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
@@ -363,6 +366,7 @@ export default function FlitoTramites() {
                   <ThFiltroMulti seleccion={impSel} onCambio={(v) => setImpSel(v as EstadoImpuesto[])} opciones={IMP_OPC} placeholder="Todos" />
                 </FlitTh>
                 <FlitTh>Logística</FlitTh>
+                <FlitTh>Derechos de trámite</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -428,6 +432,7 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={esOperaciones ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
                   <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} onSolicitar={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined} /></td>
                   <td className="px-3 py-2 align-top"><TrackingLogistica estado={f.logistica?.estado ?? null} /></td>
+                  <td className="px-3 py-2 text-sm align-top tabular-nums whitespace-nowrap">{pesos(DERECHO_TRAMITE)}</td>
                 </FlitTr>
               ))}
             </tbody>
