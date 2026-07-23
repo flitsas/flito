@@ -7,8 +7,8 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  crearEmpresaDesdeTramite, entregar, facetas, historial, listar, solicitarAmbos, solicitarImpuestos,
-  solicitarSoat, type FiltrosListado, type TramitesCtx,
+  crearEmpresaDesdeTramite, crearTramiteDemo, entregar, facetas, historial, listar, solicitarAmbos,
+  solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
@@ -69,6 +69,28 @@ router.post('/crear-empresa', OPERACIONES, async (req: Request, res: Response) =
   }, ctxDe(req.user!));
   await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Empresa ${parsed.data.nit} ${r.yaExistia ? 'reutilizada' : 'creada'}; ${r.revinculados} trámites re-vinculados` });
   res.json(r);
+});
+
+// POST /demo — crea un trámite DEMO aprobado (vehículo + trámite + comprador) para probar Logística
+// sin depender del sync de FLIT. Solo Operaciones.
+const demoSchema = z.object({
+  placa: z.string().trim().min(4), vin: z.string().trim().min(11),
+  propietarioNombre: z.string().trim().min(2), propietarioDocumento: z.string().trim().optional(),
+  marca: z.string().trim().optional(), linea: z.string().trim().optional(), modelo: z.number().int().optional(),
+  companiaId: z.number().int().positive(), organismoCodigo: z.string().trim().min(3),
+  transitoNombre: z.string().trim().optional(), idFlit: z.string().trim().optional(),
+  flitEstado: z.string().trim().optional(),
+});
+router.post('/demo', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = demoSchema.safeParse(req.body);
+  if (!parsed.success) { bad(res); return; }
+  try {
+    const r = await crearTramiteDemo(parsed.data, ctxDe(req.user!));
+    await audit(req, { action: 'create', resource: 'flito_tramite', detail: `Trámite DEMO ${r.idFlit} (placa ${r.placa}) creado` });
+    res.status(201).json(r);
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 // POST /solicitar-soat — envío al gestor SOAT del lote, fijando proveedor. Solo Operaciones.

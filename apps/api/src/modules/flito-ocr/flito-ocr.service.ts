@@ -19,6 +19,7 @@ import {
   SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_FACTURA_VENTA,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
+import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
 
 const log = loggerFor('flito-ocr');
 
@@ -55,9 +56,9 @@ const MESES: Record<string, string> = {
 /** ISO (yyyy-mm-dd) desde los formatos que se ven en Colombia. Día primero (convención local). */
 export function normalizarFecha(crudo: string): string | null {
   const texto = crudo.trim().toLowerCase();
-  const iso = texto.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  const iso = texto.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const dmy = texto.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  const dmy = texto.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   const largo = texto.match(/^(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})$/);
   if (largo && MESES[largo[2]]) return `${largo[3]}-${MESES[largo[2]]}-${largo[1].padStart(2, '0')}`;
@@ -165,6 +166,20 @@ async function extraer(
   camposEscalacion: readonly string[],
   normalizadores: Record<string, (v: string) => string | null>,
 ): Promise<Record<string, CampoExtraido>> {
+  // FALLBACK LOCAL (sin Anthropic): pdftotext/Tesseract + patrones (reconstruye el OCR pre-migración).
+  // Se activa cuando no hay API key; desactivable con OCR_LOCAL=0. Solo la LECTURA es local; el cruce
+  // placa/VIN, el umbral y el veredicto siguen siendo la lógica real de quien llama.
+  if (!env.ANTHROPIC_API_KEY && process.env.OCR_LOCAL === '1') {
+    const texto = await textoDocumento(doc);
+    const crudoLocal = camposDesdeTexto(texto, campos);
+    const salidaLocal: Record<string, CampoExtraido> = {};
+    for (const campo of campos) {
+      salidaLocal[campo] = aCampoExtraido(crudoLocal[campo] ?? { valor: null, confianza: null }, doc.umbral, normalizadores[campo]);
+    }
+    log.info({ campos: campos.length, chars: texto.length }, 'OCR local (fallback sin Anthropic)');
+    return salidaLocal;
+  }
+
   const p1 = await pasada(doc, env.ANTHROPIC_MODEL_HAIKU, prompt, '');
   let crudo = p1 ?? {};
 

@@ -24,6 +24,11 @@ export const USER_ROLES = [
   // El operador FLITO ES el admin (despliegue FLITO-only); gestor SOAT reutiliza `proveedor`;
   // auditoría reutiliza `auditor`. El antiguo rol `operaciones` se fusionó en `admin`.
   'gestor_impuestos',
+  // FLITO Logística: mensajero de campo. Usa la PWA y solo ve su ruta asignada (CA-11).
+  // Las tareas de Coordinador (armar/despachar actas, asignar rutas) las asume `admin`.
+  'mensajero',
+  // Finanzas: usuarios del área financiera (contabilidad, facturación, cobros). Hoy solo el reporte de costos.
+  'financiera',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -43,6 +48,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   conductor: 'Conductor',
   auditor: 'Auditor (revisor fiscal)',
   gestor_impuestos: 'Gestor de Impuestos',
+  mensajero: 'Mensajero',
+  financiera: 'Financiera',
 };
 
 // ============================================================================
@@ -84,6 +91,12 @@ export const PAGES = {
   flito_parametrizacion: 'FLITO — Parametrización',
   flito_tablero: 'FLITO — Tablero',
   flito_bitacora: 'FLITO — Bitácora',
+  // FLITO Logística: consola de Operaciones (trazabilidad por documento, actas, despacho).
+  flito_logistica: 'FLITO — Logística',
+  // FLITO Logística — ruta del mensajero (PWA de campo, Fase 2): recogidas y entregas asignadas.
+  flito_logistica_ruta: 'FLITO — Mi ruta (mensajero)',
+  // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
+  finanzas_reporte_costos: 'Finanzas — Reporte de costos',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -97,7 +110,8 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -120,11 +134,15 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
   // incluye en ningún requireRole de mutación FLITO — solo lectura.
   auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
-    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora'],
+    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
   gestor_impuestos: ['dashboard', 'flito_impuestos'],
+  // FLITO Logística — Mensajero: su ruta de campo (PWA). No accede a la consola de Operaciones.
+  mensajero: ['dashboard', 'flito_logistica_ruta'],
+  // Finanzas — usuarios financieros: hoy solo el reporte de costos por trámite.
+  financiera: ['dashboard', 'finanzas_reporte_costos'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

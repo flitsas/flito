@@ -13,6 +13,7 @@ import { db } from '../db/client.js';
 import {
   clients,
   flitoOrganismoVigencias,
+  flitoProveedoresLogistica,
   flitoProveedoresSoat,
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
@@ -80,6 +81,11 @@ async function main(): Promise<void> {
   const estado = proveedores.find((p) => p.nombre === 'Seguros del Estado')!;
   const sura = proveedores.find((p) => p.nombre === 'SURA')!;
 
+  // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
+  await db.insert(flitoProveedoresLogistica).values([
+    { nombre: 'Mensajería FLIT', estrategia: 'pwa_propia', activo: true },
+  ]).onConflictDoNothing();
+
   // ── Reglas de enrutamiento ───────────────────────────────────────────────────
   await db.insert(flitoReglasProveedorSoat).values([
     // Default global: lo que no tenga regla más específica.
@@ -102,6 +108,10 @@ async function main(): Promise<void> {
     { username: 'gestor.medellin', name: 'Gestor Movilidad Medellín', email: 'gestor.medellin@flito.co', passwordHash: hash, role: 'gestor_impuestos', transitoCodigo: ORG.MEDELLIN },
     { username: 'gestor.envigado', name: 'Gestor Tránsito Envigado', email: 'gestor.envigado@flito.co', passwordHash: hash, role: 'gestor_impuestos', transitoCodigo: ORG.ENVIGADO },
     { username: 'auditoria', name: 'Auditoría FLIT', email: 'auditoria@flito.co', passwordHash: hash, role: 'auditor' },
+    // Logística — mensajero de campo (PWA, Fase 2). Ve solo su ruta asignada (CA-11).
+    { username: 'mensajero', name: 'Mensajero FLIT', email: 'mensajero@flito.co', passwordHash: hash, role: 'mensajero' },
+    // Finanzas — usuario del área financiera. Hoy solo el Reporte de costos.
+    { username: 'financiera', name: 'Finanzas FLIT', email: 'financiera@flito.co', passwordHash: hash, role: 'financiera' },
   ]).onConflictDoNothing();
 
   const linea = '─'.repeat(72);
@@ -114,6 +124,7 @@ async function main(): Promise<void> {
     gestor.medellin  Gestor Impuestos — solo Medellín (CA-10)
     gestor.envigado  Gestor Impuestos — solo Envigado
     auditoria        Auditoría — solo lectura
+    mensajero        Logística — mensajero de campo (PWA Fase 2)
 
   NO hay trámites (son de FLIT). Entra como operaciones y sincroniza desde el Tablero
   (o POST /api/flito/sync/sincronizar) contra FLIT real. Barranquilla (${ORG.BARRANQUILLA})

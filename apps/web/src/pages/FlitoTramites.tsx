@@ -9,6 +9,11 @@ import { Link } from 'react-router-dom';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
+import { parseLicenciaTransito } from '@operaciones/shared-types';
+import {
+  ESTADO_LOGISTICA_SIMPLE_LABEL, ESTADOS_LOGISTICA_SIMPLE_ORDEN, simplificarEstadoLogistica,
+  type EstadoLogisticaSimple,
+} from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -39,6 +44,7 @@ interface TramiteFila {
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
+  logistica: { estado: string } | null;
 }
 // Un trámite habilita SOAT/impuestos solo si está Asignado y con empresa + secretaría emparejadas.
 const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secretariaEmparejada;
@@ -63,6 +69,9 @@ type Resultado =
 // pagado verde. La autogestión (sin registro) se pinta aparte en gris.
 const TONO_SOAT: Record<EstadoSoat, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
+
+// Derecho de trámite: mismo valor fijo que el reporte de costos de Finanzas (COSTOS_FIJOS.derechoTramite).
+const DERECHO_TRAMITE = 75000;
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
@@ -114,6 +123,8 @@ export default function FlitoTramites() {
   const [historial, setHistorial] = useState<{ idFlit: string; items: HistorialItem[] } | null>(null);
   // Crear empresa (cliente) desde un trámite con empresa inexistente (NIT precargado).
   const [crearEmpresa, setCrearEmpresa] = useState<TramiteFila | null>(null);
+  // Crear trámite DEMO (pruebas de Logística).
+  const [crearDemo, setCrearDemo] = useState(false);
   // Visor de factura de venta (modal): blob url + nombre para descargar.
   const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
 
@@ -233,8 +244,8 @@ export default function FlitoTramites() {
 
   return (
     <div className="space-y-4">
-      <PageHeaderCard title="Trámites"
-        subtitle="Todos los trámites de FLIT. Solo los Asignados (con empresa y secretaría) habilitan SOAT e impuestos."
+      <PageHeaderCard title="Gestión Trámites"
+        subtitle="Centro de gestión de los trámites de FLIT: sincroniza y consulta su estado, y solicita SOAT e impuestos. Solo los trámites Asignados —con empresa y secretaría emparejadas— habilitan esas gestiones."
         actions={
           <div className="flex flex-wrap items-center gap-3">
             {esOperaciones && (
@@ -263,6 +274,8 @@ export default function FlitoTramites() {
                   onClick={sincronizar}>
                   {sincronizando ? 'Sincronizando…' : 'Sincronizar FLIT'}
                 </button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} title="Crea un trámite aprobado de prueba para Logística"
+                  onClick={() => setCrearDemo(true)}>+ Trámite demo</button>
               </div>
             )}
           </div>
@@ -352,6 +365,8 @@ export default function FlitoTramites() {
                   Impuestos
                   <ThFiltroMulti seleccion={impSel} onCambio={(v) => setImpSel(v as EstadoImpuesto[])} opciones={IMP_OPC} placeholder="Todos" />
                 </FlitTh>
+                <FlitTh>Logística</FlitTh>
+                <FlitTh>Derechos de trámite</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -416,6 +431,8 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 text-xs align-top">{f.ciudad ?? '—'}</td>
                   <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={esOperaciones ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
                   <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} onSolicitar={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined} /></td>
+                  <td className="px-3 py-2 align-top"><TrackingLogistica estado={f.logistica?.estado ?? null} /></td>
+                  <td className="px-3 py-2 text-sm align-top tabular-nums whitespace-nowrap">{pesos(DERECHO_TRAMITE)}</td>
                 </FlitTr>
               ))}
             </tbody>
@@ -447,7 +464,122 @@ export default function FlitoTramites() {
           onCerrar={() => setCrearEmpresa(null)}
           onCreado={() => { setCrearEmpresa(null); setRecarga((n) => n + 1); }} />
       )}
+
+      {crearDemo && (
+        <ModalCrearTramiteDemo onCerrar={() => setCrearDemo(false)}
+          onCreado={() => { setCrearDemo(false); setRecarga((n) => n + 1); }} />
+      )}
     </div>
+  );
+}
+
+// Crea un trámite DEMO aprobado para probar Logística. Se puede pegar el código de la LT para prellenar
+// placa/VIN/propietario; empresa y organismo se eligen de las parametrizadas (empresa NO autogestionada).
+function ModalCrearTramiteDemo({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: () => void }) {
+  const [empresas, setEmpresas] = useState<{ id: number; nombre: string }[]>([]);
+  const [organismos, setOrganismos] = useState<{ codigo: string; nombre: string }[]>([]);
+  const [codigoLt, setCodigoLt] = useState('');
+  const [placa, setPlaca] = useState('');
+  const [vin, setVin] = useState('');
+  const [propietario, setPropietario] = useState('');
+  const [propietarioDoc, setPropietarioDoc] = useState('');
+  const [marca, setMarca] = useState('');
+  const [linea, setLinea] = useState('');
+  const [modelo, setModelo] = useState('');
+  const [companiaId, setCompaniaId] = useState('');
+  const [organismoCodigo, setOrganismoCodigo] = useState('');
+  const [transitoNombre, setTransitoNombre] = useState('');
+  const [flitEstado, setFlitEstado] = useState('Aprobado');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ id: number; nombre: string; logisticaAutogestionable: boolean }[]>('/flito/parametrizacion/companias')
+      .then((cs) => setEmpresas(cs.filter((c) => !c.logisticaAutogestionable).map((c) => ({ id: c.id, nombre: c.nombre })))).catch(() => {});
+    api.get<{ codigo: string; nombre: string; activo: boolean }[]>('/flito/parametrizacion/organismos')
+      .then((os) => setOrganismos(os.filter((o) => o.activo).map((o) => ({ codigo: o.codigo, nombre: o.nombre })))).catch(() => {});
+  }, []);
+
+  // Al pegar el código de la LT, prellena placa/VIN/propietario/documento.
+  const onCodigo = (v: string) => {
+    setCodigoLt(v);
+    const p = v.trim() ? parseLicenciaTransito(v.trim()) : null;
+    if (p) {
+      setPlaca(p.placa); setVin(p.vin);
+      if (p.propietarioNombre) setPropietario(p.propietarioNombre);
+      if (p.propietarioDocumento) setPropietarioDoc(p.propietarioDocumento);
+    }
+  };
+
+  const valido = placa.trim().length >= 4 && vin.trim().length === 17 && propietario.trim().length >= 2 && companiaId && organismoCodigo;
+
+  const crear = async () => {
+    setBusy(true); setError(null);
+    try {
+      await api.post('/flito/tramites/demo', {
+        placa: placa.trim(), vin: vin.trim(), propietarioNombre: propietario.trim(),
+        propietarioDocumento: propietarioDoc.trim() || undefined,
+        marca: marca.trim() || undefined, linea: linea.trim() || undefined,
+        modelo: modelo.trim() ? Number(modelo.trim()) : undefined,
+        companiaId: Number(companiaId), organismoCodigo,
+        transitoNombre: transitoNombre.trim() || undefined,
+        flitEstado,
+      });
+      onCreado();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <FlitModal title="Crear trámite demo (Logística)" onClose={onCerrar} wide>
+      <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        Crea un trámite <strong>Aprobado</strong> de prueba para escanear su LT en Logística. Pega el código de la LT para prellenar, o llena a mano.
+      </p>
+      <FlitField label="Contenido del código de la LT (opcional, para prellenar)">
+        <textarea className={flitInp} rows={2} placeholder="10038156339 C.C. … QOX858 LRWY… ELECTRICO" value={codigoLt} onChange={(e) => onCodigo(e.target.value)} />
+      </FlitField>
+      <div className="mt-3">
+        <FlitField label="Estado del trámite *">
+          <select className={flitInp} value={flitEstado} onChange={(e) => setFlitEstado(e.target.value)}>
+            <option value="Aprobado">Aprobado — habilita Logística</option>
+            <option value="Asignado">Asignado — habilita SOAT / Impuestos</option>
+            <option value="Borrador">Borrador</option>
+            <option value="Enviado a OT">Enviado a OT</option>
+            <option value="Entregado">Entregado</option>
+            <option value="Anulado">Anulado</option>
+            <option value="Rechazado">Rechazado</option>
+          </select>
+        </FlitField>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <FlitField label="Placa *"><input className={flitInp} value={placa} onChange={(e) => setPlaca(e.target.value)} /></FlitField>
+        <FlitField label="VIN * (17)"><input className={flitInp} value={vin} onChange={(e) => setVin(e.target.value)} /></FlitField>
+        <FlitField label="Propietario *"><input className={flitInp} value={propietario} onChange={(e) => setPropietario(e.target.value)} /></FlitField>
+        <FlitField label="Documento propietario"><input className={flitInp} value={propietarioDoc} onChange={(e) => setPropietarioDoc(e.target.value)} /></FlitField>
+        <FlitField label="Marca"><input className={flitInp} value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="TESLA" /></FlitField>
+        <FlitField label="Línea"><input className={flitInp} value={linea} onChange={(e) => setLinea(e.target.value)} placeholder="MODELO Y" /></FlitField>
+        <FlitField label="Modelo (año)"><input className={flitInp} inputMode="numeric" value={modelo} onChange={(e) => setModelo(e.target.value)} placeholder="2026" /></FlitField>
+        <FlitField label="Empresa gestora *">
+          <select className={flitInp} value={companiaId} onChange={(e) => setCompaniaId(e.target.value)}>
+            <option value="">Selecciona…</option>
+            {empresas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </FlitField>
+        <FlitField label="Organismo (tránsito) *">
+          <select className={flitInp} value={organismoCodigo} onChange={(e) => { setOrganismoCodigo(e.target.value); setTransitoNombre(organismos.find((o) => o.codigo === e.target.value)?.nombre ?? ''); }}>
+            <option value="">Selecciona…</option>
+            {organismos.map((o) => <option key={o.codigo} value={o.codigo}>{o.nombre}</option>)}
+          </select>
+        </FlitField>
+      </div>
+      {error && <p className="mt-3 text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cancelar</button>
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !valido} onClick={crear}>
+          {busy ? 'Creando…' : 'Crear trámite'}
+        </button>
+      </div>
+    </FlitModal>
   );
 }
 
@@ -641,10 +773,51 @@ function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?:
       <StatusChip tone={TONO_IMP[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
       {imp.estancado && <div><StatusChip tone="danger">SLA vencido</StatusChip></div>}
       {imp.marcadoPorDiferencia && <div><StatusChip tone="warning">Diferencia de valor</StatusChip></div>}
+      {imp.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(imp.enviadoEn)}</p>}
       {liq && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Liquidado {liq}</p>}
       {pag && <p className="text-xs font-semibold tabular-nums">{pag}</p>}
       {imp.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={imp.motivoRechazo}>{imp.motivoRechazo.slice(0, 40)}</p>}
       {puedeSolicitar && <div><BotonSolicitar onClick={onSolicitar} /></div>}
+    </div>
+  );
+}
+
+// Tracking logístico de la LT: línea horizontal con un punto por paso y, arriba, el estado actual
+// (estilo seguimiento de pedido). Novedad/Devuelta se marcan en rojo sobre el paso donde ocurren.
+// Tracking con el vocabulario SIMPLE (4 pasos lineales; «Con novedad» es un desvío lateral, no un paso).
+const PASOS_LOG = ESTADOS_LOGISTICA_SIMPLE_ORDEN.map((key) => ({ key, label: ESTADO_LOGISTICA_SIMPLE_LABEL[key] }));
+const IDX_SIMPLE: Record<EstadoLogisticaSimple, { idx: number; danger: boolean }> = {
+  pendiente: { idx: 0, danger: false }, registrada: { idx: 1, danger: false },
+  despachada: { idx: 2, danger: false }, entregada: { idx: 3, danger: false },
+  novedad: { idx: 1, danger: true }, // se pinta en rojo sobre el paso de recogida
+};
+
+function TrackingLogistica({ estado }: { estado: string | null }) {
+  if (!estado) return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>No aplica</span>;
+  const simple = simplificarEstadoLogistica(estado);
+  const info = IDX_SIMPLE[simple];
+  const color = info.danger ? 'var(--flit-danger)' : simple === 'entregada' ? 'var(--flit-success)' : 'var(--flit-blue-text)';
+  const pct = (info.idx / (PASOS_LOG.length - 1)) * 100;
+  return (
+    <div className="min-w-[190px]">
+      <div className="mb-2 text-[11px] font-semibold" style={{ color }}>{ESTADO_LOGISTICA_SIMPLE_LABEL[simple]}</div>
+      <div className="relative flex items-center justify-between px-0.5">
+        <div className="absolute inset-x-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ background: 'var(--flit-border-soft)' }} />
+        <div className="absolute left-1 top-1/2 h-0.5 -translate-y-1/2 rounded" style={{ width: `calc(${pct}% - 4px)`, background: color }} />
+        {PASOS_LOG.map((p, i) => {
+          const hecho = i <= info.idx;
+          const actual = i === info.idx;
+          return (
+            <span key={p.key} title={p.label} className="relative z-10 rounded-full transition-all"
+              style={{
+                width: actual ? 12 : 9, height: actual ? 12 : 9,
+                background: hecho ? color : '#fff',
+                border: `2px solid ${hecho ? color : 'var(--flit-border-soft)'}`,
+                boxShadow: actual ? `0 0 0 3px ${info.danger ? 'rgba(228,61,48,0.18)' : 'rgba(48,102,190,0.18)'}` : 'none',
+              }} />
+          );
+        })}
+      </div>
     </div>
   );
 }

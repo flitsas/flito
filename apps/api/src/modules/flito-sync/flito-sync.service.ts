@@ -32,6 +32,8 @@ type DbOrTx = typeof db | Tx;
 const ACTOR_SISTEMA = 'sistema';
 const numOrNull = (v: number | null): string | null => (v === null ? null : String(v));
 export const esAsignado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'asignado';
+/** Logística arranca cuando el trámite está aprobado y el organismo emitió los documentos (§8). */
+export const esAprobado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'aprobado';
 
 /** Mapea el estado crudo de FLIT al enum interno FLITO cuando aplica; null si no tiene equivalente. */
 export function estadoEnumDesdeFlit(estadoFlit: string): EstadoTramiteFlito | null {
@@ -132,6 +134,9 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
     await resolverSoat(tx, tf, tramiteId, soatId, vehiculoId, compania, organismo.codigo, r);
     await resolverImpuesto(tx, tf, tramiteId, compania, organismo.codigo, r);
   }
+
+  // Logística: los trámites aprobados son la fuente de la consola (se listan directo desde
+  // flito_tramites); la LT NO nace aquí, sino del escaneo del PDF417 por el mensajero en campo.
 }
 
 async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {

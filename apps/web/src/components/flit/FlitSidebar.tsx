@@ -30,6 +30,7 @@ const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
   pesv: IconShield,
   rndc: IconPackage,
   laft: IconScale,
+  finanzas: IconScale,
   admin: IconCog,
 };
 

@@ -47,6 +47,9 @@ export type SoatStatus = z.infer<typeof SoatStatus>;
 // ── FLITO (migración packages/ → Operaciones) ──────────────────────────────
 // Dominio de estados SOAT/Impuestos, modalidad de organismo, soportes y reglas.
 export * from './flito-estados.js';
+// Dominio del módulo de Logística: estados por documento, actas, tipos y proveedores.
+export * from './flito-logistica.js';
+export * from './flito-logistica-barcode.js';
 // Campos OCR (SOAT / impuesto / factura de venta) con confianza por campo y motivos de revisión.
 export * from './flito-ocr.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.

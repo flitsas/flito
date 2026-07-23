@@ -16,9 +16,10 @@ interface Client {
   phone: string | null; email: string | null; address: string | null;
   city: string | null; notes: string | null; active: boolean;
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
+  logisticaPermiteParcial: boolean;
 }
 
-type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable';
+type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
 
 export default function Clients() {
   const { user } = useAuth();
@@ -58,14 +59,14 @@ export default function Clients() {
     }
   };
 
-  const CeldaFlag = ({ c, campo, label }: { c: Client; campo: FlagCampo; label: string }) => (
+  const CeldaFlag = ({ c, campo, label, aria }: { c: Client; campo: FlagCampo; label: string; aria?: string }) => (
     <td className="px-3 py-2 text-center">
       <input
         type="checkbox"
         className="h-4 w-4 cursor-pointer align-middle disabled:cursor-not-allowed"
         checked={c[campo]}
         disabled={!editable}
-        aria-label={`Autogestión ${label} de ${c.name}`}
+        aria-label={aria ?? `Autogestión ${label} de ${c.name}`}
         onChange={() => toggleFlag(c, campo)}
       />
     </td>
@@ -112,6 +113,7 @@ export default function Clients() {
                 <FlitTh center>SOAT</FlitTh>
                 <FlitTh center>Impuestos</FlitTh>
                 <FlitTh center>Logística</FlitTh>
+                <FlitTh center>Parcial</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -125,6 +127,7 @@ export default function Clients() {
                   <CeldaFlag c={c} campo="soatAutogestionable" label="SOAT" />
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
+                  <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
                 </FlitTr>
               ))}
             </tbody>
@@ -133,6 +136,7 @@ export default function Clients() {
         {editable && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Marca «Autogestiona» cuando la compañía tramita SOAT, impuestos o logística por su cuenta (FLITO no la gestiona).
+            «Parcial» permite generar el acta de logística con los documentos disponibles; sin marcar, el acta se retiene hasta tenerlos todos (CA-08/09).
           </p>
         )}
       </FlitCard>

@@ -121,7 +121,7 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
 
   // CA-08 (1): el mismo archivo, byte por byte, ya está cargado.
   const [dupHash] = await db.select({ impuestoId: flitoSoportes.impuestoId }).from(flitoSoportes)
-    .where(and(eq(flitoSoportes.hash, hash), inArray(flitoSoportes.tipo, TIPOS_RECIBO))).limit(1);
+    .where(and(eq(flitoSoportes.hash, hash), inArray(flitoSoportes.tipo, TIPOS_RECIBO), eq(flitoSoportes.descartado, false))).limit(1);
   if (dupHash) {
     res.duplicados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: dupHash.impuestoId, detalle: 'Ese pago ya está registrado: el archivo es idéntico a uno cargado antes.' });
     return;
@@ -188,7 +188,7 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, organismoC
 async function adjuntarComplemento(archivo: ArchivoSubido, placa: string, tipo: string, organismoCodigo: string | null, hash: string, ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<boolean> {
   const pagado = await buscarCandidato(placa, EstadoImpuesto.PAGADO, organismoCodigo);
   if (!pagado) return false;
-  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, pagado.impuestoId), eq(flitoSoportes.tipo, tipo)));
+  const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, pagado.impuestoId), eq(flitoSoportes.tipo, tipo), eq(flitoSoportes.descartado, false)));
   if (Number(n) > 0) return false; // ya tiene esa copia: es duplicado, no complemento
   const cual = tipo === TIPO_RECIBO_SIN_MARCA ? 'sin' : 'con';
   const storageKey = await archivar(pagado, archivo);

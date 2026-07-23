@@ -36,6 +36,8 @@ const ROLE_TONE: Record<UserRole, ChipTone> = {
   conductor: 'neutral',
   auditor: 'warning',
   gestor_impuestos: 'neutral',
+  mensajero: 'active',
+  financiera: 'success',
 };
 
 const PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*]).{8,}$';

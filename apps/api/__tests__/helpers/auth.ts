@@ -3,7 +3,7 @@ import { SignJWT } from 'jose';
 // Helper para generar JWTs válidos en tests. Firma con JWT_SECRET seteado en __tests__/setup.ts.
 // El payload coincide con `JwtPayload` definido en src/shared/middleware/auth.ts.
 
-export type TestRole = 'admin' | 'proveedor' | 'transito' | 'compliance' | 'lider_pesv' | 'supervisor_flota' | 'conductor' | 'auditor' | 'gestor_impuestos';
+export type TestRole = 'admin' | 'proveedor' | 'transito' | 'compliance' | 'lider_pesv' | 'supervisor_flota' | 'conductor' | 'auditor' | 'gestor_impuestos' | 'mensajero';
 
 interface TestUserOpts {
   sub?: number;

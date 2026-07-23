@@ -9,13 +9,13 @@ export interface NavItem {
   label: string;
   /** Si se define, el ítem solo se muestra a estos roles (además del permiso de página). */
   roles?: string[];
-  section: 'general' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'admin';
+  section: 'general' | 'gestion' | 'transito' | 'flota' | 'mantenimiento' | 'pesv' | 'rndc' | 'laft' | 'finanzas' | 'admin';
   keywords?: string;  // términos de búsqueda alternativos para Command Palette
 }
 
 // Orden estable de secciones en la navegación (no depende del orden de NAV_ITEMS).
 export const SECTION_ORDER: NavItem['section'][] = [
-  'general', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'admin',
+  'general', 'gestion', 'transito', 'flota', 'mantenimiento', 'pesv', 'rndc', 'laft', 'finanzas', 'admin',
 ];
 
 /** Sección del ítem de nav que mejor coincide con la ruta actual (prefijo más largo). */
@@ -37,6 +37,7 @@ export const SECTION_LABEL: Record<NavItem['section'], string> = {
   pesv:          'PESV',
   rndc:          'RNDC',
   laft:          'Cumplimiento',
+  finanzas:      'Finanzas',
   admin:         'Administración',
 };
 
@@ -49,12 +50,15 @@ export const NAV_ITEMS: NavItem[] = [
   // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
   // la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos solo se muestran a los gestores
   // (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
-  { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Trámites',                keywords: 'flito tramites unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
+  { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Gestión Trámites',        keywords: 'flito tramites gestion unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
   { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
+  { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
+  { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
   { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
+  { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },

@@ -43,6 +43,7 @@ function companiaDto(c: typeof clients.$inferSelect) {
     soatAutogestionable: c.soatAutogestionable,
     impuestosAutogestionable: c.impuestosAutogestionable,
     logisticaAutogestionable: c.logisticaAutogestionable,
+    logisticaPermiteParcial: c.logisticaPermiteParcial,
     carpetaStorage: c.flitoCarpetaStorage,
     toleranciaValorImpuesto: Number(c.flitoToleranciaValorImpuesto),
   };
@@ -57,6 +58,7 @@ const actualizarCompaniaSchema = z.object({
   soatAutogestionable: z.boolean().optional(),
   impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
+  logisticaPermiteParcial: z.boolean().optional(),
   carpetaStorage: z.string().max(300).nullable().optional(),
   toleranciaValorImpuesto: z.number().min(0, 'La tolerancia no puede ser negativa').optional(),
 });
@@ -72,6 +74,7 @@ router.patch('/companias/:id', ESCRITURA, async (req: Request, res: Response) =>
   if (cambios.soatAutogestionable !== undefined) set.soatAutogestionable = cambios.soatAutogestionable;
   if (cambios.impuestosAutogestionable !== undefined) set.impuestosAutogestionable = cambios.impuestosAutogestionable;
   if (cambios.logisticaAutogestionable !== undefined) set.logisticaAutogestionable = cambios.logisticaAutogestionable;
+  if (cambios.logisticaPermiteParcial !== undefined) set.logisticaPermiteParcial = cambios.logisticaPermiteParcial;
   if (cambios.carpetaStorage !== undefined) set.flitoCarpetaStorage = cambios.carpetaStorage;
   if (cambios.toleranciaValorImpuesto !== undefined) set.flitoToleranciaValorImpuesto = String(cambios.toleranciaValorImpuesto);
 

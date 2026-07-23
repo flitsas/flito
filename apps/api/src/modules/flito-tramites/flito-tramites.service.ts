@@ -11,8 +11,8 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoImpuestos, flitoProveedoresSoat, flitoSoat, flitoTramiteHistorial,
-  flitoTramites, organismosTransitoConfig, users, vehicles,
+  clients, flitoCompradores, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
+  flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
@@ -62,6 +62,8 @@ export interface TramiteFila {
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
+  /** Tracking logístico de la LT. null si no aplica (no aprobado, sin empresa o empresa autogestiona). */
+  logistica: { estado: string } | null;
 }
 
 export interface HistorialItem {
@@ -80,6 +82,69 @@ export async function historial(tramiteId: string): Promise<HistorialItem[]> {
     .where(eq(flitoTramiteHistorial.tramiteId, tramiteId))
     .orderBy(desc(flitoTramiteHistorial.createdAt));
   return rows.map((r) => ({ ...r, creadoEn: r.creadoEn.toISOString() }));
+}
+
+// ── Creación de trámites DEMO (pruebas de Logística) ─────────────────────────
+
+export interface DatosTramiteDemo {
+  placa: string; vin: string; propietarioNombre: string; propietarioDocumento?: string | null;
+  marca?: string | null; linea?: string | null; modelo?: number | null;
+  companiaId: number; organismoCodigo: string; transitoNombre?: string | null; idFlit?: string | null;
+  /** Estado crudo de FLIT (Aprobado, Asignado, …). Por defecto 'Aprobado' (habilita Logística). */
+  flitEstado?: string | null;
+}
+
+// El `estado` interno es enum; solo estos 5 estados crudos mapean (igual que estadoEnumDesdeFlit del sync).
+type EstadoInternoTramite = 'asignado' | 'entregado' | 'aprobado' | 'anulado' | 'rechazado';
+const ESTADOS_INTERNOS: readonly EstadoInternoTramite[] = ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado'];
+
+/**
+ * Crea un trámite DEMO en estado 'Aprobado' (vehículo + trámite + comprador) para probar Logística sin
+ * depender del sync de FLIT. La empresa debe existir y NO autogestionar logística, y el organismo debe
+ * estar configurado, para que la LT haga match por placa+VIN. Valida VIN/idFlit únicos.
+ */
+export async function crearTramiteDemo(datos: DatosTramiteDemo, ctx: TramitesCtx): Promise<{ tramiteId: string; idFlit: string; placa: string }> {
+  const placa = datos.placa.trim().toUpperCase().replace(/[\s-]/g, '');
+  const vin = datos.vin.trim().toUpperCase().replace(/\s/g, '');
+  const propietario = datos.propietarioNombre.trim();
+  if (!placa || !vin || !propietario) throw new Error('Placa, VIN y propietario son obligatorios');
+  if (vin.length !== 17) throw new Error('El VIN debe tener 17 caracteres');
+
+  const [dupVin] = await db.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, vin)).limit(1);
+  if (dupVin) throw new Error(`Ya existe un vehículo con el VIN ${vin}`);
+  const [comp] = await db.select({ id: clients.id, nit: clients.document, autog: clients.logisticaAutogestionable })
+    .from(clients).where(eq(clients.id, datos.companiaId)).limit(1);
+  if (!comp) throw new Error('La empresa seleccionada no existe');
+  if (comp.autog) throw new Error('Esa empresa autogestiona su logística: FLITO no la gestiona (elige otra o desactiva la bandera)');
+  const [org] = await db.select({ codigo: organismosTransitoConfig.codigo, alias: organismosTransitoConfig.alias })
+    .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, datos.organismoCodigo)).limit(1);
+  if (!org) throw new Error('El organismo seleccionado no existe');
+
+  const idFlit = (datos.idFlit?.trim() || `DEMO-${placa}`).toUpperCase();
+  const [dupId] = await db.select({ id: flitoTramites.id }).from(flitoTramites).where(eq(flitoTramites.idFlit, idFlit)).limit(1);
+  if (dupId) throw new Error(`Ya existe un trámite con id ${idFlit}`);
+
+  const flitEstado = datos.flitEstado?.trim() || 'Aprobado';
+  const n = flitEstado.toLowerCase();
+  const estadoInterno: EstadoInternoTramite | null = ESTADOS_INTERNOS.includes(n as EstadoInternoTramite) ? (n as EstadoInternoTramite) : null;
+  const fechaAprobacion = (n === 'aprobado' || n === 'entregado') ? new Date() : null;
+
+  return db.transaction(async (tx) => {
+    const [v] = await tx.insert(vehicles).values({
+      vin, plate: placa, ownerName: propietario, ownerDocument: datos.propietarioDocumento?.trim() || null,
+      brand: datos.marca?.trim() || null, model: datos.linea?.trim() || null, year: datos.modelo ?? null, clientId: comp.id,
+    }).returning({ id: vehicles.id });
+    const [t] = await tx.insert(flitoTramites).values({
+      idFlit, estado: estadoInterno, flitEstado, tipoTramite: 'Matricula', ciudad: org.alias,
+      tipoPropiedad: 'unico_propietario', companiaId: comp.id, companiaNit: comp.nit,
+      organismoCodigo: org.codigo, transitoNombreFlit: datos.transitoNombre?.trim() || org.alias,
+      vehiculoId: v.id, fechaAprobacion, sincronizadoEn: new Date(),
+    }).returning({ id: flitoTramites.id });
+    await tx.insert(flitoCompradores).values({
+      tramiteId: t.id, nombreCompleto: propietario, numeroDocumento: datos.propietarioDocumento?.trim() || 'N/A', orden: 0,
+    });
+    return { tramiteId: t.id, idFlit, placa };
+  });
 }
 
 export interface ResultadoCrearEmpresa { companiaId: number; yaExistia: boolean; revinculados: number }
@@ -145,6 +210,8 @@ function proyeccion() {
     companiaNombre: clients.name,
     soatAutogestionable: clients.soatAutogestionable,
     impuestosAutogestionable: clients.impuestosAutogestionable,
+    logisticaAutogestionable: clients.logisticaAutogestionable,
+    logisticaDocEstado: flitoLogisticaDocumentos.estado,
     soatEstado: flitoSoat.estado,
     soatValorPagado: flitoSoat.valorPagado,
     soatExtraccion: flitoSoat.extraccion,
@@ -188,7 +255,9 @@ function proyeccion() {
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id));
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    // Estado logístico de la LT (tracking): a lo sumo una por trámite (unique tramite+tipo).
+    .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, 'licencia_transito')));
 }
 
 type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
@@ -261,6 +330,11 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
     valorSoat: veredicto.valorSoat,
     valorImpuesto: veredicto.valorImpuesto,
     sincronizadoEn: f.sincronizadoEn.toISOString(),
+    // Logística: aplica solo a trámites aprobados de compañías que FLITO gestiona. 'pendiente' = aún
+    // sin recoger (LT no escaneada); si ya hay LT, su estado real de la cadena.
+    logistica: ((f.flitEstado ?? '').trim().toLowerCase() === 'aprobado' && f.companiaId !== null && !(f.logisticaAutogestionable ?? false))
+      ? { estado: f.logisticaDocEstado ?? 'pendiente' }
+      : null,
   };
 }
 

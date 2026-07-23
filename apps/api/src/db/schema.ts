@@ -9,7 +9,7 @@ import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from 
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
-export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos']);
+export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera']);
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -87,6 +87,9 @@ export const clients = pgTable('clients', {
   soatAutogestionable: boolean('soat_autogestionable').notNull().default(false),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
   logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
+  // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene
+  // hasta tener todos los documentos de la empresa (Solo completo).
+  logisticaPermiteParcial: boolean('logistica_permite_parcial').notNull().default(false),
   // Carpeta lógica en S3 donde se replican facturas/soportes (reinterpreta la
   // "carpeta OneDrive por compañía" del diseño original; decisión D-3).
   flitoCarpetaStorage: varchar('flito_carpeta_storage', { length: 300 }),
@@ -2570,6 +2573,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
+  // Descartado en la cola de revisión OCR: libera su hash para permitir recargar el mismo archivo
+  // (un documento rechazado no debe contar como duplicado). Se excluye del dedup y de los listados.
+  descartado: boolean('descartado').notNull().default(false),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
 }));
@@ -2602,3 +2608,119 @@ export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
   prioridad: integer('prioridad').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── FLITO Logística (Fase 1) ────────────────────────────────────────────────
+// Trazabilidad del documento físico (LT/placa) del organismo al cliente. La unidad es el
+// DOCUMENTO individual (RN-01); actas y rutas son agrupaciones sobre él. Los literales de estos
+// enums coinciden con packages/shared-types/src/flito-logistica.ts (fuente única del dominio).
+export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', ['generado', 'recogido', 'clasificado', 'en_acta', 'despachado', 'entregado', 'novedad', 'devuelto']);
+export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado', ['generada', 'despachada', 'entregada', 'devuelta']);
+export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
+
+// Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
+export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 150 }).notNull().unique(),
+  estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
+// firmada + evidencia (columnas de entrega) se pueblan en la Fase 2 (PWA); aquí quedan definidas.
+export const flitoLogisticaActas = pgTable('flito_logistica_actas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companiaId: integer('compania_id').notNull().references(() => clients.id),
+  estado: flitoLogisticaActaEstadoEnum('estado').notNull().default('generada'),
+  mensajeroId: integer('mensajero_id').references(() => users.id),
+  proveedorLogisticaId: uuid('proveedor_logistica_id').references(() => flitoProveedoresLogistica.id),
+  // Snapshot de configuración de la compañía al cerrar el lote.
+  permiteParcial: boolean('permite_parcial').notNull().default(false),
+  direccionEntrega: varchar('direccion_entrega', { length: 300 }),
+  contactoNombre: varchar('contacto_nombre', { length: 150 }),
+  contactoDocumento: varchar('contacto_documento', { length: 30 }),
+  // Artefacto y evidencia de la entrega (Fase 2: firma digital + evidencia estructurada, RN-03/9.5).
+  pdfStorageKey: varchar('pdf_storage_key', { length: 400 }),
+  // Firma de quien ENTREGA (Operaciones), capturada en la consola al despachar el acta.
+  firmaEntregaStorageKey: varchar('firma_entrega_storage_key', { length: 400 }),
+  entregaNombre: varchar('entrega_nombre', { length: 150 }),
+  // Firma de quien RECIBE (receptor en la empresa), capturada en campo por el mensajero.
+  firmaStorageKey: varchar('firma_storage_key', { length: 400 }),
+  fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
+  receptorNombre: varchar('receptor_nombre', { length: 150 }),
+  receptorDocumento: varchar('receptor_documento', { length: 30 }),
+  entregadoLat: numeric('entregado_lat', { precision: 10, scale: 7 }),
+  entregadoLng: numeric('entregado_lng', { precision: 10, scale: 7 }),
+  entregadoEn: timestamp('entregado_en', { withTimezone: true }),
+  motivoDevolucion: text('motivo_devolucion'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaIdx: index('idx_flito_log_actas_compania').on(t.companiaId),
+  estadoIdx: index('idx_flito_log_actas_estado').on(t.estado),
+  mensajeroIdx: index('idx_flito_log_actas_mensajero').on(t.mensajeroId),
+}));
+
+// Documento físico individual (RN-01). Congela organismo (dónde se generó) y compañía (destino),
+// para que sobreviva a cambios del trámite. Un mismo documento físico no se duplica: (tramite, tipo) único.
+export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  tipo: flitoLogisticaTipoDocEnum('tipo').notNull(),
+  estado: flitoLogisticaDocEstadoEnum('estado').notNull().default('generado'),
+  // Congelados desde el trámite al generar el documento.
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  companiaId: integer('compania_id').references(() => clients.id),
+  companiaNit: varchar('compania_nit', { length: 30 }),
+  vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
+  // Código escaneable / serial del documento (barras/QR). Null hasta la Fase 2 (escaneo).
+  identificador: varchar('identificador', { length: 120 }),
+  // Datos leídos del PDF417 de la LT al escanear (fuente: código de barras del reverso).
+  numeroLicencia: varchar('numero_licencia', { length: 40 }),
+  // N.º de la LT: NO viaja en el código (impreso debajo); se captura manual ahora, OCR después.
+  numeroLt: varchar('numero_lt', { length: 40 }),
+  propietarioNombre: varchar('propietario_nombre', { length: 200 }),
+  propietarioDocumento: varchar('propietario_documento', { length: 30 }),
+  combustible: varchar('combustible', { length: 30 }),
+  // Foto del propietario embebida en el código (JPEG), subida a storage.
+  fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
+  actaId: uuid('acta_id').references(() => flitoLogisticaActas.id),
+  // Motivo de la última novedad/devolución (obligatorio en esos estados, RN-04).
+  motivo: text('motivo'),
+  flitRaw: jsonb('flit_raw'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Un documento físico por (trámite, tipo): la sincronización repetida no duplica registros (RN-06).
+  tramiteTipoUnico: uniqueIndex('uq_flito_log_doc_tramite_tipo').on(t.tramiteId, t.tipo),
+  estadoIdx: index('idx_flito_log_doc_estado').on(t.estado),
+  companiaIdx: index('idx_flito_log_doc_compania').on(t.companiaId),
+  actaIdx: index('idx_flito_log_doc_acta').on(t.actaId),
+}));
+
+// Idempotencia de las escrituras de campo (RN-06/CA-06): la PWA del mensajero encola escrituras
+// offline con una clave propia; un reenvío con la misma clave devuelve la respuesta ya guardada en
+// vez de re-ejecutar, así una sincronización repetida no duplica recogidas/entregas.
+export const flitoLogisticaIdempotencia = pgTable('flito_logistica_idempotencia', {
+  idempotencyKey: text('idempotency_key').primaryKey(),
+  status: integer('status').notNull(),
+  response: jsonb('response').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Bitácora de transición por documento: sostiene CA-07 (actor, hora, ubicación de cada transición),
+// RN-04 (motivo) y RN-07 (lat/lng solo en recogida/entrega). Más natural que un diff campo-a-campo.
+export const flitoLogisticaEventos = pgTable('flito_logistica_documento_eventos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  documentoId: uuid('documento_id').notNull().references(() => flitoLogisticaDocumentos.id, { onDelete: 'cascade' }),
+  estadoAnterior: varchar('estado_anterior', { length: 20 }),
+  estadoNuevo: varchar('estado_nuevo', { length: 20 }).notNull(),
+  actorId: integer('actor_id').references(() => users.id),
+  lat: numeric('lat', { precision: 10, scale: 7 }),
+  lng: numeric('lng', { precision: 10, scale: 7 }),
+  motivo: text('motivo'),
+  origen: varchar('origen', { length: 10 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  documentoIdx: index('idx_flito_log_eventos_documento').on(t.documentoId, t.createdAt),
+}));

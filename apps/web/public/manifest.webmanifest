@@ -1,0 +1,17 @@
+{
+  "name": "FLIT Operaciones",
+  "short_name": "FLIT",
+  "description": "Operaciones FLIT — SOAT, Impuestos y Logística. Instalable en el teléfono del mensajero.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#162744",
+  "theme_color": "#162744",
+  "icons": [
+    { "src": "/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
