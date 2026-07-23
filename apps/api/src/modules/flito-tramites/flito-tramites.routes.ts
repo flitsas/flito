@@ -38,6 +38,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
   const filtros: FiltrosListado = {
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
     empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
+    autogestion: q.autogestion === 'si' || q.autogestion === 'no' ? q.autogestion : undefined,
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
   res.json(await listar(filtros));

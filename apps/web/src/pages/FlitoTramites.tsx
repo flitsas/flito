@@ -134,12 +134,14 @@ export default function FlitoTramites() {
   const [transitosSel, setTransitosSel] = useState<string[]>([]);
   const [empresasSel, setEmpresasSel] = useState<string[]>([]); // NITs de clientes FLITO
   const [empresasOpc, setEmpresasOpc] = useState<{ nit: string; nombre: string }[]>([]);
+  // Filtro rápido de autogestión de la empresa: '' = todas · 'si' = autogestionadas · 'no' = no autogestionadas.
+  const [autogestionSel, setAutogestionSel] = useState<'' | 'si' | 'no'>('');
   // Todos los filtros son multiselect; se serializan a una key para las dependencias de los efectos.
   const soatKey = soatSel.join(','); const impKey = impSel.join(','); const empresasKey = empresasSel.join(',');
   const estadosKey = estadosSel.join(','); const ciudadesKey = ciudadesSel.join(','); const transitosKey = transitosSel.join(',');
 
   // Cualquier cambio de filtro/búsqueda vuelve a la página 1 (evita quedar en una página vacía).
-  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey]);
+  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel]);
 
   // Carga la página actual desde el servidor con todos los filtros aplicados en SQL.
   useEffect(() => {
@@ -152,12 +154,13 @@ export default function FlitoTramites() {
     if (empresasSel.length) q.set('empresas', empresasSel.join(','));
     if (soatSel.length) q.set('soat', soatSel.join(','));
     if (impSel.length) q.set('impuesto', impSel.join(','));
+    if (autogestionSel) q.set('autogestion', autogestionSel);
     q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE));
     api.get<Paginado>(`/flito/tramites?${q}`)
       .then((r) => { setData(r.items); setTotal(r.total); })
       .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, page, recarga]);
+  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, page, recarga]);
 
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
   useEffect(() => {
@@ -181,7 +184,7 @@ export default function FlitoTramites() {
   const ids = () => [...seleccion];
   const limpiar = () => setSeleccion(new Set());
   const n = seleccion.size;
-  const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0;
+  const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '';
   const accionables = useMemo(() => filas.filter(esAccionable), [filas]);
 
   const ejecutar = async (fn: () => Promise<Resultado>) => {
@@ -312,6 +315,21 @@ export default function FlitoTramites() {
           <div className="mb-3 flex flex-wrap items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
             <input className={`${flitInp} h-9 min-w-[18rem]`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            {/* Filtro rápido por autogestión de la empresa (SOAT e impuestos autogestionados). */}
+            <div className="flex items-center gap-1" role="group" aria-label="Filtrar por autogestión">
+              {([['', 'Todas'], ['si', 'Autogestionadas'], ['no', 'No autogestionadas']] as const).map(([val, label]) => {
+                const activa = autogestionSel === val;
+                return (
+                  <button key={val || 'todas'} type="button" onClick={() => setAutogestionSel(val)}
+                    className="h-9 rounded-lg border px-3 text-xs font-semibold transition-colors"
+                    style={activa
+                      ? { background: 'var(--flit-blue-text)', color: '#fff', borderColor: 'var(--flit-blue-text)' }
+                      : { background: 'transparent', color: 'var(--flit-text-secondary)', borderColor: 'var(--flit-border-input)' }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
             <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{total.toLocaleString('es-CO')} trámite(s)</span>
             {total > PAGE_SIZE && (
               <div className="flex items-center gap-2 text-xs">
@@ -322,7 +340,7 @@ export default function FlitoTramites() {
             )}
             {hayFiltros && (
               <button className="ml-auto text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); }}>Limpiar filtros</button>
+                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); }}>Limpiar filtros</button>
             )}
           </div>
           {filas.length === 0 ? (
