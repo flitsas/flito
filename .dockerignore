@@ -1,0 +1,17 @@
+# Reduce el contexto de build de Docker (la raíz del repo es el contexto).
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+**/__tests__
+apps/web/e2e
+apps/web/playwright-report
+apps/web/test-results
+docs
+*.md
+docker-compose*.yml
+ecosystem.config.cjs

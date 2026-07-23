@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # develop/staging/release también disparan CD; el CI corre en paralelo como
+    # gate de calidad (build + tests) para todas las ramas de ambiente.
+    branches: [main, develop, staging, release]
   pull_request:
+    branches: [main, develop, staging, release]
 
 # Cancela runs viejos del mismo branch/PR cuando llega un push nuevo.
 concurrency:

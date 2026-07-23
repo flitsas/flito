@@ -1,0 +1,126 @@
+# docker-compose PRODUCCIÓN — despliegue en VPS (web + api + redis).
+#
+# CONVENCIÓN DE PUERTOS: cada servicio usa el MISMO puerto en host e interno,
+# publicado solo en 127.0.0.1 (el reverse-proxy del HOST termina TLS y enruta
+# los dominios). Parametrizables por ambiente:
+#
+#   Servicio  var             DEV    QA     PDN
+#   web       FRONTEND_PORT   4051   5051   6051   (nginx: estático + proxy /api → api)
+#   api       API_PORT        4052   5052   6052   (Express; health: /api/health)
+#
+# Los defaults son los de DEV. El CD exporta las vars según la rama
+# (develop/staging/release); para operación manual, fijarlas en el .env del
+# deploy path de ese ambiente.
+#
+# Mapeo de dominios en el reverse-proxy del HOST (ejemplo DEV):
+#   dev.operaciones.flitsas.online     → 127.0.0.1:${FRONTEND_PORT}  (frontend)
+#   api.dev.operaciones.flitsas.online → 127.0.0.1:${API_PORT}       (API directa:
+#     webhooks/integraciones; el SPA usa el proxy /api del contenedor web)
+#   QA: qa.operaciones... / api.qa.operaciones...  PDN: operaciones... / api.operaciones...
+#
+# Postgres NO está aquí: corre en el HOST. El DATABASE_URL del .env del VPS
+# debe apuntar a host.docker.internal (NO a localhost):
+#   DATABASE_URL=postgresql://operaciones_app:***@host.docker.internal:5432/<db_del_ambiente>
+# Usar una BASE DE DATOS DISTINTA por ambiente (p.ej. operaciones_dev/_qa/_pdn).
+# El pg_hba.conf del host debe aceptar conexiones desde la red de Docker
+# (172.16.0.0/12) y Postgres escuchar en la IP del bridge (o 0.0.0.0 + firewall).
+#
+# Redis SÍ va en contenedor: uno por ambiente, sin puertos publicados
+# (aislado en la red interna de compose; la API lo alcanza como redis://redis:6379).
+#
+# .env del VPS (junto a este compose; permisos 0600, fuera de git) — la API lo
+# carga completo vía env_file. Mínimo requerido (plantilla: apps/api/.env.example):
+#   DATABASE_URL, JWT_SECRET, RUNT_INTERNAL_KEY, PII_ENC_KEY, PII_HMAC_KEY,
+#   + integraciones del ambiente (ANTHROPIC_API_KEY, SMTP_*, S3_*, etc.)
+# Variables que el CD exporta por ambiente (NO ponerlas en el .env, salvo operación manual):
+#   FRONTEND_PORT / API_PORT / API_TAG / WEB_TAG / CORS_ORIGIN / PUBLIC_URL
+#   COMPOSE_PROJECT_NAME (flito-dev | flito-qa | flito-pdn)
+#
+# NOTA: las imágenes se publican en GHCR. El VPS debe hacer `docker login ghcr.io`
+# (lo hace el CD con GHCR_PAT) antes del pull.
+#
+# Despliegue manual:
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm --no-deps api node dist/scripts/db-apply.js
+#   docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+# Nombre del proyecto: ÚNICO por ambiente en el VPS. Si dos ambientes comparten
+# nombre, `up --remove-orphans` borra los contenedores del otro. El CD exporta
+# COMPOSE_PROJECT_NAME=flito-<amb>; este default solo aplica si se omite.
+name: flito
+
+x-restart-policy: &restart unless-stopped
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  # ── Redis (rate limiting, lockout login, blacklist JWT) — interno ─────────
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: *restart
+    logging: *default-logging
+
+  # ── API (Express) — API_PORT ──────────────────────────────────────────────
+  api:
+    image: ghcr.io/flitsas/flito/api:${API_TAG:-latest}
+    # Postgres corre en el HOST: host.docker.internal → gateway del bridge.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    # Todos los secretos/config del ambiente viven en el .env del deploy path.
+    env_file:
+      - .env
+    # Overrides que dependen del despliegue (ganan sobre env_file):
+    environment:
+      NODE_ENV: production
+      PORT: ${API_PORT:-4052}
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://dev.operaciones.flitsas.online}
+      PUBLIC_URL: ${PUBLIC_URL:-https://dev.operaciones.flitsas.online}
+    ports:
+      - '127.0.0.1:${API_PORT:-4052}:${API_PORT:-4052}'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.PORT||4052)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: *restart
+    logging: *default-logging
+
+  # ── Web (nginx: estático Vite + proxy /api → api) — FRONTEND_PORT ─────────
+  web:
+    image: ghcr.io/flitsas/flito/web:${WEB_TAG:-latest}
+    environment:
+      NGINX_PORT: ${FRONTEND_PORT:-4051}
+      API_HOST: api
+      API_PORT: ${API_PORT:-4052}
+    ports:
+      - '127.0.0.1:${FRONTEND_PORT:-4051}:${FRONTEND_PORT:-4051}'
+    depends_on:
+      - api
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:${FRONTEND_PORT:-4051}/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: *restart
+    logging: *default-logging
+
+volumes:
+  redis-data:
