@@ -22,6 +22,7 @@ import {
   AmbitoReglaProveedor,
   EstadoImpuesto,
   ModalidadOrganismo,
+  ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
@@ -191,6 +192,24 @@ router.get('/organismos', LECTURA, async (_req: Request, res: Response) => {
   res.json(dtos.filter(Boolean));
 });
 
+/**
+ * Garantiza que exista la fila de config del organismo, creándola desde el catálogo nacional si aún no
+ * estaba sembrada. Permite clasificar/parametrizar CUALQUIER secretaría (no solo las del seed): la
+ * modalidad por defecto ya es AUTOGESTIONADO (ver modalidadVigente). Devuelve false solo si el código no
+ * corresponde a un organismo real del catálogo.
+ */
+async function asegurarConfigOrganismo(codigo: string): Promise<boolean> {
+  const [existe] = await db.select({ codigo: organismosTransitoConfig.codigo })
+    .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
+  if (existe) return true;
+  const enCatalogo = ORGANISMOS_TRANSITO.find((o) => o.codigo === codigo);
+  if (!enCatalogo) return false;
+  await db.insert(organismosTransitoConfig)
+    .values({ codigo, alias: `Tránsito de ${enCatalogo.ciudad}` })
+    .onConflictDoNothing();
+  return true;
+}
+
 router.get('/organismos/:codigo/vigencias', LECTURA, async (req: Request, res: Response) => {
   const codigo = req.params.codigo;
   const filas = await db.select().from(flitoOrganismoVigencias)
@@ -226,8 +245,9 @@ router.post('/organismos/:codigo/modalidad', ESCRITURA, async (req: Request, res
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const { modalidad, motivo } = parsed.data;
 
-  const [org] = await db.select().from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
-  if (!org) { res.status(404).json({ error: 'El organismo no existe' }); return; }
+  // Crea la fila de config al vuelo si el organismo del catálogo aún no estaba sembrado (así se puede
+  // clasificar cualquier secretaría, no solo las del seed).
+  if (!(await asegurarConfigOrganismo(codigo))) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 
   const anterior = await modalidadVigente(codigo);
   if (anterior === modalidad) { res.status(400).json({ error: `El organismo ya está en modalidad "${modalidad}"` }); return; }
@@ -268,6 +288,8 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (cambios.diferenciaValorActiva !== undefined) set.flitoDiferenciaValorActiva = cambios.diferenciaValorActiva;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
+  // Igual que en el cambio de modalidad: crea la config si el organismo del catálogo no estaba sembrado.
+  if (!(await asegurarConfigOrganismo(codigo))) { res.status(404).json({ error: 'El organismo no existe' }); return; }
   const [updated] = await db.update(organismosTransitoConfig).set(set).where(eq(organismosTransitoConfig.codigo, codigo)).returning();
   if (!updated) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 

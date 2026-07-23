@@ -54,6 +54,9 @@ const envSchema = z.object({
   PUBLIC_URL: z.string().default('https://operaciones.flitsas.com'),
   S3_ENDPOINT: z.string().default('s3.kyverum.com'),
   S3_PORT: z.string().default('443'),
+  // TLS del cliente S3/MinIO. Default true (S3 HTTPS externo). Poner "false" para un MinIO local
+  // por HTTP (contenedor en el VPS o dev). Transform explícito: z.coerce.boolean vería "false" como true.
+  S3_USE_SSL: z.string().optional().transform((v) => v !== 'false' && v !== '0'),
   // Credenciales MinIO sin default — deben venir del .env (no usar valores hardcoded en repo).
   S3_ACCESS_KEY: z.string().min(3, 'S3_ACCESS_KEY es requerido'),
   S3_SECRET_KEY: z.string().min(8, 'S3_SECRET_KEY es requerido'),

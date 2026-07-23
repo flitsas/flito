@@ -4,6 +4,7 @@ import {
   TRAMITE_TIPOLOGIAS,
   getTipologia,
   MODALIDAD_ORGANISMO_LABEL,
+  ModalidadOrganismo,
   type ChecklistOverride,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
@@ -34,6 +35,17 @@ interface OrganismoConfig {
 // Fila = config de la secretaría (alias/logo/checklist) + su modalidad FLITO (autogestión),
 // fusionadas por código para mostrarse en UNA sola tabla (§correcciones-UX).
 type Fila = OrganismoConfig & { modalidad: Organismo | null };
+
+// Modalidad efectiva de una secretaría para la UI: si aún no tiene vigencia, el default del dominio es
+// AUTOGESTIONADO (igual que el backend, flito-parametrizacion.service → modalidadVigente). Así TODAS las
+// secretarías se ven clasificadas y son editables (nunca queda el aviso "no tiene datos de modalidad").
+function organismoParaPanel(r: Fila): Organismo {
+  return r.modalidad ?? {
+    codigo: r.codigo, nombre: r.alias ?? r.nombre ?? r.codigo, alias: r.alias, activo: r.activo,
+    modalidadVigente: ModalidadOrganismo.AUTOGESTIONADO,
+    umbralOcr: null, slaHoras: null, diferenciaValorActiva: false, tramitesRetenidos: 0,
+  };
+}
 
 const LOGO_MAX_BYTES = 512 * 1024; // 512 KB — alineado con el límite del backend.
 const LOGO_ACCEPT = 'image/png,image/jpeg,image/webp,image/svg+xml';
@@ -180,11 +192,9 @@ export default function TransitoOrganismos() {
                   <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.codigo}</td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{r.alias || '—'}</td>
                   <td className="px-4 py-3">
-                    {r.modalidad ? (
-                      <StatusChip tone={MODALIDAD_TONO[r.modalidad.modalidadVigente]}>{MODALIDAD_ORGANISMO_LABEL[r.modalidad.modalidadVigente]}</StatusChip>
-                    ) : (
-                      <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>—</span>
-                    )}
+                    <StatusChip tone={MODALIDAD_TONO[organismoParaPanel(r).modalidadVigente]}>
+                      {MODALIDAD_ORGANISMO_LABEL[organismoParaPanel(r).modalidadVigente]}
+                    </StatusChip>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.userCount}</td>
                   <td className="px-4 py-3">
@@ -312,9 +322,7 @@ function EditModal({ row, editable, onClose, onSaved, onReload }: { row: Fila; e
       </div>
 
       {tab === 'autogestion' && (
-        row.modalidad
-          ? <PanelGestionOrganismo organismo={row.modalidad} editable={editable} onCambio={onReload} />
-          : <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Este organismo aún no tiene datos de modalidad FLITO.</p>
+        <PanelGestionOrganismo organismo={organismoParaPanel(row)} editable={editable} onCambio={onReload} />
       )}
 
       {tab === 'general' && (

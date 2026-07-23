@@ -195,7 +195,10 @@ export interface ResultadoEntrega { entregados: number; noHabilitados: Array<{ t
 // Filtros y paginación del listado (todo se resuelve en SQL: el cliente ya no trae todo a memoria).
 export interface FiltrosListado {
   buscar?: string; estados?: string[]; transitos?: string[]; ciudades?: string[];
-  empresas?: string[]; soat?: string[]; impuesto?: string[]; page?: number; pageSize?: number;
+  empresas?: string[]; soat?: string[]; impuesto?: string[];
+  /** Autogestión de la empresa: 'si' = autogestiona SOAT E impuestos; 'no' = FLITO gestiona al menos uno. */
+  autogestion?: 'si' | 'no';
+  page?: number; pageSize?: number;
 }
 export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
@@ -368,6 +371,12 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   }
   // Empresa gestora: multiselect por NIT de la CompaniaGestora (el trámite guarda el NIT crudo).
   if (f.empresas?.length) conds.push(inArray(flitoTramites.companiaNit, f.empresas));
+  // Autogestión: mismo criterio que el semáforo 'autogestionada' (SOAT E impuestos autogestionados).
+  // 'no' incluye trámites sin empresa emparejada (flags NULL → no autogestiona).
+  if (f.autogestion === 'si' || f.autogestion === 'no') {
+    const ambos = sql`COALESCE(${clients.soatAutogestionable}, false) AND COALESCE(${clients.impuestosAutogestionable}, false)`;
+    conds.push(f.autogestion === 'si' ? ambos : sql`NOT (${ambos})`);
+  }
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));

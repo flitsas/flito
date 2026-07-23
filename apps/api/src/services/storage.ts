@@ -16,7 +16,7 @@ function getClient(): Client {
     minioClient = new Client({
       endPoint: env.S3_ENDPOINT,
       port: parseInt(env.S3_PORT),
-      useSSL: true,
+      useSSL: env.S3_USE_SSL, // configurable: HTTPS para S3 externo, HTTP para MinIO local (S3_USE_SSL=false)
       accessKey: env.S3_ACCESS_KEY,
       secretKey: env.S3_SECRET_KEY,
     });
