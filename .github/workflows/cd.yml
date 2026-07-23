@@ -273,18 +273,16 @@ jobs:
             export CORS_ORIGIN=https://${{ needs.setup.outputs.front_domain }}
             export PUBLIC_URL=https://${{ needs.setup.outputs.front_domain }}
 
-            # GHCR login: el usuario DEBE ser el dueño del PAT (GHCR_USERNAME), NO
-            # github.actor (si el merge lo hace otro usuario, ese login falla).
-            GHCR_USER="${{ secrets.GHCR_USERNAME }}"
+            # GHCR login: el usuario DEBE ser el dueño del PAT — NO github.actor
+            # (si el merge lo hace otro usuario, ese login falla). Se deriva del
+            # propio GHCR_PAT consultando la API de GitHub: sin secret extra ni
+            # usuario quemado en el codigo.
+            GHCR_USER=$(curl -fsS -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" https://api.github.com/user | tr -d '\n' | sed -n 's/.*"login" *: *"\([^"]*\)".*/\1/p')
             if [ -z "$GHCR_USER" ]; then
-              GHCR_USER="${{ vars.GHCR_USERNAME }}"
+              echo "::error::No se pudo resolver el dueño de GHCR_PAT (¿PAT inválido o expirado?)"
+              exit 1
             fi
-            if [ -z "$GHCR_USER" ]; then
-              # Fallback: PAT del equipo asociado a deploys exitosos previos (mismo
-              # esquema que flit, donde GHCR_USERNAME no está configurado como secret).
-              GHCR_USER="jormancopeteflit"
-              echo "::warning::GHCR_USERNAME no configurado; usando fallback $GHCR_USER. Configura secret GHCR_USERNAME en el repo."
-            fi
+            echo "GHCR login como: $GHCR_USER"
             if ! echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
               echo "::error::docker login ghcr.io falló para usuario $GHCR_USER"
               exit 1
