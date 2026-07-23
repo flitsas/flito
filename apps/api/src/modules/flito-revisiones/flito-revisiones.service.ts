@@ -248,6 +248,8 @@ export async function descartar(id: string, motivo: string, ctx: RevisionCtx): P
     await tx.update(flitoRevisiones).set({
       resuelto: true, resueltoPorId: ctx.userId, resueltoEn: new Date(),
     }).where(eq(flitoRevisiones.id, id));
+    // Libera el hash del soporte descartado: así el gestor puede recargar el mismo archivo (no es duplicado).
+    await tx.update(flitoSoportes).set({ descartado: true }).where(eq(flitoSoportes.id, revision.soporteId));
     await auditEnTx(tx, ctx, 'flito_revision', revision.id,
       `Descarte de documento en revisión (${revision.modulo}, ${revision.motivo}). Soporte ${revision.soporteId}. ${motivo.trim()}`, 'delete');
   });

@@ -42,7 +42,7 @@ const listeners = new Set<() => void>();
 function notify() { listeners.forEach((l) => l()); }
 
 // ── Envío HTTP con clave de idempotencia ─────────────────────────────────────
-async function postWithKey(path: string, body: unknown, key: string): Promise<void> {
+async function postWithKey(path: string, body: unknown, key: string): Promise<unknown> {
   const token = localStorage.getItem('token');
   const res = await fetch(`/api${path}`, {
     method: 'POST',
@@ -50,16 +50,18 @@ async function postWithKey(path: string, body: unknown, key: string): Promise<vo
     body: JSON.stringify(body),
   }); // fetch solo lanza en error de red; los HTTP se resuelven.
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new HttpError(res.status, (e as { error?: string }).error ?? `HTTP ${res.status}`); }
+  return res.json().catch(() => ({}));
 }
 
 /**
- * Envía una escritura de campo. Con conexión, la manda directo; si no hay señal o falla la red, la
- * encola para reenviarla luego. Un error HTTP (validación/permiso) SÍ se propaga (no se encola).
+ * Envía una escritura de campo. Con conexión, la manda directo (y devuelve la respuesta en `result`);
+ * si no hay señal o falla la red, la encola para reenviarla luego. Un error HTTP (validación/permiso)
+ * SÍ se propaga (no se encola).
  */
-export async function submitCampo(path: string, body: unknown, label: string): Promise<{ queued: boolean }> {
+export async function submitCampo(path: string, body: unknown, label: string): Promise<{ queued: boolean; result?: unknown }> {
   const key = crypto.randomUUID();
   if (navigator.onLine) {
-    try { await postWithKey(path, body, key); return { queued: false }; }
+    try { const result = await postWithKey(path, body, key); return { queued: false, result }; }
     catch (e) { if (e instanceof HttpError) throw e; /* error de red → encolar */ }
   }
   await idbAdd({ key, path, body, label, createdAt: Date.now() });

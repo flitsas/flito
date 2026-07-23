@@ -20,7 +20,6 @@ import {
   companiaPorNit, modalidadVigente, organismoPorCodigo, resolverProveedor,
   type CompaniaRow,
 } from '../flito-parametrizacion/flito-parametrizacion.service.js';
-import { registrarDocumentosDesdeFlit } from '../flito-logistica/flito-logistica.service.js';
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores } from './mapeo-compradores.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
@@ -63,7 +62,7 @@ export function flitoGestionaImpuesto(impuestosAutogestionable: boolean, modalid
 function nuevoResultado(): ResultadoSync {
   return {
     tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
-    impuestosCreados: 0, documentosLogisticaCreados: 0, companiasFaltantes: 0,
+    impuestosCreados: 0, companiasFaltantes: 0,
     organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
   };
 }
@@ -136,16 +135,8 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
     await resolverImpuesto(tx, tf, tramiteId, compania, organismo.codigo, r);
   }
 
-  // Logística (Fase 1): al aprobar el trámite, si FLIT reporta los documentos emitidos y el organismo
-  // está emparejado (el documento congela su código, NOT NULL), se dan de alta en 'generado'. Si FLIT
-  // no reporta la emisión, no se crea nada (diseño defensivo, Q2). RN-05 se valida en el servicio.
-  if (esAprobado(tf.estadoFlit) && tf.documentosGenerados?.length && organismo) {
-    r.documentosLogisticaCreados += await registrarDocumentosDesdeFlit(tx, {
-      tramiteId, organismoCodigo: organismo.codigo, companiaId: compania?.id ?? null,
-      companiaNit: tf.companiaNit, vehiculoId, logisticaAutogestionable: compania?.logisticaAutogestionable ?? false,
-      documentos: tf.documentosGenerados,
-    });
-  }
+  // Logística: los trámites aprobados son la fuente de la consola (se listan directo desde
+  // flito_tramites); la LT NO nace aquí, sino del escaneo del PDF417 por el mensajero en campo.
 }
 
 async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {

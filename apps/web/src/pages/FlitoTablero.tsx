@@ -26,7 +26,7 @@ interface TableroResumen {
 interface ResumenSync {
   ejecutadoEn?: string;
   tramitesLeidos?: number; tramitesNuevos?: number; soatCreados?: number;
-  soatBloqueadosPorVin?: number; impuestosCreados?: number; documentosLogisticaCreados?: number;
+  soatBloqueadosPorVin?: number; impuestosCreados?: number;
 }
 
 function ConteosPorEstado({ titulo, conteos, etiquetas, destino }: {
@@ -120,7 +120,6 @@ export default function FlitoTablero() {
             <li className="flex justify-between gap-3"><span>SOAT creados</span><span className="font-medium tabular-nums">{sync.soatCreados ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>SOAT bloqueados por VIN (RN-01)</span><span className="font-medium tabular-nums">{sync.soatBloqueadosPorVin ?? 0}</span></li>
             <li className="flex justify-between gap-3"><span>Impuestos creados</span><span className="font-medium tabular-nums">{sync.impuestosCreados ?? 0}</span></li>
-            <li className="flex justify-between gap-3"><span>Documentos de logística</span><span className="font-medium tabular-nums">{sync.documentosLogisticaCreados ?? 0}</span></li>
           </ul>
         </FlitCard>
       )}

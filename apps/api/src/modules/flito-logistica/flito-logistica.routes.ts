@@ -8,9 +8,9 @@ import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  actaDetalle, buscarIdempotencia, cerrarLote, despachar, documentoDetalle, entregar, facetas,
-  guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, recoger, registrarDevolucion,
-  registrarNovedad, reversar, urlActaPdf, type FiltrosLogistica, type LogisticaCtx,
+  actaDetalle, buscarIdempotencia, cerrarLote, despachar, entregar, escanearLt, facetas,
+  guardarIdempotencia, listar, listarActas, LogisticaError, miRuta, registrarDevolucion,
+  registrarNovedad, reversar, tramiteDetalle, urlActaPdf, type FiltrosLogistica, type LogisticaCtx,
 } from './flito-logistica.service.js';
 
 const router = Router();
@@ -64,7 +64,7 @@ async function conIdempotencia(req: Request, res: Response, run: () => Promise<{
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const q = req.query;
   const filtros: FiltrosLogistica = {
-    buscar: str(q.buscar), estados: lista(q.estados), tipos: lista(q.tipos),
+    buscar: str(q.buscar), estados: lista(q.estados),
     empresas: lista(q.empresas), organismos: lista(q.organismos), actas: lista(q.actas),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
@@ -98,20 +98,22 @@ router.get('/actas/:id/pdf', LECTURA, async (req: Request, res: Response) => {
   if (url !== undefined) res.json({ url });
 });
 
-// GET /:id — detalle del documento + bitácora completa (CA-07).
+// GET /:id — detalle del trámite aprobado + su LT + bitácora (CA-07).
 router.get('/:id', LECTURA, async (req: Request, res: Response) => {
-  const r = await ejecutar(res, () => documentoDetalle(req.params.id));
+  const r = await ejecutar(res, () => tramiteDetalle(req.params.id));
   if (r !== undefined) res.json(r);
 });
 
-// POST /recoger — verificación de recogida en campo (CA-02/CA-03).
-const recogerSchema = z.object({ documentoIds: z.array(z.string().uuid()).min(1), lat: z.string().optional(), lng: z.string().optional() });
-router.post('/recoger', CAMPO, async (req: Request, res: Response) => {
-  const parsed = recogerSchema.safeParse(req.body);
+// POST /escanear — recogida de una LT desde su código PDF417 (match placa+VIN → recogida/novedad).
+const escanearSchema = z.object({
+  rawValue: z.string().min(1), numeroLt: z.string().optional(), lat: z.string().optional(), lng: z.string().optional(),
+});
+router.post('/escanear', CAMPO, async (req: Request, res: Response) => {
+  const parsed = escanearSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   await conIdempotencia(req, res, async () => {
-    const r = await recoger(parsed.data.documentoIds, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!));
-    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Recogida: ${JSON.stringify(r)}` });
+    const r = await escanearLt(parsed.data.rawValue, parsed.data.numeroLt ?? null, { lat: parsed.data.lat, lng: parsed.data.lng }, ctxDe(req.user!));
+    await audit(req, { action: 'update', resource: 'flito_logistica', detail: `Escaneo LT ${r.placa}: ${r.resultado}` });
     return { body: r };
   });
 });
@@ -139,12 +141,15 @@ router.post('/cerrar-lote', OPERACIONES, async (req: Request, res: Response) => 
   res.json(r);
 });
 
-// POST /actas/:id/despachar — asigna mensajero y pone los documentos en 'despachado' (CA-05).
-const despacharSchema = z.object({ mensajeroId: z.number().int().positive() });
+// POST /actas/:id/despachar — Operaciones firma la ENTREGA en consola, asigna mensajero y pone las
+// LT en 'despachado' (CA-05). La firma de quien entrega es la primera de las dos firmas del acta.
+const despacharSchema = z.object({
+  mensajeroId: z.number().int().positive(), firmaEntrega: z.string().min(1), entregaNombre: z.string().optional(),
+});
 router.post('/actas/:id/despachar', OPERACIONES, async (req: Request, res: Response) => {
   const parsed = despacharSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
-  const r = await ejecutar(res, () => despachar(req.params.id, parsed.data.mensajeroId, ctxDe(req.user!)));
+  if (!parsed.success) { res.status(400).json({ error: 'La firma de quien entrega es obligatoria' }); return; }
+  const r = await ejecutar(res, () => despachar(req.params.id, parsed.data, ctxDe(req.user!)));
   if (r === undefined) return;
   await audit(req, { action: 'update', resource: 'flito_logistica_acta', resourceId: req.params.id, detail: `Despacho a mensajero ${parsed.data.mensajeroId}` });
   res.json(r);

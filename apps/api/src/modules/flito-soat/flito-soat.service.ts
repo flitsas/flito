@@ -468,7 +468,7 @@ async function auditEnTx(tx: Tx, ctx: SoatCtx, resourceId: string, detail: strin
  */
 async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: EstadoSoat, extraccion: ExtraccionSoat, ctx: SoatCtx, soporteId: string | null): Promise<void> {
   const [{ n }] = await tx.select({ n: count() }).from(flitoSoportes)
-    .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT)));
+    .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT), eq(flitoSoportes.descartado, false)));
   if (Number(n) === 0) throw new SoatError(400, 'No se puede marcar pagado un SOAT sin factura cargada');
 
   const valorTotal = extraccion[CampoSoat.VALOR_TOTAL]?.valor ?? null;
@@ -498,7 +498,7 @@ export async function marcarPagado(soatId: string, extraccion: ExtraccionSoat, c
     const [soat] = await tx.select().from(flitoSoat).where(eq(flitoSoat.id, soatId)).limit(1);
     if (!soat) throw new SoatError(404, 'El SOAT no existe');
     const [sop] = await tx.select({ id: flitoSoportes.id }).from(flitoSoportes)
-      .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT)))
+      .where(and(eq(flitoSoportes.soatId, soatId), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT), eq(flitoSoportes.descartado, false)))
       .orderBy(desc(flitoSoportes.subidoEn)).limit(1);
     await pagarEnTx(tx, soat.id, soat.vin, soat.estado as EstadoSoat, extraccion, ctx, sop?.id ?? null);
   });
@@ -526,7 +526,7 @@ async function datosCargaPorId(id: string): Promise<DatosCarga | null> {
 /** Duplicado por hash (CA-08): un mismo archivo no se concilia dos veces. */
 async function facturaDuplicada(hash: string): Promise<boolean> {
   const [dup] = await db.select({ id: flitoSoportes.id }).from(flitoSoportes)
-    .where(and(eq(flitoSoportes.hash, hash), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT))).limit(1);
+    .where(and(eq(flitoSoportes.hash, hash), eq(flitoSoportes.tipo, TIPO_FACTURA_SOAT), eq(flitoSoportes.descartado, false))).limit(1);
   return !!dup;
 }
 

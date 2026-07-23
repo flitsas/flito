@@ -155,7 +155,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
   const [item] = await ensamblar(rows);
   if (!item) return null;
   const soportes = await db.select({ id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo, subidoEn: flitoSoportes.subidoEn })
-    .from(flitoSoportes).where(eq(flitoSoportes.impuestoId, id)).orderBy(asc(flitoSoportes.subidoEn));
+    .from(flitoSoportes).where(and(eq(flitoSoportes.impuestoId, id), eq(flitoSoportes.descartado, false))).orderBy(asc(flitoSoportes.subidoEn));
   return {
     ...item, extraccion: imp.extraccion, extraccionFacturaVenta: imp.extraccionFacturaVenta,
     pagadoEn: imp.pagadoEn ? imp.pagadoEn.toISOString() : null,

@@ -147,16 +147,20 @@ describe('resolver — impuesto en gestión pasa a pagado; factura de venta reac
   });
 });
 
-describe('descartar — exige motivo ≥5 y deja el soporte huérfano', () => {
+describe('descartar — exige motivo ≥5 y marca el soporte descartado (libera el hash)', () => {
   const ctx = { userId: 1, username: 'op', role: 'admin' };
   it('400 si el motivo es corto', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, soporteId: 's1', motivo: 'x' }]));
     await expect(descartar('r1', 'no', ctx)).rejects.toMatchObject({ status: 400 });
   });
-  it('con motivo válido: marca resuelto (no borra soporte)', async () => {
+  it('con motivo válido: marca la revisión resuelta y el soporte descartado', async () => {
     selectMock.mockReturnValueOnce(chain([{ id: 'r1', resuelto: false, modulo: FlujoRevision.SOAT, soporteId: 's1', motivo: 'x' }]));
+    const stub = txStub();
+    transactionMock.mockImplementationOnce(async (cb: (tx: unknown) => Promise<unknown>) => cb(stub.tx));
     await expect(descartar('r1', 'documento equivocado', ctx)).resolves.toBeUndefined();
-    expect(transactionMock).toHaveBeenCalled();
+    const sets = stub.calls.filter((c) => c.table === 'update').map((c) => c.set as Record<string, unknown>);
+    expect(sets.some((s) => s.resuelto === true)).toBe(true);   // revisión resuelta
+    expect(sets.some((s) => s.descartado === true)).toBe(true); // soporte liberado (recargable)
   });
 });
 

@@ -1,14 +1,14 @@
-// FLITO Logística (Fase 1). Verifica las reglas de negocio del dominio por documento: alta desde FLIT
-// con RN-05 (autogestión), recogida + clasificación automática (CA-02/03), cierre de lote parcial vs
-// completo (CA-08/09), novedad con motivo obligatorio (RN-04) y las fronteras de rol de las rutas.
-// Las funciones transaccionales corren sobre un `tx` mockeado que reutiliza los mismos mocks que `db`.
+// FLITO Logística. Verifica el dominio del modelo v2: la LT nace del ESCANEO del PDF417 (match
+// placa+VIN contra un trámite aprobado → recogida/novedad/sin_match), novedad con motivo (RN-04),
+// cierre de lote parcial vs completo (CA-08/09), firma del receptor obligatoria (RN-03) y las
+// fronteras de rol de las rutas. Las funciones transaccionales corren sobre un `tx` mockeado.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
-import { EstadoDocumentoLogistica, TipoDocumentoLogistica } from '@operaciones/shared-types';
+import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 
 const selectMock = vi.fn();
 const insertMock = vi.fn();
@@ -22,12 +22,21 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
+vi.mock('../../src/services/storage.js', () => ({
+  uploadEntityDocument: vi.fn().mockResolvedValue('storage/key'),
+  presignedGetEntityDocument: vi.fn().mockResolvedValue('http://signed'),
+  getEntityDocumentStream: vi.fn().mockResolvedValue([]),
+}));
 
 const svc = await import('../../src/modules/flito-logistica/flito-logistica.service.js');
 const { default: logisticaRoutes } = await import('../../src/modules/flito-logistica/flito-logistica.routes.js');
 
 const ctx = { userId: 1, username: 'op', role: 'admin' };
 const txObj = { select: selectMock, insert: insertMock, update: updateMock, delete: deleteMock };
+
+// PDF417 de ejemplo (rawValue real de BarcodeDetector): licencia, C.C., propietario, dirección,
+// foto JPEG (/9j/…), placa QOX858, VIN, chasis, motor, combustible.
+const RAW = '10038156339 C.C. 1053786950 MUÑOZ GOMEZ EMMANUEL DAVID CLL 112 N 47A 08 MANIZALES 7 /9j/4AAQSkZJRgABAQEA QOX858 LRWYGCFJ0TC496126 LRWYGCFJ0TC496126 352026000097934 ELECTRICO';
 
 beforeEach(() => {
   selectMock.mockReset();
@@ -37,49 +46,49 @@ beforeEach(() => {
   transactionMock.mockReset().mockImplementation(async (fn: (tx: unknown) => unknown) => fn(txObj));
 });
 
-// ───────────────────────── registrarDocumentosDesdeFlit — RN-05 + idempotencia ─────
+// ───────────────────────── escanearLt — match placa+VIN (CA-02/CA-03) ─────
 
-describe('registrarDocumentosDesdeFlit — alta desde FLIT', () => {
-  it('RN-05: si la compañía autogestiona logística, no crea nada', async () => {
-    const n = await svc.registrarDocumentosDesdeFlit(txObj as never, {
-      tramiteId: 't1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900', vehiculoId: 9,
-      logisticaAutogestionable: true,
-      documentos: [{ tipo: TipoDocumentoLogistica.LICENCIA_TRANSITO }, { tipo: TipoDocumentoLogistica.PLACA }],
-    });
-    expect(n).toBe(0);
-    expect(insertMock).not.toHaveBeenCalled();
+describe('escanearLt — recogida por escaneo del PDF417', () => {
+  const tramite = (over: Record<string, unknown> = {}) => ({
+    tramiteId: 't1', idFlit: 'F1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900',
+    vehiculoId: 9, vin: 'LRWYGCFJ0TC496126', autogestionable: false, ...over,
   });
 
-  it('crea los documentos nuevos y cuenta solo los insertados (idempotente por conflicto)', async () => {
-    // doc1 se inserta (returning [{id}]), su evento; doc2 choca (onConflictDoNothing → returning []).
-    insertMock
-      .mockReturnValueOnce(chain([{ id: 'd1' }])) // doc1
-      .mockReturnValueOnce(chain([]))             // evento doc1
-      .mockReturnValueOnce(chain([]));            // doc2 (conflicto, sin returning)
-    const n = await svc.registrarDocumentosDesdeFlit(txObj as never, {
-      tramiteId: 't1', organismoCodigo: '05001', companiaId: 5, companiaNit: '900', vehiculoId: 9,
-      logisticaAutogestionable: false,
-      documentos: [{ tipo: TipoDocumentoLogistica.LICENCIA_TRANSITO }, { tipo: TipoDocumentoLogistica.PLACA }],
-    });
-    expect(n).toBe(1);
-  });
-});
-
-// ───────────────────────── recoger — CA-02 + clasificación automática CA-03 ─────
-
-describe('recoger — verifica y clasifica automáticamente', () => {
-  it('generado → recogido → clasificado asignando la empresa del trámite', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ id: 'd1', estado: EstadoDocumentoLogistica.GENERADO, tramiteId: 't1' }])) // cargarDocumentos
-      .mockReturnValueOnce(chain([{ companiaId: 5, companiaNit: '900' }]));                                    // trámite (empresa destino)
-    const r = await svc.recoger(['d1'], {}, ctx);
-    expect(r).toMatchObject({ recogidos: 1, clasificados: 1, omitidos: 0 });
+  it('sin trámite aprobado con esa placa → sin_match, no persiste', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // búsqueda del trámite: vacío
+    const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
+    expect(r.resultado).toBe('sin_match');
+    expect(r.placa).toBe('QOX858');
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 
-  it('omite los que no están en generado (no re-transiciona)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 'd1', estado: EstadoDocumentoLogistica.ENTREGADO, tramiteId: 't1' }]));
-    const r = await svc.recoger(['d1'], {}, ctx);
-    expect(r).toMatchObject({ recogidos: 0, clasificados: 0, omitidos: 1 });
+  it('placa+VIN coinciden → recogida + clasificación automática (CA-03)', async () => {
+    selectMock.mockReturnValueOnce(chain([tramite()]));
+    insertMock.mockReturnValueOnce(chain([{ id: 'd1' }])); // insert de la LT (creado)
+    const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
+    expect(r.resultado).toBe('recogido');
+    expect(r).toMatchObject({ placa: 'QOX858', vin: 'LRWYGCFJ0TC496126', idFlit: 'F1', numeroLicencia: '10038156339' });
+    expect(updateMock).toHaveBeenCalled(); // transición a clasificado
+  });
+
+  it('placa coincide pero el VIN no → novedad con motivo (RN-04)', async () => {
+    selectMock.mockReturnValueOnce(chain([tramite({ vin: 'LRWYGCFJ0TC499999' })]));
+    insertMock.mockReturnValueOnce(chain([{ id: 'd1' }]));
+    const r = await svc.escanearLt(RAW, null, {}, ctx);
+    expect(r.resultado).toBe('novedad');
+    expect(r.motivo).toMatch(/VIN/i);
+  });
+
+  it('código ilegible → error de negocio', async () => {
+    await expect(svc.escanearLt('texto que no es una LT', null, {}, ctx)).rejects.toThrow(/no se pudo leer/i);
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('parametrización por compañía (RN-05): compañía autogestionada → no_gestionable, no persiste', async () => {
+    selectMock.mockReturnValueOnce(chain([tramite({ autogestionable: true })]));
+    const r = await svc.escanearLt(RAW, 'LT-001', {}, ctx);
+    expect(r.resultado).toBe('no_gestionable');
+    expect(transactionMock).not.toHaveBeenCalled();
   });
 });
 
@@ -91,9 +100,9 @@ describe('registrarNovedad — motivo obligatorio', () => {
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
-  it('con motivo, pasa el documento a novedad', async () => {
-    selectMock.mockReturnValueOnce(chain([{ id: 'd1', estado: EstadoDocumentoLogistica.GENERADO, tramiteId: 't1' }]));
-    await svc.registrarNovedad('d1', 'Faltante en el organismo', ctx);
+  it('con motivo, pasa la LT a novedad', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 'd1', estado: EstadoDocumentoLogistica.CLASIFICADO }]));
+    await svc.registrarNovedad('d1', 'Licencia dañada', ctx);
     expect(updateMock).toHaveBeenCalled(); // set estado=novedad
     expect(insertMock).toHaveBeenCalled(); // evento
   });
@@ -103,7 +112,7 @@ describe('registrarNovedad — motivo obligatorio', () => {
 
 describe('cerrarLote — respeta la parametrización de entregas parciales', () => {
   const compania = (permiteParcial: boolean) => ({
-    id: 5, nombre: 'ACME', permiteParcial, direccion: 'Calle 1', contactoNombre: 'ACME', contactoDoc: '900',
+    id: 5, nombre: 'ACME', permiteParcial, autogestionable: false, direccion: 'Calle 1', contactoNombre: 'ACME', contactoDoc: '900',
   });
   const docs = [
     { id: 'd1', estado: EstadoDocumentoLogistica.CLASIFICADO },
@@ -112,31 +121,44 @@ describe('cerrarLote — respeta la parametrización de entregas parciales', () 
 
   it('CA-09: "Solo completo" con pendientes → 409 e informa faltantes', async () => {
     selectMock
-      .mockReturnValueOnce(chain([compania(false)])) // compañía
-      .mockReturnValueOnce(chain(docs));             // documentos de la empresa
+      .mockReturnValueOnce(chain([compania(false)]))
+      .mockReturnValueOnce(chain(docs));
     await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409 });
-    expect(insertMock).not.toHaveBeenCalled(); // no se generó acta
+    expect(insertMock).not.toHaveBeenCalled();
   });
 
-  it('CA-08: "Permite parcial" genera el acta con los clasificados y deja el resto', async () => {
+  it('CA-08: "Permite parcial" genera el acta con las clasificadas y deja el resto', async () => {
     selectMock
       .mockReturnValueOnce(chain([compania(true)]))
       .mockReturnValueOnce(chain(docs))
       .mockReturnValueOnce(chain([{ id: 'prov1' }])); // proveedor logístico por defecto
-    insertMock.mockReturnValueOnce(chain([{ id: 'acta1' }])); // acta
+    insertMock.mockReturnValueOnce(chain([{ id: 'acta1' }]));
     const r = await svc.cerrarLote(5, ctx);
-    expect(r).toMatchObject({ actaId: 'acta1', documentos: 1 }); // solo el clasificado
+    expect(r).toMatchObject({ actaId: 'acta1', documentos: 1 });
   });
 
-  it('sin documentos clasificados → error (nada que cerrar)', async () => {
+  it('RN-05: compañía autogestionada → 409 (FLITO no gestiona su logística)', async () => {
+    selectMock.mockReturnValueOnce(chain([{ ...compania(true), autogestionable: true }]));
+    await expect(svc.cerrarLote(5, ctx)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('sin LT clasificadas → error (nada que cerrar)', async () => {
     selectMock
       .mockReturnValueOnce(chain([compania(true)]))
       .mockReturnValueOnce(chain([{ id: 'd2', estado: EstadoDocumentoLogistica.NOVEDAD }]));
-    await expect(svc.cerrarLote(5, ctx)).rejects.toThrow(/clasificados/i);
+    await expect(svc.cerrarLote(5, ctx)).rejects.toThrow(/clasificad/i);
   });
 });
 
-// ───────────────────────── entregar — firma obligatoria (RN-03) ─────
+// ───────────────────────── despachar — firma de Operaciones (entrega) ─────
+
+describe('despachar — RN-03 (firma de quien entrega)', () => {
+  it('rechaza el despacho sin la firma de Operaciones', async () => {
+    await expect(svc.despachar('acta1', { mensajeroId: 9, firmaEntrega: '' }, ctx)).rejects.toThrow(/firma/i);
+  });
+});
+
+// ───────────────────────── entregar — firma del receptor (RN-03) ─────
 
 describe('entregar — RN-03', () => {
   it('rechaza la entrega sin firma del receptor', async () => {
@@ -147,21 +169,24 @@ describe('entregar — RN-03', () => {
   });
 });
 
-// ───────────────────────── actaDetalle — documentos + bitácora (CA-13) ─────
+// ───────────────────────── actaDetalle — filas del acta + bitácora (CA-13) ─────
 
-describe('actaDetalle — arma cabecera, documentos y bitácora', () => {
-  it('devuelve la cabecera del acta con sus documentos y eventos', async () => {
+describe('actaDetalle — arma cabecera, filas y bitácora', () => {
+  it('devuelve la cabecera del acta con sus licencias y eventos', async () => {
     selectMock
       .mockReturnValueOnce(chain([{ // cabecera
         id: 'acta1', companiaId: 5, companiaNombre: 'ACME', estado: 'despachada', mensajeroId: 9, mensajeroNombre: 'Msj',
         receptorNombre: null, entregadoEn: null, creadoEn: new Date('2026-07-21T08:00:00Z'), pdfStorageKey: 'k/acta.pdf',
+        firmaEntregaKey: 'k/entrega.png', entregaNombre: 'Operaciones FLIT', firmaRecibeKey: null,
       }]))
-      .mockReturnValueOnce(chain([{ id: 'd1', tipo: 'placa', estado: 'despachado', placa: 'ABC123', vin: 'V1', idFlit: 'F1' }])) // documentos
-      .mockReturnValueOnce(chain([{ id: 'e1', documentoId: 'd1', placa: 'ABC123', estadoAnterior: 'en_acta', estadoNuevo: 'despachado', actorNombre: 'Op', motivo: null, origen: 'usuario', creadoEn: new Date('2026-07-21T09:00:00Z') }])); // eventos
+      .mockReturnValueOnce(chain([{ id: 'd1', estado: 'despachado', placa: 'QOX858', secretaria: 'STT', propietario: 'EMMANUEL', numeroLicencia: '100', numeroLt: 'LT-1', idFlit: 'F1' }]))
+      .mockReturnValueOnce(chain([{ id: 'e1', documentoId: 'd1', placa: 'QOX858', estadoAnterior: 'en_acta', estadoNuevo: 'despachado', actorNombre: 'Op', motivo: null, origen: 'usuario', creadoEn: new Date('2026-07-21T09:00:00Z') }]));
     const r = await svc.actaDetalle('acta1');
     expect(r.acta).toMatchObject({ id: 'acta1', estado: 'despachada', documentos: 1 });
     expect(r.tienePdf).toBe(true);
-    expect(r.documentos[0]).toMatchObject({ tipoLabel: 'Placa', placa: 'ABC123' });
+    expect(r.firmaEntrega).toBe(true);
+    expect(r.firmaRecibe).toBe(false);
+    expect(r.documentos[0]).toMatchObject({ placa: 'QOX858', numeroLt: 'LT-1', secretaria: 'STT' });
     expect(r.bitacora[0]).toMatchObject({ estadoNuevo: 'despachado', actorNombre: 'Op' });
   });
 
@@ -180,25 +205,26 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
   const UUID = '00000000-0000-0000-0000-000000000001';
 
   it('auditor lee el listado (200)', async () => {
-    selectMock.mockReturnValue(chain([])); // count + rows + actas
+    selectMock.mockReturnValue(chain([]));
     const token = await testToken({ role: 'auditor' });
     const res = await request(app).get('/api/flito/logistica').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
   });
 
-  it('auditor NO puede recoger (403: no es rol de campo)', async () => {
+  it('auditor NO puede escanear (403: no es rol de campo)', async () => {
     const token = await testToken({ role: 'auditor' });
-    const res = await request(app).post('/api/flito/logistica/recoger')
-      .set('Authorization', `Bearer ${token}`).send({ documentoIds: [UUID] });
+    const res = await request(app).post('/api/flito/logistica/escanear')
+      .set('Authorization', `Bearer ${token}`).send({ rawValue: RAW });
     expect(res.status).toBe(403);
   });
 
-  it('mensajero SÍ puede recoger (rol de campo)', async () => {
-    selectMock.mockReturnValue(chain([])); // recoger sobre lista vacía
+  it('mensajero SÍ puede escanear (rol de campo)', async () => {
+    selectMock.mockReturnValue(chain([])); // búsqueda de trámite vacía → sin_match
     const token = await testToken({ role: 'mensajero' });
-    const res = await request(app).post('/api/flito/logistica/recoger')
-      .set('Authorization', `Bearer ${token}`).send({ documentoIds: [UUID] });
+    const res = await request(app).post('/api/flito/logistica/escanear')
+      .set('Authorization', `Bearer ${token}`).send({ rawValue: RAW });
     expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ resultado: 'sin_match' });
   });
 
   it('mensajero NO puede cerrar lote (solo Operaciones) → 403', async () => {
@@ -215,6 +241,13 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
     expect(res.status).toBe(400);
   });
 
+  it('despachar sin firma de entrega → 400', async () => {
+    const token = await testToken({ role: 'admin' });
+    const res = await request(app).post(`/api/flito/logistica/actas/${UUID}/despachar`)
+      .set('Authorization', `Bearer ${token}`).send({ mensajeroId: 9 });
+    expect(res.status).toBe(400);
+  });
+
   it('novedad sin motivo → 400', async () => {
     const token = await testToken({ role: 'admin' });
     const res = await request(app).post(`/api/flito/logistica/documentos/${UUID}/novedad`)
@@ -223,11 +256,11 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
   });
 
   it('mensajero ve su ruta (GET /mi-ruta → 200)', async () => {
-    selectMock.mockReturnValue(chain([])); // recogidas + actas vacías
+    selectMock.mockReturnValue(chain([])); // actas vacías
     const token = await testToken({ role: 'mensajero' });
     const res = await request(app).get('/api/flito/logistica/mi-ruta').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ recogidas: [], entregas: [] });
+    expect(res.body).toMatchObject({ entregas: [] });
   });
 
   it('auditor NO accede a la ruta del mensajero (403: no es rol de campo)', async () => {
@@ -237,13 +270,12 @@ describe('rutas — lectura admin/auditor; campo admin/mensajero; operaciones so
   });
 
   it('idempotencia (RN-06): un reenvío con la misma clave devuelve la respuesta guardada sin re-ejecutar', async () => {
-    // buscarIdempotencia encuentra la respuesta previa → se devuelve tal cual, sin tocar recoger().
-    selectMock.mockReturnValueOnce(chain([{ status: 200, response: { recogidos: 2, clasificados: 2, omitidos: 0 } }]));
+    selectMock.mockReturnValueOnce(chain([{ status: 200, response: { resultado: 'recogido', placa: 'QOX858' } }]));
     const token = await testToken({ role: 'mensajero' });
-    const res = await request(app).post('/api/flito/logistica/recoger')
+    const res = await request(app).post('/api/flito/logistica/escanear')
       .set('Authorization', `Bearer ${token}`).set('Idempotency-Key', 'k-repetida')
-      .send({ documentoIds: ['00000000-0000-0000-0000-000000000001'] });
+      .send({ rawValue: RAW });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ recogidos: 2, clasificados: 2 });
+    expect(res.body).toMatchObject({ resultado: 'recogido', placa: 'QOX858' });
   });
 });

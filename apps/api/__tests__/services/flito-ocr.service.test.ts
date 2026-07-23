@@ -5,6 +5,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Aísla el test de los flags de demo del .env (dotenv los carga vía env.ts): estos tests ejercitan la
+// ruta de Anthropic (mockeada), no el stub ni el fallback local. Sin esto, OCR_STUB/OCR_LOCAL del .env
+// desviarían la extracción y romperían el contrato que aquí se valida.
+process.env.OCR_STUB = '0';
+process.env.OCR_LOCAL = '0';
+
 const anthropicMock = vi.fn();
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
 

@@ -1,10 +1,10 @@
-// FLITO Logística (Fase 1) — consola de Operaciones. Trazabilidad por documento (CA-07), recogida,
-// clasificación automática, cierre de lote → acta, despacho, entrega y devolución. La PWA del
-// mensajero (offline, escaneo, firma) es la Fase 2. Ojo: el "entregado" de logística es el documento
-// físico en manos del cliente, distinto del "Entregado" de la compuerta SOAT+Impuestos (§9.7).
+// FLITO Logística — consola de Operaciones. Muestra TODOS los trámites en estado FLIT 'Aprobado'
+// (lo que se espera para entrega) con su estado logístico: Pendiente de recogida hasta que el
+// mensajero escanea la LT en campo, luego Recogida → Clasificada → En acta → Despachada → Entregada.
+// Operaciones valida, cierra el lote por empresa (→ acta), firma la ENTREGA en consola y despacha.
+// La firma del RECEPTOR se captura en campo (PWA). El acta combina ambas firmas en su PDF.
 
 import { useEffect, useState } from 'react';
-import { EstadoDocumentoLogistica } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { puedeOperar } from '../lib/permissions';
@@ -15,32 +15,35 @@ import {
 } from '../components/flit/flitPageKit';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import FirmaCanvas from '../components/flito/FirmaCanvas';
 
-interface DocumentoFila {
-  id: string; tramiteId: string; idFlit: string; tipo: string; tipoLabel: string; estado: string; estadoLabel: string;
-  organismoCodigo: string; organismoNombre: string | null; companiaId: number | null; companiaNombre: string | null; companiaNit: string | null;
-  placa: string | null; vin: string | null; identificador: string | null; actaId: string | null; motivo: string | null; creadoEn: string; actualizadoEn: string;
+interface TramiteFila {
+  tramiteId: string; idFlit: string; placa: string | null; vin: string | null; propietario: string | null;
+  companiaId: number | null; companiaNombre: string | null; companiaNit: string | null;
+  organismoCodigo: string | null; organismoNombre: string | null;
+  docId: string | null; estado: string; estadoLabel: string; numeroLicencia: string | null; numeroLt: string | null;
+  actaId: string | null; motivo: string | null; actualizadoEn: string | null;
 }
 interface EventoDocumento { id: string; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; lat: string | null; lng: string | null; motivo: string | null; origen: string; creadoEn: string }
-interface DocumentoDetalle extends DocumentoFila { eventos: EventoDocumento[] }
+interface TramiteDetalle extends TramiteFila { propietarioDocumento: string | null; combustible: string | null; tieneFoto: boolean; eventos: EventoDocumento[] }
 interface ActaFila { id: string; companiaId: number; companiaNombre: string | null; estado: string; estadoLabel: string; mensajeroId: number | null; mensajeroNombre: string | null; documentos: number; receptorNombre: string | null; entregadoEn: string | null; creadoEn: string }
-interface ActaDocumento { id: string; tipo: string; tipoLabel: string; estado: string; estadoLabel: string; placa: string | null; vin: string | null; idFlit: string }
+interface ActaLinea { id: string; placa: string | null; secretaria: string | null; propietario: string | null; numeroLicencia: string | null; numeroLt: string | null; estado: string; estadoLabel: string; idFlit: string }
 interface ActaEvento { id: string; documentoId: string; placa: string | null; estadoAnterior: string | null; estadoNuevo: string; actorNombre: string | null; motivo: string | null; origen: string; creadoEn: string }
-interface ActaDetalle { acta: ActaFila; tienePdf: boolean; documentos: ActaDocumento[]; bitacora: ActaEvento[] }
+interface ActaDetalle { acta: ActaFila; tienePdf: boolean; firmaEntrega: boolean; firmaRecibe: boolean; entregaNombre: string | null; documentos: ActaLinea[]; bitacora: ActaEvento[] }
 interface Facetas {
-  estados: string[]; tipos: string[]; empresas: Array<{ nit: string; nombre: string | null }>;
+  estados: string[]; empresas: Array<{ nit: string; nombre: string | null }>;
   organismos: Array<{ codigo: string; nombre: string | null }>;
   companiasCerrables: Array<{ companiaId: number; nombre: string | null; disponibles: number }>;
   mensajeros: Array<{ id: number; nombre: string }>;
 }
-interface Listado { items: DocumentoFila[]; total: number; page: number; pageSize: number }
+interface Listado { items: TramiteFila[]; total: number; page: number; pageSize: number }
 
 const ESTADO_LABEL: Record<string, string> = {
-  generado: 'Generado', recogido: 'Recogido', clasificado: 'Clasificado', en_acta: 'En acta',
-  despachado: 'Despachado', entregado: 'Entregado', novedad: 'Novedad', devuelto: 'Devuelto',
+  pendiente: 'Pendiente de recogida', recogido: 'Recogida', clasificado: 'Clasificada', en_acta: 'En acta',
+  despachado: 'Despachada', entregado: 'Entregada', novedad: 'Novedad', devuelto: 'Devuelta',
 };
 const TONO_DOC: Record<string, ChipTone> = {
-  generado: 'neutral', recogido: 'active', clasificado: 'active', en_acta: 'active',
+  pendiente: 'neutral', recogido: 'active', clasificado: 'active', en_acta: 'active',
   despachado: 'warning', entregado: 'success', novedad: 'danger', devuelto: 'danger',
 };
 const TONO_ACTA: Record<string, ChipTone> = { generada: 'neutral', despachada: 'warning', entregada: 'success', devuelta: 'danger' };
@@ -61,8 +64,7 @@ export default function FlitoLogistica() {
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
   const [empresaSel, setEmpresaSel] = useState('');
 
-  // Modales.
-  const [detalle, setDetalle] = useState<DocumentoDetalle | null>(null);
+  const [detalle, setDetalle] = useState<TramiteDetalle | null>(null);
   const [cerrarOpen, setCerrarOpen] = useState(false);
   const [motivoModal, setMotivoModal] = useState<{ tipo: 'novedad' | 'devolucion'; id: string } | null>(null);
   const [despacharActa, setDespacharActa] = useState<ActaFila | null>(null);
@@ -88,7 +90,7 @@ export default function FlitoLogistica() {
   };
 
   const toggleEstado = (e: string) => setEstadosSel((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
-  const verDetalle = (id: string) => api.get<DocumentoDetalle>(`/flito/logistica/${id}`).then(setDetalle).catch((e) => setError(errorMessage(e)));
+  const verDetalle = (id: string) => api.get<TramiteDetalle>(`/flito/logistica/${id}`).then(setDetalle).catch((e) => setError(errorMessage(e)));
   const verActa = (id: string) => api.get<ActaDetalle>(`/flito/logistica/actas/${id}`).then(setActaDetalle).catch((e) => setError(errorMessage(e)));
   const descargarPdf = async (id: string) => {
     try { const { url } = await api.get<{ url: string }>(`/flito/logistica/actas/${id}/pdf`); window.open(url, '_blank'); }
@@ -96,18 +98,18 @@ export default function FlitoLogistica() {
   };
 
   const filas = data?.items ?? [];
+  const estadosDisponibles = facetas?.estados ?? Object.keys(ESTADO_LABEL);
 
   return (
     <div className="space-y-4">
       <PageHeaderCard
         title="Logística"
-        subtitle="Trazabilidad de licencias y placas: de la emisión del organismo a la entrega firmada."
+        subtitle="Trámites aprobados a la espera de su licencia de tránsito: de la recogida en el organismo a la entrega firmada."
         actions={esOperaciones && (
           <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCerrarOpen(true)}>Cerrar lote</button>
         )}
       />
 
-      {/* Filtros */}
       <FlitCard>
         <div className="flex flex-wrap items-center gap-3">
           <input className={flitInp + ' max-w-xs'} placeholder="Buscar placa, VIN o trámite FLIT…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
@@ -118,7 +120,7 @@ export default function FlitoLogistica() {
         </div>
         <div className="mt-3">
           <FlitPillGroup>
-            {(facetas?.estados ?? Object.values(EstadoDocumentoLogistica)).map((e) => (
+            {estadosDisponibles.map((e) => (
               <FlitPillButton key={e} active={estadosSel.includes(e)} onClick={() => toggleEstado(e)}>{ESTADO_LABEL[e] ?? e}</FlitPillButton>
             ))}
           </FlitPillGroup>
@@ -128,7 +130,7 @@ export default function FlitoLogistica() {
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
       {data && filas.length === 0 && (
-        <FlitCard><FlitEmpty>No hay documentos de logística. Sincroniza desde FLIT: al aprobarse un trámite, sus licencias y placas aparecen aquí en «Generado».</FlitEmpty></FlitCard>
+        <FlitCard><FlitEmpty>No hay trámites aprobados. Sincroniza desde FLIT: los trámites en estado «Aprobado» aparecen aquí a la espera de su licencia de tránsito.</FlitEmpty></FlitCard>
       )}
 
       {filas.length > 0 && (
@@ -136,34 +138,31 @@ export default function FlitoLogistica() {
           <FlitTable>
             <thead>
               <FlitTr>
-                <FlitTh>Documento</FlitTh><FlitTh>Trámite FLIT</FlitTh><FlitTh>Empresa</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Acciones</FlitTh>
+                <FlitTh>Placa</FlitTh><FlitTh>Propietario</FlitTh><FlitTh>Empresa</FlitTh>
+                <FlitTh>Secretaría</FlitTh><FlitTh>N.º LT</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Acciones</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
               {filas.map((f) => (
-                <FlitTr key={f.id}>
+                <FlitTr key={f.tramiteId}>
                   <td className="px-4 py-2">
-                    <div className="text-sm font-medium">{f.tipoLabel}</div>
-                    <div className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.placa ?? f.vin ?? '—'}</div>
+                    <div className="text-sm font-medium tabular-nums">{f.placa ?? '—'}</div>
+                    <div className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</div>
                   </td>
-                  <td className="px-4 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</td>
+                  <td className="px-4 py-2 text-sm">{f.propietario ?? '—'}</td>
                   <td className="px-4 py-2 text-sm">{f.companiaNombre ?? f.companiaNit ?? '—'}</td>
-                  <td className="px-4 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo}</td>
+                  <td className="px-4 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo ?? '—'}</td>
+                  <td className="px-4 py-2 text-sm tabular-nums">{f.numeroLt ?? '—'}</td>
                   <td className="px-4 py-2">
                     <StatusChip tone={TONO_DOC[f.estado] ?? 'neutral'}>{f.estadoLabel}</StatusChip>
                     {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--flit-danger)' }}>{f.motivo}</div>}
                   </td>
                   <td className="px-4 py-2">
                     <div className="flex flex-wrap gap-2">
-                      <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => verDetalle(f.id)}>Detalle</button>
-                      {esOperaciones && f.estado === EstadoDocumentoLogistica.GENERADO && (
-                        <>
-                          <button className="text-xs font-semibold" style={{ color: 'var(--flit-success)' }} disabled={busy}
-                            onClick={() => accion(() => api.post('/flito/logistica/recoger', { documentoIds: [f.id] }))}>Recoger</button>
-                          <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }}
-                            onClick={() => setMotivoModal({ tipo: 'novedad', id: f.id })}>Novedad</button>
-                        </>
+                      <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => verDetalle(f.tramiteId)}>Detalle</button>
+                      {esOperaciones && f.docId && (f.estado === 'recogido' || f.estado === 'clasificado') && (
+                        <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }}
+                          onClick={() => setMotivoModal({ tipo: 'novedad', id: f.docId! })}>Novedad</button>
                       )}
                     </div>
                   </td>
@@ -178,12 +177,12 @@ export default function FlitoLogistica() {
       <FlitCard>
         <h2 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Actas</h2>
         {(!actas || actas.length === 0) ? (
-          <FlitEmpty>Aún no hay actas. Cierra el lote de una empresa con documentos clasificados para generar una.</FlitEmpty>
+          <FlitEmpty>Aún no hay actas. Cierra el lote de una empresa con licencias clasificadas para generar una.</FlitEmpty>
         ) : (
           <FlitTable>
             <thead>
               <FlitTr>
-                <FlitTh>Empresa</FlitTh><FlitTh>Documentos</FlitTh><FlitTh>Mensajero</FlitTh>
+                <FlitTh>Empresa</FlitTh><FlitTh>Licencias</FlitTh><FlitTh>Mensajero</FlitTh>
                 <FlitTh>Estado</FlitTh><FlitTh>Receptor</FlitTh><FlitTh>Acciones</FlitTh>
               </FlitTr>
             </thead>
@@ -199,7 +198,7 @@ export default function FlitoLogistica() {
                     <div className="flex flex-wrap gap-2">
                       <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => verActa(a.id)}>Ver</button>
                       {esOperaciones && a.estado === 'generada' && (
-                        <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Despachar</button>
+                        <button className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={() => setDespacharActa(a)}>Firmar y despachar</button>
                       )}
                       {esOperaciones && a.estado === 'despachada' && (
                         <button className="text-xs font-semibold" style={{ color: 'var(--flit-danger)' }} onClick={() => setMotivoModal({ tipo: 'devolucion', id: a.id })}>Devolver</button>
@@ -227,59 +226,87 @@ export default function FlitoLogistica() {
       )}
       {despacharActa && facetas && (
         <DespacharModal mensajeros={facetas.mensajeros} busy={busy} onClose={() => setDespacharActa(null)}
-          onDespachar={(mensajeroId) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, { mensajeroId })).then(() => setDespacharActa(null))} />
+          onDespachar={(payload) => accion(() => api.post(`/flito/logistica/actas/${despacharActa.id}/despachar`, payload)).then(() => setDespacharActa(null))} />
       )}
     </div>
   );
 }
 
-function DetalleModal({ doc, onClose }: { doc: DocumentoDetalle; onClose: () => void }) {
+function DetalleModal({ doc, onClose }: { doc: TramiteDetalle; onClose: () => void }) {
   return (
-    <FlitModal title={`${doc.tipoLabel} · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide>
+    <FlitModal title={`Licencia · ${doc.placa ?? doc.vin ?? ''}`} onClose={onClose} wide>
       <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Trámite FLIT</span><div>{doc.idFlit}</div></div>
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Empresa</span><div>{doc.companiaNombre ?? doc.companiaNit ?? '—'}</div></div>
-        <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Organismo</span><div>{doc.organismoNombre ?? doc.organismoCodigo}</div></div>
+        <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Secretaría</span><div>{doc.organismoNombre ?? doc.organismoCodigo ?? '—'}</div></div>
         <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Estado</span><div><StatusChip tone={TONO_DOC[doc.estado] ?? 'neutral'}>{doc.estadoLabel}</StatusChip></div></div>
+        <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Propietario</span><div>{doc.propietario ?? '—'}{doc.propietarioDocumento ? ` · ${doc.propietarioDocumento}` : ''}</div></div>
+        <div><span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>N.º licencia / N.º LT</span><div className="tabular-nums">{doc.numeroLicencia ?? '—'} / {doc.numeroLt ?? '—'}</div></div>
       </div>
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>
-      <ol className="space-y-2">
-        {doc.eventos.map((e) => (
-          <li key={e.id} className="text-sm">
-            <span className="font-medium">{ESTADO_LABEL[e.estadoNuevo] ?? e.estadoNuevo}</span>
-            <span style={{ color: 'var(--flit-text-muted)' }}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (e.origen === 'api' ? 'sistema' : '—')}</span>
-            {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger)' }}>{e.motivo}</div>}
-            {(e.lat && e.lng) && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>📍 {e.lat}, {e.lng}</div>}
-          </li>
-        ))}
-      </ol>
+      {doc.docId ? (
+        <>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora</h3>
+          <ol className="space-y-2">
+            {doc.eventos.map((e) => (
+              <li key={e.id} className="text-sm">
+                <span className="font-medium">{ESTADO_LABEL[e.estadoNuevo] ?? e.estadoNuevo}</span>
+                <span style={{ color: 'var(--flit-text-muted)' }}> · {fecha(e.creadoEn)} · {e.actorNombre ?? (e.origen === 'api' ? 'sistema' : '—')}</span>
+                {e.motivo && <div className="text-xs" style={{ color: 'var(--flit-danger)' }}>{e.motivo}</div>}
+                {(e.lat && e.lng) && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>📍 {e.lat}, {e.lng}</div>}
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>La licencia aún no se ha recogido. El mensajero la escaneará en el organismo.</p>
+      )}
     </FlitModal>
   );
 }
 
 function ActaDetalleModal({ detalle, onClose, onPdf }: { detalle: ActaDetalle; onClose: () => void; onPdf: () => void }) {
-  const { acta, documentos, bitacora } = detalle;
+  const { acta, documentos, bitacora, firmaEntrega, firmaRecibe, entregaNombre } = detalle;
   return (
     <FlitModal title={`Acta · ${acta.companiaNombre ?? ''}`} onClose={onClose} wide>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <StatusChip tone={TONO_ACTA[acta.estado] ?? 'neutral'}>{acta.estadoLabel}</StatusChip>
           <span className="ml-2" style={{ color: 'var(--flit-text-muted)' }}>
-            {acta.documentos} documento(s) · {acta.mensajeroNombre ? `Mensajero: ${acta.mensajeroNombre}` : 'Sin despachar'}
+            {acta.documentos} licencia(s) · {acta.mensajeroNombre ? `Mensajero: ${acta.mensajeroNombre}` : 'Sin despachar'}
           </span>
         </div>
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onPdf}>Descargar PDF</button>
       </div>
 
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Documentos</h3>
-      <ul className="mb-4 space-y-1">
-        {documentos.map((d) => (
-          <li key={d.id} className="flex items-center justify-between gap-3 text-sm">
-            <span>{d.tipoLabel} · <span className="tabular-nums">{d.placa ?? d.vin ?? '—'}</span> <span style={{ color: 'var(--flit-text-muted)' }}>({d.idFlit})</span></span>
-            <StatusChip tone={TONO_DOC[d.estado] ?? 'neutral'}>{d.estadoLabel}</StatusChip>
-          </li>
-        ))}
-      </ul>
+      <div className="mb-4 flex gap-2 text-xs">
+        <span className="rounded-full px-2 py-1" style={{ background: firmaEntrega ? 'rgba(112,207,58,0.14)' : 'rgba(89,103,125,0.14)', color: firmaEntrega ? 'var(--flit-success)' : 'var(--flit-text-secondary)' }}>
+          {firmaEntrega ? `✓ Entrega${entregaNombre ? ` · ${entregaNombre}` : ''}` : 'Entrega sin firmar'}
+        </span>
+        <span className="rounded-full px-2 py-1" style={{ background: firmaRecibe ? 'rgba(112,207,58,0.14)' : 'rgba(89,103,125,0.14)', color: firmaRecibe ? 'var(--flit-success)' : 'var(--flit-text-secondary)' }}>
+          {firmaRecibe ? `✓ Recibe${acta.receptorNombre ? ` · ${acta.receptorNombre}` : ''}` : 'Recibe sin firmar'}
+        </span>
+      </div>
+
+      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Licencias</h3>
+      <div className="mb-4 overflow-x-auto">
+        <FlitTable>
+          <thead>
+            <FlitTr><FlitTh>Placa</FlitTh><FlitTh>Secretaría</FlitTh><FlitTh>Propietario</FlitTh><FlitTh>N.º licencia</FlitTh><FlitTh>N.º LT</FlitTh><FlitTh>Estado</FlitTh></FlitTr>
+          </thead>
+          <tbody>
+            {documentos.map((d) => (
+              <FlitTr key={d.id}>
+                <td className="px-4 py-2 text-sm tabular-nums">{d.placa ?? '—'}</td>
+                <td className="px-4 py-2 text-sm">{d.secretaria ?? '—'}</td>
+                <td className="px-4 py-2 text-sm">{d.propietario ?? '—'}</td>
+                <td className="px-4 py-2 text-sm tabular-nums">{d.numeroLicencia ?? '—'}</td>
+                <td className="px-4 py-2 text-sm tabular-nums">{d.numeroLt ?? '—'}</td>
+                <td className="px-4 py-2"><StatusChip tone={TONO_DOC[d.estado] ?? 'neutral'}>{d.estadoLabel}</StatusChip></td>
+              </FlitTr>
+            ))}
+          </tbody>
+        </FlitTable>
+      </div>
 
       <h3 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Bitácora del despacho</h3>
       <ol className="space-y-2">
@@ -300,12 +327,12 @@ function CerrarLoteModal({ cerrables, busy, onClose, onCerrar }: { cerrables: Fa
   return (
     <FlitModal title="Cerrar lote → generar acta" onClose={onClose}>
       {cerrables.length === 0 ? (
-        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No hay empresas con documentos clasificados. Recoge y clasifica documentos primero.</p>
+        <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No hay empresas con licencias clasificadas. El mensajero debe recoger (escanear) licencias primero.</p>
       ) : (
         <ul className="space-y-2">
           {cerrables.map((c) => (
             <li key={c.companiaId} className="flex items-center justify-between gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <div><div className="text-sm font-medium">{c.nombre ?? `#${c.companiaId}`}</div><div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{c.disponibles} clasificado(s)</div></div>
+              <div><div className="text-sm font-medium">{c.nombre ?? `#${c.companiaId}`}</div><div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{c.disponibles} clasificada(s)</div></div>
               <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy} onClick={() => onCerrar(c.companiaId)}>Generar acta</button>
             </li>
           ))}
@@ -321,7 +348,7 @@ function MotivoModal({ tipo, busy, onClose, onConfirmar }: { tipo: 'novedad' | '
   return (
     <FlitModal title={titulo} onClose={onClose}>
       <FlitField label="Motivo (obligatorio)">
-        <textarea className={flitInp} rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={tipo === 'novedad' ? 'Faltante, dañado o inconsistente…' : 'Receptor ausente o rechazó…'} />
+        <textarea className={flitInp} rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={tipo === 'novedad' ? 'Dañada o inconsistente…' : 'Receptor ausente o rechazó…'} />
       </FlitField>
       <div className="mt-4 flex justify-end gap-2">
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
@@ -331,10 +358,12 @@ function MotivoModal({ tipo, busy, onClose, onConfirmar }: { tipo: 'novedad' | '
   );
 }
 
-function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros: Facetas['mensajeros']; busy: boolean; onClose: () => void; onDespachar: (mensajeroId: number) => void }) {
+function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros: Facetas['mensajeros']; busy: boolean; onClose: () => void; onDespachar: (payload: { mensajeroId: number; firmaEntrega: string; entregaNombre?: string }) => void }) {
   const [sel, setSel] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [firma, setFirma] = useState<string | null>(null);
   return (
-    <FlitModal title="Despachar acta" onClose={onClose}>
+    <FlitModal title="Firmar entrega y despachar" onClose={onClose}>
       <FlitField label="Mensajero">
         <select className={flitInp} value={sel} onChange={(e) => setSel(e.target.value)}>
           <option value="">Selecciona…</option>
@@ -342,11 +371,20 @@ function DespacharModal({ mensajeros, busy, onClose, onDespachar }: { mensajeros
         </select>
       </FlitField>
       {mensajeros.length === 0 && <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>No hay mensajeros registrados. Crea un usuario con rol Mensajero.</p>}
+      <div className="mt-3">
+        <FlitField label="Nombre de quien entrega (Operaciones)">
+          <input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Opcional (por defecto tu usuario)" />
+        </FlitField>
+      </div>
+      <div className="mt-3">
+        <span className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma de quien entrega</span>
+        <FirmaCanvas onChange={setFirma} />
+      </div>
       <div className="mt-4 flex justify-end gap-2">
         <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !sel} onClick={() => onDespachar(Number(sel))}>Despachar</button>
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={busy || !sel || !firma}
+          onClick={() => onDespachar({ mensajeroId: Number(sel), firmaEntrega: firma!, entregaNombre: nombre.trim() || undefined })}>Firmar y despachar</button>
       </div>
     </FlitModal>
   );
 }
-

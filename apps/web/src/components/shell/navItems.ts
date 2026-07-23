@@ -49,7 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
   // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
   // la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos solo se muestran a los gestores
   // (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
-  { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Trámites',                keywords: 'flito tramites unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
+  { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Gestión Trámites',        keywords: 'flito tramites gestion unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
   { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },

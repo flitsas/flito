@@ -2573,6 +2573,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
+  // Descartado en la cola de revisión OCR: libera su hash para permitir recargar el mismo archivo
+  // (un documento rechazado no debe contar como duplicado). Se excluye del dedup y de los listados.
+  descartado: boolean('descartado').notNull().default(false),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
 }));
@@ -2638,6 +2641,10 @@ export const flitoLogisticaActas = pgTable('flito_logistica_actas', {
   contactoDocumento: varchar('contacto_documento', { length: 30 }),
   // Artefacto y evidencia de la entrega (Fase 2: firma digital + evidencia estructurada, RN-03/9.5).
   pdfStorageKey: varchar('pdf_storage_key', { length: 400 }),
+  // Firma de quien ENTREGA (Operaciones), capturada en la consola al despachar el acta.
+  firmaEntregaStorageKey: varchar('firma_entrega_storage_key', { length: 400 }),
+  entregaNombre: varchar('entrega_nombre', { length: 150 }),
+  // Firma de quien RECIBE (receptor en la empresa), capturada en campo por el mensajero.
   firmaStorageKey: varchar('firma_storage_key', { length: 400 }),
   fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
   receptorNombre: varchar('receptor_nombre', { length: 150 }),
@@ -2668,6 +2675,15 @@ export const flitoLogisticaDocumentos = pgTable('flito_logistica_documentos', {
   vehiculoId: integer('vehiculo_id').notNull().references(() => vehicles.id),
   // Código escaneable / serial del documento (barras/QR). Null hasta la Fase 2 (escaneo).
   identificador: varchar('identificador', { length: 120 }),
+  // Datos leídos del PDF417 de la LT al escanear (fuente: código de barras del reverso).
+  numeroLicencia: varchar('numero_licencia', { length: 40 }),
+  // N.º de la LT: NO viaja en el código (impreso debajo); se captura manual ahora, OCR después.
+  numeroLt: varchar('numero_lt', { length: 40 }),
+  propietarioNombre: varchar('propietario_nombre', { length: 200 }),
+  propietarioDocumento: varchar('propietario_documento', { length: 30 }),
+  combustible: varchar('combustible', { length: 30 }),
+  // Foto del propietario embebida en el código (JPEG), subida a storage.
+  fotoStorageKey: varchar('foto_storage_key', { length: 400 }),
   actaId: uuid('acta_id').references(() => flitoLogisticaActas.id),
   // Motivo de la última novedad/devolución (obligatorio en esos estados, RN-04).
   motivo: text('motivo'),
