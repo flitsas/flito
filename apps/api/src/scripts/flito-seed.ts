@@ -110,6 +110,8 @@ async function main(): Promise<void> {
     { username: 'auditoria', name: 'Auditoría FLIT', email: 'auditoria@flito.co', passwordHash: hash, role: 'auditor' },
     // Logística — mensajero de campo (PWA, Fase 2). Ve solo su ruta asignada (CA-11).
     { username: 'mensajero', name: 'Mensajero FLIT', email: 'mensajero@flito.co', passwordHash: hash, role: 'mensajero' },
+    // Finanzas — usuario del área financiera. Hoy solo el Reporte de costos.
+    { username: 'financiera', name: 'Finanzas FLIT', email: 'financiera@flito.co', passwordHash: hash, role: 'financiera' },
   ]).onConflictDoNothing();
 
   const linea = '─'.repeat(72);

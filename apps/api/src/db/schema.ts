@@ -9,7 +9,7 @@ import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from 
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
-export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero']);
+export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera']);
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
