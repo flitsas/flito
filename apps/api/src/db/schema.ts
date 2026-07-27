@@ -2702,6 +2702,54 @@ export const flitoTarifasCompania = pgTable('flito_tarifas_compania', {
   companiaConceptoIdx: index('idx_flito_tarifas_compania_concepto').on(t.companiaId, t.concepto),
 }));
 
+/**
+ * Liquidación SELLADA de un trámite (HU #10965). Sellar es congelar: si mañana cambia la tarifa de
+ * la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se cobró.
+ *
+ * Los valores son nullable a propósito: NULL = «no aplica» (p. ej. logística de una compañía que la
+ * autogestiona), y NO cero. Es la misma distinción que la compuerta mantiene deliberadamente para
+ * poder calcular la base del 4x1000.
+ *
+ * `tramiteId` es UNIQUE: hay una liquidación vigente o ninguna. El reverso borra la fila y deja el
+ * snapshot en `flitoLiquidacionEventos`, así que el historial no se pierde.
+ */
+export const flitoLiquidaciones = pgTable('flito_liquidaciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  estado: varchar('estado', { length: 20 }).notNull(),
+  valorSoat: numeric('valor_soat', { precision: 14, scale: 2 }),
+  valorImpuesto: numeric('valor_impuesto', { precision: 14, scale: 2 }),
+  valorDerecho: numeric('valor_derecho', { precision: 14, scale: 2 }),
+  valorTramiteDigital: numeric('valor_tramite_digital', { precision: 14, scale: 2 }),
+  valorLogistica: numeric('valor_logistica', { precision: 14, scale: 2 }),
+  baseGmf: numeric('base_gmf', { precision: 14, scale: 2 }).notNull(),
+  tasaGmf: numeric('tasa_gmf', { precision: 6, scale: 5 }).notNull().default('0.004'),
+  valorGmf: numeric('valor_gmf', { precision: 14, scale: 2 }).notNull(),
+  total: numeric('total', { precision: 14, scale: 2 }).notNull(),
+  detalle: jsonb('detalle'),
+  liquidadoPorId: integer('liquidado_por_id').references(() => users.id),
+  liquidadoEn: timestamp('liquidado_en', { withTimezone: true }).notNull().defaultNow(),
+  facturadoPorId: integer('facturado_por_id').references(() => users.id),
+  facturadoEn: timestamp('facturado_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  estadoIdx: index('idx_flito_liquidaciones_estado').on(t.estado),
+}));
+
+/** Bitácora append-only de la liquidación: liquidar, reversar y facturar. */
+export const flitoLiquidacionEventos = pgTable('flito_liquidacion_eventos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  accion: varchar('accion', { length: 20 }).notNull(),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => users.id),
+  snapshot: jsonb('snapshot'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteIdx: index('idx_flito_liquidacion_eventos_tramite').on(t.tramiteId, t.createdAt),
+}));
+
 // Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
   id: uuid('id').primaryKey().defaultRandom(),
