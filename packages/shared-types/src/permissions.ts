@@ -134,7 +134,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
   // incluye en ningún requireRole de mutación FLITO — solo lectura.
   auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
-    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica'],
+    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+    // El reporte de costos consolida datos que el auditor ya ve uno a uno (SOAT, impuestos,
+    // derechos). Negarle la vista agregada no protegía nada: solo le obligaba a reconstruirla.
+    'finanzas_reporte_costos'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
