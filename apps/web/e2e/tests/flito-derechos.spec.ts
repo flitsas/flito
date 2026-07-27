@@ -52,6 +52,9 @@ test.describe('FLITO — Derechos de trámite', () => {
     await expect(page.getByRole('cell', { name: 'drive', exact: true })).toBeVisible();
     // Una discrepancia de concepto no bloquea el registro pero queda visible.
     await expect(page.getByText('Con advertencia')).toBeVisible();
+    // La fecha de pago no lleva hora: formatearla con `new Date(...)` la interpretaría como
+    // medianoche UTC y en hora de Colombia retrocedería un día (el recibo dice 23, se veía 22).
+    await expect(page.getByRole('cell', { name: '23/5/2026', exact: true })).toBeVisible();
   });
 
   test('la carga muestra el resultado clasificado por canasta', async ({ page }) => {

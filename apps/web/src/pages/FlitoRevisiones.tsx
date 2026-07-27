@@ -16,7 +16,7 @@ import {
 } from '../components/flit/flitPageKit';
 import StatusChip from '../components/flit/StatusChip';
 
-type Grupo = 'soat' | 'impuestos';
+type Grupo = 'soat' | 'impuestos' | 'derechos';
 type CampoExtraido = { valor: string | null; confianza: number; confiable: boolean };
 
 interface RevisionItem {
@@ -176,7 +176,14 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
             <div key={clave} className="space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-sm font-medium" htmlFor={`c-${clave}`}>{labelCampo(modulo, clave)}</label>
-                {campo ? <StatusChip tone="warning">{Math.round(campo.confianza * 100)}% · no confiable</StatusChip> : <StatusChip tone="neutral">Sin lectura</StatusChip>}
+                {/* El chip no puede decir siempre "no confiable": desde que existe el motivo
+                    cruce_ambiguo, a esta cola llegan documentos con lecturas perfectamente
+                    confiables cuyo problema es a QUÉ trámite pertenecen, no qué dicen. */}
+                {campo
+                  ? <StatusChip tone={campo.confiable ? 'success' : 'warning'}>
+                      {Math.round(campo.confianza * 100)}% · {campo.confiable ? 'confiable' : 'no confiable'}
+                    </StatusChip>
+                  : <StatusChip tone="neutral">Sin lectura</StatusChip>}
               </div>
               <input id={`c-${clave}`} className={flitInp} disabled={soloLectura || revision.resuelto}
                 value={valores[clave] ?? ''} placeholder="Escribe el valor correcto"
@@ -223,9 +230,13 @@ export default function FlitoRevisiones() {
   const rSoat = useRevisiones('soat', incluirResueltas, recarga);
   const rImp = useRevisiones('impuestos', incluirResueltas, recarga);
   const rFv = useRevisiones('factura_venta', incluirResueltas, recarga);
+  const rDer = useRevisiones('derechos', incluirResueltas, recarga);
 
-  const data = useMemo(() => grupo === 'soat' ? rSoat
-    : [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)), [grupo, rSoat, rImp, rFv]);
+  const data = useMemo(() => {
+    if (grupo === 'soat') return rSoat;
+    if (grupo === 'derechos') return rDer;
+    return [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
+  }, [grupo, rSoat, rImp, rFv, rDer]);
   const seleccionada = useMemo(() => data.find((r) => r.id === seleccionadaId) ?? data[0] ?? null, [data, seleccionadaId]);
   const url = useSoporteUrl(seleccionada?.soporte.id);
 
@@ -245,6 +256,7 @@ export default function FlitoRevisiones() {
       <FlitPillGroup>
         <FlitPillButton active={grupo === 'soat'} onClick={() => { setGrupo('soat'); setSeleccionadaId(null); }}>SOAT</FlitPillButton>
         <FlitPillButton active={grupo === 'impuestos'} onClick={() => { setGrupo('impuestos'); setSeleccionadaId(null); }}>Impuestos</FlitPillButton>
+        <FlitPillButton active={grupo === 'derechos'} onClick={() => { setGrupo('derechos'); setSeleccionadaId(null); }}>Derechos de trámite</FlitPillButton>
       </FlitPillGroup>
 
       {data.length === 0 ? (

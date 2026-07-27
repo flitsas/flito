@@ -54,7 +54,16 @@ const CANASTAS = [
 
 const pesos = (v: string | null): string =>
   v === null ? '—' : `$ ${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
-const fecha = (v: string | null): string => (v ? new Date(v).toLocaleDateString('es-CO') : '—');
+/**
+ * `fechaPago` es una fecha SIN hora (columna `date`): formatearla con `new Date(...)` la interpreta
+ * como medianoche UTC y, al renderizarla en hora de Colombia (UTC−5), retrocede un día — el recibo
+ * decía 23 y la tabla mostraba 22. Se formatea a mano desde el string para que el día no se mueva.
+ */
+const fecha = (v: string | null): string => {
+  if (!v) return '—';
+  const [y, m, d] = v.slice(0, 10).split('-');
+  return `${Number(d)}/${Number(m)}/${y}`;
+};
 const fechaHora = (v: string): string =>
   new Date(v).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
