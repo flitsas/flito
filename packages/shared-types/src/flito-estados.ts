@@ -37,6 +37,34 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
 ];
 
 /**
+ * Conceptos cuyo valor se negocia con cada compañía gestora (Feature #10939 §2.1 y §2.2).
+ *
+ * No están aquí SOAT, impuesto ni derecho de trámite: esos NO se negocian, son desembolsos reales
+ * que se leen del documento pagado. Estos dos son honorarios propios de FLIT, y por eso varían de
+ * un cliente a otro (el requerimiento cita $200.000 en una compañía y $1.500 en otra).
+ */
+export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica'] as const;
+export type ConceptoTarifa = (typeof CONCEPTOS_TARIFA)[number];
+
+export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
+  typeof v === 'string' && (CONCEPTOS_TARIFA as readonly string[]).includes(v);
+
+export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
+  tramite_digital: 'Trámite digital FLIT',
+  logistica: 'Negociación logística',
+};
+
+/**
+ * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto
+ * libre de FLIT ("Matricula", "matrícula ", "TRASPASO"), así que sin normalizar la misma tarifa se
+ * configuraría tres veces y ninguna coincidiría.
+ */
+export function normalizarTipoTramite(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim().toUpperCase();
+  return s === '' ? null : s;
+}
+
+/**
  * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:
  *
  *   Pendiente ──> Solicitado ──> Pagado
