@@ -9,13 +9,15 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 import {
-  CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
+  CampoDerechoTramite, CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
   FlujoRevision,
-  type CampoExtraido, type ExtraccionFacturaVenta, type ExtraccionImpuesto, type ExtraccionSoat,
+  type CampoExtraido, type ExtraccionDerechoTramite, type ExtraccionFacturaVenta,
+  type ExtraccionImpuesto, type ExtraccionSoat,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
+import { cerrarPendientesDePlaca, registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -27,7 +29,7 @@ export class RevisionError extends Error {
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type Extraccion = ExtraccionSoat | ExtraccionImpuesto | ExtraccionFacturaVenta;
+type Extraccion = ExtraccionSoat | ExtraccionImpuesto | ExtraccionFacturaVenta | ExtraccionDerechoTramite;
 
 async function auditEnTx(tx: Tx, ctx: RevisionCtx, resource: string, resourceId: string, detail: string, action: 'update' | 'delete' = 'update'): Promise<void> {
   await tx.insert(auditLogs).values({ userId: ctx.userId, userEmail: ctx.username, action, resource, resourceId, detail });
@@ -105,6 +107,7 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
 export function camposEsperados(modulo: FlujoRevision): string[] {
   if (modulo === FlujoRevision.SOAT) return Object.values(CampoSoat);
   if (modulo === FlujoRevision.FACTURA_VENTA) return Object.values(CampoFacturaVenta);
+  if (modulo === FlujoRevision.DERECHOS) return Object.values(CampoDerechoTramite);
   return Object.values(CampoImpuesto);
 }
 
@@ -152,6 +155,8 @@ export async function resolver(id: string, registroId: string, campos: Record<st
 
   if (revision.modulo === FlujoRevision.SOAT) {
     await resolverSoat(revision.id, revision.soporteId, registroId, extraccion as ExtraccionSoat, motivo, ctx);
+  } else if (revision.modulo === FlujoRevision.DERECHOS) {
+    await resolverDerecho(revision.id, revision.soporteId, revision.motivo, registroId, extraccion as ExtraccionDerechoTramite, motivo, ctx);
   } else if (revision.modulo === FlujoRevision.FACTURA_VENTA) {
     await resolverFacturaVenta(revision.id, revision.soporteId, revision.motivo, registroId, extraccion as ExtraccionFacturaVenta, motivo, ctx);
   } else {
@@ -200,6 +205,26 @@ async function resolverFacturaVenta(revisionId: string, soporteId: string, motiv
     }).where(eq(flitoImpuestos.id, impuestoId));
     await auditEnTx(tx, ctx, 'flito_impuesto', impuestoId,
       `Factura de venta atada a mano. Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
+  });
+}
+
+/**
+ * Resuelve un recibo de derecho de trámite. Aquí `registroId` es el **trámite** elegido (no un
+ * registro previo): el caso típico de esta cola es justo el contrario al de SOAT/impuestos — el
+ * documento llega bien leído pero la placa tiene varios trámites vivos, y lo que aporta la persona
+ * es decidir a cuál corresponde el pago. El registro del derecho nace de esa decisión.
+ */
+async function resolverDerecho(revisionId: string, soporteId: string, motivoOriginal: string, tramiteId: string, extraccion: ExtraccionDerechoTramite, motivo: string, ctx: RevisionCtx): Promise<void> {
+  const derechoId = await registrarDesdeRevision(tramiteId, extraccion, soporteId, ctx);
+
+  // La placa ya quedó asociada: sus pendientes dejan de reintentarse contra un trámite que ya pagó.
+  const placa = extraccion[CampoDerechoTramite.PLACA]?.valor;
+  if (placa) await cerrarPendientesDePlaca(placa, tramiteId);
+
+  await db.transaction(async (tx) => {
+    await auditEnTx(tx, ctx, 'flito_derecho_tramite', derechoId,
+      `Derecho de trámite registrado a mano desde la cola de revisión ${revisionId} (${motivoOriginal}). ` +
+      `Soporte ${soporteId}. ${motivo.trim()}`);
   });
 }
 

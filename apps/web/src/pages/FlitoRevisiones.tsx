@@ -4,8 +4,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  CAMPO_FACTURA_VENTA_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL, EstadoImpuesto,
-  MOTIVO_REVISION_LABEL, type FlujoRevision,
+  CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_FACTURA_VENTA_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
+  EstadoImpuesto, MOTIVO_REVISION_LABEL, type FlujoRevision,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -29,9 +29,13 @@ interface ImpItem { id: string; idFlit: string; placa: string | null; vin: strin
 
 const ETIQUETA_MODULO: Record<FlujoRevision, string> = {
   soat: 'Comprobante SOAT', impuestos: 'Recibo de impuestos', factura_venta: 'Factura de venta',
+  derechos: 'Recibo de derecho de trámite',
 };
 const labelCampo = (modulo: FlujoRevision, clave: string): string => {
-  const map = modulo === 'soat' ? CAMPO_SOAT_LABEL : modulo === 'factura_venta' ? CAMPO_FACTURA_VENTA_LABEL : CAMPO_IMPUESTO_LABEL;
+  const map = modulo === 'soat' ? CAMPO_SOAT_LABEL
+    : modulo === 'factura_venta' ? CAMPO_FACTURA_VENTA_LABEL
+    : modulo === 'derechos' ? CAMPO_DERECHO_TRAMITE_LABEL
+    : CAMPO_IMPUESTO_LABEL;
   return (map as Record<string, string>)[clave] ?? clave;
 };
 const norm = (v: string | null | undefined) => (v ?? '').toUpperCase().replace(/[\s-]/g, '');
