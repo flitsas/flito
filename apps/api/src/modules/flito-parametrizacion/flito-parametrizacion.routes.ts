@@ -20,12 +20,16 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
+  CONCEPTOS_TARIFA,
   EstadoImpuesto,
   ModalidadOrganismo,
   ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
+import {
+  actualizarTarifa, crearTarifa, eliminarTarifa, listarTarifas, TarifaError,
+} from './flito-tarifas.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -365,6 +369,69 @@ router.delete('/reglas-proveedor-soat/:id', ESCRITURA, async (req: Request, res:
   if (!deleted) { res.status(404).json({ error: 'La regla no existe' }); return; }
   await audit(req, { action: 'delete', resource: 'flito_regla_proveedor_soat', resourceId: id, detail: `Regla ${deleted.ambito} eliminada` });
   res.status(204).end();
+});
+
+// ───────────────────────────────── Tarifas por compañía ────────────────────
+//
+// El valor negociado del trámite digital y de la logística. Antes eran constantes iguales para
+// todos los clientes; el requerimiento cita $200.000 en una compañía y $1.500 en otra.
+
+const tarifaCrearSchema = z.object({
+  companiaId: z.number().int().positive(),
+  concepto: z.enum(CONCEPTOS_TARIFA),
+  // Vacío o ausente = tarifa genérica del concepto.
+  tipoTramite: z.string().trim().max(60).optional().nullable(),
+  valor: z.number().nonnegative(),
+  activo: z.boolean().optional(),
+});
+const tarifaEditarSchema = z.object({
+  valor: z.number().nonnegative().optional(),
+  activo: z.boolean().optional(),
+}).refine((d) => d.valor !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
+
+/** TarifaError es de negocio (400); cualquier otra cosa sube y la maneja el error handler. */
+function tarifaFallo(res: Response, e: unknown): void {
+  if (e instanceof TarifaError) { res.status(400).json({ error: e.message }); return; }
+  throw e;
+}
+
+router.get('/tarifas', LECTURA, async (req: Request, res: Response) => {
+  const companiaId = Number(req.query.companiaId) || undefined;
+  res.json(await listarTarifas(companiaId));
+});
+
+router.post('/tarifas', ESCRITURA, async (req: Request, res: Response) => {
+  const parsed = tarifaCrearSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  try {
+    const t = await crearTarifa(parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'create', resource: 'flito_tarifa', resourceId: t.id,
+      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor} para ${t.companiaNombre ?? t.companiaId}`,
+    });
+    res.status(201).json(t);
+  } catch (e) { tarifaFallo(res, e); }
+});
+
+router.patch('/tarifas/:id', ESCRITURA, async (req: Request, res: Response) => {
+  const parsed = tarifaEditarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  try {
+    const t = await actualizarTarifa(req.params.id, parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'update', resource: 'flito_tarifa', resourceId: t.id,
+      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor}, activa=${t.activo}`,
+    });
+    res.json(t);
+  } catch (e) { tarifaFallo(res, e); }
+});
+
+router.delete('/tarifas/:id', ESCRITURA, async (req: Request, res: Response) => {
+  try {
+    await eliminarTarifa(req.params.id);
+    await audit(req, { action: 'delete', resource: 'flito_tarifa', resourceId: req.params.id, detail: 'Tarifa eliminada' });
+    res.status(204).end();
+  } catch (e) { tarifaFallo(res, e); }
 });
 
 export default router;
