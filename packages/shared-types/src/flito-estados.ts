@@ -56,7 +56,33 @@ export const SLA_OPERATIVO = {
   POR_VENCER_DIAS: 2,
   /** Dentro de estas horas el trámite se muestra como recién ingresado. */
   RECIEN_INGRESADO_HORAS: 24,
+  /**
+   * Horas tras las que un SOAT o impuesto solicitado cuenta como «sin gestión» cuando su
+   * proveedor u organismo no tiene SLA configurado. Sin este respaldo, la alerta ignoraría
+   * justo a los terceros de los que menos se sabe.
+   */
+  SIN_GESTION_HORAS_DEFECTO: 72,
 } as const;
+
+/**
+ * Alertas operativas del tablero (Feature #10942 §5.2). Son excluyentes entre sí: un botón, un
+ * valor. Cada una responde a «qué está en riesgo ahora mismo», no a un estado del trámite.
+ */
+export const ALERTAS_OPERATIVAS = [
+  'borrador_5d', 'sin_aprobar_1d', 'soat_sin_gestion', 'impuesto_sin_gestion',
+] as const;
+
+export type AlertaOperativa = (typeof ALERTAS_OPERATIVAS)[number];
+
+export const esAlertaOperativa = (v: unknown): v is AlertaOperativa =>
+  typeof v === 'string' && (ALERTAS_OPERATIVAS as readonly string[]).includes(v);
+
+export const ALERTA_OPERATIVA_LABEL: Record<AlertaOperativa, string> = {
+  borrador_5d: `Más de ${SLA_OPERATIVO.BORRADOR_DIAS} días en borrador`,
+  sin_aprobar_1d: `Más de ${SLA_OPERATIVO.SIN_APROBAR_DIAS} día sin aprobar`,
+  soat_sin_gestion: 'SOAT solicitado sin gestión',
+  impuesto_sin_gestion: 'Impuesto solicitado sin gestión',
+};
 
 /**
  * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:

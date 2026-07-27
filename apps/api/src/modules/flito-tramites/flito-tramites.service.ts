@@ -8,6 +8,7 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
+  SLA_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -209,6 +210,8 @@ export interface FiltrosListado {
    * (lo que lleva más tiempo esperando se atiende antes); 'recientes' es el default histórico.
    */
   orden?: OrdenListado;
+  /** Alerta operativa del tablero. Excluyentes entre sí: un botón, un valor. */
+  alerta?: AlertaOperativa;
   page?: number; pageSize?: number;
 }
 
@@ -375,6 +378,70 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   };
 }
 
+/**
+ * Traduce una alerta operativa a SQL (Feature #10942 §5.2).
+ *
+ * Se exporta para que el tablero cuente EXACTAMENTE lo mismo que devuelve el listado: si cada uno
+ * escribiera su propio predicado, la tarjeta diría 12 y la tabla mostraría 9, y nadie sabría cuál
+ * de los dos miente.
+ *
+ * Ojo con los joins: `soat_sin_gestion` depende de `flito_proveedores_soat` y
+ * `impuesto_sin_gestion` de `organismos_transito_config`. Toda consulta que use estas condiciones
+ * debe incluirlos, o Postgres falla con «missing FROM-clause entry».
+ */
+/**
+ * Estados de FLIT que significan «este trámite ya no espera aprobación»: o la pasó, o murió.
+ * En minúsculas y sin espacios, como se comparan.
+ *
+ * `sql.join` con parámetros individuales, no un array de JS: `<> ALL(${array})` falla en tiempo de
+ * ejecución con «op ANY/ALL (array) requires array on right side», y ningún test con drizzle
+ * mockeado lo detecta.
+ */
+const ESTADOS_PASADA_APROBACION = ['aprobado', 'entregado', 'anulado', 'rechazado', 'abortado'] as const;
+const sqlEstadosPasadaAprobacion = () =>
+  sql.join(ESTADOS_PASADA_APROBACION.map((e) => sql`${e}`), sql`, `);
+
+export function condicionAlerta(alerta: AlertaOperativa): SQL {
+  // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
+  const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
+  // make_interval en vez de concatenar texto: `$1 || ' days'` deja el tipo del parámetro ambiguo.
+  const horasSinGestion = SLA_OPERATIVO.SIN_GESTION_HORAS_DEFECTO;
+
+  switch (alerta) {
+    case 'borrador_5d': {
+      // Cuándo entró a Borrador, según el historial. Un trámite que NACIÓ en Borrador y nunca
+      // cambió no tiene fila de historial (solo se registra en UPDATE), de ahí el COALESCE.
+      const entroABorrador = sql`COALESCE((
+        SELECT MAX(${flitoTramiteHistorial.createdAt})
+          FROM ${flitoTramiteHistorial}
+         WHERE ${flitoTramiteHistorial.tramiteId} = ${flitoTramites.id}
+           AND ${flitoTramiteHistorial.campo} = 'flit_estado'
+           AND LOWER(TRIM(COALESCE(${flitoTramiteHistorial.valorNuevo}, ''))) = 'borrador'
+      ), ${nacimiento})`;
+      return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) = 'borrador'
+        AND ${entroABorrador} < NOW() - make_interval(days => ${SLA_OPERATIVO.BORRADOR_DIAS})`;
+    }
+    case 'sin_aprobar_1d':
+      // La alerta busca cuellos de botella administrativos, así que solo cuenta lo que SIGUE
+      // esperando aprobación. No basta con `fecha_aprobacion IS NULL`: FLIT deja ese campo vacío en
+      // trámites que ya avanzaron o murieron, y contarlos metía 400 Entregados en la alerta.
+      //
+      // Es una lista de exclusión, no de inclusión, y es deliberado: el catálogo de estados de FLIT
+      // es abierto. Si aparece un estado nuevo previo a la aprobación, con lista de exclusión sale
+      // en la alerta (visible, corregible); con lista de inclusión desaparecería en silencio, que es
+      // justo el fallo que se acaba de arreglar en el listado.
+      return sql`${flitoTramites.fechaAprobacion} IS NULL
+        AND LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) NOT IN (${sqlEstadosPasadaAprobacion()})
+        AND ${nacimiento} < NOW() - make_interval(days => ${SLA_OPERATIVO.SIN_APROBAR_DIAS})`;
+    case 'soat_sin_gestion':
+      return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL
+        AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => COALESCE(${flitoProveedoresSoat.slaHoras}, ${horasSinGestion}))`;
+    case 'impuesto_sin_gestion':
+      return sql`${flitoImpuestos.estado} = 'solicitado' AND ${flitoImpuestos.enviadoEn} IS NOT NULL
+        AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => COALESCE(${organismosTransitoConfig.flitoSlaHoras}, ${horasSinGestion}))`;
+  }
+}
+
 // Traduce los filtros del listado a condiciones SQL. `buscar` es una búsqueda global (id FLIT, placa,
 // VIN, nombre/documento del comprador; placa/VIN toleran guiones).
 //
@@ -420,6 +487,7 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
+  if (f.alerta) conds.push(condicionAlerta(f.alerta));
   return conds;
 }
 
@@ -439,6 +507,9 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+    // El proveedor entra aquí porque la alerta `soat_sin_gestion` lo necesita para su SLA. Sin este
+    // join, filtrar por esa alerta rompería el COUNT con «missing FROM-clause entry».
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .where(and(...conds));
   const total = Number(countRows[0]?.total ?? 0);
