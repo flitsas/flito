@@ -14,6 +14,7 @@ import {
   clients, flitoCompradores, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
+import { flitoDerechosTramite } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
@@ -54,6 +55,8 @@ export interface TramiteFila {
   /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
   asignado: boolean;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
+  /** Valor real del derecho de trámite (HU #10953). null = aún sin recibo → la UI muestra el estimado. */
+  derechoTramiteValor: number | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
@@ -222,6 +225,9 @@ function proyeccion() {
     impuestoValorPagado: flitoImpuestos.valorPagado,
     impuestoMarcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia,
     impuestoExtraccion: flitoImpuestos.extraccion,
+    // HU #10953: valor real del derecho de trámite leído del recibo del organismo. Null mientras
+    // ese trámite no tenga recibo cargado; la UI cae entonces al estimado.
+    derechoValor: flitoDerechosTramite.valor,
     // Integración FLIT (Fase 8): estado crudo, datos del reporte y emparejamientos.
     flitEstado: flitoTramites.flitEstado,
     tipoTramite: flitoTramites.tipoTramite,
@@ -259,6 +265,7 @@ function proyeccion() {
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     // Estado logístico de la LT (tracking): a lo sumo una por trámite (unique tramite+tipo).
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, 'licencia_transito')));
 }
@@ -302,6 +309,8 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
     tipoTramite: f.tipoTramite,
     ciudad: f.ciudad,
     fechaAprobacion: f.fechaAprobacion ? f.fechaAprobacion.toISOString() : null,
+    // Valor real del derecho; null = todavía no hay recibo y la UI muestra el estimado.
+    derechoTramiteValor: f.derechoValor === null ? null : Number(f.derechoValor),
     companiaNombre: f.companiaNombre,
     empresaExiste: f.companiaId !== null,
     empresaNit: f.companiaNit,
@@ -341,10 +350,16 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   };
 }
 
-// Traduce los filtros del listado a condiciones SQL. Excluye siempre los trámites terminados. `buscar`
-// es una búsqueda global (id FLIT, placa, VIN, nombre/documento del comprador; placa/VIN toleran guiones).
+// Traduce los filtros del listado a condiciones SQL. `buscar` es una búsqueda global (id FLIT,
+// placa, VIN, nombre/documento del comprador; placa/VIN toleran guiones).
+//
+// El listado muestra los trámites en TODOS sus estados. Antes arrancaba con
+// `estado NOT IN (anulado, rechazado)`, lo que además de ocultar los terminados escondía en
+// silencio los 526 trámites con `estado` NULL —los Borrador y Abortado—, porque en SQL
+// `NULL NOT IN (...)` es NULL y la fila se descarta. Eso hacía "desaparecer" trámites que existen
+// y que el gestor necesita ver; quien quiera acotar por estado tiene el filtro de la cabecera.
 function construirCondiciones(f: FiltrosListado): SQL[] {
-  const conds: SQL[] = [notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS])];
+  const conds: SQL[] = [];
 
   const termino = f.buscar?.trim();
   if (termino) {
