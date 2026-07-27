@@ -86,6 +86,8 @@ export const PAGES = {
   // para el portal SOAT de FLITO (reemplaza el módulo SOAT legacy). El resto son nuevos.
   flito_tramites: 'FLITO — Trámites',
   flito_impuestos: 'FLITO — Impuestos',
+  // Derechos de trámite: lo que el organismo cobra por radicar (HU #10950/#10951).
+  flito_derechos: 'FLITO — Derechos de trámite',
   flito_revisiones: 'FLITO — Revisión OCR',
   flito_compuerta: 'FLITO — Compuerta de entrega',
   flito_parametrizacion: 'FLITO — Parametrización',
@@ -110,7 +112,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
@@ -134,15 +136,16 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
   // incluye en ningún requireRole de mutación FLITO — solo lectura.
   auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
-    'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica'],
+    'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
   gestor_impuestos: ['dashboard', 'flito_impuestos'],
   // FLITO Logística — Mensajero: su ruta de campo (PWA). No accede a la consola de Operaciones.
   mensajero: ['dashboard', 'flito_logistica_ruta'],
-  // Finanzas — usuarios financieros: hoy solo el reporte de costos por trámite.
-  financiera: ['dashboard', 'finanzas_reporte_costos'],
+  // Finanzas — usuarios financieros: el reporte de costos y la consulta (solo lectura) de los
+  // derechos de trámite, que es de donde sale el valor real de ese reporte.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'flito_derechos'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos
