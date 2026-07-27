@@ -2488,6 +2488,10 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Id S3 de la factura de venta en FLIT (campo `factura`). Vacío = aún sin factura → no se solicita impuesto.
   facturaVentaFlitId: varchar('factura_venta_flit_id', { length: 120 }),
   fechaAprobacion: timestamp('fecha_aprobacion', { withTimezone: true }),
+  // Fecha en que el trámite nació EN FLIT (HU #10959). `createdAt` de abajo es cuándo lo ingirió el
+  // sync: en la primera corrida masiva todos los históricos comparten esa fecha, así que no sirve
+  // para medir antigüedad. Nullable porque el reporte solo empezó a traerla en 2026-07.
+  fechaCreacionFlit: timestamp('fecha_creacion_flit', { withTimezone: true }),
   // Payload completo de FLIT para trazabilidad/depuración.
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),
@@ -2499,6 +2503,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
   flitEstadoIdx: index('idx_flito_tramites_flit_estado').on(t.flitEstado),
   companiaNitIdx: index('idx_flito_tramites_compania_nit').on(t.companiaNit),
+  // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
+  fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
+  createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
@@ -2514,6 +2521,9 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tramiteIdx: index('idx_flito_tramite_historial_tramite').on(t.tramiteId, t.createdAt),
+  // Reconstruir cuándo un trámite entró a un estado (HU #10959) exige filtrar por campo, no solo
+  // por trámite: sin esto, «lleva N días en Borrador» recorre todo el historial de la fila.
+  campoIdx: index('idx_flito_tramite_historial_campo').on(t.tramiteId, t.campo, t.createdAt),
 }));
 
 // Impuesto, uno por trámite (tramite_id UNIQUE).

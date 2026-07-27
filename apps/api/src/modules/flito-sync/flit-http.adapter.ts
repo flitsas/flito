@@ -16,6 +16,8 @@ export interface ItemFlit {
   factura?: string; nombres?: string; apellidos?: string; cedulanit?: string; direccion?: string;
   celular?: string; correoelectronico?: string; Transito?: string; CompaniaGestora?: string;
   fecha_aprobacion?: string | null;
+  /** Fecha de creación del trámite en FLIT. Campo reciente del reporte: puede no venir. */
+  fechaCreacion?: string | null;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
@@ -33,6 +35,7 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     transitoNombre: s(it.Transito),
     organismoCodigo: null, // el reporte da el nombre; el sync resuelve el código por nombre.
     fechaAprobacion: s(it.fecha_aprobacion ?? null),
+    fechaCreacionFlit: s(it.fechaCreacion ?? null),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',
