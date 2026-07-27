@@ -13,9 +13,9 @@
 //     sistema por su cuenta, porque asociar el pago al trámite equivocado descuadra la liquidación.
 
 import { createHash } from 'crypto';
-import { and, desc, eq, notInArray, or, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import {
-  CampoDerechoTramite, CAMPOS_REQUERIDOS_DERECHO, ESTADOS_TRAMITE_FLITO_TERMINADOS,
+  CampoDerechoTramite, CAMPOS_REQUERIDOS_DERECHO,
   FlujoRevision, MotivoRevision, type ExtraccionDerechoTramite,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -135,28 +135,28 @@ export interface CandidatoTramite {
 }
 
 /**
- * Estados de FLIT en los que un trámite NO puede tener un derecho de trámite pagado: o todavía no
- * se ha radicado ante el organismo (Borrador) o el trámite ya murió (Abortado/Anulado/Rechazado).
+ * Estado de FLIT en el que un trámite PUEDE tener un derecho de trámite pagado.
  *
- * Se comparan contra `flitEstado` y no contra el enum interno `estado` porque `flitEstado` es la
- * fuente de verdad del estado real: un Borrador tiene `estado` NULL, así que filtrar solo por el
- * enum lo dejaba entrar como candidato y generaba ambigüedades que no existen — el caso real de la
- * placa QXT585, donde el único trámite radicado era uno y el sistema ofrecía dos.
+ * Es una lista blanca, no de exclusión, y esa dirección es deliberada: `flitEstado` es texto libre
+ * que llega de FLIT y su catálogo es ABIERTO (el propio contrato lo documenta como "Borrador,
+ * Asignado, Aprobado, …"). Con una lista de exclusión, un estado nuevo de pre-radicación entraría
+ * por defecto como válido y podría colgarle un derecho pagado a un trámite que nunca se radicó:
+ * un dato financiero incorrecto escrito en silencio. Con lista blanca el fallo se invierte y se
+ * vuelve visible — el recibo cae en la bandeja de pendientes, que se reintenta sola.
+ *
+ * Solo `Aprobado`: es cuando el organismo genera el derecho de trámite (regla de negocio), y es
+ * además el estado final del flujo (Asignado → Entregado → Aprobado), así que un trámite no se
+ * "sale" de la lista más adelante. Un recibo que llegue antes de la aprobación espera en
+ * pendientes y se asocia solo en cuanto el trámite llega a Aprobado.
  */
-const FLIT_ESTADOS_SIN_DERECHO = ['borrador', 'abortado', 'anulado', 'rechazado'] as const;
+const FLIT_ESTADOS_CON_DERECHO = ['aprobado'] as const;
 
-/**
- * Lista para un `NOT IN (...)`, con cada estado como parámetro propio.
- *
- * No se usa `<> ALL(array)`: el driver no envía un arreglo de Postgres y la consulta revienta con
- * "op ANY/ALL (array) requires array on right side" — un fallo que solo aparece contra una base
- * real, nunca con drizzle mockeado.
- */
-function sqlListaEstadosSinDerecho() {
-  return sql.join(FLIT_ESTADOS_SIN_DERECHO.map((e) => sql`${e}`), sql`, `);
+/** Lista para un `IN (...)`, con cada estado como parámetro propio. */
+function sqlEstadosConDerecho() {
+  return sql.join(FLIT_ESTADOS_CON_DERECHO.map((e) => sql`${e}`), sql`, `);
 }
 
-/** Trámites de esa placa que pueden tener un derecho pagado (radicados y no muertos). */
+/** Trámites de esa placa que pueden tener un derecho pagado (aprobados por el organismo). */
 export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[]> {
   return db.select({
     tramiteId: flitoTramites.id,
@@ -173,13 +173,9 @@ export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     .where(and(
       sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarTexto(placa)}`,
-      // `flitEstado` desconocido (NULL) NO descarta: sin dato preferimos ofrecerlo y que decida una
-      // persona, antes que ocultar en silencio el trámite al que quizá pertenece el pago.
-      sql`LOWER(COALESCE(${flitoTramites.flitEstado}, '')) NOT IN (${sqlListaEstadosSinDerecho()})`,
-      or(
-        isNull(flitoTramites.estado),
-        notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS]),
-      ),
+      // No se filtra además por el enum interno `estado`: es redundante (Aprobado siempre mapea a
+      // 'aprobado') y excluiría de más las filas donde el enum quedó NULL por datos antiguos.
+      sql`LOWER(COALESCE(${flitoTramites.flitEstado}, '')) IN (${sqlEstadosConDerecho()})`,
     ))
     .orderBy(desc(flitoTramites.createdAt));
 }
