@@ -5,11 +5,13 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
-import { parseLicenciaTransito } from '@operaciones/shared-types';
+import {
+  ALERTA_OPERATIVA_LABEL, esAlertaOperativa, parseLicenciaTransito, type AlertaOperativa,
+} from '@operaciones/shared-types';
 import {
   ESTADO_LOGISTICA_SIMPLE_LABEL, ESTADOS_LOGISTICA_SIMPLE_ORDEN, simplificarEstadoLogistica,
   type EstadoLogisticaSimple,
@@ -141,12 +143,23 @@ export default function FlitoTramites() {
   // Orden cronológico. 'antiguos' es el orden de trabajo del gestor: lo que lleva más esperando va
   // primero. El default sigue siendo lo más reciente, que es como se comportaba antes.
   const [ordenSel, setOrdenSel] = useState<'recientes' | 'antiguos'>('recientes');
+  // La alerta vive en la URL, no en un useState: así el enlace del tablero la aplica al entrar y
+  // la pantalla se puede compartir tal cual. Derivarla (en vez de copiarla a estado) evita que la
+  // barra de direcciones y la tabla se desincronicen.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const alertaParam = searchParams.get('alerta');
+  const alertaSel: AlertaOperativa | '' = esAlertaOperativa(alertaParam) ? alertaParam : '';
+  const setAlertaSel = (v: AlertaOperativa | '') => {
+    const next = new URLSearchParams(searchParams);
+    if (v) next.set('alerta', v); else next.delete('alerta');
+    setSearchParams(next, { replace: true });
+  };
   // Todos los filtros son multiselect; se serializan a una key para las dependencias de los efectos.
   const soatKey = soatSel.join(','); const impKey = impSel.join(','); const empresasKey = empresasSel.join(',');
   const estadosKey = estadosSel.join(','); const ciudadesKey = ciudadesSel.join(','); const transitosKey = transitosSel.join(',');
 
   // Cualquier cambio de filtro/búsqueda vuelve a la página 1 (evita quedar en una página vacía).
-  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel]);
+  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel]);
 
   // Carga la página actual desde el servidor con todos los filtros aplicados en SQL.
   useEffect(() => {
@@ -161,12 +174,13 @@ export default function FlitoTramites() {
     if (impSel.length) q.set('impuesto', impSel.join(','));
     if (autogestionSel) q.set('autogestion', autogestionSel);
     if (ordenSel !== 'recientes') q.set('orden', ordenSel);
+    if (alertaSel) q.set('alerta', alertaSel);
     q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE));
     api.get<Paginado>(`/flito/tramites?${q}`)
       .then((r) => { setData(r.items); setTotal(r.total); })
       .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, page, recarga]);
+  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel, page, recarga]);
 
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
   useEffect(() => {
@@ -190,7 +204,7 @@ export default function FlitoTramites() {
   const ids = () => [...seleccion];
   const limpiar = () => setSeleccion(new Set());
   const n = seleccion.size;
-  const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '';
+  const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
   const accionables = useMemo(() => filas.filter(esAccionable), [filas]);
 
   const ejecutar = async (fn: () => Promise<Resultado>) => {
@@ -336,6 +350,17 @@ export default function FlitoTramites() {
                 );
               })}
             </div>
+            {/* Alerta activa (llega del tablero por URL). Se muestra siempre que esté puesta, para
+                que nadie interprete un listado recortado como si fuera la maestra completa. */}
+            {alertaSel && (
+              <button type="button" onClick={() => setAlertaSel('')}
+                aria-label={`Quitar la alerta ${ALERTA_OPERATIVA_LABEL[alertaSel]}`}
+                className="flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold"
+                style={{ background: 'var(--flit-blue-text)', color: '#fff' }}>
+                {ALERTA_OPERATIVA_LABEL[alertaSel]}
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
             {/* Orden cronológico: el gestor trabaja de lo más viejo a lo más nuevo. */}
             <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
               Orden
@@ -355,7 +380,7 @@ export default function FlitoTramites() {
             )}
             {hayFiltros && (
               <button className="ml-auto text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); }}>Limpiar filtros</button>
+                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel(''); }}>Limpiar filtros</button>
             )}
           </div>
           {filas.length === 0 ? (
