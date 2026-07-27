@@ -293,6 +293,10 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // porque cada organismo emite el recibo en un formato distinto: en vez de un extractor por
   // organismo, una línea de configuración desambigua las etiquetas raras ("VALOR NETO A PAGAR").
   flitoOcrPromptHint: text('flito_ocr_prompt_hint'),
+  // HU #10952: carpeta de Drive donde el organismo publica sus recibos de derecho de trámite.
+  // Es por organismo y no una sola global porque cada secretaría publica en su propio Drive.
+  flitoDriveFolderId: varchar('flito_drive_folder_id', { length: 120 }),
+  flitoDriveActivo: boolean('flito_drive_activo').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -575,6 +579,11 @@ export const procesamientoCuentas = pgTable('procesamiento_cuentas', {
   directorioSalida: varchar('directorio_salida', { length: 255 }),
   estado: varchar('estado', { length: 20 }).notNull().default('procesando'),
   error: text('error'),
+  // HU #10952: idempotencia de la sincronización con Drive. El scope de Drive es de solo lectura,
+  // así que no se puede marcar el archivo en el origen: se lleva aquí. La fecha de modificación
+  // acompaña al id porque un mismo archivo puede reemplazarse en Drive conservando su id.
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }),
+  driveModifiedTime: timestamp('drive_modified_time', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

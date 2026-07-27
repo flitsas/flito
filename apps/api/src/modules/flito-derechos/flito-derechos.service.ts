@@ -260,6 +260,18 @@ async function documentosDe(archivo: ArchivoPlano): Promise<ArchivoPlano[]> {
   }));
 }
 
+/** ¿Este archivo, byte por byte, ya está cargado y sin descartar? Devuelve el derecho al que fue. */
+async function duplicadoPorHash(hash: string): Promise<{ derechoId: string | null } | null> {
+  const [dup] = await db.select({ derechoId: flitoSoportes.derechoId })
+    .from(flitoSoportes)
+    .where(and(
+      eq(flitoSoportes.hash, hash),
+      eq(flitoSoportes.tipo, TIPO_SOPORTE_DERECHO),
+      eq(flitoSoportes.descartado, false),
+    )).limit(1);
+  return dup ?? null;
+}
+
 async function procesarDocumento(
   archivo: ArchivoPlano,
   umbral: number,
@@ -270,14 +282,7 @@ async function procesarDocumento(
 ): Promise<void> {
   const hash = createHash('sha256').update(archivo.buffer).digest('hex');
 
-  // El mismo archivo, byte por byte, ya está cargado y no fue descartado.
-  const [dupHash] = await db.select({ derechoId: flitoSoportes.derechoId })
-    .from(flitoSoportes)
-    .where(and(
-      eq(flitoSoportes.hash, hash),
-      eq(flitoSoportes.tipo, TIPO_SOPORTE_DERECHO),
-      eq(flitoSoportes.descartado, false),
-    )).limit(1);
+  const dupHash = await duplicadoPorHash(hash);
   if (dupHash) {
     res.duplicados.push(item(archivo.originalname, {
       registroId: dupHash.derechoId,
@@ -293,7 +298,48 @@ async function procesarDocumento(
     umbral,
   };
   const extraccion = await extraerDerechoTramite(doc, promptHint);
+  await procesarExtraccion(archivo, hash, extraccion, umbral, opciones, ctx, res);
+}
 
+/**
+ * Registra una lectura YA hecha, sin volver a pasar por el OCR.
+ *
+ * La usa el procesador de cuentas de cobro de Drive, que tiene su propio OCR página a página (y
+ * genera además el Excel y los PDF por placa que Operaciones usa hoy): re-analizar cada página con
+ * el extractor de este módulo duplicaría el gasto de OCR para llegar al mismo dato.
+ */
+export async function registrarDesdeExtraccion(
+  archivo: ArchivoPlano,
+  extraccion: ExtraccionDerechoTramite,
+  opciones: OpcionesCarga,
+  ctx: DerechoCtx,
+): Promise<ResultadoDerechos> {
+  const res = vacio();
+  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+
+  const dupHash = await duplicadoPorHash(hash);
+  if (dupHash) {
+    res.duplicados.push(item(archivo.originalname, {
+      registroId: dupHash.derechoId,
+      detalle: 'Ese recibo ya está cargado: el archivo es idéntico a uno registrado antes.',
+    }));
+    return res;
+  }
+
+  const { umbral } = await parametrosOrganismo(opciones.organismoCodigo ?? null);
+  await procesarExtraccion(archivo, hash, extraccion, umbral, opciones, ctx, res);
+  return res;
+}
+
+async function procesarExtraccion(
+  archivo: ArchivoPlano,
+  hash: string,
+  extraccion: ExtraccionDerechoTramite,
+  umbral: number,
+  opciones: OpcionesCarga,
+  ctx: DerechoCtx,
+  res: ResultadoDerechos,
+): Promise<void> {
   // Portada, resumen o página en blanco: no es un error, simplemente no hay recibo que registrar.
   if (esPaginaSinContenido(extraccion)) {
     res.omitidas.push(item(archivo.originalname, {

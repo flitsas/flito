@@ -16,6 +16,9 @@ import {
   DerechoError, cargarDerechos, candidatosDePlaca, listarDerechos, listarPendientes,
   reintentarPendientes, type DerechoCtx,
 } from './flito-derechos.service.js';
+import { sincronizarDerechosDrive, organismosConDrive } from './flito-derechos-drive.service.js';
+import { LOCK_SYNC_DERECHOS, LOCK_TTL_MS } from './flito-derechos.cron.js';
+import { withLock } from '../../shared/utils/lock.js';
 import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 
 const router = Router();
@@ -90,6 +93,36 @@ router.post('/pendientes/reintentar', OPERACIONES, async (req: Request, res: Res
     detail: `Reintento de pendientes: ${resultado.asociados}/${resultado.revisados} asociados`,
   });
   res.json(resultado);
+});
+
+// GET /drive/organismos — organismos con Drive configurado y encendido (para el botón de la UI).
+router.get('/drive/organismos', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await organismosConDrive());
+});
+
+// POST /drive/sincronizar — barrido manual, sin esperar al ciclo programado. `organismoCodigo`
+// opcional lo acota a uno. Comparte lock con el cron: si hay un barrido en curso responde 409 en
+// vez de procesar los mismos archivos dos veces (AC7).
+const syncSchema = z.object({ organismoCodigo: z.string().min(1).max(5).optional() });
+router.post('/drive/sincronizar', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = syncSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const resumen = await withLock(LOCK_SYNC_DERECHOS, LOCK_TTL_MS, () =>
+      sincronizarDerechosDrive(contexto(req), parsed.data.organismoCodigo ?? null));
+
+    if (!resumen) {
+      res.status(409).json({ error: 'Ya hay una sincronización en curso. Espera a que termine.' });
+      return;
+    }
+    const registrados = resumen.organismos.reduce((s, o) => s + o.registrados, 0);
+    const nuevos = resumen.organismos.reduce((s, o) => s + o.archivosNuevos, 0);
+    await audit(req, {
+      action: 'update', resource: 'flito_derecho_tramite',
+      detail: `Sincronización Drive: ${resumen.organismosActivos} organismo(s), ${nuevos} archivo(s) nuevo(s), ${registrados} registrado(s)`,
+    });
+    res.json(resumen);
+  } catch (e) { handleError(res, e); }
 });
 
 // GET /candidatos/:placa — trámites vivos de una placa, para elegir en la cola de revisión.
