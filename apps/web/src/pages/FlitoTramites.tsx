@@ -19,6 +19,7 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import AntiguedadPill from '../components/flit/AntiguedadPill';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -26,16 +27,17 @@ import {
 
 interface FilaSoat {
   id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
-  enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+  enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
 interface FilaImpuesto {
   id: string; estado: EstadoImpuesto; tieneFacturaVenta: boolean; coincidenciaFacturaVenta: number | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+  enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
 interface TramiteFila {
   tramiteId: string; idFlit: string; estado: string; asignado: boolean;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
+  fechaCreacion: string | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
@@ -136,12 +138,15 @@ export default function FlitoTramites() {
   const [empresasOpc, setEmpresasOpc] = useState<{ nit: string; nombre: string }[]>([]);
   // Filtro rápido de autogestión de la empresa: '' = todas · 'si' = autogestionadas · 'no' = no autogestionadas.
   const [autogestionSel, setAutogestionSel] = useState<'' | 'si' | 'no'>('');
+  // Orden cronológico. 'antiguos' es el orden de trabajo del gestor: lo que lleva más esperando va
+  // primero. El default sigue siendo lo más reciente, que es como se comportaba antes.
+  const [ordenSel, setOrdenSel] = useState<'recientes' | 'antiguos'>('recientes');
   // Todos los filtros son multiselect; se serializan a una key para las dependencias de los efectos.
   const soatKey = soatSel.join(','); const impKey = impSel.join(','); const empresasKey = empresasSel.join(',');
   const estadosKey = estadosSel.join(','); const ciudadesKey = ciudadesSel.join(','); const transitosKey = transitosSel.join(',');
 
   // Cualquier cambio de filtro/búsqueda vuelve a la página 1 (evita quedar en una página vacía).
-  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel]);
+  useEffect(() => { setPage(1); }, [buscar, estadosKey, ciudadesKey, transitosKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel]);
 
   // Carga la página actual desde el servidor con todos los filtros aplicados en SQL.
   useEffect(() => {
@@ -155,12 +160,13 @@ export default function FlitoTramites() {
     if (soatSel.length) q.set('soat', soatSel.join(','));
     if (impSel.length) q.set('impuesto', impSel.join(','));
     if (autogestionSel) q.set('autogestion', autogestionSel);
+    if (ordenSel !== 'recientes') q.set('orden', ordenSel);
     q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE));
     api.get<Paginado>(`/flito/tramites?${q}`)
       .then((r) => { setData(r.items); setTotal(r.total); })
       .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, page, recarga]);
+  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, page, recarga]);
 
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
   useEffect(() => {
@@ -330,6 +336,15 @@ export default function FlitoTramites() {
                 );
               })}
             </div>
+            {/* Orden cronológico: el gestor trabaja de lo más viejo a lo más nuevo. */}
+            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              Orden
+              <select className={`${flitInp} h-9`} value={ordenSel}
+                onChange={(e) => setOrdenSel(e.target.value as 'recientes' | 'antiguos')}>
+                <option value="recientes">Más recientes primero</option>
+                <option value="antiguos">Más antiguos primero</option>
+              </select>
+            </label>
             <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{total.toLocaleString('es-CO')} trámite(s)</span>
             {total > PAGE_SIZE && (
               <div className="flex items-center gap-2 text-xs">
@@ -360,6 +375,7 @@ export default function FlitoTramites() {
                   Trámite
                   <ThFiltroMulti seleccion={estadosSel} onCambio={setEstadosSel} opciones={aOpc(facetas.estados)} placeholder="Todos los estados" />
                 </FlitTh>
+                <FlitTh>Creado</FlitTh>
                 <FlitTh>Vehículo</FlitTh>
                 <FlitTh>Comprador</FlitTh>
                 <FlitTh>
@@ -407,6 +423,10 @@ export default function FlitoTramites() {
                       <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
                     </button>
                     {f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-sm tabular-nums">{fecha(f.fechaCreacion)}</div>
+                    <div className="mt-1"><AntiguedadPill desde={f.fechaCreacion} /></div>
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>
