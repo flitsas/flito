@@ -134,7 +134,29 @@ export interface CandidatoTramite {
   yaTieneDerecho: boolean;
 }
 
-/** Trámites vivos de esa placa. `estado` nulo cuenta como vivo: aún no se ha clasificado. */
+/**
+ * Estados de FLIT en los que un trámite NO puede tener un derecho de trámite pagado: o todavía no
+ * se ha radicado ante el organismo (Borrador) o el trámite ya murió (Abortado/Anulado/Rechazado).
+ *
+ * Se comparan contra `flitEstado` y no contra el enum interno `estado` porque `flitEstado` es la
+ * fuente de verdad del estado real: un Borrador tiene `estado` NULL, así que filtrar solo por el
+ * enum lo dejaba entrar como candidato y generaba ambigüedades que no existen — el caso real de la
+ * placa QXT585, donde el único trámite radicado era uno y el sistema ofrecía dos.
+ */
+const FLIT_ESTADOS_SIN_DERECHO = ['borrador', 'abortado', 'anulado', 'rechazado'] as const;
+
+/**
+ * Lista para un `NOT IN (...)`, con cada estado como parámetro propio.
+ *
+ * No se usa `<> ALL(array)`: el driver no envía un arreglo de Postgres y la consulta revienta con
+ * "op ANY/ALL (array) requires array on right side" — un fallo que solo aparece contra una base
+ * real, nunca con drizzle mockeado.
+ */
+function sqlListaEstadosSinDerecho() {
+  return sql.join(FLIT_ESTADOS_SIN_DERECHO.map((e) => sql`${e}`), sql`, `);
+}
+
+/** Trámites de esa placa que pueden tener un derecho pagado (radicados y no muertos). */
 export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[]> {
   return db.select({
     tramiteId: flitoTramites.id,
@@ -151,6 +173,9 @@ export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     .where(and(
       sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarTexto(placa)}`,
+      // `flitEstado` desconocido (NULL) NO descarta: sin dato preferimos ofrecerlo y que decida una
+      // persona, antes que ocultar en silencio el trámite al que quizá pertenece el pago.
+      sql`LOWER(COALESCE(${flitoTramites.flitEstado}, '')) NOT IN (${sqlListaEstadosSinDerecho()})`,
       or(
         isNull(flitoTramites.estado),
         notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS]),
