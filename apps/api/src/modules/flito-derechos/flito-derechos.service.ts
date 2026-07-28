@@ -133,6 +133,10 @@ export interface CandidatoTramite {
   document: string | null;
   carpeta: string | null;
   yaTieneDerecho: boolean;
+  // Los tres siguientes solo se usan para componer el nombre del archivo (ver `nombreArchivoDerecho`).
+  placa: string | null;
+  ciudad: string | null;
+  companiaNombre: string | null;
 }
 
 /**
@@ -168,6 +172,9 @@ export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[
     document: clients.document,
     carpeta: clients.flitoCarpetaStorage,
     yaTieneDerecho: sql<boolean>`${flitoDerechosTramite.id} is not null`,
+    placa: vehicles.plate,
+    ciudad: flitoTramites.ciudad,
+    companiaNombre: clients.name,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
@@ -385,7 +392,7 @@ async function procesarExtraccion(
   if (!veredicto.aprobada) {
     const unico = finalistas.length === 1 ? finalistas[0] : null;
     const soporteId = unico
-      ? await archivar(unico, archivo, hash, ctx)
+      ? await archivar(unico, archivo, hash, extraccion, ctx)
       : await archivarSuelto(archivo, opciones, hash, ctx);
     await aRevision(soporteId, extraccion, veredicto, unico?.tramiteId ?? null, placa, ctx);
     res.enRevision.push(item(archivo.originalname, {
@@ -421,7 +428,7 @@ async function procesarExtraccion(
   }
 
   const advertencias = advertenciasDe(elegido, extraccion);
-  const soporteId = await archivar(elegido, archivo, hash, ctx);
+  const soporteId = await archivar(elegido, archivo, hash, extraccion, ctx);
   const derechoId = await registrar(elegido, extraccion, soporteId, advertencias, opciones, ctx);
 
   res.registrados.push(item(archivo.originalname, {
@@ -452,14 +459,80 @@ export function advertenciasDe(cand: CandidatoTramite, extraccion: ExtraccionDer
   return out;
 }
 
+// ─────────────────────────── Nombre del archivo ──────────────────────────────
+
+/**
+ * Mayúsculas sin tildes, CONSERVANDO los espacios. No sirve `normalizarTexto`, que los quita: eso
+ * está bien para comparar llaves, pero aquí «LEASING BANCOLOMBIA» quedaría pegado en una palabra.
+ */
+function paraNombre(v: string | null | undefined): string {
+  return (v ?? '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+}
+
+/** yyyy-mm-dd. Acepta también dd/mm/yyyy, que es como lo imprimen varios organismos. */
+function diaIso(v: string | null): string {
+  const s = (v ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = /^(\d{2})[/-](\d{2})[/-](\d{4})$/.exec(s);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : '';
+}
+
+/** `.pdf` de «recibo.pdf». Vacío si el nombre no tiene extensión reconocible. */
+function extensionDe(nombre: string): string {
+  const m = /(\.[A-Za-z0-9]{1,5})$/.exec(nombre);
+  return m ? m[1].toLowerCase() : '';
+}
+
+/**
+ * Nombre del archivo del recibo, en el formato que ya se usa con el Drive:
+ *
+ *   `2026-07-07 ESQ911 ENVIGADO LEASING TRASPASO TRASPASO UNILATERAL.pdf`
+ *    fecha      placa  ciudad   cliente tipo     tipo específico
+ *
+ * La fecha y el tipo específico salen del propio recibo (OCR); la ciudad, el cliente y el tipo, del
+ * trámite con el que cruzó. Un componente que no se pudo extraer se OMITE en vez de dejar un hueco
+ * o un marcador: el nombre queda más corto, pero nunca miente ni deja separadores sueltos.
+ *
+ * Si no se pudo componer nada, se conserva el nombre original: un archivo con nombre feo es
+ * recuperable, uno sin nombre no.
+ */
+export function nombreArchivoDerecho(
+  cand: CandidatoTramite,
+  extraccion: ExtraccionDerechoTramite,
+  nombreOriginal: string,
+): string {
+  const partes = [
+    diaIso(extraccion[CampoDerechoTramite.FECHA_PAGO]?.valor ?? null),
+    paraNombre(cand.placa),
+    paraNombre(cand.ciudad),
+    paraNombre(cand.companiaNombre),
+    paraNombre(cand.tipoTramite),
+    paraNombre(extraccion[CampoDerechoTramite.TIPO_TRAMITE]?.valor ?? null),
+  ].filter((p) => p.length > 0);
+
+  if (partes.length === 0) return nombreOriginal;
+  return `${partes.join(' ')}${extensionDe(nombreOriginal)}`;
+}
+
 // ─────────────────────────── Persistencia ────────────────────────────────────
 
-async function archivar(cand: CandidatoTramite, archivo: ArchivoPlano, hash: string, ctx: DerechoCtx): Promise<string> {
+async function archivar(
+  cand: CandidatoTramite,
+  archivo: ArchivoPlano,
+  hash: string,
+  extraccion: ExtraccionDerechoTramite,
+  ctx: DerechoCtx,
+): Promise<string> {
   const carpeta = cand.companiaId !== null
     ? carpetaDe({ id: cand.companiaId, document: cand.document, flitoCarpetaStorage: cand.carpeta }, 'derechos-tramite')
     : `${CARPETA_SIN_ASOCIAR}/sin-compania`;
-  const storageKey = await uploadEntityDocument(carpeta, cand.tramiteId, archivo.originalname, archivo.buffer, archivo.mimetype);
-  return insertarSoporte(archivo, storageKey, hash, ctx);
+  // El nombre se compone solo cuando el recibo ya cruzó con un trámite: antes de eso faltan la
+  // ciudad, el cliente y el tipo, y quedaría un nombre a medias.
+  const nombre = nombreArchivoDerecho(cand, extraccion, archivo.originalname);
+  const storageKey = await uploadEntityDocument(carpeta, cand.tramiteId, nombre, archivo.buffer, archivo.mimetype);
+  return insertarSoporte(archivo, storageKey, hash, ctx, nombre);
 }
 
 /** Soporte que aún no cuelga de un trámite (pendiente o en revisión). */
@@ -469,10 +542,14 @@ async function archivarSuelto(archivo: ArchivoPlano, opciones: OpcionesCarga, ha
   return insertarSoporte(archivo, storageKey, hash, ctx);
 }
 
-async function insertarSoporte(archivo: ArchivoPlano, storageKey: string, hash: string, ctx: DerechoCtx): Promise<string> {
+async function insertarSoporte(
+  archivo: ArchivoPlano, storageKey: string, hash: string, ctx: DerechoCtx, nombre?: string,
+): Promise<string> {
   const [s] = await db.insert(flitoSoportes).values({
     tipo: TIPO_SOPORTE_DERECHO,
-    nombreArchivo: archivo.originalname,
+    // El nombre compuesto, cuando lo hay: es el que ve Operaciones al descargar el soporte, y de
+    // nada sirve renombrar en el almacenamiento si la pantalla sigue mostrando «pagina-3.pdf».
+    nombreArchivo: nombre ?? archivo.originalname,
     contentType: archivo.mimetype,
     storageKey,
     hash,
@@ -573,7 +650,18 @@ async function auditEnTx(tx: Tx, ctx: DerechoCtx, resourceId: string, detail: st
 
 // ─────────────────────────── Pendientes ──────────────────────────────────────
 
-export interface ResultadoReintento { revisados: number; asociados: number }
+/** Un pendiente que sí encontró su trámite en este reintento. */
+export interface PendienteAsociado {
+  pendienteId: string; placa: string; idFlit: string; tramiteId: string; derechoId: string;
+}
+
+/**
+ * Además de los conteos, QUÉ se asoció y CON QUÉ. Un «2 asociados» no es verificable: quien lo lee
+ * no puede comprobar que el cruce fue el correcto sin buscar los recibos uno a uno.
+ */
+export interface ResultadoReintento {
+  revisados: number; asociados: number; detalle: PendienteAsociado[];
+}
 
 /**
  * Reintenta el cruce de los recibos que quedaron sin trámite. Se llama tras cada sincronización con
@@ -591,7 +679,7 @@ export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoRe
     ))
     .orderBy(flitoDerechosPendientes.createdAt);
 
-  let asociados = 0;
+  const detalle: PendienteAsociado[] = [];
   for (const p of pendientes) {
     // Un derecho sin placa no se puede cruzar; se queda esperando a que lo resuelva una persona.
     if (!p.placa) continue;
@@ -612,10 +700,13 @@ export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoRe
     await db.update(flitoDerechosPendientes)
       .set({ resuelto: true, resueltoTramiteId: elegido.tramiteId, intentos: p.intentos + 1, ultimoIntentoEn: new Date() })
       .where(eq(flitoDerechosPendientes.id, p.id));
-    asociados += 1;
+    detalle.push({
+      pendienteId: p.id, placa: p.placa, idFlit: elegido.idFlit,
+      tramiteId: elegido.tramiteId, derechoId,
+    });
     log.info({ pendienteId: p.id, derechoId, idFlit: elegido.idFlit }, 'Pendiente de derecho asociado a su trámite');
   }
-  return { revisados: pendientes.length, asociados };
+  return { revisados: pendientes.length, asociados: detalle.length, detalle };
 }
 
 // ─────────────────────────── Consultas ───────────────────────────────────────
@@ -698,7 +789,11 @@ export async function registrarDesdeRevision(
     document: clients.document,
     carpeta: clients.flitoCarpetaStorage,
     yaTieneDerecho: sql<boolean>`${flitoDerechosTramite.id} is not null`,
+    placa: vehicles.plate,
+    ciudad: flitoTramites.ciudad,
+    companiaNombre: clients.name,
   }).from(flitoTramites)
+    .leftJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     .where(eq(flitoTramites.id, tramiteId)).limit(1);

@@ -10,6 +10,7 @@
 // de revisión que ya existe, para que Operaciones tenga una sola bandeja que atender.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -54,6 +55,11 @@ interface PendienteRow {
   intentos: number; ultimoIntentoEn: string; soporteId: string; nombreArchivo: string;
   createdAt: string;
 }
+/** Qué se asoció y con qué, para poder verificar el cruce sin buscar los recibos uno a uno. */
+interface PendienteAsociado {
+  pendienteId: string; placa: string; idFlit: string; tramiteId: string; derechoId: string;
+}
+interface ResultadoReintento { revisados: number; asociados: number; detalle: PendienteAsociado[] }
 
 // Cada canasta con su tono: lo que exige intervención humana no puede verse igual que lo resuelto.
 const CANASTAS = [
@@ -105,6 +111,7 @@ export default function FlitoDerechos() {
   const [pendientes, setPendientes] = useState<PendienteRow[]>([]);
   const [reintentando, setReintentando] = useState(false);
   const [conceptoSel, setConceptoSel] = useState<'' | 'derecho' | 'soat' | 'impuesto'>('');
+  const [ultimoReintento, setUltimoReintento] = useState<PendienteAsociado[] | null>(null);
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -152,8 +159,11 @@ export default function FlitoDerechos() {
   async function reintentarPendientes() {
     setReintentando(true);
     try {
-      const r = await api.post<{ revisados: number; asociados: number }>('/flito/derechos/pendientes/reintentar');
+      const r = await api.post<ResultadoReintento>('/flito/derechos/pendientes/reintentar');
       toast.success(`${r.asociados} de ${r.revisados} pendiente(s) asociado(s)`);
+      // El detalle se guarda para pintarlo: un «2 asociados» no deja comprobar que el cruce fue el
+      // correcto sin ir a buscar los recibos uno a uno.
+      setUltimoReintento(r.detalle ?? []);
       recargar();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -379,6 +389,34 @@ export default function FlitoDerechos() {
               </FlitPillButton>
             ))}
           </FlitPillGroup>
+
+          {ultimoReintento !== null && (
+            <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--flit-border)' }}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="font-semibold">
+                  {ultimoReintento.length === 0
+                    ? 'El último reintento no encontró trámite para ningún pendiente.'
+                    : `Último reintento: ${ultimoReintento.length} recibo(s) asociado(s)`}
+                </span>
+                <button type="button" className="underline" style={{ color: 'var(--flit-text-muted)' }}
+                  onClick={() => setUltimoReintento(null)}>Ocultar</button>
+              </div>
+              {ultimoReintento.length > 0 && (
+                <ul className="flex flex-col gap-1">
+                  {ultimoReintento.map((a) => (
+                    <li key={a.pendienteId}>
+                      <span className="font-medium tabular-nums">{a.placa}</span>
+                      <span style={{ color: 'var(--flit-text-muted)' }}> → </span>
+                      <Link to={`/flito/tramites?buscar=${encodeURIComponent(a.idFlit)}`}
+                        className="tabular-nums hover:underline" style={{ color: 'var(--flit-blue-text)' }}>
+                        {a.idFlit}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {pendientes.length === 0 ? (
             <FlitEmpty>No hay recibos esperando su registro.</FlitEmpty>

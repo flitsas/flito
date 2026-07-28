@@ -38,7 +38,7 @@ vi.mock('../../src/services/storage.js', () => ({
 }));
 
 const {
-  evaluarDerecho, desempatarPorTipo, advertenciasDe, normalizarTexto,
+  evaluarDerecho, desempatarPorTipo, advertenciasDe, normalizarTexto, nombreArchivoDerecho,
 } = await import('../../src/modules/flito-derechos/flito-derechos.service.js');
 
 beforeEach(() => {
@@ -84,7 +84,8 @@ describe('evaluarDerecho — solo placa (llave) y valorTotal bloquean', () => {
 
 const cand = (id: string, tipo: string | null, extra: Record<string, unknown> = {}) => ({
   tramiteId: id, idFlit: `FLIT-${id}`, tipoTramite: tipo, organismoCodigo: '05001',
-  companiaId: 1, document: '900', carpeta: null, yaTieneDerecho: false, ...extra,
+  companiaId: 1, document: '900', carpeta: null, yaTieneDerecho: false,
+  placa: null, ciudad: null, companiaNombre: null, ...extra,
 });
 
 describe('desempatarPorTipo — el concepto del recibo decide entre varios trámites', () => {
@@ -168,6 +169,53 @@ async function pdfDePaginas(n: number): Promise<Buffer> {
   for (let i = 0; i < n; i += 1) doc.addPage([200, 200]);
   return Buffer.from(await doc.save());
 }
+
+// ─────────────────────────── nombre del archivo ──────────────────────────────
+
+describe('nombreArchivoDerecho — el formato que ya se usa con el Drive', () => {
+  const completo = cand('t1', 'Traspaso', {
+    placa: 'ESQ911', ciudad: 'ENVIGADO', companiaNombre: 'Leasing',
+  });
+  const extraccion = {
+    [CampoDerechoTramite.FECHA_PAGO]: campo('2026-07-07', 0.95),
+    [CampoDerechoTramite.TIPO_TRAMITE]: campo('Traspaso unilateral', 0.95),
+  };
+
+  it('compone fecha, placa, ciudad, cliente, tipo y tipo específico', () => {
+    expect(nombreArchivoDerecho(completo, extraccion, 'pagina-3.pdf'))
+      .toBe('2026-07-07 ESQ911 ENVIGADO LEASING TRASPASO TRASPASO UNILATERAL.pdf');
+  });
+
+  it('acepta la fecha en dd/mm/yyyy, que es como la imprimen varios organismos', () => {
+    const e = { ...extraccion, [CampoDerechoTramite.FECHA_PAGO]: campo('07/07/2026', 0.95) };
+    expect(nombreArchivoDerecho(completo, e, 'x.pdf'))
+      .toBe('2026-07-07 ESQ911 ENVIGADO LEASING TRASPASO TRASPASO UNILATERAL.pdf');
+  });
+
+  it('omite el componente que no se pudo extraer, sin dejar huecos ni separadores sueltos', () => {
+    const sinTipo = { [CampoDerechoTramite.FECHA_PAGO]: campo('2026-07-07', 0.95) };
+    const n = nombreArchivoDerecho(completo, sinTipo, 'x.pdf');
+    expect(n).toBe('2026-07-07 ESQ911 ENVIGADO LEASING TRASPASO.pdf');
+    expect(n).not.toContain('  ');
+  });
+
+  it('quita tildes y conserva los espacios del nombre del cliente', () => {
+    // `normalizarTexto` pegaría «LEASINGBANCOLOMBIA»: sirve para comparar llaves, no para nombrar.
+    const c = cand('t1', 'Matricula', { placa: 'ABC123', ciudad: 'MEDELLÍN', companiaNombre: 'Leasing Bancolombia' });
+    expect(nombreArchivoDerecho(c, { [CampoDerechoTramite.FECHA_PAGO]: campo('2026-01-02', 0.9) }, 'x.pdf'))
+      .toBe('2026-01-02 ABC123 MEDELLIN LEASING BANCOLOMBIA MATRICULA.pdf');
+  });
+
+  it('sin ningún componente legible conserva el nombre original', () => {
+    // Un archivo con nombre feo se recupera; uno sin nombre, no.
+    const vacio = cand('t1', null, { placa: null, ciudad: null, companiaNombre: null });
+    expect(nombreArchivoDerecho(vacio, {}, 'recibo-original.pdf')).toBe('recibo-original.pdf');
+  });
+
+  it('no arrastra el sufijo NORMAL del nombrado antiguo', () => {
+    expect(nombreArchivoDerecho(completo, extraccion, 'x.pdf')).not.toContain('NORMAL');
+  });
+});
 
 describe('separarPaginas — parte el PDF consolidado', () => {
   it('PDF de 5 páginas → 5 documentos numerados desde 1', async () => {
