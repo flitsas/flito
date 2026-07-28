@@ -38,6 +38,9 @@ import {
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import {
+  anotarIntento, archivarSinCruce, CONCEPTO_PENDIENTE, marcarResuelto, pendientesParaReintento,
+} from '../flito-pendientes/flito-pendientes.service.js';
 
 export interface SoatCtx {
   userId: number;
@@ -666,8 +669,21 @@ export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatC
 
       const datos = await buscarEnAdquisicion(placaLeida, vinLeido, ctx);
       if (!datos) {
+        // Antes se descartaba el archivo y el gestor tenía que volver a pedirlo. Ahora se guarda en
+        // la bandeja de pendientes: el SOAT puede llegar después (la sincronización con FLIT lo crea)
+        // y el reintento lo asocia solo.
+        await archivarSinCruce({
+          concepto: CONCEPTO_PENDIENTE.SOAT,
+          placa: placaLeida,
+          archivo,
+          hash,
+          tipoSoporte: TIPO_FACTURA_SOAT,
+          extraccion,
+          organismoCodigo: null,
+          origen: 'carga_masiva',
+        }, ctx);
         res.noAsociados.push({ archivo: archivo.originalname, placa: placaLeida, soatId: null,
-          detalle: 'No cruza con ningún SOAT en adquisición. No se guardó.' });
+          detalle: 'No cruza con ningún SOAT en adquisición. Queda en la bandeja de pendientes y se reintenta en cada sincronización.' });
         continue;
       }
 
@@ -709,4 +725,55 @@ async function expandir(archivos: ArchivoSubido[]): Promise<ArchivoSubido[]> {
     }
   }
   return salida;
+}
+
+// ─────────────────────────── Reintento de pendientes ─────────────────────────
+
+/**
+ * Reintenta el cruce de los comprobantes de SOAT que quedaron en la bandeja (HU #10982).
+ *
+ * Se llama tras cada sincronización con FLIT, que es cuando aparecen los SOAT nuevos: un
+ * comprobante puede llegar del proveedor antes de que el trámite exista en FLITO.
+ *
+ * NO se vuelve a pasar el archivo por el OCR: se reusa la lectura guardada. Es la misma imagen y el
+ * OCR se cobra por llamada.
+ */
+export async function reintentarPendientesSoat(ctx: SoatCtx): Promise<{ revisados: number; asociados: number }> {
+  const pendientes = await pendientesParaReintento(CONCEPTO_PENDIENTE.SOAT);
+
+  let asociados = 0;
+  for (const p of pendientes) {
+    // Sin placa no hay por dónde cruzar; se queda para que lo resuelva una persona.
+    if (!p.placa) continue;
+
+    const datos = await buscarEnAdquisicion(p.placa, null, ctx);
+    if (!datos) { await anotarIntento(p.id); continue; }
+
+    const extraccion = (p.extraccion ?? {}) as ExtraccionSoat;
+    const umbral = umbralPara(datos.umbralOcr);
+    const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
+
+    await db.transaction(async (tx) => {
+      // El soporte ya existe y está archivado: solo le faltaba dueño.
+      await tx.update(flitoSoportes).set({ soatId: datos.soatId }).where(eq(flitoSoportes.id, p.soporteId));
+
+      if (veredicto.aprobada) {
+        await pagarEnTx(tx, datos.soatId, datos.vin, datos.estado, extraccion, ctx, p.soporteId);
+      } else {
+        await tx.insert(flitoRevisiones).values({
+          modulo: FlujoRevision.SOAT, motivo: veredicto.motivo!, detalle: veredicto.detalle!,
+          registroId: datos.soatId, soporteId: p.soporteId,
+          placaSugerida: extraccion[CampoSoat.PLACA]?.valor ?? p.placa,
+          extraccion, resuelto: false,
+        });
+        await auditEnTx(tx, ctx, datos.soatId,
+          `Comprobante pendiente asociado al aparecer el SOAT, a revisión (${veredicto.motivo}): ${veredicto.detalle} Soporte ${p.soporteId}.`);
+      }
+    });
+
+    await marcarResuelto(p.id, null);
+    asociados += 1;
+  }
+
+  return { revisados: pendientes.length, asociados };
 }

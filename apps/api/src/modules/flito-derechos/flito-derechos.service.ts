@@ -26,6 +26,7 @@ import {
 import { extraerDerechoTramite, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { CONCEPTO_PENDIENTE } from '../flito-pendientes/flito-pendientes.service.js';
 import { expandirZips, type ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 import { separarPaginas, nombrePagina, PdfDemasiadoGrandeError } from '../../shared/pdf/separar-paginas.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -581,12 +582,19 @@ export interface ResultadoReintento { revisados: number; asociados: number }
  * asociación equivocada — la misma regla que en la carga.
  */
 export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoReintento> {
+  // Solo los de derechos: la bandeja la comparten los tres conceptos desde la HU #10982, y cruzar
+  // un comprobante de SOAT contra trámites con estas reglas le colgaría el pago a quien no es.
   const pendientes = await db.select().from(flitoDerechosPendientes)
-    .where(eq(flitoDerechosPendientes.resuelto, false))
+    .where(and(
+      eq(flitoDerechosPendientes.resuelto, false),
+      eq(flitoDerechosPendientes.concepto, CONCEPTO_PENDIENTE.DERECHO),
+    ))
     .orderBy(flitoDerechosPendientes.createdAt);
 
   let asociados = 0;
   for (const p of pendientes) {
+    // Un derecho sin placa no se puede cruzar; se queda esperando a que lo resuelva una persona.
+    if (!p.placa) continue;
     const candidatos = await buscarCandidatos(p.placa);
     const finalistas = desempatarPorTipo(candidatos, p.tipoTramiteRecibo).filter((c) => !c.yaTieneDerecho);
     if (finalistas.length !== 1) {
@@ -656,26 +664,6 @@ export async function listarDerechos(f: FiltrosDerechos = {}) {
     .limit(pageSize).offset((page - 1) * pageSize);
 
   return { items, total: Number(total ?? 0), page, pageSize };
-}
-
-export async function listarPendientes() {
-  return db.select({
-    id: flitoDerechosPendientes.id,
-    placa: flitoDerechosPendientes.placa,
-    valor: flitoDerechosPendientes.valor,
-    fechaPago: flitoDerechosPendientes.fechaPago,
-    tipoTramiteRecibo: flitoDerechosPendientes.tipoTramiteRecibo,
-    organismoCodigo: flitoDerechosPendientes.organismoCodigo,
-    origen: flitoDerechosPendientes.origen,
-    intentos: flitoDerechosPendientes.intentos,
-    ultimoIntentoEn: flitoDerechosPendientes.ultimoIntentoEn,
-    soporteId: flitoDerechosPendientes.soporteId,
-    nombreArchivo: flitoSoportes.nombreArchivo,
-    createdAt: flitoDerechosPendientes.createdAt,
-  }).from(flitoDerechosPendientes)
-    .innerJoin(flitoSoportes, eq(flitoDerechosPendientes.soporteId, flitoSoportes.id))
-    .where(eq(flitoDerechosPendientes.resuelto, false))
-    .orderBy(desc(flitoDerechosPendientes.createdAt));
 }
 
 /** Trámites candidatos de una placa, para que la cola de revisión ofrezca entre cuáles elegir. */

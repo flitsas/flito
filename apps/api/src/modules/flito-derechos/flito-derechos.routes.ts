@@ -13,9 +13,13 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  DerechoError, cargarDerechos, candidatosDePlaca, listarDerechos, listarPendientes,
+  DerechoError, cargarDerechos, candidatosDePlaca, listarDerechos,
   reintentarPendientes, type DerechoCtx,
 } from './flito-derechos.service.js';
+import { esConceptoPendiente, listarPendientes } from '../flito-pendientes/flito-pendientes.service.js';
+import { contextoSoat, reintentarPendientesSoat } from '../flito-soat/flito-soat.service.js';
+import { contextoImpuesto } from '../flito-impuestos/flito-impuestos.routes.js';
+import { reintentarPendientesImpuestos } from '../flito-impuestos/flito-recibos.service.js';
 import { sincronizarDerechosDrive, organismosConDrive } from './flito-derechos-drive.service.js';
 import { LOCK_SYNC_DERECHOS, LOCK_TTL_MS } from './flito-derechos.cron.js';
 import { withLock } from '../../shared/utils/lock.js';
@@ -80,17 +84,33 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
   res.json(await listarDerechos({ buscar, page, pageSize }));
 });
 
-// GET /pendientes — recibos leídos que aún no cruzan con ningún trámite.
-router.get('/pendientes', LECTURA, async (_req: Request, res: Response) => {
-  res.json(await listarPendientes());
+// GET /pendientes — recibos leídos que aún no cruzan con ningún registro. Desde la HU #10982 la
+// bandeja es de los tres conceptos; sin `concepto` los devuelve todos, para no romper a quien ya
+// consumía este endpoint.
+router.get('/pendientes', LECTURA, async (req: Request, res: Response) => {
+  const c = req.query.concepto;
+  res.json(await listarPendientes(esConceptoPendiente(c) ? c : undefined));
 });
 
 // POST /pendientes/reintentar — fuerza el barrido sin esperar a la próxima sincronización.
+//
+// Barre los tres conceptos en la misma pasada: quien pulsa el botón quiere que se resuelva lo que
+// se pueda resolver, no elegir de qué tipo. Cada barrido usa las reglas de cruce de SU módulo.
 router.post('/pendientes/reintentar', OPERACIONES, async (req: Request, res: Response) => {
-  const resultado = await reintentarPendientes(contexto(req));
+  const ctx = contexto(req);
+  const derechos = await reintentarPendientes(ctx);
+  const soat = await reintentarPendientesSoat(await contextoSoat({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
+  const impuestos = await reintentarPendientesImpuestos(await contextoImpuesto({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
+
+  const resultado = {
+    revisados: derechos.revisados + soat.revisados + impuestos.revisados,
+    asociados: derechos.asociados + soat.asociados + impuestos.asociados,
+    porConcepto: { derecho: derechos, soat, impuesto: impuestos },
+  };
   await audit(req, {
     action: 'update', resource: 'flito_derecho_tramite',
-    detail: `Reintento de pendientes: ${resultado.asociados}/${resultado.revisados} asociados`,
+    detail: `Reintento de pendientes: ${resultado.asociados}/${resultado.revisados} asociados `
+      + `(derechos ${derechos.asociados}, SOAT ${soat.asociados}, impuestos ${impuestos.asociados})`,
   });
   res.json(resultado);
 });

@@ -35,8 +35,21 @@ interface DerechoRow {
   fechaPago: string | null; numeroRadicado: string | null; tipoTramiteRecibo: string | null;
   origen: string; advertencias: string[] | null; soporteId: string | null; createdAt: string;
 }
+/**
+ * La bandeja es de los tres conceptos desde la HU #10982: un recibo que no cruza ya no se descarta,
+ * venga de derechos, de SOAT o de impuestos.
+ */
+const CONCEPTOS_PENDIENTE = [
+  { valor: '', etiqueta: 'Todos' },
+  { valor: 'derecho', etiqueta: 'Derechos' },
+  { valor: 'soat', etiqueta: 'SOAT' },
+  { valor: 'impuesto', etiqueta: 'Impuestos' },
+] as const;
+const ETIQUETA_CONCEPTO: Record<string, string> = { derecho: 'Derecho', soat: 'SOAT', impuesto: 'Impuesto' };
+const TONO_CONCEPTO: Record<string, ChipTone> = { derecho: 'active', soat: 'warning', impuesto: 'draft' };
+
 interface PendienteRow {
-  id: string; placa: string; valor: string | null; fechaPago: string | null;
+  id: string; concepto: string; placa: string | null; valor: string | null; fechaPago: string | null;
   tipoTramiteRecibo: string | null; organismoCodigo: string | null; origen: string;
   intentos: number; ultimoIntentoEn: string; soporteId: string; nombreArchivo: string;
   createdAt: string;
@@ -91,6 +104,7 @@ export default function FlitoDerechos() {
   const [total, setTotal] = useState(0);
   const [pendientes, setPendientes] = useState<PendienteRow[]>([]);
   const [reintentando, setReintentando] = useState(false);
+  const [conceptoSel, setConceptoSel] = useState<'' | 'derecho' | 'soat' | 'impuesto'>('');
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -106,8 +120,9 @@ export default function FlitoDerechos() {
   }, [buscar, page, nonce]);
 
   useEffect(() => {
-    api.get<PendienteRow[]>('/flito/derechos/pendientes').then(setPendientes).catch(() => setPendientes([]));
-  }, [nonce]);
+    const q = conceptoSel ? `?concepto=${conceptoSel}` : '';
+    api.get<PendienteRow[]>(`/flito/derechos/pendientes${q}`).then(setPendientes).catch(() => setPendientes([]));
+  }, [nonce, conceptoSel]);
 
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const totalResultado = useMemo(
@@ -250,7 +265,7 @@ export default function FlitoDerechos() {
           Registrados ({total})
         </FlitPillButton>
         <FlitPillButton active={pestana === 'pendientes'} onClick={() => setPestana('pendientes')}>
-          Sin trámite ({pendientes.length})
+          Sin cruzar ({pendientes.length})
         </FlitPillButton>
       </FlitPillGroup>
 
@@ -346,7 +361,8 @@ export default function FlitoDerechos() {
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              Recibos leídos cuya placa todavía no corresponde a ningún trámite. Se reintenta el cruce en cada sincronización con FLIT.
+              Recibos leídos que todavía no cruzan con ningún registro — de derechos, de SOAT o de
+              impuestos. El archivo queda guardado y el cruce se reintenta en cada sincronización con FLIT.
             </p>
             <button
               type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
@@ -356,12 +372,21 @@ export default function FlitoDerechos() {
             </button>
           </div>
 
+          <FlitPillGroup>
+            {CONCEPTOS_PENDIENTE.map((c) => (
+              <FlitPillButton key={c.valor} active={conceptoSel === c.valor} onClick={() => setConceptoSel(c.valor)}>
+                {c.etiqueta}
+              </FlitPillButton>
+            ))}
+          </FlitPillGroup>
+
           {pendientes.length === 0 ? (
-            <FlitEmpty>No hay recibos esperando trámite.</FlitEmpty>
+            <FlitEmpty>No hay recibos esperando su registro.</FlitEmpty>
           ) : (
             <FlitTable>
               <thead>
                 <tr>
+                  <FlitTh>Origen</FlitTh>
                   <FlitTh>Placa</FlitTh>
                   <FlitTh>Archivo</FlitTh>
                   <FlitTh>Concepto</FlitTh>
@@ -375,7 +400,15 @@ export default function FlitoDerechos() {
               <tbody>
                 {pendientes.map((p) => (
                   <FlitTr key={p.id}>
-                    <td className="px-4 py-2.5 text-sm font-semibold">{p.placa}</td>
+                    <td className="px-4 py-2.5">
+                      <StatusChip tone={TONO_CONCEPTO[p.concepto] ?? 'neutral'}>
+                        {ETIQUETA_CONCEPTO[p.concepto] ?? p.concepto}
+                      </StatusChip>
+                    </td>
+                    {/* Sin placa el cruce automático es imposible; se dice, en vez de dejar la celda vacía. */}
+                    <td className="px-4 py-2.5 text-sm font-semibold">
+                      {p.placa ?? <span className="font-normal italic" style={{ color: 'var(--flit-text-muted)' }}>Sin placa</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-xs">{p.nombreArchivo}</td>
                     <td className="px-4 py-2.5 text-xs">{p.tipoTramiteRecibo ?? '—'}</td>
                     <td className="px-4 py-2.5 text-sm">{pesos(p.valor)}</td>

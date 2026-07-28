@@ -2660,7 +2660,10 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
 // que el trámite desde FLIT. Meterlos en flito_revisiones ahogaría la cola que sí exige a una persona.
 export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  placa: varchar('placa', { length: 10 }).notNull(),
+  /** 'derecho' | 'soat' | 'impuesto'. La bandeja sirve a los tres conceptos (HU #10982). */
+  concepto: varchar('concepto', { length: 20 }).notNull().default('derecho'),
+  /** Null cuando el recibo no permitió leerla: el archivo se guarda igual, lo resuelve una persona. */
+  placa: varchar('placa', { length: 10 }),
   soporteId: uuid('soporte_id').notNull().references(() => flitoSoportes.id, { onDelete: 'cascade' }),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }),
   valor: numeric('valor', { precision: 14, scale: 2 }),
@@ -2677,6 +2680,7 @@ export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
 }, (t) => ({
   // El reintento barre solo los no resueltos; el índice por placa es el que usa ese barrido.
   pendientePlacaIdx: index('idx_flito_derechos_pendientes_placa').on(t.placa, t.resuelto),
+  pendienteConceptoIdx: index('idx_flito_pendientes_concepto').on(t.concepto, t.resuelto),
 }));
 
 // Regla de enrutamiento a proveedor SOAT por ámbito (compañía 10 / organismo 20 / global 30).
