@@ -2455,6 +2455,12 @@ export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
 // SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * true = este SOAT existe por un desbloqueo excepcional, pese a que la compañía autogestiona el
+   * suyo (HU #10980). La marca va aquí y no en el trámite porque la cola consulta
+   * `flito_soat → clients` sin pasar por `flito_tramites`.
+   */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   vin: varchar('vin', { length: 17 }).notNull().unique(),
   vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
@@ -2542,6 +2548,8 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
 // Impuesto, uno por trámite (tramite_id UNIQUE).
 export const flitoImpuestos = pgTable('flito_impuestos', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** true = creado por un desbloqueo excepcional pese a que la compañía autogestiona (HU #10980). */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
   estado: flitoImpuestoEstadoEnum('estado').notNull().default('pendiente'),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
@@ -2875,4 +2883,26 @@ export const flitoLogisticaEventos = pgTable('flito_logistica_documento_eventos'
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentoIdx: index('idx_flito_log_eventos_documento').on(t.documentoId, t.createdAt),
+}));
+
+/**
+ * Auditoría de los desbloqueos excepcionales de autogestión (HU #10980), y única sede del caso de
+ * LOGÍSTICA — que no tiene registro propio que marcar y resuelve su frontera por EXISTS sobre aquí.
+ *
+ * Un trámite no puede tener dos excepciones vivas del mismo concepto (índice parcial), pero sí
+ * acumular varias revocadas: el histórico de por qué se desbloqueó y por qué se deshizo.
+ */
+export const flitoExcepcionesAutogestion = pgTable('flito_excepciones_autogestion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  /** 'soat' | 'impuesto' | 'logistica'. */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  motivo: text('motivo').notNull(),
+  creadoPorId: integer('creado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  revocadoEn: timestamp('revocado_en', { withTimezone: true }),
+  revocadoPorId: integer('revocado_por_id').references(() => users.id),
+  revocadoMotivo: text('revocado_motivo'),
+}, (t) => ({
+  excepcionTramiteIdx: index('idx_flito_excepciones_tramite').on(t.tramiteId),
 }));

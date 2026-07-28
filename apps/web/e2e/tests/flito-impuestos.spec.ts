@@ -21,12 +21,27 @@ const IMPUESTOS = [
   },
 ];
 
+const FACETAS = {
+  companias: [{ id: 1, nombre: 'Concesionario Norte' }, { id: 2, nombre: 'Concesionario Sur' }],
+  organismos: [{ codigo: '05001', nombre: 'STT Medellín' }, { codigo: '05266', nombre: 'STT Envigado' }],
+};
+
+/** Guarda las URLs que pidió la página, para poder comprobar QUÉ filtros viajaron. */
+const urlsPedidas: string[] = [];
+
 async function mock(page: import('@playwright/test').Page) {
+  urlsPedidas.length = 0;
+  await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
   await page.route(/\/api\/flito\/impuestos\?/, (route) => {
     const url = new URL(route.request().url());
+    urlsPedidas.push(url.search);
     const estado = url.searchParams.get('estado');
-    const data = estado ? IMPUESTOS.filter((i) => i.estado === estado) : IMPUESTOS;
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
+    const items = estado ? IMPUESTOS.filter((i) => i.estado === estado) : IMPUESTOS;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
+    });
   });
 }
 

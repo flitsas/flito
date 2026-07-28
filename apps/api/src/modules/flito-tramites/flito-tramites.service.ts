@@ -5,14 +5,14 @@
 // en el servicio dueño de la regla (SOAT/Impuestos para el envío al gestor, Compuerta para el veredicto
 // y la entrega). Aquí solo vive el mapeo y el reporte agregado.
 
-import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
   SLA_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
+  clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { flitoDerechosTramite } from '../../db/schema.js';
@@ -74,6 +74,11 @@ export interface TramiteFila {
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
   /** Tracking logístico de la LT. null si no aplica (no aprobado, sin empresa o empresa autogestiona). */
   logistica: { estado: string } | null;
+  /**
+   * Conceptos desbloqueados excepcionalmente pese a que la compañía los autogestiona (HU #10980).
+   * Vacío en la inmensa mayoría de filas.
+   */
+  excepcionesAutogestion: string[];
 }
 
 export interface HistorialItem {
@@ -334,6 +339,8 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   return {
     tramiteId: f.tramiteId,
     idFlit: f.idFlit,
+    // El listado la rellena en una tanda aparte; el detalle de un trámite suelto no la necesita.
+    excepcionesAutogestion: [],
     semaforo,
     estado: f.flitEstado ?? f.estadoTramite ?? '—',
     asignado,
@@ -560,7 +567,32 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
     porTramite.set(c.tramiteId, lista);
   }
 
-  return { items: rows.map((r) => aFila(r, porTramite.get(r.tramiteId) ?? [])), total, page, pageSize };
+  // Excepciones de autogestión vigentes (HU #10980), en una tanda: la fila necesita saber qué se
+  // desbloqueó para pintar el chip y ofrecer revocar. Logística no tiene registro propio, así que
+  // esta es la única forma de saberlo.
+  const excRows = await db.select({
+    tramiteId: flitoExcepcionesAutogestion.tramiteId,
+    concepto: flitoExcepcionesAutogestion.concepto,
+  }).from(flitoExcepcionesAutogestion)
+    .where(and(
+      inArray(flitoExcepcionesAutogestion.tramiteId, ids),
+      isNull(flitoExcepcionesAutogestion.revocadoEn),
+    ));
+
+  const excPorTramite = new Map<string, string[]>();
+  for (const e of excRows) {
+    const lista = excPorTramite.get(e.tramiteId) ?? [];
+    lista.push(e.concepto);
+    excPorTramite.set(e.tramiteId, lista);
+  }
+
+  return {
+    items: rows.map((r) => ({
+      ...aFila(r, porTramite.get(r.tramiteId) ?? []),
+      excepcionesAutogestion: excPorTramite.get(r.tramiteId) ?? [],
+    })),
+    total, page, pageSize,
+  };
 }
 
 /**

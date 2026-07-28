@@ -8,6 +8,9 @@ import { esAlertaOperativa } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
+  desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
+} from '../flito-excepciones/flito-excepciones.service.js';
+import {
   crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
   solicitarAmbos, solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
@@ -133,6 +136,49 @@ router.post('/entregar', OPERACIONES, async (req: Request, res: Response) => {
   const r = await entregar(parsed.data.tramiteIds, ctxDe(req.user!));
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Entrega en lote: ${r.entregados} entregados, ${r.noHabilitados.length} no habilitados` });
   res.json(r);
+});
+
+// ─────────────────── Desbloqueo excepcional de autogestión ──────────────────
+//
+// Solo Operaciones: decidir qué gestiona FLITO no es una decisión financiera ni del gestor.
+
+const excepcionSchema = z.object({
+  concepto: z.enum(['soat', 'impuesto', 'logistica']),
+  motivo: z.string().min(MOTIVO_MINIMO, `El motivo es obligatorio (mínimo ${MOTIVO_MINIMO} caracteres)`),
+});
+
+router.post('/:id/desbloquear-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = excepcionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
+  try {
+    const ctx = ctxDe(req.user!);
+    const e = await desbloquear(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
+    await audit(req, {
+      action: 'update', resource: 'flito_tramite', resourceId: req.params.id,
+      detail: `Desbloqueo excepcional de ${parsed.data.concepto}: ${parsed.data.motivo.trim()}`,
+    });
+    res.status(201).json(e);
+  } catch (err) {
+    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
+});
+
+router.post('/:id/revocar-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = excepcionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
+  try {
+    const ctx = ctxDe(req.user!);
+    await revocar(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
+    await audit(req, {
+      action: 'update', resource: 'flito_tramite', resourceId: req.params.id,
+      detail: `Revocado el desbloqueo de ${parsed.data.concepto}: ${parsed.data.motivo.trim()}`,
+    });
+    res.status(204).end();
+  } catch (err) {
+    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
 });
 
 export default router;
