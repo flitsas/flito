@@ -40,6 +40,8 @@ interface TramiteFila {
   tramiteId: string; idFlit: string; estado: string; asignado: boolean;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
   fechaCreacion: string | null;
+  /** Valor real del derecho de trámite; null = aún sin recibo cargado. */
+  derechoTramiteValor: number | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
@@ -74,8 +76,10 @@ type Resultado =
 const TONO_SOAT: Record<EstadoSoat, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 
-// Derecho de trámite: mismo valor fijo que el reporte de costos de Finanzas (COSTOS_FIJOS.derechoTramite).
-const DERECHO_TRAMITE = 75000;
+// Derecho de trámite: mientras el trámite no tenga cargado su recibo del organismo se muestra este
+// estimado —el mismo respaldo que usa el reporte de costos de Finanzas (COSTOS_FIJOS.derechoTramite)—,
+// marcado con asterisco para no confundir un valor supuesto con uno realmente pagado.
+const DERECHO_TRAMITE_ESTIMADO = 75000;
 const pesos = (v: number | null) => v === null ? null
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—';
@@ -495,7 +499,17 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 align-top"><CeldaSoat fila={f} onSolicitar={esOperaciones ? () => { setFilaSolicitud(f.tramiteId); setDialogo('soat'); } : undefined} /></td>
                   <td className="px-3 py-2 align-top"><CeldaImpuesto fila={f} onSolicitar={esOperaciones ? () => solicitarImpuestosLote([f.tramiteId]) : undefined} /></td>
                   <td className="px-3 py-2 align-top"><TrackingLogistica estado={f.logistica?.estado ?? null} /></td>
-                  <td className="px-3 py-2 text-sm align-top tabular-nums whitespace-nowrap">{pesos(DERECHO_TRAMITE)}</td>
+                  <td
+                    className="px-3 py-2 text-sm align-top tabular-nums whitespace-nowrap"
+                    title={f.derechoTramiteValor !== null
+                      ? 'Valor leído del recibo del organismo'
+                      : 'Estimado: el trámite aún no tiene cargado su recibo'}
+                    style={f.derechoTramiteValor !== null ? undefined : { color: 'var(--flit-text-muted)' }}
+                  >
+                    {f.derechoTramiteValor !== null
+                      ? pesos(f.derechoTramiteValor)
+                      : `${pesos(DERECHO_TRAMITE_ESTIMADO)} *`}
+                  </td>
                 </FlitTr>
               ))}
             </tbody>

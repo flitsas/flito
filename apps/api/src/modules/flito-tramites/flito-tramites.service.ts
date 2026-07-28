@@ -15,6 +15,7 @@ import {
   clients, flitoCompradores, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
+import { flitoDerechosTramite } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
@@ -61,6 +62,8 @@ export interface TramiteFila {
    * reporte no la trae. Es la base del orden cronológico y de los indicadores de antigüedad.
    */
   fechaCreacion: string | null;
+  /** Valor real del derecho de trámite (HU #10953). null = aún sin recibo → la UI muestra el estimado. */
+  derechoTramiteValor: number | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
@@ -241,6 +244,9 @@ function proyeccion() {
     impuestoValorPagado: flitoImpuestos.valorPagado,
     impuestoMarcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia,
     impuestoExtraccion: flitoImpuestos.extraccion,
+    // HU #10953: valor real del derecho de trámite leído del recibo del organismo. Null mientras
+    // ese trámite no tenga recibo cargado; la UI cae entonces al estimado.
+    derechoValor: flitoDerechosTramite.valor,
     // Integración FLIT (Fase 8): estado crudo, datos del reporte y emparejamientos.
     flitEstado: flitoTramites.flitEstado,
     tipoTramite: flitoTramites.tipoTramite,
@@ -285,6 +291,7 @@ function proyeccion() {
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     // Estado logístico de la LT (tracking): a lo sumo una por trámite (unique tramite+tipo).
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, 'licencia_transito')));
 }
@@ -336,6 +343,8 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
     // Respaldo a created_at: los trámites anteriores a que FLIT empezara a reportar fechaCreacion
     // no la tienen, y quedarse sin fecha los dejaría fuera de todo orden e indicador.
     fechaCreacion: (f.fechaCreacionFlit ?? f.creadoEn)?.toISOString() ?? null,
+    // Valor real del derecho; null = todavía no hay recibo y la UI muestra el estimado.
+    derechoTramiteValor: f.derechoValor === null ? null : Number(f.derechoValor),
     companiaNombre: f.companiaNombre,
     empresaExiste: f.companiaId !== null,
     empresaNit: f.companiaNit,
