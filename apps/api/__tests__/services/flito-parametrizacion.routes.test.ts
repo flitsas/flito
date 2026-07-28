@@ -105,25 +105,9 @@ describe('parametrización — validaciones', () => {
     expect(r.status).toBe(400);
   });
 
-  it('regla por compañía sin companiaId → 400', async () => {
-    const app = await buildApp();
-    const r = await request(app).post('/api/flito/parametrizacion/reglas-proveedor-soat')
-      .set('Authorization', await auth('admin'))
-      .send({ ambito: 'compania', proveedorSoatId: '00000000-0000-0000-0000-000000000001' });
-    expect(r.status).toBe(400);
-  });
-
-  it('segunda regla global → 409 (solo puede haber una)', async () => {
-    // 1) lookup proveedor existe, 2) lookup global existente
-    selectMock
-      .mockReturnValueOnce(chain([{ id: '00000000-0000-0000-0000-000000000001' }]))
-      .mockReturnValueOnce(chain([{ id: 'regla-global-existente' }]));
-    const app = await buildApp();
-    const r = await request(app).post('/api/flito/parametrizacion/reglas-proveedor-soat')
-      .set('Authorization', await auth('admin'))
-      .send({ ambito: 'global', proveedorSoatId: '00000000-0000-0000-0000-000000000001' });
-    expect(r.status).toBe(409);
-  });
+  // Las validaciones de las reglas de enrutamiento se retiran con sus endpoints (HU #10979):
+  // el proveedor se elige al enviar el SOAT al gestor, así que ya no hay ámbitos que validar ni
+  // una regla global única que proteger.
 
   it('cambiar a la modalidad ya vigente → 400', async () => {
     // 1) organismo existe, 2) modalidadVigente → requiere_gestion

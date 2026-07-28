@@ -58,7 +58,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 export const PAGES = {
   dashboard: 'Tablero de control',
   vehicles: 'Vehículos',
-  clients: 'Clientes',
+  clients: 'Clientes y proveedores',
   soat: 'SOAT',
   tramite: 'Trámite Digital',
   tax_reader: 'Lectura de Impuestos',
@@ -90,7 +90,6 @@ export const PAGES = {
   flito_derechos: 'FLITO — Derechos de tránsito',
   flito_revisiones: 'FLITO — Revisión OCR',
   flito_compuerta: 'FLITO — Compuerta de entrega',
-  flito_parametrizacion: 'FLITO — Parametrización',
   flito_tablero: 'FLITO — Tablero',
   flito_bitacora: 'FLITO — Bitácora',
   // FLITO Logística: consola de Operaciones (trazabilidad por documento, actas, despacho).
@@ -105,14 +104,14 @@ export type PageSlug = keyof typeof PAGES;
 
 export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'General', pages: ['dashboard'] },
-  { label: 'Operaciones', pages: ['vehicles', 'clients', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
+  { label: 'Operaciones', pages: ['vehicles', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
   { label: 'Flota', pages: ['fleet'] },
   { label: 'Mantenimiento', pages: ['maintenance'] },
   { label: 'PESV', pages: ['pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'] },
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
@@ -136,7 +135,7 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
   // incluye en ningún requireRole de mutación FLITO — solo lectura.
   auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
-    'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+    'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
     // El reporte de costos consolida datos que el auditor ya ve uno a uno (SOAT, impuestos,
     // derechos). Negarle la vista agregada no protegía nada: solo le obligaba a reconstruirla.
     'finanzas_reporte_costos'],
@@ -146,9 +145,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   gestor_impuestos: ['dashboard', 'flito_impuestos'],
   // FLITO Logística — Mensajero: su ruta de campo (PWA). No accede a la consola de Operaciones.
   mensajero: ['dashboard', 'flito_logistica_ruta'],
-  // Finanzas — usuarios financieros: el reporte de costos y la consulta (solo lectura) de los
-  // derechos de tránsito, que es de donde sale el valor real de ese reporte.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'flito_derechos'],
+  // Finanzas — usuarios financieros: el reporte de costos y la administración comercial del
+  // cliente (sus tarifas), que es de donde salen los valores de ese reporte. Los derechos de
+  // tránsito NO son suyos: los gestiona Operaciones, que es quien carga los recibos.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

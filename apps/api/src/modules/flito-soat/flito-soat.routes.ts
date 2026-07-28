@@ -74,9 +74,12 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.
+// El proveedor pasa a ser OBLIGATORIO (HU #10979). Antes podía omitirse y lo resolvía la regla de
+// enrutamiento pre-asignada en la sincronización; sin esas reglas, omitirlo dejaría el SOAT en la
+// cola de nadie y sin SLA con el que medirlo.
 const enviarSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
-  proveedorSoatId: z.string().uuid().optional(),
+  proveedorSoatId: z.string().uuid({ message: 'Elige el proveedor al que se envía' }),
 });
 router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);

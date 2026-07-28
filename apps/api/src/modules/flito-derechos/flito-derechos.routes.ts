@@ -1,8 +1,7 @@
 // FLITO Derechos de tránsito (HTTP) — HU #10950. Montado en /api/flito/derechos.
 //
 // Solo Operaciones (admin) carga y consulta: a diferencia de impuestos, aquí no hay un gestor
-// externo con frontera por organismo — el recibo lo trae quien opera el trámite. `financiera` y
-// `auditor` leen, porque el valor alimenta el reporte de costos.
+// externo con frontera por organismo — el recibo lo trae quien opera el trámite. `auditor` lee.
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -25,7 +24,9 @@ const router = Router();
 router.use(authMiddleware);
 
 const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
+// `financiera` sale de aquí (HU #10979): los derechos de tránsito los gestiona Operaciones, que es
+// quien carga los recibos. Finanzas ve su valor en el reporte de costos, que es lo que necesita.
+const LECTURA = requireRole('admin', 'auditor');
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({

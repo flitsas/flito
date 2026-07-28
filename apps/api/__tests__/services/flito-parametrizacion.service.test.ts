@@ -10,36 +10,13 @@ vi.mock('../../src/db/client.js', () => ({
 
 beforeEach(() => selectMock.mockReset());
 
-const { resolverProveedor, modalidadVigente, umbralPara } = await import(
+const { modalidadVigente, umbralPara } = await import(
   '../../src/modules/flito-parametrizacion/flito-parametrizacion.service.js'
 );
 
-describe('resolverProveedor — especificidad', () => {
-  it('compañía gana a organismo y a global (prioridad ASC, primero activo)', async () => {
-    // La query ordena por prioridad ASC; el servicio toma el primero activo.
-    selectMock.mockReturnValueOnce(chain([
-      { prioridad: 10, proveedor: { id: 'compania', activo: true } },
-      { prioridad: 20, proveedor: { id: 'organismo', activo: true } },
-      { prioridad: 30, proveedor: { id: 'global', activo: true } },
-    ]));
-    const p = await resolverProveedor(1, '11001');
-    expect(p?.id).toBe('compania');
-  });
-
-  it('salta el más específico si su proveedor está inactivo', async () => {
-    selectMock.mockReturnValueOnce(chain([
-      { prioridad: 10, proveedor: { id: 'compania', activo: false } },
-      { prioridad: 30, proveedor: { id: 'global', activo: true } },
-    ]));
-    const p = await resolverProveedor(1, '11001');
-    expect(p?.id).toBe('global');
-  });
-
-  it('sin regla aplicable → null (información, no fallo)', async () => {
-    selectMock.mockReturnValueOnce(chain([]));
-    expect(await resolverProveedor(1, '11001')).toBeNull();
-  });
-});
+// Los tests de `resolverProveedor` se retiran con la función (HU #10979): las reglas de
+// enrutamiento por ámbito ya no existen, el proveedor se elige al enviar el SOAT al gestor. Lo que
+// fijaban —que la compañía gana al organismo y este al global— dejó de ser una regla del sistema.
 
 describe('modalidadVigente', () => {
   it('sin vigencia abierta → AUTOGESTIONADO (default: FLITO no gestiona salvo marca explícita)', async () => {
