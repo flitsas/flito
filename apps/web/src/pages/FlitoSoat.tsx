@@ -305,7 +305,7 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
   const enviar = async () => {
     setEnviando(true);
     try {
-      await api.post('/flito/soat/enviar', { ids, ...(proveedorSoatId ? { proveedorSoatId } : {}) });
+      await api.post('/flito/soat/enviar', { ids, proveedorSoatId });
       onEnviado();
     } catch (e) { onError(errorMessage(e)); }
     finally { setEnviando(false); }
@@ -315,10 +315,11 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
         <select className={`${flitInp} max-w-xs`} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-          <option value="">Proveedor por regla de enrutamiento</option>
+          <option value="">Elige el proveedor…</option>
           {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando} onClick={enviar}>
+        {/* Sin proveedor el SOAT quedaría en la cola de nadie y sin SLA con el que medirlo. */}
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !proveedorSoatId} onClick={enviar}>
           {enviando ? 'Enviando…' : 'Enviar al gestor'}
         </button>
       </div>

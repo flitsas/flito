@@ -44,7 +44,7 @@ export const SECTION_LABEL: Record<NavItem['section'], string> = {
 export const NAV_ITEMS: NavItem[] = [
   { page: 'dashboard',   to: '/',                                section: 'general',       label: 'Tablero',                 keywords: 'dashboard inicio home resumen' },
   { page: 'vehicles',    to: '/vehicles',                        section: 'gestion',       label: 'Vehículos',               keywords: 'placa vin runt cargar' },
-  { page: 'clients',     to: '/clients',                         section: 'gestion',       label: 'Clientes',                keywords: 'empresa nit razon social' },
+    { page: 'clients',      to: '/clients',      section: 'gestion', label: 'Clientes y proveedores', keywords: 'empresa nit razon social tarifas proveedores soat parametrizacion autogestion' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   // FLITO — vista unificada de despacho (SOAT + Impuestos + entrega en una sola pantalla) y sus
   // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
@@ -53,7 +53,6 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Gestión Trámites',        keywords: 'flito tramites gestion unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
   { page: 'flito_derechos', to: '/flito/derechos',               section: 'gestion',       label: 'Derechos de tránsito',     keywords: 'flito derecho tramite cuenta cobro organismo recibo valor radicado carga masiva zip consolidado pendientes' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
-  { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
