@@ -57,23 +57,27 @@ describe('condicionAlerta — cada alerta mira lo que dice el requerimiento', ()
     expect(s).toContain(String(SLA_OPERATIVO.BORRADOR_DIAS));
   });
 
-  it('sin aprobar excluye solo los estados que ya no esperan aprobación', () => {
+  it('sin aprobar cuenta Entregado y Rechazado, que es lo que espera al organismo', () => {
+    // El ciclo es Borrador → Enviado a OT → Asignado → Entregado → Aprobado, y los estados pueden
+    // retroceder: un Entregado que se Rechaza se subsana y vuelve a Entregado. Ambos están ya en
+    // manos del organismo, así que son exactamente el cuello de botella que la alerta busca.
     const s = sqlDe('sin_aprobar_1d');
-    expect(s).toContain('fecha_aprobacion');
-    // Aprobado es la meta; Anulado y Abortado son muerte. Nada más está fuera de juego.
-    for (const estado of ['aprobado', 'anulado', 'abortado']) {
+    for (const estado of ['entregado', 'rechazado']) {
       expect(s).toContain(`'${estado}'`);
     }
     expect(s).toContain(String(SLA_OPERATIVO.SIN_APROBAR_DIAS));
   });
 
-  it('sin aprobar NO excluye Entregado ni Rechazado', () => {
-    // El ciclo es Borrador → Enviado a OT → Asignado → Entregado → Aprobado, y los estados pueden
-    // retroceder: un Entregado que se Rechaza se subsana y vuelve a Entregado. Ambos siguen
-    // esperando aprobación, así que son exactamente el cuello de botella que la alerta busca.
+  it('sin aprobar deja fuera lo que aún no ha llegado al organismo', () => {
+    // Un borrador o un asignado pueden llevar semanas parados, pero la demora no es del organismo:
+    // meterlos aquí es lo que inflaba la alerta y la volvía inservible para priorizar.
     const s = sqlDe('sin_aprobar_1d');
-    expect(s).not.toContain("'entregado'");
-    expect(s).not.toContain("'rechazado'");
+    for (const estado of ['borrador', 'asignado', 'aprobado', 'anulado', 'abortado']) {
+      expect(s).not.toContain(`'${estado}'`);
+    }
+    // Ya no se filtra por fecha_aprobacion: el estado es la autoridad, y ese guardia escondía los
+    // trámites que se aprobaron y luego retrocedieron a Entregado.
+    expect(s).not.toContain('fecha_aprobacion');
   });
 
   it('SOAT sin gestión usa el SLA del proveedor con respaldo por defecto', () => {
