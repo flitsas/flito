@@ -1,4 +1,4 @@
-// FLITO Derechos de trámite (HU #10951). Carga de recibos, listado de lo registrado y bandeja de
+// FLITO Derechos de tránsito (HU #10951). Carga de recibos, listado de lo registrado y bandeja de
 // los que aún no cruzan con ningún trámite.
 //
 // El resultado de una carga NO es un "ok" o un "error": cada archivo cae en una de seis canastas
@@ -150,7 +150,7 @@ export default function FlitoDerechos() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeaderCard
-        title="Derechos de trámite"
+        title="Derechos de tránsito"
         subtitle="Carga los recibos que emite el organismo de tránsito. El sistema lee la placa, la fecha y el valor, y los asocia al trámite."
       />
 
@@ -267,7 +267,7 @@ export default function FlitoDerechos() {
           </div>
 
           {derechos.length === 0 ? (
-            <FlitEmpty>Todavía no hay derechos de trámite registrados.</FlitEmpty>
+            <FlitEmpty>Todavía no hay derechos de tránsito registrados.</FlitEmpty>
           ) : (
             <>
               <FlitTable>

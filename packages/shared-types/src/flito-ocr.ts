@@ -123,7 +123,7 @@ export const CAMPO_DERECHO_TRAMITE_LABEL: Record<CampoDerechoTramite, string> = 
 };
 
 /**
- * Lo único que bloquea el registro de un derecho de trámite. La placa se valida aparte (es la
+ * Lo único que bloquea el registro de un derecho de tránsito. La placa se valida aparte (es la
  * llave de cruce). Radicado, organismo y tipo se extraen pero NO se exigen: varían de formato
  * entre organismos y su ausencia no impide saber cuánto se pagó.
  */

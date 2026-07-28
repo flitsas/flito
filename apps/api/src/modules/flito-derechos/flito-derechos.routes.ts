@@ -1,4 +1,4 @@
-// FLITO Derechos de trámite (HTTP) — HU #10950. Montado en /api/flito/derechos.
+// FLITO Derechos de tránsito (HTTP) — HU #10950. Montado en /api/flito/derechos.
 //
 // Solo Operaciones (admin) carga y consulta: a diferencia de impuestos, aquí no hay un gestor
 // externo con frontera por organismo — el recibo lo trae quien opera el trámite. `financiera` y
@@ -60,7 +60,7 @@ router.post('/cargar', OPERACIONES, upload.array('archivos', 50), async (req: Re
     const resultado = await cargarDerechos(files.map(aArchivo), { organismoCodigo, origen: 'manual' }, contexto(req));
     await audit(req, {
       action: 'upload', resource: 'flito_derecho_tramite',
-      detail: `Carga de derechos de trámite: ${resultado.registrados.length} registrados, ` +
+      detail: `Carga de derechos de tránsito: ${resultado.registrados.length} registrados, ` +
         `${resultado.enRevision.length} en revisión, ${resultado.pendientes.length} pendientes, ` +
         `${resultado.duplicados.length} duplicados, ${resultado.omitidas.length} omitidas, ` +
         `${resultado.fallidos.length} fallidos`,

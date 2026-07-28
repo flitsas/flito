@@ -1,7 +1,7 @@
 // Expansión de ZIP en la ingesta de archivos.
 //
 // Un ZIP es una caja: se abre y se procesa cada archivo que trae. Esta es la versión genérica,
-// escrita para la carga de derechos de trámite (HU #10950).
+// escrita para la carga de derechos de tránsito (HU #10950).
 //
 // Nota: `flito-impuestos/flito-recibos.service.ts` tiene su propia `expandir()` porque además deduce
 // del nombre de la carpeta si la copia lleva marca de agua — semántica que solo aplica a los recibos

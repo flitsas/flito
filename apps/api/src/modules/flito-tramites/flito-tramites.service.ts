@@ -62,7 +62,7 @@ export interface TramiteFila {
    * reporte no la trae. Es la base del orden cronológico y de los indicadores de antigüedad.
    */
   fechaCreacion: string | null;
-  /** Valor real del derecho de trámite (HU #10953). null = aún sin recibo → la UI muestra el estimado. */
+  /** Valor real del derecho de tránsito (HU #10953). null = aún sin recibo → la UI muestra el estimado. */
   derechoTramiteValor: number | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
@@ -244,7 +244,7 @@ function proyeccion() {
     impuestoValorPagado: flitoImpuestos.valorPagado,
     impuestoMarcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia,
     impuestoExtraccion: flitoImpuestos.extraccion,
-    // HU #10953: valor real del derecho de trámite leído del recibo del organismo. Null mientras
+    // HU #10953: valor real del derecho de tránsito leído del recibo del organismo. Null mientras
     // ese trámite no tenga recibo cargado; la UI cae entonces al estimado.
     derechoValor: flitoDerechosTramite.valor,
     // Integración FLIT (Fase 8): estado crudo, datos del reporte y emparejamientos.

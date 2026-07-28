@@ -180,7 +180,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
 
   const noConfigurados: string[] = [];
   if (!sellada) {
-    if (derecho === null) noConfigurados.push('Derecho de trámite');
+    if (derecho === null) noConfigurados.push('Derecho de tránsito');
     if (digital === null) noConfigurados.push('Trámite digital');
     if (logistica === null && !r.logisticaAutogestionable) noConfigurados.push('Logística');
   }
@@ -255,7 +255,7 @@ export async function filasParaExportar(f: FiltrosReporte = {}): Promise<FilaRep
 }
 
 const CABECERAS_CSV = [
-  'Trámite', 'Placa', 'Estado', 'Empresa', 'Tipo', 'SOAT', 'Impuesto', 'Derecho de trámite',
+  'Trámite', 'Placa', 'Estado', 'Empresa', 'Tipo', 'SOAT', 'Impuesto', 'Derecho de tránsito',
   'Trámite digital', 'Logística', 'GMF', 'Total', 'Liquidación', 'Conceptos sin configurar',
 ] as const;
 

@@ -289,7 +289,7 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
   // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
   flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
-  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de trámite. Existe
+  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de tránsito. Existe
   // porque cada organismo emite el recibo en un formato distinto: en vez de un extractor por
   // organismo, una línea de configuración desambigua las etiquetas raras ("VALOR NETO A PAGAR").
   flitoOcrPromptHint: text('flito_ocr_prompt_hint'),
@@ -2584,7 +2584,7 @@ export const flitoSoportes = pgTable('flito_soportes', {
   tamanoBytes: bigint('tamano_bytes', { mode: 'number' }).notNull(),
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   impuestoId: uuid('impuesto_id').references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
-  // HU #10950: soporte del derecho de trámite. Nullable como los otros dos: un soporte cuelga de
+  // HU #10950: soporte del derecho de tránsito. Nullable como los otros dos: un soporte cuelga de
   // exactamente uno de los tres flujos (o de ninguno, mientras espera en la cola de revisión).
   derechoId: uuid('derecho_id').references(() => flitoDerechosTramite.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
@@ -2615,7 +2615,7 @@ export const flitoRevisiones = pgTable('flito_revisiones', {
   resueltoIdx: index('idx_flito_revisiones_resuelto').on(t.resuelto),
 }));
 
-// ── FLITO Derechos de trámite (HU #10950) ───────────────────────────────────
+// ── FLITO Derechos de tránsito (HU #10950) ───────────────────────────────────
 // Lo que el organismo cobra por radicar el trámite. A diferencia del SOAT (anclado al VIN, RN-01),
 // el derecho se paga POR TRÁMITE: cada radicación tiene el suyo, así que `tramite_id` es UNIQUE.
 // No hay máquina de estados: el recibo llega ya pagado, el registro es la prueba de cuánto se pagó.

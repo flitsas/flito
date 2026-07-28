@@ -1,4 +1,4 @@
-// FLITO Derechos de trámite — carga manual de recibos (HU #10950).
+// FLITO Derechos de tránsito — carga manual de recibos (HU #10950).
 //
 // Cubre las funciones puras del cruce (evaluarDerecho, desempatarPorTipo, advertenciasDe) y el flujo
 // completo de POST /cargar con drizzle, OCR y storage mockeados. La separación de PDF y la expansión

@@ -1,7 +1,7 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 
-// FLITO — Derechos de trámite (HU #10951). Carga de recibos, resultado clasificado por canasta y
+// FLITO — Derechos de tránsito (HU #10951). Carga de recibos, resultado clasificado por canasta y
 // bandeja de los que aún no cruzan con un trámite. El backend está mockeado: lo que se verifica
 // aquí es el cableado de la UI, no el OCR.
 
@@ -37,13 +37,13 @@ async function mockListas(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: DERECHOS, total: DERECHOS.length, page: 1, pageSize: 50 }) }));
 }
 
-test.describe('FLITO — Derechos de trámite', () => {
+test.describe('FLITO — Derechos de tránsito', () => {
   test('operaciones ve el listado con valor, origen y advertencias', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockListas(page);
 
     await page.goto('/flito/derechos');
-    await expect(page.getByRole('heading', { name: 'Derechos de trámite' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Derechos de tránsito' })).toBeVisible();
     await expect(page.getByText('QTP701')).toBeVisible();
     await expect(page.getByText('FLIT-1001')).toBeVisible();
     await expect(page.getByText('$ 236.700')).toBeVisible();

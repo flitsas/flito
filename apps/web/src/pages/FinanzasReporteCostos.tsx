@@ -32,10 +32,29 @@ interface Soporte { id: string; origen: string; tipo: string; nombreArchivo: str
 
 const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
-/** Un concepto sin valor NO se pinta como $0: se dice que no está. */
-function Monto({ v, negrita }: { v: number | null; negrita?: boolean }) {
+/**
+ * Etiquetas de los conceptos que el backend puede reportar como no configurados. Se usan para el
+ * encabezado Y para cruzar con `noConfigurados`, para que ambos no puedan divergir.
+ */
+const CONCEPTO = {
+  soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito',
+  digital: 'Trámite digital', logistica: 'Logística',
+} as const;
+
+/**
+ * Un concepto sin valor no siempre significa lo mismo, y decir lo que no es hace daño:
+ *   falta = true  → el dato DEBERÍA estar y no está: falta la tarifa o el recibo. Hay que actuar.
+ *   falta = false → no aplica a este trámite (exento, o la compañía lo autogestiona). No hay nada
+ *                   que hacer, así que se pinta un guion en vez de acusar una configuración ausente.
+ * En ningún caso se pinta «$ 0»: un cero se suma en la cabeza de quien lee.
+ */
+function Monto({ v, falta, negrita }: { v: number | null; falta?: boolean; negrita?: boolean }) {
   if (v === null) {
-    return <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>No configurado</span>;
+    return (
+      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>
+        {falta ? 'No configurado' : '—'}
+      </span>
+    );
   }
   return <span className={negrita ? 'font-semibold' : undefined}>{pesos(v)}</span>;
 }
@@ -188,7 +207,7 @@ export default function FinanzasReporteCostos() {
             <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
             <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen algún concepto sin
             configurar, así que el total mostrado está incompleto. Revisa las tarifas de la compañía
-            en Parametrización y los recibos de derecho de trámite pendientes.
+            en Parametrización y los recibos de derecho de tránsito pendientes.
           </p>
         </FlitCard>
       )}
@@ -222,11 +241,11 @@ export default function FinanzasReporteCostos() {
                     </FlitTh>
                   )}
                   <FlitTh>Trámite</FlitTh>
-                  <FlitTh center>SOAT</FlitTh>
-                  <FlitTh center>Impuesto</FlitTh>
-                  <FlitTh center>Derecho de trámite</FlitTh>
-                  <FlitTh center>Logística</FlitTh>
-                  <FlitTh center>Trámite digital</FlitTh>
+                  <FlitTh center>{CONCEPTO.soat}</FlitTh>
+                  <FlitTh center>{CONCEPTO.impuesto}</FlitTh>
+                  <FlitTh center>{CONCEPTO.derecho}</FlitTh>
+                  <FlitTh center>{CONCEPTO.logistica}</FlitTh>
+                  <FlitTh center>{CONCEPTO.digital}</FlitTh>
                   <FlitTh center>GMF</FlitTh>
                   <FlitTh center>Total</FlitTh>
                   <FlitTh />
@@ -259,11 +278,13 @@ export default function FinanzasReporteCostos() {
                             : <StatusChip tone="draft">Estimado</StatusChip>}
                       </div>
                     </td>
+                    {/* SOAT e impuesto nunca entran en `noConfigurados`: su ausencia significa
+                        exento o autogestionado, no una configuración que falte. */}
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.impuesto} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={f.noConfigurados.includes(CONCEPTO.derecho)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={f.noConfigurados.includes(CONCEPTO.logistica)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={f.noConfigurados.includes(CONCEPTO.digital)} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.gmf} /></td>
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
                     <td className="px-3 py-2">

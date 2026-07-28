@@ -39,7 +39,7 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
 /**
  * Conceptos cuyo valor se negocia con cada compañía gestora (Feature #10939 §2.1 y §2.2).
  *
- * No están aquí SOAT, impuesto ni derecho de trámite: esos NO se negocian, son desembolsos reales
+ * No están aquí SOAT, impuesto ni derecho de tránsito: esos NO se negocian, son desembolsos reales
  * que se leen del documento pagado. Estos dos son honorarios propios de FLIT, y por eso varían de
  * un cliente a otro (el requerimiento cita $200.000 en una compañía y $1.500 en otra).
  */

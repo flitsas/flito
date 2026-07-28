@@ -109,12 +109,12 @@ describe('calcular — qué bloquea el sellado', () => {
     expect(c.faltantes).toContain('SOAT en estado "pendiente"');
   });
 
-  it('sin recibo de derecho de trámite no se puede liquidar', async () => {
+  it('sin recibo de derecho de tránsito no se puede liquidar', async () => {
     // El derecho es el dato que este Feature vino a hacer real: sellar sin él sería volver a inventar.
     selectMock.mockReturnValueOnce(chain([filaCompleta({ derechoValor: null })]));
     const c = await calcular('t1');
     expect(c.derecho.bloquea).toBe(true);
-    expect(c.faltantes).toContain('Sin recibo de derecho de trámite');
+    expect(c.faltantes).toContain('Sin recibo de derecho de tránsito');
   });
 
   it('sin tarifa configurada bloquea y NO cuenta como cero', async () => {

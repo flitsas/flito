@@ -86,8 +86,8 @@ export const PAGES = {
   // para el portal SOAT de FLITO (reemplaza el módulo SOAT legacy). El resto son nuevos.
   flito_tramites: 'FLITO — Trámites',
   flito_impuestos: 'FLITO — Impuestos',
-  // Derechos de trámite: lo que el organismo cobra por radicar (HU #10950/#10951).
-  flito_derechos: 'FLITO — Derechos de trámite',
+  // Derechos de tránsito: lo que el organismo cobra por radicar (HU #10950/#10951).
+  flito_derechos: 'FLITO — Derechos de tránsito',
   flito_revisiones: 'FLITO — Revisión OCR',
   flito_compuerta: 'FLITO — Compuerta de entrega',
   flito_parametrizacion: 'FLITO — Parametrización',
@@ -147,7 +147,7 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // FLITO Logística — Mensajero: su ruta de campo (PWA). No accede a la consola de Operaciones.
   mensajero: ['dashboard', 'flito_logistica_ruta'],
   // Finanzas — usuarios financieros: el reporte de costos y la consulta (solo lectura) de los
-  // derechos de trámite, que es de donde sale el valor real de ese reporte.
+  // derechos de tránsito, que es de donde sale el valor real de ese reporte.
   financiera: ['dashboard', 'finanzas_reporte_costos', 'flito_derechos'],
 };
 

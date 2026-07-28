@@ -1,6 +1,6 @@
-// FLITO Derechos de trámite — carga de recibos y cruce con el trámite (HU #10950).
+// FLITO Derechos de tránsito — carga de recibos y cruce con el trámite (HU #10950).
 //
-// El derecho de trámite es lo que el organismo cobra por radicar. Hasta esta HU era una constante
+// El derecho de tránsito es lo que el organismo cobra por radicar. Hasta esta HU era una constante
 // quemada en el reporte de costos; aquí se convierte en un dato leído del recibo del organismo.
 //
 // El pipeline es hermano del de recibos de impuestos (flito-recibos.service.ts): expandir → dedup por
@@ -135,7 +135,7 @@ export interface CandidatoTramite {
 }
 
 /**
- * Estado de FLIT en el que un trámite PUEDE tener un derecho de trámite pagado.
+ * Estado de FLIT en el que un trámite PUEDE tener un derecho de tránsito pagado.
  *
  * Es una lista blanca, no de exclusión, y esa dirección es deliberada: `flitEstado` es texto libre
  * que llega de FLIT y su catálogo es ABIERTO (el propio contrato lo documenta como "Borrador,
@@ -144,7 +144,7 @@ export interface CandidatoTramite {
  * un dato financiero incorrecto escrito en silencio. Con lista blanca el fallo se invierte y se
  * vuelve visible — el recibo cae en la bandeja de pendientes, que se reintenta sola.
  *
- * Solo `Aprobado`: es cuando el organismo genera el derecho de trámite (regla de negocio), y es
+ * Solo `Aprobado`: es cuando el organismo genera el derecho de tránsito (regla de negocio), y es
  * además el estado final del flujo (Asignado → Entregado → Aprobado), así que un trámite no se
  * "sale" de la lista más adelante. Un recibo que llegue antes de la aprobación espera en
  * pendientes y se asocia solo en cuanto el trámite llega a Aprobado.
@@ -205,7 +205,7 @@ export interface OpcionesCarga {
 }
 
 /**
- * Carga masiva de recibos de derecho de trámite. Un archivo que falla no tumba el lote: se reporta
+ * Carga masiva de recibos de derecho de tránsito. Un archivo que falla no tumba el lote: se reporta
  * y se sigue con el resto (AC8).
  */
 export async function cargarDerechos(
@@ -368,7 +368,7 @@ async function procesarDocumento(
   if (elegido.yaTieneDerecho) {
     res.duplicados.push(item(archivo.originalname, {
       placa, valor, idFlit: elegido.idFlit,
-      detalle: `El trámite ${elegido.idFlit} ya tiene registrado su derecho de trámite.`,
+      detalle: `El trámite ${elegido.idFlit} ya tiene registrado su derecho de tránsito.`,
     }));
     return;
   }
@@ -467,7 +467,7 @@ async function registrar(
 
     await tx.update(flitoSoportes).set({ derechoId: d.id }).where(eq(flitoSoportes.id, soporteId));
     await auditEnTx(tx, ctx, d.id,
-      `Derecho de trámite registrado (${opciones.origen}) para ${cand.idFlit}. Valor ${valor ?? '—'}, ` +
+      `Derecho de tránsito registrado (${opciones.origen}) para ${cand.idFlit}. Valor ${valor ?? '—'}, ` +
       `fecha ${fechaPago ?? '—'}, radicado ${radicado ?? '—'}. Soporte ${soporteId}.` +
       (advertencias.length > 0 ? ` Advertencias: ${advertencias.join(' ')}` : ''));
     return d.id;
@@ -513,7 +513,7 @@ async function aRevision(
       resuelto: false,
     });
     await auditEnTx(tx, ctx, registroId ?? soporteId,
-      `Recibo de derecho de trámite a revisión (${veredicto.motivo}): ${veredicto.detalle} Soporte ${soporteId}.`);
+      `Recibo de derecho de tránsito a revisión (${veredicto.motivo}): ${veredicto.detalle} Soporte ${soporteId}.`);
   });
 }
 
@@ -670,7 +670,7 @@ export async function registrarDesdeRevision(
     .where(eq(flitoTramites.id, tramiteId)).limit(1);
 
   if (!cand) throw new DerechoError(404, 'El trámite indicado no existe');
-  if (cand.yaTieneDerecho) throw new DerechoError(400, 'Ese trámite ya tiene registrado su derecho de trámite');
+  if (cand.yaTieneDerecho) throw new DerechoError(400, 'Ese trámite ya tiene registrado su derecho de tránsito');
 
   const derechoId = await registrar(
     cand, extraccion, soporteId, advertenciasDe(cand, extraccion),

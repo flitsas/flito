@@ -60,7 +60,7 @@ router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response
 });
 
 /**
- * GET /tramites/:id/soportes — SOAT, impuesto y derecho de trámite en una sola respuesta.
+ * GET /tramites/:id/soportes — SOAT, impuesto y derecho de tránsito en una sola respuesta.
  *
  * Hasta ahora cada flujo servía los suyos por su propia ruta, así que ver los documentos de un
  * trámite obligaba a tres llamadas y a saber de antemano cuáles existían.

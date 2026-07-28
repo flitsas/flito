@@ -63,8 +63,8 @@ describe('aCsv — el archivo que abre contabilidad', () => {
   });
 
   it('lista los conceptos sin configurar en su propia columna', () => {
-    const csv = aCsv([fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de trámite', 'Logística'] })]);
-    expect(csv).toContain('Derecho de trámite | Logística');
+    const csv = aCsv([fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de tránsito', 'Logística'] })]);
+    expect(csv).toContain('Derecho de tránsito | Logística');
   });
 
   it('sin filas devuelve solo la cabecera', () => {

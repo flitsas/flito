@@ -28,7 +28,7 @@ export class LiquidacionError extends Error {
 /**
  * Tasa del gravamen a los movimientos financieros (4 x 1000).
  *
- * Se aplica SOLO sobre los desembolsos reales —SOAT, impuesto y derecho de trámite—, que es el
+ * Se aplica SOLO sobre los desembolsos reales —SOAT, impuesto y derecho de tránsito—, que es el
  * dinero que efectivamente sale por el banco hacia un tercero. El trámite digital y la logística
  * son honorarios propios de FLIT, no giros, y por eso no forman base.
  */
@@ -130,7 +130,7 @@ function proyeccionCalculo() {
  * Reglas de cada concepto:
  *  - SOAT / impuesto: el valor pagado. Si la compañía los autogestiona, no aplican (null, no cero).
  *    Si están pendientes, bloquean: sellar un cero congelaría un cobro que aún no ocurrió.
- *  - Derecho de trámite: el valor real del recibo. Sin recibo, bloquea.
+ *  - Derecho de tránsito: el valor real del recibo. Sin recibo, bloquea.
  *  - Trámite digital: tarifa de la compañía. Sin tarifa, «No configurado» y bloquea.
  *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística.
  */
@@ -160,8 +160,8 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
         : { valor: null, origen: `Impuesto en estado "${f.impuestoEstado}"`, bloquea: true };
 
   const derecho: ConceptoLiquidado = f.derechoValor !== null
-    ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de trámite', bloquea: false }
-    : { valor: null, origen: 'Sin recibo de derecho de trámite', bloquea: true };
+    ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de tránsito', bloquea: false }
+    : { valor: null, origen: 'Sin recibo de derecho de tránsito', bloquea: true };
 
   const etiquetaTipo = f.tipoTramite ?? 'tipo';
   const tramiteDigital = deTarifa(
