@@ -399,23 +399,26 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
  * debe incluirlos, o Postgres falla con «missing FROM-clause entry».
  */
 /**
- * Estados de FLIT que significan «este trámite ya no espera aprobación».
+ * Estados de FLIT en los que el trámite ya está en manos del organismo, esperando su aprobación.
  *
  * El ciclo real es: Borrador → Enviado a OT → Asignado → Entregado → **Aprobado**, siendo Aprobado
  * el estado objetivo, el último. Los estados pueden retroceder: un trámite Entregado que se Rechaza
- * se subsana y vuelve a Entregado para nueva revisión.
+ * se subsana y vuelve a Entregado para nueva revisión. Por eso Rechazado también cuenta: un
+ * rechazado sin subsanar es justo el cuello de botella que la alerta debe destapar.
  *
- * Por eso solo hay tres muertos: Aprobado (ya llegó a la meta), Anulado y Abortado. **Entregado y
- * Rechazado NO entran**: ambos siguen esperando aprobación, y un rechazado subsanable es justo el
- * cuello de botella que la alerta debe destapar.
+ * Antes esto era una lista de EXCLUSIÓN —todo lo que no estuviera Aprobado, Anulado o Abortado—,
+ * pensada para que un estado nuevo del catálogo abierto de FLIT apareciera en la alerta en vez de
+ * desaparecer en silencio. El efecto real era el contrario del que Operaciones necesita: metía
+ * Borradores y Asignados, que todavía no han llegado al organismo y cuya demora no es suya. La
+ * alerta mide demora DEL ORGANISMO, así que la lista pasa a ser de inclusión.
  *
  * En minúsculas y sin espacios, como se comparan. `sql.join` con parámetros individuales, no un
- * array de JS: `<> ALL(${array})` falla en tiempo de ejecución con «op ANY/ALL (array) requires
+ * array de JS: `= ANY(${array})` falla en tiempo de ejecución con «op ANY/ALL (array) requires
  * array on right side», y ningún test con drizzle mockeado lo detecta.
  */
-const ESTADOS_PASADA_APROBACION = ['aprobado', 'anulado', 'abortado'] as const;
-const sqlEstadosPasadaAprobacion = () =>
-  sql.join(ESTADOS_PASADA_APROBACION.map((e) => sql`${e}`), sql`, `);
+const ESTADOS_ESPERANDO_APROBACION = ['entregado', 'rechazado'] as const;
+const sqlEstadosEsperandoAprobacion = () =>
+  sql.join(ESTADOS_ESPERANDO_APROBACION.map((e) => sql`${e}`), sql`, `);
 
 export function condicionAlerta(alerta: AlertaOperativa): SQL {
   // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
@@ -438,16 +441,14 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
         AND ${entroABorrador} < NOW() - make_interval(days => ${SLA_OPERATIVO.BORRADOR_DIAS})`;
     }
     case 'sin_aprobar_1d':
-      // La alerta busca cuellos de botella administrativos, así que solo cuenta lo que SIGUE
-      // esperando aprobación. No basta con `fecha_aprobacion IS NULL`: FLIT deja ese campo vacío en
-      // trámites que ya avanzaron o murieron, y contarlos metía 400 Entregados en la alerta.
+      // Solo lo que está en manos del organismo: Entregado (esperando revisión) y Rechazado
+      // (devuelto y aún sin subsanar).
       //
-      // Es una lista de exclusión, no de inclusión, y es deliberado: el catálogo de estados de FLIT
-      // es abierto. Si aparece un estado nuevo previo a la aprobación, con lista de exclusión sale
-      // en la alerta (visible, corregible); con lista de inclusión desaparecería en silencio, que es
-      // justo el fallo que se acaba de arreglar en el listado.
-      return sql`${flitoTramites.fechaAprobacion} IS NULL
-        AND LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) NOT IN (${sqlEstadosPasadaAprobacion()})
+      // Ya no se filtra además por `fecha_aprobacion IS NULL`. Ese guardia existía para compensar la
+      // lista de exclusión; con la de inclusión no aporta nada y sí puede quitar de la vista un
+      // trámite que se aprobó y luego retrocedió a Entregado —conserva su fecha de aprobación pero
+      // vuelve a estar esperando—, que es precisamente uno de los que hay que destapar.
+      return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) IN (${sqlEstadosEsperandoAprobacion()})
         AND ${nacimiento} < NOW() - make_interval(days => ${SLA_OPERATIVO.SIN_APROBAR_DIAS})`;
     case 'soat_sin_gestion':
       return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL
