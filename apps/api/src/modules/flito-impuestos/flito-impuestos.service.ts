@@ -22,6 +22,13 @@ const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLIC
 
 const esGestor = (ctx: ImpuestoCtx) => ctx.role === 'gestor_impuestos';
 
+/**
+ * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
+ * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ */
+const FRONTERA_AUTOGESTION_IMP = sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false)
+  OR ${flitoImpuestos.excepcionAutogestion})`;
+
 export interface ImpuestoColaItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
@@ -90,7 +97,7 @@ const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLI
  * hace que no pueda ver nada, que no es lo mismo que «sin filtros».
  */
 function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
-  const conds = [eq(clients.impuestosAutogestionable, false)];
+  const conds = [FRONTERA_AUTOGESTION_IMP];
 
   if (esGestor(ctx)) {
     if (!ctx.transitoCodigo) return null; // sin organismo no hay frontera → nada

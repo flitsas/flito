@@ -62,6 +62,13 @@ export async function contextoSoat(user: { sub: number; username: string; role: 
 
 const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
 
+/**
+ * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
+ * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ */
+const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
+  OR ${flitoSoat.excepcionAutogestion})`;
+
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 
 export interface SoatColaItem {
@@ -131,7 +138,7 @@ const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
  * filtros», que sería devolver una lista vacía de condiciones y traerlo todo.
  */
 function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
-  const conds = [eq(clients.soatAutogestionable, false)];
+  const conds = [FRONTERA_AUTOGESTION_SOAT];
 
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null; // sin proveedor no hay frontera que aplicar → nada
@@ -733,7 +740,7 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
 
   const conds = [
     eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
-    eq(clients.soatAutogestionable, false),
+    FRONTERA_AUTOGESTION_SOAT,
     or(...llave)!,
   ];
   if (esGestor(ctx)) {

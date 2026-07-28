@@ -172,7 +172,9 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
 async function buscarCandidato(placa: string, estado: EstadoImpuesto, organismoCodigo: string | null): Promise<Candidato | null> {
   const conds = [
     eq(flitoImpuestos.estado, estado),
-    eq(clients.impuestosAutogestionable, false),
+    // Misma frontera que la cola: la autogestión deja fuera, salvo el desbloqueo excepcional
+    // (HU #10980). Si no, un recibo de un trámite desbloqueado no cruzaría con su impuesto.
+    sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false) OR ${flitoImpuestos.excepcionAutogestion})`,
     sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarLlave(placa)}`,
   ];
   if (organismoCodigo) conds.push(eq(flitoImpuestos.organismoCodigo, organismoCodigo));

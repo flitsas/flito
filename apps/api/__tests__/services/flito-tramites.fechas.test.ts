@@ -45,11 +45,12 @@ function filaCruda(over: Record<string, unknown> = {}) {
   };
 }
 
-/** listar() consume tres selects en orden: count, página, compradores. */
+/** listar() consume cuatro selects en orden: count, página, compradores y excepciones (HU #10980). */
 function montarListado(fila: Record<string, unknown>) {
   selectMock
     .mockReturnValueOnce(chain([{ total: 1 }]))
     .mockReturnValueOnce(chain([fila]))
+    .mockReturnValueOnce(chain([]))
     .mockReturnValueOnce(chain([]));
 }
 
