@@ -57,14 +57,23 @@ describe('condicionAlerta — cada alerta mira lo que dice el requerimiento', ()
     expect(s).toContain(String(SLA_OPERATIVO.BORRADOR_DIAS));
   });
 
-  it('sin aprobar excluye lo que ya pasó la aprobación o murió', () => {
+  it('sin aprobar excluye solo los estados que ya no esperan aprobación', () => {
     const s = sqlDe('sin_aprobar_1d');
     expect(s).toContain('fecha_aprobacion');
-    // Sin esta exclusión la alerta cuenta entregados y anulados, que no son cuello de botella.
-    for (const estado of ['aprobado', 'entregado', 'anulado', 'rechazado', 'abortado']) {
+    // Aprobado es la meta; Anulado y Abortado son muerte. Nada más está fuera de juego.
+    for (const estado of ['aprobado', 'anulado', 'abortado']) {
       expect(s).toContain(`'${estado}'`);
     }
     expect(s).toContain(String(SLA_OPERATIVO.SIN_APROBAR_DIAS));
+  });
+
+  it('sin aprobar NO excluye Entregado ni Rechazado', () => {
+    // El ciclo es Borrador → Enviado a OT → Asignado → Entregado → Aprobado, y los estados pueden
+    // retroceder: un Entregado que se Rechaza se subsana y vuelve a Entregado. Ambos siguen
+    // esperando aprobación, así que son exactamente el cuello de botella que la alerta busca.
+    const s = sqlDe('sin_aprobar_1d');
+    expect(s).not.toContain("'entregado'");
+    expect(s).not.toContain("'rechazado'");
   });
 
   it('SOAT sin gestión usa el SLA del proveedor con respaldo por defecto', () => {
