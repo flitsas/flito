@@ -7,11 +7,13 @@ import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 const FILA_ESTIMADA = {
   tramiteId: 'aaaa0000-0000-0000-0000-000000000001', idFlit: 'FLIT-2001', placa: 'ABC123',
   estado: 'Aprobado', empresa: 'ACME SAS', tipoTramite: 'Traspaso',
+  fechaAprobacion: '2026-07-14T15:30:00.000Z',
   soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000,
-  gmf: 2600, total: 867600, sellada: false, estadoLiquidacion: null, noConfigurados: [],
+  gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [],
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
+  fechaAprobacion: null,
   tramiteDigital: null, total: null, noConfigurados: ['Trámite digital'],
 };
 const FILA_LIQUIDADA = {
@@ -50,6 +52,60 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByText('Estimado')).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2003' }).getByText('Liquidado')).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2004' }).getByText('Facturado')).toBeVisible();
+  });
+
+  test('muestra la fecha de aprobación, y dice cuándo no la hay', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByText('14 de jul de 26')).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2002' }).getByText('Sin aprobar')).toBeVisible();
+  });
+
+  test('arranca filtrado por Aprobado y los dos rangos de fecha viajan por separado', async ({ page }) => {
+    // El estado por defecto se comprueba sobre la petición, no sobre el estilo de la pastilla: es
+    // lo que de verdad determina qué filas se traen.
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        estados: ['Aprobado', 'Entregado'], empresas: [], tipos: [],
+      }) }));
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await expect.poll(() => urls[0] ?? '').toContain('estados=Aprobado');
+
+    await page.getByLabel('Creado desde').fill('2026-06-01');
+    await page.getByLabel('Aprobado hasta').fill('2026-07-31');
+    await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoHasta=2026-07-31');
+    expect(urls.at(-1)).toContain('desde=2026-06-01');
+  });
+
+  test('limpiar filtros vuelve a Aprobado, no a todos los estados', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        estados: ['Aprobado', 'Entregado'], empresas: [], tipos: [],
+      }) }));
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('button', { name: 'Entregado' }).click();
+    await page.getByLabel('Creado desde').fill('2026-06-01');
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');
+    expect(urls.at(-1)).not.toContain('Entregado');
+    expect(urls.at(-1)).not.toContain('desde=');
   });
 
   test('un concepto sin tarifa se muestra como «No configurado», no como cero', async ({ page }) => {

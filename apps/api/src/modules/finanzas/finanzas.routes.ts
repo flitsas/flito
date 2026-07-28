@@ -35,6 +35,7 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
     buscar: str(q.buscar), estados: lista(q.estados), empresas: lista(q.empresas), tipos: lista(q.tipos),
     liquidado: siNo(q.liquidado), facturado: siNo(q.facturado),
     desde: fecha(q.desde), hasta: fecha(q.hasta),
+    aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }

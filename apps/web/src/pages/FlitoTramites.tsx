@@ -46,7 +46,7 @@ interface TramiteFila {
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
-  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string } | null;
+  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; correo: string | null } | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
@@ -401,6 +401,7 @@ export default function FlitoTramites() {
                   <ThFiltroMulti seleccion={estadosSel} onCambio={setEstadosSel} opciones={aOpc(facetas.estados)} placeholder="Todos los estados" />
                 </FlitTh>
                 <FlitTh>Creado</FlitTh>
+                <FlitTh>Aprobado</FlitTh>
                 <FlitTh>Vehículo</FlitTh>
                 <FlitTh>Comprador</FlitTh>
                 <FlitTh>
@@ -454,6 +455,11 @@ export default function FlitoTramites() {
                     <div className="mt-1"><AntiguedadPill desde={f.fechaCreacion} /></div>
                   </td>
                   <td className="px-3 py-2 align-top">
+                    {f.fechaAprobacion
+                      ? <div className="text-sm tabular-nums">{fecha(f.fechaAprobacion)}</div>
+                      : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
+                  </td>
+                  <td className="px-3 py-2 align-top">
                     <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>
                     <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.marca} {f.vehiculo.linea}{f.vehiculo.tipoVehiculo ? ` · ${f.vehiculo.tipoVehiculo}` : ''}</div>
                     <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vehiculo.vin}</div>
@@ -464,6 +470,13 @@ export default function FlitoTramites() {
                       <>
                         <div>{f.compradorPrincipal.nombreCompleto}</div>
                         <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.compradorPrincipal.numeroDocumento}</div>
+                        {/* Sin correo no se pinta nada: un guion suelto ocupa lo mismo y no informa. */}
+                        {f.compradorPrincipal.correo && (
+                          <div>
+                            <a href={`mailto:${f.compradorPrincipal.correo}`} className="text-[11px] break-all hover:underline"
+                              style={{ color: 'var(--flit-blue-text)' }}>{f.compradorPrincipal.correo}</a>
+                          </div>
+                        )}
                         {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
                       </>
                     ) : '—'}
