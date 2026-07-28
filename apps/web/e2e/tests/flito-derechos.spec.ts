@@ -158,3 +158,75 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await expect(page.getByRole('cell', { name: 'Sin placa' })).toBeVisible();
   });
 });
+
+// ─────────────────── Drive de la secretaría (HU #11010) ─────────────────────
+//
+// Antes esto vivía en Administración → Google Drive, un explorador genérico. Ahora se procesa
+// desde el propio módulo, que es donde se ve el resultado.
+
+const ARCHIVOS_DRIVE = [
+  { fileId: 'f1', nombre: 'FLIT 18-07-2026.pdf', tamanoBytes: 1_782_000, modificadoEn: '2026-07-18T10:00:00Z', procesadoEn: null },
+  { fileId: 'f2', nombre: 'FLIT 17-07-2026.pdf', tamanoBytes: 900_000, modificadoEn: '2026-07-17T10:00:00Z', procesadoEn: '2026-07-17T18:00:00Z' },
+];
+
+async function mockDrive(page: import('@playwright/test').Page) {
+  await mockListas(page);
+  await page.route(/\/api\/flito\/derechos\/drive\/archivos/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ARCHIVOS_DRIVE) }));
+}
+
+test.describe('FLITO — Derechos · Drive de la secretaría', () => {
+  test('lista los consolidados y distingue el ya procesado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+
+    await expect(page.getByRole('cell', { name: 'FLIT 18-07-2026.pdf' })).toBeVisible();
+    // El ya procesado se marca, pero se puede reprocesar: el organismo puede reemplazar el archivo.
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT 17-07-2026.pdf' }).getByRole('button', { name: 'Reprocesar' })).toBeVisible();
+  });
+
+  test('procesar el día asocia y muestra el resultado por canasta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+    let pedido = '';
+    await page.route(/\/api\/flito\/derechos\/drive\/procesar/, (route) => {
+      pedido = route.request().postData() ?? '';
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        archivo: 'FLIT 18-07-2026.pdf', totalPaginas: 13, cuentasDetectadas: 12, placasUnicas: 12,
+        registrados: [{ archivo: 'QYS441.pdf', placa: 'QYS441', idFlit: 'FLIT-0125621', registroId: 'd1', valor: '236700', detalle: 'Registrado.' }],
+        enRevision: [], duplicados: [],
+        pendientes: [{ archivo: 'QYS999.pdf', placa: 'QYS999', idFlit: null, registroId: null, valor: null, detalle: 'Sin trámite todavía.' }],
+        omitidas: [], fallidos: [],
+      }) });
+    });
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' }).click();
+
+    await expect.poll(() => pedido).toContain('f1');
+    // El panel de resultados vive por encima de las pestañas: se ve sin cambiar de sitio.
+    await expect(page.getByText(/Resultado de la carga/)).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'QYS441', exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'FLIT-0125621' })).toBeVisible();
+  });
+
+  test('si el Drive no responde se dice, sin romper las otras pestañas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+    await page.route(/\/api\/flito\/derechos\/drive\/archivos/, (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'El Drive no está disponible' }) }));
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await expect(page.getByText(/no está disponible/)).toBeVisible();
+
+    // Las otras dos siguen funcionando.
+    await page.getByRole('button', { name: /Sin cruzar/ }).click();
+    await expect(page.getByRole('cell', { name: 'NOP111', exact: true })).toBeVisible();
+  });
+});

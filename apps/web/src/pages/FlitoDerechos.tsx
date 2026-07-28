@@ -49,6 +49,14 @@ const CONCEPTOS_PENDIENTE = [
 const ETIQUETA_CONCEPTO: Record<string, string> = { derecho: 'Derecho', soat: 'SOAT', impuesto: 'Impuesto' };
 const TONO_CONCEPTO: Record<string, ChipTone> = { derecho: 'active', soat: 'warning', impuesto: 'draft' };
 
+interface ArchivoDrive {
+  fileId: string; nombre: string; tamanoBytes: number | null;
+  modificadoEn: string | null; procesadoEn: string | null;
+}
+interface ResultadoProcesoDrive extends ResultadoCarga {
+  archivo: string; totalPaginas: number; cuentasDetectadas: number; placasUnicas: number;
+}
+
 interface PendienteRow {
   id: string; concepto: string; placa: string | null; valor: string | null; fechaPago: string | null;
   tipoTramiteRecibo: string | null; organismoCodigo: string | null; origen: string;
@@ -83,6 +91,8 @@ const fecha = (v: string | null): string => {
   const [y, m, d] = v.slice(0, 10).split('-');
   return `${Number(d)}/${Number(m)}/${y}`;
 };
+const tamano = (b: number | null): string =>
+  b === null ? '—' : b > 1_048_576 ? `${(b / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
 const fechaHora = (v: string): string =>
   new Date(v).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -96,8 +106,116 @@ async function abrirSoporte(soporteId: string): Promise<void> {
   }
 }
 
+/**
+ * Pestaña del Drive de la secretaría (HU #11010).
+ *
+ * Antes esto solo se podía hacer desde Administración → Google Drive, un explorador de archivos
+ * genérico donde la acción quedaba escondida. Aquí está donde se ve el resultado: se procesa y se
+ * cambia a la pestaña de al lado.
+ *
+ * Es bajo demanda: se elige el día. Nada se sube desde la máquina de quien opera.
+ */
+function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void }) {
+  const [archivos, setArchivos] = useState<ArchivoDrive[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [procesando, setProcesando] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    setArchivos(null); setError(null);
+    api.get<ArchivoDrive[]>('/flito/derechos/drive/archivos')
+      .then(setArchivos)
+      .catch((e) => { setError(errorMessage(e)); setArchivos([]); });
+  }, [nonce]);
+
+  async function procesar(a: ArchivoDrive) {
+    setProcesando(a.fileId); setError(null);
+    try {
+      const r = await api.post<ResultadoProcesoDrive>('/flito/derechos/drive/procesar', { fileId: a.fileId });
+      toast.success(
+        r.registrados.length > 0
+          ? `${r.registrados.length} derecho(s) registrado(s) de ${a.nombre}`
+          : `${a.nombre} procesado — revisa el detalle`,
+      );
+      onProcesado(r);
+      setNonce((n) => n + 1);
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setError(errorMessage(e));
+    } finally {
+      setProcesando(null);
+    }
+  }
+
+  return (
+    <>
+      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        Consolidados que publica la secretaría en su Drive. Elige el día y procésalo: se lee cada
+        cuenta, se asocia a su trámite por placa y el resultado aparece en las pestañas de al lado.
+        Las demás secretarías se cargan a mano desde arriba.
+      </p>
+
+      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+
+      {!archivos && !error && (
+        <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Consultando el Drive…</p></FlitCard>
+      )}
+
+      {archivos && archivos.length === 0 && !error && (
+        <FlitCard><FlitEmpty>No hay PDF en la carpeta del Drive.</FlitEmpty></FlitCard>
+      )}
+
+      {archivos && archivos.length > 0 && (
+        <FlitCard>
+          <FlitTable>
+            <thead>
+              <tr>
+                <FlitTh>Archivo</FlitTh>
+                <FlitTh>Modificado</FlitTh>
+                <FlitTh>Tamaño</FlitTh>
+                <FlitTh>Procesado</FlitTh>
+                <FlitTh center>Acción</FlitTh>
+              </tr>
+            </thead>
+            <tbody>
+              {archivos.map((a) => (
+                <FlitTr key={a.fileId}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{a.nombre}</td>
+                  <td className="px-4 py-2.5 text-xs">{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</td>
+                  <td className="px-4 py-2.5 text-xs tabular-nums">{tamano(a.tamanoBytes)}</td>
+                  <td className="px-4 py-2.5 text-xs">
+                    {/* Informativo, no una prohibición: si el organismo reemplazó el archivo del día
+                        hay que poder releerlo. Lo que impide duplicar es el hash de cada recibo. */}
+                    {a.procesadoEn
+                      ? <StatusChip tone="success">{fechaHora(a.procesadoEn)}</StatusChip>
+                      : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-center">
+                    <button
+                      type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                      disabled={procesando !== null}
+                      onClick={() => procesar(a)}
+                    >
+                      {procesando === a.fileId ? 'Procesando…' : a.procesadoEn ? 'Reprocesar' : 'Procesar'}
+                    </button>
+                  </td>
+                </FlitTr>
+              ))}
+            </tbody>
+          </FlitTable>
+          {procesando && (
+            <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              Se lee cada página con OCR, así que un consolidado grande tarda. No cierres la pestaña.
+            </p>
+          )}
+        </FlitCard>
+      )}
+    </>
+  );
+}
+
 export default function FlitoDerechos() {
-  const [pestana, setPestana] = useState<'registrados' | 'pendientes'>('registrados');
+  const [pestana, setPestana] = useState<'registrados' | 'pendientes' | 'drive'>('registrados');
   const [archivos, setArchivos] = useState<File[]>([]);
   const [organismo, setOrganismo] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -223,6 +341,19 @@ export default function FlitoDerechos() {
         </p>
       </FlitCard>
 
+
+      <FlitPillGroup>
+        <FlitPillButton active={pestana === 'registrados'} onClick={() => setPestana('registrados')}>
+          Registrados ({total})
+        </FlitPillButton>
+        <FlitPillButton active={pestana === 'pendientes'} onClick={() => setPestana('pendientes')}>
+          Sin cruzar ({pendientes.length})
+        </FlitPillButton>
+        <FlitPillButton active={pestana === 'drive'} onClick={() => setPestana('drive')}>
+          Drive · Medellín
+        </FlitPillButton>
+      </FlitPillGroup>
+
       {resultado && (
         <FlitCard>
           <div className="mb-3 flex items-center justify-between">
@@ -269,15 +400,6 @@ export default function FlitoDerechos() {
           </div>
         </FlitCard>
       )}
-
-      <FlitPillGroup>
-        <FlitPillButton active={pestana === 'registrados'} onClick={() => setPestana('registrados')}>
-          Registrados ({total})
-        </FlitPillButton>
-        <FlitPillButton active={pestana === 'pendientes'} onClick={() => setPestana('pendientes')}>
-          Sin cruzar ({pendientes.length})
-        </FlitPillButton>
-      </FlitPillGroup>
 
       {pestana === 'registrados' ? (
         <>
@@ -367,7 +489,7 @@ export default function FlitoDerechos() {
             </>
           )}
         </>
-      ) : (
+      ) : pestana === 'pendientes' ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -469,6 +591,8 @@ export default function FlitoDerechos() {
             </FlitTable>
           )}
         </>
+      ) : (
+        <TabDrive onProcesado={(r) => { setResultado(r); recargar(); }} />
       )}
     </div>
   );
