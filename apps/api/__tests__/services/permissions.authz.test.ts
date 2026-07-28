@@ -158,7 +158,7 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const pages = getEffectivePages({ role: 'auditor' }).sort();
     expect(pages).toEqual([
       'dashboard', 'laft_audit_plan', 'laft_dashboard', 'laft_manual', 'laft_oficial',
-      'flito_tramites', 'soat', 'flito_impuestos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+      'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'flito_parametrizacion', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
       // HU #10967: el reporte consolida datos que el auditor ya ve uno a uno.
       'finanzas_reporte_costos',
     ].sort());
