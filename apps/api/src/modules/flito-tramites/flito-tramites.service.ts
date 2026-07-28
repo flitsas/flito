@@ -5,9 +5,10 @@
 // en el servicio dueño de la regla (SOAT/Impuestos para el envío al gestor, Compuerta para el veredicto
 // y la entrega). Aquí solo vive el mapeo y el reporte agregado.
 
-import { and, desc, eq, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
+  SLA_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -29,12 +30,13 @@ export interface Comprador {
 }
 export interface FilaSoat {
   id: string; estado: string; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
-  valorPagado: number | null; enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+  valorPagado: number | null; enviadoEn: string | null; pagadoEn: string | null;
+  estancado: boolean; motivoRechazo: string | null;
 }
 export interface FilaImpuesto {
   id: string; estado: string; tieneFacturaVenta: boolean; coincidenciaFacturaVenta: number | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  enviadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
+  enviadoEn: string | null; pagadoEn: string | null; estancado: boolean; motivoRechazo: string | null;
 }
 /**
  * Semáforo de gestión FLITO del trámite (lo que le falta a FLITO por resolver):
@@ -54,6 +56,11 @@ export interface TramiteFila {
   /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
   asignado: boolean;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
+  /**
+   * Fecha en que el trámite nació en FLIT, con `created_at` de FLITO como respaldo cuando el
+   * reporte no la trae. Es la base del orden cronológico y de los indicadores de antigüedad.
+   */
+  fechaCreacion: string | null;
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
@@ -198,8 +205,20 @@ export interface FiltrosListado {
   empresas?: string[]; soat?: string[]; impuesto?: string[];
   /** Autogestión de la empresa: 'si' = autogestiona SOAT E impuestos; 'no' = FLITO gestiona al menos uno. */
   autogestion?: 'si' | 'no';
+  /**
+   * Orden cronológico por fecha de creación. 'antiguos' primero es el orden de trabajo del gestor
+   * (lo que lleva más tiempo esperando se atiende antes); 'recientes' es el default histórico.
+   */
+  orden?: OrdenListado;
+  /** Alerta operativa del tablero. Excluyentes entre sí: un botón, un valor. */
+  alerta?: AlertaOperativa;
   page?: number; pageSize?: number;
 }
+
+export const ORDENES_LISTADO = ['recientes', 'antiguos'] as const;
+export type OrdenListado = (typeof ORDENES_LISTADO)[number];
+export const esOrdenListado = (v: unknown): v is OrdenListado =>
+  typeof v === 'string' && (ORDENES_LISTADO as readonly string[]).includes(v);
 export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 
@@ -231,6 +250,8 @@ function proyeccion() {
     transitoNombreFlit: flitoTramites.transitoNombreFlit,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
     fechaAprobacion: flitoTramites.fechaAprobacion,
+    fechaCreacionFlit: flitoTramites.fechaCreacionFlit,
+    creadoEn: flitoTramites.createdAt,
     // Extras de presentación.
     sincronizadoEn: flitoTramites.sincronizadoEn,
     organismoAlias: organismosTransitoConfig.alias,
@@ -244,11 +265,16 @@ function proyeccion() {
     soatProveedorNombre: flitoProveedoresSoat.nombre,
     soatSlaHoras: flitoProveedoresSoat.slaHoras,
     soatEnviadoEn: flitoSoat.enviadoEn,
+    soatPagadoEn: flitoSoat.pagadoEn,
     soatMotivoRechazo: flitoSoat.motivoRechazo,
     impuestoId: flitoImpuestos.id,
     impuestoExtraccionFacturaVenta: flitoImpuestos.extraccionFacturaVenta,
     impuestoValorLiquidado: flitoImpuestos.valorLiquidado,
     impuestoEnviadoEn: flitoImpuestos.enviadoEn,
+    impuestoPagadoEn: flitoImpuestos.pagadoEn,
+    // SLA del organismo del trámite. Es el mismo que el del impuesto (ambos salen del organismo
+    // resuelto al sincronizar), así que se aprovecha el join que ya existe en vez de añadir otro.
+    impuestoSlaHoras: organismosTransitoConfig.flitoSlaHoras,
     impuestoMotivoRechazo: flitoImpuestos.motivoRechazo,
   }).from(flitoTramites)
     // leftJoin (no inner): compañía y secretaría pueden faltar (empresa inexistente / sin emparejar);
@@ -265,7 +291,12 @@ function proyeccion() {
 
 type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
 
-function estancadoSoat(estado: string | null, enviadoEn: Date | null, slaHoras: number | null): boolean {
+/**
+ * Solicitado hace más de lo que aguanta el SLA. Sirve igual a SOAT (SLA del proveedor) y a impuestos
+ * (SLA del organismo): ambos usan el mismo estado 'solicitado' y la misma cuenta desde `enviadoEn`.
+ * Sin SLA configurado no hay estancamiento posible.
+ */
+function estancadoPorSla(estado: string | null, enviadoEn: Date | null, slaHoras: number | null): boolean {
   if (estado !== 'solicitado' || !slaHoras || !enviadoEn) return false;
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
 }
@@ -302,6 +333,9 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
     tipoTramite: f.tipoTramite,
     ciudad: f.ciudad,
     fechaAprobacion: f.fechaAprobacion ? f.fechaAprobacion.toISOString() : null,
+    // Respaldo a created_at: los trámites anteriores a que FLIT empezara a reportar fechaCreacion
+    // no la tienen, y quedarse sin fecha los dejaría fuera de todo orden e indicador.
+    fechaCreacion: (f.fechaCreacionFlit ?? f.creadoEn)?.toISOString() ?? null,
     companiaNombre: f.companiaNombre,
     empresaExiste: f.companiaId !== null,
     empresaNit: f.companiaNit,
@@ -315,7 +349,8 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
     soat: f.soatId ? {
       id: f.soatId, estado: f.soatEstado!, proveedorSoatId: f.soatProveedorId, proveedorSoatNombre: f.soatProveedorNombre,
       valorPagado: num(f.soatValorPagado), enviadoEn: f.soatEnviadoEn ? f.soatEnviadoEn.toISOString() : null,
-      estancado: estancadoSoat(f.soatEstado, f.soatEnviadoEn, f.soatSlaHoras), motivoRechazo: f.soatMotivoRechazo,
+      pagadoEn: f.soatPagadoEn ? f.soatPagadoEn.toISOString() : null,
+      estancado: estancadoPorSla(f.soatEstado, f.soatEnviadoEn, f.soatSlaHoras), motivoRechazo: f.soatMotivoRechazo,
     } : null,
     soatAutogestionado: f.soatAutogestionable ?? false,
     impuesto: f.impuestoId ? {
@@ -324,7 +359,9 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
       valorLiquidado: num(f.impuestoValorLiquidado), valorPagado: num(f.impuestoValorPagado),
       marcadoPorDiferencia: f.impuestoMarcadoPorDiferencia ?? false,
       enviadoEn: f.impuestoEnviadoEn ? f.impuestoEnviadoEn.toISOString() : null,
-      estancado: false, motivoRechazo: f.impuestoMotivoRechazo,
+      pagadoEn: f.impuestoPagadoEn ? f.impuestoPagadoEn.toISOString() : null,
+      estancado: estancadoPorSla(f.impuestoEstado, f.impuestoEnviadoEn, f.impuestoSlaHoras),
+      motivoRechazo: f.impuestoMotivoRechazo,
     } : null,
     impuestosAutogestionado: f.impuestosAutogestionable ?? false,
     soatResuelto: veredicto.soatResuelto,
@@ -341,10 +378,87 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
   };
 }
 
-// Traduce los filtros del listado a condiciones SQL. Excluye siempre los trámites terminados. `buscar`
-// es una búsqueda global (id FLIT, placa, VIN, nombre/documento del comprador; placa/VIN toleran guiones).
+/**
+ * Traduce una alerta operativa a SQL (Feature #10942 §5.2).
+ *
+ * Se exporta para que el tablero cuente EXACTAMENTE lo mismo que devuelve el listado: si cada uno
+ * escribiera su propio predicado, la tarjeta diría 12 y la tabla mostraría 9, y nadie sabría cuál
+ * de los dos miente.
+ *
+ * Ojo con los joins: `soat_sin_gestion` depende de `flito_proveedores_soat` y
+ * `impuesto_sin_gestion` de `organismos_transito_config`. Toda consulta que use estas condiciones
+ * debe incluirlos, o Postgres falla con «missing FROM-clause entry».
+ */
+/**
+ * Estados de FLIT que significan «este trámite ya no espera aprobación».
+ *
+ * El ciclo real es: Borrador → Enviado a OT → Asignado → Entregado → **Aprobado**, siendo Aprobado
+ * el estado objetivo, el último. Los estados pueden retroceder: un trámite Entregado que se Rechaza
+ * se subsana y vuelve a Entregado para nueva revisión.
+ *
+ * Por eso solo hay tres muertos: Aprobado (ya llegó a la meta), Anulado y Abortado. **Entregado y
+ * Rechazado NO entran**: ambos siguen esperando aprobación, y un rechazado subsanable es justo el
+ * cuello de botella que la alerta debe destapar.
+ *
+ * En minúsculas y sin espacios, como se comparan. `sql.join` con parámetros individuales, no un
+ * array de JS: `<> ALL(${array})` falla en tiempo de ejecución con «op ANY/ALL (array) requires
+ * array on right side», y ningún test con drizzle mockeado lo detecta.
+ */
+const ESTADOS_PASADA_APROBACION = ['aprobado', 'anulado', 'abortado'] as const;
+const sqlEstadosPasadaAprobacion = () =>
+  sql.join(ESTADOS_PASADA_APROBACION.map((e) => sql`${e}`), sql`, `);
+
+export function condicionAlerta(alerta: AlertaOperativa): SQL {
+  // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
+  const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
+  // make_interval en vez de concatenar texto: `$1 || ' days'` deja el tipo del parámetro ambiguo.
+  const horasSinGestion = SLA_OPERATIVO.SIN_GESTION_HORAS_DEFECTO;
+
+  switch (alerta) {
+    case 'borrador_5d': {
+      // Cuándo entró a Borrador, según el historial. Un trámite que NACIÓ en Borrador y nunca
+      // cambió no tiene fila de historial (solo se registra en UPDATE), de ahí el COALESCE.
+      const entroABorrador = sql`COALESCE((
+        SELECT MAX(${flitoTramiteHistorial.createdAt})
+          FROM ${flitoTramiteHistorial}
+         WHERE ${flitoTramiteHistorial.tramiteId} = ${flitoTramites.id}
+           AND ${flitoTramiteHistorial.campo} = 'flit_estado'
+           AND LOWER(TRIM(COALESCE(${flitoTramiteHistorial.valorNuevo}, ''))) = 'borrador'
+      ), ${nacimiento})`;
+      return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) = 'borrador'
+        AND ${entroABorrador} < NOW() - make_interval(days => ${SLA_OPERATIVO.BORRADOR_DIAS})`;
+    }
+    case 'sin_aprobar_1d':
+      // La alerta busca cuellos de botella administrativos, así que solo cuenta lo que SIGUE
+      // esperando aprobación. No basta con `fecha_aprobacion IS NULL`: FLIT deja ese campo vacío en
+      // trámites que ya avanzaron o murieron, y contarlos metía 400 Entregados en la alerta.
+      //
+      // Es una lista de exclusión, no de inclusión, y es deliberado: el catálogo de estados de FLIT
+      // es abierto. Si aparece un estado nuevo previo a la aprobación, con lista de exclusión sale
+      // en la alerta (visible, corregible); con lista de inclusión desaparecería en silencio, que es
+      // justo el fallo que se acaba de arreglar en el listado.
+      return sql`${flitoTramites.fechaAprobacion} IS NULL
+        AND LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) NOT IN (${sqlEstadosPasadaAprobacion()})
+        AND ${nacimiento} < NOW() - make_interval(days => ${SLA_OPERATIVO.SIN_APROBAR_DIAS})`;
+    case 'soat_sin_gestion':
+      return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL
+        AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => COALESCE(${flitoProveedoresSoat.slaHoras}, ${horasSinGestion}))`;
+    case 'impuesto_sin_gestion':
+      return sql`${flitoImpuestos.estado} = 'solicitado' AND ${flitoImpuestos.enviadoEn} IS NOT NULL
+        AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => COALESCE(${organismosTransitoConfig.flitoSlaHoras}, ${horasSinGestion}))`;
+  }
+}
+
+// Traduce los filtros del listado a condiciones SQL. `buscar` es una búsqueda global (id FLIT, placa,
+// VIN, nombre/documento del comprador; placa/VIN toleran guiones).
+//
+// La maestra muestra los trámites en TODOS los estados (Feature #10940 §3.1). Antes arrancaba con
+// `notInArray(estado, TERMINADOS)`, que además de esconder anulados y rechazados a propósito escondía
+// en silencio los que no tienen equivalente en el enum interno: `estado` es nullable y
+// `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
+// listado, del contador y de las facetas sin que nada lo delatara.
 function construirCondiciones(f: FiltrosListado): SQL[] {
-  const conds: SQL[] = [notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS])];
+  const conds: SQL[] = [];
 
   const termino = f.buscar?.trim();
   if (termino) {
@@ -380,6 +494,7 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
+  if (f.alerta) conds.push(condicionAlerta(f.alerta));
   return conds;
 }
 
@@ -399,12 +514,23 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+    // El proveedor entra aquí porque la alerta `soat_sin_gestion` lo necesita para su SLA. Sin este
+    // join, filtrar por esa alerta rompería el COUNT con «missing FROM-clause entry».
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .where(and(...conds));
   const total = Number(countRows[0]?.total ?? 0);
 
+  // Se ordena por la fecha de FLIT con created_at de respaldo, igual que la columna que se muestra:
+  // ordenar por un valor distinto del que el usuario lee es una fuente segura de desconcierto.
+  // El desempate por id evita que dos trámites con la misma fecha bailen entre páginas.
+  const clave = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
+  const orden = filtros.orden === 'antiguos'
+    ? [asc(clave), asc(flitoTramites.id)]
+    : [desc(clave), desc(flitoTramites.id)];
+
   const rows = await proyeccion().where(and(...conds))
-    .orderBy(desc(flitoTramites.createdAt)).limit(pageSize).offset((page - 1) * pageSize);
+    .orderBy(...orden).limit(pageSize).offset((page - 1) * pageSize);
   if (rows.length === 0) return { items: [], total, page, pageSize };
 
   const ids = rows.map((r) => r.tramiteId);
@@ -428,15 +554,20 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
   return { items: rows.map((r) => aFila(r, porTramite.get(r.tramiteId) ?? [])), total, page, pageSize };
 }
 
-/** Valores distintos para poblar los dropdowns de filtro (el cliente ya no ve el dataset completo). */
+/**
+ * Valores distintos para poblar los dropdowns de filtro (el cliente ya no ve el dataset completo).
+ *
+ * Sin exclusión de estados, en espejo del listado: si la tabla muestra los trámites en todos los
+ * estados, ofrecer un desplegable que no incluye Borrador ni los terminados deja al usuario sin
+ * forma de filtrar justo lo que sí está viendo.
+ */
 export async function facetas(): Promise<FacetasTramites> {
-  const noTerminados = notInArray(flitoTramites.estado, [...ESTADOS_TRAMITE_FLITO_TERMINADOS]);
   const [estados, tramites, ciudades, transitos] = await Promise.all([
-    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(and(noTerminados, sql`${flitoTramites.flitEstado} is not null`)),
-    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(and(noTerminados, sql`${flitoTramites.tipoTramite} is not null`)),
-    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(and(noTerminados, sql`${flitoTramites.ciudad} is not null`)),
+    db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(sql`${flitoTramites.flitEstado} is not null`),
+    db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(sql`${flitoTramites.tipoTramite} is not null`),
+    db.selectDistinct({ v: flitoTramites.ciudad }).from(flitoTramites).where(sql`${flitoTramites.ciudad} is not null`),
     db.selectDistinct({ v: sql<string | null>`COALESCE(${flitoTramites.transitoNombreFlit}, ${organismosTransitoConfig.alias})` })
-      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo)).where(noTerminados),
+      .from(flitoTramites).leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo)),
   ]);
   const vals = (rows: { v: string | null }[]) => rows.map((r) => r.v).filter((v): v is string => !!v).sort();
   return { estados: vals(estados), tramites: vals(tramites), ciudades: vals(ciudades), transitos: vals(transitos) };

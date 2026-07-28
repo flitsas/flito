@@ -10,8 +10,13 @@ const PROVEEDORES = [
   { id: '22222222-2222-2222-2222-222222222222', nombre: 'Aseguradora Beta', activo: true },
 ];
 
+// Fechas relativas para que el semáforo de antigüedad sea determinista: recién ingresado,
+// claramente atrasado, y sin fecha conocida.
+const haceDias = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
 const TRAMITES = [
   {
+    fechaCreacion: haceDias(0),
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
     transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
@@ -25,6 +30,7 @@ const TRAMITES = [
     listoParaEntregar: false,
   },
   {
+    fechaCreacion: haceDias(10),
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'Asignado', asignado: true,
     tipoTramite: 'Traspaso', ciudad: 'Pereira', empresaExiste: true, empresaNit: '900222', secretariaEmparejada: true,
     transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
@@ -38,6 +44,7 @@ const TRAMITES = [
     listoParaEntregar: true,
   },
   {
+    fechaCreacion: null, // trámite del que no se conoce la fecha (AC5)
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000003', idFlit: 'FLIT-1003', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Armenia', empresaExiste: false, empresaNit: '900333', secretariaEmparejada: true,
     transitoNombre: 'STT Armenia', facturaVentaFlitId: null,
@@ -74,7 +81,8 @@ test.describe('FLITO — Trámites unificado', () => {
     await mockLista(page);
 
     await page.goto('/flito/tramites');
-    await expect(page.getByRole('heading', { name: 'Trámites', exact: true })).toBeVisible();
+    // El título real de la página es «Gestión Trámites»; la aserción anterior buscaba «Trámites» exacto.
+    await expect(page.getByRole('heading', { name: 'Gestión Trámites', exact: true })).toBeVisible();
     await expect(page.getByText('FLIT-1001')).toBeVisible();
     await expect(page.getByText('FLIT-1002')).toBeVisible();
     await expect(page.getByText('ABC123')).toBeVisible();
@@ -150,6 +158,52 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await expect.poll(() => body).not.toBeNull();
     expect(body).toMatchObject({ nombre: 'ACME SAS', nit: '900333' });
+  });
+
+  // ── HU #10960 — fechas e indicadores de antigüedad ──────────────────────────
+
+  test('la columna Creado muestra la fecha y el semáforo de antigüedad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByRole('columnheader', { name: 'Creado', exact: true })).toBeVisible();
+
+    // Recién ingresado (hoy) frente a claramente atrasado (10 días).
+    const fila1001 = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
+    await expect(fila1001.getByText('Hoy', { exact: true })).toBeVisible();
+    const fila1002 = page.getByRole('row').filter({ hasText: 'FLIT-1002' });
+    await expect(fila1002.getByText('10 días', { exact: true })).toBeVisible();
+  });
+
+  test('un trámite sin fecha conocida no pinta indicador de antigüedad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    const fila1003 = page.getByRole('row').filter({ hasText: 'FLIT-1003' });
+    await expect(fila1003).toBeVisible();
+    // Ni "Hoy" ni "N días": sobre un dato que no existe no se inventa un semáforo.
+    await expect(fila1003.getByText(/^(Hoy|\d+ días?)$/)).toHaveCount(0);
+  });
+
+  test('cambiar el orden recarga el listado desde el servidor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    const urls: string[] = [];
+    await page.route(/\/api\/flito\/tramites\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        items: TRAMITES, total: TRAMITES.length, page: 1, pageSize: 50,
+      }) });
+    });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1001')).toBeVisible();
+
+    await page.getByLabel('Orden').selectOption('antiguos');
+    await expect.poll(() => urls.some((u) => u.includes('orden=antiguos'))).toBe(true);
   });
 
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {

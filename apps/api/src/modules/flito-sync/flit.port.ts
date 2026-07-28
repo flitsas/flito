@@ -35,6 +35,12 @@ export interface TramiteFlit {
   /** Código DIVIPOLA si el adaptador ya lo conoce (mock). El http lo deja null y se resuelve por nombre. */
   organismoCodigo: string | null;
   fechaAprobacion: string | null;
+  /**
+   * Fecha en que el trámite nació EN FLIT. No confundir con `flito_tramites.created_at`, que es
+   * cuándo el sync lo ingirió: en la primera corrida masiva todos los históricos comparten esa
+   * fecha y mienten sobre su antigüedad. Null si el reporte no la trae (es un campo reciente).
+   */
+  fechaCreacionFlit: string | null;
   tipoPropiedad: string;
   compradores: CompradorFlit[];
   valorImpuestoLiquidado: number | null;
