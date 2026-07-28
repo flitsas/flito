@@ -22,6 +22,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
+import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -764,34 +765,10 @@ const paginaBtnStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--
 
 // Filtros embebidos en el encabezado de la tabla: multiselect compacto por columna que filtra en
 // servidor. Reemplaza la antigua barra de filtros.
-type Opc = { value: string; label: string };
+type Opc = OpcionFiltro;
 const aOpc = (vs: string[]): Opc[] => vs.map((v) => ({ value: v, label: v }));
 const SOAT_OPC: Opc[] = Object.values(EstadoSoat).map((e) => ({ value: e, label: ESTADO_SOAT_LABEL[e] }));
 const IMP_OPC: Opc[] = Object.values(EstadoImpuesto).map((e) => ({ value: e, label: ESTADO_IMPUESTO_LABEL[e] }));
-
-const thFiltroCls = 'mt-1 block w-full max-w-[12rem] rounded-md border bg-white px-1.5 py-1 text-[11px] font-normal normal-case outline-none';
-const thFiltroStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' };
-
-// Filtro multiselect embebido en el encabezado: popover con checkboxes.
-function ThFiltroMulti({ seleccion, onCambio, opciones, placeholder }: { seleccion: string[]; onCambio: (v: string[]) => void; opciones: Opc[]; placeholder: string }) {
-  const alternar = (v: string) => onCambio(seleccion.includes(v) ? seleccion.filter((x) => x !== v) : [...seleccion, v]);
-  return (
-    <details className="relative mt-1">
-      <summary className={`${thFiltroCls} cursor-pointer list-none`} style={thFiltroStyle}>
-        {seleccion.length ? `${seleccion.length} seleccionado(s)` : placeholder}
-      </summary>
-      <div className="absolute z-20 mt-1 max-h-60 w-56 overflow-auto rounded-md border bg-white p-1 shadow-lg" style={{ borderColor: 'var(--flit-border-input)' }}>
-        {opciones.length === 0 && <p className="px-2 py-1 text-[11px] font-normal normal-case" style={{ color: 'var(--flit-text-muted)' }}>Sin empresas registradas</p>}
-        {opciones.map((o) => (
-          <label key={o.value} className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-[11px] font-normal normal-case">
-            <input type="checkbox" checked={seleccion.includes(o.value)} onChange={() => alternar(o.value)} />
-            <span className="truncate" title={o.label}>{o.label}</span>
-          </label>
-        ))}
-      </div>
-    </details>
-  );
-}
 
 // Botón "Solicitar" por fila (SOAT/impuestos): pequeño pero con cursor pointer, hover y separación.
 function BotonSolicitar({ onClick }: { onClick: () => void }) {

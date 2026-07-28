@@ -9,7 +9,8 @@
 
 import { createHash } from 'crypto';
 import JSZip from 'jszip';
-import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   auditLogs,
@@ -88,28 +89,63 @@ export interface SoatColaItem {
   creadoEn: string;
 }
 
+export interface FiltrosCola {
+  estados?: EstadoSoat[];
+  buscar?: string;
+  /** Multiselect. Vacío = sin acotar. */
+  companias?: number[];
+  organismos?: string[];
+  proveedores?: string[];
+  /** Rangos yyyy-mm-dd, inclusivos por día. */
+  solicitadoDesde?: string; solicitadoHasta?: string;
+  pagadoDesde?: string; pagadoHasta?: string;
+  /** true = solo lo que superó el SLA de su proveedor. */
+  estancado?: boolean;
+  page?: number; pageSize?: number;
+}
+
+export interface ColaSoatPaginada {
+  items: SoatColaItem[]; total: number; page: number; pageSize: number;
+}
+
 /**
- * Cola de SOAT con las 3 fronteras innegociables:
- *   1. Compañías que autogestionan SOAT se excluyen SIEMPRE (CA-01) — filtro en la consulta.
- *   2. Un gestor solo ve lo de su proveedor (CA-09) — filtro aquí, no en la UI.
- *   3. Un gestor NUNCA ve los Pendiente — se intersecta lo pedido con lo permitido.
+ * «Estancado» en SQL, para poder filtrar y contar por él.
+ *
+ * Es la misma regla que `estaEstancado()` aplica en JavaScript al ensamblar la fila; conviven
+ * porque la pastilla se pinta desde el objeto ya ensamblado y el filtro tiene que ocurrir en la
+ * consulta. Si una cambia, la otra debe cambiar con ella.
+ *
+ * `make_interval` y no `sla_horas || ' hours'`: la concatenación deja el tipo del parámetro
+ * ambiguo y Postgres la rechaza en tiempo de ejecución.
  */
-export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string): Promise<SoatColaItem[]> {
+const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
+  AND ${flitoProveedoresSoat.slaHoras} IS NOT NULL
+  AND ${flitoSoat.enviadoEn} IS NOT NULL
+  AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${flitoProveedoresSoat.slaHoras}))`;
+
+/**
+ * Condiciones de la cola, en un solo sitio. Las comparten la página y el conteo: si difieren, el
+ * total y las filas dejan de cuadrar sin que nada avise.
+ *
+ * Devuelve `null` cuando la frontera del gestor hace que no pueda ver NADA — distinto de «sin
+ * filtros», que sería devolver una lista vacía de condiciones y traerlo todo.
+ */
+function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
   const conds = [eq(clients.soatAutogestionable, false)];
 
   if (esGestor(ctx)) {
-    if (!ctx.proveedorSoatId) return []; // sin proveedor no hay frontera que aplicar → nada
+    if (!ctx.proveedorSoatId) return null; // sin proveedor no hay frontera que aplicar → nada
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
-    const visibles = estados?.length
-      ? estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
+    const visibles = f.estados?.length
+      ? f.estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
       : [EstadoSoat.SOLICITADO];
-    if (visibles.length === 0) return [];
+    if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
-  } else if (estados?.length) {
-    conds.push(inArray(flitoSoat.estado, estados));
+  } else if (f.estados?.length) {
+    conds.push(inArray(flitoSoat.estado, f.estados));
   }
 
-  const termino = buscar?.trim();
+  const termino = f.buscar?.trim();
   if (termino) {
     const term = termino.toUpperCase();
     const termNoSep = `%${term.replace(/[\s-]/g, '')}%`;
@@ -125,8 +161,50 @@ export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string
     );
   }
 
-  const rows = await db
-    .select({
+  if (f.companias?.length) conds.push(inArray(flitoSoat.companiaId, f.companias));
+  if (f.organismos?.length) conds.push(inArray(flitoSoat.organismoCodigo, f.organismos));
+  // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
+  // la condición de la frontera sigue vigente y el resultado sería vacío.
+  if (f.proveedores?.length) conds.push(inArray(flitoSoat.proveedorSoatId, f.proveedores));
+
+  // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
+  if (f.solicitadoDesde) conds.push(sql`${flitoSoat.enviadoEn} >= ${f.solicitadoDesde}::date`);
+  if (f.solicitadoHasta) conds.push(sql`${flitoSoat.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
+  if (f.pagadoDesde) conds.push(sql`${flitoSoat.pagadoEn} >= ${f.pagadoDesde}::date`);
+  if (f.pagadoHasta) conds.push(sql`${flitoSoat.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+
+  if (f.estancado) conds.push(EXPR_ESTANCADO);
+
+  return conds;
+}
+
+/** Los joins de la cola, compartidos por la página y el conteo. */
+function conJoinsCola<Q extends PgSelect>(q: Q) {
+  return q
+    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
+    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
+    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+}
+
+/**
+ * Cola de SOAT con las 3 fronteras innegociables:
+ *   1. Compañías que autogestionan SOAT se excluyen SIEMPRE (CA-01) — filtro en la consulta.
+ *   2. Un gestor solo ve lo de su proveedor (CA-09) — filtro aquí, no en la UI.
+ *   3. Un gestor NUNCA ve los Pendiente — se intersecta lo pedido con lo permitido.
+ */
+export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatPaginada> {
+  const page = Math.max(1, Math.floor(f.page ?? 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
+
+  const conds = condicionesCola(ctx, f);
+  if (conds === null) return { items: [], total: 0, page, pageSize };
+  const where = and(...conds);
+
+  const [countRows, rows] = await Promise.all([
+    conJoinsCola(db.select({ total: sql<number>`count(*)::int` }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.select({
       id: flitoSoat.id,
       vin: flitoSoat.vin,
       estado: flitoSoat.estado,
@@ -144,17 +222,51 @@ export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string
       proveedorSoatNombre: flitoProveedoresSoat.nombre,
       proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
-    })
-    .from(flitoSoat)
-    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
-    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
-    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
-    .where(and(...conds))
-    .orderBy(asc(flitoSoat.createdAt)); // prioridad por antigüedad
+    }).from(flitoSoat).$dynamic()).where(where)
+      // Prioridad por antigüedad. El desempate por id es lo que evita que una fila salga en dos
+      // páginas (o en ninguna) cuando varias comparten el mismo instante de creación.
+      .orderBy(asc(flitoSoat.createdAt), asc(flitoSoat.id))
+      .limit(pageSize).offset((page - 1) * pageSize),
+  ]);
 
-  return ensamblarCola(rows);
+  return {
+    items: await ensamblarCola(rows as ColaRow[]),
+    total: Number(countRows[0]?.total ?? 0),
+    page,
+    pageSize,
+  };
+}
+
+export interface FacetasCola {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
+  proveedores: { id: string; nombre: string }[];
+}
+
+/**
+ * Valores disponibles para los filtros. Se calculan sobre el universo que el usuario PUEDE ver, no
+ * sobre la tabla entera: ofrecerle a un gestor filtrar por un proveedor ajeno sería contarle que
+ * existe.
+ */
+export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
+  const conds = condicionesCola(ctx, {});
+  if (conds === null) return { companias: [], organismos: [], proveedores: [] };
+  const where = and(...conds);
+
+  const [companias, organismos, proveedores] = await Promise.all([
+    conJoinsCola(db.selectDistinct({ id: clients.id, nombre: clients.name }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.selectDistinct({ codigo: organismosTransitoConfig.codigo, nombre: organismosTransitoConfig.alias }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
+  ]);
+
+  return {
+    companias: (companias as { id: number; nombre: string }[]).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    organismos: (organismos as { codigo: string; nombre: string | null }[]).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+    // Los SOAT sin proveedor asignado producen una fila nula en el DISTINCT: no es un proveedor.
+    proveedores: (proveedores as { id: string | null; nombre: string | null }[])
+      .filter((p): p is { id: string; nombre: string } => !!p.id && !!p.nombre)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre)),
+  };
 }
 
 type ColaRow = {

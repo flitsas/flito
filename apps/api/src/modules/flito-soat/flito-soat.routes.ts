@@ -11,7 +11,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
-  cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat, detalle, enviarAlGestor,
+  cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat, facetasCola, detalle, enviarAlGestor,
   reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -54,15 +54,45 @@ async function responderDetalle(res: Response, ctx: Awaited<ReturnType<typeof co
   res.json(d ?? { id: soat.id, estado: soat.estado, motivoRechazo: soat.motivoRechazo });
 }
 
-// GET / — cola con las 3 fronteras (?estado=a,b&buscar=)
+// Helpers de parseo. Filosofía: un valor desconocido se IGNORA, no devuelve 400 — un filtro roto
+// no debe tumbar la pantalla de quien está trabajando.
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+const lista = (v: unknown): string[] | undefined => {
+  const s = str(v);
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+};
+const numeros = (v: unknown): number[] | undefined => {
+  const l = lista(v)?.map(Number).filter((n) => Number.isFinite(n));
+  return l?.length ? l : undefined;
+};
+/** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
+const fecha = (v: unknown): string | undefined => {
+  const s = str(v);
+  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+};
+
+// GET / — cola con las 3 fronteras, filtrada y paginada.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
-  const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
-  const estados = estadoRaw
-    ? estadoRaw.split(',').map((s) => s.trim()).filter((s): s is EstadoSoat => (ESTADOS as readonly string[]).includes(s))
-    : undefined;
-  const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
-  res.json(await cola(ctx, estados, buscar));
+  const estados = lista(req.query.estado)
+    ?.filter((s): s is EstadoSoat => (ESTADOS as readonly string[]).includes(s));
+  res.json(await cola(ctx, {
+    estados, buscar: str(req.query.buscar),
+    companias: numeros(req.query.companias),
+    organismos: lista(req.query.organismos),
+    proveedores: lista(req.query.proveedores),
+    solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
+    pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
+    estancado: req.query.estancado === 'si',
+    page: Number(req.query.page) || 1,
+    pageSize: Number(req.query.pageSize) || 50,
+  }));
+});
+
+// GET /facetas — valores disponibles para los filtros, acotados a lo que el usuario puede ver.
+// Va antes de `/:id` para que «facetas» no se interprete como un identificador.
+router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
+  res.json(await facetasCola(await contextoSoat(req.user!)));
 });
 
 // GET /:id — detalle (404-no-403 para el gestor ajeno)

@@ -13,6 +13,9 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
+import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import Paginacion from '../components/flit/Paginacion';
+import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -25,6 +28,11 @@ interface ImpuestoItem {
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+}
+interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
+interface FacetasImpuestos {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
 }
 
 const TONO: Record<EstadoImpuesto, ChipTone> = {
@@ -47,23 +55,64 @@ export default function FlitoImpuestos() {
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
-  const [buscar, setBuscar] = useState('');
-  const [data, setData] = useState<ImpuestoItem[] | null>(null);
+  const [texto, setTexto] = useState('');
+  // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
+  // pulsación. Se espera a que el usuario deje de escribir.
+  const buscar = useDebounce(texto, 300);
+  const [data, setData] = useState<ColaImpuestos | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [cargaRecibos, setCargaRecibos] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
+  const [facetas, setFacetas] = useState<FacetasImpuestos | null>(null);
+  const [companiasSel, setCompaniasSel] = useState<string[]>([]);
+  const [organismosSel, setOrganismosSel] = useState<string[]>([]);
+  const [solicitadoDesde, setSolicitadoDesde] = useState('');
+  const [solicitadoHasta, setSolicitadoHasta] = useState('');
+  const [pagadoDesde, setPagadoDesde] = useState('');
+  const [pagadoHasta, setPagadoHasta] = useState('');
+  const [soloEstancado, setSoloEstancado] = useState(false);
+  const [page, setPage] = useState(1);
+
+  const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
+
+  const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado;
+
+  const limpiarFiltros = () => {
+    setCompaniasSel([]); setOrganismosSel([]);
+    setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
+    setSoloEstancado(false); setTexto('');
+  };
+
+  // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado]);
+
   useEffect(() => {
-    setError(null); setData(null); setSeleccion(new Set());
+    setError(null); setSeleccion(new Set());
     const q = new URLSearchParams();
     if (estado !== 'todos') q.set('estado', estado);
     if (buscar.trim()) q.set('buscar', buscar.trim());
-    api.get<ImpuestoItem[]>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
-  }, [estado, buscar, recarga]);
+    if (companiasSel.length) q.set('companias', companiasSel.join(','));
+    if (organismosSel.length) q.set('organismos', organismosSel.join(','));
+    if (solicitadoDesde) q.set('solicitadoDesde', solicitadoDesde);
+    if (solicitadoHasta) q.set('solicitadoHasta', solicitadoHasta);
+    if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
+    if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
+    if (soloEstancado) q.set('estancado', 'si');
+    q.set('page', String(page));
+    api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, page, recarga]);
 
-  const filas = data ?? [];
+  useEffect(() => {
+    api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
+  }, []);
+
+  const filas = data?.items ?? [];
+  const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoImpuesto.PENDIENTE), [filas]);
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
@@ -95,7 +144,41 @@ export default function FlitoImpuestos() {
             ))}
           </FlitPillGroup>
           <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, trámite, comprador…"
-            value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+            value={texto} onChange={(e) => setTexto(e.target.value)} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+          <ThFiltroMulti seleccion={companiasSel} onCambio={setCompaniasSel} placeholder="Compañía"
+            vacio="Sin compañías en la cola"
+            opciones={(facetas?.companias ?? []).map((c) => ({ value: String(c.id), label: c.nombre }))} />
+          {/* Al gestor no se le ofrece: ya está atado a su organismo y elegir otro solo vaciaría la cola. */}
+          {!esGestor && (
+            <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
+              vacio="Sin organismos en la cola"
+              opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Solicitado</span>
+            <input type="date" aria-label="Solicitado desde" className={flitInp} value={solicitadoDesde} onChange={(e) => setSolicitadoDesde(e.target.value)} />
+            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
+            <input type="date" aria-label="Solicitado hasta" className={flitInp} value={solicitadoHasta} onChange={(e) => setSolicitadoHasta(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Pagado</span>
+            <input type="date" aria-label="Pagado desde" className={flitInp} value={pagadoDesde} onChange={(e) => setPagadoDesde(e.target.value)} />
+            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
+            <input type="date" aria-label="Pagado hasta" className={flitInp} value={pagadoHasta} onChange={(e) => setPagadoHasta(e.target.value)} />
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
+            Solo SLA vencido
+          </label>
+
+          {(hayFiltros || !!texto) && (
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
+          )}
         </div>
       </FlitCard>
 
@@ -106,11 +189,21 @@ export default function FlitoImpuestos() {
       )}
 
       {data && filas.length === 0 && (
-        <FlitCard><FlitEmpty>No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.</FlitEmpty></FlitCard>
+        <FlitCard>
+          <FlitEmpty>
+            {hayFiltros || texto.trim()
+              ? 'Ningún impuesto coincide con los filtros.'
+              : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+          </FlitEmpty>
+        </FlitCard>
       )}
 
       {filas.length > 0 && (
         <FlitCard>
+          <div className="mb-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
           <FlitTable>
             <thead>
               <FlitTr>
@@ -154,7 +247,11 @@ export default function FlitoImpuestos() {
                   </td>
                   <td className="px-3 py-2 text-sm">
                     <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
-                    {f.enviadoEn && <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>}
+                    {/* Ya pagado: los días desde la solicitud dejan de ser señal de riesgo y solo
+                        ensucian. El chip de SLA vencido ya desaparece al pagar. */}
+                    {f.enviadoEn && f.estado !== EstadoImpuesto.PAGADO && (
+                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
@@ -166,6 +263,10 @@ export default function FlitoImpuestos() {
               ))}
             </tbody>
           </FlitTable>
+          <div className="mt-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
         </FlitCard>
       )}
 

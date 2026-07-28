@@ -35,10 +35,12 @@ describe('flito-soat — RBAC', () => {
     expect(r.status).toBe(403);
   });
   it('auditor → lectura 200 (solo lectura)', async () => {
-    selectMock.mockReturnValueOnce(chain([])); // cola vacía
+    // La cola pagina desde la HU #10984: son dos consultas, el conteo y la página.
+    selectMock.mockReturnValueOnce(chain([{ total: 0 }])); // conteo
+    selectMock.mockReturnValueOnce(chain([]));             // página vacía
     const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('auditor'));
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([]);
+    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
   });
   it('auditor → POST /enviar 403 (escritura)', async () => {
     const r = await request(await buildApp()).post('/api/flito/soat/enviar').set('Authorization', await auth('auditor')).send({ ids: ['00000000-0000-0000-0000-000000000001'] });
