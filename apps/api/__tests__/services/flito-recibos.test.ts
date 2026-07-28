@@ -112,7 +112,9 @@ describe('recibos — flujo', () => {
     expect(extraerMock).not.toHaveBeenCalled();
   });
 
-  it('placa que no cruza con ningún en gestión (ni pagado) → noAsociado', async () => {
+  it('placa que no cruza con ningún en gestión (ni pagado) → noAsociado, pero el archivo se guarda', async () => {
+    // Hasta la HU #10982 el archivo se descartaba y el gestor tenía que volver a pedirlo. Ahora se
+    // archiva en la bandeja de pendientes: el impuesto puede llegar después desde FLIT.
     selectMock.mockReturnValueOnce(chain([]));  // dedup hash
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
@@ -120,7 +122,10 @@ describe('recibos — flujo', () => {
     const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.noAsociados).toHaveLength(1);
-    expect(uploadMock).not.toHaveBeenCalled();
+    expect(r.body.noAsociados[0].detalle).toMatch(/bandeja de pendientes/);
+    // El archivo cae en la carpeta de sin-cruce, no en la de la compañía: todavía no se sabe de quién es.
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(uploadMock.mock.calls[0][0]).toMatch(/^_pendientes-sin-cruce\/impuesto\//);
   });
 
   it('cruza y confiable → concilia a PAGADO (RN-03 impuestos)', async () => {

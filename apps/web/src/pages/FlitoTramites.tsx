@@ -96,7 +96,9 @@ export default function FlitoTramites() {
   const { user } = useAuth();
   const esOperaciones = puedeOperar(user?.role);
 
-  const [texto, setTexto] = useState('');
+  // Semilla desde la URL, solo al montar, para que un enlace de otra pantalla (el detalle del
+  // reintento de derechos) llegue con la búsqueda ya aplicada. A partir de ahí manda el usuario.
+  const [texto, setTexto] = useState(() => new URLSearchParams(window.location.search).get('buscar') ?? '');
   const buscar = useDebounce(texto, 300);
   const [soatSel, setSoatSel] = useState<EstadoSoat[]>([]);
   const [impSel, setImpSel] = useState<EstadoImpuesto[]>([]);

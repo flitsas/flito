@@ -1,8 +1,12 @@
-// FLITO Derechos de trámite — sincronización desde el Drive del organismo (HU #10952).
+// FLITO Derechos de trámite — el Drive de la secretaría desde el módulo (HU #11010).
 //
-// Lo que importa aquí no es el OCR (ya cubierto en flito-derechos.test.ts) sino las reglas del
-// barrido: qué organismos entran, qué archivos se saltan por idempotencia, y que un organismo
-// caído no arrastre a los demás.
+// Sustituye a los tests del barrido por organismo de la HU #10952, que se retiró: aquel recorría
+// todas las secretarías con carpeta configurada y ninguna la tenía. Ahora hay una carpeta, la de
+// Medellín, y el disparo es manual. Lo que hay que fijar es distinto: qué se lista, a qué organismo
+// se atribuye lo procesado, y que un archivo roto quede anotado como error en vez de en «procesando».
+//
+// El OCR y el cruce por placa no se prueban aquí: ya viven en flito-derechos.test.ts y este servicio
+// los reusa tal cual.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { chain } from '../helpers/db.js';
@@ -17,157 +21,215 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 
 const listFilesMock = vi.fn();
-const downloadFileMock = vi.fn();
 vi.mock('../../src/services/googleDrive.js', () => ({
   listFiles: listFilesMock,
-  downloadFile: downloadFileMock,
+  downloadFile: vi.fn(),
   listFolders: vi.fn(),
   searchFiles: vi.fn(),
 }));
 
-const cargarDerechosMock = vi.fn();
-vi.mock('../../src/modules/flito-derechos/flito-derechos.service.js', async (orig) => {
+const analizarPdfDeDriveMock = vi.fn();
+const separarPorPlacaMock = vi.fn();
+vi.mock('../../src/modules/drive/procesador.service.js', async (orig) => {
   const real = await orig() as Record<string, unknown>;
-  return { ...real, cargarDerechos: cargarDerechosMock };
+  return { ...real, analizarPdfDeDrive: analizarPdfDeDriveMock, separarPorPlaca: separarPorPlacaMock };
 });
 
-const { sincronizarDerechosDrive, organismosConDrive } = await import('../../src/modules/flito-derechos/flito-derechos-drive.service.js');
+const registrarDesdeExtraccionMock = vi.fn();
+vi.mock('../../src/modules/flito-derechos/flito-derechos.service.js', async (orig) => {
+  const real = await orig() as Record<string, unknown>;
+  return { ...real, registrarDesdeExtraccion: registrarDesdeExtraccionMock };
+});
+
+const { archivosDelDrive, procesarArchivoDrive, ORGANISMO_DRIVE } =
+  await import('../../src/modules/flito-derechos/flito-derechos-drive.service.js');
 
 beforeEach(() => {
   selectMock.mockReset(); insertMock.mockReset(); updateMock.mockReset();
-  listFilesMock.mockReset(); downloadFileMock.mockReset(); cargarDerechosMock.mockReset();
+  listFilesMock.mockReset(); analizarPdfDeDriveMock.mockReset(); separarPorPlacaMock.mockReset();
+  registrarDesdeExtraccionMock.mockReset();
 });
 
 const CTX = { userId: 1, username: 'ops@x.io', role: 'admin' };
 
+const archivoDrive = (id: string, name: string, modifiedTime = '2026-07-18T10:00:00Z') =>
+  ({ id, name, mimeType: 'application/pdf', size: '2048', createdTime: modifiedTime, modifiedTime, webViewLink: '', parents: [] });
+
+/** El alta del registro de auditoría, que toda llamada a `procesarArchivoDrive` hace primero. */
+const altaAuditoria = () => insertMock.mockReturnValueOnce({
+  values: () => ({ returning: () => Promise.resolve([{ id: 77 }]) }),
+});
+
+/** Captura lo que se escribe al cerrar el registro de auditoría. */
+const cierreAuditoria = () => {
+  const escrito: Record<string, unknown>[] = [];
+  updateMock.mockReturnValue({
+    set: (v: Record<string, unknown>) => { escrito.push(v); return { where: () => Promise.resolve(undefined) }; },
+  });
+  return escrito;
+};
+
 const resultadoVacio = () => ({
   registrados: [], enRevision: [], duplicados: [], pendientes: [], omitidas: [], fallidos: [],
 });
-const resultadoConUno = () => ({ ...resultadoVacio(), registrados: [{ archivo: 'a.pdf' }] });
 
-const archivoDrive = (id: string, name = 'recibos.pdf', modifiedTime = '2026-05-20T10:00:00Z') =>
-  ({ id, name, mimeType: 'application/pdf', size: '100', createdTime: modifiedTime, modifiedTime, webViewLink: '', parents: [] });
+describe('archivosDelDrive — qué se ofrece para procesar', () => {
+  it('deja fuera lo que no es PDF: la carpeta también tiene hojas de cálculo', async () => {
+    listFilesMock.mockResolvedValueOnce([
+      archivoDrive('f1', 'FLIT 18-07-2026.pdf'),
+      archivoDrive('f2', 'control interno.xlsx'),
+      archivoDrive('f3', 'notas.txt'),
+    ]);
+    selectMock.mockReturnValueOnce(chain([]));
 
-describe('organismosConDrive — configurar no es lo mismo que activar', () => {
-  it('descarta los que tienen la sincronización encendida pero sin carpeta puesta', async () => {
+    const out = await archivosDelDrive();
+
+    expect(out.map((a) => a.nombre)).toEqual(['FLIT 18-07-2026.pdf']);
+  });
+
+  it('no consulta la base si la carpeta no trae ningún PDF', async () => {
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f2', 'control interno.xlsx')]);
+
+    expect(await archivosDelDrive()).toEqual([]);
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('marca el ya procesado con su fecha, y el resto en null', async () => {
+    listFilesMock.mockResolvedValueOnce([
+      archivoDrive('f1', 'FLIT 18-07-2026.pdf'),
+      archivoDrive('f2', 'FLIT 19-07-2026.pdf'),
+    ]);
     selectMock.mockReturnValueOnce(chain([
-      { codigo: '05001', folderId: 'folder-medellin' },
-      { codigo: '05088', folderId: null },
-      { codigo: '05360', folderId: '' },
+      { fileId: 'f1', createdAt: new Date('2026-07-18T15:00:00Z') },
     ]));
-    const out = await organismosConDrive();
-    expect(out.map((o) => o.codigo)).toEqual(['05001']);
+
+    const out = await archivosDelDrive();
+
+    expect(out.find((a) => a.fileId === 'f1')?.procesadoEn).toBe('2026-07-18T15:00:00.000Z');
+    expect(out.find((a) => a.fileId === 'f2')?.procesadoEn).toBeNull();
+  });
+
+  it('haber procesado dos veces el mismo archivo muestra la vez más reciente', async () => {
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f1', 'FLIT 18-07-2026.pdf')]);
+    // La consulta viene ordenada por fecha descendente: la primera fila es la buena.
+    selectMock.mockReturnValueOnce(chain([
+      { fileId: 'f1', createdAt: new Date('2026-07-20T09:00:00Z') },
+      { fileId: 'f1', createdAt: new Date('2026-07-18T15:00:00Z') },
+    ]));
+
+    const out = await archivosDelDrive();
+
+    expect(out[0].procesadoEn).toBe('2026-07-20T09:00:00.000Z');
   });
 });
 
-describe('sincronizarDerechosDrive', () => {
-  it('AC1 — procesa el archivo nuevo con origen drive y lo marca completado', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]))  // organismos
-      .mockReturnValueOnce(chain([]));                                    // yaProcesado → no
-    listFilesMock.mockResolvedValueOnce([archivoDrive('file-1')]);
-    insertMock.mockReturnValue(chain([{ id: 10 }]));
-    updateMock.mockReturnValue(chain([]));
-    downloadFileMock.mockResolvedValueOnce({ buffer: Buffer.from('%PDF'), name: 'recibos.pdf', mimeType: 'application/pdf' });
-    cargarDerechosMock.mockResolvedValueOnce(resultadoConUno());
-
-    const r = await sincronizarDerechosDrive(CTX);
-
-    expect(r.organismosActivos).toBe(1);
-    expect(r.organismos[0]).toMatchObject({ organismoCodigo: '05001', archivosNuevos: 1, registrados: 1 });
-    // El origen y el organismo viajan al pipeline: es lo que distingue esta vía de la carga manual.
-    expect(cargarDerechosMock).toHaveBeenCalledWith(
-      expect.anything(),
-      { organismoCodigo: '05001', origen: 'drive' },
-      expect.anything(),
-    );
+describe('procesarArchivoDrive — el consolidado del día', () => {
+  const analizado = () => ({
+    name: 'FLIT 18-07-2026.pdf',
+    srcDoc: {} as never,
+    totalPaginas: 3,
+    cuentas: [
+      { placa: 'QYS441', valorTotal: 120_000 },
+      { placa: 'NOP111', valorTotal: 80_000 },
+    ],
+    paginasPorPlaca: new Map([['QYS441', [0, 1]], ['NOP111', [2]]]),
   });
 
-  it('AC3 — un archivo ya procesado y sin cambios no se descarga de nuevo', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]))
-      .mockReturnValueOnce(chain([{ modificado: new Date('2026-05-20T10:00:00Z') }]));
-    listFilesMock.mockResolvedValueOnce([archivoDrive('file-1')]);
+  it('atribuye cada recibo a la secretaría del Drive, no a «sin organismo»', async () => {
+    altaAuditoria();
+    cierreAuditoria();
+    analizarPdfDeDriveMock.mockResolvedValueOnce(analizado());
+    separarPorPlacaMock.mockResolvedValueOnce(new Map([
+      ['QYS441', Buffer.from('%PDF-1')],
+      ['NOP111', Buffer.from('%PDF-2')],
+    ]));
+    registrarDesdeExtraccionMock.mockResolvedValue(resultadoVacio());
 
-    const r = await sincronizarDerechosDrive(CTX);
+    await procesarArchivoDrive('f1', CTX);
 
-    expect(r.organismos[0].archivosNuevos).toBe(0);
-    expect(downloadFileMock).not.toHaveBeenCalled();
-    expect(cargarDerechosMock).not.toHaveBeenCalled();
+    expect(registrarDesdeExtraccionMock).toHaveBeenCalledTimes(2);
+    for (const llamada of registrarDesdeExtraccionMock.mock.calls) {
+      expect(llamada[2]).toEqual({ origen: 'drive', organismoCodigo: ORGANISMO_DRIVE });
+    }
   });
 
-  it('AC3 — el mismo id con fecha de modificación posterior SÍ se reprocesa', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]))
-      .mockReturnValueOnce(chain([{ modificado: new Date('2026-05-20T10:00:00Z') }]));
-    listFilesMock.mockResolvedValueOnce([archivoDrive('file-1', 'recibos.pdf', '2026-06-01T10:00:00Z')]);
-    insertMock.mockReturnValue(chain([{ id: 11 }]));
-    updateMock.mockReturnValue(chain([]));
-    downloadFileMock.mockResolvedValueOnce({ buffer: Buffer.from('%PDF'), name: 'recibos.pdf', mimeType: 'application/pdf' });
-    cargarDerechosMock.mockResolvedValueOnce(resultadoVacio());
+  it('varias páginas de una misma placa son un solo recibo, no dos pagos', async () => {
+    altaAuditoria();
+    cierreAuditoria();
+    analizarPdfDeDriveMock.mockResolvedValueOnce({
+      ...analizado(),
+      // El OCR devuelve una lectura por página: la placa se repite.
+      cuentas: [
+        { placa: 'QYS441', valorTotal: 120_000 },
+        { placa: 'QYS441', valorTotal: 120_000 },
+        { placa: 'NOP111', valorTotal: 80_000 },
+      ],
+    });
+    separarPorPlacaMock.mockResolvedValueOnce(new Map([
+      ['QYS441', Buffer.from('%PDF-1')],
+      ['NOP111', Buffer.from('%PDF-2')],
+    ]));
+    registrarDesdeExtraccionMock.mockResolvedValue(resultadoVacio());
 
-    const r = await sincronizarDerechosDrive(CTX);
-    expect(r.organismos[0].archivosNuevos).toBe(1);
-    expect(downloadFileMock).toHaveBeenCalledOnce();
+    const out = await procesarArchivoDrive('f1', CTX);
+
+    expect(registrarDesdeExtraccionMock).toHaveBeenCalledTimes(2);
+    expect(out.placasUnicas).toBe(2);
+    expect(out.cuentasDetectadas).toBe(3);
   });
 
-  it('ignora los archivos de la carpeta que no son procesables', async () => {
-    selectMock.mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]));
-    listFilesMock.mockResolvedValueOnce([archivoDrive('file-1', 'notas.txt'), archivoDrive('file-2', 'hoja.xlsx')]);
+  it('una placa que falla no tumba el día: el resto se registra igual', async () => {
+    altaAuditoria();
+    cierreAuditoria();
+    analizarPdfDeDriveMock.mockResolvedValueOnce(analizado());
+    separarPorPlacaMock.mockResolvedValueOnce(new Map([
+      ['QYS441', Buffer.from('%PDF-1')],
+      ['NOP111', Buffer.from('%PDF-2')],
+    ]));
+    registrarDesdeExtraccionMock
+      .mockRejectedValueOnce(new Error('MinIO no responde'))
+      .mockResolvedValueOnce({ ...resultadoVacio(), registrados: [{ archivo: 'NOP111.pdf' }] });
 
-    const r = await sincronizarDerechosDrive(CTX);
-    expect(r.organismos[0].archivosNuevos).toBe(0);
-    expect(downloadFileMock).not.toHaveBeenCalled();
+    const out = await procesarArchivoDrive('f1', CTX);
+
+    expect(out.registrados).toHaveLength(1);
+    expect(out.fallidos).toEqual([expect.objectContaining({ placa: 'QYS441', detalle: 'MinIO no responde' })]);
   });
 
-  it('AC5 — sin organismos activos no hace nada y no falla', async () => {
-    selectMock.mockReturnValueOnce(chain([]));
-    const r = await sincronizarDerechosDrive(CTX);
-    expect(r).toEqual({ organismos: [], organismosActivos: 0 });
-    expect(listFilesMock).not.toHaveBeenCalled();
+  it('cierra el registro de auditoría con el resumen del consolidado', async () => {
+    altaAuditoria();
+    const escrito = cierreAuditoria();
+    analizarPdfDeDriveMock.mockResolvedValueOnce(analizado());
+    separarPorPlacaMock.mockResolvedValueOnce(new Map([['QYS441', Buffer.from('%PDF-1')]]));
+    registrarDesdeExtraccionMock.mockResolvedValue(resultadoVacio());
+
+    await procesarArchivoDrive('f1', CTX);
+
+    expect(escrito).toEqual([expect.objectContaining({
+      estado: 'completado',
+      nombreArchivo: 'FLIT 18-07-2026.pdf',
+      totalPaginas: 3,
+      cuentasDetectadas: 2,
+      placasUnicas: 1,
+      valorTotal: '200000',
+      organismoCodigo: ORGANISMO_DRIVE,
+    })]);
   });
 
-  it('AC6 — si Drive falla para un organismo, el resto se procesa igual', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }, { codigo: '05088', folderId: 'f2' }]))
-      .mockReturnValueOnce(chain([]));  // yaProcesado del segundo organismo
-    listFilesMock
-      .mockRejectedValueOnce(new Error('Drive no responde'))
-      .mockResolvedValueOnce([archivoDrive('file-2')]);
-    insertMock.mockReturnValue(chain([{ id: 12 }]));
-    updateMock.mockReturnValue(chain([]));
-    downloadFileMock.mockResolvedValueOnce({ buffer: Buffer.from('%PDF'), name: 'r.pdf', mimeType: 'application/pdf' });
-    cargarDerechosMock.mockResolvedValueOnce(resultadoConUno());
+  it('un PDF ilegible deja el registro en error, no colgado en «procesando»', async () => {
+    altaAuditoria();
+    const escrito = cierreAuditoria();
+    analizarPdfDeDriveMock.mockRejectedValueOnce(new Error('El archivo debe ser PDF'));
 
-    const r = await sincronizarDerechosDrive(CTX);
-
-    expect(r.organismos).toHaveLength(2);
-    expect(r.organismos[0]).toMatchObject({ organismoCodigo: '05001', error: 'Drive no responde' });
-    expect(r.organismos[1]).toMatchObject({ organismoCodigo: '05088', registrados: 1 });
+    await expect(procesarArchivoDrive('f1', CTX)).rejects.toThrow('El archivo debe ser PDF');
+    expect(escrito).toEqual([{ estado: 'error', error: 'El archivo debe ser PDF' }]);
   });
 
-  it('AC6 — un archivo que falla queda en error, no en completado, para reintentarlo después', async () => {
-    selectMock
-      .mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]))
-      .mockReturnValueOnce(chain([]));
-    listFilesMock.mockResolvedValueOnce([archivoDrive('file-1')]);
-    insertMock.mockReturnValue(chain([{ id: 13 }]));
-    updateMock.mockReturnValue(chain([]));
-    downloadFileMock.mockRejectedValueOnce(new Error('descarga interrumpida'));
+  it('si tampoco se puede anotar el error, se propaga el error original y no el del apunte', async () => {
+    altaAuditoria();
+    updateMock.mockImplementation(() => { throw new Error('la conexión se cayó'); });
+    analizarPdfDeDriveMock.mockRejectedValueOnce(new Error('El archivo debe ser PDF'));
 
-    const r = await sincronizarDerechosDrive(CTX);
-
-    expect(r.organismos[0].fallidos).toBe(1);
-    expect(r.organismos[0].archivosNuevos).toBe(0);
-    expect(r.organismos[0].error).toBeUndefined(); // el organismo no falló: falló UN archivo
-  });
-
-  it('acota el barrido a un solo organismo cuando se pide (botón sincronizar ahora)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ codigo: '05001', folderId: 'f1' }]));
-    listFilesMock.mockResolvedValueOnce([]);
-
-    const r = await sincronizarDerechosDrive(CTX, '05001');
-    expect(r.organismosActivos).toBe(1);
-    expect(listFilesMock).toHaveBeenCalledWith('f1', 200);
+    await expect(procesarArchivoDrive('f1', CTX)).rejects.toThrow('El archivo debe ser PDF');
   });
 });

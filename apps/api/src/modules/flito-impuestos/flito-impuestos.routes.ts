@@ -45,7 +45,7 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.o
  * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
  * users.transito_codigo (§9.3), leída de BD, no del JWT. Para el resto de roles es null.
  */
-async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
+export async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
   let transitoCodigo: string | null = null;
   if (user.role === 'gestor_impuestos') {
     const [u] = await db.select({ t: users.transitoCodigo }).from(users).where(eq(users.id, user.sub)).limit(1);

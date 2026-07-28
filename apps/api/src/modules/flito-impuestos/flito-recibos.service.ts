@@ -20,6 +20,9 @@ import {
 import { extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import {
+  anotarIntento, archivarSinCruce, CONCEPTO_PENDIENTE, marcarResuelto, pendientesParaReintento,
+} from '../flito-pendientes/flito-pendientes.service.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -130,7 +133,13 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
   const extraccion = await extraerReciboImpuesto(docDe(archivo, umbral));
   const placa = extraccion[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
   if (!placa) {
-    res.noAsociados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: 'El recibo no permitió leer la placa, así que no se pudo asociar a ningún trámite.' });
+    // Sin placa el cruce automático es imposible, pero es justo el caso en el que más caro sale
+    // perder el archivo: nadie lo puede volver a buscar. Se guarda para que lo resuelva una persona.
+    await archivarSinCruce({
+      concepto: CONCEPTO_PENDIENTE.IMPUESTO,
+      placa: null, archivo, hash, tipoSoporte: tipo, extraccion, organismoCodigo, origen: 'carga_masiva',
+    }, ctx);
+    res.noAsociados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: 'El recibo no permitió leer la placa. Queda archivado en la bandeja de pendientes para resolverlo a mano.' });
     return;
   }
 
@@ -139,8 +148,14 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
   if (!candidato) {
     // ¿Es la segunda copia (la otra marca) de un pago ya conciliado? Se adjunta, no se rechaza.
     if (await adjuntarComplemento(archivo, placa, tipo, organismoCodigo, hash, ctx, res)) return;
+    // El impuesto puede llegar después: la sincronización con FLIT crea el registro cuando el
+    // trámite se asigna. El archivo se guarda y el reintento lo asocia solo en cuanto aparezca.
+    await archivarSinCruce({
+      concepto: CONCEPTO_PENDIENTE.IMPUESTO,
+      placa, archivo, hash, tipoSoporte: tipo, extraccion, organismoCodigo, origen: 'carga_masiva',
+    }, ctx);
     res.noAsociados.push({ archivo: archivo.originalname, placa, idFlit: null, registroId: null,
-      detalle: `El recibo dice placa ${placa}, pero no hay ningún impuesto en gestión con esa placa en este organismo. No va a revisión: no hay trámite con qué compararlo.` });
+      detalle: `El recibo dice placa ${placa}, pero no hay ningún impuesto en gestión con esa placa en este organismo. Queda en la bandeja de pendientes y se reintenta en cada sincronización.` });
     return;
   }
 
@@ -286,4 +301,48 @@ function esSinMarcaDeAgua(ruta: string, defecto: boolean): boolean {
   if (/sin[\s_-]*marca|sin[\s_-]*agua|limpi|original/.test(t)) return true;
   if (/con[\s_-]*marca|marca[\s_-]*de[\s_-]*agua|con[\s_-]*agua|pagad/.test(t)) return false;
   return defecto;
+}
+
+// ─────────────────────────── Reintento de pendientes ─────────────────────────
+
+/**
+ * Reintenta el cruce de los recibos de impuestos que quedaron en la bandeja (HU #10982).
+ *
+ * Se llama tras cada sincronización con FLIT, que es cuando aparecen los impuestos nuevos: el
+ * organismo puede emitir el recibo antes de que el trámite llegue a FLITO.
+ *
+ * No se vuelve a pasar el archivo por el OCR: se reusa la lectura guardada, que es de la misma
+ * imagen y ya se pagó una vez.
+ */
+export async function reintentarPendientesImpuestos(ctx: ImpuestoCtx): Promise<{ revisados: number; asociados: number }> {
+  const pendientes = await pendientesParaReintento(CONCEPTO_PENDIENTE.IMPUESTO);
+
+  let asociados = 0;
+  for (const p of pendientes) {
+    // Sin placa no hay llave de cruce: espera a que una persona lo resuelva.
+    if (!p.placa) continue;
+
+    const cand = await buscarCandidato(p.placa, EstadoImpuesto.SOLICITADO, p.organismoCodigo);
+    if (!cand) { await anotarIntento(p.id); continue; }
+
+    const extraccion = (p.extraccion ?? {}) as ExtraccionImpuesto;
+    const umbral = await umbralDelGestor(ctx);
+    const veredicto = evaluarReciboImpuesto(extraccion, umbral);
+
+    await db.transaction(async (tx) => {
+      // El soporte ya está archivado desde la carga: solo le faltaba dueño.
+      await tx.update(flitoSoportes).set({ impuestoId: cand.impuestoId })
+        .where(eq(flitoSoportes.id, p.soporteId));
+
+      if (veredicto.aprobada) await conciliar(tx, cand, extraccion, p.soporteId, ctx);
+      else await aRevision(tx, p.soporteId, extraccion, veredicto, cand.impuestoId, p.placa, ctx);
+    });
+
+    // `resuelto_tramite_id` se deja nulo: el candidato trae el identificador FLIT, no el uuid del
+    // trámite, y guardar una llave que no lo es sería peor que no guardar nada.
+    await marcarResuelto(p.id, null);
+    asociados += 1;
+  }
+
+  return { revisados: pendientes.length, asociados };
 }

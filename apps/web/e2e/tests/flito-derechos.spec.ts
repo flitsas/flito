@@ -21,18 +21,29 @@ const DERECHOS = [
   },
 ];
 
+// La bandeja es de los tres conceptos (HU #10982): un recibo de SOAT sin placa legible también se
+// archiva, y es el caso en el que más caro sale perder el archivo.
 const PENDIENTES = [
   {
-    id: 'p1', placa: 'NOP111', valor: '150000.00', fechaPago: '2026-05-25',
+    id: 'p1', concepto: 'derecho', placa: 'NOP111', valor: '150000.00', fechaPago: '2026-05-25',
     tipoTramiteRecibo: 'MATRICULA INICIAL', organismoCodigo: '05001', origen: 'manual',
     intentos: 3, ultimoIntentoEn: '2026-05-26T08:00:00Z', soporteId: 'sop3',
     nombreArchivo: 'NOP111.pdf', createdAt: '2026-05-25T10:00:00Z',
   },
+  {
+    id: 'p2', concepto: 'soat', placa: null, valor: null, fechaPago: null,
+    tipoTramiteRecibo: null, organismoCodigo: null, origen: 'carga_masiva',
+    intentos: 1, ultimoIntentoEn: '2026-05-26T08:00:00Z', soporteId: 'sop4',
+    nombreArchivo: 'ilegible.pdf', createdAt: '2026-05-26T10:00:00Z',
+  },
 ];
 
 async function mockListas(page: import('@playwright/test').Page) {
-  await page.route(/\/api\/flito\/derechos\/pendientes$/, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PENDIENTES) }));
+  await page.route(/\/api\/flito\/derechos\/pendientes(\?|$)/, (route) => {
+    const concepto = new URL(route.request().url()).searchParams.get('concepto');
+    const filtrados = concepto ? PENDIENTES.filter((p) => p.concepto === concepto) : PENDIENTES;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(filtrados) });
+  });
   await page.route(/\/api\/flito\/derechos\?/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: DERECHOS, total: DERECHOS.length, page: 1, pageSize: 50 }) }));
 }
@@ -111,7 +122,7 @@ test.describe('FLITO — Derechos de tránsito', () => {
     });
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Sin trámite \(1\)/ }).click();
+    await page.getByRole('button', { name: /Sin cruzar \(2\)/ }).click();
     await expect(page.getByRole('cell', { name: 'NOP111', exact: true })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'NOP111.pdf' })).toBeVisible();
     await expect(page.getByRole('cell', { name: '3', exact: true })).toBeVisible(); // intentos
@@ -119,5 +130,103 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await page.getByRole('button', { name: 'Reintentar ahora' }).click();
     await expect.poll(() => reintentado).toBe(true);
     await expect(page.getByText(/1 de 1 pendiente\(s\) asociado\(s\)/)).toBeVisible();
+  });
+
+  test('la bandeja distingue el origen del recibo y se puede filtrar por él', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Sin cruzar \(2\)/ }).click();
+
+    // Los tres conceptos conviven en una sola bandeja: es una cosa que atender, no tres.
+    await expect(page.getByRole('cell', { name: 'Derecho' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'SOAT' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'SOAT', exact: true }).click();
+    await expect(page.getByRole('cell', { name: 'ilegible.pdf' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'NOP111.pdf' })).toHaveCount(0);
+  });
+
+  test('un recibo sin placa legible se archiva igual, y se dice que no la tiene', async ({ page }) => {
+    // Es el caso peor: sin placa nadie lo puede volver a buscar, así que descartarlo era lo más caro.
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Sin cruzar \(2\)/ }).click();
+    await expect(page.getByRole('cell', { name: 'Sin placa' })).toBeVisible();
+  });
+});
+
+// ─────────────────── Drive de la secretaría (HU #11010) ─────────────────────
+//
+// Antes esto vivía en Administración → Google Drive, un explorador genérico. Ahora se procesa
+// desde el propio módulo, que es donde se ve el resultado.
+
+const ARCHIVOS_DRIVE = [
+  { fileId: 'f1', nombre: 'FLIT 18-07-2026.pdf', tamanoBytes: 1_782_000, modificadoEn: '2026-07-18T10:00:00Z', procesadoEn: null },
+  { fileId: 'f2', nombre: 'FLIT 17-07-2026.pdf', tamanoBytes: 900_000, modificadoEn: '2026-07-17T10:00:00Z', procesadoEn: '2026-07-17T18:00:00Z' },
+];
+
+async function mockDrive(page: import('@playwright/test').Page) {
+  await mockListas(page);
+  await page.route(/\/api\/flito\/derechos\/drive\/archivos/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ARCHIVOS_DRIVE) }));
+}
+
+test.describe('FLITO — Derechos · Drive de la secretaría', () => {
+  test('lista los consolidados y distingue el ya procesado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+
+    await expect(page.getByRole('cell', { name: 'FLIT 18-07-2026.pdf' })).toBeVisible();
+    // El ya procesado se marca, pero se puede reprocesar: el organismo puede reemplazar el archivo.
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT 17-07-2026.pdf' }).getByRole('button', { name: 'Reprocesar' })).toBeVisible();
+  });
+
+  test('procesar el día asocia y muestra el resultado por canasta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+    let pedido = '';
+    await page.route(/\/api\/flito\/derechos\/drive\/procesar/, (route) => {
+      pedido = route.request().postData() ?? '';
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        archivo: 'FLIT 18-07-2026.pdf', totalPaginas: 13, cuentasDetectadas: 12, placasUnicas: 12,
+        registrados: [{ archivo: 'QYS441.pdf', placa: 'QYS441', idFlit: 'FLIT-0125621', registroId: 'd1', valor: '236700', detalle: 'Registrado.' }],
+        enRevision: [], duplicados: [],
+        pendientes: [{ archivo: 'QYS999.pdf', placa: 'QYS999', idFlit: null, registroId: null, valor: null, detalle: 'Sin trámite todavía.' }],
+        omitidas: [], fallidos: [],
+      }) });
+    });
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' }).click();
+
+    await expect.poll(() => pedido).toContain('f1');
+    // El panel de resultados vive por encima de las pestañas: se ve sin cambiar de sitio.
+    await expect(page.getByText(/Resultado de la carga/)).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'QYS441', exact: true })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'FLIT-0125621' })).toBeVisible();
+  });
+
+  test('si el Drive no responde se dice, sin romper las otras pestañas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+    await page.route(/\/api\/flito\/derechos\/drive\/archivos/, (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'El Drive no está disponible' }) }));
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await expect(page.getByText(/no está disponible/)).toBeVisible();
+
+    // Las otras dos siguen funcionando.
+    await page.getByRole('button', { name: /Sin cruzar/ }).click();
+    await expect(page.getByRole('cell', { name: 'NOP111', exact: true })).toBeVisible();
   });
 });
