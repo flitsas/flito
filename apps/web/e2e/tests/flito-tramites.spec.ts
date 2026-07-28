@@ -22,7 +22,7 @@ const TRAMITES = [
     transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
     companiaNombre: 'Concesionario Norte', organismoNombre: 'STT Manizales',
     vehiculo: { vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' },
-    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' },
+    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', correo: 'ana.perez@acme.co' },
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' }],
     soat: { id: 's1', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     soatAutogestionado: false,
@@ -36,7 +36,7 @@ const TRAMITES = [
     transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
     companiaNombre: 'Concesionario Sur', organismoNombre: 'STT Pereira',
     vehiculo: { vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid' },
-    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' },
+    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', correo: null },
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' }],
     soat: { id: 's2', estado: 'pagado', proveedorSoatNombre: 'Seguros Alfa', valorPagado: 450000 },
     soatAutogestionado: false,
@@ -185,6 +185,20 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(fila1003).toBeVisible();
     // Ni "Hoy" ni "N días": sobre un dato que no existe no se inventa un semáforo.
     await expect(fila1003.getByText(/^(Hoy|\d+ días?)$/)).toHaveCount(0);
+  });
+
+  test('el correo del responsable se ve y se puede escribir desde la tabla', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    const conCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
+    await expect(conCorreo.getByRole('link', { name: 'ana.perez@acme.co' }))
+      .toHaveAttribute('href', 'mailto:ana.perez@acme.co');
+
+    // Sin correo no se pinta un guion suelto: ocupa lo mismo y no informa de nada.
+    const sinCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1002' });
+    await expect(sinCorreo.getByRole('link', { name: /@/ })).toHaveCount(0);
   });
 
   test('cambiar el orden recarga el listado desde el servidor', async ({ page }) => {

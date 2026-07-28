@@ -46,7 +46,7 @@ interface TramiteFila {
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
-  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string } | null;
+  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; correo: string | null } | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
@@ -470,6 +470,13 @@ export default function FlitoTramites() {
                       <>
                         <div>{f.compradorPrincipal.nombreCompleto}</div>
                         <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.compradorPrincipal.numeroDocumento}</div>
+                        {/* Sin correo no se pinta nada: un guion suelto ocupa lo mismo y no informa. */}
+                        {f.compradorPrincipal.correo && (
+                          <div>
+                            <a href={`mailto:${f.compradorPrincipal.correo}`} className="text-[11px] break-all hover:underline"
+                              style={{ color: 'var(--flit-blue-text)' }}>{f.compradorPrincipal.correo}</a>
+                          </div>
+                        )}
                         {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
                       </>
                     ) : '—'}
