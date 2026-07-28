@@ -390,14 +390,21 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
  * debe incluirlos, o Postgres falla con «missing FROM-clause entry».
  */
 /**
- * Estados de FLIT que significan «este trámite ya no espera aprobación»: o la pasó, o murió.
- * En minúsculas y sin espacios, como se comparan.
+ * Estados de FLIT que significan «este trámite ya no espera aprobación».
  *
- * `sql.join` con parámetros individuales, no un array de JS: `<> ALL(${array})` falla en tiempo de
- * ejecución con «op ANY/ALL (array) requires array on right side», y ningún test con drizzle
- * mockeado lo detecta.
+ * El ciclo real es: Borrador → Enviado a OT → Asignado → Entregado → **Aprobado**, siendo Aprobado
+ * el estado objetivo, el último. Los estados pueden retroceder: un trámite Entregado que se Rechaza
+ * se subsana y vuelve a Entregado para nueva revisión.
+ *
+ * Por eso solo hay tres muertos: Aprobado (ya llegó a la meta), Anulado y Abortado. **Entregado y
+ * Rechazado NO entran**: ambos siguen esperando aprobación, y un rechazado subsanable es justo el
+ * cuello de botella que la alerta debe destapar.
+ *
+ * En minúsculas y sin espacios, como se comparan. `sql.join` con parámetros individuales, no un
+ * array de JS: `<> ALL(${array})` falla en tiempo de ejecución con «op ANY/ALL (array) requires
+ * array on right side», y ningún test con drizzle mockeado lo detecta.
  */
-const ESTADOS_PASADA_APROBACION = ['aprobado', 'entregado', 'anulado', 'rechazado', 'abortado'] as const;
+const ESTADOS_PASADA_APROBACION = ['aprobado', 'anulado', 'abortado'] as const;
 const sqlEstadosPasadaAprobacion = () =>
   sql.join(ESTADOS_PASADA_APROBACION.map((e) => sql`${e}`), sql`, `);
 
