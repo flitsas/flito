@@ -21,7 +21,7 @@ function fila(over: Partial<Fila> = {}): Fila {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
     tipoTramite: 'Traspaso', soat: 450000, impuesto: 120000, derechoTramite: 80000,
-    logistica: 15000, tramiteDigital: 200000, gmf: 2600, total: 867600,
+    logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
     ...over,
   };

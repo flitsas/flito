@@ -93,13 +93,15 @@ const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valo
   WHEN COALESCE(${clients.logisticaAutogestionable}, false) THEN NULL
   ELSE COALESCE(${lgEsp.valor}, ${lgGen.valor}) END`;
 
-// Base del 4x1000: solo los desembolsos reales. Los honorarios propios no forman base.
-const EXPR_BASE_GMF = sql`COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0) + COALESCE(${EXPR_DERECHO}, 0)`;
+// Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
+// se añade encima, así que el total final es la base más su propio gravamen.
+const EXPR_BASE_GMF = sql`COALESCE(${EXPR_SOAT}, 0) + COALESCE(${EXPR_IMPUESTO}, 0) + COALESCE(${EXPR_DERECHO}, 0)
+  + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0)`;
 const EXPR_GMF = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorGmf}
   ELSE ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
 const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
-  ELSE (${EXPR_BASE_GMF}) + COALESCE(${EXPR_DIGITAL}, 0) + COALESCE(${EXPR_LOGISTICA}, 0) + ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
+  ELSE (${EXPR_BASE_GMF}) + ROUND((${EXPR_BASE_GMF}) * ${TASA_GMF}, 2) END`;
 
 /**
  * Una fila está incompleta si algún concepto que SÍ debería tener valor no lo tiene. Las

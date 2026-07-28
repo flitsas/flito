@@ -179,10 +179,14 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
   if (tramiteDigital.bloquea) faltantes.push('Tarifa de trámite digital no configurada para la compañía');
   if (logistica.bloquea) faltantes.push('Tarifa de logística no configurada para la compañía');
 
-  // Base del 4x1000: solo los desembolsos que salen por el banco hacia un tercero.
-  const baseGmf = redondear(sumar(soat.valor, impuesto.valor, derecho.valor));
+  // Base del 4x1000: el total de los cinco conceptos. El gravamen se calcula sobre esa suma y se
+  // añade encima, de modo que el total es la base más su propio GMF. Los conceptos que no aplican
+  // valen null y `sumar` los ignora: no entran a la base como cero disfrazado.
+  const baseGmf = redondear(
+    sumar(soat.valor, impuesto.valor, derecho.valor, tramiteDigital.valor, logistica.valor),
+  );
   const valorGmf = redondear(baseGmf * TASA_GMF);
-  const total = redondear(baseGmf + sumar(tramiteDigital.valor, logistica.valor) + valorGmf);
+  const total = redondear(baseGmf + valorGmf);
 
   return {
     tramiteId: f.tramiteId, idFlit: f.idFlit,
