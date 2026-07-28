@@ -28,9 +28,12 @@ export class LiquidacionError extends Error {
 /**
  * Tasa del gravamen a los movimientos financieros (4 x 1000).
  *
- * Se aplica SOLO sobre los desembolsos reales —SOAT, impuesto y derecho de tránsito—, que es el
- * dinero que efectivamente sale por el banco hacia un tercero. El trámite digital y la logística
- * son honorarios propios de FLIT, no giros, y por eso no forman base.
+ * Se aplica sobre el total del trámite: SOAT + impuesto + derecho de tránsito + logística +
+ * trámite digital. El gravamen se suma encima de esa base, de modo que el total facturado es la
+ * base más su propio GMF.
+ *
+ * La tasa se guarda en cada liquidación (`flito_liquidaciones.tasa_gmf`) en vez de leerse de aquí
+ * al reportar: una liquidación sellada hace años debe seguir mostrando la tasa con la que se selló.
  */
 export const TASA_GMF = 0.004;
 
