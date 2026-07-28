@@ -15,7 +15,7 @@ import {
 
 interface Fila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
-  tipoTramite: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null;
   soat: number | null; impuesto: number | null; derechoTramite: number | null;
   logistica: number | null; tramiteDigital: number | null; gmf: number | null; total: number | null;
   sellada: boolean;
@@ -31,6 +31,17 @@ interface Facetas { estados: string[]; empresas: { nit: string; nombre: string |
 interface Soporte { id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }
 
 const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+
+/**
+ * Estado con el que arranca el reporte. Cerrar el mes se hace sobre lo aprobado, así que ese es el
+ * punto de partida útil; los demás estados siguen a un clic en las pastillas.
+ */
+const ESTADO_POR_DEFECTO = 'Aprobado';
+
+/** Mismas opciones que el formateador de Gestión Trámites: dos formatos de fecha en el mismo
+ *  producto confunden más de lo que ahorran. */
+const fechaCorta = (iso: string | null) =>
+  (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));
 
 /**
  * Etiquetas de los conceptos que el backend puede reportar como no configurados. Se usan para el
@@ -81,7 +92,9 @@ export default function FinanzasReporteCostos() {
   const [facturado, setFacturado] = useState<'' | 'si' | 'no'>('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const [estados, setEstados] = useState<string[]>([]);
+  const [aprobadoDesde, setAprobadoDesde] = useState('');
+  const [aprobadoHasta, setAprobadoHasta] = useState('');
+  const [estados, setEstados] = useState<string[]>([ESTADO_POR_DEFECTO]);
   const [page, setPage] = useState(1);
 
   const estadosKey = estados.join(',');
@@ -95,11 +108,21 @@ export default function FinanzasReporteCostos() {
     if (facturado) p.set('facturado', facturado);
     if (desde) p.set('desde', desde);
     if (hasta) p.set('hasta', hasta);
+    if (aprobadoDesde) p.set('aprobadoDesde', aprobadoDesde);
+    if (aprobadoHasta) p.set('aprobadoHasta', aprobadoHasta);
     if (estados.length) p.set('estados', estados.join(','));
     return p;
   };
 
-  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, estadosKey]);
+  const limpiarFiltros = () => {
+    setBuscar(''); setEmpresa(''); setTipo(''); setLiquidado(''); setFacturado('');
+    setDesde(''); setHasta(''); setAprobadoDesde(''); setAprobadoHasta('');
+    // Vuelve al punto de partida del reporte, no a «todos los estados»: quien limpia quiere el
+    // estado inicial de la pantalla, y ese es Aprobado.
+    setEstados([ESTADO_POR_DEFECTO]);
+  };
+
+  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey]);
 
   useEffect(() => {
     setError(null);
@@ -107,7 +130,7 @@ export default function FinanzasReporteCostos() {
     p.set('page', String(page));
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, estadosKey, page, recarga]);
+  }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, page, recarga]);
 
   useEffect(() => { api.get<Facetas>('/finanzas/reporte-costos/facetas').then(setFacetas).catch(() => setFacetas(null)); }, []);
 
@@ -181,12 +204,23 @@ export default function FinanzasReporteCostos() {
             <option value="si">Solo facturados</option>
             <option value="no">Solo no facturados</option>
           </select>
-          <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            Desde <input type="date" className={flitInp} value={desde} onChange={(e) => setDesde(e.target.value)} />
-          </label>
-          <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            Hasta <input type="date" className={flitInp} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </label>
+        </div>
+        {/* Dos rangos independientes. Van agrupados y rotulados porque «desde/hasta» a secas, con
+            dos fechas distintas en juego, no dice sobre cuál de las dos se está filtrando. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Creado</span>
+            <input type="date" aria-label="Creado desde" className={flitInp} value={desde} onChange={(e) => setDesde(e.target.value)} />
+            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
+            <input type="date" aria-label="Creado hasta" className={flitInp} value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Aprobado</span>
+            <input type="date" aria-label="Aprobado desde" className={flitInp} value={aprobadoDesde} onChange={(e) => setAprobadoDesde(e.target.value)} />
+            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
+            <input type="date" aria-label="Aprobado hasta" className={flitInp} value={aprobadoHasta} onChange={(e) => setAprobadoHasta(e.target.value)} />
+          </div>
+          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
         </div>
         {facetas && facetas.estados.length > 0 && (
           <div className="mt-3">
@@ -241,6 +275,7 @@ export default function FinanzasReporteCostos() {
                     </FlitTh>
                   )}
                   <FlitTh>Trámite</FlitTh>
+                  <FlitTh>Aprobado</FlitTh>
                   <FlitTh center>{CONCEPTO.soat}</FlitTh>
                   <FlitTh center>{CONCEPTO.impuesto}</FlitTh>
                   <FlitTh center>{CONCEPTO.derecho}</FlitTh>
@@ -278,6 +313,10 @@ export default function FinanzasReporteCostos() {
                             : <StatusChip tone="draft">Estimado</StatusChip>}
                       </div>
                     </td>
+                    <td className="px-4 py-2 text-xs whitespace-nowrap" style={{ color: 'var(--flit-text-secondary)' }}>
+                      {fechaCorta(f.fechaAprobacion)
+                        ?? <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
+                    </td>
                     {/* SOAT e impuesto nunca entran en `noConfigurados`: su ausencia significa
                         exento o autogestionado, no una configuración que falte. */}
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} /></td>
@@ -302,6 +341,7 @@ export default function FinanzasReporteCostos() {
                     <td className="px-4 py-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
                       Totales ({data.total.toLocaleString('es-CO')} trámites del filtro)
                     </td>
+                    <td />
                     <td className="px-4 py-2 text-right font-semibold tabular-nums">{pesos(data.totales.soat)}</td>
                     <td className="px-4 py-2 text-right font-semibold tabular-nums">{pesos(data.totales.impuesto)}</td>
                     <td className="px-4 py-2 text-right font-semibold tabular-nums">{pesos(data.totales.derechoTramite)}</td>

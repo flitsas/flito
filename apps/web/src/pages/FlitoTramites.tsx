@@ -401,6 +401,7 @@ export default function FlitoTramites() {
                   <ThFiltroMulti seleccion={estadosSel} onCambio={setEstadosSel} opciones={aOpc(facetas.estados)} placeholder="Todos los estados" />
                 </FlitTh>
                 <FlitTh>Creado</FlitTh>
+                <FlitTh>Aprobado</FlitTh>
                 <FlitTh>Vehículo</FlitTh>
                 <FlitTh>Comprador</FlitTh>
                 <FlitTh>
@@ -452,6 +453,11 @@ export default function FlitoTramites() {
                   <td className="px-3 py-2 align-top">
                     <div className="text-sm tabular-nums">{fecha(f.fechaCreacion)}</div>
                     <div className="mt-1"><AntiguedadPill desde={f.fechaCreacion} /></div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    {f.fechaAprobacion
+                      ? <div className="text-sm tabular-nums">{fecha(f.fechaAprobacion)}</div>
+                      : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
                   </td>
                   <td className="px-3 py-2 align-top">
                     <div className="font-medium">{f.vehiculo.placa ?? '—'}</div>

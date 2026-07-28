@@ -26,6 +26,8 @@ export interface FiltrosReporte {
   facturado?: 'si' | 'no';
   /** Rango sobre la fecha de creación del trámite, en formato yyyy-mm-dd. */
   desde?: string; hasta?: string;
+  /** Rango sobre la fecha de aprobación, en formato yyyy-mm-dd. Independiente del anterior. */
+  aprobadoDesde?: string; aprobadoHasta?: string;
   page?: number; pageSize?: number;
 }
 
@@ -33,6 +35,8 @@ export interface FiltrosReporte {
 export interface FilaReporte {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   tipoTramite: string | null;
+  /** Fecha en que FLIT aprobó el trámite. null mientras siga esperando aprobación. */
+  fechaAprobacion: string | null;
   soat: number | null; impuesto: number | null;
   derechoTramite: number | null; logistica: number | null; tramiteDigital: number | null;
   gmf: number | null; total: number | null;
@@ -129,9 +133,18 @@ function condiciones(f: FiltrosReporte): SQL[] {
   if (f.liquidado === 'no') conds.push(sql`${flitoLiquidaciones.id} IS NULL`);
   if (f.facturado === 'si') conds.push(sql`${flitoLiquidaciones.estado} = 'facturado'`);
   if (f.facturado === 'no') conds.push(sql`COALESCE(${flitoLiquidaciones.estado}, '') <> 'facturado'`);
-  // El rango es inclusivo por día: `hasta` suma un día para no dejar fuera lo creado esa jornada.
-  if (f.desde) conds.push(sql`${flitoTramites.createdAt} >= ${f.desde}::date`);
-  if (f.hasta) conds.push(sql`${flitoTramites.createdAt} < (${f.hasta}::date + INTERVAL '1 day')`);
+
+  // Los dos rangos son inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
+  //
+  // El de creación mira `fecha_creacion_flit`, que es cuándo NACIÓ el trámite en FLIT, no
+  // `created_at`, que es cuándo el sync lo ingirió. Filtrar por `created_at` hacía que los miles de
+  // históricos traídos en la carga masiva compartieran una única fecha y el filtro fuera inservible.
+  // El COALESCE cubre los trámites viejos cuyo reporte aún no traía el campo.
+  const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
+  if (f.desde) conds.push(sql`${nacimiento} >= ${f.desde}::date`);
+  if (f.hasta) conds.push(sql`${nacimiento} < (${f.hasta}::date + INTERVAL '1 day')`);
+  if (f.aprobadoDesde) conds.push(sql`${flitoTramites.fechaAprobacion} >= ${f.aprobadoDesde}::date`);
+  if (f.aprobadoHasta) conds.push(sql`${flitoTramites.fechaAprobacion} < (${f.aprobadoHasta}::date + INTERVAL '1 day')`);
   return conds;
 }
 
@@ -158,6 +171,7 @@ const SELECT_FILA = {
   tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
   placa: vehicles.plate, estado: flitoTramites.flitEstado, empresa: clients.name,
   tipoTramite: flitoTramites.tipoTramite,
+  fechaAprobacion: flitoTramites.fechaAprobacion,
   sellada: sql<boolean>`${seLiquido}`,
   estadoLiquidacion: flitoLiquidaciones.estado,
   soat: sql<string | null>`${EXPR_SOAT}`,
@@ -189,6 +203,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     tramiteId: r.tramiteId as string, idFlit: r.idFlit as string,
     placa: r.placa as string | null, estado: r.estado as string | null,
     empresa: r.empresa as string | null, tipoTramite: r.tipoTramite as string | null,
+    fechaAprobacion: (r.fechaAprobacion as Date | null)?.toISOString() ?? null,
     soat: n(r.soat as string | null), impuesto: n(r.impuesto as string | null),
     derechoTramite: derecho, logistica, tramiteDigital: digital,
     gmf: n(r.gmf as string | null), total: n(r.totalFila as string | null),
@@ -255,9 +270,13 @@ export async function filasParaExportar(f: FiltrosReporte = {}): Promise<FilaRep
 }
 
 const CABECERAS_CSV = [
-  'Trámite', 'Placa', 'Estado', 'Empresa', 'Tipo', 'SOAT', 'Impuesto', 'Derecho de tránsito',
-  'Trámite digital', 'Logística', 'GMF', 'Total', 'Liquidación', 'Conceptos sin configurar',
+  'Trámite', 'Placa', 'Estado', 'Empresa', 'Tipo', 'Aprobado', 'SOAT', 'Impuesto',
+  'Derecho de tránsito', 'Trámite digital', 'Logística', 'GMF', 'Total', 'Liquidación',
+  'Conceptos sin configurar',
 ] as const;
+
+/** Solo el día, en ISO. Excel lo reconoce como fecha; el instante completo lo trata como texto. */
+const soloDia = (iso: string | null): string | null => (iso === null ? null : iso.slice(0, 10));
 
 /** Una celda CSV segura: comillas escapadas y campo entrecomillado si lleva separador o salto. */
 function celda(v: string | number | null): string {
@@ -274,7 +293,7 @@ export function aCsv(filas: FilaReporte[]): string {
   const lineas = [CABECERAS_CSV.join(';')];
   for (const f of filas) {
     lineas.push([
-      f.idFlit, f.placa, f.estado, f.empresa, f.tipoTramite,
+      f.idFlit, f.placa, f.estado, f.empresa, f.tipoTramite, soloDia(f.fechaAprobacion),
       f.soat, f.impuesto, f.derechoTramite, f.tramiteDigital, f.logistica, f.gmf, f.total,
       f.sellada ? (f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado') : 'Estimado',
       f.noConfigurados.join(' | '),
