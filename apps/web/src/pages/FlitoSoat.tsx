@@ -12,6 +12,7 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import AntiguedadPill from '../components/flit/AntiguedadPill';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -22,7 +23,7 @@ interface SoatItem {
   estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
-  tramitesFlit: string[]; enviadoPorNombre: string | null; enviadoEn: string | null;
+  tramitesFlit: string[]; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   valorPagado: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
@@ -127,7 +128,9 @@ export default function FlitoSoat() {
                   </FlitTh>
                 )}
                 <FlitTh>Placa</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Compañía</FlitTh>
-                <FlitTh>Proveedor</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Valor</FlitTh><FlitTh />
+                <FlitTh>Proveedor</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
+                <FlitTh>Valor</FlitTh><FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -157,6 +160,11 @@ export default function FlitoSoat() {
                       {f.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
                     </div>
                   </td>
+                  <td className="px-3 py-2 text-sm">
+                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
+                    {f.enviadoEn && <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>}
+                  </td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
                   <td className="px-3 py-2">
                     <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
