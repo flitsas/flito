@@ -13,6 +13,11 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
+import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import ChipSinGestion from '../components/flit/ChipSinGestion';
+import RangoFechas from '../components/flit/RangoFechas';
+import Paginacion from '../components/flit/Paginacion';
+import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -27,6 +32,12 @@ interface SoatItem {
   valorPagado: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
+interface ColaSoat { items: SoatItem[]; total: number; page: number; pageSize: number }
+interface FacetasSoat {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
+  proveedores: { id: string; nombre: string }[];
+}
 
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
@@ -46,8 +57,11 @@ export default function FlitoSoat() {
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
-  const [buscar, setBuscar] = useState('');
-  const [data, setData] = useState<SoatItem[] | null>(null);
+  const [texto, setTexto] = useState('');
+  // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
+  // pulsación. Se espera a que el usuario deje de escribir.
+  const buscar = useDebounce(texto, 300);
+  const [data, setData] = useState<ColaSoat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
@@ -55,20 +69,61 @@ export default function FlitoSoat() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [recarga, setRecarga] = useState(0);
 
+  const [facetas, setFacetas] = useState<FacetasSoat | null>(null);
+  const [companiasSel, setCompaniasSel] = useState<string[]>([]);
+  const [organismosSel, setOrganismosSel] = useState<string[]>([]);
+  const [proveedoresSel, setProveedoresSel] = useState<string[]>([]);
+  const [solicitadoDesde, setSolicitadoDesde] = useState('');
+  const [solicitadoHasta, setSolicitadoHasta] = useState('');
+  const [pagadoDesde, setPagadoDesde] = useState('');
+  const [pagadoHasta, setPagadoHasta] = useState('');
+  const [soloEstancado, setSoloEstancado] = useState(false);
+  const [page, setPage] = useState(1);
+
+  // Los multiselect se serializan a una clave para las dependencias de los efectos.
+  const compKey = companiasSel.join(','); const orgKey = organismosSel.join(','); const provKey = proveedoresSel.join(',');
+
+  const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0 || proveedoresSel.length > 0
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado;
+
+  const limpiarFiltros = () => {
+    setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
+    setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
+    setSoloEstancado(false); setTexto('');
+  };
+
+  // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado]);
+
   useEffect(() => {
-    setError(null); setData(null); setSeleccion(new Set());
+    setError(null); setSeleccion(new Set());
     const q = new URLSearchParams();
     if (estado !== 'todos') q.set('estado', estado);
     if (buscar.trim()) q.set('buscar', buscar.trim());
-    api.get<SoatItem[]>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
-  }, [estado, buscar, recarga]);
+    if (companiasSel.length) q.set('companias', companiasSel.join(','));
+    if (organismosSel.length) q.set('organismos', organismosSel.join(','));
+    if (proveedoresSel.length) q.set('proveedores', proveedoresSel.join(','));
+    if (solicitadoDesde) q.set('solicitadoDesde', solicitadoDesde);
+    if (solicitadoHasta) q.set('solicitadoHasta', solicitadoHasta);
+    if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
+    if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
+    if (soloEstancado) q.set('estancado', 'si');
+    q.set('page', String(page));
+    api.get<ColaSoat>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, page, recarga]);
+
+  useEffect(() => {
+    api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
+  }, []);
 
   useEffect(() => {
     if (!esOperaciones) return;
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
   }, [esOperaciones]);
 
-  const filas = data ?? [];
+  const filas = data?.items ?? [];
+  const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoSoat.PENDIENTE), [filas]);
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
@@ -100,7 +155,36 @@ export default function FlitoSoat() {
             ))}
           </FlitPillGroup>
           <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, comprador…"
-            value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+            value={texto} onChange={(e) => setTexto(e.target.value)} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+          <ThFiltroMulti seleccion={companiasSel} onCambio={setCompaniasSel} placeholder="Compañía"
+            vacio="Sin compañías en la cola"
+            opciones={(facetas?.companias ?? []).map((c) => ({ value: String(c.id), label: c.nombre }))} />
+          <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
+            vacio="Sin organismos en la cola"
+            opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
+          {/* Al gestor no se le ofrece: ya está atado a su proveedor y elegir otro solo vaciaría la cola. */}
+          {!esGestor && (
+            <ThFiltroMulti seleccion={proveedoresSel} onCambio={setProveedoresSel} placeholder="Proveedor"
+              vacio="Sin proveedores en la cola"
+              opciones={(facetas?.proveedores ?? []).map((p) => ({ value: p.id, label: p.nombre }))} />
+          )}
+
+          <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
+            onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
+          <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
+            onCambio={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }} />
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
+            Solo sin gestión
+          </label>
+
+          {(hayFiltros || !!texto) && (
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
+          )}
         </div>
       </FlitCard>
 
@@ -112,11 +196,21 @@ export default function FlitoSoat() {
       )}
 
       {data && filas.length === 0 && (
-        <FlitCard><FlitEmpty>No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.</FlitEmpty></FlitCard>
+        <FlitCard>
+          <FlitEmpty>
+            {hayFiltros || texto.trim()
+              ? 'Ningún SOAT coincide con los filtros.'
+              : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+          </FlitEmpty>
+        </FlitCard>
       )}
 
       {filas.length > 0 && (
         <FlitCard>
+          <div className="mb-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
           <FlitTable>
             <thead>
               <FlitTr>
@@ -157,12 +251,16 @@ export default function FlitoSoat() {
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
                     <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
-                    {f.enviadoEn && <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>}
+                    {/* Ya pagado: los días transcurridos desde la solicitud dejan de ser una señal
+                        de riesgo y solo ensucian. El chip de sin gestión ya desaparece al pagar. */}
+                    {f.enviadoEn && f.estado !== EstadoSoat.PAGADO && (
+                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
@@ -173,6 +271,10 @@ export default function FlitoSoat() {
               ))}
             </tbody>
           </FlitTable>
+          <div className="mt-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
         </FlitCard>
       )}
 
@@ -197,7 +299,7 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
   const enviar = async () => {
     setEnviando(true);
     try {
-      await api.post('/flito/soat/enviar', { ids, ...(proveedorSoatId ? { proveedorSoatId } : {}) });
+      await api.post('/flito/soat/enviar', { ids, proveedorSoatId });
       onEnviado();
     } catch (e) { onError(errorMessage(e)); }
     finally { setEnviando(false); }
@@ -207,10 +309,11 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
         <select className={`${flitInp} max-w-xs`} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-          <option value="">Proveedor por regla de enrutamiento</option>
+          <option value="">Elige el proveedor…</option>
           {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando} onClick={enviar}>
+        {/* Sin proveedor el SOAT quedaría en la cola de nadie. */}
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !proveedorSoatId} onClick={enviar}>
           {enviando ? 'Enviando…' : 'Enviar al gestor'}
         </button>
       </div>
@@ -251,7 +354,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={TONO[soat.estado]}>{ESTADO_SOAT_LABEL[soat.estado]}</StatusChip>
-          {soat.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+          {soat.estancado && <ChipSinGestion desde={soat.enviadoEn} />}
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">

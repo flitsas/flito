@@ -28,7 +28,7 @@ app.use('/api/flito/impuestos', impuestosRoutes);
 // buscarConAcceso: 1) impuesto+autogestion, 2) trámite con la factura de FLIT.
 function mockAcceso(facturaVentaFlitId: string | null) {
   selectMock
-    .mockReturnValueOnce(chain([{ imp: { id: 'i1', tramiteId: 't1', organismoCodigo: '05001', estado: 'pendiente' }, autogestion: false }]))
+    .mockReturnValueOnce(chain([{ imp: { id: 'i1', tramiteId: 't1', organismoCodigo: '05001', estado: 'pendiente' }, dentroDeFrontera: true }]))
     .mockReturnValueOnce(chain([{ facturaVentaFlitId }]));
 }
 

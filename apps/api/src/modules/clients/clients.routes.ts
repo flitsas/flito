@@ -21,7 +21,12 @@ const createSchema = z.object({
   notes: z.string().optional(),
 });
 
-router.get('/', async (req: Request, res: Response) => {
+// Lectura alineada con la del módulo fusionado (HU #10979): antes bastaba con estar autenticado,
+// mientras que su gemelo `GET /flito/parametrizacion/companias` —la misma tabla— exigía rol. Dos
+// puertas distintas a los mismos datos no es una decisión, es un descuido.
+const LECTURA = requireRole('admin', 'auditor', 'financiera');
+
+router.get('/', LECTURA, async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const result = await db.select().from(clients).orderBy(clients.name).limit(limit).offset(offset);
@@ -43,6 +48,9 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
   const [updated] = await db.update(clients).set(parsed.data).where(eq(clients.id, id)).returning();
   if (!updated) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+  // Su gemelo de parametrización sí auditaba; este no. Cambiar los datos de un cliente sin dejar
+  // rastro es peor aquí, donde además se editan sus datos de contacto.
+  await audit(req, { action: 'update', resource: 'client', resourceId: String(id), detail: `Cliente actualizado: ${maskName(updated.name)}` });
   res.json(updated);
 });
 

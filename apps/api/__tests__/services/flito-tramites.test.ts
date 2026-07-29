@@ -135,7 +135,8 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       .mockReturnValueOnce(chain([         // compradores
         { tramiteId: 't1', nombreCompleto: 'B', numeroDocumento: '2', correo: null, celular: null, direccion: null, orden: 1, porcentajeParticipacion: null },
         { tramiteId: 't1', nombreCompleto: 'A', numeroDocumento: '1', correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null },
-      ]));
+      ]))
+      .mockReturnValueOnce(chain([]));   // excepciones de autogestión (HU #10980)
     const { items: [f] } = await listar();
     expect(f.organismoNombre).toBe('Tránsito X');
     expect(f.vehiculo).toMatchObject({ marca: 'Renault', linea: 'Logan' });

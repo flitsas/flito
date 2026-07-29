@@ -1,8 +1,7 @@
-// FLITO Derechos de trámite (HTTP) — HU #10950. Montado en /api/flito/derechos.
+// FLITO Derechos de tránsito (HTTP) — HU #10950. Montado en /api/flito/derechos.
 //
 // Solo Operaciones (admin) carga y consulta: a diferencia de impuestos, aquí no hay un gestor
-// externo con frontera por organismo — el recibo lo trae quien opera el trámite. `financiera` y
-// `auditor` leen, porque el valor alimenta el reporte de costos.
+// externo con frontera por organismo — el recibo lo trae quien opera el trámite. `auditor` lee.
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
@@ -13,19 +12,26 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  DerechoError, cargarDerechos, candidatosDePlaca, listarDerechos, listarPendientes,
+  DerechoError, cargarDerechos, candidatosDePlaca, facetasDerechos, listarDerechos,
   reintentarPendientes, type DerechoCtx,
 } from './flito-derechos.service.js';
-import { sincronizarDerechosDrive, organismosConDrive } from './flito-derechos-drive.service.js';
-import { LOCK_SYNC_DERECHOS, LOCK_TTL_MS } from './flito-derechos.cron.js';
-import { withLock } from '../../shared/utils/lock.js';
+import { esConceptoPendiente, listarPendientes } from '../flito-pendientes/flito-pendientes.service.js';
+import { contextoSoat, reintentarPendientesSoat } from '../flito-soat/flito-soat.service.js';
+import { contextoImpuesto } from '../flito-impuestos/flito-impuestos.routes.js';
+import { reintentarPendientesImpuestos } from '../flito-impuestos/flito-recibos.service.js';
+import { archivosDelDrive, procesarArchivoDrive, ProcesadorError } from './flito-derechos-drive.service.js';
 import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 
 const router = Router();
 router.use(authMiddleware);
 
 const OPERACIONES = requireRole('admin');
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
+// `financiera` sale de aquí (HU #10979): los derechos de tránsito los gestiona Operaciones, que es
+// quien carga los recibos. Finanzas ve su valor en el reporte de costos, que es lo que necesita.
+const LECTURA = requireRole('admin', 'auditor');
+
+/** Archivos del Drive en curso, para no procesar el mismo dos veces a la vez. */
+const procesando = new Set<string>();
 
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
@@ -63,7 +69,7 @@ router.post('/cargar', OPERACIONES, upload.array('archivos', 50), async (req: Re
     const resultado = await cargarDerechos(files.map(aArchivo), { organismoCodigo, origen: 'manual' }, contexto(req));
     await audit(req, {
       action: 'upload', resource: 'flito_derecho_tramite',
-      detail: `Carga de derechos de trámite: ${resultado.registrados.length} registrados, ` +
+      detail: `Carga de derechos de tránsito: ${resultado.registrados.length} registrados, ` +
         `${resultado.enRevision.length} en revisión, ${resultado.pendientes.length} pendientes, ` +
         `${resultado.duplicados.length} duplicados, ${resultado.omitidas.length} omitidas, ` +
         `${resultado.fallidos.length} fallidos`,
@@ -73,56 +79,107 @@ router.post('/cargar', OPERACIONES, upload.array('archivos', 50), async (req: Re
 });
 
 // GET / — listado paginado de derechos registrados.
+const listaQ = (v: unknown): string[] | undefined => {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+};
+/** Fecha de calendario, o nada: un texto suelto en un `::date` es un 500 que se puede evitar. */
+const fechaQ = (v: unknown): string | undefined =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
   const page = Number(req.query.page) || 1;
   const pageSize = Number(req.query.pageSize) || 50;
-  res.json(await listarDerechos({ buscar, page, pageSize }));
+  res.json(await listarDerechos({
+    buscar, page, pageSize,
+    organismos: listaQ(req.query.organismos), origenes: listaQ(req.query.origenes),
+    pagadoDesde: fechaQ(req.query.pagadoDesde), pagadoHasta: fechaQ(req.query.pagadoHasta),
+  }));
 });
 
-// GET /pendientes — recibos leídos que aún no cruzan con ningún trámite.
-router.get('/pendientes', LECTURA, async (_req: Request, res: Response) => {
-  res.json(await listarPendientes());
+// GET /facetas — organismos y orígenes presentes, para no ofrecer filtros vacíos.
+router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await facetasDerechos());
+});
+
+// GET /pendientes — recibos leídos que aún no cruzan con ningún registro. Desde la HU #10982 la
+// bandeja es de los tres conceptos; sin `concepto` los devuelve todos, para no romper a quien ya
+// consumía este endpoint.
+router.get('/pendientes', LECTURA, async (req: Request, res: Response) => {
+  const c = req.query.concepto;
+  res.json(await listarPendientes(esConceptoPendiente(c) ? c : undefined));
 });
 
 // POST /pendientes/reintentar — fuerza el barrido sin esperar a la próxima sincronización.
+//
+// Barre los tres conceptos en la misma pasada: quien pulsa el botón quiere que se resuelva lo que
+// se pueda resolver, no elegir de qué tipo. Cada barrido usa las reglas de cruce de SU módulo.
 router.post('/pendientes/reintentar', OPERACIONES, async (req: Request, res: Response) => {
-  const resultado = await reintentarPendientes(contexto(req));
+  const ctx = contexto(req);
+  const derechos = await reintentarPendientes(ctx);
+  const soat = await reintentarPendientesSoat(await contextoSoat({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
+  const impuestos = await reintentarPendientesImpuestos(await contextoImpuesto({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
+
+  // El detalle de los tres, en una sola lista: quien pulsó el botón quiere ver QUÉ se asoció, no
+  // tener que abrir tres apartados. Cada entrada ya dice de qué concepto es (HU #11023).
+  const resultado = {
+    revisados: derechos.revisados + soat.revisados + impuestos.revisados,
+    asociados: derechos.asociados + soat.asociados + impuestos.asociados,
+    detalle: [...derechos.detalle, ...soat.detalle, ...impuestos.detalle],
+    porConcepto: { derecho: derechos, soat, impuesto: impuestos },
+  };
   await audit(req, {
     action: 'update', resource: 'flito_derecho_tramite',
-    detail: `Reintento de pendientes: ${resultado.asociados}/${resultado.revisados} asociados`,
+    detail: `Reintento de pendientes: ${resultado.asociados}/${resultado.revisados} asociados `
+      + `(derechos ${derechos.asociados}, SOAT ${soat.asociados}, impuestos ${impuestos.asociados})`,
   });
   res.json(resultado);
 });
 
-// GET /drive/organismos — organismos con Drive configurado y encendido (para el botón de la UI).
-router.get('/drive/organismos', LECTURA, async (_req: Request, res: Response) => {
-  res.json(await organismosConDrive());
+// ─────────────────────────── Drive de la secretaría ─────────────────────────
+//
+// Sustituyen al barrido genérico por organismo de la HU #10952: solo Medellín tiene Drive
+// compartido, ninguna otra secretaría tenía carpeta y no había forma de ponérsela desde la
+// aplicación. El resto cargan sus recibos a mano, que es lo que hacen hoy.
+
+// GET /drive/archivos — los PDF consolidados de la carpeta, para elegir el día.
+router.get('/drive/archivos', LECTURA, async (_req: Request, res: Response) => {
+  try {
+    res.json(await archivosDelDrive());
+  } catch (e) {
+    // El Drive puede estar caído o sin credencial: se informa sin tumbar la pantalla, que tiene
+    // otras dos pestañas que sí funcionan.
+    res.status(503).json({ error: e instanceof Error ? e.message : 'El Drive no está disponible' });
+  }
 });
 
-// POST /drive/sincronizar — barrido manual, sin esperar al ciclo programado. `organismoCodigo`
-// opcional lo acota a uno. Comparte lock con el cron: si hay un barrido en curso responde 409 en
-// vez de procesar los mismos archivos dos veces (AC7).
-const syncSchema = z.object({ organismoCodigo: z.string().min(1).max(5).optional() });
-router.post('/drive/sincronizar', OPERACIONES, async (req: Request, res: Response) => {
-  const parsed = syncSchema.safeParse(req.body ?? {});
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  try {
-    const resumen = await withLock(LOCK_SYNC_DERECHOS, LOCK_TTL_MS, () =>
-      sincronizarDerechosDrive(contexto(req), parsed.data.organismoCodigo ?? null));
+// POST /drive/procesar — lee un consolidado y asocia sus recibos a los trámites. Bajo demanda:
+// quien opera elige el día. Un barrido automático se comería el OCR de la carpeta entera.
+const procesarSchema = z.object({ fileId: z.string().min(5) });
+router.post('/drive/procesar', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = procesarSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { res.status(400).json({ error: 'Falta el archivo a procesar' }); return; }
 
-    if (!resumen) {
-      res.status(409).json({ error: 'Ya hay una sincronización en curso. Espera a que termine.' });
-      return;
-    }
-    const registrados = resumen.organismos.reduce((s, o) => s + o.registrados, 0);
-    const nuevos = resumen.organismos.reduce((s, o) => s + o.archivosNuevos, 0);
+  const fileId = parsed.data.fileId;
+  // Dos procesamientos del mismo archivo a la vez duplicarían el gasto de OCR para llegar al mismo
+  // resultado; el segundo espera a que termine el primero.
+  if (procesando.has(fileId)) { res.status(409).json({ error: 'Ese archivo ya se está procesando' }); return; }
+  procesando.add(fileId);
+  try {
+    const r = await procesarArchivoDrive(fileId, contexto(req));
     await audit(req, {
       action: 'update', resource: 'flito_derecho_tramite',
-      detail: `Sincronización Drive: ${resumen.organismosActivos} organismo(s), ${nuevos} archivo(s) nuevo(s), ${registrados} registrado(s)`,
+      detail: `Drive «${r.archivo}»: ${r.placasUnicas} placa(s), ${r.registrados.length} registrado(s), `
+        + `${r.enRevision.length} en revisión, ${r.pendientes.length} pendiente(s), ${r.duplicados.length} duplicado(s)`,
     });
-    res.json(resumen);
-  } catch (e) { handleError(res, e); }
+    res.json(r);
+  } catch (e) {
+    if (e instanceof ProcesadorError) { res.status(e.status).json({ error: e.message }); return; }
+    handleError(res, e);
+  } finally {
+    procesando.delete(fileId);
+  }
 });
 
 // GET /candidatos/:placa — trámites vivos de una placa, para elegir en la cola de revisión.

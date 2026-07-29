@@ -209,7 +209,7 @@ async function resolverFacturaVenta(revisionId: string, soporteId: string, motiv
 }
 
 /**
- * Resuelve un recibo de derecho de trámite. Aquí `registroId` es el **trámite** elegido (no un
+ * Resuelve un recibo de derecho de tránsito. Aquí `registroId` es el **trámite** elegido (no un
  * registro previo): el caso típico de esta cola es justo el contrario al de SOAT/impuestos — el
  * documento llega bien leído pero la placa tiene varios trámites vivos, y lo que aporta la persona
  * es decidir a cuál corresponde el pago. El registro del derecho nace de esa decisión.
@@ -223,7 +223,7 @@ async function resolverDerecho(revisionId: string, soporteId: string, motivoOrig
 
   await db.transaction(async (tx) => {
     await auditEnTx(tx, ctx, 'flito_derecho_tramite', derechoId,
-      `Derecho de trámite registrado a mano desde la cola de revisión ${revisionId} (${motivoOriginal}). ` +
+      `Derecho de tránsito registrado a mano desde la cola de revisión ${revisionId} (${motivoOriginal}). ` +
       `Soporte ${soporteId}. ${motivo.trim()}`);
   });
 }

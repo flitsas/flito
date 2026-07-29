@@ -1,169 +1,171 @@
-// FLITO Derechos de trámite — sincronización desde el Drive del organismo (HU #10952).
+// FLITO Derechos de tránsito — el Drive de la secretaría, desde el módulo (HU #11010).
 //
-// Cada secretaría de tránsito publica sus recibos en su propio Drive. Este barrido recorre los
-// organismos que tengan carpeta configurada y sincronización encendida, descarga lo que no haya
-// procesado antes y lo pasa por el MISMO pipeline de la carga manual (HU #10950) — la única
-// diferencia es el `origen`, que queda marcado como 'drive'.
+// La secretaría de Medellín publica en un Drive compartido un PDF consolidado por día con las
+// cuentas de cobro de los derechos. Antes esto solo se podía procesar desde Administración → Google
+// Drive, un explorador de archivos genérico; ahora se hace desde el propio módulo de derechos, que
+// es donde se ve el resultado.
 //
-// Idempotencia: el scope de Drive es de solo lectura, así que no se puede marcar el archivo en el
-// origen. Se lleva localmente en `procesamiento_cuentas` por (fileId, modifiedTime): el par importa
-// porque un archivo puede reemplazarse en Drive conservando su id, y entonces sí hay que releerlo.
+// Es BAJO DEMANDA, a propósito: quien opera elige el día y lo procesa. Un barrido automático se
+// comería el OCR de los cincuenta PDF acumulados en la carpeta sin que nadie lo pidiera.
 //
-// Un organismo que falla NO detiene a los demás: Drive caído para Medellín no puede dejar sin
-// procesar a Bello, y el siguiente ciclo reintenta el que falló.
+// Sustituye al barrido genérico por organismo de la HU #10952. Aquel recorría los organismos con
+// carpeta configurada, pero ninguno la tenía ni había forma de ponérsela desde la aplicación: era
+// generalidad sin demanda. El resto de secretarías siguen cargando sus recibos a mano.
 
-import { and, eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { organismosTransitoConfig, procesamientoCuentas } from '../../db/schema.js';
-import { listFiles, downloadFile } from '../../services/googleDrive.js';
+import { procesamientoCuentas } from '../../db/schema.js';
+import { listFiles } from '../../services/googleDrive.js';
+import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
-import { cargarDerechos, type DerechoCtx, type ResultadoDerechos } from './flito-derechos.service.js';
+import {
+  analizarPdfDeDrive, extraccionDeCuenta, separarPorPlaca, ProcesadorError, type CuentaCobro,
+} from '../drive/procesador.service.js';
+import {
+  registrarDesdeExtraccion, type DerechoCtx, type ResultadoDerechos,
+} from './flito-derechos.service.js';
 
 const log = loggerFor('flito-derechos-drive');
 
-/** Extensiones que tiene sentido bajar de la carpeta: el resto se ignora en silencio. */
-const PROCESABLES = /\.(pdf|png|jpe?g|zip)$/i;
-
-export interface ResumenOrganismo {
-  organismoCodigo: string;
-  archivosNuevos: number;
-  registrados: number;
-  enRevision: number;
-  pendientes: number;
-  duplicados: number;
-  omitidas: number;
-  fallidos: number;
-  error?: string;
-}
-
-export interface ResumenSync {
-  organismos: ResumenOrganismo[];
-  /** Organismos con carpeta configurada y sincronización encendida en el momento del barrido. */
-  organismosActivos: number;
-}
-
-const vacio = (organismoCodigo: string): ResumenOrganismo => ({
-  organismoCodigo, archivosNuevos: 0, registrados: 0, enRevision: 0,
-  pendientes: 0, duplicados: 0, omitidas: 0, fallidos: 0,
-});
-
-function acumular(resumen: ResumenOrganismo, r: ResultadoDerechos): void {
-  resumen.registrados += r.registrados.length;
-  resumen.enRevision += r.enRevision.length;
-  resumen.pendientes += r.pendientes.length;
-  resumen.duplicados += r.duplicados.length;
-  resumen.omitidas += r.omitidas.length;
-  resumen.fallidos += r.fallidos.length;
-}
-
-/** Organismos con carpeta puesta Y sincronización encendida. Configurar no es lo mismo que activar. */
-export async function organismosConDrive(codigo?: string | null) {
-  const conds = [
-    eq(organismosTransitoConfig.flitoDriveActivo, true),
-    eq(organismosTransitoConfig.activo, true),
-  ];
-  if (codigo) conds.push(eq(organismosTransitoConfig.codigo, codigo));
-  const rows = await db.select({
-    codigo: organismosTransitoConfig.codigo,
-    folderId: organismosTransitoConfig.flitoDriveFolderId,
-  }).from(organismosTransitoConfig).where(and(...conds));
-  // Sin carpeta no hay nada que mirar: se omite sin ruido (no es un error de configuración a medias
-  // que deba tumbar el barrido; el organismo simplemente aún no tiene Drive).
-  return rows.filter((o): o is { codigo: string; folderId: string } => !!o.folderId);
-}
-
 /**
- * ¿Ya se procesó este archivo, en esta misma versión? Se compara id + fecha de modificación: si el
- * organismo reemplazó el archivo, su `modifiedTime` cambia y vuelve a entrar.
- */
-async function yaProcesado(fileId: string, modifiedTime: string | null): Promise<boolean> {
-  const [previo] = await db.select({
-    modificado: procesamientoCuentas.driveModifiedTime,
-  }).from(procesamientoCuentas)
-    .where(and(
-      eq(procesamientoCuentas.driveFileId, fileId),
-      eq(procesamientoCuentas.estado, 'completado'),
-    ))
-    .orderBy(procesamientoCuentas.createdAt)
-    .limit(1);
-
-  if (!previo) return false;
-  if (!modifiedTime || !previo.modificado) return true; // sin fecha comparable, el id manda
-  return previo.modificado.getTime() >= new Date(modifiedTime).getTime();
-}
-
-/**
- * Sincroniza un organismo. Devuelve su resumen; si Drive falla, el resumen lleva el `error` y el
- * barrido general sigue con el resto.
- */
-async function sincronizarOrganismo(
-  organismo: { codigo: string; folderId: string },
-  ctx: DerechoCtx,
-): Promise<ResumenOrganismo> {
-  const resumen = vacio(organismo.codigo);
-  const archivos = await listFiles(organismo.folderId, 200);
-
-  for (const archivo of archivos) {
-    if (!PROCESABLES.test(archivo.name)) continue;
-    if (await yaProcesado(archivo.id, archivo.modifiedTime)) continue;
-
-    const [registro] = await db.insert(procesamientoCuentas).values({
-      usuarioId: ctx.userId,
-      driveFileId: archivo.id,
-      nombreArchivo: archivo.name,
-      organismoCodigo: organismo.codigo,
-      driveModifiedTime: archivo.modifiedTime ? new Date(archivo.modifiedTime) : null,
-      estado: 'procesando',
-    }).returning({ id: procesamientoCuentas.id });
-
-    try {
-      const { buffer, name, mimeType } = await downloadFile(archivo.id);
-      const resultado = await cargarDerechos(
-        [{ originalname: name, mimetype: mimeType, buffer, size: buffer.length }],
-        { organismoCodigo: organismo.codigo, origen: 'drive' },
-        ctx,
-      );
-      acumular(resumen, resultado);
-      resumen.archivosNuevos += 1;
-
-      await db.update(procesamientoCuentas).set({
-        estado: 'completado',
-        cuentasDetectadas: resultado.registrados.length + resultado.enRevision.length + resultado.pendientes.length,
-      }).where(eq(procesamientoCuentas.id, registro.id));
-    } catch (e) {
-      // El archivo queda en 'error', NO en 'completado': así el siguiente ciclo vuelve a intentarlo.
-      const mensaje = (e as Error).message;
-      await db.update(procesamientoCuentas).set({ estado: 'error', error: mensaje })
-        .where(eq(procesamientoCuentas.id, registro.id)).catch(() => { /* el error ya está en el log */ });
-      resumen.fallidos += 1;
-      log.error({ organismo: organismo.codigo, fileId: archivo.id, err: mensaje }, 'archivo de Drive falló');
-    }
-  }
-
-  return resumen;
-}
-
-/**
- * Barrido completo. `codigo` lo acota a un solo organismo (el botón «sincronizar ahora»).
+ * Organismo al que pertenece la carpeta. Hoy es Medellín, la única secretaría con Drive compartido.
  *
- * Los organismos se recorren en serie a propósito: cada archivo dispara varias llamadas de OCR y
- * paralelizar organismos multiplicaría la presión sobre la API de Anthropic sin ganar nada — el
- * barrido corre en segundo plano y nadie lo está esperando.
+ * Va como constante y no como columna configurable porque no hay una segunda: inventar la tabla de
+ * mapeo antes de tener el segundo caso fue exactamente el error de la HU #10952. Cuando aparezca
+ * otra secretaría con Drive, esto se vuelve configuración con un caso real que la justifique.
  */
-export async function sincronizarDerechosDrive(ctx: DerechoCtx, codigo?: string | null): Promise<ResumenSync> {
-  const organismos = await organismosConDrive(codigo);
-  const resumenes: ResumenOrganismo[] = [];
+export const ORGANISMO_DRIVE = '05001';
 
-  for (const organismo of organismos) {
-    try {
-      resumenes.push(await sincronizarOrganismo(organismo, ctx));
-    } catch (e) {
-      // Drive caído, credenciales vencidas, carpeta borrada: se registra y se sigue con el resto.
-      const mensaje = (e as Error).message;
-      log.error({ organismo: organismo.codigo, err: mensaje }, 'sincronización de organismo falló');
-      resumenes.push({ ...vacio(organismo.codigo), error: mensaje });
-    }
+/** Solo PDF: la carpeta puede tener hojas de cálculo u otros adjuntos que no son consolidados. */
+const ES_PDF = /\.pdf$/i;
+
+export interface ArchivoDrive {
+  fileId: string;
+  nombre: string;
+  tamanoBytes: number | null;
+  modificadoEn: string | null;
+  /** Si ya se procesó antes, cuándo. Null = nunca. */
+  procesadoEn: string | null;
+}
+
+/**
+ * PDF de la carpeta, del más reciente al más antiguo, marcando los ya procesados.
+ *
+ * El «ya procesado» es informativo, no una prohibición: si el organismo reemplaza el archivo del día
+ * conservando el nombre, hay que poder reprocesarlo. Lo que impide duplicar de verdad es el hash del
+ * recibo, que ya vive en la carga de derechos.
+ */
+export async function archivosDelDrive(): Promise<ArchivoDrive[]> {
+  const archivos = await listFiles(env.GOOGLE_DRIVE_FOLDER_ID, 100);
+  const pdfs = archivos.filter((a) => ES_PDF.test(a.name));
+  if (pdfs.length === 0) return [];
+
+  const procesados = await db.select({
+    fileId: procesamientoCuentas.driveFileId,
+    createdAt: procesamientoCuentas.createdAt,
+  }).from(procesamientoCuentas)
+    .where(eq(procesamientoCuentas.estado, 'completado'))
+    .orderBy(desc(procesamientoCuentas.createdAt));
+
+  const ultimoPorArchivo = new Map<string, Date>();
+  for (const p of procesados) {
+    if (p.fileId && !ultimoPorArchivo.has(p.fileId)) ultimoPorArchivo.set(p.fileId, p.createdAt);
   }
 
-  return { organismos: resumenes, organismosActivos: organismos.length };
+  return pdfs.map((a) => ({
+    fileId: a.id,
+    nombre: a.name,
+    tamanoBytes: a.size ? Number(a.size) : null,
+    modificadoEn: a.modifiedTime ?? null,
+    procesadoEn: ultimoPorArchivo.get(a.id)?.toISOString() ?? null,
+  }));
 }
+
+export interface ResultadoProcesoDrive extends ResultadoDerechos {
+  archivo: string;
+  totalPaginas: number;
+  cuentasDetectadas: number;
+  placasUnicas: number;
+}
+
+/**
+ * Procesa un consolidado: lo baja, lo lee, lo separa por placa y asocia cada recibo a su trámite.
+ *
+ * Reusa el pipeline de la carga manual (`registrarDesdeExtraccion`), así que el cruce por placa, la
+ * desambiguación cuando hay varios trámites, la bandeja de pendientes y la cola de revisión se
+ * comportan EXACTAMENTE igual que si el archivo se hubiera subido a mano. La única diferencia es de
+ * dónde salió el archivo, y eso queda registrado en `origen`.
+ */
+export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Promise<ResultadoProcesoDrive> {
+  const [registro] = await db.insert(procesamientoCuentas).values({
+    usuarioId: ctx.userId, driveFileId: fileId, estado: 'procesando',
+    organismoCodigo: ORGANISMO_DRIVE,
+  }).returning({ id: procesamientoCuentas.id });
+
+  try {
+    const { name, srcDoc, totalPaginas, cuentas, paginasPorPlaca } = await analizarPdfDeDrive(fileId);
+    const pdfsPorPlaca = await separarPorPlaca(srcDoc, paginasPorPlaca);
+
+    // Una cuenta por placa: si el consolidado trae varias páginas de la misma, la primera manda —
+    // son el desglose de un mismo pago, no pagos distintos.
+    const cuentaPorPlaca = new Map<string, CuentaCobro>();
+    for (const c of cuentas) if (!cuentaPorPlaca.has(c.placa)) cuentaPorPlaca.set(c.placa, c);
+
+    const total: ResultadoProcesoDrive = {
+      archivo: name, totalPaginas, cuentasDetectadas: cuentas.length, placasUnicas: pdfsPorPlaca.size,
+      registrados: [], enRevision: [], duplicados: [], pendientes: [], omitidas: [], fallidos: [],
+    };
+
+    for (const [placa, buffer] of pdfsPorPlaca) {
+      const cuenta = cuentaPorPlaca.get(placa);
+      if (!cuenta) continue;
+      try {
+        const r = await registrarDesdeExtraccion(
+          { originalname: `${placa}.pdf`, mimetype: 'application/pdf', buffer, size: buffer.length },
+          extraccionDeCuenta(cuenta),
+          // El organismo SÍ se declara: de él salen el umbral de OCR y la pista de prompt, y sin él
+          // el derecho quedaría sin secretaría.
+          { origen: 'drive', organismoCodigo: ORGANISMO_DRIVE },
+          ctx,
+        );
+        total.registrados.push(...r.registrados);
+        total.enRevision.push(...r.enRevision);
+        total.duplicados.push(...r.duplicados);
+        total.pendientes.push(...r.pendientes);
+        total.omitidas.push(...r.omitidas);
+        total.fallidos.push(...r.fallidos);
+      } catch (e) {
+        // Una placa que falla no tumba el consolidado: el resto del día sí se registra.
+        total.fallidos.push({
+          archivo: `${placa}.pdf`, placa, idFlit: null, registroId: null, valor: null,
+          detalle: e instanceof Error ? e.message : 'Error procesando la cuenta.',
+        });
+      }
+    }
+
+    await db.update(procesamientoCuentas).set({
+      estado: 'completado', nombreArchivo: name, totalPaginas,
+      cuentasDetectadas: cuentas.length, placasUnicas: pdfsPorPlaca.size,
+      valorTotal: String(cuentas.reduce((s, c) => s + c.valorTotal, 0)),
+      organismoCodigo: ORGANISMO_DRIVE,
+    }).where(eq(procesamientoCuentas.id, registro.id));
+
+    log.info({
+      fileId, archivo: name, placas: pdfsPorPlaca.size,
+      registrados: total.registrados.length, pendientes: total.pendientes.length,
+    }, 'Consolidado del Drive procesado');
+
+    return total;
+  } catch (e) {
+    // `.catch()` solo cubriría un rechazo; si el `update` lanza en síncrono el error original se
+    // perdería y quien llamó se quedaría esperando.
+    try {
+      await db.update(procesamientoCuentas)
+        .set({ estado: 'error', error: e instanceof Error ? e.message : 'Error desconocido' })
+        .where(eq(procesamientoCuentas.id, registro.id));
+    } catch { /* el registro de auditoría no puede tapar el error real */ }
+    throw e;
+  }
+}
+
+export { ProcesadorError };

@@ -55,6 +55,20 @@ describe('decidir — SOAT resuelto', () => {
     expect(v.soatResuelto).toBe(true);
     expect(v.soatDetalle).toMatch(/autogestiona/i);
   });
+  it('un SOAT desbloqueado a mano SÍ hay que resolverlo, aunque la compañía autogestione', () => {
+    // El desbloqueo excepcional (HU #10980) crea el registro justamente para gestionarlo. Si la
+    // compuerta lo diera por resuelto por la bandera del cliente, abriría sin el soporte pedido.
+    const v = decidir({
+      ...filaOk(), soatAutogestionable: true, soatExcepcion: true,
+      soatEstado: EstadoSoat.SOLICITADO, soatValorPagado: null,
+    });
+    expect(v.soatResuelto).toBe(false);
+    expect(v.soatDetalle).not.toMatch(/autogestiona/i);
+  });
+  it('desbloqueado y ya pagado sí resuelve', () => {
+    const v = decidir({ ...filaOk(), soatAutogestionable: true, soatExcepcion: true });
+    expect(v.soatResuelto).toBe(true);
+  });
   it('sin registro de SOAT y sin autogestión → no resuelve', () => {
     expect(decidir({ ...filaOk(), soatEstado: null, soatValorPagado: null }).soatResuelto).toBe(false);
   });

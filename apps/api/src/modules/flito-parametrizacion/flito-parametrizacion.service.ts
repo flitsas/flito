@@ -49,43 +49,6 @@ export async function modalidadVigente(organismoCodigo: string): Promise<Modalid
 }
 
 /**
- * Resuelve a qué proveedor le toca un SOAT, por especificidad: compañía gana a
- * organismo, organismo gana al global (prioridad ASC). Puede devolver null si nadie
- * configuró una regla aplicable — y eso es información, no un fallo: el registro queda
- * visible para Operaciones sin proveedor, en vez de caer en la cola de uno al azar.
- * Ignora proveedores inactivos.
- */
-export async function resolverProveedor(
-  companiaId: number,
-  organismoCodigo: string,
-): Promise<ProveedorSoatRow | null> {
-  const candidatas = await db
-    .select({ prioridad: flitoReglasProveedorSoat.prioridad, proveedor: flitoProveedoresSoat })
-    .from(flitoReglasProveedorSoat)
-    .innerJoin(
-      flitoProveedoresSoat,
-      eq(flitoReglasProveedorSoat.proveedorSoatId, flitoProveedoresSoat.id),
-    )
-    .where(
-      or(
-        and(
-          eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.COMPANIA),
-          eq(flitoReglasProveedorSoat.companiaId, companiaId),
-        ),
-        and(
-          eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.ORGANISMO),
-          eq(flitoReglasProveedorSoat.organismoCodigo, organismoCodigo),
-        ),
-        eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.GLOBAL),
-      ),
-    )
-    .orderBy(asc(flitoReglasProveedorSoat.prioridad));
-
-  const aplicable = candidatas.find((c) => c.proveedor.activo !== false);
-  return aplicable?.proveedor ?? null;
-}
-
-/**
  * Umbral de OCR aplicable a una extracción. Global por defecto, sobrescribible por
  * proveedor (SOAT §6) o por organismo (Impuestos §6.2): la calidad de los documentos
  * varía y un umbral único obligaría a calibrar al peor de todos. RN-04/CA-06.

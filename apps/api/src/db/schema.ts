@@ -289,7 +289,7 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
   // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
   flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
-  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de trámite. Existe
+  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de tránsito. Existe
   // porque cada organismo emite el recibo en un formato distinto: en vez de un extractor por
   // organismo, una línea de configuración desambigua las etiquetas raras ("VALOR NETO A PAGAR").
   flitoOcrPromptHint: text('flito_ocr_prompt_hint'),
@@ -2455,6 +2455,12 @@ export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
 // SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * true = este SOAT existe por un desbloqueo excepcional, pese a que la compañía autogestiona el
+   * suyo (HU #10980). La marca va aquí y no en el trámite porque la cola consulta
+   * `flito_soat → clients` sin pasar por `flito_tramites`.
+   */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   vin: varchar('vin', { length: 17 }).notNull().unique(),
   vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
@@ -2542,6 +2548,8 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
 // Impuesto, uno por trámite (tramite_id UNIQUE).
 export const flitoImpuestos = pgTable('flito_impuestos', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** true = creado por un desbloqueo excepcional pese a que la compañía autogestiona (HU #10980). */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
   estado: flitoImpuestoEstadoEnum('estado').notNull().default('pendiente'),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
@@ -2593,7 +2601,7 @@ export const flitoSoportes = pgTable('flito_soportes', {
   tamanoBytes: bigint('tamano_bytes', { mode: 'number' }).notNull(),
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   impuestoId: uuid('impuesto_id').references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
-  // HU #10950: soporte del derecho de trámite. Nullable como los otros dos: un soporte cuelga de
+  // HU #10950: soporte del derecho de tránsito. Nullable como los otros dos: un soporte cuelga de
   // exactamente uno de los tres flujos (o de ninguno, mientras espera en la cola de revisión).
   derechoId: uuid('derecho_id').references(() => flitoDerechosTramite.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
@@ -2624,7 +2632,7 @@ export const flitoRevisiones = pgTable('flito_revisiones', {
   resueltoIdx: index('idx_flito_revisiones_resuelto').on(t.resuelto),
 }));
 
-// ── FLITO Derechos de trámite (HU #10950) ───────────────────────────────────
+// ── FLITO Derechos de tránsito (HU #10950) ───────────────────────────────────
 // Lo que el organismo cobra por radicar el trámite. A diferencia del SOAT (anclado al VIN, RN-01),
 // el derecho se paga POR TRÁMITE: cada radicación tiene el suyo, así que `tramite_id` es UNIQUE.
 // No hay máquina de estados: el recibo llega ya pagado, el registro es la prueba de cuánto se pagó.
@@ -2660,7 +2668,10 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
 // que el trámite desde FLIT. Meterlos en flito_revisiones ahogaría la cola que sí exige a una persona.
 export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  placa: varchar('placa', { length: 10 }).notNull(),
+  /** 'derecho' | 'soat' | 'impuesto'. La bandeja sirve a los tres conceptos (HU #10982). */
+  concepto: varchar('concepto', { length: 20 }).notNull().default('derecho'),
+  /** Null cuando el recibo no permitió leerla: el archivo se guarda igual, lo resuelve una persona. */
+  placa: varchar('placa', { length: 10 }),
   soporteId: uuid('soporte_id').notNull().references(() => flitoSoportes.id, { onDelete: 'cascade' }),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }),
   valor: numeric('valor', { precision: 14, scale: 2 }),
@@ -2677,6 +2688,7 @@ export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
 }, (t) => ({
   // El reintento barre solo los no resueltos; el índice por placa es el que usa ese barrido.
   pendientePlacaIdx: index('idx_flito_derechos_pendientes_placa').on(t.placa, t.resuelto),
+  pendienteConceptoIdx: index('idx_flito_pendientes_concepto').on(t.concepto, t.resuelto),
 }));
 
 // Regla de enrutamiento a proveedor SOAT por ámbito (compañía 10 / organismo 20 / global 30).
@@ -2875,4 +2887,26 @@ export const flitoLogisticaEventos = pgTable('flito_logistica_documento_eventos'
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentoIdx: index('idx_flito_log_eventos_documento').on(t.documentoId, t.createdAt),
+}));
+
+/**
+ * Auditoría de los desbloqueos excepcionales de autogestión (HU #10980), y única sede del caso de
+ * LOGÍSTICA — que no tiene registro propio que marcar y resuelve su frontera por EXISTS sobre aquí.
+ *
+ * Un trámite no puede tener dos excepciones vivas del mismo concepto (índice parcial), pero sí
+ * acumular varias revocadas: el histórico de por qué se desbloqueó y por qué se deshizo.
+ */
+export const flitoExcepcionesAutogestion = pgTable('flito_excepciones_autogestion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  /** 'soat' | 'impuesto' | 'logistica'. */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  motivo: text('motivo').notNull(),
+  creadoPorId: integer('creado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  revocadoEn: timestamp('revocado_en', { withTimezone: true }),
+  revocadoPorId: integer('revocado_por_id').references(() => users.id),
+  revocadoMotivo: text('revocado_motivo'),
+}, (t) => ({
+  excepcionTramiteIdx: index('idx_flito_excepciones_tramite').on(t.tramiteId),
 }));

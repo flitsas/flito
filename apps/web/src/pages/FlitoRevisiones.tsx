@@ -26,13 +26,13 @@ interface RevisionItem {
 }
 interface SoatItem { id: string; vin: string; placa: string | null; marca: string | null; linea: string | null }
 interface ImpItem { id: string; idFlit: string; placa: string | null; vin: string; estado: string }
-// Derechos de trámite (HU #10951): los candidatos NO son todos los registros del módulo sino los
+// Derechos de tránsito (HU #10951): los candidatos NO son todos los registros del módulo sino los
 // trámites vivos de ESA placa — el caso que llega aquí es "una placa con varios trámites".
 interface DerechoCandidato { tramiteId: string; idFlit: string; tipoTramite: string | null; organismoCodigo: string | null; yaTieneDerecho: boolean }
 
 const ETIQUETA_MODULO: Record<FlujoRevision, string> = {
   soat: 'Comprobante SOAT', impuestos: 'Recibo de impuestos', factura_venta: 'Factura de venta',
-  derechos: 'Recibo de derecho de trámite',
+  derechos: 'Recibo de derecho de tránsito',
 };
 const labelCampo = (modulo: FlujoRevision, clave: string): string => {
   const map = modulo === 'soat' ? CAMPO_SOAT_LABEL
@@ -256,7 +256,7 @@ export default function FlitoRevisiones() {
       <FlitPillGroup>
         <FlitPillButton active={grupo === 'soat'} onClick={() => { setGrupo('soat'); setSeleccionadaId(null); }}>SOAT</FlitPillButton>
         <FlitPillButton active={grupo === 'impuestos'} onClick={() => { setGrupo('impuestos'); setSeleccionadaId(null); }}>Impuestos</FlitPillButton>
-        <FlitPillButton active={grupo === 'derechos'} onClick={() => { setGrupo('derechos'); setSeleccionadaId(null); }}>Derechos de trámite</FlitPillButton>
+        <FlitPillButton active={grupo === 'derechos'} onClick={() => { setGrupo('derechos'); setSeleccionadaId(null); }}>Derechos de tránsito</FlitPillButton>
       </FlitPillGroup>
 
       {data.length === 0 ? (

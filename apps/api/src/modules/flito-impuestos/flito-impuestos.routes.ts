@@ -15,7 +15,7 @@ import { eq } from 'drizzle-orm';
 import { EstadoImpuesto } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import {
-  colaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
+  colaImpuestos, facetasColaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
 import { cargarRecibos } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -45,7 +45,7 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.o
  * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
  * users.transito_codigo (§9.3), leída de BD, no del JWT. Para el resto de roles es null.
  */
-async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
+export async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
   let transitoCodigo: string | null = null;
   if (user.role === 'gestor_impuestos') {
     const [u] = await db.select({ t: users.transitoCodigo }).from(users).where(eq(users.id, user.sub)).limit(1);
@@ -108,7 +108,24 @@ async function responderDetalle(res: Response, ctx: ImpuestoCtx, imp: { id: stri
   res.json(d ?? { id: imp.id, estado: imp.estado, motivoRechazo: imp.motivoRechazo });
 }
 
-// GET / — cola con las 2 fronteras (?estado=a,b&buscar=)
+// Helpers de parseo. Un valor desconocido se IGNORA, no devuelve 400: un filtro roto no debe
+// tumbar la pantalla de quien está trabajando.
+const texto = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined);
+const lista = (v: unknown): string[] | undefined => {
+  const s = texto(v);
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+};
+const numeros = (v: unknown): number[] | undefined => {
+  const l = lista(v)?.map(Number).filter((n) => Number.isFinite(n));
+  return l?.length ? l : undefined;
+};
+/** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
+const fecha = (v: unknown): string | undefined => {
+  const s = texto(v);
+  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+};
+
+// GET / — cola con las 2 fronteras, filtrada y paginada.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
@@ -116,7 +133,22 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     ? estadoRaw.split(',').map((s) => s.trim()).filter((s): s is EstadoImpuesto => (ESTADOS as readonly string[]).includes(s))
     : undefined;
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
-  res.json(await colaImpuestos(ctx, estados, buscar));
+  res.json(await colaImpuestos(ctx, {
+    estados, buscar,
+    companias: numeros(req.query.companias),
+    organismos: lista(req.query.organismos),
+    solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
+    pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
+    estancado: req.query.estancado === 'si',
+    page: Number(req.query.page) || 1,
+    pageSize: Number(req.query.pageSize) || 50,
+  }));
+});
+
+// GET /facetas — valores disponibles para los filtros, acotados a lo que el gestor puede ver.
+// Antes de `/:id` para que «facetas» no se interprete como un identificador.
+router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
+  res.json(await facetasColaImpuestos(await contextoImpuesto(req.user!)));
 });
 
 // GET /:id — detalle (404-no-403 para el gestor ajeno)

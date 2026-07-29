@@ -17,7 +17,7 @@ import {
   soatBloqueaReencolado,
 } from '@operaciones/shared-types';
 import {
-  companiaPorNit, modalidadVigente, organismoPorCodigo, resolverProveedor,
+  companiaPorNit, modalidadVigente, organismoPorCodigo,
   type CompaniaRow,
 } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { getFlitAdapter } from './flit.adapter.js';
@@ -286,14 +286,17 @@ async function resolverSoat(
     return;
   }
 
-  const proveedor = await resolverProveedor(compania.id, organismoCodigo);
+  // El SOAT nace SIN proveedor (HU #10979). Antes lo pre-asignaba una regla de enrutamiento por
+  // ámbito; esas reglas se retiraron porque el proveedor real se decide al enviar el SOAT al gestor,
+  // que es cuando alguien mira la carga de cada uno. Una pre-asignación que nadie revisaba solo
+  // servía para que el envío pareciera decidido cuando no lo estaba.
   const [soat] = await tx.insert(flitoSoat).values({
     vin: tf.vin, vehiculoId, estado: EstadoSoat.PENDIENTE, companiaId: compania.id,
-    organismoCodigo, proveedorSoatId: proveedor?.id ?? null, proveedorSobrescrito: false,
+    organismoCodigo, proveedorSoatId: null, proveedorSobrescrito: false,
   }).returning();
   await tx.update(flitoTramites).set({ soatId: soat.id, updatedAt: new Date() }).where(eq(flitoTramites.id, tramiteId));
   r.soatCreados += 1;
-  await auditSistema(tx, { action: 'create', resource: 'flito_soat', resourceId: soat.id, detail: `SOAT creado para VIN ${tf.vin} (trámite ${tf.idFlit}). Proveedor: ${proveedor?.nombre ?? 'sin asignar'}.` });
+  await auditSistema(tx, { action: 'create', resource: 'flito_soat', resourceId: soat.id, detail: `SOAT creado para VIN ${tf.vin} (trámite ${tf.idFlit}). El proveedor se asigna al enviarlo al gestor.` });
 }
 
 /**

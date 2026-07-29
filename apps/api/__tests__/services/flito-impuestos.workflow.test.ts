@@ -33,11 +33,13 @@ const UUID = '00000000-0000-0000-0000-0000000000cc';
 
 describe('flito-impuestos — RBAC', () => {
   it('gestor_impuestos → GET / (cola) 200', async () => {
+    // La cola pagina desde la HU #10984: son dos consultas, el conteo y la página.
     selectMock.mockReturnValueOnce(chain([{ t: '05001' }])); // contextoImpuesto
-    selectMock.mockReturnValueOnce(chain([]));                // cola vacía
+    selectMock.mockReturnValueOnce(chain([{ total: 0 }]));   // conteo
+    selectMock.mockReturnValueOnce(chain([]));               // página vacía
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([]);
+    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
   });
   it('gestor_impuestos → POST /enviar 403 (solo operaciones)', async () => {
     const r = await request(await buildApp()).post('/api/flito/impuestos/enviar').set('Authorization', await auth('gestor_impuestos')).send({ ids: [UUID] });
@@ -54,13 +56,13 @@ describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
     selectMock.mockReturnValueOnce(chain([{ t: null }])); // contexto: sin organismo
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(200);
-    expect(r.body).toEqual([]);
-    expect(selectMock).toHaveBeenCalledTimes(1); // ni siquiera consulta la cola
+    expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
+    expect(selectMock).toHaveBeenCalledTimes(1); // ni siquiera consulta la cola: ni el conteo
   });
 
   it('gestor consulta un impuesto de OTRO organismo → 404 (no 403)', async () => {
     selectMock.mockReturnValueOnce(chain([{ t: '05001' }])); // contexto gestor: organismo 05001
-    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'solicitado' }, autogestion: false }]));
+    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'solicitado' }, dentroDeFrontera: true }]));
     const r = await request(await buildApp()).get(`/api/flito/impuestos/${UUID}`).set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(404);
   });
@@ -85,7 +87,7 @@ describe('flito-impuestos — envío atómico y estados', () => {
   });
 
   it('rechazar un impuesto que no está En gestión → 400', async () => {
-    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'pendiente' }, autogestion: false }])); // buscarConAcceso
+    selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'pendiente' }, dentroDeFrontera: true }])); // buscarConAcceso
     const r = await request(await buildApp()).post(`/api/flito/impuestos/${UUID}/rechazar`).set('Authorization', await auth('admin')).send({ motivo: 'no procede' });
     expect(r.status).toBe(400);
   });

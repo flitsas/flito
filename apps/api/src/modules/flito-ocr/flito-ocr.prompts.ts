@@ -95,7 +95,7 @@ Campos:
 Devuelve EXCLUSIVAMENTE este JSON:
 {"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"valorVehiculo":{"valor":null,"confianza":null}}`;
 
-// ─────────────────────────── Derecho de trámite (HU #10950) ─────────────────
+// ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
 // Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a
 // pagar"), no posicional: lo mismo que hace que un único prompt de SOAT sirva para todas las
 // aseguradoras. Lo que varía por organismo se resuelve fuera del prompt — umbral de confianza

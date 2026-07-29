@@ -47,17 +47,17 @@ beforeEach(() => {
   tarifasConfiguradas();
 });
 
-describe('calcular — el 4x1000 va sobre los desembolsos reales', () => {
-  it('la base son SOAT + impuesto + derecho, no el total', async () => {
+describe('calcular — el 4x1000 va sobre el total del trámite', () => {
+  it('la base son los cinco conceptos, y el GMF se suma encima', async () => {
     selectMock.mockReturnValueOnce(chain([filaCompleta()]));
     const c = await calcular('t1');
 
-    // 450.000 + 120.000 + 80.000 = 650.000. El trámite digital y la logística NO forman base:
-    // son honorarios propios, no giros a un tercero por el banco.
-    expect(c.baseGmf).toBe(650000);
+    // 450.000 + 120.000 + 80.000 + 200.000 + 15.000 = 865.000. El gravamen se calcula sobre esa
+    // suma y se añade al final, así que el total es la base más su propio GMF.
+    expect(c.baseGmf).toBe(865000);
     expect(c.tasaGmf).toBe(TASA_GMF);
-    expect(c.valorGmf).toBe(2600);
-    expect(c.total).toBe(650000 + 200000 + 15000 + 2600);
+    expect(c.valorGmf).toBe(3460);
+    expect(c.total).toBe(865000 + 3460);
     expect(c.faltantes).toEqual([]);
   });
 
@@ -74,7 +74,7 @@ describe('calcular — qué NO aplica (null, nunca cero)', () => {
     const c = await calcular('t1');
     expect(c.soat.valor).toBeNull();
     expect(c.soat.bloquea).toBe(false);
-    expect(c.baseGmf).toBe(120000 + 80000);
+    expect(c.baseGmf).toBe(120000 + 80000 + 200000 + 15000);
     expect(c.faltantes).toEqual([]);
   });
 
@@ -83,7 +83,9 @@ describe('calcular — qué NO aplica (null, nunca cero)', () => {
     const c = await calcular('t1');
     expect(c.logistica.valor).toBeNull();
     expect(c.logistica.bloquea).toBe(false);
-    expect(c.total).toBe(650000 + 200000 + 2600); // sin los 15.000 de logística
+    // Sin los 15.000 de logística: ni en la base ni, por tanto, en el GMF.
+    expect(c.baseGmf).toBe(850000);
+    expect(c.total).toBe(850000 + 3400);
   });
 
   it('un trámite exento de impuesto (sin registro) no bloquea', async () => {
@@ -109,12 +111,12 @@ describe('calcular — qué bloquea el sellado', () => {
     expect(c.faltantes).toContain('SOAT en estado "pendiente"');
   });
 
-  it('sin recibo de derecho de trámite no se puede liquidar', async () => {
+  it('sin recibo de derecho de tránsito no se puede liquidar', async () => {
     // El derecho es el dato que este Feature vino a hacer real: sellar sin él sería volver a inventar.
     selectMock.mockReturnValueOnce(chain([filaCompleta({ derechoValor: null })]));
     const c = await calcular('t1');
     expect(c.derecho.bloquea).toBe(true);
-    expect(c.faltantes).toContain('Sin recibo de derecho de trámite');
+    expect(c.faltantes).toContain('Sin recibo de derecho de tránsito');
   });
 
   it('sin tarifa configurada bloquea y NO cuenta como cero', async () => {
@@ -149,7 +151,8 @@ describe('calcular — redondeo', () => {
   it('el GMF se redondea a dos decimales', async () => {
     selectMock.mockReturnValueOnce(chain([filaCompleta({ soatValorPagado: '333333', impuestoValorPagado: null, impuestoId: null, derechoValor: '1' })]));
     const c = await calcular('t1');
-    expect(c.baseGmf).toBe(333334);
-    expect(c.valorGmf).toBe(1333.34);
+    // 333.333 + 1 + 200.000 (digital) + 15.000 (logística) = 548.334; × 0,004 = 2.193,336
+    expect(c.baseGmf).toBe(548334);
+    expect(c.valorGmf).toBe(2193.34);
   });
 });

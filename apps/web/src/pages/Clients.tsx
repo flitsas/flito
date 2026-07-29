@@ -1,16 +1,34 @@
-import { useEffect, useState, FormEvent } from 'react';
-import { api } from '../lib/api';
+// Clientes y proveedores (HU #10979).
+//
+// Fusiona la antigua «Cartera de clientes» con «Parametrización». Eran dos pantallas para una misma
+// compañía: en una se marcaba si autogestiona, en la otra se le ponían las tarifas — y el toggle de
+// autogestión ya llamaba al endpoint de parametrización. Todo lo que es del cliente vive aquí.
+//
+// Las tarifas se abren por fila, en modal: cada compañía puede tener varias (por concepto y por tipo
+// de trámite) y meterlas como columnas habría hecho ilegible una tabla que ya tiene nueve.
+//
+// Quién puede qué:
+//   admin       — todo.
+//   financiera  — tarifas sí, autogestión no: qué gestiona FLITO es decisión de Operaciones.
+//   auditor     — solo lectura.
+
+import { useEffect, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
-import PageHeaderCard from '../components/flit/PageHeaderCard';
-import GradientButton from '../components/flit/GradientButton';
-import {
-  flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { CONCEPTOS_TARIFA, CONCEPTO_TARIFA_LABEL, type ConceptoTarifa } from '@operaciones/shared-types';
+import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { puedeOperar } from '../lib/permissions';
+import PageHeaderCard from '../components/flit/PageHeaderCard';
+import GradientButton from '../components/flit/GradientButton';
+import FlitModal from '../components/flit/FlitModal';
+import StatusChip from '../components/flit/StatusChip';
+import {
+  flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, FlitPillGroup, FlitPillButton,
+  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+} from '../components/flit/flitPageKit';
 
-// Un cliente ES una compañía FLITO (misma tabla). Por eso la autogestión de SOAT/Impuestos/Logística
-// se administra aquí, en línea, junto a la información de la empresa (§correcciones-UX).
+// Un cliente ES una compañía FLITO: misma tabla. Por eso la autogestión, las tarifas y los datos de
+// contacto se administran en el mismo sitio.
 interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
   phone: string | null; email: string | null; address: string | null;
@@ -18,17 +36,56 @@ interface Client {
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
   logisticaPermiteParcial: boolean;
 }
+interface Proveedor {
+  id: string; nombre: string; estrategia: string | null;
+  umbralOcr: number | null; slaHoras: number | null; activo: boolean;
+}
+interface Tarifa {
+  id: string; companiaId: number; companiaNombre: string | null;
+  concepto: ConceptoTarifa; tipoTramite: string | null; valor: number; activo: boolean;
+}
 
 type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
+type Tab = 'clientes' | 'proveedores';
+
+const pesos = (v: number) =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 
 export default function Clients() {
   const { user } = useAuth();
-  const editable = puedeOperar(user?.role);
+  // Operaciones decide qué gestiona FLITO; Finanzas solo pone precio.
+  const editaAutogestion = puedeOperar(user?.role);
+  const editaTarifas = user?.role === 'admin' || user?.role === 'financiera';
+  const [tab, setTab] = useState<Tab>('clientes');
+
+  return (
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
+      <PageHeaderCard
+        title="Clientes y proveedores"
+        subtitle="Compañías con su autogestión y sus tarifas negociadas, y los proveedores de SOAT a los que se enrutan los trámites."
+      />
+
+      <FlitPillGroup>
+        <FlitPillButton active={tab === 'clientes'} onClick={() => setTab('clientes')}>Clientes</FlitPillButton>
+        <FlitPillButton active={tab === 'proveedores'} onClick={() => setTab('proveedores')}>Proveedores</FlitPillButton>
+      </FlitPillGroup>
+
+      {tab === 'clientes'
+        ? <TabClientes editaAutogestion={editaAutogestion} editaTarifas={editaTarifas} />
+        : <TabProveedores editable={editaAutogestion} />}
+    </div>
+  );
+}
+
+// ───────────────────────────── Clientes ─────────────────────────────────────
+
+function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boolean; editaTarifas: boolean }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [tarifasDe, setTarifasDe] = useState<Client | null>(null);
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
 
-  const load = () => { api.get<Client[]>('/clients').then(setClients); };
+  const load = () => { api.get<Client[]>('/clients').then(setClients).catch(() => setClients([])); };
   useEffect(() => { load(); }, []);
 
   const handleCreate = async (e: FormEvent) => {
@@ -42,12 +99,11 @@ export default function Clients() {
       setForm({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error');
+      toast.error(errorMessage(err));
     }
   };
 
-  // Toggle de autogestión: PATCH del flag suelto (endpoint FLITO, permitido a operaciones/admin).
-  // Optimista con reversión si falla.
+  // Toggle de autogestión: PATCH del flag suelto. Optimista con reversión si falla.
   const toggleFlag = async (c: Client, campo: FlagCampo) => {
     const valor = !c[campo];
     setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: valor } : x)));
@@ -55,7 +111,7 @@ export default function Clients() {
       await api.patch(`/flito/parametrizacion/companias/${c.id}`, { [campo]: valor });
     } catch (err) {
       setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: !valor } : x)));
-      toast.error(err instanceof Error ? err.message : 'No se pudo actualizar');
+      toast.error(errorMessage(err));
     }
   };
 
@@ -65,7 +121,7 @@ export default function Clients() {
         type="checkbox"
         className="h-4 w-4 cursor-pointer align-middle disabled:cursor-not-allowed"
         checked={c[campo]}
-        disabled={!editable}
+        disabled={!editaAutogestion}
         aria-label={aria ?? `Autogestión ${label} de ${c.name}`}
         onChange={() => toggleFlag(c, campo)}
       />
@@ -73,12 +129,10 @@ export default function Clients() {
   );
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <PageHeaderCard
-        title="Cartera de clientes"
-        subtitle={`${clients.length} registros · autogestión SOAT · Impuestos · Logística por compañía`}
-        actions={<GradientButton type="button" onClick={() => setShowForm(!showForm)}>Nuevo cliente</GradientButton>}
-      />
+    <>
+      {editaAutogestion && (
+        <div><GradientButton type="button" onClick={() => setShowForm(!showForm)}>Nuevo cliente</GradientButton></div>
+      )}
 
       {showForm && (
         <FlitCard>
@@ -114,6 +168,7 @@ export default function Clients() {
                 <FlitTh center>Impuestos</FlitTh>
                 <FlitTh center>Logística</FlitTh>
                 <FlitTh center>Parcial</FlitTh>
+                <FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -128,18 +183,270 @@ export default function Clients() {
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
                   <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
+                  <td className="px-3 py-2">
+                    <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                      onClick={() => setTarifasDe(c)}>Tarifas</button>
+                  </td>
                 </FlitTr>
               ))}
             </tbody>
           </FlitTable>
         )}
-        {editable && (
+        {editaAutogestion && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Marca «Autogestiona» cuando la compañía tramita SOAT, impuestos o logística por su cuenta (FLITO no la gestiona).
             «Parcial» permite generar el acta de logística con los documentos disponibles; sin marcar, el acta se retiene hasta tenerlos todos (CA-08/09).
           </p>
         )}
       </FlitCard>
-    </div>
+
+      {tarifasDe && (
+        <ModalTarifas cliente={tarifasDe} editable={editaTarifas} onClose={() => setTarifasDe(null)} />
+      )}
+    </>
+  );
+}
+
+// ───────────────────────────── Tarifas del cliente ──────────────────────────
+
+function ModalTarifas({ cliente, editable, onClose }: { cliente: Client; editable: boolean; onClose: () => void }) {
+  const [tarifas, setTarifas] = useState<Tarifa[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  const [crear, setCrear] = useState(false);
+  const [editar, setEditar] = useState<Tarifa | null>(null);
+
+  useEffect(() => {
+    setTarifas(null); setError(null);
+    api.get<Tarifa[]>(`/flito/parametrizacion/tarifas?companiaId=${cliente.id}`)
+      .then(setTarifas).catch((e) => setError(errorMessage(e)));
+  }, [cliente.id, recarga]);
+
+  const refrescar = () => setRecarga((n) => n + 1);
+
+  return (
+    <FlitModal title={`Tarifas de ${cliente.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {!tarifas && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
+
+        {tarifas && tarifas.length === 0 && (
+          // Sin tarifas el trámite no se puede liquidar: decirlo aquí evita descubrirlo en el reporte.
+          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            Esta compañía no tiene tarifas configuradas. Sus trámites mostrarán «No configurado» en el
+            reporte de costos y no podrán liquidarse.
+          </p>
+        )}
+
+        {tarifas && tarifas.length > 0 && (
+          <FlitTable>
+            <thead>
+              <FlitTr>
+                <FlitTh>Concepto</FlitTh><FlitTh>Tipo de trámite</FlitTh>
+                <FlitTh>Valor</FlitTh><FlitTh>Estado</FlitTh><FlitTh />
+              </FlitTr>
+            </thead>
+            <tbody>
+              {tarifas.map((t) => (
+                <FlitTr key={t.id}>
+                  <td className="px-3 py-2 text-sm">{CONCEPTO_TARIFA_LABEL[t.concepto]}</td>
+                  <td className="px-3 py-2 text-sm">{t.tipoTramite ?? 'Genérica (cualquier tipo)'}</td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(t.valor)}</td>
+                  <td className="px-3 py-2"><StatusChip tone={t.activo ? 'success' : 'neutral'}>{t.activo ? 'Activa' : 'Inactiva'}</StatusChip></td>
+                  <td className="px-3 py-2">
+                    {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditar(t)}>Editar</button>}
+                  </td>
+                </FlitTr>
+              ))}
+            </tbody>
+          </FlitTable>
+        )}
+
+        {editable && (
+          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nueva tarifa</button>
+        )}
+      </div>
+
+      {crear && (
+        <FormTarifa cliente={cliente} onClose={() => setCrear(false)}
+          onGuardado={() => { setCrear(false); refrescar(); }} />
+      )}
+      {editar && (
+        <FormTarifa cliente={cliente} tarifa={editar} onClose={() => setEditar(null)}
+          onGuardado={() => { setEditar(null); refrescar(); }} />
+      )}
+    </FlitModal>
+  );
+}
+
+function FormTarifa({ cliente, tarifa, onClose, onGuardado }: {
+  cliente: Client; tarifa?: Tarifa; onClose: () => void; onGuardado: () => void;
+}) {
+  const [concepto, setConcepto] = useState<ConceptoTarifa>(tarifa?.concepto ?? 'tramite_digital');
+  const [tipoTramite, setTipoTramite] = useState(tarifa?.tipoTramite ?? '');
+  const [valor, setValor] = useState(tarifa ? String(tarifa.valor) : '');
+  const [activo, setActivo] = useState(tarifa?.activo ?? true);
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const valorNum = Number(valor);
+  const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum < 0;
+
+  const guardar = async () => {
+    setGuardando(true); setError(null);
+    try {
+      if (tarifa) await api.patch(`/flito/parametrizacion/tarifas/${tarifa.id}`, { valor: valorNum, activo });
+      else await api.post('/flito/parametrizacion/tarifas', {
+        companiaId: cliente.id, concepto,
+        tipoTramite: tipoTramite.trim() || null, valor: valorNum,
+      });
+      onGuardado();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <FlitModal title={tarifa ? 'Editar tarifa' : `Nueva tarifa · ${cliente.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        {/* La llave (compañía + concepto + tipo) no se mueve al editar: cambiarla sería otra tarifa. */}
+        {tarifa ? (
+          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            {CONCEPTO_TARIFA_LABEL[tarifa.concepto]} · {tarifa.tipoTramite ?? 'Genérica'}
+          </p>
+        ) : (
+          <>
+            <FlitField label="Concepto *">
+              <select className={flitInp} value={concepto} onChange={(e) => setConcepto(e.target.value as ConceptoTarifa)}>
+                {CONCEPTOS_TARIFA.map((c) => <option key={c} value={c}>{CONCEPTO_TARIFA_LABEL[c]}</option>)}
+              </select>
+            </FlitField>
+            <FlitField label="Tipo de trámite (vacío = aplica a todos)">
+              <input className={flitInp} value={tipoTramite} placeholder="Matricula, Traspaso…"
+                onChange={(e) => setTipoTramite(e.target.value)} />
+            </FlitField>
+          </>
+        )}
+        <FlitField label="Valor (COP) *">
+          <input className={flitInp} type="number" min="0" step="1" value={valor} onChange={(e) => setValor(e.target.value)} />
+        </FlitField>
+        {valor.trim() !== '' && valorInvalido && (
+          <p className="text-sm text-red-600">El valor debe ser un número mayor o igual a cero.</p>
+        )}
+        {tarifa && (
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span>Activa</span>
+            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
+          </label>
+        )}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex gap-2">
+          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            disabled={guardando || valorInvalido} onClick={guardar}>
+            {guardando ? 'Guardando…' : tarifa ? 'Guardar' : 'Crear'}
+          </button>
+          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </FlitModal>
+  );
+}
+
+// ───────────────────────────── Proveedores SOAT ─────────────────────────────
+
+function TabProveedores({ editable }: { editable: boolean }) {
+  const [data, setData] = useState<Proveedor[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  const [editar, setEditar] = useState<Proveedor | null>(null);
+  const [crear, setCrear] = useState(false);
+
+  useEffect(() => {
+    setData(null); setError(null);
+    api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setData).catch((e) => setError(errorMessage(e)));
+  }, [recarga]);
+
+  const refrescar = () => setRecarga((n) => n + 1);
+
+  if (error) return <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>;
+  if (!data) return <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p></FlitCard>;
+
+  return (
+    <>
+      {editable && <div><button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCrear(true)}>Nuevo proveedor</button></div>}
+      <FlitCard>
+        {data.length === 0 ? <FlitEmpty>No hay proveedores SOAT.</FlitEmpty> : (
+          <FlitTable>
+            <thead><FlitTr><FlitTh>Nombre</FlitTh><FlitTh>Estrategia</FlitTh><FlitTh>Umbral OCR</FlitTh><FlitTh>ANS pactado (h)</FlitTh><FlitTh>Estado</FlitTh><FlitTh /></FlitTr></thead>
+            <tbody>
+              {data.map((p) => (
+                <FlitTr key={p.id}>
+                  <td className="px-3 py-2 font-medium">{p.nombre}</td>
+                  <td className="px-3 py-2 text-sm">{p.estrategia ?? '—'}</td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{p.umbralOcr ?? '—'}</td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{p.slaHoras ?? '—'}</td>
+                  <td className="px-3 py-2"><StatusChip tone={p.activo ? 'success' : 'neutral'}>{p.activo ? 'Activo' : 'Inactivo'}</StatusChip></td>
+                  <td className="px-3 py-2">{editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setEditar(p)}>Editar</button>}</td>
+                </FlitTr>
+              ))}
+            </tbody>
+          </FlitTable>
+        )}
+        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          El ANS de gestión es único para toda la operación: un día desde que se envía la solicitud.
+          Estas horas quedan como referencia de lo pactado con cada proveedor, pero ya no deciden
+          cuándo un SOAT se marca sin gestión en la cola. El proveedor se elige al enviarlo al gestor.
+        </p>
+      </FlitCard>
+      {crear && <FormProveedor onClose={() => setCrear(false)} onGuardado={() => { setCrear(false); refrescar(); }} />}
+      {editar && <FormProveedor proveedor={editar} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); refrescar(); }} />}
+    </>
+  );
+}
+
+function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveedor; onClose: () => void; onGuardado: () => void }) {
+  const [nombre, setNombre] = useState(proveedor?.nombre ?? '');
+  const [estrategia, setEstrategia] = useState(proveedor?.estrategia ?? '');
+  const [umbral, setUmbral] = useState(proveedor?.umbralOcr != null ? String(proveedor.umbralOcr) : '');
+  const [sla, setSla] = useState(proveedor?.slaHoras != null ? String(proveedor.slaHoras) : '');
+  const [activo, setActivo] = useState(proveedor?.activo ?? true);
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const guardar = async () => {
+    setGuardando(true); setError(null);
+    const body: Record<string, unknown> = {
+      nombre: nombre.trim(),
+      estrategia: estrategia.trim() || undefined,
+      umbralOcr: umbral.trim() === '' ? null : Number(umbral),
+      slaHoras: sla.trim() === '' ? null : Number(sla),
+    };
+    try {
+      if (proveedor) { body.activo = activo; await api.patch(`/flito/parametrizacion/proveedores-soat/${proveedor.id}`, body); }
+      else await api.post('/flito/parametrizacion/proveedores-soat', body);
+      onGuardado();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setGuardando(false); }
+  };
+
+  return (
+    <FlitModal title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor SOAT'} onClose={onClose}>
+      <div className="space-y-3">
+        <FlitField label="Nombre *"><input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} /></FlitField>
+        <FlitField label="Estrategia"><input className={flitInp} value={estrategia} onChange={(e) => setEstrategia(e.target.value)} placeholder="p.ej. portal, correo" /></FlitField>
+        <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
+        <FlitField label="ANS pactado con el proveedor (horas)"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
+        {proveedor && (
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span>Activo</span>
+            <input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} />
+          </label>
+        )}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex gap-2">
+          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={guardando || !nombre.trim()} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </FlitModal>
   );
 }

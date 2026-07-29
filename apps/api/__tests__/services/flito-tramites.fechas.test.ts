@@ -45,11 +45,12 @@ function filaCruda(over: Record<string, unknown> = {}) {
   };
 }
 
-/** listar() consume tres selects en orden: count, página, compradores. */
+/** listar() consume cuatro selects en orden: count, página, compradores y excepciones (HU #10980). */
 function montarListado(fila: Record<string, unknown>) {
   selectMock
     .mockReturnValueOnce(chain([{ total: 1 }]))
     .mockReturnValueOnce(chain([fila]))
+    .mockReturnValueOnce(chain([]))
     .mockReturnValueOnce(chain([]));
 }
 
@@ -125,13 +126,15 @@ describe('fechas de gestión de SOAT e impuestos', () => {
     expect(f.impuesto?.estancado).toBe(false);
   });
 
-  it('sin SLA configurado nunca hay estancamiento', async () => {
+  it('sin ANS pactado con el organismo también se marca: el ANS es único (HU #11024)', async () => {
+    // Antes esto devolvía false, y era el agujero: los organismos sin ANS configurado —los que
+    // menos vigilados están— nunca aparecían marcados por muchos días que llevaran parados.
     const hace100Dias = new Date(Date.now() - 100 * 24 * 3_600_000);
     montarListado(filaCruda({
       impuestoId: 'i1', impuestoEstado: 'solicitado', impuestoEnviadoEn: hace100Dias, impuestoSlaHoras: null,
     }));
     const { items: [f] } = await listar();
-    expect(f.impuesto?.estancado).toBe(false);
+    expect(f.impuesto?.estancado).toBe(true);
   });
 });
 

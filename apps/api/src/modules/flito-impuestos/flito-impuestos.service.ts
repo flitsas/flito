@@ -6,13 +6,13 @@
 // (CA-05), y un gestor de impuestos solo ve SU organismo (CA-10) — atadura = users.transito_codigo,
 // leída de BD (§9.3), nunca el JWT. El gestor NUNCA ve los Pendiente.
 
-import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
   organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
-import { EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -21,6 +21,13 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const ESTADOS_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
 
 const esGestor = (ctx: ImpuestoCtx) => ctx.role === 'gestor_impuestos';
+
+/**
+ * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
+ * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ */
+const FRONTERA_AUTOGESTION_IMP = sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false)
+  OR ${flitoImpuestos.excepcionAutogestion})`;
 
 export interface ImpuestoColaItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
@@ -56,21 +63,53 @@ function fromCola() {
 
 type FilaCola = Awaited<ReturnType<ReturnType<typeof fromCola>['where']>>[number];
 
-/** Cola de impuestos con las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor). */
-export async function colaImpuestos(ctx: ImpuestoCtx, estados?: EstadoImpuesto[], buscar?: string): Promise<ImpuestoColaItem[]> {
-  const conds = [eq(clients.impuestosAutogestionable, false)];
+export interface FiltrosColaImpuestos {
+  estados?: EstadoImpuesto[];
+  buscar?: string;
+  /** Multiselect. Vacío = sin acotar. En impuestos el equivalente al proveedor es el organismo. */
+  companias?: number[];
+  organismos?: string[];
+  /** Rangos yyyy-mm-dd, inclusivos por día. */
+  solicitadoDesde?: string; solicitadoHasta?: string;
+  pagadoDesde?: string; pagadoHasta?: string;
+  /** true = solo lo que superó el SLA de su organismo. */
+  estancado?: boolean;
+  page?: number; pageSize?: number;
+}
+
+export interface ColaImpuestosPaginada {
+  items: ImpuestoColaItem[]; total: number; page: number; pageSize: number;
+}
+
+/**
+ * «Estancado» en SQL, para poder filtrar y contar por él. Misma regla que `estaEstancado()` aplica
+ * en JavaScript al ensamblar la fila: si una cambia, la otra debe cambiar con ella.
+ *
+ * `make_interval` y no concatenar texto: `sla || ' hours'` deja el tipo del parámetro ambiguo.
+ */
+const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLICITADO}
+  AND ${organismosTransitoConfig.flitoSlaHoras} IS NOT NULL
+  AND ${flitoImpuestos.enviadoEn} IS NOT NULL
+  AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${organismosTransitoConfig.flitoSlaHoras}))`;
+
+/**
+ * Condiciones de la cola, compartidas por la página y el conteo. `null` = la frontera del gestor
+ * hace que no pueda ver nada, que no es lo mismo que «sin filtros».
+ */
+function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
+  const conds = [FRONTERA_AUTOGESTION_IMP];
 
   if (esGestor(ctx)) {
-    if (!ctx.transitoCodigo) return []; // sin organismo no hay frontera → nada
+    if (!ctx.transitoCodigo) return null; // sin organismo no hay frontera → nada
     conds.push(eq(flitoImpuestos.organismoCodigo, ctx.transitoCodigo));
-    const visibles = estados?.length ? estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
-    if (visibles.length === 0) return [];
+    const visibles = f.estados?.length ? f.estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
+    if (visibles.length === 0) return null;
     conds.push(inArray(flitoImpuestos.estado, visibles));
-  } else if (estados?.length) {
-    conds.push(inArray(flitoImpuestos.estado, estados));
+  } else if (f.estados?.length) {
+    conds.push(inArray(flitoImpuestos.estado, f.estados));
   }
 
-  const termino = buscar?.trim();
+  const termino = f.buscar?.trim();
   if (termino) {
     const patron = `%${termino.toUpperCase().replace(/[\s-]/g, '')}%`;
     const patronTexto = `%${termino.toUpperCase()}%`;
@@ -83,8 +122,87 @@ export async function colaImpuestos(ctx: ImpuestoCtx, estados?: EstadoImpuesto[]
     )!);
   }
 
-  const rows = await fromCola().where(and(...conds)).orderBy(asc(flitoImpuestos.createdAt));
-  return ensamblar(rows);
+  if (f.companias?.length) conds.push(inArray(flitoImpuestos.companiaId, f.companias));
+  if (f.organismos?.length) conds.push(inArray(flitoImpuestos.organismoCodigo, f.organismos));
+
+  // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
+  if (f.solicitadoDesde) conds.push(sql`${flitoImpuestos.enviadoEn} >= ${f.solicitadoDesde}::date`);
+  if (f.solicitadoHasta) conds.push(sql`${flitoImpuestos.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
+  if (f.pagadoDesde) conds.push(sql`${flitoImpuestos.pagadoEn} >= ${f.pagadoDesde}::date`);
+  if (f.pagadoHasta) conds.push(sql`${flitoImpuestos.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+
+  if (f.estancado) conds.push(EXPR_ESTANCADO_IMP);
+
+  return conds;
+}
+
+/** Cola de impuestos con las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor). */
+export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = {}): Promise<ColaImpuestosPaginada> {
+  const page = Math.max(1, Math.floor(f.page ?? 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
+
+  const conds = condicionesColaImpuestos(ctx, f);
+  if (conds === null) return { items: [], total: 0, page, pageSize };
+  const where = and(...conds);
+
+  const [countRows, rows] = await Promise.all([
+    db.select({ total: sql<number>`count(*)::int` }).from(flitoImpuestos)
+      .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+      .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+      .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
+      .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
+      .leftJoin(users, eq(flitoImpuestos.enviadoPorId, users.id))
+      .where(where),
+    // Desempate por id: sin él, dos impuestos creados en el mismo instante pueden salir en dos
+    // páginas o en ninguna.
+    fromCola().where(where).orderBy(asc(flitoImpuestos.createdAt), asc(flitoImpuestos.id))
+      .limit(pageSize).offset((page - 1) * pageSize),
+  ]);
+
+  return {
+    items: await ensamblar(rows),
+    total: Number(countRows[0]?.total ?? 0),
+    page,
+    pageSize,
+  };
+}
+
+export interface FacetasColaImpuestos {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
+}
+
+/**
+ * Valores disponibles para los filtros, sobre el universo que el usuario PUEDE ver: a un gestor no
+ * se le ofrece filtrar por un organismo ajeno, porque eso ya le contaría que existe.
+ */
+export async function facetasColaImpuestos(ctx: ImpuestoCtx): Promise<FacetasColaImpuestos> {
+  const conds = condicionesColaImpuestos(ctx, {});
+  if (conds === null) return { companias: [], organismos: [] };
+  const where = and(...conds);
+
+  // Los mismos joins que la cola: las facetas tienen que ofrecer exactamente los valores que
+  // producen resultados, no los de la tabla entera. Se repiten en cada consulta en vez de
+  // factorizarlos porque un helper genérico pierde el tipo de la proyección.
+  const [companias, organismos] = await Promise.all([
+    db.selectDistinct({ id: clients.id, nombre: clients.name }).from(flitoImpuestos)
+      .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+      .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+      .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
+      .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
+      .where(where),
+    db.selectDistinct({ codigo: organismosTransitoConfig.codigo, nombre: organismosTransitoConfig.alias }).from(flitoImpuestos)
+      .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+      .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+      .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
+      .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
+      .where(where),
+  ]);
+
+  return {
+    companias: companias.sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    organismos: organismos.sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+  };
 }
 
 async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
@@ -107,15 +225,15 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
-      estancado: estaEstancado(r.estado, r.enviadoEn, r.organismoSla),
+      estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
     };
   });
 }
 
-function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoImpuesto.SOLICITADO || !slaHoras || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
+function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+  if (estado !== EstadoImpuesto.SOLICITADO || !enviadoEn) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
 /**
@@ -123,11 +241,13 @@ function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number 
  * existe): registro autogestionado, de otro organismo, o en estado no visible → null.
  */
 export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect | null> {
-  const [row] = await db.select({ imp: flitoImpuestos, autogestion: clients.impuestosAutogestionable })
+  const [row] = await db.select({ imp: flitoImpuestos, dentroDeFrontera: FRONTERA_AUTOGESTION_IMP })
     .from(flitoImpuestos).innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .where(eq(flitoImpuestos.id, id)).limit(1);
   if (!row) return null;
-  if (row.autogestion) return null;
+  // La misma frontera que la cola: el desbloqueo excepcional vale en todo el flujo, no solo para
+  // aparecer en la lista (HU #11021).
+  if (!row.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
     if (row.imp.organismoCodigo !== ctx.transitoCodigo) return null;
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
@@ -184,7 +304,7 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
   const enviados = await db.transaction(async (tx) => {
     const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
       .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
-      .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), eq(clients.impuestosAutogestionable, false)))
+      .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), FRONTERA_AUTOGESTION_IMP))
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];

@@ -7,7 +7,7 @@
 // en la BD para no traer toda la tabla a memoria.
 
 import { and, count, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
-import {
+import { ANS_OPERATIVO,
   ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
   type AlertaOperativa,
 } from '@operaciones/shared-types';
@@ -83,28 +83,30 @@ async function diferenciasDeValor(): Promise<number> {
   return Number(r.n);
 }
 
-/** SLA vencido. El cálculo del vencimiento vive en SQL (intervalo por horas de SLA). */
+/**
+ * Solicitudes que pasaron el ANS de gestión (HU #11024).
+ *
+ * El ANS es único, así que el `INNER JOIN` con el proveedor y con el organismo deja de hacer falta
+ * para medir: antes un SOAT sin proveedor asignado, o un impuesto de un organismo sin ANS puesto,
+ * no se contaban nunca — justo los que menos vigilados están.
+ */
 async function contarEstancados(): Promise<{ soat: number; impuestos: number }> {
   const [soat] = await db.select({ n: count() }).from(flitoSoat)
-    .innerJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(and(
       eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
       eq(clients.soatAutogestionable, false),
-      isNotNull(flitoProveedoresSoat.slaHoras),
       isNotNull(flitoSoat.enviadoEn),
-      sql`${flitoSoat.enviadoEn} < NOW() - (${flitoProveedoresSoat.slaHoras} || ' hours')::interval`,
+      sql`${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
     ));
 
   const [impuestos] = await db.select({ n: count() }).from(flitoImpuestos)
-    .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
     .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .where(and(
       eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),
       eq(clients.impuestosAutogestionable, false),
-      isNotNull(organismosTransitoConfig.flitoSlaHoras),
       isNotNull(flitoImpuestos.enviadoEn),
-      sql`${flitoImpuestos.enviadoEn} < NOW() - (${organismosTransitoConfig.flitoSlaHoras} || ' hours')::interval`,
+      sql`${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
     ));
 
   return { soat: Number(soat.n), impuestos: Number(impuestos.n) };

@@ -110,7 +110,7 @@ async function buildApp() {
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 7, username: 'gestor@x.io', role: role as never })}`;
 const UUID = '00000000-0000-0000-0000-000000000001';
 
-const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
+const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, dentroDeFrontera: true };
 const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
 const extraccionCruza = {
   [CampoSoat.PLACA]: campo('QTQ100', 0.95), [CampoSoat.VIN]: campo('9BWZZZ377VT004251', 0.95),
@@ -171,7 +171,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
   });
 
   it('SOAT que no está En adquisición → 400 (no hay factura que cargar)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ soat: { ...soatEnAdquisicion.soat, estado: 'pagado' }, soatAutogestionable: false }]));
+    selectMock.mockReturnValueOnce(chain([{ soat: { ...soatEnAdquisicion.soat, estado: 'pagado' }, dentroDeFrontera: true }]));
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
       .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(400);

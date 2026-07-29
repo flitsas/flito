@@ -11,7 +11,7 @@ const RESUMEN = {
   estancados: { soat: 0, impuestos: 2 },
   diferenciasDeValor: 1,
   compuertaHabilitados: 4,
-  alertas: { borrador_5d: 12, sin_aprobar_1d: 7, soat_sin_gestion: 3, impuesto_sin_gestion: 0 },
+  alertas: { borrador_5d: 12, sin_aprobar_ans: 7, soat_sin_gestion: 3, impuesto_sin_gestion: 0 },
 };
 
 async function mock(page: import('@playwright/test').Page) {
@@ -55,7 +55,7 @@ test.describe('FLITO — Tablero', () => {
     await page.goto('/flito/tablero');
     const alertas = page.getByRole('region', { name: 'Alertas operativas' });
     await expect(alertas.getByText('Más de 5 días en borrador')).toBeVisible();
-    await expect(alertas.getByText('Más de 1 día sin aprobar')).toBeVisible();
+    await expect(alertas.getByText('Más de 2 días sin aprobar (ANS)')).toBeVisible();
     await expect(alertas.getByText('SOAT solicitado sin gestión')).toBeVisible();
     await expect(alertas.getByText('Impuesto solicitado sin gestión')).toBeVisible();
     await expect(alertas.getByText('12', { exact: true })).toBeVisible();

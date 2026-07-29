@@ -28,9 +28,12 @@ export class LiquidacionError extends Error {
 /**
  * Tasa del gravamen a los movimientos financieros (4 x 1000).
  *
- * Se aplica SOLO sobre los desembolsos reales —SOAT, impuesto y derecho de trámite—, que es el
- * dinero que efectivamente sale por el banco hacia un tercero. El trámite digital y la logística
- * son honorarios propios de FLIT, no giros, y por eso no forman base.
+ * Se aplica sobre el total del trámite: SOAT + impuesto + derecho de tránsito + logística +
+ * trámite digital. El gravamen se suma encima de esa base, de modo que el total facturado es la
+ * base más su propio GMF.
+ *
+ * La tasa se guarda en cada liquidación (`flito_liquidaciones.tasa_gmf`) en vez de leerse de aquí
+ * al reportar: una liquidación sellada hace años debe seguir mostrando la tasa con la que se selló.
  */
 export const TASA_GMF = 0.004;
 
@@ -130,7 +133,7 @@ function proyeccionCalculo() {
  * Reglas de cada concepto:
  *  - SOAT / impuesto: el valor pagado. Si la compañía los autogestiona, no aplican (null, no cero).
  *    Si están pendientes, bloquean: sellar un cero congelaría un cobro que aún no ocurrió.
- *  - Derecho de trámite: el valor real del recibo. Sin recibo, bloquea.
+ *  - Derecho de tránsito: el valor real del recibo. Sin recibo, bloquea.
  *  - Trámite digital: tarifa de la compañía. Sin tarifa, «No configurado» y bloquea.
  *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística.
  */
@@ -160,8 +163,8 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
         : { valor: null, origen: `Impuesto en estado "${f.impuestoEstado}"`, bloquea: true };
 
   const derecho: ConceptoLiquidado = f.derechoValor !== null
-    ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de trámite', bloquea: false }
-    : { valor: null, origen: 'Sin recibo de derecho de trámite', bloquea: true };
+    ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de tránsito', bloquea: false }
+    : { valor: null, origen: 'Sin recibo de derecho de tránsito', bloquea: true };
 
   const etiquetaTipo = f.tipoTramite ?? 'tipo';
   const tramiteDigital = deTarifa(
@@ -179,10 +182,14 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
   if (tramiteDigital.bloquea) faltantes.push('Tarifa de trámite digital no configurada para la compañía');
   if (logistica.bloquea) faltantes.push('Tarifa de logística no configurada para la compañía');
 
-  // Base del 4x1000: solo los desembolsos que salen por el banco hacia un tercero.
-  const baseGmf = redondear(sumar(soat.valor, impuesto.valor, derecho.valor));
+  // Base del 4x1000: el total de los cinco conceptos. El gravamen se calcula sobre esa suma y se
+  // añade encima, de modo que el total es la base más su propio GMF. Los conceptos que no aplican
+  // valen null y `sumar` los ignora: no entran a la base como cero disfrazado.
+  const baseGmf = redondear(
+    sumar(soat.valor, impuesto.valor, derecho.valor, tramiteDigital.valor, logistica.valor),
+  );
   const valorGmf = redondear(baseGmf * TASA_GMF);
-  const total = redondear(baseGmf + sumar(tramiteDigital.valor, logistica.valor) + valorGmf);
+  const total = redondear(baseGmf + valorGmf);
 
   return {
     tramiteId: f.tramiteId, idFlit: f.idFlit,

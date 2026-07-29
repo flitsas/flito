@@ -20,8 +20,9 @@ type Fila = Parameters<typeof aCsv>[0][number];
 function fila(over: Partial<Fila> = {}): Fila {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME',
-    tipoTramite: 'Traspaso', soat: 450000, impuesto: 120000, derechoTramite: 80000,
-    logistica: 15000, tramiteDigital: 200000, gmf: 2600, total: 867600,
+    tipoTramite: 'Traspaso', fechaAprobacion: '2026-07-14T15:30:00.000Z',
+    soat: 450000, impuesto: 120000, derechoTramite: 80000,
+    logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
     ...over,
   };
@@ -46,6 +47,19 @@ describe('aCsv — el archivo que abre contabilidad', () => {
     expect(filas[2]).toContain('Estimado');
   });
 
+  it('la fecha de aprobación sale como día, que es lo que Excel reconoce', () => {
+    // Con el instante completo Excel lo trata como texto y no deja ordenar ni filtrar por fecha.
+    const csv = aCsv([fila()]);
+    expect(csv.split('\r\n')[0]).toContain('Aprobado');
+    expect(csv.split('\r\n')[1]).toContain('2026-07-14');
+    expect(csv).not.toContain('T15:30:00');
+  });
+
+  it('un trámite sin aprobar deja la celda vacía', () => {
+    const csv = aCsv([fila({ fechaAprobacion: null })]);
+    expect(csv.split('\r\n')[1].split(';')[5]).toBe('');
+  });
+
   it('un concepto no configurado sale vacío, no como cero', () => {
     // Un cero en el CSV se sumaría en la hoja de cálculo y cuadraría un total que no existe.
     const csv = aCsv([fila({ tramiteDigital: null, noConfigurados: ['Trámite digital'] })]);
@@ -63,8 +77,8 @@ describe('aCsv — el archivo que abre contabilidad', () => {
   });
 
   it('lista los conceptos sin configurar en su propia columna', () => {
-    const csv = aCsv([fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de trámite', 'Logística'] })]);
-    expect(csv).toContain('Derecho de trámite | Logística');
+    const csv = aCsv([fila({ sellada: false, estadoLiquidacion: null, noConfigurados: ['Derecho de tránsito', 'Logística'] })]);
+    expect(csv).toContain('Derecho de tránsito | Logística');
   });
 
   it('sin filas devuelve solo la cabecera', () => {
