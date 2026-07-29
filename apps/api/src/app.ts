@@ -22,6 +22,7 @@ import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
+import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
 import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
 import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
 import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
@@ -177,6 +178,7 @@ export function createApp() {
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/derechos', flitoDerechosRoutes);
+  app.use('/api/flito/liquidacion', flitoLiquidacionRoutes);
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/flito/tramites', flitoTramitesRoutes);
