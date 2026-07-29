@@ -12,9 +12,15 @@ interface FlitModalProps {
   children: ReactNode;
   /** Modal ancho (pasaporte, tablas). Default compacto. */
   wide?: boolean;
+  /**
+   * Casi toda la pantalla, para contenido que se lee mal en poco espacio: un PDF a 448 px de ancho
+   * no se puede leer sin hacer zoom. El cuerpo pierde el scroll propio y lo gestiona el hijo, que
+   * es quien sabe cuánto mide. Gana sobre `wide`.
+   */
+  full?: boolean;
 }
 
-export default function FlitModal({ title, onClose, children, wide = false }: FlitModalProps) {
+export default function FlitModal({ title, onClose, children, wide = false, full = false }: FlitModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   useEscape(onClose);
   // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar.
@@ -32,7 +38,12 @@ export default function FlitModal({ title, onClose, children, wide = false }: Fl
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`flit-focus my-auto w-full max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`}
+        className={
+          'flit-focus my-auto flex w-full flex-col '
+          + (full
+            ? 'h-[calc(100dvh-3rem)] max-w-[min(96rem,96vw)] overflow-hidden'
+            : `max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`)
+        }
         style={{
           background: 'var(--flit-bg-modal)',
           borderRadius: 'var(--flit-radius-xl)',
@@ -52,7 +63,7 @@ export default function FlitModal({ title, onClose, children, wide = false }: Fl
             <IconClose className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className={full ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
       </div>
     </div>
   );
