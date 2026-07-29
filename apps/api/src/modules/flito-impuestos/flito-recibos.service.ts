@@ -22,6 +22,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
   anotarIntento, archivarSinCruce, CONCEPTO_PENDIENTE, marcarResuelto, pendientesParaReintento,
+  type PendienteAsociado, type ResultadoReintento,
 } from '../flito-pendientes/flito-pendientes.service.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
@@ -67,14 +68,14 @@ export interface ResultadoRecibos { conciliados: ItemRecibo[]; enRevision: ItemR
 
 // Datos de un impuesto candidato para conciliar/archivar.
 interface Candidato {
-  impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string;
+  impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string; tramiteId: string;
   placa: string | null; companiaId: number; document: string | null; carpeta: string | null; valorLiquidado: string | null;
   // D-5 (Fase 7): activación de diferencia de valor por organismo + tolerancia de la compañía.
   diferenciaActiva: boolean; tolerancia: string;
 }
 const SELECT_CAND = {
   impuestoId: flitoImpuestos.id, estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
-  tramiteIdFlit: flitoTramites.idFlit, placa: vehicles.plate, companiaId: clients.id, document: clients.document,
+  tramiteIdFlit: flitoTramites.idFlit, tramiteId: flitoTramites.id, placa: vehicles.plate, companiaId: clients.id, document: clients.document,
   carpeta: clients.flitoCarpetaStorage, valorLiquidado: flitoImpuestos.valorLiquidado,
   diferenciaActiva: organismosTransitoConfig.flitoDiferenciaValorActiva,
   tolerancia: clients.flitoToleranciaValorImpuesto,
@@ -314,10 +315,10 @@ function esSinMarcaDeAgua(ruta: string, defecto: boolean): boolean {
  * No se vuelve a pasar el archivo por el OCR: se reusa la lectura guardada, que es de la misma
  * imagen y ya se pagó una vez.
  */
-export async function reintentarPendientesImpuestos(ctx: ImpuestoCtx): Promise<{ revisados: number; asociados: number }> {
+export async function reintentarPendientesImpuestos(ctx: ImpuestoCtx): Promise<ResultadoReintento> {
   const pendientes = await pendientesParaReintento(CONCEPTO_PENDIENTE.IMPUESTO);
 
-  let asociados = 0;
+  const detalle: PendienteAsociado[] = [];
   for (const p of pendientes) {
     // Sin placa no hay llave de cruce: espera a que una persona lo resuelva.
     if (!p.placa) continue;
@@ -338,11 +339,13 @@ export async function reintentarPendientesImpuestos(ctx: ImpuestoCtx): Promise<{
       else await aRevision(tx, p.soporteId, extraccion, veredicto, cand.impuestoId, p.placa, ctx);
     });
 
-    // `resuelto_tramite_id` se deja nulo: el candidato trae el identificador FLIT, no el uuid del
-    // trámite, y guardar una llave que no lo es sería peor que no guardar nada.
-    await marcarResuelto(p.id, null);
-    asociados += 1;
+    await marcarResuelto(p.id, cand.tramiteId);
+    detalle.push({
+      pendienteId: p.id, concepto: CONCEPTO_PENDIENTE.IMPUESTO, placa: cand.placa,
+      idFlit: cand.tramiteIdFlit, tramiteId: cand.tramiteId, registroId: cand.impuestoId,
+      detalle: veredicto.aprobada ? 'Conciliado' : `A revisión: ${veredicto.motivo}`,
+    });
   }
 
-  return { revisados: pendientes.length, asociados };
+  return { revisados: pendientes.length, asociados: detalle.length, detalle };
 }

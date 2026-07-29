@@ -65,7 +65,8 @@ interface PendienteRow {
 }
 /** Qué se asoció y con qué, para poder verificar el cruce sin buscar los recibos uno a uno. */
 interface PendienteAsociado {
-  pendienteId: string; placa: string; idFlit: string; tramiteId: string; derechoId: string;
+  pendienteId: string; concepto: string; placa: string | null;
+  idFlit: string | null; tramiteId: string | null; registroId: string | null; detalle: string;
 }
 interface ResultadoReintento { revisados: number; asociados: number; detalle: PendienteAsociado[] }
 
@@ -518,7 +519,7 @@ export default function FlitoDerechos() {
                 <span className="font-semibold">
                   {ultimoReintento.length === 0
                     ? 'El último reintento no encontró trámite para ningún pendiente.'
-                    : `Último reintento: ${ultimoReintento.length} recibo(s) asociado(s)`}
+                    : `Último reintento: ${ultimoReintento.length} documento(s) asociado(s)`}
                 </span>
                 <button type="button" className="underline" style={{ color: 'var(--flit-text-muted)' }}
                   onClick={() => setUltimoReintento(null)}>Ocultar</button>
@@ -526,13 +527,20 @@ export default function FlitoDerechos() {
               {ultimoReintento.length > 0 && (
                 <ul className="flex flex-col gap-1">
                   {ultimoReintento.map((a) => (
-                    <li key={a.pendienteId}>
-                      <span className="font-medium tabular-nums">{a.placa}</span>
-                      <span style={{ color: 'var(--flit-text-muted)' }}> → </span>
-                      <Link to={`/flito/tramites?buscar=${encodeURIComponent(a.idFlit)}`}
-                        className="tabular-nums hover:underline" style={{ color: 'var(--flit-blue-text)' }}>
-                        {a.idFlit}
-                      </Link>
+                    <li key={a.pendienteId} className="flex flex-wrap items-center gap-x-1">
+                      <StatusChip tone={TONO_CONCEPTO[a.concepto] ?? 'draft'}>
+                        {ETIQUETA_CONCEPTO[a.concepto] ?? a.concepto}
+                      </StatusChip>
+                      <span className="font-medium tabular-nums">{a.placa ?? 'sin placa'}</span>
+                      <span style={{ color: 'var(--flit-text-muted)' }}>→</span>
+                      {/* Sin trámite el enlace no lleva a ninguna parte: se dice y ya. */}
+                      {a.idFlit ? (
+                        <Link to={`/flito/tramites?buscar=${encodeURIComponent(a.idFlit)}`}
+                          className="tabular-nums hover:underline" style={{ color: 'var(--flit-blue-text)' }}>
+                          {a.idFlit}
+                        </Link>
+                      ) : <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>sin trámite</span>}
+                      <span style={{ color: 'var(--flit-text-muted)' }}>· {a.detalle}</span>
                     </li>
                   ))}
                 </ul>

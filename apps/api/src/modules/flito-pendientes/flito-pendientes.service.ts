@@ -134,6 +134,32 @@ export async function listarPendientes(concepto?: ConceptoPendiente): Promise<Fi
   }));
 }
 
+/**
+ * Qué se asoció en un reintento, y con qué. Los tres conceptos devuelven esta misma forma.
+ *
+ * Un «2 asociados» no es verificable: quien lo lee no puede comprobar que el cruce fue el correcto
+ * sin ir a buscar los recibos uno a uno, que es justo lo que el reintento venía a evitar (HU #11023).
+ */
+export interface PendienteAsociado {
+  pendienteId: string;
+  concepto: ConceptoPendiente;
+  placa: string | null;
+  /** Identificador FLIT del trámite al que fue a parar. Null si el concepto no cuelga de uno. */
+  idFlit: string | null;
+  tramiteId: string | null;
+  /** El registro que quedó dueño del soporte: el derecho, el SOAT o el impuesto. */
+  registroId: string | null;
+  /** Qué le pasó: «Pagado», «A revisión: …», «Registrado». */
+  detalle: string;
+}
+
+/** Conteos más el detalle de cada cruce. */
+export interface ResultadoReintento {
+  revisados: number;
+  asociados: number;
+  detalle: PendienteAsociado[];
+}
+
 export interface PendienteParaReintento {
   id: string; placa: string | null; soporteId: string; organismoCodigo: string | null;
   extraccion: unknown;

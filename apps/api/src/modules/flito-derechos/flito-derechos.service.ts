@@ -26,7 +26,9 @@ import {
 import { extraerDerechoTramite, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import { CONCEPTO_PENDIENTE } from '../flito-pendientes/flito-pendientes.service.js';
+import {
+  CONCEPTO_PENDIENTE, type PendienteAsociado, type ResultadoReintento,
+} from '../flito-pendientes/flito-pendientes.service.js';
 import { expandirZips, type ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 import { separarPaginas, nombrePagina, PdfDemasiadoGrandeError } from '../../shared/pdf/separar-paginas.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -651,17 +653,8 @@ async function auditEnTx(tx: Tx, ctx: DerechoCtx, resourceId: string, detail: st
 // ─────────────────────────── Pendientes ──────────────────────────────────────
 
 /** Un pendiente que sí encontró su trámite en este reintento. */
-export interface PendienteAsociado {
-  pendienteId: string; placa: string; idFlit: string; tramiteId: string; derechoId: string;
-}
-
-/**
- * Además de los conteos, QUÉ se asoció y CON QUÉ. Un «2 asociados» no es verificable: quien lo lee
- * no puede comprobar que el cruce fue el correcto sin buscar los recibos uno a uno.
- */
-export interface ResultadoReintento {
-  revisados: number; asociados: number; detalle: PendienteAsociado[];
-}
+// Se reexportan para no obligar a quien ya importaba de aquí a cambiar de módulo.
+export type { PendienteAsociado, ResultadoReintento };
 
 /**
  * Reintenta el cruce de los recibos que quedaron sin trámite. Se llama tras cada sincronización con
@@ -701,8 +694,9 @@ export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoRe
       .set({ resuelto: true, resueltoTramiteId: elegido.tramiteId, intentos: p.intentos + 1, ultimoIntentoEn: new Date() })
       .where(eq(flitoDerechosPendientes.id, p.id));
     detalle.push({
-      pendienteId: p.id, placa: p.placa, idFlit: elegido.idFlit,
-      tramiteId: elegido.tramiteId, derechoId,
+      pendienteId: p.id, concepto: CONCEPTO_PENDIENTE.DERECHO, placa: p.placa,
+      idFlit: elegido.idFlit, tramiteId: elegido.tramiteId, registroId: derechoId,
+      detalle: 'Registrado',
     });
     log.info({ pendienteId: p.id, derechoId, idFlit: elegido.idFlit }, 'Pendiente de derecho asociado a su trámite');
   }

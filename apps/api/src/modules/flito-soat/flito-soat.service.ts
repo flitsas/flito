@@ -41,6 +41,7 @@ import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametriz
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
   anotarIntento, archivarSinCruce, CONCEPTO_PENDIENTE, marcarResuelto, pendientesParaReintento,
+  type PendienteAsociado, type ResultadoReintento,
 } from '../flito-pendientes/flito-pendientes.service.js';
 
 export interface SoatCtx {
@@ -860,10 +861,10 @@ async function expandir(archivos: ArchivoSubido[]): Promise<ArchivoSubido[]> {
  * NO se vuelve a pasar el archivo por el OCR: se reusa la lectura guardada. Es la misma imagen y el
  * OCR se cobra por llamada.
  */
-export async function reintentarPendientesSoat(ctx: SoatCtx): Promise<{ revisados: number; asociados: number }> {
+export async function reintentarPendientesSoat(ctx: SoatCtx): Promise<ResultadoReintento> {
   const pendientes = await pendientesParaReintento(CONCEPTO_PENDIENTE.SOAT);
 
-  let asociados = 0;
+  const detalle: PendienteAsociado[] = [];
   for (const p of pendientes) {
     // Sin placa no hay por dónde cruzar; se queda para que lo resuelva una persona.
     if (!p.placa) continue;
@@ -893,9 +894,20 @@ export async function reintentarPendientesSoat(ctx: SoatCtx): Promise<{ revisado
       }
     });
 
-    await marcarResuelto(p.id, null);
-    asociados += 1;
+    // Qué trámite quedó cubierto. El SOAT es por VIN, así que puede servir a varios: se nombra el
+    // primero y se dice cuántos más, en vez de fingir que hay uno solo.
+    const tramites = await db.select({ id: flitoTramites.id, idFlit: flitoTramites.idFlit })
+      .from(flitoTramites).where(eq(flitoTramites.soatId, datos.soatId)).orderBy(flitoTramites.idFlit);
+    const extra = tramites.length > 1 ? ` (+${tramites.length - 1} con el mismo VIN)` : '';
+
+    await marcarResuelto(p.id, tramites[0]?.id ?? null);
+    detalle.push({
+      pendienteId: p.id, concepto: CONCEPTO_PENDIENTE.SOAT, placa: datos.placa,
+      idFlit: tramites[0]?.idFlit ?? null, tramiteId: tramites[0]?.id ?? null,
+      registroId: datos.soatId,
+      detalle: (veredicto.aprobada ? 'Pagado' : `A revisión: ${veredicto.motivo}`) + extra,
+    });
   }
 
-  return { revisados: pendientes.length, asociados };
+  return { revisados: pendientes.length, asociados: detalle.length, detalle };
 }

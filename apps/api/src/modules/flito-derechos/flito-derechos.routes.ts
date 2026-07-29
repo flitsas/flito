@@ -104,9 +104,12 @@ router.post('/pendientes/reintentar', OPERACIONES, async (req: Request, res: Res
   const soat = await reintentarPendientesSoat(await contextoSoat({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
   const impuestos = await reintentarPendientesImpuestos(await contextoImpuesto({ sub: ctx.userId, username: ctx.username, role: ctx.role }));
 
+  // El detalle de los tres, en una sola lista: quien pulsó el botón quiere ver QUÉ se asoció, no
+  // tener que abrir tres apartados. Cada entrada ya dice de qué concepto es (HU #11023).
   const resultado = {
     revisados: derechos.revisados + soat.revisados + impuestos.revisados,
     asociados: derechos.asociados + soat.asociados + impuestos.asociados,
+    detalle: [...derechos.detalle, ...soat.detalle, ...impuestos.detalle],
     porConcepto: { derecho: derechos, soat, impuesto: impuestos },
   };
   await audit(req, {

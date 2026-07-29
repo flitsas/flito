@@ -132,6 +132,36 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await expect(page.getByText(/1 de 1 pendiente\(s\) asociado\(s\)/)).toBeVisible();
   });
 
+  test('el reintento dice qué se asoció y a qué trámite, de los tres conceptos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+    // El barrido toca derechos, SOAT e impuestos en la misma pasada: el detalle viene de los tres.
+    await page.route(/\/api\/flito\/derechos\/pendientes\/reintentar$/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        revisados: 4, asociados: 3,
+        detalle: [
+          { pendienteId: 'p1', concepto: 'derecho', placa: 'NOP111', idFlit: 'FLIT-3001', tramiteId: 't1', registroId: 'd1', detalle: 'Registrado' },
+          { pendienteId: 'p2', concepto: 'soat', placa: 'QYS441', idFlit: 'FLIT-3002', tramiteId: 't2', registroId: 's1', detalle: 'Pagado' },
+          { pendienteId: 'p3', concepto: 'impuesto', placa: 'ABC123', idFlit: 'FLIT-3003', tramiteId: 't3', registroId: 'i1', detalle: 'A revisión: valor distinto' },
+        ],
+      }),
+    }));
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Sin cruzar/ }).click();
+    await page.getByRole('button', { name: 'Reintentar ahora' }).click();
+
+    await expect(page.getByText('Último reintento: 3 documento(s) asociado(s)')).toBeVisible();
+    // Cada línea nombra el concepto, la placa, el trámite y qué le pasó: un «3 asociados» a secas
+    // no se puede verificar sin ir a buscar los recibos uno a uno.
+    for (const [placa, tramite] of [['NOP111', 'FLIT-3001'], ['QYS441', 'FLIT-3002'], ['ABC123', 'FLIT-3003']]) {
+      const linea = page.getByRole('listitem').filter({ hasText: placa });
+      await expect(linea.getByRole('link', { name: tramite })).toHaveAttribute('href', /buscar=/);
+    }
+    await expect(page.getByRole('listitem').filter({ hasText: 'ABC123' })).toContainText('A revisión: valor distinto');
+  });
+
   test('la bandeja distingue el origen del recibo y se puede filtrar por él', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockListas(page);
