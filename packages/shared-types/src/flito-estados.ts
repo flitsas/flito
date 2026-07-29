@@ -37,6 +37,28 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
 ];
 
 /**
+ * Umbrales de antigüedad de la operación, en días (Feature #10940 §3.2 y #10942 §5.2).
+ *
+ * No confundir con los SLA de `flito_proveedores_soat.sla_horas` ni
+ * `organismos_transito_config.flito_sla_horas`: aquellos miden cuánto tarda un tercero en
+ * responder una solicitud concreta y son configurables por proveedor/organismo. Estos miden la
+ * edad del trámite en sí y son iguales para toda la operación, así que viven en el dominio
+ * compartido para que la API y la web no puedan discrepar.
+ */
+export const SLA_OPERATIVO = {
+  /** Días en Borrador a partir de los cuales el trámite se considera estancado. */
+  BORRADOR_DIAS: 5,
+  /** Días desde la creación sin aprobación a partir de los cuales hay que hacer seguimiento. */
+  SIN_APROBAR_DIAS: 1,
+  /** A partir de aquí un trámite vivo se pinta en rojo. */
+  ATRASADO_DIAS: 5,
+  /** Antes de esto se pinta en ámbar: aún a tiempo, pero conviene mirarlo. */
+  POR_VENCER_DIAS: 2,
+  /** Dentro de estas horas el trámite se muestra como recién ingresado. */
+  RECIEN_INGRESADO_HORAS: 24,
+} as const;
+
+/**
  * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:
  *
  *   Pendiente ──> Solicitado ──> Pagado
