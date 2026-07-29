@@ -20,6 +20,7 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
+import { startDerechosDriveCron, stopDerechosDriveCron } from './modules/flito-derechos/flito-derechos.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -54,6 +55,9 @@ const server = app.listen(env.PORT, () => {
     startValidacionStaleCron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
+    // FLITO: sincronización de derechos de trámite desde el Drive de cada organismo (HU #10952).
+    // Noop si GOOGLE_DRIVE_KEY_PATH no está configurado.
+    startDerechosDriveCron();
   }
 });
 
@@ -87,6 +91,7 @@ function shutdown(signal: string) {
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopFlitSync();
+  stopDerechosDriveCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

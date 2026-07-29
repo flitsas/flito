@@ -4,7 +4,8 @@
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState } from 'react';
 import {
-  ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, type EstadoImpuesto, type EstadoSoat,
+  ALERTAS_OPERATIVAS, ALERTA_OPERATIVA_LABEL, ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL,
+  type AlertaOperativa, type EstadoImpuesto, type EstadoSoat,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -21,7 +22,16 @@ interface TableroResumen {
   estancados: { soat: number; impuestos: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
+  alertas?: Record<AlertaOperativa, number>;
 }
+
+/** Qué se ve al pulsar cada alerta. El orden es el de urgencia percibida por Operaciones. */
+const PISTA_ALERTA: Record<AlertaOperativa, string> = {
+  borrador_5d: 'Llevan demasiado sin salir de borrador.',
+  sin_aprobar_1d: 'Creados y aún sin aprobación.',
+  soat_sin_gestion: 'Solicitados al proveedor y sin respuesta dentro del SLA.',
+  impuesto_sin_gestion: 'Solicitados al organismo y sin respuesta dentro del SLA.',
+};
 
 interface ResumenSync {
   ejecutadoEn?: string;
@@ -132,6 +142,22 @@ export default function FlitoTablero() {
             {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}
             {kpi('Habilitados para entrega', data.compuertaHabilitados, 'SOAT e impuestos resueltos. Falta ejecutar.', null)}
           </section>
+
+          {/* Alertas operativas: cada tarjeta lleva a Gestión Trámites con su filtro ya aplicado,
+              para no obligar a rearmar a mano la búsqueda de lo que está en riesgo. */}
+          {data.alertas && (
+            <section aria-label="Alertas operativas" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {ALERTAS_OPERATIVAS.map((a) => {
+                const n = data.alertas?.[a] ?? 0;
+                return (
+                  <KpiCard key={a} to={`/flito/tramites?alerta=${a}`}
+                    ariaLabel={`${ALERTA_OPERATIVA_LABEL[a]}: ${n} trámites`}
+                    label={ALERTA_OPERATIVA_LABEL[a]} value={n} hint={PISTA_ALERTA[a]}
+                    chip={n > 0 ? { tone: 'danger', label: 'Requiere atención' } : undefined} />
+                );
+              })}
+            </section>
+          )}
 
           <section className="grid gap-3 md:grid-cols-2">
             <ConteosPorEstado titulo="SOAT por estado" conteos={data.soat} etiquetas={ESTADO_SOAT_LABEL as Record<EstadoSoat, string>} destino="/flito/soat" />

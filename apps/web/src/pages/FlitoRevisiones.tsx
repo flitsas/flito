@@ -16,7 +16,7 @@ import {
 } from '../components/flit/flitPageKit';
 import StatusChip from '../components/flit/StatusChip';
 
-type Grupo = 'soat' | 'impuestos';
+type Grupo = 'soat' | 'impuestos' | 'derechos';
 type CampoExtraido = { valor: string | null; confianza: number; confiable: boolean };
 
 interface RevisionItem {
@@ -26,6 +26,9 @@ interface RevisionItem {
 }
 interface SoatItem { id: string; vin: string; placa: string | null; marca: string | null; linea: string | null }
 interface ImpItem { id: string; idFlit: string; placa: string | null; vin: string; estado: string }
+// Derechos de trámite (HU #10951): los candidatos NO son todos los registros del módulo sino los
+// trámites vivos de ESA placa — el caso que llega aquí es "una placa con varios trámites".
+interface DerechoCandidato { tramiteId: string; idFlit: string; tipoTramite: string | null; organismoCodigo: string | null; yaTieneDerecho: boolean }
 
 const ETIQUETA_MODULO: Record<FlujoRevision, string> = {
   soat: 'Comprobante SOAT', impuestos: 'Recibo de impuestos', factura_venta: 'Factura de venta',
@@ -72,6 +75,7 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
   const [registroId, setRegistroId] = useState('');
   const [soats, setSoats] = useState<SoatItem[]>([]);
   const [impuestos, setImpuestos] = useState<ImpItem[]>([]);
+  const [derechos, setDerechos] = useState<DerechoCandidato[]>([]);
   const [claves, setClaves] = useState<string[]>([]);
   const [motivo, setMotivo] = useState('');
   const [modo, setModo] = useState<'idle' | 'resolver' | 'descartar'>('idle');
@@ -89,14 +93,29 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
     setMotivo(''); setModo('idle'); setError(null);
     api.get<string[]>(`/flito/revisiones/campos/${modulo}`).then(setClaves).catch(() => setClaves([]));
     if (modulo === 'soat') api.get<SoatItem[]>('/flito/soat').then(setSoats).catch(() => setSoats([]));
+    else if (modulo === 'derechos') {
+      // Sin placa leída no hay a quién ofrecer: la revisión será de tipo "sin llave de cruce" y el
+      // operador tendrá que resolverla desde el trámite, no desde aquí.
+      const placa = revision.placaSugerida;
+      if (placa) api.get<DerechoCandidato[]>(`/flito/derechos/candidatos/${encodeURIComponent(placa)}`).then(setDerechos).catch(() => setDerechos([]));
+      else setDerechos([]);
+    }
     else api.get<ImpItem[]>('/flito/impuestos').then(setImpuestos).catch(() => setImpuestos([]));
   }, [revision, modulo]);
 
   const candidatos = useMemo(() => {
     if (modulo === 'soat') return soats.map((s) => ({ id: s.id, placa: s.placa, vin: s.vin, etiqueta: `${s.placa} · ${s.marca ?? ''} ${s.linea ?? ''}`.trim() }));
+    if (modulo === 'derechos') {
+      // Los que ya tienen su derecho se excluyen: el registro es uno por trámite y ofrecerlos solo
+      // llevaría a un error al guardar.
+      return derechos.filter((d) => !d.yaTieneDerecho).map((d) => ({
+        id: d.tramiteId, placa: revision.placaSugerida, vin: '',
+        etiqueta: `${d.idFlit} · ${d.tipoTramite ?? 'sin tipo'}${d.organismoCodigo ? ` · ${d.organismoCodigo}` : ''}`,
+      }));
+    }
     const estado = modulo === 'factura_venta' ? EstadoImpuesto.PENDIENTE : EstadoImpuesto.SOLICITADO;
     return impuestos.filter((i) => i.estado === estado).map((i) => ({ id: i.id, placa: i.placa, vin: i.vin, etiqueta: `${i.placa} · ${i.idFlit}` }));
-  }, [modulo, soats, impuestos]);
+  }, [modulo, soats, impuestos, derechos, revision.placaSugerida]);
 
   const seleccionado = candidatos.find((c) => c.id === registroId);
 
@@ -157,7 +176,14 @@ function Formulario({ revision, soloLectura, onResuelta }: { revision: RevisionI
             <div key={clave} className="space-y-1">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-sm font-medium" htmlFor={`c-${clave}`}>{labelCampo(modulo, clave)}</label>
-                {campo ? <StatusChip tone="warning">{Math.round(campo.confianza * 100)}% · no confiable</StatusChip> : <StatusChip tone="neutral">Sin lectura</StatusChip>}
+                {/* El chip no puede decir siempre "no confiable": desde que existe el motivo
+                    cruce_ambiguo, a esta cola llegan documentos con lecturas perfectamente
+                    confiables cuyo problema es a QUÉ trámite pertenecen, no qué dicen. */}
+                {campo
+                  ? <StatusChip tone={campo.confiable ? 'success' : 'warning'}>
+                      {Math.round(campo.confianza * 100)}% · {campo.confiable ? 'confiable' : 'no confiable'}
+                    </StatusChip>
+                  : <StatusChip tone="neutral">Sin lectura</StatusChip>}
               </div>
               <input id={`c-${clave}`} className={flitInp} disabled={soloLectura || revision.resuelto}
                 value={valores[clave] ?? ''} placeholder="Escribe el valor correcto"
@@ -204,9 +230,13 @@ export default function FlitoRevisiones() {
   const rSoat = useRevisiones('soat', incluirResueltas, recarga);
   const rImp = useRevisiones('impuestos', incluirResueltas, recarga);
   const rFv = useRevisiones('factura_venta', incluirResueltas, recarga);
+  const rDer = useRevisiones('derechos', incluirResueltas, recarga);
 
-  const data = useMemo(() => grupo === 'soat' ? rSoat
-    : [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)), [grupo, rSoat, rImp, rFv]);
+  const data = useMemo(() => {
+    if (grupo === 'soat') return rSoat;
+    if (grupo === 'derechos') return rDer;
+    return [...rImp, ...rFv].sort((a, b) => b.creadoEn.localeCompare(a.creadoEn));
+  }, [grupo, rSoat, rImp, rFv, rDer]);
   const seleccionada = useMemo(() => data.find((r) => r.id === seleccionadaId) ?? data[0] ?? null, [data, seleccionadaId]);
   const url = useSoporteUrl(seleccionada?.soporte.id);
 
@@ -226,6 +256,7 @@ export default function FlitoRevisiones() {
       <FlitPillGroup>
         <FlitPillButton active={grupo === 'soat'} onClick={() => { setGrupo('soat'); setSeleccionadaId(null); }}>SOAT</FlitPillButton>
         <FlitPillButton active={grupo === 'impuestos'} onClick={() => { setGrupo('impuestos'); setSeleccionadaId(null); }}>Impuestos</FlitPillButton>
+        <FlitPillButton active={grupo === 'derechos'} onClick={() => { setGrupo('derechos'); setSeleccionadaId(null); }}>Derechos de trámite</FlitPillButton>
       </FlitPillGroup>
 
       {data.length === 0 ? (

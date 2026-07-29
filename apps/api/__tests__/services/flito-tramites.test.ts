@@ -121,10 +121,13 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       soatEstado: null, soatValorPagado: null, soatExtraccion: null,
       impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
       sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: 'Tránsito X', organismoCodigo: '11001',
+      fechaCreacionFlit: new Date('2026-06-20T10:00:00Z'), creadoEn: new Date('2026-07-01T00:00:00Z'),
       vin: 'VIN123', marca: 'Renault', linea: 'Logan', tipoVehiculo: 'automovil',
-      soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null, soatMotivoRechazo: null,
+      soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null,
+      soatPagadoEn: null, soatMotivoRechazo: null,
       impuestoId: null, impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
-      impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoMotivoRechazo: null,
+      impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoPagadoEn: null, impuestoSlaHoras: null,
+      impuestoMotivoRechazo: null,
     };
     selectMock
       .mockReturnValueOnce(chain([{ total: 1 }]))  // count (paginación)
