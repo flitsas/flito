@@ -199,20 +199,52 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(liquidada.getByRole('button', { name: 'Confirmar' })).toBeEnabled();
   });
 
-  test('el visor lista los soportes del trámite', async ({ page }) => {
+  test('el visor lista TODOS los documentos del trámite, de los cuatro orígenes', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.route(/\/api\/finanzas\/tramites\/.*\/soportes/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
         { id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=a', subidoEn: '2026-07-01T00:00:00Z' },
         { id: 's2', origen: 'derecho', tipo: 'derecho_tramite', nombreArchivo: 'recibo.pdf', url: '/api/files?key=b', subidoEn: '2026-07-02T00:00:00Z' },
+        { id: 's3', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'impuesto.pdf', url: '/api/files?key=c', subidoEn: '2026-07-03T00:00:00Z' },
+        { id: 's4', origen: 'logistica', tipo: 'acta_entrega', nombreArchivo: 'Acta de entrega.pdf', url: '/api/files?key=d', subidoEn: '2026-07-04T00:00:00Z' },
       ]) }));
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
-    await expect(page.getByText('Soportes de FLIT-2001')).toBeVisible();
-    await expect(page.getByRole('button', { name: /soat · soat.pdf/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /derecho · recibo.pdf/ })).toBeVisible();
+    await expect(page.getByText('Documentos de FLIT-2001')).toBeVisible();
+    // Un trámite con los cuatro cargados tiene que enseñar los cuatro, no el primero que se halló.
+    await expect(page.getByRole('button', { name: /SOAT · soat.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Derecho de tránsito · recibo.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Logística · Acta de entrega.pdf/ })).toBeVisible();
+    await expect(page.getByText(/4 documento\(s\)/)).toBeVisible();
+  });
+
+  test('un documento cargado después aparece al actualizar, sin cerrar el visor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    // Primero solo hay SOAT; el interruptor simula que alguien carga el impuesto en otra pestaña.
+    // No sirve contar llamadas: en desarrollo StrictMode invoca el efecto dos veces al montar.
+    let impuestoCargado = false;
+    await page.route(/\/api\/finanzas\/tramites\/.*\/soportes/, (route) => {
+      const soat = { id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=a', subidoEn: '2026-07-01T00:00:00Z' };
+      const imp = { id: 's3', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'impuesto.pdf', url: '/api/files?key=c', subidoEn: '2026-07-03T00:00:00Z' };
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify(impuestoCargado ? [soat, imp] : [soat]),
+      });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
+    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toHaveCount(0);
+
+    impuestoCargado = true;
+    await page.getByRole('button', { name: 'Actualizar' }).click();
+    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toBeVisible();
+    // El documento que se estaba mirando no se pierde de vista al recargar la lista.
+    await expect(page.getByRole('button', { name: /SOAT · soat.pdf/ })).toBeVisible();
   });
 
   test('un trámite sin soportes lo dice en vez de fallar', async ({ page }) => {
@@ -223,7 +255,7 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
-    await expect(page.getByText(/no tiene ningún soporte cargado/)).toBeVisible();
+    await expect(page.getByText(/no tiene ningún documento cargado/)).toBeVisible();
   });
 
   test('auditor consulta y ve soportes, pero no liquida ni factura', async ({ page }) => {

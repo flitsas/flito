@@ -30,6 +30,11 @@ interface Reporte { items: Fila[]; total: number; page: number; pageSize: number
 interface Facetas { estados: string[]; empresas: { nit: string; nombre: string | null }[]; tipos: string[] }
 interface Soporte { id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }
 
+/** Cómo se nombra cada origen en el visor. Lo que no esté aquí se muestra tal cual. */
+const ORIGEN_SOPORTE: Record<string, string> = {
+  soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito', logistica: 'Logística',
+};
+
 const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 /**
@@ -408,31 +413,49 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
   );
 }
 
-/** Visor de los soportes del trámite: SOAT, impuesto y derecho en una sola vista. */
+/**
+ * Visor de TODOS los documentos del trámite: SOAT, impuesto, derecho de tránsito y logística.
+ *
+ * No hay selección de qué mostrar: se pide todo y se lista lo que exista. Un trámite con los tres
+ * comprobantes cargados tiene que enseñar los tres, no el primero que se encontró (HU #11025).
+ */
 function VisorSoportes({ fila, onClose }: { fila: Fila; onClose: () => void }) {
   const [soportes, setSoportes] = useState<Soporte[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activo, setActivo] = useState<Soporte | null>(null);
+  const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     api.get<Soporte[]>(`/finanzas/tramites/${fila.tramiteId}/soportes`)
-      .then((s) => { setSoportes(s); setActivo(s[0] ?? null); })
+      // El activo se conserva entre recargas: al pedir la lista de nuevo no se pierde de vista el
+      // documento que se estaba mirando.
+      .then((s) => { setSoportes(s); setActivo((a) => s.find((x) => x.id === a?.id) ?? s[0] ?? null); })
       .catch((e) => setError(errorMessage(e)));
-  }, [fila.tramiteId]);
+  }, [fila.tramiteId, nonce]);
 
   return (
-    <FlitModal title={`Soportes de ${fila.idFlit}`} onClose={onClose}>
+    <FlitModal title={`Documentos de ${fila.idFlit}`} onClose={onClose}>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!soportes && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
       {soportes && soportes.length === 0 && (
-        <FlitEmpty>Este trámite no tiene ningún soporte cargado todavía.</FlitEmpty>
+        <FlitEmpty>Este trámite no tiene ningún documento cargado todavía.</FlitEmpty>
+      )}
+      {soportes && (
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+          <span style={{ color: 'var(--flit-text-secondary)' }}>
+            {soportes.length} documento(s): {[...new Set(soportes.map((s) => ORIGEN_SOPORTE[s.origen] ?? s.origen))].join(' · ') || '—'}
+          </span>
+          {/* Un comprobante cargado en otra pestaña aparece sin tener que cerrar y volver a abrir. */}
+          <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
+            onClick={() => setNonce((n) => n + 1)}>Actualizar</button>
+        </div>
       )}
       {soportes && soportes.length > 0 && (
         <div className="space-y-3">
           <FlitPillGroup>
             {soportes.map((s) => (
               <FlitPillButton key={s.id} active={activo?.id === s.id} onClick={() => setActivo(s)}>
-                {s.origen} · {s.nombreArchivo}
+                {ORIGEN_SOPORTE[s.origen] ?? s.origen} · {s.nombreArchivo}
               </FlitPillButton>
             ))}
           </FlitPillGroup>

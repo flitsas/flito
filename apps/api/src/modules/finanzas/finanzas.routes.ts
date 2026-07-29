@@ -4,7 +4,10 @@ import { Router, type Request, type Response } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { db } from '../../db/client.js';
-import { flitoDerechosTramite, flitoImpuestos, flitoSoat, flitoSoportes, flitoTramites } from '../../db/schema.js';
+import {
+  flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas, flitoLogisticaDocumentos,
+  flitoSoat, flitoSoportes, flitoTramites,
+} from '../../db/schema.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 import {
   aCsv, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION, type FiltrosReporte,
@@ -61,10 +64,14 @@ router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response
 });
 
 /**
- * GET /tramites/:id/soportes — SOAT, impuesto y derecho de tránsito en una sola respuesta.
+ * GET /tramites/:id/soportes — TODOS los documentos del trámite, en una sola respuesta.
  *
- * Hasta ahora cada flujo servía los suyos por su propia ruta, así que ver los documentos de un
- * trámite obligaba a tres llamadas y a saber de antemano cuáles existían.
+ * Cada flujo servía los suyos por su propia ruta, así que verlos obligaba a varias llamadas y a
+ * saber de antemano cuáles existían. Aquí no se elige: se devuelve lo que haya, de los cinco
+ * orígenes. Lo que no exista simplemente no aparece.
+ *
+ * Los tres primeros viven en `flito_soportes`; logística guarda los suyos aparte —la foto del
+ * documento entregado y el acta firmada— y por eso se consultan por separado (HU #11025).
  */
 router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   const tramiteId = req.params.id;
@@ -85,6 +92,36 @@ router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response
   ];
 
   const salida: Array<{ id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }> = [];
+
+  // Logística: la foto del documento entregado y el acta de entrega con sus firmas. No están en
+  // `flito_soportes` porque nacen del flujo de entrega, no de una carga de comprobantes.
+  const docsLogistica = await db.select({
+    id: flitoLogisticaDocumentos.id, tipo: flitoLogisticaDocumentos.tipo,
+    foto: flitoLogisticaDocumentos.fotoStorageKey, createdAt: flitoLogisticaDocumentos.createdAt,
+    actaPdf: flitoLogisticaActas.pdfStorageKey, actaEn: flitoLogisticaActas.createdAt,
+    actaId: flitoLogisticaActas.id,
+  }).from(flitoLogisticaDocumentos)
+    .leftJoin(flitoLogisticaActas, eq(flitoLogisticaDocumentos.actaId, flitoLogisticaActas.id))
+    .where(eq(flitoLogisticaDocumentos.tramiteId, tramiteId));
+
+  const actasVistas = new Set<string>();
+  for (const d of docsLogistica) {
+    if (d.foto) {
+      salida.push({
+        id: d.id, origen: 'logistica', tipo: d.tipo, nombreArchivo: `${d.tipo}.jpg`,
+        url: firmarDescargaEntidad(d.foto), subidoEn: d.createdAt.toISOString(),
+      });
+    }
+    // Un acta cubre varios documentos del mismo trámite: se lista una sola vez.
+    if (d.actaPdf && d.actaId && !actasVistas.has(d.actaId)) {
+      actasVistas.add(d.actaId);
+      salida.push({
+        id: d.actaId, origen: 'logistica', tipo: 'acta_entrega', nombreArchivo: 'Acta de entrega.pdf',
+        url: firmarDescargaEntidad(d.actaPdf), subidoEn: (d.actaEn ?? d.createdAt).toISOString(),
+      });
+    }
+  }
+
   for (const g of grupos) {
     if (!g.cond) continue;
     const filas = await db.select({
@@ -100,6 +137,10 @@ router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response
       });
     }
   }
+  // Del más reciente al más antiguo: lo último cargado es lo que se viene a mirar.
+  salida.sort((a, b) => b.subidoEn.localeCompare(a.subidoEn));
+  // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
   res.json(salida);
 });
 
