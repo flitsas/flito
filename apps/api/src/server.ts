@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { startReconciler, stopReconciler } from './modules/soat/reconciler.js';
 import { startPurger, stopPurger } from './modules/soat/purge.js';
+import { startDerechosDriveCron, stopDerechosDriveCron } from './modules/flito-derechos/flito-derechos-drive.cron.js';
 import { startReviewCron, stopReviewCron } from './modules/laft/review.cron.js';
 import { startLaftSyncCron, stopLaftSyncCron } from './modules/laft/sync/sync.cron.js';
 import { startEmployeesRekycCron, stopEmployeesRekycCron } from './modules/laft/employees/employees-rekyc.cron.js';
@@ -43,6 +44,7 @@ const server = app.listen(env.PORT, () => {
     // Encender solo después de Ola D (privacy/forget completo + cifrado PII estables).
     startRetentionCron();
     startJornadaAutocloseCron();
+    startDerechosDriveCron();
     startPesvRecordatoriosCron();
     startPesvRetencionCron();
     // LAFT v2 F3: cron AROS trimestral (10-Ene/Abr/Jul/Oct, configurable vía laft_parametros).
@@ -86,6 +88,7 @@ function shutdown(signal: string) {
   stopAnthropicHealthCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
+  stopDerechosDriveCron();
   stopFlitSync();
 
   const forceExitTimer = setTimeout(() => {

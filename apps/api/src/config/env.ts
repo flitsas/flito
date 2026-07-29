@@ -61,6 +61,13 @@ const envSchema = z.object({
   S3_ACCESS_KEY: z.string().min(3, 'S3_ACCESS_KEY es requerido'),
   S3_SECRET_KEY: z.string().min(8, 'S3_SECRET_KEY es requerido'),
   GOOGLE_DRIVE_KEY_PATH: z.string().optional(),
+  // Barrido diario del Drive de derechos: DESHABILITADO salvo '1' explícito. Puerta positiva a
+  // propósito — gasta OCR de pago, y no debe encenderse por deducir el entorno. Igual que
+  // PRIVACY_RETENTION_CRON_ENABLED.
+  DRIVE_DERECHOS_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // Hora local de Colombia a la que barre. Configurable para poder probarlo sin esperar al día
+  // siguiente; en producción no hay razón para moverlo de las 9.
+  DRIVE_DERECHOS_CRON_HORA: z.coerce.number().int().min(0).max(23).default(9),
   GOOGLE_DRIVE_FOLDER_ID: z.string().default('1cWFfPFpesQbHS6lLikumbDKYHO88G8DC'),
   // RNDC (Sprint 4 Fase 4.2): clave maestra AES-256-GCM (32 bytes hex = 64 chars).
   // En desarrollo se genera al boot si falta; en producción es obligatoria.
