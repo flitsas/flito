@@ -65,6 +65,54 @@ export function normalizarTipoTramite(v: string | null | undefined): string | nu
 }
 
 /**
+ * Umbrales de antigüedad de la operación, en días (Feature #10940 §3.2 y #10942 §5.2).
+ *
+ * No confundir con los SLA de `flito_proveedores_soat.sla_horas` ni
+ * `organismos_transito_config.flito_sla_horas`: aquellos miden cuánto tarda un tercero en
+ * responder una solicitud concreta y son configurables por proveedor/organismo. Estos miden la
+ * edad del trámite en sí y son iguales para toda la operación, así que viven en el dominio
+ * compartido para que la API y la web no puedan discrepar.
+ */
+export const SLA_OPERATIVO = {
+  /** Días en Borrador a partir de los cuales el trámite se considera estancado. */
+  BORRADOR_DIAS: 5,
+  /** Días desde la creación sin aprobación a partir de los cuales hay que hacer seguimiento. */
+  SIN_APROBAR_DIAS: 1,
+  /** A partir de aquí un trámite vivo se pinta en rojo. */
+  ATRASADO_DIAS: 5,
+  /** Antes de esto se pinta en ámbar: aún a tiempo, pero conviene mirarlo. */
+  POR_VENCER_DIAS: 2,
+  /** Dentro de estas horas el trámite se muestra como recién ingresado. */
+  RECIEN_INGRESADO_HORAS: 24,
+  /**
+   * Horas tras las que un SOAT o impuesto solicitado cuenta como «sin gestión» cuando su
+   * proveedor u organismo no tiene SLA configurado. Sin este respaldo, la alerta ignoraría
+   * justo a los terceros de los que menos se sabe.
+   */
+  SIN_GESTION_HORAS_DEFECTO: 72,
+} as const;
+
+/**
+ * Alertas operativas del tablero (Feature #10942 §5.2). Son excluyentes entre sí: un botón, un
+ * valor. Cada una responde a «qué está en riesgo ahora mismo», no a un estado del trámite.
+ */
+export const ALERTAS_OPERATIVAS = [
+  'borrador_5d', 'sin_aprobar_1d', 'soat_sin_gestion', 'impuesto_sin_gestion',
+] as const;
+
+export type AlertaOperativa = (typeof ALERTAS_OPERATIVAS)[number];
+
+export const esAlertaOperativa = (v: unknown): v is AlertaOperativa =>
+  typeof v === 'string' && (ALERTAS_OPERATIVAS as readonly string[]).includes(v);
+
+export const ALERTA_OPERATIVA_LABEL: Record<AlertaOperativa, string> = {
+  borrador_5d: `Más de ${SLA_OPERATIVO.BORRADOR_DIAS} días en borrador`,
+  sin_aprobar_1d: `Más de ${SLA_OPERATIVO.SIN_APROBAR_DIAS} día sin aprobar`,
+  soat_sin_gestion: 'SOAT solicitado sin gestión',
+  impuesto_sin_gestion: 'Impuesto solicitado sin gestión',
+};
+
+/**
  * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:
  *
  *   Pendiente ──> Solicitado ──> Pagado

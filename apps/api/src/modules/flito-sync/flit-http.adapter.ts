@@ -16,6 +16,16 @@ export interface ItemFlit {
   factura?: string; nombres?: string; apellidos?: string; cedulanit?: string; direccion?: string;
   celular?: string; correoelectronico?: string; Transito?: string; CompaniaGestora?: string;
   fecha_aprobacion?: string | null;
+  /**
+   * Código DIVIPOLA de la secretaría, que el reporte SÍ trae desde 2026-07. Es la vía autoritativa
+   * para emparejar el organismo: hasta ahora había que deducirlo del nombre o la ciudad, que llegan
+   * como texto libre ("STRIA TTOyTTE MCPAL FUNZA") y fallan ante cualquier variación de escritura.
+   */
+  codigoSecretaria?: string;
+  /** Fecha de creación del trámite en FLIT. Campo reciente del reporte: puede no venir. */
+  fechaCreacion?: string | null;
+  /** También nuevos en el reporte; aún sin uso en FLITO, viajan en `raw`. */
+  modelo?: string; tipo?: string;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
@@ -31,8 +41,11 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     facturaVentaFlitId: s(it.factura),
     companiaNit: s(it.CompaniaGestora),
     transitoNombre: s(it.Transito),
-    organismoCodigo: null, // el reporte da el nombre; el sync resuelve el código por nombre.
+    // El reporte ya trae el código DIVIPOLA. El sync lo usa primero y solo cae a ciudad/nombre si
+    // ese código no corresponde a un organismo configurado en FLITO.
+    organismoCodigo: s(it.codigoSecretaria),
     fechaAprobacion: s(it.fecha_aprobacion ?? null),
+    fechaCreacionFlit: s(it.fechaCreacion ?? null),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',

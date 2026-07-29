@@ -80,6 +80,8 @@ export interface SoatColaItem {
   tramitesFlit: string[];
   enviadoPorNombre: string | null;
   enviadoEn: string | null;
+  /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
+  pagadoEn: string | null;
   valorPagado: number | null;
   estancado: boolean;
   motivoRechazo: string | null;
@@ -203,6 +205,7 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       tramitesFlit: ts.map((t) => t.idFlit),
       enviadoPorNombre: r.enviadoPorNombre,
       enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
+      pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
       estancado: estaEstancado(r.estado, r.enviadoEn, r.proveedorSlaHoras),
       motivoRechazo: r.motivoRechazo,
