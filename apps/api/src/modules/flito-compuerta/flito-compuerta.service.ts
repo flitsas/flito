@@ -60,6 +60,8 @@ interface FilaCompuerta {
   placa: string | null;
   companiaNombre: string;
   soatAutogestionable: boolean;
+  /** El desbloqueo excepcional creó un SOAT que sí hay que resolver, pese a la autogestión. */
+  soatExcepcion?: boolean | null;
   impuestosAutogestionable: boolean;
   soatEstado: string | null;
   soatValorPagado: string | null;
@@ -81,6 +83,7 @@ function proyeccion() {
     soatAutogestionable: clients.soatAutogestionable,
     impuestosAutogestionable: clients.impuestosAutogestionable,
     soatEstado: flitoSoat.estado,
+    soatExcepcion: flitoSoat.excepcionAutogestion,
     soatValorPagado: flitoSoat.valorPagado,
     soatExtraccion: flitoSoat.extraccion,
     impuestoEstado: flitoImpuestos.estado,
@@ -109,7 +112,9 @@ function leer(extraccion: unknown, campo: string): string | null {
 export function decidir(f: FilaCompuerta): Veredicto {
   let soatResuelto: boolean;
   let soatDetalle: string;
-  if (f.soatAutogestionable) {
+  // Autogestiona, salvo que este SOAT se desbloqueara a mano: entonces existe registro y hay que
+  // resolverlo como cualquier otro, o la compuerta abriría sin el soporte que se pidió (HU #11021).
+  if (f.soatAutogestionable && !f.soatExcepcion) {
     soatResuelto = true;
     soatDetalle = 'La compañía autogestiona su SOAT';
   } else if (!f.soatEstado) {

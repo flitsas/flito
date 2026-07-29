@@ -241,11 +241,13 @@ function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number 
  * existe): registro autogestionado, de otro organismo, o en estado no visible → null.
  */
 export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect | null> {
-  const [row] = await db.select({ imp: flitoImpuestos, autogestion: clients.impuestosAutogestionable })
+  const [row] = await db.select({ imp: flitoImpuestos, dentroDeFrontera: FRONTERA_AUTOGESTION_IMP })
     .from(flitoImpuestos).innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .where(eq(flitoImpuestos.id, id)).limit(1);
   if (!row) return null;
-  if (row.autogestion) return null;
+  // La misma frontera que la cola: el desbloqueo excepcional vale en todo el flujo, no solo para
+  // aparecer en la lista (HU #11021).
+  if (!row.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
     if (row.imp.organismoCodigo !== ctx.transitoCodigo) return null;
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
@@ -302,7 +304,7 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
   const enviados = await db.transaction(async (tx) => {
     const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
       .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
-      .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), eq(clients.impuestosAutogestionable, false)))
+      .where(and(inArray(flitoImpuestos.id, ids), eq(flitoImpuestos.estado, EstadoImpuesto.PENDIENTE), FRONTERA_AUTOGESTION_IMP))
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];

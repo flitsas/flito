@@ -243,6 +243,7 @@ function proyeccion() {
     logisticaAutogestionable: clients.logisticaAutogestionable,
     logisticaDocEstado: flitoLogisticaDocumentos.estado,
     soatEstado: flitoSoat.estado,
+    soatExcepcion: flitoSoat.excepcionAutogestion,
     soatValorPagado: flitoSoat.valorPagado,
     soatExtraccion: flitoSoat.extraccion,
     impuestoEstado: flitoImpuestos.estado,

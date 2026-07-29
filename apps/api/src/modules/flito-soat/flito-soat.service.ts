@@ -352,13 +352,16 @@ function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number 
  */
 export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect | null> {
   const [soat] = await db
-    .select({ soat: flitoSoat, soatAutogestionable: clients.soatAutogestionable })
+    .select({ soat: flitoSoat, dentroDeFrontera: FRONTERA_AUTOGESTION_SOAT })
     .from(flitoSoat)
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(eq(flitoSoat.id, id))
     .limit(1);
   if (!soat) return null;
-  if (soat.soatAutogestionable) return null;
+  // La misma frontera que la cola: autogestionado queda fuera, salvo que se desbloqueara. Antes
+  // aquí se miraba solo la bandera del cliente, así que un SOAT desbloqueado entraba en la cola y
+  // luego daba 404 al abrirlo o al enviarlo (HU #11021).
+  if (!soat.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
@@ -417,7 +420,7 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatI
       .where(and(
         inArray(flitoSoat.id, ids),
         eq(flitoSoat.estado, EstadoSoat.PENDIENTE),
-        eq(clients.soatAutogestionable, false),
+        FRONTERA_AUTOGESTION_SOAT,
       ))
       .for('update', { of: flitoSoat, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
