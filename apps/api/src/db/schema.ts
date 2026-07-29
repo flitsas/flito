@@ -5,7 +5,7 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 });
 import { sql } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -289,6 +289,14 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
   // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
   flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
+  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de trámite. Existe
+  // porque cada organismo emite el recibo en un formato distinto: en vez de un extractor por
+  // organismo, una línea de configuración desambigua las etiquetas raras ("VALOR NETO A PAGAR").
+  flitoOcrPromptHint: text('flito_ocr_prompt_hint'),
+  // HU #10952: carpeta de Drive donde el organismo publica sus recibos de derecho de trámite.
+  // Es por organismo y no una sola global porque cada secretaría publica en su propio Drive.
+  flitoDriveFolderId: varchar('flito_drive_folder_id', { length: 120 }),
+  flitoDriveActivo: boolean('flito_drive_activo').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -571,6 +579,11 @@ export const procesamientoCuentas = pgTable('procesamiento_cuentas', {
   directorioSalida: varchar('directorio_salida', { length: 255 }),
   estado: varchar('estado', { length: 20 }).notNull().default('procesando'),
   error: text('error'),
+  // HU #10952: idempotencia de la sincronización con Drive. El scope de Drive es de solo lectura,
+  // así que no se puede marcar el archivo en el origen: se lleva aquí. La fecha de modificación
+  // acompaña al id porque un mismo archivo puede reemplazarse en Drive conservando su id.
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }),
+  driveModifiedTime: timestamp('drive_modified_time', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2488,6 +2501,10 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Id S3 de la factura de venta en FLIT (campo `factura`). Vacío = aún sin factura → no se solicita impuesto.
   facturaVentaFlitId: varchar('factura_venta_flit_id', { length: 120 }),
   fechaAprobacion: timestamp('fecha_aprobacion', { withTimezone: true }),
+  // Fecha en que el trámite nació EN FLIT (HU #10959). `createdAt` de abajo es cuándo lo ingirió el
+  // sync: en la primera corrida masiva todos los históricos comparten esa fecha, así que no sirve
+  // para medir antigüedad. Nullable porque el reporte solo empezó a traerla en 2026-07.
+  fechaCreacionFlit: timestamp('fecha_creacion_flit', { withTimezone: true }),
   // Payload completo de FLIT para trazabilidad/depuración.
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),
@@ -2499,6 +2516,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
   flitEstadoIdx: index('idx_flito_tramites_flit_estado').on(t.flitEstado),
   companiaNitIdx: index('idx_flito_tramites_compania_nit').on(t.companiaNit),
+  // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
+  fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
+  createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
@@ -2514,6 +2534,9 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tramiteIdx: index('idx_flito_tramite_historial_tramite').on(t.tramiteId, t.createdAt),
+  // Reconstruir cuándo un trámite entró a un estado (HU #10959) exige filtrar por campo, no solo
+  // por trámite: sin esto, «lleva N días en Borrador» recorre todo el historial de la fila.
+  campoIdx: index('idx_flito_tramite_historial_campo').on(t.tramiteId, t.campo, t.createdAt),
 }));
 
 // Impuesto, uno por trámite (tramite_id UNIQUE).
@@ -2570,6 +2593,9 @@ export const flitoSoportes = pgTable('flito_soportes', {
   tamanoBytes: bigint('tamano_bytes', { mode: 'number' }).notNull(),
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   impuestoId: uuid('impuesto_id').references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
+  // HU #10950: soporte del derecho de trámite. Nullable como los otros dos: un soporte cuelga de
+  // exactamente uno de los tres flujos (o de ninguno, mientras espera en la cola de revisión).
+  derechoId: uuid('derecho_id').references(() => flitoDerechosTramite.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
@@ -2596,6 +2622,61 @@ export const flitoRevisiones = pgTable('flito_revisiones', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   resueltoIdx: index('idx_flito_revisiones_resuelto').on(t.resuelto),
+}));
+
+// ── FLITO Derechos de trámite (HU #10950) ───────────────────────────────────
+// Lo que el organismo cobra por radicar el trámite. A diferencia del SOAT (anclado al VIN, RN-01),
+// el derecho se paga POR TRÁMITE: cada radicación tiene el suyo, así que `tramite_id` es UNIQUE.
+// No hay máquina de estados: el recibo llega ya pagado, el registro es la prueba de cuánto se pagó.
+export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  companiaId: integer('compania_id').references(() => clients.id),
+  valor: numeric('valor', { precision: 14, scale: 2 }),
+  fechaPago: date('fecha_pago'),
+  numeroRadicado: varchar('numero_radicado', { length: 40 }),
+  // Concepto leído del recibo ("MATRICULA INICIAL", "PRENDA"…). Se guarda como texto crudo: cada
+  // organismo lo rotula distinto y normalizarlo perdería la evidencia de qué decía el documento.
+  tipoTramiteRecibo: varchar('tipo_tramite_recibo', { length: 60 }),
+  origen: varchar('origen', { length: 20 }).notNull(),
+  // Sin FK dura hacia flito_soportes: evita el ciclo (soportes ya referencia esta tabla), igual que
+  // flito_impuestos.factura_venta_soporte_id.
+  soporteId: uuid('soporte_id'),
+  extraccion: jsonb('extraccion').$type<ExtraccionDerechoTramite>(),
+  // Discrepancias que no bloquean pero deben quedar trazadas (p.ej. el tipo del recibo no coincide
+  // con el del trámite). Lista de strings.
+  advertencias: jsonb('advertencias').$type<string[]>(),
+  registradoPorId: integer('registrado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_derechos_organismo').on(t.organismoCodigo),
+  companiaIdx: index('idx_flito_derechos_compania').on(t.companiaId),
+}));
+
+// Recibos leídos cuya placa aún no corresponde a ningún trámite. NO es cola de revisión humana: es
+// un buffer que la sincronización reintenta sola, porque el recibo del organismo suele llegar antes
+// que el trámite desde FLIT. Meterlos en flito_revisiones ahogaría la cola que sí exige a una persona.
+export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  placa: varchar('placa', { length: 10 }).notNull(),
+  soporteId: uuid('soporte_id').notNull().references(() => flitoSoportes.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }),
+  valor: numeric('valor', { precision: 14, scale: 2 }),
+  fechaPago: date('fecha_pago'),
+  numeroRadicado: varchar('numero_radicado', { length: 40 }),
+  tipoTramiteRecibo: varchar('tipo_tramite_recibo', { length: 60 }),
+  extraccion: jsonb('extraccion').$type<ExtraccionDerechoTramite>(),
+  origen: varchar('origen', { length: 20 }).notNull(),
+  intentos: integer('intentos').notNull().default(1),
+  ultimoIntentoEn: timestamp('ultimo_intento_en', { withTimezone: true }).notNull().defaultNow(),
+  resuelto: boolean('resuelto').notNull().default(false),
+  resueltoTramiteId: uuid('resuelto_tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // El reintento barre solo los no resueltos; el índice por placa es el que usa ese barrido.
+  pendientePlacaIdx: index('idx_flito_derechos_pendientes_placa').on(t.placa, t.resuelto),
 }));
 
 // Regla de enrutamiento a proveedor SOAT por ámbito (compañía 10 / organismo 20 / global 30).

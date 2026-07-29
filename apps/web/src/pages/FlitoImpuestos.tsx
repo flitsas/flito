@@ -12,6 +12,7 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import AntiguedadPill from '../components/flit/AntiguedadPill';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -22,7 +23,7 @@ interface ImpuestoItem {
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
+  tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 
@@ -121,7 +122,9 @@ export default function FlitoImpuestos() {
                   </FlitTh>
                 )}
                 <FlitTh>Placa</FlitTh><FlitTh>Trámite</FlitTh><FlitTh>Compañía</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
+                <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
+                <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -149,6 +152,11 @@ export default function FlitoImpuestos() {
                       {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
                     </div>
                   </td>
+                  <td className="px-3 py-2 text-sm">
+                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
+                    {f.enviadoEn && <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>}
+                  </td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
                   <td className="px-3 py-2">

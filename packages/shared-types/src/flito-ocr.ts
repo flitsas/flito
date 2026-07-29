@@ -55,6 +55,24 @@ export const CampoImpuesto = {
 export type CampoImpuesto = (typeof CampoImpuesto)[keyof typeof CampoImpuesto];
 
 /**
+ * Campos que el OCR extrae de un recibo / cuenta de cobro de DERECHO DE TRÁMITE (HU #10950).
+ *
+ * `organismo` y `tipoTramite` no son datos que se persistan como valor del trámite: se leen para
+ * CONTRASTAR (el organismo, contra el esperado; el tipo, para desempatar cuando una placa tiene
+ * varios trámites candidatos). Por eso se extraen aunque no bloqueen — ver CAMPOS_REQUERIDOS.
+ */
+export const CampoDerechoTramite = {
+  PLACA: 'placa',
+  VALOR_TOTAL: 'valorTotal',
+  FECHA_PAGO: 'fechaPago',
+  NUMERO_RADICADO: 'numeroRadicado',
+  ORGANISMO: 'organismo',
+  TIPO_TRAMITE: 'tipoTramite',
+} as const;
+
+export type CampoDerechoTramite = (typeof CampoDerechoTramite)[keyof typeof CampoDerechoTramite];
+
+/**
  * Un valor extraído nunca viaja sin su confianza. RN-04/RN-05: un dato bajo el
  * umbral no se persiste como válido sin confirmación humana; por eso
  * `confirmadoPor` es parte del dato.
@@ -74,6 +92,7 @@ export interface CampoExtraido {
 export type ExtraccionSoat = Partial<Record<CampoSoat, CampoExtraido>>;
 export type ExtraccionImpuesto = Partial<Record<CampoImpuesto, CampoExtraido>>;
 export type ExtraccionFacturaVenta = Partial<Record<CampoFacturaVenta, CampoExtraido>>;
+export type ExtraccionDerechoTramite = Partial<Record<CampoDerechoTramite, CampoExtraido>>;
 
 export const CAMPO_SOAT_LABEL: Record<CampoSoat, string> = {
   placa: 'Placa',
@@ -93,6 +112,22 @@ export const CAMPO_IMPUESTO_LABEL: Record<CampoImpuesto, string> = {
   fechaPago: 'Fecha de pago',
   anioGravable: 'Año gravable',
 };
+
+export const CAMPO_DERECHO_TRAMITE_LABEL: Record<CampoDerechoTramite, string> = {
+  placa: 'Placa',
+  valorTotal: 'Valor total a pagar',
+  fechaPago: 'Fecha de pago',
+  numeroRadicado: 'Radicado del trámite',
+  organismo: 'Organismo emisor',
+  tipoTramite: 'Tipo de trámite (concepto)',
+};
+
+/**
+ * Lo único que bloquea el registro de un derecho de trámite. La placa se valida aparte (es la
+ * llave de cruce). Radicado, organismo y tipo se extraen pero NO se exigen: varían de formato
+ * entre organismos y su ausencia no impide saber cuánto se pagó.
+ */
+export const CAMPOS_REQUERIDOS_DERECHO: readonly CampoDerechoTramite[] = ['valorTotal'];
 
 /**
  * Campos SOAT que se extraen y persisten pero NO se exigen para pasar a `Pagado`
@@ -131,6 +166,7 @@ export const FlujoRevision = {
   SOAT: 'soat',
   IMPUESTOS: 'impuestos',
   FACTURA_VENTA: 'factura_venta',
+  DERECHOS: 'derechos',
 } as const;
 
 export type FlujoRevision = (typeof FlujoRevision)[keyof typeof FlujoRevision];

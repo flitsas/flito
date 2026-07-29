@@ -11,6 +11,8 @@ import {
 interface Fila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number; gmf: number; total: number;
+  /** false = valor fijo estimado porque el trámite aún no tiene cargado el recibo del organismo. */
+  derechoTramiteEsReal: boolean;
 }
 interface Totales { soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number; gmf: number; total: number }
 interface Reporte { items: Fila[]; total: number; page: number; pageSize: number; totales: Totales }
@@ -99,7 +101,15 @@ export default function FinanzasReporteCostos() {
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">{pesos(f.soat)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{pesos(f.impuesto)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{pesos(f.derechoTramite)}</td>
+                    {/* Un derecho estimado no vale lo mismo que uno pagado para quien concilia:
+                        se marca con un asterisco en vez de mostrarlo como si fuera real. */}
+                    <td
+                      className="px-4 py-2 text-right tabular-nums"
+                      title={f.derechoTramiteEsReal ? 'Valor leído del recibo del organismo' : 'Estimado: el trámite aún no tiene cargado su recibo'}
+                      style={f.derechoTramiteEsReal ? undefined : { color: 'var(--flit-text-muted)' }}
+                    >
+                      {pesos(f.derechoTramite)}{f.derechoTramiteEsReal ? '' : ' *'}
+                    </td>
                     <td className="px-4 py-2 text-right tabular-nums">{pesos(f.logistica)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{pesos(f.tramiteDigital)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{pesos(f.gmf)}</td>
@@ -123,6 +133,10 @@ export default function FinanzasReporteCostos() {
               )}
             </FlitTable>
           </div>
+
+          <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+            * Derecho de trámite estimado: ese trámite todavía no tiene cargado el recibo del organismo.
+          </p>
 
           <div className="mt-3"><Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} /></div>
         </FlitCard>

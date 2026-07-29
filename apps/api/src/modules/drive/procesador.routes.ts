@@ -12,6 +12,8 @@ import { db } from '../../db/client.js';
 import { procesamientoCuentas } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { loggerFor } from '../../shared/logger.js';
+import { CampoDerechoTramite, type ExtraccionDerechoTramite } from '@operaciones/shared-types';
+import { registrarDesdeExtraccion } from '../flito-derechos/flito-derechos.service.js';
 
 const log = loggerFor('drive-procesador');
 
@@ -103,6 +105,27 @@ function etiquetaTipoTramite(t: TipoTramiteCuenta): string {
   if (t === 'MATRICULA_INICIAL') return 'MATRICULA INICIAL';
   if (t === 'OTRO') return 'OTRO';
   return '';
+}
+
+/**
+ * Traduce una cuenta de cobro ya leída al contrato de extracción de derechos de trámite (HU #10952).
+ *
+ * La confianza se fija en 0.9 y no en 1: el dato viene de un OCR, no de una persona. Ese 0.9 supera
+ * el umbral por defecto (0.85) porque el prompt de este endpoint ya descarta páginas de resumen y
+ * valida el rango del total y el formato de la placa; pero un organismo con el umbral subido por
+ * encima de 0.9 mandará estas lecturas a revisión, que es justo lo que debe pasar donde no confiamos.
+ */
+function extraccionDeCuenta(c: CuentaCobro): ExtraccionDerechoTramite {
+  const campo = (valor: string | null) => ({ valor, confianza: valor ? 0.9 : 0, confiable: !!valor });
+  const fecha = /^\d{4}-\d{2}-\d{2}$/.test(c.fechaTramite) ? c.fechaTramite : null;
+  return {
+    [CampoDerechoTramite.PLACA]: campo(c.placa || null),
+    [CampoDerechoTramite.VALOR_TOTAL]: campo(c.valorTotal > 0 ? String(c.valorTotal) : null),
+    [CampoDerechoTramite.FECHA_PAGO]: campo(fecha),
+    [CampoDerechoTramite.NUMERO_RADICADO]: campo(c.radicado || null),
+    [CampoDerechoTramite.ORGANISMO]: campo(c.organismo || null),
+    [CampoDerechoTramite.TIPO_TRAMITE]: campo(etiquetaTipoTramite(c.tipoTramite) || null),
+  };
 }
 
 
@@ -286,6 +309,35 @@ Responde SOLO JSON sin markdown:
         archive.finalize();
       });
     }
+
+    // 4c. Persistir el derecho de trámite de cada placa (HU #10952). El Excel, los PDF por placa y
+    //     el ZIP de arriba NO se tocan: alguien los usa hoy. Esto se suma encima, reusando la
+    //     lectura que ya se hizo página a página en vez de volver a gastar OCR.
+    const persistencia = { registrados: 0, enRevision: 0, pendientes: 0, duplicados: 0, fallidos: 0 };
+    for (const a of archivosGenerados) {
+      const cuenta = cuentaPorPlaca.get(a.placa);
+      if (!cuenta) continue;
+      try {
+        const { readFile } = await import('fs/promises');
+        const buffer = await readFile(path.join(outputDir, a.archivo));
+        const r = await registrarDesdeExtraccion(
+          { originalname: `${a.placa}.pdf`, mimetype: 'application/pdf', buffer, size: buffer.length },
+          extraccionDeCuenta(cuenta),
+          { origen: 'drive', organismoCodigo: null },
+          { userId: (req as any).user!.sub, username: (req as any).user!.username, role: (req as any).user!.role },
+        );
+        persistencia.registrados += r.registrados.length;
+        persistencia.enRevision += r.enRevision.length;
+        persistencia.pendientes += r.pendientes.length;
+        persistencia.duplicados += r.duplicados.length;
+      } catch (e) {
+        // Una placa que no se pudo persistir no invalida el procesamiento: el Excel y los PDF ya
+        // están generados y son el entregable histórico de este endpoint.
+        persistencia.fallidos += 1;
+        log.warn({ placa: a.placa, err: (e as Error).message }, 'no se pudo persistir el derecho de trámite');
+      }
+    }
+    log.info({ ...persistencia, placas: archivosGenerados.length }, 'derechos de trámite persistidos desde cuentas de cobro');
 
     // 5. Generar Excel resumen
     const ExcelJS = (await import('exceljs')).default;

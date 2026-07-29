@@ -28,6 +28,8 @@ export interface ImpuestoColaItem {
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
+  /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
+  pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 
@@ -36,7 +38,8 @@ const SELECT_COLA = {
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
-  enviadoEn: flitoImpuestos.enviadoEn, motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
+  enviadoEn: flitoImpuestos.enviadoEn, pagadoEn: flitoImpuestos.pagadoEn,
+  motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
   organismoNombre: organismosTransitoConfig.alias, organismoSla: organismosTransitoConfig.flitoSlaHoras,
   enviadoPorNombre: users.name,
@@ -103,6 +106,7 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
+      pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       estancado: estaEstancado(r.estado, r.enviadoEn, r.organismoSla),
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
     };
