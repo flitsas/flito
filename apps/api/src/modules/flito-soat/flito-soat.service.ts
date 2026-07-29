@@ -25,7 +25,7 @@ import {
   users,
   vehicles,
 } from '../../db/schema.js';
-import {
+import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
@@ -130,9 +130,8 @@ export interface ColaSoatPaginada {
  * ambiguo y Postgres la rechaza en tiempo de ejecución.
  */
 const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
-  AND ${flitoProveedoresSoat.slaHoras} IS NOT NULL
   AND ${flitoSoat.enviadoEn} IS NOT NULL
-  AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${flitoProveedoresSoat.slaHoras}))`;
+  AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS}))`;
 
 /**
  * Condiciones de la cola, en un solo sitio. Las comparten la página y el conteo: si difieren, el
@@ -330,7 +329,7 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
-      estancado: estaEstancado(r.estado, r.enviadoEn, r.proveedorSlaHoras),
+      estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo,
       creadoEn: r.createdAt.toISOString(),
     };
@@ -338,9 +337,9 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
 }
 
 /** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
-function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoSoat.SOLICITADO || !slaHoras || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
+function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+  if (estado !== EstadoSoat.SOLICITADO || !enviadoEn) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
 // ───────────────────────────── Detalle + acceso (404-no-403) ────────────────

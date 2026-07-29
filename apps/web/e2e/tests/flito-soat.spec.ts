@@ -93,8 +93,16 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.goto('/flito/soat');
     await page.getByLabel('Seleccionar ABC123').check();
     await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
-    await page.getByRole('button', { name: /Enviar al gestor/i }).click();
+
+    // El proveedor es obligatorio desde que se retiraron las reglas de enrutamiento (HU #10979):
+    // sin él el SOAT nacería sin proveedor y quedaría en la cola de nadie.
+    const enviar = page.getByRole('button', { name: /Enviar al gestor/i });
+    await expect(enviar).toBeDisabled();
+    await page.getByRole('combobox').selectOption('p1');
+
+    await enviar.click();
     await expect.poll(() => enviado).not.toBeNull();
+    expect(enviado).toMatchObject({ proveedorSoatId: 'p1' });
   });
 
   test('auditor ve detalle en solo lectura', async ({ page }) => {
@@ -114,7 +122,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.goto('/flito/soat');
     await expect(page.getByText('ABC123')).toBeVisible();
 
-    await page.getByRole('checkbox', { name: 'Solo SLA vencido' }).check();
+    await page.getByRole('checkbox', { name: 'Solo sin gestión' }).check();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('estancado=si');
 
     await page.getByLabel('Solicitado desde').fill('2026-04-01');
@@ -141,7 +149,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/flito/soat');
-    await page.getByRole('checkbox', { name: 'Solo SLA vencido' }).check();
+    await page.getByRole('checkbox', { name: 'Solo sin gestión' }).check();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('estancado=si');
 
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
@@ -149,7 +157,7 @@ test.describe('FLITO — Portal SOAT', () => {
   });
 
   test('un SOAT pagado no muestra los días desde la solicitud', async ({ page }) => {
-    // Ya pagado, la antigüedad deja de ser una señal de riesgo: el chip de SLA vencido tampoco se
+    // Ya pagado, la antigüedad deja de ser una señal de riesgo: el chip de sin gestión tampoco se
     // pinta, y dejar los días sueltos hacía parecer atrasado algo que ya está resuelto.
     await loginAs(page, OPERACIONES_USER);
     await mock(page);

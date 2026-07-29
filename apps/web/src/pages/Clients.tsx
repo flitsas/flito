@@ -376,7 +376,7 @@ function TabProveedores({ editable }: { editable: boolean }) {
       <FlitCard>
         {data.length === 0 ? <FlitEmpty>No hay proveedores SOAT.</FlitEmpty> : (
           <FlitTable>
-            <thead><FlitTr><FlitTh>Nombre</FlitTh><FlitTh>Estrategia</FlitTh><FlitTh>Umbral OCR</FlitTh><FlitTh>SLA (h)</FlitTh><FlitTh>Estado</FlitTh><FlitTh /></FlitTr></thead>
+            <thead><FlitTr><FlitTh>Nombre</FlitTh><FlitTh>Estrategia</FlitTh><FlitTh>Umbral OCR</FlitTh><FlitTh>ANS pactado (h)</FlitTh><FlitTh>Estado</FlitTh><FlitTh /></FlitTr></thead>
             <tbody>
               {data.map((p) => (
                 <FlitTr key={p.id}>
@@ -392,8 +392,9 @@ function TabProveedores({ editable }: { editable: boolean }) {
           </FlitTable>
         )}
         <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          El SLA en horas es lo que decide cuándo un SOAT aparece marcado como «SLA vencido» en la cola.
-          El proveedor de cada SOAT se elige al enviarlo al gestor.
+          El ANS de gestión es único para toda la operación: un día desde que se envía la solicitud.
+          Estas horas quedan como referencia de lo pactado con cada proveedor, pero ya no deciden
+          cuándo un SOAT se marca sin gestión en la cola. El proveedor se elige al enviarlo al gestor.
         </p>
       </FlitCard>
       {crear && <FormProveedor onClose={() => setCrear(false)} onGuardado={() => { setCrear(false); refrescar(); }} />}
@@ -433,7 +434,7 @@ function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveed
         <FlitField label="Nombre *"><input className={flitInp} value={nombre} onChange={(e) => setNombre(e.target.value)} /></FlitField>
         <FlitField label="Estrategia"><input className={flitInp} value={estrategia} onChange={(e) => setEstrategia(e.target.value)} placeholder="p.ej. portal, correo" /></FlitField>
         <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
-        <FlitField label="SLA en horas"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
+        <FlitField label="ANS pactado con el proveedor (horas)"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
         {proveedor && (
           <label className="flex items-center justify-between gap-3 text-sm">
             <span>Activo</span>

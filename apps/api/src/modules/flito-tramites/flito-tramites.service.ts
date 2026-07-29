@@ -8,7 +8,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
-  SLA_OPERATIVO, type AlertaOperativa,
+  ANS_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -309,9 +309,9 @@ type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[num
  * (SLA del organismo): ambos usan el mismo estado 'solicitado' y la misma cuenta desde `enviadoEn`.
  * Sin SLA configurado no hay estancamiento posible.
  */
-function estancadoPorSla(estado: string | null, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== 'solicitado' || !slaHoras || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
+function estancadoPorAns(estado: string | null, enviadoEn: Date | null): boolean {
+  if (estado !== 'solicitado' || !enviadoEn) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
 function coincidenciaDe(extraccion: unknown): number | null {
@@ -367,7 +367,7 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
       id: f.soatId, estado: f.soatEstado!, proveedorSoatId: f.soatProveedorId, proveedorSoatNombre: f.soatProveedorNombre,
       valorPagado: num(f.soatValorPagado), enviadoEn: f.soatEnviadoEn ? f.soatEnviadoEn.toISOString() : null,
       pagadoEn: f.soatPagadoEn ? f.soatPagadoEn.toISOString() : null,
-      estancado: estancadoPorSla(f.soatEstado, f.soatEnviadoEn, f.soatSlaHoras), motivoRechazo: f.soatMotivoRechazo,
+      estancado: estancadoPorAns(f.soatEstado, f.soatEnviadoEn), motivoRechazo: f.soatMotivoRechazo,
     } : null,
     soatAutogestionado: f.soatAutogestionable ?? false,
     impuesto: f.impuestoId ? {
@@ -377,7 +377,7 @@ function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
       marcadoPorDiferencia: f.impuestoMarcadoPorDiferencia ?? false,
       enviadoEn: f.impuestoEnviadoEn ? f.impuestoEnviadoEn.toISOString() : null,
       pagadoEn: f.impuestoPagadoEn ? f.impuestoPagadoEn.toISOString() : null,
-      estancado: estancadoPorSla(f.impuestoEstado, f.impuestoEnviadoEn, f.impuestoSlaHoras),
+      estancado: estancadoPorAns(f.impuestoEstado, f.impuestoEnviadoEn),
       motivoRechazo: f.impuestoMotivoRechazo,
     } : null,
     impuestosAutogestionado: f.impuestosAutogestionable ?? false,
@@ -432,7 +432,8 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
   // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
   const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
   // make_interval en vez de concatenar texto: `$1 || ' days'` deja el tipo del parámetro ambiguo.
-  const horasSinGestion = SLA_OPERATIVO.SIN_GESTION_HORAS_DEFECTO;
+  // ANS único de gestión: el mismo retraso se pinta igual venga del proveedor que venga (HU #11024).
+  const horasSinGestion = ANS_OPERATIVO.SIN_GESTION_HORAS;
 
   switch (alerta) {
     case 'borrador_5d': {
@@ -446,9 +447,9 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
            AND LOWER(TRIM(COALESCE(${flitoTramiteHistorial.valorNuevo}, ''))) = 'borrador'
       ), ${nacimiento})`;
       return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) = 'borrador'
-        AND ${entroABorrador} < NOW() - make_interval(days => ${SLA_OPERATIVO.BORRADOR_DIAS})`;
+        AND ${entroABorrador} < NOW() - make_interval(days => ${ANS_OPERATIVO.BORRADOR_DIAS})`;
     }
-    case 'sin_aprobar_1d':
+    case 'sin_aprobar_ans':
       // Solo lo que está en manos del organismo: Entregado (esperando revisión) y Rechazado
       // (devuelto y aún sin subsanar).
       //
@@ -457,13 +458,13 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
       // trámite que se aprobó y luego retrocedió a Entregado —conserva su fecha de aprobación pero
       // vuelve a estar esperando—, que es precisamente uno de los que hay que destapar.
       return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) IN (${sqlEstadosEsperandoAprobacion()})
-        AND ${nacimiento} < NOW() - make_interval(days => ${SLA_OPERATIVO.SIN_APROBAR_DIAS})`;
+        AND ${nacimiento} < NOW() - make_interval(days => ${ANS_OPERATIVO.SIN_APROBAR_DIAS})`;
     case 'soat_sin_gestion':
       return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL
-        AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => COALESCE(${flitoProveedoresSoat.slaHoras}, ${horasSinGestion}))`;
+        AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${horasSinGestion})`;
     case 'impuesto_sin_gestion':
       return sql`${flitoImpuestos.estado} = 'solicitado' AND ${flitoImpuestos.enviadoEn} IS NOT NULL
-        AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => COALESCE(${organismosTransitoConfig.flitoSlaHoras}, ${horasSinGestion}))`;
+        AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${horasSinGestion})`;
   }
 }
 

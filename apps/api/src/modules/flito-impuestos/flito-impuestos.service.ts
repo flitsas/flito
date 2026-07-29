@@ -12,7 +12,7 @@ import {
   auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
   organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
-import { EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -225,15 +225,15 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
-      estancado: estaEstancado(r.estado, r.enviadoEn, r.organismoSla),
+      estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
     };
   });
 }
 
-function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoImpuesto.SOLICITADO || !slaHoras || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
+function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+  if (estado !== EstadoImpuesto.SOLICITADO || !enviadoEn) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
 /**

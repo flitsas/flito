@@ -23,6 +23,7 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
+import ChipSinGestion from '../components/flit/ChipSinGestion';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -928,7 +929,7 @@ function CeldaSoat({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () 
     <div className="space-y-0.5">
       <StatusChip tone={TONO_SOAT[s.estado]}>{ESTADO_SOAT_LABEL[s.estado]}</StatusChip>
       {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {s.estancado && <div><StatusChip tone="danger">SLA vencido</StatusChip></div>}
+      {s.estancado && <div><ChipSinGestion desde={s.enviadoEn} tone="danger" /></div>}
       {s.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(s.enviadoEn)}</p>}
       {v && <p className="text-xs font-semibold tabular-nums">{v}</p>}
       {s.motivoRechazo && <p className="text-[11px]" style={{ color: 'var(--flit-danger)' }} title={s.motivoRechazo}>{s.motivoRechazo.slice(0, 40)}</p>}
@@ -964,7 +965,7 @@ function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?:
     <div className="space-y-0.5">
       <StatusChip tone={TONO_IMP[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
       {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {imp.estancado && <div><StatusChip tone="danger">SLA vencido</StatusChip></div>}
+      {imp.estancado && <div><ChipSinGestion desde={imp.enviadoEn} tone="danger" /></div>}
       {imp.marcadoPorDiferencia && <div><StatusChip tone="warning">Diferencia de valor</StatusChip></div>}
       {imp.enviadoEn && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Enviado {fecha(imp.enviadoEn)}</p>}
       {liq && <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Liquidado {liq}</p>}

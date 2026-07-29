@@ -28,9 +28,9 @@ interface TableroResumen {
 /** Qué se ve al pulsar cada alerta. El orden es el de urgencia percibida por Operaciones. */
 const PISTA_ALERTA: Record<AlertaOperativa, string> = {
   borrador_5d: 'Llevan demasiado sin salir de borrador.',
-  sin_aprobar_1d: 'Creados y aún sin aprobación.',
-  soat_sin_gestion: 'Solicitados al proveedor y sin respuesta dentro del SLA.',
-  impuesto_sin_gestion: 'Solicitados al organismo y sin respuesta dentro del SLA.',
+  sin_aprobar_ans: 'Creados y aún sin aprobación.',
+  soat_sin_gestion: 'Solicitados al proveedor y sin respuesta dentro del ANS de un día.',
+  impuesto_sin_gestion: 'Solicitados al organismo y sin respuesta dentro del ANS de un día.',
 };
 
 interface ResumenSync {
@@ -138,7 +138,7 @@ export default function FlitoTablero() {
         <>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {kpi('Revisiones pendientes', data.revisionesPendientes.soat + data.revisionesPendientes.impuestos, `SOAT ${data.revisionesPendientes.soat} · Impuestos ${data.revisionesPendientes.impuestos}`, 'warning')}
-            {kpi('Estancados por SLA', data.estancados.soat + data.estancados.impuestos, `SOAT ${data.estancados.soat} · Impuestos ${data.estancados.impuestos}`, 'warning')}
+            {kpi('Fuera de ANS', data.estancados.soat + data.estancados.impuestos, `SOAT ${data.estancados.soat} · Impuestos ${data.estancados.impuestos}`, 'warning')}
             {kpi('Diferencias de valor', data.diferenciasDeValor, 'Pagados cuyo recibo no cuadra con lo liquidado.', 'warning')}
             {kpi('Habilitados para entrega', data.compuertaHabilitados, 'SOAT e impuestos resueltos. Falta ejecutar.', null)}
           </section>

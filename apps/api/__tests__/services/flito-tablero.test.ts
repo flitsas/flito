@@ -35,7 +35,7 @@ describe('resumen — agrega los indicadores de Operaciones', () => {
       .mockReturnValueOnce(chain([{ n: 3 }]))  // estancados impuestos
       // Alertas operativas: una consulta por alerta, en el orden de ALERTAS_OPERATIVAS.
       .mockReturnValueOnce(chain([{ n: 5 }]))  // borrador_5d
-      .mockReturnValueOnce(chain([{ n: 7 }]))  // sin_aprobar_1d
+      .mockReturnValueOnce(chain([{ n: 7 }]))  // sin_aprobar_ans
       .mockReturnValueOnce(chain([{ n: 2 }]))  // soat_sin_gestion
       .mockReturnValueOnce(chain([{ n: 1 }])); // impuesto_sin_gestion
 
@@ -50,7 +50,7 @@ describe('resumen — agrega los indicadores de Operaciones', () => {
     expect(r.estancados).toEqual({ soat: 0, impuestos: 3 });
     expect(r.compuertaHabilitados).toBe(2);
     expect(r.alertas).toEqual({
-      borrador_5d: 5, sin_aprobar_1d: 7, soat_sin_gestion: 2, impuesto_sin_gestion: 1,
+      borrador_5d: 5, sin_aprobar_ans: 7, soat_sin_gestion: 2, impuesto_sin_gestion: 1,
     });
   });
 });

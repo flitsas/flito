@@ -5,9 +5,9 @@
 // Aquí interesa lo contrario: cuánto tiempo ha pasado DESDE una fecha, porque lo que envejece sin
 // avanzar es el riesgo operativo.
 //
-// Los umbrales salen de SLA_OPERATIVO (shared-types) para que API y web no discrepen.
+// Los umbrales salen de ANS_OPERATIVO (shared-types) para que API y web no discrepen.
 
-import { SLA_OPERATIVO } from '@operaciones/shared-types';
+import { ANS_OPERATIVO } from '@operaciones/shared-types';
 import StatusChip, { type ChipTone } from './StatusChip';
 
 const MS_DIA = 86_400_000;
@@ -25,15 +25,15 @@ export function diasDesde(iso: string | null | undefined): number | null {
  * simplemente aún no es tarde, y pintarlo de verde invita a ignorarlo.
  */
 export function tonoAntiguedad(dias: number, horas: number): ChipTone {
-  if (dias >= SLA_OPERATIVO.ATRASADO_DIAS) return 'danger';
-  if (dias >= SLA_OPERATIVO.POR_VENCER_DIAS) return 'warning';
-  if (horas <= SLA_OPERATIVO.RECIEN_INGRESADO_HORAS) return 'success';
+  if (dias >= ANS_OPERATIVO.ATRASADO_DIAS) return 'danger';
+  if (dias >= ANS_OPERATIVO.POR_VENCER_DIAS) return 'warning';
+  if (horas <= ANS_OPERATIVO.RECIEN_INGRESADO_HORAS) return 'success';
   return 'neutral';
 }
 
 /** Etiqueta corta: «Hoy», «1 día», «N días». */
 export function etiquetaAntiguedad(dias: number, horas: number): string {
-  if (horas <= SLA_OPERATIVO.RECIEN_INGRESADO_HORAS) return 'Hoy';
+  if (horas <= ANS_OPERATIVO.RECIEN_INGRESADO_HORAS) return 'Hoy';
   return dias === 1 ? '1 día' : `${dias} días`;
 }
 

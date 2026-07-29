@@ -65,19 +65,20 @@ export function normalizarTipoTramite(v: string | null | undefined): string | nu
 }
 
 /**
- * Umbrales de antigüedad de la operación, en días (Feature #10940 §3.2 y #10942 §5.2).
+ * ANS de la operación (Feature #10940 §3.2 y #10942 §5.2).
  *
- * No confundir con los SLA de `flito_proveedores_soat.sla_horas` ni
- * `organismos_transito_config.flito_sla_horas`: aquellos miden cuánto tarda un tercero en
- * responder una solicitud concreta y son configurables por proveedor/organismo. Estos miden la
- * edad del trámite en sí y son iguales para toda la operación, así que viven en el dominio
- * compartido para que la API y la web no puedan discrepar.
+ * Son iguales para toda la operación, no por proveedor ni por organismo: miden si FLITO va al día,
+ * no lo que se pactó con un tercero. Viven en el dominio compartido para que la API y la web no
+ * puedan discrepar.
+ *
+ * `flito_proveedores_soat.sla_horas` y `organismos_transito_config.flito_sla_horas` siguen en la
+ * base pero ya no alimentan ninguna señal de pantalla: el ANS de gestión pasó a ser único.
  */
-export const SLA_OPERATIVO = {
+export const ANS_OPERATIVO = {
   /** Días en Borrador a partir de los cuales el trámite se considera estancado. */
   BORRADOR_DIAS: 5,
-  /** Días desde la creación sin aprobación a partir de los cuales hay que hacer seguimiento. */
-  SIN_APROBAR_DIAS: 1,
+  /** ANS de aprobación: un trámite debería quedar aprobado en dos días. Más, hay que mirarlo. */
+  SIN_APROBAR_DIAS: 2,
   /** A partir de aquí un trámite vivo se pinta en rojo. */
   ATRASADO_DIAS: 5,
   /** Antes de esto se pinta en ámbar: aún a tiempo, pero conviene mirarlo. */
@@ -85,11 +86,13 @@ export const SLA_OPERATIVO = {
   /** Dentro de estas horas el trámite se muestra como recién ingresado. */
   RECIEN_INGRESADO_HORAS: 24,
   /**
-   * Horas tras las que un SOAT o impuesto solicitado cuenta como «sin gestión» cuando su
-   * proveedor u organismo no tiene SLA configurado. Sin este respaldo, la alerta ignoraría
-   * justo a los terceros de los que menos se sabe.
+   * ANS de gestión de SOAT e impuestos: un día. Es igual para todos los proveedores y organismos.
+   *
+   * Antes cada proveedor traía el suyo en `flito_proveedores_soat.sla_horas` y quien no lo tenía
+   * caía en un respaldo de 72 h. Eso hacía que el mismo retraso se pintara o no según con quién se
+   * hubiera tramitado, que no es lo que mide esta señal: mide si la operación va al día.
    */
-  SIN_GESTION_HORAS_DEFECTO: 72,
+  SIN_GESTION_HORAS: 24,
 } as const;
 
 /**
@@ -97,7 +100,7 @@ export const SLA_OPERATIVO = {
  * valor. Cada una responde a «qué está en riesgo ahora mismo», no a un estado del trámite.
  */
 export const ALERTAS_OPERATIVAS = [
-  'borrador_5d', 'sin_aprobar_1d', 'soat_sin_gestion', 'impuesto_sin_gestion',
+  'borrador_5d', 'sin_aprobar_ans', 'soat_sin_gestion', 'impuesto_sin_gestion',
 ] as const;
 
 export type AlertaOperativa = (typeof ALERTAS_OPERATIVAS)[number];
@@ -106,8 +109,8 @@ export const esAlertaOperativa = (v: unknown): v is AlertaOperativa =>
   typeof v === 'string' && (ALERTAS_OPERATIVAS as readonly string[]).includes(v);
 
 export const ALERTA_OPERATIVA_LABEL: Record<AlertaOperativa, string> = {
-  borrador_5d: `Más de ${SLA_OPERATIVO.BORRADOR_DIAS} días en borrador`,
-  sin_aprobar_1d: `Más de ${SLA_OPERATIVO.SIN_APROBAR_DIAS} día sin aprobar`,
+  borrador_5d: `Más de ${ANS_OPERATIVO.BORRADOR_DIAS} días en borrador`,
+  sin_aprobar_ans: `Más de ${ANS_OPERATIVO.SIN_APROBAR_DIAS} días sin aprobar (ANS)`,
   soat_sin_gestion: 'SOAT solicitado sin gestión',
   impuesto_sin_gestion: 'Impuesto solicitado sin gestión',
 };

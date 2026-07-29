@@ -14,6 +14,7 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import ChipSinGestion from '../components/flit/ChipSinGestion';
 import Paginacion from '../components/flit/Paginacion';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -185,7 +186,7 @@ export default function FlitoSoat() {
 
           <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
             <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
-            Solo SLA vencido
+            Solo sin gestión
           </label>
 
           {(hayFiltros || !!texto) && (
@@ -257,13 +258,13 @@ export default function FlitoSoat() {
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
                     <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
                     {/* Ya pagado: los días transcurridos desde la solicitud dejan de ser una señal
-                        de riesgo y solo ensucian. El chip de SLA vencido ya desaparece al pagar. */}
+                        de riesgo y solo ensucian. El chip de sin gestión ya desaparece al pagar. */}
                     {f.enviadoEn && f.estado !== EstadoSoat.PAGADO && (
                       <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
                     )}
@@ -318,7 +319,7 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
           <option value="">Elige el proveedor…</option>
           {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
-        {/* Sin proveedor el SOAT quedaría en la cola de nadie y sin SLA con el que medirlo. */}
+        {/* Sin proveedor el SOAT quedaría en la cola de nadie. */}
         <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !proveedorSoatId} onClick={enviar}>
           {enviando ? 'Enviando…' : 'Enviar al gestor'}
         </button>
@@ -360,7 +361,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={TONO[soat.estado]}>{ESTADO_SOAT_LABEL[soat.estado]}</StatusChip>
-          {soat.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+          {soat.estancado && <ChipSinGestion desde={soat.enviadoEn} />}
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">

@@ -14,6 +14,7 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import ChipSinGestion from '../components/flit/ChipSinGestion';
 import Paginacion from '../components/flit/Paginacion';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -173,7 +174,7 @@ export default function FlitoImpuestos() {
 
           <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
             <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
-            Solo SLA vencido
+            Solo sin gestión
           </label>
 
           {(hayFiltros || !!texto) && (
@@ -241,14 +242,14 @@ export default function FlitoImpuestos() {
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
                       {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
                     <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
                     {/* Ya pagado: los días desde la solicitud dejan de ser señal de riesgo y solo
-                        ensucian. El chip de SLA vencido ya desaparece al pagar. */}
+                        ensucian. El chip de sin gestión ya desaparece al pagar. */}
                     {f.enviadoEn && f.estado !== EstadoImpuesto.PAGADO && (
                       <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
                     )}
@@ -339,7 +340,7 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={TONO[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
-          {imp.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+          {imp.estancado && <ChipSinGestion desde={imp.enviadoEn} />}
           {imp.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
         </div>
 

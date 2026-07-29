@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { ALERTAS_OPERATIVAS, SLA_OPERATIVO, esAlertaOperativa } from '@operaciones/shared-types';
+import { ALERTAS_OPERATIVAS, ANS_OPERATIVO, esAlertaOperativa } from '@operaciones/shared-types';
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
@@ -54,24 +54,24 @@ describe('condicionAlerta — cada alerta mira lo que dice el requerimiento', ()
     // Un trámite que nació en Borrador no tiene fila de historial: el COALESCE es lo que evita
     // que quede fuera de la alerta para siempre.
     expect(s).toContain('COALESCE');
-    expect(s).toContain(String(SLA_OPERATIVO.BORRADOR_DIAS));
+    expect(s).toContain(String(ANS_OPERATIVO.BORRADOR_DIAS));
   });
 
   it('sin aprobar cuenta Entregado y Rechazado, que es lo que espera al organismo', () => {
     // El ciclo es Borrador → Enviado a OT → Asignado → Entregado → Aprobado, y los estados pueden
     // retroceder: un Entregado que se Rechaza se subsana y vuelve a Entregado. Ambos están ya en
     // manos del organismo, así que son exactamente el cuello de botella que la alerta busca.
-    const s = sqlDe('sin_aprobar_1d');
+    const s = sqlDe('sin_aprobar_ans');
     for (const estado of ['entregado', 'rechazado']) {
       expect(s).toContain(`'${estado}'`);
     }
-    expect(s).toContain(String(SLA_OPERATIVO.SIN_APROBAR_DIAS));
+    expect(s).toContain(String(ANS_OPERATIVO.SIN_APROBAR_DIAS));
   });
 
   it('sin aprobar deja fuera lo que aún no ha llegado al organismo', () => {
     // Un borrador o un asignado pueden llevar semanas parados, pero la demora no es del organismo:
     // meterlos aquí es lo que inflaba la alerta y la volvía inservible para priorizar.
-    const s = sqlDe('sin_aprobar_1d');
+    const s = sqlDe('sin_aprobar_ans');
     for (const estado of ['borrador', 'asignado', 'aprobado', 'anulado', 'abortado']) {
       expect(s).not.toContain(`'${estado}'`);
     }
@@ -80,19 +80,21 @@ describe('condicionAlerta — cada alerta mira lo que dice el requerimiento', ()
     expect(s).not.toContain('fecha_aprobacion');
   });
 
-  it('SOAT sin gestión usa el SLA del proveedor con respaldo por defecto', () => {
+  // El ANS de gestión es único (HU #11024): el mismo retraso se señala igual venga del proveedor
+  // que venga. Antes salía de `sla_horas` del proveedor y de `flito_sla_horas` del organismo, así
+  // que un SOAT de un proveedor laxo podía llevar tres días parado sin aparecer en la alerta.
+  it('SOAT sin gestión mide contra el ANS único, no contra el del proveedor', () => {
     const s = sqlDe('soat_sin_gestion');
     expect(s).toContain("'solicitado'");
-    expect(s).toContain('sla_horas');
-    // Sin respaldo, los proveedores sin SLA configurado quedarían invisibles para la alerta.
-    expect(s).toContain(String(SLA_OPERATIVO.SIN_GESTION_HORAS_DEFECTO));
+    expect(s).toContain(String(ANS_OPERATIVO.SIN_GESTION_HORAS));
+    expect(s).not.toContain('sla_horas');
   });
 
-  it('impuesto sin gestión usa el SLA del organismo con el mismo respaldo', () => {
+  it('impuesto sin gestión mide contra el mismo ANS, no contra el del organismo', () => {
     const s = sqlDe('impuesto_sin_gestion');
     expect(s).toContain("'solicitado'");
-    expect(s).toContain('flito_sla_horas');
-    expect(s).toContain(String(SLA_OPERATIVO.SIN_GESTION_HORAS_DEFECTO));
+    expect(s).toContain(String(ANS_OPERATIVO.SIN_GESTION_HORAS));
+    expect(s).not.toContain('flito_sla_horas');
   });
 
   it('ninguna alerta concatena texto para construir el intervalo', () => {
