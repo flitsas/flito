@@ -183,6 +183,10 @@ async function organismoDto(codigo: string) {
     umbralOcr: org.flitoUmbralOcr === null ? null : Number(org.flitoUmbralOcr),
     slaHoras: org.flitoSlaHoras,
     diferenciaValorActiva: org.flitoDiferenciaValorActiva,
+    // Derechos de trámite (HU #10950/#10952): pista de OCR y carpeta de Drive del organismo.
+    ocrPromptHint: org.flitoOcrPromptHint,
+    driveFolderId: org.flitoDriveFolderId,
+    driveActivo: org.flitoDriveActivo,
   };
 }
 
@@ -274,6 +278,12 @@ const actualizarOrganismoSchema = z.object({
   slaHoras: z.number().int().min(1).nullable().optional(),
   // D-5 (Fase 7): activa/desactiva la marca de diferencia de valor de impuestos por organismo.
   diferenciaValorActiva: z.boolean().optional(),
+  // HU #10950: pista que se concatena al prompt genérico de derechos de trámite. Cadena vacía = quitar.
+  ocrPromptHint: z.string().max(500).nullable().optional(),
+  // HU #10952: carpeta de Drive del organismo y su interruptor. Configurar no es activar: se puede
+  // dejar la carpeta puesta con la sincronización apagada mientras se valida.
+  driveFolderId: z.string().max(120).nullable().optional(),
+  driveActivo: z.boolean().optional(),
 });
 
 router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
@@ -286,6 +296,9 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (cambios.umbralOcr !== undefined) set.flitoUmbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
   if (cambios.slaHoras !== undefined) set.flitoSlaHoras = cambios.slaHoras;
   if (cambios.diferenciaValorActiva !== undefined) set.flitoDiferenciaValorActiva = cambios.diferenciaValorActiva;
+  if (cambios.ocrPromptHint !== undefined) set.flitoOcrPromptHint = cambios.ocrPromptHint?.trim() || null;
+  if (cambios.driveFolderId !== undefined) set.flitoDriveFolderId = cambios.driveFolderId?.trim() || null;
+  if (cambios.driveActivo !== undefined) set.flitoDriveActivo = cambios.driveActivo;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
   // Igual que en el cambio de modalidad: crea la config si el organismo del catálogo no estaba sembrado.
@@ -294,7 +307,8 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (!updated) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 
   const detalleDif = cambios.diferenciaValorActiva === undefined ? '' : `; diferencia de valor ${cambios.diferenciaValorActiva ? 'activada' : 'desactivada'}`;
-  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}` });
+  const detalleDrive = cambios.driveActivo === undefined ? '' : `; sincronización Drive ${cambios.driveActivo ? 'activada' : 'desactivada'}`;
+  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}${detalleDrive}` });
   res.json(await organismoDto(codigo));
 });
 
