@@ -32,6 +32,12 @@ export interface DriveFile {
   modifiedTime: string;
   webViewLink: string;
   parents: string[];
+  /**
+   * Quién tocó el archivo por última vez. Google solo lo devuelve si se pide en `fields`, y sin él
+   * la fecha de modificación no dice nada accionable: en una carpeta compartida importa saber a
+   * quién preguntar. Puede venir vacío si la cuenta de servicio no ve el perfil de esa persona.
+   */
+  lastModifyingUser?: { displayName?: string; emailAddress?: string };
 }
 
 // Listar archivos de una carpeta
@@ -40,7 +46,7 @@ export async function listFiles(folderId: string, pageSize = 50): Promise<DriveF
   const safeFolderId = folderId.replace(/['"\\]/g, '');
   const res = await drive.files.list({
     q: `'${safeFolderId}' in parents and trashed = false`,
-    fields: 'files(id, name, mimeType, size, createdTime, modifiedTime, webViewLink, parents)',
+    fields: 'files(id, name, mimeType, size, createdTime, modifiedTime, webViewLink, parents, lastModifyingUser(displayName, emailAddress))',
     pageSize,
     orderBy: 'modifiedTime desc',
   });

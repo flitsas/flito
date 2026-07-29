@@ -227,14 +227,21 @@ test.describe('FLITO — Derechos de tránsito', () => {
 // desde el propio módulo, que es donde se ve el resultado.
 
 const ARCHIVOS_DRIVE = [
-  { fileId: 'f1', nombre: 'FLIT 18-07-2026.pdf', tamanoBytes: 1_782_000, modificadoEn: '2026-07-18T10:00:00Z', procesadoEn: null },
-  { fileId: 'f2', nombre: 'FLIT 17-07-2026.pdf', tamanoBytes: 900_000, modificadoEn: '2026-07-17T10:00:00Z', procesadoEn: '2026-07-17T18:00:00Z' },
+  { fileId: 'f1', nombre: 'FLIT 18-07-2026.pdf', tamanoBytes: 1_782_000, modificadoEn: '2026-07-18T10:00:00Z', modificadoPor: 'carteraitsmedellin', omitidoEn: null, procesadoEn: null },
+  { fileId: 'f2', nombre: 'FLIT 17-07-2026.pdf', tamanoBytes: 900_000, modificadoEn: '2026-07-17T10:00:00Z', modificadoPor: 'carteraitsmedellin', omitidoEn: null, procesadoEn: '2026-07-17T18:00:00Z' },
 ];
 
 async function mockDrive(page: import('@playwright/test').Page) {
   await mockListas(page);
   await page.route(/\/api\/flito\/derechos\/drive\/archivos/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ARCHIVOS_DRIVE) }));
+  await page.route(/\/api\/flito\/derechos\/drive\/registro/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify([
+      { id: 1, fileId: 'f2', nombreArchivo: 'FLIT 17-07-2026.pdf', estado: 'completado', modificadoPor: 'carteraitsmedellin', modificadoEn: '2026-07-17T10:00:00Z', totalPaginas: 13, cuentasDetectadas: 12, placasUnicas: 11, valorTotal: '4180000', error: null, procesadoEn: '2026-07-17T18:00:00Z', sigueEnDrive: true },
+      { id: 2, fileId: 'f9', nombreArchivo: 'FLIT 01-06-2026.pdf', estado: 'completado', modificadoPor: 'carteraitsmedellin', modificadoEn: '2026-06-01T10:00:00Z', totalPaginas: 9, cuentasDetectadas: 8, placasUnicas: 8, valorTotal: '2900000', error: null, procesadoEn: '2026-06-01T18:00:00Z', sigueEnDrive: false },
+    ]),
+  }));
 }
 
 test.describe('FLITO — Derechos · Drive de la secretaría', () => {
@@ -249,6 +256,34 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
     // El ya procesado se marca, pero se puede reprocesar: el organismo puede reemplazar el archivo.
     await expect(page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' })).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'FLIT 17-07-2026.pdf' }).getByRole('button', { name: 'Reprocesar' })).toBeVisible();
+  });
+
+  test('la tabla dice quién modificó el archivo, no solo cuándo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    // En una carpeta compartida la fecha sola no es accionable: hay que saber a quién preguntar.
+    await expect(page.getByText('por carteraitsmedellin').first()).toBeVisible();
+  });
+
+  test('el registro conserva los archivos que ya no están en el Drive', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDrive(page);
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('button', { name: /Ver el registro/ }).click();
+
+    // Es el motivo de que el registro exista: si el organismo borra un consolidado, queda constancia
+    // de que existió, de qué se extrajo y de quién lo había subido.
+    const desaparecido = page.getByRole('row').filter({ hasText: 'FLIT 01-06-2026.pdf' });
+    await expect(desaparecido.getByText('Ya no está en el Drive')).toBeVisible();
+    await expect(desaparecido.getByText('8 cuenta(s) · 8 placa(s)')).toBeVisible();
+    // El que sigue en la carpeta no lleva ese aviso.
+    const vigente = page.getByRole('row').filter({ hasText: 'FLIT 17-07-2026.pdf' });
+    await expect(vigente.getByText('Ya no está en el Drive')).toHaveCount(0);
   });
 
   test('procesar el día asocia y muestra el resultado por canasta', async ({ page }) => {
