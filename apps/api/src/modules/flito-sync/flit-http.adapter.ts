@@ -22,8 +22,10 @@ export interface ItemFlit {
    * como texto libre ("STRIA TTOyTTE MCPAL FUNZA") y fallan ante cualquier variación de escritura.
    */
   codigoSecretaria?: string;
+  /** Fecha de creación del trámite en FLIT. Campo reciente del reporte: puede no venir. */
+  fechaCreacion?: string | null;
   /** También nuevos en el reporte; aún sin uso en FLITO, viajan en `raw`. */
-  modelo?: string; tipo?: string; fechaCreacion?: string;
+  modelo?: string; tipo?: string;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
@@ -43,6 +45,7 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     // ese código no corresponde a un organismo configurado en FLITO.
     organismoCodigo: s(it.codigoSecretaria),
     fechaAprobacion: s(it.fecha_aprobacion ?? null),
+    fechaCreacionFlit: s(it.fechaCreacion ?? null),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',

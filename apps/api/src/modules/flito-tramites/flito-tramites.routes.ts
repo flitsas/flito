@@ -7,8 +7,8 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
-  crearEmpresaDesdeTramite, crearTramiteDemo, entregar, facetas, historial, listar, solicitarAmbos,
-  solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
+  crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
+  solicitarAmbos, solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
@@ -39,6 +39,8 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
     empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
     autogestion: q.autogestion === 'si' || q.autogestion === 'no' ? q.autogestion : undefined,
+    // Un orden desconocido no es motivo para fallar: se ignora y manda el default.
+    orden: esOrdenListado(q.orden) ? q.orden : undefined,
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
   res.json(await listar(filtros));

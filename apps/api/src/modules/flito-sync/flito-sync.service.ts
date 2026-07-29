@@ -31,6 +31,17 @@ type DbOrTx = typeof db | Tx;
 
 const ACTOR_SISTEMA = 'sistema';
 const numOrNull = (v: number | null): string | null => (v === null ? null : String(v));
+
+/**
+ * Fecha de un tercero → Date, o null si no parsea. FLIT manda texto libre y un `Invalid Date` no
+ * falla al construirse: revienta después, al insertar, tumbando la sincronización entera por una
+ * sola fila mal formada.
+ */
+export function fechaValida(v: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 export const esAsignado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'asignado';
 /** Logística arranca cuando el trámite está aprobado y el organismo emitió los documentos (§8). */
 export const esAprobado = (estadoFlit: string): boolean => estadoFlit.trim().toLowerCase() === 'aprobado';
@@ -195,6 +206,7 @@ async function upsertTramite(
 ): Promise<{ tramiteId: string; esNuevo: boolean; huboCambios: boolean; soatId: string | null }> {
   const [existente] = await tx.select().from(flitoTramites).where(eq(flitoTramites.idFlit, tf.idFlit)).limit(1);
   const fechaAprobacion = tf.fechaAprobacion ? new Date(tf.fechaAprobacion) : null;
+  const fechaCreacionFlit = fechaValida(tf.fechaCreacionFlit);
 
   const valores = {
     estado: estadoEnumDesdeFlit(tf.estadoFlit),
@@ -210,6 +222,7 @@ async function upsertTramite(
     valorImpuestoLiquidado: numOrNull(tf.valorImpuestoLiquidado),
     facturaVentaFlitId: tf.facturaVentaFlitId,
     fechaAprobacion,
+    fechaCreacionFlit,
     flitRaw: tf.raw,
     processStatus: tf.processStatus ?? null,
     plateComplete: tf.placa,
