@@ -1,9 +1,15 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, MENSAJERO_USER } from '../helpers/auth';
 
-// FLITO — Mi ruta (mensajero, v2). Recogida = escanear/pegar el PDF417 de CADA LT → el backend empareja
-// por placa+VIN y cada LT se va agregando a una tabla (emparejadas y no emparejadas). En headless no hay
-// BarcodeDetector, así que se ejercita el respaldo de pegado. Entrega = firma del receptor (RN-03).
+// FLITO — Mi ruta (mensajero). Recogida en DOS pasos, que es lo que separa mirar de escribir:
+//
+//   1. «Agregar» lee el PDF417 y lo VALIDA contra los trámites aprobados sin persistir nada
+//      (`/validar-lt`). La LT entra en la lista con el resultado: Relacionada, Sin trámite, etc.
+//   2. «Confirmar recogida» registra de golpe todas las validadas (`/escanear`), una por una,
+//      idempotente y con cola offline. Es aquí donde la LT pasa a Registrada.
+//
+// En headless no hay BarcodeDetector, así que se ejercita el respaldo de pegado.
+// Entrega = firma del receptor (RN-03).
 
 const RAW = '10038156339 C.C. 1053786950 MUÑOZ GOMEZ EMMANUEL DAVID CLL 112 N 47A 08 MANIZALES 7 /9j/4AAQSkZJRgABAQEA QOX858 LRWYGCFJ0TC496126 LRWYGCFJ0TC496126 352026000097934 ELECTRICO';
 
@@ -27,6 +33,8 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
     await loginAs(page, MENSAJERO_USER);
     await page.route(/\/api\/flito\/logistica\/mi-ruta/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RUTA) }));
+    await page.route(/\/api\/flito\/logistica\/validar-lt$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'relacionada' }) }));
     let body: Record<string, unknown> | null = null;
     await page.route(/\/api\/flito\/logistica\/escanear$/, async (route) => {
       body = route.request().postDataJSON() as Record<string, unknown>;
@@ -38,21 +46,28 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
     await page.getByPlaceholder(/N.º de LT/).fill('LT10000848803');
     await page.getByRole('button', { name: 'Agregar' }).click();
 
-    await expect.poll(() => body).not.toBeNull();
-    expect(body).toMatchObject({ rawValue: RAW, numeroLt: 'LT10000848803' });
-    // Tarjeta de la LT con los datos del código + estado.
+    // Paso 1: la LT entra validada, con los datos leídos del código. Todavía NO se ha persistido.
     await expect(page.getByText('QOX858')).toBeVisible();
     await expect(page.getByText('MUÑOZ GOMEZ EMMANUEL DAVID')).toBeVisible();
-    await expect(page.getByText('✓ Registrada')).toBeVisible();
+    await expect(page.getByText('✓ Relacionada')).toBeVisible();
     await expect(page.getByPlaceholder('—')).toHaveValue('LT10000848803'); // N.º de LT editable prellenado
+    expect(body).toBeNull();
+
+    // Paso 2: confirmar la recogida es lo que registra.
+    await page.getByRole('button', { name: /Confirmar recogida/ }).click();
+    await expect.poll(() => body).not.toBeNull();
+    expect(body).toMatchObject({ rawValue: RAW, numeroLt: 'LT10000848803' });
+    await expect(page.getByText('✓ Registrada')).toBeVisible();
+    await expect(page.getByText('1 registrada(s)')).toBeVisible();
   });
 
   test('una LT sin trámite aprobado se muestra extraída pero con el aviso', async ({ page }) => {
     await loginAs(page, MENSAJERO_USER);
     await page.route(/\/api\/flito\/logistica\/mi-ruta/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(RUTA) }));
-    await page.route(/\/api\/flito\/logistica\/escanear$/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', placa: 'QOX858', motivo: 'No hay ningún trámite aprobado con esta placa.' }) }));
+    // El aviso llega ya en la validación: no hace falta persistir nada para saber que no cruza.
+    await page.route(/\/api\/flito\/logistica\/validar-lt$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ resultado: 'sin_match', motivo: 'No hay ningún trámite aprobado con esta placa.' }) }));
 
     await abrirPegado(page);
     await page.getByPlaceholder(/10038156339/).fill(RAW);
@@ -81,6 +96,10 @@ test.describe('FLITO — Mi ruta (mensajero)', () => {
 
     await context.setOffline(true);
     await page.getByRole('button', { name: 'Agregar' }).click();
+    // Sin conexión no se valida contra el servidor: la LT entra igual y se dice por qué.
+    await expect(page.getByText('Sin validar (offline)')).toBeVisible();
+
+    await page.getByRole('button', { name: /Confirmar recogida/ }).click();
     await expect(page.getByText(/sin sincronizar/)).toBeVisible(); // cola visible (CA-15)
     expect(sent).toBeNull();
 

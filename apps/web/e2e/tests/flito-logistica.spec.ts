@@ -1,26 +1,30 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 
-// FLITO — Logística (v2). Consola de Operaciones: lista TRÁMITES APROBADOS con su estado logístico,
-// cierre de lote → acta y firma+despacho. El backend está mockeado; verificamos el cableado de la UI.
+// FLITO — Logística. Consola de Operaciones en tres pestañas: Trámites (aprobados, con su estado
+// logístico), Generación de actas (LT registradas por empresa) y Actas (despacho y firma).
+//
+// El vocabulario es de CINCO estados —pendiente, registrada, despachada, entregada, novedad— que
+// colapsan los internos del documento; la fila los trae ya resueltos en `estadoSimple` y
+// `estadoSimpleLabel`. El backend está mockeado; se verifica el cableado de la UI.
 
 const TRAMITES = [
   {
     tramiteId: 'tr-1', idFlit: 'FLIT-2001', placa: 'ABC123', vin: 'VIN0000000000001', propietario: 'Emmanuel David',
     companiaId: 5, companiaNombre: 'Concesionario Norte', companiaNit: '900111', organismoCodigo: '05001', organismoNombre: 'STT Medellín',
-    docId: null, estado: 'pendiente', estadoLabel: 'Pendiente de recogida', numeroLicencia: null, numeroLt: null,
+    docId: null, estadoSimple: 'pendiente', estadoSimpleLabel: 'Pendiente de recogida', numeroLicencia: null, numeroLt: null,
     actaId: null, motivo: null, actualizadoEn: null,
   },
   {
     tramiteId: 'tr-2', idFlit: 'FLIT-2002', placa: 'XYZ789', vin: 'VIN0000000000002', propietario: 'Ana Ruiz',
     companiaId: 5, companiaNombre: 'Concesionario Norte', companiaNit: '900111', organismoCodigo: '05001', organismoNombre: 'STT Medellín',
-    docId: 'doc-2', estado: 'clasificado', estadoLabel: 'Clasificada', numeroLicencia: '100381', numeroLt: 'LT-77',
+    docId: 'doc-2', estadoSimple: 'registrada', estadoSimpleLabel: 'Registrada', numeroLicencia: '100381', numeroLt: 'LT-77',
     actaId: null, motivo: null, actualizadoEn: '2026-07-20T11:00:00Z',
   },
   {
     tramiteId: 'tr-3', idFlit: 'FLIT-2003', placa: 'DEF456', vin: 'VIN0000000000003', propietario: 'Carlos Paz',
     companiaId: 5, companiaNombre: 'Concesionario Norte', companiaNit: '900111', organismoCodigo: '05001', organismoNombre: 'STT Medellín',
-    docId: 'doc-3', estado: 'entregado', estadoLabel: 'Entregada', numeroLicencia: '100382', numeroLt: 'LT-88',
+    docId: 'doc-3', estadoSimple: 'entregada', estadoSimpleLabel: 'Entregada', numeroLicencia: '100382', numeroLt: 'LT-88',
     actaId: 'acta-9', motivo: null, actualizadoEn: '2026-07-21T09:00:00Z',
   },
 ];
@@ -31,7 +35,7 @@ const ACTAS = [
 ];
 
 const FACETAS = {
-  estados: ['pendiente', 'recogido', 'clasificado', 'en_acta', 'despachado', 'entregado', 'novedad', 'devuelto'],
+  estados: ['pendiente', 'registrada', 'despachada', 'entregada', 'novedad'],
   empresas: [{ nit: '900111', nombre: 'Concesionario Norte' }],
   organismos: [{ codigo: '05001', nombre: 'STT Medellín' }],
   companiasCerrables: [{ companiaId: 5, nombre: 'Concesionario Norte', disponibles: 1 }],
@@ -56,12 +60,14 @@ test.describe('FLITO — Logística', () => {
     await expect(page.getByRole('heading', { name: 'Logística', exact: true })).toBeVisible();
     await expect(page.getByText('FLIT-2001')).toBeVisible();
     await expect(page.getByText('ABC123')).toBeVisible();
-    // Estado logístico por trámite (dentro de su fila).
+    // Estado logístico por trámite, dentro de su fila y en el vocabulario de cinco.
     await expect(page.getByRole('row', { name: /ABC123/ }).getByText('Pendiente de recogida')).toBeVisible();
+    await expect(page.getByRole('row', { name: /XYZ789/ }).getByText('Registrada')).toBeVisible();
     await expect(page.getByRole('row', { name: /DEF456/ }).getByText('Entregada')).toBeVisible();
-    // Panel de actas (chip de estado del acta, acotado a su fila).
+
+    // Las actas viven en su propia pestaña: la consola dejó de mezclarlas con los trámites.
+    await page.getByRole('button', { name: /^Actas/ }).click();
     await expect(page.getByRole('row', { name: /Concesionario Sur/ }).getByText('Despachada')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Cerrar lote' })).toBeVisible();
   });
 
   test('firmar y despachar un acta envía la firma de entrega', async ({ page }) => {
@@ -74,6 +80,7 @@ test.describe('FLITO — Logística', () => {
     });
 
     await page.goto('/flito/logistica');
+    await page.getByRole('button', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: 'Firmar y despachar' }).first().click();
     await page.getByRole('combobox').last().selectOption('9');
 
@@ -103,8 +110,11 @@ test.describe('FLITO — Logística', () => {
     });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Cerrar lote' }).click();
-    await expect(page.getByText('1 clasificada(s)')).toBeVisible();
+    // El «Cerrar lote» de un solo botón pasó a ser una pestaña con una empresa por fila: cada una
+    // genera SU acta con las LT que su mensajero radicó.
+    await page.getByRole('button', { name: /^Generación de actas/ }).click();
+    await expect(page.getByText('Concesionario Norte')).toBeVisible();
+    await expect(page.getByText('1 LT registrada(s)')).toBeVisible();
     await page.getByRole('button', { name: 'Generar acta' }).click();
     await expect.poll(() => body).not.toBeNull();
     expect(body).toMatchObject({ companiaId: 5 });
@@ -116,7 +126,9 @@ test.describe('FLITO — Logística', () => {
 
     await page.goto('/flito/logistica');
     await expect(page.getByText('FLIT-2001')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Cerrar lote' })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Generación de actas/ }).click();
+    await expect(page.getByRole('button', { name: 'Generar acta' })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: 'Firmar y despachar' })).toHaveCount(0);
   });
 });
