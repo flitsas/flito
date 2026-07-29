@@ -37,6 +37,10 @@ const lista = (v: unknown): string[] | undefined => {
   const s = str(v);
   return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
 };
+/** Fecha de calendario, o nada. Un texto suelto en un `::date` es un 500 que se puede evitar. */
+const fecha = (v: unknown): string | undefined =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const q = req.query;
   const filtros: FiltrosListado = {
@@ -47,6 +51,9 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     orden: esOrdenListado(q.orden) ? q.orden : undefined,
     // Igual que el orden: una alerta desconocida se ignora en vez de tumbar la petición.
     alerta: esAlertaOperativa(q.alerta) ? q.alerta : undefined,
+    // Solo se aceptan como 'yyyy-mm-dd': lo demás se ignora en vez de llegar a un cast de Postgres.
+    creadoDesde: fecha(q.creadoDesde), creadoHasta: fecha(q.creadoHasta),
+    aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
   res.json(await listar(filtros));

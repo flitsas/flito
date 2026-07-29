@@ -13,7 +13,7 @@
 //     sistema por su cuenta, porque asociar el pago al trámite equivocado descuadra la liquidación.
 
 import { createHash } from 'crypto';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   CampoDerechoTramite, CAMPOS_REQUERIDOS_DERECHO,
   FlujoRevision, MotivoRevision, type ExtraccionDerechoTramite,
@@ -705,18 +705,51 @@ export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoRe
 
 // ─────────────────────────── Consultas ───────────────────────────────────────
 
-export interface FiltrosDerechos { buscar?: string; page?: number; pageSize?: number }
+export interface FiltrosDerechos {
+  buscar?: string;
+  /** Secretarías cuyo recibo se quiere ver. Vacío = todas. */
+  organismos?: string[];
+  /** De dónde salió el recibo: cargado a mano o leído del Drive de la secretaría. */
+  origenes?: string[];
+  /** Rango de fecha de pago del recibo, inclusivo por día. */
+  pagadoDesde?: string; pagadoHasta?: string;
+  page?: number; pageSize?: number;
+}
+
+/** Facetas del listado: solo lo que de verdad hay, para no ofrecer filtros que no devuelven nada. */
+export async function facetasDerechos(): Promise<{ organismos: string[]; origenes: string[] }> {
+  const orgs = await db.selectDistinct({ v: flitoDerechosTramite.organismoCodigo })
+    .from(flitoDerechosTramite).orderBy(flitoDerechosTramite.organismoCodigo);
+  const origs = await db.selectDistinct({ v: flitoDerechosTramite.origen })
+    .from(flitoDerechosTramite).orderBy(flitoDerechosTramite.origen);
+  return {
+    organismos: orgs.map((o) => o.v).filter((v): v is string => Boolean(v)),
+    origenes: origs.map((o) => o.v).filter((v): v is string => Boolean(v)),
+  };
+}
 
 export async function listarDerechos(f: FiltrosDerechos = {}) {
   const page = Math.max(1, Math.floor(f.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
   const texto = f.buscar?.trim();
-  const where = texto
-    ? or(
+  const conds: SQL[] = [];
+  if (texto) {
+    conds.push(or(
       sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) LIKE ${`%${normalizarTexto(texto)}%`}`,
       sql`UPPER(${flitoTramites.idFlit}) LIKE ${`%${texto.toUpperCase()}%`}`,
-    )
-    : undefined;
+    )!);
+  }
+  if (f.organismos?.length) conds.push(inArray(flitoDerechosTramite.organismoCodigo, f.organismos));
+  if (f.origenes?.length) {
+    conds.push(inArray(
+      flitoDerechosTramite.origen,
+      f.origenes as Array<(typeof flitoDerechosTramite.origen.enumValues)[number]>,
+    ));
+  }
+  // `fecha_pago` es una columna `date`: se compara contra fechas, sin intervalos ni horas.
+  if (f.pagadoDesde) conds.push(sql`${flitoDerechosTramite.fechaPago} >= ${f.pagadoDesde}::date`);
+  if (f.pagadoHasta) conds.push(sql`${flitoDerechosTramite.fechaPago} <= ${f.pagadoHasta}::date`);
+  const where = conds.length ? and(...conds) : undefined;
 
   const base = db.select({
     id: flitoDerechosTramite.id,

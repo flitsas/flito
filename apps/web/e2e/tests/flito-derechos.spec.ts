@@ -39,6 +39,10 @@ const PENDIENTES = [
 ];
 
 async function mockListas(page: import('@playwright/test').Page) {
+  await page.route(/\/api\/flito\/derechos\/facetas/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ organismos: ['05001', '05266'], origenes: ['manual', 'drive'] }),
+  }));
   await page.route(/\/api\/flito\/derechos\/pendientes(\?|$)/, (route) => {
     const concepto = new URL(route.request().url()).searchParams.get('concepto');
     const filtrados = concepto ? PENDIENTES.filter((p) => p.concepto === concepto) : PENDIENTES;
@@ -58,9 +62,9 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await expect(page.getByText('QTP701')).toBeVisible();
     await expect(page.getByText('FLIT-1001')).toBeVisible();
     await expect(page.getByText('$ 236.700')).toBeVisible();
-    // El origen distingue lo cargado a mano de lo que llegó por el Drive del organismo.
-    // Se acota a la celda: "drive" también aparece en el enlace «Google Drive» del menú lateral.
-    await expect(page.getByRole('cell', { name: 'drive', exact: true })).toBeVisible();
+    // El origen distingue lo cargado a mano de lo que llegó por el Drive de la secretaría, y se
+    // rotula: en la columna se veía el valor crudo de la base («drive»).
+    await expect(page.getByRole('cell', { name: 'Drive de la secretaría', exact: true })).toBeVisible();
     // Una discrepancia de concepto no bloquea el registro pero queda visible.
     await expect(page.getByText('Con advertencia')).toBeVisible();
     // La fecha de pago no lleva hora: formatearla con `new Date(...)` la interpretaría como
@@ -110,6 +114,34 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await expect(page.getByText(/Servicio de IA no configurado/)).toBeVisible();
     // La página sigue viva: el listado se mantiene visible.
     await expect(page.getByText('QTP701')).toBeVisible();
+  });
+
+  test('los registrados se pueden filtrar por secretaría, origen y fecha de pago', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+    await page.route(/\/api\/flito\/derechos\/facetas/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ organismos: ['05001', '05266'], origenes: ['manual', 'drive'] }),
+    }));
+    let ultima = '';
+    await page.route(/\/api\/flito\/derechos\?/, (route) => {
+      ultima = route.request().url();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0 }) });
+    });
+
+    await page.goto('/flito/derechos');
+    // El origen se rotula: en la tabla se veía el valor crudo de la columna.
+    await page.locator('summary').filter({ hasText: 'Origen' }).click();
+    await page.getByRole('checkbox', { name: 'Drive de la secretaría' }).check();
+    await expect.poll(() => ultima).toContain('origenes=drive');
+
+    await page.locator('summary').filter({ hasText: 'Secretaría' }).click();
+    await page.getByRole('checkbox', { name: '05001' }).check();
+    await expect.poll(() => ultima).toContain('organismos=05001');
+
+    await page.locator('summary').filter({ hasText: 'Pagado' }).click();
+    await page.getByRole('button', { name: 'Hoy' }).click();
+    await expect.poll(() => ultima).toContain('pagadoDesde=');
   });
 
   test('la bandeja de pendientes muestra los intentos y permite reintentar', async ({ page }) => {

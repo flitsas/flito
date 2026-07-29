@@ -12,7 +12,7 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  DerechoError, cargarDerechos, candidatosDePlaca, listarDerechos,
+  DerechoError, cargarDerechos, candidatosDePlaca, facetasDerechos, listarDerechos,
   reintentarPendientes, type DerechoCtx,
 } from './flito-derechos.service.js';
 import { esConceptoPendiente, listarPendientes } from '../flito-pendientes/flito-pendientes.service.js';
@@ -79,11 +79,28 @@ router.post('/cargar', OPERACIONES, upload.array('archivos', 50), async (req: Re
 });
 
 // GET / — listado paginado de derechos registrados.
+const listaQ = (v: unknown): string[] | undefined => {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+};
+/** Fecha de calendario, o nada: un texto suelto en un `::date` es un 500 que se puede evitar. */
+const fechaQ = (v: unknown): string | undefined =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
   const page = Number(req.query.page) || 1;
   const pageSize = Number(req.query.pageSize) || 50;
-  res.json(await listarDerechos({ buscar, page, pageSize }));
+  res.json(await listarDerechos({
+    buscar, page, pageSize,
+    organismos: listaQ(req.query.organismos), origenes: listaQ(req.query.origenes),
+    pagadoDesde: fechaQ(req.query.pagadoDesde), pagadoHasta: fechaQ(req.query.pagadoHasta),
+  }));
+});
+
+// GET /facetas — organismos y orígenes presentes, para no ofrecer filtros vacíos.
+router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await facetasDerechos());
 });
 
 // GET /pendientes — recibos leídos que aún no cruzan con ningún registro. Desde la HU #10982 la

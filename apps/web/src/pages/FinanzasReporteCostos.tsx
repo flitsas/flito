@@ -8,6 +8,7 @@ import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
+import RangoFechas from '../components/flit/RangoFechas';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -210,21 +211,13 @@ export default function FinanzasReporteCostos() {
             <option value="no">Solo no facturados</option>
           </select>
         </div>
-        {/* Dos rangos independientes. Van agrupados y rotulados porque «desde/hasta» a secas, con
-            dos fechas distintas en juego, no dice sobre cuál de las dos se está filtrando. */}
+        {/* Dos rangos independientes, cada uno en su calendario. Van rotulados porque «desde/hasta»
+            a secas, con dos fechas distintas en juego, no dice sobre cuál se está filtrando. */}
         <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Creado</span>
-            <input type="date" aria-label="Creado desde" className={flitInp} value={desde} onChange={(e) => setDesde(e.target.value)} />
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
-            <input type="date" aria-label="Creado hasta" className={flitInp} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Aprobado</span>
-            <input type="date" aria-label="Aprobado desde" className={flitInp} value={aprobadoDesde} onChange={(e) => setAprobadoDesde(e.target.value)} />
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
-            <input type="date" aria-label="Aprobado hasta" className={flitInp} value={aprobadoHasta} onChange={(e) => setAprobadoHasta(e.target.value)} />
-          </div>
+          <RangoFechas etiqueta="Creado" valor={{ desde, hasta }}
+            onCambio={(r) => { setDesde(r.desde); setHasta(r.hasta); }} />
+          <RangoFechas etiqueta="Aprobado" valor={{ desde: aprobadoDesde, hasta: aprobadoHasta }}
+            onCambio={(r) => { setAprobadoDesde(r.desde); setAprobadoHasta(r.hasta); }} />
           <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
         </div>
         {facetas && facetas.estados.length > 0 && (

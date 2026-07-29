@@ -95,10 +95,17 @@ test.describe('Finanzas — Reporte de costos', () => {
     await page.goto('/finanzas/reporte-costos');
     await expect.poll(() => urls[0] ?? '').toContain('estados=Aprobado');
 
-    await page.getByLabel('Creado desde').fill('2026-06-01');
-    await page.getByLabel('Aprobado hasta').fill('2026-07-31');
-    await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoHasta=2026-07-31');
-    expect(urls.at(-1)).toContain('desde=2026-06-01');
+    // Cada rango es un calendario propio (HU #11026): se elige el tramo y viaja completo.
+    const rango = (etiqueta: string) => page.locator('summary').filter({ hasText: etiqueta });
+    await rango('Creado').click();
+    await page.getByRole('button', { name: 'Este mes' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('desde=');
+
+    await rango('Aprobado').click();
+    await page.getByRole('button', { name: 'Hoy' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoDesde=');
+    // Los dos viajan a la vez y por separado: uno no pisa al otro.
+    expect(urls.at(-1)).toContain('desde=');
   });
 
   test('limpiar filtros vuelve a Aprobado, no a todos los estados', async ({ page }) => {
@@ -115,7 +122,8 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Entregado' }).click();
-    await page.getByLabel('Creado desde').fill('2026-06-01');
+    await page.locator('summary').filter({ hasText: 'Creado' }).click();
+    await page.getByRole('button', { name: 'Este mes' }).click();
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
 
     await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');

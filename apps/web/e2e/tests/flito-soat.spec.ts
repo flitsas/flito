@@ -125,11 +125,18 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.getByRole('checkbox', { name: 'Solo sin gestión' }).check();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('estancado=si');
 
-    await page.getByLabel('Solicitado desde').fill('2026-04-01');
-    await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('solicitadoDesde=2026-04-01');
+    // Cada rango es un calendario propio (HU #11026): el tramo viaja entero, no campo a campo.
+    const rango = (etiqueta: string) => page.locator('summary').filter({ hasText: etiqueta });
+    await rango('Solicitado').click();
+    await page.getByRole('button', { name: '30 días' }).click();
+    await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('solicitadoDesde=');
+    expect(urlsPedidas.at(-1)).toContain('solicitadoHasta=');
 
-    await page.getByLabel('Pagado hasta').fill('2026-04-30');
-    await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('pagadoHasta=2026-04-30');
+    await rango('Pagado').click();
+    await page.getByRole('button', { name: 'Hoy' }).click();
+    await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('pagadoHasta=');
+    // El rango de pago no pisa el de solicitud.
+    expect(urlsPedidas.at(-1)).toContain('solicitadoDesde=');
   });
 
   test('la búsqueda consulta una vez tras la pausa, no en cada tecla', async ({ page }) => {

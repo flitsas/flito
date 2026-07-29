@@ -19,6 +19,8 @@ import {
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import RangoFechas from '../components/flit/RangoFechas';
 
 const PAGE_SIZE = 50;
 
@@ -48,6 +50,8 @@ const CONCEPTOS_PENDIENTE = [
 ] as const;
 const ETIQUETA_CONCEPTO: Record<string, string> = { derecho: 'Derecho', soat: 'SOAT', impuesto: 'Impuesto' };
 const TONO_CONCEPTO: Record<string, ChipTone> = { derecho: 'active', soat: 'warning', impuesto: 'draft' };
+/** De dónde salió el recibo. En la tabla se veía el valor crudo de la columna. */
+const ETIQUETA_ORIGEN: Record<string, string> = { manual: 'Carga manual', drive: 'Drive de la secretaría' };
 
 interface ArchivoDrive {
   fileId: string; nombre: string; tamanoBytes: number | null;
@@ -231,6 +235,11 @@ export default function FlitoDerechos() {
   const [reintentando, setReintentando] = useState(false);
   const [conceptoSel, setConceptoSel] = useState<'' | 'derecho' | 'soat' | 'impuesto'>('');
   const [ultimoReintento, setUltimoReintento] = useState<PendienteAsociado[] | null>(null);
+  // Filtros del listado de registrados (HU #11026). Antes solo había búsqueda por texto.
+  const [organismosSel, setOrganismosSel] = useState<string[]>([]);
+  const [origenesSel, setOrigenesSel] = useState<string[]>([]);
+  const [pagado, setPagado] = useState({ desde: '', hasta: '' });
+  const [facetas, setFacetas] = useState<{ organismos: string[]; origenes: string[] }>({ organismos: [], origenes: [] });
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -238,12 +247,25 @@ export default function FlitoDerechos() {
     const t = setTimeout(() => {
       const q = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
       if (buscar.trim()) q.set('buscar', buscar.trim());
+      if (organismosSel.length) q.set('organismos', organismosSel.join(','));
+      if (origenesSel.length) q.set('origenes', origenesSel.join(','));
+      if (pagado.desde) q.set('pagadoDesde', pagado.desde);
+      if (pagado.hasta) q.set('pagadoHasta', pagado.hasta);
       api.get<{ items: DerechoRow[]; total: number }>(`/flito/derechos?${q}`)
         .then((r) => { setDerechos(r.items); setTotal(r.total); })
         .catch(() => { setDerechos([]); setTotal(0); });
     }, 300);
     return () => clearTimeout(t);
-  }, [buscar, page, nonce]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscar, page, nonce, organismosSel.join(','), origenesSel.join(','), pagado.desde, pagado.hasta]);
+
+  useEffect(() => {
+    api.get<{ organismos: string[]; origenes: string[] }>('/flito/derechos/facetas')
+      // Se normaliza lo que llegue: una respuesta inesperada no puede tumbar la pantalla entera
+      // por un `.map` sobre undefined. Sin facetas, la búsqueda por texto sigue funcionando.
+      .then((f) => setFacetas({ organismos: f?.organismos ?? [], origenes: f?.origenes ?? [] }))
+      .catch(() => setFacetas({ organismos: [], origenes: [] }));
+  }, [nonce]);
 
   useEffect(() => {
     const q = conceptoSel ? `?concepto=${conceptoSel}` : '';
@@ -412,6 +434,13 @@ export default function FlitoDerechos() {
               value={buscar}
               onChange={(e) => { setBuscar(e.target.value); setPage(1); }}
             />
+            <ThFiltroMulti seleccion={organismosSel} onCambio={(v) => { setOrganismosSel(v); setPage(1); }}
+              placeholder="Secretaría" vacio="Sin secretarías registradas"
+              opciones={facetas.organismos.map((c) => ({ value: c, label: c }))} />
+            <ThFiltroMulti seleccion={origenesSel} onCambio={(v) => { setOrigenesSel(v); setPage(1); }}
+              placeholder="Origen" vacio="Sin orígenes"
+              opciones={facetas.origenes.map((o) => ({ value: o, label: ETIQUETA_ORIGEN[o] ?? o }))} />
+            <RangoFechas etiqueta="Pagado" valor={pagado} onCambio={(r) => { setPagado(r); setPage(1); }} />
           </div>
 
           {derechos.length === 0 ? (
@@ -450,7 +479,7 @@ export default function FlitoDerechos() {
                       <td className="px-4 py-2.5 text-sm font-semibold">{pesos(d.valor)}</td>
                       <td className="px-4 py-2.5 text-sm">{fecha(d.fechaPago)}</td>
                       <td className="px-4 py-2.5 text-xs">
-                        <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{d.origen}</StatusChip>
+                        <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{ETIQUETA_ORIGEN[d.origen] ?? d.origen}</StatusChip>
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {d.soporteId ? (

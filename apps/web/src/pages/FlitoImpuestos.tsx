@@ -15,6 +15,7 @@ import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
+import RangoFechas from '../components/flit/RangoFechas';
 import Paginacion from '../components/flit/Paginacion';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -159,18 +160,10 @@ export default function FlitoImpuestos() {
               opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
           )}
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Solicitado</span>
-            <input type="date" aria-label="Solicitado desde" className={flitInp} value={solicitadoDesde} onChange={(e) => setSolicitadoDesde(e.target.value)} />
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
-            <input type="date" aria-label="Solicitado hasta" className={flitInp} value={solicitadoHasta} onChange={(e) => setSolicitadoHasta(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Pagado</span>
-            <input type="date" aria-label="Pagado desde" className={flitInp} value={pagadoDesde} onChange={(e) => setPagadoDesde(e.target.value)} />
-            <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>a</span>
-            <input type="date" aria-label="Pagado hasta" className={flitInp} value={pagadoHasta} onChange={(e) => setPagadoHasta(e.target.value)} />
-          </div>
+          <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
+            onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
+          <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
+            onCambio={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }} />
 
           <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
             <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />

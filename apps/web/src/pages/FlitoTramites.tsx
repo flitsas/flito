@@ -24,6 +24,7 @@ import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
+import RangoFechas from '../components/flit/RangoFechas';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -117,6 +118,10 @@ export default function FlitoTramites() {
   const [enProceso, setEnProceso] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
+  // Dos rangos independientes: creación (fecha de FLIT) y aprobación (HU #11026).
+  const [creado, setCreado] = useState({ desde: '', hasta: '' });
+  const [aprobado, setAprobado] = useState({ desde: '', hasta: '' });
+
   // Sincronización: por defecto es INCREMENTAL (el backend arranca desde la última fecha sincronizada).
   // La fecha inicial solo se elige a mano si no hay sync previo (primera vez) o si se activa el switch.
   const hace30 = () => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); };
@@ -182,12 +187,17 @@ export default function FlitoTramites() {
     if (autogestionSel) q.set('autogestion', autogestionSel);
     if (ordenSel !== 'recientes') q.set('orden', ordenSel);
     if (alertaSel) q.set('alerta', alertaSel);
+    if (creado.desde) q.set('creadoDesde', creado.desde);
+    if (creado.hasta) q.set('creadoHasta', creado.hasta);
+    if (aprobado.desde) q.set('aprobadoDesde', aprobado.desde);
+    if (aprobado.hasta) q.set('aprobadoHasta', aprobado.hasta);
     q.set('page', String(page)); q.set('pageSize', String(PAGE_SIZE));
     api.get<Paginado>(`/flito/tramites?${q}`)
       .then((r) => { setData(r.items); setTotal(r.total); })
       .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel, page, recarga]);
+  }, [buscar, estadosKey, transitosKey, ciudadesKey, empresasKey, soatKey, impKey, autogestionSel, ordenSel, alertaSel,
+    creado.desde, creado.hasta, aprobado.desde, aprobado.hasta, page, recarga]);
 
   // Facetas (opciones de los dropdowns) + clientes FLITO (para el multiselect de empresa gestora).
   useEffect(() => {
@@ -342,6 +352,8 @@ export default function FlitoTramites() {
           <div className="mb-3 flex flex-wrap items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
             <input className={`${flitInp} h-9 min-w-[18rem]`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
+            <RangoFechas etiqueta="Aprobado" valor={aprobado} onCambio={(r) => { setAprobado(r); setPage(1); }} />
             {/* Filtro rápido por autogestión de la empresa (SOAT e impuestos autogestionados). */}
             <div className="flex items-center gap-1" role="group" aria-label="Filtrar por autogestión">
               {([['', 'Todas'], ['si', 'Autogestionadas'], ['no', 'No autogestionadas']] as const).map(([val, label]) => {

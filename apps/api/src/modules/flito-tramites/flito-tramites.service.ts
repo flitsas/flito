@@ -220,6 +220,13 @@ export interface FiltrosListado {
   orden?: OrdenListado;
   /** Alerta operativa del tablero. Excluyentes entre sí: un botón, un valor. */
   alerta?: AlertaOperativa;
+  /**
+   * Dos rangos independientes, ambos inclusivos por día (HU #11026). El de creación mide contra la
+   * fecha de FLIT, no contra `created_at`: esta última es cuándo el sync ingirió la fila, y en la
+   * carga masiva inicial todos los históricos comparten el mismo día.
+   */
+  creadoDesde?: string; creadoHasta?: string;
+  aprobadoDesde?: string; aprobadoHasta?: string;
   page?: number; pageSize?: number;
 }
 
@@ -514,6 +521,13 @@ function construirCondiciones(f: FiltrosListado): SQL[] {
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
   if (f.alerta) conds.push(condicionAlerta(f.alerta));
+  // Inclusivos por día: `<= hasta::date + 1 day` en vez de `<= hasta`, que dejaría fuera todo lo
+  // ocurrido ese mismo día después de medianoche.
+  const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
+  if (f.creadoDesde) conds.push(sql`${nacimiento} >= ${f.creadoDesde}::date`);
+  if (f.creadoHasta) conds.push(sql`${nacimiento} < ${f.creadoHasta}::date + INTERVAL '1 day'`);
+  if (f.aprobadoDesde) conds.push(sql`${flitoTramites.fechaAprobacion} >= ${f.aprobadoDesde}::date`);
+  if (f.aprobadoHasta) conds.push(sql`${flitoTramites.fechaAprobacion} < ${f.aprobadoHasta}::date + INTERVAL '1 day'`);
   return conds;
 }
 
