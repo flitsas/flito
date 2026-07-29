@@ -2698,6 +2698,29 @@ export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', 
 export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado', ['generada', 'despachada', 'entregada', 'devuelta']);
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
+/**
+ * Tarifa negociada con una compañía gestora (HU #10963). Sustituye a las constantes quemadas
+ * `COSTOS_FIJOS.tramiteDigital` y `COSTOS_FIJOS.logistica`, que eran iguales para todos los clientes.
+ *
+ * `tipoTramite` NULL = tarifa genérica del concepto, la que se usa cuando no hay una específica.
+ * Se guarda normalizado (mayúsculas, sin espacios) porque en `flito_tramites.tipoTramite` es texto
+ * libre de FLIT. La unicidad real la impone `idx_flito_tarifas_unica`, con COALESCE sobre el tipo:
+ * en un índice único normal NULL no colisiona con NULL y habría varias tarifas genéricas.
+ */
+export const flitoTarifasCompania = pgTable('flito_tarifas_compania', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  concepto: varchar('concepto', { length: 30 }).notNull(),
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  actualizadoPorId: integer('actualizado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaConceptoIdx: index('idx_flito_tarifas_compania_concepto').on(t.companiaId, t.concepto),
+}));
+
 // Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
   id: uuid('id').primaryKey().defaultRandom(),
