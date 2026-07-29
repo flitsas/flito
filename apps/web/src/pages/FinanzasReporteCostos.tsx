@@ -9,6 +9,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
+import VisorPdf from '../components/flit/VisorPdf';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -22,6 +23,8 @@ interface Fila {
   sellada: boolean;
   estadoLiquidacion: 'liquidado' | 'facturado' | null;
   noConfigurados: string[];
+  /** Conceptos que esperan su documento pagado, no una tarifa. Hoy solo el derecho de tránsito. */
+  sinRecibo: string[];
 }
 interface Totales {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
@@ -50,8 +53,8 @@ const fechaCorta = (iso: string | null) =>
   (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));
 
 /**
- * Etiquetas de los conceptos que el backend puede reportar como no configurados. Se usan para el
- * encabezado Y para cruzar con `noConfigurados`, para que ambos no puedan divergir.
+ * Etiquetas de los conceptos. Se usan para el encabezado Y para cruzar con `noConfigurados` y
+ * `sinRecibo`, para que el rótulo de la columna y el motivo de la ausencia no puedan divergir.
  */
 const CONCEPTO = {
   soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito',
@@ -59,18 +62,25 @@ const CONCEPTO = {
 } as const;
 
 /**
- * Un concepto sin valor no siempre significa lo mismo, y decir lo que no es hace daño:
- *   falta = true  → el dato DEBERÍA estar y no está: falta la tarifa o el recibo. Hay que actuar.
- *   falta = false → no aplica a este trámite (exento, o la compañía lo autogestiona). No hay nada
- *                   que hacer, así que se pinta un guion en vez de acusar una configuración ausente.
+ * Un concepto sin valor no siempre significa lo mismo, y decir lo que no es hace daño. Tres casos:
+ *
+ *   falta = 'tarifa' → no hay tarifa negociada con la compañía. Se arregla en Clientes y
+ *                      proveedores. Solo aplica a logística y trámite digital, que son honorarios
+ *                      de FLITO y se pactan cliente a cliente.
+ *   falta = 'recibo' → falta el DOCUMENTO pagado. Es el caso del derecho de tránsito, que no se
+ *                      configura en ninguna pantalla: se lee del recibo, igual que el SOAT y el
+ *                      impuesto. Decirle «no configurado» mandaba a buscar una parametrización
+ *                      inexistente.
+ *   sin falta        → no aplica a este trámite (exento, o la compañía lo autogestiona). Un guion,
+ *                      porque no hay nada que hacer.
+ *
  * En ningún caso se pinta «$ 0»: un cero se suma en la cabeza de quien lee.
  */
-function Monto({ v, falta, negrita }: { v: number | null; falta?: boolean; negrita?: boolean }) {
+function Monto({ v, falta, negrita }: { v: number | null; falta?: 'tarifa' | 'recibo'; negrita?: boolean }) {
   if (v === null) {
+    const texto = falta === 'tarifa' ? 'No configurado' : falta === 'recibo' ? 'Sin recibo' : '—';
     return (
-      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>
-        {falta ? 'No configurado' : '—'}
-      </span>
+      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>{texto}</span>
     );
   }
   return <span className={negrita ? 'font-semibold' : undefined}>{pesos(v)}</span>;
@@ -146,7 +156,9 @@ export default function FinanzasReporteCostos() {
   const refrescar = () => setRecarga((n) => n + 1);
 
   /** Solo se puede liquidar lo que no está liquidado y tiene todos sus conceptos resueltos. */
-  const liquidable = (f: Fila) => !f.sellada && f.noConfigurados.length === 0;
+  // Ni sin tarifa ni sin recibo: lo primero congelaría un cobro inventado, lo segundo un total al
+  // que le falta un costo que existe.
+  const liquidable = (f: Fila) => !f.sellada && f.noConfigurados.length === 0 && f.sinRecibo.length === 0;
   const liquidables = filas.filter(liquidable);
 
   const ejecutar = async (fn: () => Promise<string>) => {
@@ -320,9 +332,9 @@ export default function FinanzasReporteCostos() {
                         exento o autogestionado, no una configuración que falte. */}
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.impuesto} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={f.noConfigurados.includes(CONCEPTO.derecho)} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={f.noConfigurados.includes(CONCEPTO.logistica)} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={f.noConfigurados.includes(CONCEPTO.digital)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={f.sinRecibo.includes(CONCEPTO.derecho) ? 'recibo' : undefined} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={f.noConfigurados.includes(CONCEPTO.logistica) ? 'tarifa' : undefined} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={f.noConfigurados.includes(CONCEPTO.digital) ? 'tarifa' : undefined} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.gmf} /></td>
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
                     <td className="px-3 py-2">
@@ -370,7 +382,10 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
 }) {
   const [reversando, setReversando] = useState(false);
   const [motivo, setMotivo] = useState('');
-  const bloqueado = fila.noConfigurados.length > 0;
+  // Las dos ausencias bloquean, y se nombran juntas: a quien lee le da igual si lo que falta es una
+  // tarifa o un recibo, lo que necesita saber es qué le impide liquidar.
+  const falta = [...fila.noConfigurados, ...fila.sinRecibo];
+  const bloqueado = falta.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-1">
@@ -378,12 +393,12 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
 
       {puedeLiquidar && !fila.sellada && (
         <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso || bloqueado}
-          title={bloqueado ? `Falta: ${fila.noConfigurados.join(', ')}` : 'Sellar los valores de este trámite'}
+          title={bloqueado ? `Falta: ${falta.join(', ')}` : 'Sellar los valores de este trámite'}
           onClick={onLiquidar}>Liquidar</button>
       )}
       {/* Por qué NO se puede liquidar, sin obligar a pasar el ratón por encima del botón. */}
       {puedeLiquidar && !fila.sellada && bloqueado && (
-        <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Falta: {fila.noConfigurados.join(', ')}</span>
+        <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Falta: {falta.join(', ')}</span>
       )}
 
       {puedeLiquidar && fila.estadoLiquidacion === 'liquidado' && (
@@ -427,38 +442,44 @@ function VisorSoportes({ fila, onClose }: { fila: Fila; onClose: () => void }) {
   }, [fila.tramiteId, nonce]);
 
   return (
-    <FlitModal title={`Documentos de ${fila.idFlit}`} onClose={onClose}>
+    // `full`: un PDF a 448 px de ancho no se lee sin hacer zoom. El visor ocupa casi toda la
+    // pantalla y la lista de documentos pasa a una columna lateral, que es la forma de no gastar
+    // altura del documento en pastillas.
+    <FlitModal title={`Documentos de ${fila.idFlit}`} onClose={onClose} full>
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!soportes && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
       {soportes && soportes.length === 0 && (
         <FlitEmpty>Este trámite no tiene ningún documento cargado todavía.</FlitEmpty>
       )}
-      {soportes && (
-        <div className="mb-2 flex items-center justify-between gap-3 text-xs">
-          <span style={{ color: 'var(--flit-text-secondary)' }}>
-            {soportes.length} documento(s): {[...new Set(soportes.map((s) => ORIGEN_SOPORTE[s.origen] ?? s.origen))].join(' · ') || '—'}
-          </span>
-          {/* Un comprobante cargado en otra pestaña aparece sin tener que cerrar y volver a abrir. */}
-          <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
-            onClick={() => setNonce((n) => n + 1)}>Actualizar</button>
-        </div>
-      )}
       {soportes && soportes.length > 0 && (
-        <div className="space-y-3">
-          <FlitPillGroup>
-            {soportes.map((s) => (
-              <FlitPillButton key={s.id} active={activo?.id === s.id} onClick={() => setActivo(s)}>
-                {ORIGEN_SOPORTE[s.origen] ?? s.origen} · {s.nombreArchivo}
-              </FlitPillButton>
-            ))}
-          </FlitPillGroup>
-          {activo && (
-            <object data={activo.url} type="application/pdf" className="h-[600px] w-full rounded-md border">
-              <a href={activo.url} target="_blank" rel="noreferrer" style={{ color: 'var(--flit-blue-text)' }}>
-                Abrir el documento
-              </a>
-            </object>
-          )}
+        <div className="flex h-full min-h-0 gap-4">
+          <aside className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto">
+            <div className="flex items-baseline justify-between gap-2 text-xs">
+              <span style={{ color: 'var(--flit-text-secondary)' }}>{soportes.length} documento(s)</span>
+              {/* Un comprobante cargado en otra pestaña aparece sin cerrar y volver a abrir. */}
+              <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
+                onClick={() => setNonce((n) => n + 1)}>Actualizar</button>
+            </div>
+            {soportes.map((s) => {
+              const activa = activo?.id === s.id;
+              return (
+                <button key={s.id} type="button" onClick={() => setActivo(s)}
+                  className="rounded-lg border px-3 py-2 text-left text-xs transition-colors"
+                  style={activa
+                    ? { borderColor: 'var(--flit-blue-text)', background: 'rgba(48,102,190,0.08)' }
+                    : { borderColor: 'var(--flit-border-input)' }}>
+                  <div className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+                    {ORIGEN_SOPORTE[s.origen] ?? s.origen}
+                  </div>
+                  <div className="break-all" style={{ color: 'var(--flit-text-secondary)' }}>{s.nombreArchivo}</div>
+                  <div style={{ color: 'var(--flit-text-muted)' }}>{fechaCorta(s.subidoEn) ?? ''}</div>
+                </button>
+              );
+            })}
+          </aside>
+          <div className="min-h-0 min-w-0 flex-1">
+            {activo && <VisorPdf key={activo.id} url={activo.url} nombre={activo.nombreArchivo} />}
+          </div>
         </div>
       )}
     </FlitModal>

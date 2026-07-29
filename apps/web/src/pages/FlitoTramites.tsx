@@ -549,10 +549,15 @@ export default function FlitoTramites() {
                     {/* Sin recibo NO se pinta un estimado. Antes salía «$ 75.000 *», una constante
                         igual para todos los organismos: un número inventado que se lee como un
                         cobro real y que el reporte de costos ya dejó de mostrar. Decir que falta
-                        obliga a cargarlo; inventarlo invita a darlo por bueno. */}
+                        obliga a cargarlo; inventarlo invita a darlo por bueno.
+
+                        Y dice «Sin recibo», no «No configurado»: el derecho de tránsito no se
+                        configura en ninguna pantalla. Es un desembolso real que se lee del recibo
+                        pagado, como el SOAT y el impuesto. El rótulo viejo mandaba a buscar una
+                        parametrización que no existe. */}
                     {f.derechoTramiteValor !== null
                       ? pesos(f.derechoTramiteValor)
-                      : <span className="text-xs italic">No configurado</span>}
+                      : <span className="text-xs italic">Sin recibo</span>}
                   </td>
                 </FlitTr>
               ))}

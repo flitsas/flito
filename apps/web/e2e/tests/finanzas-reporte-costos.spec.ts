@@ -9,12 +9,12 @@ const FILA_ESTIMADA = {
   estado: 'Aprobado', empresa: 'ACME SAS', tipoTramite: 'Traspaso',
   fechaAprobacion: '2026-07-14T15:30:00.000Z',
   soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000,
-  gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [],
+  gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
   fechaAprobacion: null,
-  tramiteDigital: null, total: null, noConfigurados: ['Trámite digital'],
+  tramiteDigital: null, total: null, noConfigurados: ['Trámite digital'], sinRecibo: [],
 };
 const FILA_LIQUIDADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000003', idFlit: 'FLIT-2003',
@@ -25,9 +25,18 @@ const FILA_FACTURADA = {
   sellada: true, estadoLiquidacion: 'facturado',
 };
 
+/**
+ * Derecho sin recibo, pero con TODAS las tarifas puestas. Distingue los dos motivos de ausencia: el
+ * derecho de tránsito no se configura en ninguna pantalla, se lee del recibo pagado.
+ */
+const FILA_SIN_RECIBO = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000005', idFlit: 'FLIT-2005',
+  derechoTramite: null, total: null, noConfigurados: [], sinRecibo: ['Derecho de tránsito'],
+};
+
 const REPORTE = {
-  items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_FACTURADA],
-  total: 4, page: 1, pageSize: 50,
+  items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_FACTURADA, FILA_SIN_RECIBO],
+  total: 5, page: 1, pageSize: 50,
   totales: {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, logistica: 60000,
     tramiteDigital: 600000, gmf: 10400, total: 3270400, filasIncompletas: 1,
@@ -131,6 +140,21 @@ test.describe('Finanzas — Reporte de costos', () => {
     expect(urls.at(-1)).not.toContain('desde=');
   });
 
+  test('el derecho de tránsito sin recibo NO dice «No configurado»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // El derecho no se configura: es un desembolso real que se lee del recibo, como el SOAT y el
+    // impuesto. El rótulo viejo mandaba a buscar una parametrización que no existe.
+    const fila = page.getByRole('row').filter({ hasText: 'FLIT-2005' });
+    await expect(fila.getByText('Sin recibo')).toBeVisible();
+    await expect(fila.getByText('No configurado')).toHaveCount(0);
+    // Y sigue sin poder liquidarse: falta un costo que existe. Se nombra en el aviso.
+    await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
+    await expect(fila.getByText('Falta: Derecho de tránsito')).toBeVisible();
+  });
+
   test('un concepto sin tarifa se muestra como «No configurado», no como cero', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
@@ -152,7 +176,7 @@ test.describe('Finanzas — Reporte de costos', () => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('Totales (4 trámites del filtro)')).toBeVisible();
+    await expect(page.getByText('Totales (5 trámites del filtro)')).toBeVisible();
   });
 
   test('no se puede liquidar una fila con conceptos pendientes, y se dice cuál falta', async ({ page }) => {
@@ -222,10 +246,10 @@ test.describe('Finanzas — Reporte de costos', () => {
     await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
     await expect(page.getByText('Documentos de FLIT-2001')).toBeVisible();
     // Un trámite con los cuatro cargados tiene que enseñar los cuatro, no el primero que se halló.
-    await expect(page.getByRole('button', { name: /SOAT · soat.pdf/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Derecho de tránsito · recibo.pdf/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Logística · Acta de entrega.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'SOAT' }).filter({ hasText: 'soat.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Derecho de tránsito' }).filter({ hasText: 'recibo.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Impuesto' }).filter({ hasText: 'impuesto.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Logística' }).filter({ hasText: 'Acta de entrega.pdf' })).toBeVisible();
     await expect(page.getByText(/4 documento\(s\)/)).toBeVisible();
   });
 
@@ -246,13 +270,13 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByRole('button', { name: 'Soporte' }).click();
-    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toHaveCount(0);
+    await expect(page.getByRole('button').filter({ hasText: 'impuesto.pdf' })).toHaveCount(0);
 
     impuestoCargado = true;
     await page.getByRole('button', { name: 'Actualizar' }).click();
-    await expect(page.getByRole('button', { name: /Impuesto · impuesto.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'impuesto.pdf' })).toBeVisible();
     // El documento que se estaba mirando no se pierde de vista al recargar la lista.
-    await expect(page.getByRole('button', { name: /SOAT · soat.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'soat.pdf' })).toBeVisible();
   });
 
   test('un trámite sin soportes lo dice en vez de fallar', async ({ page }) => {
