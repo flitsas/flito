@@ -275,6 +275,7 @@ export default function FinanzasReporteCostos() {
                     </FlitTh>
                   )}
                   <FlitTh>Trámite</FlitTh>
+                  <FlitTh>Liquidación</FlitTh>
                   <FlitTh>Aprobado</FlitTh>
                   <FlitTh center>{CONCEPTO.soat}</FlitTh>
                   <FlitTh center>{CONCEPTO.impuesto}</FlitTh>
@@ -305,13 +306,13 @@ export default function FinanzasReporteCostos() {
                     <td className="px-4 py-2">
                       <div className="text-sm font-medium tabular-nums">{f.idFlit}</div>
                       <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.placa ?? '—'}{f.empresa ? ` · ${f.empresa}` : ''}</div>
-                      <div className="mt-1">
-                        {f.estadoLiquidacion === 'facturado'
-                          ? <StatusChip tone="success">Facturado</StatusChip>
-                          : f.sellada
-                            ? <StatusChip tone="active">Liquidado</StatusChip>
-                            : <StatusChip tone="draft">Estimado</StatusChip>}
-                      </div>
+                    </td>
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      {f.estadoLiquidacion === 'facturado'
+                        ? <StatusChip tone="success">Facturado</StatusChip>
+                        : f.sellada
+                          ? <StatusChip tone="active">Liquidado</StatusChip>
+                          : <StatusChip tone="draft">Estimado</StatusChip>}
                     </td>
                     <td className="px-4 py-2 text-xs whitespace-nowrap" style={{ color: 'var(--flit-text-secondary)' }}>
                       {fechaCorta(f.fechaAprobacion)

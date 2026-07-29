@@ -410,6 +410,7 @@ export default function FlitoTramites() {
                 <FlitTh>Aprobado</FlitTh>
                 <FlitTh>Vehículo</FlitTh>
                 <FlitTh>Comprador</FlitTh>
+                <FlitTh>Correo</FlitTh>
                 <FlitTh>
                   Empresa gestora
                   <ThFiltroMulti seleccion={empresasSel} onCambio={setEmpresasSel}
@@ -476,16 +477,19 @@ export default function FlitoTramites() {
                       <>
                         <div>{f.compradorPrincipal.nombreCompleto}</div>
                         <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.compradorPrincipal.numeroDocumento}</div>
-                        {/* Sin correo no se pinta nada: un guion suelto ocupa lo mismo y no informa. */}
-                        {f.compradorPrincipal.correo && (
-                          <div>
-                            <a href={`mailto:${f.compradorPrincipal.correo}`} className="text-[11px] break-all hover:underline"
-                              style={{ color: 'var(--flit-blue-text)' }}>{f.compradorPrincipal.correo}</a>
-                          </div>
-                        )}
                         {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
                       </>
                     ) : '—'}
+                  </td>
+                  {/* Columna propia: bajo el comprador el correo se leía como un dato más de su
+                      ficha, y es por donde se le escribe al responsable del trámite. */}
+                  <td className="px-3 py-2 text-sm align-top">
+                    {f.compradorPrincipal?.correo
+                      ? (
+                        <a href={`mailto:${f.compradorPrincipal.correo}`} className="text-xs break-all hover:underline"
+                          style={{ color: 'var(--flit-blue-text)' }}>{f.compradorPrincipal.correo}</a>
+                      )
+                      : <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>Sin correo</span>}
                   </td>
                   {/* Empresa gestora (CompaniaGestora de FLIT ↔ cliente FLITO): nombre arriba, NIT abajo. */}
                   <td className="px-3 py-2 text-sm align-top">

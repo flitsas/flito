@@ -190,18 +190,22 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(fila1003.getByText(/^(Hoy|\d+ días?)$/)).toHaveCount(0);
   });
 
-  test('el correo del responsable se ve y se puede escribir desde la tabla', async ({ page }) => {
+  test('el correo del responsable tiene columna propia y se puede escribir desde ella', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockLista(page);
 
     await page.goto('/flito/tramites');
+    await expect(page.getByRole('columnheader', { name: 'Correo' })).toBeVisible();
+
     const conCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
     await expect(conCorreo.getByRole('link', { name: 'ana.perez@acme.co' }))
       .toHaveAttribute('href', 'mailto:ana.perez@acme.co');
 
-    // Sin correo no se pinta un guion suelto: ocupa lo mismo y no informa de nada.
+    // En columna propia el hueco sí hay que nombrarlo: una celda vacía no se distingue de un
+    // fallo de carga, al contrario que cuando el dato colgaba de la ficha del comprador.
     const sinCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1002' });
     await expect(sinCorreo.getByRole('link', { name: /@/ })).toHaveCount(0);
+    await expect(sinCorreo.getByText('Sin correo')).toBeVisible();
   });
 
   test('cambiar el orden recarga el listado desde el servidor', async ({ page }) => {

@@ -54,6 +54,21 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2004' }).getByText('Facturado')).toBeVisible();
   });
 
+  test('el estado va en su propia columna, no colgando del identificador', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // Bajo el id del trámite el chip se leía como un estado DEL TRÁMITE; es de su liquidación.
+    await expect(page.getByRole('columnheader', { name: 'Liquidación' })).toBeVisible();
+
+    // La prueba de que salió del identificador: la celda del estado contiene el estado y nada más.
+    const celdaEstado = page.getByRole('row').filter({ hasText: 'FLIT-2003' })
+      .getByRole('cell').filter({ hasText: 'Liquidado' });
+    await expect(celdaEstado).toHaveText('Liquidado');
+    await expect(celdaEstado).not.toContainText('FLIT-2003');
+  });
+
   test('muestra la fecha de aprobación, y dice cuándo no la hay', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
