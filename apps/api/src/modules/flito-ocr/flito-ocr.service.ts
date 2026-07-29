@@ -12,11 +12,12 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from '../tramites/anthropic.js';
 import {
-  CampoSoat, CampoImpuesto, CampoFacturaVenta,
+  CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoDerechoTramite,
   type CampoExtraido, type ExtraccionSoat, type ExtraccionImpuesto, type ExtraccionFacturaVenta,
+  type ExtraccionDerechoTramite,
 } from '@operaciones/shared-types';
 import {
-  SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_FACTURA_VENTA,
+  SISTEMA_OCR, PROMPT_FACTURA_SOAT, PROMPT_RECIBO_IMPUESTO, PROMPT_FACTURA_VENTA, PROMPT_DERECHO_TRAMITE,
   type CampoCrudo, type ConfianzaCategorica,
 } from './flito-ocr.prompts.js';
 import { textoDocumento, camposDesdeTexto } from './flito-ocr-local.js';
@@ -262,6 +263,38 @@ export async function extraerReciboImpuesto(doc: DocumentoAAnalizar): Promise<Ex
     [CampoImpuesto.ANIO_GRAVABLE]: anioN,
   });
   return r as ExtraccionImpuesto;
+}
+
+/**
+ * Recibo / cuenta de cobro de DERECHO DE TRÁMITE (HU #10950). Solo `valorTotal` bloquea el registro
+ * (la placa se valida aparte: es la llave de cruce). Radicado, organismo y tipo se extraen pero no
+ * se exigen — varían mucho entre organismos y su ausencia no impide saber cuánto se pagó.
+ *
+ * `promptHint` es la pista opcional del organismo (`flito_ocr_prompt_hint`): así un formato rebelde
+ * se resuelve con una línea de configuración en vez de con un extractor propio.
+ */
+export async function extraerDerechoTramite(
+  doc: DocumentoAAnalizar,
+  promptHint?: string | null,
+): Promise<ExtraccionDerechoTramite> {
+  const campos = [
+    CampoDerechoTramite.PLACA, CampoDerechoTramite.VALOR_TOTAL, CampoDerechoTramite.FECHA_PAGO,
+    CampoDerechoTramite.NUMERO_RADICADO, CampoDerechoTramite.ORGANISMO, CampoDerechoTramite.TIPO_TRAMITE,
+  ] as const;
+  const escalacion = [CampoDerechoTramite.PLACA, CampoDerechoTramite.VALOR_TOTAL];
+  const hint = promptHint?.trim();
+  const prompt = hint
+    ? `${PROMPT_DERECHO_TRAMITE}\n\nPISTA ESPECÍFICA DE ESTE ORGANISMO (tiene prioridad sobre las indicaciones genéricas de arriba): ${hint}`
+    : PROMPT_DERECHO_TRAMITE;
+  const r = await extraer(doc, prompt, campos, escalacion, {
+    [CampoDerechoTramite.PLACA]: placaN,
+    [CampoDerechoTramite.VALOR_TOTAL]: normalizarPesos,
+    [CampoDerechoTramite.FECHA_PAGO]: normalizarFecha,
+    [CampoDerechoTramite.NUMERO_RADICADO]: textoExactoN,
+    [CampoDerechoTramite.ORGANISMO]: textoExactoN,
+    [CampoDerechoTramite.TIPO_TRAMITE]: textoExactoN,
+  });
+  return r as ExtraccionDerechoTramite;
 }
 
 // Integración FLIT (Fase 8): la factura de venta viene de FLIT (no se analiza con OCR). El extractor

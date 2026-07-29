@@ -181,6 +181,13 @@ export const api = {
     if (fields) for (const [k, v] of Object.entries(fields)) form.append(k, v);
     return request<T>('POST', path, form);
   },
+  /** Carga varios archivos bajo el MISMO campo (multer `upload.array`), p.ej. un lote de recibos. */
+  uploadMany: <T>(path: string, files: File[], fieldName = 'archivos', fields?: Record<string, string>) => {
+    const form = new FormData();
+    for (const file of files) form.append(fieldName, file);
+    if (fields) for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    return request<T>('POST', path, form);
+  },
   download: async (path: string, filename: string) => {
     const blob = await request<Blob>('GET', path);
     const url = URL.createObjectURL(blob);
