@@ -96,6 +96,10 @@ export const PAGES = {
   flito_logistica: 'FLITO — Logística',
   // FLITO Logística — ruta del mensajero (PWA de campo, Fase 2): recogidas y entregas asignadas.
   flito_logistica_ruta: 'FLITO — Mi ruta (mensajero)',
+  // Bolsas prepago del cliente (Feature #11120): saldo, movimientos, cierres y estado de cuenta de
+  // los organismos. Es dinero, así que solo la ven Administración y Financiera — ni siquiera
+  // auditoría, a diferencia del resto de vistas FLITO.
+  flito_bolsas: 'FLITO — Bolsas prepago',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
 } as const satisfies Record<string, string>;
@@ -111,7 +115,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
@@ -148,7 +152,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Finanzas — usuarios financieros: el reporte de costos y la administración comercial del
   // cliente (sus tarifas), que es de donde salen los valores de ese reporte. Los derechos de
   // tránsito NO son suyos: los gestiona Operaciones, que es quien carga los recibos.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients'],
+  // Las bolsas prepago SÍ son suyas: es el dinero del cliente que Financiera recarga, mueve y
+  // cierra. El backend (`/flito/bolsas`) solo admite admin y financiera, así que la página va aquí
+  // y NO en `auditor`, que en el resto de FLITO lee todo pero de los movimientos crudos queda fuera.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos
