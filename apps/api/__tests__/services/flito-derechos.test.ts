@@ -338,17 +338,22 @@ describe('derechos — carga y cruce', () => {
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
-  it('AC5 — placa sin ningún trámite → bandeja de pendientes, con su archivo guardado', async () => {
+  it('placa sin ningún trámite → se DESCARTA: ni archivo ni registro', async () => {
+    // Antes se archivaba en una bandeja y un reintento lo cruzaba al aparecer el trámite. Se retiró:
+    // acumulaba recibos que no llegaban a cruzar y dejaba ficheros huérfanos en el almacenamiento.
+    // Lo que se conserva es el aviso, con la placa leída, para poder volver a cargarlo.
     selectMock.mockReturnValueOnce(chain([]));   // dedup
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([]));   // candidatos
-    insertMock.mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([]));
 
     const r = await cargar();
     expect(r.status).toBe(200);
     expect(r.body.pendientes).toHaveLength(1);
     expect(r.body.pendientes[0].placa).toBe('QTP701');
-    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(r.body.pendientes[0].detalle).toMatch(/se descarta/i);
+    // Lo que de verdad cambia: no se sube nada ni se inserta nada.
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(insertMock).not.toHaveBeenCalled();
   });
 
   it('AC1 — un único trámite vivo → registrado y atado al trámite', async () => {
