@@ -12,9 +12,9 @@
 // carpeta configurada, pero ninguno la tenía ni había forma de ponérsela desde la aplicación: era
 // generalidad sin demanda. El resto de secretarías siguen cargando sus recibos a mano.
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { procesamientoCuentas } from '../../db/schema.js';
+import { ESTADO_PROCESAMIENTO, procesamientoCuentas, systemKv } from '../../db/schema.js';
 import { listFiles } from '../../services/googleDrive.js';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -44,8 +44,15 @@ export interface ArchivoDrive {
   nombre: string;
   tamanoBytes: number | null;
   modificadoEn: string | null;
+  /**
+   * Quién tocó el archivo por última vez en el Drive. La fecha sola no era accionable: en una
+   * carpeta compartida lo que hace falta es saber a quién preguntar. Null si Google no lo expone.
+   */
+  modificadoPor: string | null;
   /** Si ya se procesó antes, cuándo. Null = nunca. */
   procesadoEn: string | null;
+  /** Si se dio por visto sin procesar (arranque del cron). Excluye del barrido automático. */
+  omitidoEn: string | null;
 }
 
 /**
@@ -60,16 +67,22 @@ export async function archivosDelDrive(): Promise<ArchivoDrive[]> {
   const pdfs = archivos.filter((a) => ES_PDF.test(a.name));
   if (pdfs.length === 0) return [];
 
-  const procesados = await db.select({
+  const registros = await db.select({
     fileId: procesamientoCuentas.driveFileId,
+    estado: procesamientoCuentas.estado,
     createdAt: procesamientoCuentas.createdAt,
   }).from(procesamientoCuentas)
-    .where(eq(procesamientoCuentas.estado, 'completado'))
+    .where(inArray(procesamientoCuentas.estado, [ESTADO_PROCESAMIENTO.COMPLETADO, ESTADO_PROCESAMIENTO.OMITIDO]))
     .orderBy(desc(procesamientoCuentas.createdAt));
 
-  const ultimoPorArchivo = new Map<string, Date>();
-  for (const p of procesados) {
-    if (p.fileId && !ultimoPorArchivo.has(p.fileId)) ultimoPorArchivo.set(p.fileId, p.createdAt);
+  // Solo la marca más reciente de cada archivo: reprocesar deja varias filas y la que manda es la
+  // última. Se recorre en orden descendente, así que la primera que se ve de cada id ya es esa.
+  const completado = new Map<string, Date>();
+  const omitido = new Map<string, Date>();
+  for (const r of registros) {
+    if (!r.fileId) continue;
+    const destino = r.estado === ESTADO_PROCESAMIENTO.OMITIDO ? omitido : completado;
+    if (!completado.has(r.fileId) && !omitido.has(r.fileId)) destino.set(r.fileId, r.createdAt);
   }
 
   return pdfs.map((a) => ({
@@ -77,8 +90,15 @@ export async function archivosDelDrive(): Promise<ArchivoDrive[]> {
     nombre: a.name,
     tamanoBytes: a.size ? Number(a.size) : null,
     modificadoEn: a.modifiedTime ?? null,
-    procesadoEn: ultimoPorArchivo.get(a.id)?.toISOString() ?? null,
+    modificadoPor: nombreDe(a.lastModifyingUser),
+    procesadoEn: completado.get(a.id)?.toISOString() ?? null,
+    omitidoEn: omitido.get(a.id)?.toISOString() ?? null,
   }));
+}
+
+/** Nombre legible de quien modificó, con el correo como respaldo. */
+function nombreDe(u: { displayName?: string; emailAddress?: string } | undefined): string | null {
+  return u?.displayName?.trim() || u?.emailAddress?.trim() || null;
 }
 
 export interface ResultadoProcesoDrive extends ResultadoDerechos {
@@ -97,9 +117,15 @@ export interface ResultadoProcesoDrive extends ResultadoDerechos {
  * dónde salió el archivo, y eso queda registrado en `origen`.
  */
 export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Promise<ResultadoProcesoDrive> {
+  // Se toma el «modificado por» ANTES de procesar: si el archivo desaparece del Drive después, el
+  // registro sigue diciendo quién lo había subido, que es de lo que sirve un registro.
+  const metadatos = (await archivosDelDrive().catch(() => [])).find((a) => a.fileId === fileId);
+
   const [registro] = await db.insert(procesamientoCuentas).values({
-    usuarioId: ctx.userId, driveFileId: fileId, estado: 'procesando',
+    usuarioId: ctx.userId, driveFileId: fileId, estado: ESTADO_PROCESAMIENTO.PROCESANDO,
     organismoCodigo: ORGANISMO_DRIVE,
+    modificadoPor: metadatos?.modificadoPor ?? null,
+    driveModifiedTime: metadatos?.modificadoEn ? new Date(metadatos.modificadoEn) : null,
   }).returning({ id: procesamientoCuentas.id });
 
   try {
@@ -144,7 +170,7 @@ export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Pro
     }
 
     await db.update(procesamientoCuentas).set({
-      estado: 'completado', nombreArchivo: name, totalPaginas,
+      estado: ESTADO_PROCESAMIENTO.COMPLETADO, nombreArchivo: name, totalPaginas,
       cuentasDetectadas: cuentas.length, placasUnicas: pdfsPorPlaca.size,
       valorTotal: String(cuentas.reduce((s, c) => s + c.valorTotal, 0)),
       organismoCodigo: ORGANISMO_DRIVE,
@@ -161,7 +187,7 @@ export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Pro
     // perdería y quien llamó se quedaría esperando.
     try {
       await db.update(procesamientoCuentas)
-        .set({ estado: 'error', error: e instanceof Error ? e.message : 'Error desconocido' })
+        .set({ estado: ESTADO_PROCESAMIENTO.ERROR, error: e instanceof Error ? e.message : 'Error desconocido' })
         .where(eq(procesamientoCuentas.id, registro.id));
     } catch { /* el registro de auditoría no puede tapar el error real */ }
     throw e;
@@ -169,3 +195,121 @@ export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Pro
 }
 
 export { ProcesadorError };
+
+// ─────────────────────── Registro y barrido automático ──────────────────────
+
+export interface RegistroProceso {
+  id: number;
+  fileId: string | null;
+  nombreArchivo: string | null;
+  estado: string;
+  modificadoPor: string | null;
+  modificadoEn: string | null;
+  totalPaginas: number | null;
+  cuentasDetectadas: number | null;
+  placasUnicas: number | null;
+  valorTotal: string | null;
+  error: string | null;
+  procesadoEn: string;
+  /** false = el archivo ya no está en la carpeta del Drive. El registro es lo único que queda. */
+  sigueEnDrive: boolean;
+}
+
+/**
+ * Historial de lo procesado, INCLUIDOS los archivos que ya no están en el Drive.
+ *
+ * Es el motivo de que el registro exista: la carpeta la manejan personas del organismo y un
+ * consolidado puede desaparecer. Si eso pasa, aquí queda que existió, qué se extrajo de él y quién
+ * lo había subido. Consultar el Drive en vivo no serviría precisamente cuando hace falta.
+ */
+export async function registroProcesados(limite = 200): Promise<RegistroProceso[]> {
+  const filas = await db.select().from(procesamientoCuentas)
+    .where(isNotNull(procesamientoCuentas.driveFileId))
+    .orderBy(desc(procesamientoCuentas.createdAt))
+    .limit(limite);
+
+  // Un fallo del Drive no puede tumbar el registro: sin listado, se informa como «no consta».
+  const enCarpeta = new Set((await archivosDelDrive().catch(() => [])).map((a) => a.fileId));
+
+  return filas.map((f) => ({
+    id: f.id,
+    fileId: f.driveFileId,
+    nombreArchivo: f.nombreArchivo,
+    estado: f.estado,
+    modificadoPor: f.modificadoPor,
+    modificadoEn: f.driveModifiedTime?.toISOString() ?? null,
+    totalPaginas: f.totalPaginas,
+    cuentasDetectadas: f.cuentasDetectadas,
+    placasUnicas: f.placasUnicas,
+    valorTotal: f.valorTotal,
+    error: f.error,
+    procesadoEn: f.createdAt.toISOString(),
+    sigueEnDrive: f.driveFileId ? enCarpeta.has(f.driveFileId) : false,
+  }));
+}
+
+export interface ResultadoBarrido {
+  /** Archivos de la carpeta que no tenían registro y por tanto entraban al barrido. */
+  candidatos: number;
+  procesados: string[];
+  fallidos: Array<{ archivo: string; detalle: string }>;
+  /** Si fue el primer barrido: cuántos se dieron por vistos sin gastar OCR. */
+  omitidosPorArranque: number;
+}
+
+/**
+ * Barrido de la carpeta: procesa lo que aún no tiene registro.
+ *
+ * EL PRIMER BARRIDO NO PROCESA NADA. Marca como `omitido` todo lo que ya estaba en la carpeta y sale.
+ * La razón es dinero: hay un centenar de consolidados acumulados, a unas trece páginas cada uno, y
+ * cada página es una llamada de OCR. Cargar el histórico entero porque alguien encendió un cron no es
+ * una decisión que deba tomar un cron. Lo que quede pendiente se procesa a mano, archivo por archivo,
+ * desde la pestaña.
+ */
+export async function barrerDrive(ctx: DerechoCtx): Promise<ResultadoBarrido> {
+  const archivos = await archivosDelDrive();
+  const pendientes = archivos.filter((a) => !a.procesadoEn && !a.omitidoEn);
+
+  const arrancado = await yaArrancado();
+  if (!arrancado) {
+    for (const a of pendientes) {
+      await db.insert(procesamientoCuentas).values({
+        usuarioId: ctx.userId, driveFileId: a.fileId, nombreArchivo: a.nombre,
+        estado: ESTADO_PROCESAMIENTO.OMITIDO, organismoCodigo: ORGANISMO_DRIVE,
+        modificadoPor: a.modificadoPor,
+        driveModifiedTime: a.modificadoEn ? new Date(a.modificadoEn) : null,
+        error: 'Ya estaba en la carpeta al encender el barrido automático: se da por visto sin procesar.',
+      });
+    }
+    await marcarArrancado();
+    log.info({ omitidos: pendientes.length }, 'Primer barrido del Drive: histórico dado por visto, sin OCR');
+    return { candidatos: pendientes.length, procesados: [], fallidos: [], omitidosPorArranque: pendientes.length };
+  }
+
+  const res: ResultadoBarrido = { candidatos: pendientes.length, procesados: [], fallidos: [], omitidosPorArranque: 0 };
+  for (const a of pendientes) {
+    try {
+      await procesarArchivoDrive(a.fileId, ctx);
+      res.procesados.push(a.nombre);
+    } catch (e) {
+      // Un consolidado que falla no detiene los demás: el error queda en su propio registro.
+      res.fallidos.push({ archivo: a.nombre, detalle: e instanceof Error ? e.message : 'Error desconocido' });
+    }
+  }
+  log.info({ ...res, procesados: res.procesados.length }, 'Barrido del Drive completado');
+  return res;
+}
+
+/** Marca de que el barrido ya se estrenó, en `system_kv` (mismo patrón que el reconciliador SOAT). */
+const CLAVE_ARRANQUE = 'flito:drive:barrido:arrancado';
+
+async function yaArrancado(): Promise<boolean> {
+  const [row] = await db.select({ v: systemKv.v }).from(systemKv).where(eq(systemKv.k, CLAVE_ARRANQUE)).limit(1);
+  return row !== undefined;
+}
+
+async function marcarArrancado(): Promise<void> {
+  await db.insert(systemKv)
+    .values({ k: CLAVE_ARRANQUE, v: { desde: new Date().toISOString() }, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: systemKv.k, set: { updatedAt: new Date() } });
+}

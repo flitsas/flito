@@ -584,8 +584,30 @@ export const procesamientoCuentas = pgTable('procesamiento_cuentas', {
   // acompaña al id porque un mismo archivo puede reemplazarse en Drive conservando su id.
   organismoCodigo: varchar('organismo_codigo', { length: 5 }),
   driveModifiedTime: timestamp('drive_modified_time', { withTimezone: true }),
+  /**
+   * Quién tocó el archivo en el Drive por última vez (HU del cron). Se persiste, no se consulta en
+   * vivo: el registro tiene que sobrevivir al archivo, y si mañana lo borran de la carpeta esta es la
+   * única forma de saber quién lo había subido.
+   */
+  modificadoPor: varchar('modificado_por', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Estados de un procesamiento. Texto libre en la columna, no enum, así que añadir uno no exige
+ * ALTER TYPE.
+ *
+ * `omitido` lo escribe el arranque del cron sobre los consolidados que ya estaban en la carpeta el
+ * día que se encendió: se dan por vistos sin gastar OCR en histórico que nadie pidió. Es distinto de
+ * no tener registro, que significa «no se ha mirado nunca».
+ */
+export const ESTADO_PROCESAMIENTO = {
+  PROCESANDO: 'procesando',
+  COMPLETADO: 'completado',
+  ERROR: 'error',
+  OMITIDO: 'omitido',
+} as const;
+export type EstadoProcesamiento = (typeof ESTADO_PROCESAMIENTO)[keyof typeof ESTADO_PROCESAMIENTO];
 
 // === LAFT — Política de Prevención LA/FT/FPADM (FLIT SAS) =====================
 

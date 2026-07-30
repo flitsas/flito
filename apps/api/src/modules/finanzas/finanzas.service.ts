@@ -45,6 +45,8 @@ export interface FilaReporte {
   estadoLiquidacion: 'liquidado' | 'facturado' | null;
   /** Conceptos sin tarifa configurada. Si hay alguno, el total es incompleto. */
   noConfigurados: string[];
+  /** Conceptos que esperan su documento pagado, no una tarifa. Hoy solo el derecho de tránsito. */
+  sinRecibo: string[];
 }
 
 export interface TotalesReporte {
@@ -194,9 +196,22 @@ function aFila(r: Record<string, unknown>): FilaReporte {
   const logistica = n(r.logistica as string | null);
   const derecho = n(r.derechoTramite as string | null);
 
+  // Dos motivos distintos para que falte un valor, y confundirlos hace daño:
+  //
+  //   noConfigurados — falta la TARIFA negociada con la compañía. Se resuelve en Clientes y
+  //                    proveedores. Solo aplica a logística y trámite digital, que son honorarios
+  //                    de FLITO y por eso se pactan cliente a cliente.
+  //   sinRecibo      — el derecho de tránsito NO se configura: es un desembolso real que se lee del
+  //                    recibo pagado, igual que el SOAT y el impuesto. Si falta, lo que falta es el
+  //                    documento, no un parámetro. Decir «no configurado» mandaba a quien lo leyera
+  //                    a buscar una pantalla de configuración que no existe.
+  //
+  // Los dos impiden liquidar: sellar sin la tarifa congelaría un cobro inventado, y sellar sin el
+  // recibo congelaría un total al que le falta un costo que existe.
   const noConfigurados: string[] = [];
+  const sinRecibo: string[] = [];
   if (!sellada) {
-    if (derecho === null) noConfigurados.push('Derecho de tránsito');
+    if (derecho === null) sinRecibo.push('Derecho de tránsito');
     if (digital === null) noConfigurados.push('Trámite digital');
     if (logistica === null && !r.logisticaAutogestionable) noConfigurados.push('Logística');
   }
@@ -212,6 +227,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     sellada,
     estadoLiquidacion: (r.estadoLiquidacion as FilaReporte['estadoLiquidacion']) ?? null,
     noConfigurados,
+    sinRecibo,
   };
 }
 
@@ -310,8 +326,15 @@ export interface FacetasReporte {
 export async function facetas(): Promise<FacetasReporte> {
   const [estados, empresas, tipos] = await Promise.all([
     db.selectDistinct({ v: flitoTramites.flitEstado }).from(flitoTramites).where(sql`${flitoTramites.flitEstado} is not null`),
-    db.selectDistinct({ nit: flitoTramites.companiaNit, nombre: clients.name }).from(flitoTramites)
-      .leftJoin(clients, eq(flitoTramites.companiaId, clients.id)).where(sql`${flitoTramites.companiaNit} is not null`),
+    // Una fila por NIT, no por par (NIT, nombre). El `selectDistinct` sobre el par sacaba la misma
+    // compañía dos veces cuando algunos de sus trámites están emparejados con `clients` y otros no:
+    // la fila sin emparejar traía `nombre = null` y el desplegable la pintaba con el NIT crudo.
+    // `MAX(name)` toma el nombre de cualquiera de las filas que sí cruzó.
+    db.select({ nit: flitoTramites.companiaNit, nombre: sql<string | null>`MAX(${clients.name})` })
+      .from(flitoTramites)
+      .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
+      .where(sql`${flitoTramites.companiaNit} is not null`)
+      .groupBy(flitoTramites.companiaNit),
     db.selectDistinct({ v: flitoTramites.tipoTramite }).from(flitoTramites).where(sql`${flitoTramites.tipoTramite} is not null`),
   ]);
   return {

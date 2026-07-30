@@ -43,11 +43,26 @@ const ETIQUETA_ORIGEN: Record<string, string> = { manual: 'Carga manual', drive:
 
 interface ArchivoDrive {
   fileId: string; nombre: string; tamanoBytes: number | null;
-  modificadoEn: string | null; procesadoEn: string | null;
+  modificadoEn: string | null; modificadoPor: string | null;
+  procesadoEn: string | null; omitidoEn: string | null;
 }
 interface ResultadoProcesoDrive extends ResultadoCarga {
   archivo: string; totalPaginas: number; cuentasDetectadas: number; placasUnicas: number;
 }
+
+/** Una pasada del procesador. Sobrevive al archivo: por eso hay `sigueEnDrive`. */
+interface RegistroRow {
+  id: number; fileId: string | null; nombreArchivo: string | null; estado: string;
+  modificadoPor: string | null; modificadoEn: string | null;
+  totalPaginas: number | null; cuentasDetectadas: number | null; placasUnicas: number | null;
+  valorTotal: string | null; error: string | null; procesadoEn: string; sigueEnDrive: boolean;
+}
+const TONO_ESTADO_PROC: Record<string, ChipTone> = {
+  completado: 'success', error: 'danger', omitido: 'neutral', procesando: 'active',
+};
+const ETIQUETA_ESTADO_PROC: Record<string, string> = {
+  completado: 'Procesado', error: 'Con error', omitido: 'Dado por visto', procesando: 'En curso',
+};
 
 
 // Cada canasta con su tono: lo que exige intervención humana no puede verse igual que lo resuelto.
@@ -98,9 +113,17 @@ async function abrirSoporte(soporteId: string): Promise<void> {
  */
 function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void }) {
   const [archivos, setArchivos] = useState<ArchivoDrive[] | null>(null);
+  const [registro, setRegistro] = useState<RegistroRow[] | null>(null);
+  const [verRegistro, setVerRegistro] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [procesando, setProcesando] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    api.get<RegistroRow[]>('/flito/derechos/drive/registro')
+      .then(setRegistro)
+      .catch(() => setRegistro([]));
+  }, [nonce]);
 
   useEffect(() => {
     setArchivos(null); setError(null);
@@ -136,6 +159,72 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
         Las demás secretarías se cargan a mano desde arriba.
       </p>
 
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <span style={{ color: 'var(--flit-text-secondary)' }}>
+          Barrido automático diario a las 9:00. El botón queda para procesar cualquier día a demanda.
+        </span>
+        <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
+          onClick={() => setVerRegistro((v) => !v)}>
+          {verRegistro ? 'Ocultar el registro' : `Ver el registro${registro ? ` (${registro.length})` : ''}`}
+        </button>
+      </div>
+
+      {verRegistro && (
+        <FlitCard>
+          <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+            Registro de procesamientos
+          </h3>
+          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Queda constancia de cada pasada, incluidas las de archivos que ya <strong>no están</strong> en
+            el Drive: la carpeta la manejan personas del organismo y un consolidado puede desaparecer.
+          </p>
+          {!registro && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
+          {registro && registro.length === 0 && <FlitEmpty>Todavía no se ha procesado ningún archivo.</FlitEmpty>}
+          {registro && registro.length > 0 && (
+            <div className="overflow-x-auto">
+              <FlitTable>
+                <thead>
+                  <FlitTr>
+                    <FlitTh>Archivo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Subido por</FlitTh>
+                    <FlitTh>Extraído</FlitTh><FlitTh>Valor</FlitTh><FlitTh>Procesado</FlitTh>
+                  </FlitTr>
+                </thead>
+                <tbody>
+                  {registro.map((r) => (
+                    <FlitTr key={r.id}>
+                      <td className="px-4 py-2 text-sm">
+                        <div className="font-medium">{r.nombreArchivo ?? '—'}</div>
+                        {!r.sigueEnDrive && (
+                          <div className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>
+                            Ya no está en el Drive
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <StatusChip tone={TONO_ESTADO_PROC[r.estado] ?? 'neutral'}>
+                          {ETIQUETA_ESTADO_PROC[r.estado] ?? r.estado}
+                        </StatusChip>
+                        {r.estado === 'error' && r.error && (
+                          <div className="mt-1 text-[11px]" style={{ color: 'var(--flit-danger)' }}>{r.error}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs">{r.modificadoPor ?? '—'}</td>
+                      <td className="px-4 py-2 text-xs tabular-nums">
+                        {r.cuentasDetectadas !== null
+                          ? `${r.cuentasDetectadas} cuenta(s) · ${r.placasUnicas ?? 0} placa(s)`
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-xs tabular-nums">{pesos(r.valorTotal)}</td>
+                      <td className="px-4 py-2 text-xs">{fechaHora(r.procesadoEn)}</td>
+                    </FlitTr>
+                  ))}
+                </tbody>
+              </FlitTable>
+            </div>
+          )}
+        </FlitCard>
+      )}
+
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
       {!archivos && !error && (
@@ -162,14 +251,29 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
               {archivos.map((a) => (
                 <FlitTr key={a.fileId}>
                   <td className="px-4 py-2.5 text-sm font-medium">{a.nombre}</td>
-                  <td className="px-4 py-2.5 text-xs">{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</td>
+                  {/* La fecha sola no era accionable: en una carpeta compartida lo que hace falta
+                      es saber a quién preguntar. */}
+                  <td className="px-4 py-2.5 text-xs">
+                    <div>{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</div>
+                    {a.modificadoPor && (
+                      <div style={{ color: 'var(--flit-text-muted)' }}>por {a.modificadoPor}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-xs tabular-nums">{tamano(a.tamanoBytes)}</td>
                   <td className="px-4 py-2.5 text-xs">
                     {/* Informativo, no una prohibición: si el organismo reemplazó el archivo del día
                         hay que poder releerlo. Lo que impide duplicar es el hash de cada recibo. */}
                     {a.procesadoEn
                       ? <StatusChip tone="success">{fechaHora(a.procesadoEn)}</StatusChip>
-                      : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
+                      : a.omitidoEn
+                        // Ya estaba en la carpeta cuando se encendió el barrido: se dio por visto
+                        // sin gastar OCR en histórico que nadie pidió. Se puede procesar a mano.
+                        ? (
+                          <span title="Ya estaba en la carpeta al encender el barrido automático. Se puede procesar a mano.">
+                            <StatusChip tone="neutral">Dado por visto</StatusChip>
+                          </span>
+                        )
+                        : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
                   </td>
                   <td className="px-4 py-2.5 text-center">
                     <button

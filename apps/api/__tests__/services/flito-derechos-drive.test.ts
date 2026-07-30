@@ -52,8 +52,11 @@ beforeEach(() => {
 
 const CTX = { userId: 1, username: 'ops@x.io', role: 'admin' };
 
-const archivoDrive = (id: string, name: string, modifiedTime = '2026-07-18T10:00:00Z') =>
-  ({ id, name, mimeType: 'application/pdf', size: '2048', createdTime: modifiedTime, modifiedTime, webViewLink: '', parents: [] });
+const archivoDrive = (id: string, name: string, modifiedTime = '2026-07-18T10:00:00Z') => ({
+  id, name, mimeType: 'application/pdf', size: '2048', createdTime: modifiedTime, modifiedTime,
+  webViewLink: '', parents: [],
+  lastModifyingUser: { displayName: 'carteraitsmedellin', emailAddress: 'cartera@its.gov.co' },
+});
 
 /** El alta del registro de auditoría, que toda llamada a `procesarArchivoDrive` hace primero. */
 const altaAuditoria = () => insertMock.mockReturnValueOnce({
@@ -120,6 +123,52 @@ describe('archivosDelDrive — qué se ofrece para procesar', () => {
     const out = await archivosDelDrive();
 
     expect(out[0].procesadoEn).toBe('2026-07-20T09:00:00.000Z');
+  });
+});
+
+describe('archivosDelDrive — quién modificó', () => {
+  it('nombra a quien tocó el archivo, no solo cuándo', async () => {
+    // En una carpeta compartida la fecha sola no es accionable: hace falta saber a quién preguntar.
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f1', 'FLIT 18-07-2026.pdf')]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    const [a] = await archivosDelDrive();
+
+    expect(a.modificadoPor).toBe('carteraitsmedellin');
+  });
+
+  it('cae al correo si Google no expone el nombre', async () => {
+    listFilesMock.mockResolvedValueOnce([{
+      ...archivoDrive('f1', 'FLIT 18-07-2026.pdf'),
+      lastModifyingUser: { emailAddress: 'cartera@its.gov.co' },
+    }]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    expect((await archivosDelDrive())[0].modificadoPor).toBe('cartera@its.gov.co');
+  });
+
+  it('sin autor no inventa nada', async () => {
+    listFilesMock.mockResolvedValueOnce([{ ...archivoDrive('f1', 'a.pdf'), lastModifyingUser: undefined }]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    expect((await archivosDelDrive())[0].modificadoPor).toBeNull();
+  });
+
+  it('distingue el dado por visto del nunca mirado', async () => {
+    // «Omitido» lo escribe el arranque del barrido: es distinto de no tener registro.
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f1', 'visto.pdf'), archivoDrive('f2', 'nuevo.pdf')]);
+    selectMock.mockReturnValueOnce(chain([
+      { fileId: 'f1', estado: 'omitido', createdAt: new Date('2026-07-29T14:00:00Z') },
+    ]));
+
+    const out = await archivosDelDrive();
+    const visto = out.find((a) => a.fileId === 'f1')!;
+    const nuevo = out.find((a) => a.fileId === 'f2')!;
+
+    expect(visto.omitidoEn).toBe('2026-07-29T14:00:00.000Z');
+    expect(visto.procesadoEn).toBeNull();
+    expect(nuevo.omitidoEn).toBeNull();
+    expect(nuevo.procesadoEn).toBeNull();
   });
 });
 

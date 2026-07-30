@@ -15,7 +15,9 @@ import {
   DerechoError, cargarDerechos, candidatosDePlaca, facetasDerechos, listarDerechos,
   type DerechoCtx,
 } from './flito-derechos.service.js';
-import { archivosDelDrive, procesarArchivoDrive, ProcesadorError } from './flito-derechos-drive.service.js';
+import {
+  archivosDelDrive, procesarArchivoDrive, registroProcesados, ProcesadorError,
+} from './flito-derechos-drive.service.js';
 import type { ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 
 const router = Router();
@@ -116,6 +118,14 @@ router.get('/drive/archivos', LECTURA, async (_req: Request, res: Response) => {
     // otras dos pestañas que sí funcionan.
     res.status(503).json({ error: e instanceof Error ? e.message : 'El Drive no está disponible' });
   }
+});
+
+// GET /drive/registro — historial de lo procesado, INCLUIDO lo que ya no está en el Drive.
+//
+// Es el motivo de que el registro exista: la carpeta la manejan personas del organismo y un
+// consolidado puede desaparecer. Consultar el Drive en vivo no serviría justo cuando importa.
+router.get('/drive/registro', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await registroProcesados());
 });
 
 // POST /drive/procesar — lee un consolidado y asocia sus recibos a los trámites. Bajo demanda:
