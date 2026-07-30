@@ -17,7 +17,7 @@ import {
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
-import { cerrarPendientesDePlaca, registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
+import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -219,7 +219,6 @@ async function resolverDerecho(revisionId: string, soporteId: string, motivoOrig
 
   // La placa ya quedó asociada: sus pendientes dejan de reintentarse contra un trámite que ya pagó.
   const placa = extraccion[CampoDerechoTramite.PLACA]?.valor;
-  if (placa) await cerrarPendientesDePlaca(placa, tramiteId);
 
   await db.transaction(async (tx) => {
     await auditEnTx(tx, ctx, 'flito_derecho_tramite', derechoId,

@@ -2685,9 +2685,15 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
   companiaIdx: index('idx_flito_derechos_compania').on(t.companiaId),
 }));
 
-// Recibos leídos cuya placa aún no corresponde a ningún trámite. NO es cola de revisión humana: es
-// un buffer que la sincronización reintenta sola, porque el recibo del organismo suele llegar antes
-// que el trámite desde FLIT. Meterlos en flito_revisiones ahogaría la cola que sí exige a una persona.
+// SIN LECTOR. Fue el buffer de recibos cuya placa aún no correspondía a ningún trámite, que un
+// reintento cruzaba solo cuando el trámite llegaba desde FLIT. Se retiró por decisión de negocio: la
+// bandeja acumulaba comprobantes que en la práctica no llegaban a cruzar, y mantener archivos
+// huérfanos en el almacenamiento costaba más que lo que aportaba. Ahora lo que no cruza se descarta
+// con un aviso que dice qué recibo y con qué placa.
+//
+// La definición se queda deliberadamente, igual que se hizo con `flito_reglas_proveedor_soat`: borrar
+// datos de una tabla viva en el mismo cambio que quita su único lector es innecesariamente
+// irreversible. El DROP va en una migración posterior, cuando esté mergeado y verificado.
 export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
   id: uuid('id').primaryKey().defaultRandom(),
   /** 'derecho' | 'soat' | 'impuesto'. La bandeja sirve a los tres conceptos (HU #10982). */

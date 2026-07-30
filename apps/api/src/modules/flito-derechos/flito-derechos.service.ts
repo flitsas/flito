@@ -20,15 +20,12 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  auditLogs, clients, flitoDerechosPendientes, flitoDerechosTramite, flitoRevisiones, flitoSoportes,
+  auditLogs, clients, flitoDerechosTramite, flitoRevisiones, flitoSoportes,
   flitoTramites, organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { extraerDerechoTramite, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import {
-  CONCEPTO_PENDIENTE, type PendienteAsociado, type ResultadoReintento,
-} from '../flito-pendientes/flito-pendientes.service.js';
 import { expandirZips, type ArchivoPlano } from '../../shared/archivos/expandir-zip.js';
 import { separarPaginas, nombrePagina, PdfDemasiadoGrandeError } from '../../shared/pdf/separar-paginas.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -376,14 +373,17 @@ async function procesarExtraccion(
 
   const candidatos = await buscarCandidatos(placa);
 
-  // Sin trámite todavía: el recibo del organismo suele llegar antes que el trámite desde FLIT. Se
-  // guarda con su archivo y sus datos, y la sincronización reintenta el cruce sola.
+  // Sin trámite: se DESCARTA. No se sube el archivo ni se deja registro.
+  //
+  // Antes se archivaba en una bandeja y un reintento lo cruzaba solo cuando el trámite apareciera
+  // desde FLIT. Se retira por decisión de negocio: la bandeja acumulaba recibos que en la práctica
+  // no llegaban a cruzar nunca, y mantener archivos huérfanos en el almacenamiento tenía más coste
+  // que valor. Lo que sí queda es el aviso: quien cargó sabe qué recibo no se pudo asociar y con qué
+  // placa, y puede volver a subirlo cuando el trámite exista.
   if (candidatos.length === 0) {
-    const soporteId = await archivarSuelto(archivo, opciones, hash, ctx);
-    await guardarPendiente(soporteId, placa, extraccion, opciones);
     res.pendientes.push(item(archivo.originalname, {
       placa, valor,
-      detalle: `El recibo dice placa ${placa}, que aún no corresponde a ningún trámite. Queda pendiente y se reintenta en cada sincronización.`,
+      detalle: `El recibo dice placa ${placa}, que no corresponde a ningún trámite. Se descarta: vuelve a cargarlo cuando el trámite exista en FLITO.`,
     }));
     return;
   }
@@ -600,24 +600,6 @@ async function registrar(
   });
 }
 
-async function guardarPendiente(
-  soporteId: string,
-  placa: string,
-  extraccion: ExtraccionDerechoTramite,
-  opciones: OpcionesCarga,
-): Promise<void> {
-  await db.insert(flitoDerechosPendientes).values({
-    placa: normalizarTexto(placa),
-    soporteId,
-    organismoCodigo: opciones.organismoCodigo ?? null,
-    valor: extraccion[CampoDerechoTramite.VALOR_TOTAL]?.valor ?? null,
-    fechaPago: extraccion[CampoDerechoTramite.FECHA_PAGO]?.valor ?? null,
-    numeroRadicado: extraccion[CampoDerechoTramite.NUMERO_RADICADO]?.valor ?? null,
-    tipoTramiteRecibo: extraccion[CampoDerechoTramite.TIPO_TRAMITE]?.valor ?? null,
-    extraccion,
-    origen: opciones.origen,
-  });
-}
 
 async function aRevision(
   soporteId: string,
@@ -653,55 +635,8 @@ async function auditEnTx(tx: Tx, ctx: DerechoCtx, resourceId: string, detail: st
 // ─────────────────────────── Pendientes ──────────────────────────────────────
 
 /** Un pendiente que sí encontró su trámite en este reintento. */
-// Se reexportan para no obligar a quien ya importaba de aquí a cambiar de módulo.
-export type { PendienteAsociado, ResultadoReintento };
 
-/**
- * Reintenta el cruce de los recibos que quedaron sin trámite. Se llama tras cada sincronización con
- * FLIT: el trámite que faltaba pudo haber llegado. Solo asocia cuando el cruce es inequívoco (un
- * único candidato sin derecho); si hay varios, el recibo sigue esperando en vez de arriesgar una
- * asociación equivocada — la misma regla que en la carga.
- */
-export async function reintentarPendientes(ctx: DerechoCtx): Promise<ResultadoReintento> {
-  // Solo los de derechos: la bandeja la comparten los tres conceptos desde la HU #10982, y cruzar
-  // un comprobante de SOAT contra trámites con estas reglas le colgaría el pago a quien no es.
-  const pendientes = await db.select().from(flitoDerechosPendientes)
-    .where(and(
-      eq(flitoDerechosPendientes.resuelto, false),
-      eq(flitoDerechosPendientes.concepto, CONCEPTO_PENDIENTE.DERECHO),
-    ))
-    .orderBy(flitoDerechosPendientes.createdAt);
 
-  const detalle: PendienteAsociado[] = [];
-  for (const p of pendientes) {
-    // Un derecho sin placa no se puede cruzar; se queda esperando a que lo resuelva una persona.
-    if (!p.placa) continue;
-    const candidatos = await buscarCandidatos(p.placa);
-    const finalistas = desempatarPorTipo(candidatos, p.tipoTramiteRecibo).filter((c) => !c.yaTieneDerecho);
-    if (finalistas.length !== 1) {
-      await db.update(flitoDerechosPendientes)
-        .set({ intentos: p.intentos + 1, ultimoIntentoEn: new Date() })
-        .where(eq(flitoDerechosPendientes.id, p.id));
-      continue;
-    }
-    const elegido = finalistas[0];
-    const extraccion = (p.extraccion ?? {}) as ExtraccionDerechoTramite;
-    const derechoId = await registrar(
-      elegido, extraccion, p.soporteId, advertenciasDe(elegido, extraccion),
-      { origen: p.origen as OrigenDerecho, organismoCodigo: p.organismoCodigo }, ctx,
-    );
-    await db.update(flitoDerechosPendientes)
-      .set({ resuelto: true, resueltoTramiteId: elegido.tramiteId, intentos: p.intentos + 1, ultimoIntentoEn: new Date() })
-      .where(eq(flitoDerechosPendientes.id, p.id));
-    detalle.push({
-      pendienteId: p.id, concepto: CONCEPTO_PENDIENTE.DERECHO, placa: p.placa,
-      idFlit: elegido.idFlit, tramiteId: elegido.tramiteId, registroId: derechoId,
-      detalle: 'Registrado',
-    });
-    log.info({ pendienteId: p.id, derechoId, idFlit: elegido.idFlit }, 'Pendiente de derecho asociado a su trámite');
-  }
-  return { revisados: pendientes.length, asociados: detalle.length, detalle };
-}
 
 // ─────────────────────────── Consultas ───────────────────────────────────────
 
@@ -835,14 +770,4 @@ export async function registrarDesdeRevision(
   // El soporte pudo cargarse sin saber a qué trámite pertenecía; al resolver, queda atado.
   await db.update(flitoSoportes).set({ derechoId }).where(eq(flitoSoportes.id, soporteId));
   return derechoId;
-}
-
-/** Marca como resueltos los pendientes de una placa ya asociada (evita reintentos eternos). */
-export async function cerrarPendientesDePlaca(placa: string, tramiteId: string): Promise<void> {
-  await db.update(flitoDerechosPendientes)
-    .set({ resuelto: true, resueltoTramiteId: tramiteId })
-    .where(and(
-      eq(flitoDerechosPendientes.placa, normalizarTexto(placa)),
-      eq(flitoDerechosPendientes.resuelto, false),
-    ));
 }
