@@ -44,6 +44,17 @@ export const MENSAJERO_USER = {
   allowedPages: ['flito_logistica_ruta'],
 };
 
+// Finanzas — dueña de las bolsas prepago (Feature #11120). Sus páginas salen de los defaults del
+// rol, así que `allowedPages` va vacío a propósito: el test comprueba el permiso real, no uno
+// concedido a mano.
+export const FINANCIERA_USER = {
+  id: 10,
+  username: 'e2e_financiera',
+  name: 'Financiera E2E',
+  role: 'financiera' as const,
+  allowedPages: [] as string[],
+};
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>

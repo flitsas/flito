@@ -3039,6 +3039,9 @@ export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
   // Anti doble cobro de las salidas automáticas (HU #11122). NULL en lo que registra una persona:
   // dos recargas iguales el mismo día son dos recargas, no un duplicado.
   llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  // Movimiento que este ajuste corrige (HU #11123). Corregir no es un UPDATE del valor —el libro es
+  // append-only—, sino un movimiento nuevo que apunta al original.
+  corrigeMovimientoId: uuid('corrige_movimiento_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   companiaIdx: index('idx_flito_bolsa_mov_compania').on(t.companiaId, t.createdAt),
@@ -3053,6 +3056,11 @@ export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
   llaveIdx: uniqueIndex('idx_flito_bolsa_mov_llave')
     .on(t.llaveIdempotencia)
     .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+  // «¿Qué correcciones tiene este movimiento?» sin barrer el libro entero (HU #11123). Parcial: la
+  // inmensa mayoría de los movimientos no corrigen nada.
+  corrigeIdx: index('idx_flito_bolsa_mov_corrige')
+    .on(t.corrigeMovimientoId)
+    .where(sql`${t.corrigeMovimientoId} IS NOT NULL`),
 }));
 
 /**
@@ -3087,4 +3095,30 @@ export const flitoBolsaCierres = pgTable('flito_bolsa_cierres', {
   // simultáneos no pueden producir dos reportes distintos del mismo mes.
   periodoUnico: uniqueIndex('uq_flito_bolsa_cierre_periodo').on(t.companiaId, t.periodo),
   companiaIdx: index('idx_flito_bolsa_cierres_compania').on(t.companiaId, t.periodo),
+}));
+
+/**
+ * Pago de FLIT a un Organismo de Tránsito (HU #11124, Feature #11120 §4.1).
+ *
+ * La «bolsa simbólica» del organismo no tiene saldo propio: es una vista agregada sobre
+ * `flito_bolsa_movimientos` que dice cuánto se le cobró al cliente por cuenta de ese organismo. Esta
+ * tabla es el otro lado de la conciliación —cuánto se le ha pagado— y lo único que se persiste del
+ * estado de cuenta.
+ *
+ * Estos pagos NO tocan la bolsa del cliente: es dinero que sale de FLIT hacia el organismo, no del
+ * saldo prepago. Mezclarlos descuadraría el saldo del cliente contra sus propios movimientos.
+ */
+export const flitoOrganismoPagos = pgTable('flito_organismo_pagos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_organismo_pagos_organismo').on(t.organismoCodigo, t.fecha),
 }));

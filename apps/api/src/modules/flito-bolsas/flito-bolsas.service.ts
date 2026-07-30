@@ -5,20 +5,46 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, like, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoSoportes,
+  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
+  flitoOrganismoPagos, flitoSoportes, flitoTramites,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
+  type AlertaBolsa,
+  type AlertasConciliacion,
+  type BolsaConRiesgo,
   type BolsaDto,
+  type BolsaSimbolicaOrganismo,
+  type CierreDto,
+  CLAVE_AGRUPACION_SIN_ASIGNAR,
   type ConceptoBolsa,
+  type ExtractoCliente,
+  type LineaAgrupada,
+  type LineaOrganismo,
   type MovimientoBolsaDto,
+  NIVEL_RIESGO_BOLSA_LABEL,
+  type PagoOrganismoDto,
+  nivelRiesgoDe,
+  NivelRiesgoBolsa,
   type OrigenMovimientoBolsa,
   periodoDe,
+  porcentajeSaldo,
+  type SaldoConsolidado,
   type TipoMovimientoBolsa,
+  type TramiteOrganismoDto,
 } from '@operaciones/shared-types';
+
+// Las formas que devuelve este servicio viven en shared-types: la web las pinta tal cual y
+// redeclararlas allí sería garantizar que un día divergen (mismo motivo por el que `nivelRiesgoDe`
+// está compartido). Se re-exportan para no tocar a los importadores que ya las traían de aquí.
+export type {
+  AlertaBolsa, AlertasConciliacion, BolsaConRiesgo, BolsaSimbolicaOrganismo, CierreDto,
+  ExtractoCliente, LineaAgrupada, LineaOrganismo, PagoOrganismoDto, SaldoConsolidado,
+  TramiteOrganismoDto,
+};
 
 /** Error de negocio: lo traduce la capa HTTP a 400/409, no al error handler genérico. */
 export class BolsaError extends Error {
@@ -74,6 +100,8 @@ interface DatosMovimiento {
   /** Comprobante a registrar DENTRO de la misma transacción que el movimiento. */
   soporte?: SoporteRecarga | null;
   llaveIdempotencia?: string | null;
+  /** Movimiento que este ajuste corrige (HU #11123). */
+  corrigeMovimientoId?: string | null;
   /** Sustantivo para los mensajes de error: 'recarga', 'salida', 'ajuste'… */
   etiqueta?: string;
 }
@@ -152,17 +180,23 @@ export async function movimientosDe(
   const condiciones = [eq(flitoBolsaMovimientos.companiaId, companiaId)];
   if (filtro.periodo) condiciones.push(eq(flitoBolsaMovimientos.periodo, filtro.periodo));
 
+  // El join trae el id de FLIT, que es como Operaciones nombra el trámite. Va aquí y no en una
+  // segunda consulta por fila: la tabla del libro los pinta todos.
   const filas = await db
-    .select()
+    .select({ m: flitoBolsaMovimientos, idFlit: flitoTramites.idFlit })
     .from(flitoBolsaMovimientos)
+    .leftJoin(flitoTramites, eq(flitoBolsaMovimientos.tramiteId, flitoTramites.id))
     .where(and(...condiciones))
     .orderBy(desc(flitoBolsaMovimientos.createdAt))
     .limit(Math.min(filtro.limite ?? 200, 500));
 
-  return filas.map(aMovimientoDto);
+  return filas.map((f) => aMovimientoDto(f.m, f.idFlit));
 }
 
-function aMovimientoDto(m: typeof flitoBolsaMovimientos.$inferSelect): MovimientoBolsaDto {
+function aMovimientoDto(
+  m: typeof flitoBolsaMovimientos.$inferSelect,
+  idFlit: string | null = null,
+): MovimientoBolsaDto {
   return {
     id: m.id,
     companiaId: m.companiaId,
@@ -171,6 +205,7 @@ function aMovimientoDto(m: typeof flitoBolsaMovimientos.$inferSelect): Movimient
     concepto: m.concepto === null ? null : (m.concepto as ConceptoBolsa),
     organismoCodigo: m.organismoCodigo,
     tramiteId: m.tramiteId,
+    idFlit,
     valor: num(m.valor),
     saldoResultante: num(m.saldoResultante),
     periodo: m.periodo,
@@ -365,6 +400,7 @@ export async function asentarMovimiento(
       registradoPorId: ctx.userId,
       registradoPorNombre: ctx.nombre,
       llaveIdempotencia: datos.llaveIdempotencia ?? null,
+      corrigeMovimientoId: datos.corrigeMovimientoId ?? null,
     })
     .returning();
 
@@ -565,6 +601,143 @@ export async function reversarSalidasLiquidacion(
   return contras;
 }
 
+// ───────────── Movimientos manuales y correcciones (HU #11123) ───────────────
+
+const MOTIVO_MINIMO = 5;
+
+export interface DatosMovimientoManual {
+  tipo: TipoMovimientoBolsa;
+  valor: number;
+  motivo: string;
+  fecha?: string;
+  concepto?: ConceptoBolsa | null;
+  organismoCodigo?: string | null;
+  soporte?: SoporteRecarga | null;
+}
+
+/** Comprueba el motivo, que es lo único que hace auditable un movimiento manual. */
+function motivoValido(motivo: string): string {
+  const texto = motivo.trim();
+  if (texto.length < MOTIVO_MINIMO) throw new BolsaError('Indica el motivo del movimiento');
+  return texto;
+}
+
+/**
+ * Rechaza escribir en un periodo ya cerrado (AC4).
+ *
+ * Distinto del rezago del asiento automático: allí el movimiento viene de un hecho que ya ocurrió
+ * —el organismo cobró— y perderlo sería peor que imputarlo con desfase. Aquí lo escribe una persona
+ * que puede elegir la fecha, así que apuntar a un mes ya conciliado es un error suyo, no un dato que
+ * salvar.
+ */
+async function exigirPeriodoAbierto(tx: DbOrTx, companiaId: number, fecha: string): Promise<void> {
+  const periodo = periodoDeFecha(fecha);
+  if (await periodoEstaCerrado(tx, companiaId, periodo)) {
+    throw new BolsaError(
+      'No se pueden registrar ni editar movimientos de un periodo cerrado',
+      409,
+    );
+  }
+}
+
+/**
+ * Registra una entrada, salida o ajuste manual (AC1).
+ *
+ * No lleva llave de idempotencia: dos ajustes iguales el mismo día son dos ajustes, y quien los
+ * registra los está viendo en pantalla. Lo que los hace rastreables es el motivo y la evidencia.
+ */
+export async function registrarMovimientoManual(
+  companiaId: number,
+  datos: DatosMovimientoManual,
+  ctx: CtxUsuario,
+): Promise<{ movimiento: MovimientoBolsaDto; saldo: number }> {
+  const motivo = motivoValido(datos.motivo);
+  const fecha = datos.fecha ?? hoyIso();
+  await exigirPeriodoAbierto(db, companiaId, fecha);
+
+  const { movimiento } = await registrarMovimiento(
+    companiaId,
+    {
+      tipo: datos.tipo,
+      origen: 'manual',
+      valor: datos.valor,
+      fecha,
+      concepto: datos.concepto ?? null,
+      organismoCodigo: datos.organismoCodigo ?? null,
+      observacion: motivo,
+      soporte: datos.soporte ?? null,
+      etiqueta: datos.tipo === 'entrada' ? 'entrada manual' : 'salida manual',
+    },
+    ctx,
+  );
+  return { movimiento, saldo: movimiento.saldoResultante };
+}
+
+/**
+ * Corrige el valor de un movimiento MANUAL con un ajuste que lo referencia (AC2).
+ *
+ * No se toca la fila original: el libro es append-only y el histórico debe seguir mostrando qué se
+ * registró primero. La corrección asienta solo la DIFERENCIA, en la dirección que haga falta, de
+ * modo que el saldo quede como si el valor correcto se hubiera registrado desde el principio.
+ *
+ * Los movimientos automáticos no se corrigen por aquí (AC5): vienen de un hecho —el sellado de una
+ * liquidación— y cambiarles el valor desalinearía la bolsa de lo que dice la liquidación. Para esos
+ * se registra un ajuste manual suelto, que deja constancia de que la corrección es una decisión de
+ * una persona y no una enmienda al hecho.
+ */
+export async function corregirMovimiento(
+  movimientoId: string,
+  valorCorregido: number,
+  motivoBruto: string,
+  ctx: CtxUsuario,
+): Promise<{ correccion: MovimientoBolsaDto; saldo: number }> {
+  const motivo = motivoValido(motivoBruto);
+
+  const [original] = await db
+    .select()
+    .from(flitoBolsaMovimientos)
+    .where(eq(flitoBolsaMovimientos.id, movimientoId))
+    .limit(1);
+  if (!original) throw new BolsaError('El movimiento no existe', 404);
+
+  if (original.origen !== 'manual') {
+    throw new BolsaError(
+      'Un movimiento automático no se edita: corrígelo con un ajuste manual',
+      409,
+    );
+  }
+  await exigirPeriodoAbierto(db, original.companiaId, original.fecha);
+
+  const valorOriginal = num(original.valor);
+  const diferencia = redondear(valorCorregido - valorOriginal);
+  if (diferencia === 0) throw new BolsaError('El valor corregido es igual al actual');
+
+  // Si el movimiento era una salida y sube de valor, hay que sacar más: la corrección va en la misma
+  // dirección que el original. Si baja, va en la contraria.
+  const mismaDireccion = diferencia > 0;
+  const tipo: TipoMovimientoBolsa = mismaDireccion
+    ? (original.tipo as TipoMovimientoBolsa)
+    : (original.tipo === 'entrada' ? 'salida' : 'entrada');
+
+  const { movimiento } = await registrarMovimiento(
+    original.companiaId,
+    {
+      tipo,
+      origen: 'manual',
+      valor: Math.abs(diferencia),
+      fecha: hoyIso(),
+      concepto: original.concepto === null ? null : (original.concepto as ConceptoBolsa),
+      organismoCodigo: original.organismoCodigo,
+      tramiteId: original.tramiteId,
+      observacion: `Corrección de ${valorOriginal} a ${valorCorregido}: ${motivo}`,
+      corrigeMovimientoId: original.id,
+      etiqueta: 'corrección',
+    },
+    ctx,
+  );
+  return { correccion: movimiento, saldo: movimiento.saldoResultante };
+}
+
 // ─────────────────── Cierre mensual del periodo (HU #11126) ──────────────────
 
 /** Periodos ya cerrados de un cliente. */
@@ -616,20 +789,6 @@ async function periodoImputable(
 export function periodoSiguiente(periodo: string): string {
   const [anio, mes] = periodo.split('-').map(Number);
   return mes === 12 ? `${anio + 1}-01` : `${anio}-${String(mes + 1).padStart(2, '0')}`;
-}
-
-export interface CierreDto {
-  id: string;
-  companiaId: number;
-  periodo: string;
-  saldoInicial: number;
-  totalEntradas: number;
-  totalSalidas: number;
-  saldoFinal: number;
-  movimientos: number;
-  observaciones: string | null;
-  cerradoPorNombre: string;
-  cerradoEn: string;
 }
 
 function aCierreDto(c: typeof flitoBolsaCierres.$inferSelect): CierreDto {
@@ -735,6 +894,357 @@ export async function cerrarPeriodo(
 
     return aCierreDto(fila);
   });
+}
+
+// ───────── Extracto por OT y bolsa simbólica del organismo (HU #11124) ───────
+
+/** Agrupa el libro de un cliente por una columna, sumando entradas y salidas por separado. */
+async function agrupar(
+  companiaId: number,
+  columna: typeof flitoBolsaMovimientos.organismoCodigo | typeof flitoBolsaMovimientos.concepto,
+  periodo?: string,
+): Promise<LineaAgrupada[]> {
+  const condiciones = [eq(flitoBolsaMovimientos.companiaId, companiaId)];
+  if (periodo) condiciones.push(eq(flitoBolsaMovimientos.periodo, periodo));
+
+  const filas = await db
+    .select({
+      clave: columna,
+      entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      movimientos: sql<number>`count(*)::int`,
+    })
+    .from(flitoBolsaMovimientos)
+    .where(and(...condiciones))
+    .groupBy(columna);
+
+  return filas.map((f) => ({
+    // `null` es una agrupación legítima, no un fallo: las recargas no tienen organismo ni concepto,
+    // y el trámite digital y la logística no tienen organismo por ser honorarios de FLIT.
+    clave: f.clave ?? CLAVE_AGRUPACION_SIN_ASIGNAR,
+    entradas: redondear(num(f.entradas)),
+    salidas: redondear(num(f.salidas)),
+    movimientos: f.movimientos,
+  }));
+}
+
+/**
+ * Extracto del cliente: el saldo con su consumo desglosado por organismo y por concepto (AC1).
+ *
+ * Los desgloses se calculan del mismo libro que produce el saldo, así que cuadran por construcción:
+ * saldo = entradas − salidas, y cada agrupación reparte esas mismas sumas por una dimensión distinta.
+ */
+export async function extractoDe(companiaId: number, periodo?: string): Promise<ExtractoCliente> {
+  const [totales] = await db
+    .select({
+      entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+    })
+    .from(flitoBolsaMovimientos)
+    .where(periodo
+      ? and(eq(flitoBolsaMovimientos.companiaId, companiaId), eq(flitoBolsaMovimientos.periodo, periodo))
+      : eq(flitoBolsaMovimientos.companiaId, companiaId));
+
+  const [porOrganismo, porConcepto, bolsa] = await Promise.all([
+    agrupar(companiaId, flitoBolsaMovimientos.organismoCodigo, periodo),
+    agrupar(companiaId, flitoBolsaMovimientos.concepto, periodo),
+    bolsaDe(companiaId),
+  ]);
+
+  return {
+    companiaId,
+    saldoActual: bolsa?.saldo ?? 0,
+    totalEntradas: redondear(num(totales?.entradas ?? '0')),
+    totalSalidas: redondear(num(totales?.salidas ?? '0')),
+    porOrganismo,
+    porConcepto,
+  };
+}
+
+/**
+ * Estado de cuenta de un organismo (AC2). NO tiene saldo real: es la diferencia entre lo que se
+ * cobró a los clientes por su cuenta y lo que FLIT ya le pagó.
+ *
+ * Solo cuentan las SALIDAS: una entrada con organismo sería un contramovimiento de reverso, y
+ * sumarla como «cobrado» inflaría la deuda con el organismo. Por eso se restan.
+ */
+export async function bolsaSimbolicaDe(organismoCodigo: string): Promise<BolsaSimbolicaOrganismo> {
+  const [filas, pagos] = await Promise.all([
+    db.select({
+      concepto: flitoBolsaMovimientos.concepto,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else -${flitoBolsaMovimientos.valor} end), 0)`,
+      movimientos: sql<number>`count(*)::int`,
+    })
+      .from(flitoBolsaMovimientos)
+      .where(eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo))
+      .groupBy(flitoBolsaMovimientos.concepto),
+    db.select({
+      total: sql<string>`coalesce(sum(${flitoOrganismoPagos.valor}), 0)`,
+    })
+      .from(flitoOrganismoPagos)
+      .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo)),
+  ]);
+
+  const porConcepto: LineaOrganismo[] = filas.map((f) => ({
+    concepto: f.concepto ?? 'sin_concepto',
+    cobrado: redondear(num(f.salidas)),
+    movimientos: f.movimientos,
+  }));
+  const totalCobrado = redondear(porConcepto.reduce((a, l) => a + l.cobrado, 0));
+  const totalPagado = redondear(num(pagos[0]?.total ?? '0'));
+
+  return {
+    organismoCodigo,
+    porConcepto,
+    totalCobrado,
+    totalPagado,
+    saldoPendiente: redondear(totalCobrado - totalPagado),
+  };
+}
+
+/** Historial de pagos de FLIT al organismo, del más reciente al más antiguo (AC2). */
+export async function pagosDeOrganismo(organismoCodigo: string): Promise<PagoOrganismoDto[]> {
+  const filas = await db
+    .select()
+    .from(flitoOrganismoPagos)
+    .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo))
+    .orderBy(desc(flitoOrganismoPagos.fecha), desc(flitoOrganismoPagos.createdAt));
+
+  return filas.map((p) => ({
+    id: p.id,
+    valor: num(p.valor),
+    fecha: p.fecha,
+    observacion: p.observacion,
+    soporteId: p.soporteId,
+    registradoPorNombre: p.registradoPorNombre,
+    createdAt: aIso(p.createdAt) ?? '',
+  }));
+}
+
+/**
+ * Trámites que originaron el cobro del organismo, con su soporte (AC2).
+ *
+ * Solo salidas automáticas: son las que representan un desembolso al organismo. Un ajuste manual
+ * imputado a ese organismo es una corrección de FLIT, no un cobro suyo, y mezclarlo aquí haría creer
+ * que el organismo facturó algo que nunca facturó.
+ */
+export async function tramitesDeOrganismo(
+  organismoCodigo: string,
+  limite = 200,
+): Promise<TramiteOrganismoDto[]> {
+  const filas = await db
+    .select({
+      tramiteId: flitoBolsaMovimientos.tramiteId,
+      idFlit: flitoTramites.idFlit,
+      companiaId: flitoBolsaMovimientos.companiaId,
+      concepto: flitoBolsaMovimientos.concepto,
+      valor: flitoBolsaMovimientos.valor,
+      fecha: flitoBolsaMovimientos.fecha,
+      soporteId: flitoBolsaMovimientos.soporteId,
+    })
+    .from(flitoBolsaMovimientos)
+    .leftJoin(flitoTramites, eq(flitoBolsaMovimientos.tramiteId, flitoTramites.id))
+    .where(and(
+      eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo),
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      eq(flitoBolsaMovimientos.tipo, 'salida'),
+    ))
+    .orderBy(desc(flitoBolsaMovimientos.fecha))
+    .limit(Math.min(limite, 500));
+
+  return filas
+    .filter((f): f is typeof f & { tramiteId: string } => f.tramiteId !== null)
+    .map((f) => ({
+      tramiteId: f.tramiteId,
+      idFlit: f.idFlit,
+      companiaId: f.companiaId,
+      concepto: f.concepto,
+      valor: num(f.valor),
+      fecha: f.fecha,
+      soporteId: f.soporteId,
+    }));
+}
+
+export interface DatosPagoOrganismo {
+  valor: number;
+  fecha?: string;
+  observacion?: string | null;
+  soporte?: SoporteRecarga | null;
+}
+
+/**
+ * Registra un pago de FLIT al organismo (AC3). Baja su pendiente y **no toca** la bolsa de ningún
+ * cliente: es dinero de FLIT, no del saldo prepago.
+ */
+export async function registrarPagoOrganismo(
+  organismoCodigo: string,
+  datos: DatosPagoOrganismo,
+  ctx: CtxUsuario,
+): Promise<{ id: string; saldoPendiente: number }> {
+  const valor = redondear(datos.valor);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    throw new BolsaError('El valor del pago debe ser mayor que cero');
+  }
+  if (valor > TOPE_NUMERIC) throw new BolsaError('El valor del pago excede el máximo admitido');
+
+  const fecha = parseFechaQuery(datos.fecha ?? hoyIso());
+  if (fecha === null) throw new BolsaError('La fecha del pago no es válida');
+  if (fecha > hoyIso()) throw new BolsaError('La fecha del pago no puede ser futura');
+
+  const id = await db.transaction(async (tx) => {
+    const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
+    const [fila] = await tx.insert(flitoOrganismoPagos).values({
+      organismoCodigo,
+      valor: String(valor),
+      fecha,
+      observacion: datos.observacion?.trim() ? datos.observacion.trim() : null,
+      soporteId,
+      registradoPorId: ctx.userId,
+      registradoPorNombre: ctx.nombre.slice(0, 150),
+    }).returning({ id: flitoOrganismoPagos.id });
+    return fila.id;
+  });
+
+  const { saldoPendiente } = await bolsaSimbolicaDe(organismoCodigo);
+  return { id, saldoPendiente };
+}
+
+// ─────────────── Nivel de riesgo del saldo y alertas (HU #11125) ─────────────
+
+function conRiesgo(b: BolsaDto): BolsaConRiesgo {
+  return {
+    ...b,
+    nivel: nivelRiesgoDe(b.saldo, b.ultimaRecargaValor),
+    porcentaje: porcentajeSaldo(b.saldo, b.ultimaRecargaValor),
+    // Los totales del periodo solo los calcula el listado del tablero, que sabe qué mes se pidió.
+    // `null` aquí no es «cero movimientos», es «no se preguntó».
+    entradasPeriodo: null,
+    salidasPeriodo: null,
+  };
+}
+
+/** Bolsa del cliente con su nivel de riesgo ya clasificado. */
+export async function bolsaConRiesgoDe(companiaId: number): Promise<BolsaConRiesgo | null> {
+  const b = await bolsaDe(companiaId);
+  return b === null ? null : conRiesgo(b);
+}
+
+/**
+ * Todas las bolsas con su nivel, las de peor riesgo primero (AC1).
+ *
+ * El orden lo pone el servidor y no la pantalla: es la lista que Financiera abre para decidir a quién
+ * recargar, y dejar que cada cliente la ordene invitaría a que dos vistas muestren prioridades
+ * distintas del mismo dato.
+ */
+export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[]> {
+  const filas = await db
+    .select({
+      id: flitoBolsas.id,
+      companiaId: flitoBolsas.companiaId,
+      companiaNombre: clients.name,
+      saldo: flitoBolsas.saldo,
+      ultimaRecargaValor: flitoBolsas.ultimaRecargaValor,
+      ultimaRecargaEn: flitoBolsas.ultimaRecargaEn,
+    })
+    .from(flitoBolsas)
+    .innerJoin(clients, eq(flitoBolsas.companiaId, clients.id));
+
+  // Los totales del periodo salen de UNA consulta agrupada, no de una por cliente. El tablero los
+  // pinta en cada tarjeta, así que pedirlos uno a uno convertía abrir la pantalla en tantas
+  // consultas como clientes hubiera.
+  const totales = new Map<number, { entradas: number; salidas: number }>();
+  if (periodo) {
+    const agregados = await db
+      .select({
+        companiaId: flitoBolsaMovimientos.companiaId,
+        entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+        salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      })
+      .from(flitoBolsaMovimientos)
+      .where(eq(flitoBolsaMovimientos.periodo, periodo))
+      .groupBy(flitoBolsaMovimientos.companiaId);
+    for (const a of agregados) {
+      totales.set(a.companiaId, {
+        entradas: redondear(num(a.entradas)),
+        salidas: redondear(num(a.salidas)),
+      });
+    }
+  }
+
+  const orden: Record<NivelRiesgoBolsa, number> = {
+    agotada: 0, critico: 1, bajo: 2, normal: 3, sin_recargas: 4,
+  };
+
+  return filas
+    .map((f) => {
+      const t = totales.get(f.companiaId);
+      return {
+        ...conRiesgo({
+          id: f.id,
+          companiaId: f.companiaId,
+          companiaNombre: f.companiaNombre,
+          saldo: num(f.saldo),
+          ultimaRecargaValor: f.ultimaRecargaValor === null ? null : num(f.ultimaRecargaValor),
+          ultimaRecargaEn: aIso(f.ultimaRecargaEn),
+        }),
+        // `null` cuando no se pidió periodo: distinto de cero, que sí significa «ese mes no se movió».
+        entradasPeriodo: periodo ? (t?.entradas ?? 0) : null,
+        salidasPeriodo: periodo ? (t?.salidas ?? 0) : null,
+      };
+    })
+    .sort((a, b) => orden[a.nivel] - orden[b.nivel]
+      // A igual nivel, primero el que más lejos está de su base: es el que antes se queda sin saldo.
+      || (a.porcentaje ?? Infinity) - (b.porcentaje ?? Infinity));
+}
+
+/**
+ * Alertas de saldo: las bolsas que no están en nivel normal (AC2).
+ *
+ * `sin_recargas` NO alerta: un cliente que aún no ha recibido su primera recarga no tiene un
+ * problema de saldo, y colarlo aquí llenaría el panel de ruido el día que se den de alta clientes.
+ */
+export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
+  const bolsas = await bolsasConRiesgo();
+  return bolsas
+    .filter((b) => b.nivel !== NivelRiesgoBolsa.NORMAL && b.nivel !== NivelRiesgoBolsa.SIN_RECARGAS)
+    .map((b) => ({
+      tipo: 'saldo' as const,
+      nivel: b.nivel,
+      companiaId: b.companiaId,
+      companiaNombre: b.companiaNombre,
+      saldo: b.saldo,
+      porcentaje: b.porcentaje,
+      mensaje: b.nivel === NivelRiesgoBolsa.AGOTADA
+        ? `La bolsa de ${b.companiaNombre} está agotada (saldo ${b.saldo}).`
+        : `${b.companiaNombre} tiene ${NIVEL_RIESGO_BOLSA_LABEL[b.nivel].toLowerCase()}: ${b.porcentaje} % de su última recarga.`,
+    }));
+}
+
+/**
+ * Alertas de conciliación (AC4): los dos extremos que no cuadran entre soportes y movimientos.
+ *
+ * Los soportes sin trámite ya los recoge la bandeja `flito_derechos_pendientes`, que existe desde el
+ * módulo de derechos y sirve a los tres conceptos; no se reimplementa ese cruce aquí.
+ */
+export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
+  const [pendientes] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(flitoDerechosPendientes)
+    .where(eq(flitoDerechosPendientes.resuelto, false));
+
+  const [sinSoporte] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(flitoBolsaMovimientos)
+    .where(and(
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      eq(flitoBolsaMovimientos.tipo, 'salida'),
+      isNull(flitoBolsaMovimientos.soporteId),
+    ));
+
+  return {
+    soportesSinTramite: pendientes?.n ?? 0,
+    movimientosSinSoporte: sinSoporte?.n ?? 0,
+  };
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */

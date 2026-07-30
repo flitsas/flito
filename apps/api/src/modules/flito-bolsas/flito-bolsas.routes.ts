@@ -16,10 +16,15 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
-import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  bolsaDe, BolsaError, cerrarPeriodo, cierresDe, movimientosDe, registrarRecarga,
-  saldoConsolidado,
+  deleteEntityDocument, firmarDescargaEntidad, uploadEntityDocument,
+} from '../../services/storage.js';
+import {
+  alertasDeConciliacion, alertasDeSaldo, bolsaConRiesgoDe, BolsaError, bolsasConRiesgo,
+  bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
+  pagosDeOrganismo, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
+  saldoConsolidado, tramitesDeOrganismo,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -81,10 +86,28 @@ router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
   res.json(await saldoConsolidado());
 });
 
+// Las rutas de UN SOLO segmento fijo van todas ANTES de `/:companiaId`. Si no, Express casa el
+// segmento con el parámetro y la ruta se vuelve inalcanzable: devuelve «Compañía inválida» en vez de
+// su respuesta, sin que nada falle de forma visible. `/organismos/:codigo` se libra por llevar dos
+// segmentos, pero estas dos no.
+
+// GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
+router.get('/riesgo', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = filtroSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
+  res.json(await bolsasConRiesgo(parsed.data.periodo));
+});
+
+// GET /alertas — saldo y conciliación, lo que Financiera necesita mirar hoy.
+router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
+  const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
+  res.json({ saldo, conciliacion });
+});
+
 // GET /:companiaId — bolsa y saldo del cliente.
 router.get('/:companiaId', BOLSAS, async (req: Request, res: Response) => {
   try {
-    const bolsa = await bolsaDe(companiaIdDe(req));
+    const bolsa = await bolsaConRiesgoDe(companiaIdDe(req));
     // Sin bolsa no es un error: es un cliente que todavía no ha recibido su primera recarga.
     if (!bolsa) { res.status(404).json({ error: 'El cliente aún no tiene bolsa' }); return; }
     res.json(bolsa);
@@ -197,6 +220,200 @@ function claveIdempotencia(req: Request): string | null {
   if (clave.length === 0 || clave.length > 120) return null;
   return clave;
 }
+
+// GET /soportes/:soporteId — URL firmada del comprobante de un movimiento.
+//
+// Existe en vez de reusar `/flito/derechos/soporte/:id` porque aquel está abierto a `admin` y
+// `auditor`, y aquí quien necesita abrir el comprobante es `financiera`. Compartir la ruta obligaría
+// a ensanchar sus roles y le daría a auditoría acceso a los soportes de las bolsas, que el Feature
+// reserva a Administración y Financiera (§9).
+router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) => {
+  const s = await storageKeySoporte(req.params.soporteId);
+  if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
+  res.json({
+    url: firmarDescargaEntidad(s.storageKey),
+    nombreArchivo: s.nombreArchivo,
+    contentType: s.contentType,
+  });
+});
+
+// GET /organismos/:organismoCodigo/pagos — historial de pagos de FLIT al organismo.
+router.get('/organismos/:organismoCodigo/pagos', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await pagosDeOrganismo(req.params.organismoCodigo));
+});
+
+// GET /organismos/:organismoCodigo/tramites — qué trámites originaron el cobro del organismo.
+router.get('/organismos/:organismoCodigo/tramites', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await tramitesDeOrganismo(req.params.organismoCodigo));
+});
+
+// GET /organismos/:organismoCodigo — estado de cuenta (bolsa simbólica) del organismo.
+// Antes de /:companiaId por la misma razón que /consolidado: «organismos» no es un id de compañía.
+router.get('/organismos/:organismoCodigo', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await bolsaSimbolicaDe(req.params.organismoCodigo));
+});
+
+// POST /organismos/:organismoCodigo/pagos — pago de FLIT al organismo (multipart, soporte opcional).
+//
+// El soporte es OPCIONAL aquí, a diferencia de las recargas: un pago a un organismo puede registrarse
+// el mismo día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
+const pagoOrganismoSchema = z.object({
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor del pago debe ser mayor que cero' })
+    .positive({ message: 'El valor del pago debe ser mayor que cero' }),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  observacion: z.string().trim().max(1000).optional(),
+});
+
+router.post('/organismos/:organismoCodigo/pagos', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = pagoOrganismoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+
+  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+  let storageKey: string | null = null;
+  try {
+    if (req.file) {
+      const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
+      if (invalido) { res.status(400).json({ error: invalido }); return; }
+      storageKey = await uploadEntityDocument(
+        `organismos/${req.params.organismoCodigo}/pagos`,
+        req.params.organismoCodigo, req.file.originalname, req.file.buffer, req.file.mimetype,
+      );
+    }
+
+    const { id, saldoPendiente } = await registrarPagoOrganismo(
+      req.params.organismoCodigo,
+      {
+        valor: parsed.data.valor,
+        fecha: parsed.data.fecha,
+        observacion: parsed.data.observacion ?? null,
+        soporte: req.file && storageKey ? {
+          nombreArchivo: req.file.originalname,
+          contentType: req.file.mimetype,
+          storageKey,
+          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
+          tamanoBytes: req.file.size,
+        } : null,
+      },
+      ctx,
+    );
+    await audit(req, {
+      action: 'create', resource: 'flito_organismo_pago', resourceId: id,
+      detail: `Pago de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: pendiente ${saldoPendiente}`,
+    });
+    res.status(201).json({ id, saldoPendiente });
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    fallo(res, e);
+  }
+});
+
+// GET /:companiaId/extracto — saldo con el consumo desglosado por organismo y por concepto.
+router.get('/:companiaId/extracto', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = filtroSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
+  try {
+    res.json(await extractoDe(companiaIdDe(req), parsed.data.periodo));
+  } catch (e) { fallo(res, e); }
+});
+
+// POST /:companiaId/movimientos-manuales — contingencia registrada por Financiera (multipart).
+//
+// La evidencia es obligatoria, igual que en las recargas: un movimiento de dinero que una persona
+// decide sin dejar respaldo no es auditable, y el Feature la exige entre los campos de todo
+// movimiento manual (§5).
+const manualSchema = z.object({
+  tipo: z.enum(['entrada', 'salida']),
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor del movimiento debe ser mayor que cero' })
+    .positive({ message: 'El valor del movimiento debe ser mayor que cero' }),
+  motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  concepto: z.enum(['derecho', 'soat', 'impuesto', 'tramite_digital', 'logistica']).optional(),
+  organismoCodigo: z.string().trim().max(5).optional(),
+});
+
+router.post('/:companiaId/movimientos-manuales', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = manualSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  if (!req.file) { res.status(400).json({ error: 'Adjunta la evidencia del movimiento' }); return; }
+
+  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+  let storageKey: string | null = null;
+  try {
+    const companiaId = companiaIdDe(req);
+    const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
+    if (invalido) { res.status(400).json({ error: invalido }); return; }
+
+    storageKey = await subirComprobante(companiaId, req.file);
+    const { movimiento, saldo } = await registrarMovimientoManual(
+      companiaId,
+      {
+        tipo: parsed.data.tipo,
+        valor: parsed.data.valor,
+        motivo: parsed.data.motivo,
+        fecha: parsed.data.fecha,
+        concepto: parsed.data.concepto ?? null,
+        organismoCodigo: parsed.data.organismoCodigo ?? null,
+        soporte: {
+          nombreArchivo: req.file.originalname,
+          contentType: req.file.mimetype,
+          storageKey,
+          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
+          tamanoBytes: req.file.size,
+        },
+      },
+      ctx,
+    );
+
+    await audit(req, {
+      action: 'create', resource: 'flito_bolsa_movimiento', resourceId: movimiento.id,
+      detail: `Movimiento manual (${movimiento.tipo}) de ${movimiento.valor} en la bolsa de la compañía ${companiaId}: saldo ${saldo}`,
+    });
+    res.status(201).json({ movimiento, saldo });
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    fallo(res, e);
+  }
+});
+
+// POST /:companiaId/movimientos/:movimientoId/correccion — corrige el valor de un movimiento manual.
+//
+// No edita la fila original: asienta un ajuste que la referencia. Un movimiento automático se
+// rechaza aquí (409) y se corrige con un movimiento manual suelto.
+const correccionSchema = z.object({
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor corregido debe ser mayor que cero' })
+    .positive({ message: 'El valor corregido debe ser mayor que cero' }),
+  motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
+});
+
+router.post('/:companiaId/movimientos/:movimientoId/correccion', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = correccionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  try {
+    const { correccion, saldo } = await corregirMovimiento(
+      req.params.movimientoId,
+      parsed.data.valor,
+      parsed.data.motivo,
+      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
+    );
+    await audit(req, {
+      action: 'update', resource: 'flito_bolsa_movimiento', resourceId: correccion.id,
+      detail: `Corrección del movimiento ${req.params.movimientoId}: saldo ${saldo}`,
+    });
+    res.status(201).json({ correccion, saldo });
+  } catch (e) { fallo(res, e); }
+});
 
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
 router.get('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {
