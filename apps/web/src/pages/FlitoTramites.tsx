@@ -23,6 +23,7 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import {
@@ -155,6 +156,7 @@ export default function FlitoTramites() {
   // Orden cronológico. 'antiguos' es el orden de trabajo del gestor: lo que lleva más esperando va
   // primero. El default sigue siendo lo más reciente, que es como se comportaba antes.
   const [ordenSel, setOrdenSel] = useState<'recientes' | 'antiguos'>('recientes');
+  const [preset, setPreset] = useState<string | null>(null);
   // La alerta vive en la URL, no en un useState: así el enlace del tablero la aplica al entrar y
   // la pantalla se puede compartir tal cual. Derivarla (en vez de copiarla a estado) evita que la
   // barra de direcciones y la tabla se desincronicen.
@@ -221,6 +223,35 @@ export default function FlitoTramites() {
   const ids = () => [...seleccion];
   const limpiar = () => setSeleccion(new Set());
   const n = seleccion.size;
+  const limpiarFiltros = () => {
+    setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]);
+    setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel('');
+    setOrdenSel('recientes'); setPreset(null);
+  };
+
+  /**
+   * La vista con la que se abre la pantalla al empezar el día: lo que ya está asignado y todavía no
+   * se ha movido en ninguno de los dos conceptos.
+   *
+   * Son cuatro condiciones —estado, SOAT, impuesto y orden— y ponerlas a mano cada mañana es
+   * exactamente el trabajo que un preset ahorra. El orden importa tanto como el filtro: sin
+   * `antiguos`, lo que lleva más esperando queda en la última página.
+   */
+  const PRESETS: Array<Preset<{ estados: string[]; soat: EstadoSoat[]; imp: EstadoImpuesto[] }>> = [{
+    nombre: 'Recién llegados sin gestionar',
+    descripcion: 'Asignados con SOAT e impuesto todavía en pendiente, los más antiguos primero.',
+    filtros: { estados: ['Asignado'], soat: [EstadoSoat.PENDIENTE], imp: [EstadoImpuesto.PENDIENTE] },
+  }];
+
+  const aplicarPreset = (p: Preset<{ estados: string[]; soat: EstadoSoat[]; imp: EstadoImpuesto[] }>) => {
+    limpiarFiltros();
+    setEstadosSel(p.filtros.estados);
+    setSoatSel(p.filtros.soat);
+    setImpSel(p.filtros.imp);
+    setOrdenSel('antiguos');
+    setPreset(p.nombre);
+  };
+
   const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
   const accionables = useMemo(() => filas.filter(esAccionable), [filas]);
 
@@ -352,6 +383,8 @@ export default function FlitoTramites() {
           <div className="mb-3 flex flex-wrap items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
             <input className={`${flitInp} h-9 min-w-[18rem]`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            <FiltrosInteligentes presets={PRESETS} activo={preset}
+              onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
             <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
             <RangoFechas etiqueta="Aprobado" valor={aprobado} onCambio={(r) => { setAprobado(r); setPage(1); }} />
             {/* Filtro rápido por autogestión de la empresa (SOAT e impuestos autogestionados). */}
@@ -399,7 +432,7 @@ export default function FlitoTramites() {
             )}
             {hayFiltros && (
               <button className="ml-auto text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel(''); }}>Limpiar filtros</button>
+                onClick={limpiarFiltros}>Limpiar filtros</button>
             )}
           </div>
           {filas.length === 0 ? (

@@ -92,6 +92,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
   res.json(await listarDerechos({
     buscar, page, pageSize,
     organismos: listaQ(req.query.organismos), origenes: listaQ(req.query.origenes),
+    conAdvertencia: req.query.conAdvertencia === 'si',
     pagadoDesde: fechaQ(req.query.pagadoDesde), pagadoHasta: fechaQ(req.query.pagadoHasta),
   }));
 });

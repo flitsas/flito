@@ -21,6 +21,8 @@ import {
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
 
 const PAGE_SIZE = 50;
@@ -41,6 +43,9 @@ interface DerechoRow {
   /** De qué documento salió. Null en los derechos anteriores a que esto se registrara. */
   archivoOrigen: string | null; paginas: number[] | null;
   procesamientoId: number | null; procesamientoArchivo: string | null;
+  /** Vehículo y datos del trámite, homologados con las demás tablas. */
+  vin: string | null; marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
 }
 /** De dónde salió el recibo. En la tabla se veía el valor crudo de la columna. */
 const ETIQUETA_ORIGEN: Record<string, string> = { manual: 'Carga manual', drive: 'Drive de la secretaría' };
@@ -347,6 +352,19 @@ export default function FlitoDerechos() {
   const [facetas, setFacetas] = useState<{ organismos: string[]; origenes: string[] }>({ organismos: [], origenes: [] });
   /** Trámite cuyo visor de documentos está abierto. Null = cerrado. */
   const [soportesDe, setSoportesDe] = useState<{ tramiteId: string; idFlit: string } | null>(null);
+  const [conAdvertencia, setConAdvertencia] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+
+  /**
+   * La única vista con nombre que tiene sentido aquí. Un derecho «con advertencia» es uno cuyo
+   * concepto no cuadra con el del trámite: se registró igual, pero alguien debería mirarlo antes
+   * de que entre en una liquidación.
+   */
+  const PRESETS: Array<Preset<{ advertencia: boolean }>> = [{
+    nombre: 'Con advertencia',
+    descripcion: 'El concepto del recibo no coincide con el del trámite.',
+    filtros: { advertencia: true },
+  }];
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -356,6 +374,7 @@ export default function FlitoDerechos() {
       if (buscar.trim()) q.set('buscar', buscar.trim());
       if (organismosSel.length) q.set('organismos', organismosSel.join(','));
       if (origenesSel.length) q.set('origenes', origenesSel.join(','));
+      if (conAdvertencia) q.set('conAdvertencia', 'si');
       if (pagado.desde) q.set('pagadoDesde', pagado.desde);
       if (pagado.hasta) q.set('pagadoHasta', pagado.hasta);
       api.get<{ items: DerechoRow[]; total: number }>(`/flito/derechos?${q}`)
@@ -364,7 +383,7 @@ export default function FlitoDerechos() {
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, page, nonce, organismosSel.join(','), origenesSel.join(','), pagado.desde, pagado.hasta]);
+  }, [buscar, page, nonce, organismosSel.join(','), origenesSel.join(','), pagado.desde, pagado.hasta, conAdvertencia]);
 
   useEffect(() => {
     api.get<{ organismos: string[]; origenes: string[] }>('/flito/derechos/facetas')
@@ -524,6 +543,12 @@ export default function FlitoDerechos() {
             <ThFiltroMulti seleccion={origenesSel} onCambio={(v) => { setOrigenesSel(v); setPage(1); }}
               placeholder="Origen" vacio="Sin orígenes"
               opciones={facetas.origenes.map((o) => ({ value: o, label: ETIQUETA_ORIGEN[o] ?? o }))} />
+            <FiltrosInteligentes presets={PRESETS} activo={preset}
+              onAplicar={(p) => {
+                setOrganismosSel([]); setOrigenesSel([]); setPagado({ desde: '', hasta: '' }); setBuscar('');
+                setConAdvertencia(p.filtros.advertencia); setPreset(p.nombre); setPage(1);
+              }}
+              onQuitar={() => { setConAdvertencia(false); setPreset(null); setPage(1); }} />
             <RangoFechas etiqueta="Pagado" valor={pagado} onCambio={(r) => { setPagado(r); setPage(1); }} />
           </div>
 
@@ -534,11 +559,10 @@ export default function FlitoDerechos() {
               <FlitTable>
                 <thead>
                   <tr>
-                    <FlitTh>Placa</FlitTh>
-                    <FlitTh>Trámite</FlitTh>
+                    {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
                     <FlitTh>Empresa</FlitTh>
                     <FlitTh>Organismo</FlitTh>
-                    <FlitTh>Concepto</FlitTh>
+                    <FlitTh>Concepto del recibo</FlitTh>
                     <FlitTh>Valor</FlitTh>
                     <FlitTh>Fecha de pago</FlitTh>
                     <FlitTh>Origen</FlitTh>
@@ -549,8 +573,9 @@ export default function FlitoDerechos() {
                 <tbody>
                   {derechos.map((d) => (
                     <FlitTr key={d.id}>
-                      <td className="px-4 py-2.5 text-sm font-semibold">{d.placa ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-sm">{d.idFlit}</td>
+                      <CeldaTramite idFlit={d.idFlit} tipoTramite={d.tipoTramite} />
+                      <CeldaVehiculo placa={d.placa} vin={d.vin} marca={d.marca} linea={d.linea} />
+                      <CeldaFechas creado={d.fechaCreacion} aprobado={d.fechaAprobacion} />
                       <td className="px-4 py-2.5 text-sm">{d.empresa ?? '—'}</td>
                       <td className="px-4 py-2.5 text-sm">{d.organismoCodigo ?? '—'}</td>
                       <td className="px-4 py-2.5 text-xs">

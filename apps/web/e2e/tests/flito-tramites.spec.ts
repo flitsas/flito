@@ -227,6 +227,28 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect.poll(() => urls.some((u) => u.includes('orden=antiguos'))).toBe(true);
   });
 
+  test('el filtro inteligente de recién llegados pone las cuatro condiciones', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) });
+    });
+
+    await page.goto('/flito/tramites');
+    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    await page.getByRole('button', { name: /Recién llegados sin gestionar/ }).click();
+
+    // Cuatro condiciones. El orden cuenta tanto como los filtros: sin `antiguos`, lo que lleva más
+    // esperando se queda en la última página, que es justo lo contrario de lo que se busca.
+    const ultima = () => urls.at(-1) ?? '';
+    await expect.poll(ultima).toContain('estados=Asignado');
+    await expect.poll(ultima).toContain('soat=pendiente');
+    await expect.poll(ultima).toContain('impuesto=pendiente');
+    await expect.poll(ultima).toContain('orden=antiguos');
+  });
+
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
     await mockLista(page);

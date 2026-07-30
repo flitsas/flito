@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -12,7 +12,9 @@ const SOAT = [
     estado: 'pendiente', esMultiplePropietario: false, companiaNombre: 'Concesionario Norte',
     organismoNombre: 'STT Manizales', proveedorSoatId: null, proveedorSoatNombre: null,
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', orden: 0, porcentajeParticipacion: null }],
-    tramitesFlit: ['FLIT-1001'], enviadoPorNombre: null, enviadoEn: null,
+    tramitesFlit: ['FLIT-1001'], tipoTramite: 'Matricula',
+    fechaAprobacion: null, fechaCreacion: '2026-03-28T10:00:00Z',
+    enviadoPorNombre: null, enviadoEn: null,
     pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-01T12:00:00Z',
   },
   {
@@ -20,7 +22,9 @@ const SOAT = [
     estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', orden: 0, porcentajeParticipacion: null }],
-    tramitesFlit: ['FLIT-1002'], enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
+    tramitesFlit: ['FLIT-1002'], tipoTramite: 'Traspaso',
+    fechaAprobacion: '2026-04-03T12:00:00Z', fechaCreacion: '2026-04-01T10:00:00Z',
+    enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
     pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
   },
   {
@@ -213,6 +217,48 @@ test.describe('FLITO — Portal SOAT', () => {
     await expect(alta).toContainText('Alta');
     // Un cambio del sistema no puede parecer obra de una persona sin nombre.
     await expect(alta).toContainText('Sistema');
+  });
+
+  test('la cola enseña tipo de trámite y las dos fechas, como las demás tablas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+
+    const fila = page.getByRole('row').filter({ hasText: 'XYZ789' });
+    await expect(fila).toContainText('Traspaso');
+    await expect(fila).toContainText('FLIT-1002');
+    // Un SOAT sin aprobar lo dice, en vez de un guion que se confunde con «no llegó la fecha».
+    await expect(page.getByRole('row').filter({ hasText: 'ABC123' })).toContainText('Sin aprobar');
+  });
+
+  test('el filtro inteligente «listos para enviar» no se le ofrece al gestor', async ({ page }) => {
+    // Los Pendiente quedan fuera de su frontera (CA-09): el preset le devolvería siempre una lista
+    // vacía y parecería que no hay trabajo.
+    await loginAs(page, PROVEEDOR_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+
+    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    await expect(page.getByRole('button', { name: /Listos para enviar/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Sin gestión/ })).toBeVisible();
+  });
+
+  test('aplicar un preset pone TODAS sus condiciones, no solo la primera', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mock(page);
+    await page.route(/\/api\/flito\/soat\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) });
+    });
+
+    await page.goto('/flito/soat');
+    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    await page.getByRole('button', { name: /Sin gestión/ }).click();
+
+    // Las dos condiciones a la vez. Que viaje solo una es justo el error que el preset evita.
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estado=solicitado');
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estancado=si');
   });
 
   test('un SOAT sin movimientos lo dice, en vez de quedarse en blanco', async ({ page }) => {

@@ -666,6 +666,8 @@ export interface FiltrosDerechos {
   organismos?: string[];
   /** De dónde salió el recibo: cargado a mano o leído del Drive de la secretaría. */
   origenes?: string[];
+  /** true = solo los que traen alguna discrepancia anotada (filtro inteligente). */
+  conAdvertencia?: boolean;
   /** Rango de fecha de pago del recibo, inclusivo por día. */
   pagadoDesde?: string; pagadoHasta?: string;
   page?: number; pageSize?: number;
@@ -701,6 +703,12 @@ export async function listarDerechos(f: FiltrosDerechos = {}) {
       f.origenes as Array<(typeof flitoDerechosTramite.origen.enumValues)[number]>,
     ));
   }
+  // `advertencias` es un jsonb con una lista; `IS NOT NULL` no basta porque una lista vacía nunca
+  // se guarda como tal (se guarda null), pero la longitud lo deja explícito y a prueba de que
+  // mañana alguien escriba `[]`.
+  if (f.conAdvertencia) {
+    conds.push(sql`jsonb_array_length(COALESCE(${flitoDerechosTramite.advertencias}, '[]'::jsonb)) > 0`);
+  }
   // `fecha_pago` es una columna `date`: se compara contra fechas, sin intervalos ni horas.
   if (f.pagadoDesde) conds.push(sql`${flitoDerechosTramite.fechaPago} >= ${f.pagadoDesde}::date`);
   if (f.pagadoHasta) conds.push(sql`${flitoDerechosTramite.fechaPago} <= ${f.pagadoHasta}::date`);
@@ -711,6 +719,14 @@ export async function listarDerechos(f: FiltrosDerechos = {}) {
     tramiteId: flitoDerechosTramite.tramiteId,
     idFlit: flitoTramites.idFlit,
     placa: vehicles.plate,
+    // Homologación con las demás tablas: vehículo y datos del trámite. `tipoTramite` es el del
+    // TRÁMITE; `tipoTramiteRecibo`, que ya estaba, es el concepto que decía el papel. Se muestran
+    // los dos porque cuando discrepan es precisamente lo que hay que mirar.
+    vin: vehicles.vin, marca: vehicles.brand, linea: vehicles.model,
+    tipoTramite: flitoTramites.tipoTramite,
+    fechaAprobacion: flitoTramites.fechaAprobacion,
+    // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila.
+    fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
     organismoCodigo: flitoDerechosTramite.organismoCodigo,
     empresa: clients.name,
     valor: flitoDerechosTramite.valor,

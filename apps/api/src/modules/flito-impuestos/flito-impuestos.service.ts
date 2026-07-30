@@ -12,6 +12,7 @@ import {
   auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
   organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
+import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
@@ -32,6 +33,9 @@ const FRONTERA_AUTOGESTION_IMP = sql`(NOT COALESCE(${clients.impuestosAutogestio
 
 export interface ImpuestoColaItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
+  /** Vehículo y datos del trámite, homologados con las demás tablas. */
+  marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
@@ -43,6 +47,13 @@ export interface ImpuestoColaItem {
 
 const SELECT_COLA = {
   id: flitoImpuestos.id, tramiteId: flitoImpuestos.tramiteId, idFlit: flitoTramites.idFlit,
+  // Homologación con las demás tablas (tipo, aprobación, creación, vehículo). El impuesto SÍ es por
+  // trámite, así que aquí no hay la ambigüedad que tiene el SOAT.
+  tipoTramite: flitoTramites.tipoTramite,
+  fechaAprobacion: flitoTramites.fechaAprobacion,
+  // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila.
+  fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+  marca: vehicles.brand, linea: vehicles.model,
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
@@ -218,6 +229,10 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     const p = principalPorTramite.get(r.tramiteId);
     return {
       id: r.id, tramiteId: r.tramiteId, idFlit: r.idFlit, placa: r.placa, vin: r.vin ?? '',
+      marca: r.marca, linea: r.linea,
+      tipoTramite: r.tipoTramite,
+      fechaAprobacion: aIso(r.fechaAprobacion),
+      fechaCreacion: aIso(r.fechaCreacion),
       estado: r.estado as EstadoImpuesto,
       compradorNombre: p?.nombreCompleto ?? null, compradorDocumento: p?.numeroDocumento ?? null,
       companiaNombre: r.companiaNombre, organismoCodigo: r.organismoCodigo, organismoNombre: r.organismoNombre,

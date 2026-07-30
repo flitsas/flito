@@ -53,7 +53,9 @@ test.describe('FLITO — Derechos de tránsito', () => {
     // Sin `exact`: la celda lleva ahora también el archivo del que salió el recibo, debajo del chip.
     await expect(page.getByRole('cell', { name: /Drive de la secretaría/ })).toBeVisible();
     // Una discrepancia de concepto no bloquea el registro pero queda visible.
-    await expect(page.getByText('Con advertencia')).toBeVisible();
+    // Acotado a la fila: «Con advertencia» es ahora también el nombre de un filtro inteligente, y
+    // sin acotar la aserción no distinguiría el chip del trámite del preset del desplegable.
+    await expect(page.getByRole('row', { name: /XYZ789/ }).getByText('Con advertencia')).toBeVisible();
     // La fecha de pago no lleva hora: formatearla con `new Date(...)` la interpretaría como
     // medianoche UTC y en hora de Colombia retrocedería un día (el recibo dice 23, se veía 22).
     await expect(page.getByRole('cell', { name: '23/5/2026', exact: true })).toBeVisible();

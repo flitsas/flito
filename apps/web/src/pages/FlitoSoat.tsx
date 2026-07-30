@@ -6,7 +6,7 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
-import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -17,6 +17,8 @@ import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -29,7 +31,10 @@ interface SoatItem {
   estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
-  tramitesFlit: string[]; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
+  tramitesFlit: string[];
+  /** Datos del trámite. Null cuando el SOAT sirve a varios que no coinciden (es por VIN, RN-01). */
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
+  enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   valorPagado: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
@@ -79,6 +84,7 @@ export default function FlitoSoat() {
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   // Los multiselect se serializan a una clave para las dependencias de los efectos.
@@ -90,7 +96,35 @@ export default function FlitoSoat() {
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
-    setSoloEstancado(false); setTexto('');
+    setSoloEstancado(false); setTexto(''); setPreset(null);
+    setEstado(esGestor ? EstadoSoat.SOLICITADO : 'todos');
+  };
+
+  /**
+   * Las dos vistas con las que se trabaja la cola. Son combinaciones, no filtros sueltos: «listos
+   * para enviar» son dos condiciones y ponerlas a mano cada vez invita a olvidar una.
+   *
+   * Un gestor no ve «listos para enviar»: los Pendiente están fuera de su frontera (CA-09), así que
+   * el preset le devolvería siempre una lista vacía y parecería que no hay trabajo.
+   */
+  const PRESETS: Array<Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>> = [
+    ...(esGestor ? [] : [{
+      nombre: 'Listos para enviar',
+      descripcion: 'Pendientes que ya tienen proveedor asignado.',
+      filtros: { estado: EstadoSoat.PENDIENTE as EstadoSoat | 'todos', estancado: false },
+    }]),
+    {
+      nombre: 'Sin gestión',
+      descripcion: `Solicitados que superaron el ANS de ${ANS_OPERATIVO.SIN_GESTION_HORAS} horas.`,
+      filtros: { estado: EstadoSoat.SOLICITADO, estancado: true },
+    },
+  ];
+
+  const aplicarPreset = (p: Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>) => {
+    limpiarFiltros();
+    setEstado(p.filtros.estado);
+    setSoloEstancado(p.filtros.estancado);
+    setPreset(p.nombre);
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
@@ -173,6 +207,9 @@ export default function FlitoSoat() {
               opciones={(facetas?.proveedores ?? []).map((p) => ({ value: p.id, label: p.nombre }))} />
           )}
 
+          <FiltrosInteligentes presets={PRESETS} activo={preset}
+            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
+
           <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
             onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
@@ -222,7 +259,8 @@ export default function FlitoSoat() {
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
-                <FlitTh>Placa</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Compañía</FlitTh>
+                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                <FlitTh>Compañía</FlitTh>
                 <FlitTh>Proveedor</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
                 <FlitTh>Valor</FlitTh><FlitTh />
@@ -239,14 +277,13 @@ export default function FlitoSoat() {
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 font-medium">
-                    {f.placa ?? '—'}
-                    {f.esMultiplePropietario && <span className="ml-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>multi</span>}
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    <div>{f.marca} {f.linea}</div>
-                    <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vin}</div>
-                  </td>
+                  {/* `varios`: un SOAT sin tipo NO es un dato que falte, es que sirve a varios
+                      trámites y no coinciden. La celda común lo distingue. */}
+                  <CeldaTramite idFlit={f.tramitesFlit.join(', ') || null} tipoTramite={f.tipoTramite}
+                    varios={f.tramitesFlit.length > 1}
+                    extra={f.esMultiplePropietario ? 'Múltiple propietario' : null} />
+                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   <td className="px-3 py-2 text-sm">{f.proveedorSoatNombre ?? '—'}</td>
                   <td className="px-3 py-2">

@@ -17,6 +17,8 @@ import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import useDebounce from '../lib/useDebounce';
 import {
@@ -26,6 +28,8 @@ import {
 
 interface ImpuestoItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
+  marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
@@ -77,6 +81,7 @@ export default function FlitoImpuestos() {
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
@@ -87,7 +92,36 @@ export default function FlitoImpuestos() {
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
-    setSoloEstancado(false); setTexto('');
+    setSoloEstancado(false); setTexto(''); setPreset(null);
+    setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
+  };
+
+  /**
+   * Las dos vistas de la cola. Igual que en SOAT: el gestor no ve «listos para enviar» porque los
+   * Pendiente quedan fuera de su frontera (CA-10) y le devolvería siempre una lista vacía.
+   *
+   * «Listos para enviar» filtra por estado; la precondición de la factura de venta se ve en la
+   * propia fila, que ya la marca. Filtrarla en servidor exigiría un campo que la cola no expone
+   * como filtro, y prometer más precisión de la que hay es peor que no filtrar.
+   */
+  const PRESETS: Array<Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>> = [
+    ...(esGestor ? [] : [{
+      nombre: 'Listos para enviar',
+      descripcion: 'Pendientes; la fila marca si les falta la factura de venta.',
+      filtros: { estado: EstadoImpuesto.PENDIENTE as EstadoImpuesto | 'todos', estancado: false },
+    }]),
+    {
+      nombre: 'Sin gestión',
+      descripcion: 'Solicitados que superaron el ANS de su organismo.',
+      filtros: { estado: EstadoImpuesto.SOLICITADO, estancado: true },
+    },
+  ];
+
+  const aplicarPreset = (p: Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>) => {
+    limpiarFiltros();
+    setEstado(p.filtros.estado);
+    setSoloEstancado(p.filtros.estancado);
+    setPreset(p.nombre);
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
@@ -161,6 +195,9 @@ export default function FlitoImpuestos() {
               opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
           )}
 
+          <FiltrosInteligentes presets={PRESETS} activo={preset}
+            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
+
           <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
             onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
@@ -209,7 +246,8 @@ export default function FlitoImpuestos() {
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
-                <FlitTh>Placa</FlitTh><FlitTh>Trámite</FlitTh><FlitTh>Compañía</FlitTh>
+                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                <FlitTh>Compañía</FlitTh>
                 <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
                 <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
@@ -226,11 +264,9 @@ export default function FlitoImpuestos() {
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 font-medium">
-                    {f.placa ?? '—'}
-                    <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vin}</div>
-                  </td>
-                  <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</td>
+                  <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite} />
+                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   <td className="px-3 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo}</td>
                   <td className="px-3 py-2">
