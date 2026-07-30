@@ -29,6 +29,7 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
+import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
@@ -185,6 +186,7 @@ export function createApp() {
   app.use('/api/flito/tablero', flitoTableroRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', flitoLogisticaRoutes);
+  app.use('/api/flito/bolsas', flitoBolsasRoutes);
   app.use('/api/finanzas', finanzasRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
