@@ -3054,3 +3054,37 @@ export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
     .on(t.llaveIdempotencia)
     .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
 }));
+
+/**
+ * Cierre mensual de la bolsa de un cliente (HU #11126, Feature #11120 §8).
+ *
+ * Cerrar es congelar: los movimientos del periodo dejan de admitir altas y correcciones, y el saldo
+ * final pasa a ser el saldo inicial del mes siguiente. El disparo es MANUAL —Financiera cierra
+ * cuando ha conciliado, no el día 30 a medianoche—, así que no hay cron.
+ *
+ * Los totales se copian en vez de recalcularse al leer, igual que `flito_liquidaciones` sella sus
+ * valores: un reporte de cierre de hace un año debe seguir diciendo lo que dijo, aunque después
+ * entren movimientos rezagados imputados a otro periodo.
+ */
+export const flitoBolsaCierres = pgTable('flito_bolsa_cierres', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** Periodo contable 'YYYY-MM' que se cierra. */
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  /** Saldo final del cierre anterior; cero en el primero. */
+  saldoInicial: numeric('saldo_inicial', { precision: 14, scale: 2 }).notNull(),
+  totalEntradas: numeric('total_entradas', { precision: 14, scale: 2 }).notNull(),
+  totalSalidas: numeric('total_salidas', { precision: 14, scale: 2 }).notNull(),
+  saldoFinal: numeric('saldo_final', { precision: 14, scale: 2 }).notNull(),
+  movimientos: integer('movimientos').notNull(),
+  observaciones: text('observaciones'),
+  cerradoPorId: integer('cerrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  cerradoPorNombre: varchar('cerrado_por_nombre', { length: 150 }).notNull(),
+  cerradoEn: timestamp('cerrado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Un cliente no puede cerrar dos veces el mismo periodo (AC4), y sobre todo dos cierres
+  // simultáneos no pueden producir dos reportes distintos del mismo mes.
+  periodoUnico: uniqueIndex('uq_flito_bolsa_cierre_periodo').on(t.companiaId, t.periodo),
+  companiaIdx: index('idx_flito_bolsa_cierres_compania').on(t.companiaId, t.periodo),
+}));

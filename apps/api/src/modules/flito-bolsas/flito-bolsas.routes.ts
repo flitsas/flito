@@ -18,7 +18,8 @@ import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.servic
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import {
-  bolsaDe, BolsaError, movimientosDe, registrarRecarga, saldoConsolidado,
+  bolsaDe, BolsaError, cerrarPeriodo, cierresDe, movimientosDe, registrarRecarga,
+  saldoConsolidado,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -196,6 +197,40 @@ function claveIdempotencia(req: Request): string | null {
   if (clave.length === 0 || clave.length > 120) return null;
   return clave;
 }
+
+// GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
+router.get('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {
+  try {
+    res.json(await cierresDe(companiaIdDe(req)));
+  } catch (e) { fallo(res, e); }
+});
+
+// POST /:companiaId/cierres — cierra un periodo. Congela sus movimientos y sella el reporte.
+//
+// Es una acción irreversible: no hay endpoint para reabrir. Un periodo cerrado por error se corrige
+// con movimientos de ajuste en el periodo abierto (HU #11123), no deshaciendo el cierre, que es
+// justo lo que un documento de auditoría no debe permitir.
+const cierreSchema = z.object({
+  periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'El periodo debe tener la forma AAAA-MM' }),
+  observaciones: z.string().trim().max(2000).optional(),
+});
+router.post('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = cierreSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  try {
+    const companiaId = companiaIdDe(req);
+    const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+    const cierre = await cerrarPeriodo(companiaId, parsed.data.periodo, parsed.data.observaciones ?? null, ctx);
+    await audit(req, {
+      action: 'create', resource: 'flito_bolsa_cierre', resourceId: cierre.id,
+      detail: `Cierre de ${cierre.periodo} para la compañía ${companiaId}: entradas ${cierre.totalEntradas}, salidas ${cierre.totalSalidas}, saldo final ${cierre.saldoFinal}`,
+    });
+    res.status(201).json(cierre);
+  } catch (e) { fallo(res, e); }
+});
 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {
