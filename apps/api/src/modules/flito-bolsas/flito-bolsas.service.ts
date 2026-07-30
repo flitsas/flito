@@ -5,7 +5,7 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, like, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, flitoBolsaMovimientos, flitoBolsas, flitoSoportes } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
@@ -275,6 +275,15 @@ async function registrarMovimiento(
   datos: DatosMovimiento,
   ctx: CtxUsuario,
 ): Promise<{ movimiento: MovimientoBolsaDto; duplicado: boolean }> {
+  // Se valida antes de abrir la transacción: no hay por qué pedirle una a Postgres solo para
+  // rechazar un valor negativo. `asentarMovimiento` vuelve a validar porque también se le entra
+  // desde la liquidación, con una transacción ya abierta.
+  validarMovimiento(datos);
+  return db.transaction((tx) => asentarMovimiento(tx, companiaId, datos, ctx));
+}
+
+/** Comprueba y normaliza lo que no depende de la base: valor redondeado y fecha contable. */
+function validarMovimiento(datos: DatosMovimiento): { valor: number; fecha: string } {
   const etiqueta = datos.etiqueta ?? 'movimiento';
   const valor = redondear(datos.valor);
   if (!Number.isFinite(valor) || valor <= 0) {
@@ -293,59 +302,74 @@ async function registrarMovimiento(
   // que el cierre mensual (HU #11126) nunca revisaría. La retroactividad sí se permite: los soportes
   // del organismo llegan tarde con frecuencia.
   if (fecha > hoyIso()) throw new BolsaError('La fecha del movimiento no puede ser futura');
+  return { valor, fecha };
+}
 
-  return db.transaction(async (tx) => {
-    // Reenvío con la misma llave: se devuelve el movimiento original sin volver a mover el saldo.
-    // Va ANTES del lock porque no necesita bloquear nada — si ya existe, no hay nada que escribir.
-    if (datos.llaveIdempotencia) {
-      const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
-      if (previo) return { movimiento: previo, duplicado: true };
-    }
+/**
+ * El cuerpo del asiento, sobre una transacción YA abierta.
+ *
+ * Existe separado de `registrarMovimiento` porque las salidas automáticas (HU #11122) tienen que
+ * asentarse dentro de la MISMA transacción que sella la liquidación: si el sellado se deshace, el
+ * descuento debe deshacerse con él, y una transacción anidada no daría esa garantía.
+ */
+export async function asentarMovimiento(
+  tx: Tx,
+  companiaId: number,
+  datos: DatosMovimiento,
+  ctx: CtxUsuario,
+): Promise<{ movimiento: MovimientoBolsaDto; duplicado: boolean }> {
+  const { valor, fecha } = validarMovimiento(datos);
 
-    const bolsa = await bolsaBloqueada(tx, companiaId);
-    const delta = datos.tipo === 'entrada' ? valor : -valor;
-    const saldoResultante = redondear(bolsa.saldo + delta);
+  // Reenvío con la misma llave: se devuelve el movimiento original sin volver a mover el saldo.
+  // Va ANTES del lock porque no necesita bloquear nada — si ya existe, no hay nada que escribir.
+  if (datos.llaveIdempotencia) {
+    const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
+    if (previo) return { movimiento: previo, duplicado: true };
+  }
 
-    // El comprobante se registra DENTRO de la transacción del dinero: si el movimiento no cuaja, no
-    // puede quedar una fila de soporte apuntando a una recarga que nunca ocurrió.
-    const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
+  const bolsa = await bolsaBloqueada(tx, companiaId);
+  const delta = datos.tipo === 'entrada' ? valor : -valor;
+  const saldoResultante = redondear(bolsa.saldo + delta);
 
-    const [fila] = await tx
-      .insert(flitoBolsaMovimientos)
-      .values({
-        bolsaId: bolsa.id,
-        companiaId,
-        tipo: datos.tipo,
-        origen: datos.origen,
-        concepto: datos.concepto ?? null,
-        organismoCodigo: datos.organismoCodigo ?? null,
-        tramiteId: datos.tramiteId ?? null,
-        valor: String(valor),
-        saldoResultante: String(saldoResultante),
-        periodo: periodoDeFecha(fecha),
-        fecha,
-        observacion: datos.observacion ?? null,
-        soporteId,
-        registradoPorId: ctx.userId,
-        registradoPorNombre: ctx.nombre,
-        llaveIdempotencia: datos.llaveIdempotencia ?? null,
-      })
-      .returning();
+  // El comprobante se registra DENTRO de la transacción del dinero: si el movimiento no cuaja, no
+  // puede quedar una fila de soporte apuntando a una recarga que nunca ocurrió.
+  const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
 
-    // La última recarga solo la mueven las entradas de tipo recarga: es la base del nivel de riesgo
-    // (HU #11125) y un ajuste manual no debería redefinirla.
-    const esRecarga = datos.origen === 'recarga';
-    await tx
-      .update(flitoBolsas)
-      .set({
-        saldo: String(saldoResultante),
-        updatedAt: new Date(),
-        ...(esRecarga ? { ultimaRecargaValor: String(valor), ultimaRecargaEn: new Date() } : {}),
-      })
-      .where(eq(flitoBolsas.id, bolsa.id));
+  const [fila] = await tx
+    .insert(flitoBolsaMovimientos)
+    .values({
+      bolsaId: bolsa.id,
+      companiaId,
+      tipo: datos.tipo,
+      origen: datos.origen,
+      concepto: datos.concepto ?? null,
+      organismoCodigo: datos.organismoCodigo ?? null,
+      tramiteId: datos.tramiteId ?? null,
+      valor: String(valor),
+      saldoResultante: String(saldoResultante),
+      periodo: periodoDeFecha(fecha),
+      fecha,
+      observacion: datos.observacion ?? null,
+      soporteId,
+      registradoPorId: ctx.userId,
+      registradoPorNombre: ctx.nombre,
+      llaveIdempotencia: datos.llaveIdempotencia ?? null,
+    })
+    .returning();
 
-    return { movimiento: aMovimientoDto(fila), duplicado: false };
-  });
+  // La última recarga solo la mueven las entradas de tipo recarga: es la base del nivel de riesgo
+  // (HU #11125) y un ajuste manual no debería redefinirla.
+  const esRecarga = datos.origen === 'recarga';
+  await tx
+    .update(flitoBolsas)
+    .set({
+      saldo: String(saldoResultante),
+      updatedAt: new Date(),
+      ...(esRecarga ? { ultimaRecargaValor: String(valor), ultimaRecargaEn: new Date() } : {}),
+    })
+    .where(eq(flitoBolsas.id, bolsa.id));
+
+  return { movimiento: aMovimientoDto(fila), duplicado: false };
 }
 
 /** Llave de idempotencia de una recarga, con el prefijo de su familia. */
@@ -397,6 +421,137 @@ export async function registrarRecarga(
     if (!previo) throw e;
     return movimientoDe(previo, true);
   }
+}
+
+// ─────────────── Salidas automáticas del sellado de la liquidación (HU #11122) ───────────────
+
+/** Un concepto liquidado que consume bolsa. */
+export interface SalidaConcepto {
+  concepto: ConceptoBolsa;
+  valor: number;
+  /**
+   * Organismo al que se imputa. `null` en trámite digital y logística: son honorarios de FLIT, no
+   * desembolsos a un organismo, así que no tienen uno natural al que cargarlos.
+   */
+  organismoCodigo: string | null;
+  /**
+   * Llave de idempotencia SIN prefijo de familia. La pone quien conoce la naturaleza del concepto:
+   * el SOAT se cobra una vez por vehículo, el derecho una vez por trámite.
+   */
+  llave: string;
+}
+
+export interface DatosSalidasLiquidacion {
+  companiaId: number;
+  tramiteId: string;
+  /** Fecha contable del descuento; normalmente el día del sellado. */
+  fecha: string;
+  conceptos: SalidaConcepto[];
+}
+
+/**
+ * Asienta una salida por cada concepto liquidado, dentro de la transacción del sellado (AC1).
+ *
+ * NO valida saldo: la bolsa puede quedar en negativo. Si el organismo ya aprobó, el gasto ocurrió;
+ * frenar el descuento no lo deshace, solo desalinea el sistema de la realidad (AC3).
+ *
+ * Los conceptos con valor nulo no llegan aquí: los filtra quien construye la lista, porque `null`
+ * significa «no aplica» y no cero (AC2).
+ */
+export async function registrarSalidasLiquidacion(
+  tx: Tx,
+  datos: DatosSalidasLiquidacion,
+  ctx: CtxUsuario,
+): Promise<MovimientoBolsaDto[]> {
+  const asentados: MovimientoBolsaDto[] = [];
+  for (const c of datos.conceptos) {
+    // En serie y no en paralelo: cada asiento lee el saldo que dejó el anterior, así que el
+    // `saldo_resultante` de la última línea es el saldo real de la bolsa.
+    const { movimiento, duplicado } = await asentarMovimiento(
+      tx,
+      datos.companiaId,
+      {
+        tipo: 'salida',
+        origen: 'automatico',
+        valor: c.valor,
+        fecha: datos.fecha,
+        concepto: c.concepto,
+        organismoCodigo: c.organismoCodigo,
+        tramiteId: datos.tramiteId,
+        llaveIdempotencia: `${PREFIJO_SALIDA}${c.llave}`,
+        etiqueta: 'salida',
+      },
+      ctx,
+    );
+    // Un duplicado no es un error: es el reintento del sellado (AC6) o un concepto que otro trámite
+    // del mismo vehículo ya pagó (AC4). Simplemente no vuelve a mover el saldo.
+    if (!duplicado) asentados.push(movimiento);
+  }
+  return asentados;
+}
+
+const PREFIJO_SALIDA = 'salida:';
+/**
+ * Prefijo que se antepone a la llave de una salida cuando su liquidación se reversa. Libera la llave
+ * original —para que volver a liquidar vuelva a cobrar— sin perder de vista cuál fue.
+ *
+ * Es lo único que se reescribe de una fila del libro, y no toca el dinero: valor, saldo resultante y
+ * fecha quedan intactos. El movimiento sigue ahí; lo que deja de estar es su reserva de la llave.
+ */
+const PREFIJO_REVERSADO = 'rev:';
+
+/**
+ * Deshace las salidas de un trámite con CONTRAMOVIMIENTOS, dentro de la transacción del reverso
+ * (AC5). No borra nada: el libro es append-only, así que devolver el dinero es una entrada nueva.
+ *
+ * Solo alcanza a las salidas vivas —las que aún conservan su llave sin prefijar—, de modo que
+ * reversar dos veces no acredita el dinero dos veces.
+ */
+export async function reversarSalidasLiquidacion(
+  tx: Tx,
+  tramiteId: string,
+  ctx: CtxUsuario,
+): Promise<MovimientoBolsaDto[]> {
+  const salidas = await tx
+    .select()
+    .from(flitoBolsaMovimientos)
+    .where(and(
+      eq(flitoBolsaMovimientos.tramiteId, tramiteId),
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      eq(flitoBolsaMovimientos.tipo, 'salida'),
+      like(flitoBolsaMovimientos.llaveIdempotencia, `${PREFIJO_SALIDA}%`),
+    ));
+
+  const contras: MovimientoBolsaDto[] = [];
+  for (const s of salidas) {
+    const { movimiento } = await asentarMovimiento(
+      tx,
+      s.companiaId,
+      {
+        tipo: 'entrada',
+        origen: 'automatico',
+        valor: num(s.valor),
+        fecha: hoyIso(),
+        concepto: s.concepto === null ? null : (s.concepto as ConceptoBolsa),
+        organismoCodigo: s.organismoCodigo,
+        tramiteId: s.tramiteId,
+        observacion: `Reverso de la liquidación: devuelve la salida de ${s.concepto ?? 'concepto'}`,
+        // Llave propia por movimiento revertido: dos reversos seguidos no pueden acreditar dos veces.
+        llaveIdempotencia: `contra:${s.id}`,
+        etiqueta: 'devolución',
+      },
+      ctx,
+    );
+    contras.push(movimiento);
+
+    // Se libera la llave de la salida original para que volver a liquidar el trámite vuelva a
+    // cobrar. Sin esto, el segundo sellado vería la llave ocupada y no descontaría nada.
+    await tx
+      .update(flitoBolsaMovimientos)
+      .set({ llaveIdempotencia: `${PREFIJO_REVERSADO}${s.llaveIdempotencia}`.slice(0, 200) })
+      .where(eq(flitoBolsaMovimientos.id, s.id));
+  }
+  return contras;
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */

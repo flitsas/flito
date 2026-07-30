@@ -17,6 +17,10 @@ import {
   flitoSoat, flitoTramites,
 } from '../../db/schema.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
+import {
+  registrarSalidasLiquidacion, reversarSalidasLiquidacion, type SalidaConcepto,
+} from '../flito-bolsas/flito-bolsas.service.js';
+import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -198,6 +202,99 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
   };
 }
 
+/**
+ * Identificadores y organismos que necesita la bolsa para imputar cada salida (HU #11122).
+ *
+ * Van aparte del cálculo porque no son parte de lo que se sella: el cálculo responde «cuánto», esto
+ * responde «a qué organismo y con qué llave no cobrarlo dos veces».
+ */
+interface IdentificadoresTramite {
+  companiaId: number | null;
+  soatId: string | null;
+  soatOrganismo: string | null;
+  impuestoId: string | null;
+  impuestoOrganismo: string | null;
+  derechoId: string | null;
+  derechoOrganismo: string | null;
+}
+
+async function identificadoresDe(tramiteId: string): Promise<IdentificadoresTramite | undefined> {
+  const [f] = await db.select({
+    companiaId: flitoTramites.companiaId,
+    soatId: flitoSoat.id,
+    soatOrganismo: flitoSoat.organismoCodigo,
+    impuestoId: flitoImpuestos.id,
+    impuestoOrganismo: flitoImpuestos.organismoCodigo,
+    derechoId: flitoDerechosTramite.id,
+    derechoOrganismo: flitoDerechosTramite.organismoCodigo,
+  }).from(flitoTramites)
+    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
+    .where(eq(flitoTramites.id, tramiteId))
+    .limit(1);
+  return f;
+}
+
+/**
+ * Traduce el cálculo sellado a las salidas que consumirán la bolsa del cliente.
+ *
+ * Las LLAVES son lo delicado, porque definen qué se cobra una sola vez:
+ *  - SOAT      → `soat:{soatId}`. `flito_soat.vin` es UNIQUE, así que una fila es un vehículo: la
+ *                llave ya cobra una única vez por VIN aunque el trámite se anule y se rehaga (AC4).
+ *  - Impuesto  → `impuesto:{impuestoId}`. NO se puede deduplicar por VIN: `flito_impuestos` es una
+ *                fila POR TRÁMITE y el sistema no implementa RN-01 para impuestos. Si un trámite se
+ *                anula y el nuevo vuelve a pagar impuesto, hay dos pagos reales y la bolsa debe
+ *                mostrar dos salidas: taparlo aquí ocultaría un doble pago en vez de evitarlo.
+ *  - Los otros → `tramite:{tramiteId}:{concepto}`, que es su naturaleza: se pagan por radicación.
+ *
+ * El ORGANISMO de cada concepto sale de su propio registro y no del trámite: los tres se congelan al
+ * crearse y el del trámite se reescribe en cada sincronización, así que pueden diferir. Trámite
+ * digital y logística no llevan organismo: son honorarios de FLIT, no desembolsos a un organismo.
+ */
+function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): SalidaConcepto[] {
+  const salidas: SalidaConcepto[] = [];
+  const porTramite = (concepto: string) => `tramite:${calculo.tramiteId}:${concepto}`;
+
+  // Un concepto que cuesta cero no es un desembolso y no genera línea en el libro. Importa más de lo
+  // que parece: el tarifario admite el cero a propósito (una tarifa de cortesía), y como el asiento
+  // va dentro de la transacción del sellado, intentar mover $0 haría que el trámite no se pudiera
+  // liquidar en absoluto.
+  const cobrable = (v: number | null): v is number => v !== null && v > 0;
+
+  if (cobrable(calculo.soat.valor) && ids.soatId !== null) {
+    salidas.push({
+      concepto: 'soat', valor: calculo.soat.valor,
+      organismoCodigo: ids.soatOrganismo, llave: `soat:${ids.soatId}`,
+    });
+  }
+  if (cobrable(calculo.impuesto.valor) && ids.impuestoId !== null) {
+    salidas.push({
+      concepto: 'impuesto', valor: calculo.impuesto.valor,
+      organismoCodigo: ids.impuestoOrganismo, llave: `impuesto:${ids.impuestoId}`,
+    });
+  }
+  if (cobrable(calculo.derecho.valor)) {
+    salidas.push({
+      concepto: 'derecho', valor: calculo.derecho.valor,
+      organismoCodigo: ids.derechoOrganismo, llave: porTramite('derecho'),
+    });
+  }
+  if (cobrable(calculo.tramiteDigital.valor)) {
+    salidas.push({
+      concepto: 'tramite_digital', valor: calculo.tramiteDigital.valor,
+      organismoCodigo: null, llave: porTramite('tramite_digital'),
+    });
+  }
+  if (cobrable(calculo.logistica.valor)) {
+    salidas.push({
+      concepto: 'logistica', valor: calculo.logistica.valor,
+      organismoCodigo: null, llave: porTramite('logistica'),
+    });
+  }
+  return salidas;
+}
+
 /** Liquidación vigente de un trámite, o null. */
 export async function liquidacionDe(tramiteId: string): Promise<LiquidacionDto | null> {
   const [l] = await db.select().from(flitoLiquidaciones)
@@ -261,14 +358,40 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     total: String(calculo.total), detalle, liquidadoPorId: usuarioId,
   };
 
+  const ids = await identificadoresDe(tramiteId);
+
   const dto = await db.transaction(async (tx) => {
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
     await tx.insert(flitoLiquidacionEventos).values({
       tramiteId, accion: 'liquidar', usuarioId, snapshot: { ...detalle, total: calculo.total },
     });
+
+    // Las salidas de la bolsa se asientan DENTRO de esta transacción (HU #11122): si el sellado no
+    // cuaja, el descuento no puede quedar hecho. La compañía puede faltar en trámites que aún no
+    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar.
+    if (ids?.companiaId != null) {
+      await registrarSalidasLiquidacion(
+        tx,
+        {
+          companiaId: ids.companiaId,
+          tramiteId,
+          fecha: fechaContable(),
+          conceptos: salidasDe(calculo, ids),
+        },
+        { userId: usuarioId, nombre: 'sistema' },
+      );
+    }
+
     return aDto(fila, calculo.idFlit);
   });
   return dto;
+}
+
+/** Hoy en Colombia: la fecha con la que se imputa el descuento al periodo contable. */
+function fechaContable(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_COLOMBIA, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
 }
 
 /**
@@ -294,6 +417,9 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
       tramiteId, accion: 'reversar', motivo: texto, usuarioId,
       snapshot: { ...(l.detalle as object ?? {}), total: Number(l.total), liquidadoEn: l.liquidadoEn.toISOString() },
     });
+    // Devuelve a la bolsa lo descontado por este sellado y libera las llaves, para que volver a
+    // liquidar vuelva a cobrar (HU #11122, AC5).
+    await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
     await tx.delete(flitoLiquidaciones).where(eq(flitoLiquidaciones.id, l.id));
   });
 }
