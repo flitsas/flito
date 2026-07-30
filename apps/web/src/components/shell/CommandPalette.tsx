@@ -4,6 +4,7 @@ import { NAV_ITEMS, SECTION_LABEL, type NavItem } from './navItems';
 import { effectivePages } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
 import { startViewTransition } from '../../lib/viewTransitions';
+import ModalPortal from '../flit/ModalPortal';
 
 interface Props {
   open: boolean;
@@ -125,6 +126,7 @@ export default function CommandPalette({ open, onClose }: Props) {
   let runningIdx = 0;
 
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] sm:pt-[14vh]"
       onClick={onClose}
@@ -306,5 +308,6 @@ export default function CommandPalette({ open, onClose }: Props) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

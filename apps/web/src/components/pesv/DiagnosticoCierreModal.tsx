@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { errorMessage } from '../../lib/api';
 import { CloseIcon } from './shared';
 import { makeFocusTrapHandler, SpinnerIcon, ChevronRightIcon } from './diagnostico-helpers';
+import ModalPortal from '../flit/ModalPortal';
 
 export interface PreflightBloqueo {
   estandarId: number;
@@ -174,6 +175,7 @@ export default function DiagnosticoCierreModal({
   const canConfirm = !!preflight && !hasBlocks && accepted && !submitting;
 
   return (
+    <ModalPortal>
     <div
       role="dialog"
       aria-modal="true"
@@ -342,5 +344,6 @@ export default function DiagnosticoCierreModal({
         </footer>
       </div>
     </div>
+    </ModalPortal>
   );
 }

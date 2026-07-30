@@ -11,6 +11,7 @@ import {
   IconPackage, IconScale, IconCog, IconClose, IconDot, IconChevronDown,
   type IconProps,
 } from './icons';
+import ModalPortal from './ModalPortal';
 
 // FlitSidebar — drawer de navegación MOBILE (off-canvas, gradiente FLIT).
 // Decisión PO 2026-06-12: el rail fijo desktop se eliminó; en lg+ la navegación
@@ -203,24 +204,26 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
     <>
       {/* Drawer mobile (en lg+ la navegación es FlitNavBar) */}
       {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
-          <button
-            type="button"
-            aria-label="Cerrar menú"
-            onClick={onClose}
-            className="absolute inset-0 bg-[rgba(22,39,68,0.45)] backdrop-blur-sm"
-          />
-          <div
-            className="absolute inset-y-0 left-0 w-[min(84vw,300px)] shadow-2xl"
-            style={{
-              background: 'var(--flit-gradient-sidebar)',
-              borderTopRightRadius: 'var(--flit-radius-xl)',
-              borderBottomRightRadius: 'var(--flit-radius-xl)',
-            }}
-          >
-            {content}
+        <ModalPortal>
+          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
+            <button
+              type="button"
+              aria-label="Cerrar menú"
+              onClick={onClose}
+              className="absolute inset-0 bg-[rgba(22,39,68,0.45)] backdrop-blur-sm"
+            />
+            <div
+              className="absolute inset-y-0 left-0 w-[min(84vw,300px)] shadow-2xl"
+              style={{
+                background: 'var(--flit-gradient-sidebar)',
+                borderTopRightRadius: 'var(--flit-radius-xl)',
+                borderBottomRightRadius: 'var(--flit-radius-xl)',
+              }}
+            >
+              {content}
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

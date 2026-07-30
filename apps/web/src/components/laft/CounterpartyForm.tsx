@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { api } from '../../lib/api';
 import { useEscape, useBackdropClose } from '../../lib/hooks';
 import { IconClose } from '../flit/icons';
+import ModalPortal from '../flit/ModalPortal';
 
 const DOC_TYPES = [
   { v: 'CC', l: 'Cédula de ciudadanía' },
@@ -109,6 +110,7 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
   const risk = previewRisk(f);
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} {...useBackdropClose(onClose)}>
       <form
         onClick={(e) => e.stopPropagation()}
@@ -280,6 +282,7 @@ export default function CounterpartyForm({ onClose, onCreated }: { onClose: () =
         </div>
       </form>
     </div>
+    </ModalPortal>
   );
 }
 

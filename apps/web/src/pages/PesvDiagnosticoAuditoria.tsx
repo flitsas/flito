@@ -17,6 +17,7 @@ import {
 } from '../types/pesv';
 import { DownloadIcon, PrinterIcon, ExternalLinkIcon, CloseXIcon } from '../components/pesv/icons';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import ModalPortal from '../components/flit/ModalPortal';
 
 interface EvidenciaPublic {
   keyHash: string; filename: string; sizeBytes: number; mime: string;
@@ -279,6 +280,7 @@ function Lightbox({ url, mime, filename, onClose }: { url: string; mime: string;
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(22,39,68,0.45)', backdropFilter: 'blur(6px)' }} role="dialog" aria-modal="true" aria-label={`Vista previa de ${filename}`} onClick={onClose}>
       <div className="max-h-[90vh] max-w-5xl overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -290,6 +292,7 @@ function Lightbox({ url, mime, filename, onClose }: { url: string; mime: string;
           : <p className="p-8 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Vista previa no disponible — <a href={url} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--flit-blue)' }}>abrir en nueva pestaña</a></p>}
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
