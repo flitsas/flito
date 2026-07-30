@@ -54,3 +54,5 @@ export * from './flito-logistica-barcode.js';
 export * from './flito-ocr.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
+// Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.
+export * from './flito-bolsas.js';

@@ -2978,3 +2978,79 @@ export const flitoExcepcionesAutogestion = pgTable('flito_excepciones_autogestio
 }, (t) => ({
   excepcionTramiteIdx: index('idx_flito_excepciones_tramite').on(t.tramiteId),
 }));
+
+// ── FLITO Bolsas (HU #11121) ─────────────────────────────────────────────────
+
+/**
+ * Bolsa prepago del cliente: UNA por compañía (Feature #11120 §3). El consumo se reparte entre
+ * organismos por movimiento, no abriendo una bolsa por OT.
+ *
+ * `saldo` está denormalizado a propósito. Sumar el libro entero en cada lectura se vuelve caro con
+ * el histórico de un año; la consistencia la da el lock de esta fila (`FOR UPDATE`) mientras se
+ * escribe el movimiento.
+ *
+ * Puede quedar NEGATIVO: si el organismo aprobó, el gasto ya ocurrió y bloquear el descuento
+ * desalinearía el sistema de la realidad. Lo que hace el saldo negativo es disparar la alerta.
+ */
+export const flitoBolsas = pgTable('flito_bolsas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // RESTRICT y no CASCADE: es un libro contable, no configuración. Borrar un cliente no puede
+  // llevarse por delante su saldo ni su histórico. Mismo criterio que flito_liquidaciones.
+  companiaId: integer('compania_id').notNull().unique().references(() => clients.id, { onDelete: 'restrict' }),
+  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Base del nivel de riesgo (HU #11125). NULL mientras no haya recargas: ahí no hay porcentaje que
+  // calcular, y es lo que distingue «sin recargas» de «agotada».
+  ultimaRecargaValor: numeric('ultima_recarga_valor', { precision: 14, scale: 2 }),
+  ultimaRecargaEn: timestamp('ultima_recarga_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Libro append-only de la bolsa. Nada se edita ni se borra: una corrección es otro movimiento
+ * (HU #11123), igual que `flito_liquidacion_eventos`.
+ *
+ * `valor` es siempre positivo y la dirección la da `tipo`: guardar las salidas en negativo obligaría
+ * a recordar el signo en cada suma del extracto.
+ */
+export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** 'entrada' | 'salida'. */
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  /** 'recarga' | 'automatico' | 'manual'. */
+  origen: varchar('origen', { length: 20 }).notNull(),
+  // Las cuatro siguientes son NULL en una recarga: el dinero entra sin pasar por un organismo ni por
+  // un trámite. Las llenan las salidas automáticas de la HU #11122.
+  concepto: varchar('concepto', { length: 30 }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
+  /** Periodo contable 'YYYY-MM' al que se imputa; lo usa el cierre mensual (HU #11126). */
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  // RESTRICT: una entrada de dinero no puede quedarse sin su comprobante.
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  // Anti doble cobro de las salidas automáticas (HU #11122). NULL en lo que registra una persona:
+  // dos recargas iguales el mismo día son dos recargas, no un duplicado.
+  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaIdx: index('idx_flito_bolsa_mov_compania').on(t.companiaId, t.createdAt),
+  periodoIdx: index('idx_flito_bolsa_mov_periodo').on(t.companiaId, t.periodo),
+  // Extracto por organismo (bolsa simbólica, HU #11124). Parcial: las recargas no tienen organismo.
+  organismoIdx: index('idx_flito_bolsa_mov_organismo')
+    .on(t.organismoCodigo, t.concepto)
+    .where(sql`${t.organismoCodigo} IS NOT NULL`),
+  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble cobro de las salidas
+  // automáticas (HU #11122), y si el esquema no la conoce, el próximo `db:generate` emitiría un
+  // DROP INDEX que la borraría antes de que la HU que la usa llegue a producción.
+  llaveIdx: uniqueIndex('idx_flito_bolsa_mov_llave')
+    .on(t.llaveIdempotencia)
+    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+}));
