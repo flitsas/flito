@@ -100,6 +100,12 @@ const filaMovimiento = {
   llaveIdempotencia: null, createdAt: AHORA,
 };
 
+/**
+ * Fila del LIBRO tal como la devuelve `movimientosDe`, que hace `leftJoin` con los trámites para
+ * traer el id de FLIT: la proyección anida el movimiento en `m` y saca el `idFlit` al lado.
+ */
+const filaLibro = (m: Record<string, unknown> = filaMovimiento, idFlit: string | null = null) => ({ m, idFlit });
+
 const filaCliente = { id: COMPANIA, document: '900123456', flitoCarpetaStorage: 'clientes/acme' };
 
 /** Todo lo que necesita una recarga feliz: cliente, bolsa, soporte y movimiento. */
@@ -178,12 +184,14 @@ describe('bolsas — AC3: la bolsa solo la ven y la mueven Administración y Fin
   });
 
   it('rol financiera SÍ lee el libro de movimientos', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [filaMovimiento]);
+    kdb.when.select('flito_bolsa_movimientos', [filaLibro(filaMovimiento, 'FLIT-1')]);
     const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/movimientos`).set('Authorization', await auth('financiera'));
 
     expect(r.status).toBe(200);
     expect(r.body).toHaveLength(1);
     expect(r.body[0]).toMatchObject({ id: MOV_ID, tipo: 'entrada', origen: 'recarga', valor: 500000 });
+    // El libro enseña el id de FLIT, que es como Operaciones nombra el trámite, no el UUID.
+    expect(r.body[0].idFlit).toBe('FLIT-1');
   });
 });
 
@@ -228,7 +236,7 @@ describe('GET /:companiaId/movimientos — filtros', () => {
   });
 
   it('periodo bien formado → 200', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [filaMovimiento]);
+    kdb.when.select('flito_bolsa_movimientos', [filaLibro()]);
     const r = await request(await buildApp())
       .get(`/api/flito/bolsas/${COMPANIA}/movimientos?periodo=2026-03`)
       .set('Authorization', await auth('admin'));
@@ -664,5 +672,472 @@ describe('GET /consolidado — no se confunde con un id de compañía', () => {
 
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ clientes: 4, saldoTotal: 1200000 });
+  });
+});
+
+// ───────────── Movimientos manuales y correcciones (HU #11123) ───────────────
+
+const MOV_MANUAL_ID = 'dddddddd-1111-1111-1111-111111111111';
+
+/** Movimiento manual ya asentado, tal como lo devuelve el SELECT por id. */
+const filaMovimientoManual = {
+  id: MOV_MANUAL_ID, bolsaId: BOLSA_ID, companiaId: COMPANIA, tipo: 'salida', origen: 'manual',
+  concepto: 'impuesto', organismoCodigo: '11001', tramiteId: null,
+  valor: '100000', saldoResultante: '900000', periodo: '2026-07', fecha: '2026-07-20',
+  observacion: 'Pago en ventanilla', soporteId: SOPORTE_ID,
+  registradoPorId: 9, registradoPorNombre: 'financiera@flit.io',
+  llaveIdempotencia: null, corrigeMovimientoId: null, createdAt: AHORA,
+};
+
+/** POST multipart de movimiento manual con evidencia válida. */
+function postManual(app: express.Express, token: string, campos: Record<string, string> = {}) {
+  const req = request(app).post(`/api/flito/bolsas/${COMPANIA}/movimientos-manuales`).set('Authorization', token);
+  const base = { tipo: 'entrada', valor: '250000', motivo: 'Devolución del organismo' };
+  for (const [k, v] of Object.entries({ ...base, ...campos })) req.field(k, v);
+  return req.attach('soporte', PDF_REAL, { filename: 'evidencia.pdf', contentType: 'application/pdf' });
+}
+
+/** Todo lo que necesita un movimiento manual feliz. */
+function escenarioManualOk(): void {
+  kdb.when
+    .select('clients', [filaCliente])
+    .select('flito_bolsa_cierres', [])
+    .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '1000000' }])
+    .insert('flito_soportes', [{ id: SOPORTE_ID }])
+    .insert('flito_bolsa_movimientos', [{ ...filaMovimientoManual, tipo: 'entrada', valor: '250000', saldoResultante: '1250000' }])
+    .update('flito_bolsas', []);
+}
+
+describe('POST /:companiaId/movimientos-manuales — contingencia de Financiera', () => {
+  it('rol transito → 403 y el archivo ni se sube', async () => {
+    const r = await postManual(await buildApp(), await auth('transito'));
+    expect(r.status).toBe(403);
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('sin evidencia adjunta → 400', async () => {
+    // Un movimiento de dinero que decide una persona sin dejar respaldo no es auditable.
+    const r = await request(await buildApp())
+      .post(`/api/flito/bolsas/${COMPANIA}/movimientos-manuales`)
+      .set('Authorization', await auth('admin'))
+      .field('tipo', 'entrada').field('valor', '250000').field('motivo', 'Devolución del organismo');
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Adjunta la evidencia del movimiento');
+  });
+
+  it('motivo demasiado corto → 400 con el mensaje de negocio', async () => {
+    const r = await postManual(await buildApp(), await auth('admin'), { motivo: 'x' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Indica el motivo del movimiento');
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('tipo distinto de entrada o salida → 400', async () => {
+    const r = await postManual(await buildApp(), await auth('admin'), { tipo: 'ajuste' });
+    expect(r.status).toBe(400);
+  });
+
+  it('valor no positivo → 400', async () => {
+    const r = await postManual(await buildApp(), await auth('admin'), { valor: '0' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El valor del movimiento debe ser mayor que cero');
+  });
+
+  it('válido → 201 con el movimiento y el saldo, y queda auditado', async () => {
+    escenarioManualOk();
+    const r = await postManual(await buildApp(), await auth('financiera'));
+
+    expect(r.status).toBe(201);
+    expect(r.body.movimiento).toMatchObject({ origen: 'manual', tipo: 'entrada', valor: 250000 });
+    expect(r.body.saldo).toBe(1250000);
+    expect(auditMock.mock.calls[0][1]).toMatchObject({ action: 'create', resource: 'flito_bolsa_movimiento' });
+  });
+
+  it('periodo cerrado → 409 y se borra la evidencia ya subida', async () => {
+    // El rechazo ocurre después de archivar el adjunto; sin la compensación quedaría un huérfano.
+    kdb.when
+      .select('clients', [filaCliente])
+      .select('flito_bolsa_cierres', [{ id: 'cierre-1', periodo: '2026-06' }]);
+
+    const r = await postManual(await buildApp(), await auth('admin'), { fecha: '2026-06-15' });
+
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('No se pueden registrar ni editar movimientos de un periodo cerrado');
+    expect(deleteMock).toHaveBeenCalledWith(STORAGE_KEY);
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /:companiaId/movimientos/:movimientoId/correccion', () => {
+  const url = `/api/flito/bolsas/${COMPANIA}/movimientos/${MOV_MANUAL_ID}/correccion`;
+
+  it('rol transito → 403', async () => {
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('transito')).send({ valor: 150000, motivo: 'Error de digitación' });
+    expect(r.status).toBe(403);
+  });
+
+  it('motivo corto → 400', async () => {
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('admin')).send({ valor: 150000, motivo: 'x' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Indica el motivo del movimiento');
+  });
+
+  it('valor corregido no positivo → 400', async () => {
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('admin')).send({ valor: 0, motivo: 'Error de digitación' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El valor corregido debe ser mayor que cero');
+  });
+
+  it('corregir un movimiento automático → 409', async () => {
+    kdb.when.select('flito_bolsa_movimientos', [{ ...filaMovimientoManual, origen: 'automatico' }]);
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('admin')).send({ valor: 150000, motivo: 'Error de digitación' });
+
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('Un movimiento automático no se edita: corrígelo con un ajuste manual');
+  });
+
+  it('movimiento inexistente → 404', async () => {
+    kdb.when.select('flito_bolsa_movimientos', []);
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('admin')).send({ valor: 150000, motivo: 'Error de digitación' });
+    expect(r.status).toBe(404);
+  });
+
+  it('válido → 201 con la corrección y auditoría de actualización', async () => {
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [filaMovimientoManual])
+      .select('flito_bolsa_cierres', [])
+      .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '1000000' }])
+      .insert('flito_bolsa_movimientos', [{
+        ...filaMovimientoManual, id: 'mov-correccion', valor: '50000', saldoResultante: '950000',
+        corrigeMovimientoId: MOV_MANUAL_ID,
+      }])
+      .update('flito_bolsas', []);
+
+    const r = await request(await buildApp()).post(url)
+      .set('Authorization', await auth('financiera')).send({ valor: 150000, motivo: 'Error de digitación' });
+
+    expect(r.status).toBe(201);
+    expect(r.body.correccion).toMatchObject({ id: 'mov-correccion', valor: 50000 });
+    expect(r.body.saldo).toBe(950000);
+    // Se audita como `update` aunque el asiento sea nuevo: para el negocio es la edición de otro.
+    expect(auditMock.mock.calls[0][1]).toMatchObject({ action: 'update', resource: 'flito_bolsa_movimiento' });
+  });
+});
+
+// ───────── Extracto, bolsa simbólica y pagos al organismo (HU #11124) ────────
+
+describe('GET /:companiaId/extracto', () => {
+  it('rol transito → 403', async () => {
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/extracto`)
+      .set('Authorization', await auth('transito'));
+    expect(r.status).toBe(403);
+  });
+
+  it('periodo mal formado → 400', async () => {
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/extracto?periodo=2026-13`)
+      .set('Authorization', await auth('admin'));
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Filtros inválidos');
+  });
+
+  it('válido → 200 con los desgloses', async () => {
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [{ entradas: '800000', salidas: '300000' }])
+      .selectOnce('flito_bolsa_movimientos', [{ clave: '05001', entradas: '0', salidas: '300000', movimientos: 3 }])
+      .selectOnce('flito_bolsa_movimientos', [{ clave: null, entradas: '800000', salidas: '0', movimientos: 1 }])
+      .select('flito_bolsas', [filaBolsa]);
+
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/extracto`)
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ companiaId: COMPANIA, totalEntradas: 800000, totalSalidas: 300000 });
+    expect(r.body.porConcepto[0].clave).toBe('sin_asignar');
+  });
+});
+
+describe('organismos — estado de cuenta y pagos', () => {
+  it('GET /organismos/:codigo con rol transito → 403', async () => {
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001')
+      .set('Authorization', await auth('transito'));
+    expect(r.status).toBe(403);
+  });
+
+  it('GET /organismos/:codigo → 200 con cobrado, pagado y pendiente', async () => {
+    kdb.when
+      .select('flito_bolsa_movimientos', [{ concepto: 'soat', salidas: '450000', movimientos: 1 }])
+      .select('flito_organismo_pagos', [{ total: '400000' }]);
+
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      organismoCodigo: '05001', totalCobrado: 450000, totalPagado: 400000, saldoPendiente: 50000,
+    });
+  });
+
+  it('GET /organismos/:codigo/pagos con rol transito → 403', async () => {
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('transito'));
+    expect(r.status).toBe(403);
+  });
+
+  it('GET /organismos/:codigo/pagos → 200 con el historial en el orden que da la consulta', async () => {
+    // El orden lo pone el `orderBy` (fecha desc); aquí se comprueba que la ruta no lo reordena ni
+    // lo aplana al mapear.
+    kdb.when.select('flito_organismo_pagos', [
+      { id: 'p2', valor: '300000', fecha: '2026-07-20', observacion: null, soporteId: null, registradoPorNombre: 'financiera@flit.io', createdAt: AHORA },
+      { id: 'p1', valor: '150000.50', fecha: '2026-06-30', observacion: 'Primer abono', soporteId: SOPORTE_ID, registradoPorNombre: 'financiera@flit.io', createdAt: AHORA },
+    ]);
+
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.map((p: { id: string }) => p.id)).toEqual(['p2', 'p1']);
+    expect(r.body[1]).toMatchObject({ valor: 150000.5, fecha: '2026-06-30', observacion: 'Primer abono', soporteId: SOPORTE_ID });
+  });
+
+  it('GET /organismos/:codigo/pagos sin pagos → 200 con lista vacía, no 404', async () => {
+    // Un organismo al que aún no se le ha pagado nada no es un error: es el estado inicial.
+    kdb.when.select('flito_organismo_pagos', []);
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual([]);
+  });
+
+  it('GET /organismos/:codigo/tramites con rol transito → 403', async () => {
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/tramites')
+      .set('Authorization', await auth('transito'));
+    expect(r.status).toBe(403);
+  });
+
+  it('GET /organismos/:codigo/tramites → 200 con el id de FLIT de cada trámite', async () => {
+    kdb.when.select('flito_bolsa_movimientos', [
+      { tramiteId: 'tramite-1', idFlit: 'FLIT-1', companiaId: COMPANIA, concepto: 'soat', valor: '450000', fecha: '2026-07-20', soporteId: SOPORTE_ID },
+    ]);
+
+    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/tramites')
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toMatchObject({ tramiteId: 'tramite-1', idFlit: 'FLIT-1', concepto: 'soat', valor: 450000 });
+  });
+
+  it('POST /organismos/:codigo/pagos con rol transito → 403', async () => {
+    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('transito')).field('valor', '400000');
+    expect(r.status).toBe(403);
+  });
+
+  it('valor no positivo → 400', async () => {
+    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('admin')).field('valor', '0');
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El valor del pago debe ser mayor que cero');
+  });
+
+  it('sin comprobante → 201: el soporte es opcional en un pago al organismo', async () => {
+    // A diferencia de la recarga, el pago puede registrarse el día en que se ordena la
+    // transferencia, antes de que el banco devuelva el comprobante.
+    kdb.when
+      .insert('flito_organismo_pagos', [{ id: 'pago-1' }])
+      .select('flito_bolsa_movimientos', [{ concepto: 'soat', salidas: '450000', movimientos: 1 }])
+      .select('flito_organismo_pagos', [{ total: '450000' }]);
+
+    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('financiera')).field('valor', '450000');
+
+    expect(r.status).toBe(201);
+    expect(r.body).toEqual({ id: 'pago-1', saldoPendiente: 0 });
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(auditMock.mock.calls[0][1]).toMatchObject({ resource: 'flito_organismo_pago' });
+  });
+
+  it('con comprobante válido → 201 y se archiva bajo la carpeta del organismo', async () => {
+    kdb.when
+      .insert('flito_soportes', [{ id: SOPORTE_ID }])
+      .insert('flito_organismo_pagos', [{ id: 'pago-1' }])
+      .select('flito_bolsa_movimientos', [])
+      .select('flito_organismo_pagos', [{ total: '450000' }]);
+
+    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('admin')).field('valor', '450000')
+      .attach('soporte', PDF_REAL, { filename: 'transferencia.pdf', contentType: 'application/pdf' });
+
+    expect(r.status).toBe(201);
+    expect(uploadMock.mock.calls[0][0]).toBe('organismos/05001/pagos');
+  });
+
+  it('comprobante cuyo contenido no es del tipo declarado → 400 y no se archiva', async () => {
+    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
+      .set('Authorization', await auth('admin')).field('valor', '450000')
+      .attach('soporte', Buffer.from('esto no es un PDF'), { filename: 'x.pdf', contentType: 'application/pdf' });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/Contenido de archivo no permitido/);
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', () => {
+  it('rol transito → 403', async () => {
+    // Ruta propia y no la de derechos: aquella está abierta a `auditor`, y los soportes de bolsas
+    // los reserva el Feature a Administración y Financiera.
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/soportes/${SOPORTE_ID}`)
+      .set('Authorization', await auth('transito'));
+    expect(r.status).toBe(403);
+  });
+
+  it('→ 200 con la URL firmada y el nombre del archivo', async () => {
+    kdb.when.select('flito_soportes', [{
+      storageKey: 'clientes/acme/bolsas-recargas/comprobante.pdf',
+      nombreArchivo: 'comprobante.pdf',
+      contentType: 'application/pdf',
+    }]);
+
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/soportes/${SOPORTE_ID}`)
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({
+      url: '/api/files?key=k', nombreArchivo: 'comprobante.pdf', contentType: 'application/pdf',
+    });
+  });
+
+  it('soporte inexistente → 404 con mensaje, no una URL firmada de nada', async () => {
+    kdb.when.select('flito_soportes', []);
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/soportes/${SOPORTE_ID}`)
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(404);
+    expect(r.body.error).toBe('El soporte no existe');
+  });
+});
+
+// ─────────────── Nivel de riesgo y alertas (HU #11125) ───────────────────────
+
+describe('bolsa con nivel de riesgo', () => {
+  it('GET /:companiaId ahora trae nivel y porcentaje', async () => {
+    // La pantalla no recalcula el nivel: lo pinta tal cual viene.
+    kdb.when.select('flito_bolsas', [{ ...filaBolsa, saldo: '80000', ultimaRecargaValor: '800000' }]);
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}`)
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ saldo: 80000, nivel: 'critico', porcentaje: 10 });
+  });
+
+  it('GET /riesgo y GET /alertas con rol transito → 403', async () => {
+    const app = await buildApp();
+    const token = await auth('transito');
+    const riesgo = await request(app).get('/api/flito/bolsas/riesgo').set('Authorization', token);
+    const alertas = await request(app).get('/api/flito/bolsas/alertas').set('Authorization', token);
+
+    expect([riesgo.status, alertas.status]).toEqual([403, 403]);
+  });
+
+  it('GET /riesgo → 200 con las bolsas ordenadas por urgencia', async () => {
+    kdb.when.select('flito_bolsas', [
+      { id: 'b1', companiaId: 1, companiaNombre: 'Normal', saldo: '500000', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
+      { id: 'b2', companiaId: 2, companiaNombre: 'Agotada', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
+    ]);
+    const r = await request(await buildApp()).get('/api/flito/bolsas/riesgo').set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.map((b: { nivel: string }) => b.nivel)).toEqual(['agotada', 'normal']);
+  });
+
+  it('GET /riesgo?periodo=2026-13 → 400: el periodo es contable, no texto libre', async () => {
+    const r = await request(await buildApp()).get('/api/flito/bolsas/riesgo?periodo=2026-13')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Filtros inválidos');
+  });
+
+  it('GET /riesgo?periodo=YYYY-MM → 200 con los totales del mes en cada tarjeta', async () => {
+    kdb.when
+      .select('flito_bolsas', [
+        { id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '500000', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA },
+      ])
+      .select('flito_bolsa_movimientos', [{ companiaId: 1, entradas: '800000', salidas: '300000' }]);
+
+    const r = await request(await buildApp()).get('/api/flito/bolsas/riesgo?periodo=2026-06')
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toMatchObject({ companiaId: 1, entradasPeriodo: 800000, salidasPeriodo: 300000 });
+  });
+
+  it('GET /alertas → 200 con saldo y conciliación', async () => {
+    kdb.when
+      .select('flito_bolsas', [{ id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA }])
+      .select('flito_derechos_pendientes', [{ n: 2 }])
+      .select('flito_bolsa_movimientos', [{ n: 1 }]);
+    const r = await request(await buildApp()).get('/api/flito/bolsas/alertas').set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.saldo).toHaveLength(1);
+    expect(r.body.conciliacion).toEqual({ soportesSinTramite: 2, movimientosSinSoporte: 1 });
+  });
+});
+
+// ─────────────────────────── Orden de declaración ────────────────────────────
+
+/**
+ * Rutas del router en el ORDEN en que Express las evalúa.
+ *
+ * Se mira la pila del router y no la respuesta HTTP porque el orden es la regla que hay que
+ * proteger, y una ruta mal colocada no falla: la atrapa el parámetro y responde otra cosa. Es la
+ * clase de error que solo se ve en producción cuando una pantalla aparece vacía.
+ */
+async function rutasDeclaradas(): Promise<string[]> {
+  const { default: router } = await import('../../src/modules/flito-bolsas/flito-bolsas.routes.js');
+  const capas = (router as unknown as { stack: { route?: { path: string } }[] }).stack;
+  return capas.filter((capa) => capa.route !== undefined).map((capa) => capa.route!.path);
+}
+
+describe('orden de las rutas — un segmento fijo nunca puede quedar bajo /:companiaId', () => {
+  it('ninguna ruta de un solo segmento fijo se declara después del parámetro', async () => {
+    // Regla general y no una comprobación de estas dos: quien mañana añada `/tablero` o `/cierres`
+    // al final del archivo se lleva el mismo aviso, que es justo cuando se comete el error.
+    const rutas = await rutasDeclaradas();
+    const posicionDelParametro = rutas.indexOf('/:companiaId');
+    expect(posicionDelParametro).toBeGreaterThan(-1);
+
+    const deUnSegmentoFijo = rutas.filter((p) => /^\/[^/:]+$/.test(p));
+    const tardias = deUnSegmentoFijo.filter((p) => rutas.indexOf(p) > posicionDelParametro);
+
+    // Si esto falla, las rutas listadas son inalcanzables: Express casa su segmento con
+    // `:companiaId` y devuelven «Compañía inválida» en vez de lo suyo. Se arregla subiéndolas por
+    // encima de `router.get('/:companiaId', …)`.
+    expect(tardias).toEqual([]);
+  });
+
+  it('las tres rutas fijas de hoy siguen ahí, y por delante del parámetro', async () => {
+    // El test de arriba pasaría en vacío si alguien renombrara o borrara las rutas; esto ancla
+    // cuáles son las que dependen del orden.
+    const rutas = await rutasDeclaradas();
+    const antesDelParametro = rutas.slice(0, rutas.indexOf('/:companiaId'));
+
+    expect(antesDelParametro).toEqual(expect.arrayContaining(['/consolidado', '/riesgo', '/alertas']));
+  });
+
+  it('/organismos/:codigo no necesita ir antes: la salvan sus dos segmentos', async () => {
+    // Documenta por qué esa sí puede vivir más abajo, para que nadie «arregle» lo que no está roto
+    // moviéndola y se lleve por delante el orden de las otras.
+    const rutas = await rutasDeclaradas();
+    expect(rutas).toContain('/organismos/:organismoCodigo');
+    expect(rutas.indexOf('/organismos/:organismoCodigo')).toBeGreaterThan(rutas.indexOf('/:companiaId'));
   });
 });

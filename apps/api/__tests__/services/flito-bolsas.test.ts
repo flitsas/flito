@@ -25,7 +25,9 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { registrarRecarga, bolsaDe, llaveRecarga, BolsaError } = await import('../../src/modules/flito-bolsas/flito-bolsas.service.js');
+const {
+  registrarRecarga, bolsaDe, movimientosDe, llaveRecarga, BolsaError,
+} = await import('../../src/modules/flito-bolsas/flito-bolsas.service.js');
 
 // ─────────────────────────── Espía de escrituras ─────────────────────────────
 
@@ -577,6 +579,54 @@ describe('registrarRecarga — redondeo a dos decimales', () => {
 });
 
 // ─────────────────────────── Lectura de la bolsa ─────────────────────────────
+
+describe('movimientosDe — el libro llega con el nombre del trámite, no con su UUID', () => {
+  /** Fila del libro: la proyección anida el movimiento en `m` y trae el `idFlit` del join. */
+  const linea = (over: Record<string, unknown> = {}, idFlit: string | null = null) => ({
+    m: {
+      id: MOV_ID, bolsaId: BOLSA_ID, companiaId: COMPANIA, tipo: 'salida', origen: 'automatico',
+      concepto: 'soat', organismoCodigo: '05001', tramiteId: 'tramite-1',
+      valor: '450000', saldoResultante: '550000', periodo: '2026-07', fecha: '2026-07-20',
+      observacion: null, soporteId: null, registradoPorNombre: 'sistema',
+      llaveIdempotencia: null, createdAt: CREADO_EN, ...over,
+    },
+    idFlit,
+  });
+
+  it('con trámite detrás, el movimiento trae su id de FLIT', async () => {
+    // La tabla del libro enseñaba un UUID truncado, que no le dice nada a quien concilia: en
+    // Operaciones el trámite se nombra por su id de FLIT.
+    kdb.when.select('flito_bolsa_movimientos', [linea({}, 'FLIT-1024')]);
+
+    const [m] = await movimientosDe(COMPANIA);
+    expect(m.idFlit).toBe('FLIT-1024');
+    expect(m.tramiteId).toBe('tramite-1');
+  });
+
+  it('sin trámite (una recarga), el id de FLIT es null y no rompe el mapeo', async () => {
+    // El join es LEFT justamente por esto: una recarga no cuelga de ningún trámite.
+    kdb.when.select('flito_bolsa_movimientos', [linea({ tramiteId: null, origen: 'recarga', tipo: 'entrada' })]);
+
+    const [m] = await movimientosDe(COMPANIA);
+    expect(m.idFlit).toBeNull();
+    expect(m.tramiteId).toBeNull();
+  });
+
+  it('el resto del movimiento sigue mapeándose igual', async () => {
+    kdb.when.select('flito_bolsa_movimientos', [linea({}, 'FLIT-1024')]);
+
+    const [m] = await movimientosDe(COMPANIA);
+    expect(m).toMatchObject({
+      id: MOV_ID, tipo: 'salida', origen: 'automatico', concepto: 'soat',
+      organismoCodigo: '05001', valor: 450000, saldoResultante: 550000, periodo: '2026-07',
+    });
+  });
+
+  it('libro vacío → lista vacía', async () => {
+    kdb.when.select('flito_bolsa_movimientos', []);
+    expect(await movimientosDe(COMPANIA)).toEqual([]);
+  });
+});
 
 describe('bolsaDe — la bolsa llega al frontend con números, no con strings de numeric', () => {
   it('convierte saldo y última recarga a number', async () => {

@@ -16,11 +16,15 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
-import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
+import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
+import {
+  deleteEntityDocument, firmarDescargaEntidad, uploadEntityDocument,
+} from '../../services/storage.js';
 import {
   alertasDeConciliacion, alertasDeSaldo, bolsaConRiesgoDe, BolsaError, bolsasConRiesgo,
   bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
-  registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga, saldoConsolidado,
+  pagosDeOrganismo, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
+  saldoConsolidado, tramitesDeOrganismo,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -80,6 +84,24 @@ function companiaIdDe(req: Request): number {
 // «consolidado» no se lea como un id de compañía.
 router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
   res.json(await saldoConsolidado());
+});
+
+// Las rutas de UN SOLO segmento fijo van todas ANTES de `/:companiaId`. Si no, Express casa el
+// segmento con el parámetro y la ruta se vuelve inalcanzable: devuelve «Compañía inválida» en vez de
+// su respuesta, sin que nada falle de forma visible. `/organismos/:codigo` se libra por llevar dos
+// segmentos, pero estas dos no.
+
+// GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
+router.get('/riesgo', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = filtroSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
+  res.json(await bolsasConRiesgo(parsed.data.periodo));
+});
+
+// GET /alertas — saldo y conciliación, lo que Financiera necesita mirar hoy.
+router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
+  const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
+  res.json({ saldo, conciliacion });
 });
 
 // GET /:companiaId — bolsa y saldo del cliente.
@@ -199,15 +221,30 @@ function claveIdempotencia(req: Request): string | null {
   return clave;
 }
 
-// GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
-router.get('/riesgo', BOLSAS, async (_req: Request, res: Response) => {
-  res.json(await bolsasConRiesgo());
+// GET /soportes/:soporteId — URL firmada del comprobante de un movimiento.
+//
+// Existe en vez de reusar `/flito/derechos/soporte/:id` porque aquel está abierto a `admin` y
+// `auditor`, y aquí quien necesita abrir el comprobante es `financiera`. Compartir la ruta obligaría
+// a ensanchar sus roles y le daría a auditoría acceso a los soportes de las bolsas, que el Feature
+// reserva a Administración y Financiera (§9).
+router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) => {
+  const s = await storageKeySoporte(req.params.soporteId);
+  if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
+  res.json({
+    url: firmarDescargaEntidad(s.storageKey),
+    nombreArchivo: s.nombreArchivo,
+    contentType: s.contentType,
+  });
 });
 
-// GET /alertas — saldo y conciliación, lo que Financiera necesita mirar hoy.
-router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
-  const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
-  res.json({ saldo, conciliacion });
+// GET /organismos/:organismoCodigo/pagos — historial de pagos de FLIT al organismo.
+router.get('/organismos/:organismoCodigo/pagos', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await pagosDeOrganismo(req.params.organismoCodigo));
+});
+
+// GET /organismos/:organismoCodigo/tramites — qué trámites originaron el cobro del organismo.
+router.get('/organismos/:organismoCodigo/tramites', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await tramitesDeOrganismo(req.params.organismoCodigo));
 });
 
 // GET /organismos/:organismoCodigo — estado de cuenta (bolsa simbólica) del organismo.

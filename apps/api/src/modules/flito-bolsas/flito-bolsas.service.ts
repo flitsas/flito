@@ -9,21 +9,42 @@ import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
-  flitoOrganismoPagos, flitoSoportes,
+  flitoOrganismoPagos, flitoSoportes, flitoTramites,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
+  type AlertaBolsa,
+  type AlertasConciliacion,
+  type BolsaConRiesgo,
   type BolsaDto,
+  type BolsaSimbolicaOrganismo,
+  type CierreDto,
+  CLAVE_AGRUPACION_SIN_ASIGNAR,
   type ConceptoBolsa,
+  type ExtractoCliente,
+  type LineaAgrupada,
+  type LineaOrganismo,
   type MovimientoBolsaDto,
   NIVEL_RIESGO_BOLSA_LABEL,
+  type PagoOrganismoDto,
   nivelRiesgoDe,
   NivelRiesgoBolsa,
   type OrigenMovimientoBolsa,
   periodoDe,
   porcentajeSaldo,
+  type SaldoConsolidado,
   type TipoMovimientoBolsa,
+  type TramiteOrganismoDto,
 } from '@operaciones/shared-types';
+
+// Las formas que devuelve este servicio viven en shared-types: la web las pinta tal cual y
+// redeclararlas allí sería garantizar que un día divergen (mismo motivo por el que `nivelRiesgoDe`
+// está compartido). Se re-exportan para no tocar a los importadores que ya las traían de aquí.
+export type {
+  AlertaBolsa, AlertasConciliacion, BolsaConRiesgo, BolsaSimbolicaOrganismo, CierreDto,
+  ExtractoCliente, LineaAgrupada, LineaOrganismo, PagoOrganismoDto, SaldoConsolidado,
+  TramiteOrganismoDto,
+};
 
 /** Error de negocio: lo traduce la capa HTTP a 400/409, no al error handler genérico. */
 export class BolsaError extends Error {
@@ -159,17 +180,23 @@ export async function movimientosDe(
   const condiciones = [eq(flitoBolsaMovimientos.companiaId, companiaId)];
   if (filtro.periodo) condiciones.push(eq(flitoBolsaMovimientos.periodo, filtro.periodo));
 
+  // El join trae el id de FLIT, que es como Operaciones nombra el trámite. Va aquí y no en una
+  // segunda consulta por fila: la tabla del libro los pinta todos.
   const filas = await db
-    .select()
+    .select({ m: flitoBolsaMovimientos, idFlit: flitoTramites.idFlit })
     .from(flitoBolsaMovimientos)
+    .leftJoin(flitoTramites, eq(flitoBolsaMovimientos.tramiteId, flitoTramites.id))
     .where(and(...condiciones))
     .orderBy(desc(flitoBolsaMovimientos.createdAt))
     .limit(Math.min(filtro.limite ?? 200, 500));
 
-  return filas.map(aMovimientoDto);
+  return filas.map((f) => aMovimientoDto(f.m, f.idFlit));
 }
 
-function aMovimientoDto(m: typeof flitoBolsaMovimientos.$inferSelect): MovimientoBolsaDto {
+function aMovimientoDto(
+  m: typeof flitoBolsaMovimientos.$inferSelect,
+  idFlit: string | null = null,
+): MovimientoBolsaDto {
   return {
     id: m.id,
     companiaId: m.companiaId,
@@ -178,6 +205,7 @@ function aMovimientoDto(m: typeof flitoBolsaMovimientos.$inferSelect): Movimient
     concepto: m.concepto === null ? null : (m.concepto as ConceptoBolsa),
     organismoCodigo: m.organismoCodigo,
     tramiteId: m.tramiteId,
+    idFlit,
     valor: num(m.valor),
     saldoResultante: num(m.saldoResultante),
     periodo: m.periodo,
@@ -763,20 +791,6 @@ export function periodoSiguiente(periodo: string): string {
   return mes === 12 ? `${anio + 1}-01` : `${anio}-${String(mes + 1).padStart(2, '0')}`;
 }
 
-export interface CierreDto {
-  id: string;
-  companiaId: number;
-  periodo: string;
-  saldoInicial: number;
-  totalEntradas: number;
-  totalSalidas: number;
-  saldoFinal: number;
-  movimientos: number;
-  observaciones: string | null;
-  cerradoPorNombre: string;
-  cerradoEn: string;
-}
-
 function aCierreDto(c: typeof flitoBolsaCierres.$inferSelect): CierreDto {
   return {
     id: c.id,
@@ -884,22 +898,6 @@ export async function cerrarPeriodo(
 
 // ───────── Extracto por OT y bolsa simbólica del organismo (HU #11124) ───────
 
-export interface LineaAgrupada {
-  clave: string;
-  entradas: number;
-  salidas: number;
-  movimientos: number;
-}
-
-export interface ExtractoCliente {
-  companiaId: number;
-  saldoActual: number;
-  totalEntradas: number;
-  totalSalidas: number;
-  porOrganismo: LineaAgrupada[];
-  porConcepto: LineaAgrupada[];
-}
-
 /** Agrupa el libro de un cliente por una columna, sumando entradas y salidas por separado. */
 async function agrupar(
   companiaId: number,
@@ -923,7 +921,7 @@ async function agrupar(
   return filas.map((f) => ({
     // `null` es una agrupación legítima, no un fallo: las recargas no tienen organismo ni concepto,
     // y el trámite digital y la logística no tienen organismo por ser honorarios de FLIT.
-    clave: f.clave ?? 'sin_asignar',
+    clave: f.clave ?? CLAVE_AGRUPACION_SIN_ASIGNAR,
     entradas: redondear(num(f.entradas)),
     salidas: redondear(num(f.salidas)),
     movimientos: f.movimientos,
@@ -961,22 +959,6 @@ export async function extractoDe(companiaId: number, periodo?: string): Promise<
     porOrganismo,
     porConcepto,
   };
-}
-
-export interface LineaOrganismo {
-  concepto: string;
-  cobrado: number;
-  movimientos: number;
-}
-
-export interface BolsaSimbolicaOrganismo {
-  organismoCodigo: string;
-  /** Lo cobrado a los clientes por cuenta de este organismo, desglosado por concepto. */
-  porConcepto: LineaOrganismo[];
-  totalCobrado: number;
-  totalPagado: number;
-  /** Lo que FLIT todavía le debe al organismo. Puede ser negativo si se le pagó de más. */
-  saldoPendiente: number;
 }
 
 /**
@@ -1018,6 +1000,69 @@ export async function bolsaSimbolicaDe(organismoCodigo: string): Promise<BolsaSi
     totalPagado,
     saldoPendiente: redondear(totalCobrado - totalPagado),
   };
+}
+
+/** Historial de pagos de FLIT al organismo, del más reciente al más antiguo (AC2). */
+export async function pagosDeOrganismo(organismoCodigo: string): Promise<PagoOrganismoDto[]> {
+  const filas = await db
+    .select()
+    .from(flitoOrganismoPagos)
+    .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo))
+    .orderBy(desc(flitoOrganismoPagos.fecha), desc(flitoOrganismoPagos.createdAt));
+
+  return filas.map((p) => ({
+    id: p.id,
+    valor: num(p.valor),
+    fecha: p.fecha,
+    observacion: p.observacion,
+    soporteId: p.soporteId,
+    registradoPorNombre: p.registradoPorNombre,
+    createdAt: aIso(p.createdAt) ?? '',
+  }));
+}
+
+/**
+ * Trámites que originaron el cobro del organismo, con su soporte (AC2).
+ *
+ * Solo salidas automáticas: son las que representan un desembolso al organismo. Un ajuste manual
+ * imputado a ese organismo es una corrección de FLIT, no un cobro suyo, y mezclarlo aquí haría creer
+ * que el organismo facturó algo que nunca facturó.
+ */
+export async function tramitesDeOrganismo(
+  organismoCodigo: string,
+  limite = 200,
+): Promise<TramiteOrganismoDto[]> {
+  const filas = await db
+    .select({
+      tramiteId: flitoBolsaMovimientos.tramiteId,
+      idFlit: flitoTramites.idFlit,
+      companiaId: flitoBolsaMovimientos.companiaId,
+      concepto: flitoBolsaMovimientos.concepto,
+      valor: flitoBolsaMovimientos.valor,
+      fecha: flitoBolsaMovimientos.fecha,
+      soporteId: flitoBolsaMovimientos.soporteId,
+    })
+    .from(flitoBolsaMovimientos)
+    .leftJoin(flitoTramites, eq(flitoBolsaMovimientos.tramiteId, flitoTramites.id))
+    .where(and(
+      eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo),
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      eq(flitoBolsaMovimientos.tipo, 'salida'),
+    ))
+    .orderBy(desc(flitoBolsaMovimientos.fecha))
+    .limit(Math.min(limite, 500));
+
+  return filas
+    .filter((f): f is typeof f & { tramiteId: string } => f.tramiteId !== null)
+    .map((f) => ({
+      tramiteId: f.tramiteId,
+      idFlit: f.idFlit,
+      companiaId: f.companiaId,
+      concepto: f.concepto,
+      valor: num(f.valor),
+      fecha: f.fecha,
+      soporteId: f.soporteId,
+    }));
 }
 
 export interface DatosPagoOrganismo {
@@ -1066,17 +1111,15 @@ export async function registrarPagoOrganismo(
 
 // ─────────────── Nivel de riesgo del saldo y alertas (HU #11125) ─────────────
 
-export interface BolsaConRiesgo extends BolsaDto {
-  nivel: NivelRiesgoBolsa;
-  /** Saldo como porcentaje de la última recarga; `null` si el cliente nunca ha recargado. */
-  porcentaje: number | null;
-}
-
 function conRiesgo(b: BolsaDto): BolsaConRiesgo {
   return {
     ...b,
     nivel: nivelRiesgoDe(b.saldo, b.ultimaRecargaValor),
     porcentaje: porcentajeSaldo(b.saldo, b.ultimaRecargaValor),
+    // Los totales del periodo solo los calcula el listado del tablero, que sabe qué mes se pidió.
+    // `null` aquí no es «cero movimientos», es «no se preguntó».
+    entradasPeriodo: null,
+    salidasPeriodo: null,
   };
 }
 
@@ -1093,7 +1136,7 @@ export async function bolsaConRiesgoDe(companiaId: number): Promise<BolsaConRies
  * recargar, y dejar que cada cliente la ordene invitaría a que dos vistas muestren prioridades
  * distintas del mismo dato.
  */
-export async function bolsasConRiesgo(): Promise<BolsaConRiesgo[]> {
+export async function bolsasConRiesgo(periodo?: string): Promise<BolsaConRiesgo[]> {
   const filas = await db
     .select({
       id: flitoBolsas.id,
@@ -1106,32 +1149,52 @@ export async function bolsasConRiesgo(): Promise<BolsaConRiesgo[]> {
     .from(flitoBolsas)
     .innerJoin(clients, eq(flitoBolsas.companiaId, clients.id));
 
+  // Los totales del periodo salen de UNA consulta agrupada, no de una por cliente. El tablero los
+  // pinta en cada tarjeta, así que pedirlos uno a uno convertía abrir la pantalla en tantas
+  // consultas como clientes hubiera.
+  const totales = new Map<number, { entradas: number; salidas: number }>();
+  if (periodo) {
+    const agregados = await db
+      .select({
+        companiaId: flitoBolsaMovimientos.companiaId,
+        entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+        salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      })
+      .from(flitoBolsaMovimientos)
+      .where(eq(flitoBolsaMovimientos.periodo, periodo))
+      .groupBy(flitoBolsaMovimientos.companiaId);
+    for (const a of agregados) {
+      totales.set(a.companiaId, {
+        entradas: redondear(num(a.entradas)),
+        salidas: redondear(num(a.salidas)),
+      });
+    }
+  }
+
   const orden: Record<NivelRiesgoBolsa, number> = {
     agotada: 0, critico: 1, bajo: 2, normal: 3, sin_recargas: 4,
   };
 
   return filas
-    .map((f) => conRiesgo({
-      id: f.id,
-      companiaId: f.companiaId,
-      companiaNombre: f.companiaNombre,
-      saldo: num(f.saldo),
-      ultimaRecargaValor: f.ultimaRecargaValor === null ? null : num(f.ultimaRecargaValor),
-      ultimaRecargaEn: aIso(f.ultimaRecargaEn),
-    }))
+    .map((f) => {
+      const t = totales.get(f.companiaId);
+      return {
+        ...conRiesgo({
+          id: f.id,
+          companiaId: f.companiaId,
+          companiaNombre: f.companiaNombre,
+          saldo: num(f.saldo),
+          ultimaRecargaValor: f.ultimaRecargaValor === null ? null : num(f.ultimaRecargaValor),
+          ultimaRecargaEn: aIso(f.ultimaRecargaEn),
+        }),
+        // `null` cuando no se pidió periodo: distinto de cero, que sí significa «ese mes no se movió».
+        entradasPeriodo: periodo ? (t?.entradas ?? 0) : null,
+        salidasPeriodo: periodo ? (t?.salidas ?? 0) : null,
+      };
+    })
     .sort((a, b) => orden[a.nivel] - orden[b.nivel]
       // A igual nivel, primero el que más lejos está de su base: es el que antes se queda sin saldo.
       || (a.porcentaje ?? Infinity) - (b.porcentaje ?? Infinity));
-}
-
-export interface AlertaBolsa {
-  tipo: 'saldo';
-  nivel: NivelRiesgoBolsa;
-  companiaId: number;
-  companiaNombre: string;
-  saldo: number;
-  porcentaje: number | null;
-  mensaje: string;
 }
 
 /**
@@ -1155,13 +1218,6 @@ export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
         ? `La bolsa de ${b.companiaNombre} está agotada (saldo ${b.saldo}).`
         : `${b.companiaNombre} tiene ${NIVEL_RIESGO_BOLSA_LABEL[b.nivel].toLowerCase()}: ${b.porcentaje} % de su última recarga.`,
     }));
-}
-
-export interface AlertasConciliacion {
-  /** Soportes cargados que no cruzaron con ningún trámite. */
-  soportesSinTramite: number;
-  /** Movimientos automáticos asentados sin soporte del organismo detrás. */
-  movimientosSinSoporte: number;
 }
 
 /**
