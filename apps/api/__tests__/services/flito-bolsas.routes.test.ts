@@ -65,9 +65,22 @@ async function buildApp() {
 
 const auth = async (role: TestRole) => `Bearer ${await testToken({ sub: 9, username: 'financiera@flit.io', role })}`;
 
-/** POST de recarga con comprobante válido; `campos` sobreescribe o añade campos del formulario. */
-function postRecarga(app: express.Express, token: string, campos: Record<string, string> = {}) {
-  const req = request(app).post(`/api/flito/bolsas/${COMPANIA}/recargas`).set('Authorization', token);
+/** Clave de idempotencia por defecto de los tests; el encabezado es obligatorio en toda recarga. */
+const IDEM = 'idem-0001';
+
+/**
+ * POST de recarga con comprobante válido. `campos` sobreescribe o añade campos del formulario;
+ * `clave` permite reenviar con la misma (replay) o probar encabezados inválidos.
+ */
+function postRecarga(
+  app: express.Express,
+  token: string,
+  campos: Record<string, string> = {},
+  clave: string | null = IDEM,
+  compania: number = COMPANIA,
+) {
+  const req = request(app).post(`/api/flito/bolsas/${compania}/recargas`).set('Authorization', token);
+  if (clave !== null) req.set('Idempotency-Key', clave);
   for (const [k, v] of Object.entries({ valor: '500000', ...campos })) req.field(k, v);
   return req.attach('soporte', PDF_REAL, { filename: 'comprobante.pdf', contentType: 'application/pdf' });
 }
@@ -117,6 +130,7 @@ describe('bolsas — sin token no se ve ni se mueve dinero', () => {
   it('POST de recarga sin Authorization → 401 (y nada se archiva)', async () => {
     const r = await request(await buildApp())
       .post(`/api/flito/bolsas/${COMPANIA}/recargas`)
+      .set('Idempotency-Key', IDEM)
       .field('valor', '500000')
       .attach('soporte', PDF_REAL, { filename: 'comprobante.pdf', contentType: 'application/pdf' });
     expect(r.status).toBe(401);
@@ -303,17 +317,18 @@ describe('POST /:companiaId/recargas — validación del borde', () => {
 describe('POST /:companiaId/recargas — solo PDF, JPG o PNG', () => {
   it('mime fuera de la lista blanca → lo corta multer y el archivo no llega al almacenamiento', async () => {
     // Un .html subido como tal se descargaría después con ese mismo content-type: XSS almacenado
-    // en el mismo origen que la app. El fileFilter responde con un error genérico, así que el
-    // status depende del errorHandler que monte la app (aquí, el de Express por defecto); lo que
-    // esta prueba fija es que NO se archiva nada.
+    // en el mismo origen que la app. El rechazo sale como 400 con el motivo —no como el 500
+    // genérico del error handler—, porque quien sube un comprobante equivocado necesita saber qué
+    // pasó.
     const r = await request(await buildApp())
       .post(`/api/flito/bolsas/${COMPANIA}/recargas`)
       .set('Authorization', await auth('admin'))
+      .set('Idempotency-Key', IDEM)
       .field('valor', '500000')
       .attach('soporte', Buffer.from('<script>alert(1)</script>'), { filename: 'evil.html', contentType: 'text/html' });
 
-    expect([400, 500]).toContain(r.status);
-    expect(r.status).not.toBe(201);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Tipo de archivo no permitido: text/html');
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
@@ -324,6 +339,7 @@ describe('POST /:companiaId/recargas — solo PDF, JPG o PNG', () => {
     const r = await request(await buildApp())
       .post(`/api/flito/bolsas/${COMPANIA}/recargas`)
       .set('Authorization', await auth('admin'))
+      .set('Idempotency-Key', IDEM)
       .field('valor', '500000')
       .attach('soporte', Buffer.from('MZ esto no es un PDF, es cualquier cosa'), { filename: 'comprobante.pdf', contentType: 'application/pdf' });
 
@@ -339,6 +355,7 @@ describe('POST /:companiaId/recargas — solo PDF, JPG o PNG', () => {
     const r = await request(await buildApp())
       .post(`/api/flito/bolsas/${COMPANIA}/recargas`)
       .set('Authorization', await auth('admin'))
+      .set('Idempotency-Key', IDEM)
       .field('valor', '500000')
       .attach('soporte', PNG_REAL, { filename: 'comprobante.pdf', contentType: 'application/pdf' });
 
@@ -352,6 +369,7 @@ describe('POST /:companiaId/recargas — solo PDF, JPG o PNG', () => {
     const r = await request(await buildApp())
       .post(`/api/flito/bolsas/${COMPANIA}/recargas`)
       .set('Authorization', await auth('financiera'))
+      .set('Idempotency-Key', IDEM)
       .field('valor', '500000')
       .attach('soporte', PNG_REAL, { filename: 'comprobante.png', contentType: 'image/png' });
 
@@ -362,6 +380,80 @@ describe('POST /:companiaId/recargas — solo PDF, JPG o PNG', () => {
 
 // ─────────────────────────── POST: recarga válida ────────────────────────────
 
+describe('POST /:companiaId/recargas — el encabezado Idempotency-Key es obligatorio', () => {
+  it('sin encabezado → 400, y el comprobante no llega al almacenamiento', async () => {
+    // Se exige en vez de aceptarlo opcional porque un opcional solo protege a quien lo manda, y
+    // aquí lo que hay que proteger es el saldo del cliente.
+    const r = await postRecarga(await buildApp(), await auth('admin'), {}, null);
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Falta el encabezado Idempotency-Key');
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('encabezado en blanco → 400: una clave de espacios no identifica nada', async () => {
+    // Los espacios se pierden por el camino y el encabezado llega como cadena vacía, así que este
+    // caso cubre una rama distinta a la de arriba: presente pero sin contenido.
+    const r = await postRecarga(await buildApp(), await auth('admin'), {}, '   ');
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Falta el encabezado Idempotency-Key');
+  });
+
+  it('clave de más de 120 caracteres → 400', async () => {
+    // El prefijo y el id de compañía tienen que caber junto a ella en varchar(200); truncarla en
+    // silencio haría que dos claves distintas se leyeran como la misma.
+    const r = await postRecarga(await buildApp(), await auth('admin'), {}, 'k'.repeat(121));
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Falta el encabezado Idempotency-Key');
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('clave de exactamente 120 caracteres sí pasa: el tope no se come el caso legal', async () => {
+    escenarioRecargaOk();
+    const r = await postRecarga(await buildApp(), await auth('admin'), {}, 'k'.repeat(120));
+    expect(r.status).toBe(201);
+  });
+});
+
+describe('POST /:companiaId/recargas — reenvío con la misma clave', () => {
+  /** El movimiento ya asentado que encuentra el pre-chequeo del servicio. */
+  function yaAsentada(): void {
+    kdb.when
+      .select('clients', [filaCliente])
+      .select('flito_bolsa_movimientos', [filaMovimiento]);
+  }
+
+  it('replay → 200 (no 201) con duplicado: true y el movimiento original', async () => {
+    // Un doble clic no puede acreditar el dinero dos veces; y el 200 le dice al cliente que su
+    // recarga ya estaba registrada, en vez de hacerle creer que acaba de crear otra.
+    yaAsentada();
+    const r = await postRecarga(await buildApp(), await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.duplicado).toBe(true);
+    expect(r.body.movimiento.id).toBe(MOV_ID);
+    expect(r.body.saldo).toBe(500000);
+  });
+
+  it('el comprobante que subió el reenvío se borra: el original conserva el suyo', async () => {
+    // Sin esto, cada reintento dejaría una copia del archivo en el almacenamiento sin ninguna
+    // fila que la referencie.
+    yaAsentada();
+    await postRecarga(await buildApp(), await auth('admin'));
+
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(deleteMock).toHaveBeenCalledWith(STORAGE_KEY);
+  });
+
+  it('el replay no se audita: no ocurrió ningún movimiento de dinero', async () => {
+    yaAsentada();
+    await postRecarga(await buildApp(), await auth('admin'));
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /:companiaId/recargas — recarga válida', () => {
   it('con valor y soporte → 201 con el movimiento y el saldo nuevo', async () => {
     escenarioRecargaOk();
@@ -371,6 +463,9 @@ describe('POST /:companiaId/recargas — recarga válida', () => {
 
     expect(r.status).toBe(201);
     expect(r.body.saldo).toBe(500000);
+    // Recarga nueva: el cliente distingue por este flag si acaba de crear algo o si le devolvieron
+    // lo que ya existía.
+    expect(r.body.duplicado).toBe(false);
     expect(r.body.movimiento).toMatchObject({
       id: MOV_ID, tipo: 'entrada', origen: 'recarga', valor: 500000, soporteId: SOPORTE_ID,
     });

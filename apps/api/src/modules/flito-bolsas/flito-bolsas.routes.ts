@@ -107,6 +107,12 @@ router.get('/:companiaId/movimientos', BOLSAS, async (req: Request, res: Respons
 //
 // El soporte es obligatorio: una entrada de dinero sin comprobante no es auditable, y el Feature lo
 // exige entre los campos de toda entrada (§2.1).
+//
+// El encabezado `Idempotency-Key` también es OBLIGATORIO. El libro es append-only: un doble clic o
+// un reintento de red acreditarían el dinero dos veces y la única corrección posible sería otro
+// movimiento. Se exige en vez de aceptarlo opcional porque un opcional solo protege a quien lo
+// manda, y aquí lo que hay que proteger es el saldo del cliente. Reenviar la misma clave devuelve
+// 200 con el movimiento original; una recarga nueva devuelve 201.
 const recargaSchema = z.object({
   // `invalid_type_error` para que un valor no numérico devuelva el mensaje de negocio y no el
   // «Expected number, received nan» de zod, que es lo que acabaría viendo el operador.
@@ -126,6 +132,12 @@ router.post('/:companiaId/recargas', BOLSAS, recibirSoporte, async (req: Request
   }
   if (!req.file) { res.status(400).json({ error: 'Adjunta el soporte de la recarga' }); return; }
 
+  const clave = claveIdempotencia(req);
+  if (clave === null) {
+    res.status(400).json({ error: 'Falta el encabezado Idempotency-Key' });
+    return;
+  }
+
   const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
   let storageKey: string | null = null;
   try {
@@ -134,7 +146,7 @@ router.post('/:companiaId/recargas', BOLSAS, recibirSoporte, async (req: Request
     if (invalido) { res.status(400).json({ error: invalido }); return; }
 
     storageKey = await subirComprobante(companiaId, req.file);
-    const { movimiento, saldo } = await registrarRecarga(
+    const { movimiento, saldo, duplicado } = await registrarRecarga(
       companiaId,
       {
         valor: parsed.data.valor,
@@ -147,15 +159,24 @@ router.post('/:companiaId/recargas', BOLSAS, recibirSoporte, async (req: Request
           hash: createHash('sha256').update(req.file.buffer).digest('hex'),
           tamanoBytes: req.file.size,
         },
+        claveIdempotencia: clave,
       },
       ctx,
     );
+
+    if (duplicado) {
+      // El reenvío no acreditó nada, así que su comprobante sobra: el movimiento original conserva
+      // el suyo. Sin esto, cada reintento dejaría una copia del archivo en el almacenamiento.
+      await deleteEntityDocument(storageKey).catch(() => undefined);
+      res.status(200).json({ movimiento, saldo, duplicado: true });
+      return;
+    }
 
     await audit(req, {
       action: 'create', resource: 'flito_bolsa_movimiento', resourceId: movimiento.id,
       detail: `Recarga de ${movimiento.valor} en la bolsa de la compañía ${companiaId}: saldo ${saldo}`,
     });
-    res.status(201).json({ movimiento, saldo });
+    res.status(201).json({ movimiento, saldo, duplicado: false });
   } catch (e) {
     // El objeto ya está en el almacenamiento pero la transacción del dinero no cuajó: sin esto
     // quedaría un archivo huérfano de hasta 15 MB por cada recarga fallida.
@@ -163,6 +184,18 @@ router.post('/:companiaId/recargas', BOLSAS, recibirSoporte, async (req: Request
     fallo(res, e);
   }
 });
+
+/**
+ * Clave del encabezado `Idempotency-Key`, o `null` si falta o viene vacía. Se acota a 120 caracteres
+ * porque el prefijo y el id de compañía deben caber junto a ella en `varchar(200)`.
+ */
+function claveIdempotencia(req: Request): string | null {
+  const bruto = req.get('Idempotency-Key');
+  if (typeof bruto !== 'string') return null;
+  const clave = bruto.trim();
+  if (clave.length === 0 || clave.length > 120) return null;
+  return clave;
+}
 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {

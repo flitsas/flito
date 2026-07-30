@@ -49,6 +49,12 @@ export interface DatosRecarga {
   fecha?: string;
   observacion?: string | null;
   soporte: SoporteRecarga;
+  /**
+   * Clave que envía el cliente en el encabezado `Idempotency-Key`. Debe acuñarse al ABRIR el
+   * formulario, no al pulsar guardar: si se genera por clic, el doble clic produce dos claves y no
+   * protege de nada.
+   */
+  claveIdempotencia: string;
 }
 
 /** Lo que necesita un movimiento para asentarse en el libro. */
@@ -218,6 +224,27 @@ async function bolsaBloqueada(tx: Tx, companiaId: number): Promise<{ id: string;
 const TIPO_SOPORTE_RECARGA = 'recarga_bolsa';
 
 /**
+ * Movimiento ya asentado con esa llave, o `undefined`.
+ *
+ * La llave lleva prefijo por familia (`recarga:…`, y `tramite:…` en la HU #11122) porque el índice
+ * único es uno solo para toda la tabla: sin prefijo, una llave de recarga podría colisionar con una
+ * de salida automática y una de las dos se perdería en silencio.
+ */
+async function movimientoPorLlave(tx: Tx, llave: string): Promise<MovimientoBolsaDto | undefined> {
+  const [fila] = await tx
+    .select()
+    .from(flitoBolsaMovimientos)
+    .where(eq(flitoBolsaMovimientos.llaveIdempotencia, llave))
+    .limit(1);
+  return fila ? aMovimientoDto(fila) : undefined;
+}
+
+/** Violación de unicidad de Postgres. */
+function esLlaveDuplicada(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23505';
+}
+
+/**
  * Registra el comprobante ya subido al almacenamiento. Trunca a lo que aguantan las columnas: un
  * nombre de archivo largo no puede tumbar una recarga con un 22001 después de haber subido el
  * archivo (`flito_soportes.nombre_archivo` es varchar(300) y `content_type` varchar(100)).
@@ -247,7 +274,7 @@ async function registrarMovimiento(
   companiaId: number,
   datos: DatosMovimiento,
   ctx: CtxUsuario,
-): Promise<MovimientoBolsaDto> {
+): Promise<{ movimiento: MovimientoBolsaDto; duplicado: boolean }> {
   const etiqueta = datos.etiqueta ?? 'movimiento';
   const valor = redondear(datos.valor);
   if (!Number.isFinite(valor) || valor <= 0) {
@@ -268,6 +295,13 @@ async function registrarMovimiento(
   if (fecha > hoyIso()) throw new BolsaError('La fecha del movimiento no puede ser futura');
 
   return db.transaction(async (tx) => {
+    // Reenvío con la misma llave: se devuelve el movimiento original sin volver a mover el saldo.
+    // Va ANTES del lock porque no necesita bloquear nada — si ya existe, no hay nada que escribir.
+    if (datos.llaveIdempotencia) {
+      const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
+      if (previo) return { movimiento: previo, duplicado: true };
+    }
+
     const bolsa = await bolsaBloqueada(tx, companiaId);
     const delta = datos.tipo === 'entrada' ? valor : -valor;
     const saldoResultante = redondear(bolsa.saldo + delta);
@@ -310,8 +344,13 @@ async function registrarMovimiento(
       })
       .where(eq(flitoBolsas.id, bolsa.id));
 
-    return aMovimientoDto(fila);
+    return { movimiento: aMovimientoDto(fila), duplicado: false };
   });
+}
+
+/** Llave de idempotencia de una recarga, con el prefijo de su familia. */
+export function llaveRecarga(companiaId: number, clave: string): string {
+  return `recarga:${companiaId}:${clave}`;
 }
 
 /**
@@ -319,26 +358,45 @@ async function registrarMovimiento(
  *
  * Crea la bolsa si es la primera recarga del cliente (AC2) y actualiza el monto de la última
  * recarga, que es la base con la que la HU #11125 clasifica el riesgo del saldo.
+ *
+ * Es IDEMPOTENTE por `llaveIdempotencia`: reenviar la misma recarga —doble clic, reintento de red—
+ * devuelve el movimiento original con `duplicado: true` y no vuelve a acreditar el dinero. Importa
+ * porque el libro es append-only: lo que entra mal, entra para siempre.
  */
 export async function registrarRecarga(
   companiaId: number,
   datos: DatosRecarga,
   ctx: CtxUsuario,
-): Promise<{ movimiento: MovimientoBolsaDto; saldo: number }> {
-  const movimiento = await registrarMovimiento(
-    companiaId,
-    {
-      tipo: 'entrada',
-      origen: 'recarga',
-      valor: datos.valor,
-      fecha: datos.fecha ?? hoyIso(),
-      observacion: datos.observacion ?? null,
-      soporte: datos.soporte,
-      etiqueta: 'recarga',
-    },
-    ctx,
-  );
-  return { movimiento, saldo: movimiento.saldoResultante };
+): Promise<{ movimiento: MovimientoBolsaDto; saldo: number; duplicado: boolean }> {
+  const llaveIdempotencia = llaveRecarga(companiaId, datos.claveIdempotencia);
+  const movimientoDe = (m: MovimientoBolsaDto, duplicado: boolean) =>
+    ({ movimiento: m, saldo: m.saldoResultante, duplicado });
+
+  try {
+    const { movimiento, duplicado } = await registrarMovimiento(
+      companiaId,
+      {
+        tipo: 'entrada',
+        origen: 'recarga',
+        valor: datos.valor,
+        fecha: datos.fecha ?? hoyIso(),
+        observacion: datos.observacion ?? null,
+        soporte: datos.soporte,
+        llaveIdempotencia,
+        etiqueta: 'recarga',
+      },
+      ctx,
+    );
+    return movimientoDe(movimiento, duplicado);
+  } catch (e) {
+    // Carrera: dos peticiones con la misma llave a la vez. El pre-chequeo de ambas salió vacío y el
+    // índice único frenó a la segunda al escribir. Es el mismo caso de negocio que el replay, así que
+    // se resuelve igual: se devuelve el que sí quedó asentado.
+    if (!esLlaveDuplicada(e)) throw e;
+    const previo = await movimientoPorLlave(db as unknown as Tx, llaveIdempotencia);
+    if (!previo) throw e;
+    return movimientoDe(previo, true);
+  }
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */

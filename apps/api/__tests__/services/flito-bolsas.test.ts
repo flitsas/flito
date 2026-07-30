@@ -25,7 +25,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { registrarRecarga, bolsaDe, BolsaError } = await import('../../src/modules/flito-bolsas/flito-bolsas.service.js');
+const { registrarRecarga, bolsaDe, llaveRecarga, BolsaError } = await import('../../src/modules/flito-bolsas/flito-bolsas.service.js');
 
 // ─────────────────────────── Espía de escrituras ─────────────────────────────
 
@@ -74,6 +74,8 @@ const MOV_ID = '22222222-2222-2222-2222-222222222222';
 const SOPORTE_ID = '33333333-3333-3333-3333-333333333333';
 const CREADO_EN = new Date('2026-03-04T15:00:00Z');
 const CTX = { userId: 9, nombre: 'financiera@flit.io' };
+/** La que manda el cliente en `Idempotency-Key`; el prefijo lo pone el servicio. */
+const CLAVE = 'abc-123';
 
 /** Comprobante ya subido al almacenamiento por la ruta; el servicio solo lo registra. */
 const SOPORTE = {
@@ -84,10 +86,22 @@ const SOPORTE = {
   tamanoBytes: 2048,
 };
 
-/** Recarga por defecto: fecha pasada (la futura se rechaza) y comprobante siempre presente. */
+/**
+ * Recarga por defecto: fecha pasada (la futura se rechaza), comprobante siempre presente y una clave
+ * de idempotencia, que ahora es obligatoria.
+ */
 function datosRecarga(over: Partial<Parameters<typeof registrarRecarga>[1]> = {}) {
-  return { valor: 500000, fecha: '2026-03-04', soporte: SOPORTE, ...over };
+  return { valor: 500000, fecha: '2026-03-04', soporte: SOPORTE, claveIdempotencia: CLAVE, ...over };
 }
+
+/** Movimiento ya asentado con la clave por defecto: lo que encuentra el pre-chequeo en un reenvío. */
+const movimientoPrevio = {
+  id: MOV_ID, bolsaId: BOLSA_ID, companiaId: COMPANIA, tipo: 'entrada', origen: 'recarga',
+  concepto: null, organismoCodigo: null, tramiteId: null,
+  valor: '500000', saldoResultante: '530000', periodo: '2026-03', fecha: '2026-03-04',
+  observacion: null, soporteId: SOPORTE_ID, registradoPorId: 9, registradoPorNombre: 'financiera@flit.io',
+  llaveIdempotencia: llaveRecarga(COMPANIA, CLAVE), createdAt: CREADO_EN,
+};
 
 /** Cliente que ya tiene bolsa abierta con el saldo dado (tal como lo devuelve numeric: string). */
 function conBolsa(saldo: string): void {
@@ -126,9 +140,11 @@ beforeEach(() => {
 describe('registrarRecarga — AC1: la entrada de dinero queda asentada y el saldo al día', () => {
   it('sobre una bolsa en cero, el saldo queda exactamente en lo recargado', async () => {
     conBolsa('0');
-    const { saldo, movimiento } = await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+    const { saldo, movimiento, duplicado } = await registrarRecarga(COMPANIA, datosRecarga(), CTX);
 
     expect(saldo).toBe(500000);
+    // Es una recarga nueva, no un replay: quien llama necesita distinguirlo para responder 201.
+    expect(duplicado).toBe(false);
     // El saldo que se persiste es el mismo que se devuelve: la bolsa no puede quedar contando
     // una cosa y el extracto otra.
     expect(ultimoMovimientoEscrito().saldoResultante).toBe('500000');
@@ -147,7 +163,6 @@ describe('registrarRecarga — AC1: la entrada de dinero queda asentada y el sal
     expect(movimiento.concepto).toBeNull();
     expect(movimiento.organismoCodigo).toBeNull();
     expect(movimiento.tramiteId).toBeNull();
-    expect(ultimoMovimientoEscrito().llaveIdempotencia).toBeNull();
   });
 
   it('el valor se guarda positivo y con quién lo registró: una entrada sin responsable no es auditable', async () => {
@@ -257,6 +272,119 @@ describe('registrarRecarga — el comprobante se registra con el dinero, no ante
     await registrarRecarga(COMPANIA, datosRecarga({ soporte: { ...SOPORTE, nombreArchivo: nombreLargo } }), CTX);
 
     expect(String(insertsEn('flito_soportes')[0].datos.nombreArchivo)).toHaveLength(300);
+  });
+});
+
+// ─────────────────────────── Idempotencia ────────────────────────────────────
+
+describe('registrarRecarga — idempotencia por clave', () => {
+  it('la llave persistida lleva el prefijo de familia y el id de la compañía', async () => {
+    // El índice único es uno solo para toda la tabla: sin el prefijo `recarga:`, una clave de
+    // recarga podría chocar con una de salida automática (HU #11122) y una de las dos se perdería.
+    conBolsa('0');
+    await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+
+    expect(ultimoMovimientoEscrito().llaveIdempotencia).toBe(`recarga:${COMPANIA}:${CLAVE}`);
+  });
+
+  it('llaveRecarga arma la misma llave que se escribe (contrato con la HU #11122)', () => {
+    expect(llaveRecarga(COMPANIA, CLAVE)).toBe('recarga:7:abc-123');
+  });
+
+  it('reenvío con la misma clave: devuelve el original y no vuelve a acreditar', async () => {
+    // Doble clic o reintento de red. El libro es append-only: si se acreditara dos veces, la única
+    // corrección posible sería otro movimiento, y el extracto quedaría contando una recarga que
+    // nunca existió.
+    conBolsa('30000');
+    kdb.when.select('flito_bolsa_movimientos', [movimientoPrevio]);
+
+    const { movimiento, saldo, duplicado } = await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    // El saldo que se devuelve es el que dejó el movimiento original, no un recálculo.
+    expect(saldo).toBe(530000);
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('el reenvío ni siquiera registra el comprobante que venía con él', async () => {
+    // El movimiento original ya tiene su soporte; guardar el del reenvío dejaría dos filas para
+    // una sola entrada de dinero.
+    conBolsa('30000');
+    kdb.when.select('flito_bolsa_movimientos', [movimientoPrevio]);
+
+    await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+    expect(insertsEn('flito_soportes')).toHaveLength(0);
+  });
+
+  it('dos claves distintas sobre la misma compañía son dos recargas', async () => {
+    // La idempotencia protege del reenvío accidental, no de recargar dos veces a propósito el
+    // mismo día por el mismo monto.
+    conBolsa('0');
+    await registrarRecarga(COMPANIA, datosRecarga({ claveIdempotencia: 'clave-a' }), CTX);
+    await registrarRecarga(COMPANIA, datosRecarga({ claveIdempotencia: 'clave-b' }), CTX);
+
+    expect(insertsEn('flito_bolsa_movimientos').map((m) => m.datos.llaveIdempotencia))
+      .toEqual([`recarga:${COMPANIA}:clave-a`, `recarga:${COMPANIA}:clave-b`]);
+  });
+
+  it('la misma clave en compañías distintas no colisiona', async () => {
+    // Dos clientes pueden generar el mismo identificador; el ámbito de la clave es la compañía.
+    const OTRA = 8;
+    kdb.when.select('flito_bolsas', [{ id: BOLSA_ID, saldo: '0' }]);
+    await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+    await registrarRecarga(OTRA, datosRecarga(), CTX);
+
+    expect(insertsEn('flito_bolsa_movimientos').map((m) => m.datos.llaveIdempotencia))
+      .toEqual([`recarga:${COMPANIA}:${CLAVE}`, `recarga:${OTRA}:${CLAVE}`]);
+  });
+});
+
+describe('registrarRecarga — carrera de dos peticiones con la misma clave', () => {
+  /** Error de violación de unicidad tal como lo lanza el driver de Postgres. */
+  function error23505(): Error {
+    return Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+  }
+
+  it('el índice único frena al segundo → se devuelve el asentado, no un 500', async () => {
+    // Las dos peticiones pasaron el pre-chequeo antes de que ninguna escribiera; la que pierde
+    // choca con el índice. Para el usuario es el mismo caso que el replay.
+    conBolsa('0');
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [])        // pre-chequeo: todavía no había nada
+      .select('flito_bolsa_movimientos', [movimientoPrevio]) // relectura tras el choque
+      .insert('flito_bolsa_movimientos', () => { throw error23505(); });
+
+    const { movimiento, duplicado, saldo } = await registrarRecarga(COMPANIA, datosRecarga(), CTX);
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    expect(saldo).toBe(530000);
+  });
+
+  it('si tras el 23505 no aparece el movimiento, el error se propaga', async () => {
+    // Sin fila que devolver no hay nada que resolver: tragarse el error dejaría al cliente creyendo
+    // que la recarga quedó registrada.
+    conBolsa('0');
+    kdb.when
+      .select('flito_bolsa_movimientos', [])
+      .insert('flito_bolsa_movimientos', () => { throw error23505(); });
+
+    await expect(registrarRecarga(COMPANIA, datosRecarga(), CTX)).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('un error de BD que no es de unicidad NO se convierte en duplicado', async () => {
+    // Una FK rota (23503) o cualquier otro fallo tiene que seguir subiendo: si se tratara como
+    // replay, la ruta respondería 200 con un movimiento que no es el de esta petición.
+    conBolsa('0');
+    kdb.when
+      .select('flito_bolsa_movimientos', [])
+      .insert('flito_bolsa_movimientos', () => {
+        throw Object.assign(new Error('insert or update violates foreign key constraint'), { code: '23503' });
+      });
+
+    await expect(registrarRecarga(COMPANIA, datosRecarga(), CTX)).rejects.toMatchObject({ code: '23503' });
   });
 });
 
@@ -375,7 +503,7 @@ describe('registrarRecarga — el periodo se deriva de la fecha del movimiento',
     // A las 8 p.m. de Bogotá en UTC ya es mañana: fechar en UTC imputaría la recarga al periodo
     // siguiente el último día del mes.
     conBolsa('0');
-    await registrarRecarga(COMPANIA, { valor: 10000, soporte: SOPORTE }, CTX);
+    await registrarRecarga(COMPANIA, { valor: 10000, soporte: SOPORTE, claveIdempotencia: CLAVE }, CTX);
 
     const m = ultimoMovimientoEscrito();
     expect(m.fecha).toBe(hoyEnColombia());
