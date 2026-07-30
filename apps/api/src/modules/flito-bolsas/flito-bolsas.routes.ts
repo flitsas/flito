@@ -18,8 +18,9 @@ import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.servic
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import {
-  bolsaDe, BolsaError, cerrarPeriodo, cierresDe, corregirMovimiento, movimientosDe,
-  registrarMovimientoManual, registrarRecarga, saldoConsolidado,
+  bolsaDe, BolsaError, bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe,
+  movimientosDe, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
+  saldoConsolidado,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -197,6 +198,79 @@ function claveIdempotencia(req: Request): string | null {
   if (clave.length === 0 || clave.length > 120) return null;
   return clave;
 }
+
+// GET /organismos/:organismoCodigo — estado de cuenta (bolsa simbólica) del organismo.
+// Antes de /:companiaId por la misma razón que /consolidado: «organismos» no es un id de compañía.
+router.get('/organismos/:organismoCodigo', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await bolsaSimbolicaDe(req.params.organismoCodigo));
+});
+
+// POST /organismos/:organismoCodigo/pagos — pago de FLIT al organismo (multipart, soporte opcional).
+//
+// El soporte es OPCIONAL aquí, a diferencia de las recargas: un pago a un organismo puede registrarse
+// el mismo día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
+const pagoOrganismoSchema = z.object({
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor del pago debe ser mayor que cero' })
+    .positive({ message: 'El valor del pago debe ser mayor que cero' }),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  observacion: z.string().trim().max(1000).optional(),
+});
+
+router.post('/organismos/:organismoCodigo/pagos', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = pagoOrganismoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+
+  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+  let storageKey: string | null = null;
+  try {
+    if (req.file) {
+      const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
+      if (invalido) { res.status(400).json({ error: invalido }); return; }
+      storageKey = await uploadEntityDocument(
+        `organismos/${req.params.organismoCodigo}/pagos`,
+        req.params.organismoCodigo, req.file.originalname, req.file.buffer, req.file.mimetype,
+      );
+    }
+
+    const { id, saldoPendiente } = await registrarPagoOrganismo(
+      req.params.organismoCodigo,
+      {
+        valor: parsed.data.valor,
+        fecha: parsed.data.fecha,
+        observacion: parsed.data.observacion ?? null,
+        soporte: req.file && storageKey ? {
+          nombreArchivo: req.file.originalname,
+          contentType: req.file.mimetype,
+          storageKey,
+          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
+          tamanoBytes: req.file.size,
+        } : null,
+      },
+      ctx,
+    );
+    await audit(req, {
+      action: 'create', resource: 'flito_organismo_pago', resourceId: id,
+      detail: `Pago de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: pendiente ${saldoPendiente}`,
+    });
+    res.status(201).json({ id, saldoPendiente });
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    fallo(res, e);
+  }
+});
+
+// GET /:companiaId/extracto — saldo con el consumo desglosado por organismo y por concepto.
+router.get('/:companiaId/extracto', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = filtroSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
+  try {
+    res.json(await extractoDe(companiaIdDe(req), parsed.data.periodo));
+  } catch (e) { fallo(res, e); }
+});
 
 // POST /:companiaId/movimientos-manuales — contingencia registrada por Financiera (multipart).
 //

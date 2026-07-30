@@ -8,7 +8,7 @@
 import { and, desc, eq, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoSoportes,
+  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoOrganismoPagos, flitoSoportes,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
@@ -875,6 +875,188 @@ export async function cerrarPeriodo(
 
     return aCierreDto(fila);
   });
+}
+
+// ───────── Extracto por OT y bolsa simbólica del organismo (HU #11124) ───────
+
+export interface LineaAgrupada {
+  clave: string;
+  entradas: number;
+  salidas: number;
+  movimientos: number;
+}
+
+export interface ExtractoCliente {
+  companiaId: number;
+  saldoActual: number;
+  totalEntradas: number;
+  totalSalidas: number;
+  porOrganismo: LineaAgrupada[];
+  porConcepto: LineaAgrupada[];
+}
+
+/** Agrupa el libro de un cliente por una columna, sumando entradas y salidas por separado. */
+async function agrupar(
+  companiaId: number,
+  columna: typeof flitoBolsaMovimientos.organismoCodigo | typeof flitoBolsaMovimientos.concepto,
+  periodo?: string,
+): Promise<LineaAgrupada[]> {
+  const condiciones = [eq(flitoBolsaMovimientos.companiaId, companiaId)];
+  if (periodo) condiciones.push(eq(flitoBolsaMovimientos.periodo, periodo));
+
+  const filas = await db
+    .select({
+      clave: columna,
+      entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      movimientos: sql<number>`count(*)::int`,
+    })
+    .from(flitoBolsaMovimientos)
+    .where(and(...condiciones))
+    .groupBy(columna);
+
+  return filas.map((f) => ({
+    // `null` es una agrupación legítima, no un fallo: las recargas no tienen organismo ni concepto,
+    // y el trámite digital y la logística no tienen organismo por ser honorarios de FLIT.
+    clave: f.clave ?? 'sin_asignar',
+    entradas: redondear(num(f.entradas)),
+    salidas: redondear(num(f.salidas)),
+    movimientos: f.movimientos,
+  }));
+}
+
+/**
+ * Extracto del cliente: el saldo con su consumo desglosado por organismo y por concepto (AC1).
+ *
+ * Los desgloses se calculan del mismo libro que produce el saldo, así que cuadran por construcción:
+ * saldo = entradas − salidas, y cada agrupación reparte esas mismas sumas por una dimensión distinta.
+ */
+export async function extractoDe(companiaId: number, periodo?: string): Promise<ExtractoCliente> {
+  const [totales] = await db
+    .select({
+      entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+    })
+    .from(flitoBolsaMovimientos)
+    .where(periodo
+      ? and(eq(flitoBolsaMovimientos.companiaId, companiaId), eq(flitoBolsaMovimientos.periodo, periodo))
+      : eq(flitoBolsaMovimientos.companiaId, companiaId));
+
+  const [porOrganismo, porConcepto, bolsa] = await Promise.all([
+    agrupar(companiaId, flitoBolsaMovimientos.organismoCodigo, periodo),
+    agrupar(companiaId, flitoBolsaMovimientos.concepto, periodo),
+    bolsaDe(companiaId),
+  ]);
+
+  return {
+    companiaId,
+    saldoActual: bolsa?.saldo ?? 0,
+    totalEntradas: redondear(num(totales?.entradas ?? '0')),
+    totalSalidas: redondear(num(totales?.salidas ?? '0')),
+    porOrganismo,
+    porConcepto,
+  };
+}
+
+export interface LineaOrganismo {
+  concepto: string;
+  cobrado: number;
+  movimientos: number;
+}
+
+export interface BolsaSimbolicaOrganismo {
+  organismoCodigo: string;
+  /** Lo cobrado a los clientes por cuenta de este organismo, desglosado por concepto. */
+  porConcepto: LineaOrganismo[];
+  totalCobrado: number;
+  totalPagado: number;
+  /** Lo que FLIT todavía le debe al organismo. Puede ser negativo si se le pagó de más. */
+  saldoPendiente: number;
+}
+
+/**
+ * Estado de cuenta de un organismo (AC2). NO tiene saldo real: es la diferencia entre lo que se
+ * cobró a los clientes por su cuenta y lo que FLIT ya le pagó.
+ *
+ * Solo cuentan las SALIDAS: una entrada con organismo sería un contramovimiento de reverso, y
+ * sumarla como «cobrado» inflaría la deuda con el organismo. Por eso se restan.
+ */
+export async function bolsaSimbolicaDe(organismoCodigo: string): Promise<BolsaSimbolicaOrganismo> {
+  const [filas, pagos] = await Promise.all([
+    db.select({
+      concepto: flitoBolsaMovimientos.concepto,
+      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else -${flitoBolsaMovimientos.valor} end), 0)`,
+      movimientos: sql<number>`count(*)::int`,
+    })
+      .from(flitoBolsaMovimientos)
+      .where(eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo))
+      .groupBy(flitoBolsaMovimientos.concepto),
+    db.select({
+      total: sql<string>`coalesce(sum(${flitoOrganismoPagos.valor}), 0)`,
+    })
+      .from(flitoOrganismoPagos)
+      .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo)),
+  ]);
+
+  const porConcepto: LineaOrganismo[] = filas.map((f) => ({
+    concepto: f.concepto ?? 'sin_concepto',
+    cobrado: redondear(num(f.salidas)),
+    movimientos: f.movimientos,
+  }));
+  const totalCobrado = redondear(porConcepto.reduce((a, l) => a + l.cobrado, 0));
+  const totalPagado = redondear(num(pagos[0]?.total ?? '0'));
+
+  return {
+    organismoCodigo,
+    porConcepto,
+    totalCobrado,
+    totalPagado,
+    saldoPendiente: redondear(totalCobrado - totalPagado),
+  };
+}
+
+export interface DatosPagoOrganismo {
+  valor: number;
+  fecha?: string;
+  observacion?: string | null;
+  soporte?: SoporteRecarga | null;
+}
+
+/**
+ * Registra un pago de FLIT al organismo (AC3). Baja su pendiente y **no toca** la bolsa de ningún
+ * cliente: es dinero de FLIT, no del saldo prepago.
+ */
+export async function registrarPagoOrganismo(
+  organismoCodigo: string,
+  datos: DatosPagoOrganismo,
+  ctx: CtxUsuario,
+): Promise<{ id: string; saldoPendiente: number }> {
+  const valor = redondear(datos.valor);
+  if (!Number.isFinite(valor) || valor <= 0) {
+    throw new BolsaError('El valor del pago debe ser mayor que cero');
+  }
+  if (valor > TOPE_NUMERIC) throw new BolsaError('El valor del pago excede el máximo admitido');
+
+  const fecha = parseFechaQuery(datos.fecha ?? hoyIso());
+  if (fecha === null) throw new BolsaError('La fecha del pago no es válida');
+  if (fecha > hoyIso()) throw new BolsaError('La fecha del pago no puede ser futura');
+
+  const id = await db.transaction(async (tx) => {
+    const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
+    const [fila] = await tx.insert(flitoOrganismoPagos).values({
+      organismoCodigo,
+      valor: String(valor),
+      fecha,
+      observacion: datos.observacion?.trim() ? datos.observacion.trim() : null,
+      soporteId,
+      registradoPorId: ctx.userId,
+      registradoPorNombre: ctx.nombre.slice(0, 150),
+    }).returning({ id: flitoOrganismoPagos.id });
+    return fila.id;
+  });
+
+  const { saldoPendiente } = await bolsaSimbolicaDe(organismoCodigo);
+  return { id, saldoPendiente };
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */
