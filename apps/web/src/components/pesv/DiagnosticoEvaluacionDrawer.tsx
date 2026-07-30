@@ -29,6 +29,7 @@ import {
   FASE_LABEL,
   HISTORIAL_ACTION_LABEL,
 } from './diagnostico-helpers';
+import ModalPortal from '../flit/ModalPortal';
 
 interface Item {
   estandarId: number;
@@ -193,6 +194,7 @@ export default function DiagnosticoEvaluacionDrawer({
   const enDesarrolloSinComentario = nivel === 'en_desarrollo' && comentarios.trim().length < 10;
 
   return (
+    <ModalPortal>
     <div
       role="dialog"
       aria-modal="true"
@@ -375,6 +377,7 @@ export default function DiagnosticoEvaluacionDrawer({
         <ConflictDialog onClose={() => setConflict(false)} onReload={() => { setConflict(false); onSaved(); }} />
       )}
     </div>
+    </ModalPortal>
   );
 }
 

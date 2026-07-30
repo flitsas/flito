@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react';
 import { useEscape, useBackdropClose, useFocusTrap } from '../../lib/hooks';
 import { IconClose } from './icons';
+import ModalPortal from './ModalPortal';
 
 // FlitModal — modal del prototipo FLIT (p.9): overlay azulado desenfocado,
 // contenedor claro `#EEF5FF`, radio amplio, cierre X arriba a la derecha.
@@ -26,6 +27,10 @@ export default function FlitModal({ title, onClose, children, wide = false, full
   // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar.
   useFocusTrap(dialogRef);
   return (
+    // Colgado de <body>: dentro de `<main>` —que es un item flex— ningún z-index basta para pasar
+    // por encima de la barra de navegación, y la cabecera con el botón de cerrar quedaba tapada en
+    // cuanto el modal crecía. Ver ModalPortal.
+    <ModalPortal>
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
       style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
@@ -66,5 +71,6 @@ export default function FlitModal({ title, onClose, children, wide = false, full
         <div className={full ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

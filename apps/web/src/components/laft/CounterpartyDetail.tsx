@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { useEscape, useBackdropClose } from '../../lib/hooks';
 import { IconClose } from '../flit/icons';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
+import ModalPortal from '../flit/ModalPortal';
 
 interface MatchResult {
   listId: number;
@@ -107,6 +108,7 @@ export default function CounterpartyDetail({ counterpartyId, onClose, onChanged 
     : '';
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} {...useBackdropClose(onClose)}>
       <div
         onClick={(e) => e.stopPropagation()}
@@ -221,5 +223,6 @@ export default function CounterpartyDetail({ counterpartyId, onClose, onChanged 
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
