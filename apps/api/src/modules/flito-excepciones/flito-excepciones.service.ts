@@ -29,6 +29,9 @@ import {
   auditLogs, clients, flitoExcepcionesAutogestion, flitoImpuestos, flitoSoat, flitoTramites, vehicles,
 } from '../../db/schema.js';
 import { modalidadVigente } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import {
+  anioGravableEnCurso, impuestoBloqueantePorVehiculo,
+} from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('flito-excepciones');
@@ -206,6 +209,18 @@ async function crearImpuestoExcepcional(tx: Tx, f: FilaTramite, ctx: ExcepcionCt
 
   if (f.organismoCodigo === null) {
     throw new ExcepcionError(400, 'El trámite no tiene organismo resuelto: no se puede crear el impuesto');
+  }
+
+  // El impuesto es del vehículo y del año. Si otro trámite del mismo vehículo ya lo pidió o lo pagó,
+  // crear otro abriría un segundo desembolso por el mismo concepto. Es el mismo criterio con el que
+  // `crearSoatExcepcional` reutiliza el SOAT del VIN en vez de duplicarlo.
+  if (f.vehiculoId !== null) {
+    const anio = anioGravableEnCurso();
+    const bloqueante = await impuestoBloqueantePorVehiculo(tx, f.vehiculoId, anio, f.tramiteId);
+    if (bloqueante) {
+      await auditEnTx(tx, ctx, bloqueante.id, `Alta por excepción bloqueada: el vehículo ya tiene impuesto en "${bloqueante.estado}" para ${anio} (trámite ${bloqueante.tramiteId}).`);
+      return `El vehículo ya tiene su impuesto de ${anio} en estado "${bloqueante.estado}" en otro trámite: no se crea uno nuevo.`;
+    }
   }
 
   const modalidad = await modalidadVigente(f.organismoCodigo);
