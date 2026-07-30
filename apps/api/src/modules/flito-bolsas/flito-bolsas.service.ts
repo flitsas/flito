@@ -5,9 +5,11 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, like, sql } from 'drizzle-orm';
+import { and, desc, eq, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { clients, flitoBolsaMovimientos, flitoBolsas, flitoSoportes } from '../../db/schema.js';
+import {
+  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoSoportes,
+} from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
   type BolsaDto,
@@ -28,6 +30,8 @@ export class BolsaError extends Error {
 
 /** Transacción drizzle o el `db` raíz: ambos exponen select/insert/update. */
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/** Se consulta indistintamente dentro de una transacción o fuera de ella. */
+type DbOrTx = typeof db | Tx;
 
 export interface CtxUsuario {
   userId: number | null;
@@ -328,6 +332,13 @@ export async function asentarMovimiento(
   }
 
   const bolsa = await bolsaBloqueada(tx, companiaId);
+
+  // Periodo al que se IMPUTA el movimiento, que no siempre es el de su fecha. Un soporte del
+  // organismo con fecha de julio que llega en agosto, con julio ya cerrado, se imputa a agosto: el
+  // reporte de cierre de julio ya se firmó y no puede cambiar (HU #11126, AC3). La fecha real se
+  // conserva intacta, así que el rezago es visible comparando `fecha` con `periodo`.
+  const periodo = await periodoImputable(tx, companiaId, periodoDeFecha(fecha));
+
   const delta = datos.tipo === 'entrada' ? valor : -valor;
   const saldoResultante = redondear(bolsa.saldo + delta);
 
@@ -347,7 +358,7 @@ export async function asentarMovimiento(
       tramiteId: datos.tramiteId ?? null,
       valor: String(valor),
       saldoResultante: String(saldoResultante),
-      periodo: periodoDeFecha(fecha),
+      periodo,
       fecha,
       observacion: datos.observacion ?? null,
       soporteId,
@@ -552,6 +563,178 @@ export async function reversarSalidasLiquidacion(
       .where(eq(flitoBolsaMovimientos.id, s.id));
   }
   return contras;
+}
+
+// ─────────────────── Cierre mensual del periodo (HU #11126) ──────────────────
+
+/** Periodos ya cerrados de un cliente. */
+async function periodosCerrados(tx: DbOrTx, companiaId: number): Promise<Set<string>> {
+  const filas = await tx
+    .select({ periodo: flitoBolsaCierres.periodo })
+    .from(flitoBolsaCierres)
+    .where(eq(flitoBolsaCierres.companiaId, companiaId));
+  return new Set(filas.map((f) => f.periodo));
+}
+
+/** True si ese periodo ya está cerrado para el cliente. */
+export async function periodoEstaCerrado(
+  tx: DbOrTx, companiaId: number, periodo: string,
+): Promise<boolean> {
+  const [fila] = await tx
+    .select({ id: flitoBolsaCierres.id })
+    .from(flitoBolsaCierres)
+    .where(and(
+      eq(flitoBolsaCierres.companiaId, companiaId),
+      eq(flitoBolsaCierres.periodo, periodo),
+    ))
+    .limit(1);
+  return fila !== undefined;
+}
+
+/**
+ * Periodo al que se puede imputar un movimiento cuya fecha cae en `periodoNatural`.
+ *
+ * Si ese periodo está cerrado, el movimiento no se rechaza: se corre al primer periodo abierto
+ * desde entonces. Los soportes del organismo llegan tarde con frecuencia y perderlos sería peor que
+ * imputarlos con un mes de desfase, que además queda visible al comparar `fecha` con `periodo`.
+ */
+async function periodoImputable(
+  tx: DbOrTx, companiaId: number, periodoNatural: string,
+): Promise<string> {
+  const cerrados = await periodosCerrados(tx, companiaId);
+  if (!cerrados.has(periodoNatural)) return periodoNatural;
+
+  // Se avanza mes a mes hasta encontrar uno abierto. El tope es el periodo de hoy: nunca se imputa
+  // a un mes futuro, aunque alguien haya cerrado por adelantado.
+  const tope = periodoDeFecha(hoyIso());
+  let p = periodoNatural;
+  while (cerrados.has(p) && p < tope) p = periodoSiguiente(p);
+  return p;
+}
+
+/** Periodo contable siguiente a 'YYYY-MM'. */
+export function periodoSiguiente(periodo: string): string {
+  const [anio, mes] = periodo.split('-').map(Number);
+  return mes === 12 ? `${anio + 1}-01` : `${anio}-${String(mes + 1).padStart(2, '0')}`;
+}
+
+export interface CierreDto {
+  id: string;
+  companiaId: number;
+  periodo: string;
+  saldoInicial: number;
+  totalEntradas: number;
+  totalSalidas: number;
+  saldoFinal: number;
+  movimientos: number;
+  observaciones: string | null;
+  cerradoPorNombre: string;
+  cerradoEn: string;
+}
+
+function aCierreDto(c: typeof flitoBolsaCierres.$inferSelect): CierreDto {
+  return {
+    id: c.id,
+    companiaId: c.companiaId,
+    periodo: c.periodo,
+    saldoInicial: num(c.saldoInicial),
+    totalEntradas: num(c.totalEntradas),
+    totalSalidas: num(c.totalSalidas),
+    saldoFinal: num(c.saldoFinal),
+    movimientos: c.movimientos,
+    observaciones: c.observaciones,
+    cerradoPorNombre: c.cerradoPorNombre,
+    cerradoEn: aIso(c.cerradoEn) ?? '',
+  };
+}
+
+/** Cierres de un cliente, del más reciente al más antiguo. */
+export async function cierresDe(companiaId: number): Promise<CierreDto[]> {
+  const filas = await db
+    .select()
+    .from(flitoBolsaCierres)
+    .where(eq(flitoBolsaCierres.companiaId, companiaId))
+    .orderBy(desc(flitoBolsaCierres.periodo));
+  return filas.map(aCierreDto);
+}
+
+/**
+ * Cierra un periodo: congela sus movimientos y deja el reporte de auditoría (AC1).
+ *
+ * El disparo es manual y el periodo no tiene por qué ser el mes anterior: Financiera cierra cuando
+ * ha conciliado. Lo que no se admite es cerrar un mes que aún no ha terminado, porque el saldo final
+ * que quedaría sellado no sería el del periodo.
+ *
+ * El saldo inicial sale del cierre anterior, no de recalcular el libro entero: encadenar los cierres
+ * es lo que hace que el arrastre sea auditable mes a mes.
+ */
+export async function cerrarPeriodo(
+  companiaId: number,
+  periodo: string,
+  observaciones: string | null,
+  ctx: CtxUsuario,
+): Promise<CierreDto> {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) {
+    throw new BolsaError('El periodo debe tener la forma AAAA-MM');
+  }
+  const enCurso = periodoDeFecha(hoyIso());
+  if (periodo > enCurso) throw new BolsaError('No se puede cerrar un periodo futuro');
+  if (periodo === enCurso) {
+    throw new BolsaError('El periodo en curso no ha terminado: solo se cierra un mes ya cumplido');
+  }
+
+  return db.transaction(async (tx) => {
+    // Se bloquea la bolsa mientras se cierra: sin el lock, un movimiento que entre entre el conteo y
+    // el INSERT quedaría dentro del periodo pero fuera del reporte.
+    const bolsa = await bolsaBloqueada(tx, companiaId);
+
+    if (await periodoEstaCerrado(tx, companiaId, periodo)) {
+      throw new BolsaError('El periodo ya está cerrado', 409);
+    }
+
+    const [totales] = await tx
+      .select({
+        entradas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'entrada' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+        salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else 0 end), 0)`,
+        movimientos: sql<number>`count(*)::int`,
+      })
+      .from(flitoBolsaMovimientos)
+      .where(and(
+        eq(flitoBolsaMovimientos.companiaId, companiaId),
+        eq(flitoBolsaMovimientos.periodo, periodo),
+      ));
+
+    const [previo] = await tx
+      .select({ saldoFinal: flitoBolsaCierres.saldoFinal })
+      .from(flitoBolsaCierres)
+      .where(and(
+        eq(flitoBolsaCierres.companiaId, companiaId),
+        lt(flitoBolsaCierres.periodo, periodo),
+      ))
+      .orderBy(desc(flitoBolsaCierres.periodo))
+      .limit(1);
+
+    const saldoInicial = previo ? num(previo.saldoFinal) : 0;
+    const totalEntradas = redondear(num(totales?.entradas ?? '0'));
+    const totalSalidas = redondear(num(totales?.salidas ?? '0'));
+    const saldoFinal = redondear(saldoInicial + totalEntradas - totalSalidas);
+
+    const [fila] = await tx.insert(flitoBolsaCierres).values({
+      bolsaId: bolsa.id,
+      companiaId,
+      periodo,
+      saldoInicial: String(saldoInicial),
+      totalEntradas: String(totalEntradas),
+      totalSalidas: String(totalSalidas),
+      saldoFinal: String(saldoFinal),
+      movimientos: totales?.movimientos ?? 0,
+      observaciones: observaciones?.trim() ? observaciones.trim() : null,
+      cerradoPorId: ctx.userId,
+      cerradoPorNombre: ctx.nombre.slice(0, 150),
+    }).returning();
+
+    return aCierreDto(fila);
+  });
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */

@@ -536,6 +536,125 @@ describe('POST /:companiaId/recargas — si la recarga no cuaja, el archivo no s
   });
 });
 
+// ─────────────────────────── Cierre mensual (HU #11126) ─────────────────────
+
+/** Periodo 'YYYY-MM' desplazado n meses respecto al de hoy. Nunca literales: el tiempo pasa. */
+function periodoDesplazado(n: number): string {
+  const hoy = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  const [anio, mes] = hoy.slice(0, 7).split('-').map(Number);
+  const total = anio * 12 + (mes - 1) + n;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, '0')}`;
+}
+
+const MES_PASADO = periodoDesplazado(-1);
+
+const filaCierre = {
+  id: 'cccccccc-1111-1111-1111-111111111111', bolsaId: BOLSA_ID, companiaId: COMPANIA,
+  periodo: MES_PASADO, saldoInicial: '0', totalEntradas: '500000', totalSalidas: '320000',
+  saldoFinal: '180000', movimientos: 12, observaciones: 'Conciliado',
+  cerradoPorId: 9, cerradoPorNombre: 'financiera@flit.io', cerradoEn: AHORA,
+};
+
+/** Lo que necesita un cierre feliz: bolsa, ningún cierre previo y los totales del periodo. */
+function escenarioCierreOk(): void {
+  kdb.when
+    .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '180000' }])
+    .select('flito_bolsa_cierres', [])
+    .select('flito_bolsa_movimientos', [{ entradas: '500000', salidas: '320000', movimientos: 12 }])
+    .insert('flito_bolsa_cierres', [filaCierre]);
+}
+
+describe('cierres — AC3 de acceso: siguen siendo cosa de Administración y Financiera', () => {
+  it('rol transito → 403 al listar y al cerrar', async () => {
+    const app = await buildApp();
+    const token = await auth('transito');
+
+    const lista = await request(app).get(`/api/flito/bolsas/${COMPANIA}/cierres`).set('Authorization', token);
+    const cierre = await request(app).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', token).send({ periodo: MES_PASADO });
+
+    expect([lista.status, cierre.status]).toEqual([403, 403]);
+    expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('rol financiera SÍ lista los cierres del cliente', async () => {
+    kdb.when.select('flito_bolsa_cierres', [filaCierre]);
+    const r = await request(await buildApp()).get(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('financiera'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(1);
+    expect(r.body[0]).toMatchObject({ periodo: MES_PASADO, saldoFinal: 180000, movimientos: 12 });
+  });
+});
+
+describe('POST /:companiaId/cierres — validación y cierre', () => {
+  it('sin periodo en el cuerpo → 400', async () => {
+    const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('admin')).send({});
+
+    expect(r.status).toBe(400);
+    expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('periodo con formato inválido → 400 con el mensaje del formato', async () => {
+    const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('admin')).send({ periodo: '2026-13' });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El periodo debe tener la forma AAAA-MM');
+  });
+
+  it('cierre válido → 201 con el reporte sellado', async () => {
+    escenarioCierreOk();
+    const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('financiera'))
+      .send({ periodo: MES_PASADO, observaciones: 'Conciliado' });
+
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({
+      periodo: MES_PASADO, totalEntradas: 500000, totalSalidas: 320000, saldoFinal: 180000,
+      movimientos: 12, cerradoPorNombre: 'financiera@flit.io',
+    });
+  });
+
+  it('el cierre queda en la auditoría: es un documento irreversible', async () => {
+    // No hay endpoint para reabrir un periodo, así que quién lo cerró y con qué cifras es lo único
+    // que queda para reconstruir la decisión.
+    escenarioCierreOk();
+    await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('financiera')).send({ periodo: MES_PASADO });
+
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    expect(auditMock.mock.calls[0][1]).toMatchObject({
+      action: 'create', resource: 'flito_bolsa_cierre', resourceId: filaCierre.id,
+    });
+  });
+
+  it('periodo ya cerrado → 409 y sin auditoría', async () => {
+    kdb.when
+      .select('flito_bolsas', [{ id: BOLSA_ID, saldo: '180000' }])
+      .select('flito_bolsa_cierres', [{ id: filaCierre.id }]);
+
+    const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('admin')).send({ periodo: MES_PASADO });
+
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('El periodo ya está cerrado');
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('el mes en curso → 400 con el motivo, no un 500', async () => {
+    const r = await request(await buildApp()).post(`/api/flito/bolsas/${COMPANIA}/cierres`)
+      .set('Authorization', await auth('admin')).send({ periodo: periodoDesplazado(0) });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El periodo en curso no ha terminado: solo se cierra un mes ya cumplido');
+  });
+});
+
 // ─────────────────────────── Consolidado ─────────────────────────────────────
 
 describe('GET /consolidado — no se confunde con un id de compañía', () => {
