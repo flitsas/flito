@@ -9,6 +9,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { historialDe } from '../../shared/historial/estado-historial.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
   cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat, facetasCola, detalle, enviarAlGestor,
@@ -103,6 +104,18 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   res.json(d);
 });
 
+// GET /:id/historial — cambios de estado, del más reciente al más antiguo.
+//
+// Pasa por `detalle()` antes de leer el historial y no directo a la tabla: es lo que aplica la
+// frontera del gestor. Sin ese paso, un proveedor podría leer la historia de un SOAT de otro
+// consultando su id, que es exactamente lo que el 404-no-403 del detalle evita.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoSoat(req.user!);
+  const d = await detalle(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  res.json(await historialDe('soat', req.params.id));
+});
+
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.
 // El proveedor pasa a ser OBLIGATORIO (HU #10979). Antes podía omitirse y lo resolvía la regla de
 // enrutamiento pre-asignada en la sincronización; sin esas reglas, omitirlo dejaría el SOAT en la
@@ -142,7 +155,7 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const soat = await reactivar(req.params.id, parsed.data.motivo);
+    const soat = await reactivar(req.params.id, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Reactivación (rechazado→pendiente): ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }
@@ -158,7 +171,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const soat = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo);
+    const soat = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Reversa → ${parsed.data.estadoDestino}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }

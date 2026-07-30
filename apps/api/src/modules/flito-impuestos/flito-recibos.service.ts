@@ -14,6 +14,7 @@ import {
   auditLogs, clients, flitoImpuestos, flitoRevisiones, flitoSoportes, flitoTramites,
   organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
+import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import {
   CampoImpuesto, EstadoImpuesto, FlujoRevision, MotivoRevision, type ExtraccionImpuesto,
 } from '@operaciones/shared-types';
@@ -227,6 +228,15 @@ async function conciliar(tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto
   await auditEnTx(tx, ctx, cand.impuestoId,
     `Pago conciliado (solicitado→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${cand.valorLiquidado ?? '—'}, ` +
     `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.${notaDiferencia}`);
+
+  // El estado de partida sale del candidato, no se asume `solicitado`: la conciliación también
+  // alcanza a los que estaban `con_novedad`, y el historial debe decir de dónde vino de verdad.
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: cand.impuestoId,
+    estadoAnterior: cand.estado, estadoNuevo: EstadoImpuesto.PAGADO,
+    motivo: `Pago conciliado. Valor ${valorPagado ?? '—'}.${notaDiferencia}`,
+    usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  });
 }
 
 /**

@@ -21,6 +21,7 @@ import {
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import RangoFechas from '../components/flit/RangoFechas';
+import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
 
 const PAGE_SIZE = 50;
 
@@ -37,9 +38,37 @@ interface DerechoRow {
   organismoCodigo: string | null; empresa: string | null; valor: string | null;
   fechaPago: string | null; numeroRadicado: string | null; tipoTramiteRecibo: string | null;
   origen: string; advertencias: string[] | null; soporteId: string | null; createdAt: string;
+  /** De qué documento salió. Null en los derechos anteriores a que esto se registrara. */
+  archivoOrigen: string | null; paginas: number[] | null;
+  procesamientoId: number | null; procesamientoArchivo: string | null;
 }
 /** De dónde salió el recibo. En la tabla se veía el valor crudo de la columna. */
 const ETIQUETA_ORIGEN: Record<string, string> = { manual: 'Carga manual', drive: 'Drive de la secretaría' };
+
+/**
+ * El documento del que salió el recibo, bajo el canal.
+ *
+ * «Drive» o «Carga manual» dicen por dónde entró, no de qué papel. Con los consolidados —un PDF de
+ * trece páginas por día— eso no basta para volver al documento cuando alguien reclama: hace falta el
+ * archivo, y la página dentro de él.
+ *
+ * El nombre se toma del registro del barrido cuando existe, no de la columna del derecho: si alguien
+ * renombra el fichero en el Drive, el registro sigue guardando el nombre que tenía al procesarse.
+ */
+function ArchivoOrigen({ d }: { d: DerechoRow }) {
+  const nombre = d.procesamientoArchivo ?? d.archivoOrigen;
+  // Los derechos cargados antes de este cambio no lo tienen, y no es recuperable: en cualquier
+  // ventana de diez minutos hubo tres barridos, así que atribuirlos por fecha sería inventárselo.
+  if (!nombre) return <div className="mt-0.5" style={{ color: 'var(--flit-text-muted)' }}>Archivo no registrado</div>;
+  const paginas = d.paginas?.length
+    ? ` · pág. ${d.paginas.length > 1 ? `${d.paginas[0]}–${d.paginas[d.paginas.length - 1]}` : d.paginas[0]}`
+    : '';
+  return (
+    <div className="mt-0.5 break-all" style={{ color: 'var(--flit-text-secondary)' }} title={nombre}>
+      {nombre}{paginas}
+    </div>
+  );
+}
 
 interface ArchivoDrive {
   fileId: string; nombre: string; tamanoBytes: number | null;
@@ -316,6 +345,8 @@ export default function FlitoDerechos() {
   const [origenesSel, setOrigenesSel] = useState<string[]>([]);
   const [pagado, setPagado] = useState({ desde: '', hasta: '' });
   const [facetas, setFacetas] = useState<{ organismos: string[]; origenes: string[] }>({ organismos: [], origenes: [] });
+  /** Trámite cuyo visor de documentos está abierto. Null = cerrado. */
+  const [soportesDe, setSoportesDe] = useState<{ tramiteId: string; idFlit: string } | null>(null);
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -512,6 +543,7 @@ export default function FlitoDerechos() {
                     <FlitTh>Fecha de pago</FlitTh>
                     <FlitTh>Origen</FlitTh>
                     <FlitTh center>Soporte</FlitTh>
+                    <FlitTh center>Documentos</FlitTh>
                   </tr>
                 </thead>
                 <tbody>
@@ -533,6 +565,7 @@ export default function FlitoDerechos() {
                       <td className="px-4 py-2.5 text-sm">{fecha(d.fechaPago)}</td>
                       <td className="px-4 py-2.5 text-xs">
                         <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{ETIQUETA_ORIGEN[d.origen] ?? d.origen}</StatusChip>
+                        <ArchivoOrigen d={d} />
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {d.soporteId ? (
@@ -545,6 +578,16 @@ export default function FlitoDerechos() {
                             Ver PDF
                           </button>
                         ) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        {/* Los tres conceptos del trámite, no solo el derecho: quien revisa un
+                            derecho quiere comprobar si el SOAT y el impuesto están cargados, y
+                            hasta ahora tenía que irse al reporte de costos para averiguarlo. */}
+                        <button type="button" className="text-xs font-semibold underline"
+                          style={{ color: 'var(--flit-blue)' }}
+                          onClick={() => setSoportesDe({ tramiteId: d.tramiteId, idFlit: d.idFlit })}>
+                          Ver todos
+                        </button>
                       </td>
                     </FlitTr>
                   ))}
@@ -574,6 +617,11 @@ export default function FlitoDerechos() {
         </>
       ) : (
         <TabDrive onProcesado={(r) => { setResultado(r); recargar(); }} />
+      )}
+
+      {soportesDe && (
+        <VisorSoportesTramite tramiteId={soportesDe.tramiteId} titulo={soportesDe.idFlit}
+          onClose={() => setSoportesDe(null)} />
       )}
     </div>
   );

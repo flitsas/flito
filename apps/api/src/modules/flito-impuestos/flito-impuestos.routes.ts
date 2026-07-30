@@ -9,6 +9,7 @@ import archiver from 'archiver';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { historialDe } from '../../shared/historial/estado-historial.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -157,6 +158,17 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
   res.json(d);
+});
+
+// GET /:id/historial — cambios de estado, del más reciente al más antiguo.
+//
+// Pasa por `detalleImpuesto()` antes de leer el historial: es lo que aplica la frontera del gestor
+// (CA-10). Ir directo a la tabla dejaría que un gestor leyera la historia de otro organismo.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoImpuesto(req.user!);
+  const d = await detalleImpuesto(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
+  res.json(await historialDe('impuesto', req.params.id));
 });
 
 // POST /enviar — Pendiente → En gestión, atómico (CA-04). Solo Operaciones.

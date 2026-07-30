@@ -25,6 +25,7 @@ import {
   users,
   vehicles,
 } from '../../db/schema.js';
+import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
@@ -430,6 +431,14 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatI
       ...(proveedorSoatId ? { proveedorSoatId, proveedorSobrescrito: true } : {}),
     }).where(inArray(flitoSoat.id, idsEnviados));
 
+    // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
+    // historial cuenta lo que pasó, no lo que se intentó.
+    await registrarCambios(tx, idsEnviados.map((sid) => ({
+      concepto: 'soat' as const, registroId: sid,
+      estadoAnterior: EstadoSoat.PENDIENTE, estadoNuevo: EstadoSoat.SOLICITADO,
+      motivo: 'Envío al gestor', usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    })));
+
     return idsEnviados;
   });
 
@@ -448,24 +457,40 @@ export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promis
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (soat.estado !== EstadoSoat.SOLICITADO) throw new SoatError(400, 'Solo se puede rechazar un SOAT en adquisición');
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del rechazo es obligatorio');
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: EstadoSoat.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  // En transacción con el historial: un estado sin su fila de historial es justo el agujero que el
+  // historial viene a tapar, así que o entran los dos o no entra ninguno.
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: EstadoSoat.CON_NOVEDAD,
+      motivo: `Rechazo: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /** Devuelve un SOAT rechazado a la cola (CA-08). Solo Operaciones, solo desde Rechazado. */
-export async function reactivar(id: string, motivo: string): Promise<typeof flitoSoat.$inferSelect> {
+export async function reactivar(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (soat.estado !== EstadoSoat.CON_NOVEDAD) {
     throw new SoatError(400, `Solo un SOAT rechazado vuelve a Pendiente. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo de la corrección es obligatorio');
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: EstadoSoat.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: EstadoSoat.PENDIENTE,
+      motivo: `Reactivación: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /**
@@ -473,7 +498,7 @@ export async function reactivar(id: string, motivo: string): Promise<typeof flit
  * inmutable: solo Operaciones lo mueve, con justificación (≥5) y rastro. Reversar un pagado es
  * lo único que devuelve un VIN a la cola, por eso no está en ningún camino automático.
  */
-export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string): Promise<typeof flitoSoat.$inferSelect> {
+export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
@@ -482,10 +507,19 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
+    // de `pagado`, así que el motivo va literal al historial.
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
+      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /**
@@ -604,6 +638,13 @@ async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: Es
     motivoRechazo: null,
     updatedAt: new Date(),
   }).where(eq(flitoSoat.id, soatId));
+
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soatId,
+    estadoAnterior, estadoNuevo: EstadoSoat.PAGADO,
+    motivo: `Pago confirmado por factura. Valor ${valorTotal ?? '—'}.`,
+    usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  });
 
   const noExigidosSinLeer = CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR.filter((c) => !extraccion[c]?.confiable);
   await auditEnTx(tx, ctx, soatId,
