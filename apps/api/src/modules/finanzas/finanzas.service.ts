@@ -17,6 +17,7 @@ import {
   clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTarifasCompania,
   flitoTramites, vehicles,
 } from '../../db/schema.js';
+import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
 
 export interface FiltrosReporte {
@@ -24,6 +25,8 @@ export interface FiltrosReporte {
   /** 'si' = solo liquidados; 'no' = solo sin liquidar. */
   liquidado?: 'si' | 'no';
   facturado?: 'si' | 'no';
+  /** true = solo trámites con TODOS los conceptos aplicables documentados (filtro inteligente). */
+  documentacionCompleta?: boolean;
   /** Rango sobre la fecha de creación del trámite, en formato yyyy-mm-dd. */
   desde?: string; hasta?: string;
   /** Rango sobre la fecha de aprobación, en formato yyyy-mm-dd. Independiente del anterior. */
@@ -34,9 +37,13 @@ export interface FiltrosReporte {
 /** `null` = no aplica o no configurado. NUNCA cero: un cero implícito cuadra totales falsos. */
 export interface FilaReporte {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
+  /** Vehículo, homologado con las demás tablas. */
+  vin: string | null; marca: string | null; linea: string | null;
   tipoTramite: string | null;
   /** Fecha en que FLIT aprobó el trámite. null mientras siga esperando aprobación. */
   fechaAprobacion: string | null;
+  /** Fecha de FLIT, no la de ingesta del sync. */
+  fechaCreacion: string | null;
   soat: number | null; impuesto: number | null;
   derechoTramite: number | null; logistica: number | null; tramiteDigital: number | null;
   gmf: number | null; total: number | null;
@@ -118,6 +125,30 @@ const EXPR_INCOMPLETA = sql`(NOT ${seLiquido} AND (
   OR (NOT COALESCE(${clients.logisticaAutogestionable}, false) AND ${EXPR_LOGISTICA} IS NULL)
   OR ${EXPR_DIGITAL} IS NULL))`;
 
+/**
+ * Documentación completa: cada concepto que APLICA tiene al menos un soporte sin descartar.
+ *
+ * «Aplica» no es lo mismo que «existe»: si la compañía autogestiona el SOAT, ese trámite nunca
+ * tendrá un comprobante de SOAT en FLITO y exigírselo lo dejaría eternamente incompleto. Por eso
+ * cada concepto se salta cuando su compañía lo autogestiona.
+ *
+ * Se mide sobre `flito_soportes` —el documento— y no sobre el valor. Un trámite puede tener valor
+ * de SOAT porque se liquidó y aun así no tener el PDF cargado, y para facturar hace falta el papel.
+ *
+ * Logística vive aparte, en `flito_logistica_documentos`: sus documentos nacen del flujo de entrega,
+ * no de una carga de comprobantes.
+ */
+const EXPR_DOC_COMPLETA = sql`(
+     (COALESCE(${clients.soatAutogestionable}, false) OR EXISTS (
+        SELECT 1 FROM flito_soportes s WHERE s.soat_id = ${flitoTramites.soatId} AND NOT s.descartado))
+  AND (COALESCE(${clients.impuestosAutogestionable}, false) OR EXISTS (
+        SELECT 1 FROM flito_soportes s WHERE s.impuesto_id = ${flitoImpuestos.id} AND NOT s.descartado))
+  AND EXISTS (
+        SELECT 1 FROM flito_soportes s WHERE s.derecho_id = ${flitoDerechosTramite.id} AND NOT s.descartado)
+  AND (COALESCE(${clients.logisticaAutogestionable}, false) OR EXISTS (
+        SELECT 1 FROM flito_logistica_documentos d WHERE d.tramite_id = ${flitoTramites.id}))
+)`;
+
 function condiciones(f: FiltrosReporte): SQL[] {
   const conds: SQL[] = [];
   const t = f.buscar?.trim();
@@ -137,6 +168,7 @@ function condiciones(f: FiltrosReporte): SQL[] {
   if (f.liquidado === 'no') conds.push(sql`${flitoLiquidaciones.id} IS NULL`);
   if (f.facturado === 'si') conds.push(sql`${flitoLiquidaciones.estado} = 'facturado'`);
   if (f.facturado === 'no') conds.push(sql`COALESCE(${flitoLiquidaciones.estado}, '') <> 'facturado'`);
+  if (f.documentacionCompleta) conds.push(EXPR_DOC_COMPLETA);
 
   // Los dos rangos son inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   //
@@ -174,8 +206,13 @@ function conJoins<Q extends PgSelect>(q: Q) {
 const SELECT_FILA = {
   tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
   placa: vehicles.plate, estado: flitoTramites.flitEstado, empresa: clients.name,
+  // Homologación con las demás tablas: al vehículo le faltaban VIN, marca y línea; al trámite, la
+  // fecha de creación.
+  vin: vehicles.vin, marca: vehicles.brand, linea: vehicles.model,
   tipoTramite: flitoTramites.tipoTramite,
   fechaAprobacion: flitoTramites.fechaAprobacion,
+  // `nacimiento` ya se usa para filtrar por rango; aquí se proyecta para poder mostrarla.
+  fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
   sellada: sql<boolean>`${seLiquido}`,
   estadoLiquidacion: flitoLiquidaciones.estado,
   soat: sql<string | null>`${EXPR_SOAT}`,
@@ -220,7 +257,9 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     tramiteId: r.tramiteId as string, idFlit: r.idFlit as string,
     placa: r.placa as string | null, estado: r.estado as string | null,
     empresa: r.empresa as string | null, tipoTramite: r.tipoTramite as string | null,
-    fechaAprobacion: (r.fechaAprobacion as Date | null)?.toISOString() ?? null,
+    vin: r.vin as string | null, marca: r.marca as string | null, linea: r.linea as string | null,
+    fechaAprobacion: aIso(r.fechaAprobacion),
+    fechaCreacion: aIso(r.fechaCreacion),
     soat: n(r.soat as string | null), impuesto: n(r.impuesto as string | null),
     derechoTramite: derecho, logistica, tramiteDigital: digital,
     gmf: n(r.gmf as string | null), total: n(r.totalFila as string | null),

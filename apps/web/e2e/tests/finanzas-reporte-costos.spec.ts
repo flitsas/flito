@@ -7,7 +7,8 @@ import { loginAs, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
 const FILA_ESTIMADA = {
   tramiteId: 'aaaa0000-0000-0000-0000-000000000001', idFlit: 'FLIT-2001', placa: 'ABC123',
   estado: 'Aprobado', empresa: 'ACME SAS', tipoTramite: 'Traspaso',
-  fechaAprobacion: '2026-07-14T15:30:00.000Z',
+  vin: 'LRWYGCEK2TC771456', marca: 'Chevrolet', linea: 'Onix',
+  fechaAprobacion: '2026-07-14T15:30:00.000Z', fechaCreacion: '2026-07-02T10:00:00.000Z',
   soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000,
   gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
 };
@@ -85,6 +86,44 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2001' }).getByText('14 de jul de 26')).toBeVisible();
     await expect(page.getByRole('row').filter({ hasText: 'FLIT-2002' }).getByText('Sin aprobar')).toBeVisible();
+  });
+
+  test('las columnas comunes traen trámite, vehículo y las dos fechas', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // Las mismas tres columnas que las demás tablas: la pregunta «¿de qué trámite hablamos?» se
+    // contestaba distinto en cada pantalla.
+    const fila = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
+    await expect(fila).toContainText('Traspaso');
+    await expect(fila).toContainText('LRWYGCEK2TC771456');
+    await expect(fila).toContainText('Chevrolet Onix');
+    await expect(fila).toContainText('2 de jul de 26');
+  });
+
+  test('el filtro inteligente «documentación completa» viaja al servidor y dice qué filtra', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        estados: ['Aprobado'], empresas: [{ nit: '900111', nombre: 'ACME SAS' }], tipos: ['Traspaso'],
+      }) }));
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    // Un preset sin descripción es una caja negra: se ve el resultado pero no el criterio.
+    await expect(page.getByText(/saltando los que la compañía autogestiona/)).toBeVisible();
+    await page.getByRole('button', { name: /Documentación completa/ }).click();
+
+    await expect.poll(() => urls.at(-1) ?? '').toContain('documentacionCompleta=si');
+    // El preset se aplica sobre el estado limpio, no sobre lo que hubiera: el estado por defecto
+    // «Aprobado» se conserva porque `limpiarFiltros` vuelve a él.
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');
   });
 
   test('arranca filtrado por Aprobado y los dos rangos de fecha viajan por separado', async ({ page }) => {

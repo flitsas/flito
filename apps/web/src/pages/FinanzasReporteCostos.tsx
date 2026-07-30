@@ -9,6 +9,8 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
@@ -17,7 +19,8 @@ import {
 
 interface Fila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
-  tipoTramite: string | null; fechaAprobacion: string | null;
+  vin: string | null; marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   soat: number | null; impuesto: number | null; derechoTramite: number | null;
   logistica: number | null; tramiteDigital: number | null; gmf: number | null; total: number | null;
   sellada: boolean;
@@ -39,11 +42,6 @@ const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', curr
  * punto de partida útil; los demás estados siguen a un clic en las pastillas.
  */
 const ESTADO_POR_DEFECTO = 'Aprobado';
-
-/** Mismas opciones que el formateador de Gestión Trámites: dos formatos de fecha en el mismo
- *  producto confunden más de lo que ahorran. */
-const fechaCorta = (iso: string | null) =>
-  (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));
 
 /**
  * Etiquetas de los conceptos. Se usan para el encabezado Y para cruzar con `noConfigurados` y
@@ -104,6 +102,9 @@ export default function FinanzasReporteCostos() {
   const [aprobadoDesde, setAprobadoDesde] = useState('');
   const [aprobadoHasta, setAprobadoHasta] = useState('');
   const [estados, setEstados] = useState<string[]>([ESTADO_POR_DEFECTO]);
+  const [docCompleta, setDocCompleta] = useState(false);
+  /** Preset puesto, solo para saber cuál resaltar. Los filtros de verdad son los de arriba. */
+  const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   const estadosKey = estados.join(',');
@@ -120,18 +121,48 @@ export default function FinanzasReporteCostos() {
     if (aprobadoDesde) p.set('aprobadoDesde', aprobadoDesde);
     if (aprobadoHasta) p.set('aprobadoHasta', aprobadoHasta);
     if (estados.length) p.set('estados', estados.join(','));
+    if (docCompleta) p.set('documentacionCompleta', 'si');
     return p;
   };
 
   const limpiarFiltros = () => {
     setBuscar(''); setEmpresa(''); setTipo(''); setLiquidado(''); setFacturado('');
     setDesde(''); setHasta(''); setAprobadoDesde(''); setAprobadoHasta('');
+    setDocCompleta(false); setPreset(null);
     // Vuelve al punto de partida del reporte, no a «todos los estados»: quien limpia quiere el
     // estado inicial de la pantalla, y ese es Aprobado.
     setEstados([ESTADO_POR_DEFECTO]);
   };
 
-  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey]);
+  /**
+   * Las dos vistas con las que se trabaja el reporte. Cada una es una COMBINACIÓN: ponerlas a mano
+   * obliga a acordarse de las dos condiciones, y una sola mal puesta da una lista que parece buena.
+   *
+   * Se aplican sobre el estado limpio y no sobre el actual: un preset debe dar siempre lo mismo,
+   * no depender de lo que hubiera puesto antes.
+   */
+  const PRESETS: Array<Preset<{ liquidado: 'si' | ''; facturado: 'no' | ''; doc: boolean }>> = [
+    {
+      nombre: 'Pendientes de facturar',
+      descripcion: 'Liquidados que todavía no se han facturado.',
+      filtros: { liquidado: 'si', facturado: 'no', doc: false },
+    },
+    {
+      nombre: 'Documentación completa',
+      descripcion: 'Con soporte de SOAT, impuesto, derecho y logística — saltando los que la compañía autogestiona.',
+      filtros: { liquidado: '', facturado: '', doc: true },
+    },
+  ];
+
+  const aplicarPreset = (p: Preset<{ liquidado: 'si' | ''; facturado: 'no' | ''; doc: boolean }>) => {
+    limpiarFiltros();
+    setLiquidado(p.filtros.liquidado);
+    setFacturado(p.filtros.facturado);
+    setDocCompleta(p.filtros.doc);
+    setPreset(p.nombre);
+  };
+
+  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta]);
 
   useEffect(() => {
     setError(null);
@@ -139,7 +170,7 @@ export default function FinanzasReporteCostos() {
     p.set('page', String(page));
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, page, recarga]);
+  }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, page, recarga]);
 
   useEffect(() => { api.get<Facetas>('/finanzas/reporte-costos/facetas').then(setFacetas).catch(() => setFacetas(null)); }, []);
 
@@ -219,6 +250,10 @@ export default function FinanzasReporteCostos() {
         {/* Dos rangos independientes, cada uno en su calendario. Van rotulados porque «desde/hasta»
             a secas, con dos fechas distintas en juego, no dice sobre cuál se está filtrando. */}
         <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          {/* Va primero: es la pregunta con la que se entra al reporte, y los filtros sueltos de
+              debajo son para afinar sobre esa respuesta. */}
+          <FiltrosInteligentes presets={PRESETS} activo={preset}
+            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
           <RangoFechas etiqueta="Creado" valor={{ desde, hasta }}
             onCambio={(r) => { setDesde(r.desde); setHasta(r.hasta); }} />
           <RangoFechas etiqueta="Aprobado" valor={{ desde: aprobadoDesde, hasta: aprobadoHasta }}
@@ -277,9 +312,8 @@ export default function FinanzasReporteCostos() {
                         onChange={(e) => setSeleccion(e.target.checked ? new Set(liquidables.map((f) => f.tramiteId)) : new Set())} />
                     </FlitTh>
                   )}
-                  <FlitTh>Trámite</FlitTh>
+                  {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
                   <FlitTh>Liquidación</FlitTh>
-                  <FlitTh>Aprobado</FlitTh>
                   <FlitTh center>{CONCEPTO.soat}</FlitTh>
                   <FlitTh center>{CONCEPTO.impuesto}</FlitTh>
                   <FlitTh center>{CONCEPTO.derecho}</FlitTh>
@@ -306,20 +340,15 @@ export default function FinanzasReporteCostos() {
                         )}
                       </td>
                     )}
-                    <td className="px-4 py-2">
-                      <div className="text-sm font-medium tabular-nums">{f.idFlit}</div>
-                      <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{f.placa ?? '—'}{f.empresa ? ` · ${f.empresa}` : ''}</div>
-                    </td>
+                    <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite} extra={f.empresa} />
+                    <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                    <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                     <td className="px-4 py-2 whitespace-nowrap">
                       {f.estadoLiquidacion === 'facturado'
                         ? <StatusChip tone="success">Facturado</StatusChip>
                         : f.sellada
                           ? <StatusChip tone="active">Liquidado</StatusChip>
                           : <StatusChip tone="draft">Estimado</StatusChip>}
-                    </td>
-                    <td className="px-4 py-2 text-xs whitespace-nowrap" style={{ color: 'var(--flit-text-secondary)' }}>
-                      {fechaCorta(f.fechaAprobacion)
-                        ?? <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>Sin aprobar</span>}
                     </td>
                     {/* SOAT e impuesto nunca entran en `noConfigurados`: su ausencia significa
                         exento o autogestionado, no una configuración que falte. */}

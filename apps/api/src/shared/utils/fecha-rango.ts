@@ -37,3 +37,19 @@ export function createdInRangeCondition(column: Column, rango: FechaRango): SQL 
   if (parts.length === 1) return parts[0]!;
   return and(...parts)!;
 }
+
+/**
+ * Fecha de una fila de drizzle → ISO, o null.
+ *
+ * Hace falta porque el tipo declarado NO garantiza la forma en tiempo de ejecución. Una columna
+ * `timestamp` llega como `Date`, pero una expresión cruda —`sql<Date>\`COALESCE(a, b)\``— llega como
+ * el STRING que devuelve el driver, aunque TypeScript la haya tipado como `Date`. Llamar
+ * `.toISOString()` sobre ella revienta en producción sin que el compilador diga nada; lo descubrió
+ * la verificación contra Postgres real, no los tests con la base mockeada.
+ */
+export function aIso(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  const d = new Date(v as string);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}

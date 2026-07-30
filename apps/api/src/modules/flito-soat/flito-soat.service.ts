@@ -25,6 +25,7 @@ import {
   users,
   vehicles,
 } from '../../db/schema.js';
+import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO,
   CampoSoat,
@@ -87,6 +88,17 @@ export interface SoatColaItem {
   proveedorSoatNombre: string | null;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
+  /**
+   * Datos del trámite, homologados con las demás tablas (tipo, aprobación, creación).
+   *
+   * Son `null` cuando el SOAT sirve a VARIOS trámites y no coinciden. Un SOAT es por VIN, no por
+   * trámite (RN-01), así que preguntarle «su» tipo puede no tener respuesta; elegir el primero
+   * sería mentir con aspecto de dato. Hoy los 51 SOAT sirven a un trámite cada uno, pero el modelo
+   * permite lo contrario y la columna tiene que decirlo cuando pase.
+   */
+  tipoTramite: string | null;
+  fechaAprobacion: string | null;
+  fechaCreacion: string | null;
   enviadoPorNombre: string | null;
   enviadoEn: string | null;
   /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
@@ -287,7 +299,15 @@ type ColaRow = {
 async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
   const ids = rows.map((r) => r.id);
   const tramites = ids.length
-    ? await db.select({ id: flitoTramites.id, soatId: flitoTramites.soatId, idFlit: flitoTramites.idFlit, tipoPropiedad: flitoTramites.tipoPropiedad })
+    ? await db.select({
+        id: flitoTramites.id, soatId: flitoTramites.soatId, idFlit: flitoTramites.idFlit,
+        tipoPropiedad: flitoTramites.tipoPropiedad,
+        tipoTramite: flitoTramites.tipoTramite,
+        fechaAprobacion: flitoTramites.fechaAprobacion,
+        // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila: en la carga
+        // masiva inicial todos los históricos comparten el mismo día.
+        fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+      })
         .from(flitoTramites).where(inArray(flitoTramites.soatId, ids))
     : [];
   const tramiteIds = tramites.map((t) => t.id);
@@ -322,6 +342,9 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       proveedorSoatNombre: r.proveedorSoatNombre,
       compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
       tramitesFlit: ts.map((t) => t.idFlit),
+      tipoTramite: comun(ts, (t) => t.tipoTramite),
+      fechaAprobacion: aIso(comun(ts, (t) => t.fechaAprobacion)),
+      fechaCreacion: aIso(comun(ts, (t) => t.fechaCreacion)),
       enviadoPorNombre: r.enviadoPorNombre,
       enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
@@ -331,6 +354,26 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       creadoEn: r.createdAt.toISOString(),
     };
   });
+}
+
+/**
+ * El valor que comparten TODOS los trámites de un SOAT, o null si discrepan.
+ *
+ * Un SOAT es por VIN y puede servir a varios trámites (RN-01). Cuando eso pasa, «el tipo de
+ * trámite» de ese SOAT no existe: devolver el del primero pondría en la columna un dato con
+ * aspecto de cierto que depende del orden de la consulta. Null es la respuesta honesta, y la
+ * pantalla lo rotula «varios».
+ */
+function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
+  if (items.length === 0) return null;
+  const primero = leer(items[0]);
+  if (primero === null) return null;
+  const iguales = items.every((t) => {
+    const v = leer(t);
+    // Las fechas no se comparan con ===: dos Date del mismo instante son objetos distintos.
+    return v instanceof Date && primero instanceof Date ? v.getTime() === primero.getTime() : v === primero;
+  });
+  return iguales ? primero : null;
 }
 
 /** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
