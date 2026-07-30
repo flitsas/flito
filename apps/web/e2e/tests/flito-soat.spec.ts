@@ -176,4 +176,54 @@ test.describe('FLITO — Portal SOAT', () => {
     const pagado = page.getByRole('row').filter({ hasText: 'PAG777' });
     await expect(pagado.getByText(/^(Hoy|\d+ días?)$/)).toHaveCount(0);
   });
+
+  test('el detalle cuenta por dónde ha pasado el SOAT, y quién lo movió', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    let pedido = 0;
+    await page.route(/\/api\/flito\/soat\/[^/]+\/historial/, (route) => {
+      pedido += 1;
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify([
+          { id: 3, estadoAnterior: 'solicitado', estadoNuevo: 'pagado', motivo: 'Pago confirmado por factura. Valor 740800.', usuario: 'Gestor Alfa', origen: 'usuario', creadoEn: '2026-04-05T15:00:00Z' },
+          { id: 2, estadoAnterior: 'pendiente', estadoNuevo: 'solicitado', motivo: 'Envío al gestor', usuario: 'Operaciones E2E', origen: 'usuario', creadoEn: '2026-04-02T12:00:00Z' },
+          { id: 1, estadoAnterior: null, estadoNuevo: 'pendiente', motivo: 'Alta desde FLIT (trámite FLIT-1002).', usuario: null, origen: 'sistema', creadoEn: '2026-04-01T09:00:00Z' },
+        ]),
+      });
+    });
+
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'XYZ789' }).getByRole('button', { name: 'Ver' }).click();
+
+    // Plegado por defecto: el detalle ya es largo y el historial es la segunda pregunta. Y no se
+    // pide hasta abrirlo — precargarlo sería una consulta por fila de la cola.
+    expect(pedido).toBe(0);
+    await page.getByRole('button', { name: 'Ver el historial de estados' }).click();
+
+    // Acotado a la entrada del historial: «Operaciones E2E» sale también en la fila de la cola y en
+    // el «Enviado por» del detalle, y sin acotar la aserción no distinguiría de cuál habla.
+    const envio = page.getByRole('listitem').filter({ hasText: 'Envío al gestor' });
+    await expect(envio).toContainText('Operaciones E2E');
+    await expect(envio).toContainText('Pendiente');
+    await expect(envio).toContainText('Solicitado');
+
+    // El alta no tiene estado de partida, y eso se rotula en vez de dejar un hueco.
+    const alta = page.getByRole('listitem').filter({ hasText: 'Alta desde FLIT' });
+    await expect(alta).toContainText('Alta');
+    // Un cambio del sistema no puede parecer obra de una persona sin nombre.
+    await expect(alta).toContainText('Sistema');
+  });
+
+  test('un SOAT sin movimientos lo dice, en vez de quedarse en blanco', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/soat\/[^/]+\/historial/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'Ver el historial de estados' }).click();
+    await expect(page.getByText('Sin movimientos registrados.')).toBeVisible();
+  });
 });

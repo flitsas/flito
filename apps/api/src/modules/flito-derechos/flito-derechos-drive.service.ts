@@ -151,7 +151,18 @@ export async function procesarArchivoDrive(fileId: string, ctx: DerechoCtx): Pro
           extraccionDeCuenta(cuenta),
           // El organismo SÍ se declara: de él salen el umbral de OCR y la pista de prompt, y sin él
           // el derecho quedaría sin secretaría.
-          { origen: 'drive', organismoCodigo: ORGANISMO_DRIVE },
+          {
+            origen: 'drive', organismoCodigo: ORGANISMO_DRIVE,
+            // El consolidado del día, el barrido que lo leyó y las páginas de esta placa. Sin esto
+            // el derecho solo diría «drive», y volver al papel exigiría abrir los cien ficheros de
+            // la carpeta a mano.
+            archivoOrigen: name,
+            procesamientoId: registro.id,
+            // `paginasPorPlaca` trae índices base 0, que es lo que pdf-lib necesita para extraer.
+            // Aquí se guardan como números de página tal y como los cuenta una persona: la columna
+            // es una traza que alguien puede leer en SQL, y un «página 0» ahí es una trampa.
+            paginas: paginasPorPlaca.get(placa)?.map((i) => i + 1) ?? null,
+          },
           ctx,
         );
         total.registrados.push(...r.registrados);

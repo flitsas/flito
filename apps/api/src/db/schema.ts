@@ -2670,6 +2670,14 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
   // organismo lo rotula distinto y normalizarlo perdería la evidencia de qué decía el documento.
   tipoTramiteRecibo: varchar('tipo_tramite_recibo', { length: 60 }),
   origen: varchar('origen', { length: 20 }).notNull(),
+  // `origen` dice el CANAL ('manual' | 'drive'); estas tres dicen el DOCUMENTO. Con los consolidados
+  // del Drive —un PDF de trece páginas por día— saber que vino «del Drive» no permite volver al
+  // papel: hacen falta el archivo y la página.
+  archivoOrigen: varchar('archivo_origen', { length: 255 }),
+  // El barrido que lo produjo, que ya guarda nombre, fileId, quién lo subió y cuándo, y que
+  // sobrevive al borrado del archivo en el Drive. Null en carga manual, que no tiene barrido.
+  procesamientoId: integer('procesamiento_id').references(() => procesamientoCuentas.id, { onDelete: 'set null' }),
+  paginas: jsonb('paginas').$type<number[]>(),
   // Sin FK dura hacia flito_soportes: evita el ciclo (soportes ya referencia esta tabla), igual que
   // flito_impuestos.factura_venta_soporte_id.
   soporteId: uuid('soporte_id'),
@@ -2683,6 +2691,38 @@ export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
 }, (t) => ({
   organismoIdx: index('idx_flito_derechos_organismo').on(t.organismoCodigo),
   companiaIdx: index('idx_flito_derechos_compania').on(t.companiaId),
+  procesamientoIdx: index('idx_flito_derechos_procesamiento').on(t.procesamientoId),
+}));
+
+/**
+ * Cambios de estado de SOAT e impuestos — el equivalente de `flito_tramite_historial` para los dos
+ * conceptos, que hasta ahora no tenían ninguno y cuyo rastro vivía disperso en `audit_logs`, en
+ * texto libre y sin campos de estado.
+ *
+ * Una sola tabla para ambos, discriminados por `concepto`: comparten los mismos cuatro estados y las
+ * mismas transiciones, así que dos tablas gemelas serían dos veces el mismo código.
+ *
+ * Sin FK hacia `flito_soat`/`flito_impuestos`: una FK apunta a UNA tabla y este historial sirve a
+ * dos. La integridad la da `concepto` más el filtro de los lectores.
+ */
+export const flitoEstadoHistorial = pgTable('flito_estado_historial', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** 'soat' | 'impuesto'. */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  registroId: uuid('registro_id').notNull(),
+  /** Null en el alta: antes de existir no había estado del que venir. */
+  estadoAnterior: varchar('estado_anterior', { length: 30 }),
+  estadoNuevo: varchar('estado_nuevo', { length: 30 }).notNull(),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => users.id, { onDelete: 'set null' }),
+  // Se copia el correo además del id: si el usuario se borra, el historial debe seguir diciendo
+  // quién lo hizo. Mismo criterio que `flito_soportes.subido_por_nombre`.
+  usuarioEmail: varchar('usuario_email', { length: 150 }),
+  /** 'usuario' | 'sistema' | 'auditoria'. El último marca lo reconstruido desde `audit_logs`. */
+  origen: varchar('origen', { length: 20 }).notNull().default('usuario'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  registroIdx: index('idx_flito_estado_historial_registro').on(t.concepto, t.registroId, t.createdAt),
 }));
 
 // SIN LECTOR. Fue el buffer de recibos cuya placa aún no correspondía a ningún trámite, que un

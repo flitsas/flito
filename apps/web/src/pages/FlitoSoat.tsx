@@ -11,6 +11,7 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
+import HistorialEstados from '../components/flit/HistorialEstados';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
@@ -364,6 +365,8 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
           <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />
         </dl>
+
+        <HistorialEstados concepto="soat" registroId={soat.id} />
 
         {soat.compradores.length > 0 && (
           <div>

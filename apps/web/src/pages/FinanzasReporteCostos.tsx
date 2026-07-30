@@ -9,7 +9,7 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
-import VisorPdf from '../components/flit/VisorPdf';
+import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -32,13 +32,6 @@ interface Totales {
 }
 interface Reporte { items: Fila[]; total: number; page: number; pageSize: number; totales: Totales }
 interface Facetas { estados: string[]; empresas: { nit: string; nombre: string | null }[]; tipos: string[] }
-interface Soporte { id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }
-
-/** Cómo se nombra cada origen en el visor. Lo que no esté aquí se muestra tal cual. */
-const ORIGEN_SOPORTE: Record<string, string> = {
-  soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito', logistica: 'Logística',
-};
-
 const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 /**
@@ -371,7 +364,10 @@ export default function FinanzasReporteCostos() {
         </FlitCard>
       )}
 
-      {soportesDe && <VisorSoportes fila={soportesDe} onClose={() => setSoportesDe(null)} />}
+      {soportesDe && (
+        <VisorSoportesTramite tramiteId={soportesDe.tramiteId} titulo={soportesDe.idFlit}
+          onClose={() => setSoportesDe(null)} />
+      )}
     </div>
   );
 }
@@ -418,71 +414,6 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
         )
       )}
     </div>
-  );
-}
-
-/**
- * Visor de TODOS los documentos del trámite: SOAT, impuesto, derecho de tránsito y logística.
- *
- * No hay selección de qué mostrar: se pide todo y se lista lo que exista. Un trámite con los tres
- * comprobantes cargados tiene que enseñar los tres, no el primero que se encontró (HU #11025).
- */
-function VisorSoportes({ fila, onClose }: { fila: Fila; onClose: () => void }) {
-  const [soportes, setSoportes] = useState<Soporte[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [activo, setActivo] = useState<Soporte | null>(null);
-  const [nonce, setNonce] = useState(0);
-
-  useEffect(() => {
-    api.get<Soporte[]>(`/finanzas/tramites/${fila.tramiteId}/soportes`)
-      // El activo se conserva entre recargas: al pedir la lista de nuevo no se pierde de vista el
-      // documento que se estaba mirando.
-      .then((s) => { setSoportes(s); setActivo((a) => s.find((x) => x.id === a?.id) ?? s[0] ?? null); })
-      .catch((e) => setError(errorMessage(e)));
-  }, [fila.tramiteId, nonce]);
-
-  return (
-    // `full`: un PDF a 448 px de ancho no se lee sin hacer zoom. El visor ocupa casi toda la
-    // pantalla y la lista de documentos pasa a una columna lateral, que es la forma de no gastar
-    // altura del documento en pastillas.
-    <FlitModal title={`Documentos de ${fila.idFlit}`} onClose={onClose} full>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {!soportes && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
-      {soportes && soportes.length === 0 && (
-        <FlitEmpty>Este trámite no tiene ningún documento cargado todavía.</FlitEmpty>
-      )}
-      {soportes && soportes.length > 0 && (
-        <div className="flex h-full min-h-0 gap-4">
-          <aside className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto">
-            <div className="flex items-baseline justify-between gap-2 text-xs">
-              <span style={{ color: 'var(--flit-text-secondary)' }}>{soportes.length} documento(s)</span>
-              {/* Un comprobante cargado en otra pestaña aparece sin cerrar y volver a abrir. */}
-              <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => setNonce((n) => n + 1)}>Actualizar</button>
-            </div>
-            {soportes.map((s) => {
-              const activa = activo?.id === s.id;
-              return (
-                <button key={s.id} type="button" onClick={() => setActivo(s)}
-                  className="rounded-lg border px-3 py-2 text-left text-xs transition-colors"
-                  style={activa
-                    ? { borderColor: 'var(--flit-blue-text)', background: 'rgba(48,102,190,0.08)' }
-                    : { borderColor: 'var(--flit-border-input)' }}>
-                  <div className="font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
-                    {ORIGEN_SOPORTE[s.origen] ?? s.origen}
-                  </div>
-                  <div className="break-all" style={{ color: 'var(--flit-text-secondary)' }}>{s.nombreArchivo}</div>
-                  <div style={{ color: 'var(--flit-text-muted)' }}>{fechaCorta(s.subidoEn) ?? ''}</div>
-                </button>
-              );
-            })}
-          </aside>
-          <div className="min-h-0 min-w-0 flex-1">
-            {activo && <VisorPdf key={activo.id} url={activo.url} nombre={activo.nombreArchivo} />}
-          </div>
-        </div>
-      )}
-    </FlitModal>
   );
 }
 

@@ -11,6 +11,7 @@ import { db } from '../../db/client.js';
 import {
   auditLogs, flitoCompradores, flitoImpuestos, flitoSoat, flitoTramiteHistorial, flitoTramites, systemKv, vehicles,
 } from '../../db/schema.js';
+import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
   EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, ModalidadOrganismo, resolverCodigoOrganismoFlit,
@@ -297,6 +298,13 @@ async function resolverSoat(
   await tx.update(flitoTramites).set({ soatId: soat.id, updatedAt: new Date() }).where(eq(flitoTramites.id, tramiteId));
   r.soatCreados += 1;
   await auditSistema(tx, { action: 'create', resource: 'flito_soat', resourceId: soat.id, detail: `SOAT creado para VIN ${tf.vin} (trámite ${tf.idFlit}). El proveedor se asigna al enviarlo al gestor.` });
+  // Primer eslabón de la línea de tiempo. Sin él, el historial de un SOAT recién nacido empezaría
+  // en su primer cambio y no se vería cuándo entró en la cola, que es la mitad de la pregunta.
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soat.id,
+    estadoAnterior: null, estadoNuevo: EstadoSoat.PENDIENTE,
+    motivo: `Alta desde FLIT (trámite ${tf.idFlit}).`, origen: 'sistema',
+  });
 }
 
 /**
@@ -327,5 +335,10 @@ async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, comp
   await auditSistema(tx, {
     action: 'create', resource: 'flito_impuesto', resourceId: impuesto.id,
     detail: `Impuesto creado en "pendiente" (trámite ${tf.idFlit}, organismo ${organismoCodigo}).`,
+  });
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: impuesto.id,
+    estadoAnterior: null, estadoNuevo: EstadoImpuesto.PENDIENTE,
+    motivo: `Alta desde FLIT (trámite ${tf.idFlit}, organismo ${organismoCodigo}).`, origen: 'sistema',
   });
 }

@@ -11,6 +11,8 @@ const DERECHOS = [
     empresa: 'Concesionario Norte', valor: '236700.00', fechaPago: '2026-05-23',
     numeroRadicado: '1005504347', tipoTramiteRecibo: 'MATRICULA INICIAL', origen: 'manual',
     advertencias: null, soporteId: 'sop1', createdAt: '2026-05-23T10:00:00Z',
+    // Carga manual: solo hay nombre de fichero, no hay barrido ni páginas.
+    archivoOrigen: 'recibos-mayo.pdf', paginas: null, procesamientoId: null, procesamientoArchivo: null,
   },
   {
     id: 'd2', tramiteId: 't2', idFlit: 'FLIT-1002', placa: 'XYZ789', organismoCodigo: '05001',
@@ -18,6 +20,9 @@ const DERECHOS = [
     numeroRadicado: '1005504348', tipoTramiteRecibo: 'TRASPASO', origen: 'drive',
     advertencias: ['El concepto del recibo dice "TRASPASO" y el trámite es "MATRICULA INICIAL".'],
     soporteId: 'sop2', createdAt: '2026-05-24T10:00:00Z',
+    // Del Drive: el consolidado, el barrido que lo leyó y las páginas de esta placa.
+    archivoOrigen: 'FLIT 24-05-2026.pdf', paginas: [4, 5], procesamientoId: 12,
+    procesamientoArchivo: 'FLIT 24-05-2026.pdf',
   },
 ];
 
@@ -45,12 +50,68 @@ test.describe('FLITO — Derechos de tránsito', () => {
     await expect(page.getByText('$ 236.700')).toBeVisible();
     // El origen distingue lo cargado a mano de lo que llegó por el Drive de la secretaría, y se
     // rotula: en la columna se veía el valor crudo de la base («drive»).
-    await expect(page.getByRole('cell', { name: 'Drive de la secretaría', exact: true })).toBeVisible();
+    // Sin `exact`: la celda lleva ahora también el archivo del que salió el recibo, debajo del chip.
+    await expect(page.getByRole('cell', { name: /Drive de la secretaría/ })).toBeVisible();
     // Una discrepancia de concepto no bloquea el registro pero queda visible.
     await expect(page.getByText('Con advertencia')).toBeVisible();
     // La fecha de pago no lleva hora: formatearla con `new Date(...)` la interpretaría como
     // medianoche UTC y en hora de Colombia retrocedería un día (el recibo dice 23, se veía 22).
     await expect(page.getByRole('cell', { name: '23/5/2026', exact: true })).toBeVisible();
+  });
+
+  test('el origen dice de qué archivo salió el recibo, no solo por dónde entró', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+
+    await page.goto('/flito/derechos');
+    // «Drive» dice el canal; con un consolidado de trece páginas al día eso no basta para volver al
+    // papel cuando alguien reclama. Hace falta el archivo, y la página dentro de él.
+    await expect(page.getByText('FLIT 24-05-2026.pdf · pág. 4–5')).toBeVisible();
+    // En la carga manual no hay páginas que citar: solo el fichero que se subió.
+    await expect(page.getByText('recibos-mayo.pdf', { exact: true })).toBeVisible();
+  });
+
+  test('un derecho anterior al cambio lo dice, en vez de fingir que no vino de ningún sitio', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.route(/\/api\/flito\/derechos\/facetas/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ organismos: [], origenes: [] }),
+    }));
+    await page.route(/\/api\/flito\/derechos\?/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        items: [{ ...DERECHOS[0], archivoOrigen: null, procesamientoArchivo: null, paginas: null }],
+        total: 1, page: 1, pageSize: 50,
+      }),
+    }));
+
+    await page.goto('/flito/derechos');
+    // Los 56 derechos que ya existían no son atribuibles: en cualquier ventana de diez minutos hubo
+    // tres barridos. Se dice, en vez de dejar el hueco en blanco.
+    await expect(page.getByText('Archivo no registrado')).toBeVisible();
+  });
+
+  test('desde un derecho se ven los documentos de los tres conceptos del trámite', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockListas(page);
+    await page.route(/\/api\/finanzas\/tramites\/.*\/soportes/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: 'https://x/soat.pdf', subidoEn: '2026-05-20T10:00:00Z' },
+        { id: 's2', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'impuesto.pdf', url: 'https://x/imp.pdf', subidoEn: '2026-05-21T10:00:00Z' },
+        { id: 's3', origen: 'derecho', tipo: 'derecho_tramite', nombreArchivo: 'derecho.pdf', url: 'https://x/der.pdf', subidoEn: '2026-05-23T10:00:00Z' },
+      ]),
+    }));
+
+    await page.goto('/flito/derechos');
+    await page.getByRole('row', { name: /QTP701/ }).getByRole('button', { name: 'Ver todos' }).click();
+
+    // Quien revisa un derecho quiere comprobar si el SOAT y el impuesto del mismo trámite están
+    // cargados; hasta ahora tenía que irse al reporte de costos para averiguarlo.
+    await expect(page.getByText('Documentos de FLIT-1001')).toBeVisible();
+    await expect(page.getByText('3 documento(s)')).toBeVisible();
+    await expect(page.getByRole('button', { name: /SOAT/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Impuesto/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Derecho de tránsito/ })).toBeVisible();
   });
 
   test('la carga muestra el resultado clasificado por canasta', async ({ page }) => {

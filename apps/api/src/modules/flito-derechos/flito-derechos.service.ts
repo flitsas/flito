@@ -21,7 +21,7 @@ import {
 import { db } from '../../db/client.js';
 import {
   auditLogs, clients, flitoDerechosTramite, flitoRevisiones, flitoSoportes,
-  flitoTramites, organismosTransitoConfig, vehicles,
+  flitoTramites, organismosTransitoConfig, procesamientoCuentas, vehicles,
 } from '../../db/schema.js';
 import { extraerDerechoTramite, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
@@ -209,6 +209,17 @@ export interface OpcionesCarga {
   /** Organismo declarado por quien carga. Fija el umbral y la pista de prompt. Opcional. */
   organismoCodigo?: string | null;
   origen: OrigenDerecho;
+  /**
+   * De qué documento salió el recibo. `origen` dice el CANAL ('manual' | 'drive'); esto dice el
+   * PAPEL. Con los consolidados del Drive —un PDF de trece páginas por día— saber que vino «del
+   * Drive» no permite volver al documento, que es lo que hace falta cuando alguien reclama.
+   *
+   * En carga manual solo hay nombre. En el Drive hay además el barrido que lo produjo y las páginas
+   * del consolidado que correspondían a esta placa.
+   */
+  archivoOrigen?: string | null;
+  procesamientoId?: number | null;
+  paginas?: number[] | null;
 }
 
 /**
@@ -225,10 +236,14 @@ export async function cargarDerechos(
 
   const expandidos = await expandirZips(archivos);
   for (const archivo of expandidos) {
+    // El archivo de origen es el que subió la persona —o el que venía dentro del ZIP—, NO el `doc`
+    // que sale de partir un PDF de varias páginas: ese se llama «pagina-3.pdf» y no lleva a ninguna
+    // parte. Se fija aquí, en el bucle exterior, que es donde todavía se sabe cuál era.
+    const opcionesArchivo: OpcionesCarga = { ...opciones, archivoOrigen: opciones.archivoOrigen ?? archivo.originalname };
     try {
       for (const doc of await documentosDe(archivo)) {
         try {
-          await procesarDocumento(doc, umbral, promptHint, opciones, ctx, res);
+          await procesarDocumento(doc, umbral, promptHint, opcionesArchivo, ctx, res);
         } catch (e) {
           res.fallidos.push(item(doc.originalname, { detalle: (e as Error).message }));
         }
@@ -585,6 +600,11 @@ async function registrar(
       numeroRadicado: radicado,
       tipoTramiteRecibo: tipoRecibo,
       origen: opciones.origen,
+      // En la carga manual el nombre del fichero subido es lo único que identifica el papel, y se
+      // captura ANTES de que `nombreArchivoDerecho()` lo renombre al nombre compuesto.
+      archivoOrigen: opciones.archivoOrigen ?? null,
+      procesamientoId: opciones.procesamientoId ?? null,
+      paginas: opciones.paginas ?? null,
       soporteId,
       extraccion,
       advertencias: advertencias.length > 0 ? advertencias : null,
@@ -698,13 +718,22 @@ export async function listarDerechos(f: FiltrosDerechos = {}) {
     numeroRadicado: flitoDerechosTramite.numeroRadicado,
     tipoTramiteRecibo: flitoDerechosTramite.tipoTramiteRecibo,
     origen: flitoDerechosTramite.origen,
+    // De qué papel salió. `archivoOrigen` está en los dos canales; el resto solo en el del Drive.
+    archivoOrigen: flitoDerechosTramite.archivoOrigen,
+    paginas: flitoDerechosTramite.paginas,
+    procesamientoId: flitoDerechosTramite.procesamientoId,
+    // Se lee del registro del barrido y no de la columna, para que siga siendo cierto si alguien
+    // renombra el fichero en el Drive: el registro guarda el nombre que tenía al procesarse.
+    procesamientoArchivo: procesamientoCuentas.nombreArchivo,
+    procesamientoEn: procesamientoCuentas.createdAt,
     advertencias: flitoDerechosTramite.advertencias,
     soporteId: flitoDerechosTramite.soporteId,
     createdAt: flitoDerechosTramite.createdAt,
   }).from(flitoDerechosTramite)
     .innerJoin(flitoTramites, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
-    .leftJoin(clients, eq(flitoDerechosTramite.companiaId, clients.id));
+    .leftJoin(clients, eq(flitoDerechosTramite.companiaId, clients.id))
+    .leftJoin(procesamientoCuentas, eq(flitoDerechosTramite.procesamientoId, procesamientoCuentas.id));
 
   const [{ total }] = await db.select({ total: sql<number>`count(*)::int` })
     .from(flitoDerechosTramite)

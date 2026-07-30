@@ -11,6 +11,7 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
+import HistorialEstados from '../components/flit/HistorialEstados';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
@@ -352,6 +353,8 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
           </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
+
+        <HistorialEstados concepto="impuesto" registroId={imp.id} />
 
         {imp.motivoRechazo && <p className="rounded-md bg-red-50 p-2 text-red-700">Motivo de rechazo: {imp.motivoRechazo}</p>}
         {soloLectura && <div className="rounded-md bg-blue-50 p-2 text-blue-800">Solo lectura · Auditoría observa, no ejecuta acciones.</div>}

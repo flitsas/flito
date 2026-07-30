@@ -132,7 +132,10 @@ describe('recibos — flujo', () => {
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
-    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([])); // soporte + audit
+    // El primero devuelve el soporte; los demás (bitácora, historial de estado) no se leen. Con
+    // `mockReturnValue` de respaldo, añadir una escritura más a la transacción no vuelve a romper
+    // este test por una razón que no tiene que ver con lo que comprueba.
+    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValue(chain([]));
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 

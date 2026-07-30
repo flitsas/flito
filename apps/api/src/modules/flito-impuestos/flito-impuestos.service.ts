@@ -12,6 +12,7 @@ import {
   auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
   organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
+import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 
@@ -311,6 +312,11 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
     await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: new Date(), updatedAt: new Date() })
       .where(inArray(flitoImpuestos.id, idsEnviados));
     for (const id of idsEnviados) await auditEnTx(tx, ctx, id, 'Envío al gestor (pendiente→solicitado).');
+    await registrarCambios(tx, idsEnviados.map((iid) => ({
+      concepto: 'impuesto' as const, registroId: iid,
+      estadoAnterior: EstadoImpuesto.PENDIENTE, estadoNuevo: EstadoImpuesto.SOLICITADO,
+      motivo: 'Envío al gestor', usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    })));
     return idsEnviados;
   });
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
@@ -325,6 +331,11 @@ export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Pr
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Rechazo (solicitado→con_novedad): ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: EstadoImpuesto.CON_NOVEDAD,
+      motivo: `Rechazo: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }
@@ -338,6 +349,11 @@ export async function reactivar(id: string, motivo: string, ctx: ImpuestoCtx): P
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Reactivación (rechazado→pendiente): ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: EstadoImpuesto.PENDIENTE,
+      motivo: `Reactivación: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }
@@ -354,6 +370,11 @@ export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Reversa ${imp.estado}→${estadoDestino}: ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: estadoDestino,
+      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }
