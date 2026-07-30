@@ -81,6 +81,8 @@ export interface ResultadoSync {
   soatCreados: number;
   soatBloqueadosPorVin: number;
   impuestosCreados: number;
+  /** Altas evitadas porque el vehículo ya tenía su impuesto del año pedido o pagado. */
+  impuestosBloqueadosPorVehiculo: number;
   companiasFaltantes: number;
   organismosSinEmparejar: number;
   ejecutadoEn: string;
