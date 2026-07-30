@@ -5,18 +5,23 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, like, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoOrganismoPagos, flitoSoportes,
+  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
+  flitoOrganismoPagos, flitoSoportes,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
   type BolsaDto,
   type ConceptoBolsa,
   type MovimientoBolsaDto,
+  NIVEL_RIESGO_BOLSA_LABEL,
+  nivelRiesgoDe,
+  NivelRiesgoBolsa,
   type OrigenMovimientoBolsa,
   periodoDe,
+  porcentajeSaldo,
   type TipoMovimientoBolsa,
 } from '@operaciones/shared-types';
 
@@ -1057,6 +1062,133 @@ export async function registrarPagoOrganismo(
 
   const { saldoPendiente } = await bolsaSimbolicaDe(organismoCodigo);
   return { id, saldoPendiente };
+}
+
+// ─────────────── Nivel de riesgo del saldo y alertas (HU #11125) ─────────────
+
+export interface BolsaConRiesgo extends BolsaDto {
+  nivel: NivelRiesgoBolsa;
+  /** Saldo como porcentaje de la última recarga; `null` si el cliente nunca ha recargado. */
+  porcentaje: number | null;
+}
+
+function conRiesgo(b: BolsaDto): BolsaConRiesgo {
+  return {
+    ...b,
+    nivel: nivelRiesgoDe(b.saldo, b.ultimaRecargaValor),
+    porcentaje: porcentajeSaldo(b.saldo, b.ultimaRecargaValor),
+  };
+}
+
+/** Bolsa del cliente con su nivel de riesgo ya clasificado. */
+export async function bolsaConRiesgoDe(companiaId: number): Promise<BolsaConRiesgo | null> {
+  const b = await bolsaDe(companiaId);
+  return b === null ? null : conRiesgo(b);
+}
+
+/**
+ * Todas las bolsas con su nivel, las de peor riesgo primero (AC1).
+ *
+ * El orden lo pone el servidor y no la pantalla: es la lista que Financiera abre para decidir a quién
+ * recargar, y dejar que cada cliente la ordene invitaría a que dos vistas muestren prioridades
+ * distintas del mismo dato.
+ */
+export async function bolsasConRiesgo(): Promise<BolsaConRiesgo[]> {
+  const filas = await db
+    .select({
+      id: flitoBolsas.id,
+      companiaId: flitoBolsas.companiaId,
+      companiaNombre: clients.name,
+      saldo: flitoBolsas.saldo,
+      ultimaRecargaValor: flitoBolsas.ultimaRecargaValor,
+      ultimaRecargaEn: flitoBolsas.ultimaRecargaEn,
+    })
+    .from(flitoBolsas)
+    .innerJoin(clients, eq(flitoBolsas.companiaId, clients.id));
+
+  const orden: Record<NivelRiesgoBolsa, number> = {
+    agotada: 0, critico: 1, bajo: 2, normal: 3, sin_recargas: 4,
+  };
+
+  return filas
+    .map((f) => conRiesgo({
+      id: f.id,
+      companiaId: f.companiaId,
+      companiaNombre: f.companiaNombre,
+      saldo: num(f.saldo),
+      ultimaRecargaValor: f.ultimaRecargaValor === null ? null : num(f.ultimaRecargaValor),
+      ultimaRecargaEn: aIso(f.ultimaRecargaEn),
+    }))
+    .sort((a, b) => orden[a.nivel] - orden[b.nivel]
+      // A igual nivel, primero el que más lejos está de su base: es el que antes se queda sin saldo.
+      || (a.porcentaje ?? Infinity) - (b.porcentaje ?? Infinity));
+}
+
+export interface AlertaBolsa {
+  tipo: 'saldo';
+  nivel: NivelRiesgoBolsa;
+  companiaId: number;
+  companiaNombre: string;
+  saldo: number;
+  porcentaje: number | null;
+  mensaje: string;
+}
+
+/**
+ * Alertas de saldo: las bolsas que no están en nivel normal (AC2).
+ *
+ * `sin_recargas` NO alerta: un cliente que aún no ha recibido su primera recarga no tiene un
+ * problema de saldo, y colarlo aquí llenaría el panel de ruido el día que se den de alta clientes.
+ */
+export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
+  const bolsas = await bolsasConRiesgo();
+  return bolsas
+    .filter((b) => b.nivel !== NivelRiesgoBolsa.NORMAL && b.nivel !== NivelRiesgoBolsa.SIN_RECARGAS)
+    .map((b) => ({
+      tipo: 'saldo' as const,
+      nivel: b.nivel,
+      companiaId: b.companiaId,
+      companiaNombre: b.companiaNombre,
+      saldo: b.saldo,
+      porcentaje: b.porcentaje,
+      mensaje: b.nivel === NivelRiesgoBolsa.AGOTADA
+        ? `La bolsa de ${b.companiaNombre} está agotada (saldo ${b.saldo}).`
+        : `${b.companiaNombre} tiene ${NIVEL_RIESGO_BOLSA_LABEL[b.nivel].toLowerCase()}: ${b.porcentaje} % de su última recarga.`,
+    }));
+}
+
+export interface AlertasConciliacion {
+  /** Soportes cargados que no cruzaron con ningún trámite. */
+  soportesSinTramite: number;
+  /** Movimientos automáticos asentados sin soporte del organismo detrás. */
+  movimientosSinSoporte: number;
+}
+
+/**
+ * Alertas de conciliación (AC4): los dos extremos que no cuadran entre soportes y movimientos.
+ *
+ * Los soportes sin trámite ya los recoge la bandeja `flito_derechos_pendientes`, que existe desde el
+ * módulo de derechos y sirve a los tres conceptos; no se reimplementa ese cruce aquí.
+ */
+export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
+  const [pendientes] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(flitoDerechosPendientes)
+    .where(eq(flitoDerechosPendientes.resuelto, false));
+
+  const [sinSoporte] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(flitoBolsaMovimientos)
+    .where(and(
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      eq(flitoBolsaMovimientos.tipo, 'salida'),
+      isNull(flitoBolsaMovimientos.soporteId),
+    ));
+
+  return {
+    soportesSinTramite: pendientes?.n ?? 0,
+    movimientosSinSoporte: sinSoporte?.n ?? 0,
+  };
 }
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */

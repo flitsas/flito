@@ -18,9 +18,9 @@ import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.servic
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import {
-  bolsaDe, BolsaError, bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe,
-  movimientosDe, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
-  saldoConsolidado,
+  alertasDeConciliacion, alertasDeSaldo, bolsaConRiesgoDe, BolsaError, bolsasConRiesgo,
+  bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
+  registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga, saldoConsolidado,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -85,7 +85,7 @@ router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
 // GET /:companiaId — bolsa y saldo del cliente.
 router.get('/:companiaId', BOLSAS, async (req: Request, res: Response) => {
   try {
-    const bolsa = await bolsaDe(companiaIdDe(req));
+    const bolsa = await bolsaConRiesgoDe(companiaIdDe(req));
     // Sin bolsa no es un error: es un cliente que todavía no ha recibido su primera recarga.
     if (!bolsa) { res.status(404).json({ error: 'El cliente aún no tiene bolsa' }); return; }
     res.json(bolsa);
@@ -198,6 +198,17 @@ function claveIdempotencia(req: Request): string | null {
   if (clave.length === 0 || clave.length > 120) return null;
   return clave;
 }
+
+// GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
+router.get('/riesgo', BOLSAS, async (_req: Request, res: Response) => {
+  res.json(await bolsasConRiesgo());
+});
+
+// GET /alertas — saldo y conciliación, lo que Financiera necesita mirar hoy.
+router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
+  const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
+  res.json({ saldo, conciliacion });
+});
 
 // GET /organismos/:organismoCodigo — estado de cuenta (bolsa simbólica) del organismo.
 // Antes de /:companiaId por la misma razón que /consolidado: «organismos» no es un id de compañía.
