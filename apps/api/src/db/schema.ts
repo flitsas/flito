@@ -3039,6 +3039,9 @@ export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
   // Anti doble cobro de las salidas automáticas (HU #11122). NULL en lo que registra una persona:
   // dos recargas iguales el mismo día son dos recargas, no un duplicado.
   llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  // Movimiento que este ajuste corrige (HU #11123). Corregir no es un UPDATE del valor —el libro es
+  // append-only—, sino un movimiento nuevo que apunta al original.
+  corrigeMovimientoId: uuid('corrige_movimiento_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   companiaIdx: index('idx_flito_bolsa_mov_compania').on(t.companiaId, t.createdAt),
@@ -3053,6 +3056,11 @@ export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
   llaveIdx: uniqueIndex('idx_flito_bolsa_mov_llave')
     .on(t.llaveIdempotencia)
     .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+  // «¿Qué correcciones tiene este movimiento?» sin barrer el libro entero (HU #11123). Parcial: la
+  // inmensa mayoría de los movimientos no corrigen nada.
+  corrigeIdx: index('idx_flito_bolsa_mov_corrige')
+    .on(t.corrigeMovimientoId)
+    .where(sql`${t.corrigeMovimientoId} IS NOT NULL`),
 }));
 
 /**

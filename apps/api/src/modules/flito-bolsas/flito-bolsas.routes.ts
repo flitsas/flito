@@ -18,8 +18,8 @@ import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.servic
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import {
-  bolsaDe, BolsaError, cerrarPeriodo, cierresDe, movimientosDe, registrarRecarga,
-  saldoConsolidado,
+  bolsaDe, BolsaError, cerrarPeriodo, cierresDe, corregirMovimiento, movimientosDe,
+  registrarMovimientoManual, registrarRecarga, saldoConsolidado,
 } from './flito-bolsas.service.js';
 
 const router = Router();
@@ -197,6 +197,101 @@ function claveIdempotencia(req: Request): string | null {
   if (clave.length === 0 || clave.length > 120) return null;
   return clave;
 }
+
+// POST /:companiaId/movimientos-manuales — contingencia registrada por Financiera (multipart).
+//
+// La evidencia es obligatoria, igual que en las recargas: un movimiento de dinero que una persona
+// decide sin dejar respaldo no es auditable, y el Feature la exige entre los campos de todo
+// movimiento manual (§5).
+const manualSchema = z.object({
+  tipo: z.enum(['entrada', 'salida']),
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor del movimiento debe ser mayor que cero' })
+    .positive({ message: 'El valor del movimiento debe ser mayor que cero' }),
+  motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  concepto: z.enum(['derecho', 'soat', 'impuesto', 'tramite_digital', 'logistica']).optional(),
+  organismoCodigo: z.string().trim().max(5).optional(),
+});
+
+router.post('/:companiaId/movimientos-manuales', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = manualSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  if (!req.file) { res.status(400).json({ error: 'Adjunta la evidencia del movimiento' }); return; }
+
+  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+  let storageKey: string | null = null;
+  try {
+    const companiaId = companiaIdDe(req);
+    const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
+    if (invalido) { res.status(400).json({ error: invalido }); return; }
+
+    storageKey = await subirComprobante(companiaId, req.file);
+    const { movimiento, saldo } = await registrarMovimientoManual(
+      companiaId,
+      {
+        tipo: parsed.data.tipo,
+        valor: parsed.data.valor,
+        motivo: parsed.data.motivo,
+        fecha: parsed.data.fecha,
+        concepto: parsed.data.concepto ?? null,
+        organismoCodigo: parsed.data.organismoCodigo ?? null,
+        soporte: {
+          nombreArchivo: req.file.originalname,
+          contentType: req.file.mimetype,
+          storageKey,
+          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
+          tamanoBytes: req.file.size,
+        },
+      },
+      ctx,
+    );
+
+    await audit(req, {
+      action: 'create', resource: 'flito_bolsa_movimiento', resourceId: movimiento.id,
+      detail: `Movimiento manual (${movimiento.tipo}) de ${movimiento.valor} en la bolsa de la compañía ${companiaId}: saldo ${saldo}`,
+    });
+    res.status(201).json({ movimiento, saldo });
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    fallo(res, e);
+  }
+});
+
+// POST /:companiaId/movimientos/:movimientoId/correccion — corrige el valor de un movimiento manual.
+//
+// No edita la fila original: asienta un ajuste que la referencia. Un movimiento automático se
+// rechaza aquí (409) y se corrige con un movimiento manual suelto.
+const correccionSchema = z.object({
+  valor: z.coerce
+    .number({ invalid_type_error: 'El valor corregido debe ser mayor que cero' })
+    .positive({ message: 'El valor corregido debe ser mayor que cero' }),
+  motivo: z.string().trim().min(5, { message: 'Indica el motivo del movimiento' }).max(1000),
+});
+
+router.post('/:companiaId/movimientos/:movimientoId/correccion', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = correccionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  try {
+    const { correccion, saldo } = await corregirMovimiento(
+      req.params.movimientoId,
+      parsed.data.valor,
+      parsed.data.motivo,
+      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
+    );
+    await audit(req, {
+      action: 'update', resource: 'flito_bolsa_movimiento', resourceId: correccion.id,
+      detail: `Corrección del movimiento ${req.params.movimientoId}: saldo ${saldo}`,
+    });
+    res.status(201).json({ correccion, saldo });
+  } catch (e) { fallo(res, e); }
+});
 
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
 router.get('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) => {

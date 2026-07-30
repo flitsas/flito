@@ -74,6 +74,8 @@ interface DatosMovimiento {
   /** Comprobante a registrar DENTRO de la misma transacción que el movimiento. */
   soporte?: SoporteRecarga | null;
   llaveIdempotencia?: string | null;
+  /** Movimiento que este ajuste corrige (HU #11123). */
+  corrigeMovimientoId?: string | null;
   /** Sustantivo para los mensajes de error: 'recarga', 'salida', 'ajuste'… */
   etiqueta?: string;
 }
@@ -365,6 +367,7 @@ export async function asentarMovimiento(
       registradoPorId: ctx.userId,
       registradoPorNombre: ctx.nombre,
       llaveIdempotencia: datos.llaveIdempotencia ?? null,
+      corrigeMovimientoId: datos.corrigeMovimientoId ?? null,
     })
     .returning();
 
@@ -563,6 +566,143 @@ export async function reversarSalidasLiquidacion(
       .where(eq(flitoBolsaMovimientos.id, s.id));
   }
   return contras;
+}
+
+// ───────────── Movimientos manuales y correcciones (HU #11123) ───────────────
+
+const MOTIVO_MINIMO = 5;
+
+export interface DatosMovimientoManual {
+  tipo: TipoMovimientoBolsa;
+  valor: number;
+  motivo: string;
+  fecha?: string;
+  concepto?: ConceptoBolsa | null;
+  organismoCodigo?: string | null;
+  soporte?: SoporteRecarga | null;
+}
+
+/** Comprueba el motivo, que es lo único que hace auditable un movimiento manual. */
+function motivoValido(motivo: string): string {
+  const texto = motivo.trim();
+  if (texto.length < MOTIVO_MINIMO) throw new BolsaError('Indica el motivo del movimiento');
+  return texto;
+}
+
+/**
+ * Rechaza escribir en un periodo ya cerrado (AC4).
+ *
+ * Distinto del rezago del asiento automático: allí el movimiento viene de un hecho que ya ocurrió
+ * —el organismo cobró— y perderlo sería peor que imputarlo con desfase. Aquí lo escribe una persona
+ * que puede elegir la fecha, así que apuntar a un mes ya conciliado es un error suyo, no un dato que
+ * salvar.
+ */
+async function exigirPeriodoAbierto(tx: DbOrTx, companiaId: number, fecha: string): Promise<void> {
+  const periodo = periodoDeFecha(fecha);
+  if (await periodoEstaCerrado(tx, companiaId, periodo)) {
+    throw new BolsaError(
+      'No se pueden registrar ni editar movimientos de un periodo cerrado',
+      409,
+    );
+  }
+}
+
+/**
+ * Registra una entrada, salida o ajuste manual (AC1).
+ *
+ * No lleva llave de idempotencia: dos ajustes iguales el mismo día son dos ajustes, y quien los
+ * registra los está viendo en pantalla. Lo que los hace rastreables es el motivo y la evidencia.
+ */
+export async function registrarMovimientoManual(
+  companiaId: number,
+  datos: DatosMovimientoManual,
+  ctx: CtxUsuario,
+): Promise<{ movimiento: MovimientoBolsaDto; saldo: number }> {
+  const motivo = motivoValido(datos.motivo);
+  const fecha = datos.fecha ?? hoyIso();
+  await exigirPeriodoAbierto(db, companiaId, fecha);
+
+  const { movimiento } = await registrarMovimiento(
+    companiaId,
+    {
+      tipo: datos.tipo,
+      origen: 'manual',
+      valor: datos.valor,
+      fecha,
+      concepto: datos.concepto ?? null,
+      organismoCodigo: datos.organismoCodigo ?? null,
+      observacion: motivo,
+      soporte: datos.soporte ?? null,
+      etiqueta: datos.tipo === 'entrada' ? 'entrada manual' : 'salida manual',
+    },
+    ctx,
+  );
+  return { movimiento, saldo: movimiento.saldoResultante };
+}
+
+/**
+ * Corrige el valor de un movimiento MANUAL con un ajuste que lo referencia (AC2).
+ *
+ * No se toca la fila original: el libro es append-only y el histórico debe seguir mostrando qué se
+ * registró primero. La corrección asienta solo la DIFERENCIA, en la dirección que haga falta, de
+ * modo que el saldo quede como si el valor correcto se hubiera registrado desde el principio.
+ *
+ * Los movimientos automáticos no se corrigen por aquí (AC5): vienen de un hecho —el sellado de una
+ * liquidación— y cambiarles el valor desalinearía la bolsa de lo que dice la liquidación. Para esos
+ * se registra un ajuste manual suelto, que deja constancia de que la corrección es una decisión de
+ * una persona y no una enmienda al hecho.
+ */
+export async function corregirMovimiento(
+  movimientoId: string,
+  valorCorregido: number,
+  motivoBruto: string,
+  ctx: CtxUsuario,
+): Promise<{ correccion: MovimientoBolsaDto; saldo: number }> {
+  const motivo = motivoValido(motivoBruto);
+
+  const [original] = await db
+    .select()
+    .from(flitoBolsaMovimientos)
+    .where(eq(flitoBolsaMovimientos.id, movimientoId))
+    .limit(1);
+  if (!original) throw new BolsaError('El movimiento no existe', 404);
+
+  if (original.origen !== 'manual') {
+    throw new BolsaError(
+      'Un movimiento automático no se edita: corrígelo con un ajuste manual',
+      409,
+    );
+  }
+  await exigirPeriodoAbierto(db, original.companiaId, original.fecha);
+
+  const valorOriginal = num(original.valor);
+  const diferencia = redondear(valorCorregido - valorOriginal);
+  if (diferencia === 0) throw new BolsaError('El valor corregido es igual al actual');
+
+  // Si el movimiento era una salida y sube de valor, hay que sacar más: la corrección va en la misma
+  // dirección que el original. Si baja, va en la contraria.
+  const mismaDireccion = diferencia > 0;
+  const tipo: TipoMovimientoBolsa = mismaDireccion
+    ? (original.tipo as TipoMovimientoBolsa)
+    : (original.tipo === 'entrada' ? 'salida' : 'entrada');
+
+  const { movimiento } = await registrarMovimiento(
+    original.companiaId,
+    {
+      tipo,
+      origen: 'manual',
+      valor: Math.abs(diferencia),
+      fecha: hoyIso(),
+      concepto: original.concepto === null ? null : (original.concepto as ConceptoBolsa),
+      organismoCodigo: original.organismoCodigo,
+      tramiteId: original.tramiteId,
+      observacion: `Corrección de ${valorOriginal} a ${valorCorregido}: ${motivo}`,
+      corrigeMovimientoId: original.id,
+      etiqueta: 'corrección',
+    },
+    ctx,
+  );
+  return { correccion: movimiento, saldo: movimiento.saldoResultante };
 }
 
 // ─────────────────── Cierre mensual del periodo (HU #11126) ──────────────────
