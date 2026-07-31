@@ -297,6 +297,9 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // Es por organismo y no una sola global porque cada secretaría publica en su propio Drive.
   flitoDriveFolderId: varchar('flito_drive_folder_id', { length: 120 }),
   flitoDriveActivo: boolean('flito_drive_activo').notNull().default(false),
+  // HU #11161: si este organismo opera con saldo prepago de FLIT. Apagado por defecto — no todas
+  // las secretarías funcionan así, y encenderlo para todas llenaría el módulo de cuentas muertas.
+  flitoLlevaBolsa: boolean('flito_lleva_bolsa').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -3121,4 +3124,70 @@ export const flitoOrganismoPagos = pgTable('flito_organismo_pagos', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   organismoIdx: index('idx_flito_organismo_pagos_organismo').on(t.organismoCodigo, t.fecha),
+}));
+
+// ── FLITO Bolsa del Organismo de Tránsito (HU #11161) ────────────────────────
+
+/**
+ * Bolsa prepago que FLIT mantiene EN un organismo. Es la inversa de la del cliente: aquí FLIT carga
+ * el dinero y la secretaría lo consume con cada derecho de trámite que emite.
+ *
+ * `saldo` puede ser NEGATIVO y eso no es un estado inválido: es el PRÉSTAMO del organismo. Si siguió
+ * emitiendo derechos después de agotar el saldo, el gasto ya ocurrió; la siguiente carga lo neta
+ * sumando, sin que la deuda necesite tabla ni columna propia.
+ *
+ * Denormalizado por la misma razón que `flito_bolsas.saldo`, y con la misma garantía: el lock de
+ * esta fila (`FOR UPDATE`) mientras se escribe el movimiento.
+ */
+export const flitoOrganismoBolsas = pgTable('flito_organismo_bolsas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().unique()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Base del nivel de alerta. NULL mientras no haya cargas: distingue «sin cargas» de «agotada».
+  ultimaCargaValor: numeric('ultima_carga_valor', { precision: 14, scale: 2 }),
+  ultimaCargaEn: timestamp('ultima_carga_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Libro append-only de la bolsa del organismo. Mismo criterio que `flito_bolsa_movimientos`: nada se
+ * edita ni se borra, el valor va siempre positivo y la dirección la da `tipo`.
+ *
+ * Solo el DERECHO genera salidas aquí. SOAT e impuesto llevan organismo en el libro del cliente
+ * porque se gestionan ante uno, pero no salen de este saldo; trámite digital y logística son
+ * honorarios de FLIT; y el GMF ya viene incluido en el total del comprobante del organismo.
+ */
+export const flitoOrganismoMovimientos = pgTable('flito_organismo_movimientos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoOrganismoBolsas.id, { onDelete: 'restrict' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** 'entrada' | 'salida'. */
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  /** 'carga' | 'automatico'. */
+  origen: varchar('origen', { length: 20 }).notNull(),
+  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_org_mov_organismo').on(t.organismoCodigo, t.createdAt),
+  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble consumo del sellado, y si
+  // el esquema no la conoce, el próximo `db:generate` emitiría un DROP INDEX que la borraría.
+  llaveIdx: uniqueIndex('idx_flito_org_mov_llave')
+    .on(t.llaveIdempotencia)
+    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+  // «¿Qué consumió este trámite?» sin barrer el libro entero; lo usa el reverso de la liquidación.
+  tramiteIdx: index('idx_flito_org_mov_tramite')
+    .on(t.tramiteId)
+    .where(sql`${t.tramiteId} IS NOT NULL`),
 }));

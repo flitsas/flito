@@ -26,6 +26,9 @@ import {
   pagosDeOrganismo, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
   saldoConsolidado, tramitesDeOrganismo,
 } from './flito-bolsas.service.js';
+import {
+  bolsaOrganismoDe, llevaBolsa, movimientosOrganismoDe, registrarCargaOrganismo,
+} from './flito-organismo-bolsas.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -237,6 +240,24 @@ router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) =
   });
 });
 
+// GET /organismos/:organismoCodigo/bolsa — saldo prepago del organismo con su nivel (HU #11161).
+//
+// Devuelve 404 cuando el organismo no está marcado para llevar bolsa: «no opera con saldo prepago»
+// no es lo mismo que «opera y está en cero», y la pantalla tiene que poder distinguirlos (AC1).
+router.get('/organismos/:organismoCodigo/bolsa', BOLSAS, async (req: Request, res: Response) => {
+  const bolsa = await bolsaOrganismoDe(req.params.organismoCodigo);
+  if (!bolsa) {
+    res.status(404).json({ error: 'Este Organismo de Tránsito no maneja bolsa prepago' });
+    return;
+  }
+  res.json(bolsa);
+});
+
+// GET /organismos/:organismoCodigo/movimientos — libro de la bolsa del organismo.
+router.get('/organismos/:organismoCodigo/movimientos', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await movimientosOrganismoDe(req.params.organismoCodigo));
+});
+
 // GET /organismos/:organismoCodigo/pagos — historial de pagos de FLIT al organismo.
 router.get('/organismos/:organismoCodigo/pagos', BOLSAS, async (req: Request, res: Response) => {
   res.json(await pagosDeOrganismo(req.params.organismoCodigo));
@@ -269,6 +290,18 @@ router.post('/organismos/:organismoCodigo/pagos', BOLSAS, recibirSoporte, async 
   const parsed = pagoOrganismoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+
+  // Ruta heredada (HU #11124), viva solo para los organismos SIN bolsa. En los que sí la llevan, un
+  // pago es una carga y tiene que mover el saldo: dejar que este endpoint escribiera en la tabla
+  // vieja haría que el dinero entrara en un libro y no en el otro, y nadie lo notaría hasta el
+  // cierre. Se rechaza en vez de redirigir en silencio, para que el error sea del programador y no
+  // de la conciliación. La pantalla migra al endpoint nuevo en la HU #11162.
+  if (await llevaBolsa(req.params.organismoCodigo)) {
+    res.status(409).json({
+      error: 'Este organismo maneja bolsa prepago: registra el dinero como carga en /cargas',
+    });
     return;
   }
 
@@ -305,6 +338,56 @@ router.post('/organismos/:organismoCodigo/pagos', BOLSAS, recibirSoporte, async 
       detail: `Pago de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: pendiente ${saldoPendiente}`,
     });
     res.status(201).json({ id, saldoPendiente });
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    fallo(res, e);
+  }
+});
+
+// POST /organismos/:organismoCodigo/cargas — FLIT precarga saldo en el organismo (HU #11161, AC2).
+//
+// El soporte es OPCIONAL, igual que en los pagos que este endpoint sustituye: una carga se registra
+// el mismo día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
+router.post('/organismos/:organismoCodigo/cargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = pagoOrganismoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+
+  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
+  let storageKey: string | null = null;
+  try {
+    if (req.file) {
+      const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
+      if (invalido) { res.status(400).json({ error: invalido }); return; }
+      storageKey = await uploadEntityDocument(
+        `organismos/${req.params.organismoCodigo}/cargas`,
+        req.params.organismoCodigo, req.file.originalname, req.file.buffer, req.file.mimetype,
+      );
+    }
+
+    const { movimiento, saldo } = await registrarCargaOrganismo(
+      req.params.organismoCodigo,
+      {
+        valor: parsed.data.valor,
+        fecha: parsed.data.fecha,
+        observacion: parsed.data.observacion ?? null,
+        soporte: req.file && storageKey ? {
+          nombreArchivo: req.file.originalname,
+          contentType: req.file.mimetype,
+          storageKey,
+          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
+          tamanoBytes: req.file.size,
+        } : null,
+      },
+      ctx,
+    );
+    await audit(req, {
+      action: 'create', resource: 'flito_organismo_movimiento', resourceId: movimiento.id,
+      detail: `Carga de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: saldo ${saldo}`,
+    });
+    res.status(201).json({ movimiento, saldo, duplicado: false });
   } catch (e) {
     if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
     fallo(res, e);
