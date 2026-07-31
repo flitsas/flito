@@ -16,7 +16,8 @@ import { eq } from 'drizzle-orm';
 import { EstadoImpuesto } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import {
-  colaImpuestos, facetasColaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
+  asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
+  facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
 import { cargarRecibos } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -172,17 +173,46 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
 });
 
 // POST /enviar — Pendiente → En gestión, atómico (CA-04). Solo Operaciones.
-const enviarSchema = z.object({ ids: z.array(z.string().uuid()).min(1) });
+const enviarSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+  // Sin XOR, a diferencia de SOAT: aquí no hay proveedor con el que competir, el destinatario
+  // sale del organismo. La contingencia es solo una marca más sobre el mismo envío.
+  gestionOperaciones: z.boolean().optional(),
+});
 router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   const ctx = await contextoImpuesto(req.user!);
-  const resultado = await enviarAlGestor(parsed.data.ids, ctx);
+  const { ids, gestionOperaciones } = parsed.data;
+  const resultado = await enviarAlGestor(ids, ctx, gestionOperaciones);
   if (resultado.enviados.length > 0) {
-    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: resultado.enviados.join(','), detail: `Enviados al gestor: ${resultado.enviados.length} (pendiente→en_gestion)` });
+    const destino = gestionOperaciones ? 'gestión de Operaciones' : 'gestor del organismo';
+    await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: resultado.enviados.join(','), detail: `Enviados a ${destino}: ${resultado.enviados.length} (pendiente→en_gestion)` });
   }
   res.json(resultado);
 });
+
+// POST /:id/asumir-operaciones y POST /:id/devolver-gestor — traspaso por contingencia (HU #11155).
+// Solo Operaciones, motivo ≥5 como la reversa. El de devolver NO recibe destinatario: el organismo
+// nunca cambió, así que quitar la marca ya lo devuelve a quien le corresponde.
+const traspasoSchema = z.object({
+  motivo: z.string().min(5, 'El traspaso de gestión exige un motivo que explique el porqué'),
+});
+for (const [ruta, accion, etiqueta] of [
+  ['asumir-operaciones', asumirEnOperaciones, 'Gestión asumida por Operaciones'],
+  ['devolver-gestor', devolverAlGestor, 'Gestión devuelta al gestor del organismo'],
+] as const) {
+  router.post(`/:id/${ruta}`, OPERACIONES, async (req: Request, res: Response) => {
+    const parsed = traspasoSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+    try {
+      const ctx = await contextoImpuesto(req.user!);
+      const imp = await accion(req.params.id, parsed.data.motivo, ctx);
+      await audit(req, { action: 'update', resource: 'flito_impuesto', resourceId: imp.id, detail: `${etiqueta}: ${parsed.data.motivo.trim()}` });
+      await responderDetalle(res, ctx, imp);
+    } catch (e) { handleError(res, e); }
+  });
+}
 
 const motivoSchema = z.object({ motivo: z.string().min(1, 'El motivo es obligatorio') });
 
