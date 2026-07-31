@@ -48,6 +48,8 @@ const EXTRACTO = {
   porConcepto: [
     { clave: 'soat', entradas: 0, salidas: 450000, movimientos: 1 },
     { clave: 'derecho', entradas: 0, salidas: 3250000, movimientos: 1 },
+    // El gravamen es un concepto más del desglose desde la HU #11160.
+    { clave: 'gmf', entradas: 0, salidas: 14800, movimientos: 1 },
     { clave: 'sin_asignar', entradas: 5000000, salidas: 0, movimientos: 1 },
   ],
 };
@@ -198,5 +200,18 @@ test.describe('FLITO — Bolsas · movimientos', () => {
     await expect(page.getByText('Ningún movimiento cumple los filtros aplicados.')).toBeVisible();
     await page.getByRole('button', { name: 'Limpiar filtros' }).first().click();
     await expect(page.getByText('Totales de lo filtrado (3 de 3)')).toBeVisible();
+  });
+
+  // HU #11162, AC6. El extracto rotula los conceptos por índice sobre el enum compartido, así que la
+  // línea de GMF apareció sola cuando la HU #11160 lo añadió. Se fija aquí para que nadie retire el
+  // gravamen del desglose creyendo que no es un concepto «de verdad».
+  test('el GMF aparece como línea propia en el desglose por concepto', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
+    await abrirCliente(page);
+
+    const fila = page.getByRole('row').filter({ hasText: 'GMF (4x1000)' });
+    await expect(fila).toHaveCount(1);
+    await expect(fila).toContainText(/14\.800/);
   });
 });

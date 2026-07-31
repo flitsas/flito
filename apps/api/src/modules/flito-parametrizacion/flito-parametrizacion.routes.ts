@@ -196,6 +196,7 @@ async function organismoDto(codigo: string) {
     ocrPromptHint: org.flitoOcrPromptHint,
     driveFolderId: org.flitoDriveFolderId,
     driveActivo: org.flitoDriveActivo,
+    llevaBolsa: org.flitoLlevaBolsa,
   };
 }
 

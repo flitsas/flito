@@ -225,7 +225,7 @@ function Bolsas() {
 
       {/* Los trámites del organismo llegan con `companiaId`; la lista de clientes que ya tiene la
           página los convierte en nombres, en vez de pedirla otra vez desde dentro. */}
-      {tab === 'organismos' && <BolsaOrganismo clientes={clientes} />}
+      {tab === 'organismos' && <BolsaOrganismo />}
     </div>
   );
 }
