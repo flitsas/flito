@@ -56,3 +56,6 @@ export * from './flito-ocr.js';
 export * from './flito-roles.js';
 // Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.
 export * from './flito-bolsas.js';
+// Bolsa prepago que FLIT mantiene en cada Organismo de Tránsito. Es la inversa de la del cliente:
+// FLIT carga el saldo y el organismo lo consume con cada derecho de trámite.
+export * from './flito-organismo-bolsas.js';

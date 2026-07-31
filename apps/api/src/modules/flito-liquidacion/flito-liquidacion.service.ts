@@ -20,6 +20,9 @@ import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarif
 import {
   registrarSalidasLiquidacion, reversarSalidasLiquidacion, type SalidaConcepto,
 } from '../flito-bolsas/flito-bolsas.service.js';
+import {
+  registrarConsumoDerecho, reversarConsumoDerecho,
+} from '../flito-bolsas/flito-organismo-bolsas.service.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 
 export class LiquidacionError extends Error {
@@ -396,6 +399,28 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
       );
     }
 
+    // El OTRO lado del asiento (HU #11161): el derecho también consume la bolsa que FLIT mantiene en
+    // el organismo que lo emitió. Es un libro distinto del de la compañía, así que el mismo derecho
+    // deja una línea en cada uno — en el del cliente por lo que se le cobra, en el del organismo por
+    // lo que la secretaría gasta del saldo precargado.
+    //
+    // Va por el valor del derecho SIN GMF (AC4): el gravamen ya viene incluido en el total del
+    // comprobante que emite el organismo. Y no depende de la compañía: un cliente autogestionado
+    // consume la bolsa del organismo igual, porque el derecho se cobra siempre.
+    if (ids?.derechoOrganismo != null && calculo.derecho.valor !== null && calculo.derecho.valor > 0) {
+      await registrarConsumoDerecho(
+        tx,
+        {
+          organismoCodigo: ids.derechoOrganismo,
+          tramiteId,
+          valor: calculo.derecho.valor,
+          fecha: fechaContable(),
+          llave: `tramite:${tramiteId}:derecho`,
+        },
+        { userId: usuarioId, nombre: 'sistema' },
+      );
+    }
+
     return aDto(fila, calculo.idFlit);
   });
   return dto;
@@ -434,6 +459,9 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
     // Devuelve a la bolsa lo descontado por este sellado y libera las llaves, para que volver a
     // liquidar vuelva a cobrar (HU #11122, AC5).
     await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
+    // Y lo mismo del otro lado: el organismo recupera el saldo que le consumió este derecho
+    // (HU #11161, AC9). Es un no-op si el organismo no lleva bolsa.
+    await reversarConsumoDerecho(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
     await tx.delete(flitoLiquidaciones).where(eq(flitoLiquidaciones.id, l.id));
   });
 }

@@ -55,7 +55,7 @@ export class BolsaError extends Error {
 }
 
 /** Transacción drizzle o el `db` raíz: ambos exponen select/insert/update. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /** Se consulta indistintamente dentro de una transacción o fuera de ella. */
 type DbOrTx = typeof db | Tx;
 
@@ -109,14 +109,17 @@ interface DatosMovimiento {
 const DOS_DECIMALES = 100;
 
 /** Techo de `numeric(14,2)`: 12 dígitos enteros. */
-const TOPE_NUMERIC = 999_999_999_999.99;
+// Exportados porque la bolsa del organismo (HU #11161) lleva su propio libro con las MISMAS reglas
+// de redondeo, tope, fecha contable y periodo. Duplicarlos allí sería garantizar que un día los dos
+// libros imputen el mismo movimiento a meses distintos.
+export const TOPE_NUMERIC = 999_999_999_999.99;
 
 /** Redondea a pesos con dos decimales: numeric(14,2) no admite más y el flotante arrastra ruido. */
-function redondear(n: number): number {
+export function redondear(n: number): number {
   return Math.round(n * DOS_DECIMALES) / DOS_DECIMALES;
 }
 
-function num(v: string | null): number {
+export function num(v: string | null): number {
   return v === null ? 0 : Number(v);
 }
 
@@ -124,14 +127,14 @@ function num(v: string | null): number {
  * Hoy en Colombia, no en UTC. Una recarga registrada a las 8 p.m. de Bogotá ya es el día siguiente
  * en UTC: fecharla así la imputaría al periodo equivocado en el cierre de fin de mes.
  */
-function hoyIso(): string {
+export function hoyIso(): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ_COLOMBIA, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date());
 }
 
 /** Periodo contable de una fecha 'YYYY-MM-DD' ya validada, sin pasar por el huso local. */
-function periodoDeFecha(fecha: string): string {
+export function periodoDeFecha(fecha: string): string {
   const [y, m, d] = fecha.split('-').map(Number);
   return periodoDe(new Date(Date.UTC(y, m - 1, d)));
 }
@@ -279,7 +282,7 @@ async function movimientoPorLlave(tx: Tx, llave: string): Promise<MovimientoBols
 }
 
 /** Violación de unicidad de Postgres. */
-function esLlaveDuplicada(e: unknown): boolean {
+export function esLlaveDuplicada(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '23505';
 }
 
@@ -288,9 +291,14 @@ function esLlaveDuplicada(e: unknown): boolean {
  * nombre de archivo largo no puede tumbar una recarga con un 22001 después de haber subido el
  * archivo (`flito_soportes.nombre_archivo` es varchar(300) y `content_type` varchar(100)).
  */
-async function insertarSoporte(tx: Tx, soporte: SoporteRecarga, ctx: CtxUsuario): Promise<string> {
+export async function insertarSoporte(
+  tx: Tx,
+  soporte: SoporteRecarga,
+  ctx: CtxUsuario,
+  tipo: string = TIPO_SOPORTE_RECARGA,
+): Promise<string> {
   const [s] = await tx.insert(flitoSoportes).values({
-    tipo: TIPO_SOPORTE_RECARGA,
+    tipo,
     nombreArchivo: soporte.nombreArchivo.slice(0, 300),
     contentType: soporte.contentType.slice(0, 100),
     storageKey: soporte.storageKey,
