@@ -613,6 +613,109 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
   return { soat: updated, anterior };
 }
 
+// ─────────────────── Traspaso de gestión: Operaciones ↔ proveedor (HU #11153) ─
+
+/**
+ * Estados en los que el traspaso tiene sentido: el registro ya salió a gestión y todavía no se
+ * pagó. `pendiente` no ha salido —para eso está el destino del envío (HU #11152)— y `pagado` ya
+ * consumió el dinero, así que cambiarle el gestor no describe nada real.
+ */
+const ESTADOS_TRASPASO_GESTION: readonly EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD];
+
+const MOTIVO_MINIMO = 5;
+
+/** Mensaje según por qué el estado no admite traspaso: el usuario necesita saber cuál de los dos es. */
+function noAdmiteTraspaso(estado: EstadoSoat): SoatError {
+  if (estado === EstadoSoat.PAGADO) {
+    return new SoatError(400, 'Este SOAT ya está pagado: su gestión no se traspasa. Si hay que rehacerlo, primero reversarlo con justificación.');
+  }
+  return new SoatError(400, `Este SOAT aún no se ha enviado a gestión (está en "${ESTADO_SOAT_LABEL[estado]}"). Elige el destino al enviarlo.`);
+}
+
+function exigirMotivo(motivo: string, accion: string): string {
+  const limpio = motivo?.trim() ?? '';
+  if (limpio.length < MOTIVO_MINIMO) throw new SoatError(400, `${accion} exige un motivo que explique el porqué`);
+  return limpio;
+}
+
+/**
+ * Operaciones asume la gestión de un SOAT que ya está con un proveedor (contingencia).
+ *
+ * NO cambia el estado ni toca `enviadoEn`: el SOAT lleva el tiempo que lleva en adquisición, y
+ * reiniciarlo escondería el retraso que justamente motivó la contingencia. Tampoco borra
+ * `proveedorSoatId` — se conserva para poder devolvérselo de un clic y para que el reporte por
+ * proveedor siga contando de quién se retomó. Quien decide la visibilidad es la bandera.
+ *
+ * Alternativa descartada: reutilizar `cambiarProveedor()`. RN-05 prohíbe cambiar de proveedor sobre
+ * un SOAT En adquisición porque dejaría el registro con un gestor sin acceso; esa prohibición sigue
+ * en pie. Esto es otra operación: no reasigna entre terceros, retira el caso de los terceros.
+ */
+export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
+  const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
+  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  const limpio = exigirMotivo(motivo, 'Asumir la gestión en Operaciones');
+  if (soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT ya lo gestiona Operaciones');
+  if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat).set({
+      gestionOperaciones: true,
+      gestionOperacionesMotivo: limpio,
+      gestionOperacionesPorId: ctx.userId,
+      gestionOperacionesEn: ahora,
+      updatedAt: ahora,
+    }).where(eq(flitoSoat.id, id)).returning();
+
+    // El estado no cambia, así que anterior y nuevo coinciden. El historial deja de ser solo de
+    // transiciones y pasa a ser de eventos del registro — que es lo que el detalle ya muestra.
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
+      motivo: `Gestión asumida por Operaciones${soat.proveedorSoatId ? ` (retomada del proveedor ${soat.proveedorSoatId})` : ''}: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
+}
+
+/**
+ * Devuelve al proveedor un SOAT que gestionaba Operaciones. Limpia las marcas de contingencia: las
+ * columnas describen la situación ACTUAL, y el rastro de lo que pasó vive en el historial.
+ */
+export async function devolverAlGestor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
+  const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
+  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  const limpio = exigirMotivo(motivo, 'Devolver la gestión al proveedor');
+  if (!soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT no lo gestiona Operaciones: no hay nada que devolver');
+  if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
+
+  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
+    .where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
+  if (!prov) throw new SoatError(404, 'El proveedor no existe');
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat).set({
+      gestionOperaciones: false,
+      gestionOperacionesMotivo: null,
+      gestionOperacionesPorId: null,
+      gestionOperacionesEn: null,
+      proveedorSoatId,
+      proveedorSobrescrito: true,
+      updatedAt: ahora,
+    }).where(eq(flitoSoat.id, id)).returning();
+
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
+      motivo: `Gestión devuelta al proveedor ${proveedorSoatId}: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
+}
+
 // ═══════════════════════ Carga de factura → Pagado (Fase 3, RN-03) ═══════════
 // La factura validada por OCR es la ÚNICA vía a `Pagado` (RN-03): no hay marca manual. El estado es
 // consecuencia del soporte, no de un clic. Porta packages/server/src/soat/soat.servicio.ts sobre el

@@ -12,7 +12,8 @@ import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
-  cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat, facetasCola, detalle, enviarAlGestor,
+  asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
+  devolverAlGestor, facetasCola, detalle, enviarAlGestor,
   reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -195,6 +196,39 @@ router.post('/:id/proveedor', OPERACIONES, async (req: Request, res: Response) =
     const ctx = await contextoSoat(req.user!);
     const { soat, anterior } = await cambiarProveedor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Cambio de proveedor ${anterior ?? '—'} → ${parsed.data.proveedorSoatId}: ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, soat);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/asumir-operaciones y POST /:id/devolver-gestor — traspaso de gestión por contingencia
+// (HU #11153). Solo Operaciones, motivo ≥5 como en la reversa: es la misma clase de decisión, una
+// excepción que alguien tendrá que poder explicar después.
+//
+// Son el ÚNICO camino sancionado para la contingencia sobre un SOAT ya enviado. `/:id/proveedor`
+// sigue prohibiendo el salto de proveedor a proveedor En adquisición (RN-05) y no se toca: aquello
+// reasigna entre terceros, esto retira el caso de los terceros.
+const traspasoSchema = z.object({
+  motivo: z.string().min(5, 'El traspaso de gestión exige un motivo que explique el porqué'),
+});
+router.post('/:id/asumir-operaciones', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = traspasoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoSoat(req.user!);
+    const soat = await asumirEnOperaciones(req.params.id, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Gestión asumida por Operaciones (proveedor de origen ${soat.proveedorSoatId ?? '—'}): ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, soat);
+  } catch (e) { handleError(res, e); }
+});
+
+const devolverSchema = traspasoSchema.extend({ proveedorSoatId: z.string().uuid() });
+router.post('/:id/devolver-gestor', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = devolverSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoSoat(req.user!);
+    const soat = await devolverAlGestor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Gestión devuelta al proveedor ${parsed.data.proveedorSoatId}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }
 });
