@@ -6,6 +6,8 @@ const bytea = customType<{ data: Buffer; driverData: Buffer }>({
 import { sql } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+// Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
+import type { ComparacionCampo } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -2598,6 +2600,48 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+}));
+
+/**
+ * Certificación de un impuesto contra el RUNT (Feature #11159, HU #11164).
+ *
+ * Una fila por INTENTO exitoso de certificación, no una por impuesto: recertificar (RN-10) apaga la
+ * anterior con `vigente = false` y escribe otra. El historial completo importa porque el certificado
+ * es evidencia frente a una auditoría, y «cuándo se verificó y contra qué respondió el RUNT» es
+ * justo lo que se le pregunta a una evidencia.
+ *
+ * `snapshot_runt` guarda la respuesta cruda para poder regenerar el certificado sin volver a
+ * consultar (RN-11: el PDF se genera en caliente, pero desde este snapshot, no desde el RUNT). Es la
+ * razón por la que la certificación se persiste aunque el PDF no.
+ *
+ * Los intentos FALLIDOS no se persisten: una discrepancia o un error de servicio no dejan fila
+ * (RN-06, RN-07). El registro conserva su certificación anterior, si la tenía.
+ */
+export const flitoImpuestoCertificaciones = pgTable('flito_impuesto_certificaciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  impuestoId: uuid('impuesto_id').notNull().references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
+  /** Solo una certificación vigente por impuesto — lo garantiza un índice único parcial en la migración. */
+  vigente: boolean('vigente').notNull().default(true),
+  /**
+   * Placa y documento con los que se autenticó la consulta. El documento NO es un dato decorativo:
+   * es la prueba de propiedad (RN-02). Que el RUNT respondiera OK a esta pareja es lo que certifica
+   * que ese documento es el del propietario registrado, y por eso viaja al certificado.
+   */
+  placaConsultada: varchar('placa_consultada', { length: 10 }).notNull(),
+  documentoConsultado: varchar('documento_consultado', { length: 30 }).notNull(),
+  /** Código RUNT del tipo de documento que resolvió la consulta ('C', 'E', …). Lo devuelve el RUNT. */
+  tipoDocPropietario: varchar('tipo_doc_propietario', { length: 5 }),
+  /** Resultado por campo (`ComparacionCampo[]`): qué se comparó, con qué valores y si bloqueaba. */
+  campos: jsonb('campos').$type<ComparacionCampo[]>().notNull(),
+  /** Respuesta cruda del RUNT. Contiene PII → sujeto a la política de retención de privacidad. */
+  snapshotRunt: jsonb('snapshot_runt'),
+  certificadoPorId: integer('certificado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  // Se copia el nombre además del id: si el usuario se borra, el certificado debe seguir diciendo
+  // quién lo emitió. Mismo criterio que `flito_soportes.subido_por_nombre`.
+  certificadoPorNombre: varchar('certificado_por_nombre', { length: 150 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  impuestoIdx: index('idx_flito_imp_cert_impuesto').on(t.impuestoId, t.createdAt),
 }));
 
 // Comprador(es) del vehículo. Múltiple propietario → varias filas (orden 0 = principal).
