@@ -44,6 +44,8 @@ function organismoParaPanel(r: Fila): Organismo {
     codigo: r.codigo, nombre: r.alias ?? r.nombre ?? r.codigo, alias: r.alias, activo: r.activo,
     modalidadVigente: ModalidadOrganismo.AUTOGESTIONADO,
     umbralOcr: null, slaHoras: null, diferenciaValorActiva: false, tramitesRetenidos: 0,
+    // Por defecto apagada: un organismo del catálogo sin config sembrada no opera prepago.
+    llevaBolsa: false,
   };
 }
 

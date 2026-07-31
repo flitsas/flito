@@ -9,7 +9,7 @@ import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
-  flitoOrganismoPagos, flitoSoportes, flitoTramites,
+  flitoSoportes, flitoTramites,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
@@ -17,16 +17,13 @@ import {
   type AlertasConciliacion,
   type BolsaConRiesgo,
   type BolsaDto,
-  type BolsaSimbolicaOrganismo,
   type CierreDto,
   CLAVE_AGRUPACION_SIN_ASIGNAR,
   type ConceptoBolsa,
   type ExtractoCliente,
   type LineaAgrupada,
-  type LineaOrganismo,
   type MovimientoBolsaDto,
   NIVEL_RIESGO_BOLSA_LABEL,
-  type PagoOrganismoDto,
   nivelRiesgoDe,
   NivelRiesgoBolsa,
   type OrigenMovimientoBolsa,
@@ -34,16 +31,14 @@ import {
   porcentajeSaldo,
   type SaldoConsolidado,
   type TipoMovimientoBolsa,
-  type TramiteOrganismoDto,
 } from '@operaciones/shared-types';
 
 // Las formas que devuelve este servicio viven en shared-types: la web las pinta tal cual y
 // redeclararlas allí sería garantizar que un día divergen (mismo motivo por el que `nivelRiesgoDe`
 // está compartido). Se re-exportan para no tocar a los importadores que ya las traían de aquí.
 export type {
-  AlertaBolsa, AlertasConciliacion, BolsaConRiesgo, BolsaSimbolicaOrganismo, CierreDto,
-  ExtractoCliente, LineaAgrupada, LineaOrganismo, PagoOrganismoDto, SaldoConsolidado,
-  TramiteOrganismoDto,
+  AlertaBolsa, AlertasConciliacion, BolsaConRiesgo, CierreDto,
+  ExtractoCliente, LineaAgrupada, SaldoConsolidado,
 };
 
 /** Error de negocio: lo traduce la capa HTTP a 400/409, no al error handler genérico. */
@@ -967,154 +962,6 @@ export async function extractoDe(companiaId: number, periodo?: string): Promise<
     porOrganismo,
     porConcepto,
   };
-}
-
-/**
- * Estado de cuenta de un organismo (AC2). NO tiene saldo real: es la diferencia entre lo que se
- * cobró a los clientes por su cuenta y lo que FLIT ya le pagó.
- *
- * Solo cuentan las SALIDAS: una entrada con organismo sería un contramovimiento de reverso, y
- * sumarla como «cobrado» inflaría la deuda con el organismo. Por eso se restan.
- */
-export async function bolsaSimbolicaDe(organismoCodigo: string): Promise<BolsaSimbolicaOrganismo> {
-  const [filas, pagos] = await Promise.all([
-    db.select({
-      concepto: flitoBolsaMovimientos.concepto,
-      salidas: sql<string>`coalesce(sum(case when ${flitoBolsaMovimientos.tipo} = 'salida' then ${flitoBolsaMovimientos.valor} else -${flitoBolsaMovimientos.valor} end), 0)`,
-      movimientos: sql<number>`count(*)::int`,
-    })
-      .from(flitoBolsaMovimientos)
-      .where(eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo))
-      .groupBy(flitoBolsaMovimientos.concepto),
-    db.select({
-      total: sql<string>`coalesce(sum(${flitoOrganismoPagos.valor}), 0)`,
-    })
-      .from(flitoOrganismoPagos)
-      .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo)),
-  ]);
-
-  const porConcepto: LineaOrganismo[] = filas.map((f) => ({
-    concepto: f.concepto ?? 'sin_concepto',
-    cobrado: redondear(num(f.salidas)),
-    movimientos: f.movimientos,
-  }));
-  const totalCobrado = redondear(porConcepto.reduce((a, l) => a + l.cobrado, 0));
-  const totalPagado = redondear(num(pagos[0]?.total ?? '0'));
-
-  return {
-    organismoCodigo,
-    porConcepto,
-    totalCobrado,
-    totalPagado,
-    saldoPendiente: redondear(totalCobrado - totalPagado),
-  };
-}
-
-/** Historial de pagos de FLIT al organismo, del más reciente al más antiguo (AC2). */
-export async function pagosDeOrganismo(organismoCodigo: string): Promise<PagoOrganismoDto[]> {
-  const filas = await db
-    .select()
-    .from(flitoOrganismoPagos)
-    .where(eq(flitoOrganismoPagos.organismoCodigo, organismoCodigo))
-    .orderBy(desc(flitoOrganismoPagos.fecha), desc(flitoOrganismoPagos.createdAt));
-
-  return filas.map((p) => ({
-    id: p.id,
-    valor: num(p.valor),
-    fecha: p.fecha,
-    observacion: p.observacion,
-    soporteId: p.soporteId,
-    registradoPorNombre: p.registradoPorNombre,
-    createdAt: aIso(p.createdAt) ?? '',
-  }));
-}
-
-/**
- * Trámites que originaron el cobro del organismo, con su soporte (AC2).
- *
- * Solo salidas automáticas: son las que representan un desembolso al organismo. Un ajuste manual
- * imputado a ese organismo es una corrección de FLIT, no un cobro suyo, y mezclarlo aquí haría creer
- * que el organismo facturó algo que nunca facturó.
- */
-export async function tramitesDeOrganismo(
-  organismoCodigo: string,
-  limite = 200,
-): Promise<TramiteOrganismoDto[]> {
-  const filas = await db
-    .select({
-      tramiteId: flitoBolsaMovimientos.tramiteId,
-      idFlit: flitoTramites.idFlit,
-      companiaId: flitoBolsaMovimientos.companiaId,
-      concepto: flitoBolsaMovimientos.concepto,
-      valor: flitoBolsaMovimientos.valor,
-      fecha: flitoBolsaMovimientos.fecha,
-      soporteId: flitoBolsaMovimientos.soporteId,
-    })
-    .from(flitoBolsaMovimientos)
-    .leftJoin(flitoTramites, eq(flitoBolsaMovimientos.tramiteId, flitoTramites.id))
-    .where(and(
-      eq(flitoBolsaMovimientos.organismoCodigo, organismoCodigo),
-      eq(flitoBolsaMovimientos.origen, 'automatico'),
-      eq(flitoBolsaMovimientos.tipo, 'salida'),
-    ))
-    .orderBy(desc(flitoBolsaMovimientos.fecha))
-    .limit(Math.min(limite, 500));
-
-  return filas
-    .filter((f): f is typeof f & { tramiteId: string } => f.tramiteId !== null)
-    .map((f) => ({
-      tramiteId: f.tramiteId,
-      idFlit: f.idFlit,
-      companiaId: f.companiaId,
-      concepto: f.concepto,
-      valor: num(f.valor),
-      fecha: f.fecha,
-      soporteId: f.soporteId,
-    }));
-}
-
-export interface DatosPagoOrganismo {
-  valor: number;
-  fecha?: string;
-  observacion?: string | null;
-  soporte?: SoporteRecarga | null;
-}
-
-/**
- * Registra un pago de FLIT al organismo (AC3). Baja su pendiente y **no toca** la bolsa de ningún
- * cliente: es dinero de FLIT, no del saldo prepago.
- */
-export async function registrarPagoOrganismo(
-  organismoCodigo: string,
-  datos: DatosPagoOrganismo,
-  ctx: CtxUsuario,
-): Promise<{ id: string; saldoPendiente: number }> {
-  const valor = redondear(datos.valor);
-  if (!Number.isFinite(valor) || valor <= 0) {
-    throw new BolsaError('El valor del pago debe ser mayor que cero');
-  }
-  if (valor > TOPE_NUMERIC) throw new BolsaError('El valor del pago excede el máximo admitido');
-
-  const fecha = parseFechaQuery(datos.fecha ?? hoyIso());
-  if (fecha === null) throw new BolsaError('La fecha del pago no es válida');
-  if (fecha > hoyIso()) throw new BolsaError('La fecha del pago no puede ser futura');
-
-  const id = await db.transaction(async (tx) => {
-    const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
-    const [fila] = await tx.insert(flitoOrganismoPagos).values({
-      organismoCodigo,
-      valor: String(valor),
-      fecha,
-      observacion: datos.observacion?.trim() ? datos.observacion.trim() : null,
-      soporteId,
-      registradoPorId: ctx.userId,
-      registradoPorNombre: ctx.nombre.slice(0, 150),
-    }).returning({ id: flitoOrganismoPagos.id });
-    return fila.id;
-  });
-
-  const { saldoPendiente } = await bolsaSimbolicaDe(organismoCodigo);
-  return { id, saldoPendiente };
 }
 
 // ─────────────── Nivel de riesgo del saldo y alertas (HU #11125) ─────────────
