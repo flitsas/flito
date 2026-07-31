@@ -6,7 +6,7 @@ import ErrorBoundary from './ErrorBoundary';
 import { prefetchCoreRoutes } from '../lib/prefetchCoreRoutes';
 
 // Layout FLIT 2026 — AppShell sin sidebar (decisión PO 2026-06-12): topbar +
-// FlitNavBar horizontal en desktop, drawer en mobile. El CommandPalette (⌘K)
+// FlitNavBar (dock flotante al pie) en desktop, drawer en mobile. El CommandPalette (⌘K)
 // se CONSERVA como atajo de poder. La lógica de rutas/permisos no cambia.
 export default function Layout() {
   const [paletteOpen, setPaletteOpen] = useState(false);

@@ -1,16 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
-import { effectivePages } from '../../lib/permissions';
 import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
-import {
-  NAV_ITEMS, SECTION_LABEL, SECTION_ORDER, activeSectionForPath, type NavItem,
-} from '../shell/navItems';
-import {
-  IconHome, IconClipboard, IconRoad, IconTruck, IconWrench, IconShield,
-  IconPackage, IconScale, IconCog, IconClose, IconDot, IconChevronDown,
-  type IconProps,
-} from './icons';
+import { SECTION_LABEL, SECTION_ORDER, type NavItem } from '../shell/navItems';
+import { useNavSections } from '../shell/useNavSections';
+import { SECTION_ICON } from '../shell/sectionMeta';
+import { IconShield, IconClose, IconDot, IconChevronDown } from './icons';
 import ModalPortal from './ModalPortal';
 
 // FlitSidebar — drawer de navegación MOBILE (off-canvas, gradiente FLIT).
@@ -21,19 +16,6 @@ import ModalPortal from './ModalPortal';
 // La navegación se filtra por permisos con EXACTAMENTE la misma lógica que
 // CommandPalette/FlitNavBar (effectivePages → NAV_ITEMS.filter). No se altera
 // `allowedPages` ni `ProtectedRoute`.
-
-const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
-  general: IconHome,
-  gestion: IconClipboard,
-  transito: IconRoad,
-  flota: IconTruck,
-  mantenimiento: IconWrench,
-  pesv: IconShield,
-  rndc: IconPackage,
-  laft: IconScale,
-  finanzas: IconScale,
-  admin: IconCog,
-};
 
 const SIDEBAR_OPEN_KEY = 'flit-sidebar-open-sections';
 
@@ -56,25 +38,8 @@ interface FlitSidebarProps {
 
 export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
   const { user } = useAuth();
-  const { pathname } = useLocation();
-  const allowed = useMemo(() => effectivePages(user), [user]);
-
-  const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))),
-    [allowed],
-  );
-
-  // Agrupar items permitidos por sección, respetando SECTION_ORDER.
-  const grouped = useMemo(() => {
-    return SECTION_ORDER
-      .map((section) => ({ section, items: visibleItems.filter((it) => it.section === section) }))
-      .filter((g) => g.items.length > 0);
-  }, [visibleItems]);
-
-  const routeSection = useMemo(
-    () => activeSectionForPath(pathname, visibleItems),
-    [pathname, visibleItems],
-  );
+  // Mismo filtrado por permisos que la barra horizontal y la CommandPalette.
+  const { grouped, routeSection } = useNavSections();
 
   const [openSections, setOpenSections] = useState<Set<NavItem['section']>>(() => {
     // Admin: todas las secciones visibles por defecto (superusuario debe ver el catálogo

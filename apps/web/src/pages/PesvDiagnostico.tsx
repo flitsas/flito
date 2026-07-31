@@ -224,7 +224,8 @@ function DetalleDiagnostico({ id }: { id: number }) {
         </div>
       )}
 
-      {/* top-16 = topbar (<lg); en lg+ se suma --flit-navbar-height (FlitNavBar sticky). */}
+      {/* top-16 = topbar (<lg); en lg+ se suma --flit-navbar-height, hoy 0px:
+          la navegación es un dock al pie y no reserva franja superior. */}
       <header className="sticky top-16 z-10 mb-6 bg-white p-5 lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height))]" style={CARD}>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

@@ -64,11 +64,12 @@
   --flit-input-height: 48px;
   --flit-button-height: 56px;
   --flit-topbar-height: 64px;
-  /* Altura por construcción del FlitNavBar (solo lg+): triggers h-9 (36px)
-     + my-1.5 arriba/abajo (6px + 6px) = 48px. Si la barra envuelve a 2 filas
-     en lg justos, la altura real será mayor — los offsets sticky que consumen
-     este token quedarían cortos; ver nota en FlitNavBar.tsx. */
-  --flit-navbar-height: 48px;
+  /* Alto que la navegación reserva BAJO el topbar. Desde que FlitNavBar es un
+     dock `fixed` al pie (HU #11143) no reserva ninguno: los offsets sticky que
+     suman este token (PesvDiagnostico, TramiteWizardShell) quedan pegados al
+     topbar, que es lo correcto. Se conserva el token para no reescribir esos
+     calc() y para que reponer una franja superior sea cambiar un valor. */
+  --flit-navbar-height: 0px;
 
   /* Sombras */
   --flit-shadow-card: 0 8px 24px rgba(22, 39, 68, 0.08);
