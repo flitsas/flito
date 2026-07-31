@@ -13,8 +13,9 @@ import { historialDe } from '../../shared/historial/estado-historial.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { EstadoImpuesto } from '@operaciones/shared-types';
+import { EstadoImpuesto, ResultadoCertificacion } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import { certificarImpuesto } from './certificacion.service.js';
 import {
   colaImpuestos, facetasColaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
@@ -169,6 +170,60 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
   res.json(await historialDe('impuesto', req.params.id));
+});
+
+/**
+ * POST /:id/certificar — contrasta el vehículo contra el RUNT y, si cuadra, deja el impuesto
+ * certificado (HU #11165). Operaciones o gestor.
+ *
+ * Cinco desenlaces con código propio en el cuerpo, porque el gestor actúa distinto ante cada uno:
+ *
+ *   200 certificado                       → verificado, ya puede descargar el certificado
+ *   409 con_diferencias                   → hay un dato malo; corregir y reintentar
+ *   409 no_elegible                       → no aplica (estado, o falta placa/documento)
+ *   409 traspaso_en_sincronizacion        → el RUNT aún no reconoce al propietario; esperar
+ *   502 error_servicio                    → el RUNT no respondió; reintentar más tarde
+ *
+ * Los tres 409 comparten código HTTP porque todos son «el registro no está como para certificar
+ * ahora», pero el campo `code` los separa sin ambigüedad: la interfaz NO debe distinguirlos por el
+ * texto del mensaje.
+ */
+router.post('/:id/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const r = await certificarImpuesto(req.params.id, ctx);
+
+    switch (r.resultado) {
+      case ResultadoCertificacion.CERTIFICADO:
+        await audit(req, {
+          action: 'update', resource: 'flito_impuesto', resourceId: req.params.id,
+          detail: `Certificado contra RUNT (placa ${r.certificacion.placaConsultada})`,
+        });
+        res.json({ code: r.resultado, certificacion: r.certificacion });
+        return;
+
+      case ResultadoCertificacion.CON_DIFERENCIAS:
+        res.status(409).json({
+          code: r.resultado,
+          error: 'Los datos del registro no coinciden con lo que reporta el RUNT.',
+          campos: r.campos,
+          diferenciasBloqueantes: r.diferenciasBloqueantes,
+        });
+        return;
+
+      case ResultadoCertificacion.NO_ELEGIBLE:
+        res.status(409).json({ code: r.resultado, error: r.mensaje, motivo: r.motivo });
+        return;
+
+      case ResultadoCertificacion.TRASPASO_EN_SINCRONIZACION:
+        res.status(409).json({ code: r.resultado, error: r.mensaje });
+        return;
+
+      case ResultadoCertificacion.ERROR_SERVICIO:
+        res.status(502).json({ code: r.resultado, error: r.mensaje });
+        return;
+    }
+  } catch (e) { handleError(res, e); }
 });
 
 // POST /enviar — Pendiente → En gestión, atómico (CA-04). Solo Operaciones.
