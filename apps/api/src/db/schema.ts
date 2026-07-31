@@ -2491,6 +2491,20 @@ export const flitoSoat = pgTable('flito_soat', {
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
   proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
   proveedorSobrescrito: boolean('proveedor_sobrescrito').notNull().default(false),
+  /**
+   * true = la gestión de este SOAT la asume Operaciones en vez de un proveedor (HU #11152,
+   * Feature #11150). Es la contingencia: no hay proveedor que atienda el caso, o el que lo tenía
+   * no puede.
+   *
+   * NO confundir con `excepcionAutogestion` ni con `clients.soatAutogestionable`: esos dicen que la
+   * COMPAÑÍA se lo gestiona sola y el SOAT ni siquiera debería estar en la cola. Este dice quién
+   * dentro de FLITO lo trabaja, y es lo único que decide si el proveedor lo sigue viendo — no el
+   * valor de `proveedorSoatId`, que se conserva para poder devolvérselo.
+   */
+  gestionOperaciones: boolean('gestion_operaciones').notNull().default(false),
+  gestionOperacionesMotivo: text('gestion_operaciones_motivo'),
+  gestionOperacionesPorId: integer('gestion_operaciones_por_id').references(() => users.id),
+  gestionOperacionesEn: timestamp('gestion_operaciones_en', { withTimezone: true }),
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),
@@ -2585,6 +2599,15 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   // ciclo con flito_soportes, igual que en el modelo original).
   facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
   extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  /**
+   * Gemelo del de `flito_soat` (HU #11152 trae la columna; #11155 la usa). Aquí pesa más: el
+   * destinatario del impuesto no es un proveedor sino el gestor de `organismo_codigo`, así que esta
+   * bandera es lo ÚNICO que puede sacarlo de su cola y evitar que se pague dos veces.
+   */
+  gestionOperaciones: boolean('gestion_operaciones').notNull().default(false),
+  gestionOperacionesMotivo: text('gestion_operaciones_motivo'),
+  gestionOperacionesPorId: integer('gestion_operaciones_por_id').references(() => users.id),
+  gestionOperacionesEn: timestamp('gestion_operaciones_en', { withTimezone: true }),
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),

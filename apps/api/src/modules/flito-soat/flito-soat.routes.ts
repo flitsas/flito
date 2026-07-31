@@ -117,20 +117,29 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.
-// El proveedor pasa a ser OBLIGATORIO (HU #10979). Antes podía omitirse y lo resolvía la regla de
-// enrutamiento pre-asignada en la sincronización; sin esas reglas, omitirlo dejaría el SOAT en la
-// cola de nadie y sin SLA con el que medirlo.
+//
+// Hay que nombrar un destino, y solo uno: un proveedor, o Operaciones. El proveedor se volvió
+// obligatorio en la HU #10979 porque omitirlo dejaba el SOAT en la cola de nadie y sin ANS con el
+// que medirlo. Ese riesgo sigue vigente, así que la contingencia (HU #11152) no relaja la regla:
+// añade el otro destino, también explícito. Marcar los dos —o ninguno— es un 400, porque un envío
+// sin dueño claro es justo lo que ninguna de las dos HU quiere.
 const enviarSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
-  proveedorSoatId: z.string().uuid({ message: 'Elige el proveedor al que se envía' }),
-});
+  proveedorSoatId: z.string().uuid().optional(),
+  gestionOperaciones: z.boolean().optional(),
+}).refine(
+  (d) => Boolean(d.proveedorSoatId) !== Boolean(d.gestionOperaciones),
+  { message: 'Elige el proveedor al que se envía, o marca que lo gestiona Operaciones. Una de las dos, no ambas.' },
+);
 router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  const { ids, proveedorSoatId, gestionOperaciones } = parsed.data;
   const ctx = await contextoSoat(req.user!);
-  const resultado = await enviarAlGestor(parsed.data.ids, ctx, parsed.data.proveedorSoatId);
+  const resultado = await enviarAlGestor(ids, ctx, { proveedorSoatId, gestionOperaciones });
   if (resultado.enviados.length > 0) {
-    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: resultado.enviados.join(','), detail: `Enviados al gestor: ${resultado.enviados.length} (pendiente→en_adquisicion)` });
+    const destino = gestionOperaciones ? 'gestión de Operaciones' : `proveedor ${proveedorSoatId}`;
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: resultado.enviados.join(','), detail: `Enviados a ${destino}: ${resultado.enviados.length} (pendiente→en_adquisicion)` });
   }
   res.json(resultado);
 });
