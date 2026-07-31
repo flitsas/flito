@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS flito_bolsa_movimientos (
   origen                  varchar(20) NOT NULL,   -- 'recarga' | 'automatico' | 'manual'
   -- Las cuatro columnas siguientes son NULL en una recarga: el dinero entra a la bolsa del cliente
   -- sin pasar por un organismo ni por un trámite. Las llenan las salidas de la HU #11122.
-  concepto                varchar(30),            -- 'derecho' | 'soat' | 'impuesto' | 'tramite_digital' | 'logistica'
+  concepto                varchar(30),            -- 'derecho' | 'soat' | 'impuesto' | 'tramite_digital' | 'logistica' | 'gmf' (HU #11160)
   organismo_codigo        varchar(5) REFERENCES organismos_transito_config(codigo),
   tramite_id              uuid REFERENCES flito_tramites(id) ON DELETE SET NULL,
   -- El valor es SIEMPRE positivo; la dirección la da `tipo`. Guardar salidas en negativo obligaría

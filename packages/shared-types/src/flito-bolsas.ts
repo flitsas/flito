@@ -27,8 +27,13 @@ export const OrigenMovimientoBolsa = {
 export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof OrigenMovimientoBolsa];
 
 /**
- * Conceptos que consumen bolsa. Coinciden con los cinco que sella la liquidación
+ * Conceptos que consumen bolsa. Los cinco primeros coinciden con los que sella la liquidación
  * (`flito_liquidaciones`), que es la fuente del valor de cada salida.
+ *
+ * `gmf` es el sexto y no es un concepto del tarifario: es el gravamen del 4x1000 que la liquidación
+ * calcula sobre la suma de los otros cinco. Consume bolsa igual que ellos porque al cliente se le
+ * factura el total CON gravamen (HU #11160); si no se descontara, el saldo mostraría un 0,4 % de
+ * más en cada trámite. No lleva organismo: es un gravamen, no un desembolso a una secretaría.
  */
 export const ConceptoBolsa = {
   DERECHO: 'derecho',
@@ -36,6 +41,7 @@ export const ConceptoBolsa = {
   IMPUESTO: 'impuesto',
   TRAMITE_DIGITAL: 'tramite_digital',
   LOGISTICA: 'logistica',
+  GMF: 'gmf',
 } as const;
 
 export type ConceptoBolsa = (typeof ConceptoBolsa)[keyof typeof ConceptoBolsa];
@@ -46,6 +52,7 @@ export const CONCEPTO_BOLSA_LABEL: Record<ConceptoBolsa, string> = {
   impuesto: 'Impuesto',
   tramite_digital: 'Trámite digital',
   logistica: 'Logística',
+  gmf: 'GMF (4x1000)',
 };
 
 /** Bolsa de un cliente con su saldo vigente. */

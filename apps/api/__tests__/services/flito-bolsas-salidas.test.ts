@@ -168,7 +168,12 @@ const consultaMovimientos: Resolver = () => {
   return fila ? [fila] : [];
 };
 
-/** Las cinco llaves del sellado, en el orden en que `salidasDe` las construye. */
+/**
+ * Las seis llaves del sellado, en el orden en que `salidasDe` las construye.
+ *
+ * El GMF va el último a propósito (HU #11160): las salidas se asientan en serie, así que el orden de
+ * esta lista es el del libro y el `saldo_resultante` de la última línea tiene que ser el saldo final.
+ */
 function llavesDelSellado(): string[] {
   return [
     `salida:soat:${SOAT_ID}`,
@@ -176,6 +181,7 @@ function llavesDelSellado(): string[] {
     `salida:tramite:${TRAMITE}:derecho`,
     `salida:tramite:${TRAMITE}:tramite_digital`,
     `salida:tramite:${TRAMITE}:logistica`,
+    `salida:tramite:${TRAMITE}:gmf`,
   ];
 }
 
@@ -270,37 +276,60 @@ const entradasEscritas = () => insertsEn('flito_bolsa_movimientos').filter((m) =
 
 // ─────────────────────────── AC1 ─────────────────────────────────────────────
 
-describe('liquidar — AC1: sellar descuenta los cinco conceptos de la bolsa', () => {
+describe('liquidar — AC1: sellar descuenta los cinco conceptos y el GMF de la bolsa', () => {
   it('asienta una salida por concepto, con su valor sellado y su trámite', async () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
     const salidas = salidasEscritas();
-    expect(salidas.map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica']);
-    expect(salidas.map((s) => s.valor)).toEqual(['450000', '120000', '80000', '200000', '15000']);
+    expect(salidas.map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
+    expect(salidas.map((s) => s.valor)).toEqual(['450000', '120000', '80000', '200000', '15000', '3460']);
     // Todas cuelgan del trámite: es lo que permite reversarlas juntas y explicar el consumo.
     expect(salidas.every((s) => s.tramiteId === TRAMITE)).toBe(true);
     expect(salidas.every((s) => s.origen === 'automatico')).toBe(true);
   });
 
-  it('el saldo baja por la suma de los cinco y cada asiento parte del que dejó el anterior', async () => {
+  it('el saldo baja por la suma de los seis y cada asiento parte del que dejó el anterior', async () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    // 1.000.000 − 450.000 − 120.000 − 80.000 − 200.000 − 15.000. Que la cadena sea correcta es lo
-    // que hace fiable el extracto: cada línea muestra el saldo real tras aplicarse.
+    // 1.000.000 − 450.000 − 120.000 − 80.000 − 200.000 − 15.000 − 3.460. Que la cadena sea correcta
+    // es lo que hace fiable el extracto: cada línea muestra el saldo real tras aplicarse.
     expect(salidasEscritas().map((s) => s.saldoResultante))
-      .toEqual(['550000', '430000', '350000', '150000', '135000']);
-    expect(saldoBolsa).toBe(135000);
+      .toEqual(['550000', '430000', '350000', '150000', '135000', '131540']);
+    expect(saldoBolsa).toBe(131540);
   });
 
-  it('el GMF no consume bolsa: solo salen los cinco conceptos', async () => {
-    // La liquidación total son 868.460 (865.000 + 3.460 de gravamen), pero el gravamen no es un
-    // desembolso que FLIT haga por el cliente, así que no se descuenta de su saldo prepago.
+  it('el GMF consume bolsa: la salida vale lo que la liquidación selló como gravamen', async () => {
+    // HU #11160 invierte la decisión original de la #11122. Al cliente se le factura el total CON
+    // gravamen (868.460 = 865.000 + 3.460), así que dejarlo fuera de la bolsa hacía que el saldo
+    // mostrase un 0,4 % de más en cada trámite.
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    expect(1_000_000 - saldoBolsa).toBe(865000);
+    expect(1_000_000 - saldoBolsa).toBe(868460);
+    const gmf = salidasEscritas().find((s) => s.concepto === 'gmf');
+    expect(gmf?.valor).toBe('3460');
+  });
+
+  it('la salida de GMF es la última del libro y deja el saldo final', async () => {
+    // AC2: el orden importa porque los asientos van en serie. Si el gravamen no fuera el último, el
+    // saldo_resultante de la última línea no sería el saldo real de la bolsa.
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+
+    const ultima = salidasEscritas().at(-1);
+    expect(ultima?.concepto).toBe('gmf');
+    expect(ultima?.saldoResultante).toBe(String(saldoBolsa));
+  });
+
+  it('el GMF no lleva organismo: es un gravamen, no un desembolso a una secretaría', async () => {
+    // AC6. El extracto por organismo agrupa por `organismoCodigo`, así que una línea con organismo
+    // nulo nunca puede aterrizar en la cuenta de un Organismo de Tránsito.
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+
+    expect(salidasEscritas().find((s) => s.concepto === 'gmf')?.organismoCodigo).toBeNull();
   });
 
   it('la salida no toca la última recarga de la bolsa', async () => {
@@ -328,21 +357,24 @@ describe('liquidar — AC1: sellar descuenta los cinco conceptos de la bolsa', (
 // ─────────────────────────── AC2 ─────────────────────────────────────────────
 
 describe('liquidar — AC2: lo que la compañía autogestiona no consume bolsa', () => {
-  it('SOAT y logística autogestionados → solo tres salidas', async () => {
+  it('SOAT y logística autogestionados → tres salidas más el gravamen', async () => {
     // `valor: null` significa «no aplica», no cero: si generaran salida de 0, el extracto mostraría
     // un consumo que nunca ocurrió (y el asiento fallaría por valor no positivo).
     escenarioSellado({ soatAutogestionable: true, logisticaAutogestionable: true });
     await liquidar(TRAMITE, 9);
 
-    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['impuesto', 'derecho', 'tramite_digital']);
-    expect(saldoBolsa).toBe(1_000_000 - (120000 + 80000 + 200000));
+    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['impuesto', 'derecho', 'tramite_digital', 'gmf']);
+    // El gravamen se calcula sobre lo que SÍ aplica: 400.000 × 0,004 = 1.600. Lo autogestionado no
+    // entra a la base, que es lo que hace que una compañía como Renting pague un GMF proporcional.
+    const base = 120000 + 80000 + 200000;
+    expect(saldoBolsa).toBe(1_000_000 - base - 1600);
   });
 
   it('un trámite exento de impuesto (sin registro) tampoco genera su salida', async () => {
     escenarioSellado({ impuestoId: null, impuestoEstado: null, impuestoValorPagado: null });
     await liquidar(TRAMITE, 9);
 
-    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'derecho', 'tramite_digital', 'logistica']);
+    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
   });
 });
 
@@ -366,9 +398,10 @@ describe('liquidar — un concepto que vale cero no consume bolsa ni impide sell
     const dto = await liquidar(TRAMITE, 9);
 
     expect(dto.estado).toBe('liquidado');
-    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'derecho', 'logistica']);
+    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'derecho', 'logistica', 'gmf']);
     // Los otros cuatro sí bajan el saldo: la cortesía se aplica al concepto, no a la factura entera.
-    expect(saldoBolsa).toBe(1_000_000 - (450000 + 120000 + 80000 + 15000));
+    const base = 450000 + 120000 + 80000 + 15000;
+    expect(saldoBolsa).toBe(1_000_000 - base - 2660);
   });
 
   it('derecho de tránsito en cero → se sella y no se asienta su salida', async () => {
@@ -377,13 +410,15 @@ describe('liquidar — un concepto que vale cero no consume bolsa ni impide sell
     const dto = await liquidar(TRAMITE, 9);
 
     expect(dto.estado).toBe('liquidado');
-    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'tramite_digital', 'logistica']);
-    expect(saldoBolsa).toBe(1_000_000 - (450000 + 120000 + 200000 + 15000));
+    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'impuesto', 'tramite_digital', 'logistica', 'gmf']);
+    const base = 450000 + 120000 + 200000 + 15000;
+    expect(saldoBolsa).toBe(1_000_000 - base - 3140);
   });
 
   it('todos los conceptos en cero o no aplicables → se sella sin mover la bolsa', async () => {
     // Trámite de cortesía completo: nada que desembolsar. El sellado sigue siendo información
-    // válida del trámite aunque no haya un solo peso que descontar.
+    // válida del trámite aunque no haya un solo peso que descontar. AC4 de la HU #11160: con base
+    // gravable en cero el GMF también vale cero y su línea tampoco se asienta.
     tarifasConfiguradas(0, 0);
     escenarioSellado({
       soatAutogestionable: true,
@@ -415,8 +450,9 @@ describe('liquidar — AC3: la bolsa puede quedar en negativo', () => {
     });
 
     await expect(liquidar(TRAMITE, 9)).resolves.toBeDefined();
-    expect(salidasEscritas()).toHaveLength(3);
-    expect(saldoBolsa).toBe(-140000);
+    // Tres conceptos más el gravamen: 150.000 de base y 600 de 4x1000.
+    expect(salidasEscritas()).toHaveLength(4);
+    expect(saldoBolsa).toBe(-140600);
   });
 
   it('la última línea del extracto muestra el saldo negativo real', async () => {
@@ -429,7 +465,7 @@ describe('liquidar — AC3: la bolsa puede quedar en negativo', () => {
     });
     await liquidar(TRAMITE, 9);
 
-    expect(salidasEscritas().at(-1)?.saldoResultante).toBe('-140000');
+    expect(salidasEscritas().at(-1)?.saldoResultante).toBe('-140600');
   });
 });
 
@@ -458,9 +494,14 @@ describe('liquidar — AC4: el SOAT se cobra una vez por vehículo', () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['impuesto', 'derecho', 'tramite_digital', 'logistica']);
+    expect(salidasEscritas().map((s) => s.concepto)).toEqual(['impuesto', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
     // Los otros cuatro sí se cobran: el duplicado se omite, no aborta el sellado.
-    expect(saldoBolsa).toBe(1_000_000 - (865000 - 450000));
+    //
+    // El GMF sigue valiendo 3.460, calculado sobre la base COMPLETA (865.000) incluido el SOAT que
+    // aquí no se descuenta. Es deliberado: el AC1 exige que la salida valga lo que la liquidación
+    // selló, y el sellado no sabe nada de la deduplicación por VIN, que es una regla de la bolsa.
+    // Consecuencia conocida: en este caso el consumo de la bolsa no cuadra con el total facturado.
+    expect(saldoBolsa).toBe(1_000_000 - (865000 - 450000) - 3460);
   });
 });
 
@@ -474,7 +515,7 @@ describe('liquidar — cada salida se imputa a su propio organismo', () => {
     const porConcepto = Object.fromEntries(salidasEscritas().map((s) => [s.concepto, s.organismoCodigo]));
     expect(porConcepto).toEqual({
       soat: '05001', impuesto: '11001', derecho: '05266',
-      tramite_digital: null, logistica: null,
+      tramite_digital: null, logistica: null, gmf: null,
     });
   });
 
@@ -491,7 +532,7 @@ describe('liquidar — cada salida se imputa a su propio organismo', () => {
     escenarioSellado({}, { soatOrganismo: null, impuestoOrganismo: null, derechoOrganismo: null });
     await liquidar(TRAMITE, 9);
 
-    expect(salidasEscritas()).toHaveLength(5);
+    expect(salidasEscritas()).toHaveLength(6);
     expect(salidasEscritas().every((s) => s.organismoCodigo === null)).toBe(true);
   });
 });
@@ -518,6 +559,9 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
   const conceptos = [
     { concepto: 'derecho' as const, valor: 80000, organismoCodigo: '05266', llave: `tramite:${TRAMITE}:derecho` },
     { concepto: 'logistica' as const, valor: 15000, organismoCodigo: null, llave: `tramite:${TRAMITE}:logistica` },
+    // El gravamen entra en la misma lista y con la misma mecánica de llave: su idempotencia no es un
+    // caso aparte (HU #11160, AC5).
+    { concepto: 'gmf' as const, valor: 380, organismoCodigo: null, llave: `tramite:${TRAMITE}:gmf` },
   ];
   const datos = { companiaId: COMPANIA, tramiteId: TRAMITE, fecha: '2026-07-30', conceptos };
   // El `tx` de una transacción abierta: en la simulación, el mismo db enrutado por tabla.
@@ -532,10 +576,10 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
     const saldoTrasPrimera = saldoBolsa;
     const segunda = await registrarSalidasLiquidacion(tx, datos, CTX);
 
-    expect(primera).toHaveLength(2);
+    expect(primera).toHaveLength(3);
     // Devuelve solo lo realmente asentado: la segunda no aporta ninguna línea nueva.
     expect(segunda).toEqual([]);
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(2);
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(3);
     expect(saldoBolsa).toBe(saldoTrasPrimera);
   });
 
@@ -549,8 +593,8 @@ describe('registrarSalidasLiquidacion — AC6: reintentar el sellado no duplica'
     await registrarSalidasLiquidacion(tx, { ...datos, conceptos: [conceptos[0]] }, CTX);
     const segunda = await registrarSalidasLiquidacion(tx, datos, CTX);
 
-    expect(segunda.map((m) => m.concepto)).toEqual(['logistica']);
-    expect(saldoBolsa).toBe(1_000_000 - 95000);
+    expect(segunda.map((m) => m.concepto)).toEqual(['logistica', 'gmf']);
+    expect(saldoBolsa).toBe(1_000_000 - 95380);
   });
 });
 
@@ -565,16 +609,29 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
 
     const contras = entradasEscritas();
-    expect(contras).toHaveLength(5);
-    expect(contras.map((c) => c.valor)).toEqual(['450000', '120000', '80000', '200000', '15000']);
-    expect(contras.map((c) => c.llaveIdempotencia)).toEqual(['contra:mov-1', 'contra:mov-2', 'contra:mov-3', 'contra:mov-4', 'contra:mov-5']);
+    expect(contras).toHaveLength(6);
+    expect(contras.map((c) => c.valor)).toEqual(['450000', '120000', '80000', '200000', '15000', '3460']);
+    expect(contras.map((c) => c.llaveIdempotencia)).toEqual(['contra:mov-1', 'contra:mov-2', 'contra:mov-3', 'contra:mov-4', 'contra:mov-5', 'contra:mov-6']);
     expect(contras.every((c) => c.origen === 'automatico')).toBe(true);
+  });
+
+  it('el reverso devuelve también el GMF', async () => {
+    // AC3 de la HU #11160. El reverso es genérico —barre las salidas vivas del trámite—, así que el
+    // gravamen vuelve sin código nuevo. El test lo fija para que nadie lo excluya por «no ser un
+    // concepto del tarifario».
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    escenarioReverso();
+    await reversar(TRAMITE, 'Error en el valor del derecho', 9);
+
+    const gmf = entradasEscritas().find((c) => c.concepto === 'gmf');
+    expect(gmf).toMatchObject({ tipo: 'entrada', valor: '3460', organismoCodigo: null });
   });
 
   it('el saldo vuelve a donde estaba antes del sellado', async () => {
     escenarioSellado();
     await liquidar(TRAMITE, 9);
-    expect(saldoBolsa).toBe(135000);
+    expect(saldoBolsa).toBe(131540);
 
     escenarioReverso();
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
@@ -600,7 +657,7 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
     await reversar(TRAMITE, 'Error en el valor del derecho', 9);
 
     const reescrituras = updatesEn('flito_bolsa_movimientos');
-    expect(reescrituras).toHaveLength(5);
+    expect(reescrituras).toHaveLength(6);
     expect(reescrituras.map((u) => u.datos.llaveIdempotencia))
       .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
     // Lo único que se toca de la fila es la llave: el dinero asentado no se edita jamás.
@@ -619,7 +676,7 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
     escenarioReverso();
     await reversar(TRAMITE, 'Reverso repetido por reintento', 9);
 
-    expect(entradasEscritas()).toHaveLength(5);
+    expect(entradasEscritas()).toHaveLength(6);
     expect(saldoBolsa).toBe(saldoTrasReverso);
   });
 
@@ -648,7 +705,7 @@ describe('reversarSalidasLiquidacion — devuelve lo que asentó', () => {
 
     const contras = await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
     expect(contras.map((c) => c.concepto))
-      .toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica']);
+      .toEqual(['soat', 'impuesto', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
     expect(contras.every((c) => c.tipo === 'entrada')).toBe(true);
   });
 });
@@ -668,11 +725,11 @@ describe('liquidar → reversar → liquidar: el reverso libera las llaves', () 
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    // Diez salidas en total: cinco del primer sellado y cinco del segundo, con llaves nuevas que
+    // Doce salidas en total: seis del primer sellado y seis del segundo, con llaves nuevas que
     // ya no chocan con las reversadas.
-    expect(salidasEscritas()).toHaveLength(10);
-    expect(salidasEscritas().slice(5).map((s) => s.llaveIdempotencia)).toEqual(llavesDelSellado());
-    expect(saldoBolsa).toBe(135000);
+    expect(salidasEscritas()).toHaveLength(12);
+    expect(salidasEscritas().slice(6).map((s) => s.llaveIdempotencia)).toEqual(llavesDelSellado());
+    expect(saldoBolsa).toBe(131540);
   });
 
   it('el libro conserva las quince líneas: nada se borró por el camino', async () => {
@@ -683,10 +740,10 @@ describe('liquidar → reversar → liquidar: el reverso libera las llaves', () 
     escenarioSellado();
     await liquidar(TRAMITE, 9);
 
-    // 5 salidas + 5 contramovimientos + 5 salidas nuevas. El extracto explica el saldo entero.
-    expect(libro).toHaveLength(15);
-    // Las cinco primeras siguen ahí, con su llave reversada: el reverso no borró ninguna línea.
-    expect(libro.slice(0, 5).map((f) => f.llaveIdempotencia))
+    // 6 salidas + 6 contramovimientos + 6 salidas nuevas. El extracto explica el saldo entero.
+    expect(libro).toHaveLength(18);
+    // Las seis primeras siguen ahí, con su llave reversada: el reverso no borró ninguna línea.
+    expect(libro.slice(0, 6).map((f) => f.llaveIdempotencia))
       .toEqual(llavesDelSellado().map((ll) => `rev:${ll}`));
   });
 });

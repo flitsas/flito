@@ -251,6 +251,11 @@ async function identificadoresDe(tramiteId: string): Promise<IdentificadoresTram
  * El ORGANISMO de cada concepto sale de su propio registro y no del trámite: los tres se congelan al
  * crearse y el del trámite se reescribe en cada sincronización, así que pueden diferir. Trámite
  * digital y logística no llevan organismo: son honorarios de FLIT, no desembolsos a un organismo.
+ *
+ * El GMF va SIEMPRE al final (HU #11160). Las salidas se asientan en serie y cada una lee el saldo
+ * que dejó la anterior, así que el orden de esta lista es el orden del libro: poner el gravamen en
+ * cualquier otra posición dejaría el `saldo_resultante` de la última línea distinto del saldo final
+ * de la bolsa, que es justo lo que el extracto usa para auditar sin recalcular.
  */
 function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): SalidaConcepto[] {
   const salidas: SalidaConcepto[] = [];
@@ -290,6 +295,15 @@ function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): Sa
     salidas.push({
       concepto: 'logistica', valor: calculo.logistica.valor,
       organismoCodigo: null, llave: porTramite('logistica'),
+    });
+  }
+  // El gravamen, al final y sobre la base ya calculada. Si todos los conceptos no aplicaran o
+  // valieran cero, `valorGmf` sería cero y `cobrable` lo descarta igual que a cualquier otro: un
+  // trámite de cortesía completo se sella sin mover un peso de la bolsa.
+  if (cobrable(calculo.valorGmf)) {
+    salidas.push({
+      concepto: 'gmf', valor: calculo.valorGmf,
+      organismoCodigo: null, llave: porTramite('gmf'),
     });
   }
   return salidas;
