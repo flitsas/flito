@@ -1,5 +1,5 @@
-// FLITO SOAT — contingencia (Feature #11150): envío a gestión de Operaciones (HU #11152) y traspaso
-// de gestión sobre un SOAT ya enviado (HU #11153).
+// FLITO SOAT — contingencia (Feature #11150): envío a gestión de Operaciones (HU #11152), traspaso
+// sobre un SOAT ya enviado (HU #11153) y frontera del proveedor ante la contingencia (HU #11154).
 //
 // Lo que se prueba aquí no es «se llamó a update», sino QUÉ se escribe: la diferencia entre los dos
 // destinos de envío, y la de asumir frente a devolver, vive entera en el payload del `set` y en el
@@ -333,4 +333,151 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
       expect(txUpdate).not.toHaveBeenCalled();
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11154 — lo que asume Operaciones sale de la cola del proveedor.
+//
+// La frontera vive en dos capas y hay que probar las dos: la cola la aplica en SQL (condición
+// compartida por página, conteo y facetas) y el acceso puntual la aplica en JS dentro de
+// `buscarConAcceso`, que es lo que sostiene el 404-no-403 del detalle, el historial y las acciones.
+
+/**
+ * Columnas referenciadas por una condición de drizzle. El espía compartido (`paramsDe`) solo
+ * recoge valores string, así que un `eq(columna, false)` le pasa desapercibido; aquí se mira la
+ * COLUMNA y no el valor, que además es más estable frente a cómo se escriba la condición.
+ */
+function columnasDe(cond: unknown): string[] {
+  const out: string[] = [];
+  const visto = new WeakSet<object>();
+  const visitar = (n: unknown): void => {
+    if (n === null || typeof n !== 'object') return;
+    if (visto.has(n as object)) return;
+    visto.add(n as object);
+    if (Array.isArray(n)) { n.forEach(visitar); return; }
+    const o = n as Record<string, unknown>;
+    // Al identificar una columna se para: cada columna guarda una referencia a SU TABLA, y seguir
+    // bajando arrastraría las 151 columnas de `flito_soat` a cualquier condición que la mencione.
+    if (typeof o.name === 'string' && typeof o.columnType === 'string') { out.push(o.name); return; }
+    for (const [clave, valor] of Object.entries(o)) {
+      if (clave === 'table' || clave === 'schema') continue;
+      visitar(valor);
+    }
+  };
+  visitar(cond);
+  return out;
+}
+
+/** Captura las condiciones `where` de la cola (conteo y página comparten función). */
+function capturarCola(rows: unknown[] = [], total = 0) {
+  const wheres: unknown[] = [];
+  // Se parchea `where` sobre el propio chain, no con un spread: todos sus métodos devuelven el
+  // mismo objeto, así que `.innerJoin(...).where(...)` volvería al `where` original.
+  const mk = (data: unknown[]) => {
+    const c = chain(data) as unknown as Record<string, unknown>;
+    const orig = c.where as (v: unknown) => unknown;
+    c.where = (cond: unknown) => { wheres.push(cond); return orig(cond); };
+    return c;
+  };
+  selectMock.mockReturnValueOnce(mk([{ total }]) as never); // conteo
+  selectMock.mockReturnValueOnce(mk(rows) as never);        // página
+  return { wheres, columnas: () => wheres.flatMap(columnasDe) };
+}
+
+const COL_FLAG = 'gestion_operaciones';
+
+describe('flito-soat — frontera del proveedor ante la contingencia (HU #11154)', () => {
+  it('AC1 — la cola del gestor filtra por la bandera, en la condición compartida con el conteo', async () => {
+    selectMock.mockReturnValueOnce(chain([{ p: PROVEEDOR_ID }])); // contextoSoat
+    const { wheres, columnas } = capturarCola();
+
+    const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('proveedor'));
+
+    expect(r.status).toBe(200);
+    // Dos where: el del conteo y el de la página. Si la condición viviera solo en la consulta de
+    // filas, el total seguiría contando lo que ya no se ve.
+    expect(wheres).toHaveLength(2);
+    expect(columnas()).toContain(COL_FLAG);
+    expect(wheres.map((w) => columnasDe(w).includes(COL_FLAG))).toEqual([true, true]);
+  });
+
+  it('AC5 — a Operaciones no se le aplica: sin filtro, la cola no menciona la bandera', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  it('AC6 — a auditoría tampoco', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('auditor'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  for (const valor of ['operaciones', 'proveedor']) {
+    it(`AC5 — Operaciones puede acotar por «gestiona: ${valor}»`, async () => {
+      const { columnas } = capturarCola();
+      const r = await request(await buildApp()).get(`/api/flito/soat?gestion=${valor}`).set('Authorization', await auth('admin'));
+      expect(r.status).toBe(200);
+      expect(columnas()).toContain(COL_FLAG);
+    });
+  }
+
+  it('un valor de filtro desconocido se ignora, no rompe la pantalla', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/soat?gestion=cualquiera').set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  // ── Acceso puntual: 404-no-403 ──
+  const comoGestor = (soatFila: Record<string, unknown>) => {
+    selectMock.mockReturnValueOnce(chain([{ p: PROVEEDOR_ID }])); // contextoSoat
+    selectMock.mockReturnValueOnce(chain([{ soat: soatFila, dentroDeFrontera: true }])); // buscarConAcceso
+    selectMock.mockReturnValue(chain([]));
+  };
+  const suyo = (over: Record<string, unknown> = {}) => ({
+    id: SOAT_ID, estado: 'solicitado', proveedorSoatId: PROVEEDOR_ID, gestionOperaciones: false,
+    motivoRechazo: null, ...over,
+  });
+
+  it('AC2 — el detalle de lo asumido por Operaciones responde «no existe», no «no puedes»', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}`).set('Authorization', await auth('proveedor'));
+    expect(r.status).toBe(404);
+    expect(r.body.error).toMatch(/no existe/i);
+  });
+
+  it('AC2 — su historial tampoco', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/historial`).set('Authorization', await auth('proveedor'));
+    expect(r.status).toBe(404);
+  });
+
+  it('AC3 — y no puede actuar: rechazarlo también es 404, sin tocar nada', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
+      .set('Authorization', await auth('proveedor')).send({ motivo: 'no me consta' });
+    expect(r.status).toBe(404);
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
+  it('AC7 — devuelto al proveedor, vuelve a ser suyo y puede rechazarlo', async () => {
+    comoGestor(suyo({ gestionOperaciones: false }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/soat/${SOAT_ID}/rechazar`)
+      .set('Authorization', await auth('proveedor')).send({ motivo: 'la póliza no corresponde' });
+    expect(r.status).toBe(200);
+    expect(txUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('la bandera decide, no el proveedor: sigue siendo suyo y aun así no lo ve', async () => {
+    // Mismo proveedorSoatId que el gestor —el proveedor se conserva a propósito (HU #11153)— y aun
+    // así queda fuera. Es exactamente lo que rompería si la frontera mirase el proveedor.
+    comoGestor(suyo({ gestionOperaciones: true, proveedorSoatId: PROVEEDOR_ID }));
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}`).set('Authorization', await auth('proveedor'));
+    expect(r.status).toBe(404);
+  });
 });

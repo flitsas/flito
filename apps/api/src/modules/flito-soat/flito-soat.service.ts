@@ -86,6 +86,12 @@ export interface SoatColaItem {
   organismoNombre: string | null;
   proveedorSoatId: string | null;
   proveedorSoatNombre: string | null;
+  /**
+   * true = lo gestiona Operaciones por contingencia (HU #11152/#11153). `proveedorSoatId` puede
+   * seguir viniendo lleno: es de quién se retomó, no quién lo trabaja. La interfaz necesita los dos
+   * para poder decir «Operaciones, retomado de X».
+   */
+  gestionOperaciones: boolean;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
   /**
@@ -116,6 +122,11 @@ export interface FiltrosCola {
   companias?: number[];
   organismos?: string[];
   proveedores?: string[];
+  /**
+   * Quién gestiona. Solo tiene efecto útil para Operaciones y auditoría: la frontera del gestor ya
+   * excluye lo de Operaciones, así que para él «proveedor» es redundante y «operaciones» vacío.
+   */
+  gestion?: 'operaciones' | 'proveedor';
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
@@ -154,6 +165,10 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
 
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null; // sin proveedor no hay frontera que aplicar → nada
+    // Lo asumido por Operaciones desaparece de su cola. La condición va aquí, en las condiciones
+    // COMPARTIDAS por la página, el conteo y las facetas: si viviera solo en la consulta de filas,
+    // el total y los valores de los filtros seguirían contándolo y nadie lo notaría.
+    conds.push(eq(flitoSoat.gestionOperaciones, false));
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
     const visibles = f.estados?.length
       ? f.estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
@@ -185,6 +200,8 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
   // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
   // la condición de la frontera sigue vigente y el resultado sería vacío.
   if (f.proveedores?.length) conds.push(inArray(flitoSoat.proveedorSoatId, f.proveedores));
+  if (f.gestion === 'operaciones') conds.push(eq(flitoSoat.gestionOperaciones, true));
+  else if (f.gestion === 'proveedor') conds.push(eq(flitoSoat.gestionOperaciones, false));
 
   // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   if (f.solicitadoDesde) conds.push(sql`${flitoSoat.enviadoEn} >= ${f.solicitadoDesde}::date`);
@@ -228,6 +245,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       vin: flitoSoat.vin,
       estado: flitoSoat.estado,
       proveedorSoatId: flitoSoat.proveedorSoatId,
+      gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn,
       pagadoEn: flitoSoat.pagadoEn,
       valorPagado: flitoSoat.valorPagado,
@@ -289,7 +307,7 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
 }
 
 type ColaRow = {
-  id: string; vin: string; estado: string; proveedorSoatId: string | null; enviadoEn: Date | null;
+  id: string; vin: string; estado: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
   pagadoEn: Date | null; valorPagado: string | null; motivoRechazo: string | null; createdAt: Date;
   placa: string | null; marca: string | null; linea: string | null; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
@@ -340,6 +358,7 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       organismoNombre: r.organismoNombre,
       proveedorSoatId: r.proveedorSoatId,
       proveedorSoatNombre: r.proveedorSoatNombre,
+      gestionOperaciones: r.gestionOperaciones,
       compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
       tramitesFlit: ts.map((t) => t.idFlit),
       tipoTramite: comun(ts, (t) => t.tipoTramite),
@@ -403,6 +422,11 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
   // luego daba 404 al abrirlo o al enviarlo (HU #11021).
   if (!soat.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
+    // Lo que asumió Operaciones sale de su alcance aunque siga apuntando a su proveedor: el
+    // proveedor se conserva a propósito (HU #11153), así que la bandera es lo único que decide.
+    // Va aquí y no solo en la cola porque esta función es la que sostiene el 404-no-403 del
+    // detalle, el historial, el rechazo y la carga de factura.
+    if (soat.soat.gestionOperaciones) return null;
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
   }
@@ -416,6 +440,7 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
   const rows = await db
     .select({
       id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, proveedorSoatId: flitoSoat.proveedorSoatId,
+      gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn, pagadoEn: flitoSoat.pagadoEn, valorPagado: flitoSoat.valorPagado,
       motivoRechazo: flitoSoat.motivoRechazo, createdAt: flitoSoat.createdAt,
       placa: vehicles.plate, marca: vehicles.brand, linea: vehicles.model,
@@ -960,6 +985,9 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
   ];
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null;
+    // Misma frontera que la cola: un comprobante del gestor no cruza con lo que asumió Operaciones,
+    // así que se informa como no asociado y ni siquiera se archiva.
+    conds.push(eq(flitoSoat.gestionOperaciones, false));
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
   }
 
