@@ -147,6 +147,38 @@
   --color-primary-700: #5b6b75;
 }
 
+/* ============================================================
+   Tokens FLIT expuestos como utilities. Los `--flit-*` viven en
+   flit-tokens.css y hasta ahora solo se consumían con style={{}}
+   inline, lo que impedía aplicar variantes (hover:, focus-visible:,
+   aria-[current=page]:) sobre los colores de marca. Bloque ADITIVO:
+   no altera ningún token existente, solo los hace alcanzables desde
+   clases. Prefijo `flit-` → cero colisión con la paleta Aura.
+   Se mapea el set completo aunque el dock consuma solo una parte:
+   con `inline` Tailwind no emite nada para las utilities que nadie
+   usa, así que las entradas de más no pesan en el CSS final.
+   ============================================================ */
+@theme inline {
+  --color-flit-cyan: var(--flit-cyan);
+  --color-flit-blue: var(--flit-blue);
+  --color-flit-navy: var(--flit-blue-dark);
+  --color-flit-blue-text: var(--flit-blue-text);
+  --color-flit-green: var(--flit-green);
+  --color-flit-app: var(--flit-bg-app);
+  --color-flit-card: var(--flit-bg-card);
+  --color-flit-ink: var(--flit-text-primary);
+  --color-flit-secondary: var(--flit-text-secondary);
+  --color-flit-muted: var(--flit-text-muted);
+  --color-flit-soft: var(--flit-border-soft);
+  --color-flit-warning: var(--flit-warning);
+  --color-flit-danger: var(--flit-danger);
+
+  --radius-flit-md: var(--flit-radius-md);
+  --radius-flit-lg: var(--flit-radius-lg);
+  --radius-flit-card: var(--flit-radius-card);
+  --radius-flit-pill: var(--flit-radius-pill);
+}
+
 /* ====== Body & root ====== */
 html {
   -webkit-font-smoothing: antialiased;
@@ -198,6 +230,38 @@ body {
 
 /* FLIT-CLEANUP-08 PR3 (cierre fase 8): se eliminaron las utilidades glass
    legacy muertas (0 usos en src/ tras la migración FLIT). */
+
+/* ============================================================
+   Movimiento de la navegación.
+   OJO: `animate-in` / `fade-in` / `slide-in-from-bottom-2` son de
+   `tailwindcss-animate`, que NO está instalado en este proyecto —
+   sus usos actuales son no-ops silenciosos. Este keyframe sí
+   existe; usar esta clase y no aquéllas.
+   ============================================================ */
+/* Paneles del dock inferior: nacen desde abajo, no desde arriba. */
+@keyframes flit-panel-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.flit-panel-up {
+  animation: flit-panel-up var(--flit-duration-base, 180ms) var(--flit-ease, ease-out) both;
+  transform-origin: bottom center;
+}
+
+/* El dock reutiliza `.flit-shell-nav`, que SÍ invierte su fondo en tema oscuro.
+   Los tokens de texto FLIT no tienen variante dark, así que sin esto los
+   módulos quedan navy sobre navy: ilegibles. Solo cubre el dock; el hueco
+   general de dark mode en `--flit-*` es harina de otro costal. */
+[data-theme='dark'] .flit-nav-capsule .flit-nav-pill {
+  color: rgba(255, 255, 255, 0.78);
+}
+[data-theme='dark'] .flit-nav-capsule .flit-nav-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flit-panel-up { animation: none; }
+}
 
 /* ============================================================
    Named View Transitions — elementos persistentes vs. página.

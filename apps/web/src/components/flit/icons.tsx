@@ -62,3 +62,8 @@ export const IconLogout = (p: IconProps) => (
 export const IconDot = (p: IconProps) => (
   <svg {...base} {...p}><circle cx="12" cy="12" r="3.2" /></svg>
 );
+// Finanzas — antes compartía IconScale con Cumplimiento (colisión visual al
+// mostrar iconos de módulo en la navegación desktop).
+export const IconWallet = (p: IconProps) => (
+  <svg {...base} {...p}><path d="M3 8a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v1" /><path d="M3 8v9a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2" /><path d="M21 10v5h-4a2.5 2.5 0 0 1 0-5z" /></svg>
+);
