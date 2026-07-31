@@ -84,6 +84,11 @@ export interface FiltrosColaImpuestos {
   /** Multiselect. Vacío = sin acotar. En impuestos el equivalente al proveedor es el organismo. */
   companias?: number[];
   organismos?: string[];
+  /**
+   * Quién gestiona. Útil solo para Operaciones y auditoría: la frontera del gestor ya excluye lo de
+   * Operaciones, así que para él «operaciones» daría vacío y «organismo» sería redundante.
+   */
+  gestion?: 'operaciones' | 'organismo';
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
@@ -119,6 +124,13 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
 
   if (esGestor(ctx)) {
     if (!ctx.transitoCodigo) return null; // sin organismo no hay frontera → nada
+    // Lo asumido por Operaciones sale de su cola. Aquí la bandera no es una comodidad: no hay
+    // columna de destinatario que poner a null, así que es lo ÚNICO capaz de sacarlo — y sin ello
+    // el gestor podría pagar un recibo que Operaciones ya está pagando. Dinero real, dos veces.
+    //
+    // Va en las condiciones COMPARTIDAS por la página, el conteo y las facetas: si viviera solo en
+    // la consulta de filas, el total seguiría contándolo y nadie lo notaría.
+    conds.push(eq(flitoImpuestos.gestionOperaciones, false));
     conds.push(eq(flitoImpuestos.organismoCodigo, ctx.transitoCodigo));
     const visibles = f.estados?.length ? f.estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
     if (visibles.length === 0) return null;
@@ -142,6 +154,8 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
 
   if (f.companias?.length) conds.push(inArray(flitoImpuestos.companiaId, f.companias));
   if (f.organismos?.length) conds.push(inArray(flitoImpuestos.organismoCodigo, f.organismos));
+  if (f.gestion === 'operaciones') conds.push(eq(flitoImpuestos.gestionOperaciones, true));
+  else if (f.gestion === 'organismo') conds.push(eq(flitoImpuestos.gestionOperaciones, false));
 
   // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   if (f.solicitadoDesde) conds.push(sql`${flitoImpuestos.enviadoEn} >= ${f.solicitadoDesde}::date`);
@@ -285,6 +299,9 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
   // aparecer en la lista (HU #11021).
   if (!row.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
+    // Antes que el organismo: lo que asumió Operaciones deja de ser suyo aunque el organismo siga
+    // siendo el mismo — y lo sigue siendo siempre, porque el impuesto se paga ante él igual.
+    if (row.imp.gestionOperaciones) return null;
     if (row.imp.organismoCodigo !== ctx.transitoCodigo) return null;
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
   }
