@@ -92,6 +92,44 @@ describe('LAFT F3 · POST /generar/:anio/:mes [keyed]', () => {
     expect(r.body.error).toMatch(/mes en curso/i);
   });
 
+  // El corte de mes, fijando el reloj. El test de arriba usa la fecha real, así
+  // que solo destapaba el fallo los días 31 —justo cuando nadie está mirando—:
+  // el límite se comparaba contra el último día a las 00:00, de modo que durante
+  // toda esa jornada el mes se daba por cerrado y el RTE salía sin los
+  // movimientos del día. Se falsea SOLO Date: con los timers falseados enteros,
+  // supertest se queda colgado.
+  // El token se firma DENTRO de la ventana falseada: si se emite con la hora
+  // real y luego se mueve el reloj, el propio `exp` del JWT lo invalida y el
+  // corte de mes ni se llega a evaluar (401 en vez de lo que se mide).
+  async function conReloj<T>(iso: string, fn: (token: string) => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(iso));
+    try {
+      return await fn(await testToken({ sub: 1, role: 'compliance' }));
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it('último día del mes: sigue siendo mes en curso → 422', async () => {
+    const app = await buildApp();
+    const r = await conReloj('2026-07-31T13:00:00Z', (token) =>
+      request(app).post('/api/laft/rte/generar/2026/7').set('Authorization', `Bearer ${token}`));
+    expect(r.status).toBe(422);
+    expect(r.body.error).toMatch(/mes en curso/i);
+  });
+
+  it('primer instante del mes siguiente: el mes ya cerró → pasa el corte', async () => {
+    selectMock.mockReturnValueOnce(chain([{
+      id: 10, tipo: 'RTE', formato: 'CSV', periodoAnio: 2026, periodoMes: 7,
+      sha256: 'abc', storageKey: 'RTE/2026/07/x.csv',
+    }]));
+    const app = await buildApp();
+    const r = await conReloj('2026-08-01T00:00:00Z', (token) =>
+      request(app).post('/api/laft/rte/generar/2026/7').set('Authorization', `Bearer ${token}`));
+    expect(r.status).toBe(200);
+  });
+
   it('reporte ya existe → 200 idempotent', async () => {
     selectMock.mockReturnValueOnce(chain([{
       id: 9, tipo: 'RTE', formato: 'CSV', periodoAnio: 2025, periodoMes: 1,
