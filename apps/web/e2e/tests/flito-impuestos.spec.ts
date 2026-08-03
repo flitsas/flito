@@ -501,3 +501,175 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     await expect(page.getByRole('button', { name: 'Certificar' })).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Certificación MASIVA desde la selección (HU #11169)
+//
+// Una sola mecánica de selección para dos acciones distintas: enviar (Pendientes) y certificar
+// (Solicitados). Lo que estos casos vigilan sobre todo es que la barra NUNCA ofrezca una acción que
+// solo aplica a parte de lo marcado: el usuario pulsaría creyendo que actúa sobre los 4 que
+// seleccionó y actuaría sobre 2, sin enterarse hasta ver el resultado.
+// ---------------------------------------------------------------------------
+
+/** Tres solicitados sin certificar, para poder marcar varios. */
+const IMPUESTOS_LOTE = [0, 1, 2].map((n) => ({
+  ...IMPUESTOS[1], id: `s${n}`, tramiteId: `t${n}`, idFlit: `FLIT-200${n}`,
+  placa: `SOL00${n}`, certificacion: null,
+}));
+
+async function mockLote(page: import('@playwright/test').Page, items: unknown[] = IMPUESTOS_LOTE) {
+  await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
+  await page.route(/\/api\/flito\/impuestos\?/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
+  }));
+}
+
+test.describe('FLITO — Impuestos · certificación masiva', () => {
+  test('AC1 — la barra ofrece Certificar con el número seleccionado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLote(page);
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar SOL000').check();
+    await page.getByLabel('Seleccionar SOL001').check();
+
+    await expect(page.getByText('2 seleccionado(s)')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Certificar (2)' })).toBeEnabled();
+    // Solicitados: no se envían al gestor, ya están con él.
+    await expect(page.getByRole('button', { name: /Enviar al gestor/ })).toHaveCount(0);
+  });
+
+  test('AC2 y AC6 — el resultado sale por registro, con placa y motivo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLote(page);
+    await page.route(/\/api\/flito\/impuestos\/certificar$/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        total: 2, certificados: 0,
+        resultados: [
+          { id: 's0', resultado: 'con_diferencias', diferenciasBloqueantes: [{ campo: 'vin', resultado: 'difiere', bloqueante: true, valorFlito: 'A', valorRunt: 'B' }] },
+          { id: 's1', resultado: 'error_servicio', mensaje: 'El servicio RUNT no está disponible.' },
+        ],
+      }),
+    }));
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar SOL000').check();
+    await page.getByLabel('Seleccionar SOL001').check();
+    await page.getByRole('button', { name: 'Certificar (2)' }).click();
+
+    const modal = page.getByRole('dialog');
+    await expect(modal).toBeVisible();
+    // AC6 — ninguno certificó y cada uno dice por qué. La placa es lo que el gestor reconoce.
+    await expect(modal.getByText('Certificados 0')).toBeVisible();
+    await expect(modal.getByText('SOL000')).toBeVisible();
+    await expect(modal.getByText('SOL001')).toBeVisible();
+    await expect(modal.getByText('Corrige el dato y reintenta')).toBeVisible();
+    await expect(modal.getByText('Reintenta en unos minutos')).toBeVisible();
+    // Sin `mensaje` propio, la fila resume qué campo falló: sin eso habría que certificar de uno en
+    // uno solo para saber cuál era el dato malo.
+    await expect(modal.getByText('No coincide: VIN')).toBeVisible();
+  });
+
+  test('AC3 — durante el lote hay progreso y no se puede lanzar dos veces', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLote(page);
+    let intentos = 0;
+    await page.route(/\/api\/flito\/impuestos\/certificar$/, async (route) => {
+      intentos++;
+      await new Promise((r) => setTimeout(r, 1500));
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ total: 1, certificados: 1, resultados: [{ id: 's0', resultado: 'certificado' }] }),
+      });
+    });
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar SOL000').check();
+    await page.getByRole('button', { name: 'Certificar (1)' }).click();
+
+    const enCurso = page.getByRole('button', { name: /Certificando 1/ });
+    await expect(enCurso).toBeDisabled();
+    await enCurso.click({ force: true }).catch(() => { /* deshabilitado */ });
+
+    await expect(page.getByRole('dialog')).toBeVisible();
+    expect(intentos).toBe(1);
+  });
+
+  test('AC4 — pasar del tope se avisa antes de enviar la petición', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const once = [...Array(11)].map((_, n) => ({
+      ...IMPUESTOS[1], id: `s${n}`, tramiteId: `t${n}`, idFlit: `FLIT-30${n}`,
+      placa: `TOP0${n}`, certificacion: null,
+    }));
+    await mockLote(page, once);
+    let pedido = false;
+    await page.route(/\/api\/flito\/impuestos\/certificar$/, (route) => {
+      pedido = true;
+      return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'x' }) });
+    });
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar todos los que admiten acción masiva').check();
+
+    await expect(page.getByText('Máximo 10 por lote. Seleccionaste 11.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Certificar (11)' })).toBeDisabled();
+    // El aviso llega ANTES de gastar la petición: el backend la rechazaría igual, pero con 11
+    // consultas al RUNT de por medio no hace falta llegar hasta ahí.
+    expect(pedido).toBe(false);
+  });
+
+  test('AC5 — al cerrar el resultado se refresca la tabla y se vacía la selección', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLote(page);
+    let pedidas = 0;
+    page.on('request', (r) => { if (/\/api\/flito\/impuestos\?/.test(r.url())) pedidas++; });
+    await page.route(/\/api\/flito\/impuestos\/certificar$/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ total: 1, certificados: 1, resultados: [{ id: 's0', resultado: 'certificado' }] }),
+    }));
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar SOL000').check();
+    await page.getByRole('button', { name: 'Certificar (1)' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    const antes = pedidas;
+
+    await page.getByRole('button', { name: 'Listo' }).click();
+
+    await expect(page.getByText('1 seleccionado(s)')).toHaveCount(0);
+    await expect.poll(() => pedidas).toBeGreaterThan(antes);
+  });
+
+  test('una selección que mezcla estados no ofrece ninguna acción', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // Un Pendiente (se envía) y un Solicitado (se certifica) a la vez.
+    await mockLote(page, [
+      { ...IMPUESTOS[0], certificacion: null },
+      { ...IMPUESTOS_LOTE[0] },
+    ]);
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar ABC123').check();
+    await page.getByLabel('Seleccionar SOL000').check();
+
+    // Ofrecer «Certificar» aquí actuaría sobre 1 de los 2 marcados sin decirlo. Se busca el botón
+    // de la BARRA —el que lleva el contador— y no el de la fila, que sí debe seguir estando.
+    await expect(page.getByRole('button', { name: /^Certificar \(/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Enviar al gestor/ })).toHaveCount(0);
+    await expect(page.getByText(/mezcla estados con acciones distintas/)).toBeVisible();
+  });
+
+  test('el gestor del organismo también certifica en bloque', async ({ page }) => {
+    await loginAs(page, GESTOR_IMPUESTOS_USER);
+    await mockLote(page);
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar SOL000').check();
+
+    // La casilla ya no es exclusiva de Operaciones: el backend admite gestor en el masivo.
+    await expect(page.getByRole('button', { name: 'Certificar (1)' })).toBeEnabled();
+  });
+});
