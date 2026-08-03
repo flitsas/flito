@@ -48,16 +48,21 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   // FLITO — vista unificada de despacho (SOAT + Impuestos + entrega en una sola pantalla) y sus
   // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
-  // la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos solo se muestran a los gestores
-  // (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
+  // la Lectura de Impuestos legacy.
+  //
+  // Las colas de SOAT e Impuestos las ven su gestor (proveedor / gestor_impuestos) Y Operaciones
+  // (HU #11151). Antes eran exclusivas del gestor y Operaciones trabajaba desde Trámites; con la
+  // contingencia del Feature #11150, Operaciones puede asumir la gestión cuando no hay proveedor o
+  // el gestor no puede atender, y necesita entrar a la cola. El permiso de página ya lo tenía —
+  // `ROLE_DEFAULT_PAGES.admin` es todo el catálogo—, lo que faltaba era la entrada de menú.
   { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Gestión Trámites',        keywords: 'flito tramites gestion unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
   { page: 'flito_derechos', to: '/flito/derechos',               section: 'gestion',       label: 'Derechos de tránsito',     keywords: 'flito derecho tramite cuenta cobro organismo recibo valor radicado carga masiva zip consolidado pendientes' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
-  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
-  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
+  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin'],        keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia' },
+  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
   // Bolsas prepago: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
   // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO.

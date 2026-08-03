@@ -232,53 +232,6 @@ export interface ExtractoCliente {
   porConcepto: LineaAgrupada[];
 }
 
-export interface LineaOrganismo {
-  concepto: string;
-  cobrado: number;
-  movimientos: number;
-}
-
-/**
- * Estado de cuenta de un organismo. NO tiene saldo real: es la diferencia entre lo que se cobró a
- * los clientes por su cuenta y lo que FLIT ya le pagó.
- */
-export interface BolsaSimbolicaOrganismo {
-  organismoCodigo: string;
-  /** Lo cobrado a los clientes por cuenta de este organismo, desglosado por concepto. */
-  porConcepto: LineaOrganismo[];
-  totalCobrado: number;
-  totalPagado: number;
-  /** Lo que FLIT todavía le debe al organismo. Puede ser negativo si se le pagó de más. */
-  saldoPendiente: number;
-}
-
-/** Un pago de FLIT al organismo. Lo que baja el pendiente del estado de cuenta. */
-export interface PagoOrganismoDto {
-  id: string;
-  valor: number;
-  fecha: string;
-  observacion: string | null;
-  soporteId: string | null;
-  registradoPorNombre: string;
-  createdAt: string;
-}
-
-/**
- * Una salida de bolsa cobrada por cuenta del organismo, con el trámite que la originó.
- *
- * Solo salidas automáticas: un ajuste manual imputado al organismo es una corrección de FLIT, no un
- * cobro suyo, y mezclarlo haría creer que el organismo facturó algo que nunca facturó.
- */
-export interface TramiteOrganismoDto {
-  tramiteId: string;
-  idFlit: string | null;
-  companiaId: number;
-  concepto: string | null;
-  valor: number;
-  fecha: string;
-  soporteId: string | null;
-}
-
 /** Respuesta de los endpoints que resuelven un soporte a una URL firmada y caducable. */
 export interface SoporteFirmado {
   url: string;

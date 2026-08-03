@@ -183,7 +183,13 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, organismoC
     sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false) OR ${flitoImpuestos.excepcionAutogestion})`,
     sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarLlave(placa)}`,
   ];
-  if (organismoCodigo) conds.push(eq(flitoImpuestos.organismoCodigo, organismoCodigo));
+  // `organismoCodigo` solo viene cuando quien carga es el gestor de ese organismo; para Operaciones
+  // es null y no se acota nada. Añadir aquí la bandera cubre de una vez los dos usos de esta
+  // función: la conciliación de un recibo limpio y el complemento con marca de agua sobre un pagado.
+  if (organismoCodigo) {
+    conds.push(eq(flitoImpuestos.organismoCodigo, organismoCodigo));
+    conds.push(eq(flitoImpuestos.gestionOperaciones, false));
+  }
   const [r] = await fromCandidatos().where(and(...conds)).orderBy(desc(flitoImpuestos.pagadoEn)).limit(1);
   return r ?? null;
 }

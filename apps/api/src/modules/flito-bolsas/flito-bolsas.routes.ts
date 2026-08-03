@@ -22,12 +22,11 @@ import {
 } from '../../services/storage.js';
 import {
   alertasDeConciliacion, alertasDeSaldo, bolsaConRiesgoDe, BolsaError, bolsasConRiesgo,
-  bolsaSimbolicaDe, cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
-  pagosDeOrganismo, registrarMovimientoManual, registrarPagoOrganismo, registrarRecarga,
-  saldoConsolidado, tramitesDeOrganismo,
+  cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
+  registrarMovimientoManual, registrarRecarga, saldoConsolidado,
 } from './flito-bolsas.service.js';
 import {
-  bolsaOrganismoDe, llevaBolsa, movimientosOrganismoDe, registrarCargaOrganismo,
+  bolsaOrganismoDe, movimientosOrganismoDe, registrarCargaOrganismo,
 } from './flito-organismo-bolsas.service.js';
 
 const router = Router();
@@ -258,98 +257,20 @@ router.get('/organismos/:organismoCodigo/movimientos', BOLSAS, async (req: Reque
   res.json(await movimientosOrganismoDe(req.params.organismoCodigo));
 });
 
-// GET /organismos/:organismoCodigo/pagos — historial de pagos de FLIT al organismo.
-router.get('/organismos/:organismoCodigo/pagos', BOLSAS, async (req: Request, res: Response) => {
-  res.json(await pagosDeOrganismo(req.params.organismoCodigo));
-});
-
-// GET /organismos/:organismoCodigo/tramites — qué trámites originaron el cobro del organismo.
-router.get('/organismos/:organismoCodigo/tramites', BOLSAS, async (req: Request, res: Response) => {
-  res.json(await tramitesDeOrganismo(req.params.organismoCodigo));
-});
-
-// GET /organismos/:organismoCodigo — estado de cuenta (bolsa simbólica) del organismo.
-// Antes de /:companiaId por la misma razón que /consolidado: «organismos» no es un id de compañía.
-router.get('/organismos/:organismoCodigo', BOLSAS, async (req: Request, res: Response) => {
-  res.json(await bolsaSimbolicaDe(req.params.organismoCodigo));
-});
-
-// POST /organismos/:organismoCodigo/pagos — pago de FLIT al organismo (multipart, soporte opcional).
+// POST /organismos/:organismoCodigo/cargas — FLIT precarga saldo en el organismo (HU #11161, AC2).
 //
-// El soporte es OPCIONAL aquí, a diferencia de las recargas: un pago a un organismo puede registrarse
-// el mismo día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
-const pagoOrganismoSchema = z.object({
+// El soporte es OPCIONAL, a diferencia de las recargas del cliente: una carga se registra el mismo
+// día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
+const cargaOrganismoSchema = z.object({
   valor: z.coerce
-    .number({ invalid_type_error: 'El valor del pago debe ser mayor que cero' })
-    .positive({ message: 'El valor del pago debe ser mayor que cero' }),
+    .number({ invalid_type_error: 'El valor de la carga debe ser mayor que cero' })
+    .positive({ message: 'El valor de la carga debe ser mayor que cero' }),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/organismos/:organismoCodigo/pagos', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
-  const parsed = pagoOrganismoSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
-    return;
-  }
-
-  // Ruta heredada (HU #11124), viva solo para los organismos SIN bolsa. En los que sí la llevan, un
-  // pago es una carga y tiene que mover el saldo: dejar que este endpoint escribiera en la tabla
-  // vieja haría que el dinero entrara en un libro y no en el otro, y nadie lo notaría hasta el
-  // cierre. Se rechaza en vez de redirigir en silencio, para que el error sea del programador y no
-  // de la conciliación. La pantalla migra al endpoint nuevo en la HU #11162.
-  if (await llevaBolsa(req.params.organismoCodigo)) {
-    res.status(409).json({
-      error: 'Este organismo maneja bolsa prepago: registra el dinero como carga en /cargas',
-    });
-    return;
-  }
-
-  const ctx = { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' };
-  let storageKey: string | null = null;
-  try {
-    if (req.file) {
-      const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
-      if (invalido) { res.status(400).json({ error: invalido }); return; }
-      storageKey = await uploadEntityDocument(
-        `organismos/${req.params.organismoCodigo}/pagos`,
-        req.params.organismoCodigo, req.file.originalname, req.file.buffer, req.file.mimetype,
-      );
-    }
-
-    const { id, saldoPendiente } = await registrarPagoOrganismo(
-      req.params.organismoCodigo,
-      {
-        valor: parsed.data.valor,
-        fecha: parsed.data.fecha,
-        observacion: parsed.data.observacion ?? null,
-        soporte: req.file && storageKey ? {
-          nombreArchivo: req.file.originalname,
-          contentType: req.file.mimetype,
-          storageKey,
-          hash: createHash('sha256').update(req.file.buffer).digest('hex'),
-          tamanoBytes: req.file.size,
-        } : null,
-      },
-      ctx,
-    );
-    await audit(req, {
-      action: 'create', resource: 'flito_organismo_pago', resourceId: id,
-      detail: `Pago de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: pendiente ${saldoPendiente}`,
-    });
-    res.status(201).json({ id, saldoPendiente });
-  } catch (e) {
-    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
-    fallo(res, e);
-  }
-});
-
-// POST /organismos/:organismoCodigo/cargas — FLIT precarga saldo en el organismo (HU #11161, AC2).
-//
-// El soporte es OPCIONAL, igual que en los pagos que este endpoint sustituye: una carga se registra
-// el mismo día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
 router.post('/organismos/:organismoCodigo/cargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
-  const parsed = pagoOrganismoSchema.safeParse(req.body);
+  const parsed = cargaOrganismoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
     return;

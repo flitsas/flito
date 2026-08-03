@@ -211,7 +211,7 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
  * Van aparte del cálculo porque no son parte de lo que se sella: el cálculo responde «cuánto», esto
  * responde «a qué organismo y con qué llave no cobrarlo dos veces».
  */
-interface IdentificadoresTramite {
+export interface IdentificadoresTramite {
   companiaId: number | null;
   soatId: string | null;
   soatOrganismo: string | null;
@@ -260,7 +260,7 @@ async function identificadoresDe(tramiteId: string): Promise<IdentificadoresTram
  * cualquier otra posición dejaría el `saldo_resultante` de la última línea distinto del saldo final
  * de la bolsa, que es justo lo que el extracto usa para auditar sin recalcular.
  */
-function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): SalidaConcepto[] {
+export function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): SalidaConcepto[] {
   const salidas: SalidaConcepto[] = [];
   const porTramite = (concepto: string) => `tramite:${calculo.tramiteId}:${concepto}`;
 

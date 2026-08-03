@@ -15,6 +15,8 @@ export interface Organismo {
   codigo: string; nombre: string; alias: string | null; activo: boolean;
   modalidadVigente: ModalidadOrganismo; umbralOcr: number | null; slaHoras: number | null;
   diferenciaValorActiva: boolean; tramitesRetenidos: number;
+  /** Si FLIT le mantiene saldo prepago a este organismo (HU #11162). */
+  llevaBolsa: boolean;
 }
 
 export const MODALIDAD_TONO: Record<ModalidadOrganismo, ChipTone> = {
@@ -54,6 +56,7 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
   const [umbral, setUmbral] = useState(organismo.umbralOcr != null ? String(organismo.umbralOcr) : '');
   const [sla, setSla] = useState(organismo.slaHoras != null ? String(organismo.slaHoras) : '');
   const [diferencia, setDiferencia] = useState(organismo.diferenciaValorActiva);
+  const [llevaBolsa, setLlevaBolsa] = useState(organismo.llevaBolsa);
   const [vigencias, setVigencias] = useState<Vigencia[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -73,7 +76,7 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
     try {
       await api.patch(`/flito/parametrizacion/organismos/${organismo.codigo}`, {
         umbralOcr: umbral.trim() === '' ? null : Number(umbral), slaHoras: sla.trim() === '' ? null : Number(sla),
-        diferenciaValorActiva: diferencia,
+        diferenciaValorActiva: diferencia, llevaBolsa,
       });
       onCambio();
     } catch (e) { setError(errorMessage(e)); }
@@ -112,6 +115,17 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
           <Interruptor label="Marcar diferencia de valor de impuestos (D-5)" checked={diferencia} onChange={editable ? setDiferencia : () => {}} />
           <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Al conciliar el recibo, si el valor pagado difiere del liquidado más allá de la tolerancia de la compañía, se marca para revisión (no bloquea el pago). Actívalo solo donde el valor liquidado sea de fuente fiable.
+          </p>
+        </div>
+
+        <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Bolsa prepago</p>
+          <Interruptor label="FLIT le mantiene saldo prepago a este organismo"
+            checked={llevaBolsa} onChange={editable ? setLlevaBolsa : () => {}} />
+          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Enciéndelo solo si FLIT le transfiere dinero por adelantado. Con la bolsa activa, cada
+            derecho de trámite que emita descuenta su saldo. Apagarla <strong>no borra</strong> el
+            saldo ni el libro —son contables— pero deja de consumirse y desaparece de Bolsas.
           </p>
           {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={guardando} onClick={guardarParams}>Guardar parámetros</button>}
         </div>

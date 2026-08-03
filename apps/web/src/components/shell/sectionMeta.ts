@@ -81,8 +81,11 @@ const ITEM_GROUP: Record<string, string> = {
   '/flito/tramites':    'Trámites',
   '/flito/derechos':    'Trámites',
   '/flito/revisiones':  'Trámites',
-  '/flito/soat':        'Colas de gestor',
-  '/flito/impuestos':   'Colas de gestor',
+  // El subgrupo se llamaba «Colas de gestor» cuando solo entraban el proveedor y el gestor del
+  // organismo. Desde la contingencia (HU #11151) también entra Operaciones, así que el título pasa a
+  // nombrar el contenido y no a quién lo atiende.
+  '/flito/soat':        'SOAT e Impuestos',
+  '/flito/impuestos':   'SOAT e Impuestos',
   '/flito/logistica':   'Logística',
   '/flito/ruta':        'Logística',
   '/flito/bitacora':    'Auditoría',
@@ -91,7 +94,7 @@ const ITEM_GROUP: Record<string, string> = {
 /** Orden estable de los subgrupos por módulo (los no listados van al final). */
 const GROUP_ORDER: Record<string, string[]> = {
   pesv:    ['Dirección', 'Operación', 'Personas', 'Cumplimiento'],
-  gestion: ['Trámites', 'Logística', 'Maestros', 'Colas de gestor', 'Auditoría'],
+  gestion: ['Trámites', 'Logística', 'Maestros', 'SOAT e Impuestos', 'Auditoría'],
 };
 
 export function groupOf(item: NavItem): string | null {

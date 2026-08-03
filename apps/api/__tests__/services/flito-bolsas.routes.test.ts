@@ -862,133 +862,6 @@ describe('GET /:companiaId/extracto', () => {
   });
 });
 
-describe('organismos — estado de cuenta y pagos', () => {
-  it('GET /organismos/:codigo con rol transito → 403', async () => {
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001')
-      .set('Authorization', await auth('transito'));
-    expect(r.status).toBe(403);
-  });
-
-  it('GET /organismos/:codigo → 200 con cobrado, pagado y pendiente', async () => {
-    kdb.when
-      .select('flito_bolsa_movimientos', [{ concepto: 'soat', salidas: '450000', movimientos: 1 }])
-      .select('flito_organismo_pagos', [{ total: '400000' }]);
-
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001')
-      .set('Authorization', await auth('admin'));
-
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({
-      organismoCodigo: '05001', totalCobrado: 450000, totalPagado: 400000, saldoPendiente: 50000,
-    });
-  });
-
-  it('GET /organismos/:codigo/pagos con rol transito → 403', async () => {
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('transito'));
-    expect(r.status).toBe(403);
-  });
-
-  it('GET /organismos/:codigo/pagos → 200 con el historial en el orden que da la consulta', async () => {
-    // El orden lo pone el `orderBy` (fecha desc); aquí se comprueba que la ruta no lo reordena ni
-    // lo aplana al mapear.
-    kdb.when.select('flito_organismo_pagos', [
-      { id: 'p2', valor: '300000', fecha: '2026-07-20', observacion: null, soporteId: null, registradoPorNombre: 'financiera@flit.io', createdAt: AHORA },
-      { id: 'p1', valor: '150000.50', fecha: '2026-06-30', observacion: 'Primer abono', soporteId: SOPORTE_ID, registradoPorNombre: 'financiera@flit.io', createdAt: AHORA },
-    ]);
-
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('financiera'));
-
-    expect(r.status).toBe(200);
-    expect(r.body.map((p: { id: string }) => p.id)).toEqual(['p2', 'p1']);
-    expect(r.body[1]).toMatchObject({ valor: 150000.5, fecha: '2026-06-30', observacion: 'Primer abono', soporteId: SOPORTE_ID });
-  });
-
-  it('GET /organismos/:codigo/pagos sin pagos → 200 con lista vacía, no 404', async () => {
-    // Un organismo al que aún no se le ha pagado nada no es un error: es el estado inicial.
-    kdb.when.select('flito_organismo_pagos', []);
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('admin'));
-
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual([]);
-  });
-
-  it('GET /organismos/:codigo/tramites con rol transito → 403', async () => {
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/tramites')
-      .set('Authorization', await auth('transito'));
-    expect(r.status).toBe(403);
-  });
-
-  it('GET /organismos/:codigo/tramites → 200 con el id de FLIT de cada trámite', async () => {
-    kdb.when.select('flito_bolsa_movimientos', [
-      { tramiteId: 'tramite-1', idFlit: 'FLIT-1', companiaId: COMPANIA, concepto: 'soat', valor: '450000', fecha: '2026-07-20', soporteId: SOPORTE_ID },
-    ]);
-
-    const r = await request(await buildApp()).get('/api/flito/bolsas/organismos/05001/tramites')
-      .set('Authorization', await auth('financiera'));
-
-    expect(r.status).toBe(200);
-    expect(r.body[0]).toMatchObject({ tramiteId: 'tramite-1', idFlit: 'FLIT-1', concepto: 'soat', valor: 450000 });
-  });
-
-  it('POST /organismos/:codigo/pagos con rol transito → 403', async () => {
-    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('transito')).field('valor', '400000');
-    expect(r.status).toBe(403);
-  });
-
-  it('valor no positivo → 400', async () => {
-    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('admin')).field('valor', '0');
-    expect(r.status).toBe(400);
-    expect(r.body.error).toBe('El valor del pago debe ser mayor que cero');
-  });
-
-  it('sin comprobante → 201: el soporte es opcional en un pago al organismo', async () => {
-    // A diferencia de la recarga, el pago puede registrarse el día en que se ordena la
-    // transferencia, antes de que el banco devuelva el comprobante.
-    kdb.when
-      .insert('flito_organismo_pagos', [{ id: 'pago-1' }])
-      .select('flito_bolsa_movimientos', [{ concepto: 'soat', salidas: '450000', movimientos: 1 }])
-      .select('flito_organismo_pagos', [{ total: '450000' }]);
-
-    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('financiera')).field('valor', '450000');
-
-    expect(r.status).toBe(201);
-    expect(r.body).toEqual({ id: 'pago-1', saldoPendiente: 0 });
-    expect(uploadMock).not.toHaveBeenCalled();
-    expect(auditMock.mock.calls[0][1]).toMatchObject({ resource: 'flito_organismo_pago' });
-  });
-
-  it('con comprobante válido → 201 y se archiva bajo la carpeta del organismo', async () => {
-    kdb.when
-      .insert('flito_soportes', [{ id: SOPORTE_ID }])
-      .insert('flito_organismo_pagos', [{ id: 'pago-1' }])
-      .select('flito_bolsa_movimientos', [])
-      .select('flito_organismo_pagos', [{ total: '450000' }]);
-
-    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('admin')).field('valor', '450000')
-      .attach('soporte', PDF_REAL, { filename: 'transferencia.pdf', contentType: 'application/pdf' });
-
-    expect(r.status).toBe(201);
-    expect(uploadMock.mock.calls[0][0]).toBe('organismos/05001/pagos');
-  });
-
-  it('comprobante cuyo contenido no es del tipo declarado → 400 y no se archiva', async () => {
-    const r = await request(await buildApp()).post('/api/flito/bolsas/organismos/05001/pagos')
-      .set('Authorization', await auth('admin')).field('valor', '450000')
-      .attach('soporte', Buffer.from('esto no es un PDF'), { filename: 'x.pdf', contentType: 'application/pdf' });
-
-    expect(r.status).toBe(400);
-    expect(r.body.error).toMatch(/Contenido de archivo no permitido/);
-    expect(uploadMock).not.toHaveBeenCalled();
-  });
-});
-
 describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', () => {
   it('rol transito → 403', async () => {
     // Ruta propia y no la de derechos: aquella está abierta a `auditor`, y los soportes de bolsas
@@ -1133,11 +1006,21 @@ describe('orden de las rutas — un segmento fijo nunca puede quedar bajo /:comp
     expect(antesDelParametro).toEqual(expect.arrayContaining(['/consolidado', '/riesgo', '/alertas']));
   });
 
-  it('/organismos/:codigo no necesita ir antes: la salvan sus dos segmentos', async () => {
-    // Documenta por qué esa sí puede vivir más abajo, para que nadie «arregle» lo que no está roto
-    // moviéndola y se lleve por delante el orden de las otras.
+  it('las rutas de organismo no necesitan ir antes: las salvan sus tres segmentos', async () => {
+    // Documenta por qué esas sí pueden vivir más abajo, para que nadie «arregle» lo que no está roto
+    // moviéndolas y se lleve por delante el orden de las otras.
+    //
+    // Desde la HU #11162 ya no hay ninguna ruta de organismo de dos segmentos: la que había
+    // (`/organismos/:codigo`, el estado de cuenta heredado) se retiró junto con su vista.
     const rutas = await rutasDeclaradas();
-    expect(rutas).toContain('/organismos/:organismoCodigo');
-    expect(rutas.indexOf('/organismos/:organismoCodigo')).toBeGreaterThan(rutas.indexOf('/:companiaId'));
+    const deOrganismo = rutas.filter((r) => r.startsWith('/organismos/'));
+
+    expect(deOrganismo).toEqual(expect.arrayContaining([
+      '/organismos/:organismoCodigo/bolsa',
+      '/organismos/:organismoCodigo/movimientos',
+      '/organismos/:organismoCodigo/cargas',
+    ]));
+    // Tres segmentos cada una: `/:companiaId` solo puede capturar rutas de uno.
+    expect(deOrganismo.every((r) => r.split('/').filter(Boolean).length === 3)).toBe(true);
   });
 });
