@@ -14,9 +14,11 @@
 
 import { and, eq } from 'drizzle-orm';
 import {
+  CONCURRENCIA_CERTIFICACION,
   EstadoImpuesto,
   MotivoNoElegible,
   ResultadoCertificacion,
+  TOPE_LOTE_CERTIFICACION,
   type ComparacionCampo,
   type DatosVehiculoFlito,
 } from '@operaciones/shared-types';
@@ -224,6 +226,98 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       createdAt: fila.createdAt.toISOString(),
     },
   };
+}
+
+/** Desenlace de UN registro dentro de un lote. Mismo vocabulario que la certificación individual. */
+export interface ResultadoLoteItem {
+  id: string;
+  resultado: ResultadoCertificacion;
+  mensaje?: string;
+  motivo?: MotivoNoElegible;
+  /** Solo en `con_diferencias`: lo que el gestor necesita leer para saber qué corregir. */
+  diferenciasBloqueantes?: ComparacionCampo[];
+}
+
+/**
+ * Ejecuta `fn` sobre `items` con como mucho `limite` en vuelo a la vez.
+ *
+ * Sin dependencias: un pool de N obreros que van tomando el siguiente índice libre. `Promise.all`
+ * sobre todos los items lanzaría el lote entero de golpe contra el RUNT y abriría el circuit breaker
+ * a los cinco fallos; un `for` secuencial haría esperar al gestor el doble de lo necesario.
+ *
+ * Los resultados vuelven en el ORDEN de entrada, no en el de terminación: la interfaz muestra la
+ * tabla en el mismo orden en que el usuario seleccionó, y que las filas bailen según cuál respondió
+ * antes sería desconcertante.
+ */
+async function conConcurrencia<T, R>(items: T[], limite: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const resultados = new Array<R>(items.length);
+  let siguiente = 0;
+  const obreros = Array.from({ length: Math.min(limite, items.length) }, async () => {
+    for (;;) {
+      const i = siguiente++;
+      if (i >= items.length) return;
+      resultados[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(obreros);
+  return resultados;
+}
+
+/** Traduce un desenlace individual al item del lote, sin perder el detalle. */
+function aItemLote(id: string, r: ResultadoCertificar): ResultadoLoteItem {
+  switch (r.resultado) {
+    case ResultadoCertificacion.CERTIFICADO:
+      return { id, resultado: r.resultado };
+    case ResultadoCertificacion.CON_DIFERENCIAS:
+      return { id, resultado: r.resultado, diferenciasBloqueantes: r.diferenciasBloqueantes };
+    case ResultadoCertificacion.NO_ELEGIBLE:
+      return { id, resultado: r.resultado, motivo: r.motivo, mensaje: r.mensaje };
+    default:
+      return { id, resultado: r.resultado, mensaje: r.mensaje };
+  }
+}
+
+/**
+ * Certifica un lote de impuestos (HU #11166).
+ *
+ * Un registro que falla NO tumba el lote: cada uno devuelve su propio desenlace y el gestor ve en
+ * una tabla cuáles quedaron y cuáles no. Por eso `certificarImpuesto` devuelve los fallos esperables
+ * en vez de lanzarlos, y por eso aquí se atrapa lo que sí lanza (un id inaccesible) en lugar de
+ * dejarlo propagar.
+ *
+ * Los ids duplicados se colapsan: certificar dos veces el mismo registro en un mismo lote gastaría
+ * dos consultas al RUNT —que se cobran— para acabar dejando una sola certificación vigente.
+ */
+export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<ResultadoLoteItem[]> {
+  const unicos = [...new Set(ids)];
+
+  if (unicos.length === 0) throw new ImpuestoError(400, 'No se seleccionó ningún impuesto.');
+  if (unicos.length > TOPE_LOTE_CERTIFICACION) {
+    throw new ImpuestoError(400, `Máximo ${TOPE_LOTE_CERTIFICACION} impuestos por lote. Seleccionaste ${unicos.length}.`);
+  }
+
+  log.info({ total: unicos.length }, 'certificacion masiva: inicio');
+
+  return conConcurrencia(unicos, CONCURRENCIA_CERTIFICACION, async (id): Promise<ResultadoLoteItem> => {
+    try {
+      return aItemLote(id, await certificarImpuesto(id, ctx));
+    } catch (e) {
+      // Un id que no existe o cae fuera de la frontera del gestor: en la ruta individual es un 404,
+      // pero dentro de un lote es solo una fila que no se pudo procesar.
+      if (e instanceof ImpuestoError) {
+        return {
+          id,
+          resultado: ResultadoCertificacion.NO_ELEGIBLE,
+          motivo: MotivoNoElegible.NO_ACCESIBLE,
+          mensaje: e.message,
+        };
+      }
+      // Cualquier otra cosa (un fallo de BD, por ejemplo) tampoco puede matar el lote entero.
+      const mensaje = (e as Error)?.message || 'Error inesperado al certificar.';
+      log.warn({ impuestoId: id, err: mensaje }, 'certificacion masiva: fallo inesperado');
+      return { id, resultado: ResultadoCertificacion.ERROR_SERVICIO, mensaje };
+    }
+  });
 }
 
 /** Certificación vigente de un impuesto, o `null`. La usa el detalle y el certificado PDF. */

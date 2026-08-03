@@ -109,6 +109,11 @@ export const MotivoNoElegible = {
   SIN_DOCUMENTO_PROPIETARIO: 'sin_documento_propietario',
   SIN_PLACA: 'sin_placa',
   ESTADO_NO_ELEGIBLE: 'estado_no_elegible',
+  /**
+   * El id no existe o queda fuera de la frontera del gestor. Solo aparece en el MASIVO: en la
+   * certificación individual eso es un 404, pero dentro de un lote no puede tumbar a los demás.
+   */
+  NO_ACCESIBLE: 'no_accesible',
 } as const;
 
 export type MotivoNoElegible = (typeof MotivoNoElegible)[keyof typeof MotivoNoElegible];
@@ -116,8 +121,24 @@ export type MotivoNoElegible = (typeof MotivoNoElegible)[keyof typeof MotivoNoEl
 export const MOTIVO_NO_ELEGIBLE_LABEL: Record<MotivoNoElegible, string> = {
   sin_documento_propietario: 'El vehículo no tiene documento de propietario, necesario para consultar el RUNT por placa.',
   sin_placa: 'El vehículo no tiene placa registrada.',
-  estado_no_elegible: 'Solo se certifican impuestos ya enviados al gestor.',
+  estado_no_elegible: 'Solo se certifican impuestos en estado Solicitado.',
+  no_accesible: 'El impuesto no existe o no está disponible para este usuario.',
 };
+
+/**
+ * Tope de registros por lote en la certificación masiva.
+ *
+ * Bajo a propósito. La certificación es SÍNCRONA y cada registro consulta el RUNT, que tiene 90 s de
+ * timeout: un lote mayor puede superar el timeout del proxy inverso y dejar al usuario sin respuesta
+ * aunque el backend termine bien. En modo directo cada consulta resuelve además un captcha de pago.
+ *
+ * Vive en shared-types para que la interfaz avise ANTES de enviar con el mismo número que el backend
+ * rechaza. Dos constantes que puedan divergir divergen.
+ */
+export const TOPE_LOTE_CERTIFICACION = 10;
+
+/** Consultas al RUNT en vuelo a la vez dentro de un lote. Más abriría el circuit breaker. */
+export const CONCURRENCIA_CERTIFICACION = 2;
 
 /** Datos del vehículo que FLITO aporta a la comparación. */
 export interface DatosVehiculoFlito {

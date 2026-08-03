@@ -59,12 +59,24 @@ function primero(fuente: Record<string, unknown> | null | undefined, claves: rea
 /**
  * Extrae los datos comparables de la respuesta cruda del RUNT.
  *
- * Cadenas de alias porque el payload del RUNT no es estable: el propio repo ya hace
- * `veh.placa || veh.noPlaca` y `veh.claseVehiculo || veh.clase` (`soat/batch.routes.ts:107-109`).
+ * Verificado contra una consulta REAL (placa QIU744, 2026-07-31). `data.vehiculo` trae:
  *
- * El VIN se busca además en `datosTecnicos`, que la consulta descarga pero que hoy ningún consumidor
- * lee. Si no aparece por ninguna vía, se devuelve `null` y el campo se marca NO_VERIFICABLE: no
- * bloquea (AC4). Preferimos no certificar el VIN a inventarnos que coincide.
+ *   placa "QIU744" · vin "3KPFF51ABTE156687" · numChasis (mismo valor) · numSerie null
+ *   marca "KIA" · linea "K3 CROSS" · modelo "2026" · clase "CAMIONETA" · clasificacion "AUTOMOVIL"
+ *   cilindraje · color · tipoServicio · organismoTransito · numMotor · idAutomotor · …
+ *
+ * Es decir: `vin` viene con ese nombre exacto y dentro de `vehiculo`, y la clase es `clase` —no
+ * `claseVehiculo`—, aunque el repo ya contemplaba las dos (`soat/batch.routes.ts:107-109`). Las
+ * cadenas de alias se conservan igualmente: el payload varía por tipo de vehículo (una moto o un
+ * remolque no traen los mismos campos) y un alias de más no cuesta nada.
+ *
+ * Ojo con `clase` frente a `clasificacion`: son campos distintos con valores distintos
+ * ("CAMIONETA" y "AUTOMOVIL" para el mismo vehículo). Se toma `clase`, y como es informativo no
+ * bloquea aunque no cuadre con lo que FLITO tenga.
+ *
+ * El VIN se busca además en `datosTecnicos` por si algún tipo de vehículo lo publica solo ahí. Si no
+ * aparece por ninguna vía se devuelve `null` y el campo se marca NO_VERIFICABLE: no bloquea (AC4).
+ * Preferimos no certificar el VIN a inventarnos que coincide.
  */
 export function extraerVehiculoRunt(data: unknown): DatosVehiculoRunt {
   const d = (data ?? {}) as Record<string, unknown>;

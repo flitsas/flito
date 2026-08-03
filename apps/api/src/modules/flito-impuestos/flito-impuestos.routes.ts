@@ -15,7 +15,7 @@ import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { EstadoImpuesto, ResultadoCertificacion } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
-import { certificarImpuesto } from './certificacion.service.js';
+import { certificarImpuesto, certificarLote } from './certificacion.service.js';
 import {
   colaImpuestos, facetasColaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
@@ -223,6 +223,40 @@ router.post('/:id/certificar', OPS_O_GESTOR, async (req: Request, res: Response)
         res.status(502).json({ code: r.resultado, error: r.mensaje });
         return;
     }
+  } catch (e) { handleError(res, e); }
+});
+
+/**
+ * POST /certificar — certificación MASIVA de los registros seleccionados (HU #11166).
+ *
+ * Siempre 200 cuando el lote es admisible: el desenlace vive POR REGISTRO, no en el código HTTP. Un
+ * lote donde nueve certifican y uno falla no es «un error», y devolver 4xx por el que falló
+ * escondería los nueve que sí quedaron.
+ *
+ * El tope se valida en el borde con el mismo número que conoce la interfaz
+ * (`TOPE_LOTE_CERTIFICACION` en shared-types), y ahí sí es 400: pedir 40 registros no es un lote que
+ * salió regular, es una petición que no se debe intentar.
+ *
+ * Ojo con el orden de las rutas: `/certificar` se registra DESPUÉS de `/:id/certificar`, pero no
+ * colisionan porque tienen distinto número de segmentos.
+ */
+const certificarLoteSchema = z.object({ ids: z.array(z.string().uuid()).min(1) });
+router.post('/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  const parsed = certificarLoteSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'No se seleccionó ningún impuesto.' }); return; }
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const resultados = await certificarLote(parsed.data.ids, ctx);
+
+    const certificados = resultados.filter((r) => r.resultado === ResultadoCertificacion.CERTIFICADO);
+    if (certificados.length > 0) {
+      await audit(req, {
+        action: 'update', resource: 'flito_impuesto',
+        resourceId: certificados.map((r) => r.id).join(','),
+        detail: `Certificación masiva contra RUNT: ${certificados.length}/${resultados.length}`,
+      });
+    }
+    res.json({ total: resultados.length, certificados: certificados.length, resultados });
   } catch (e) { handleError(res, e); }
 });
 
