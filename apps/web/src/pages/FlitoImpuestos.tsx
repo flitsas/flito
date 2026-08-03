@@ -153,6 +153,17 @@ export default function FlitoImpuestos() {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
   }, []);
 
+  /**
+   * Si una recarga deja fuera el impuesto que se estaba viendo —un traspaso que lo saca de la vista
+   * filtrada, un cambio de filtros—, el detalle se cierra de verdad. Sin esto `detalleId` sobrevive
+   * apuntando a una fila ausente, y el modal resucita solo en cuanto esa fila vuelve a entrar en la
+   * vista, mucho después de que el usuario lo diera por cerrado.
+   */
+  useEffect(() => {
+    if (!data || detalleId === null) return;
+    if (!data.items.some((i) => i.id === detalleId)) setDetalleId(null);
+  }, [data, detalleId]);
+
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoImpuesto.PENDIENTE), [filas]);

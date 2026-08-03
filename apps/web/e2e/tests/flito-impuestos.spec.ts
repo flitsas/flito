@@ -199,6 +199,44 @@ test.describe('FLITO — Impuestos', () => {
     await expect(modal.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
   });
 
+  test('el detalle que sale de la vista filtrada no resucita al limpiar los filtros', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // Mock propio: el fixture compartido es constante, y este caso necesita que el impuesto cambie
+    // de gestor a mitad de la prueba.
+    let deOperaciones = true;
+    await page.route(/\/api\/flito\/impuestos\/facetas/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
+    await page.route(/\/api\/flito\/impuestos\?/, (route) => {
+      const gestion = new URL(route.request().url()).searchParams.get('gestion');
+      const fila = { ...IMPUESTOS[2], gestionOperaciones: deOperaciones };
+      const items = gestion ? [fila].filter((i) => i.gestionOperaciones === (gestion === 'operaciones')) : [fila];
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
+      });
+    });
+    await page.route(/\/api\/flito\/impuestos\/i3\/devolver-gestor$/, (route) => {
+      deOperaciones = false;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+    });
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Gestiona').selectOption('operaciones');
+    await page.getByRole('row').filter({ hasText: 'OPS001' }).getByRole('button', { name: 'Ver' }).click();
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Devolver al gestor' }).click();
+    await modal.getByRole('textbox', { name: /Motivo de la devolución/ }).fill('El gestor del organismo ya puede retomarlo');
+    await modal.getByRole('button', { name: 'Confirmar' }).click();
+
+    // Al dejar de gestionarlo Operaciones sale de la vista filtrada y el modal se va con la fila.
+    await expect(modal).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(page.getByText('OPS001')).toBeVisible();
+    // Aquí es donde antes reaparecía solo, porque el detalle seguía apuntando a ese impuesto.
+    await expect(modal).toHaveCount(0);
+  });
+
   test('AC5 · sin motivo no se confirma, y el error del servidor no borra lo escrito', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
