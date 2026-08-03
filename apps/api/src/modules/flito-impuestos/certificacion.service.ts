@@ -15,6 +15,7 @@
 import { and, eq } from 'drizzle-orm';
 import {
   CONCURRENCIA_CERTIFICACION,
+  ESTADOS_IMPUESTO_CERTIFICABLES,
   EstadoImpuesto,
   MotivoNoElegible,
   ResultadoCertificacion,
@@ -35,16 +36,11 @@ const log = loggerFor('flito.impuestos.certificacion');
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
- * Estados desde los que se puede certificar. SOLO `solicitado` (decisión del PO, 2026-07-31).
- *
- * Es el momento en que el impuesto ya está en manos del gestor y el dinero todavía no ha salido:
- * justo donde la verificación puede evitar un desembolso equivocado. Certificar un `pagado` no
- * prevendría nada, solo documentaría; y un `pendiente` no tiene aún nada que certificar.
- *
- * Constante exportada a propósito: la interfaz y el masivo deben leer de aquí, no repetir el
- * literal. Dos listas que puedan divergir divergen.
+ * Se reexporta desde shared-types (HU #11168): la cola decide con esta lista qué filas muestran el
+ * botón Certificar, así que tiene que ser LA MISMA que el backend usa para rechazar. Se conserva el
+ * nombre exportado aquí para no tocar a quien ya la importaba de este módulo.
  */
-export const ESTADOS_IMPUESTO_CERTIFICABLES: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO];
+export { ESTADOS_IMPUESTO_CERTIFICABLES };
 
 export interface CertificacionVigente {
   id: string;

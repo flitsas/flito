@@ -22,6 +22,21 @@
  * que FLITO tiene para contrastar.
  */
 
+import { EstadoImpuesto } from './flito-estados.js';
+
+/**
+ * Estados desde los que se puede certificar. SOLO `solicitado` (decisión del PO, 2026-07-31).
+ *
+ * Es el momento en que el impuesto ya está en manos del gestor y el dinero todavía no ha salido:
+ * justo donde la verificación puede evitar un desembolso equivocado. Certificar un `pagado` no
+ * prevendría nada, solo documentaría; y un `pendiente` no tiene aún nada que certificar.
+ *
+ * Vive aquí y no en el servicio porque la COLA decide con ella qué filas muestran el botón
+ * Certificar, y el backend decide con ella qué peticiones rechaza. Dos listas que puedan divergir
+ * divergen — y divergir aquí significa un botón que siempre falla.
+ */
+export const ESTADOS_IMPUESTO_CERTIFICABLES: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO];
+
 /** Campos del vehículo que se contrastan al certificar. */
 export const CampoCertificacion = {
   PLACA: 'placa',
