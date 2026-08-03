@@ -35,6 +35,9 @@ interface ImpuestoItem {
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /** true = lo gestiona Operaciones por contingencia, en vez del gestor del organismo. El impuesto
+   *  se sigue pagando ante el mismo organismo: lo que cambia es quién lo tramita. */
+  gestionOperaciones: boolean;
 }
 interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
 interface FacetasImpuestos {
@@ -81,18 +84,19 @@ export default function FlitoImpuestos() {
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
+  const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
 
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
-    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado;
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado || !!gestionSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
-    setSoloEstancado(false); setTexto(''); setPreset(null);
+    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   };
 
@@ -125,7 +129,7 @@ export default function FlitoImpuestos() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -139,10 +143,11 @@ export default function FlitoImpuestos() {
     if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
     if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
+    if (gestionSel) q.set('gestion', gestionSel);
     q.set('page', String(page));
     api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -193,6 +198,20 @@ export default function FlitoImpuestos() {
             <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
               vacio="Sin organismos en la cola"
               opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
+          )}
+
+          {/* Al gestor tampoco: dentro de su frontera todo lo gestiona él, así que solo tendría
+              una opción con resultados y otra siempre vacía. */}
+          {!esGestor && (
+            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              Gestiona
+              <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
+                onChange={(e) => setGestionSel(e.target.value as '' | 'operaciones' | 'organismo')}>
+                <option value="">Cualquiera</option>
+                <option value="operaciones">Operaciones</option>
+                <option value="organismo">El organismo</option>
+              </select>
+            </label>
           )}
 
           <FiltrosInteligentes presets={PRESETS} activo={preset}
@@ -248,7 +267,7 @@ export default function FlitoImpuestos() {
                 )}
                 {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
                 <FlitTh>Compañía</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Organismo</FlitTh><FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
                 <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
               </FlitTr>
@@ -269,6 +288,7 @@ export default function FlitoImpuestos() {
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   <td className="px-3 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo}</td>
+                  <CeldaGestion imp={f} />
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
@@ -303,7 +323,8 @@ export default function FlitoImpuestos() {
 
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
-          onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }} />
+          onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
+          onTraspaso={refrescar} />
       )}
 
       {cargaRecibos && (
@@ -313,31 +334,57 @@ export default function FlitoImpuestos() {
   );
 }
 
+/**
+ * A diferencia de SOAT, aquí no hay selector de destino: el gestor lo determina el organismo del
+ * trámite, así que «al gestor» no admite elección. Los dos destinos posibles van como dos botones
+ * explícitos, que dicen a dónde va cada uno y ahorran el paso intermedio de elegir y confirmar.
+ */
 function BarraEnvio({ ids, onEnviado, onError }: { ids: string[]; onEnviado: () => void; onError: (m: string) => void }) {
-  const [enviando, setEnviando] = useState(false);
-  const enviar = async () => {
-    setEnviando(true);
-    try { await api.post('/flito/impuestos/enviar', { ids }); onEnviado(); }
+  const [enviando, setEnviando] = useState<'gestor' | 'operaciones' | null>(null);
+  const enviar = async (aOperaciones: boolean) => {
+    setEnviando(aOperaciones ? 'operaciones' : 'gestor');
+    try {
+      await api.post('/flito/impuestos/enviar', aOperaciones ? { ids, gestionOperaciones: true } : { ids });
+      onEnviado();
+    }
     catch (e) { onError(errorMessage(e)); }
-    finally { setEnviando(false); }
+    finally { setEnviando(null); }
   };
   return (
     <FlitCard>
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando} onClick={enviar}>
-          {enviando ? 'Enviando…' : 'Enviar al gestor'}
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando !== null} onClick={() => enviar(false)}>
+          {enviando === 'gestor' ? 'Enviando…' : 'Enviar al gestor'}
+        </button>
+        <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando !== null} onClick={() => enviar(true)}>
+          {enviando === 'operaciones' ? 'Enviando…' : 'Gestionar en Operaciones'}
         </button>
       </div>
     </FlitCard>
   );
 }
 
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar';
+/**
+ * Quién gestiona el impuesto. Va en columna propia y no sobre la de organismo: el organismo se
+ * sigue viendo en los dos casos, porque el impuesto se paga ante él igual. El distintivo lleva
+ * texto y no solo color.
+ */
+function CeldaGestion({ imp }: { imp: ImpuestoItem }) {
+  return (
+    <td className="px-3 py-2 text-sm">
+      {imp.gestionOperaciones
+        ? <StatusChip tone="warning">Operaciones</StatusChip>
+        : <span style={{ color: 'var(--flit-text-secondary)' }}>Gestor del organismo</span>}
+    </td>
+  );
+}
 
-function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, onCambio }: {
+type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
+
+function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, onCambio, onTraspaso }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
-  onClose: () => void; onCambio: () => void;
+  onClose: () => void; onCambio: () => void; onTraspaso: () => void;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -347,10 +394,28 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
 
   const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
   const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
+  // El traspaso de gestión solo tiene sentido mientras el impuesto está en gestión y sin pagar:
+  // sobre uno Pagado no queda nada que gestionar, y uno Pendiente aún no se ha enviado a nadie.
+  const traspasable = enGestion || rechazado;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
     try { await fn(); onCambio(); }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setEnviando(false); }
+  };
+
+  /**
+   * El traspaso de gestión no cierra el detalle: quien lo asume suele querer seguir en el mismo
+   * impuesto, y ver ahí mismo que ya lo gestiona Operaciones es la confirmación de que funcionó.
+   * Si el traspaso lo saca de la vista filtrada, la fila desaparece y el detalle se cierra solo.
+   */
+  const traspasar = async (ruta: string) => {
+    setEnviando(true); setError(null);
+    try {
+      await api.post(`/flito/impuestos/${imp.id}/${ruta}`, { motivo });
+      setAccion('idle'); setMotivo(''); onTraspaso();
+    }
     catch (e) { setError(errorMessage(e)); }
     finally { setEnviando(false); }
   };
@@ -377,6 +442,7 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
+          <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />
           <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
           <div>
@@ -404,10 +470,26 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
             {rechazado && esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
+            {esOperaciones && traspasable && !imp.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
+            )}
+            {esOperaciones && traspasable && imp.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al gestor</button>
+            )}
             {esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}
           </div>
+        )}
+
+        {/* Devolver no pide destinatario: el gestor sale del organismo del trámite, que no cambia. */}
+        {(accion === 'asumir' || accion === 'devolver') && (
+          <FormMotivo etiqueta={accion === 'asumir'
+            ? 'Motivo para asumirlo en Operaciones (mín. 5 caracteres)'
+            : 'Motivo de la devolución al gestor (mín. 5 caracteres)'}
+            motivo={motivo} setMotivo={setMotivo} enviando={enviando} minLen={5}
+            onCancelar={() => { setAccion('idle'); setMotivo(''); }}
+            onConfirmar={() => traspasar(accion === 'asumir' ? 'asumir-operaciones' : 'devolver-gestor')} />
         )}
 
         {(accion === 'rechazar' || accion === 'reactivar') && (
