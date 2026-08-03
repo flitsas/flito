@@ -4,7 +4,9 @@
 // de teclado (disclosure APG + Escape que devuelve el foco), filtrado por
 // permisos y drawer mobile como única navegación en <lg.
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
+import {
+  loginAs, ADMIN_USER, PROVEEDOR_USER, OPERACIONES_USER, GESTOR_IMPUESTOS_USER, CONDUCTOR_USER,
+} from '../helpers/auth';
 
 // El home (/) renderiza <FlitoTablero>, que consume /flito/tablero como OBJETO (no lista).
 // Sin este shape el dashboard antes reventaba y dejaba el shell en blanco.
@@ -207,4 +209,120 @@ test('mobile: navbar oculta, hamburguesa abre el drawer', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeHidden();
   await page.getByRole('button', { name: 'Abrir menú de navegación' }).click();
   await expect(page.getByRole('dialog', { name: 'Menú de navegación' })).toBeVisible();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11151 — SOAT e Impuestos dejan de ser exclusivos de su gestor: Operaciones entra por
+// contingencia (Feature #11150). Ojo con lo que se prueba aquí: el permiso de PÁGINA ya lo tenía
+// admin (`ROLE_DEFAULT_PAGES.admin` es el catálogo entero) y el servidor nunca le aplicó frontera.
+// Lo que faltaba era la ENTRADA DE MENÚ, porque `navItems` filtraba por `roles` y admin no estaba
+// en la lista. Por eso los tests miran la puerta —menú y buscador— y no el contenido de la cola.
+const PANEL_GESTION = '#flit-navbar-panel-gestion';
+
+test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('Operaciones los ve en Gestión, sin el sufijo del gestor y bajo el subgrupo renombrado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page);
+    await page.goto('/');
+
+    await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+
+    // `exact` es justo lo que comprueba el AC5: con «SOAT (gestor)» esto no pasaría.
+    await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
+
+    // El subgrupo dejó de llamarse por quien lo atiende y pasó a nombrar su contenido.
+    await expect(
+      page.locator(`${PANEL_GESTION} p`).filter({ hasText: /^SOAT e Impuestos$/ }),
+    ).toBeVisible();
+    await expect(page.locator(PANEL_GESTION)).not.toContainText('Colas de gestor');
+  });
+
+  for (const { label, url } of [
+    { label: 'SOAT', url: /\/flito\/soat/ },
+    { label: 'Impuestos', url: /\/flito\/impuestos/ },
+  ]) {
+    test(`Operaciones entra a ${label} desde el menú, sin pantalla de sin acceso`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockApi(page);
+      await page.goto('/');
+
+      await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+      await page.getByRole('link', { name: label, exact: true }).click();
+
+      await expect(page).toHaveURL(url);
+      await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
+      await expect(page.getByText(/No tienes acceso a/)).toHaveCount(0);
+    });
+  }
+
+  test('el buscador se los ofrece a Operaciones', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page);
+    await page.goto('/');
+
+    const resultados = page.getByRole('listbox', { name: 'Resultados' });
+    // Se abre por el botón del topbar y no por Ctrl+K: el atajo vive en un efecto del Layout y,
+    // como primera interacción tras cargar, pierde la carrera con los efectos de montaje. El botón
+    // además solo existe con el shell ya pintado, que es justo la garantía que hace falta aquí.
+    const abrirBuscador = page.getByRole('button', { name: /^Buscar o ir a sección/ });
+
+    for (const { query, label } of [
+      { query: 'soat', label: 'SOAT' },
+      { query: 'impuesto', label: 'Impuestos' },
+    ]) {
+      await abrirBuscador.click();
+      const buscador = page.getByPlaceholder('Buscar o ir a…');
+      await expect(buscador).toBeVisible();
+      await buscador.fill(query);
+      await expect(resultados.getByRole('option', { name: label })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(buscador).toHaveCount(0);
+    }
+  });
+
+  test('a cada gestor no le cambia nada: sigue viendo solo su cola', async ({ page }) => {
+    await loginAs(page, PROVEEDOR_USER);
+    await mockApi(page);
+    await page.goto('/vehicles');
+
+    await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+    await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toHaveCount(0);
+  });
+
+  test('el gestor de impuestos ve Impuestos y no SOAT', async ({ page }) => {
+    await loginAs(page, GESTOR_IMPUESTOS_USER);
+    await mockApi(page);
+    await page.goto('/flito/impuestos');
+
+    // Sus permisos dejan Gestión con un solo ítem, y un módulo de un ítem el dock lo pinta como
+    // enlace directo en vez de panel desplegable: aquí no hay botón «Gestión» que abrir.
+    const nav = dockLocator(page);
+    await expect(nav.getByRole('button', { name: 'Gestión', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);
+  });
+
+  test('abrir el módulo a Operaciones no se lo abre a nadie más', async ({ page }) => {
+    await loginAs(page, CONDUCTOR_USER);
+    await mockApi(page);
+    await page.goto('/');
+
+    // Ni en el menú…
+    await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toHaveCount(0);
+
+    // …ni en el buscador…
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder('Buscar o ir a…').fill('soat');
+    await expect(page.getByRole('option', { name: 'SOAT' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // …ni escribiendo la URL a mano: ahí responde el guard del router, no el menú.
+    await page.goto('/flito/soat');
+    await expect(page.getByText(/No tienes acceso a/)).toBeVisible();
+  });
 });
