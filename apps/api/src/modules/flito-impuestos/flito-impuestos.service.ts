@@ -43,6 +43,8 @@ export interface ImpuestoColaItem {
   /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
   pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /** true = lo gestiona Operaciones por contingencia (HU #11155), no el gestor del organismo. */
+  gestionOperaciones: boolean;
 }
 
 const SELECT_COLA = {
@@ -57,6 +59,7 @@ const SELECT_COLA = {
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+  gestionOperaciones: flitoImpuestos.gestionOperaciones,
   enviadoEn: flitoImpuestos.enviadoEn, pagadoEn: flitoImpuestos.pagadoEn,
   motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
@@ -100,9 +103,12 @@ export interface ColaImpuestosPaginada {
  * `make_interval` y no concatenar texto: `sla || ' hours'` deja el tipo del parámetro ambiguo.
  */
 const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLICITADO}
-  AND ${organismosTransitoConfig.flitoSlaHoras} IS NOT NULL
   AND ${flitoImpuestos.enviadoEn} IS NOT NULL
-  AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${organismosTransitoConfig.flitoSlaHoras}))`;
+  AND CASE WHEN ${flitoImpuestos.gestionOperaciones}
+        THEN ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})
+        ELSE ${organismosTransitoConfig.flitoSlaHoras} IS NOT NULL
+             AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${organismosTransitoConfig.flitoSlaHoras})
+      END)`;
 
 /**
  * Condiciones de la cola, compartidas por la página y el conteo. `null` = la frontera del gestor
@@ -241,15 +247,29 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
-      estancado: estaEstancado(r.estado, r.enviadoEn),
+      estancado: estaEstancado(r.estado, r.enviadoEn, r.gestionOperaciones, r.organismoSla),
+      gestionOperaciones: r.gestionOperaciones,
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
     };
   });
 }
 
-function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+/**
+ * Gemelo en JavaScript de `EXPR_ESTANCADO_IMP`. Conviven porque la píldora se pinta desde la fila ya
+ * ensamblada y el filtro tiene que ocurrir en la consulta; si una cambia, la otra debe cambiar con
+ * ella o la píldora dice una cosa y el conteo otra.
+ *
+ * Ojo: hasta la HU #11155 estas dos NO coincidían —el SQL medía contra el ANS del organismo y esto
+ * contra el global— pese a que el comentario afirmaba lo contrario. Ahora las dos aplican el mismo
+ * criterio: el ANS global de Operaciones cuando la contingencia está activa, y el del organismo
+ * cuando lo gestiona su gestor. Un organismo sin ANS configurado nunca marca a su gestor, pero sí
+ * marca lo que asumió Operaciones: el retraso deja de esconderse por una parametrización que falta.
+ */
+export function estaEstancado(estado: string, enviadoEn: Date | null, gestionOperaciones: boolean, slaOrganismo: number | null): boolean {
   if (estado !== EstadoImpuesto.SOLICITADO || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
+  const horas = gestionOperaciones ? ANS_OPERATIVO.SIN_GESTION_HORAS : slaOrganismo;
+  if (horas === null) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > horas;
 }
 
 /**
@@ -315,7 +335,7 @@ export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
  * evita que ambos manden el mismo registro. Solo cuenta con factura de venta cargada (estado
  * PENDIENTE ya lo garantiza: sin_factura no llega aquí).
  */
-export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOperaciones = false): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
   const enviados = await db.transaction(async (tx) => {
     const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
@@ -324,17 +344,101 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];
-    await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: new Date(), updatedAt: new Date() })
-      .where(inArray(flitoImpuestos.id, idsEnviados));
-    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, 'Envío al gestor (pendiente→solicitado).');
+    const ahora = new Date();
+    await tx.update(flitoImpuestos).set({
+      estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: ahora, updatedAt: ahora,
+      // A diferencia de SOAT no hay XOR que validar: sin proveedor con el que competir, la
+      // contingencia es solo una marca más sobre el mismo envío.
+      ...(gestionOperaciones
+        ? { gestionOperaciones: true, gestionOperacionesPorId: ctx.userId, gestionOperacionesEn: ahora }
+        : {}),
+    }).where(inArray(flitoImpuestos.id, idsEnviados));
+    const destino = gestionOperaciones ? 'gestión de Operaciones' : 'gestor';
+    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, `Envío a ${destino} (pendiente→solicitado).`);
     await registrarCambios(tx, idsEnviados.map((iid) => ({
       concepto: 'impuesto' as const, registroId: iid,
       estadoAnterior: EstadoImpuesto.PENDIENTE, estadoNuevo: EstadoImpuesto.SOLICITADO,
-      motivo: 'Envío al gestor', usuarioId: ctx.userId, usuarioEmail: ctx.username,
+      motivo: gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor',
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
     return idsEnviados;
   });
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
+}
+
+// ────────────── Traspaso de gestión: Operaciones ↔ gestor del organismo (HU #11155) ──────────────
+
+/** Mientras el impuesto está en gestión y sin pagar. Igual que en SOAT. */
+const ESTADOS_TRASPASO_IMP: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD];
+
+function noAdmiteTraspasoImp(estado: EstadoImpuesto): ImpuestoError {
+  if (estado === EstadoImpuesto.PAGADO) {
+    return new ImpuestoError(400, 'Este impuesto ya está pagado: su gestión no se traspasa. Si hay que rehacerlo, primero reversarlo con justificación.');
+  }
+  return new ImpuestoError(400, `Este impuesto aún no se ha enviado a gestión (está en "${ESTADO_IMPUESTO_LABEL[estado]}").`);
+}
+
+function exigirMotivoImp(motivo: string, accion: string): string {
+  const limpio = motivo?.trim() ?? '';
+  if (limpio.length < 5) throw new ImpuestoError(400, `${accion} exige un motivo que explique el porqué`);
+  return limpio;
+}
+
+/**
+ * Operaciones asume la gestión de un impuesto. No cambia el estado ni toca `enviadoEn` —el tiempo
+ * que lleva esperando es el que es— y el organismo se conserva: el impuesto se paga ante él aunque
+ * lo tramite otro. Lo que cambia es quién lo trabaja, y con ello el ANS contra el que se mide.
+ */
+export async function asumirEnOperaciones(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
+  if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  const limpio = exigirMotivoImp(motivo, 'Asumir la gestión en Operaciones');
+  if (imp.gestionOperaciones) throw new ImpuestoError(400, 'Este impuesto ya lo gestiona Operaciones');
+  if (!ESTADOS_TRASPASO_IMP.includes(imp.estado as EstadoImpuesto)) throw noAdmiteTraspasoImp(imp.estado as EstadoImpuesto);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [u] = await tx.update(flitoImpuestos).set({
+      gestionOperaciones: true, gestionOperacionesMotivo: limpio,
+      gestionOperacionesPorId: ctx.userId, gestionOperacionesEn: ahora, updatedAt: ahora,
+    }).where(eq(flitoImpuestos.id, id)).returning();
+    await auditEnTx(tx, ctx, id, `Gestión asumida por Operaciones (organismo ${imp.organismoCodigo}): ${limpio}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado as EstadoImpuesto, estadoNuevo: imp.estado as EstadoImpuesto,
+      motivo: `Gestión asumida por Operaciones: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return u;
+  });
+}
+
+/**
+ * Devuelve el impuesto al gestor de su organismo. A diferencia de SOAT no recibe destinatario: el
+ * organismo nunca cambió, así que quitar la marca ya lo devuelve a quien le corresponde.
+ */
+export async function devolverAlGestor(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
+  if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  const limpio = exigirMotivoImp(motivo, 'Devolver la gestión al gestor del organismo');
+  if (!imp.gestionOperaciones) throw new ImpuestoError(400, 'Este impuesto no lo gestiona Operaciones: no hay nada que devolver');
+  if (!ESTADOS_TRASPASO_IMP.includes(imp.estado as EstadoImpuesto)) throw noAdmiteTraspasoImp(imp.estado as EstadoImpuesto);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [u] = await tx.update(flitoImpuestos).set({
+      gestionOperaciones: false, gestionOperacionesMotivo: null,
+      gestionOperacionesPorId: null, gestionOperacionesEn: null, updatedAt: ahora,
+    }).where(eq(flitoImpuestos.id, id)).returning();
+    await auditEnTx(tx, ctx, id, `Gestión devuelta al gestor del organismo ${imp.organismoCodigo}: ${limpio}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado as EstadoImpuesto, estadoNuevo: imp.estado as EstadoImpuesto,
+      motivo: `Gestión devuelta al gestor del organismo: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return u;
+  });
 }
 
 /** Rechazo del gestor. Solo desde En gestión; motivo obligatorio. */
