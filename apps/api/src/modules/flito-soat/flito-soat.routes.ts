@@ -83,6 +83,8 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     companias: numeros(req.query.companias),
     organismos: lista(req.query.organismos),
     proveedores: lista(req.query.proveedores),
+    // Un valor desconocido se ignora, como el resto de filtros: un filtro roto no tumba la pantalla.
+    gestion: req.query.gestion === 'operaciones' || req.query.gestion === 'proveedor' ? req.query.gestion : undefined,
     solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
     pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
     estancado: req.query.estancado === 'si',
