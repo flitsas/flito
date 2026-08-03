@@ -73,7 +73,9 @@ describe('solicitarSoat — deduplica por SOAT (RN-01) y clasifica', () => {
     const r = await solicitarSoat(['t1', 't2', 't3'], 'prov1', ctx);
     expect(r).toMatchObject({ autogestionados: 1, sinRegistro: 1, enviados: 1 });
     expect(enviarSoatMock.mock.calls[0][0]).toEqual(['soat-C']);
-    expect(enviarSoatMock.mock.calls[0][2]).toBe('prov1'); // proveedor fijado
+    // El destino pasó de string a objeto con la HU #11152 (proveedor | Operaciones). Desde Gestión
+    // Trámites el proveedor sigue siendo obligatorio y nunca se marca contingencia.
+    expect(enviarSoatMock.mock.calls[0][2]).toEqual({ proveedorSoatId: 'prov1' });
   });
 });
 

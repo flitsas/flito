@@ -651,7 +651,10 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
     soatIds.add(t.soatId);
   }
 
-  const { enviados, yaEnviados } = await enviarSoat([...soatIds], soatCtx(ctx), proveedorSoatId);
+  // Desde Gestión Trámites el proveedor sigue siendo obligatorio: la contingencia (HU #11152) se
+  // opera desde el módulo SOAT, que es donde se ve de quién se retoma cada registro. Aquí solo se
+  // adapta la forma de la llamada, sin cambiar el comportamiento.
+  const { enviados, yaEnviados } = await enviarSoat([...soatIds], soatCtx(ctx), { proveedorSoatId });
   return { enviados: enviados.length, yaEnviados: yaEnviados.length, autogestionados, sinRegistro };
 }
 
