@@ -511,20 +511,6 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
 // seleccionó y actuaría sobre 2, sin enterarse hasta ver el resultado.
 // ---------------------------------------------------------------------------
 
-/**
- * Gestor de impuestos, declarado local a propósito.
- *
- * Su helper compartido llega por la rama de la HU #11151, que entra a develop por separado; añadirlo
- * también a `helpers/auth.ts` chocaría en el merge. Mismo criterio que sigue el PR #73.
- */
-const GESTOR_IMPUESTOS_USER = {
-  id: 21,
-  username: 'e2e_gestor_impuestos',
-  name: 'Gestor Impuestos E2E',
-  role: 'gestor_impuestos' as const,
-  allowedPages: [] as string[],
-};
-
 /** Tres solicitados sin certificar, para poder marcar varios. */
 const IMPUESTOS_LOTE = [0, 1, 2].map((n) => ({
   ...IMPUESTOS[1], id: `s${n}`, tramiteId: `t${n}`, idFlit: `FLIT-200${n}`,
