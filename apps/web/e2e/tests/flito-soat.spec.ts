@@ -16,6 +16,7 @@ const SOAT = [
     fechaAprobacion: null, fechaCreacion: '2026-03-28T10:00:00Z',
     enviadoPorNombre: null, enviadoEn: null,
     pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-01T12:00:00Z',
+    gestionOperaciones: false,
   },
   {
     id: 's2', vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid',
@@ -26,6 +27,7 @@ const SOAT = [
     fechaAprobacion: '2026-04-03T12:00:00Z', fechaCreacion: '2026-04-01T10:00:00Z',
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
     pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
+    gestionOperaciones: false,
   },
   {
     id: 's3', vin: 'VIN0000000000003', placa: 'PAG777', marca: 'Mazda', linea: 'CX-30',
@@ -34,6 +36,7 @@ const SOAT = [
     compradores: [{ nombreCompleto: 'Sara Ríos', numeroDocumento: '30303030', orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: ['FLIT-1003'], enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
     pagadoEn: '2026-04-05T12:00:00Z', valorPagado: 740800, estancado: false, motivoRechazo: null,
+    gestionOperaciones: false,
     creadoEn: '2026-04-02T12:00:00Z',
   },
 ];
@@ -102,7 +105,8 @@ test.describe('FLITO — Portal SOAT', () => {
     // sin él el SOAT nacería sin proveedor y quedaría en la cola de nadie.
     const enviar = page.getByRole('button', { name: /Enviar al gestor/i });
     await expect(enviar).toBeDisabled();
-    await page.getByRole('combobox').selectOption('p1');
+    // Dos selectores en la página desde la HU #11157 (filtro «Gestiona» y destino del envío).
+    await page.getByLabel('Enviar a').selectOption('p1');
 
     await enviar.click();
     await expect.poll(() => enviado).not.toBeNull();
@@ -271,5 +275,184 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
     await page.getByRole('button', { name: 'Ver el historial de estados' }).click();
     await expect(page.getByText('Sin movimientos registrados.')).toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11157 — contingencia en la interfaz: elegir «Gestionado por Operaciones» al enviar, y asumir
+// o devolver un SOAT que ya está con un proveedor.
+//
+// Este bloque monta su propio listado y registra sus rutas DESPUÉS de `mock()`, que en Playwright
+// es lo que les da prioridad: así el fixture compartido no cambia y los 12 casos previos siguen
+// contando lo mismo.
+
+/** SOAT que Operaciones retomó del proveedor p1. Conserva el proveedor a propósito (HU #11153). */
+const SOAT_CONTINGENCIA = {
+  id: 'c1', vin: 'VIN0000000000009', placa: 'OPS001', marca: 'Kia', linea: 'Picanto',
+  estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
+  organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
+  gestionOperaciones: true,
+  compradores: [], tramitesFlit: ['FLIT-1009'], tipoTramite: 'Traspaso',
+  fechaAprobacion: null, fechaCreacion: '2026-04-01T10:00:00Z',
+  enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
+  pagadoEn: null, valorPagado: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
+};
+
+/** Cuerpos de los POST que hizo la página, para afirmar QUÉ se pidió y no solo que se pidió. */
+interface PeticionCapturada { url: string; body: unknown }
+
+async function mockContingencia(page: import('@playwright/test').Page, items: unknown[]) {
+  const posts: PeticionCapturada[] = [];
+  await page.route(/\/api\/flito\/soat\?/, (route) => {
+    const url = new URL(route.request().url());
+    urlsPedidas.push(url.search);
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
+    });
+  });
+  await page.route(/\/api\/flito\/soat\/(enviar|.*\/(asumir-operaciones|devolver-gestor))/, (route) => {
+    posts.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  await page.route(/\/api\/flito\/soat\/[^/?]+\/historial/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  return posts;
+}
+
+test.describe('FLITO — Portal SOAT · contingencia (HU #11157)', () => {
+  test('AC1 — «Gestionado por Operaciones» es una opción del selector y envía la contingencia', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    const posts = await mockContingencia(page, [SOAT[0]]); // el pendiente
+    await page.goto('/flito/soat');
+
+    await page.getByRole('checkbox', { name: 'Seleccionar ABC123' }).check();
+
+    const destino = page.getByLabel('Enviar a');
+    await expect(destino).toBeVisible();
+    // El botón no se habilita hasta elegir destino: un envío sin dueño no debe poder construirse.
+    await expect(page.getByRole('button', { name: /^Enviar/ })).toBeDisabled();
+
+    await destino.selectOption({ label: 'Gestionado por Operaciones' });
+    const enviar = page.getByRole('button', { name: 'Enviar a Operaciones' });
+    await expect(enviar).toBeEnabled();
+    await enviar.click();
+
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].body).toEqual({ ids: ['s1'], gestionOperaciones: true });
+  });
+
+  test('AC1 — elegir un proveedor sigue enviando el proveedor, sin marcar contingencia', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    const posts = await mockContingencia(page, [SOAT[0]]);
+    await page.goto('/flito/soat');
+
+    await page.getByRole('checkbox', { name: 'Seleccionar ABC123' }).check();
+    await page.getByLabel('Enviar a').selectOption({ label: 'Seguros Alfa' });
+    await page.getByRole('button', { name: 'Enviar al gestor' }).click();
+
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].body).toEqual({ ids: ['s1'], proveedorSoatId: 'p1' });
+  });
+
+  test('AC2 — la tabla dice quién gestiona y de quién se retomó', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await mockContingencia(page, [SOAT_CONTINGENCIA, SOAT[1]]);
+    await page.goto('/flito/soat');
+
+    const contingencia = page.getByRole('row', { name: /OPS001/ });
+    await expect(contingencia).toContainText('Operaciones');
+    await expect(contingencia).toContainText('retomado de Seguros Alfa');
+
+    // El gestionado por un proveedor sigue mostrando su nombre, sin distintivo.
+    const normal = page.getByRole('row', { name: /XYZ789/ });
+    await expect(normal).toContainText('Seguros Alfa');
+    await expect(normal).not.toContainText('retomado de');
+  });
+
+  test('AC3 — el filtro por quién gestiona viaja al servidor y se limpia', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await mockContingencia(page, [SOAT_CONTINGENCIA]);
+    await page.goto('/flito/soat');
+
+    await page.getByLabel('Gestiona').selectOption('operaciones');
+    await expect.poll(() => urlsPedidas.at(-1)).toContain('gestion=operaciones');
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect.poll(() => urlsPedidas.at(-1)).not.toContain('gestion=');
+  });
+
+  test('AC4 y AC6 — asumir desde el detalle exige un motivo de al menos cinco caracteres', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    const posts = await mockContingencia(page, [SOAT[1]]); // solicitado, con proveedor
+    await page.goto('/flito/soat');
+
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    await page.getByRole('button', { name: 'Asumir en Operaciones' }).click();
+
+    const confirmar = page.getByRole('button', { name: 'Confirmar' });
+    const campoMotivo = page.getByRole('textbox', { name: /Motivo para asumirlo/ });
+    await expect(confirmar).toBeDisabled();
+    await campoMotivo.fill('abc');
+    await expect(confirmar).toBeDisabled();
+
+    await campoMotivo.fill('el proveedor no responde');
+    await expect(confirmar).toBeEnabled();
+    await confirmar.click();
+
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].url).toContain('/s2/asumir-operaciones');
+    expect(posts[0].body).toEqual({ motivo: 'el proveedor no responde' });
+  });
+
+  test('AC5 — devolver preselecciona el proveedor del que se retomó', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    const posts = await mockContingencia(page, [SOAT_CONTINGENCIA]);
+    await page.goto('/flito/soat');
+
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    // Un SOAT que gestiona Operaciones no ofrece «asumir», ofrece «devolver».
+    await expect(page.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Devolver al proveedor' }).click();
+
+    await expect(page.getByLabel('Proveedor que lo retoma')).toHaveValue('p1');
+
+    await page.getByRole('textbox', { name: /Motivo de la devolución/ }).fill('ya puede retomarlo');
+    await page.getByRole('button', { name: 'Confirmar' }).click();
+
+    await expect.poll(() => posts.length).toBe(1);
+    expect(posts[0].url).toContain('/c1/devolver-gestor');
+    expect(posts[0].body).toEqual({ proveedorSoatId: 'p1', motivo: 'ya puede retomarlo' });
+  });
+
+  test('AC8 — al proveedor no se le ofrece nada de la contingencia', async ({ page }) => {
+    await loginAs(page, PROVEEDOR_USER);
+    await mock(page);
+    await mockContingencia(page, [SOAT[1]]);
+    await page.goto('/flito/soat');
+
+    await expect(page.getByLabel('Gestiona')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    await expect(page.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Devolver al proveedor' })).toHaveCount(0);
+  });
+
+  test('AC8 — auditoría ve quién gestiona, pero ninguna acción', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await mock(page);
+    await mockContingencia(page, [SOAT_CONTINGENCIA]);
+    await page.goto('/flito/soat');
+
+    await expect(page.getByRole('row', { name: /OPS001/ })).toContainText('Operaciones');
+    await page.getByRole('button', { name: 'Ver' }).first().click();
+    await expect(page.getByText('Solo lectura · Auditoría observa, no ejecuta acciones.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Devolver al proveedor' })).toHaveCount(0);
   });
 });
