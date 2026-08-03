@@ -170,6 +170,8 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
       {/* Drawer mobile (en lg+ la navegación es FlitNavBar) */}
       {open && (
         <ModalPortal>
+          {/* Sin `flit-modal` a propósito: esa clase repone la tinta OSCURA de las superficies
+              claras, y este drawer es el gradiente de marca con texto blanco. */}
           <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
             <button
               type="button"

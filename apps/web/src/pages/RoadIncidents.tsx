@@ -349,7 +349,7 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
 
   return (
     <ModalPortal>
-    <div className="fixed inset-0 z-40 flex items-stretch justify-end" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
+    <div className="flit-modal fixed inset-0 z-40 flex items-stretch justify-end" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
       <div className="h-full w-full max-w-2xl overflow-y-auto" style={{ background: 'var(--flit-bg-modal)', borderLeft: '1px solid var(--flit-border-soft)' }} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4" style={{ background: 'var(--flit-bg-modal)', borderBottom: '1px solid var(--flit-border-soft)' }}>
           <div>
