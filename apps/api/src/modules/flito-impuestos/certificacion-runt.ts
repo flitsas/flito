@@ -94,6 +94,35 @@ export function extraerVehiculoRunt(data: unknown): DatosVehiculoRunt {
   };
 }
 
+/**
+ * Señales de que el RUNT SÍ tiene registrado el vehículo.
+ *
+ * Deliberadamente NO incluye placa ni VIN: la pasarela devuelve el identificador con el que se
+ * consultó dentro de `vehiculo`, aunque no encuentre nada. Verificado contra el servicio real
+ * (2026-08-03) — una placa inexistente responde `ok:true` con todos los campos en `null` salvo la
+ * placa, que es la que se pidió; una consulta por VIN devuelve ese mismo VIN aunque el chasis real
+ * del vehículo hallado sea otro. Fiarse de ellos es preguntar y creerse el eco.
+ */
+const SENALES_REGISTRO = [
+  'idAutomotor', 'estadoAutomotor', 'marca', 'linea', 'modelo', 'clase',
+  'numChasis', 'numMotor', 'fechaRegistro', 'organismoTransito',
+] as const;
+
+/**
+ * ¿La respuesta del RUNT viene sin vehículo detrás?
+ *
+ * Sin esta comprobación una placa que el RUNT no conoce se CERTIFICA: la placa «coincide» porque es
+ * el eco de la consulta, el VIN queda no verificable —y no verificable no bloquea (AC4)— y no queda
+ * ningún campo bloqueante que difiera. Es decir, el peor desenlace posible: un certificado con sello
+ * de válido sobre un vehículo del que el RUNT no dice nada. Se prefiere no certificar.
+ */
+export function runtSinRegistro(data: unknown): boolean {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const veh = (d.vehiculo ?? null) as Record<string, unknown> | null;
+  if (!veh) return true;
+  return !SENALES_REGISTRO.some((k) => primero(veh, [k]) !== null);
+}
+
 /** Campos que se comparan como identificador (exacto tras normalizar) y no como texto libre. */
 const CAMPOS_IDENTIFICADOR: readonly CampoCertificacion[] = [CampoCertificacion.PLACA, CampoCertificacion.VIN];
 

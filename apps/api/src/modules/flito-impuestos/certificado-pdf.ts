@@ -93,7 +93,10 @@ const RESULTADO_LABEL: Record<ResultadoCampo, string> = {
 export interface CertificadoPdfDatos {
   /** Datos de la certificación persistida — congelados, iguales en toda descarga (AC4). */
   placaConsultada: string;
-  documentoConsultado: string;
+  /** Documento con el que se consultó, o `null` si el vehículo se identificó por VIN. */
+  documentoConsultado: string | null;
+  /** VIN con el que se consultó. Excluyente con `documentoConsultado`. */
+  vinConsultado: string | null;
   tipoDocPropietario: string | null;
   propietarioNombre: string | null;
   campos: ComparacionCampo[];
@@ -125,10 +128,22 @@ function recortar(s: string, font: PDFFont, size: number, ancho: number): string
  * NOMBRE no lo verificó nadie, porque la consulta de vehículo no lo devuelve. Presentar el nombre
  * como «verificado contra el RUNT» sería falsear la evidencia, que es exactamente lo que este
  * documento existe para no hacer.
+ *
+ * Por eso la consulta por VIN NO puede reusar la etiqueta del documento: ahí no se validó propiedad
+ * alguna, solo la identidad del vehículo. El certificado dice con qué se consultó y calla sobre lo
+ * que no probó.
  */
 function armarPropietario(datos: CertificadoPdfDatos): { etiqueta: string; valor: string }[] {
+  const nombre = { etiqueta: 'Nombre (dato de FLITO)', valor: datos.propietarioNombre || 'No registrado en FLITO' };
+  if (!datos.documentoConsultado) {
+    return [
+      nombre,
+      { etiqueta: 'Documento', valor: 'No registrado en FLITO — no validado ante el RUNT' },
+      { etiqueta: 'VIN (identificador de la consulta)', valor: datos.vinConsultado || 'No registrado' },
+    ];
+  }
   return [
-    { etiqueta: 'Nombre (dato de FLITO)', valor: datos.propietarioNombre || 'No registrado en FLITO' },
+    nombre,
     { etiqueta: 'Documento (validado ante el RUNT)', valor: datos.documentoConsultado },
     ...(datos.tipoDocPropietario ? [{ etiqueta: 'Tipo de documento (RUNT)', valor: datos.tipoDocPropietario }] : []),
   ];

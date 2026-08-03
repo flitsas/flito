@@ -2646,12 +2646,17 @@ export const flitoImpuestoCertificaciones = pgTable('flito_impuesto_certificacio
   /** Solo una certificación vigente por impuesto — lo garantiza un índice único parcial en la migración. */
   vigente: boolean('vigente').notNull().default(true),
   /**
-   * Placa y documento con los que se autenticó la consulta. El documento NO es un dato decorativo:
-   * es la prueba de propiedad (RN-02). Que el RUNT respondiera OK a esta pareja es lo que certifica
-   * que ese documento es el del propietario registrado, y por eso viaja al certificado.
+   * Con qué se identificó el vehículo ante el RUNT. El documento NO es un dato decorativo: es la
+   * prueba de propiedad (RN-02) —que el RUNT respondiera OK a la pareja placa+documento es lo que
+   * certifica que ese documento es el del propietario registrado—, y por eso viaja al certificado.
+   *
+   * Cuando FLITO no conoce el documento del titular, la consulta va por VIN y `documentoConsultado`
+   * queda nulo (migración 0123). Un CHECK exige que al menos uno de los dos esté presente: sin eso
+   * el certificado no diría con qué se le preguntó al RUNT y dejaría de ser auditable.
    */
   placaConsultada: varchar('placa_consultada', { length: 10 }).notNull(),
-  documentoConsultado: varchar('documento_consultado', { length: 30 }).notNull(),
+  documentoConsultado: varchar('documento_consultado', { length: 30 }),
+  vinConsultado: varchar('vin_consultado', { length: 17 }),
   /** Código RUNT del tipo de documento que resolvió la consulta ('C', 'E', …). Lo devuelve el RUNT. */
   tipoDocPropietario: varchar('tipo_doc_propietario', { length: 5 }),
   /**
