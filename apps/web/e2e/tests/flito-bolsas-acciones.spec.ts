@@ -50,6 +50,9 @@ async function mock(page: import('@playwright/test').Page, estado: { cerrado: bo
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([BOLSA]) }));
   await page.route(/\/api\/flito\/bolsas\/alertas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ saldo: [], conciliacion: { soportesSinTramite: 0, movimientosSinSoporte: 0 } }) }));
+  // El tablero pide las bolsas de organismo desde la HU #11210; sin esta ruta no llega a pintarse.
+  await page.route(/\/api\/flito\/bolsas\/organismos$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(/\/api\/flito\/bolsas\/1\/extracto/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       companiaId: 1, saldoActual: 1300000, totalEntradas: 5000000, totalSalidas: 3700000,
@@ -67,10 +70,10 @@ async function mock(page: import('@playwright/test').Page, estado: { cerrado: bo
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(BOLSA) }));
 }
 
+/** Desde la HU #11210 el detalle se abre en un modal desde la tarjeta, no en una pestaña. */
 async function abrirCliente(page: import('@playwright/test').Page) {
   await page.goto('/flito/bolsas');
-  await page.getByRole('button', { name: 'Cliente', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Cliente', exact: true }).selectOption('1');
+  await page.getByTestId('tarjeta-cliente-1').getByRole('button', { name: /Ver el detalle/ }).click();
   await expect(page.getByRole('button', { name: 'Registrar una recarga' })).toBeVisible();
 }
 
@@ -194,7 +197,9 @@ test.describe('FLITO — Bolsas · registrar y cerrar', () => {
 
     // Un cierre es irreversible: las cifras van delante, no detrás.
     await expect(page.getByText(/no hay forma de reabrirlo/)).toBeVisible();
-    const resumen = page.getByRole('dialog');
+    // Desde la HU #11210 el detalle YA es un modal, así que el del cierre es el segundo: se apunta
+    // por su nombre para no chocar con el de fuera.
+    const resumen = page.getByRole('dialog', { name: `Cerrar ${ETIQUETA_PERIODO}` });
     await expect(resumen).toContainText('5.000.000');
     await expect(resumen).toContainText('3.700.000');
     await expect(resumen).toContainText('1.300.000');
