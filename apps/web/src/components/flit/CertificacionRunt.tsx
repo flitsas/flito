@@ -18,7 +18,9 @@ import {
 } from '@operaciones/shared-types';
 import FlitModal from './FlitModal';
 import StatusChip, { type ChipTone } from './StatusChip';
-import { FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle } from './flitPageKit';
+import {
+  FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+} from './flitPageKit';
 
 /** Lo que la cola sabe de una certificación vigente. El detalle completo vive en el PDF. */
 export interface CertificacionCola {
@@ -146,6 +148,88 @@ const LABEL_CAMPO: Record<ResultadoCampo, string> = {
   no_verificable: 'No reportado por el RUNT',
   sin_dato_flito: 'Sin dato en FLITO',
 };
+
+/** Desenlace de UN registro dentro de un lote, tal como lo devuelve el backend (HU #11166). */
+export interface ResultadoLoteItem {
+  id: string;
+  resultado: ResultadoCertificacion;
+  mensaje?: string;
+  diferenciasBloqueantes?: ComparacionCampo[];
+}
+
+export interface ResultadoLote {
+  total: number;
+  certificados: number;
+  resultados: ResultadoLoteItem[];
+}
+
+/**
+ * Resultado de una certificación masiva, un registro por fila (HU #11169).
+ *
+ * El backend responde 200 aunque nueve de diez fallen: el desenlace vive POR REGISTRO. Así que el
+ * modal no puede limitarse a «salió bien» o «salió mal» — tiene que decir, de cada uno, qué pasó y
+ * qué hacer. Por eso reutiliza el mismo vocabulario que el modal individual: el gestor que ya
+ * aprendió qué significa «Corrige el dato y reintenta» no debería aprenderlo otra vez aquí.
+ */
+export function ModalResultadoLote({ resultado, placaDe, onClose }: {
+  resultado: ResultadoLote;
+  /** La placa es lo que el gestor reconoce; el id de un impuesto no le dice nada. */
+  placaDe: (id: string) => string | null;
+  onClose: () => void;
+}) {
+  const fallidos = resultado.total - resultado.certificados;
+
+  return (
+    <FlitModal wide title="Resultado de la certificación masiva" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <StatusChip tone="success">Certificados {resultado.certificados}</StatusChip>
+          {fallidos > 0 && <StatusChip tone="warning">Sin certificar {fallidos}</StatusChip>}
+        </div>
+
+        <FlitTable>
+          <thead>
+            <FlitTr>
+              <FlitTh>Placa</FlitTh><FlitTh>Resultado</FlitTh><FlitTh>Qué hacer</FlitTh><FlitTh>Detalle</FlitTh>
+            </FlitTr>
+          </thead>
+          <tbody>
+            {resultado.resultados.map((r) => (
+              <FlitTr key={r.id}>
+                <td className="px-3 py-2 text-sm font-medium">{placaDe(r.id) ?? '—'}</td>
+                <td className="px-3 py-2 text-sm">{TITULO_RESULTADO[r.resultado] ?? r.resultado}</td>
+                <td className="px-3 py-2">
+                  <StatusChip tone={TONO_RESULTADO[r.resultado]}>{ACCION_RESULTADO[r.resultado]}</StatusChip>
+                </td>
+                <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+                  {r.mensaje ?? detalleDiferencias(r.diferenciasBloqueantes) ?? '—'}
+                </td>
+              </FlitTr>
+            ))}
+          </tbody>
+        </FlitTable>
+
+        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          Los que no se certificaron conservan su estado: un intento fallido no cambia el registro ni deja certificación.
+        </p>
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={onClose}>Listo</button>
+      </div>
+    </FlitModal>
+  );
+}
+
+/**
+ * Resume las diferencias en una línea.
+ *
+ * El desenlace `con_diferencias` no trae `mensaje` —el detalle viaja campo a campo— y dejar la celda
+ * vacía obligaría a certificar de uno en uno solo para saber cuál era el dato malo. Con el nombre
+ * del campo basta para ir a corregirlo.
+ */
+function detalleDiferencias(campos: ComparacionCampo[] | undefined): string | null {
+  if (!campos?.length) return null;
+  const nombres = campos.map((c) => CAMPO_CERTIFICACION_LABEL[c.campo] ?? c.campo);
+  return `No coincide: ${nombres.join(', ')}`;
+}
 
 /** Explica por qué un intento no certificó. Solo se abre cuando algo salió distinto de bien. */
 export function ModalResultadoCertificacion({ resultado, placa, onClose }: {

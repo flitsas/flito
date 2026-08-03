@@ -8,11 +8,12 @@ import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
+  TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import {
-  CeldaCertificacion, ModalResultadoCertificacion,
-  type CertificacionCola, type ResultadoIntento,
+  CeldaCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
+  type CertificacionCola, type ResultadoIntento, type ResultadoLote,
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -177,7 +178,26 @@ export default function FlitoImpuestos() {
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoImpuesto.PENDIENTE), [filas]);
+  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
+  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
+  // la evidencia que hay que poder enseñar.
+  const puedeDescargarCert = esOperaciones || esGestor;
+  const puedeCertificarFila = (f: ImpuestoItem) =>
+    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
+
+  /**
+   * Qué filas puede marcar ESTE usuario, para cualquiera de las dos acciones masivas.
+   *
+   * Antes eran solo los Pendientes de Operaciones. Certificar aplica a los Solicitados y también al
+   * gestor del organismo, así que la casilla tiene que aparecer en las dos clases de fila (HU
+   * #11169). Qué acción se ofrece lo decide después la barra, mirando lo seleccionado.
+   */
+  const puedeEnviarFila = (f: ImpuestoItem) => esOperaciones && f.estado === EstadoImpuesto.PENDIENTE;
+  const seleccionables = useMemo(
+    () => filas.filter((f) => puedeEnviarFila(f) || puedeCertificarFila(f)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filas, esOperaciones, esGestor],
+  );
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
@@ -195,13 +215,6 @@ export default function FlitoImpuestos() {
    */
   const [certificandoId, setCertificandoId] = useState<string | null>(null);
   const [resultadoCert, setResultadoCert] = useState<{ resultado: ResultadoIntento; placa: string | null } | null>(null);
-
-  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
-  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
-  // la evidencia que hay que poder enseñar.
-  const puedeDescargarCert = esOperaciones || esGestor;
-  const puedeCertificarFila = (f: ImpuestoItem) =>
-    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
 
   const certificar = async (f: ImpuestoItem) => {
     setCertificandoId(f.id);
@@ -287,8 +300,16 @@ export default function FlitoImpuestos() {
 
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
-      {esOperaciones && seleccion.size > 0 && (
-        <BarraEnvio ids={[...seleccion]} onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
+      {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
+          Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
+      {seleccion.size > 0 && (
+        <BarraSeleccion
+          filasSeleccionadas={filas.filter((f) => seleccion.has(f.id))}
+          puedeEnviarFila={puedeEnviarFila}
+          puedeCertificarFila={puedeCertificarFila}
+          onListo={() => { setSeleccion(new Set()); refrescar(); }}
+          onError={setError}
+        />
       )}
 
       {data && filas.length === 0 && (
@@ -310,9 +331,9 @@ export default function FlitoImpuestos() {
           <FlitTable>
             <thead>
               <FlitTr>
-                {esOperaciones && seleccionables.length > 0 && (
+                {seleccionables.length > 0 && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar todos los pendientes"
+                    <input type="checkbox" aria-label="Seleccionar todos los que admiten acción masiva"
                       checked={seleccion.size > 0 && seleccion.size === seleccionables.length}
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
@@ -328,9 +349,9 @@ export default function FlitoImpuestos() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {esOperaciones && seleccionables.length > 0 && (
+                  {seleccionables.length > 0 && (
                     <td className="px-3 py-2">
-                      {f.estado === EstadoImpuesto.PENDIENTE && (
+                      {seleccionables.some((s) => s.id === f.id) && (
                         <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
                           checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
@@ -398,23 +419,94 @@ export default function FlitoImpuestos() {
   );
 }
 
-function BarraEnvio({ ids, onEnviado, onError }: { ids: string[]; onEnviado: () => void; onError: (m: string) => void }) {
+/**
+ * Acciones masivas sobre la selección (HU #11169).
+ *
+ * Una sola mecánica de selección para las dos acciones, y la barra decide cuál ofrecer mirando lo
+ * que hay marcado. La alternativa —apagar casillas de otros estados en cuanto se marca la primera—
+ * habría hecho que la interfaz se moviera sola bajo el cursor.
+ *
+ * Una acción se ofrece solo si aplica a TODA la selección. Habilitarla para el subconjunto que sí
+ * encaja sería peor que deshabilitarla: el usuario pulsaría creyendo que actúa sobre los 4 que marcó
+ * y actuaría sobre 2, sin enterarse hasta ver el resultado.
+ */
+function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onError }: {
+  filasSeleccionadas: ImpuestoItem[];
+  puedeEnviarFila: (f: ImpuestoItem) => boolean;
+  puedeCertificarFila: (f: ImpuestoItem) => boolean;
+  onListo: () => void;
+  onError: (m: string) => void;
+}) {
   const [enviando, setEnviando] = useState(false);
+  const [certificando, setCertificando] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoLote | null>(null);
+
+  const ids = filasSeleccionadas.map((f) => f.id);
+  const todosEnviables = ids.length > 0 && filasSeleccionadas.every(puedeEnviarFila);
+  const todosCertificables = ids.length > 0 && filasSeleccionadas.every(puedeCertificarFila);
+  const mezclado = !todosEnviables && !todosCertificables;
+  // El tope se lee de la constante que el backend usa para rechazar. Repetir el 10 aquí garantiza
+  // que un día los dos números digan cosas distintas.
+  const sobreElTope = todosCertificables && ids.length > TOPE_LOTE_CERTIFICACION;
+  const ocupado = enviando || certificando;
+
   const enviar = async () => {
     setEnviando(true);
-    try { await api.post('/flito/impuestos/enviar', { ids }); onEnviado(); }
+    try { await api.post('/flito/impuestos/enviar', { ids }); onListo(); }
     catch (e) { onError(errorMessage(e)); }
     finally { setEnviando(false); }
   };
+
+  const certificarLote = async () => {
+    setCertificando(true);
+    try { setResultado(await api.post<ResultadoLote>('/flito/impuestos/certificar', { ids })); }
+    catch (e) { onError(errorMessage(e)); }
+    finally { setCertificando(false); }
+  };
+
+  const placaDe = (id: string) => filasSeleccionadas.find((f) => f.id === id)?.placa ?? null;
+
   return (
-    <FlitCard>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando} onClick={enviar}>
-          {enviando ? 'Enviando…' : 'Enviar al gestor'}
-        </button>
-      </div>
-    </FlitCard>
+    <>
+      <FlitCard>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
+
+          {todosEnviables && (
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={ocupado} onClick={enviar}>
+              {enviando ? 'Enviando…' : 'Enviar al gestor'}
+            </button>
+          )}
+
+          {todosCertificables && (
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              disabled={ocupado || sobreElTope} onClick={certificarLote}
+              // Con concurrencia 2 y 90 s de timeout por consulta, un lote lleno puede tardar
+              // minutos. Sin este aviso la pantalla parece colgada (AC3).
+              title={certificando ? 'Consultando el RUNT registro a registro. Puede tardar varios minutos.' : undefined}>
+              {certificando ? `Certificando ${ids.length}… consultando RUNT` : `Certificar (${ids.length})`}
+            </button>
+          )}
+
+          {sobreElTope && (
+            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              Máximo {TOPE_LOTE_CERTIFICACION} por lote. Seleccionaste {ids.length}.
+            </span>
+          )}
+
+          {mezclado && (
+            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              La selección mezcla estados con acciones distintas. Filtra por un estado para operar en bloque.
+            </span>
+          )}
+        </div>
+      </FlitCard>
+
+      {resultado && (
+        <ModalResultadoLote resultado={resultado} placaDe={placaDe}
+          onClose={() => { setResultado(null); onListo(); }} />
+      )}
+    </>
   );
 }
 
