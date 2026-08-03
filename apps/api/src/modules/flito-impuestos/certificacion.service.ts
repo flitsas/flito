@@ -52,6 +52,8 @@ export interface CertificacionVigente {
   placaConsultada: string;
   documentoConsultado: string;
   tipoDocPropietario: string | null;
+  /** Nombre del propietario según FLITO al certificar. `null` en certificaciones previas a 0122. */
+  propietarioNombre: string | null;
   campos: ComparacionCampo[];
   certificadoPorNombre: string;
   createdAt: string;
@@ -196,6 +198,9 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       placaConsultada: placa,
       documentoConsultado: documento,
       tipoDocPropietario: typeof tipoDocPropietario === 'string' ? tipoDocPropietario : null,
+      // Se congela el nombre aunque no se compare: el certificado lo imprime, y un certificado que
+      // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
+      propietarioNombre: datos.ownerName?.trim() || null,
       campos: veredicto.campos,
       snapshotRunt: runt.data as Record<string, unknown>,
       certificadoPorId: ctx.userId,
@@ -221,6 +226,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       placaConsultada: fila.placaConsultada,
       documentoConsultado: fila.documentoConsultado,
       tipoDocPropietario: fila.tipoDocPropietario,
+      propietarioNombre: fila.propietarioNombre,
       campos: fila.campos as ComparacionCampo[],
       certificadoPorNombre: fila.certificadoPorNombre,
       createdAt: fila.createdAt.toISOString(),
@@ -320,6 +326,20 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
   });
 }
 
+/**
+ * Certificación vigente respetando la frontera del gestor (HU #11167).
+ *
+ * Distingue dos negativas que NO son la misma: si el impuesto no existe o cae fuera de la frontera
+ * lanza 404 —igual que el resto del módulo, sin revelar que el registro existe—; si existe pero no
+ * está certificado devuelve `null`, y eso es un 409 en la ruta. Colapsar ambas en un 404 le diría al
+ * gestor «no existe» de un registro que está viendo en pantalla.
+ */
+export async function certificacionVigenteConAcceso(impuestoId: string, ctx: ImpuestoCtx): Promise<CertificacionVigente | null> {
+  const imp = await buscarConAcceso(impuestoId, ctx);
+  if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  return certificacionVigente(impuestoId);
+}
+
 /** Certificación vigente de un impuesto, o `null`. La usa el detalle y el certificado PDF. */
 export async function certificacionVigente(impuestoId: string): Promise<CertificacionVigente | null> {
   const [row] = await db.select()
@@ -337,6 +357,7 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     placaConsultada: row.placaConsultada,
     documentoConsultado: row.documentoConsultado,
     tipoDocPropietario: row.tipoDocPropietario,
+    propietarioNombre: row.propietarioNombre,
     campos: row.campos as ComparacionCampo[],
     certificadoPorNombre: row.certificadoPorNombre,
     createdAt: row.createdAt.toISOString(),

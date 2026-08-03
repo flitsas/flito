@@ -68,8 +68,30 @@ const runtOk = () => ({
 /** Fila que devuelve el INSERT ... RETURNING de la certificación. */
 const filaCert = () => ({
   id: 'cert-1', impuestoId: ID, placaConsultada: 'QIU744', documentoConsultado: '43902633',
-  tipoDocPropietario: 'C', campos: [], certificadoPorNombre: CTX.username, createdAt: new Date(),
+  tipoDocPropietario: 'C', propietarioNombre: 'JOSÉ PÉREZ', campos: [],
+  certificadoPorNombre: CTX.username, createdAt: new Date(),
 });
+
+/**
+ * Captura los `.values(...)` que se insertan en una tabla, envolviendo la cadena por defecto.
+ *
+ * El mock keyed enruta por tabla pero no guarda lo escrito, y aquí hace falta afirmar sobre el
+ * CONTENIDO del INSERT: que el nombre del propietario quede congelado en la certificación no se
+ * puede ver en el valor de retorno, porque ese valor lo fabrica el propio mock.
+ */
+function capturarInserts(tabla: string): Record<string, unknown>[] {
+  const capturado: Record<string, unknown>[] = [];
+  const porDefecto = kdb.insert.getMockImplementation()!;
+  kdb.insert.mockImplementation((tbl: unknown) => {
+    const cadena = porDefecto(tbl) as Record<string, unknown>;
+    if (getTableName(tbl as never) === tabla) {
+      const values = cadena.values as (v: unknown) => unknown;
+      cadena.values = (v: unknown) => { capturado.push(v as Record<string, unknown>); return values(v); };
+    }
+    return cadena;
+  });
+  return capturado;
+}
 
 /** Prepara el camino feliz: impuesto solicitado + vehículo completo. */
 function escenarioBase(over: { estado?: string; vehiculo?: Record<string, unknown> } = {}) {
@@ -166,6 +188,30 @@ describe('AC1 — certificación exitosa', () => {
       expect(r.certificacion.documentoConsultado).toBe('43902633');
       expect(r.certificacion.placaConsultada).toBe('QIU744');
     }
+  });
+
+  it('congela el nombre del propietario que tenía FLITO al certificar (HU #11167)', async () => {
+    escenarioBase();
+    const insertado = capturarInserts(T_CERT);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    await certificarImpuesto(ID, CTX);
+
+    // No se compara con nada —el RUNT no devuelve al propietario— pero el certificado lo IMPRIME, y
+    // leerlo en vivo al descargar haría que un certificado emitido hoy cambiara mañana.
+    expect(insertado[0]).toMatchObject({ propietarioNombre: 'JOSÉ PÉREZ' });
+  });
+
+  it('sin nombre de propietario en FLITO guarda null, no una cadena vacía', async () => {
+    escenarioBase({ vehiculo: vehiculoOk({ ownerName: '   ' }) });
+    const insertado = capturarInserts(T_CERT);
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    await certificarImpuesto(ID, CTX);
+
+    // El PDF distingue «no registrado» de un hueco en blanco; una cadena de espacios se imprimiría
+    // como el hueco y el lector no sabría si el dato falta o si nadie lo miró.
+    expect(insertado[0].propietarioNombre).toBeNull();
   });
 });
 

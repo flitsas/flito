@@ -15,7 +15,8 @@ import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { EstadoImpuesto, ResultadoCertificacion } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
-import { certificarImpuesto, certificarLote } from './certificacion.service.js';
+import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
+import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   colaImpuestos, facetasColaImpuestos, detalleImpuesto, enviarAlGestor, facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
@@ -257,6 +258,52 @@ router.post('/certificar', OPS_O_GESTOR, async (req: Request, res: Response) => 
       });
     }
     res.json({ total: resultados.length, certificados: certificados.length, resultados });
+  } catch (e) { handleError(res, e); }
+});
+
+/**
+ * GET /:id/certificado — certificado PDF de la verificación contra el RUNT (HU #11167).
+ *
+ * Se genera EN CALIENTE y no se almacena (RN-11): ni fila en `flito_soportes` ni objeto en S3. Los
+ * bytes salen de la certificación persistida, así que descargarlo NO vuelve a consultar el RUNT —que
+ * se cobra por consulta en modo directo— y dos descargas del mismo certificado dicen exactamente lo
+ * mismo, salvo la hora de generación.
+ *
+ * 409 y no 404 cuando el impuesto existe pero no está certificado: el registro está ahí, lo que falta
+ * es el paso previo. El 404 queda para lo que de verdad no es accesible.
+ */
+router.get('/:id/certificado', OPS_O_GESTOR, async (req: Request, res: Response) => {
+  try {
+    const ctx = await contextoImpuesto(req.user!);
+    const cert = await certificacionVigenteConAcceso(req.params.id, ctx);
+    if (!cert) {
+      res.status(409).json({ error: 'El impuesto no tiene una certificación vigente.', code: 'sin_certificacion' });
+      return;
+    }
+
+    const pdf = await construirCertificadoPdf({
+      placaConsultada: cert.placaConsultada,
+      documentoConsultado: cert.documentoConsultado,
+      tipoDocPropietario: cert.tipoDocPropietario,
+      propietarioNombre: cert.propietarioNombre,
+      campos: cert.campos,
+      certificadoPorNombre: cert.certificadoPorNombre,
+      certificadoEn: new Date(cert.createdAt),
+      generadoPor: ctx.username,
+      generadoEn: new Date(),
+    });
+
+    // Auditar ANTES de escribir la respuesta: `audit` se traga sus errores, pero si algo se cayera
+    // después de mandar los bytes ya no habría forma de dejar rastro de una descarga que sí ocurrió.
+    await audit(req, {
+      action: 'export', resource: 'flito_impuesto', resourceId: req.params.id,
+      detail: `Descarga del certificado RUNT (placa ${cert.placaConsultada}, certificación ${cert.id})`,
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="certificado-runt-${cert.placaConsultada}.pdf"`);
+    res.setHeader('Content-Length', pdf.length);
+    res.send(pdf);
   } catch (e) { handleError(res, e); }
 });
 
