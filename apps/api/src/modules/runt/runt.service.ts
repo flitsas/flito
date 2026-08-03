@@ -7,8 +7,41 @@ import { consultarVehiculoRuntDirect, consultarPersonaRuntDirect } from './runt-
 
 const log = loggerFor('runt');
 
-const CEA_RUNT_URL = 'https://cea.kyverum.com/api/runt/consulta-vehiculo-internal';
-const CEA_PERSONA_URL = 'https://cea.kyverum.com/api/runt/consulta-persona-internal';
+/**
+ * Pasarela RUNT de Kyverum. Sustituye a `cea.kyverum.com/api/runt/*`, que dejó de existir —el host
+ * responde 404 de nginx a cualquier ruta— y era la causa del «Error comunicando con servicio RUNT»
+ * que veía todo lo que consulta el RUNT sin captcha: certificación de impuestos, refresco de SOAT y
+ * el pre-vuelo de trámites.
+ *
+ * Se autentica con `Authorization: Bearer` sobre la MISMA `RUNT_INTERNAL_KEY` (el valor ya es una
+ * llave `kr_live_…` de Kyverum); el CEA la mandaba como `x-internal-key`. Sin el header responde 401.
+ *
+ * Devuelve exactamente la forma que el resto del módulo ya espera —`{ ok, data: { vehiculo,
+ * tipoDocPropietario, datosTecnicos, soat… } }` para vehículo y `{ ok, persona, licencias, multas,
+ * solicitudes }` para persona—, la misma que produce la vía directa. Por eso el cambio se agota en
+ * la URL y el header: ni los consumidores ni `extraerVehiculoRunt` necesitan tocarse.
+ *
+ * `INTEGRACIONES_MODE` conserva su nombre y sus valores: para el RUNT, `cea-proxy` significa ahora
+ * esta pasarela. SIMIT y Fasecolda siguen saliendo por el CEA, así que la bandera no se puede
+ * renombrar sin arrastrarlos.
+ */
+const GATEWAY_RUNT_URL = 'https://runt.kyverum.com/v1/vehiculos:consultar';
+const GATEWAY_PERSONA_URL = 'https://runt.kyverum.com/v1/personas:consultar';
+
+const gatewayAuth = () => ({ Authorization: `Bearer ${env.RUNT_INTERNAL_KEY}` });
+
+/**
+ * Traduce una respuesta que no es 200 a `{ ok:false }` con el motivo real.
+ *
+ * La pasarela describe sus rechazos en `error.message` (llave ausente, cuerpo inválido…). Taparlos
+ * todos con «Error comunicando con servicio RUNT» es lo que hizo que un 404 de un host muerto
+ * llegara a la interfaz como un genérico 502: el mensaje concreto es justo lo que hace falta para
+ * saber si hay que revisar la llave, el cuerpo o el servicio.
+ */
+function fallo(r: HttpResponse): { ok: false; message: string } {
+  const msg = typeof r.data === 'object' && r.data ? (r.data as any)?.error?.message : null;
+  return { ok: false, message: typeof msg === 'string' && msg ? msg : 'Error comunicando con servicio RUNT' };
+}
 
 interface HttpResponse { status: number | undefined; data: any; headers?: any }
 
@@ -39,22 +72,22 @@ async function consultarVehiculoProxy(placa?: string, vin?: string, documento?: 
   if (placa) body.placa = placa.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (documento) body.documento = documento;
   if (tipoDocumento) body.tipoDocumento = tipoDocumento;
-  log.info({ tipoDoc: body.tipoDocumento || 'CC', via: 'proxy-cea' }, 'consulta vehiculo');
+  log.info({ tipoDoc: body.tipoDocumento || 'CC', via: 'gateway' }, 'consulta vehiculo');
   const r = await withCircuitBreaker('runt-vehicle', () =>
-    httpsReq('POST', CEA_RUNT_URL, body, { 'x-internal-key': env.RUNT_INTERNAL_KEY }),
+    httpsReq('POST', GATEWAY_RUNT_URL, body, gatewayAuth()),
   );
-  if (r.status !== 200 || typeof r.data === 'string') return { ok: false, message: 'Error comunicando con servicio RUNT' };
+  if (r.status !== 200 || typeof r.data === 'string') return fallo(r);
   return r.data;
 }
 
 async function consultarPersonaProxy(documento: string, tipoDocumento?: string) {
   const body: Record<string, string> = { documento };
   if (tipoDocumento) body.tipoDocumento = tipoDocumento;
-  log.info({ docPrefix: documento.slice(0, 4), via: 'proxy-cea' }, 'consulta persona');
+  log.info({ docPrefix: documento.slice(0, 4), via: 'gateway' }, 'consulta persona');
   const r = await withCircuitBreaker('runt-persona', () =>
-    httpsReq('POST', CEA_PERSONA_URL, body, { 'x-internal-key': env.RUNT_INTERNAL_KEY }),
+    httpsReq('POST', GATEWAY_PERSONA_URL, body, gatewayAuth()),
   );
-  if (r.status !== 200 || typeof r.data === 'string') return { ok: false, message: 'Error comunicando con servicio RUNT' };
+  if (r.status !== 200 || typeof r.data === 'string') return fallo(r);
   return r.data;
 }
 

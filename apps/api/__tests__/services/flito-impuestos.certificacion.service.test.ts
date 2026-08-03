@@ -131,8 +131,21 @@ describe('elegibilidad', () => {
     expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
 
-  it('AC6 — sin documento de propietario no es elegible y NO consulta el RUNT', async () => {
+  it('AC6 — sin documento pero con VIN, consulta el RUNT por VIN', async () => {
     escenarioBase({ vehiculo: vehiculoOk({ ownerDocument: null }) });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    // El RUNT identifica el vehículo por placa+documento o por VIN. Faltando el documento queda el
+    // VIN, que es identidad de vehículo igual (RN-01): bloquear aquí dejaría sin certificar a toda
+    // la flota cuyo titular FLITO no conoce.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith('QIU744', '9BWZZZ377VT004251', undefined);
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
+  });
+
+  it('AC6 — sin documento Y sin VIN no es elegible, y NO consulta el RUNT', async () => {
+    escenarioBase({ vehiculo: vehiculoOk({ ownerDocument: null, vin: null }) });
 
     const r = await certificarImpuesto(ID, CTX);
 
@@ -141,6 +154,21 @@ describe('elegibilidad', () => {
       expect(r.motivo).toBe(MotivoNoElegible.SIN_DOCUMENTO_PROPIETARIO);
     }
     expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('el documento del comprador suple al del vehículo cuando este no lo tiene', async () => {
+    // El titular llega de FLIT en cada trámite y vive en `flito_compradores`; el vehículo solo lo
+    // tiene desde que la sincronización empezó a copiarlo. Leer los dos hace que la certificación
+    // funcione sobre lo sincronizado antes, sin esperar al backfill.
+    escenarioBase({
+      vehiculo: vehiculoOk({ ownerDocument: null, compradorDocumento: '43902633', compradorNombre: 'JOSÉ PÉREZ' }),
+    });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk());
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith('QIU744', undefined, '43902633');
+    expect(r.resultado).toBe(ResultadoCertificacion.CERTIFICADO);
   });
 
   it('sin placa tampoco es elegible', async () => {
@@ -257,6 +285,27 @@ describe('AC3 — RUNT no disponible', () => {
 
     expect(r.resultado).toBe(ResultadoCertificacion.ERROR_SERVICIO);
     expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('el RUNT responde OK pero sin vehículo detrás → no certifica', async () => {
+    escenarioBase();
+    // Lo que devuelve de verdad la pasarela ante una placa que el RUNT no conoce: ok:true, la placa
+    // consultada de vuelta y el resto en null. Sin la guarda esto CERTIFICA —la placa "coincide"
+    // consigo misma y ningún bloqueante difiere—, que es el peor desenlace: un certificado con
+    // sello de válido sobre un vehículo del que el RUNT no dice nada.
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ok: true,
+      data: { vehiculo: { placa: 'QIU744', vin: null, marca: null, linea: null, modelo: null, clase: null, idAutomotor: null } },
+    });
+
+    const r = await certificarImpuesto(ID, CTX);
+
+    expect(r.resultado).toBe(ResultadoCertificacion.ERROR_SERVICIO);
+    if (r.resultado === ResultadoCertificacion.ERROR_SERVICIO) {
+      expect(r.mensaje).toContain('no tiene información registrada');
+    }
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(kdb.transaction).not.toHaveBeenCalled();
   });
 
   it('un circuito abierto que LANZA tampoco tumba la certificación', async () => {

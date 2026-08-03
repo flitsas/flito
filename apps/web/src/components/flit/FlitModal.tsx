@@ -32,7 +32,10 @@ export default function FlitModal({ title, onClose, children, wide = false, full
     // cuanto el modal crecía. Ver ModalPortal.
     <ModalPortal>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      // `flit-modal` repone el color de tinta que se pierde al colgar del <body>: fuera de
+      // `.flit-app` el texto sin color propio heredaba el del tema Aura, que en oscuro es casi
+      // blanco, sobre un modal cuyo fondo es claro pase lo que pase.
+      className="flit-modal fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
       style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
       {...useBackdropClose(onClose)}
     >

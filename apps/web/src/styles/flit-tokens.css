@@ -27,7 +27,10 @@
   /* Texto */
   --flit-text-primary: #162744;
   --flit-text-secondary: #59677D;
-  --flit-text-muted: #7D8798;
+  /* El valor del prototipo (#7D8798) daba 3,6:1 sobre blanco y no llegaba al mínimo WCAG AA de
+     4,5:1 para texto normal: se leía como un gris apagado en pantallas con luz. #667085 conserva el
+     mismo matiz frío y sube a ~5,0:1. */
+  --flit-text-muted: #667085;
   --flit-text-inverse: #FFFFFF;
   --flit-text-brand-title: #526FB8;
 
@@ -42,7 +45,8 @@
   --flit-warning: #F05A35;
   --flit-danger: #E43D30;
   --flit-draft: #59677D;
-  --flit-muted: #7D8798;
+  /* Mismo color y mismo motivo que --flit-text-muted: los chips en tono apagado se leen igual de mal. */
+  --flit-muted: #667085;
 
   /* Gradientes */
   --flit-gradient-primary: linear-gradient(90deg, #4FD4CC 0%, #4F74C9 100%);
@@ -91,6 +95,22 @@
 .flit-app {
   font-family: var(--flit-font);
   background: var(--flit-bg-app);
+  color: var(--flit-text-primary);
+}
+
+/*
+ * Los modales cuelgan de <body> (ver ModalPortal), es decir FUERA de `.flit-app`, así que no
+ * heredaban el color de arriba sino el del tema Aura (`--color-text-primary`). Y ahí estaba el
+ * fallo: las superficies FLIT son de valor FIJO —`--flit-bg-modal` es #EEF5FF pase lo que pase—
+ * pero el color del tema Aura SÍ cambia con el tema. En tema oscuro eso dejaba texto casi blanco
+ * (#f0eee9) sobre un modal claro: ilegible, y solo en el texto que no llevaba color propio, que es
+ * por lo que aparecía en unos sitios sí y en otros no.
+ *
+ * Se arregla en el scope y no etiqueta por etiqueta: vale para todos los modales de la app, y no
+ * hay que acordarse de ponerle color a cada `<span>` nuevo.
+ */
+.flit-modal {
+  font-family: var(--flit-font);
   color: var(--flit-text-primary);
 }
 

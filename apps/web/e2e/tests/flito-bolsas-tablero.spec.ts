@@ -65,7 +65,7 @@ test.describe('FLITO — Bolsas · tablero', () => {
     });
     await page.goto('/flito/bolsas');
 
-    await expect(page.getByRole('heading', { name: 'Bolsas prepago' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Bolsas' })).toBeVisible();
     const tarjetas = page.getByRole('region', { name: 'Bolsas por cliente' });
     await expect(tarjetas.getByRole('heading', { name: 'ACME SAS' })).toBeVisible();
     await expect(tarjetas.getByText('Saldo crítico')).toBeVisible();
@@ -217,7 +217,7 @@ test.describe('FLITO — Bolsas · tablero', () => {
     await mock(page);
     await page.goto('/flito/bolsas');
 
-    await expect(page.getByRole('heading', { name: /No tienes acceso a FLITO — Bolsas prepago/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /No tienes acceso a FLITO — Bolsas/ })).toBeVisible();
     // Ni un solo importe: la pantalla no llega a pedir nada.
     await expect(page.getByText('ACME SAS')).toHaveCount(0);
   });

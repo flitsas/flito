@@ -1006,21 +1006,22 @@ describe('orden de las rutas — un segmento fijo nunca puede quedar bajo /:comp
     expect(antesDelParametro).toEqual(expect.arrayContaining(['/consolidado', '/riesgo', '/alertas']));
   });
 
-  it('las rutas de organismo no necesitan ir antes: las salvan sus tres segmentos', async () => {
+  it('las rutas de bolsa de tránsito con parámetro no necesitan ir antes: las salvan sus segmentos', async () => {
     // Documenta por qué esas sí pueden vivir más abajo, para que nadie «arregle» lo que no está roto
     // moviéndolas y se lleve por delante el orden de las otras.
     //
-    // Desde la HU #11162 ya no hay ninguna ruta de organismo de dos segmentos: la que había
-    // (`/organismos/:codigo`, el estado de cuenta heredado) se retiró junto con su vista.
+    // `/transito` a secas (un solo segmento fijo) SÍ depende del orden y lo cubre el test de arriba.
+    // Las que llevan `:bolsaId` no: `/:companiaId` solo captura rutas de un segmento, y las de dos
+    // no chocan porque las que ya existen con esa forma tienen su segundo segmento literal
+    // (`/:companiaId/movimientos`, `/:companiaId/extracto`…), no un parámetro.
     const rutas = await rutasDeclaradas();
-    const deOrganismo = rutas.filter((r) => r.startsWith('/organismos/'));
+    const conParametro = rutas.filter((r) => r.startsWith('/transito/'));
 
-    expect(deOrganismo).toEqual(expect.arrayContaining([
-      '/organismos/:organismoCodigo/bolsa',
-      '/organismos/:organismoCodigo/movimientos',
-      '/organismos/:organismoCodigo/cargas',
+    expect(conParametro).toEqual(expect.arrayContaining([
+      '/transito/:bolsaId',
+      '/transito/:bolsaId/movimientos',
+      '/transito/:bolsaId/cargas',
     ]));
-    // Tres segmentos cada una: `/:companiaId` solo puede capturar rutas de uno.
-    expect(deOrganismo.every((r) => r.split('/').filter(Boolean).length === 3)).toBe(true);
+    expect(conParametro.every((r) => r.split('/').filter(Boolean).length >= 2)).toBe(true);
   });
 });

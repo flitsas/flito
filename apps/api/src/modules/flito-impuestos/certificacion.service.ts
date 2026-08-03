@@ -24,10 +24,10 @@ import {
   type DatosVehiculoFlito,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { auditLogs, flitoImpuestoCertificaciones, flitoImpuestos, flitoTramites, vehicles } from '../../db/schema.js';
+import { auditLogs, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
-import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt } from './certificacion-runt.js';
+import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { buscarConAcceso } from './flito-impuestos.service.js';
 
@@ -46,7 +46,10 @@ export interface CertificacionVigente {
   id: string;
   impuestoId: string;
   placaConsultada: string;
-  documentoConsultado: string;
+  /** Documento del propietario con el que se consultó, o `null` si la consulta fue por VIN. */
+  documentoConsultado: string | null;
+  /** VIN con el que se consultó. Excluyente con `documentoConsultado`: siempre hay uno de los dos. */
+  vinConsultado: string | null;
   tipoDocPropietario: string | null;
   /** Nombre del propietario según FLITO al certificar. `null` en certificaciones previas a 0122. */
   propietarioNombre: string | null;
@@ -80,15 +83,31 @@ async function datosDelVehiculo(impuestoId: string): Promise<DatosImpuesto | nul
     clase: vehicles.vehicleClass,
     ownerName: vehicles.ownerName,
     ownerDocument: vehicles.ownerDocument,
+    // El titular del TRÁMITE es el respaldo del titular del vehículo. Son el mismo dato por dos
+    // caminos: FLIT lo manda como `cedulanit` y el sync lo guarda en ambos sitios, pero el vehículo
+    // solo lo tiene desde que eso se corrigió. Leer los dos hace que la certificación funcione
+    // también sobre lo sincronizado antes, sin esperar al backfill.
+    compradorNombre: flitoCompradores.nombreCompleto,
+    compradorDocumento: flitoCompradores.numeroDocumento,
   })
     .from(flitoImpuestos)
     .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(flitoCompradores, and(
+      eq(flitoCompradores.tramiteId, flitoTramites.id),
+      eq(flitoCompradores.orden, 0),
+    ))
     .where(eq(flitoImpuestos.id, impuestoId))
     .limit(1);
 
   if (!row) return null;
-  return { ...row, modelo: row.modelo === null ? null : String(row.modelo) };
+  const { compradorNombre, compradorDocumento, ...vehiculo } = row;
+  return {
+    ...vehiculo,
+    modelo: vehiculo.modelo === null ? null : String(vehiculo.modelo),
+    ownerName: vehiculo.ownerName ?? compradorNombre ?? null,
+    ownerDocument: vehiculo.ownerDocument ?? compradorDocumento ?? null,
+  };
 }
 
 /**
@@ -122,24 +141,35 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       mensaje: 'El vehículo no tiene placa registrada.',
     };
   }
-  // Sin documento no hay consulta posible: el RUNT exige placa + documento del propietario, y ese
-  // par es además la prueba de propiedad en la que se apoya la certificación (RN-02).
-  if (!datos.ownerDocument?.trim()) {
+  // El RUNT admite dos formas de identificar el vehículo: placa + documento del propietario, o VIN.
+  // Se prefiere la primera porque ese par es además la prueba de propiedad en la que se apoya la
+  // certificación (RN-02); el VIN es el respaldo cuando no hay documento, y sirve igual porque la
+  // identidad del vehículo es placa/VIN (RN-01). Solo faltando los dos no hay consulta posible.
+  const documento = datos.ownerDocument?.trim() || null;
+  const vin = datos.vin?.trim() || null;
+  if (!documento && !vin) {
     return {
       resultado: ResultadoCertificacion.NO_ELEGIBLE,
       motivo: MotivoNoElegible.SIN_DOCUMENTO_PROPIETARIO,
-      mensaje: 'El vehículo no tiene documento de propietario, necesario para consultar el RUNT por placa.',
+      mensaje: 'El vehículo no tiene documento de propietario ni VIN: no hay forma de consultar el RUNT.',
     };
   }
 
   const placa = datos.placa.trim();
-  const documento = datos.ownerDocument.trim();
 
-  log.info({ impuestoId: id, docPrefix: documento.slice(0, 4) }, 'certificacion: consultando runt');
+  log.info(
+    { impuestoId: id, via: documento ? 'documento' : 'vin', docPrefix: documento?.slice(0, 4) },
+    'certificacion: consultando runt',
+  );
 
   let runt: { ok?: boolean; data?: unknown; message?: string };
   try {
-    runt = await consultarVehiculoRunt(placa, undefined, documento);
+    // Con documento se consulta por placa; sin él, por VIN. No se mandan los dos: `runt-direct`
+    // ignora el tipo de documento cuando hay VIN y probaría un único tipo, así que mezclarlos
+    // desaprovecharía el barrido de tipos que sí hace la consulta por placa.
+    runt = documento
+      ? await consultarVehiculoRunt(placa, undefined, documento)
+      : await consultarVehiculoRunt(placa, vin ?? undefined, undefined);
   } catch (e) {
     // `consultarVehiculoRunt` ya atrapa casi todo y devuelve `{ ok:false }`; esto cubre lo que se le
     // escape (p. ej. el rechazo del circuit breaker) para que un lote nunca muera por un registro.
@@ -160,6 +190,17 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     return {
       resultado: ResultadoCertificacion.ERROR_SERVICIO,
       mensaje: runt?.message || 'El servicio RUNT no está disponible.',
+    };
+  }
+
+  // Responder 200 no es lo mismo que haber encontrado el vehículo: el RUNT devuelve la ficha vacía
+  // —con la placa consultada de vuelta— cuando no tiene nada registrado. Comparar contra eso
+  // certificaría por el eco de la propia consulta.
+  if (runtSinRegistro(runt.data)) {
+    log.warn({ impuestoId: id, placa }, 'certificacion: runt respondió sin registro');
+    return {
+      resultado: ResultadoCertificacion.ERROR_SERVICIO,
+      mensaje: 'El RUNT no tiene información registrada para este vehículo. Verifica la placa y el documento del propietario.',
     };
   }
 
@@ -192,7 +233,10 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       impuestoId: id,
       vigente: true,
       placaConsultada: placa,
+      // Se guarda el identificador que REALMENTE se usó, no los dos: el certificado tiene que poder
+      // decir con qué se le preguntó al RUNT.
       documentoConsultado: documento,
+      vinConsultado: documento ? null : vin,
       tipoDocPropietario: typeof tipoDocPropietario === 'string' ? tipoDocPropietario : null,
       // Se congela el nombre aunque no se compare: el certificado lo imprime, y un certificado que
       // cambia de contenido después de emitido no sirve como evidencia (HU #11167, AC2/AC4).
@@ -206,7 +250,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
     await tx.insert(auditLogs).values({
       userId: ctx.userId, userEmail: ctx.username, action: 'update',
       resource: 'flito_impuesto', resourceId: id,
-      detail: `Certificación contra RUNT (placa ${placa}, doc ${documento.slice(0, 4)}***)`,
+      detail: `Certificación contra RUNT (placa ${placa}, ${documento ? `doc ${documento.slice(0, 4)}***` : `VIN ${vin}`})`,
     });
 
     return nueva;
@@ -221,6 +265,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
       impuestoId: fila.impuestoId,
       placaConsultada: fila.placaConsultada,
       documentoConsultado: fila.documentoConsultado,
+      vinConsultado: fila.vinConsultado,
       tipoDocPropietario: fila.tipoDocPropietario,
       propietarioNombre: fila.propietarioNombre,
       campos: fila.campos as ComparacionCampo[],
@@ -352,6 +397,7 @@ export async function certificacionVigente(impuestoId: string): Promise<Certific
     impuestoId: row.impuestoId,
     placaConsultada: row.placaConsultada,
     documentoConsultado: row.documentoConsultado,
+    vinConsultado: row.vinConsultado,
     tipoDocPropietario: row.tipoDocPropietario,
     propietarioNombre: row.propietarioNombre,
     campos: row.campos as ComparacionCampo[],

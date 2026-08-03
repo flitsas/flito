@@ -179,15 +179,46 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   // flito_tramites); la LT NO nace aquí, sino del escaneo del PDF417 por el mensajero en campo.
 }
 
+/**
+ * Titular que se guarda en el vehículo: el comprador principal (el primero que trae FLIT, `cedulanit`
+ * en el reporte crudo).
+ *
+ * El dato ya se guardaba en `flito_compradores` desde el principio, pero NO en el vehículo, y hay
+ * módulos que preguntan por el propietario al vehículo y no al trámite: la certificación contra el
+ * RUNT (HU #11165) y el refresco de SOAT. Sin esto, esos módulos ven un propietario vacío en
+ * prácticamente toda la flota y se bloquean solos.
+ */
+function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string | null } {
+  const [principal] = tf.compradores;
+  const documento = principal?.numeroDocumento?.trim() || null;
+  return {
+    nombre: principal?.nombreCompleto?.trim().slice(0, 200) || null,
+    // `flito_compradores.numero_documento` admite 30 y `vehicles.owner_document` solo 20. Recortar un
+    // documento lo convertiría en otro documento, así que uno más largo se descarta: consultar el RUNT
+    // con un número mutilado es peor que consultarlo por VIN, que es a lo que se cae sin documento.
+    documento: documento && documento.length <= 20 ? documento : null,
+  };
+}
+
 async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
-  const set = { plate: tf.placa, ...(tf.marca ? { brand: tf.marca } : {}), ...(tf.linea ? { model: tf.linea } : {}), updatedAt: new Date() };
+  const titular = titularDe(tf);
+  // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
+  // propietario que ya conocíamos (p. ej. el que dejó el OCR de la tarjeta de propiedad).
+  const propietario = {
+    ...(titular.nombre ? { ownerName: titular.nombre } : {}),
+    ...(titular.documento ? { ownerDocument: titular.documento } : {}),
+  };
+  const set = { plate: tf.placa, ...(tf.marca ? { brand: tf.marca } : {}), ...(tf.linea ? { model: tf.linea } : {}), ...propietario, updatedAt: new Date() };
   if (existente) {
     await tx.update(vehicles).set(set).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
   const [creado] = await tx.insert(vehicles)
-    .values({ vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId })
+    .values({
+      vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId,
+      ownerName: titular.nombre, ownerDocument: titular.documento,
+    })
     .returning({ id: vehicles.id });
   return creado.id;
 }

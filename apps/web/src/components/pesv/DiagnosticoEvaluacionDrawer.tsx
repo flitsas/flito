@@ -201,7 +201,7 @@ export default function DiagnosticoEvaluacionDrawer({
       aria-labelledby="evaluacion-drawer-title"
       // z-50: por encima del shell FLIT (sidebar/topbar). Antes z-40 empataba
       // con la barra superior y el shell interceptaba el pointer (PESV-09).
-      className="fixed inset-0 z-50 flex justify-end"
+      className="flit-modal fixed inset-0 z-50 flex justify-end"
       onKeyDown={handleKeyDown}
     >
       <div

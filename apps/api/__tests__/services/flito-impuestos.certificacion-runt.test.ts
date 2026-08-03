@@ -14,6 +14,7 @@ import {
   extraerVehiculoRunt,
   normalizarIdentificador,
   normalizarTexto,
+  runtSinRegistro,
 } from '../../src/modules/flito-impuestos/certificacion-runt.js';
 
 const FLITO: DatosVehiculoFlito = {
@@ -192,8 +193,44 @@ describe('extracción de la respuesta cruda', () => {
     expect(v.campos.every((c) => c.resultado === ResultadoCampo.NO_VERIFICABLE)).toBe(true);
     // Ojo: no certifica "porque sí" — el servicio solo llega aquí si el RUNT respondió OK, que es
     // la prueba de propiedad (RN-02). Una respuesta OK pero vacía deja constancia de que no se pudo
-    // verificar ningún campo, y eso es lo que el certificado debe mostrar.
+    // verificar ningún campo, y eso es lo que el certificado debe mostrar. El caso de una ficha
+    // vacía con la placa devuelta de vuelta lo corta antes `runtSinRegistro`, aquí abajo.
     expect(v.certificable).toBe(true);
+  });
+});
+
+describe('ficha sin vehículo detrás', () => {
+  // El RUNT devuelve el identificador con el que se consultó aunque no encuentre nada. Verificado
+  // contra el servicio real (2026-08-03): una placa inexistente responde ok:true con todo en null
+  // salvo la placa. Comparar contra eso da placa COINCIDE —consigo misma— y el resto NO_VERIFICABLE,
+  // que no bloquea: certificaría un vehículo del que el RUNT no sabe nada.
+  it('una ficha con solo el eco de la placa es sin registro', () => {
+    expect(runtSinRegistro({ vehiculo: { placa: 'ZZZ999', marca: null, clase: null, idAutomotor: null } })).toBe(true);
+  });
+
+  it('el eco del VIN tampoco cuenta como registro', () => {
+    expect(runtSinRegistro({ vehiculo: { placa: null, vin: '8AFAR23Y9PJ342874' } })).toBe(true);
+  });
+
+  it('una respuesta sin vehículo, vacía o nula es sin registro', () => {
+    expect(runtSinRegistro({})).toBe(true);
+    expect(runtSinRegistro(null)).toBe(true);
+    expect(runtSinRegistro(undefined)).toBe(true);
+    expect(runtSinRegistro({ vehiculo: null })).toBe(true);
+  });
+
+  it('basta UNA señal real para que la ficha valga', () => {
+    // Un remolque no trae ni motor ni servicio, y una ficha antigua puede no traer marca. Exigir un
+    // campo concreto dejaría sin certificar a familias enteras de vehículos que sí están en el RUNT.
+    expect(runtSinRegistro({ vehiculo: { placa: 'S83695', marca: 'INTERWORLD MORENO' } })).toBe(false);
+    expect(runtSinRegistro({ vehiculo: { placa: 'S83695', idAutomotor: 585487657 } })).toBe(false);
+    expect(runtSinRegistro({ vehiculo: { placa: 'S83695', estadoAutomotor: 'ACTIVO' } })).toBe(false);
+  });
+
+  it('un "null" de texto no es una señal', () => {
+    // El RUNT manda la cadena "null" en algunos campos. `primero` ya la descarta; se fija aquí para
+    // que la ficha vacía no se cuele por la puerta de atrás.
+    expect(runtSinRegistro({ vehiculo: { placa: 'ZZZ999', marca: 'null', clase: '  ' } })).toBe(true);
   });
 });
 

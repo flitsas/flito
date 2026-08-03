@@ -180,7 +180,7 @@ export default function DiagnosticoCierreModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="cierre-modal-title"
-      className="fixed inset-0 z-40 flex items-center justify-center p-6"
+      className="flit-modal fixed inset-0 z-40 flex items-center justify-center p-6"
       onKeyDown={handleKeyDown}
     >
       <div

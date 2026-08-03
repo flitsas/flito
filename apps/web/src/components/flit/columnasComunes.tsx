@@ -10,6 +10,8 @@
 // añade una columna con prisa. Aquí, si mañana el vehículo gana un dato, lo ganan las cinco tablas
 // a la vez o ninguna.
 
+import type { ReactNode } from 'react';
+
 /** Mismas opciones en todo el producto: dos formatos de fecha confunden más de lo que ahorran. */
 export const fechaCorta = (iso: string | null): string =>
   (iso ? new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }) : '—');
@@ -24,12 +26,21 @@ const suave = { color: 'var(--flit-text-secondary)' };
  * sirve a varios trámites que no coinciden —es por VIN, no por trámite (RN-01)—, y ahí «varios» es
  * la respuesta correcta, no un hueco. `varios` lo distingue de un dato que sencillamente falta.
  */
-export function CeldaTramite({ idFlit, tipoTramite, varios, extra }: {
+export function CeldaTramite({ idFlit, tipoTramite, varios, extra, accion }: {
   idFlit: string | null;
   tipoTramite: string | null;
   varios?: boolean;
   /** Segunda línea opcional de la pantalla que lo use (empresa, organismo…). */
   extra?: string | null;
+  /**
+   * Acción propia de la pantalla, bajo el tipo de trámite (impuestos pone ahí Certificar).
+   *
+   * Va aquí y no en una columna suya porque una acción que solo aplica a unas pocas filas se pasa la
+   * tabla entera en blanco: la columna ocupa ancho en todas para servir a una minoría. Bajo el
+   * trámite ocupa sitio únicamente donde hay algo que hacer. Es opcional: las demás tablas no la
+   * pasan y quedan exactamente igual que antes.
+   */
+  accion?: ReactNode;
 }) {
   return (
     <td className="px-4 py-2 align-top">
@@ -38,6 +49,7 @@ export function CeldaTramite({ idFlit, tipoTramite, varios, extra }: {
         {tipoTramite ?? (varios ? 'Varios trámites' : '—')}
       </div>
       {extra && <div className="text-xs" style={tenue}>{extra}</div>}
+      {accion && <div className="mt-1.5">{accion}</div>}
     </td>
   );
 }

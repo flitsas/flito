@@ -287,6 +287,7 @@ router.get('/:id/certificado', OPS_O_GESTOR, async (req: Request, res: Response)
     const pdf = await construirCertificadoPdf({
       placaConsultada: cert.placaConsultada,
       documentoConsultado: cert.documentoConsultado,
+      vinConsultado: cert.vinConsultado,
       tipoDocPropietario: cert.tipoDocPropietario,
       propietarioNombre: cert.propietarioNombre,
       campos: cert.campos,

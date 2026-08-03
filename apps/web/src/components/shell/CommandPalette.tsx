@@ -128,6 +128,8 @@ export default function CommandPalette({ open, onClose }: Props) {
   return (
     <ModalPortal>
     <div
+      // Sin `flit-modal` a propósito: el panel es `.flit-shell-palette`, que SÍ cambia de fondo con
+      // el tema, así que aquí la tinta correcta es la del tema y no la fija de las superficies FLIT.
       className="fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] sm:pt-[14vh]"
       onClick={onClose}
       role="dialog"

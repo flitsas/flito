@@ -281,7 +281,7 @@ function Lightbox({ url, mime, filename, onClose }: { url: string; mime: string;
   }, [onClose]);
   return (
     <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(22,39,68,0.45)', backdropFilter: 'blur(6px)' }} role="dialog" aria-modal="true" aria-label={`Vista previa de ${filename}`} onClick={onClose}>
+    <div className="flit-modal fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(22,39,68,0.45)', backdropFilter: 'blur(6px)' }} role="dialog" aria-modal="true" aria-label={`Vista previa de ${filename}`} onClick={onClose}>
       <div className="max-h-[90vh] max-w-5xl overflow-hidden bg-white" style={{ borderRadius: 'var(--flit-radius-xl)', boxShadow: 'var(--flit-shadow-modal)' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
           <p className="truncate text-sm" style={{ color: 'var(--flit-text-primary)' }}>{filename}</p>
