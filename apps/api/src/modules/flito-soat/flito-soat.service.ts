@@ -442,12 +442,23 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
 export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
 
 /**
+ * A quién se envía. Son excluyentes y la ruta lo valida antes de llegar aquí; si aun así llegaran
+ * los dos, `gestionOperaciones` gana, para que ninguna fila acabe con las dos formas de gestión a
+ * la vez (AC6). Eso es una red de seguridad, no el contrato.
+ */
+export interface DestinoEnvio {
+  proveedorSoatId?: string;
+  /** true = lo asume Operaciones por contingencia; el SOAT queda sin proveedor (HU #11152). */
+  gestionOperaciones?: boolean;
+}
+
+/**
  * Envía SOAT al gestor: Pendiente → En adquisición. Solo Operaciones. La atomicidad es
  * obligatoria (CA-04): con dos usuarios despachando la misma cola, leer-luego-escribir deja
  * que ambos envíen el mismo registro. `SELECT ... FOR UPDATE OF s SKIP LOCKED` hace que el
- * segundo no vea la fila que el primero bloqueó. El proveedor se fija en el mismo movimiento.
+ * segundo no vea la fila que el primero bloqueó. El destino se fija en el mismo movimiento.
  */
-export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatId?: string): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
 
   const enviados = await db.transaction(async (tx) => {
@@ -466,20 +477,35 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatI
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];
 
+    const ahora = new Date();
+    // El proveedor se pone a null explícitamente y no se deja "como estaba": desde Pendiente ya
+    // debería serlo, pero una reversa desde En adquisición devuelve el SOAT a Pendiente sin
+    // limpiarlo, y ese resto convertiría a este envío en un registro con proveedor Y contingencia.
+    const aDestino = destino.gestionOperaciones
+      ? {
+          gestionOperaciones: true,
+          gestionOperacionesPorId: ctx.userId,
+          gestionOperacionesEn: ahora,
+          proveedorSoatId: null,
+          proveedorSobrescrito: false,
+        }
+      : { proveedorSoatId: destino.proveedorSoatId, proveedorSobrescrito: true };
+
     await tx.update(flitoSoat).set({
       estado: EstadoSoat.SOLICITADO,
       enviadoPorId: ctx.userId,
-      enviadoEn: new Date(),
-      updatedAt: new Date(),
-      ...(proveedorSoatId ? { proveedorSoatId, proveedorSobrescrito: true } : {}),
+      enviadoEn: ahora,
+      updatedAt: ahora,
+      ...aDestino,
     }).where(inArray(flitoSoat.id, idsEnviados));
 
     // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
     // historial cuenta lo que pasó, no lo que se intentó.
+    const motivo = destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor';
     await registrarCambios(tx, idsEnviados.map((sid) => ({
       concepto: 'soat' as const, registroId: sid,
       estadoAnterior: EstadoSoat.PENDIENTE, estadoNuevo: EstadoSoat.SOLICITADO,
-      motivo: 'Envío al gestor', usuarioId: ctx.userId, usuarioEmail: ctx.username,
+      motivo, usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
 
     return idsEnviados;
