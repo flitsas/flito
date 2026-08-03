@@ -63,6 +63,9 @@ async function mock(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([BOLSA]) }));
   await page.route(/\/api\/flito\/bolsas\/alertas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ saldo: [], conciliacion: { soportesSinTramite: 0, movimientosSinSoporte: 1 } }) }));
+  // El tablero pide las bolsas de organismo desde la HU #11210; sin esta ruta no llega a pintarse.
+  await page.route(/\/api\/flito\/bolsas\/organismos$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route(/\/api\/flito\/bolsas\/1\/extracto/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(EXTRACTO) }));
   await page.route(/\/api\/flito\/bolsas\/1\/movimientos/, (route) =>
@@ -73,11 +76,10 @@ async function mock(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(BOLSA) }));
 }
 
-/** Abre el detalle del cliente, que es donde vive la tabla de movimientos. */
+/** Abre el detalle del cliente, que es donde vive la tabla de movimientos (modal desde la #11210). */
 async function abrirCliente(page: import('@playwright/test').Page) {
   await page.goto('/flito/bolsas');
-  await page.getByRole('button', { name: 'Cliente', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Cliente', exact: true }).selectOption('1');
+  await page.getByTestId('tarjeta-cliente-1').getByRole('button', { name: /Ver el detalle/ }).click();
   await expect(page.getByText('Totales de lo filtrado (3 de 3)')).toBeVisible();
 }
 

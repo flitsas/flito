@@ -4,7 +4,7 @@
 // registra sin evidencia, y nada se registra dos veces. La primera la impone el backend (el soporte
 // es obligatorio); la segunda es responsabilidad de esta pantalla y se explica en `ModalRecarga`.
 
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   ConceptoBolsa, CONCEPTO_BOLSA_LABEL, TipoMovimientoBolsa, OrigenMovimientoBolsa,
@@ -121,8 +121,23 @@ function nuevaClave(): string {
   return `bolsa-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function ModalRecarga({ companiaId, onClose, onRefrescar }: {
-  companiaId: number; onClose: () => void; onRefrescar: () => void;
+/**
+ * Formulario de recarga, reutilizado por el botón «+» del tablero (HU #11210).
+ *
+ * `companiaId` admite `null` y `selector` deja inyectar el desplegable de compañía porque abrir la
+ * bolsa de un cliente nuevo es exactamente esta operación con un paso más: la primera recarga ES lo
+ * que crea la bolsa. Duplicar el formulario habría duplicado también la clave de idempotencia y el
+ * manejo del duplicado, que es justo lo que impide acreditar el dinero dos veces.
+ */
+export function ModalRecarga({
+  companiaId, titulo = 'Registrar una recarga', intro, selector, onClose, onRefrescar,
+}: {
+  companiaId: number | null;
+  titulo?: string;
+  intro?: ReactNode;
+  selector?: ReactNode;
+  onClose: () => void;
+  onRefrescar: () => void;
 }) {
   /**
    * La clave se acuña AL ABRIR el formulario y no al pulsar guardar.
@@ -143,10 +158,10 @@ function ModalRecarga({ companiaId, onClose, onRefrescar }: {
 
   const valorNum = Number(valor);
   const valorInvalido = valor.trim() === '' || !Number.isFinite(valorNum) || valorNum <= 0;
-  const puedeGuardar = !valorInvalido && archivo !== null && !enviando;
+  const puedeGuardar = !valorInvalido && archivo !== null && !enviando && companiaId !== null;
 
   async function guardar() {
-    if (!puedeGuardar || !archivo) return;
+    if (!puedeGuardar || !archivo || companiaId === null) return;
     setEnviando(true);
     setError(null);
     try {
@@ -203,8 +218,10 @@ function ModalRecarga({ companiaId, onClose, onRefrescar }: {
   }
 
   return (
-    <FlitModal title="Registrar una recarga" onClose={onClose} wide>
+    <FlitModal title={titulo} onClose={onClose} wide>
       <form className="flex flex-col gap-4" onSubmit={(e) => { e.preventDefault(); guardar(); }}>
+        {intro}
+        {selector}
         <Campo etiqueta="Valor de la recarga *"
           error={valor.trim() !== '' && valorInvalido ? 'El valor de la recarga debe ser mayor que cero.' : null}>
           <input type="number" min="1" step="1" className={flitInp} value={valor} required

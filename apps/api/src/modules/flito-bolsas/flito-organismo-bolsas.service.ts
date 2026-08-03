@@ -8,7 +8,7 @@
 // propósito: son dos libros distintos, pero si sus reglas de imputación divergieran, el mismo
 // movimiento podría caer en meses distintos según qué bolsa lo mire.
 
-import { and, desc, eq, like, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   flitoOrganismoBolsas, flitoOrganismoMovimientos, flitoTramites, organismosTransitoConfig,
@@ -20,6 +20,7 @@ import {
   deudaConOrganismo,
   type MovimientoOrganismoDto,
   nivelBolsaOrganismoDe,
+  type NivelBolsaOrganismo,
   type OrigenMovimientoOrganismo,
   porcentajeSaldo,
   type TipoMovimientoOrganismo,
@@ -103,6 +104,72 @@ export async function bolsaOrganismoDe(codigo: string): Promise<BolsaOrganismoCo
     totalCargado: redondear(num(totales?.cargado ?? '0')),
     totalConsumido: redondear(num(totales?.consumido ?? '0')),
   };
+}
+
+/**
+ * Orden en que se atienden los organismos: primero el que más urge (HU #11210).
+ *
+ * `sin_cargas` va por delante de `normal` a propósito, aunque no sea una alarma: un organismo
+ * marcado para llevar bolsa al que nunca se le ha cargado nada es un trámite pendiente de alguien,
+ * mientras que uno en nivel normal no pide nada.
+ */
+const ORDEN_NIVEL: Record<NivelBolsaOrganismo, number> = {
+  en_prestamo: 0, agotada: 1, critico: 2, bajo: 3, sin_cargas: 4, normal: 5,
+};
+
+/**
+ * Todas las bolsas de organismo, del más urgente al más tranquilo (HU #11210, AC9).
+ *
+ * Los organismos SIN marcar quedan fuera de la lista, no en cero: la pantalla lista lo que FLIT
+ * gestiona con saldo prepago, y meter ahí a los demás sería inventarles una bolsa que no existe.
+ *
+ * Tres consultas fijas, no una por organismo: el listado se pinta entero de una vez y un N+1 aquí
+ * crecería con cada secretaría que se sume al modelo prepago.
+ */
+export async function bolsasOrganismos(): Promise<BolsaOrganismoConNivel[]> {
+  const marcados = await db
+    .select({ codigo: organismosTransitoConfig.codigo })
+    .from(organismosTransitoConfig)
+    .where(eq(organismosTransitoConfig.flitoLlevaBolsa, true));
+  if (marcados.length === 0) return [];
+
+  const codigos = marcados.map((m) => m.codigo);
+
+  const [filas, totales] = await Promise.all([
+    db.select().from(flitoOrganismoBolsas)
+      .where(inArray(flitoOrganismoBolsas.organismoCodigo, codigos)),
+    db.select({
+      codigo: flitoOrganismoMovimientos.organismoCodigo,
+      cargado: sql<string>`coalesce(sum(case when ${flitoOrganismoMovimientos.tipo} = 'entrada' then ${flitoOrganismoMovimientos.valor} else 0 end), 0)`,
+      consumido: sql<string>`coalesce(sum(case when ${flitoOrganismoMovimientos.tipo} = 'salida' then ${flitoOrganismoMovimientos.valor} else 0 end), 0)`,
+    })
+      .from(flitoOrganismoMovimientos)
+      .where(inArray(flitoOrganismoMovimientos.organismoCodigo, codigos))
+      .groupBy(flitoOrganismoMovimientos.organismoCodigo),
+  ]);
+
+  const porCodigo = new Map(filas.map((f) => [f.organismoCodigo, f]));
+  const totalPorCodigo = new Map(totales.map((t) => [t.codigo, t]));
+
+  return codigos
+    .map((codigo) => {
+      const fila = porCodigo.get(codigo);
+      // Marcado pero sin movimientos: la bolsa existe conceptualmente aunque su fila todavía no,
+      // igual que en `bolsaOrganismoDe`. Omitirlo escondería justo a los que falta cargar.
+      const base: BolsaOrganismoDto = fila ? aBolsaDto(fila) : {
+        id: '', organismoCodigo: codigo, saldo: 0, ultimaCargaValor: null, ultimaCargaEn: null,
+      };
+      const t = totalPorCodigo.get(codigo);
+      return {
+        ...base,
+        nivel: nivelBolsaOrganismoDe(base.saldo, base.ultimaCargaValor),
+        porcentaje: porcentajeSaldo(base.saldo, base.ultimaCargaValor),
+        deuda: deudaConOrganismo(base.saldo),
+        totalCargado: redondear(num(t?.cargado ?? '0')),
+        totalConsumido: redondear(num(t?.consumido ?? '0')),
+      };
+    })
+    .sort((a, b) => ORDEN_NIVEL[a.nivel] - ORDEN_NIVEL[b.nivel] || a.saldo - b.saldo);
 }
 
 /** Movimientos del organismo, del más reciente al más antiguo, con el trámite legible. */

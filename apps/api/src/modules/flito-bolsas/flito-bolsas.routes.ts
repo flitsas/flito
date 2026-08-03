@@ -26,7 +26,7 @@ import {
   registrarMovimientoManual, registrarRecarga, saldoConsolidado,
 } from './flito-bolsas.service.js';
 import {
-  bolsaOrganismoDe, movimientosOrganismoDe, registrarCargaOrganismo,
+  bolsaOrganismoDe, bolsasOrganismos, movimientosOrganismoDe, registrarCargaOrganismo,
 } from './flito-organismo-bolsas.service.js';
 
 const router = Router();
@@ -104,6 +104,15 @@ router.get('/riesgo', BOLSAS, async (req: Request, res: Response) => {
 router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
   const [saldo, conciliacion] = await Promise.all([alertasDeSaldo(), alertasDeConciliacion()]);
   res.json({ saldo, conciliacion });
+});
+
+// GET /organismos — todas las bolsas de organismo con su nivel (HU #11210, AC9).
+//
+// VA ANTES de `GET /:companiaId` a propósito, y no es cosmético: Express resuelve por orden de
+// registro, así que declarada después, «organismos» entraría como id de compañía y esta ruta no se
+// alcanzaría nunca.
+router.get('/organismos', BOLSAS, async (_req: Request, res: Response) => {
+  res.json(await bolsasOrganismos());
 });
 
 // GET /:companiaId — bolsa y saldo del cliente.

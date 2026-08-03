@@ -33,7 +33,7 @@ const ALERTAS = {
   conciliacion: { soportesSinTramite: 4, movimientosSinSoporte: 2 },
 };
 
-async function mock(page: import('@playwright/test').Page, opts: { bolsas?: unknown[] } = {}) {
+async function mock(page: import('@playwright/test').Page, opts: { bolsas?: unknown[]; organismos?: unknown[] } = {}) {
   const bolsas = opts.bolsas ?? RIESGO;
   await page.route(/\/api\/flito\/bolsas\/consolidado/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ clientes: bolsas.length, saldoTotal: 6000000 }) }));
@@ -46,6 +46,10 @@ async function mock(page: import('@playwright/test').Page, opts: { bolsas?: unkn
       companiaId: 1, saldoActual: 300000, totalEntradas: 5000000, totalSalidas: 4700000,
       porOrganismo: [], porConcepto: [],
     }) }));
+  // Desde la HU #11210 el tablero pide TAMBIÉN las bolsas de organismo: sin esta ruta la promesa
+  // conjunta falla y la pantalla entera se va al estado de error.
+  await page.route(/\/api\/flito\/bolsas\/organismos$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.organismos ?? []) }));
   await page.route(/\/api\/clients/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, name: 'ACME SAS' }]) }));
 }
@@ -107,9 +111,12 @@ test.describe('FLITO — Bolsas · tablero', () => {
     await expect(page.getByText('ACME SAS tiene saldo crítico: 6 % de su última recarga.')).toBeVisible();
     await expect(page.getByText(/4 soporte\(s\) sin trámite/)).toBeVisible();
 
+    // El detalle es un modal SOBRE el tablero (HU #11210): al cerrarlo se sigue donde se estaba.
     await page.getByRole('button', { name: 'Ver detalle' }).first().click();
-    await expect(page.getByRole('combobox', { name: 'Cliente', exact: true })).toBeVisible();
-    await expect(page.getByText('Consumo por organismo de tránsito')).toBeVisible();
+    const modal = page.getByRole('dialog');
+    await expect(modal.getByText('Consumo por organismo de tránsito')).toBeVisible();
+    await modal.getByRole('button', { name: /Cerrar/ }).first().click();
+    await expect(page.getByRole('region', { name: 'Bolsas por cliente' })).toBeVisible();
   });
 
   test('sin ninguna bolsa creada se explica cómo abrir la primera, sin error ni tabla vacía', async ({ page }) => {
@@ -117,9 +124,92 @@ test.describe('FLITO — Bolsas · tablero', () => {
     await mock(page, { bolsas: [] });
     await page.goto('/flito/bolsas');
 
-    await expect(page.getByText('Ningún cliente tiene bolsa todavía.')).toBeVisible();
-    await expect(page.getByText(/La bolsa nace con la primera recarga/)).toBeVisible();
+    await expect(page.getByTestId('sin-bolsas-cliente')).toContainText('Ningún cliente tiene bolsa todavía');
+    await expect(page.getByTestId('sin-bolsas-cliente')).toContainText('Abrir bolsa');
     await expect(page.getByRole('table')).toHaveCount(0);
+  });
+
+  test('todo vive en una sola vista: ya no hay pestañas que saltar', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
+    await page.goto('/flito/bolsas');
+
+    // La HU #11210 retira «Cliente» y «Organismos»: clientes y tránsitos conviven en acordeones.
+    await expect(page.getByRole('button', { name: 'Cliente', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Organismos', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Clientes/ })).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: /^Tránsitos/ })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('el acordeón se pliega y su contenido sale del DOM, no solo de la vista', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
+    await page.goto('/flito/bolsas');
+
+    await page.getByRole('button', { name: /^Clientes/ }).click();
+    await expect(page.getByRole('button', { name: /^Clientes/ })).toHaveAttribute('aria-expanded', 'false');
+    // Desmontado y no oculto: si solo se escondiera, sus botones seguirían en el orden de tabulación.
+    await expect(page.getByRole('region', { name: 'Bolsas por cliente' })).toHaveCount(0);
+  });
+
+  test('el botón + solo ofrece las compañías que aún no tienen bolsa', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
+    // ACME (1) ya tiene bolsa; RENTING (9) no. Solo la segunda puede abrirse.
+    await page.route(/\/api\/clients/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { id: 1, name: 'ACME SAS' }, { id: 9, name: 'RENTING' },
+      ]) }));
+    await page.goto('/flito/bolsas');
+
+    await page.getByRole('button', { name: 'Abrir la bolsa de un cliente nuevo' }).click();
+    const selector = page.getByRole('combobox', { name: 'Compañía a la que abrirle bolsa' });
+    await expect(selector.getByRole('option')).toHaveText(['Elige una compañía…', 'RENTING']);
+  });
+
+  test('sin compañías pendientes el + lo dice, en vez de enseñar un formulario imposible', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
+    // La única compañía de la lista ya tiene bolsa.
+    await page.goto('/flito/bolsas');
+
+    await page.getByRole('button', { name: 'Abrir la bolsa de un cliente nuevo' }).click();
+    await expect(page.getByTestId('sin-clientes-por-abrir')).toBeVisible();
+    await expect(page.getByLabel('Valor de la recarga *')).toHaveCount(0);
+  });
+
+  test('la primera recarga abre la bolsa y la compañía aparece en el tablero', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page, { bolsas: [] });
+    await page.route(/\/api\/clients/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 9, name: 'RENTING' }]) }));
+
+    let abierta = false;
+    await page.route(/\/api\/flito\/bolsas\/9\/recargas/, (route) => {
+      abierta = true;
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
+        duplicado: false, saldo: 3_000_000,
+        movimiento: { id: 'm9', valor: 3_000_000, registradoPorNombre: 'Financiera E2E' },
+      }) });
+    });
+    // El tablero se relee tras la recarga: la bolsa recién abierta ya tiene que estar.
+    await page.route(/\/api\/flito\/bolsas\/riesgo/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(abierta ? [{
+        id: 'b9', companiaId: 9, companiaNombre: 'RENTING', saldo: 3_000_000,
+        ultimaRecargaValor: 3_000_000, ultimaRecargaEn: '2026-08-01T10:00:00.000Z',
+        nivel: 'normal', porcentaje: 100, entradasPeriodo: 3_000_000, salidasPeriodo: 0,
+      }] : []) }));
+
+    await page.goto('/flito/bolsas');
+    await page.getByRole('button', { name: 'Abrir la bolsa de un cliente nuevo' }).click();
+    await page.getByRole('combobox', { name: 'Compañía a la que abrirle bolsa' }).selectOption('9');
+    await page.getByLabel('Valor de la recarga *').fill('3000000');
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'comprobante.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
+    });
+    await page.getByRole('button', { name: 'Registrar recarga' }).click();
+
+    await expect(page.getByTestId('tarjeta-cliente-9')).toContainText('RENTING');
   });
 
   test('un rol distinto de admin o financiera no entra ni por URL directa', async ({ page }) => {

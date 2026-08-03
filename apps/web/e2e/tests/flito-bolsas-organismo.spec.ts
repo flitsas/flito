@@ -1,12 +1,15 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, FINANCIERA_USER, PROVEEDOR_USER } from '../helpers/auth';
 
-// HU #11162 — Bolsa prepago del Organismo de Tránsito. Backend mockeado.
+// HU #11162 y #11210 — Bolsa prepago del Organismo de Tránsito. Backend mockeado.
 //
-// Sustituye a la cobertura del estado de cuenta de la HU #11130. Lo que se comprueba, además de las
-// cifras, es que la pantalla se lea en el sentido CORRECTO: un saldo que FLIT precarga y la
-// secretaría consume, no una deuda que crece. Y que un organismo sin bolsa no ofrezca nada que
-// mover, porque a esos FLIT nunca les transfiere dinero.
+// Lo que se comprueba, además de las cifras, es que la pantalla se lea en el sentido CORRECTO: un
+// saldo que FLIT precarga y la secretaría consume, no una deuda que crece.
+//
+// Desde la HU #11210 los organismos ya no viven en una pestaña con buscador: el tablero los lista
+// en el acordeón «Tránsitos» y el detalle se abre en un modal. Los organismos sin bolsa NO aparecen
+// —a esas secretarías FLIT nunca les transfiere dinero—, así que aquí ya no se prueba un 404 por
+// código sino su ausencia del listado.
 
 const MEDELLIN_BOLSA = {
   id: 'ob-1', organismoCodigo: '05001', saldo: 2_500_000,
@@ -19,6 +22,14 @@ const MEDELLIN_BOLSA = {
 const MEDELLIN_PRESTAMO = {
   ...MEDELLIN_BOLSA, saldo: -4_000_000, nivel: 'en_prestamo', porcentaje: -40, deuda: 4_000_000,
   totalCargado: 10_000_000, totalConsumido: 14_000_000,
+};
+
+/** Marcado para llevar bolsa pero sin una sola carga: ni alarma ni bolsa inexistente. */
+const BOGOTA_SIN_CARGAS = {
+  id: 'ob-2', organismoCodigo: '11001', saldo: 0,
+  ultimaCargaValor: null, ultimaCargaEn: null,
+  nivel: 'sin_cargas', porcentaje: null, deuda: 0,
+  totalCargado: 0, totalConsumido: 0,
 };
 
 const MOVIMIENTOS = [
@@ -38,7 +49,11 @@ const MOVIMIENTOS = [
   },
 ];
 
-async function mock(page: import('@playwright/test').Page, bolsa = MEDELLIN_BOLSA) {
+async function mock(page: import('@playwright/test').Page, opts: {
+  bolsa?: typeof MEDELLIN_BOLSA;
+  listado?: unknown[];
+} = {}) {
+  const bolsa = opts.bolsa ?? MEDELLIN_BOLSA;
   await page.route(/\/api\/clients/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, name: 'ACME SAS' }]) }));
   await page.route(/\/api\/flito\/bolsas\/consolidado/, (route) =>
@@ -48,164 +63,144 @@ async function mock(page: import('@playwright/test').Page, bolsa = MEDELLIN_BOLS
   await page.route(/\/api\/flito\/bolsas\/alertas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ saldo: [], conciliacion: { soportesSinTramite: 0, movimientosSinSoporte: 0 } }) }));
 
-  // Medellín lleva bolsa; Cali (76001) no: su GET responde 404, que es como el backend dice
-  // «este organismo no maneja bolsa prepago».
+  // El listado del acordeón «Tránsitos»: SOLO los organismos que llevan bolsa.
+  await page.route(/\/api\/flito\/bolsas\/organismos$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opts.listado ?? [bolsa]) }));
   await page.route(/\/api\/flito\/bolsas\/organismos\/05001\/bolsa$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bolsa) }));
   await page.route(/\/api\/flito\/bolsas\/organismos\/05001\/movimientos$/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOVIMIENTOS) }));
-  await page.route(/\/api\/flito\/bolsas\/organismos\/76001\/bolsa$/, (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Este Organismo de Tránsito no maneja bolsa prepago' }) }));
 }
 
-async function elegirOrganismo(page: import('@playwright/test').Page, ciudad: string) {
-  await page.getByRole('button', { name: 'Organismo de tránsito de la bolsa' }).click();
-  await page.getByRole('option', { name: new RegExp(ciudad) }).locator('button').click();
-}
-
-async function abrirOrganismos(page: import('@playwright/test').Page) {
+/** Abre el detalle de Medellín desde su tarjeta del acordeón. */
+async function abrirDetalle(page: import('@playwright/test').Page) {
   await page.goto('/flito/bolsas');
-  await page.getByRole('button', { name: 'Organismos', exact: true }).click();
+  await page.getByTestId('tarjeta-organismo-05001').getByRole('button', { name: /Ver el detalle/ }).click();
+  return page.getByRole('dialog');
 }
 
-test.describe('FLITO — Bolsas · bolsa prepago del organismo', () => {
-  // ── AC2 ───────────────────────────────────────────────────────────────────
-  test('muestra el saldo disponible con lo cargado y lo consumido', async ({ page }) => {
+test.describe('FLITO — Bolsas · organismo de tránsito', () => {
+  test('el acordeón de tránsitos lista cada organismo con cargado, consumido y deuda', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
+    await page.goto('/flito/bolsas');
 
-    await expect(page.getByText('Saldo disponible')).toBeVisible();
-    await expect(page.getByText(/2\.500\.000/).first()).toBeVisible();
-    await expect(page.getByText('Total cargado')).toBeVisible();
-    await expect(page.getByText('Total consumido')).toBeVisible();
-    await expect(page.getByText(/7\.500\.000/).first()).toBeVisible();
+    // El nombre sale del catálogo compartido: «ciudad — organismo», no del mock.
+    const tarjeta = page.getByTestId('tarjeta-organismo-05001');
+    await expect(tarjeta).toContainText('Medellín');
+    await expect(tarjeta).toContainText('2.500.000');
+    // Las tres cifras que pide la HU, además del saldo.
+    await expect(tarjeta.getByText('Cargado por FLIT')).toBeVisible();
+    await expect(tarjeta).toContainText('10.000.000');
+    await expect(tarjeta).toContainText('7.500.000');
+    await expect(tarjeta.getByText('Deuda actual')).toBeVisible();
   });
 
-  // ── AC3 ───────────────────────────────────────────────────────────────────
-  test('avisa del saldo bajo con texto, no solo con color', async ({ page }) => {
+  test('el organismo en préstamo enseña el saldo en negativo y lo que se le debe', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
-    await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
+    await mock(page, { bolsa: MEDELLIN_PRESTAMO });
+    await page.goto('/flito/bolsas');
 
-    const alerta = page.getByTestId('alerta-nivel-organismo');
-    await expect(alerta).toBeVisible();
-    // El nivel va escrito: quien no distinga el color se quedaría sin la información entera.
-    await expect(alerta).toContainText('Saldo bajo');
-    await expect(alerta).toContainText('25 %');
-    // Urgente ⇒ el lector de pantalla lo anuncia sin que el usuario tenga que ir a buscarlo.
-    await expect(alerta).toHaveAttribute('role', 'alert');
+    // La deuda NO es una tabla aparte: es el saldo en negativo, y así se lee en la tarjeta.
+    const tarjeta = page.getByTestId('tarjeta-organismo-05001');
+    await expect(tarjeta).toContainText('-$');
+    await expect(tarjeta).toContainText('4.000.000');
+    await expect(tarjeta.getByText('En préstamo')).toBeVisible();
   });
 
-  test('el préstamo se anuncia como deuda, no como saldo', async ({ page }) => {
-    // Es la diferencia de fondo con la bolsa del cliente: en negativo lo que importa no es cuánto
-    // queda, sino cuánto se le debe al organismo.
+  test('un organismo marcado sin cargas no se pinta como alarma', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
-    await mock(page, MEDELLIN_PRESTAMO);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
+    await mock(page, { listado: [BOGOTA_SIN_CARGAS] });
+    await page.goto('/flito/bolsas');
 
-    const alerta = page.getByTestId('alerta-nivel-organismo');
-    await expect(alerta).toContainText('En préstamo');
-    await expect(alerta).toContainText(/4\.000\.000/);
-    await expect(page.getByText('En préstamo').first()).toBeVisible();
+    // «Nunca se le ha cargado» no es lo mismo que «se quedó sin saldo»: no es una urgencia.
+    const tarjeta = page.getByTestId('tarjeta-organismo-11001');
+    await expect(tarjeta).toContainText('Sin cargas');
+    await expect(tarjeta).toContainText('nunca se le ha cargado');
   });
 
-  // ── AC5 ───────────────────────────────────────────────────────────────────
-  test('el libro muestra cada movimiento con su saldo resultante', async ({ page }) => {
+  test('sin ningún organismo con bolsa se explica dónde se habilita, sin ofrecer cargar', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
-    await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
+    await mock(page, { listado: [] });
+    await page.goto('/flito/bolsas');
 
-    const libro = page.getByRole('region', { name: 'Movimientos de la bolsa del organismo' });
-    await expect(libro).toBeVisible();
-
-    const carga = libro.getByRole('row').filter({ hasText: 'Carga' });
-    await expect(carga).toContainText(/10\.000\.000/);
-
-    const consumo = libro.getByRole('row').filter({ hasText: 'Consumo de derecho' });
-    await expect(consumo).toContainText('FLIT-3001');
-    // El saldo resultante por fila es lo que permite auditar el libro sin recalcular.
-    await expect(consumo).toContainText(/2\.500\.000/);
-  });
-
-  test('el consumo enlaza al trámite que lo originó y la carga no', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
-    await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
-
-    const libro = page.getByRole('region', { name: 'Movimientos de la bolsa del organismo' });
-    await expect(libro.getByRole('link', { name: 'FLIT-3001' })).toBeVisible();
-    // Una carga no cuelga de ningún trámite: no puede ofrecer un enlace a ninguna parte.
-    await expect(libro.getByRole('row').filter({ hasText: 'Carga' }).getByRole('link')).toHaveCount(0);
-  });
-
-  // ── AC7 ───────────────────────────────────────────────────────────────────
-  test('un organismo sin bolsa lo dice y no ofrece cargar', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
-    await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Cali');
-
-    await expect(page.getByTestId('organismo-sin-bolsa')).toBeVisible();
-    await expect(page.getByTestId('organismo-sin-bolsa')).toContainText('no maneja bolsa prepago');
-    // Ni saldo ni acción: no hay dinero que mover, así que no se insinúa que lo haya.
-    await expect(page.getByText('Saldo disponible')).toHaveCount(0);
+    await expect(page.getByTestId('sin-bolsas-organismo')).toContainText('Tránsito → Organismos');
+    // Sin bolsa no hay dinero que mover: ofrecer la acción invitaría a preguntarse por qué no hace nada.
     await expect(page.getByRole('button', { name: 'Cargar saldo' })).toHaveCount(0);
   });
 
-  // ── AC4 y AC8 ─────────────────────────────────────────────────────────────
-  test('registrar una carga actualiza el saldo sin recargar la página', async ({ page }) => {
+  test('el detalle abre en modal con la alerta de nivel escrita, no solo en color', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page, { bolsa: MEDELLIN_PRESTAMO });
+    const modal = await abrirDetalle(page);
+
+    // El nivel va SIEMPRE escrito: quien no distinga el color no puede quedarse sin la información.
+    const alerta = modal.getByTestId('alerta-nivel-organismo');
+    await expect(alerta).toContainText('En préstamo');
+    await expect(alerta).toContainText('4.000.000');
+    await expect(alerta).toHaveAttribute('role', 'alert');
+  });
+
+  test('el libro distingue la carga del consumo y enlaza el trámite que lo originó', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await mock(page);
+    const modal = await abrirDetalle(page);
 
+    const libro = modal.getByRole('region', { name: 'Movimientos de la bolsa del organismo' });
+    await expect(libro.getByText('Consumo de derecho')).toBeVisible();
+    await expect(libro.getByText('Carga', { exact: true })).toBeVisible();
+    // Los consumos cuelgan de un trámite; las cargas no.
+    await expect(libro.getByRole('link', { name: 'FLIT-3001' })).toBeVisible();
+  });
+
+  test('registrar una carga refresca el saldo sin recargar la página', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mock(page);
     let cargado = false;
     await page.route(/\/api\/flito\/bolsas\/organismos\/05001\/cargas$/, (route) => {
       cargado = true;
       return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ saldo: 12_500_000 }) });
     });
-    // Tras la carga, la pantalla vuelve a pedir la bolsa: debe traer el saldo nuevo.
     await page.route(/\/api\/flito\/bolsas\/organismos\/05001\/bolsa$/, (route) =>
       route.fulfill({
-        status: 200, contentType: 'application/json',
+        status: 200,
+        contentType: 'application/json',
         body: JSON.stringify(cargado
           ? { ...MEDELLIN_BOLSA, saldo: 12_500_000, nivel: 'normal', porcentaje: 125, totalCargado: 20_000_000 }
           : MEDELLIN_BOLSA),
       }));
 
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
-
-    await page.getByRole('button', { name: 'Cargar saldo' }).click();
-    await page.getByRole('spinbutton').first().fill('10000000');
+    const modal = await abrirDetalle(page);
+    await modal.getByRole('button', { name: 'Cargar saldo' }).click();
+    await page.getByLabel('Valor de la carga *').fill('10000000');
     await page.getByRole('button', { name: 'Registrar carga' }).click();
 
-    await expect(page.getByText(/12\.500\.000/).first()).toBeVisible();
+    await expect(modal.getByText('12.500.000').first()).toBeVisible();
   });
 
-  test('una carga en cero no se puede enviar', async ({ page }) => {
+  test('una carga en cero se para antes de salir a la red', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await mock(page);
-    await abrirOrganismos(page);
-    await elegirOrganismo(page, 'Medellín');
+    let llamadas = 0;
+    await page.route(/\/api\/flito\/bolsas\/organismos\/05001\/cargas$/, (route) => {
+      llamadas += 1;
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ saldo: 0 }) });
+    });
 
-    await page.getByRole('button', { name: 'Cargar saldo' }).click();
-    await page.getByRole('spinbutton').first().fill('0');
+    const modal = await abrirDetalle(page);
+    await modal.getByRole('button', { name: 'Cargar saldo' }).click();
+    await page.getByLabel('Valor de la carga *').fill('0');
 
-    await expect(page.getByText('El valor de la carga debe ser mayor que cero.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Registrar carga' })).toBeDisabled();
+    expect(llamadas).toBe(0);
   });
 
-  // ── Permisos ──────────────────────────────────────────────────────────────
-  test('un rol sin acceso a Bolsas no ve el módulo', async ({ page }) => {
-    // La bolsa es dinero: el Feature la reserva a Administración y Financiera.
+  test('un rol distinto de admin o financiera no ve un solo saldo', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
+    await mock(page);
     await page.goto('/flito/bolsas');
 
-    await expect(page.getByRole('button', { name: 'Organismos', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /No tienes acceso a FLITO — Bolsas prepago/ })).toBeVisible();
+    await expect(page.getByTestId('tarjeta-organismo-05001')).toHaveCount(0);
   });
 });

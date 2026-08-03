@@ -1,34 +1,55 @@
-// Tablero de saldos por cliente (HU #11127).
+// Tablero de bolsas prepago (HU #11127; reestructurado en la #11210).
 //
-// La pregunta que se contesta aquí es «¿a quién hay que recargar hoy?». Por eso el orden NO lo pone
-// esta pantalla: `/riesgo` ya llega de peor a mejor riesgo desde el servidor, y reordenar aquí sería
-// abrir la puerta a que dos vistas del mismo dato prioricen distinto.
+// Una sola vista para las dos caras del mismo negocio: lo que los clientes tienen precargado con
+// FLIT y lo que FLIT tiene precargado en las secretarías. Antes vivían en pestañas distintas, lo que
+// obligaba a saltar entre ellas para contestar la única pregunta que importa aquí —dónde hay que
+// poner plata hoy— y dejaba los organismos escondidos detrás de un buscador por código.
+//
+// El orden de las dos rejillas NO lo pone esta pantalla: `/riesgo` y `/organismos` llegan ya de peor
+// a mejor desde el servidor, y reordenar aquí sería abrir la puerta a que dos vistas del mismo dato
+// prioricen distinto.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   NIVEL_RIESGO_BOLSA_LABEL, NivelRiesgoBolsa,
-  type AlertasBolsas, type BolsaConRiesgo, type SaldoConsolidado,
+  type AlertasBolsas, type BolsaConRiesgo, type BolsaOrganismoConNivel, type SaldoConsolidado,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import { etiquetaPeriodo, pesos, TONO_NIVEL } from '../../lib/bolsas';
-import { FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
+import BolsaAbrirCliente, { type ClienteOpcion } from './BolsaAbrirCliente';
+import { TarjetaBolsaOrganismo } from './BolsaOrganismo';
+import FlitAcordeon from '../flit/FlitAcordeon';
+import {
+  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+} from '../flit/flitPageKit';
 import KpiCard from '../flit/KpiCard';
 import PageContentSkeleton from '../flit/PageContentSkeleton';
 import StatusChip from '../flit/StatusChip';
 
 interface Props {
   periodo: string;
+  /** Todas las compañías. Sirve para saber a cuáles les falta bolsa (AC3). */
+  clientes: ClienteOpcion[];
   onVerCliente: (companiaId: number) => void;
+  onVerOrganismo: (codigo: string) => void;
+  /** Cambia cuando algo movió saldos —una recarga, una carga— y hay que releer. */
+  nonce: number;
+  onCambio: () => void;
 }
 
-export default function BolsasTablero({ periodo, onVerCliente }: Props) {
+export default function BolsasTablero({
+  periodo, clientes, onVerCliente, onVerOrganismo, nonce, onCambio,
+}: Props) {
   const [consolidado, setConsolidado] = useState<SaldoConsolidado | null>(null);
   const [bolsas, setBolsas] = useState<BolsaConRiesgo[] | null>(null);
+  const [organismos, setOrganismos] = useState<BolsaOrganismoConNivel[]>([]);
   const [alertas, setAlertas] = useState<AlertasBolsas | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-
-  const recargar = useCallback(() => setNonce((n) => n + 1), []);
+  // Abiertos de entrada: la HU quita las pestañas para que todo se vea junto, y arrancar plegado
+  // reproduciría el problema que se quiso quitar.
+  const [verClientes, setVerClientes] = useState(true);
+  const [verTransitos, setVerTransitos] = useState(true);
+  const [abriendoBolsa, setAbriendoBolsa] = useState(false);
 
   useEffect(() => {
     let vigente = true;
@@ -40,12 +61,14 @@ export default function BolsasTablero({ periodo, onVerCliente }: Props) {
       // pinta con UNA petición, en vez de con una por tarjeta.
       api.get<BolsaConRiesgo[]>(`/flito/bolsas/riesgo?periodo=${periodo}`),
       api.get<AlertasBolsas>('/flito/bolsas/alertas'),
+      api.get<BolsaOrganismoConNivel[]>('/flito/bolsas/organismos'),
     ])
-      .then(([c, r, a]) => {
+      .then(([c, r, a, o]) => {
         if (!vigente) return;
         setConsolidado(c);
         setBolsas(Array.isArray(r) ? r : []);
         setAlertas(a);
+        setOrganismos(Array.isArray(o) ? o : []);
       })
       .catch((e) => { if (vigente) setError(errorMessage(e)); });
     return () => { vigente = false; };
@@ -55,7 +78,7 @@ export default function BolsasTablero({ periodo, onVerCliente }: Props) {
     return (
       <FlitCard>
         <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error}</p>
-        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={recargar}>
+        <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={onCambio}>
           Reintentar
         </button>
       </FlitCard>
@@ -64,25 +87,12 @@ export default function BolsasTablero({ periodo, onVerCliente }: Props) {
 
   if (!bolsas) return <PageContentSkeleton />;
 
-  if (bolsas.length === 0) {
-    return (
-      <FlitCard>
-        <FlitEmpty>
-          <p className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-            Ningún cliente tiene bolsa todavía.
-          </p>
-          <p className="mx-auto mt-2 max-w-md">
-            La bolsa nace con la primera recarga: se abre el cliente en la pestaña «Cliente», se
-            registra el valor con su comprobante y a partir de ahí cada trámite descuenta de ese saldo.
-          </p>
-        </FlitEmpty>
-      </FlitCard>
-    );
-  }
-
   const enRiesgo = bolsas.filter(
     (b) => b.nivel === NivelRiesgoBolsa.CRITICO || b.nivel === NivelRiesgoBolsa.AGOTADA,
   ).length;
+
+  const conBolsa = new Set(bolsas.map((b) => b.companiaId));
+  const candidatos = clientes.filter((c) => !conBolsa.has(c.id));
 
   return (
     <div className="space-y-4">
@@ -99,48 +109,104 @@ export default function BolsasTablero({ periodo, onVerCliente }: Props) {
             ? { tone: 'warning', label: 'Revisar' } : undefined} />
       </section>
 
-      {alertas && alertas.saldo.length > 0 && (
-        <FlitCard>
-          <h2 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
-            Alertas de saldo ({alertas.saldo.length})
-          </h2>
-          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            Los clientes que ya no están en nivel normal. Quien nunca ha recargado no aparece aquí:
-            no tiene un problema de saldo, tiene una bolsa por abrir.
-          </p>
-          <ul className="flex flex-col gap-2">
-            {alertas.saldo.map((a) => (
-              <li key={a.companiaId}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2"
-                style={{ borderColor: 'var(--flit-border-soft)' }}>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <StatusChip tone={TONO_NIVEL[a.nivel]}>{NIVEL_RIESGO_BOLSA_LABEL[a.nivel]}</StatusChip>
-                    <span className="text-sm font-semibold">{a.companiaNombre}</span>
+      <FlitAcordeon
+        titulo="Clientes"
+        cantidad={bolsas.length}
+        descripcion="Saldo que cada compañía tiene precargado con FLIT."
+        abierto={verClientes}
+        onToggle={() => setVerClientes((v) => !v)}
+        accion={
+          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            aria-label="Abrir la bolsa de un cliente nuevo"
+            onClick={() => setAbriendoBolsa(true)}>
+            <span aria-hidden="true" className="mr-1 text-base leading-none">+</span>
+            Abrir bolsa
+          </button>
+        }
+      >
+        {alertas && alertas.saldo.length > 0 && (
+          <div className="mb-4">
+            <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+              Alertas de saldo ({alertas.saldo.length})
+            </h3>
+            <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              Los clientes que ya no están en nivel normal. Quien nunca ha recargado no aparece aquí:
+              no tiene un problema de saldo, tiene una bolsa por abrir.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {alertas.saldo.map((a) => (
+                <li key={a.companiaId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                  style={{ borderColor: 'var(--flit-border-soft)' }}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <StatusChip tone={TONO_NIVEL[a.nivel]}>{NIVEL_RIESGO_BOLSA_LABEL[a.nivel]}</StatusChip>
+                      <span className="text-sm font-semibold">{a.companiaNombre}</span>
+                    </div>
+                    {/* El motivo lo redacta el servidor: es el mismo texto que verá quien reciba la
+                        alerta por otro canal, y reescribirlo aquí lo haría divergir. */}
+                    <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{a.mensaje}</p>
                   </div>
-                  {/* El motivo lo redacta el servidor: es el mismo texto que verá quien reciba la
-                      alerta por otro canal, y reescribirlo aquí lo haría divergir. */}
-                  <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{a.mensaje}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold tabular-nums">{pesos(a.saldo)}</span>
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                    onClick={() => onVerCliente(a.companiaId)}>
-                    Ver detalle
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </FlitCard>
-      )}
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold tabular-nums">{pesos(a.saldo)}</span>
+                    <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                      onClick={() => onVerCliente(a.companiaId)}>
+                      Ver detalle
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-      <section aria-label="Bolsas por cliente" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {bolsas.map((b) => (
-          <TarjetaBolsa key={b.companiaId} bolsa={b} periodo={periodo}
-            onVer={() => onVerCliente(b.companiaId)} />
-        ))}
-      </section>
+        {bolsas.length === 0 ? (
+          <FlitEmpty>
+            <span data-testid="sin-bolsas-cliente">
+              Ningún cliente tiene bolsa todavía. Se abre con la primera recarga: pulsa «Abrir bolsa»,
+              elige la compañía y registra el valor con su comprobante.
+            </span>
+          </FlitEmpty>
+        ) : (
+          <section aria-label="Bolsas por cliente" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {bolsas.map((b) => (
+              <TarjetaBolsa key={b.companiaId} bolsa={b} periodo={periodo}
+                onVer={() => onVerCliente(b.companiaId)} />
+            ))}
+          </section>
+        )}
+      </FlitAcordeon>
+
+      <FlitAcordeon
+        titulo="Tránsitos"
+        cantidad={organismos.length}
+        descripcion="Saldo que FLIT mantiene precargado en cada organismo. Solo el derecho de trámite lo consume."
+        abierto={verTransitos}
+        onToggle={() => setVerTransitos((v) => !v)}
+      >
+        {organismos.length === 0 ? (
+          <FlitEmpty>
+            <span data-testid="sin-bolsas-organismo">
+              Ningún organismo tiene bolsa prepago habilitada. Se activa organismo por organismo en
+              Tránsito → Organismos, y solo tiene sentido donde FLIT le transfiere dinero por
+              adelantado.
+            </span>
+          </FlitEmpty>
+        ) : (
+          <section aria-label="Bolsas por organismo" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {organismos.map((o) => (
+              <TarjetaBolsaOrganismo key={o.organismoCodigo} bolsa={o}
+                onVer={() => onVerOrganismo(o.organismoCodigo)} />
+            ))}
+          </section>
+        )}
+      </FlitAcordeon>
+
+      {abriendoBolsa && (
+        <BolsaAbrirCliente candidatos={candidatos}
+          onClose={() => setAbriendoBolsa(false)}
+          onHecho={onCambio} />
+      )}
     </div>
   );
 }
@@ -152,7 +218,7 @@ function TarjetaBolsa({ bolsa, periodo, onVer }: {
 }) {
   const agotada = bolsa.saldo <= 0;
   return (
-    <article className="flex flex-col bg-white p-5"
+    <article data-testid={`tarjeta-cliente-${bolsa.companiaId}`} className="flex flex-col bg-white p-5"
       style={{
         borderRadius: 'var(--flit-radius-card)',
         boxShadow: 'var(--flit-shadow-card)',
