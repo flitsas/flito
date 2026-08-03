@@ -58,6 +58,14 @@ export const flitBtnPrimary = 'flit-focus inline-flex h-10 items-center rounded-
 export const flitBtnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
 export const flitBtnSecondary = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-5 text-sm font-medium disabled:opacity-50';
 export const flitBtnSecondaryStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' } as const;
+/**
+ * Variante compacta del secundario, para acciones que viven DENTRO de una celda junto a datos.
+ *
+ * Comparte estilo con `flitBtnSecondary` —mismo borde, mismo color— y solo baja alto, tipografía y
+ * relleno: a la altura normal el botón manda más que el dato que acompaña y descuadra el alto de la
+ * fila. Se usa el mismo `flitBtnSecondaryStyle`.
+ */
+export const flitBtnSecondarySm = 'flit-focus inline-flex h-7 items-center rounded-[999px] border bg-white px-3 text-xs font-medium disabled:opacity-50';
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (

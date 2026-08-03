@@ -19,7 +19,7 @@ import {
 import FlitModal from './FlitModal';
 import StatusChip, { type ChipTone } from './StatusChip';
 import {
-  FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitTable, FlitTh, FlitTr, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondarySm, flitBtnSecondaryStyle,
 } from './flitPageKit';
 
 /** Lo que la cola sabe de una certificación vigente. El detalle completo vive en el PDF. */
@@ -41,14 +41,19 @@ const fechaHora = (iso: string) =>
   new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
 
 /**
- * Celda de la columna Certificación.
+ * Estado y acción de certificación de una fila, bajo el tipo de trámite.
  *
  * Tres estados excluyentes, en este orden: ya certificado (chip que descarga), certificable (botón),
  * o nada. El orden importa — un registro certificado NO vuelve a mostrar el botón aunque siga siendo
  * elegible: recertificar es una acción deliberada que se pide desde el detalle, no algo que ocurra
  * por pulsar donde antes había otra cosa.
+ *
+ * Devuelve contenido, no una celda: vive dentro de la columna Trámite (`CeldaTramite accion=…`) en
+ * vez de en una columna propia. La columna Certificación se quitó porque solo tenía algo que enseñar
+ * en las filas certificables o certificadas y gastaba ancho en todas las demás para decir «—».
+ * El tercer estado, por eso mismo, ahora no pinta nada en lugar de un guion.
  */
-export function CeldaCertificacion({
+export function AccionCertificacion({
   certificacion, puedeDescargar, puedeCertificar, cargando, onCertificar, onDescargar,
 }: {
   certificacion: CertificacionCola | null;
@@ -72,34 +77,26 @@ export function CeldaCertificacion({
     // 403 al descargar (la ruta es de operaciones y gestor), y ofrecer un botón que falla es peor
     // que no ofrecerlo.
     if (!puedeDescargar) {
-      return (
-        <td className="px-3 py-2">
-          <span title={titulo}><StatusChip tone="success">Certificado</StatusChip></span>
-        </td>
-      );
+      return <span title={titulo}><StatusChip tone="success">Certificado</StatusChip></span>;
     }
     return (
-      <td className="px-3 py-2">
-        <button type="button" onClick={onDescargar} title={`${titulo}. Descargar el certificado en PDF.`}
-          aria-label="Descargar certificado en PDF" className="cursor-pointer">
-          <StatusChip tone="success">Certificado</StatusChip>
-        </button>
-      </td>
+      <button type="button" onClick={onDescargar} title={`${titulo}. Descargar el certificado en PDF.`}
+        aria-label="Descargar certificado en PDF" className="cursor-pointer">
+        <StatusChip tone="success">Certificado</StatusChip>
+      </button>
     );
   }
 
-  if (!puedeCertificar) return <td className="px-3 py-2 text-sm">—</td>;
+  if (!puedeCertificar) return null;
 
   return (
-    <td className="px-3 py-2">
-      <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-        disabled={cargando} onClick={onCertificar}
-        // La consulta al RUNT puede tardar decenas de segundos (90 s de timeout en backend). Sin
-        // este aviso la pantalla parece colgada y el gestor vuelve a pulsar.
-        title={cargando ? 'Consultando el RUNT. Puede tardar hasta un minuto.' : 'Verificar los datos contra el RUNT'}>
-        {cargando ? 'Consultando RUNT…' : 'Certificar'}
-      </button>
-    </td>
+    <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}
+      disabled={cargando} onClick={onCertificar}
+      // La consulta al RUNT puede tardar decenas de segundos (90 s de timeout en backend). Sin
+      // este aviso la pantalla parece colgada y el gestor vuelve a pulsar.
+      title={cargando ? 'Consultando el RUNT. Puede tardar hasta un minuto.' : 'Verificar los datos contra el RUNT'}>
+      {cargando ? 'Consultando RUNT…' : 'Certificar'}
+    </button>
   );
 }
 

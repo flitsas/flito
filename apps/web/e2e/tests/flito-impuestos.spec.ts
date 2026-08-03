@@ -349,6 +349,25 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     await expect(page.getByText('Certificado', { exact: true })).toHaveCount(1);
   });
 
+  test('la acción vive bajo el trámite y ya no hay columna Certificación', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCert(page);
+
+    await page.goto('/flito/impuestos');
+
+    // La columna se quitó: solo tenía algo que enseñar en las filas certificables o certificadas y
+    // gastaba ancho en todas las demás para decir «—».
+    await expect(page.getByRole('columnheader', { name: 'Certificación' })).toHaveCount(0);
+
+    // Botón y chip pasan a la celda del trámite. Se comprueba por contenido de la celda y no por su
+    // posición: el índice de columna baila con la casilla de selección, que solo sale cuando hay
+    // filas seleccionables.
+    const celdaDelTramite = page.getByRole('cell').filter({ hasText: 'FLIT-1002' });
+    await expect(celdaDelTramite.getByRole('button', { name: 'Certificar' })).toBeVisible();
+    await expect(page.getByRole('cell').filter({ hasText: 'FLIT-1003' })
+      .getByRole('button', { name: 'Descargar certificado en PDF' })).toBeVisible();
+  });
+
   test('AC2 — al certificar, la fila pasa a Certificado sin recargar', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCert(page);

@@ -12,7 +12,7 @@ import {
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import {
-  CeldaCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
+  AccionCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
 } from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
@@ -373,7 +373,7 @@ export default function FlitoImpuestos() {
                 <FlitTh>Organismo</FlitTh><FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
                 <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh>
-                <FlitTh>Certificación</FlitTh><FlitTh />
+                <FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -387,7 +387,17 @@ export default function FlitoImpuestos() {
                       )}
                     </td>
                   )}
-                  <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite} />
+                  <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
+                    accion={(
+                      <AccionCertificacion
+                        certificacion={f.certificacion}
+                        puedeDescargar={puedeDescargarCert}
+                        puedeCertificar={puedeCertificarFila(f)}
+                        cargando={certificandoId === f.id}
+                        onCertificar={() => certificar(f)}
+                        onDescargar={() => descargarCertificado(f)}
+                      />
+                    )} />
                   <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
@@ -411,14 +421,6 @@ export default function FlitoImpuestos() {
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
-                  <CeldaCertificacion
-                    certificacion={f.certificacion}
-                    puedeDescargar={puedeDescargarCert}
-                    puedeCertificar={puedeCertificarFila(f)}
-                    cargando={certificandoId === f.id}
-                    onCertificar={() => certificar(f)}
-                    onDescargar={() => descargarCertificado(f)}
-                  />
                   <td className="px-3 py-2">
                     <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
                   </td>
