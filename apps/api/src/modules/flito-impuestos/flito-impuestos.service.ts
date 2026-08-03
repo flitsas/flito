@@ -9,8 +9,8 @@
 import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
-  organismosTransitoConfig, users, vehicles,
+  auditLogs, clients, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoSoportes,
+  flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
@@ -45,6 +45,18 @@ export interface ImpuestoColaItem {
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
   /** true = lo gestiona Operaciones por contingencia (HU #11155), no el gestor del organismo. */
   gestionOperaciones: boolean;
+  /**
+   * Certificación vigente contra el RUNT, o `null` si el registro no está certificado (HU #11168).
+   *
+   * Viaja en el listado y no se consulta fila a fila: la cola pagina hasta 200 registros y una
+   * petición por fila para pintar una columna sería el patrón N+1 movido al navegador, con la
+   * columna parpadeando mientras llegan las respuestas.
+   *
+   * Solo lo que la cola necesita PINTAR. El detalle campo a campo vive en el certificado PDF y en la
+   * respuesta de certificar; meterlo aquí engordaría cada fila del listado con datos que la tabla no
+   * muestra.
+   */
+  certificacion: { id: string; certificadoEn: string; certificadoPorNombre: string } | null;
 }
 
 const SELECT_COLA = {
@@ -245,9 +257,32 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
   const principalPorTramite = new Map<string, typeof compradores[number]>();
   for (const c of compradores) if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
 
+  // Una sola consulta para toda la página, igual que los compradores. Un LEFT JOIN en `fromCola`
+  // habría servido, pero el índice único parcial ya garantiza como mucho una vigente por impuesto y
+  // esto deja el SELECT de la cola —que ya arrastra cinco joins— sin un sexto.
+  const impuestoIds = rows.map((r) => r.id);
+  const certificaciones = impuestoIds.length
+    ? await db.select({
+      id: flitoImpuestoCertificaciones.id,
+      impuestoId: flitoImpuestoCertificaciones.impuestoId,
+      createdAt: flitoImpuestoCertificaciones.createdAt,
+      certificadoPorNombre: flitoImpuestoCertificaciones.certificadoPorNombre,
+    })
+      .from(flitoImpuestoCertificaciones)
+      .where(and(
+        inArray(flitoImpuestoCertificaciones.impuestoId, impuestoIds),
+        eq(flitoImpuestoCertificaciones.vigente, true),
+      ))
+    : [];
+  const certPorImpuesto = new Map(certificaciones.map((c) => [c.impuestoId, c]));
+
   return rows.map((r) => {
     const p = principalPorTramite.get(r.tramiteId);
+    const cert = certPorImpuesto.get(r.id);
     return {
+      certificacion: cert
+        ? { id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre }
+        : null,
       id: r.id, tramiteId: r.tramiteId, idFlit: r.idFlit, placa: r.placa, vin: r.vin ?? '',
       marca: r.marca, linea: r.linea,
       tipoTramite: r.tipoTramite,

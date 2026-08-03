@@ -6,8 +6,14 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import {
+  ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
+} from '@operaciones/shared-types';
+import { ApiError, api, errorMessage } from '../lib/api';
+import {
+  CeldaCertificacion, ModalResultadoCertificacion,
+  type CertificacionCola, type ResultadoIntento,
+} from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
@@ -38,6 +44,8 @@ interface ImpuestoItem {
   /** true = lo gestiona Operaciones por contingencia, en vez del gestor del organismo. El impuesto
    *  se sigue pagando ante el mismo organismo: lo que cambia es quién lo tramita. */
   gestionOperaciones: boolean;
+  /** Certificación vigente contra el RUNT, o null si el registro no está certificado (HU #11168). */
+  certificacion: CertificacionCola | null;
 }
 interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
 interface FacetasImpuestos {
@@ -56,6 +64,25 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
 ];
 const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
+
+/**
+ * Traduce el fallo de un intento de certificación al desenlace que se le muestra al gestor.
+ *
+ * Se lee el `code` del cuerpo, NO el texto del mensaje ni el código HTTP a secas: tres de los cinco
+ * desenlaces comparten el 409, y distinguirlos por el texto ataría la interfaz a unas cadenas que
+ * cambian sin avisar. Si el `code` no viene —un 500 inesperado, un proxy que se interpone— se cae a
+ * `error_servicio`, que es el desenlace cuya recomendación (reintentar más tarde) no hace daño en
+ * ningún caso.
+ */
+function aResultadoIntento(e: unknown): ResultadoIntento {
+  const cuerpo = e instanceof ApiError ? (e.rawDetails as Record<string, unknown> | null) : null;
+  const code = typeof cuerpo?.code === 'string' ? cuerpo.code as ResultadoCertificacion : null;
+  return {
+    code: code ?? ResultadoCertificacion.ERROR_SERVICIO,
+    mensaje: errorMessage(e),
+    campos: Array.isArray(cuerpo?.campos) ? cuerpo.campos as ResultadoIntento['campos'] : undefined,
+  };
+}
 
 export default function FlitoImpuestos() {
   const { user } = useAuth();
@@ -174,6 +201,50 @@ export default function FlitoImpuestos() {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
 
+  /**
+   * Certificación contra el RUNT (HU #11168).
+   *
+   * `certificandoId` bloquea SOLO la fila en curso y no la tabla entera: la consulta puede tardar
+   * decenas de segundos (90 s de timeout en backend) y dejar la pantalla inservible todo ese rato
+   * sería peor que el problema que resuelve. Como el botón de esa fila queda deshabilitado, la misma
+   * certificación no se puede lanzar dos veces (AC7).
+   */
+  const [certificandoId, setCertificandoId] = useState<string | null>(null);
+  const [resultadoCert, setResultadoCert] = useState<{ resultado: ResultadoIntento; placa: string | null } | null>(null);
+
+  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
+  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
+  // la evidencia que hay que poder enseñar.
+  const puedeDescargarCert = esOperaciones || esGestor;
+  const puedeCertificarFila = (f: ImpuestoItem) =>
+    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
+
+  const certificar = async (f: ImpuestoItem) => {
+    setCertificandoId(f.id);
+    try {
+      const r = await api.post<{ code: string; certificacion: CertificacionCola }>(`/flito/impuestos/${f.id}/certificar`);
+      // Se parchea la fila con lo que devolvió el backend en vez de recargar la cola: AC2 pide que el
+      // estado se vea sin recargar, y una recarga completa reordenaría o repaginaría la tabla bajo el
+      // cursor de alguien que lleva un minuto esperando.
+      setData((d) => d && ({
+        ...d,
+        items: d.items.map((i) => i.id === f.id ? { ...i, certificacion: r.certificacion } : i),
+      }));
+    } catch (e) {
+      setResultadoCert({ resultado: aResultadoIntento(e), placa: f.placa });
+    } finally {
+      setCertificandoId(null);
+    }
+  };
+
+  const descargarCertificado = async (f: ImpuestoItem) => {
+    try {
+      await api.download(`/flito/impuestos/${f.id}/certificado`, `certificado-runt-${f.placa ?? f.idFlit}.pdf`);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeaderCard
@@ -280,7 +351,8 @@ export default function FlitoImpuestos() {
                 <FlitTh>Compañía</FlitTh>
                 <FlitTh>Organismo</FlitTh><FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
-                <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
+                <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh>
+                <FlitTh>Certificación</FlitTh><FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -318,6 +390,14 @@ export default function FlitoImpuestos() {
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
+                  <CeldaCertificacion
+                    certificacion={f.certificacion}
+                    puedeDescargar={puedeDescargarCert}
+                    puedeCertificar={puedeCertificarFila(f)}
+                    cargando={certificandoId === f.id}
+                    onCertificar={() => certificar(f)}
+                    onDescargar={() => descargarCertificado(f)}
+                  />
                   <td className="px-3 py-2">
                     <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
                   </td>
@@ -330,6 +410,11 @@ export default function FlitoImpuestos() {
               onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
           </div>
         </FlitCard>
+      )}
+
+      {resultadoCert && (
+        <ModalResultadoCertificacion resultado={resultadoCert.resultado} placa={resultadoCert.placa}
+          onClose={() => setResultadoCert(null)} />
       )}
 
       {detalle && (
