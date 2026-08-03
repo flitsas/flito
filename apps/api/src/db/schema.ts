@@ -299,8 +299,15 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // Es por organismo y no una sola global porque cada secretaría publica en su propio Drive.
   flitoDriveFolderId: varchar('flito_drive_folder_id', { length: 120 }),
   flitoDriveActivo: boolean('flito_drive_activo').notNull().default(false),
-  // HU #11161: si este organismo opera con saldo prepago de FLIT. Apagado por defecto — no todas
-  // las secretarías funcionan así, y encenderlo para todas llenaría el módulo de cuentas muertas.
+  /**
+   * OBSOLETA desde el ajuste 0124: SIN LECTORES ni escritores.
+   *
+   * Marcaba si el organismo operaba con saldo prepago de FLIT, cuando una bolsa era una secretaría.
+   * Ahora cualquier secretaría puede entrar en una bolsa y quien lo decide es
+   * `flitoBolsaTransitoCobertura`. La columna se conserva —mismo criterio que con
+   * `flito_reglas_proveedor_soat`: borrar datos en el cambio que retira su último lector es
+   * innecesariamente irreversible— y su DROP irá en una migración posterior.
+   */
   flitoLlevaBolsa: boolean('flito_lleva_bolsa').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -3206,23 +3213,27 @@ export const flitoOrganismoPagos = pgTable('flito_organismo_pagos', {
   organismoIdx: index('idx_flito_organismo_pagos_organismo').on(t.organismoCodigo, t.fecha),
 }));
 
-// ── FLITO Bolsa del Organismo de Tránsito (HU #11161) ────────────────────────
+// ── FLITO Bolsa de Tránsito (HU #11161; remodelada en el ajuste 0124) ────────
 
 /**
- * Bolsa prepago que FLIT mantiene EN un organismo. Es la inversa de la del cliente: aquí FLIT carga
- * el dinero y la secretaría lo consume con cada derecho de trámite que emite.
+ * Bolsa que FLIT precarga para que se paguen trámites ante las secretarías. Es la inversa de la del
+ * cliente: aquí FLIT pone el dinero y otro lo gasta.
  *
- * `saldo` puede ser NEGATIVO y eso no es un estado inválido: es el PRÉSTAMO del organismo. Si siguió
- * emitiendo derechos después de agotar el saldo, el gasto ya ocurrió; la siguiente carga lo neta
- * sumando, sin que la deuda necesite tabla ni columna propia.
+ * NO está atada a una secretaría ni a un concepto. Una bolsa cubre las parejas (secretaría,
+ * concepto) que diga `flitoBolsaTransitoCobertura` —«Bolsa de mi sector» puede cubrir Medellín,
+ * Envigado y Sabaneta solo para impuestos—, y se identifica por su nombre.
+ *
+ * `saldo` puede ser NEGATIVO y eso no es un estado inválido: es el PRÉSTAMO. Si se siguió pagando
+ * después de agotar el saldo, el gasto ya ocurrió; la siguiente carga lo neta sumando, sin que la
+ * deuda necesite tabla ni columna propia.
  *
  * Denormalizado por la misma razón que `flito_bolsas.saldo`, y con la misma garantía: el lock de
  * esta fila (`FOR UPDATE`) mientras se escribe el movimiento.
  */
-export const flitoOrganismoBolsas = pgTable('flito_organismo_bolsas', {
+export const flitoBolsasTransito = pgTable('flito_bolsas_transito', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().unique()
-    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** Cómo la llama quien la creó. Único: es el identificador humano de la bolsa. */
+  nombre: varchar('nombre', { length: 120 }).notNull().unique(),
   saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
   // Base del nivel de alerta. NULL mientras no haya cargas: distingue «sin cargas» de «agotada».
   ultimaCargaValor: numeric('ultima_carga_valor', { precision: 14, scale: 2 }),
@@ -3232,18 +3243,43 @@ export const flitoOrganismoBolsas = pgTable('flito_organismo_bolsas', {
 });
 
 /**
- * Libro append-only de la bolsa del organismo. Mismo criterio que `flito_bolsa_movimientos`: nada se
- * edita ni se borra, el valor va siempre positivo y la dirección la da `tipo`.
+ * Qué paga cada bolsa: el producto de sus secretarías por sus conceptos.
  *
- * Solo el DERECHO genera salidas aquí. SOAT e impuesto llevan organismo en el libro del cliente
- * porque se gestionan ante uno, pero no salen de este saldo; trámite digital y logística son
- * honorarios de FLIT; y el GMF ya viene incluido en el total del comprobante del organismo.
+ * El índice único sobre (organismo, concepto) es la pieza central del modelo, no una validación
+ * defensiva: garantiza que al sellar una liquidación exista UNA sola bolsa candidata para cada
+ * concepto, y por eso el descuento no tiene que preguntarle a nadie a dónde va el dinero. Una
+ * secretaría puede repetirse entre bolsas mientras no repita concepto.
  */
-export const flitoOrganismoMovimientos = pgTable('flito_organismo_movimientos', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  bolsaId: uuid('bolsa_id').notNull().references(() => flitoOrganismoBolsas.id, { onDelete: 'restrict' }),
+export const flitoBolsaTransitoCobertura = pgTable('flito_bolsa_transito_cobertura', {
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'cascade' }),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
     .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** 'derecho' | 'soat' | 'impuesto' (`ConceptoBolsaTransito`). */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.bolsaId, t.organismoCodigo, t.concepto] }),
+  // Se declara aquí y no solo en el SQL: si el esquema no la conoce, el próximo `db:generate`
+  // emitiría un DROP INDEX y el modelo quedaría sin su única garantía de enrutamiento.
+  parUnicoIdx: uniqueIndex('uq_bolsa_transito_cobertura').on(t.organismoCodigo, t.concepto),
+  bolsaIdx: index('idx_bolsa_transito_cobertura_bolsa').on(t.bolsaId),
+}));
+
+/**
+ * Libro append-only de la bolsa de tránsito. Mismo criterio que `flito_bolsa_movimientos`: nada se
+ * edita ni se borra, el valor va siempre positivo y la dirección la da `tipo`.
+ *
+ * `organismoCodigo` y `concepto` son el DESGLOSE de la salida, no la identidad de la bolsa: dicen
+ * qué se pagó y ante quién. Una carga no lleva ninguno de los dos —el dinero entra a la bolsa
+ * entera— y por eso ambos son nullables.
+ */
+export const flitoBolsaTransitoMovimientos = pgTable('flito_bolsa_transito_movimientos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'restrict' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 })
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** Concepto que produjo la salida. NULL en las cargas. */
+  concepto: varchar('concepto', { length: 20 }),
   /** 'entrada' | 'salida'. */
   tipo: varchar('tipo', { length: 10 }).notNull(),
   /** 'carga' | 'automatico'. */
@@ -3261,6 +3297,7 @@ export const flitoOrganismoMovimientos = pgTable('flito_organismo_movimientos', 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   organismoIdx: index('idx_flito_org_mov_organismo').on(t.organismoCodigo, t.createdAt),
+  bolsaIdx: index('idx_flito_bolsa_transito_mov_bolsa').on(t.bolsaId, t.createdAt),
   // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble consumo del sellado, y si
   // el esquema no la conoce, el próximo `db:generate` emitiría un DROP INDEX que la borraría.
   llaveIdx: uniqueIndex('idx_flito_org_mov_llave')

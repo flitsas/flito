@@ -1,23 +1,24 @@
-// Tablero de bolsas prepago (HU #11127; reestructurado en la #11210).
+// Tablero de bolsas (HU #11127; reestructurado en la #11210).
 //
 // Una sola vista para las dos caras del mismo negocio: lo que los clientes tienen precargado con
-// FLIT y lo que FLIT tiene precargado en las secretarías. Antes vivían en pestañas distintas, lo que
-// obligaba a saltar entre ellas para contestar la única pregunta que importa aquí —dónde hay que
-// poner plata hoy— y dejaba los organismos escondidos detrás de un buscador por código.
+// FLIT y lo que FLIT tiene precargado para pagar ante las secretarías. Antes vivían en pestañas
+// distintas, lo que obligaba a saltar entre ellas para contestar la única pregunta que importa aquí
+// —dónde hay que poner plata hoy— y dejaba las bolsas de tránsito detrás de un buscador por código.
 //
-// El orden de las dos rejillas NO lo pone esta pantalla: `/riesgo` y `/organismos` llegan ya de peor
+// El orden de las dos rejillas NO lo pone esta pantalla: `/riesgo` y `/transito` llegan ya de peor
 // a mejor desde el servidor, y reordenar aquí sería abrir la puerta a que dos vistas del mismo dato
 // prioricen distinto.
 
 import { useEffect, useState } from 'react';
 import {
   NIVEL_RIESGO_BOLSA_LABEL, NivelRiesgoBolsa,
-  type AlertasBolsas, type BolsaConRiesgo, type BolsaOrganismoConNivel, type SaldoConsolidado,
+  type AlertasBolsas, type BolsaConRiesgo, type BolsaTransitoConNivel, type SaldoConsolidado,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import { etiquetaPeriodo, pesos, TONO_NIVEL } from '../../lib/bolsas';
 import BolsaAbrirCliente, { type ClienteOpcion } from './BolsaAbrirCliente';
-import { TarjetaBolsaOrganismo } from './BolsaOrganismo';
+import { TarjetaBolsaTransito } from './BolsaTransito';
+import BolsaTransitoForm from './BolsaTransitoForm';
 import FlitAcordeon from '../flit/FlitAcordeon';
 import {
   FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -31,18 +32,18 @@ interface Props {
   /** Todas las compañías. Sirve para saber a cuáles les falta bolsa (AC3). */
   clientes: ClienteOpcion[];
   onVerCliente: (companiaId: number) => void;
-  onVerOrganismo: (codigo: string) => void;
+  onVerTransito: (bolsa: { id: string; nombre: string }) => void;
   /** Cambia cuando algo movió saldos —una recarga, una carga— y hay que releer. */
   nonce: number;
   onCambio: () => void;
 }
 
 export default function BolsasTablero({
-  periodo, clientes, onVerCliente, onVerOrganismo, nonce, onCambio,
+  periodo, clientes, onVerCliente, onVerTransito, nonce, onCambio,
 }: Props) {
   const [consolidado, setConsolidado] = useState<SaldoConsolidado | null>(null);
   const [bolsas, setBolsas] = useState<BolsaConRiesgo[] | null>(null);
-  const [organismos, setOrganismos] = useState<BolsaOrganismoConNivel[]>([]);
+  const [transitos, setTransitos] = useState<BolsaTransitoConNivel[]>([]);
   const [alertas, setAlertas] = useState<AlertasBolsas | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Abiertos de entrada: la HU quita las pestañas para que todo se vea junto, y arrancar plegado
@@ -50,6 +51,7 @@ export default function BolsasTablero({
   const [verClientes, setVerClientes] = useState(true);
   const [verTransitos, setVerTransitos] = useState(true);
   const [abriendoBolsa, setAbriendoBolsa] = useState(false);
+  const [creandoTransito, setCreandoTransito] = useState(false);
 
   useEffect(() => {
     let vigente = true;
@@ -61,14 +63,14 @@ export default function BolsasTablero({
       // pinta con UNA petición, en vez de con una por tarjeta.
       api.get<BolsaConRiesgo[]>(`/flito/bolsas/riesgo?periodo=${periodo}`),
       api.get<AlertasBolsas>('/flito/bolsas/alertas'),
-      api.get<BolsaOrganismoConNivel[]>('/flito/bolsas/organismos'),
+      api.get<BolsaTransitoConNivel[]>('/flito/bolsas/transito'),
     ])
       .then(([c, r, a, o]) => {
         if (!vigente) return;
         setConsolidado(c);
         setBolsas(Array.isArray(r) ? r : []);
         setAlertas(a);
-        setOrganismos(Array.isArray(o) ? o : []);
+        setTransitos(Array.isArray(o) ? o : []);
       })
       .catch((e) => { if (vigente) setError(errorMessage(e)); });
     return () => { vigente = false; };
@@ -97,7 +99,7 @@ export default function BolsasTablero({
   return (
     <div className="space-y-4">
       <section aria-label="Resumen de bolsas" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <KpiCard label="Saldo prepago total" value={pesos(consolidado?.saldoTotal ?? 0)}
+        <KpiCard label="Saldo total" value={pesos(consolidado?.saldoTotal ?? 0)}
           hint={`${consolidado?.clientes ?? 0} cliente(s) con bolsa abierta.`} />
         <KpiCard label="Bolsas en riesgo" value={enRiesgo}
           hint="Saldo crítico o agotado. Son las que frenan trámites."
@@ -179,24 +181,31 @@ export default function BolsasTablero({
 
       <FlitAcordeon
         titulo="Tránsitos"
-        cantidad={organismos.length}
-        descripcion="Saldo que FLIT mantiene precargado en cada organismo. Solo el derecho de trámite lo consume."
+        cantidad={transitos.length}
+        descripcion="Saldo que FLIT precarga para pagar ante las secretarías. Cada bolsa cubre las secretarías y los cobros que se le hayan definido."
         abierto={verTransitos}
         onToggle={() => setVerTransitos((v) => !v)}
+        accion={
+          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            aria-label="Crear una bolsa de tránsito"
+            onClick={() => setCreandoTransito(true)}>
+            <span aria-hidden="true" className="mr-1 text-base leading-none">+</span>
+            Crear bolsa
+          </button>
+        }
       >
-        {organismos.length === 0 ? (
+        {transitos.length === 0 ? (
           <FlitEmpty>
-            <span data-testid="sin-bolsas-organismo">
-              Ningún organismo tiene bolsa prepago habilitada. Se activa organismo por organismo en
-              Tránsito → Organismos, y solo tiene sentido donde FLIT le transfiere dinero por
-              adelantado.
+            <span data-testid="sin-bolsas-transito">
+              Todavía no hay bolsas de tránsito. Pulsa «Crear bolsa», ponle nombre y elige a qué
+              secretarías le aplica y qué cobros maneja.
             </span>
           </FlitEmpty>
         ) : (
-          <section aria-label="Bolsas por organismo" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {organismos.map((o) => (
-              <TarjetaBolsaOrganismo key={o.organismoCodigo} bolsa={o}
-                onVer={() => onVerOrganismo(o.organismoCodigo)} />
+          <section aria-label="Bolsas de tránsito" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {transitos.map((b) => (
+              <TarjetaBolsaTransito key={b.id} bolsa={b}
+                onVer={() => onVerTransito({ id: b.id, nombre: b.nombre })} />
             ))}
           </section>
         )}
@@ -206,6 +215,12 @@ export default function BolsasTablero({
         <BolsaAbrirCliente candidatos={candidatos}
           onClose={() => setAbriendoBolsa(false)}
           onHecho={onCambio} />
+      )}
+
+      {creandoTransito && (
+        <BolsaTransitoForm
+          onClose={() => setCreandoTransito(false)}
+          onHecho={() => { setCreandoTransito(false); onCambio(); }} />
       )}
     </div>
   );

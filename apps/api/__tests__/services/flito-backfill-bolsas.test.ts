@@ -3,7 +3,7 @@
 // Se prueba `planificar()`, que es donde vive toda la decisión: qué se asentaría, qué se deja fuera
 // y por qué. Lo que sigue después (`aplicar`) es orquestación de transacciones sobre funciones que ya
 // tienen su propia cobertura — `registrarSalidasLiquidacion` en la HU #11122 y
-// `registrarConsumoDerecho` en la #11161.
+// `registrarConsumoTransito` en la #11161.
 //
 // Que la simulación y la aplicación salgan del MISMO plan es lo que hace fiable el dry-run (AC5): si
 // el reporte se calculara por un camino distinto al que escribe, prometería una cosa y haría otra.
@@ -47,7 +47,7 @@ function liquidacionSellada(over: Fila = {}): Fila {
 
 /** Llaves ya presentes en el libro del cliente. Lo que el backfill NO debe volver a asentar. */
 let llavesEnLibro: string[] = [];
-/** Organismos con el indicador de bolsa encendido. */
+/** Secretarías cuyo derecho de trámite cubre alguna bolsa (antes: el indicador por organismo). */
 let organismosConBolsa: string[] = [];
 /** Periodos ya cerrados, como 'YYYY-MM'. */
 let periodosCerrados: string[] = [];
@@ -61,7 +61,7 @@ function escenario(liquidaciones: Fila[]): void {
   kdb.when
     .select('flito_liquidaciones', liquidaciones)
     .select('flito_bolsa_movimientos', consultaLlaves)
-    .select('organismos_transito_config', consultaOrganismos)
+    .select('flito_bolsa_transito_cobertura', consultaOrganismos)
     .select('flito_bolsa_cierres', consultaCierres);
 }
 

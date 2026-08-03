@@ -196,7 +196,6 @@ async function organismoDto(codigo: string) {
     ocrPromptHint: org.flitoOcrPromptHint,
     driveFolderId: org.flitoDriveFolderId,
     driveActivo: org.flitoDriveActivo,
-    llevaBolsa: org.flitoLlevaBolsa,
   };
 }
 
@@ -294,9 +293,6 @@ const actualizarOrganismoSchema = z.object({
   // dejar la carpeta puesta con la sincronización apagada mientras se valida.
   driveFolderId: z.string().max(120).nullable().optional(),
   driveActivo: z.boolean().optional(),
-  // HU #11162: si este organismo opera con la bolsa prepago de FLIT. Apagarlo NO borra el saldo ni
-  // el libro —son contables— sino que deja de consumirlo y lo esconde de la pantalla.
-  llevaBolsa: z.boolean().optional(),
 });
 
 router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
@@ -312,7 +308,6 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (cambios.ocrPromptHint !== undefined) set.flitoOcrPromptHint = cambios.ocrPromptHint?.trim() || null;
   if (cambios.driveFolderId !== undefined) set.flitoDriveFolderId = cambios.driveFolderId?.trim() || null;
   if (cambios.driveActivo !== undefined) set.flitoDriveActivo = cambios.driveActivo;
-  if (cambios.llevaBolsa !== undefined) set.flitoLlevaBolsa = cambios.llevaBolsa;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
   // Igual que en el cambio de modalidad: crea la config si el organismo del catálogo no estaba sembrado.
@@ -322,9 +317,7 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
 
   const detalleDif = cambios.diferenciaValorActiva === undefined ? '' : `; diferencia de valor ${cambios.diferenciaValorActiva ? 'activada' : 'desactivada'}`;
   const detalleDrive = cambios.driveActivo === undefined ? '' : `; sincronización Drive ${cambios.driveActivo ? 'activada' : 'desactivada'}`;
-  // La bolsa es dinero: que quede escrito quién la encendió o la apagó y cuándo.
-  const detalleBolsa = cambios.llevaBolsa === undefined ? '' : `; bolsa prepago ${cambios.llevaBolsa ? 'activada' : 'desactivada'}`;
-  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}${detalleDrive}${detalleBolsa}` });
+  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}${detalleDrive}` });
   res.json(await organismoDto(codigo));
 });
 

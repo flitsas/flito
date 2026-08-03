@@ -9,7 +9,7 @@
 
 import { desc, eq } from 'drizzle-orm';
 import {
-  EstadoImpuesto, EstadoSoat,
+  type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
@@ -21,8 +21,8 @@ import {
   registrarSalidasLiquidacion, reversarSalidasLiquidacion, type SalidaConcepto,
 } from '../flito-bolsas/flito-bolsas.service.js';
 import {
-  registrarConsumoDerecho, reversarConsumoDerecho,
-} from '../flito-bolsas/flito-organismo-bolsas.service.js';
+  registrarConsumoTransito, reversarConsumoTransito,
+} from '../flito-bolsas/flito-bolsas-transito.service.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 
 export class LiquidacionError extends Error {
@@ -376,6 +376,10 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
   };
 
   const ids = await identificadoresDe(tramiteId);
+  // Se calculan UNA vez y alimentan los dos libros: el del cliente por lo que se le cobra, y el de
+  // tránsito por lo que se paga ante la secretaría. Recalcularlas por separado abriría la puerta a
+  // que los dos lados del asiento dejaran de cuadrar entre sí.
+  const salidas = ids ? salidasDe(calculo, ids) : [];
 
   const dto = await db.transaction(async (tx) => {
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
@@ -393,29 +397,37 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
           companiaId: ids.companiaId,
           tramiteId,
           fecha: fechaContable(),
-          conceptos: salidasDe(calculo, ids),
+          conceptos: salidas,
         },
         { userId: usuarioId, nombre: 'sistema' },
       );
     }
 
-    // El OTRO lado del asiento (HU #11161): el derecho también consume la bolsa que FLIT mantiene en
-    // el organismo que lo emitió. Es un libro distinto del de la compañía, así que el mismo derecho
-    // deja una línea en cada uno — en el del cliente por lo que se le cobra, en el del organismo por
-    // lo que la secretaría gasta del saldo precargado.
+    // El OTRO lado del asiento (HU #11161): lo que se paga ANTE una secretaría también consume la
+    // bolsa que FLIT precargó para ella. Es un libro distinto del de la compañía, así que el mismo
+    // concepto deja una línea en cada uno — en el del cliente por lo que se le cobra, en el de
+    // tránsito por lo que se gasta del saldo precargado.
     //
-    // Va por el valor del derecho SIN GMF (AC4): el gravamen ya viene incluido en el total del
-    // comprobante que emite el organismo. Y no depende de la compañía: un cliente autogestionado
-    // consume la bolsa del organismo igual, porque el derecho se cobra siempre.
-    if (ids?.derechoOrganismo != null && calculo.derecho.valor !== null && calculo.derecho.valor > 0) {
-      await registrarConsumoDerecho(
+    // Se recorren las MISMAS salidas que ya alimentan la bolsa del cliente en vez de recalcularlas:
+    // cada una trae su concepto, su valor y el organismo de su propio registro (que puede diferir
+    // del organismo del trámite). Las que no van a una secretaría —trámite digital, logística, GMF—
+    // no traen organismo y quedan fuera solas; el GMF además ya viene incluido en el total del
+    // comprobante del organismo (AC4).
+    //
+    // No depende de la compañía: un cliente autogestionado consume igual, porque el pago ante la
+    // secretaría ocurre de todas formas. Y si ninguna bolsa cubre ese par, `registrarConsumoTransito`
+    // no hace nada: sellar un trámite de una secretaría que nadie metió en una bolsa sigue igual.
+    for (const salida of salidas) {
+      if (salida.organismoCodigo === null || !esConceptoDeTransito(salida.concepto)) continue;
+      await registrarConsumoTransito(
         tx,
         {
-          organismoCodigo: ids.derechoOrganismo,
+          organismoCodigo: salida.organismoCodigo,
+          concepto: salida.concepto,
           tramiteId,
-          valor: calculo.derecho.valor,
+          valor: salida.valor,
           fecha: fechaContable(),
-          llave: `tramite:${tramiteId}:derecho`,
+          llave: salida.llave,
         },
         { userId: usuarioId, nombre: 'sistema' },
       );
@@ -424,6 +436,17 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     return aDto(fila, calculo.idFlit);
   });
   return dto;
+}
+
+/**
+ * ¿Este concepto se paga ANTE una secretaría?
+ *
+ * Estrecha el `string` de `SalidaConcepto` al subconjunto que la bolsa de tránsito puede cubrir. Los
+ * que quedan fuera (trámite digital, logística, GMF) no llevan organismo, así que en la práctica ya
+ * se filtran solos; esto además se lo demuestra al compilador.
+ */
+function esConceptoDeTransito(concepto: string): concepto is ConceptoBolsaTransito {
+  return esConceptoBolsaTransito(concepto);
 }
 
 /** Hoy en Colombia: la fecha con la que se imputa el descuento al periodo contable. */
@@ -459,9 +482,9 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
     // Devuelve a la bolsa lo descontado por este sellado y libera las llaves, para que volver a
     // liquidar vuelva a cobrar (HU #11122, AC5).
     await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
-    // Y lo mismo del otro lado: el organismo recupera el saldo que le consumió este derecho
-    // (HU #11161, AC9). Es un no-op si el organismo no lleva bolsa.
-    await reversarConsumoDerecho(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
+    // Y lo mismo del otro lado: las bolsas de tránsito recuperan lo que este trámite les consumió
+    // (HU #11161, AC9). Es un no-op si ninguna bolsa cubría sus conceptos.
+    await reversarConsumoTransito(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
     await tx.delete(flitoLiquidaciones).where(eq(flitoLiquidaciones.id, l.id));
   });
 }

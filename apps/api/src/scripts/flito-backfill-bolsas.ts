@@ -30,13 +30,14 @@
 import { eq, inArray, lte } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
-  flitoBolsaMovimientos, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat,
-  flitoTramites, organismosTransitoConfig,
+  flitoBolsaMovimientos, flitoBolsaTransitoCobertura, flitoDerechosTramite, flitoImpuestos,
+  flitoLiquidaciones, flitoSoat, flitoTramites,
 } from '../db/schema.js';
+import { ConceptoBolsaTransito } from '@operaciones/shared-types';
 import {
   asentarMovimiento, periodoEstaCerrado, periodoDeFecha, redondear, registrarSalidasLiquidacion,
 } from '../modules/flito-bolsas/flito-bolsas.service.js';
-import { registrarConsumoDerecho } from '../modules/flito-bolsas/flito-organismo-bolsas.service.js';
+import { registrarConsumoTransito } from '../modules/flito-bolsas/flito-bolsas-transito.service.js';
 import {
   type CalculoLiquidacion, type IdentificadoresTramite, salidasDe, TASA_GMF,
 } from '../modules/flito-liquidacion/flito-liquidacion.service.js';
@@ -147,12 +148,17 @@ async function llavesExistentes(llaves: string[]): Promise<Set<string>> {
   return new Set(filas.map((f) => f.llave).filter((l): l is string => l !== null));
 }
 
-/** Organismos marcados para llevar bolsa: solo esos reciben consumo histórico (AC3). */
-async function organismosConBolsa(): Promise<Set<string>> {
+/**
+ * Secretarías cuyo derecho de trámite cubre alguna bolsa: solo esas reciben consumo histórico (AC3).
+ *
+ * Antes esto se leía del interruptor por organismo, que ya no existe. La pregunta equivalente en el
+ * modelo nuevo es qué pares (secretaría, 'derecho') están cubiertos, y la responde la cobertura.
+ */
+async function organismosCubiertosPorDerecho(): Promise<Set<string>> {
   const filas = await db
-    .select({ codigo: organismosTransitoConfig.codigo })
-    .from(organismosTransitoConfig)
-    .where(eq(organismosTransitoConfig.flitoLlevaBolsa, true));
+    .select({ codigo: flitoBolsaTransitoCobertura.organismoCodigo })
+    .from(flitoBolsaTransitoCobertura)
+    .where(eq(flitoBolsaTransitoCobertura.concepto, ConceptoBolsaTransito.DERECHO));
   return new Set(filas.map((f) => f.codigo));
 }
 
@@ -178,7 +184,7 @@ interface Reporte {
  */
 export async function planificar(): Promise<Reporte> {
   const filas = await liquidacionesHasta(CORTE);
-  const conBolsa = await organismosConBolsa();
+  const conBolsa = await organismosCubiertosPorDerecho();
 
   // Se resuelven de una vez todas las llaves candidatas: preguntar por cada una sería una consulta
   // por concepto y por trámite.
@@ -286,16 +292,18 @@ async function aplicar(reporte: Reporte): Promise<void> {
     });
   }
 
-  // El consumo del organismo va en su propia transacción por trámite: son libros distintos y no hay
-  // razón para que un fallo en uno tumbe el otro.
+  // El consumo de tránsito va en su propia transacción por trámite: son libros distintos y no hay
+  // razón para que un fallo en uno tumbe el otro. Ya no hace falta preguntar qué organismos «llevan
+  // bolsa»: `registrarConsumoTransito` busca la bolsa que cubra el par (secretaría, concepto) y no
+  // hace nada si no hay ninguna.
   const filas = await liquidacionesHasta(CORTE);
-  const conBolsa = await organismosConBolsa();
   for (const f of filas) {
     const valorDerecho = num(f.valorDerecho);
-    if (f.derechoOrganismo === null || !conBolsa.has(f.derechoOrganismo)) continue;
+    if (f.derechoOrganismo === null) continue;
     if (valorDerecho === null || valorDerecho <= 0) continue;
-    await db.transaction((tx) => registrarConsumoDerecho(tx, {
+    await db.transaction((tx) => registrarConsumoTransito(tx, {
       organismoCodigo: f.derechoOrganismo as string,
+      concepto: ConceptoBolsaTransito.DERECHO,
       tramiteId: f.tramiteId,
       valor: valorDerecho,
       fecha: f.liquidadoEn.toISOString().slice(0, 10),

@@ -6,7 +6,7 @@
 // La «bolsa simbólica» del organismo, que vivía en este archivo, se retiró en la HU #11162 junto con
 // los pagos al organismo. Aquella vista era una DEUDA derivada (cobrado − pagado) y el modelo real
 // es el inverso: FLIT precarga saldo y la secretaría lo consume. Su cobertura vive ahora en
-// `flito-organismo-bolsas.test.ts`.
+// `flito-bolsas-transito.test.ts`.
 //
 // Aviso sobre el alcance del mock: las sumas ocurren en SQL (`sum(case when …)`), que aquí no se
 // ejecuta. Por eso, además de los tests de comportamiento —que asumen la fila ya agregada, como la

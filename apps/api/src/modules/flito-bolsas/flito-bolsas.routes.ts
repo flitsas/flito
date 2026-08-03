@@ -26,8 +26,9 @@ import {
   registrarMovimientoManual, registrarRecarga, saldoConsolidado,
 } from './flito-bolsas.service.js';
 import {
-  bolsaOrganismoDe, bolsasOrganismos, movimientosOrganismoDe, registrarCargaOrganismo,
-} from './flito-organismo-bolsas.service.js';
+  actualizarBolsaTransito, bolsasTransito, bolsaTransitoDe, crearBolsaTransito,
+  movimientosTransitoDe, registrarCargaTransito,
+} from './flito-bolsas-transito.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -90,8 +91,8 @@ router.get('/consolidado', BOLSAS, async (_req: Request, res: Response) => {
 
 // Las rutas de UN SOLO segmento fijo van todas ANTES de `/:companiaId`. Si no, Express casa el
 // segmento con el parámetro y la ruta se vuelve inalcanzable: devuelve «Compañía inválida» en vez de
-// su respuesta, sin que nada falle de forma visible. `/organismos/:codigo` se libra por llevar dos
-// segmentos, pero estas dos no.
+// su respuesta, sin que nada falle de forma visible. `/transito/:bolsaId` se libra por llevar dos
+// segmentos, pero estas no.
 
 // GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
 router.get('/riesgo', BOLSAS, async (req: Request, res: Response) => {
@@ -106,13 +107,45 @@ router.get('/alertas', BOLSAS, async (_req: Request, res: Response) => {
   res.json({ saldo, conciliacion });
 });
 
-// GET /organismos — todas las bolsas de organismo con su nivel (HU #11210, AC9).
+// GET /transito — todas las bolsas de tránsito con su nivel (HU #11210, AC9).
 //
 // VA ANTES de `GET /:companiaId` a propósito, y no es cosmético: Express resuelve por orden de
-// registro, así que declarada después, «organismos» entraría como id de compañía y esta ruta no se
+// registro, así que declarada después, «transito» entraría como id de compañía y esta ruta no se
 // alcanzaría nunca.
-router.get('/organismos', BOLSAS, async (_req: Request, res: Response) => {
-  res.json(await bolsasOrganismos());
+router.get('/transito', BOLSAS, async (_req: Request, res: Response) => {
+  res.json(await bolsasTransito());
+});
+
+/**
+ * Alta y redefinición de una bolsa. El producto de `organismos` × `conceptos` es su cobertura.
+ *
+ * Los conceptos NO se validan aquí contra la lista cerrada: lo hace el servicio, que es quien tiene
+ * que rechazarlos venga la petición de donde venga. Aquí solo se comprueba la forma.
+ */
+const bolsaTransitoSchema = z.object({
+  nombre: z.string().trim().min(3, 'El nombre de la bolsa debe tener al menos 3 caracteres').max(120),
+  organismos: z.array(z.string().trim().min(1).max(5)).min(1, 'Selecciona al menos una secretaría'),
+  conceptos: z.array(z.string().trim()).min(1, 'Selecciona al menos un concepto'),
+});
+
+// POST /transito — crea una bolsa con su cobertura (HU #11161, ajuste 0124).
+router.post('/transito', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = bolsaTransitoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  try {
+    const bolsa = await crearBolsaTransito(
+      { ...parsed.data, conceptos: parsed.data.conceptos as never },
+      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
+    );
+    await audit(req, {
+      action: 'create', resource: 'flito_bolsa_transito', resourceId: bolsa.id,
+      detail: `Bolsa de tránsito «${bolsa.nombre}»: ${parsed.data.organismos.join(', ')} × ${parsed.data.conceptos.join(', ')}`,
+    });
+    res.status(201).json(bolsa);
+  } catch (e) { fallo(res, e); }
 });
 
 // GET /:companiaId — bolsa y saldo del cliente.
@@ -248,29 +281,44 @@ router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) =
   });
 });
 
-// GET /organismos/:organismoCodigo/bolsa — saldo prepago del organismo con su nivel (HU #11161).
-//
-// Devuelve 404 cuando el organismo no está marcado para llevar bolsa: «no opera con saldo prepago»
-// no es lo mismo que «opera y está en cero», y la pantalla tiene que poder distinguirlos (AC1).
-router.get('/organismos/:organismoCodigo/bolsa', BOLSAS, async (req: Request, res: Response) => {
-  const bolsa = await bolsaOrganismoDe(req.params.organismoCodigo);
-  if (!bolsa) {
-    res.status(404).json({ error: 'Este Organismo de Tránsito no maneja bolsa prepago' });
-    return;
-  }
+// GET /transito/:bolsaId — saldo de la bolsa con su nivel y su cobertura (HU #11161).
+router.get('/transito/:bolsaId', BOLSAS, async (req: Request, res: Response) => {
+  const bolsa = await bolsaTransitoDe(req.params.bolsaId);
+  if (!bolsa) { res.status(404).json({ error: 'La bolsa no existe' }); return; }
   res.json(bolsa);
 });
 
-// GET /organismos/:organismoCodigo/movimientos — libro de la bolsa del organismo.
-router.get('/organismos/:organismoCodigo/movimientos', BOLSAS, async (req: Request, res: Response) => {
-  res.json(await movimientosOrganismoDe(req.params.organismoCodigo));
+// PATCH /transito/:bolsaId — redefine nombre y cobertura. El saldo no se toca: es dinero real.
+router.patch('/transito/:bolsaId', BOLSAS, async (req: Request, res: Response) => {
+  const parsed = bolsaTransitoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
+    return;
+  }
+  try {
+    const bolsa = await actualizarBolsaTransito(
+      req.params.bolsaId,
+      { ...parsed.data, conceptos: parsed.data.conceptos as never },
+      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
+    );
+    await audit(req, {
+      action: 'update', resource: 'flito_bolsa_transito', resourceId: bolsa.id,
+      detail: `Bolsa de tránsito «${bolsa.nombre}»: ${parsed.data.organismos.join(', ')} × ${parsed.data.conceptos.join(', ')}`,
+    });
+    res.json(bolsa);
+  } catch (e) { fallo(res, e); }
 });
 
-// POST /organismos/:organismoCodigo/cargas — FLIT precarga saldo en el organismo (HU #11161, AC2).
+// GET /transito/:bolsaId/movimientos — libro de la bolsa.
+router.get('/transito/:bolsaId/movimientos', BOLSAS, async (req: Request, res: Response) => {
+  res.json(await movimientosTransitoDe(req.params.bolsaId));
+});
+
+// POST /transito/:bolsaId/cargas — FLIT precarga saldo en la bolsa (HU #11161, AC2).
 //
 // El soporte es OPCIONAL, a diferencia de las recargas del cliente: una carga se registra el mismo
 // día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
-const cargaOrganismoSchema = z.object({
+const cargaTransitoSchema = z.object({
   valor: z.coerce
     .number({ invalid_type_error: 'El valor de la carga debe ser mayor que cero' })
     .positive({ message: 'El valor de la carga debe ser mayor que cero' }),
@@ -278,8 +326,8 @@ const cargaOrganismoSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/organismos/:organismoCodigo/cargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
-  const parsed = cargaOrganismoSchema.safeParse(req.body);
+router.post('/transito/:bolsaId/cargas', BOLSAS, recibirSoporte, async (req: Request, res: Response) => {
+  const parsed = cargaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
     return;
@@ -292,13 +340,13 @@ router.post('/organismos/:organismoCodigo/cargas', BOLSAS, recibirSoporte, async
       const invalido = await checkMagicNumber(req.file.buffer, req.file.mimetype, MIMES_SOPORTE);
       if (invalido) { res.status(400).json({ error: invalido }); return; }
       storageKey = await uploadEntityDocument(
-        `organismos/${req.params.organismoCodigo}/cargas`,
-        req.params.organismoCodigo, req.file.originalname, req.file.buffer, req.file.mimetype,
+        `bolsas-transito/${req.params.bolsaId}/cargas`,
+        req.params.bolsaId, req.file.originalname, req.file.buffer, req.file.mimetype,
       );
     }
 
-    const { movimiento, saldo } = await registrarCargaOrganismo(
-      req.params.organismoCodigo,
+    const { movimiento, saldo } = await registrarCargaTransito(
+      req.params.bolsaId,
       {
         valor: parsed.data.valor,
         fecha: parsed.data.fecha,
@@ -314,8 +362,8 @@ router.post('/organismos/:organismoCodigo/cargas', BOLSAS, recibirSoporte, async
       ctx,
     );
     await audit(req, {
-      action: 'create', resource: 'flito_organismo_movimiento', resourceId: movimiento.id,
-      detail: `Carga de ${parsed.data.valor} al organismo ${req.params.organismoCodigo}: saldo ${saldo}`,
+      action: 'create', resource: 'flito_bolsa_transito_movimiento', resourceId: movimiento.id,
+      detail: `Carga de ${parsed.data.valor} a la bolsa de tránsito ${req.params.bolsaId}: saldo ${saldo}`,
     });
     res.status(201).json({ movimiento, saldo, duplicado: false });
   } catch (e) {

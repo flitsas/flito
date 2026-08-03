@@ -1,4 +1,4 @@
-// FLITO — Bolsas prepago (Feature #11120, HU #11127–#11130; reestructurado en la #11210).
+// FLITO — Bolsas (Feature #11120, HU #11127–#11130; reestructurado en la #11210).
 //
 // UNA sola vista. Antes eran tres pestañas —tablero, cliente y organismo— y ninguna contestaba sola
 // la pregunta de Financiera: dónde hay que poner plata hoy. Ahora los KPI encabezan la pantalla y
@@ -27,7 +27,7 @@ import { type ClienteOpcion } from '../components/flito/BolsaAbrirCliente';
 import BolsaAcciones from '../components/flito/BolsaAcciones';
 import BolsaExtracto from '../components/flito/BolsaExtracto';
 import BolsaMovimientos from '../components/flito/BolsaMovimientos';
-import BolsaOrganismoDetalle, { nombreOrganismo } from '../components/flito/BolsaOrganismo';
+import BolsaTransitoDetalle from '../components/flito/BolsaTransito';
 import BolsasTablero from '../components/flito/BolsasTablero';
 
 /** Cuántos meses ofrece el selector de periodo. Un año cubre cualquier cierre que siga en disputa. */
@@ -49,7 +49,7 @@ function Bolsas() {
   /** Cliente cuyo detalle está abierto en el modal. `null` = tablero a secas. */
   const [detalleCliente, setDetalleCliente] = useState<number | null>(null);
   /** Organismo cuyo detalle está abierto en el modal. */
-  const [detalleOrganismo, setDetalleOrganismo] = useState<string | null>(null);
+  const [detalleTransito, setDetalleTransito] = useState<{ id: string; nombre: string } | null>(null);
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -64,8 +64,8 @@ function Bolsas() {
   return (
     <div className="space-y-4">
       <PageHeaderCard
-        title="Bolsas prepago"
-        subtitle="El saldo que cada cliente tiene precargado y el que FLIT mantiene en cada organismo."
+        title="Bolsas"
+        subtitle="El saldo que cada cliente tiene precargado y el que FLIT mantiene en las secretarías."
       />
 
       <FlitCard>
@@ -93,7 +93,7 @@ function Bolsas() {
         nonce={nonce}
         onCambio={recargar}
         onVerCliente={setDetalleCliente}
-        onVerOrganismo={setDetalleOrganismo}
+        onVerTransito={setDetalleTransito}
       />
 
       {detalleCliente !== null && (
@@ -106,9 +106,9 @@ function Bolsas() {
         />
       )}
 
-      {detalleOrganismo !== null && (
-        <FlitModal title={nombreOrganismo(detalleOrganismo)} onClose={() => setDetalleOrganismo(null)} full>
-          <BolsaOrganismoDetalle codigo={detalleOrganismo} onCambio={recargar} />
+      {detalleTransito !== null && (
+        <FlitModal title={detalleTransito.nombre} onClose={() => setDetalleTransito(null)} full>
+          <BolsaTransitoDetalle bolsaId={detalleTransito.id} onCambio={recargar} />
         </FlitModal>
       )}
     </div>
