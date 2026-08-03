@@ -29,7 +29,9 @@ vi.mock('../../src/shared/redis.js', () => ({
 const certificarMock = vi.fn();
 vi.mock('../../src/modules/flito-impuestos/certificacion.service.js', () => ({
   certificarImpuesto: (...a: unknown[]) => certificarMock(...a),
+  certificarLote: vi.fn(),
   certificacionVigente: vi.fn(),
+  certificacionVigenteConAcceso: vi.fn(),
   ESTADOS_IMPUESTO_CERTIFICABLES: ['solicitado'],
 }));
 

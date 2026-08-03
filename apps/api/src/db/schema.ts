@@ -2654,6 +2654,14 @@ export const flitoImpuestoCertificaciones = pgTable('flito_impuesto_certificacio
   documentoConsultado: varchar('documento_consultado', { length: 30 }).notNull(),
   /** Código RUNT del tipo de documento que resolvió la consulta ('C', 'E', …). Lo devuelve el RUNT. */
   tipoDocPropietario: varchar('tipo_doc_propietario', { length: 5 }),
+  /**
+   * Nombre del propietario SEGÚN FLITO, congelado al certificar (HU #11167).
+   *
+   * No se compara con nada —el RUNT no devuelve al propietario—, pero sí se imprime en el
+   * certificado, y lo que el certificado imprime no puede cambiar después de emitido. Nullable: las
+   * certificaciones anteriores a la migración 0122 no lo tienen.
+   */
+  propietarioNombre: varchar('propietario_nombre', { length: 200 }),
   /** Resultado por campo (`ComparacionCampo[]`): qué se comparó, con qué valores y si bloqueaba. */
   campos: jsonb('campos').$type<ComparacionCampo[]>().notNull(),
   /** Respuesta cruda del RUNT. Contiene PII → sujeto a la política de retención de privacidad. */
