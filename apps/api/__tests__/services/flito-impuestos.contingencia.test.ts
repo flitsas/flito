@@ -247,3 +247,144 @@ describe('flito-impuestos — con qué ANS se mide cada uno (HU #11155, AC9)', (
     expect(estaEstancado('solicitado', null, true, 24)).toBe(false);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11156 — lo que asume Operaciones sale de la cola del gestor del organismo.
+//
+// Es la HU crítica del Feature: sin ella el gestor sigue viendo todo lo En gestión de su organismo,
+// y un impuesto que Operaciones ya está pagando puede pagarse dos veces. Dinero real, no un
+// duplicado de registro.
+
+/** Columnas referenciadas por una condición drizzle; para al identificar una, o arrastraría la tabla. */
+function columnasDe(cond: unknown): string[] {
+  const out: string[] = [];
+  const visto = new WeakSet<object>();
+  const visitar = (n: unknown): void => {
+    if (n === null || typeof n !== 'object') return;
+    if (visto.has(n as object)) return;
+    visto.add(n as object);
+    if (Array.isArray(n)) { n.forEach(visitar); return; }
+    const o = n as Record<string, unknown>;
+    if (typeof o.name === 'string' && typeof o.columnType === 'string') { out.push(o.name); return; }
+    for (const [clave, valor] of Object.entries(o)) {
+      if (clave === 'table' || clave === 'schema') continue;
+      visitar(valor);
+    }
+  };
+  visitar(cond);
+  return out;
+}
+
+function capturarCola(rows: unknown[] = [], total = 0) {
+  const wheres: unknown[] = [];
+  const mk = (data: unknown[]) => {
+    const c = chain(data) as unknown as Record<string, unknown>;
+    const orig = c.where as (v: unknown) => unknown;
+    c.where = (cond: unknown) => { wheres.push(cond); return orig(cond); };
+    return c;
+  };
+  selectMock.mockReturnValueOnce(mk([{ total }]) as never); // conteo
+  selectMock.mockReturnValueOnce(mk(rows) as never);        // página
+  return { wheres, columnas: () => wheres.flatMap(columnasDe) };
+}
+
+const COL_FLAG = 'gestion_operaciones';
+const ORGANISMO = '08001';
+
+describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', () => {
+  const comoGestor = (impFila: Record<string, unknown>) => {
+    selectMock.mockReturnValueOnce(chain([{ t: ORGANISMO }])); // contextoImpuesto
+    selectMock.mockReturnValueOnce(chain([{ imp: impFila, dentroDeFrontera: true }])); // buscarConAcceso
+    selectMock.mockReturnValue(chain([]));
+  };
+  const suyo = (over: Record<string, unknown> = {}) =>
+    impuestoEn({ organismoCodigo: ORGANISMO, ...over });
+
+  it('AC1 — la cola del gestor filtra por la bandera, en la condición compartida con el conteo', async () => {
+    selectMock.mockReturnValueOnce(chain([{ t: ORGANISMO }]));
+    const { wheres, columnas } = capturarCola();
+
+    const r = await request(await buildApp()).get('/api/flito/impuestos')
+      .set('Authorization', await auth('gestor_impuestos'));
+
+    expect(r.status).toBe(200);
+    expect(wheres).toHaveLength(2);
+    expect(columnas()).toContain(COL_FLAG);
+    // Los DOS where, no solo el de las filas: si no, el total contaría lo que ya no se ve.
+    expect(wheres.map((w) => columnasDe(w).includes(COL_FLAG))).toEqual([true, true]);
+  });
+
+  it('AC6 — a Operaciones no se le aplica', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  it('AC7 — a auditoría tampoco', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('auditor'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  for (const valor of ['operaciones', 'organismo']) {
+    it(`AC6 — Operaciones puede acotar por «gestiona: ${valor}»`, async () => {
+      const { columnas } = capturarCola();
+      const r = await request(await buildApp()).get(`/api/flito/impuestos?gestion=${valor}`)
+        .set('Authorization', await auth('admin'));
+      expect(r.status).toBe(200);
+      expect(columnas()).toContain(COL_FLAG);
+    });
+  }
+
+  it('un valor de filtro desconocido se ignora', async () => {
+    const { columnas } = capturarCola();
+    const r = await request(await buildApp()).get('/api/flito/impuestos?gestion=cualquiera')
+      .set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+    expect(columnas()).not.toContain(COL_FLAG);
+  });
+
+  it('AC2 — el detalle de lo asumido por Operaciones responde «no existe», no «no puedes»', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const r = await request(await buildApp()).get(`/api/flito/impuestos/${IMP_ID}`)
+      .set('Authorization', await auth('gestor_impuestos'));
+    expect(r.status).toBe(404);
+    expect(r.body.error).toMatch(/no existe/i);
+  });
+
+  it('AC2 — su historial tampoco', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const r = await request(await buildApp()).get(`/api/flito/impuestos/${IMP_ID}/historial`)
+      .set('Authorization', await auth('gestor_impuestos'));
+    expect(r.status).toBe(404);
+  });
+
+  it('AC3 — y no puede actuar: rechazarlo también es 404, sin tocar nada', async () => {
+    comoGestor(suyo({ gestionOperaciones: true }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
+      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'no me consta' });
+    expect(r.status).toBe(404);
+    expect(txUpdate).not.toHaveBeenCalled();
+  });
+
+  it('AC8 — devuelto al organismo, vuelve a ser suyo y puede rechazarlo', async () => {
+    comoGestor(suyo({ gestionOperaciones: false }));
+    const { txUpdate } = montarTx();
+    const r = await request(await buildApp()).post(`/api/flito/impuestos/${IMP_ID}/rechazar`)
+      .set('Authorization', await auth('gestor_impuestos')).send({ motivo: 'el recibo no corresponde' });
+    expect(r.status).toBe(200);
+    expect(txUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('la bandera decide, no el organismo: sigue siendo el suyo y aun así no lo ve', async () => {
+    // Mismo organismo que el gestor —nunca cambia, el impuesto se paga ante él igual— y aun así
+    // fuera. Es exactamente lo que rompería si la frontera mirase solo el organismo.
+    comoGestor(suyo({ gestionOperaciones: true, organismoCodigo: ORGANISMO }));
+    const r = await request(await buildApp()).get(`/api/flito/impuestos/${IMP_ID}`)
+      .set('Authorization', await auth('gestor_impuestos'));
+    expect(r.status).toBe(404);
+  });
+});
