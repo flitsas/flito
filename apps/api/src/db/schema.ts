@@ -3359,3 +3359,40 @@ export const siigoCredenciales = pgTable('siigo_credenciales', {
     .on(t.ambiente)
     .where(sql`${t.activo}`),
 }));
+
+/**
+ * Bitácora WORM de las llamadas a Siigo API (HU #11251).
+ *
+ * Append-only de verdad: disparadores en la base prohíben UPDATE y DELETE, y el rol de la
+ * aplicación solo tiene SELECT e INSERT. Una factura electrónica respalda una venta ante la DIAN;
+ * si el registro de lo que se envió se pudiera editar, no probaría nada.
+ *
+ * `operacion` es texto y no un enum porque el catálogo crecerá con las Features 11 a 15, y un enum
+ * obligaría a una migración por cada operación nueva.
+ */
+export const siigoOperaciones = pgTable('siigo_operaciones', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  operacion: varchar('operacion', { length: 40 }).notNull(),
+  metodo: varchar('metodo', { length: 10 }),
+  ruta: varchar('ruta', { length: 300 }),
+  entidadTipo: varchar('entidad_tipo', { length: 20 }),
+  entidadId: varchar('entidad_id', { length: 60 }),
+  intento: smallint('intento').notNull().default(1),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** 'real' o 'mock': distingue una prueba de una operación productiva. */
+  modo: varchar('modo', { length: 10 }).notNull().default('real'),
+  /** Ya saneado: nunca contiene el access_key ni la cabecera de autorización. */
+  requestBody: jsonb('request_body'),
+  responseBody: jsonb('response_body'),
+  statusHttp: smallint('status_http'),
+  resultado: varchar('resultado', { length: 20 }).notNull(),
+  codigo: varchar('codigo', { length: 60 }),
+  mensaje: text('mensaje'),
+  duracionMs: integer('duracion_ms'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+}, (t) => ({
+  entidadIdx: index('idx_siigo_op_entidad').on(t.entidadTipo, t.entidadId, t.createdAt),
+  createdAtIdx: index('idx_siigo_op_created_at').on(t.createdAt),
+  resultadoIdx: index('idx_siigo_op_resultado').on(t.resultado, t.createdAt),
+}));
