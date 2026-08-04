@@ -10,7 +10,7 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
-import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
+import VisorSoportes from '../components/flit/VisorSoportes';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, flitPillBtn,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -462,7 +462,7 @@ export default function FinanzasReporteCostos() {
       )}
 
       {soportesDe && (
-        <VisorSoportesTramite tramiteId={soportesDe.tramiteId} titulo={soportesDe.idFlit}
+        <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
           onClose={() => setSoportesDe(null)} />
       )}
     </div>

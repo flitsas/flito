@@ -1,4 +1,4 @@
-// Visor de TODOS los documentos de un trámite: SOAT, impuesto, derecho de tránsito y logística.
+// Visor de documentos: pide una lista de soportes a la ruta que se le indique y los enseña todos.
 //
 // No hay selección de qué mostrar: se pide todo y se lista lo que exista. Un trámite con los tres
 // comprobantes cargados tiene que enseñar los tres, no el primero que se encontró.
@@ -8,6 +8,10 @@
 // cargados, y hasta ahora tenía que salir a otra pantalla para averiguarlo. Se comparte el
 // componente en vez de duplicarlo porque lo caro no es la maqueta, es que las dos copias se separen
 // —una gana un origen nuevo y la otra no— y nadie se entere hasta que falte un documento.
+//
+// La RUTA es un parámetro por lo mismo: la lista se sirve desde cuatro sitios (finanzas, Gestión de
+// trámites, el detalle de un SOAT y el de un impuesto) porque cada pantalla entra con un rol y una
+// frontera distintas. Lo que cambia es de dónde se piden los documentos, no cómo se enseñan.
 
 import { useEffect, useState } from 'react';
 import { api, errorMessage } from '../../lib/api';
@@ -27,10 +31,13 @@ const ORIGEN_SOPORTE: Record<string, string> = {
 const fechaCorta = (iso: string | null) =>
   (iso === null ? null : new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' }));
 
-export default function VisorSoportesTramite({ tramiteId, titulo, onClose }: {
-  tramiteId: string;
-  /** Cómo se llama el trámite en el encabezado. Normalmente su id de FLIT. */
+export default function VisorSoportes({ ruta, titulo, vacio, onClose }: {
+  /** Endpoint que devuelve `Soporte[]`. P. ej. `/flito/tramites/<id>/soportes`. */
+  ruta: string;
+  /** Cómo se llama lo que se mira, en el encabezado. Normalmente su id de FLIT o su placa. */
   titulo: string;
+  /** Qué decir cuando no hay ningún documento. El default habla de un trámite. */
+  vacio?: string;
   onClose: () => void;
 }) {
   const [soportes, setSoportes] = useState<Soporte[] | null>(null);
@@ -39,7 +46,7 @@ export default function VisorSoportesTramite({ tramiteId, titulo, onClose }: {
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    api.get<Soporte[]>(`/finanzas/tramites/${tramiteId}/soportes`)
+    api.get<Soporte[]>(ruta)
       // El activo se conserva entre recargas: al pedir la lista de nuevo no se pierde de vista el
       // documento que se estaba mirando.
       .then((s) => {
@@ -48,7 +55,7 @@ export default function VisorSoportesTramite({ tramiteId, titulo, onClose }: {
         setActivo((a) => lista.find((x) => x.id === a?.id) ?? lista[0] ?? null);
       })
       .catch((e) => setError(errorMessage(e)));
-  }, [tramiteId, nonce]);
+  }, [ruta, nonce]);
 
   return (
     // `full`: un PDF a 448 px de ancho no se lee sin hacer zoom. El visor ocupa casi toda la
@@ -58,7 +65,7 @@ export default function VisorSoportesTramite({ tramiteId, titulo, onClose }: {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!soportes && !error && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
       {soportes && soportes.length === 0 && (
-        <FlitEmpty>Este trámite no tiene ningún documento cargado todavía.</FlitEmpty>
+        <FlitEmpty>{vacio ?? 'Este trámite no tiene ningún documento cargado todavía.'}</FlitEmpty>
       )}
       {soportes && soportes.length > 0 && (
         <div className="flex h-full min-h-0 gap-4">

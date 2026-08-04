@@ -1,14 +1,8 @@
 // Finanzas (HTTP). Montado en /api/finanzas. Lectura para el rol `financiera` (+ admin/auditor).
 
 import { Router, type Request, type Response } from 'express';
-import { eq, and } from 'drizzle-orm';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { db } from '../../db/client.js';
-import {
-  flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas, flitoLogisticaDocumentos,
-  flitoSoat, flitoSoportes, flitoTramites,
-} from '../../db/schema.js';
-import { firmarDescargaEntidad } from '../../services/storage.js';
+import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
   aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
   type EtapaReporte, type FiltrosReporte,
@@ -71,81 +65,19 @@ router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response
  * GET /tramites/:id/soportes — TODOS los documentos del trámite, en una sola respuesta.
  *
  * Cada flujo servía los suyos por su propia ruta, así que verlos obligaba a varias llamadas y a
- * saber de antemano cuáles existían. Aquí no se elige: se devuelve lo que haya, de los cinco
+ * saber de antemano cuáles existían. Aquí no se elige: se devuelve lo que haya, de los cuatro
  * orígenes. Lo que no exista simplemente no aparece.
  *
- * Los tres primeros viven en `flito_soportes`; logística guarda los suyos aparte —la foto del
- * documento entregado y el acta firmada— y por eso se consultan por separado (HU #11025).
+ * El armado vive en shared/soportes: la misma lista se sirve desde Gestión de trámites, y las de
+ * un solo concepto desde el detalle de un SOAT o de un impuesto. Lo que cambia entre esas rutas es
+ * el rol que entra, no cómo se arma la lista.
  */
 router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response) => {
-  const tramiteId = req.params.id;
-  const [t] = await db.select({
-    soatId: flitoTramites.soatId, impuestoId: flitoImpuestos.id, derechoId: flitoDerechosTramite.id,
-  }).from(flitoTramites)
-    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
-    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
-    .where(eq(flitoTramites.id, tramiteId)).limit(1);
-
-  if (!t) { res.status(404).json({ error: 'El trámite no existe' }); return; }
-
-  const grupos: Array<{ origen: string; cond: ReturnType<typeof eq> | undefined }> = [
-    { origen: 'soat', cond: t.soatId ? eq(flitoSoportes.soatId, t.soatId) : undefined },
-    { origen: 'impuesto', cond: t.impuestoId ? eq(flitoSoportes.impuestoId, t.impuestoId) : undefined },
-    { origen: 'derecho', cond: t.derechoId ? eq(flitoSoportes.derechoId, t.derechoId) : undefined },
-  ];
-
-  const salida: Array<{ id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }> = [];
-
-  // Logística: la foto del documento entregado y el acta de entrega con sus firmas. No están en
-  // `flito_soportes` porque nacen del flujo de entrega, no de una carga de comprobantes.
-  const docsLogistica = await db.select({
-    id: flitoLogisticaDocumentos.id, tipo: flitoLogisticaDocumentos.tipo,
-    foto: flitoLogisticaDocumentos.fotoStorageKey, createdAt: flitoLogisticaDocumentos.createdAt,
-    actaPdf: flitoLogisticaActas.pdfStorageKey, actaEn: flitoLogisticaActas.createdAt,
-    actaId: flitoLogisticaActas.id,
-  }).from(flitoLogisticaDocumentos)
-    .leftJoin(flitoLogisticaActas, eq(flitoLogisticaDocumentos.actaId, flitoLogisticaActas.id))
-    .where(eq(flitoLogisticaDocumentos.tramiteId, tramiteId));
-
-  const actasVistas = new Set<string>();
-  for (const d of docsLogistica) {
-    if (d.foto) {
-      salida.push({
-        id: d.id, origen: 'logistica', tipo: d.tipo, nombreArchivo: `${d.tipo}.jpg`,
-        url: firmarDescargaEntidad(d.foto), subidoEn: d.createdAt.toISOString(),
-      });
-    }
-    // Un acta cubre varios documentos del mismo trámite: se lista una sola vez.
-    if (d.actaPdf && d.actaId && !actasVistas.has(d.actaId)) {
-      actasVistas.add(d.actaId);
-      salida.push({
-        id: d.actaId, origen: 'logistica', tipo: 'acta_entrega', nombreArchivo: 'Acta de entrega.pdf',
-        url: firmarDescargaEntidad(d.actaPdf), subidoEn: (d.actaEn ?? d.createdAt).toISOString(),
-      });
-    }
-  }
-
-  for (const g of grupos) {
-    if (!g.cond) continue;
-    const filas = await db.select({
-      id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo,
-      storageKey: flitoSoportes.storageKey, subidoEn: flitoSoportes.subidoEn,
-    }).from(flitoSoportes)
-      // Los descartados en la cola de revisión no son evidencia de nada: quedan fuera.
-      .where(and(g.cond, eq(flitoSoportes.descartado, false)));
-    for (const f of filas) {
-      salida.push({
-        id: f.id, origen: g.origen, tipo: f.tipo, nombreArchivo: f.nombreArchivo,
-        url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
-      });
-    }
-  }
-  // Del más reciente al más antiguo: lo último cargado es lo que se viene a mirar.
-  salida.sort((a, b) => b.subidoEn.localeCompare(a.subidoEn));
+  const soportes = await soportesDeTramite(req.params.id);
+  if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(salida);
+  res.json(soportes);
 });
 
 export default router;
