@@ -10,6 +10,7 @@
 import { obtenerToken, SiigoAuthError } from './siigo.token.js';
 import { resolverConfig } from './siigo.config.js';
 import { traducirErrorSiigo, type SiigoApiError } from './siigo.errors.js';
+import { enModoMock, respuestaSimulada } from './siigo.mock.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 export type MetodoHttp = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -70,6 +71,14 @@ export async function siigoRequest<T = unknown>(req: SiigoRequest): Promise<Siig
         'La clave de idempotencia debe ser alfanumérica, sin espacios ni caracteres especiales, de máximo 30 caracteres.',
       );
     }
+  }
+
+  // Modo simulado: se corta ANTES de resolver el token y antes de tocar la red (HU #11252).
+  // El orden importa: validar la idempotencia arriba y cortar aquí hace que el simulador ejerza las
+  // mismas reglas de uso que el modo real, en vez de ser un atajo que las esquiva.
+  if (enModoMock()) {
+    const simulada = respuestaSimulada(req.metodo, req.ruta);
+    return { status: simulada.status, ok: simulada.ok, datos: simulada.datos as T };
   }
 
   const ejecutar = async (token: string): Promise<Response> => {

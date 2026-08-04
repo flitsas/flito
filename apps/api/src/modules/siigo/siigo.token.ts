@@ -13,6 +13,7 @@
 
 import { obtenerCredencialActiva, type SiigoAmbiente } from './credenciales.service.js';
 import { resolverConfig } from './siigo.config.js';
+import { enModoMock, TOKEN_SIMULADO } from './siigo.mock.js';
 
 /** El token fue rechazado o no pudo obtenerse. Nunca lleva el secreto en el mensaje. */
 export class SiigoAuthError extends Error {
@@ -75,7 +76,17 @@ export async function obtenerToken(
 }
 
 async function autenticar(ambiente: SiigoAmbiente): Promise<string> {
+  // En modo simulado no hay credencial que resolver ni red que tocar (HU #11252). Se cachea igual
+  // que un token real para que el comportamiento observable —una sola autenticación por ventana—
+  // sea el mismo en ambos modos.
+  if (enModoMock()) {
+    cache.set(ambiente, { token: TOKEN_SIMULADO, renovarDesde: Date.now() + VIGENCIA_POR_DEFECTO_MS });
+    return TOKEN_SIMULADO;
+  }
+
   const config = resolverConfig();
+  // Modo real: si no hay credencial activa, esto lanza. NO se cae al simulador — un fallback
+  // silencioso haría creer que se facturó cuando no salió nada.
   const credencial = await obtenerCredencialActiva(ambiente);
 
   let respuesta: Response;
