@@ -23,7 +23,9 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn(),
 }));
 
-const { siigoRequest, SiigoRequestError } = await import('../../src/modules/siigo/siigo.client.js');
+const { siigoRequest, siigoRequestOrThrow, SiigoRequestError } =
+  await import('../../src/modules/siigo/siigo.client.js');
+import type { SiigoApiError } from '../../src/modules/siigo/siigo.errors.js';
 const { SiigoAuthError } = await import('../../src/modules/siigo/siigo.token.js');
 
 const fetchMock = vi.fn();
@@ -203,5 +205,40 @@ describe('ambiente', () => {
     fetchMock.mockResolvedValue(respuesta(200));
     await siigoRequest({ metodo: 'GET', ruta: '/v1/invoices', ambiente: 'produccion' });
     expect(obtenerTokenMock).toHaveBeenCalledWith('produccion');
+  });
+});
+
+describe('siigoRequestOrThrow — traduce el fallo en vez de devolverlo (HU #11250)', () => {
+  it('devuelve los datos cuando la respuesta es correcta', async () => {
+    fetchMock.mockResolvedValue(respuesta(201, { id: 'inv-1' }));
+    const datos = await siigoRequestOrThrow<{ id: string }>({
+      metodo: 'POST', ruta: '/v1/invoices', cuerpo: {},
+    });
+    expect(datos).toEqual({ id: 'inv-1' });
+  });
+
+  it('lanza un error ya clasificado cuando Siigo rechaza', async () => {
+    fetchMock.mockResolvedValue(respuesta(400, {
+      Status: 400,
+      Errors: [{ Code: 'parameter_required', Message: 'falta date', Params: ['date'] }],
+    }));
+
+    const err = await siigoRequestOrThrow({ metodo: 'POST', ruta: '/v1/invoices', cuerpo: {} })
+      .catch((e: SiigoApiError) => e);
+
+    expect((err as SiigoApiError).code).toBe('parameter_required');
+    expect((err as SiigoApiError).reintentable).toBe(false);
+    expect((err as SiigoApiError).descripcionOperativa).toContain('Campo: date');
+  });
+
+  it('un 429 llega marcado como reintentable', async () => {
+    fetchMock.mockResolvedValue(respuesta(429, {
+      Status: 429, Errors: [{ Code: 'requests_limit', Message: 'demasiadas' }],
+    }));
+
+    const err = await siigoRequestOrThrow({ metodo: 'GET', ruta: '/v1/invoices' })
+      .catch((e: SiigoApiError) => e);
+
+    expect((err as SiigoApiError).reintentable).toBe(true);
   });
 });
