@@ -68,10 +68,22 @@ CREATE TRIGGER trg_rndc_op_no_delete BEFORE DELETE ON rndc_operaciones
   FOR EACH ROW EXECUTE FUNCTION fn_rndc_operaciones_worm();
 
 -- Owner = postgres (impide al rol app DISABLE TRIGGER o DROP TRIGGER).
--- En este servidor el rol de la app (operaciones_app) NO es owner por convención;
--- la migración corre como superuser. Reaseguramos owner explícitamente:
-ALTER TABLE rndc_operaciones OWNER TO postgres;
-ALTER FUNCTION fn_rndc_operaciones_worm() OWNER TO postgres;
+-- En el VPS el rol de la app (operaciones_app) NO es owner por convención; la migración
+-- corre como superuser. Reaseguramos owner explícitamente.
+--
+-- El guard es por docker-compose: allí POSTGRES_USER es `operaciones_app`, y la imagen de
+-- postgres crea ESE rol como único superusuario — no existe ningún rol llamado `postgres`,
+-- así que sin guard la cadena moría aquí con `role "postgres" does not exist`. En ese
+-- escenario el WORM igual no aporta nada: el rol de la app YA es superusuario y podría
+-- quitar el trigger de todos modos. Los triggers de arriba sí se crean siempre; lo que se
+-- vuelve condicional es solo el endurecimiento por ownership.
+-- Mismo patrón que usan las migraciones que hacen GRANT a operaciones_app.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    ALTER TABLE rndc_operaciones OWNER TO postgres;
+    ALTER FUNCTION fn_rndc_operaciones_worm() OWNER TO postgres;
+  END IF;
+END $$;
 
 -- Permisos mínimos: SELECT + INSERT. NO UPDATE, NO DELETE, NO TRUNCATE.
 GRANT SELECT, INSERT ON rndc_operaciones TO operaciones_app;
