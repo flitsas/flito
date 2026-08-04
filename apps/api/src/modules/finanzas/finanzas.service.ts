@@ -14,8 +14,8 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias, type PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoOrganismoVigencias,
-  flitoSoat, flitoTarifasCompania, flitoTramites, vehicles,
+  clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos, flitoLiquidaciones,
+  flitoOrganismoVigencias, flitoSoat, flitoTarifasCompania, flitoTramites, vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
@@ -123,16 +123,29 @@ const AUTO_SOAT = sql`COALESCE(${clients.soatAutogestionable}, false)`;
 const AUTO_IMPUESTO = sql`COALESCE(${clients.impuestosAutogestionable}, false)`;
 const AUTO_LOGISTICA = sql`COALESCE(${clients.logisticaAutogestionable}, false)`;
 
+// El desbloqueo excepcional POR TRÁMITE (HU #10980) gana a la autogestión de la compañía: una que
+// autogestiona puede encargarle a FLITO trámites puntuales, y en esos FLITO desembolsa de verdad.
+// Es la misma frontera que ya usan las colas de SOAT e impuestos (`NOT autogestiona OR excepción`).
+const EXC_SOAT = sql`COALESCE(${flitoSoat.excepcionAutogestion}, false)`;
+const EXC_IMPUESTO = sql`COALESCE(${flitoImpuestos.excepcionAutogestion}, false)`;
+/** La logística no tiene registro propio donde marcar: la lleva la excepción vigente del trámite. */
+const EXC_LOGISTICA = sql`(${flitoExcepcionesAutogestion.id} IS NOT NULL)`;
+
+const GESTIONA_SOAT = sql`(NOT ${AUTO_SOAT} OR ${EXC_SOAT})`;
+const GESTIONA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} OR ${EXC_LOGISTICA})`;
+
 /**
  * RN-01 Impuestos, en SQL: es el espejo de `flitoGestionaImpuesto` de shared-types, que es la que
  * aplican el sync y la liquidación. El impuesto tiene DOS ejes —la compañía y el organismo—, y sin
- * vigencia abierta el default del dominio es `autogestionado`: FLITO no lo gestiona.
+ * vigencia abierta el default del dominio es `autogestionado`: FLITO no lo gestiona. Salvo que se le
+ * haya encargado ese trámite en concreto.
  */
-const GESTIONA_IMPUESTO = sql`(NOT ${AUTO_IMPUESTO}
-  AND COALESCE(${flitoOrganismoVigencias.modalidad}, 'autogestionado') = 'requiere_gestion')`;
+const GESTIONA_IMPUESTO = sql`((NOT ${AUTO_IMPUESTO}
+  AND COALESCE(${flitoOrganismoVigencias.modalidad}, 'autogestionado') = 'requiere_gestion')
+  OR ${EXC_IMPUESTO})`;
 
 const EXPR_SOAT = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorSoat}
-  WHEN ${AUTO_SOAT} THEN NULL
+  WHEN NOT ${GESTIONA_SOAT} THEN NULL
   WHEN ${flitoSoat.estado} = 'pagado' THEN ${flitoSoat.valorPagado} END`;
 
 const EXPR_IMPUESTO = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorImpuesto}
@@ -146,7 +159,7 @@ const EXPR_DIGITAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorT
   ELSE COALESCE(${tdEsp.valor}, ${tdGen.valor}) END`;
 
 const EXPR_LOGISTICA = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.valorLogistica}
-  WHEN ${AUTO_LOGISTICA} THEN NULL
+  WHEN NOT ${GESTIONA_LOGISTICA} THEN NULL
   ELSE COALESCE(${lgEsp.valor}, ${lgGen.valor}) END`;
 
 // Base del 4x1000: el total de los cinco conceptos del trámite. El GMF se calcula sobre esa suma y
@@ -176,7 +189,7 @@ const EXPR_TOTAL = sql`CASE WHEN ${seLiquido} THEN ${flitoLiquidaciones.total}
 const SOAT_PAGADO = sql`(${flitoSoat.estado} = 'pagado' AND ${flitoSoat.valorPagado} IS NOT NULL)`;
 const IMPUESTO_PAGADO = sql`(${flitoImpuestos.estado} = 'pagado' AND ${flitoImpuestos.valorPagado} IS NOT NULL)`;
 
-const BLOQUEA_SOAT = sql`(NOT ${AUTO_SOAT} AND NOT COALESCE(${SOAT_PAGADO}, false))`;
+const BLOQUEA_SOAT = sql`(${GESTIONA_SOAT} AND NOT COALESCE(${SOAT_PAGADO}, false))`;
 const BLOQUEA_IMPUESTO = sql`(${GESTIONA_IMPUESTO} AND NOT COALESCE(${IMPUESTO_PAGADO}, false))`;
 
 /** El derecho de tránsito no se configura: se lee del recibo. Sin recibo, falta un costo real. */
@@ -184,7 +197,7 @@ const BLOQUEA_DERECHO = sql`${flitoDerechosTramite.valor} IS NULL`;
 
 /** Honorarios de FLITO: sin tarifa negociada no hay nada que cobrar sin inventárselo. */
 const BLOQUEA_DIGITAL = sql`COALESCE(${tdEsp.valor}, ${tdGen.valor}) IS NULL`;
-const BLOQUEA_LOGISTICA = sql`(NOT ${AUTO_LOGISTICA} AND COALESCE(${lgEsp.valor}, ${lgGen.valor}) IS NULL)`;
+const BLOQUEA_LOGISTICA = sql`(${GESTIONA_LOGISTICA} AND COALESCE(${lgEsp.valor}, ${lgGen.valor}) IS NULL)`;
 
 const EXPR_BLOQUEADA = sql`(${BLOQUEA_SOAT} OR ${BLOQUEA_IMPUESTO} OR ${BLOQUEA_DERECHO}
   OR ${BLOQUEA_DIGITAL} OR ${BLOQUEA_LOGISTICA})`;
@@ -212,7 +225,7 @@ const EXPR_LISTA = sql`(NOT ${seLiquido} AND NOT ${EXPR_BLOQUEADA})`;
  * no de una carga de comprobantes.
  */
 const EXPR_DOC_COMPLETA = sql`(
-     (${AUTO_SOAT} OR EXISTS (
+     (NOT ${GESTIONA_SOAT} OR EXISTS (
         SELECT 1 FROM flito_soportes s WHERE s.soat_id = ${flitoTramites.soatId} AND NOT s.descartado))
   -- El impuesto se salta con la MISMA regla con la que se exige (RN-01, los dos ejes): si el
   -- organismo no lo entrega en gestión, ese soporte no va a existir nunca y pedirlo dejaba al
@@ -221,7 +234,7 @@ const EXPR_DOC_COMPLETA = sql`(
         SELECT 1 FROM flito_soportes s WHERE s.impuesto_id = ${flitoImpuestos.id} AND NOT s.descartado))
   AND EXISTS (
         SELECT 1 FROM flito_soportes s WHERE s.derecho_id = ${flitoDerechosTramite.id} AND NOT s.descartado)
-  AND (${AUTO_LOGISTICA} OR EXISTS (
+  AND (NOT ${GESTIONA_LOGISTICA} OR EXISTS (
         SELECT 1 FROM flito_logistica_documentos d WHERE d.tramite_id = ${flitoTramites.id}))
 )`;
 
@@ -279,6 +292,14 @@ function conJoins<Q extends PgSelect>(q: Q) {
       eq(flitoOrganismoVigencias.organismoCodigo, flitoTramites.organismoCodigo),
       isNull(flitoOrganismoVigencias.hasta),
     ))
+    // Desbloqueo excepcional VIGENTE de la logística (HU #10980). SOAT e impuesto llevan su marca en
+    // el propio registro; la logística no tiene registro donde marcarla. El índice parcial impide
+    // dos excepciones vivas del mismo concepto, así que no multiplica filas.
+    .leftJoin(flitoExcepcionesAutogestion, and(
+      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
+      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
+      isNull(flitoExcepcionesAutogestion.revocadoEn),
+    ))
     .leftJoin(tdEsp, joinTarifa(tdEsp, 'tramite_digital', true))
     .leftJoin(tdGen, joinTarifa(tdGen, 'tramite_digital', false))
     .leftJoin(lgEsp, joinTarifa(lgEsp, 'logistica', true))
@@ -308,11 +329,14 @@ const SELECT_FILA = {
   // adivinando desde el valor nulo: null significa cosas distintas según la compañía.
   soatPendiente: sql<boolean>`${BLOQUEA_SOAT}`,
   impuestoPendiente: sql<boolean>`${BLOQUEA_IMPUESTO}`,
+  // Qué gestiona FLITO en ESTE trámite, ya con el desbloqueo excepcional aplicado. Las banderas de
+  // la compañía van aparte porque solo sirven para redactar el motivo, no para decidir.
+  gestionaSoat: sql<boolean>`${GESTIONA_SOAT}`,
+  gestionaImpuesto: sql<boolean>`${GESTIONA_IMPUESTO}`,
+  gestionaLogistica: sql<boolean>`${GESTIONA_LOGISTICA}`,
   soatAutogestionable: sql<boolean>`${AUTO_SOAT}`,
   impuestosAutogestionable: sql<boolean>`${AUTO_IMPUESTO}`,
   logisticaAutogestionable: sql<boolean>`${AUTO_LOGISTICA}`,
-  /** El impuesto no lo gestiona FLITO por el ORGANISMO, no por la compañía. Se dice distinto. */
-  impuestoFueraDeGestion: sql<boolean>`(NOT ${AUTO_IMPUESTO} AND NOT ${GESTIONA_IMPUESTO})`,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -347,21 +371,22 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     if (r.impuestoPendiente) pendientesPago.push('Impuesto');
     if (derecho === null) sinRecibo.push('Derecho de tránsito');
     if (digital === null) noConfigurados.push('Trámite digital');
-    if (logistica === null && !r.logisticaAutogestionable) noConfigurados.push('Logística');
+    if (logistica === null && r.gestionaLogistica) noConfigurados.push('Logística');
   }
 
-  // Lo que la compañía se gestiona sola. Sin esto, su celda vacía se leía igual que la de un
-  // concepto que falta, y no es lo mismo: aquí no hay nada que perseguir.
+  // Lo que la compañía se gestiona sola —y que FLITO no le ha desbloqueado en este trámite—. Sin
+  // esto, su celda vacía se leía igual que la de un concepto que falta, y no es lo mismo: aquí no
+  // hay nada que perseguir.
   const autogestionados: string[] = [];
-  if (r.soatAutogestionable) autogestionados.push('SOAT');
-  if (r.impuestosAutogestionable) autogestionados.push('Impuesto');
-  if (r.logisticaAutogestionable) autogestionados.push('Logística');
+  if (r.soatAutogestionable && !r.gestionaSoat) autogestionados.push('SOAT');
+  if (r.impuestosAutogestionable && !r.gestionaImpuesto) autogestionados.push('Impuesto');
+  if (r.logisticaAutogestionable && !r.gestionaLogistica) autogestionados.push('Logística');
 
   // Y lo que no aplica por el ORGANISMO: la compañía sí querría que FLITO le gestionara el impuesto,
   // pero ese organismo no lo entrega en gestión. Decir «autogestiona» ahí señalaría al cliente por
   // una decisión que no es suya.
   const noAplican: string[] = [];
-  if (r.impuestoFueraDeGestion) noAplican.push('Impuesto');
+  if (!r.gestionaImpuesto && !r.impuestosAutogestionable) noAplican.push('Impuesto');
 
   return {
     tramiteId: r.tramiteId as string, idFlit: r.idFlit as string,

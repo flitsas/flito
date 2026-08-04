@@ -30,6 +30,8 @@ function filaCompleta(over: Record<string, unknown> = {}) {
     tramiteId: 't1', idFlit: 'FLIT-1', tipoTramite: 'Traspaso', companiaId: 7,
     logisticaAutogestionable: false, soatAutogestionable: false, impuestosAutogestionable: false,
     modalidadOrganismo: 'requiere_gestion',
+    // Sin desbloqueos excepcionales: la parametrización de la compañía decide sola (HU #10980).
+    soatExcepcion: false, impuestoExcepcion: false, logisticaExcepcion: false,
     soatId: 's1', soatEstado: 'pagado', soatValorPagado: '450000',
     impuestoId: 'i1', impuestoEstado: 'pagado', impuestoValorPagado: '120000',
     derechoValor: '80000',
@@ -112,6 +114,48 @@ describe('calcular — qué NO aplica (null, nunca cero)', () => {
     expect(c.impuesto.bloquea).toBe(false);
     expect(c.impuesto.origen).toBe('El organismo no requiere gestión del impuesto');
     expect(c.faltantes).toEqual([]);
+  });
+
+  it('lo desbloqueado excepcionalmente SÍ se cobra, aunque la compañía autogestione (HU #10980)', async () => {
+    // Renting autogestiona su SOAT y aun así encarga trámites puntuales. En esos FLITO desembolsa de
+    // verdad: dejarlo fuera del total sería regalarlo.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      soatAutogestionable: true, soatExcepcion: true,
+    })]));
+    const c = await calcular('t1');
+    expect(c.soat.valor).toBe(450000);
+    expect(c.baseGmf).toBe(865000);
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('un SOAT desbloqueado y todavía sin pagar bloquea el sellado', async () => {
+    // Si FLITO lo asumió, el desembolso está por venir: sellar antes congelaría un total corto.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      soatAutogestionable: true, soatExcepcion: true,
+      soatEstado: 'pendiente', soatValorPagado: null,
+    })]));
+    const c = await calcular('t1');
+    expect(c.soat.bloquea).toBe(true);
+    expect(c.faltantes).toContain('SOAT en estado "pendiente"');
+  });
+
+  it('el impuesto desbloqueado se cobra aunque el organismo no lo entregue en gestión', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      impuestosAutogestionable: true, modalidadOrganismo: null, impuestoExcepcion: true,
+    })]));
+    const c = await calcular('t1');
+    expect(c.impuesto.valor).toBe(120000);
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('la logística desbloqueada se cobra por tarifa, aunque la compañía la autogestione', async () => {
+    // La logística no tiene registro donde marcar la excepción: la lleva la excepción vigente.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      logisticaAutogestionable: true, logisticaExcepcion: true,
+    })]));
+    const c = await calcular('t1');
+    expect(c.logistica.valor).toBe(15000);
+    expect(c.baseGmf).toBe(865000);
   });
 
   it('a la compañía que lo autogestiona todo solo se le cobran trámite digital y derecho', async () => {
