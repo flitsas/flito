@@ -4,6 +4,12 @@
 node_modules
 **/node_modules
 **/dist
+# El registro incremental de tsc va con `dist`, SIEMPRE. Si entra al contexto sin él, `tsc -b` lee
+# «esto ya está compilado», no emite nada y la imagen se queda sin `dist`: el build de la api muere
+# con «Cannot find module '@operaciones/shared-types'». Y solo falla si alguien compiló en su
+# máquina justo antes —con el registro viejo sí reconstruye—, así que el fallo va y viene según la
+# máquina, que es la peor forma de tenerlo.
+**/*.tsbuildinfo
 **/.env
 **/.env.*
 !**/.env.example
