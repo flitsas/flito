@@ -15,6 +15,9 @@ process.env.PII_ENC_KEY = 'test-pii-enc-key-test-pii-enc-key-1234';
 process.env.PII_HMAC_KEY = 'de7a1edb98c0e94e21c1cb91eb7836bf32b50a6e35c01c17f12c0d7b8c8a4ef0';
 process.env.RNDC_ENC_KEY = '4f9a2c81e63b07b8a5d11fce4982071c34ad6e58927b1f0c39ea4d1be8c6f205';
 process.env.RNDC_MODE = 'mock';
+// Siigo (Feature #11239). Clave propia: el keyspace de Siigo no comparte con RNDC ni con PII.
+// Los tests que ejercen la ausencia de la llave la borran y la restauran ellos mismos.
+process.env.SIIGO_ENC_KEY = 'b71d3f9a20c845e6f8319ad4c7be5026a19d3f84c60be27159ad83f4c2e70b91';
 process.env.S3_ACCESS_KEY = 'test-access';
 process.env.S3_SECRET_KEY = 'test-secret-key';
 process.env.PUBLIC_URL = 'https://test.kyverum.com';

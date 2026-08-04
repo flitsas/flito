@@ -3313,3 +3313,49 @@ export const flitoBolsaTransitoMovimientos = pgTable('flito_bolsa_transito_movim
     .on(t.tramiteId)
     .where(sql`${t.tramiteId} IS NOT NULL`),
 }));
+
+// ============================================================================
+// Siigo API — facturación electrónica de trámites (Feature #11239)
+// ============================================================================
+
+/**
+ * Credenciales de Siigo API cifradas con AES-256-GCM (HU #11247).
+ *
+ * Mismo esquema probado en `rndcCredenciales`: el cipher viaja con su IV, su authTag y un
+ * `aadNonce` propio que entra en los datos asociados. Eso ata el ciphertext a ESTA fila: copiar
+ * el cipher a otra fila, o alterar el nonce, hace fallar la verificación de integridad en vez de
+ * devolver un texto plano equivocado.
+ *
+ * El `username` va en claro a propósito: no es el secreto y hace falta para poder listar y
+ * distinguir credenciales sin descifrar nada. El secreto es `access_key`.
+ *
+ * Solo puede haber UNA credencial activa por ambiente. Se garantiza con un índice único parcial
+ * —no solo por convención de código— porque dos activas harían que la credencial usada dependiera
+ * del orden de las filas.
+ */
+export const siigoCredenciales = pgTable('siigo_credenciales', {
+  id: smallserial('id').primaryKey(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  username: varchar('username', { length: 150 }).notNull(),
+  accessKeyCipher: bytea('access_key_cipher').notNull(),
+  accessKeyIv: bytea('access_key_iv').notNull(),
+  accessKeyAuthTag: bytea('access_key_auth_tag').notNull(),
+  aadNonce: uuid('aad_nonce').notNull(),
+  keyVersion: smallint('key_version').notNull().default(1),
+  activo: boolean('activo').notNull().default(true),
+  notas: text('notas'),
+  // Rastro durable del descifrado fallido. Un log se rota y se pierde; esta columna sobrevive y
+  // explica en la propia pantalla por qué la credencial dejó de estar activa.
+  descifradoFallidoEn: timestamp('descifrado_fallido_en', { withTimezone: true }),
+  descifradoFallidoMotivo: varchar('descifrado_fallido_motivo', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // Una sola credencial activa por ambiente. Parcial: las desactivadas son historial y pueden
+  // repetirse cuantas veces se reconfigure.
+  ambienteActivoIdx: uniqueIndex('idx_siigo_credenciales_ambiente_activo')
+    .on(t.ambiente)
+    .where(sql`${t.activo}`),
+}));

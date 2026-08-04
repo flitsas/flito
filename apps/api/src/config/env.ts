@@ -73,6 +73,10 @@ const envSchema = z.object({
   // En desarrollo se genera al boot si falta; en producción es obligatoria.
   RNDC_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'RNDC_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
   RNDC_MODE: z.enum(['mock', 'real']).default('mock'),
+  // Siigo API (Feature #11239): clave maestra AES-256-GCM propia (32 bytes hex = 64 chars).
+  // Opcional en el esquema para no romper entornos que aún no usan la integración, pero SIN
+  // derivación de respaldo: el servicio de credenciales falla explícitamente si falta (HU #11247).
+  SIIGO_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'SIIGO_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
