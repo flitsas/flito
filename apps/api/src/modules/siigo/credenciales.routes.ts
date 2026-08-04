@@ -10,6 +10,7 @@ import { SiigoEncKeyError, siigoEncKeyDisponible } from '../../shared/utils/cryp
 import {
   desactivarCredencial, guardarCredencial, listarCredenciales, SiigoCredencialError,
 } from './credenciales.service.js';
+import { probarConexion } from './siigo.diagnostico.service.js';
 
 const router = Router();
 router.use(authMiddleware, requireRole('admin'));
@@ -54,6 +55,20 @@ router.post('/', async (req: Request, res: Response) => {
     }
     throw e;
   }
+});
+
+// POST /probar-conexion — diagnóstico de la integración (HU #11253).
+//
+// Siempre responde 200 con el resultado dentro del cuerpo, incluso cuando la prueba falla. Un
+// diagnóstico que devuelve 503 obliga a quien lo consume a leer el error de dos sitios distintos;
+// aquí el veredicto viaja siempre en el mismo campo.
+router.post('/probar-conexion', async (req: Request, res: Response) => {
+  const ambiente = req.body?.ambiente === 'produccion' || req.body?.ambiente === 'pruebas'
+    ? req.body.ambiente as 'produccion' | 'pruebas'
+    : undefined;
+
+  const resultado = await probarConexion({ ambiente, usuarioId: req.user?.sub as number });
+  res.json(resultado);
 });
 
 // DELETE /:id — desactiva (soft delete). El historial de credenciales nunca se borra.
