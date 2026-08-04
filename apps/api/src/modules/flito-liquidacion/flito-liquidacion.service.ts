@@ -7,14 +7,15 @@
 // No confundir con `apps/api/src/modules/liquidacion/`, que es del subsistema antiguo
 // (`tramites_digitales` con id entero + órdenes de trabajo) y no tiene relación con FLITO.
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
   type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
+  flitoGestionaImpuesto, ModalidadOrganismo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidacionEventos, flitoLiquidaciones,
-  flitoSoat, flitoTramites,
+  flitoOrganismoVigencias, flitoSoat, flitoTramites,
 } from '../../db/schema.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
 import {
@@ -107,6 +108,8 @@ interface FilaCalculo {
   impuestoEstado: string | null;
   impuestoValorPagado: string | null;
   impuestosAutogestionable: boolean | null;
+  /** Modalidad vigente del organismo del trámite. null = sin vigencia abierta. */
+  modalidadOrganismo: string | null;
   derechoValor: string | null;
 }
 
@@ -125,11 +128,18 @@ function proyeccionCalculo() {
     impuestoId: flitoImpuestos.id,
     impuestoEstado: flitoImpuestos.estado,
     impuestoValorPagado: flitoImpuestos.valorPagado,
+    modalidadOrganismo: flitoOrganismoVigencias.modalidad,
     derechoValor: flitoDerechosTramite.valor,
   }).from(flitoTramites)
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    // La vigencia ABIERTA del organismo (hasta IS NULL) es la que manda hoy. El índice único deja
+    // como mucho una por organismo, así que el join no multiplica filas.
+    .leftJoin(flitoOrganismoVigencias, and(
+      eq(flitoOrganismoVigencias.organismoCodigo, flitoTramites.organismoCodigo),
+      isNull(flitoOrganismoVigencias.hasta),
+    ))
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id));
 }
 
@@ -137,9 +147,28 @@ function proyeccionCalculo() {
  * Calcula lo que costaría liquidar, SIN sellar nada. Es lo que alimenta la previsualización y lo que
  * `liquidar()` persiste si no hay faltantes.
  *
- * Reglas de cada concepto:
- *  - SOAT / impuesto: el valor pagado. Si la compañía los autogestiona, no aplican (null, no cero).
- *    Si están pendientes, bloquean: sellar un cero congelaría un cobro que aún no ocurrió.
+ * QUIÉN GESTIONA CADA CONCEPTO decide qué se exige, y eso sale de la parametrización, no de si el
+ * registro existe:
+ *
+ *  - SOAT      → lo gestiona FLITO salvo que la compañía lo autogestione (`clients`).
+ *  - Impuesto  → RN-01: lo gestiona FLITO si la compañía no lo autogestiona Y el organismo está en
+ *                `requiere_gestion`. Sin vigencia abierta, el default es autogestionado.
+ *  - Logística → lo gestiona FLITO salvo que la compañía la autogestione.
+ *  - Derecho de tránsito y trámite digital → SIEMPRE los cobra FLITO; no hay parametrización que los
+ *    exima.
+ *
+ * Y entonces: lo que FLITO gestiona TIENE que tener valor para poder sellar; lo que no gestiona vale
+ * null (nunca cero) y no estorba.
+ *
+ * Antes, la ausencia de registro de SOAT o de impuesto se leía como «exento» y dejaba liquidar. Esa
+ * lectura venía del sync, que no crea el registro cuando el concepto es autogestionado — pero no
+ * crearlo no es la única razón por la que puede faltar: si el trámite no llegó a estado Asignado, o
+ * llegó sin compañía u organismo emparejados, tampoco se crea, y ahí sí falta de verdad. Con la
+ * lectura vieja, un trámite de una compañía a la que FLITO le gestiona TODO se sellaba sin SOAT y
+ * sin impuesto, congelando un total al que le faltaban dos desembolsos reales.
+ *
+ * Reglas de valor:
+ *  - SOAT / impuesto: el valor pagado. Pendientes o inexistentes, bloquean.
  *  - Derecho de tránsito: el valor real del recibo. Sin recibo, bloquea.
  *  - Trámite digital: tarifa de la compañía. Sin tarifa, «No configurado» y bloquea.
  *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística.
@@ -155,19 +184,30 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
 
   const soat: ConceptoLiquidado = f.soatAutogestionable
     ? { valor: null, origen: 'La compañía autogestiona el SOAT', bloquea: false }
-    : f.soatId === null
-      ? { valor: null, origen: 'Sin SOAT (exento)', bloquea: false }
-      : f.soatEstado === EstadoSoat.PAGADO && f.soatValorPagado !== null
-        ? { valor: num(f.soatValorPagado), origen: 'Valor pagado del SOAT', bloquea: false }
-        : { valor: null, origen: `SOAT en estado "${f.soatEstado}"`, bloquea: true };
+    : f.soatEstado === EstadoSoat.PAGADO && f.soatValorPagado !== null
+      ? { valor: num(f.soatValorPagado), origen: 'Valor pagado del SOAT', bloquea: false }
+      // Sin registro y sin pagar bloquean igual, pero se dicen distinto: uno se resuelve en la cola
+      // de SOAT y el otro ni siquiera ha entrado en ella.
+      : {
+        valor: null, bloquea: true,
+        origen: f.soatId === null ? 'Sin SOAT gestionado' : `SOAT en estado "${f.soatEstado}"`,
+      };
 
-  const impuesto: ConceptoLiquidado = f.impuestosAutogestionable
-    ? { valor: null, origen: 'La compañía autogestiona el impuesto', bloquea: false }
-    : f.impuestoId === null
-      ? { valor: null, origen: 'Sin impuesto (exento)', bloquea: false }
-      : f.impuestoEstado === EstadoImpuesto.PAGADO && f.impuestoValorPagado !== null
-        ? { valor: num(f.impuestoValorPagado), origen: 'Valor pagado del impuesto', bloquea: false }
-        : { valor: null, origen: `Impuesto en estado "${f.impuestoEstado}"`, bloquea: true };
+  // Modalidad vigente del organismo; sin vigencia abierta, el default del dominio es autogestionado.
+  const modalidad = (f.modalidadOrganismo as ModalidadOrganismo | null) ?? ModalidadOrganismo.AUTOGESTIONADO;
+  const impuesto: ConceptoLiquidado = !flitoGestionaImpuesto(Boolean(f.impuestosAutogestionable), modalidad)
+    ? {
+      valor: null, bloquea: false,
+      origen: f.impuestosAutogestionable
+        ? 'La compañía autogestiona el impuesto'
+        : 'El organismo no requiere gestión del impuesto',
+    }
+    : f.impuestoEstado === EstadoImpuesto.PAGADO && f.impuestoValorPagado !== null
+      ? { valor: num(f.impuestoValorPagado), origen: 'Valor pagado del impuesto', bloquea: false }
+      : {
+        valor: null, bloquea: true,
+        origen: f.impuestoId === null ? 'Sin impuesto gestionado' : `Impuesto en estado "${f.impuestoEstado}"`,
+      };
 
   const derecho: ConceptoLiquidado = f.derechoValor !== null
     ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de tránsito', bloquea: false }

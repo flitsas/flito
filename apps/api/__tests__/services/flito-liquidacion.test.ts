@@ -21,11 +21,15 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
 
 const { calcular, TASA_GMF } = await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
 
-/** Fila del trámite con todo pagado y una compañía que no autogestiona nada. */
+/**
+ * Fila del trámite con todo pagado, una compañía que no autogestiona nada y un organismo que sí
+ * entrega el impuesto en gestión: FLITO gestiona los cinco conceptos, así que los cinco se exigen.
+ */
 function filaCompleta(over: Record<string, unknown> = {}) {
   return {
     tramiteId: 't1', idFlit: 'FLIT-1', tipoTramite: 'Traspaso', companiaId: 7,
     logisticaAutogestionable: false, soatAutogestionable: false, impuestosAutogestionable: false,
+    modalidadOrganismo: 'requiere_gestion',
     soatId: 's1', soatEstado: 'pagado', soatValorPagado: '450000',
     impuestoId: 'i1', impuestoEstado: 'pagado', impuestoValorPagado: '120000',
     derechoValor: '80000',
@@ -88,12 +92,64 @@ describe('calcular — qué NO aplica (null, nunca cero)', () => {
     expect(c.total).toBe(850000 + 3400);
   });
 
-  it('un trámite exento de impuesto (sin registro) no bloquea', async () => {
-    selectMock.mockReturnValueOnce(chain([filaCompleta({ impuestoId: null, impuestoEstado: null, impuestoValorPagado: null })]));
+  it('la compañía que autogestiona el impuesto no lo paga', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      impuestosAutogestionable: true, impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
+    })]));
     const c = await calcular('t1');
     expect(c.impuesto.valor).toBeNull();
     expect(c.impuesto.bloquea).toBe(false);
     expect(c.faltantes).toEqual([]);
+  });
+
+  it('el organismo que no entrega el impuesto en gestión tampoco lo hace exigible (RN-01)', async () => {
+    // El segundo eje de la regla: la compañía querría que FLITO se lo gestionara, pero ese organismo
+    // no lo entrega. Sin vigencia abierta el default es el mismo, autogestionado.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      modalidadOrganismo: null, impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
+    })]));
+    const c = await calcular('t1');
+    expect(c.impuesto.bloquea).toBe(false);
+    expect(c.impuesto.origen).toBe('El organismo no requiere gestión del impuesto');
+    expect(c.faltantes).toEqual([]);
+  });
+
+  it('a la compañía que lo autogestiona todo solo se le cobran trámite digital y derecho', async () => {
+    // Es el caso que describe la operación: sin SOAT, sin impuesto y sin logística de FLITO, el
+    // trámite se liquida igual — con esos dos conceptos y nada más.
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      soatAutogestionable: true, impuestosAutogestionable: true, logisticaAutogestionable: true,
+      soatId: null, soatEstado: null, soatValorPagado: null,
+      impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
+    })]));
+    const c = await calcular('t1');
+    expect(c.faltantes).toEqual([]);
+    expect(c.baseGmf).toBe(80000 + 200000);
+  });
+});
+
+describe('calcular — lo que FLITO gestiona TIENE que tener valor', () => {
+  // El fallo que esto cierra: la ausencia de registro se leía como «exento» y dejaba sellar. Pero el
+  // sync tampoco crea el registro cuando el trámite no llegó a Asignado o le faltaba emparejar
+  // compañía u organismo, así que una compañía a la que FLITO le gestiona TODO se liquidaba sin SOAT
+  // y sin impuesto, congelando un total al que le faltaban dos desembolsos reales.
+
+  it('sin SOAT gestionado no se puede liquidar, aunque no exista el registro', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      soatId: null, soatEstado: null, soatValorPagado: null,
+    })]));
+    const c = await calcular('t1');
+    expect(c.soat.bloquea).toBe(true);
+    expect(c.faltantes).toContain('Sin SOAT gestionado');
+  });
+
+  it('sin impuesto gestionado tampoco, si el organismo lo entrega en gestión', async () => {
+    selectMock.mockReturnValueOnce(chain([filaCompleta({
+      impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
+    })]));
+    const c = await calcular('t1');
+    expect(c.impuesto.bloquea).toBe(true);
+    expect(c.faltantes).toContain('Sin impuesto gestionado');
   });
 });
 

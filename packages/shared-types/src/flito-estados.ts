@@ -202,6 +202,24 @@ export const MODALIDAD_ORGANISMO_LABEL: Record<ModalidadOrganismo, string> = {
   autogestionado: 'Autogestionado por el organismo',
 };
 
+/**
+ * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
+ * está en modalidad `requiere_gestion`. En cualquier otro caso lo gestiona alguien más y FLITO ni lo
+ * paga ni lo cobra.
+ *
+ * Vive en el dominio compartido porque hay tres sitios que tienen que responder lo mismo y no pueden
+ * discrepar: el sync —que por eso no crea registro de impuesto—, la liquidación —que por eso no lo
+ * exige para sellar— y el reporte de costos —que por eso no lo pinta como una ausencia—. Estaba solo
+ * dentro del sync, así que los otros dos deducían la respuesta mirando si existía el registro, que
+ * es una pista, no la regla.
+ */
+export function flitoGestionaImpuesto(
+  impuestosAutogestionable: boolean,
+  modalidad: ModalidadOrganismo,
+): boolean {
+  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
+}
+
 /** Tipo de propiedad del vehículo. Cambia el mapeo de compradores (FEATURE_SOAT §9.6). */
 export const TipoPropiedad = {
   UNICO_PROPIETARIO: 'unico_propietario',

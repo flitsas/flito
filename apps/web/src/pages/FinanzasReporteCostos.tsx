@@ -10,10 +10,9 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
-import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
 import {
-  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
+  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, flitPillBtn,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
 
@@ -28,13 +27,22 @@ interface Fila {
   noConfigurados: string[];
   /** Conceptos que esperan su documento pagado, no una tarifa. Hoy solo el derecho de tránsito. */
   sinRecibo: string[];
+  /** Los que FLITO gestiona y aún no tienen valor pagado (SOAT, impuesto). Bloquean la liquidación. */
+  pendientesPago: string[];
+  /** Los que la compañía se gestiona sola: no se cobran ni se esperan. */
+  autogestionados: string[];
+  /** Los que no aplican por el organismo, no por la compañía. Hoy solo el impuesto. */
+  noAplican: string[];
 }
 interface Totales {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
   gmf: number; total: number; filasIncompletas: number;
 }
-interface Reporte { items: Fila[]; total: number; page: number; pageSize: number; totales: Totales }
-interface Facetas { estados: string[]; empresas: { nit: string; nombre: string | null }[]; tipos: string[] }
+interface Resumen { listo: number; incompleto: number; porFacturar: number; facturado: number }
+interface Reporte {
+  items: Fila[]; total: number; page: number; pageSize: number; totales: Totales; resumen: Resumen;
+}
+interface Facetas { estados: string[]; empresas: { valor: string; nombre: string }[]; tipos: string[] }
 const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 /**
@@ -44,8 +52,9 @@ const pesos = (n: number) => n.toLocaleString('es-CO', { style: 'currency', curr
 const ESTADO_POR_DEFECTO = 'Aprobado';
 
 /**
- * Etiquetas de los conceptos. Se usan para el encabezado Y para cruzar con `noConfigurados` y
- * `sinRecibo`, para que el rótulo de la columna y el motivo de la ausencia no puedan divergir.
+ * Etiquetas de los conceptos. Se usan para el encabezado Y para cruzar con `noConfigurados`,
+ * `sinRecibo`, `pendientesPago` y `autogestionados`, para que el rótulo de la columna y el motivo
+ * de la ausencia no puedan divergir.
  */
 const CONCEPTO = {
   soat: 'SOAT', impuesto: 'Impuesto', derecho: 'Derecho de tránsito',
@@ -53,7 +62,34 @@ const CONCEPTO = {
 } as const;
 
 /**
- * Un concepto sin valor no siempre significa lo mismo, y decir lo que no es hace daño. Tres casos:
+ * En qué punto del cobro está el trámite. Es EL filtro de esta pantalla, así que se pide con un
+ * clic y no combinando dos desplegables: antes, «lo que ya se puede liquidar» —la pregunta con la
+ * que se entra aquí— no se podía pedir de ninguna manera, y «liquidado» y «facturado» eran dos
+ * selectores independientes que permitían pedir combinaciones imposibles.
+ *
+ * Las cuatro etapas son excluyentes y cubren todo: cada trámite está en una y solo una.
+ */
+type Etapa = '' | 'listo' | 'incompleto' | 'por_facturar' | 'facturado';
+
+const ETAPAS: Array<{ v: Etapa; label: string; ayuda: string; cuenta?: (r: Resumen) => number }> = [
+  { v: '', label: 'Todos', ayuda: 'Todos los trámites del filtro, en cualquier etapa.' },
+  {
+    v: 'listo', label: 'Listos para liquidar', cuenta: (r) => r.listo,
+    ayuda: 'Sin liquidar y con SOAT, impuesto, derecho de tránsito, logística y trámite digital resueltos —saltando los que la compañía autogestiona—. Se pueden sellar ya.',
+  },
+  {
+    v: 'incompleto', label: 'Incompletos', cuenta: (r) => r.incompleto,
+    ayuda: 'Sin liquidar porque falta una tarifa, un recibo o un pago. Cada fila dice qué.',
+  },
+  {
+    v: 'por_facturar', label: 'Por facturar', cuenta: (r) => r.porFacturar,
+    ayuda: 'Liquidados con valores ya sellados, todavía sin facturar.',
+  },
+  { v: 'facturado', label: 'Facturados', cuenta: (r) => r.facturado, ayuda: 'Ya facturados.' },
+];
+
+/**
+ * Un concepto sin valor no siempre significa lo mismo, y decir lo que no es hace daño. Cinco casos:
  *
  *   falta = 'tarifa' → no hay tarifa negociada con la compañía. Se arregla en Clientes y
  *                      proveedores. Solo aplica a logística y trámite digital, que son honorarios
@@ -62,16 +98,51 @@ const CONCEPTO = {
  *                      configura en ninguna pantalla: se lee del recibo, igual que el SOAT y el
  *                      impuesto. Decirle «no configurado» mandaba a buscar una parametrización
  *                      inexistente.
- *   sin falta        → no aplica a este trámite (exento, o la compañía lo autogestiona). Un guion,
- *                      porque no hay nada que hacer.
+ *   falta = 'pago'   → FLITO lo gestiona para esta compañía y aún no tiene valor pagado (SOAT,
+ *                      impuesto). No hay nada que configurar: hay que empujar o esperar el pago.
+ *   falta = 'auto'   → la compañía se lo gestiona por su cuenta. No es una ausencia: FLITO no lo
+ *                      cobra. Se dice, porque un guion se leía como «falta algo».
+ *   falta = 'nada'   → no aplica porque el ORGANISMO no entrega ese concepto en gestión. Se
+ *                      distingue de 'auto' porque no es una decisión del cliente.
+ *   sin falta        → no aplica a este trámite. Un guion, porque no hay nada que hacer.
  *
  * En ningún caso se pinta «$ 0»: un cero se suma en la cabeza de quien lee.
  */
-function Monto({ v, falta, negrita }: { v: number | null; falta?: 'tarifa' | 'recibo'; negrita?: boolean }) {
+type Falta = 'tarifa' | 'recibo' | 'pago' | 'auto' | 'nada';
+const TEXTO_FALTA: Record<Falta, string> = {
+  tarifa: 'No configurado', recibo: 'Sin recibo', pago: 'Sin pagar',
+  auto: 'Autogestiona', nada: 'No aplica',
+};
+
+/**
+ * Alto común de los controles del filtro. Va en estilo y no en clase porque `flitInp` ya trae su
+ * relleno vertical: dos utilidades peleando por la misma propiedad se resuelven por el orden de la
+ * hoja, no por el del atributo, y la fila quedaba desalineada a capricho del build.
+ */
+const ALTO_CONTROL = { height: 40, paddingTop: 0, paddingBottom: 0 } as const;
+
+/**
+ * Todo lo que le impide liquidarse, en una sola lista. A quien mira la fila le da igual si lo que
+ * falta es una tarifa, un recibo o un pago: lo que necesita saber es qué tiene que resolver.
+ */
+const faltantes = (f: Fila): string[] => [...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago];
+
+/** Por qué está vacía la celda de este concepto, si es que lo está. El backend ya lo decidió. */
+function faltaDe(f: Fila, concepto: string): Falta | undefined {
+  if (f.noConfigurados.includes(concepto)) return 'tarifa';
+  if (f.sinRecibo.includes(concepto)) return 'recibo';
+  if (f.pendientesPago.includes(concepto)) return 'pago';
+  if (f.autogestionados.includes(concepto)) return 'auto';
+  if (f.noAplican.includes(concepto)) return 'nada';
+  return undefined;
+}
+
+function Monto({ v, falta, negrita }: { v: number | null; falta?: Falta; negrita?: boolean }) {
   if (v === null) {
-    const texto = falta === 'tarifa' ? 'No configurado' : falta === 'recibo' ? 'Sin recibo' : '—';
     return (
-      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>{texto}</span>
+      <span className="text-xs italic" style={{ color: 'var(--flit-text-muted)' }}>
+        {falta ? TEXTO_FALTA[falta] : '—'}
+      </span>
     );
   }
   return <span className={negrita ? 'font-semibold' : undefined}>{pesos(v)}</span>;
@@ -95,16 +166,13 @@ export default function FinanzasReporteCostos() {
   const [buscar, setBuscar] = useState('');
   const [empresa, setEmpresa] = useState('');
   const [tipo, setTipo] = useState('');
-  const [liquidado, setLiquidado] = useState<'' | 'si' | 'no'>('');
-  const [facturado, setFacturado] = useState<'' | 'si' | 'no'>('');
+  const [etapa, setEtapa] = useState<Etapa>('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [aprobadoDesde, setAprobadoDesde] = useState('');
   const [aprobadoHasta, setAprobadoHasta] = useState('');
   const [estados, setEstados] = useState<string[]>([ESTADO_POR_DEFECTO]);
   const [docCompleta, setDocCompleta] = useState(false);
-  /** Preset puesto, solo para saber cuál resaltar. Los filtros de verdad son los de arriba. */
-  const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   const estadosKey = estados.join(',');
@@ -114,8 +182,7 @@ export default function FinanzasReporteCostos() {
     if (buscar.trim()) p.set('buscar', buscar.trim());
     if (empresa) p.set('empresas', empresa);
     if (tipo) p.set('tipos', tipo);
-    if (liquidado) p.set('liquidado', liquidado);
-    if (facturado) p.set('facturado', facturado);
+    if (etapa) p.set('etapa', etapa);
     if (desde) p.set('desde', desde);
     if (hasta) p.set('hasta', hasta);
     if (aprobadoDesde) p.set('aprobadoDesde', aprobadoDesde);
@@ -126,43 +193,19 @@ export default function FinanzasReporteCostos() {
   };
 
   const limpiarFiltros = () => {
-    setBuscar(''); setEmpresa(''); setTipo(''); setLiquidado(''); setFacturado('');
+    setBuscar(''); setEmpresa(''); setTipo(''); setEtapa('');
     setDesde(''); setHasta(''); setAprobadoDesde(''); setAprobadoHasta('');
-    setDocCompleta(false); setPreset(null);
+    setDocCompleta(false);
     // Vuelve al punto de partida del reporte, no a «todos los estados»: quien limpia quiere el
     // estado inicial de la pantalla, y ese es Aprobado.
     setEstados([ESTADO_POR_DEFECTO]);
   };
 
-  /**
-   * Las dos vistas con las que se trabaja el reporte. Cada una es una COMBINACIÓN: ponerlas a mano
-   * obliga a acordarse de las dos condiciones, y una sola mal puesta da una lista que parece buena.
-   *
-   * Se aplican sobre el estado limpio y no sobre el actual: un preset debe dar siempre lo mismo,
-   * no depender de lo que hubiera puesto antes.
-   */
-  const PRESETS: Array<Preset<{ liquidado: 'si' | ''; facturado: 'no' | ''; doc: boolean }>> = [
-    {
-      nombre: 'Pendientes de facturar',
-      descripcion: 'Liquidados que todavía no se han facturado.',
-      filtros: { liquidado: 'si', facturado: 'no', doc: false },
-    },
-    {
-      nombre: 'Documentación completa',
-      descripcion: 'Con soporte de SOAT, impuesto, derecho y logística — saltando los que la compañía autogestiona.',
-      filtros: { liquidado: '', facturado: '', doc: true },
-    },
-  ];
+  const hayFiltros = buscar !== '' || empresa !== '' || tipo !== '' || etapa !== '' || docCompleta
+    || desde !== '' || hasta !== '' || aprobadoDesde !== '' || aprobadoHasta !== ''
+    || estadosKey !== ESTADO_POR_DEFECTO;
 
-  const aplicarPreset = (p: Preset<{ liquidado: 'si' | ''; facturado: 'no' | ''; doc: boolean }>) => {
-    limpiarFiltros();
-    setLiquidado(p.filtros.liquidado);
-    setFacturado(p.filtros.facturado);
-    setDocCompleta(p.filtros.doc);
-    setPreset(p.nombre);
-  };
-
-  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta]);
+  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta]);
 
   useEffect(() => {
     setError(null);
@@ -170,19 +213,20 @@ export default function FinanzasReporteCostos() {
     p.set('page', String(page));
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, empresa, tipo, liquidado, facturado, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, page, recarga]);
+  }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, page, recarga]);
 
   useEffect(() => { api.get<Facetas>('/finanzas/reporte-costos/facetas').then(setFacetas).catch(() => setFacetas(null)); }, []);
 
-  const toggleEstado = (e: string) => setEstados((p) => (p.includes(e) ? p.filter((x) => x !== e) : [...p, e]));
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const refrescar = () => setRecarga((n) => n + 1);
 
   /** Solo se puede liquidar lo que no está liquidado y tiene todos sus conceptos resueltos. */
-  // Ni sin tarifa ni sin recibo: lo primero congelaría un cobro inventado, lo segundo un total al
-  // que le falta un costo que existe.
-  const liquidable = (f: Fila) => !f.sellada && f.noConfigurados.length === 0 && f.sinRecibo.length === 0;
+  // Ni sin tarifa, ni sin recibo, ni sin pagar: la primera congelaría un cobro inventado, la
+  // segunda un total al que le falta un costo que existe, y la tercera un cobro que aún no ocurrió.
+  // Es la misma condición que exige el backend al sellar: si aquí faltara una, el botón se ofrecería
+  // activo para fallar al pulsarlo.
+  const liquidable = (f: Fila) => !f.sellada && faltantes(f).length === 0;
   const liquidables = filas.filter(liquidable);
 
   const ejecutar = async (fn: () => Promise<string>) => {
@@ -225,61 +269,84 @@ export default function FinanzasReporteCostos() {
         subtitle="Costos reales por trámite. Las filas liquidadas muestran valores sellados; el resto, un estimado con las tarifas vigentes."
         actions={<button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={exportar}>Exportar CSV</button>} />
 
-      <FlitCard>
-        <div className="flex flex-wrap items-center gap-3">
-          <input className={flitInp + ' max-w-xs'} placeholder="Buscar placa, VIN o trámite FLIT…" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
-          <select className={flitInp + ' max-w-xs'} value={empresa} onChange={(e) => setEmpresa(e.target.value)}>
+      {/* Dos líneas y se acabó: arriba EN QUÉ punto del cobro está el trámite —que es a lo que se
+          entra— y abajo sobre QUÉ trámites, cada control del mismo alto y en su columna. Antes eran
+          cuatro bandas sueltas, dos de ellas con desplegables que decían lo mismo de dos maneras. */}
+      <FlitCard className="!p-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <FlitPillGroup>
+            {ETAPAS.map((e) => (
+              <button key={e.v} type="button" title={e.ayuda} onClick={() => setEtapa(e.v)}
+                aria-pressed={etapa === e.v}
+                className="flit-focus inline-flex items-center gap-2 rounded-[999px] px-4 py-2 text-xs font-semibold transition-colors"
+                style={flitPillBtn(etapa === e.v)}>
+                {e.label}
+                {/* El número decide a dónde ir: sin él hay que entrar en cada pestaña para ver si
+                    tiene trabajo dentro. Cuenta con los demás filtros puestos, no sobre todo. */}
+                {data && e.cuenta && (
+                  <span className="rounded-[999px] px-1.5 py-0.5 text-[10px] tabular-nums"
+                    style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
+                    {e.cuenta(data.resumen).toLocaleString('es-CO')}
+                  </span>
+                )}
+              </button>
+            ))}
+          </FlitPillGroup>
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}
+            title="Con soporte cargado de SOAT, impuesto, derecho y logística — saltando los que la compañía autogestiona.">
+            <input type="checkbox" checked={docCompleta} onChange={(e) => setDocCompleta(e.target.checked)} />
+            Solo con soportes completos
+          </label>
+
+          {/* Solo `ml-auto`: el tamaño se queda el del botón secundario de siempre. Recortarlo con
+              clases sueltas (h-8, text-xs) es apostar a qué utilidad de Tailwind gana en la hoja. */}
+          <button className={`${flitBtnSecondary} ml-auto`} style={flitBtnSecondaryStyle}
+            disabled={!hayFiltros} onClick={limpiarFiltros}>Limpiar filtros</button>
+        </div>
+
+        {/* Cada filtro en su columna y del mismo alto. Los dos rangos son independientes y van
+            rotulados: «desde/hasta» a secas, con dos fechas en juego, no dice sobre cuál filtra. */}
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <input className={flitInp} style={ALTO_CONTROL} placeholder="Placa, VIN o trámite FLIT…"
+            aria-label="Buscar" value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+          <select className={flitInp} style={ALTO_CONTROL} aria-label="Empresa" value={empresa} onChange={(e) => setEmpresa(e.target.value)}>
             <option value="">Todas las empresas</option>
-            {facetas?.empresas.map((e) => <option key={e.nit} value={e.nit}>{e.nombre ?? e.nit}</option>)}
+            {facetas?.empresas.map((e) => <option key={e.valor} value={e.valor}>{e.nombre}</option>)}
           </select>
-          <select className={flitInp} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+          <select className={flitInp} style={ALTO_CONTROL} aria-label="Tipo de trámite" value={tipo} onChange={(e) => setTipo(e.target.value)}>
             <option value="">Todos los tipos</option>
             {facetas?.tipos.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select className={flitInp} aria-label="Liquidación" value={liquidado} onChange={(e) => setLiquidado(e.target.value as '' | 'si' | 'no')}>
-            <option value="">Liquidados y sin liquidar</option>
-            <option value="si">Solo liquidados</option>
-            <option value="no">Solo sin liquidar</option>
-          </select>
-          <select className={flitInp} aria-label="Facturación" value={facturado} onChange={(e) => setFacturado(e.target.value as '' | 'si' | 'no')}>
-            <option value="">Facturados y no facturados</option>
-            <option value="si">Solo facturados</option>
-            <option value="no">Solo no facturados</option>
-          </select>
-        </div>
-        {/* Dos rangos independientes, cada uno en su calendario. Van rotulados porque «desde/hasta»
-            a secas, con dos fechas distintas en juego, no dice sobre cuál se está filtrando. */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
-          {/* Va primero: es la pregunta con la que se entra al reporte, y los filtros sueltos de
-              debajo son para afinar sobre esa respuesta. */}
-          <FiltrosInteligentes presets={PRESETS} activo={preset}
-            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
-          <RangoFechas etiqueta="Creado" valor={{ desde, hasta }}
+          <FiltroEstados opciones={facetas?.estados ?? []} seleccion={estados} onCambio={setEstados} />
+          <RangoFechas etiqueta="Creación" valor={{ desde, hasta }}
             onCambio={(r) => { setDesde(r.desde); setHasta(r.hasta); }} />
-          <RangoFechas etiqueta="Aprobado" valor={{ desde: aprobadoDesde, hasta: aprobadoHasta }}
+          <RangoFechas etiqueta="Aprobación" valor={{ desde: aprobadoDesde, hasta: aprobadoHasta }}
             onCambio={(r) => { setAprobadoDesde(r.desde); setAprobadoHasta(r.hasta); }} />
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
         </div>
-        {facetas && facetas.estados.length > 0 && (
-          <div className="mt-3">
-            <FlitPillGroup>
-              {facetas.estados.map((e) => <FlitPillButton key={e} active={estados.includes(e)} onClick={() => toggleEstado(e)}>{e}</FlitPillButton>)}
-            </FlitPillGroup>
-          </div>
-        )}
       </FlitCard>
 
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
       {aviso && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-blue-text)' }}>{aviso}</p></FlitCard>}
 
-      {/* Un total al que le faltan conceptos no puede pasar por completo. */}
+      {/* Un total al que le faltan conceptos no puede pasar por completo. Va en una línea y con la
+          salida puesta: el aviso servía de poco si para ver esos trámites había que ir a armar el
+          filtro a mano. */}
       {data && data.totales.filasIncompletas > 0 && (
-        <FlitCard>
-          <p className="text-sm">
-            <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
-            <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen algún concepto sin
-            configurar, así que el total mostrado está incompleto. Revisa las tarifas de la compañía
-            en Parametrización y los recibos de derecho de tránsito pendientes.
+        <FlitCard className="!p-3">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span>
+              El total mostrado está incompleto:{' '}
+              <strong>{data.totales.filasIncompletas.toLocaleString('es-CO')}</strong> de{' '}
+              <strong>{data.total.toLocaleString('es-CO')}</strong> trámites tienen algún concepto
+              sin resolver.
+            </span>
+            {etapa !== 'incompleto' && (
+              <button type="button" className="text-sm font-semibold underline"
+                style={{ color: 'var(--flit-blue-text)' }} onClick={() => setEtapa('incompleto')}>
+                Ver cuáles
+              </button>
+            )}
           </p>
         </FlitCard>
       )}
@@ -350,13 +417,14 @@ export default function FinanzasReporteCostos() {
                           ? <StatusChip tone="active">Liquidado</StatusChip>
                           : <StatusChip tone="draft">Estimado</StatusChip>}
                     </td>
-                    {/* SOAT e impuesto nunca entran en `noConfigurados`: su ausencia significa
-                        exento o autogestionado, no una configuración que falte. */}
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.impuesto} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={f.sinRecibo.includes(CONCEPTO.derecho) ? 'recibo' : undefined} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={f.noConfigurados.includes(CONCEPTO.logistica) ? 'tarifa' : undefined} /></td>
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={f.noConfigurados.includes(CONCEPTO.digital) ? 'tarifa' : undefined} /></td>
+                    {/* SOAT e impuesto nunca entran en `noConfigurados`: no hay tarifa que
+                        configurar. Su celda vacía puede ser un pago pendiente, una compañía que los
+                        autogestiona o un trámite exento, y cada una se dice con su nombre. */}
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} falta={faltaDe(f, CONCEPTO.soat)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.impuesto} falta={faltaDe(f, CONCEPTO.impuesto)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.gmf} /></td>
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
                     <td className="px-3 py-2">
@@ -401,15 +469,63 @@ export default function FinanzasReporteCostos() {
   );
 }
 
+/**
+ * Estados del trámite, en un desplegable con casillas.
+ *
+ * Eran ocho pastillas siempre desplegadas, una banda entera del panel para un filtro que casi nunca
+ * se toca —se entra por «Aprobado» y ahí se queda—. Plegado ocupa lo que un campo y sigue diciendo
+ * qué hay puesto sin abrirlo, que es lo que de verdad hace falta ver.
+ *
+ * Es un `<details>`, el mismo patrón de `RangoFechas` y `ThFiltroMulti`: el navegador ya resuelve
+ * abrir, cerrar y el foco por teclado.
+ */
+function FiltroEstados({ opciones, seleccion, onCambio }: {
+  opciones: string[]; seleccion: string[]; onCambio: (v: string[]) => void;
+}) {
+  const alternar = (v: string) =>
+    onCambio(seleccion.includes(v) ? seleccion.filter((x) => x !== v) : [...seleccion, v]);
+
+  const resumen = seleccion.length === 0 ? 'Todos'
+    : seleccion.length === 1 ? seleccion[0]
+      : `${seleccion.length} seleccionados`;
+
+  return (
+    <details className="relative">
+      <summary className="flit-focus flex cursor-pointer list-none items-center gap-2 rounded-[10px] border bg-white px-3 text-sm"
+        style={{ ...ALTO_CONTROL, borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
+        aria-label="Estado del trámite">
+        <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }}>Estado</span>
+        <span className="truncate">{resumen}</span>
+      </summary>
+      <div className="absolute z-30 mt-1 max-h-72 w-56 overflow-auto rounded-lg border bg-white p-2 shadow-lg"
+        style={{ borderColor: 'var(--flit-border-input)' }}>
+        {opciones.length === 0 && (
+          <p className="px-1 py-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin estados que ofrecer</p>
+        )}
+        {opciones.map((o) => (
+          <label key={o} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-slate-50">
+            <input type="checkbox" checked={seleccion.includes(o)} onChange={() => alternar(o)} />
+            <span className="truncate">{o}</span>
+          </label>
+        ))}
+        {seleccion.length > 0 && (
+          <button type="button" className="mt-1 w-full text-xs underline" style={{ color: 'var(--flit-text-muted)' }}
+            onClick={() => onCambio([])}>Cualquier estado</button>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, onFacturar, onReversar, onSoportes }: {
   fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
   onLiquidar: () => void; onFacturar: () => void; onReversar: (motivo: string) => void; onSoportes: () => void;
 }) {
   const [reversando, setReversando] = useState(false);
   const [motivo, setMotivo] = useState('');
-  // Las dos ausencias bloquean, y se nombran juntas: a quien lee le da igual si lo que falta es una
-  // tarifa o un recibo, lo que necesita saber es qué le impide liquidar.
-  const falta = [...fila.noConfigurados, ...fila.sinRecibo];
+  // Las tres ausencias bloquean, y se nombran juntas: a quien lee le da igual si lo que falta es una
+  // tarifa, un recibo o un pago, lo que necesita saber es qué le impide liquidar.
+  const falta = faltantes(fila);
   const bloqueado = falta.length > 0;
 
   return (

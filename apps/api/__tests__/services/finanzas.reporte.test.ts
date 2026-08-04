@@ -13,7 +13,7 @@ vi.mock('../../src/db/client.js', () => ({
 }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-const { aCsv } = await import('../../src/modules/finanzas/finanzas.service.js');
+const { aCsv, agruparEmpresas } = await import('../../src/modules/finanzas/finanzas.service.js');
 
 type Fila = Parameters<typeof aCsv>[0][number];
 
@@ -24,6 +24,7 @@ function fila(over: Partial<Fila> = {}): Fila {
     soat: 450000, impuesto: 120000, derechoTramite: 80000,
     logistica: 15000, tramiteDigital: 200000, gmf: 3460, total: 868460,
     sellada: true, estadoLiquidacion: 'liquidado', noConfigurados: [],
+    sinRecibo: [], pendientesPago: [], autogestionados: [],
     ...over,
   };
 }
@@ -81,7 +82,79 @@ describe('aCsv — el archivo que abre contabilidad', () => {
     expect(csv).toContain('Derecho de tránsito | Logística');
   });
 
+  it('la columna de faltantes recoge los tres motivos, no solo las tarifas', () => {
+    // A quien concilia le da igual si lo que falta es una tarifa, un recibo o un pago: lo que
+    // necesita es la lista completa de lo que hay que resolver para poder liquidar.
+    const csv = aCsv([fila({
+      sellada: false, estadoLiquidacion: null,
+      noConfigurados: ['Logística'], sinRecibo: ['Derecho de tránsito'], pendientesPago: ['SOAT'],
+    })]);
+    expect(csv.split('\r\n')[0]).toContain('Qué falta para liquidar');
+    expect(csv).toContain('Logística | Derecho de tránsito | SOAT');
+  });
+
   it('sin filas devuelve solo la cabecera', () => {
     expect(aCsv([]).trim().split('\r\n')).toHaveLength(1);
+  });
+});
+
+describe('agruparEmpresas — el desplegable de empresas del filtro', () => {
+  const MAESTRO = [
+    { id: 1, nombre: 'RENTING S.A.S', documento: '811011779' },
+    { id: 2, nombre: 'BANCOLOMBIA S.A.', documento: '890903938-8' },
+  ];
+
+  it('una empresa aparece UNA vez, aunque sus trámites traigan el NIT de dos maneras', () => {
+    // El bicho: FLIT manda unas veces el NIT con dígito de verificación y otras sin él. El sync
+    // solo empareja los exactos, así que la misma empresa salía dos veces en el desplegable: una
+    // con su nombre y otra como un NIT crudo, y filtrar por una dejaba fuera la mitad de sus
+    // trámites.
+    const r = agruparEmpresas([
+      { nit: '811011779', companiaId: 1 },
+      { nit: '8110117795', companiaId: null },
+    ], MAESTRO);
+
+    expect(r).toHaveLength(1);
+    expect(r[0].nombre).toBe('RENTING S.A.S');
+    // Y elegirla filtra por sus dos escrituras, no solo por la que emparejó.
+    expect(r[0].valor.split(',').sort()).toEqual(['811011779', '8110117795']);
+  });
+
+  it('empareja también cuando el dígito de verificación lo lleva el maestro', () => {
+    const r = agruparEmpresas([{ nit: '890903938', companiaId: null }], MAESTRO);
+    expect(r).toEqual([{ valor: '890903938', nombre: 'BANCOLOMBIA S.A.' }]);
+  });
+
+  it('el NIT con puntos y guion es el mismo NIT', () => {
+    const r = agruparEmpresas([{ nit: '811.011.779', companiaId: null }], MAESTRO);
+    expect(r).toEqual([{ valor: '811.011.779', nombre: 'RENTING S.A.S' }]);
+  });
+
+  it('no recorta un NIT de nueve dígitos: dos empresas distintas no pueden fundirse', () => {
+    // Quitar el último dígito a un documento que ya es la raíz cruzaría empresas que solo se
+    // parecen. Solo se prueba a quitarlo cuando hay diez o más.
+    const r = agruparEmpresas([{ nit: '811011770', companiaId: null }], MAESTRO);
+    expect(r).toHaveLength(1);
+    expect(r[0].nombre).toContain('sin empresa registrada');
+  });
+
+  it('un NIT sin empresa dada de alta se rotula como tal, no como si fuera un nombre', () => {
+    const r = agruparEmpresas([{ nit: '900077718', companiaId: null }], []);
+    expect(r).toEqual([{ valor: '900077718', nombre: 'NIT 900077718 (sin empresa registrada)' }]);
+  });
+
+  it('manda el emparejamiento del sync sobre el del NIT', () => {
+    // Si el sync ya dijo de quién es el trámite, esa es la empresa: el NIT normalizado es solo el
+    // recurso para los que se quedaron sin emparejar.
+    const r = agruparEmpresas([{ nit: '890903938', companiaId: 1 }], MAESTRO);
+    expect(r[0].nombre).toBe('RENTING S.A.S');
+  });
+
+  it('sale ordenado por nombre, que es como se busca en una lista', () => {
+    const r = agruparEmpresas([
+      { nit: '811011779', companiaId: 1 },
+      { nit: '890903938-8', companiaId: 2 },
+    ], MAESTRO);
+    expect(r.map((e) => e.nombre)).toEqual(['BANCOLOMBIA S.A.', 'RENTING S.A.S']);
   });
 });
