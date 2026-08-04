@@ -187,11 +187,18 @@ function llavesDelSellado(): string[] {
 
 // ─────────────────────────── Filas del trámite ───────────────────────────────
 
-/** Trámite con los cinco conceptos resueltos: 450.000 + 120.000 + 80.000 + tarifas. */
+/**
+ * Trámite con los cinco conceptos resueltos: 450.000 + 120.000 + 80.000 + tarifas.
+ *
+ * Lleva `modalidadOrganismo: 'requiere_gestion'` porque el impuesto solo lo gestiona FLITO si la
+ * compañía no lo autogestiona Y el organismo lo entrega en gestión (RN-01). Lo que FLITO no gestiona
+ * no se cobra, así que sin esto el impuesto no generaría salida y las cuentas de la bolsa serían otras.
+ */
 function filaCalculo(over: Fila = {}): Fila {
   return {
     tramiteId: TRAMITE, idFlit: 'FLIT-1', tipoTramite: 'Traspaso', companiaId: COMPANIA,
     logisticaAutogestionable: false, soatAutogestionable: false, impuestosAutogestionable: false,
+    modalidadOrganismo: 'requiere_gestion',
     soatId: SOAT_ID, soatEstado: 'pagado', soatValorPagado: '450000',
     impuestoId: IMPUESTO_ID, impuestoEstado: 'pagado', impuestoValorPagado: '120000',
     derechoValor: '80000',
@@ -370,8 +377,13 @@ describe('liquidar — AC2: lo que la compañía autogestiona no consume bolsa',
     expect(saldoBolsa).toBe(1_000_000 - base - 1600);
   });
 
-  it('un trámite exento de impuesto (sin registro) tampoco genera su salida', async () => {
-    escenarioSellado({ impuestoId: null, impuestoEstado: null, impuestoValorPagado: null });
+  it('un impuesto que FLITO no gestiona tampoco genera su salida', async () => {
+    // Se declara por la parametrización, no por la ausencia del registro: que no exista la fila
+    // puede significar «no aplica» o «todavía no se ha gestionado», y solo la primera deja liquidar.
+    escenarioSellado({
+      impuestosAutogestionable: true,
+      impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
+    });
     await liquidar(TRAMITE, 9);
 
     expect(salidasEscritas().map((s) => s.concepto)).toEqual(['soat', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
@@ -421,7 +433,7 @@ describe('liquidar — un concepto que vale cero no consume bolsa ni impide sell
     // gravable en cero el GMF también vale cero y su línea tampoco se asienta.
     tarifasConfiguradas(0, 0);
     escenarioSellado({
-      soatAutogestionable: true,
+      soatAutogestionable: true, impuestosAutogestionable: true,
       impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
       derechoValor: '0',
     });
@@ -444,6 +456,8 @@ describe('liquidar — AC3: la bolsa puede quedar en negativo', () => {
     saldoBolsa = 10000;
     tarifasConfiguradas(40000, 10000);
     escenarioSellado({
+      // Compañía que autogestiona SOAT e impuesto: FLITO solo le cobra derecho y honorarios.
+      soatAutogestionable: true, impuestosAutogestionable: true,
       soatId: null, soatEstado: null, soatValorPagado: null,
       impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
       derechoValor: '100000',
@@ -459,6 +473,8 @@ describe('liquidar — AC3: la bolsa puede quedar en negativo', () => {
     saldoBolsa = 10000;
     tarifasConfiguradas(40000, 10000);
     escenarioSellado({
+      // Compañía que autogestiona SOAT e impuesto: FLITO solo le cobra derecho y honorarios.
+      soatAutogestionable: true, impuestosAutogestionable: true,
       soatId: null, soatEstado: null, soatValorPagado: null,
       impuestoId: null, impuestoEstado: null, impuestoValorPagado: null,
       derechoValor: '100000',

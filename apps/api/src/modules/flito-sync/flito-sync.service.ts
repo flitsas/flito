@@ -14,7 +14,7 @@ import {
 import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
-  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, ModalidadOrganismo, resolverCodigoOrganismoFlit,
+  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, flitoGestionaImpuesto, resolverCodigoOrganismoFlit,
   soatBloqueaReencolado,
 } from '@operaciones/shared-types';
 import {
@@ -94,14 +94,10 @@ async function auditSistema(exec: DbOrTx, entry: { action: 'create' | 'update'; 
   await exec.insert(auditLogs).values({ userId: null, userEmail: ACTOR_SISTEMA, action: entry.action, resource: entry.resource, resourceId: entry.resourceId, detail: entry.detail });
 }
 
-/**
- * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
- * está en modalidad `requiere_gestion`. En cualquier otro caso es autogestionado (exento) y NO se
- * crea registro de impuesto (la UI lo muestra "Autogestionado", igual que el SOAT autogestionado).
- */
-export function flitoGestionaImpuesto(impuestosAutogestionable: boolean, modalidad: ModalidadOrganismo): boolean {
-  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
-}
+// RN-01 Impuestos (`flitoGestionaImpuesto`) vive ahora en shared-types: la liquidación y el reporte
+// de costos necesitan la misma respuesta y no pueden depender de si aquí se creó o no el registro.
+// Se re-exporta porque este módulo era su sitio y hay quien la importa desde aquí.
+export { flitoGestionaImpuesto };
 
 function nuevoResultado(): ResultadoSync {
   return {
