@@ -8,9 +8,13 @@
 #   api       http://localhost:4052   (Express; health: /api/health)
 #   postgres  localhost:5434          (5432/5433 suelen estar ocupados en local)
 #   redis     localhost:6380          (6379 suele tener un Redis local)
+#   minio     localhost:9002          (consola web en 9002 → :9003)
 #
 # Uso:
-#   docker compose up -d --build          # levanta todo (migraciones incluidas)
+#   docker compose up -d --build          # levanta todo (migraciones y seed incluidos)
+#
+# Usuarios que deja el seed: admin / Admin2026!  ·  operaciones / flito2026
+# (y gestor.sura, gestor.estado, auditoria, mensajero, financiera… todos con flito2026)
 #   docker compose logs -f api            # logs del backend
 #   docker compose down -v                # apaga y borra datos (¡borra la BD!)
 #
@@ -20,6 +24,46 @@
 name: flito
 
 x-restart-policy: &restart unless-stopped
+
+# Entorno compartido por `api` y `seed`. Está extraído a un ancla porque el seed importa
+# db/client.ts → config/env.ts, que valida TODAS las variables con Zod y aborta el boot si
+# falta una: necesita el mismo bloque completo que la api, no solo DATABASE_URL. (`migrate`
+# no lo necesita: db-apply.ts lee process.env directo, sin pasar por env.ts.)
+x-api-env: &api-env
+  NODE_ENV: development
+  PORT: ${API_PORT:-4052}
+  DATABASE_URL: postgresql://operaciones_app:${POSTGRES_PASSWORD:-flito_local_dev}@postgres:5432/operaciones_db
+  REDIS_URL: redis://redis:6379
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4051}
+  PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4051}
+  # ─ Secretos SOLO-DEV (cumplen validación Zod de env.ts; NUNCA usar en VPS) ─
+  JWT_SECRET: ${JWT_SECRET:-flito-local-dev-jwt-secret-no-usar-en-produccion-0000}
+  RUNT_INTERNAL_KEY: ${RUNT_INTERNAL_KEY:-flito-local-dev-runt-key-0000}
+  PII_ENC_KEY: ${PII_ENC_KEY:-0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
+  PII_HMAC_KEY: ${PII_HMAC_KEY:-a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90}
+  # ─ Integraciones opcionales (mock/vacío por defecto en dev) ─
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  RNDC_MODE: ${RNDC_MODE:-mock}
+  FIRMA_PROVIDER: ${FIRMA_PROVIDER:-mock}
+  FLIT_ADAPTER: ${FLIT_ADAPTER:-mock}
+  # Storage → MinIO de este compose. Las tres primeras son IMPRESCINDIBLES: sin
+  # ellas env.ts cae a s3.kyverum.com:443 por HTTPS, es decir, el S3 de producción.
+  S3_ENDPOINT: minio
+  S3_PORT: '9000'
+  S3_USE_SSL: 'false'
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-flito-dev-access}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-flito-dev-secret}
+  SMTP_PASS: ${SMTP_PASS:-}
+  # ─ Google Drive (barrido de derechos de trámite) ─
+  # Ruta DENTRO del contenedor, fija a propósito: googleDrive.ts hace path.resolve(),
+  # que resuelve contra el CWD (/app/apps/api), así que una ruta relativa del host se
+  # convertiría en /app/apps/api/<lo-que-pusiste> y no existiría. El archivo entra por
+  # bind mount (ver `volumes` de api); NO se copia a la imagen, que es lo correcto para
+  # una credencial. Para apuntar a otro archivo del host usa GOOGLE_DRIVE_KEY_FILE.
+  GOOGLE_DRIVE_KEY_PATH: /run/secrets/google-service-account.json
+  GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-1cWFfPFpesQbHS6lLikumbDKYHO88G8DC}
+  # Barrido diario: apagado salvo '1' explícito (gasta OCR de pago). Igual que en env.ts.
+  DRIVE_DERECHOS_CRON_ENABLED: ${DRIVE_DERECHOS_CRON_ENABLED:-}
 
 services:
   postgres:
@@ -54,6 +98,33 @@ services:
       retries: 10
     restart: *restart
 
+  # Almacenamiento de evidencias/documentos. SIN esto, S3_ENDPOINT caía al default de
+  # env.ts (s3.kyverum.com:443) y el entorno local salía a internet contra el S3 de
+  # PRODUCCIÓN con credenciales de mentira: toda subida moría con
+  # «The Access Key Id you provided does not exist in our records».
+  # El bucket (operaciones-biometrics) lo crea la propia app —storage.ts hace
+  # bucketExists + makeBucket—, así que no hace falta un init que lo provisione.
+  minio:
+    image: minio/minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      # Deben coincidir con S3_ACCESS_KEY/S3_SECRET_KEY de la api: son el mismo par.
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-flito-dev-access}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-flito-dev-secret}
+    ports:
+      # 9002/9003 en el host: el contenedor suelto `flito-minio` de desarrollo ocupa
+      # 9000/9001. Dentro de la red de compose la api sigue hablándole por 9000.
+      - '127.0.0.1:${MINIO_PORT:-9002}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9003}:9001'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:9000/minio/health/live']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: *restart
+
   # Job one-shot: aplica migraciones SQL pendientes (idempotente) antes de que
   # arranque la API. Reusa la MISMA imagen de la api.
   migrate:
@@ -69,33 +140,42 @@ services:
         condition: service_healthy
     restart: 'no'
 
+  # Job one-shot: siembra usuarios y parametrización, después de migrar. Compose aplicaba
+  # las migraciones solo pero NO los datos iniciales, así que cada `down -v` dejaba el
+  # esquema completo y CERO usuarios: la app quedaba inaccesible hasta sembrar a mano.
+  #
+  # Idempotente, por eso puede correr en cada `up`:
+  #   db/seed.js         → onConflictDoNothing en el admin; ON CONFLICT DO NOTHING en LAFT
+  #   flito-seed.js      → sale temprano si ya hay parametrización, sin re-sembrar
+  #
+  # Contraseñas: admin → Admin2026! · el resto → flito2026 (CONTRASENA_DEMO).
+  # Es un compose de desarrollo local; NO portar este servicio al VPS.
+  seed:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: flito/api:local
+    command: ['sh', '-c', 'node dist/db/seed.js && node dist/scripts/flito-seed.js']
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     image: flito/api:local
-    environment:
-      NODE_ENV: development
-      PORT: ${API_PORT:-4052}
-      DATABASE_URL: postgresql://operaciones_app:${POSTGRES_PASSWORD:-flito_local_dev}@postgres:5432/operaciones_db
-      REDIS_URL: redis://redis:6379
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4051}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4051}
-      # ─ Secretos SOLO-DEV (cumplen validación Zod de env.ts; NUNCA usar en VPS) ─
-      JWT_SECRET: ${JWT_SECRET:-flito-local-dev-jwt-secret-no-usar-en-produccion-0000}
-      RUNT_INTERNAL_KEY: ${RUNT_INTERNAL_KEY:-flito-local-dev-runt-key-0000}
-      PII_ENC_KEY: ${PII_ENC_KEY:-0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
-      PII_HMAC_KEY: ${PII_HMAC_KEY:-a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90}
-      # ─ Integraciones opcionales (mock/vacío por defecto en dev) ─
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      RNDC_MODE: ${RNDC_MODE:-mock}
-      FIRMA_PROVIDER: ${FIRMA_PROVIDER:-mock}
-      FLIT_ADAPTER: ${FLIT_ADAPTER:-mock}
-      # S3_* son OBLIGATORIAS en env.ts (min 3/8 chars) aunque MinIO no se use en
-      # local — placeholders para pasar el boot; sobrescribir si se prueba storage.
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-flito-dev-access}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-flito-dev-secret}
-      SMTP_PASS: ${SMTP_PASS:-}
+    environment: *api-env
+    volumes:
+      # Credencial de Google Drive montada en solo lectura. Va por volumen y no por COPY
+      # en el Dockerfile para que la clave no quede horneada en la imagen.
+      # Si no tienes el archivo, comenta esta línea: sin él el módulo de Drive falla, pero
+      # el resto de la app arranca igual (el cron viene apagado por defecto).
+      - ${GOOGLE_DRIVE_KEY_FILE:-./apps/api/service-account.json}:/run/secrets/google-service-account.json:ro
     ports:
       - '127.0.0.1:${API_PORT:-4052}:${API_PORT:-4052}'
     depends_on:
@@ -103,7 +183,13 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      # La api espera al seed para que `up` no devuelva el control antes de que se pueda
+      # iniciar sesión: sin esto habría carrera y el primer login fallaría por BD sin usuarios.
+      seed:
         condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.PORT||4052)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -136,3 +222,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:

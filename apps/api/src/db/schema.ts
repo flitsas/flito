@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, uuid, customType, smallint, doublePrecision, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, time, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, smallserial, uuid, customType, smallint, doublePrecision, primaryKey } from 'drizzle-orm/pg-core';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() { return 'bytea'; },
@@ -1354,7 +1354,7 @@ export const roadIncidents = pgTable('road_incidents', {
   vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
   conductorId: integer('conductor_id').references(() => users.id, { onDelete: 'set null' }),
   fecha: date('fecha').notNull(),
-  hora: varchar('hora', { length: 8 }),
+  hora: time('hora'),
   lugarTexto: varchar('lugar_texto', { length: 300 }),
   lat: numeric('lat', { precision: 9, scale: 6 }),
   lng: numeric('lng', { precision: 9, scale: 6 }),
@@ -1464,7 +1464,7 @@ export const alcoholTests = pgTable('alcohol_tests', {
   fechaHora: timestamp('fecha_hora', { withTimezone: true }).notNull().defaultNow(),
   tipo: alcoholTestTipoEnum('tipo').notNull(),
   valorMg: numeric('valor_mg', { precision: 4, scale: 2 }).notNull(),
-  gradoAlcohol: integer('grado_alcohol').notNull().default(0),
+  gradoAlcohol: smallint('grado_alcohol').notNull().default(0),
   resultado: alcoholResultadoEnum('resultado').notNull(),
   equipoSerial: varchar('equipo_serial', { length: 60 }),
   equipoCalibracionFecha: date('equipo_calibracion_fecha'),
@@ -1485,7 +1485,7 @@ export const emergencyContacts = pgTable('emergency_contacts', {
   email: varchar('email', { length: 150 }),
   direccion: varchar('direccion', { length: 300 }),
   observaciones: text('observaciones'),
-  prioridad: integer('prioridad').notNull().default(100),
+  prioridad: smallint('prioridad').notNull().default(100),
   activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1528,6 +1528,14 @@ export const monedaRndcEnum = pgEnum('moneda_rndc', ['COP', 'USD']);
 export const tenedorTipoEnum = pgEnum('tenedor_tipo', ['propietario', 'poseedor', 'tenedor']);
 export const tipoDocRndcEnum = pgEnum('tipo_doc_rndc', ['CC', 'CE', 'NIT', 'PAS', 'TI', 'RC']);
 export const remesaEstadoEnum = pgEnum('remesa_estado', ['borrador', 'activa', 'cumplida', 'anulada']);
+
+// Declarado aquí y no junto a los demás enums RNDC (más abajo) porque `remesas` y
+// `manifiestos` lo referencian y pgTable se evalúa al cargar el módulo: dejarlo después
+// daría ReferenceError por TDZ.
+export const rndcEstadoEnvioEnum = pgEnum('rndc_estado_envio', [
+  'no_aplica', 'pendiente_envio', 'enviando', 'aceptado',
+  'error_envio', 'fallido_temporal', 'fallido_definitivo', 'cancelado_pre_envio',
+]);
 export const manifiestoEstadoEnum = pgEnum('manifiesto_estado', [
   'borrador', 'listo', 'radicado_rndc', 'aceptado', 'rechazado', 'cumplido', 'anulado',
 ]);
@@ -1639,7 +1647,7 @@ export const remesas = pgTable('remesas', {
   cantidadEntregada: numeric('cantidad_entregada', { precision: 14, scale: 3 }),
   pesoKg: numeric('peso_kg', { precision: 14, scale: 3 }),
   fechaCargue: date('fecha_cargue').notNull(),
-  horaCargue: varchar('hora_cargue', { length: 8 }),
+  horaCargue: time('hora_cargue'),
   fechaDescargePactada: date('fecha_descargue_pactada'),
   valorFlete: numeric('valor_flete', { precision: 15, scale: 2 }).notNull().default('0'),
   valorAnticipo: numeric('valor_anticipo', { precision: 15, scale: 2 }).notNull().default('0'),
@@ -1652,7 +1660,7 @@ export const remesas = pgTable('remesas', {
   cumplidoEvidenciaKeys: text('cumplido_evidencia_keys').array().notNull().default(sql`'{}'::text[]`),
   observaciones: text('observaciones'),
   // Estado envío RNDC (Fase 4.2)
-  estadoEnvio: varchar('estado_envio', { length: 30 }).notNull().default('no_aplica'),
+  estadoEnvio: rndcEstadoEnvioEnum('estado_envio').notNull().default('no_aplica'),
   intentosEnvio: smallint('intentos_envio').notNull().default(0),
   ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
   proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }),
@@ -1701,7 +1709,7 @@ export const manifiestos = pgTable('manifiestos', {
   aceptadoAt: timestamp('aceptado_at', { withTimezone: true }),
   cumplidoAt: timestamp('cumplido_at', { withTimezone: true }),
   // Estado envío RNDC (Fase 4.2)
-  estadoEnvio: varchar('estado_envio', { length: 30 }).notNull().default('no_aplica'),
+  estadoEnvio: rndcEstadoEnvioEnum('estado_envio').notNull().default('no_aplica'),
   intentosEnvio: smallint('intentos_envio').notNull().default(0),
   ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
   proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }),
@@ -1731,10 +1739,7 @@ export const rndcOpTipoEnum = pgEnum('rndc_op_tipo', [
 export const rndcOpResultadoEnum = pgEnum('rndc_op_resultado', [
   'ok', 'error_negocio', 'error_tecnico', 'timeout',
 ]);
-export const rndcEstadoEnvioEnum = pgEnum('rndc_estado_envio', [
-  'no_aplica', 'pendiente_envio', 'enviando', 'aceptado',
-  'error_envio', 'fallido_temporal', 'fallido_definitivo', 'cancelado_pre_envio',
-]);
+// rndcEstadoEnvioEnum se declara arriba, junto a remesaEstadoEnum (lo usan remesas y manifiestos).
 export const outboxEstadoEnum = pgEnum('outbox_estado', [
   'pendiente', 'enviado', 'error', 'fallido_definitivo',
 ]);
@@ -1765,7 +1770,7 @@ export const rndcOperaciones = pgTable('rndc_operaciones', {
 
 // Credenciales cifradas AES-256-GCM. AAD vincula cipher a esta fila vía aad_nonce UUID.
 export const rndcCredenciales = pgTable('rndc_credenciales', {
-  id: serial('id').primaryKey(),
+  id: smallserial('id').primaryKey(),
   empresaNit: varchar('empresa_nit', { length: 20 }).notNull(),
   habilitadorNit: varchar('habilitador_nit', { length: 20 }).notNull(),
   numNit: varchar('num_nit', { length: 20 }).notNull(),
