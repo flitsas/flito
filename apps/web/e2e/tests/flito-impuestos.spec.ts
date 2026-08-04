@@ -301,6 +301,41 @@ test.describe('FLITO — Impuestos', () => {
     await expect(page.getByText(/Solo lectura · Auditoría/i)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Rechazar' })).toHaveCount(0);
   });
+
+  // El recibo se carga desde esta pantalla pero para verlo había que irse al reporte de costos, en
+  // el que el gestor del organismo no entra. Es la evidencia del pago: se mira donde se gestiona.
+  test('desde el detalle de un impuesto se ve su recibo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/impuestos\/[^/]+\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { id: 'sop-1', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'recibo-impuesto.pdf', url: '/api/files?key=a', subidoEn: '2026-04-05T12:00:00Z' },
+      ]) }));
+
+    await page.goto('/flito/impuestos');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'Ver soporte' }).click();
+
+    await expect(page.getByText('Documentos de Impuesto ABC123')).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'recibo-impuesto.pdf' })).toBeVisible();
+  });
+
+  // El fallo que se venía a corregir: la factura se abría en una pestaña con una URL `blob:`, que
+  // no lleva nombre, así que el navegador la guardaba sin extensión y no abría con doble clic.
+  test('la factura de venta de FLIT se descarga como .pdf, con el trámite en el nombre', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/impuestos\/[^/]+\/factura-venta/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4 fake' }));
+
+    await page.goto('/flito/impuestos');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'En FLIT · Ver / descargar' }).click();
+
+    const descargar = page.getByRole('link', { name: 'Descargar' });
+    await expect(descargar).toBeVisible();
+    await expect(descargar).toHaveAttribute('download', 'factura-venta-FLIT-1001.pdf');
+  });
 });
 
 // ---------------------------------------------------------------------------

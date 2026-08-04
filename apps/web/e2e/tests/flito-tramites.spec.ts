@@ -249,6 +249,40 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect.poll(ultima).toContain('orden=antiguos');
   });
 
+  // Los comprobantes de los tres conceptos, desde la pantalla donde se despacha. Antes había que
+  // salir al reporte de costos (rol financiera) o a la tabla de derechos para ver si el papel
+  // estaba cargado, y quien entrega es justo quien tiene que comprobarlo.
+  test('el visor de soportes trae SOAT, impuesto y derecho de tránsito del trámite', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\/.*\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=a', subidoEn: '2026-07-01T00:00:00Z' },
+        { id: 's2', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'impuesto.pdf', url: '/api/files?key=b', subidoEn: '2026-07-02T00:00:00Z' },
+        { id: 's3', origen: 'derecho', tipo: 'derecho_tramite', nombreArchivo: 'recibo.pdf', url: '/api/files?key=c', subidoEn: '2026-07-03T00:00:00Z' },
+      ]) }));
+
+    await page.goto('/flito/tramites');
+    await page.getByRole('row').filter({ hasText: 'FLIT-1002' }).getByRole('button', { name: 'Ver soportes' }).click();
+
+    await expect(page.getByText('Documentos de FLIT-1002')).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'SOAT' }).filter({ hasText: 'soat.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Impuesto' }).filter({ hasText: 'impuesto.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Derecho de tránsito' }).filter({ hasText: 'recibo.pdf' })).toBeVisible();
+  });
+
+  test('un trámite sin ningún documento lo dice en vez de abrir un visor vacío', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\/.*\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
+    await page.goto('/flito/tramites');
+    await page.getByRole('row').filter({ hasText: 'FLIT-1001' }).getByRole('button', { name: 'Ver soportes' }).click();
+
+    await expect(page.getByText(/no tiene ningún documento cargado todavía/)).toBeVisible();
+  });
+
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);
     await mockLista(page);

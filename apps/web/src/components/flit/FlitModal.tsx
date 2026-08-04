@@ -23,7 +23,16 @@ interface FlitModalProps {
 
 export default function FlitModal({ title, onClose, children, wide = false, full = false }: FlitModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEscape(onClose);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  // Con un modal abierto encima de otro —el visor de documentos sobre el detalle de un SOAT—, Esc
+  // cerraba LOS DOS: el listener está en `window`, así que llegaba a todos los modales montados.
+  // Solo lo atiende el de más arriba, que se decide por el orden en el DOM: los portales se cuelgan
+  // de <body> en el orden en que se abren, y con el mismo z-index gana el último, que es también el
+  // que se ve encima. Cerrar el visor devuelve al detalle, que es lo que espera quien pulsa Esc.
+  useEscape(() => {
+    const abiertos = document.querySelectorAll('[data-flit-modal]');
+    if (abiertos.length === 0 || abiertos[abiertos.length - 1] === overlayRef.current) onClose();
+  });
   // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar.
   useFocusTrap(dialogRef);
   return (
@@ -32,6 +41,9 @@ export default function FlitModal({ title, onClose, children, wide = false, full
     // cuanto el modal crecía. Ver ModalPortal.
     <ModalPortal>
     <div
+      ref={overlayRef}
+      // Marca de «hay un modal abierto aquí», para que Esc solo cierre el de más arriba.
+      data-flit-modal=""
       // `flit-modal` repone el color de tinta que se pierde al colgar del <body>: fuera de
       // `.flit-app` el texto sin color propio heredaba el del tema Aura, que en oscuro es casi
       // blanco, sobre un modal cuyo fondo es claro pase lo que pase.

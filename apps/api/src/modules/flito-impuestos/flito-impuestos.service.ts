@@ -344,15 +344,21 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
 }
 
 /**
- * Id de la factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
+ * Factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
  * Devuelve null si el impuesto no es accesible o su trámite aún no trae factura. Integración FLIT.
+ *
+ * Viene acompañada del id de FLIT del trámite, que no es adorno: es el nombre con el que se
+ * descarga el archivo. Nombrarlo por el id de la factura —un identificador de S3 que no aparece en
+ * ninguna pantalla— deja al usuario con una carpeta de ficheros que no puede emparejar con nada.
  */
-export async function facturaVentaFlitIdConAcceso(id: string, ctx: ImpuestoCtx): Promise<string | null> {
+export async function facturaVentaFlitConAcceso(
+  id: string, ctx: ImpuestoCtx,
+): Promise<{ facturaId: string; idFlit: string | null } | null> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) return null;
-  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId })
+  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId, idFlit: flitoTramites.idFlit })
     .from(flitoTramites).where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
-  return t?.facturaVentaFlitId ?? null;
+  return t?.facturaVentaFlitId ? { facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null } : null;
 }
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {

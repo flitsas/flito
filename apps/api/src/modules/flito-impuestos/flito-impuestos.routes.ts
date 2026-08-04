@@ -19,8 +19,9 @@ import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } fro
 import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
-  facturaVentaFlitIdConAcceso, reactivar, rechazar, reversar,
+  facturaVentaFlitConAcceso, reactivar, rechazar, reversar,
 } from './flito-impuestos.service.js';
+import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarRecibos } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
@@ -64,15 +65,62 @@ function handleError(res: Response, e: unknown): void {
   throw e;
 }
 
-// GET /:id/factura-venta — ver/descargar la factura de venta (viene de FLIT, S3). Redirige a la URL
-// prefirmada. Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
+/**
+ * Qué es realmente el fichero que devolvió FLIT, mirando sus primeros bytes.
+ *
+ * Se mira el contenido y no la cabecera del origen porque S3 rotula todo como octet-stream. El
+ * default es PDF: es lo que FLIT emite como factura de venta, y ante la duda vale más un `.pdf`
+ * que un archivo sin extensión, que es justo lo que se está corrigiendo.
+ */
+function tipoDeFactura(buf: Buffer): { contentType: string; extension: string } {
+  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { contentType: 'application/pdf', extension: 'pdf' };
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { contentType: 'image/jpeg', extension: 'jpg' };
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return { contentType: 'image/png', extension: 'png' };
+  }
+  return { contentType: 'application/pdf', extension: 'pdf' };
+}
+
+/** Nombre de descarga: reconocible en la carpeta de descargas y siempre con extensión. */
+function nombreFactura(referencia: string, extension: string): string {
+  // El id de FLIT es texto libre del origen: se limpia porque va dentro de una cabecera HTTP.
+  const limpia = referencia.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60) || 'sin-id';
+  return `factura-venta-${limpia}.${extension}`;
+}
+
+/**
+ * GET /:id/factura-venta — ver/descargar la factura de venta (viene de FLIT, S3).
+ *
+ * La API sirve el fichero en vez de redirigir a la URL prefirmada, y esa es la diferencia entre un
+ * PDF y un archivo sin extensión. S3 entrega el objeto como `binary/octet-stream` y con el id de
+ * S3 por nombre: el navegador guardaba «a3f9c1…» sin extensión, que no abre con doble clic y hay
+ * que renombrar a mano. Al pasar por aquí ponemos las dos cosas que faltaban —`application/pdf` y
+ * un nombre con `.pdf`— y el archivo se descarga como lo que es.
+ *
+ * El tipo se decide por los bytes, no por lo que diga el origen: si el fichero empieza por `%PDF`
+ * es un PDF aunque venga rotulado como octet-stream, y si resulta ser una imagen se sirve como
+ * imagen en vez de mentir con un `.pdf` que ningún visor podría abrir.
+ *
+ * Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
+ */
 router.get('/:id/factura-venta', OPS_O_GESTOR, async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
-  const facturaId = await facturaVentaFlitIdConAcceso(req.params.id, ctx);
-  if (!facturaId) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
-  const url = await getFlitAdapter().obtenerUrlFactura(facturaId);
+  const factura = await facturaVentaFlitConAcceso(req.params.id, ctx);
+  if (!factura) { res.status(404).json({ error: 'El trámite no tiene factura de venta en FLIT' }); return; }
+  const url = await getFlitAdapter().obtenerUrlFactura(factura.facturaId);
   if (!url) { res.status(404).json({ error: 'La factura de venta no está disponible en FLIT' }); return; }
-  res.redirect(url);
+
+  const upstream = await fetch(url).catch(() => null);
+  if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return; }
+  const cuerpo = Buffer.from(await upstream.arrayBuffer());
+
+  const { contentType, extension } = tipoDeFactura(cuerpo);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', String(cuerpo.length));
+  // `inline` para que el visor de la aplicación lo pinte; el nombre es el que usa el navegador al
+  // guardarlo, así que lleva extensión pase lo que pase.
+  res.setHeader('Content-Disposition', `inline; filename="${nombreFactura(factura.idFlit ?? factura.facturaId, extension)}"`);
+  res.send(cuerpo);
 });
 
 // POST /facturas-venta/zip — descarga varias facturas de venta en un zip. Operaciones o gestor.
@@ -92,13 +140,17 @@ router.post('/facturas-venta/zip', OPS_O_GESTOR, async (req: Request, res: Respo
   let incluidas = 0;
   for (const id of parsed.data.ids) {
     try {
-      const facturaId = await facturaVentaFlitIdConAcceso(id, ctx);
-      if (!facturaId) continue;
-      const url = await flit.obtenerUrlFactura(facturaId);
+      const factura = await facturaVentaFlitConAcceso(id, ctx);
+      if (!factura) continue;
+      const url = await flit.obtenerUrlFactura(factura.facturaId);
       if (!url) continue;
       const r = await fetch(url);
       if (!r.ok) continue;
-      archive.append(Buffer.from(await r.arrayBuffer()), { name: `${facturaId}.pdf` });
+      // Mismo criterio que la descarga individual: el tipo sale de los bytes y el nombre lleva el
+      // id del trámite, que es con lo que se concilia. Antes cada entrada se llamaba como su id de
+      // S3, ilegible dentro del zip.
+      const cuerpo = Buffer.from(await r.arrayBuffer());
+      archive.append(cuerpo, { name: nombreFactura(factura.idFlit ?? factura.facturaId, tipoDeFactura(cuerpo).extension) });
       incluidas += 1;
     } catch { /* omitir la factura fallida, no tumbar el zip */ }
   }
@@ -174,6 +226,22 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const d = await detalleImpuesto(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
   res.json(await historialDe('impuesto', req.params.id));
+});
+
+/**
+ * GET /:id/soportes — los recibos cargados de este impuesto, con su enlace firmado.
+ *
+ * El detalle ya decía CUÁNTOS soportes hay y cómo se llaman, pero no daba forma de abrirlos: para
+ * ver el recibo que respalda un impuesto pagado había que salir al reporte de costos, al que el
+ * gestor del organismo no entra. Misma frontera que el historial —vía `detalleImpuesto()`, CA-10.
+ */
+router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoImpuesto(req.user!);
+  const d = await detalleImpuesto(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El impuesto no existe' }); return; }
+  // Sin caché: un recibo cargado hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
+  res.json(await soportesDeImpuesto(req.params.id));
 });
 
 /**

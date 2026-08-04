@@ -11,7 +11,7 @@ import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
-import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
+import VisorSoportes from '../components/flit/VisorSoportes';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -394,7 +394,7 @@ export default function FinanzasReporteCostos() {
       )}
 
       {soportesDe && (
-        <VisorSoportesTramite tramiteId={soportesDe.tramiteId} titulo={soportesDe.idFlit}
+        <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
           onClose={() => setSoportesDe(null)} />
       )}
     </div>

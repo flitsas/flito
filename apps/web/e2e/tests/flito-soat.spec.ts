@@ -265,6 +265,43 @@ test.describe('FLITO — Portal SOAT', () => {
     await expect.poll(() => urls.at(-1) ?? '').toContain('estancado=si');
   });
 
+  // El soporte se carga desde esta pantalla y hasta ahora solo se podía consultar desde el reporte
+  // de costos, al que el gestor del proveedor ni siquiera entra: quien abre un SOAT pagado quiere
+  // ver la factura que lo pagó sin salir del detalle.
+  test('desde el detalle de un SOAT pagado se ve su soporte', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/soat\/[^/]+\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { id: 'sop-1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'factura-soat.pdf', url: '/api/files?key=a', subidoEn: '2026-04-05T12:00:00Z' },
+      ]) }));
+
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'PAG777' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'Ver soporte' }).click();
+
+    await expect(page.getByText('Documentos de SOAT PAG777')).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'factura-soat.pdf' })).toBeVisible();
+  });
+
+  test('un SOAT sin soporte lo dice, y cerrar el visor devuelve al detalle', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/soat\/[^/]+\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'Ver soporte' }).click();
+    await expect(page.getByText(/no tiene ninguna factura cargada todavía/)).toBeVisible();
+
+    // Esc cierra SOLO el visor: el detalle que hay debajo sigue abierto. Con el listener en
+    // `window` sin más, la misma tecla cerraba los dos de golpe.
+    await page.keyboard.press('Escape');
+    await expect(page.getByText(/no tiene ninguna factura cargada todavía/)).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: /SOAT · ABC123/ })).toBeVisible();
+  });
+
   test('un SOAT sin movimientos lo dice, en vez de quedarse en blanco', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);

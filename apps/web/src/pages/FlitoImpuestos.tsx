@@ -27,6 +27,8 @@ import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
+import VisorSoportes from '../components/flit/VisorSoportes';
+import ModalFacturaVenta, { nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
@@ -583,6 +585,10 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
   const [estadoDestino, setEstadoDestino] = useState<EstadoImpuesto>(EstadoImpuesto.PENDIENTE);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Visor de los recibos de ESTE impuesto, encima del detalle.
+  const [verSoportes, setVerSoportes] = useState(false);
+  // Visor de la factura de venta (modal): blob url + nombre para descargar.
+  const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
 
   const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
   const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
@@ -612,15 +618,22 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
     finally { setEnviando(false); }
   };
 
-  // Factura de venta: viene de FLIT. Ver/descargar via presigned (el endpoint redirige; se sigue el
-  // redirect y se abre el blob). Integración FLIT (Fase 8).
+  /**
+   * Factura de venta: viene de FLIT y la sirve la API. Integración FLIT (Fase 8).
+   *
+   * Antes se abría con `window.open(URL.createObjectURL(blob))`. Una URL `blob:` no lleva nombre,
+   * así que el navegador guardaba el archivo con un identificador interno y SIN extensión: no abría
+   * con doble clic y había que renombrarlo a mano. Ahora se muestra en el visor, que descarga con
+   * un nombre de verdad y en `.pdf`.
+   */
   const verFactura = async () => {
     setError(null);
     try {
       const blob = await api.get<Blob>(`/flito/impuestos/${imp.id}/factura-venta`);
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+      setFactura({ url: URL.createObjectURL(blob), nombre: nombreFacturaVenta(imp.idFlit) });
     } catch (e) { setError(errorMessage(e)); }
   };
+  const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
 
   return (
     <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
@@ -645,8 +658,26 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
                 : <span style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>}
             </dd>
           </div>
+          {/* El recibo del organismo se carga desde esta pantalla, pero para verlo había que irse
+              al reporte de costos, en el que el gestor del organismo no entra. Es la evidencia del
+              pago: se mira desde donde se gestiona. */}
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
+            <dd className="text-sm">
+              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+                onClick={() => setVerSoportes(true)}>Ver soporte</button>
+            </dd>
+          </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
+
+        {verSoportes && (
+          <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
+            vacio="Este impuesto no tiene ningún recibo cargado todavía."
+            onClose={() => setVerSoportes(false)} />
+        )}
+
+        {factura && <ModalFacturaVenta url={factura.url} nombre={factura.nombre} onCerrar={cerrarFactura} />}
 
         <HistorialEstados concepto="impuesto" registroId={imp.id} />
 

@@ -23,7 +23,7 @@ import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
-import VisorSoportesTramite from '../components/flit/VisorSoportesTramite';
+import VisorSoportes from '../components/flit/VisorSoportes';
 
 const PAGE_SIZE = 50;
 
@@ -645,7 +645,7 @@ export default function FlitoDerechos() {
       )}
 
       {soportesDe && (
-        <VisorSoportesTramite tramiteId={soportesDe.tramiteId} titulo={soportesDe.idFlit}
+        <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
           onClose={() => setSoportesDe(null)} />
       )}
     </div>

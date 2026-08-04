@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
+import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
@@ -117,6 +118,26 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const d = await detalle(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   res.json(await historialDe('soat', req.params.id));
+});
+
+/**
+ * GET /:id/soportes — los comprobantes cargados de este SOAT, con su enlace firmado.
+ *
+ * Quien mira un SOAT pagado quiere ver la factura que lo pagó sin salir del detalle: hasta ahora
+ * el archivo se cargaba desde aquí y solo se podía consultar desde el reporte de costos, al que
+ * el gestor del proveedor ni siquiera entra.
+ *
+ * Pasa por `detalle()` antes de leer los soportes, por lo mismo que el historial: es ese paso el
+ * que aplica la frontera del gestor, y sin él un proveedor podría leer los documentos de un SOAT
+ * ajeno consultando su id.
+ */
+router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoSoat(req.user!);
+  const d = await detalle(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
+  res.json(await soportesDeSoat(req.params.id));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.

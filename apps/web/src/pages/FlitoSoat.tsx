@@ -20,6 +20,7 @@ import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
+import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
@@ -427,6 +428,8 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
   const [proveedorSoatId, setProveedorSoatId] = useState(soat.proveedorSoatId ?? '');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Visor de los comprobantes de ESTE SOAT (la factura de la aseguradora), encima del detalle.
+  const [verSoportes, setVerSoportes] = useState(false);
 
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
   const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
@@ -462,7 +465,23 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
             : soat.proveedorSoatNombre ?? '—'} /><Dato k="Trámites FLIT" v={soat.tramitesFlit.join(', ') || '—'} />
           <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />
+          {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
+              reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
+              SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
+            <dd className="text-sm">
+              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+                onClick={() => setVerSoportes(true)}>Ver soporte</button>
+            </dd>
+          </div>
         </dl>
+
+        {verSoportes && (
+          <VisorSoportes ruta={`/flito/soat/${soat.id}/soportes`} titulo={`SOAT ${soat.placa ?? soat.vin}`}
+            vacio="Este SOAT no tiene ninguna factura cargada todavía."
+            onClose={() => setVerSoportes(false)} />
+        )}
 
         <HistorialEstados concepto="soat" registroId={soat.id} />
 
