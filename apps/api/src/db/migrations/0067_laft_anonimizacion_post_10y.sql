@@ -34,6 +34,13 @@ SELECT * FROM (VALUES
    'Borrador ROS no se anonimiza — se archiva offline. Investigación UIAF puede requerir consulta posterior.'::text,
    1::integer)
 ) AS v(tipo_documento, retencion_anios, base_legal, accion, habilitado, notas_md, created_by)
+-- created_by es NOT NULL con FK a users. Esta migración se escribió cuando la BD ya tenía
+-- al admin (id 1), pero sobre una BD limpia las migraciones corren ANTES de sembrar
+-- usuarios y el INSERT reventaba con violación de FK, dejando la cadena muerta en 0067.
+-- El guard la vuelve no-op en ese caso; las tres políticas las siembra db/seed.ts después
+-- de crear el admin (que es donde debe vivir el dato que referencia usuarios).
+-- En entornos ya migrados este archivo no se re-ejecuta: pending se calcula por nombre.
+WHERE EXISTS (SELECT 1 FROM users WHERE id = 1)
 ON CONFLICT (tipo_documento) DO NOTHING;
 
 COMMIT;
