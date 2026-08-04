@@ -11,6 +11,7 @@ const FILA_ESTIMADA = {
   fechaAprobacion: '2026-07-14T15:30:00.000Z', fechaCreacion: '2026-07-02T10:00:00.000Z',
   soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000,
   gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
+  pendientesPago: [], autogestionados: [], noAplican: [],
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -35,20 +36,33 @@ const FILA_SIN_RECIBO = {
   derechoTramite: null, total: null, noConfigurados: [], sinRecibo: ['Derecho de tránsito'],
 };
 
+/** SOAT comprado pero aún sin pagar, y un impuesto que la compañía se gestiona sola. */
+const FILA_SIN_PAGAR = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000006', idFlit: 'FLIT-2006',
+  soat: null, impuesto: null, total: null,
+  pendientesPago: ['SOAT'], autogestionados: ['Impuesto'],
+};
+
 const REPORTE = {
-  items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_FACTURADA, FILA_SIN_RECIBO],
-  total: 5, page: 1, pageSize: 50,
+  items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_FACTURADA, FILA_SIN_RECIBO, FILA_SIN_PAGAR],
+  total: 6, page: 1, pageSize: 50,
   totales: {
     soat: 1800000, impuesto: 480000, derechoTramite: 320000, logistica: 60000,
     tramiteDigital: 600000, gmf: 10400, total: 3270400, filasIncompletas: 1,
   },
+  resumen: { listo: 1, incompleto: 3, porFacturar: 1, facturado: 1 },
 };
 
-async function mock(page: import('@playwright/test').Page) {
+/** Las facetas del filtro. `empresas` trae una entrada por EMPRESA, con su nombre, nunca su NIT. */
+async function mockFacetas(page: import('@playwright/test').Page, estados: string[]) {
   await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-      estados: ['Aprobado'], empresas: [{ nit: '900111', nombre: 'ACME SAS' }], tipos: ['Traspaso', 'Matricula'],
+      estados, empresas: [{ valor: '900111,9001112', nombre: 'ACME SAS' }], tipos: ['Traspaso', 'Matricula'],
     }) }));
+}
+
+async function mock(page: import('@playwright/test').Page) {
+  await mockFacetas(page, ['Aprobado']);
   await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
 }
@@ -102,39 +116,66 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(fila).toContainText('2 de jul de 26');
   });
 
-  test('el filtro inteligente «documentación completa» viaja al servidor y dice qué filtra', async ({ page }) => {
+  test('cada etapa del cobro se pide con un clic, y son excluyentes', async ({ page }) => {
+    // Lo que se viene a preguntar aquí —«qué puedo liquidar ya», «qué falta por facturar»— era una
+    // combinación de dos desplegables, y «listo para liquidar» no se podía pedir de ninguna manera.
     await loginAs(page, OPERACIONES_USER);
     const urls: string[] = [];
-    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        estados: ['Aprobado'], empresas: [{ nit: '900111', nombre: 'ACME SAS' }], tipos: ['Traspaso'],
-      }) }));
+    await mockFacetas(page, ['Aprobado']);
     await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
       urls.push(route.request().url());
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
     });
 
     await page.goto('/finanzas/reporte-costos');
-    await page.locator('summary').filter({ hasText: 'Vista' }).click();
-    // Un preset sin descripción es una caja negra: se ve el resultado pero no el criterio.
-    await expect(page.getByText(/saltando los que la compañía autogestiona/)).toBeVisible();
-    await page.getByRole('button', { name: /Documentación completa/ }).click();
+    await page.getByRole('button', { name: /Listos para liquidar/ }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('etapa=listo');
+
+    await page.getByRole('button', { name: /Facturados/ }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('etapa=facturado');
+    // Excluyentes: elegir una quita la anterior, no se acumulan.
+    expect(urls.at(-1)).not.toContain('etapa=listo');
+
+    await page.getByRole('button', { name: 'Todos', exact: true }).click();
+    await expect.poll(() => urls.at(-1) ?? '').not.toContain('etapa=');
+  });
+
+  test('cada etapa lleva cuántos trámites hay dentro', async ({ page }) => {
+    // Sin el número hay que entrar en cada pestaña para saber si tiene trabajo dentro.
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(page.getByRole('button', { name: 'Listos para liquidar 1' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Por facturar 1' })).toBeVisible();
+  });
+
+  test('el filtro de soportes completos viaja al servidor y dice qué filtra', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mockFacetas(page, ['Aprobado']);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    const soportes = page.getByText('Solo con soportes completos');
+    // Un filtro que no dice qué está filtrando es peor que ninguno: quien mira la lista no sabe qué
+    // se le está quedando fuera, y aquí lo que se salta son los conceptos que la compañía autogestiona.
+    await expect(soportes).toHaveAttribute('title', /saltando los que la compañía autogestiona/);
+    await soportes.click();
 
     await expect.poll(() => urls.at(-1) ?? '').toContain('documentacionCompleta=si');
-    // El preset se aplica sobre el estado limpio, no sobre lo que hubiera: el estado por defecto
-    // «Aprobado» se conserva porque `limpiarFiltros` vuelve a él.
     await expect.poll(() => urls.at(-1) ?? '').toContain('estados=Aprobado');
   });
 
   test('arranca filtrado por Aprobado y los dos rangos de fecha viajan por separado', async ({ page }) => {
-    // El estado por defecto se comprueba sobre la petición, no sobre el estilo de la pastilla: es
+    // El estado por defecto se comprueba sobre la petición, no sobre el estilo del control: es
     // lo que de verdad determina qué filas se traen.
     await loginAs(page, OPERACIONES_USER);
     const urls: string[] = [];
-    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        estados: ['Aprobado', 'Entregado'], empresas: [], tipos: [],
-      }) }));
+    await mockFacetas(page, ['Aprobado', 'Entregado']);
     await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
       urls.push(route.request().url());
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
@@ -145,32 +186,50 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     // Cada rango es un calendario propio (HU #11026): se elige el tramo y viaja completo.
     const rango = (etiqueta: string) => page.locator('summary').filter({ hasText: etiqueta });
-    await rango('Creado').click();
+    await rango('Creación').click();
     await page.getByRole('button', { name: 'Este mes' }).click();
     await expect.poll(() => urls.at(-1) ?? '').toContain('desde=');
 
-    await rango('Aprobado').click();
+    await rango('Aprobación').click();
     await page.getByRole('button', { name: 'Hoy' }).click();
     await expect.poll(() => urls.at(-1) ?? '').toContain('aprobadoDesde=');
     // Los dos viajan a la vez y por separado: uno no pisa al otro.
     expect(urls.at(-1)).toContain('desde=');
   });
 
-  test('limpiar filtros vuelve a Aprobado, no a todos los estados', async ({ page }) => {
+  test('el estado se elige en un solo control, que dice qué hay puesto sin abrirlo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const urls: string[] = [];
-    await page.route(/\/api\/finanzas\/reporte-costos\/facetas/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-        estados: ['Aprobado', 'Entregado'], empresas: [], tipos: [],
-      }) }));
+    await mockFacetas(page, ['Aprobado', 'Entregado']);
     await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
       urls.push(route.request().url());
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
     });
 
     await page.goto('/finanzas/reporte-costos');
-    await page.getByRole('button', { name: 'Entregado' }).click();
-    await page.locator('summary').filter({ hasText: 'Creado' }).click();
+    // Plegado ya dice cuál está puesto: no hay que abrirlo para saber qué se está mirando.
+    const estado = page.locator('summary').filter({ hasText: 'Estado' });
+    await expect(estado).toContainText('Aprobado');
+
+    await estado.click();
+    await page.getByRole('checkbox', { name: 'Entregado' }).check();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('Entregado');
+    await expect(estado).toContainText('2 seleccionados');
+  });
+
+  test('limpiar filtros vuelve a Aprobado, no a todos los estados', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mockFacetas(page, ['Aprobado', 'Entregado']);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.locator('summary').filter({ hasText: 'Estado' }).click();
+    await page.getByRole('checkbox', { name: 'Entregado' }).check();
+    await page.locator('summary').filter({ hasText: 'Creación' }).click();
     await page.getByRole('button', { name: 'Este mes' }).click();
     await page.getByRole('button', { name: 'Limpiar filtros' }).click();
 
@@ -194,6 +253,40 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(fila.getByText('Falta: Derecho de tránsito')).toBeVisible();
   });
 
+  test('un SOAT sin pagar bloquea la liquidación, y lo dice', async ({ page }) => {
+    // El botón se ofrecía activo y el backend rechazaba el sellado al pulsarlo: el reporte solo
+    // miraba tarifas y recibos, y no que el SOAT o el impuesto siguieran sin pagar.
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const fila = page.getByRole('row').filter({ hasText: 'FLIT-2006' });
+    await expect(fila.getByText('Sin pagar')).toBeVisible();
+    await expect(fila.getByRole('button', { name: 'Liquidar' })).toBeDisabled();
+    await expect(fila.getByText('Falta: SOAT')).toBeVisible();
+  });
+
+  test('lo que la compañía autogestiona se dice, no se deja en blanco', async ({ page }) => {
+    // Un guion se leía como «falta algo». Aquí no falta nada: FLITO no lo cobra.
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(page.getByRole('row').filter({ hasText: 'FLIT-2006' }).getByText('Autogestiona')).toBeVisible();
+  });
+
+  test('el desplegable de empresas enseña el nombre, nunca el NIT', async ({ page }) => {
+    // Cada empresa salía dos veces —una con su nombre y otra como un NIT crudo— porque sus trámites
+    // llegan con el NIT escrito de dos maneras. Ahora es una sola entrada que filtra por las dos.
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const empresas = page.getByLabel('Empresa');
+    await expect(empresas.getByRole('option')).toHaveText(['Todas las empresas', 'ACME SAS']);
+    await empresas.selectOption('900111,9001112');
+  });
+
   test('un concepto sin tarifa se muestra como «No configurado», no como cero', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
@@ -204,18 +297,28 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(fila.getByText('$ 0')).toHaveCount(0);
   });
 
-  test('avisa de que el total está incompleto', async ({ page }) => {
+  test('avisa de que el total está incompleto y lleva a los trámites que lo causan', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    await mock(page);
+    const urls: string[] = [];
+    await mockFacetas(page, ['Aprobado']);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) });
+    });
+
     await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText(/tienen algún concepto sin\s+configurar/)).toBeVisible();
+    await expect(page.getByText(/tienen algún concepto sin\s+resolver/)).toBeVisible();
+
+    // El aviso servía de poco si para ver esos trámites había que armar el filtro a mano.
+    await page.getByRole('button', { name: 'Ver cuáles' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('etapa=incompleto');
   });
 
   test('los totales son del filtro entero, no de la página', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/finanzas/reporte-costos');
-    await expect(page.getByText('Totales (5 trámites del filtro)')).toBeVisible();
+    await expect(page.getByText('Totales (6 trámites del filtro)')).toBeVisible();
   });
 
   test('no se puede liquidar una fila con conceptos pendientes, y se dice cuál falta', async ({ page }) => {
@@ -336,8 +439,11 @@ test.describe('Finanzas — Reporte de costos', () => {
 
     await expect(page.getByText('FLIT-2001')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Soporte' }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
+    // Dentro de la tabla: las pestañas de etapa del filtro también se llaman «…liquidar» y
+    // «…facturar», y lo que se comprueba aquí es que no haya acciones en las filas.
+    const tabla = page.getByRole('table');
+    await expect(tabla.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
+    await expect(tabla.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
+    await expect(tabla.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
   });
 });

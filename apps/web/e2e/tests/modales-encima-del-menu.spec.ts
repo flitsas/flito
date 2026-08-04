@@ -95,9 +95,11 @@ test.describe('Modales por encima de la barra de navegación', () => {
           soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000,
           tramiteDigital: 200000, gmf: 3460, total: 868460,
           sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
+          pendientesPago: [], autogestionados: [], noAplican: [],
         }],
         total: 1, page: 1, pageSize: 50,
         totales: { soat: 0, impuesto: 0, derechoTramite: 0, logistica: 0, tramiteDigital: 0, gmf: 0, total: 0, filasIncompletas: 0 },
+        resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 0 },
       }),
     }));
     await page.route(/\/api\/finanzas\/tramites\/.*\/soportes/, (route) =>

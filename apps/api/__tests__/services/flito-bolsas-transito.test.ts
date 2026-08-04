@@ -164,10 +164,15 @@ const consultaLibroBolsa: Resolver = () => {
   return fila ? [fila] : [];
 };
 
+/**
+ * `modalidadOrganismo: 'requiere_gestion'` porque el impuesto solo lo gestiona —y por tanto solo lo
+ * cobra— FLITO si la compañía no lo autogestiona Y el organismo lo entrega en gestión (RN-01).
+ */
 function filaCalculo(over: Fila = {}): Fila {
   return {
     tramiteId: TRAMITE, idFlit: 'FLIT-1', tipoTramite: 'Traspaso', companiaId: COMPANIA,
     logisticaAutogestionable: false, soatAutogestionable: false, impuestosAutogestionable: false,
+    modalidadOrganismo: 'requiere_gestion',
     soatId: SOAT_ID, soatEstado: 'pagado', soatValorPagado: '450000',
     impuestoId: IMPUESTO_ID, impuestoEstado: 'pagado', impuestoValorPagado: '120000',
     derechoValor: '100000',

@@ -4,7 +4,8 @@ import { Router, type Request, type Response } from 'express';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
-  aCsv, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION, type FiltrosReporte,
+  aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
+  type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
 
 const router = Router();
@@ -20,7 +21,9 @@ const lista = (v: unknown): string[] | undefined => {
   const s = str(v);
   return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
 };
-const siNo = (v: unknown): 'si' | 'no' | undefined => (v === 'si' || v === 'no' ? v : undefined);
+/** Etapa del ciclo de cobro. Una desconocida se ignora: mejor el universo entero que un error. */
+const etapa = (v: unknown): EtapaReporte | undefined =>
+  (typeof v === 'string' && (ETAPAS as readonly string[]).includes(v) ? v as EtapaReporte : undefined);
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
 const fecha = (v: unknown): string | undefined => {
   const s = str(v);
@@ -30,7 +33,7 @@ const fecha = (v: unknown): string | undefined => {
 function filtrosDe(q: Request['query']): FiltrosReporte {
   return {
     buscar: str(q.buscar), estados: lista(q.estados), empresas: lista(q.empresas), tipos: lista(q.tipos),
-    liquidado: siNo(q.liquidado), facturado: siNo(q.facturado),
+    etapa: etapa(q.etapa),
     documentacionCompleta: q.documentacionCompleta === 'si',
     desde: fecha(q.desde), hasta: fecha(q.hasta),
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
