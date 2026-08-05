@@ -103,6 +103,17 @@ export interface SiigoResultadoCatalogo {
   /** Elementos que dejaron de venir y quedaron marcados como inactivos. */
   inactivados: number;
   /**
+   * Elementos que Siigo devolvió y NO se guardaron: sin identificador utilizable, o con un código
+   * más largo que el que admite la copia local.
+   *
+   * Se descartan en vez de recortarlos porque un código recortado sería otro identificador —`13156`
+   * y `131560` son elementos distintos— y la parametrización acabaría apuntando a algo que en Siigo
+   * no existe. Viaja en el resultado porque, sin él, la lista aparece incompleta en la pantalla y
+   * nada explica por qué. Los textos (`nombre`, `descripcion`) sí se recortan: siguen identificando
+   * al mismo elemento.
+   */
+  descartados: number;
+  /**
    * El catálogo estaba poblado y Siigo lo devolvió VACÍO: `total = 0` e `inactivados > 0`.
    *
    * Técnicamente la sincronización fue un éxito —Siigo respondió 200 y la copia local quedó fiel—,

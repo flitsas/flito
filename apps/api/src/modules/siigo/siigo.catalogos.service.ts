@@ -46,6 +46,7 @@ import { SiigoCredencialError, type SiigoAmbiente } from './credenciales.service
 import { SiigoApiError } from './siigo.errors.js';
 import { modoSiigo } from './siigo.mock.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
+import { detalleTecnico, sanearMensaje } from './siigo.redaccion.js';
 import { ejecutarConResiliencia, SiigoOperacionFallida } from './siigo.resiliencia.js';
 import { SiigoAuthError } from './siigo.token.js';
 
@@ -281,6 +282,48 @@ const DEFINICION_POR_TIPO = new Map<SiigoTipoCatalogo, DefinicionCatalogo>(
   DEFINICIONES.map((d) => [d.tipo, d]),
 );
 
+// ── Ajuste a lo que la tabla admite ─────────────────────────────────────────
+//
+// Las columnas de `siigo_catalogos` son `varchar` con longitud (ver `db/schema.ts`), y Siigo no
+// promete respetarlas. Un nombre de vendedor más largo que la columna hacía fallar el INSERT con
+// `value too long for type character varying(200)` y tumbaba el catálogo entero —además de ser el
+// disparador más probable del volcado de SQL que corrige `siigo.redaccion.ts`—. Se recorta aquí,
+// antes de escribir, para que el catálogo entre y el fallo no exista.
+//
+// Los textos SE RECORTAN y los CÓDIGOS NO. Un nombre recortado sigue identificando al mismo
+// elemento; un código recortado sería OTRO identificador —`13156` y `131560` son elementos
+// distintos— y la parametrización acabaría apuntando a algo que en Siigo no existe. Un código que
+// no cabe se descarta y se cuenta.
+
+/** Longitudes reales de las columnas. Deben coincidir con `schema.ts`. */
+const LONGITUD_MAXIMA = { codigo: 60, nombre: 200, descripcion: 300 } as const;
+
+/**
+ * Recorta a `max` CARACTERES.
+ *
+ * Por puntos de código y no por `slice`: `varchar(n)` de Postgres cuenta caracteres, mientras que
+ * `String.prototype.length` cuenta unidades UTF-16. Cortar por unidades podría además partir un par
+ * suplente por la mitad y dejar media letra en la base.
+ */
+function recortar(valor: string, max: number): string {
+  const puntos = Array.from(valor);
+  return puntos.length <= max ? valor : puntos.slice(0, max).join('');
+}
+
+/**
+ * Ajusta un elemento ya normalizado a lo que la tabla admite.
+ *
+ * Devuelve `null` cuando hay que descartarlo: hoy, solo si su código no cabe en la columna.
+ */
+function ajustarALongitudes(e: ElementoNormalizado): ElementoNormalizado | null {
+  if (Array.from(e.codigo).length > LONGITUD_MAXIMA.codigo) return null;
+  return {
+    ...e,
+    nombre: recortar(e.nombre, LONGITUD_MAXIMA.nombre),
+    descripcion: e.descripcion === null ? null : recortar(e.descripcion, LONGITUD_MAXIMA.descripcion),
+  };
+}
+
 /**
  * Extrae la lista de elementos de la respuesta.
  *
@@ -302,6 +345,28 @@ class SiigoCatalogoFormaInesperada extends Error {
   constructor(tipo: string) {
     super(`Siigo respondió el catálogo "${tipo}" con una forma que no es una lista de elementos.`);
     this.name = 'SiigoCatalogoFormaInesperada';
+  }
+}
+
+/**
+ * Fallo al escribir el catálogo en la copia local.
+ *
+ * Existe para que un error de Postgres NO llegue crudo al traductor genérico. Desde `drizzle-orm`
+ * 0.45, el driver devuelve un `DrizzleQueryError` cuyo `message` es `Failed query: <SQL>\nparams:
+ * <valores>`; ese texto acababa en la respuesta HTTP y en la bitácora WORM, que no se puede depurar
+ * después (Ley 1581, art. 8). El mensaje de esta clase es FIJO y no admite detalle: lo que sirve
+ * para depurar —la causa del driver— se escribe en el log del servidor, donde sí se puede rotar.
+ *
+ * `tipo` se guarda para el log, no para el mensaje: nombrar el catálogo en la respuesta no aporta
+ * nada que el propio resultado no diga ya.
+ */
+export class SiigoPersistenciaError extends Error {
+  readonly tipo: SiigoTipoCatalogo;
+
+  constructor(tipo: SiigoTipoCatalogo) {
+    super('No se pudo guardar el catálogo en la copia local.');
+    this.name = 'SiigoPersistenciaError';
+    this.tipo = tipo;
   }
 }
 
@@ -348,7 +413,21 @@ export function traducirFalloCatalogo(entrada: unknown): { codigo: string; mensa
     };
   }
 
-  const detalle = e instanceof Error ? e.message : String(e);
+  // La escritura en la copia local no es «traer el catálogo desde Siigo»: los datos llegaron bien y
+  // el problema es nuestro. Va con su propio código para que la pantalla no invite a revisar Siigo,
+  // y con mensaje fijo para que la sentencia que falló no viaje al operador.
+  if (e instanceof SiigoPersistenciaError) {
+    return {
+      codigo: 'error_persistencia',
+      mensaje: `${e.message} Los datos que llegaron de Siigo son correctos; el problema está en la `
+        + 'base de datos de FLITO. Vuelve a intentarlo y, si persiste, avísale al equipo técnico.',
+    };
+  }
+
+  // Rama genérica: lo único que queda es el `message` del error, y ahí es donde entraba el volcado
+  // `Failed query: … params: …` de drizzle. `sanearMensaje` lo corta antes de incrustarlo, de modo
+  // que ningún fallo futuro pueda reabrir esta vía por descuido.
+  const detalle = sanearMensaje(e instanceof Error ? e.message : String(e));
   return {
     codigo: 'servicio_no_disponible',
     mensaje: `No se pudo traer el catálogo desde Siigo: ${detalle}`,
@@ -538,7 +617,7 @@ async function sincronizarUno(
       createdBy: opciones.usuarioId ?? null,
     });
     return {
-      tipo: definicion.tipo, etiqueta, ok: false, total: 0, inactivados: 0,
+      tipo: definicion.tipo, etiqueta, ok: false, total: 0, inactivados: 0, descartados: 0,
       vaciadoMasivo: false, sincronizadoEn: null, error: { codigo, mensaje }, duracionMs,
     };
   };
@@ -571,15 +650,36 @@ async function sincronizarUno(
     // Siigo repitiera un elemento, y un catálogo entero perdido por un duplicado suyo sería un
     // fallo nuestro. Gana la última aparición, que es la más reciente en la respuesta.
     const porCodigo = new Map<string, ElementoNormalizado>();
+    let descartados = 0;
     for (const crudo of crudos.slice(0, MAX_ELEMENTOS_POR_CATALOGO)) {
       const normalizado = definicion.normalizar(crudo);
-      if (normalizado) porCodigo.set(normalizado.codigo, normalizado);
+      // Sin identificador utilizable: no se puede referenciar desde una parametrización.
+      if (!normalizado) { descartados++; continue; }
+      // Con un código más largo que su columna: recortarlo crearía otro elemento.
+      const ajustado = ajustarALongitudes(normalizado);
+      if (!ajustado) { descartados++; continue; }
+      porCodigo.set(ajustado.codigo, ajustado);
     }
 
     const sincronizadoEn = new Date();
-    const { total, inactivados } = await persistirCatalogo(
-      ambiente, definicion.tipo, [...porCodigo.values()], sincronizadoEn,
-    );
+    // La escritura va con su PROPIO catch. Sin él, un error de Postgres sale crudo de aquí y cae en
+    // la rama genérica del traductor, que lo incrusta en el mensaje que ven el operador y la
+    // bitácora WORM; y desde drizzle ≥ 0.45 ese mensaje es la sentencia entera con sus parámetros
+    // —los nombres de los vendedores, entre ellos—. El detalle técnico se queda en el log del
+    // servidor, que sí se puede rotar y depurar; hacia fuera va un error de dominio con texto fijo.
+    let persistencia: ResultadoPersistencia;
+    try {
+      persistencia = await persistirCatalogo(
+        ambiente, definicion.tipo, [...porCodigo.values()], sincronizadoEn,
+      );
+    } catch (e) {
+      console.error('[siigo] no se pudo guardar el catálogo en la copia local', {
+        tipo: definicion.tipo, ambiente, elementos: porCodigo.size, err: detalleTecnico(e),
+      });
+      throw new SiigoPersistenciaError(definicion.tipo);
+    }
+
+    const { total, inactivados } = persistencia;
     const duracionMs = Date.now() - inicio;
 
     // Siigo respondió 200 con una lista vacía y aquí había elementos activos: la parametrización se
@@ -603,17 +703,23 @@ async function sincronizarUno(
       resultado: 'ok',
       // Solo el conteo: el contenido del catálogo ya está en su tabla, duplicarlo en la bitácora
       // WORM la haría crecer sin aportar nada que no se pueda consultar.
-      responseBody: { total, inactivados, vaciadoMasivo },
-      mensaje: vaciadoMasivo
+      responseBody: { total, inactivados, vaciadoMasivo, descartados },
+      mensaje: (vaciadoMasivo
         ? `Catálogo "${definicion.tipo}": Siigo lo devolvió VACÍO; ${inactivados} elementos quedaron `
           + 'inactivados. Verifica en Siigo antes de parametrizar.'
-        : `Catálogo "${definicion.tipo}": ${total} elementos, ${inactivados} inactivados.`,
+        : `Catálogo "${definicion.tipo}": ${total} elementos, ${inactivados} inactivados.`)
+        // Un descarte es un elemento que Siigo tiene y FLITO no: si no se dice, la lista aparece
+        // incompleta en la pantalla sin que nada explique por qué.
+        + (descartados > 0
+          ? ` ${descartados} elemento(s) se descartaron por venir sin identificador utilizable o con `
+            + 'un código más largo del que admite la copia local.'
+          : ''),
       duracionMs,
       createdBy: opciones.usuarioId ?? null,
     });
 
     return {
-      tipo: definicion.tipo, etiqueta, ok: true, total, inactivados, vaciadoMasivo,
+      tipo: definicion.tipo, etiqueta, ok: true, total, inactivados, descartados, vaciadoMasivo,
       sincronizadoEn: sincronizadoEn.toISOString(), error: null, duracionMs,
     };
   } catch (e) {
