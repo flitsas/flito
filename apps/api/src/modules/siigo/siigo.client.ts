@@ -9,6 +9,7 @@
 
 import { obtenerToken, SiigoAuthError } from './siigo.token.js';
 import { resolverConfig } from './siigo.config.js';
+import { traducirErrorSiigo, type SiigoApiError } from './siigo.errors.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 export type MetodoHttp = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -107,3 +108,18 @@ export async function siigoRequest<T = unknown>(req: SiigoRequest): Promise<Siig
   const datos = await respuesta.json().catch(() => null) as T;
   return { status: respuesta.status, ok: respuesta.ok, datos };
 }
+
+/**
+ * Igual que `siigoRequest`, pero traduce cualquier respuesta fallida a `SiigoApiError` (HU #11250).
+ *
+ * Es la forma que deben usar los servicios de negocio: obliga a tratar el fallo y trae ya resuelto
+ * si la operación se reintenta o si hay que corregir un dato. `siigoRequest` queda para quien
+ * necesite inspeccionar el estado crudo, como el diagnóstico de conexión.
+ */
+export async function siigoRequestOrThrow<T = unknown>(req: SiigoRequest): Promise<T> {
+  const r = await siigoRequest<T>(req);
+  if (!r.ok) throw traducirErrorSiigo(r.status, r.datos);
+  return r.datos;
+}
+
+export type { SiigoApiError };
