@@ -13,21 +13,16 @@ model: inherit
 
 ---
 
-## El sistema que estás diseñando
+## El sistema que estás diseñando — fuente de verdad: `AGENTS.md`
 
-Monorepo **npm workspaces**:
+Las convenciones completas del monorepo están en `AGENTS.md` (raíz) — léelo antes de diseñar; si algo aquí difiere, manda `AGENTS.md`. Lo crítico para el diseño:
 
-| Workspace | Qué es |
-|---|---|
-| `apps/api` | Express 4 + TypeScript ESM + **Drizzle ORM** + PostgreSQL + Zod. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts`. Transversales en `src/shared/`. Esquema en `src/db/schema.ts` |
-| `apps/web` | Vite 5 + React 18 + react-router-dom 6 + Tailwind 4. Páginas en `src/pages/`, cliente HTTP en `src/lib/api.ts` |
-| `packages/shared-types` | contrato de tipos entre ambos (`@operaciones/shared-types`) |
-
-Infra en el repo: `docker-compose.yml`, `docker-compose.prod.yml`, `ecosystem.config.cjs` (PM2), `scripts/`.
-
-Dependencias externas ya integradas: PostgreSQL, Redis, MinIO/S3, Google Drive API, OCR (Tesseract y motor Anthropic), firma digital (`@signpdf`), RUNT/RNDC.
-
-**No existen aquí:** `.cursor/`, `contracts/openapi/`, `services/core-api/`, Next.js, .NET, ni carpeta `docs/` (créala si escribes el primer ADR). El producto FLITO usa módulos con prefijo `flito-` que **coexisten** con módulos legacy sin prefijo — cualquier diseño debe decir explícitamente con cuál de los dos habla.
+- `apps/api`: Express 4 + TypeScript ESM + **Drizzle ORM** + Zod. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts`; esquema en `src/db/schema.ts`. La migración la genera `backend-agent` con `npm run db:generate`
+- `apps/web`: Vite 5 + React 18 + react-router-dom 6 + Tailwind 4
+- `packages/shared-types` (`@operaciones/shared-types`): **no hay OpenAPI** — el contrato vive en el documento de diseño y en shared-types
+- Infra en el repo: `docker-compose.yml`, `docker-compose.prod.yml`, `ecosystem.config.cjs` (PM2), `scripts/`
+- Dependencias externas ya integradas: PostgreSQL, Redis, MinIO/S3, Google Drive API, OCR (Tesseract y motor Anthropic), firma digital (`@signpdf`), RUNT/RNDC
+- Los módulos FLITO con prefijo `flito-` **coexisten** con legacy sin prefijo: cualquier diseño dice explícitamente con cuál de los dos habla
 
 ---
 

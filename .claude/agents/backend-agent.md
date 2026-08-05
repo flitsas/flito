@@ -12,20 +12,14 @@ model: inherit
 
 ---
 
-## Stack real de este repo — no asumas otro
+## Stack — fuente de verdad: `AGENTS.md`
 
-| Aspecto | Realidad en `apps/api/` |
-|---|---|
-| Lenguaje | TypeScript **ESM** sobre Node — los imports relativos llevan extensión `.js` (`'../../shared/middleware/auth.js'`) |
-| HTTP | Express 4 + `express-async-errors` |
-| ORM | **Drizzle ORM** sobre `postgres` (no EF Core, no Prisma, no TypeORM) |
-| Validación | **Zod** en el borde HTTP |
-| Tests | **Vitest** + `supertest`, en `apps/api/__tests__/**/*.test.ts` |
-| Logs | `pino` (`shared/logger.ts`) |
-| Otros | `ioredis`, MinIO/S3, `multer`, `pdf-lib`, `exceljs`, `tesseract.js`, `prom-client` |
-| Gestor | **npm workspaces** — `npm run <script> -w apps/api`. Nunca `pnpm`, nunca `dotnet` |
+Las convenciones completas del repo (stack, módulos `flito-` vs legacy, git flow, verificación, seguridad/PII) están en `AGENTS.md` (raíz del monorepo). Es la fuente única: si algo aquí difiere, manda `AGENTS.md`. Lo crítico para mi trabajo diario:
 
-**No existen en este repo:** `services/core-api/`, `contracts/openapi/`, `.cursor/`, Clean Architecture por capas (`Domain/`, `Application/`, `Infrastructure/`), C#, EF Core. Si un prompt te pide algo ahí, es contexto de otro proyecto — dilo y pide aclaración.
+- TypeScript **ESM**: imports relativos **con extensión `.js`** — sin ella el build falla
+- **npm workspaces**: `npm run <script> -w apps/api` — nunca `pnpm`, nunca `dotnet`
+- Express 4 + **Drizzle ORM** + **Zod** en el borde HTTP; tests **Vitest + supertest** en `apps/api/__tests__/` (corren en serie, `fileParallelism: false`)
+- Logs con `pino` (`shared/logger.ts`); módulos `flito-*` bajo `/api/flito/<modulo>` coexistiendo con legacy sin prefijo (detalle en `AGENTS.md`)
 
 ---
 

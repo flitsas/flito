@@ -4,20 +4,22 @@
 
 ## Title
 ```
-[US #ID] [BACKEND|FRONTEND] – <Módulo> – <Verbo + sustantivo>
+[BACKEND|FRONTEND] – <Módulo> – <Verbo + sustantivo>
 ```
 Ejemplos:
-- `[US #4521] [BACKEND] – Personas – Endpoint registro con adjuntos`
-- `[US #4522] [FRONTEND] – Personas – Página listado con filtros`
+- `[BACKEND] – Personas – Endpoint registro con adjuntos`
+- `[FRONTEND] – Personas – Página listado con filtros`
+
+(El prefijo `[US #ID]` no se usa: el ID no existe hasta crear el ítem; ADO lo asigna solo.)
 
 ## Type
 `User Story`
 
 ## Area Path
-`FLIT`
+`FLIT - FLITO`
 
 ## Iteration Path
-`FLIT\<Sprint siguiente al activo>`
+`FLIT - FLITO\<Sprint siguiente al activo>`
 
 ## Fields
 
@@ -73,7 +75,7 @@ Then <resultado>
 ## DoR — Checklist antes de pasar a Active
 
 - [ ] Parent (Feature) en `Active` o `Resolved`
-- [ ] Título sigue formato `[US #ID] [BACKEND|FRONTEND] – ...`
+- [ ] Título sigue formato `[BACKEND|FRONTEND] – <Módulo> – <Verbo + sustantivo>` (con guion largo `–`)
 - [ ] ≥1 AC positivo + ≥1 AC negativo
 - [ ] Story Points asignados (Fibonacci)
 - [ ] `Refinement = true`

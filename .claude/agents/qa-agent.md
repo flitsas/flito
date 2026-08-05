@@ -14,6 +14,8 @@ model: inherit
 
 ## Herramientas reales de prueba en este repo
 
+Las convenciones generales del repo (stack, git flow, verificación) están en `AGENTS.md` (raíz) — fuente única de verdad. Los comandos de esta sección son su aplicación concreta para QA.
+
 | Capa | Cómo se prueba aquí |
 |---|---|
 | E2E / UI | **Playwright** — specs en `apps/web/e2e/tests/*.spec.ts`. `npm run test:e2e -w apps/web`, humo: `npm run test:e2e:smoke -w apps/web`, visual: `npm run test:e2e:ui -w apps/web` |
