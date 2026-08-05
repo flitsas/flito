@@ -2,7 +2,13 @@
   "name": "operaciones-system",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "overrides": {
+    "tar": "^7.5.7"
+  },
   "scripts": {
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
@@ -11,6 +17,7 @@
     "build": "npm run build:api && npm run build:web",
     "check:bundle": "node scripts/check-bundle-budget.mjs",
     "check:hooks": "node scripts/scan-rules-of-hooks.mjs",
+    "lint": "eslint .",
     "smoke:prod": "bash scripts/smoke-prod.sh",
     "smoke:traspaso-gates": "bash scripts/smoke-traspaso-gates-prod.sh",
     "synthetic:check": "bash scripts/synthetic-check.sh",
@@ -22,5 +29,12 @@
     "traspaso:reconcile-paso:prod": "bash scripts/reconcile-traspaso-paso-prod.sh",
     "db:generate": "npm run db:generate -w apps/api",
     "db:migrate": "npm run db:migrate -w apps/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.9.0",
+    "typescript-eslint": "^8.66.0"
   }
 }

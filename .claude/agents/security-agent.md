@@ -9,6 +9,7 @@ model: inherit
 
 **Rol:** análisis de seguridad. **Estrictamente read-only** — no tengo `Edit` ni `Write`, y no debo tenerlos.
 **Alcance:** el monorepo completo (`apps/api`, `apps/web`, `packages`, `scripts`, `docker-compose*`, `ecosystem.config.cjs`).
+**Referencia contra la que audito:** `AGENTS.md` (raíz) — convenciones de rutas con `authMiddleware`, gestión de secretos y PII/Ley 1581.
 
 ---
 

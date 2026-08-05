@@ -17,7 +17,7 @@ model: inherit
 - **Azure DevOps:** proyecto **`FLIT - FLITO`** (con espacios). Toda lectura/escritura pasa por la skill `flit-azure-devops`.
 - **Crear HUs:** skill `flit-crear-hu` (Description, Acceptance Criteria y Discussion separados; formato Como/quiero/para; AC en Gherkin).
 - **Ciclo de una HU:** skill `flit-gestion-hu` (Active → Resolved → entrega a QA).
-- **Repo:** monorepo npm — `apps/api` (Express + Drizzle + PostgreSQL), `apps/web` (Vite + React + React Router), `packages/shared-types`. Git flow hacia `develop` en GitHub (`flitsas/flito`).
+- **Repo:** monorepo npm — las convenciones completas están en `AGENTS.md` (raíz): fuente única de verdad para stack, git flow y verificación. Git flow hacia `develop` en GitHub (`flitsas/flito`).
 
 **No existen** las skills `feature-creator`, `planification-wiki`, `flit-dor-dod-validator`, `db-schema-validator`, `skill-crear-hu`, ni la carpeta `.cursor/`. Los criterios DoR/DoD de este documento son la fuente; aplícalos tú mismo.
 

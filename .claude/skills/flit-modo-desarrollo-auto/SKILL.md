@@ -10,6 +10,7 @@ Esta skill **orquesta**; no duplica la lógica de las otras:
 
 - `flit-azure-devops` — conexión MCP/REST, encoding, idempotencia
 - `flit-gestion-hu` — estados `Active` / `Resolved` y comentarios
+- `flit-code-review` — revisión del diff antes del PR (paso 4b)
 - `flit-integration-ado` — registro del PR en `Custom.Commits` y Deploy tras merge
 
 ## Entrada
@@ -51,7 +52,8 @@ por qué el diff incluye cambios ajenos a la HU. Tras el merge de la HU previa, 
 ### 3. Desarrollo
 
 Cumplir los Acceptance Criteria de la HU, uno por uno, respetando el stack y las convenciones del
-repo (ver `AGENTS.md` / patrones vecinos). No ampliar el alcance a otras HU.
+repo (ver `AGENTS.md` en la raíz — es la fuente de verdad — y los patrones vecinos). No ampliar el
+alcance a otras HU.
 
 ### 4. Tests y pipelines
 
@@ -86,6 +88,22 @@ Tras el push, esperar el pipeline remoto consultando `mcp__github__pull_request_
 consultar en bucle, lanzar un `sleep` con `run_in_background` y volver a mirar cuando avise.
 
 **Si algo falla: arreglarlo y repetir. No se avanza con rojo.**
+
+### 4b. Revisión y seguridad pre-PR (gate obligatorio)
+
+Con el diff completo de la rama (`git diff origin/develop...HEAD`), **antes** de commitear y abrir PR:
+
+1. **`flit-code-review`** sobre el diff: checklist de proceso, backend y frontend. Veredicto
+   `BLOQUEADO` → corregir y re-revisar; el PR no se abre.
+2. **`security-agent`** sobre el diff cuando toque superficie sensible (criterio de la propia
+   skill): `auth`, `permissions`, `pii-audit`, `laft/`, `privacy/`, `multer`, rutas nuevas,
+   `package*.json` o campos PII. Veredicto `FAIL` → corregir; no hay excepción sin aprobación
+   documentada del Líder Técnico.
+3. Si el diff no toca superficie sensible, declararlo explícitamente en el cuerpo del PR
+   ("superficie sensible: no aplica — revisado por flit-code-review").
+
+Los checks CI `dependency-audit` y `secret-scan` corren además en el pipeline tras el push — si
+alguno falla en remoto, se corrige antes de pedir el merge.
 
 ### 5. Commit, push y PR
 
@@ -124,12 +142,14 @@ resumen: HU, rama, PR, estado del pipeline.
 2. **Nunca hacer merge del PR.** El merge es de un humano o del Líder Técnico. Esta skill llega
    hasta el PR abierto.
 3. **Nunca `Resolved` con build o pipeline en rojo.**
-4. **Nunca commitear secretos** ni `.env`.
-5. **Una rama por HU**, siempre desde `develop` actualizado. No reutilizar la rama de otra HU salvo
+4. **Nunca abrir el PR sin el paso 4b en verde** — `flit-code-review` y, cuando aplique,
+   `security-agent`. La seguridad no es opcional ni queda a criterio del momento.
+5. **Nunca commitear secretos** ni `.env`.
+6. **Una rama por HU**, siempre desde `develop` actualizado. No reutilizar la rama de otra HU salvo
    por la estrategia de dependencias del paso 2, y dejándolo escrito en el PR.
-6. **No tocar `Custom.Evidences`** aquí (lo llena el rol de tests/QA) ni los campos `Deploy *`
+7. **No tocar `Custom.Evidences`** aquí (lo llena el rol de tests/QA) ni los campos `Deploy *`
    (los llena `flit-integration-ado` Modo B, post-merge).
-7. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra), **parar esa
+8. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra), **parar esa
    HU**, dejar comentario en Discussion explicando el bloqueo, y continuar con la siguiente que no
    dependa de ella. Informar al usuario al final.
 
@@ -146,6 +166,8 @@ resumen: HU, rama, PR, estado del pipeline.
 - [ ] Rama `feat/flito-hu<ID>-*` creada desde `develop` actualizado
 - [ ] Todos los AC cubiertos
 - [ ] Build, tests y pipeline en verde
+- [ ] `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES (paso 4b)
+- [ ] `security-agent` ejecutado si el diff tocó superficie sensible (o declarado "no aplica")
 - [ ] Commit sin archivos colados (`git status --short` limpio)
 - [ ] PR abierto contra `develop`
 - [ ] PR registrado en ADO (`flit-integration-ado` Modo A)

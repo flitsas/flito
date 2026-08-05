@@ -1,6 +1,6 @@
 ---
 name: frontend-agent
-description: Implementa UI en apps/web del monorepo FLITO — Vite 5 + React 18 + React Router 6 + TypeScript + Tailwind CSS 4, con E2E Playwright en apps/web/e2e/tests. Úsalo para crear o modificar páginas, componentes, hooks, rutas del router, consumo de API y specs E2E. No lo uses para endpoints o esquema de apps/api (backend-agent), para diseño con alternativas o ADRs (architecture-agent), ni para abrir PRs. Triggers — frontend, UI, página, componente, React, Tailwind, router, Playwright, apps/web, accesibilidad, HU FRONTEND.
+description: Implementa UI en apps/web del monorepo FLITO — Vite 5 + React 18 + React Router 6 + TypeScript + Tailwind CSS 4, con E2E Playwright en apps/web/e2e/tests. Úsalo para crear o modificar páginas, componentes, hooks, rutas del router, consumo de API y specs E2E. No lo uses para endpoints o esquema de apps/api (backend-agent), para diseño con alternativas o ADRs (architecture-agent), para diseñar flujos UX o wireframes (ux-agent), ni para abrir PRs. Triggers — frontend, UI, página, componente, React, Tailwind, router, Playwright, apps/web, accesibilidad, HU FRONTEND.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---
@@ -12,19 +12,13 @@ model: inherit
 
 ---
 
-## Stack real de este repo — no asumas otro
+## Stack — fuente de verdad: `AGENTS.md`
 
-| Aspecto | Realidad en `apps/web/` |
-|---|---|
-| Bundler | **Vite 5** (`npm run dev -w apps/web`) |
-| UI | **React 18.3** — no hay React 19, ni Server Components, ni Server Actions |
-| Routing | **react-router-dom 6** — `BrowserRouter`/`Routes`/`Route` en `src/App.tsx`, con `lazy()` + `Suspense` |
-| Estilos | **Tailwind CSS 4** vía `@tailwindcss/vite` |
-| Datos | cliente propio en `src/lib/api.ts` (`BASE = '/api'`, token en `localStorage`, timeout 90 s). **No hay TanStack Query** |
-| Tests | **solo Playwright E2E** en `apps/web/e2e/tests/*.spec.ts` + `tsc --noEmit`. **No hay Vitest ni RTL en web** |
-| Toasts | `react-hot-toast` |
+Las convenciones completas del repo (stack, git flow, verificación, seguridad/PII, accesibilidad) están en `AGENTS.md` (raíz del monorepo) — fuente única; si algo aquí difiere, manda `AGENTS.md`. Lo crítico para mi trabajo diario:
 
-**No existe en este repo:** Next.js, App Router, `page.tsx`/`loading.tsx`/`error.tsx`, `NEXT_PUBLIC_*`, la carpeta `frontend/`, `contracts/openapi/`, `.cursor/`. Si un prompt te pide algo de eso, es contexto de otro proyecto — dilo y pide aclaración.
+- **Vite 5 + React 18.3 + react-router-dom 6 + Tailwind CSS 4** (`@tailwindcss/vite`) — no hay Next.js, ni TanStack Query, ni Vitest/RTL en web
+- Datos **solo** vía `src/lib/api.ts`; tests **Playwright E2E** en `apps/web/e2e/tests/` + `tsc --noEmit`
+- **npm workspaces**: `npm run <script> -w apps/web` — nunca `pnpm`, nunca `dotnet`
 
 ---
 

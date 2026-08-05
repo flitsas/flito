@@ -28,6 +28,11 @@ vi.mock('../../src/shared/middleware/audit.js', () => ({
   audit: vi.fn().mockResolvedValue(undefined),
 }));
 
+const probarConexionMock = vi.fn();
+vi.mock('../../src/modules/siigo/siigo.diagnostico.service.js', () => ({
+  probarConexion: probarConexionMock,
+}));
+
 const guardarCredencialMock = vi.fn();
 const listarCredencialesMock = vi.fn();
 const desactivarCredencialMock = vi.fn();
@@ -54,6 +59,7 @@ beforeEach(async () => {
   guardarCredencialMock.mockReset();
   listarCredencialesMock.mockReset();
   desactivarCredencialMock.mockReset();
+  probarConexionMock.mockReset();
   const { createApp } = await import('../../src/app.js');
   app = createApp();
 });
@@ -216,5 +222,52 @@ describe('desactivación', () => {
     expect(r.status).toBe(200);
     expect(r.body.success).toBe(true);
     expect(desactivarCredencialMock).toHaveBeenCalledWith(5, 1);
+  });
+});
+
+describe('AC5 (HU #11253) — la prueba de conexión es solo para administradores', () => {
+  it('sin token responde 401', async () => {
+    const r = await request(app).post('/api/siigo/credenciales/probar-conexion').send({});
+    expect(r.status).toBe(401);
+  });
+
+  it('con rol no-admin responde 403 y no llega al servicio', async () => {
+    const r = await request(app)
+      .post('/api/siigo/credenciales/probar-conexion')
+      .set('Authorization', await proveedorAuth())
+      .send({});
+    expect(r.status).toBe(403);
+    expect(probarConexionMock).not.toHaveBeenCalled();
+  });
+
+  it('con admin devuelve 200 y el veredicto en el cuerpo, incluso si la prueba falla', async () => {
+    probarConexionMock.mockResolvedValue({
+      ok: false, codigo: 'sin_credenciales', mensaje: 'Faltan credenciales',
+      ambiente: 'pruebas', modo: 'real', username: null, tokenObtenido: false, duracionMs: 5,
+    });
+
+    const r = await request(app)
+      .post('/api/siigo/credenciales/probar-conexion')
+      .set('Authorization', await adminAuth())
+      .send({});
+
+    // 200 a propósito: el veredicto viaja siempre en el mismo campo, no repartido entre status y body.
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(false);
+    expect(r.body.codigo).toBe('sin_credenciales');
+  });
+
+  it('acepta el ambiente por el cuerpo y descarta valores inventados', async () => {
+    probarConexionMock.mockResolvedValue({ ok: true, codigo: 'ok', mensaje: '', ambiente: 'produccion', modo: 'real', username: null, tokenObtenido: true, duracionMs: 1 });
+
+    await request(app).post('/api/siigo/credenciales/probar-conexion')
+      .set('Authorization', await adminAuth()).send({ ambiente: 'produccion' });
+    expect(probarConexionMock.mock.calls[0]![0]).toMatchObject({ ambiente: 'produccion' });
+
+    probarConexionMock.mockClear();
+    await request(app).post('/api/siigo/credenciales/probar-conexion')
+      .set('Authorization', await adminAuth()).send({ ambiente: 'staging' });
+    // Un ambiente inventado no se propaga: el servicio resuelve el configurado.
+    expect(probarConexionMock.mock.calls[0]![0]).toMatchObject({ ambiente: undefined });
   });
 });

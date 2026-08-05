@@ -1,6 +1,6 @@
 ---
 name: backend-agent
-description: Implementa backend en apps/api del monorepo FLITO — Express 4 + TypeScript ESM + Drizzle ORM + PostgreSQL + Zod, con tests Vitest en apps/api/__tests__. Úsalo para crear o modificar endpoints, servicios de módulo, esquema Drizzle, migraciones, crons y tipos compartidos. No lo uses para UI de apps/web (frontend-agent), para diseño con alternativas o ADRs (architecture-agent), ni para abrir PRs o tocar Azure DevOps más allá de leer la HU. Triggers — backend, API, endpoint, ruta, servicio, Express, Drizzle, migración, esquema, PostgreSQL, Zod, apps/api, HU BACKEND.
+description: Implementa backend en apps/api del monorepo FLITO — Express 4 + TypeScript ESM + Drizzle ORM + PostgreSQL + Zod, con tests Vitest en apps/api/__tests__. Úsalo para crear o modificar endpoints, servicios de módulo, esquema Drizzle, migraciones, crons y tipos compartidos. No lo uses para UI de apps/web (frontend-agent), para diseño con alternativas o ADRs (architecture-agent), para auditar el esquema Drizzle existente — normalización, ciclos, índices, drift — (db-review-agent), ni para abrir PRs o tocar Azure DevOps más allá de leer la HU. Triggers — backend, API, endpoint, ruta, servicio, Express, Drizzle, migración, esquema, PostgreSQL, Zod, apps/api, HU BACKEND.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---
@@ -12,20 +12,14 @@ model: inherit
 
 ---
 
-## Stack real de este repo — no asumas otro
+## Stack — fuente de verdad: `AGENTS.md`
 
-| Aspecto | Realidad en `apps/api/` |
-|---|---|
-| Lenguaje | TypeScript **ESM** sobre Node — los imports relativos llevan extensión `.js` (`'../../shared/middleware/auth.js'`) |
-| HTTP | Express 4 + `express-async-errors` |
-| ORM | **Drizzle ORM** sobre `postgres` (no EF Core, no Prisma, no TypeORM) |
-| Validación | **Zod** en el borde HTTP |
-| Tests | **Vitest** + `supertest`, en `apps/api/__tests__/**/*.test.ts` |
-| Logs | `pino` (`shared/logger.ts`) |
-| Otros | `ioredis`, MinIO/S3, `multer`, `pdf-lib`, `exceljs`, `tesseract.js`, `prom-client` |
-| Gestor | **npm workspaces** — `npm run <script> -w apps/api`. Nunca `pnpm`, nunca `dotnet` |
+Las convenciones completas del repo (stack, módulos `flito-` vs legacy, git flow, verificación, seguridad/PII) están en `AGENTS.md` (raíz del monorepo). Es la fuente única: si algo aquí difiere, manda `AGENTS.md`. Lo crítico para mi trabajo diario:
 
-**No existen en este repo:** `services/core-api/`, `contracts/openapi/`, `.cursor/`, Clean Architecture por capas (`Domain/`, `Application/`, `Infrastructure/`), C#, EF Core. Si un prompt te pide algo ahí, es contexto de otro proyecto — dilo y pide aclaración.
+- TypeScript **ESM**: imports relativos **con extensión `.js`** — sin ella el build falla
+- **npm workspaces**: `npm run <script> -w apps/api` — nunca `pnpm`, nunca `dotnet`
+- Express 4 + **Drizzle ORM** + **Zod** en el borde HTTP; tests **Vitest + supertest** en `apps/api/__tests__/` (corren en serie, `fileParallelism: false`)
+- Logs con `pino` (`shared/logger.ts`); módulos `flito-*` bajo `/api/flito/<modulo>` coexistiendo con legacy sin prefijo (detalle en `AGENTS.md`)
 
 ---
 

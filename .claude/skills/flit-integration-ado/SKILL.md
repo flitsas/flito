@@ -17,7 +17,7 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 | UI (módulo) | API | Quién escribe | Cuándo |
 |-------------|-----|---------------|--------|
-| **Commits** | `Custom.Commits` | integration-agent / Líder Técnico | Modo A (PR abierta) y Modo B (post-merge) |
+| **Commits** | `Custom.Commits` | hilo principal (rol integración) / Líder Técnico | Modo A (PR abierta) y Modo B (post-merge) |
 | **Evidences** | `Custom.Evidences` | rol Dev / QA (evidencias de tests) | **Nunca** en esta skill |
 | **Deploy DEV** | `Custom.DeployDEV` | Modo B | PR **MERGED** → target `develop` |
 | **Deploy QA** | `Custom.DeployQA` | Modo B | PR **MERGED** → target `staging` |
@@ -30,11 +30,12 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 ## Modos de operación
 
-### Modo A — Registro de PR (integration-agent)
+### Modo A — Registro de PR (hilo principal — rol integración)
 
 **Cuándo:** Tras crear el PR en GitHub (`gh pr create`, target `develop` por defecto).
 
-**Quién:** integration-agent (no frontend/backend-agent).
+**Quién:** el hilo principal con esta skill (no frontend/backend-agent). **No existe un agente
+`integration-agent` separado** — el rol integración lo asume el hilo principal.
 
 **ADO (sin confirmación extra si va encadenado tras crear PR):**
 
@@ -46,7 +47,7 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 ---
 
-### Modo B — Confirmación post-merge (Líder Técnico / integration-agent)
+### Modo B — Confirmación post-merge (Líder Técnico / hilo principal)
 
 **Cuándo:** El usuario (típicamente **Líder Técnico**) pide validar integración y confirmar despliegue al desarrollador; o tras merge humano en GitHub UI.
 
@@ -70,7 +71,7 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 6. **ADO:** `System.History` — mensaje para desarrollador: PR integrada, rama destino, Deploy * activado, enlace PR.
 
-**Quién ejecuta Modo B:** integration-agent o **Líder Técnico** (mismo contrato).
+**Quién ejecuta Modo B:** hilo principal o **Líder Técnico** (mismo contrato).
 
 ---
 
@@ -103,7 +104,7 @@ Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `
 <h2>Integración confirmada — HU #{hu_id}</h2>
 <p><strong>Estado PR:</strong> MERGED</p>
 <p><strong>Fecha merge:</strong> {mergedAt}</p>
-<p><strong>Confirmado por:</strong> {USER_REAL_NAME} (Líder Técnico / integration-agent)</p>
+<p><strong>Confirmado por:</strong> {USER_REAL_NAME} (Líder Técnico / hilo principal)</p>
 <h3>Merge en GitHub</h3>
 <table>
   <!-- Merge commit SHA, baseRefName, enlace a rama destino en repo -->
@@ -123,7 +124,7 @@ Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `
 **Modo A:**
 
 ```html
-<div>🔗 [@integration-agent] PR <a href="{pr_url}">#{pr_number}</a> registrada en <b>Commits</b> (HU #{hu_id}). Target: <code>{baseRefName}</code>.</div>
+<div>🔗 [@{actor}] PR <a href="{pr_url}">#{pr_number}</a> registrada en <b>Commits</b> (HU #{hu_id}). Target: <code>{baseRefName}</code>.</div>
 ```
 
 **Modo B:**
@@ -179,7 +180,7 @@ Con MCP: `mcp__azure-devops__wit_update_work_item`. Con REST: `json.dumps(patch,
 ## GitHub — comandos
 
 ```bash
-# Crear PR (integration-agent, target develop por defecto)
+# Crear PR (hilo principal, target develop por defecto)
 gh pr create --base develop --head <branch> --title "HU{id}: ..." --body-file pr-body.md
 
 # Modo B — estado
@@ -199,7 +200,7 @@ gh pr merge <N> --merge   # o --squash según estrategia acordada
 
 ## Pre-condiciones merge (GitHub) — antes de ejecutar `gh pr merge`
 
-Aplican solo si integration-agent **ejecuta** el merge (con «sí» textual). **No** aplican en Modo B de solo verificación.
+Aplican solo si el Líder Técnico **ejecuta** el merge con `gh` (con «sí» textual). **No** aplican en Modo B de solo verificación.
 
 | # | Condición | Verificación GitHub |
 |---|-----------|------------------------|
@@ -207,8 +208,8 @@ Aplican solo si integration-agent **ejecuta** el merge (con «sí» textual). **
 | 2 | Rama origen válida | `feat/flito-*` (convención del repo) **o** `feat/*` / `fix/*` |
 | 3 | Target permitido | `develop` (flujo HU) / `staging` / `release` (promoción LT) |
 | 4 | ≥1 aprobación humana | `gh pr view --json reviews` |
-| 5 | CI build/lint | check `Lint, type-check, build` → `success` |
-| 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
+| 5 | CI build/test | check `build + test` → `success` |
+| 6 | Security | checks `dependency-audit` y `secret-scan` (jobs de `ci.yml`) → `success` |
 | 7 | 0 threads sin resolver | `gh pr view --json reviewThreads` o UI |
 | 8 | HU en ADO: `Custom.Refinement=true`, Story Points | `GET workitem` |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR |
@@ -222,12 +223,12 @@ Si falla una → reportar número y **no** mergear.
 | Paso | Responsable por defecto |
 |------|-------------------------|
 | Implementar código | frontend-agent / backend-agent / humano |
-| Crear PR en GitHub | **integration-agent** |
-| Registrar PR en ADO (Modo A) | **integration-agent** |
+| Crear PR en GitHub | **hilo principal** (rol integración) |
+| Registrar PR en ADO (Modo A) | **hilo principal** (rol integración) |
 | Ejecutar merge | **Humano** (GitHub UI) **o** **Líder Técnico** con `gh pr merge` tras «sí» textual |
-| Verificar merge + Deploy * + Commits integrado (Modo B) | **integration-agent** o **Líder Técnico** |
+| Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester |
-| Estado `Resolved` en HU | quien implementó (gestión HU) — integration-agent **solo avisa** si falta |
+| Estado `Resolved` en HU | quien implementó (gestión HU) — el hilo principal **solo avisa** si falta |
 
 ---
 
