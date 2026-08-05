@@ -77,6 +77,12 @@ const envSchema = z.object({
   // Opcional en el esquema para no romper entornos que aún no usan la integración, pero SIN
   // derivación de respaldo: el servicio de credenciales falla explícitamente si falta (HU #11247).
   SIIGO_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'SIIGO_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  SIIGO_BASE_URL: z.string().url().default('https://api.siigo.com'),
+  // Nombre de la aplicación integradora. Siigo lo exige en TODA petición y bloquea a quien envíe
+  // información falsa. Opcional aquí y validado al resolver la configuración: así el arranque no
+  // depende de una integración que puede no estar en uso todavía (HU #11248).
+  SIIGO_PARTNER_ID: z.string().optional(),
+  SIIGO_AMBIENTE: z.enum(['pruebas', 'produccion']).default('pruebas'),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
