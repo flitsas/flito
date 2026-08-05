@@ -89,7 +89,8 @@ jobs:
   # Gate de seguridad SCA — precondición de merge #6 de flit-integration-ado.
   # Falla con cualquier vulnerabilidad High o Critical en dependencias de
   # producción (tolerancia 0 según security-agent; una excepción aprobada se
-  # documenta en el PR y se relaja aquí de forma explícita).
+  # documenta en el PR y se registra, acotada a un advisory, en
+  # scripts/dependency-audit.mjs).
   dependency-audit:
     name: dependency-audit
     runs-on: ubuntu-latest
@@ -105,7 +106,7 @@ jobs:
         run: npm ci
 
       - name: npm audit (dependencias de producción)
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/dependency-audit.mjs
 
   # Gate de secretos — precondición de merge #6 de flit-integration-ado.
   # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.
