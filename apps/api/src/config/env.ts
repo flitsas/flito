@@ -83,6 +83,11 @@ const envSchema = z.object({
   // depende de una integración que puede no estar en uso todavía (HU #11248).
   SIIGO_PARTNER_ID: z.string().optional(),
   SIIGO_AMBIENTE: z.enum(['pruebas', 'produccion']).default('pruebas'),
+  // `mock` por defecto (HU #11252): mientras no haya credenciales del ambiente real, el valor
+  // seguro es NO salir a la red. Pasar a `real` es una decisión explícita de despliegue.
+  SIIGO_MODE: z.enum(['mock', 'real']).default('mock'),
+  SIIGO_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
+  SIIGO_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
