@@ -1,0 +1,22 @@
+title = "FLITO gitleaks config"
+
+# Mantiene todas las reglas por defecto de gitleaks y solo añade el allowlist.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Falsos positivos conocidos del repo FLITO"
+
+# Fixtures de la suite de tests: claves hex de 64 chars generadas con
+# crypto.randomBytes(32) y fijadas para determinismo (documentado en
+# apps/api/__tests__/setup.ts, comentario sobre PII_HMAC_KEY / RNDC_ENC_KEY /
+# SIIGO_ENC_KEY). El keyspace de tests NO comparte con producción.
+#
+# Scope estricto a la carpeta de tests — el código de producción sigue
+# escaneándose con todas las reglas. Consecuencia aceptada: una clave REAL
+# pegada en un archivo de tests no sería detectada; por eso la regla de
+# AGENTS.md sigue vigente: prohibido datos/credenciales reales en fixtures.
+paths = [
+  '''^apps/api/__tests__/''',
+  '''^apps/web/e2e/''',
+]
