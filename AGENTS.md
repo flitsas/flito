@@ -110,10 +110,12 @@ Prohibido declarar una HU terminada sin la salida real pegada de los comandos an
 | Planear un flujo multi-fase | `orchestrator-agent` |
 | Features, HUs, DoR/DoD, deuda técnica | `tech-lead-agent` |
 | Diseño con alternativas, ADR | `architecture-agent` |
+| Diseño UX/UI — flujos, wireframes, spec de interacción | `ux-agent` |
 | Código `apps/api` | `backend-agent` |
 | Código `apps/web` | `frontend-agent` |
 | TCs, ejecución, bugs, regresión | `qa-agent` |
 | Auditoría SCA/secretos/PII | `security-agent` |
+| Auditoría del esquema de BD (normalización, FKs circulares, índices, drift de migraciones) | `db-review-agent` |
 | Post-deploy, salud de ambientes/crons, rollback | `devops-agent` |
 | Revisión de diff pre-PR | skill `flit-code-review` |
 | Promoción develop→staging→release | skill `flit-release` |

@@ -22,12 +22,14 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Necesidad | Ejecutor | Tipo |
 |---|---|---|
 | Diseño con alternativas, ADR, contrato de endpoints, modelo Drizzle | `architecture-agent` | subagente |
+| Diseño UX/UI — flujos de usuario, wireframes, spec de interacción (4 estados, permisos, a11y) | `ux-agent` | subagente |
 | Feature, descomposición en HUs, DoR/DoD, deuda técnica | `tech-lead-agent` | subagente |
 | Código en `apps/api` — rutas, servicios, esquema, migraciones, tests Vitest | `backend-agent` | subagente |
 | Código en `apps/web` — páginas, componentes, router, specs Playwright | `frontend-agent` | subagente |
 | TCs, ejecución de suites, bugs, regresión, certificación | `qa-agent` | subagente |
 | Dependencias, secretos, patrones inseguros, PII / Ley 1581 | `security-agent` | subagente |
 | Verificación post-deploy, salud de crons/contenedores, rollback guiado, triage de caídas | `devops-agent` | subagente |
+| Auditoría del esquema de BD — normalización, FKs circulares, índices, drift schema↔migraciones | `db-review-agent` | subagente |
 | Leer o escribir work items en ADO | skill `flit-azure-devops` | skill |
 | Crear HUs en ADO | skill `flit-crear-hu` | skill |
 | Ciclo Active → Resolved, entrega a QA | skill `flit-gestion-hu` | skill |
@@ -36,7 +38,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Promoción develop → staging → release | skill `flit-release` | skill |
 | Ciclo completo y repetible por HU de un Feature | skill `flit-modo-desarrollo-auto` | skill |
 
-**No existen** `database-agent`, `infra-agent`, `integration-agent` ni `code-review-agent`. Tampoco existe `.cursor/workflows/` ni el comando `/code-review`. Si un plan los nombra, está mal: el esquema Drizzle lo lleva `backend-agent`, el PR lo hace el hilo principal con `flit-integration-ado` (rol integración), la revisión de diff es la skill `flit-code-review` más `security-agent`, la promoción entre ambientes es `flit-release`, y la infraestructura se escala a un humano.
+**No existen** `infra-agent`, `integration-agent` ni `code-review-agent`. Tampoco existe `.cursor/workflows/` ni el comando `/code-review`. Si un plan los nombra, está mal: el esquema Drizzle lo implementa `backend-agent` y lo audita `db-review-agent`, el PR lo hace el hilo principal con `flit-integration-ado` (rol integración), la revisión de diff es la skill `flit-code-review` más `security-agent`, la promoción entre ambientes es `flit-release`, y la infraestructura se escala a un humano.
 
 ---
 
@@ -55,10 +57,10 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 
 1. **Entiendo el alcance.** Reviso el repo lo justo para saber qué workspaces toca (`apps/api`, `apps/web`, `packages/shared-types`) y si hay módulos análogos. Si la intención es ambigua, hago **una sola pregunta**: qué se quiere lograr y si hay ID de Feature o HU en ADO.
 2. **Elijo la forma del flujo:**
-   - *Requerimiento nuevo* → tech-lead (Feature + HUs) → architecture (si no es trivial) → backend → frontend → `flit-code-review` (+ security-agent si toca superficie sensible) → qa → PR
+   - *Requerimiento nuevo* → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → backend → frontend → `flit-code-review` (+ security-agent si toca superficie sensible) → qa → PR
    - *HU ya existente* → leer HU → backend o frontend → `flit-code-review` → qa → PR
    - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR
-   - *Auditoría* → security-agent, o tech-lead modo D
+   - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
    - *Feature completo con varias HUs en cadena* → skill `flit-modo-desarrollo-auto` (ya incluye el gate 4b: code review + seguridad)
    - *Promoción entre ambientes* → skill `flit-release`
 3. **Omito fases que no aportan.** Un cambio de una línea no necesita ADR ni descomposición.
