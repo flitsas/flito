@@ -36,7 +36,11 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 3. SQL solo con el query builder de Drizzle o `sql` parametrizado — nunca concatenando strings.
 4. Toda ruta con `authMiddleware` (más `requireRole` si aplica), salvo endpoint público explícito en la HU y comentado en el código.
 5. Credenciales, hosts y rutas de bucket por `process.env` / `src/config` — nunca hardcodeadas.
-6. Migraciones: se generan con `npm run db:generate` y no se editan a mano una vez generadas. **Nunca** `drizzle-kit migrate` (ver `apps/api/src/db/migrations/README.md`).
+6. Migraciones: **SQL plano escrito a mano** en `apps/api/src/db/migrations/`, numeración secuencial `NNNN_descripcion.sql`, idempotente cuando se pueda. Solo `0001-0004` salieron de `drizzle-kit generate`; de `0005` en adelante no se usa. Se aplican con `npm run db:apply` (runner propio con su tabla de aplicadas).
+   - **Nunca** `drizzle-kit generate` ni `drizzle-kit migrate`: el journal se quedó en `0004`, así que el primero emitiría una migración recreando ~120 tablas y el segundo aplicaría 5 de 64, dejando la BD inconsistente.
+   - Una migración **ya aplicada en cualquier ambiente no se modifica**: el runner calcula lo pendiente **por nombre de archivo**, así que la edición no se ejecutaría allá y quedaría deriva silenciosa entre el SQL en disco y el esquema real. Se corrige con una migración nueva. Editarla antes de aplicarla en ningún lado sí es seguro.
+   - **Aplicarlas es manual fuera de local.** El job one-shot `migrate` de `docker-compose.yml` las corre en cada `up` y la api depende de él; `docker-compose.prod.yml` **no** tiene ese servicio y `cd.yml` no ejecuta `db:apply`. Tras un deploy que trae migración hay que correrla a mano (`docker compose -f docker-compose.prod.yml run --rm api node dist/scripts/db-apply.js`), con `pg_dump` previo en producción. Si no, la app queda esperando un esquema que nadie creó.
+   - Detalle y modos del runner en `apps/api/src/db/migrations/README.md`.
 7. Cambiar un tipo en `packages/shared-types` exige `grep` obligatorio de sus usos en `apps/web`.
 
 ### Frontend (`apps/web`)

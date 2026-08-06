@@ -1,7 +1,13 @@
 # Facturación electrónica de trámites vía Siigo API — Features (borrador local)
 
-> **Estado:** borrador para revisión. **No creado en Azure DevOps todavía.**
+> **Estado:** Features creadas en Azure DevOps (serie 10-15, IDs 11239-11244). Este documento
+> sigue siendo la fuente de diseño detallado que citan.
 > Base técnica: [`docs/integraciones/siigo-api.md`](../integraciones/siigo-api.md).
+> Implementación de referencia: [`docs/uso-siigo/`](../uso-siigo/README.md) — cliente portable con
+> las formas exactas de los payloads (`EJEMPLO_CLIENTE`, `EJEMPLO_FACTURA`), el patrón de reserva
+> idempotente (restricción `UNIQUE` + `INSERT ... ON CONFLICT DO NOTHING` **antes** de llamar a
+> Siigo), el saneamiento de `name` y la normalización de la respuesta (`cufe`, `pdf_url`,
+> `stamp_status`, `public_url`). Insumo directo de F3, F4 y F5.
 
 ## 1. Objetivo
 
@@ -144,6 +150,20 @@ determinan si esto son 6 productos o N (tipo de trámite × concepto).
   (Siigo **reemplaza**, no hace merge: hay que reenviar todo el objeto).
 - **Validador previo**: pantalla/informe de «clientes no facturables» que lista qué campo fiscal le
   falta a cada cliente antes de intentar emitir.
+- **Saneamiento de `name` según el tipo de persona**: es siempre un array, pero su forma depende
+  de `person_type` — `[nombres, apellidos]` para persona natural y `[razón social]` de un solo
+  elemento para compañía. La limpieza también depende del tipo: para persona natural se eliminan
+  dígitos y signos (Siigo los rechaza), pero la razón social **conserva dígitos y siglas** —
+  «TRANSPORTES 3M S.A.S.» no debe convertirse en «TRANSPORTES M S.A.S.». `limpiarNombre()` de la
+  referencia aplica solo al caso Person. El validador previo detecta nombres rechazables según el
+  tipo de persona. Ver [`docs/uso-siigo/`](../uso-siigo/README.md).
+  **Quien decide la forma es el `person_type` nuevo, no una suposición sobre la cartera**: hoy la
+  mayoría de los clientes son compañías (`clients.document_type` tiene default `NIT`), pero el
+  modelo no lo restringe — no hay enum en el esquema y `clients.routes.ts` acepta cualquier cadena
+  de hasta 5 caracteres. **Se implementan y se prueban las dos ramas**, Person y Company; la
+  migración deriva `person_type` del `document_type` existente (`NIT` → Company; `CC`/`CE`/`TI` →
+  Person) y deja explícito qué hacer con las filas sin dato, que quedan como no facturables hasta
+  que un humano las clasifique.
 
 **Regla de negocio:** un cliente sin datos fiscales completos **bloquea** la emisión de sus trámites
 con un mensaje accionable, no con un error genérico de Siigo.
@@ -166,10 +186,36 @@ con un mensaje accionable, no con un error genérico de Siigo.
   - `observations` con el `idFlit`, la placa y el tipo de trámite para trazabilidad;
   - `stamp.send = true` (DIAN) y envío al correo de la compañía (D-3);
   - `Idempotency-Key` derivado del `id` del **lote de facturación** (ver §7) — **estable, no
-    aleatorio**, para que un reintento nunca genere una factura duplicada.
+    aleatorio**, para que un reintento nunca genere una factura duplicada;
+  - la forma exacta del payload (`items`, `payments`, `stamp.send`, `send_email`) sigue
+    `EJEMPLO_FACTURA` de [`docs/uso-siigo/siigo-uso.js`](../uso-siigo/siigo-uso.js);
+  - validación de sanidad en servidor al armar: total > 0, ítems con código de producto e importes
+    no negativos (`validarItems()` de la referencia), aunque los valores salgan de la liquidación
+    sellada.
 - Tabla `siigo_facturas`: `id`, `siigo_invoice_id`, `number`, `name` (`FV-2-22`), `cufe`,
   `public_url`, `estado`, `total_siigo`, `enviado_en`, `error_code`, `error_detalle`, `intentos`,
-  `idempotency_key`.
+  `idempotency_key` — con restricción **`UNIQUE`**: la base de datos es el árbitro anti-duplicado.
+  El worker reserva la clave (`INSERT ... ON CONFLICT DO NOTHING`) **antes** de llamar a Siigo, y
+  el conflicto se resuelve **según el estado de la fila reservada**: `emitida` devuelve la factura
+  ya emitida; `en_proceso` señala otra emisión en curso (la petición no emite en paralelo);
+  `fallida` permite que un reintento legítimo tome la clave y vuelva a intentar — sin esta
+  distinción, un timeout dejaría la clave reservada para siempre y ningún reintento volvería a
+  emitir. Si el POST a Siigo tuvo éxito pero el UPDATE local falló, la reconciliación (consulta a
+  Siigo por el identificador FLIT en `observations`) recupera esa factura DIAN real en vez de
+  dejarla marcada como fallida. «Consultar y luego emitir» es una carrera que produce dos facturas
+  DIAN reales; patrón base de [`docs/uso-siigo/siigo-uso.js`](../uso-siigo/siigo-uso.js), que aquí
+  se corrige en el manejo de `en_proceso`/`fallida`.
+  - **La toma de una clave `fallida` es atómica.** El reintento no lee el estado y luego emite:
+    reclama la fila con un `UPDATE` condicional y **solo emite quien recibe fila**.
+    `UPDATE siigo_facturas SET estado='en_proceso', intentos=intentos+1 WHERE idempotency_key=$1
+    AND estado='fallida' RETURNING id`. `ON CONFLICT DO NOTHING` devuelve cero filas siempre, así
+    que sin esta condición dos reintentos simultáneos sobre la misma fila `fallida` emiten **dos
+    facturas DIAN** — justo la carrera que la restricción `UNIQUE` viene a evitar.
+  - **`en_proceso` tiene arrendamiento, no es un estado terminal.** Una fila en `en_proceso` con
+    más de N minutos (parámetro de operación, sugerido 15) se considera huérfana —worker caído
+    entre la reserva y el `UPDATE`— y entra a la reconciliación descrita arriba, que la resuelve a
+    `emitida` si Siigo tiene la factura o a `fallida` si no. Sin esta regla, `en_proceso` bloquea
+    la clave indefinidamente: el mismo problema que se corrigió para `fallida`, mudado de estado.
 - Tabla puente `siigo_factura_tramites`: `factura_id` → `tramite_id` + `liquidacion_id`.
   **Es una relación N:1 desde el inicio** aunque hoy siempre tenga una sola fila por factura; es
   lo que permite habilitar la consolidación después sin migrar la tabla principal (D-1, §7).
@@ -198,6 +244,9 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
   la creación. Pregunta 3 define el destinatario.
 - Descarga y archivo de **PDF y XML** (`/pdf`, `/xml`) en S3 bajo `clients.flitoCarpetaStorage`,
   enlazados al trámite para que queden junto a los demás soportes.
+- La respuesta de emisión se normaliza a `cufe`, `pdf_url`, `stamp_status` y `public_url` como en
+  `emitirFactura()` de [`docs/uso-siigo/siigo-client.js`](../uso-siigo/siigo-client.js), de modo
+  que el reconciliador y el archivo lean siempre los mismos campos.
 - Panel de estado: emitidas, aceptadas por DIAN, rechazadas con su motivo, pendientes de envío.
 - Reenvío manual de correo y reintento manual de las rechazadas, desde el reporte.
 
@@ -214,8 +263,9 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
   (`parameter_required` → falta un dato; `invalid_dian_resolution` → resolución vencida; etc.).
 - Reintento masivo controlado y marcado manual de `fallido_definitivo`.
 - **Reversa:** hoy `reversar` está prohibido después de `facturado`. Con factura electrónica emitida
-  y aceptada por la DIAN, la corrección solo puede ser una **nota crédito** (`/v1/credit-notes`).
-  Pregunta 8 define si entra en este alcance o en una feature posterior.
+  y aceptada por la DIAN, la corrección solo puede ser una **nota crédito** (`/v1/credit-notes`);
+  la **anulación electrónica** (`DELETE /v1/invoices/{id}`, estado `anulada`) aplica en ventanas y
+  estados DIAN distintos. Pregunta 8 define si entran en este alcance o en una feature posterior.
 - Permisos: qué rol puede emitir (hoy `financiera`, `admin`, `auditor` leen el reporte; liquidar y
   facturar exigen escritura).
 
@@ -246,8 +296,10 @@ diferidas con una estrategia de diseño que impide que bloqueen el desarrollo (D
    `due_date` y **no admite más de una forma de pago** en la factura.
 7. **Retenciones.** ¿Aplican ReteICA/ReteIVA/autorretención en las facturas de FLIT? Siigo lo
    soporta con `retentions[]`, pero hay que saber cuáles y cuándo.
-8. **Notas crédito.** Si un trámite facturado hay que corregirlo o anularlo, ¿entra la nota crédito
-   en este alcance o se maneja manualmente en Siigo por ahora?
+8. **Notas crédito y anulación.** Si un trámite facturado hay que corregirlo o anularlo, ¿entran
+   la nota crédito y la anulación electrónica en este alcance o se manejan manualmente en Siigo por
+   ahora? Son operaciones distintas: la anulación aplica en ventanas y estados DIAN que la nota
+   crédito no cubre.
 9. **Empresa emisora.** ¿FLIT factura desde un único NIT / una sola empresa de Siigo Nube, o hay
    varias? El rate limit y las credenciales son **por empresa**.
 10. **Ambiente de pruebas.** ¿Ya se solicitaron las credenciales de pruebas a Siigo? Hasta tenerlas
@@ -295,3 +347,18 @@ definición de negocio, y porque una factura rechazada por la DIAN no arrastra a
 honorarios. Si lo hay, FLITO necesita una columna de IVA en el reporte de costos y en la
 liquidación — y eso sí es alcance adicional, porque hoy no existe en ninguna parte del modelo.
 Queda señalado como **riesgo de alcance** de F2, no como bloqueo de F1/F3.
+
+---
+
+## 8. Deuda técnica y notas de gestión (registradas 2026-08-05)
+
+- **DT-1 — Caché de token Siigo multi-instancia.** El caché de `siigo.token.ts` vive en memoria
+  del proceso. Si PM2 llega a correr más de una instancia del API, cada una autentica por su lado:
+  Siigo lo tolera, pero se pierde el mutex y se gastan logins extra. La referencia
+  (`docs/uso-siigo/siigo-client.js`) ya admite caché inyectable. Acción cuando se escale a 2+
+  instancias: mover el caché a Redis (`src/shared/redis.ts`) sin tocar el resto del cliente.
+  **No urgente** mientras haya una sola instancia.
+- **NG-1 — Cierre de la Feature 10 (ADO 11239).** Su alcance está implementado y probado al 100 %
+  (credenciales AES-256-GCM, cliente HTTP, token, throttle, backoff, circuit breaker, errores
+  tipados, mock, bitácora WORM, diagnóstico; suites `siigo-*` en `apps/api/__tests__/services/`).
+  Sugerencia al Product Owner: evaluar su cierre. Cerrar un Feature es exclusivo del PO.

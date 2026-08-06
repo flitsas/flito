@@ -12,8 +12,8 @@ oficial. Se va ampliando a medida que se revisan nuevas secciones.
 > documentación de forma programática hay que descargar el blueprint desde
 > `/api-description-document`.
 
-**Secciones revisadas:** Autenticación · Convenciones generales · Clientes · Facturas de Venta · Productos
-**Pendientes:** Categorías de Inventario · Cotizaciones · Notas Crédito · Facturas de compra · Documento soporte · Recibos de Caja · Recibos de pago · Comprobantes Contables · Reportes · Catálogos · Webhooks
+**Secciones revisadas:** Autenticación · Convenciones generales · Clientes · Facturas de Venta · Productos · Catálogos
+**Pendientes:** Categorías de Inventario · Cotizaciones · Notas Crédito · Facturas de compra · Documento soporte · Recibos de Caja · Recibos de pago · Comprobantes Contables · Reportes · Webhooks
 
 ---
 
@@ -402,6 +402,59 @@ el array `components` con `id`, `code` y `name` de cada componente.
 
 ---
 
+## 5. Catálogos
+
+Grupo `Catálogos` del blueprint. Son listas de parametrización de la empresa en Siigo Nube:
+cambian poco y se consultan mucho, así que se **cachean** en FLITO (tabla `siigo_catalogos`,
+HU #11281). Todos responden un **arreglo simple**, no la forma paginada `{ pagination, results }`.
+
+| Método | Ruta | Qué devuelve |
+|---|---|---|
+| GET | `/v1/document-types?type=FV` | Tipos de comprobante (`type`: `FV`, `FC`, `NC`, `RC`…) |
+| GET | `/v1/users` | Usuarios; se usan como **vendedor** en la factura |
+| GET | `/v1/payment-types?document_type=FV` | Formas de pago del comprobante |
+| GET | `/v1/taxes` | Impuestos y retenciones |
+| GET | `/v1/account-groups` | Grupos / clasificaciones de inventario |
+| GET | `/v1/cost-centers` | Centros de costo |
+| GET | `/v1/warehouses` | Bodegas |
+| GET | `/v1/price-lists` | Listas de precio (posición 1–12) |
+| GET | `/v1/fixed-assets` | Activos fijos |
+| GET | `/v1/expense` | Descuentos de recibos de caja |
+
+### Estructuras
+
+```
+Document        id, code, name, description, type, active, seller_by_item, cost_center,
+                cost_center_mandatory, automatic_number, consecutive, discount_type, decimals,
+                advance_payment, reteiva, reteica, self_withholding, self_withholding_limit,
+                electronic_type
+User            id, username, first_name, last_name, email, active, identification
+PaymentTypes    id, name, type, active, due_date
+Tax             id, name, type, percentage, active
+AccountGroup    id, name, active
+CostCenter      id, code, name, active
+Warehouse       id, name, active, has_movements
+PriceList       id, name, active, position
+```
+
+### Notas
+
+- **`/v1/cost-centers` existe y está documentado** en el blueprint (`## Centros de Costo`),
+  aunque no aparecía en versiones anteriores de este documento. Devuelve `CostCenter`.
+  Que un comprobante **maneje** o **exija** centro de costo se lee de `Document.cost_center` y
+  `Document.cost_center_mandatory`; la configuración de la empresa puede además fijar un
+  `cost_center_default`.
+- **`PaymentTypes.due_date`** indica si la forma de pago maneja vencimiento. Si alguna lo maneja,
+  la factura **no admite más de una forma de pago** y `payments[].due_date` pasa a ser obligatorio.
+- **Datos personales:** `/v1/users` devuelve `identification` y `email`. FLITO **no los persiste**
+  (Ley 1581): de ese catálogo solo se guarda el nombre, que es lo único necesario para elegir
+  vendedor.
+- Los ids **no son constantes entre empresas**: un `13156` es IVA 19 % en una empresa y otra cosa
+  en otra. Por eso la copia local es única por (tipo, código) y nunca se comparte entre ambientes
+  sin resincronizar.
+
+---
+
 ## Notas para la integración en FLITO
 
 Puntos donde se concentra el riesgo, a resolver en el cliente HTTP:
@@ -413,8 +466,9 @@ Puntos donde se concentra el riesgo, a resolver en el cliente HTTP:
 4. **Rate limit de 100 rpm por empresa** — cola/throttle propio, más backoff ante 429.
 5. **Timeout ≥120 s** en creación de comprobantes.
 6. **Dependencia de la configuración de Siigo Nube** — los catálogos (`/document-types`,
-   `/users`, `/taxes`, `/payment-types`, `/account-groups`) deben resolverse y cachearse;
-   los ids no son constantes entre empresas.
+   `/users`, `/taxes`, `/payment-types`, `/account-groups`, `/cost-centers`) deben resolverse y
+   cachearse; los ids no son constantes entre empresas. Resuelto en la HU #11281
+   (`apps/api/src/modules/siigo/siigo.catalogos.service.ts` + tabla `siigo_catalogos`).
 7. **Sincronización incremental** — `updated_start`/`updated_end` de `/v1/products` refleja
    también los movimientos de inventario, así que sirve como fuente para actualizar stock
    sin recorrer el catálogo completo.

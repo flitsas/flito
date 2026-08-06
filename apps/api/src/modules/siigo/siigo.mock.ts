@@ -72,6 +72,130 @@ function errorSimulado(): RespuestaSimulada {
 let consecutivo = 0;
 export function reiniciarConsecutivoSimulado(): void { consecutivo = 0; }
 
+// ── Catálogos simulados (HU #11281) ─────────────────────────────────────────
+//
+// Hasta esta HU el simulador respondía `[]` a los seis catálogos. Una lista vacía no es un
+// simulador: es un endpoint que nunca falla y nunca sirve. Con ella no se puede elegir un tipo de
+// comprobante, ni mapear un impuesto, ni probar que la parametrización rechaza un elemento inactivo.
+//
+// Estas fixtures replican campo por campo las estructuras del blueprint de Siigo (`Document`,
+// `User`, `PaymentTypes`, `Tax`, `AccountGroup`, `CostCenter`) y están elegidas para que la
+// parametrización completa se pueda configurar y validar sin ambiente real:
+//
+//   · cada catálogo trae al menos un elemento INACTIVO, para ejercer el filtrado y el marcado;
+//   · las formas de pago traen una de contado y una a crédito con `due_date: true`, que es la que
+//     dispara la trampa documentada de «una sola forma de pago si maneja vencimiento»;
+//   · los impuestos traen IVA de dos tarifas más retenciones, que es lo que se mapea de verdad;
+//   · los tipos de comprobante traen uno electrónico y uno que exige centro de costo.
+//
+// Los datos son ficticios a propósito: ningún nombre, correo ni cédula de una persona real.
+
+/** Tipos de comprobante de venta (`GET /v1/document-types?type=FV`). */
+const DOCUMENT_TYPES_SIMULADOS = [
+  {
+    id: 24446, code: '1', name: 'Factura de venta', description: 'Factura de venta electrónica',
+    type: 'FV', active: true, seller_by_item: false, cost_center: true,
+    cost_center_mandatory: false, automatic_number: true, consecutive: 3,
+    discount_type: 'Percentage', decimals: true, advance_payment: false,
+    reteiva: true, reteica: true, self_withholding: false, self_withholding_limit: 0,
+    electronic_type: 'ElectronicInvoice',
+  },
+  {
+    id: 24447, code: '2', name: 'Factura de venta con centro de costo',
+    description: 'Factura de venta electrónica — centro de costo obligatorio',
+    type: 'FV', active: true, seller_by_item: false, cost_center: true,
+    cost_center_mandatory: true, automatic_number: true, consecutive: 118,
+    discount_type: 'Value', decimals: true, advance_payment: true,
+    reteiva: true, reteica: true, self_withholding: true, self_withholding_limit: 1000000,
+    electronic_type: 'ElectronicInvoice',
+  },
+  {
+    id: 24448, code: '3', name: 'Factura de venta (numeración cerrada)',
+    description: 'Resolución vencida — no debe poderse parametrizar',
+    type: 'FV', active: false, seller_by_item: false, cost_center: false,
+    cost_center_mandatory: false, automatic_number: false, consecutive: 0,
+    discount_type: 'Percentage', decimals: false, advance_payment: false,
+    reteiva: false, reteica: false, self_withholding: false, self_withholding_limit: 0,
+    electronic_type: 'NoElectronicInvoice',
+  },
+];
+
+/** Vendedores (`GET /v1/users`). Datos ficticios: no hay personas reales en el simulador. */
+const USERS_SIMULADOS = [
+  {
+    id: 35071, username: 'ventas1@ejemplo.test', first_name: 'Ana', last_name: 'Ramírez',
+    email: 'ventas1@ejemplo.test', active: true, identification: '1000000001',
+  },
+  {
+    id: 35072, username: 'ventas2@ejemplo.test', first_name: 'Carlos', last_name: 'Beltrán',
+    email: 'ventas2@ejemplo.test', active: true, identification: '1000000002',
+  },
+  {
+    id: 35073, username: 'retirado@ejemplo.test', first_name: 'Diana', last_name: 'Osorio',
+    email: 'retirado@ejemplo.test', active: false, identification: '1000000003',
+  },
+];
+
+/** Formas de pago (`GET /v1/payment-types?document_type=FV`). */
+const PAYMENT_TYPES_SIMULADOS = [
+  { id: 5636, name: 'Contado', type: 'Cartera', active: true, due_date: false },
+  { id: 5637, name: 'Crédito 30 días', type: 'Cartera', active: true, due_date: true },
+  { id: 5638, name: 'Transferencia bancaria', type: 'Cartera', active: true, due_date: false },
+  { id: 5639, name: 'Consignación (descontinuada)', type: 'Cartera', active: false, due_date: false },
+];
+
+/** Impuestos y retenciones (`GET /v1/taxes`). */
+const TAXES_SIMULADOS = [
+  { id: 13156, name: 'IVA 19%', type: 'IVA', percentage: 19.00, active: true },
+  { id: 13157, name: 'IVA 5%', type: 'IVA', percentage: 5.00, active: true },
+  { id: 13158, name: 'ReteFuente servicios 4%', type: 'Retefuente', percentage: 4.00, active: true },
+  { id: 13159, name: 'ReteICA 0.966%', type: 'ReteICA', percentage: 0.966, active: true },
+  { id: 13160, name: 'IVA 16% (derogado)', type: 'IVA', percentage: 16.00, active: false },
+];
+
+/** Grupos de inventario / clasificaciones (`GET /v1/account-groups`). */
+const ACCOUNT_GROUPS_SIMULADOS = [
+  { id: 1253, name: 'Servicios de trámites', active: true },
+  { id: 1254, name: 'Derechos de tránsito', active: true },
+  { id: 1255, name: 'Productos', active: true },
+  { id: 1256, name: 'Clasificación en desuso', active: false },
+];
+
+/** Centros de costo (`GET /v1/cost-centers`). */
+const COST_CENTERS_SIMULADOS = [
+  { id: 25732, code: '13-1', name: 'Principal', active: true },
+  { id: 25733, code: '13-2', name: 'Sede Bogotá', active: true },
+  { id: 25734, code: '13-3', name: 'Sede Medellín', active: true },
+  { id: 25735, code: '13-9', name: 'Sede cerrada', active: false },
+];
+
+/**
+ * Catálogos simulados por ruta base. Exportado para que los tests puedan afirmar sobre los mismos
+ * datos que sirve el simulador, en vez de duplicarlos y quedar desincronizados.
+ */
+export const CATALOGOS_SIMULADOS: Record<string, unknown[]> = {
+  'document-types': DOCUMENT_TYPES_SIMULADOS,
+  users: USERS_SIMULADOS,
+  'payment-types': PAYMENT_TYPES_SIMULADOS,
+  taxes: TAXES_SIMULADOS,
+  'account-groups': ACCOUNT_GROUPS_SIMULADOS,
+  'cost-centers': COST_CENTERS_SIMULADOS,
+};
+
+/**
+ * Aplica los filtros de consulta que Siigo sí honra en los catálogos.
+ *
+ * Solo `document-types?type=` filtra de verdad en Siigo. `payment-types?document_type=` acota por
+ * comprobante, pero el simulador no modela formas de pago exclusivas de otro documento, así que
+ * devuelve la lista completa en vez de fingir un filtro que no distingue nada.
+ */
+function filtrarCatalogoSimulado(recurso: string, query: URLSearchParams, elementos: unknown[]): unknown[] {
+  if (recurso !== 'document-types') return elementos;
+  const tipo = query.get('type');
+  if (!tipo) return elementos;
+  return elementos.filter((e) => (e as { type?: string }).type === tipo);
+}
+
 /**
  * Respuesta simulada para una petición. Las formas replican las documentadas en
  * `docs/integraciones/siigo-api.md`, de modo que quien las consume no necesita saber en qué modo
@@ -145,9 +269,17 @@ export function respuestaSimulada(
     };
   }
 
-  // Catálogos: arreglo simple.
-  if (metodo === 'GET' && /^\/v1\/(document-types|users|payment-types|taxes|account-groups)/.test(ruta)) {
-    return { status: 200, ok: true, datos: [] };
+  // Catálogos: arreglo simple, con elementos representativos (HU #11281).
+  const catalogo = /^\/v1\/(document-types|users|payment-types|taxes|account-groups|cost-centers)(?:\/)?(?:\?(.*))?$/
+    .exec(ruta);
+  if (metodo === 'GET' && catalogo) {
+    const recurso = catalogo[1]!;
+    const query = new URLSearchParams(catalogo[2] ?? '');
+    return {
+      status: 200,
+      ok: true,
+      datos: filtrarCatalogoSimulado(recurso, query, CATALOGOS_SIMULADOS[recurso] ?? []),
+    };
   }
 
   // Cualquier otra ruta: éxito vacío. Mejor que fingir un 404 que nadie pidió.
