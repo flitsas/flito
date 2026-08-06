@@ -3559,6 +3559,40 @@ export const siigoCatalogos = pgTable('siigo_catalogos', {
 }));
 
 /**
+ * Catálogo oficial de países, departamentos y ciudades de Siigo (HU #11293).
+ *
+ * Vive aparte de `siigoCatalogos` por una diferencia de fondo: los seis catálogos de aquella tabla
+ * se sincronizan llamando a la API, y este **no existe como servicio** — Siigo lo publica como un
+ * .xlsx. Meterlo allí obligaría a decir «sincronizado» cuando nadie llamó a Siigo, y a compartir
+ * columnas que aquí no significan nada: el listado no depende de la cuenta, así que no tiene
+ * ambiente. Se carga desde `src/db/data/siigo-ciudades.json`.
+ */
+export const siigoCiudades = pgTable('siigo_ciudades', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** Ojo: el listado oficial trae `Co`, no `CO`. Se guarda tal cual lo publica Siigo. */
+  countryCode: varchar('country_code', { length: 2 }).notNull(),
+  countryName: varchar('country_name', { length: 80 }).notNull(),
+  stateCode: varchar('state_code', { length: 5 }).notNull(),
+  stateName: varchar('state_name', { length: 80 }).notNull(),
+  cityCode: varchar('city_code', { length: 10 }).notNull(),
+  cityName: varchar('city_name', { length: 80 }).notNull(),
+  /** `cityName` sin tildes y en minúsculas: un LIKE sobre una función no usa índice. */
+  cityBusqueda: varchar('city_busqueda', { length: 80 }).notNull(),
+  /** false = dejó de venir en el listado. No se borra: un cliente antiguo puede referenciarla. */
+  activo: boolean('activo').notNull().default(true),
+  version: varchar('version', { length: 20 }),
+  cargadoEn: timestamp('cargado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // La clave es la TERNA, no el código de ciudad: el listado trae `05001` dos veces —Medellín en
+  // Colombia y Chachapollas en Perú—. Un único sobre `cityCode` habría perdido una de las dos.
+  // Es también el target del ON CONFLICT del upsert: si dejan de coincidir, la carga falla entera.
+  ternaUq: uniqueIndex('idx_siigo_ciudades_terna').on(t.countryCode, t.stateCode, t.cityCode),
+  cascadaIdx: index('idx_siigo_ciudades_cascada').on(t.countryCode, t.stateCode),
+  busquedaIdx: index('idx_siigo_ciudades_busqueda').on(t.cityBusqueda),
+}));
+
+/**
  * Configuración global de emisión, por ambiente (HU #11284).
  *
  * Con qué tipo de comprobante, vendedor, forma de pago y centro de costo nacen las facturas. Los

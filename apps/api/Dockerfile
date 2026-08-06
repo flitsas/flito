@@ -58,6 +58,9 @@ COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/shared-types/dist packages/shared-types/dist
 # SQL plano de migraciones (db-apply.js las lee de src/db/migrations en runtime).
 COPY apps/api/src/db/migrations apps/api/src/db/migrations
+# Catálogo de ubicaciones de Siigo (HU #11293). Mismo motivo que las migraciones: `tsc` no copia
+# archivos que no sean código, y siigo.ciudades.service.js lo lee de src/db/data en runtime.
+COPY apps/api/src/db/data apps/api/src/db/data
 # Modelo Tesseract (eng.traineddata.gz): flito-ocr-local lo carga de vendor/tesseract.
 COPY apps/api/vendor apps/api/vendor
 
