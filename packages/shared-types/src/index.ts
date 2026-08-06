@@ -65,3 +65,5 @@ export * from './flito-certificacion.js';
 export * from './siigo-catalogos.js';
 // Facturación electrónica: conceptos facturables, clasificación tributaria y mapeo a Siigo.
 export * from './siigo-facturacion.js';
+// Productos de Siigo y validación en vivo del mapeo antes de guardarlo.
+export * from './siigo-productos.js';

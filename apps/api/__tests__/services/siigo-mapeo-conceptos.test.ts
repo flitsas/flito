@@ -23,6 +23,28 @@ vi.mock('../../src/db/client.js', () => ({
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
 }));
 
+// La HU #11283 añadió validación contra Siigo en TODA escritura. Aquí se neutraliza a propósito:
+// este spec prueba las reglas del mapeo —precedencia, confirmación frágil, guardas—, y dejar que
+// cada caso saliera a validar convertiría fallos de validación en fallos de esas reglas, que es
+// justo la clase de test que no dice dónde está el problema. La validación tiene spec propio en
+// siigo-mapeo-validacion.test.ts.
+vi.mock('../../src/modules/siigo/siigo.productos.service.js', async (original) => {
+  const real = await original<typeof import('../../src/modules/siigo/siigo.productos.service.js')>();
+  return {
+    ...real,
+    validarMapeoContraSiigo: vi.fn(async () => ({
+      valido: true,
+      motivo: null,
+      mensaje: 'Verificado contra Siigo: producto simulado.',
+      nombreProductoSiigo: 'producto simulado',
+      verificadoEn: new Date('2026-08-06T12:00:00Z').toISOString(),
+    })),
+    consultarProductoPorCodigo: vi.fn(async () => ({
+      existe: true, activo: true, nombre: 'producto simulado',
+    })),
+  };
+});
+
 const TABLA = 'siigo_mapeo_conceptos';
 const ID = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const USUARIO = 77;

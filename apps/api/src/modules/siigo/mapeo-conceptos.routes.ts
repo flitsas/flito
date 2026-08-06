@@ -19,13 +19,16 @@ import { z } from 'zod';
 import {
   CLASIFICACIONES_TRIBUTARIAS, CONCEPTOS_FACTURABLES, CODIGO_PRODUCTO_SIIGO_RE,
 } from '@operaciones/shared-types';
+import rateLimit from 'express-rate-limit';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { env } from '../../config/env.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 import {
   actualizarMapeo, confirmarMapeo, crearMapeoEspecifico, desactivarMapeoEspecifico,
-  estadoMapeo, listarMapeo, obtenerMapeo, SiigoMapeoError, type MapeoConcepto,
+  estadoMapeo, listarMapeo, obtenerMapeo, revalidarMapeo, SiigoMapeoError,
+  type MapeoConcepto,
 } from './mapeo-conceptos.service.js';
 
 const router = Router();
@@ -81,6 +84,16 @@ export function statusDeMapeoError(e: SiigoMapeoError): number {
     case 'no_existe': return 404;
     case 'duplicado': return 409;
     case 'no_editable': return 409;
+    // El dato es sintácticamente válido pero no existe en Siigo (HU #11283, AC1-AC3). No es 400:
+    // el cuerpo está bien formado; lo que falla es una comprobación contra un sistema externo.
+    case 'validacion': return 422;
+    // Siigo no respondió (AC6). 503 y no 4xx: el cliente no tiene nada que corregir, y reintentar
+    // más tarde es exactamente la acción correcta. Confundirlo con un 422 mandaría a quien
+    // parametriza a cambiar un código que probablemente estaba bien.
+    case 'no_verificable': return 503;
+    // Ya hay una revalidación corriendo para ese ambiente (HU #11283). Conflicto de estado, no
+    // error del cliente: reintentar cuando termine es la acción correcta.
+    case 'en_curso': return 409;
     default: return 400;
   }
 }
@@ -101,7 +114,8 @@ function mapeoFallo(res: Response, e: unknown): void {
 function resumen(m: MapeoConcepto): string {
   return `ambiente=${m.ambiente} concepto=${m.concepto} tipo=${m.tipoTramite ?? '(generico)'} `
     + `producto=${m.codigoProducto ?? '(sin)'} clasificacion=${m.clasificacionTributaria ?? '(sin)'} `
-    + `impuestos=${m.impuestos.length} terceros=${m.ingresoParaTerceros} confirmado=${m.confirmadoContabilidad}`;
+    + `impuestos=${m.impuestos.length} terceros=${m.ingresoParaTerceros} confirmado=${m.confirmadoContabilidad} `
+    + `validacion=${m.validacionEstado}`;
 }
 
 // GET / — mapeo completo del ambiente.
@@ -115,6 +129,56 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 // GET /estado — cuánto falta para poder facturar en este ambiente.
 router.get('/estado', LECTURA, async (req: Request, res: Response) => {
   res.json(await estadoMapeo(ambienteDe(req)));
+});
+
+/**
+ * Freno propio de la revalidación (hallazgo Alta de la auditoría de esta HU).
+ *
+ * `apiLimiter` (500 cada 15 min) no sirve aquí: lo que hay que contener no son peticiones a FLITO
+ * sino peticiones a SIIGO. Cada código distinto del mapeo gasta un cupo de los 100 por minuto que
+ * Siigo concede POR EMPRESA, y esa cuota es la misma que usa la emisión de facturas. Peor aún, el
+ * excedente ESPERA en vez de descartarse (`siigo.resiliencia.ts`), así que una revalidación grande
+ * no falla: encola detrás de sí cualquier factura que llegue mientras dura.
+ *
+ * Sin este límite, un usuario autenticado que ni siquiera puede editar el mapeo podría frenar la
+ * facturación ante la DIAN varios minutos sin tocar un solo dato. Mismo orden de magnitud que
+ * `laft-sync` (2/hora), del que se copia el patrón.
+ */
+const revalidacionLimiter = rateLimit({
+  windowMs: 3_600_000,
+  max: 4,
+  keyGenerator: userOrIpKey('siigo-reval'),
+  message: { error: 'La revalidación contra Siigo está limitada a 4 por hora.' },
+});
+
+// POST /revalidar — vuelve a comprobar contra Siigo todo lo ya configurado (HU #11283, AC7).
+//
+// Va ANTES de las rutas `/:id` para que Express no lo capture como un identificador. Es POST y no
+// GET porque escribe: deja el veredicto en cada fila, que es lo que permite que la pantalla señale
+// los conceptos con novedad sin volver a lanzar la revalidación.
+//
+// Permiso: SOLO `admin`. Se consideró abrirlo a `financiera` —quien firma la confirmación contable
+// tiene interés legítimo en revalidar— y se descartó: esta ruta ESCRIBE en `siigo_mapeo_conceptos`
+// (estado de validación y `updated_by`), y el AC8 de la HU #11282 reserva la escritura del mapeo a
+// `admin`. Ampliarlo requeriría una decisión escrita del Líder Técnico, no una elección de quien
+// implementa; además dejaría a `financiera` figurando como último editor de la parametrización.
+// El orden importa: la guarda de rol va ANTES del limitador. Lo que este freno protege es la cuota
+// de Siigo, y una petición rechazada por rol no consume ni una llamada — cobrarle cupo dejaría que
+// un rol sin permiso agotara el presupuesto de quien sí lo tiene.
+router.post('/revalidar', ESCRITURA, revalidacionLimiter, async (req: Request, res: Response) => {
+  const ambiente = ambienteDe(req);
+  const usuarioId = req.user?.sub as number;
+
+  try {
+    const r = await revalidarMapeo(ambiente, usuarioId);
+    await audit(req, {
+      action: 'update', resource: 'siigo_mapeo_concepto', resourceId: `revalidacion:${ambiente}`,
+      detail: `Revalidación contra Siigo · ambiente=${ambiente} revisados=${r.revisados} `
+        + `conNovedad=${r.conNovedad.length} noVerificados=${r.noVerificados.length} `
+        + `truncado=${r.truncado}`,
+    });
+    res.json(r);
+  } catch (e) { mapeoFallo(res, e); }
 });
 
 // POST / — configuración específica por tipo de trámite (AC5). La genérica ya existe: se edita.
