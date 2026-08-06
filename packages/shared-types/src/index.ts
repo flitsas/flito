@@ -67,3 +67,5 @@ export * from './siigo-catalogos.js';
 export * from './siigo-facturacion.js';
 // Productos de Siigo y validación en vivo del mapeo antes de guardarlo.
 export * from './siigo-productos.js';
+// Configuración global de emisión: comprobante, vendedor, forma de pago y centro de costo.
+export * from './siigo-emision.js';
