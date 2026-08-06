@@ -14,6 +14,8 @@
 //      probar de verdad; inyectándolos, el test recorre una ventana entera sin esperar.
 //   3. El excedente ESPERA, no se descarta. Una factura que se cae de la cola por exceso de tráfico
 //      es una factura que alguien tiene que descubrir a mano.
+//   4. LIMITADOR Y CORTACIRCUITOS PUEDEN LLEVAR CLAVES DISTINTAS. La cuota es de la empresa y se
+//      comparte; la salud es del endpoint y no. Ver `claveCortacircuitos`.
 
 import { withCircuitBreaker } from '../../services/circuitBreaker.js';
 import { SiigoApiError } from './siigo.errors.js';
@@ -52,6 +54,17 @@ export class SiigoOperacionFallida extends Error {
 export interface OpcionesResiliencia {
   /** Aísla el cupo por empresa. Con una sola empresa basta el valor por defecto. */
   clave?: string;
+  /**
+   * Circuito al que se imputan los fallos. Por defecto `siigo:<clave>`, es decir el mismo eje que el
+   * limitador.
+   *
+   * Se puede separar porque las dos cosas miden fenómenos distintos: el limitador cuenta CUOTA, que
+   * Siigo aplica por empresa y por tanto tiene que ser compartida; el cortacircuitos cuenta SALUD de
+   * un endpoint, que es individual. Compartir clave hace que cinco fallos repartidos entre tres
+   * recursos caídos dejen sin intentar a los sanos, que es justo lo contrario de lo que el
+   * cortacircuitos existe para proteger.
+   */
+  claveCortacircuitos?: string;
   maxIntentos?: number;
   baseBackoffMs?: number;
   /** Inyectables para poder probar el paso del tiempo sin esperarlo. */
@@ -129,6 +142,7 @@ export async function ejecutarConResiliencia<T>(
   opciones: OpcionesResiliencia = {},
 ): Promise<T> {
   const clave = opciones.clave ?? 'siigo';
+  const circuito = opciones.claveCortacircuitos ?? `siigo:${clave}`;
   const maxIntentos = opciones.maxIntentos ?? MAX_INTENTOS_POR_DEFECTO;
   const base = opciones.baseBackoffMs ?? BACKOFF_BASE_MS;
   const dormir = opciones.dormir ?? dormirReal;
@@ -142,7 +156,7 @@ export async function ejecutarConResiliencia<T>(
     try {
       // El cortacircuitos solo debe ver fallos DEL SERVICIO. Un error de datos se envuelve para que
       // salga del breaker como éxito y se vuelve a lanzar fuera: así no suma al contador de fallos.
-      const resultado = await withCircuitBreaker(`siigo:${clave}`, async () => {
+      const resultado = await withCircuitBreaker(circuito, async () => {
         try {
           return { ok: true as const, valor: await operacion() };
         } catch (e) {

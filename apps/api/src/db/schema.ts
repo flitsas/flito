@@ -3461,3 +3461,54 @@ export const siigoMapeoConceptos = pgTable('siigo_mapeo_conceptos', {
     .where(sql`${t.activo}`),
   ambienteConceptoIdx: index('idx_siigo_mapeo_ambiente_concepto').on(t.ambiente, t.concepto),
 }));
+
+/**
+ * Copia local de los catálogos de Siigo (HU #11281).
+ *
+ * Siigo permite 100 peticiones por minuto por empresa. Resolver el nombre de un vendedor o de una
+ * forma de pago cada vez que se pinta una pantalla de parametrización agotaría esa cuota con
+ * consultas que devuelven siempre lo mismo. Por eso se cachean aquí y se leen de local.
+ *
+ * Única por (`ambiente`, `tipo`, `codigo`). Dos razones distintas: el identificador de Siigo solo es
+ * único DENTRO de su catálogo —el id 1253 puede ser un grupo de inventario y también una forma de
+ * pago— y `pruebas` y `produccion` son EMPRESAS DISTINTAS en Siigo, cada una con sus propios
+ * identificadores. Sin `ambiente` en la llave, sincronizar producción pisaría los códigos que
+ * coincidieran con los de pruebas e inactivaría el resto del catálogo del otro ambiente por no
+ * haber venido en la respuesta.
+ *
+ * NO hay borrado. Un elemento que deja de venir de Siigo se marca `activo = false` y conserva su
+ * fila: una factura emitida el año pasado referencia un centro de costo que quizá ya no existe, y
+ * sin la fila no habría forma de explicar esa parametrización.
+ *
+ * Datos personales: del catálogo de vendedores (`/v1/users`) se guarda SOLO el nombre. Siigo
+ * devuelve además `identification` y `email`, que son datos personales bajo la Ley 1581 y no hacen
+ * falta para elegir un vendedor, así que no se persisten (ver `siigo.catalogos.service.ts`).
+ */
+export const siigoCatalogos = pgTable('siigo_catalogos', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** 'pruebas' | 'produccion'. Empresas distintas en Siigo: sus catálogos no se mezclan. */
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** 'document_type' | 'user' | 'payment_type' | 'tax' | 'account_group' | 'cost_center'. */
+  tipo: varchar('tipo', { length: 30 }).notNull(),
+  /** Identificador de Siigo como texto: hay catálogos con código alfanumérico. */
+  codigo: varchar('codigo', { length: 60 }).notNull(),
+  nombre: varchar('nombre', { length: 200 }).notNull(),
+  descripcion: varchar('descripcion', { length: 300 }),
+  activo: boolean('activo').notNull().default(true),
+  /** Atributos propios del catálogo (porcentaje del impuesto, si maneja vencimiento…). Sin PII. */
+  atributos: jsonb('atributos'),
+  sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull().defaultNow(),
+  /** Momento en que dejó de venir de Siigo. Null mientras siga activo. */
+  inactivadoEn: timestamp('inactivado_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Es también el índice contra el que resuelve el ON CONFLICT del upsert: si estas columnas y el
+  // `target` del upsert dejan de coincidir, la sincronización falla entera en Postgres.
+  ambienteTipoCodigoUq: uniqueIndex('idx_siigo_catalogos_ambiente_tipo_codigo')
+    .on(t.ambiente, t.tipo, t.codigo),
+  // La lectura real de la parametrización: «los elementos activos de este catálogo en este
+  // ambiente, por nombre».
+  ambienteTipoActivoIdx: index('idx_siigo_catalogos_ambiente_tipo_activo')
+    .on(t.ambiente, t.tipo, t.activo, t.nombre),
+}));

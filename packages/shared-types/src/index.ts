@@ -61,5 +61,7 @@ export * from './flito-bolsas.js';
 export * from './flito-bolsas-transito.js';
 // Certificación de impuestos contra el RUNT: campos comparados, desenlaces y motivos.
 export * from './flito-certificacion.js';
+// Siigo — catálogos de parametrización contable cacheados en FLITO (Feature #11239).
+export * from './siigo-catalogos.js';
 // Facturación electrónica: conceptos facturables, clasificación tributaria y mapeo a Siigo.
 export * from './siigo-facturacion.js';

@@ -49,7 +49,8 @@ model: inherit
 
 1. Lee el Feature y el código de los módulos afectados para estimar con realismo.
 2. Separa HUs **`[BACKEND]`** y **`[FRONTEND]`**, cada una con:
-   - AC en Gherkin (`Dado / Cuando / Entonces`)
+   - AC en Gherkin con las palabras clave en inglés (`Given / When / Then / And`) y el texto del
+     escenario en español, como la skill `flit-crear-hu` y las HUs ya existentes del board
    - Story Points Fibonacci (1-2-3-5-8)
    - Dependencias explícitas entre HUs
    - Módulo objetivo con ruta real (`apps/api/src/modules/flito-x/`, `apps/web/src/pages/X.tsx`)

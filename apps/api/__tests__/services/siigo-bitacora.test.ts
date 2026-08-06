@@ -17,6 +17,8 @@ vi.mock('../../src/db/client.js', () => ({
 
 const { registrarOperacion, consultarBitacora, sanearCuerpo } =
   await import('../../src/modules/siigo/siigo.operaciones.repo.js');
+const { sanearMensaje, MARCA_SQL_OMITIDO } =
+  await import('../../src/modules/siigo/siigo.redaccion.js');
 
 /** Captura los valores del INSERT. */
 function espiarInsert() {
@@ -146,6 +148,87 @@ describe('AC3 — la bitácora no guarda secretos', () => {
     expect(sanearCuerpo('texto')).toBe('texto');
     expect(sanearCuerpo(42)).toBe(42);
     expect(sanearCuerpo(null)).toBeNull();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Hallazgo Medium de la auditoría (HU #11281). El saneamiento cubría `requestBody` y
+// `responseBody`; `mensaje` se insertaba TAL CUAL. Desde `drizzle-orm` 0.45, cualquier error del
+// driver llega envuelto en un `DrizzleQueryError` cuyo `message` es `Failed query: <SQL>\nparams:
+// <valores>` — la sentencia y todos sus valores enlazados, incluidos los nombres de los vendedores.
+//
+// La causa concreta ya está tapada en el servicio de catálogos (el fallo de persistencia es un
+// error de dominio con mensaje fijo). Esto es la red de seguridad: la bitácora es WORM real, un
+// disparador prohíbe UPDATE y DELETE, y lo que se escriba ahí por error ya no se puede rectificar
+// ni suprimir (Ley 1581, art. 8). El filtro va aquí para que ningún flujo futuro pueda reabrir la
+// vía sin darse cuenta.
+describe('la redacción alcanza también al mensaje', () => {
+  /** Reproducción literal del `message` que construye drizzle ≥ 0.45. */
+  const MENSAJE_CON_VOLCADO = 'Failed query: insert into "siigo_catalogos" ("ambiente", "tipo", '
+    + '"codigo", "nombre") values ($1, $2, $3, $4) on conflict ("ambiente","tipo","codigo") '
+    + 'do update set "nombre" = excluded.nombre'
+    + '\nparams: pruebas,user,35071,Ana Ramírez';
+
+  it('la sentencia y sus parámetros no llegan a la fila', async () => {
+    const espia = espiarInsert();
+
+    await registrarOperacion({
+      operacion: 'sync_catalogo', ambiente: 'pruebas', resultado: 'error_tecnico',
+      mensaje: MENSAJE_CON_VOLCADO,
+    });
+
+    const fila = espia.mock.calls[0]![0] as Record<string, unknown>;
+    const escrito = JSON.stringify(fila);
+    expect(escrito).not.toContain('Failed query');
+    expect(escrito).not.toContain('insert into');
+    expect(escrito).not.toContain('siigo_catalogos');
+    expect(escrito).not.toContain('Ana Ramírez');
+    expect(fila.mensaje).toBe(MARCA_SQL_OMITIDO);
+  });
+
+  it('conserva la explicación que iba delante del volcado', () => {
+    const saneado = sanearMensaje(`No se pudo guardar el catálogo. ${MENSAJE_CON_VOLCADO}`);
+
+    // Lo que sirve para operar se queda; lo que solo sirve para filtrar, no.
+    expect(saneado).toContain('No se pudo guardar el catálogo.');
+    expect(saneado).toContain(MARCA_SQL_OMITIDO);
+    expect(saneado).not.toContain('Ana Ramírez');
+  });
+
+  it.each([
+    ['un SELECT compilado', 'algo falló: select "id" from "siigo_catalogos" where "tipo" = $1'],
+    ['un UPDATE compilado', 'algo falló: update "siigo_catalogos" set "activo" = $1'],
+    ['un DELETE compilado', 'algo falló: delete from "siigo_operaciones" where "id" = $1'],
+    ['la línea de parámetros suelta', 'error\nparams: 35071,Ana Ramírez'],
+  ])('%s tampoco entra', (_caso, mensaje) => {
+    const saneado = sanearMensaje(mensaje);
+    expect(saneado).toContain(MARCA_SQL_OMITIDO);
+    expect(saneado).not.toMatch(/siigo_catalogos|siigo_operaciones|Ana Ramírez/);
+  });
+
+  it('un mensaje operativo normal no se toca', () => {
+    const mensaje = 'Catálogo "tax": 12 elementos, 1 inactivados.';
+    expect(sanearMensaje(mensaje)).toBe(mensaje);
+  });
+
+  it('las palabras sueltas en español no disparan el recorte', () => {
+    // El corte exige un identificador entrecomillado, que es como compila drizzle. Sin eso, un
+    // texto operativo que mencione «actualizar» o «seleccionar» quedaría mutilado sin motivo.
+    const mensaje = 'Se intentó actualizar la selección de formas de pago y no se pudo.';
+    expect(sanearMensaje(mensaje)).toBe(mensaje);
+  });
+
+  it('acota la longitud: una fila inmutable no puede crecer sin límite', () => {
+    const largo = `Siigo respondió con un cuerpo enorme: ${'x'.repeat(5000)}`;
+    const saneado = sanearMensaje(largo);
+    expect(saneado.length).toBeLessThanOrEqual(1001);
+    expect(saneado.endsWith('…')).toBe(true);
+  });
+
+  it('un mensaje ausente sigue siendo null en la fila', async () => {
+    const espia = espiarInsert();
+    await registrarOperacion({ operacion: 'auth', ambiente: 'pruebas', resultado: 'ok' });
+    expect((espia.mock.calls[0]![0] as Record<string, unknown>).mensaje).toBeNull();
   });
 });
 
