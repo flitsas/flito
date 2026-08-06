@@ -117,6 +117,11 @@ export const clients = pgTable('clients', {
   phoneNumber: varchar('phone_number', { length: 10 }),
   // Para poder auditar la derivación masiva de la 0132 y no pisar lo que clasificó una persona.
   personTypeOrigen: varchar('person_type_origen', { length: 20 }).notNull().default('sin_derivar'),
+  // Rastro de quién convirtió `city` —texto libre— en códigos de Siigo (HU #11294). El texto
+  // original NO se toca: es la prueba de qué decía la ficha cuando alguien decidió la equivalencia.
+  cityTextoOrigen: varchar('city_texto_origen', { length: 100 }),
+  cityConfirmadaPor: integer('city_confirmada_por').references(() => users.id),
+  cityConfirmadaEn: timestamp('city_confirmada_en', { withTimezone: true }),
   // Lo que la migración encontró y bloquea facturar. Vacío NO significa facturable: el veredicto
   // completo lo calcula el informe de la HU #11296, que mira además dirección, contacto y ciudad.
   facturacionBloqueos: text('facturacion_bloqueos').array().notNull().default(sql`'{}'::text[]`),
