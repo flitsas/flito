@@ -215,6 +215,26 @@ export async function proponerEquivalencias(pais = PAIS_POR_DEFECTO): Promise<Pr
   }));
 }
 
+/**
+ * La propuesta de UN cliente (HU #11298).
+ *
+ * La ficha fiscal necesita la equivalencia de su cliente, no la de la cartera entera: pedir las
+ * 4.000 propuestas para leer una es gasto puro, y además la ficha se abre por fila.
+ */
+export async function propuestaDeCliente(
+  clienteId: number, pais = PAIS_POR_DEFECTO,
+): Promise<PropuestaCiudad> {
+  const [cliente] = await db
+    .select({ city: clients.city })
+    .from(clients)
+    .where(eq(clients.id, clienteId))
+    .limit(1);
+  if (!cliente) {
+    throw new SiigoCiudadMapeoError('cliente_no_encontrado', `El cliente ${clienteId} no existe.`);
+  }
+  return proponerCiudad(cliente.city, await cargarCatalogo(pais));
+}
+
 export interface EstadoMapeoCiudades {
   total: number;
   conCodigo: number;

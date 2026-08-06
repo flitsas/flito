@@ -29,6 +29,7 @@ const proponerMock = vi.fn();
 const estadoMock = vi.fn();
 const confirmarMock = vi.fn();
 const obsoletasMock = vi.fn();
+const propuestaMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.ciudades-mapeo.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/modules/siigo/siigo.ciudades-mapeo.service.js')>();
   return {
@@ -37,6 +38,7 @@ vi.mock('../../src/modules/siigo/siigo.ciudades-mapeo.service.js', async (import
     estadoMapeoCiudades: estadoMock,
     confirmarCiudad: confirmarMock,
     equivalenciasObsoletas: obsoletasMock,
+    propuestaDeCliente: propuestaMock,
   };
 });
 
@@ -116,6 +118,42 @@ describe('AC6 — el avance es medible', () => {
       .set('Authorization', await auth('admin'));
     expect(r.body.total).toBe(1);
     expect(r.body.data[0].propuesta.certeza).toBe('exacta');
+  });
+});
+
+// La ficha fiscal (HU #11298) necesita la propuesta de SU cliente, no la de la cartera entera:
+// pedir 4.000 propuestas para leer una es gasto puro y la ficha se abre por fila.
+describe('propuesta de un cliente puntual', () => {
+  it('devuelve la equivalencia de ese cliente', async () => {
+    propuestaMock.mockResolvedValueOnce({
+      textoOrigen: 'Medelin', certeza: 'aproximada',
+      candidatas: [{ countryCode: 'Co', stateCode: '05', stateName: 'Antioquia', cityCode: '05001', cityName: 'Medellín' }],
+    });
+    const app = await buildApp();
+    const r = await request(app).get('/api/siigo/clientes-ciudades/2/propuesta')
+      .set('Authorization', await auth('financiera'));
+    expect(r.status).toBe(200);
+    expect(r.body.certeza).toBe('aproximada');
+    expect(propuestaMock).toHaveBeenCalledWith(2, undefined);
+  });
+
+  it('un id inválido no llega al servicio', async () => {
+    const app = await buildApp();
+    const r = await request(app).get('/api/siigo/clientes-ciudades/abc/propuesta')
+      .set('Authorization', await auth('admin'));
+    expect(r.status).toBe(400);
+    expect(propuestaMock).not.toHaveBeenCalled();
+  });
+
+  it('un cliente que no existe → 404', async () => {
+    const { SiigoCiudadMapeoError } = await import('../../src/modules/siigo/siigo.ciudades-mapeo.service.js');
+    propuestaMock.mockRejectedValueOnce(
+      new SiigoCiudadMapeoError('cliente_no_encontrado', 'El cliente 999 no existe.'),
+    );
+    const app = await buildApp();
+    const r = await request(app).get('/api/siigo/clientes-ciudades/999/propuesta')
+      .set('Authorization', await auth('admin'));
+    expect(r.status).toBe(404);
   });
 });
 
