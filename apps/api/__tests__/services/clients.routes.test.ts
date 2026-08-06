@@ -48,6 +48,36 @@ async function buildApp() {
 
 const adminToken = () => testToken({ sub: 1, role: 'admin' });
 
+/** Cliente previo tal como lo devuelve el SELECT del PATCH. */
+function previo(extra: Record<string, unknown> = {}) {
+  return {
+    id: 1, name: 'Acme SAS', document: '900123456', documentType: 'NIT',
+    personType: 'Company', idType: '31', checkDigit: null, fiscalResponsibilities: [],
+    countryCode: null, stateCode: null, cityCode: null, commercialName: null,
+    branchOffice: 0, contactFirstName: null, contactLastName: null, contactEmail: null,
+    phoneIndicative: null, phoneNumber: null,
+    ...extra,
+  };
+}
+
+/**
+ * Deja el PATCH listo: primero el SELECT del estado previo, luego el UPDATE.
+ *
+ * `parejaLibre` añade el SELECT de unicidad que el handler hace solo cuando el cuerpo toca la
+ * identidad del tercero (documento o sucursal).
+ */
+function prepararPatch(
+  anterior: Record<string, unknown>,
+  resultado: Record<string, unknown> | null,
+  parejaLibre = false,
+) {
+  selectMock.mockReturnValueOnce(chain([anterior]));
+  if (parejaLibre) selectMock.mockReturnValueOnce(chain([]));
+  updateMock.mockReturnValueOnce({
+    set: () => ({ where: () => ({ returning: () => Promise.resolve(resultado ? [resultado] : []) }) }),
+  });
+}
+
 describe('clients — auth', () => {
   it('sin token → 401', async () => {
     const app = await buildApp();
@@ -80,6 +110,16 @@ describe('GET /', () => {
     const app = await buildApp();
     const r = await request(app).get('/api/clients?limit=50&offset=10').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
+  });
+
+  it('devuelve los campos fiscales nuevos (AC6)', async () => {
+    selectMock.mockReturnValueOnce(chain([previo({ facturacionBloqueos: ['identificacion_duplicada'] })]));
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).get('/api/clients').set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toMatchObject({ personType: 'Company', idType: '31', branchOffice: 0 });
+    expect(r.body[0].facturacionBloqueos).toEqual(['identificacion_duplicada']);
   });
 });
 
@@ -115,6 +155,140 @@ describe('POST /', () => {
       expect.objectContaining({ action: 'create', resource: 'client' }),
     );
   });
+
+  it('sin ningún dato fiscal sigue creándose: nada nuevo es obligatorio (AC1)', async () => {
+    insertMock.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 101, name: 'Mínimo' }]) }),
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Mínimo' });
+    expect(r.status).toBe(201);
+  });
+});
+
+// ── AC6 — enumeraciones cerradas ───────────────────────────────────────────
+//
+// `documentType` es cadena libre porque cerrarlo rompería filas existentes; los campos fiscales
+// nuevos NO tienen esa excusa. Un `id_type` inventado no se descubre al guardarlo: se descubre
+// cuando Siigo rechaza la factura, que es varios pasos y varios días más tarde.
+describe('POST / — validación de los datos fiscales (AC6)', () => {
+  const CASOS: { caso: string; cuerpo: Record<string, unknown> }[] = [
+    { caso: 'tipo de persona fuera de los dos admitidos', cuerpo: { personType: 'Empresa' } },
+    { caso: 'tipo de identificación que no es de Siigo', cuerpo: { idType: '99' } },
+    { caso: 'dígito de verificación de dos cifras', cuerpo: { checkDigit: 12 } },
+    { caso: 'dígito de verificación negativo', cuerpo: { checkDigit: -1 } },
+    { caso: 'responsabilidad fiscal inventada', cuerpo: { fiscalResponsibilities: ['O-99'] } },
+    { caso: 'sucursal por encima de 999', cuerpo: { branchOffice: 1000 } },
+    { caso: 'sucursal negativa', cuerpo: { branchOffice: -1 } },
+    { caso: 'sucursal con decimales', cuerpo: { branchOffice: 1.5 } },
+    { caso: 'indicativo con letras', cuerpo: { phoneIndicative: '+57' } },
+    { caso: 'número de teléfono de más de 10 dígitos', cuerpo: { phoneNumber: '31112223334' } },
+    { caso: 'correo de contacto mal formado', cuerpo: { contactEmail: 'sin-arroba' } },
+  ];
+
+  for (const { caso, cuerpo } of CASOS) {
+    it(`${caso} → 400 señalando el campo`, async () => {
+      const token = await adminToken();
+      const app = await buildApp();
+      const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+        .send({ name: 'X', ...cuerpo });
+      expect(r.status).toBe(400);
+      // «señalando el campo»: un 400 sin decir cuál no sirve para corregirlo.
+      expect(Object.keys(r.body.details?.fieldErrors ?? {})).toEqual(
+        expect.arrayContaining([Object.keys(cuerpo)[0]]),
+      );
+      expect(insertMock).not.toHaveBeenCalled();
+    });
+  }
+
+  it('los valores válidos sí pasan', async () => {
+    insertMock.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 5, name: 'Válido' }]) }),
+    });
+    selectMock.mockReturnValueOnce(chain([]));
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Válido', document: '900123456',
+        personType: 'Company', idType: '31', checkDigit: 7,
+        fiscalResponsibilities: ['R-99-PN', 'O-15'],
+        countryCode: 'CO', stateCode: '11', cityCode: '11001',
+        branchOffice: 3, phoneIndicative: '57', phoneNumber: '3001234567',
+        contactFirstName: 'Ana', contactEmail: 'ana@acme.com',
+      });
+    expect(r.status).toBe(201);
+  });
+
+  it('un dato fiscal se puede BORRAR mandando null, no solo omitirlo', async () => {
+    prepararPatch(previo({ idType: '31' }), { ...previo(), idType: null });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ idType: null });
+    expect(r.status).toBe(200);
+  });
+});
+
+// ── AC5 — la identidad del tercero es (identificación, sucursal) ────────────
+describe('identificación y sucursal (AC5)', () => {
+  it('crear repitiendo la pareja → 409, sin insertar', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 7 }]));
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Repetido', document: '900123456', branchOffice: 0 });
+    expect(r.status).toBe(409);
+    expect(r.body.campo).toBe('document');
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('el mismo documento en OTRA sucursal sí se permite: en Siigo son terceros distintos', async () => {
+    selectMock.mockReturnValueOnce(chain([]));
+    insertMock.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 8, name: 'Sucursal 2' }]) }),
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Sucursal 2', document: '900123456', branchOffice: 2 });
+    expect(r.status).toBe(201);
+  });
+
+  it('un cliente sin documento no se compara contra nada', async () => {
+    insertMock.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 9, name: 'Sin documento' }]) }),
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Sin documento' });
+    expect(r.status).toBe(201);
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('mover a una sucursal ya ocupada → 409, sin actualizar', async () => {
+    selectMock.mockReturnValueOnce(chain([previo()]));   // estado previo
+    selectMock.mockReturnValueOnce(chain([{ id: 42 }])); // la pareja ya existe en otro cliente
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ branchOffice: 5 });
+    expect(r.status).toBe(409);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('editar algo que no es la identidad no gasta una consulta de unicidad', async () => {
+    prepararPatch(previo(), { ...previo(), name: 'Otro nombre' });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Otro nombre' });
+    expect(r.status).toBe(200);
+    expect(selectMock).toHaveBeenCalledTimes(1); // solo el del estado previo
+  });
 });
 
 describe('PATCH /:id', () => {
@@ -127,20 +301,17 @@ describe('PATCH /:id', () => {
   });
 
   it('no encontrado → 404', async () => {
-    updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
-    });
+    selectMock.mockReturnValueOnce(chain([]));
     const token = await adminToken();
     const app = await buildApp();
     const r = await request(app).patch('/api/clients/999').set('Authorization', `Bearer ${token}`)
       .send({ name: 'Nuevo' });
     expect(r.status).toBe(404);
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
   it('actualizar nombre → 200', async () => {
-    updateMock.mockReturnValueOnce({
-      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 1, name: 'Nuevo' }]) }) }),
-    });
+    prepararPatch(previo(), { id: 1, name: 'Nuevo' });
     const token = await adminToken();
     const app = await buildApp();
     const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
@@ -155,5 +326,70 @@ describe('PATCH /:id', () => {
     const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
       .send({ email: 'mal-formato' });
     expect(r.status).toBe(400);
+  });
+});
+
+// ── AC7 — escritura restringida y auditada ─────────────────────────────────
+describe('auditoría de los datos fiscales (AC7)', () => {
+  it('un rol de solo lectura los consulta pero no los guarda', async () => {
+    selectMock.mockReturnValueOnce(chain([previo()]));
+    const auditor = await testToken({ sub: 2, role: 'auditor' });
+    const app = await buildApp();
+
+    const lectura = await request(app).get('/api/clients').set('Authorization', `Bearer ${auditor}`);
+    expect(lectura.status).toBe(200);
+
+    const escritura = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${auditor}`)
+      .send({ personType: 'Person' });
+    expect(escritura.status).toBe(403);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('registra el valor anterior y el nuevo de cada campo fiscal', async () => {
+    prepararPatch(
+      previo({ personType: 'Company', idType: '31', branchOffice: 0, fiscalResponsibilities: ['R-99-PN'] }),
+      { ...previo(), personType: 'Person', idType: '13', branchOffice: 2, fiscalResponsibilities: ['O-15'] },
+      true, // cambia la sucursal: el handler comprueba antes que la pareja esté libre
+    );
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ personType: 'Person', idType: '13', branchOffice: 2, fiscalResponsibilities: ['O-15'] });
+    expect(r.status).toBe(200);
+
+    const detalle = auditMock.mock.calls.at(-1)?.[1].detail as string;
+    expect(detalle).toContain('personType: Company → Person');
+    expect(detalle).toContain('idType: 31 → 13');
+    expect(detalle).toContain('branchOffice: 0 → 2');
+    expect(detalle).toContain('fiscalResponsibilities: R-99-PN → O-15');
+  });
+
+  it('NO escribe el contacto en la auditoría: dice que cambió, no a qué', async () => {
+    prepararPatch(
+      previo({ contactEmail: null, contactFirstName: null }),
+      { ...previo(), contactEmail: 'ana.ramirez@acme.com', contactFirstName: 'Ana' },
+    );
+    const token = await adminToken();
+    const app = await buildApp();
+    await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ contactEmail: 'ana.ramirez@acme.com', contactFirstName: 'Ana' });
+
+    const detalle = auditMock.mock.calls.at(-1)?.[1].detail as string;
+    // `audit_logs` no la purga ningún cron: un correo ahí sobrevive al derecho al olvido.
+    expect(detalle).not.toContain('ana.ramirez@acme.com');
+    expect(detalle).not.toContain('Ana');
+    expect(detalle).toContain('contactEmail: modificado');
+    expect(detalle).toContain('contactFirstName: modificado');
+  });
+
+  it('editar un cliente sin tocar lo fiscal no ensucia la auditoría con ruido de facturación', async () => {
+    prepararPatch(previo(), { ...previo(), name: 'Acme SAS renombrada' });
+    const token = await adminToken();
+    const app = await buildApp();
+    await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Acme SAS renombrada' });
+
+    const detalle = auditMock.mock.calls.at(-1)?.[1].detail as string;
+    expect(detalle).not.toContain('Datos fiscales');
   });
 });

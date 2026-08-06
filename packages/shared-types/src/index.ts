@@ -71,3 +71,5 @@ export * from './siigo-productos.js';
 export * from './siigo-emision.js';
 // Compuerta: qué impide emitir contra el ambiente real sin confirmación de contabilidad.
 export * from './siigo-compuerta.js';
+// Datos fiscales del cliente para existir como tercero en Siigo (Feature #11241).
+export * from './siigo-terceros.js';
