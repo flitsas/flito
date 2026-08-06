@@ -96,7 +96,7 @@ Los tipos que cruzan con el backend viven en `packages/shared-types` (`@operacio
 - Diseño con alternativas o ADR → **architecture-agent**
 - TCs formales, ejecución de suites, radicar bugs → **qa-agent**
 - Escaneo de seguridad → **security-agent**
-- PR, `Custom.Commits`, merge, deploy → **hilo principal** con `flit-integration-ado`. El merge lo aprueba siempre un humano.
+- PR, `Custom.Commits`, merge a `develop`, deploy → **hilo principal** con `flit-integration-ado` (merge a `develop` solo con autorización + gates; `staging`/`release` siempre humano).
 
 ---
 

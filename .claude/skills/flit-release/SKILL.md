@@ -1,11 +1,11 @@
 ---
 name: flit-release
-description: Gobierna la promoción entre ambientes del monorepo FLITO — develop → staging (QA) → release (PDN). Verifica CI verde y QA_PDN de las HUs, coordina la regresión con qa-agent modo D, crea el PR de promoción con checklist de rollback y valida post-merge con smoke de producción. No toca Custom.Commits ni Deploy * (eso es flit-integration-ado Modo B, tras el merge humano). Triggers promover a QA, promover a staging, subir a producción, release, PDN, rollback, flit-release.
+description: Gobierna la promoción entre ambientes del monorepo FLITO — develop → staging (QA) → release (PDN). Verifica CI verde y QA_PDN de las HUs, coordina la regresión con qa-agent modo D, crea el PR de promoción con checklist de rollback y valida post-merge con smoke de producción. El merge de promoción es siempre humano; no toca Custom.Commits ni Deploy * (eso es flit-integration-ado Modo B). Triggers promover a QA, promover a staging, subir a producción, release, PDN, rollback, flit-release.
 ---
 
 # flit-release — promoción develop → staging → release
 
-**Quién gobierna qué:** esta skill decide **si el código está listo para promover** y prepara el PR de promoción. El merge lo hace un humano (GitHub UI o Líder Técnico con "sí" textual). Tras el merge, `flit-integration-ado` **Modo B** activa `Deploy QA` (staging) o `Deploy PDN` (release) — nunca desde esta skill.
+**Quién gobierna qué:** esta skill decide **si el código está listo para promover** y prepara el PR de promoción. El merge a `staging`/`release` lo hace **siempre un humano** (GitHub UI o Líder Técnico con "sí" textual) — ningún agente mergea promociones (regla de `AGENTS.md`; el merge a `develop` del flujo HU es otro contrato). Tras el merge, `flit-integration-ado` **Modo B** activa `Deploy QA` (staging) o `Deploy PDN` (release) — nunca desde esta skill.
 
 **Ramas y ambientes:**
 

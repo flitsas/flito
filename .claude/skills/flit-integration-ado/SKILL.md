@@ -49,7 +49,7 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 ### Modo B — Confirmación post-merge (Líder Técnico / hilo principal)
 
-**Cuándo:** El usuario (típicamente **Líder Técnico**) pide validar integración y confirmar despliegue al desarrollador; o tras merge humano en GitHub UI.
+**Cuándo:** Tras un merge a `develop` (agente bajo autorización o humano) o tras merge de promoción a `staging`/`release` (siempre humano); o cuando el Líder Técnico pide validar integración y confirmar Deploy.
 
 **Invocación típica:** *«Valida si ya se integró el PR y actualiza Azure»* — **no** requiere segundo «sí» (solo verificación + PATCH ADO).
 
@@ -198,23 +198,26 @@ gh pr merge <N> --merge   # o --squash según estrategia acordada
 
 ---
 
-## Pre-condiciones merge (GitHub) — antes de ejecutar `gh pr merge`
+## Pre-condiciones merge (GitHub) — antes de ejecutar el merge
 
-Aplican solo si el Líder Técnico **ejecuta** el merge con `gh` (con «sí» textual). **No** aplican en Modo B de solo verificación.
+Aplican cuando el hilo principal (o el Líder Técnico) **ejecuta** el merge. El agente solo puede
+mergear si **`baseRefName` es exactamente `develop`** y hay autorización del Feature (o «sí»
+textual por ese PR). Merge a `staging`/`release` → siempre humano (`flit-release`). Ejecución vía
+MCP `github` (`merge_pull_request`, merge commit); no usar `gh` en esta máquina.
 
-| # | Condición | Verificación GitHub |
-|---|-----------|------------------------|
+| # | Condición | Verificación |
+|---|-----------|----------------|
 | 1 | PR `OPEN` | `state == OPEN` |
-| 2 | Rama origen válida | `feat/flito-*` (convención del repo) **o** `feat/*` / `fix/*` |
-| 3 | Target permitido | `develop` (flujo HU) / `staging` / `release` (promoción LT) |
-| 4 | ≥1 aprobación humana | `gh pr view --json reviews` |
+| 2 | Rama origen válida | `feat/flito-*` (flujo HU) |
+| 3 | Target | Agente: **solo `develop`**. Humano/LT: también `staging` / `release` (promoción) |
+| 4 | Autorización | «puedes mergear a develop este Feature» (sesión) **o** «sí» textual por este PR |
 | 5 | CI build/test | check `build + test` → `success` |
-| 6 | Security | checks `dependency-audit` y `secret-scan` (jobs de `ci.yml`) → `success` |
-| 7 | 0 threads sin resolver | `gh pr view --json reviewThreads` o UI |
-| 8 | HU en ADO: `Custom.Refinement=true`, Story Points | `GET workitem` |
-| 9 | Diff ≤ 800 líneas | `additions + deletions` del PR |
+| 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
+| 7 | Sin conflictos | mergeable / no conflict |
+| 8 | HU en ADO: `Custom.Refinement=true`, Story Points | `GET workitem` (flujo HU) |
+| 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
 
-Si falla una → reportar número y **no** mergear.
+Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` → Modo B (Deploy DEV).
 
 ---
 
@@ -225,7 +228,8 @@ Si falla una → reportar número y **no** mergear.
 | Implementar código | frontend-agent / backend-agent / humano |
 | Crear PR en GitHub | **hilo principal** (rol integración) |
 | Registrar PR en ADO (Modo A) | **hilo principal** (rol integración) |
-| Ejecutar merge | **Humano** (GitHub UI) **o** **Líder Técnico** con `gh pr merge` tras «sí» textual |
+| Ejecutar merge → `develop` | **hilo principal** (MCP github) tras autorización del Feature + precondiciones; o humano |
+| Ejecutar merge → `staging` / `release` | **Siempre humano** (`flit-release`) |
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester |
 | Estado `Resolved` en HU | quien implementó (gestión HU) — el hilo principal **solo avisa** si falta |

@@ -31,7 +31,7 @@ Al **crear** una HU solo se rellenan los campos del momento de refinamiento/plan
 
 1. Feature padre existente (idealmente `Active` o superior).
 2. Capa: **FRONTEND** o **BACKEND**.
-3. `.env.user-identity` completo (ver `flit-azure-devops`).
+3. Identidad del usuario autenticado en Azure DevOps confirmada (para `AssignedTo` y trazabilidad — ver `flit-azure-devops`).
 
 ## Paso 1 — Borrador (solo 3 bloques + SP)
 

@@ -47,17 +47,17 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 1. NUNCA afirmes haber invocado a otro agente. No puedo.
 2. NUNCA nombres un agente o skill que no esté en la tabla de arriba.
 3. NUNCA propongas saltarte un gate humano.
-4. NUNCA propongas hacer merge automático de un PR: se deja abierto con CI en verde y lo mergea el usuario.
-5. NUNCA planees commits que incluyan `.claude/` (no versionado) ni parches locales de demo.
+4. NUNCA propongas merge a `staging`/`release` por un agente. Merge a `develop`: solo tras autorización del Feature y gates de `AGENTS.md` / `flit-integration-ado` (lo ejecuta el hilo principal, no un subagente).
+5. NUNCA planees commits con parches locales de demo (stubs OCR, MinIO local). `.claude/` **sí** se versiona (regla de `AGENTS.md`).
 6. NUNCA infles el plan: si la petición se resuelve con un solo agente, dilo y no fabriques fases.
 
 ---
 
 ## Cómo planeo
 
-1. **Entiendo el alcance.** Reviso el repo lo justo para saber qué workspaces toca (`apps/api`, `apps/web`, `packages/shared-types`) y si hay módulos análogos. Si la intención es ambigua, hago **una sola pregunta**: qué se quiere lograr y si hay ID de Feature o HU en ADO.
+1. **Entiendo el alcance.** Reviso el repo lo justo para saber qué workspaces toca (`apps/api`, `apps/web`, `packages/shared-types`) y si hay módulos análogos. Si la intención es ambigua, hago **una sola pregunta**: qué se quiere lograr y si hay ID de Feature o HU en ADO. Pedido **sin** Feature/HU en ADO → skill `flit-intake` primero (glosario `docs/dominio.md`); no saltar a código.
 2. **Elijo la forma del flujo:**
-   - *Requerimiento nuevo* → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → backend → frontend → `flit-code-review` (+ security-agent si toca superficie sensible) → qa → PR
+   - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → backend → frontend → `flit-code-review` (+ security-agent si toca superficie sensible) → qa → PR
    - *HU ya existente* → leer HU → backend o frontend → `flit-code-review` → qa → PR
    - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR
    - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
@@ -76,7 +76,8 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Activar una HU en ADO | antes de empezar a implementarla |
 | Crear rama, commit o push | antes de tocar git |
 | Abrir el PR | antes de `gh pr create` |
-| **Merge a `develop`** | siempre. El PR queda abierto con CI en verde y **lo mergea el usuario**, nunca un agente |
+| **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal puede mergear vía MCP github; sin autorización, lo mergea el humano |
+| **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |
 | Instalar herramientas o desplegar | antes de ejecutar |
 
