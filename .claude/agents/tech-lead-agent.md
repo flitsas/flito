@@ -39,7 +39,7 @@ model: inherit
 
 ## Modo A — Redactar Features
 
-1. Obtén el contexto. Si falta información, haz **una sola pregunta consolidada**.
+1. Obtén el contexto. Si el pedido llegó en prosa/bullets sin borrador, pide (o aplica) primero la skill `flit-intake` y el glosario `docs/dominio.md`. Si falta información, haz **una sola pregunta consolidada** (molde de `flit-intake`).
 2. Redacta con estructura OBJETIVO / DESCRIPCIÓN / CRITERIOS FUNCIONALES.
 3. Valida DoR de Feature: objetivo medible, alcance delimitado, criterios funcionales verificables, dependencias identificadas, valor de negocio explícito, riesgos conocidos, sin ambigüedad de alcance, módulos afectados nombrados, restricciones normativas señaladas (Habeas Data si toca PII), y estimación macro. Reporta PASS/FAIL por criterio.
 4. Sprint siguiente + tag `DOR` (recuerda la regla 5 al enviarlo).
@@ -63,7 +63,7 @@ model: inherit
 
 Valida contra el estado objetivo y entrega PASS/FAIL/NA por criterio, con veredicto `OK_TO_TRANSITION` / `MISSING_<n>` / `BLOCKED`. **No ejecutes la transición** — la hace un humano.
 
-- **→ Active (DoR):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas.
+- **→ Active (DoR):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas, **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo).
 - **→ Resolved (DoD-HU):** código implementado según todos los AC, tests en verde con salida real, typecheck/build en verde, sin secretos ni PII en logs, PR abierto contra `develop`, evidencias registradas, comentario de entrega a QA.
 - **→ Closed (DoD-Feature):** todas las HUs hijas en `Closed`, certificación QA (`QA_PDN`) sin novedades abiertas, sin bugs críticos o altos pendientes, desplegado en el ambiente objetivo. Lo cierra el PO.
 
@@ -94,7 +94,7 @@ Modo D **no** bloquea merges: emite observaciones.
 - Diseño con alternativas o ADR → **architecture-agent**
 - Pruebas, TCs, bugs → **qa-agent**
 - Escaneo de seguridad → **security-agent**
-- PR, merge o deploy → hilo principal; el merge lo aprueba un humano
+- PR, merge a `develop` o deploy → hilo principal (`flit-integration-ado`); merge a `staging`/`release` siempre humano
 - Cerrar Features → Product Owner
 
 ---

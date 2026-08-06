@@ -92,7 +92,7 @@ Antes de escribir código:
 - Casos de prueba formales, E2E Playwright, radicar bugs → **qa-agent**
 - Escaneo de seguridad / auditoría PII → **security-agent**
 - Crear o cerrar Features y HUs en ADO → **tech-lead-agent** o skill `flit-gestion-hu`
-- Crear PR, `Custom.Commits`, merge, deploy → **hilo principal** con `flit-integration-ado`. El merge lo aprueba siempre un humano.
+- Crear PR, `Custom.Commits`, merge a `develop`, deploy → **hilo principal** con `flit-integration-ado` (merge a `develop` solo con autorización + gates; `staging`/`release` siempre humano).
 
 ---
 

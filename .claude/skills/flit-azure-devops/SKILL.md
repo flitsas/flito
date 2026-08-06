@@ -21,18 +21,17 @@ El nombre del proyecto lleva espacios: en URLs REST **codificarlo** (`encodeURIC
 
 ## Identidad y credenciales
 
-- **MCP `azure-devops`** ya viene autenticado por su configuración de servidor: **no** requiere PAT en el repo para las operaciones normales.
-- **Trazabilidad** (nombre/email en comentarios HTML): usar el usuario supervisor (por defecto `admin@flitsas.io`). Si necesitas otro, pídelo.
-- **REST fallback** requiere un PAT (scope *Work Items Read & Write*). Léelo de `.env.user-identity` en la raíz **si existe**; hoy ese archivo **no está** en el repo, así que el fallback REST solo aplica cuando alguien lo provee. **Nunca** imprimir ni commitear el PAT.
+- **MCP `azure-devops`** es la vía de acceso — ya viene autenticado por su configuración de servidor: **no** requiere PAT ni archivos de credenciales en el repo.
+- **Trazabilidad** (nombre/email en comentarios HTML y menciones `mailto:`): la identidad del **usuario autenticado en Azure DevOps** — la cuenta con la que opera el MCP `azure-devops` (la que figura como `CreatedBy` en cualquier escritura; búscala con `core_get_identity_ids` si necesitas su id). Si no está clara, pregúntala. **Nunca** uses un correo fijo por defecto.
+- **REST fallback:** solo aplica si el usuario provee un PAT **en la sesión** (variable de entorno temporal, scope *Work Items Read & Write*). En este proyecto **no existe** archivo de credenciales local — no lo busques ni lo crees. **Nunca** imprimir ni commitear el PAT.
 
-Variables opcionales de `.env.user-identity` (solo para el fallback REST):
+Variables de entorno para el fallback REST (las provee el usuario en la sesión):
 
 | Variable | Uso |
 |----------|-----|
-| `USER_REAL_NAME` / `USER_REAL_EMAIL` | Trazabilidad y menciones `mailto:` |
 | `AZURE_ORG_URL` | Base, ej. `https://dev.azure.com/<org>` |
 | `AZURE_PROJECT_NAME` | `FLIT - FLITO` (exacto, con espacios) |
-| `AZURE_PAT` | Personal Access Token (Work Items R/W) |
+| `AZURE_PAT` | Personal Access Token (Work Items R/W) — solo en sesión, nunca en el repo |
 
 ## Estrategia de ejecución (obligatoria)
 
@@ -194,9 +193,8 @@ ADO ignora/escapa HTML con comillas dobles `"` no escapadas dentro del string JS
 ### bash / curl (referencia)
 
 ```bash
-# Cargar PAT desde .env.user-identity (si existe) — nunca imprimirlo
-set -a; source .env.user-identity; set +a
-
+# El PAT lo provee el usuario en la sesión (AZURE_PAT en el entorno) — no hay
+# archivo de credenciales en el repo. Nunca imprimirlo.
 auth=$(printf ':%s' "$AZURE_PAT" | base64 -w0)
 projectEncoded=$(jq -rn --arg p "$AZURE_PROJECT_NAME" '$p|@uri')
 
