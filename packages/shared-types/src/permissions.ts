@@ -102,6 +102,11 @@ export const PAGES = {
   flito_bolsas: 'FLITO — Bolsas prepago',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
+  // Facturación electrónica (Feature #11240): parametrización de la integración con Siigo —
+  // catálogos, mapeo de conceptos a productos y configuración global de emisión. UNA sola clave
+  // para toda la parametrización: son pantallas del mismo trabajo y de la misma persona, y
+  // partirla obligaría a conceder dos permisos para completar una tarea.
+  siigo_parametrizacion: 'Facturación electrónica — Parametrización',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -116,7 +121,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -142,7 +147,11 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
     'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
     // El reporte de costos consolida datos que el auditor ya ve uno a uno (SOAT, impuestos,
     // derechos). Negarle la vista agregada no protegía nada: solo le obligaba a reconstruirla.
-    'finanzas_reporte_costos'],
+    'finanzas_reporte_costos',
+    // Parametrización de facturación electrónica: el backend concede lectura a `auditor` en las
+    // tres rutas (mapeo, configuración y compuerta) porque ver la parametrización que respalda una
+    // factura emitida es parte de auditar. La pantalla no le deja escribir nada.
+    'siigo_parametrizacion'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
@@ -155,7 +164,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // Las bolsas prepago SÍ son suyas: es el dinero del cliente que Financiera recarga, mueve y
   // cierra. El backend (`/flito/bolsas`) solo admite admin y financiera, así que la página va aquí
   // y NO en `auditor`, que en el resto de FLITO lee todo pero de los movimientos crudos queda fuera.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas'],
+  // La parametrización de facturación electrónica es suya: `financiera` es quien FIRMA la
+  // confirmación de contabilidad de cada concepto (AC8 de la HU #11282). Ve la pantalla completa,
+  // pero el backend solo le admite el endpoint de confirmar; el resto de la edición es de `admin`.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'siigo_parametrizacion'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos
