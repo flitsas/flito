@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { CLIENTS_COLUMNAS_PII, CLIENTS_COLUMNAS_SIN_PII } from '@operaciones/shared-types';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 
@@ -286,17 +287,30 @@ describe('POST /forget — flujo principal', () => {
       .send({ docNumber: '900123456', reason: 'titular ejerce derecho al olvido' });
     expect(r.status).toBe(200);
 
-    for (const campo of [
-      'commercialName', 'contactFirstName', 'contactLastName',
-      'contactEmail', 'phoneIndicative', 'phoneNumber',
-    ]) {
-      expect(anonimizacionClients).toHaveProperty(campo, null);
+    // Cada columna declarada como PII tiene que aparecer en el borrado. `name` y `document` no van
+    // a null —se sustituyen por el marcador y por el hash— así que basta con que estén.
+    for (const campo of CLIENTS_COLUMNAS_PII) {
+      expect(Object.keys(anonimizacionClients ?? {})).toContain(campo);
     }
     // Los códigos fiscales NO se tocan: no identifican a nadie y borrarlos rompería la
     // trazabilidad contable de las facturas ya emitidas.
-    expect(anonimizacionClients).not.toHaveProperty('personType');
-    expect(anonimizacionClients).not.toHaveProperty('idType');
-    expect(anonimizacionClients).not.toHaveProperty('branchOffice');
+    for (const campo of ['personType', 'idType', 'branchOffice', 'fiscalResponsibilities']) {
+      expect(anonimizacionClients).not.toHaveProperty(campo);
+    }
+  });
+
+  // El canario de verdad: que las dos listas cubran la tabla ENTERA.
+  //
+  // Sin esto, la prueba de arriba solo verifica las columnas que alguien se acordó de listar, y una
+  // columna de PII añadida mañana pasaría en verde sin borrarse nunca. Contrastarlas contra el
+  // esquema real obliga a clasificar cada columna nueva: o es dato personal y se borra, o se
+  // declara que no lo es. Por omisión no se puede quedar.
+  it('toda columna de clients está clasificada como PII o como no-PII', async () => {
+    const { getTableColumns } = await import('drizzle-orm');
+    const { clients } = await import('../../src/db/schema.js');
+    const clasificadas = new Set<string>([...CLIENTS_COLUMNAS_PII, ...CLIENTS_COLUMNAS_SIN_PII]);
+    const sinClasificar = Object.keys(getTableColumns(clients)).filter((col) => !clasificadas.has(col));
+    expect(sinClasificar).toEqual([]);
   });
 
   it('docHash es determinístico (mismo doc → mismo hash)', async () => {

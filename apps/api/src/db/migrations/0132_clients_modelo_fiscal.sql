@@ -91,6 +91,25 @@ BEGIN
       CHECK (person_type_origen IN ('derivado', 'manual', 'sin_derivar'));
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_bloqueos_chk') THEN
+    ALTER TABLE clients ADD CONSTRAINT clients_bloqueos_chk
+      CHECK (facturacion_bloqueos <@ ARRAY[
+        'tipo_persona_sin_derivar','id_tipo_sin_equivalencia','identificacion_duplicada'
+      ]::text[]);
+  END IF;
+
+  -- Los tres códigos de ubicación acaban en `audit_logs.detail`, que es append-only por REVOKE y
+  -- que ningún cron purga. Sin patrón, usar `city_code` como campo libre metería PII imborrable
+  -- justo en la tabla de la que este módulo la mantiene fuera.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_ubicacion_chk') THEN
+    ALTER TABLE clients ADD CONSTRAINT clients_ubicacion_chk
+      CHECK (
+        (country_code IS NULL OR country_code ~ '^[A-Za-z]{2}$')
+        AND (state_code IS NULL OR state_code ~ '^[0-9]{1,5}$')
+        AND (city_code  IS NULL OR city_code  ~ '^[0-9]{1,10}$')
+      );
+  END IF;
+
   -- Siigo exige indicativo y número numéricos de hasta 10 caracteres cada uno.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'clients_phone_partes_chk') THEN
     ALTER TABLE clients ADD CONSTRAINT clients_phone_partes_chk

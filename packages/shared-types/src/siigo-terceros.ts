@@ -68,6 +68,28 @@ export const DOCUMENT_TYPE_A_PERSONA_TIPO: Record<string, PersonaTipo> = {
   TI: 'Person',
 };
 
+/**
+ * Tipos de identificación cuya naturaleza NO admite duda.
+ *
+ * Sirve para detectar combinaciones imposibles —un NIT declarado como persona natural— sin inventar
+ * reglas donde no las hay: `42` (documento extranjero), `43` (sin identificación del exterior) y
+ * `R-00-PN` quedan fuera a propósito porque pueden ser de cualquiera de los dos.
+ */
+export const SIIGO_ID_TIPO_PERSONA_IMPLICITA: Partial<Record<SiigoIdTipo, PersonaTipo>> = {
+  '31': 'Company',
+  '50': 'Company',
+  '11': 'Person',
+  '12': 'Person',
+  '13': 'Person',
+  '21': 'Person',
+  '22': 'Person',
+  '41': 'Person',
+  '47': 'Person',
+  '48': 'Person',
+  '89': 'Person',
+  '91': 'Person',
+};
+
 /** `fiscal_responsibilities[].code`. Catálogo cerrado de Siigo. */
 export const RESPONSABILIDADES_FISCALES = {
   'R-99-PN': 'No aplica – Otros',
@@ -111,3 +133,35 @@ export const BLOQUEOS_FISCALES = {
 
 export type BloqueoFiscal = keyof typeof BLOQUEOS_FISCALES;
 export const BLOQUEOS_FISCALES_CODIGOS = Object.keys(BLOQUEOS_FISCALES) as BloqueoFiscal[];
+
+/**
+ * Columnas de `clients` que contienen datos personales y por tanto DEBEN anonimizarse cuando un
+ * titular ejerce el derecho al olvido (Ley 1581).
+ *
+ * Vive aquí, y no como una lista suelta dentro de `privacy.routes.ts`, para que la prueba de
+ * regresión pueda contrastarla contra el esquema real: así, añadir una columna de PII a `clients`
+ * sin meterla en el borrado hace fallar un test en vez de pasar desapercibido.
+ */
+export const CLIENTS_COLUMNAS_PII = [
+  'name', 'email', 'phone', 'address', 'document', 'notes',
+  'commercialName', 'contactFirstName', 'contactLastName', 'contactEmail',
+  'phoneIndicative', 'phoneNumber',
+] as const;
+
+/**
+ * Columnas de `clients` que NO son datos personales y por tanto sobreviven al borrado.
+ *
+ * Es una lista explícita a propósito: junto con la anterior debe cubrir la tabla entera, de modo
+ * que una columna nueva no pueda quedar clasificada por omisión. Los códigos fiscales están aquí
+ * porque no identifican a nadie por sí solos y borrarlos rompería la trazabilidad contable de las
+ * facturas ya emitidas.
+ */
+export const CLIENTS_COLUMNAS_SIN_PII = [
+  'id', 'documentType', 'city', 'active', 'createdAt',
+  'soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable',
+  'logisticaPermiteParcial', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
+  'flitoProveedorSoatId',
+  'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',
+  'countryCode', 'stateCode', 'cityCode', 'branchOffice',
+  'personTypeOrigen', 'facturacionBloqueos',
+] as const;

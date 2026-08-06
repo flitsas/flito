@@ -4,9 +4,14 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import {
   PERSONA_TIPOS,
   SIIGO_ID_TIPOS_CODIGOS,
+  SIIGO_ID_TIPO_PERSONA_IMPLICITA,
   RESPONSABILIDADES_FISCALES_CODIGOS,
+  DOCUMENT_TYPE_A_PERSONA_TIPO,
+  DOCUMENT_TYPE_A_SIIGO,
   SUCURSAL_MINIMA,
   SUCURSAL_MAXIMA,
+  type PersonaTipo,
+  type SiigoIdTipo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients } from '../../db/schema.js';
@@ -17,9 +22,20 @@ import { maskName } from '../../shared/utils/pii.js';
 const router = Router();
 router.use(authMiddleware);
 
+/**
+ * El documento se guarda NORMALIZADO, no solo se compara normalizado.
+ *
+ * Sin esto la tabla acumula `' 900789123'` y `'900789123'` como clientes distintos: la unicidad de
+ * aquí los ve iguales y devuelve 409, pero `crearEmpresaDesdeTramite` compara con igualdad exacta e
+ * inserta el duplicado igual. Peor todavía, `companiaPorNit` tampoco encontraría el que tiene el
+ * espacio, dejando sus trámites sin compañía. Normalizar al escribir hace que los tres criterios
+ * que hoy conviven en el repo signifiquen lo mismo.
+ */
+const documentoNormalizado = z.string().max(20).transform((s) => s.trim().toUpperCase());
+
 const createSchema = z.object({
   name: z.string().min(1).max(200),
-  document: z.string().max(20).optional(),
+  document: documentoNormalizado.optional(),
   documentType: z.string().max(5).optional(),
   phone: z.string().max(20).optional(),
   email: z.string().email().optional(),
@@ -40,9 +56,12 @@ const createSchema = z.object({
   checkDigit: z.number().int().min(0).max(9).nullable().optional(),
   fiscalResponsibilities: z.array(z.enum(RESPONSABILIDADES_FISCALES_CODIGOS as [string, ...string[]]))
     .max(RESPONSABILIDADES_FISCALES_CODIGOS.length).optional(),
-  countryCode: z.string().length(2).nullable().optional(),
-  stateCode: z.string().max(5).nullable().optional(),
-  cityCode: z.string().max(10).nullable().optional(),
+  // Con patrón, no solo con longitud. Los tres acaban en `audit_logs.detail`, que es append-only
+  // por REVOKE y que ningún cron purga: un `cityCode` usado como campo libre —un celular, un
+  // nombre— sería PII imborrable en la única tabla de la que este módulo la mantiene fuera.
+  countryCode: z.string().regex(/^[A-Za-z]{2}$/, 'Dos letras, como Co').nullable().optional(),
+  stateCode: z.string().regex(/^[0-9]{1,5}$/, 'Solo dígitos').nullable().optional(),
+  cityCode: z.string().regex(/^[0-9]{1,10}$/, 'Solo dígitos').nullable().optional(),
   commercialName: z.string().max(200).nullable().optional(),
   branchOffice: z.number().int().min(SUCURSAL_MINIMA).max(SUCURSAL_MAXIMA).optional(),
   contactFirstName: z.string().max(100).nullable().optional(),
@@ -52,6 +71,52 @@ const createSchema = z.object({
   phoneIndicative: z.string().regex(/^[0-9]{1,10}$/, 'Solo dígitos, máximo 10').nullable().optional(),
   phoneNumber: z.string().regex(/^[0-9]{1,10}$/, 'Solo dígitos, máximo 10').nullable().optional(),
 });
+
+/**
+ * Combinaciones fiscales imposibles (AC4 mirado de frente).
+ *
+ * Los CHECK son por columna, así que cada campo por separado puede ser válido y el conjunto ser
+ * mentira. El caso real: un cliente migrado como NIT resulta ser una persona natural y alguien
+ * corrige lo único que ve en pantalla, `documentType: 'CC'`. La fila queda con `idType` 31 (NIT) y
+ * `personType` Company sobre un número de cédula, y la factura sale ante la DIAN con el tipo de
+ * identificación equivocado — justo lo que la regla «no adivinar» de la migración evitaba, entrando
+ * por la puerta de al lado.
+ *
+ * Se evalúa sobre el estado RESULTANTE, no sobre el cuerpo de la petición: un PATCH parcial es
+ * precisamente cómo se llega a la incoherencia.
+ */
+export function incoherenciasFiscales(fila: {
+  documentType?: string | null;
+  personType?: string | null;
+  idType?: string | null;
+}): string[] {
+  const problemas: string[] = [];
+  const doc = fila.documentType ? fila.documentType.trim().toUpperCase() : null;
+  const persona = (fila.personType ?? null) as PersonaTipo | null;
+  const id = (fila.idType ?? null) as SiigoIdTipo | null;
+
+  const personaEsperada = doc ? DOCUMENT_TYPE_A_PERSONA_TIPO[doc] : undefined;
+  if (personaEsperada && persona && persona !== personaEsperada) {
+    problemas.push(
+      `El tipo de documento ${doc} corresponde a ${personaEsperada} y el tipo de persona dice ${persona}.`,
+    );
+  }
+
+  const idEsperado = doc ? DOCUMENT_TYPE_A_SIIGO[doc] : undefined;
+  if (idEsperado && id && id !== idEsperado) {
+    problemas.push(
+      `El tipo de documento ${doc} corresponde al tipo de identificación ${idEsperado} de Siigo y dice ${id}.`,
+    );
+  }
+
+  const personaImplicita = id ? SIIGO_ID_TIPO_PERSONA_IMPLICITA[id] : undefined;
+  if (personaImplicita && persona && persona !== personaImplicita) {
+    problemas.push(
+      `El tipo de identificación ${id} solo puede ser ${personaImplicita} y el tipo de persona dice ${persona}.`,
+    );
+  }
+  return problemas;
+}
 
 // Lectura alineada con la del módulo fusionado (HU #10979): antes bastaba con estar autenticado,
 // mientras que su gemelo `GET /flito/parametrizacion/companias` —la misma tabla— exigía rol. Dos
@@ -130,6 +195,12 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
   const datos = parsed.data;
+  const problemas = incoherenciasFiscales(datos);
+  if (problemas.length > 0) {
+    res.status(400).json({ error: 'Datos fiscales incoherentes', details: problemas });
+    return;
+  }
+
   if (datos.document && datos.document.trim() !== '') {
     if (await parejaOcupada(datos.document, datos.branchOffice ?? 0)) {
       res.status(409).json({
@@ -140,7 +211,12 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
     }
   }
 
-  const [client] = await db.insert(clients).values(datos).returning();
+  // `personTypeOrigen` no está en el schema —no es escribible desde fuera— pero sí se deriva de la
+  // petición: quien crea un cliente declarando su tipo de persona lo está clasificando a mano, y la
+  // migración 0132 solo respeta lo humano si está marcado como tal.
+  const [client] = await db.insert(clients)
+    .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+    .returning();
   await audit(req, {
     action: 'create',
     resource: 'client',
@@ -162,6 +238,19 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   if (!previo) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   const cambios = parsed.data;
+
+  // Sobre el estado RESULTANTE: cambiar solo `documentType` es exactamente cómo se llega a un
+  // cliente con tipo de identificación de NIT y número de cédula.
+  const problemas = incoherenciasFiscales({
+    documentType: cambios.documentType ?? previo.documentType,
+    personType: cambios.personType ?? previo.personType,
+    idType: cambios.idType ?? previo.idType,
+  });
+  if (problemas.length > 0) {
+    res.status(400).json({ error: 'Datos fiscales incoherentes', details: problemas });
+    return;
+  }
+
   const documento = cambios.document ?? previo.document;
   const sucursal = cambios.branchOffice ?? previo.branchOffice;
   const tocaIdentidad = cambios.document !== undefined || cambios.branchOffice !== undefined;
@@ -175,7 +264,11 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
     }
   }
 
-  const [updated] = await db.update(clients).set(cambios).where(eq(clients.id, id)).returning();
+  // Igual que en el POST: fijar el tipo de persona a mano lo marca como `manual`, y eso es lo que
+  // impide que una reejecución de la migración 0132 lo vuelva a derivar del `document_type`.
+  const [updated] = await db.update(clients)
+    .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+    .where(eq(clients.id, id)).returning();
   if (!updated) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   // Su gemelo de parametrización sí auditaba; este no. Cambiar los datos de un cliente sin dejar

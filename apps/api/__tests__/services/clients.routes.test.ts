@@ -291,6 +291,149 @@ describe('identificación y sucursal (AC5)', () => {
   });
 });
 
+// ── Coherencia entre los tres campos de identidad fiscal ───────────────────
+//
+// Los CHECK son por columna: cada campo puede ser válido por separado y el conjunto ser mentira.
+// El daño no se ve aquí, se ve cuando la factura sale ante la DIAN con el tipo de identificación
+// equivocado.
+describe('coherencia fiscal', () => {
+  it('NIT declarado como persona natural → 400', async () => {
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'X', documentType: 'NIT', personType: 'Person' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Datos fiscales incoherentes');
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it('tipo de identificación que no corresponde al tipo de documento → 400', async () => {
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'X', documentType: 'CC', idType: '31' });
+    expect(r.status).toBe(400);
+  });
+
+  it('un NIT de Siigo no puede ser persona natural aunque no haya documentType', async () => {
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'X', idType: '31', personType: 'Person' });
+    expect(r.status).toBe(400);
+  });
+
+  it('cambiar SOLO el tipo de documento por PATCH no puede dejar la fila incoherente', async () => {
+    // Es el caso real: alguien corrige en pantalla lo único que ve. Sin esta guarda la fila queda
+    // con tipo de identificación de NIT sobre un número de cédula.
+    selectMock.mockReturnValueOnce(chain([previo({ documentType: 'NIT', personType: 'Company', idType: '31' })]));
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ documentType: 'CC' });
+    expect(r.status).toBe(400);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('cambiar el tipo de documento junto con los otros dos sí se acepta', async () => {
+    prepararPatch(
+      previo({ documentType: 'NIT', personType: 'Company', idType: '31' }),
+      { ...previo(), documentType: 'CC', personType: 'Person', idType: '13' },
+    );
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ documentType: 'CC', personType: 'Person', idType: '13' });
+    expect(r.status).toBe(200);
+  });
+
+  it('un tipo de documento desconocido no impone nada: no se inventan reglas', async () => {
+    insertMock.mockReturnValueOnce({
+      values: () => ({ returning: () => Promise.resolve([{ id: 12, name: 'Pasaporte' }]) }),
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Pasaporte', documentType: 'PA', personType: 'Person', idType: '41' });
+    expect(r.status).toBe(201);
+  });
+});
+
+// ── El origen del tipo de persona ───────────────────────────────────────────
+describe('clasificación manual del tipo de persona', () => {
+  it('fijar el tipo de persona lo marca como manual: la migración no debe volver a derivarlo', async () => {
+    let guardado: Record<string, unknown> | undefined;
+    selectMock.mockReturnValueOnce(chain([previo({ documentType: 'CC', personType: null, idType: null })]));
+    updateMock.mockReturnValueOnce({
+      set: (payload: Record<string, unknown>) => {
+        guardado = payload;
+        return { where: () => ({ returning: () => Promise.resolve([{ ...previo(), personType: 'Person' }]) }) };
+      },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ personType: 'Person' });
+    expect(r.status).toBe(200);
+    expect(guardado).toMatchObject({ personType: 'Person', personTypeOrigen: 'manual' });
+  });
+
+  it('editar cualquier otra cosa NO toca el origen', async () => {
+    let guardado: Record<string, unknown> | undefined;
+    selectMock.mockReturnValueOnce(chain([previo()]));
+    updateMock.mockReturnValueOnce({
+      set: (payload: Record<string, unknown>) => {
+        guardado = payload;
+        return { where: () => ({ returning: () => Promise.resolve([previo()]) }) };
+      },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Otro' });
+    expect(guardado).not.toHaveProperty('personTypeOrigen');
+  });
+
+  it('el origen NO es escribible desde fuera', async () => {
+    let guardado: Record<string, unknown> | undefined;
+    insertMock.mockReturnValueOnce({
+      values: (payload: Record<string, unknown>) => {
+        guardado = payload;
+        return { returning: () => Promise.resolve([{ id: 30, name: 'X' }]) };
+      },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'X', personTypeOrigen: 'derivado', facturacionBloqueos: [] });
+    // Zod descarta lo desconocido: ni el origen ni los bloqueos llegan a la base desde la petición.
+    expect(guardado).not.toHaveProperty('facturacionBloqueos');
+    expect(guardado?.personTypeOrigen).toBeUndefined();
+  });
+});
+
+// ── El documento se guarda normalizado ──────────────────────────────────────
+describe('normalización del documento', () => {
+  it('se guarda sin espacios y en mayúsculas, no solo se compara así', async () => {
+    let guardado: Record<string, unknown> | undefined;
+    selectMock.mockReturnValueOnce(chain([]));
+    insertMock.mockReturnValueOnce({
+      values: (payload: Record<string, unknown>) => {
+        guardado = payload;
+        return { returning: () => Promise.resolve([{ id: 20, name: 'Con espacios' }]) };
+      },
+    });
+    const token = await adminToken();
+    const app = await buildApp();
+    const r = await request(app).post('/api/clients').set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Con espacios', document: '  ab998877  ' });
+    expect(r.status).toBe(201);
+    // Guardarlo con espacios dejaba dos clientes que esta ruta ve como uno y que
+    // `companiaPorNit` no encuentra, con sus trámites huérfanos de compañía.
+    expect(guardado?.document).toBe('AB998877');
+  });
+});
+
 describe('PATCH /:id', () => {
   it('id inválido → 400', async () => {
     const token = await adminToken();
@@ -353,8 +496,10 @@ describe('auditoría de los datos fiscales (AC7)', () => {
     );
     const token = await adminToken();
     const app = await buildApp();
+    // `documentType` viaja también: sin él la fila quedaría con tipo de identificación de cédula
+    // sobre un documento declarado NIT, y la guarda de coherencia lo rechaza con razón.
     const r = await request(app).patch('/api/clients/1').set('Authorization', `Bearer ${token}`)
-      .send({ personType: 'Person', idType: '13', branchOffice: 2, fiscalResponsibilities: ['O-15'] });
+      .send({ documentType: 'CC', personType: 'Person', idType: '13', branchOffice: 2, fiscalResponsibilities: ['O-15'] });
     expect(r.status).toBe(200);
 
     const detalle = auditMock.mock.calls.at(-1)?.[1].detail as string;
