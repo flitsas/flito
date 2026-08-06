@@ -133,7 +133,10 @@ test.describe('AC2 — los cuatro estados', () => {
     });
     await page.route(/\/api\/siigo\/compuerta(\?|$)/, (route) => route.fulfill({
       status: 200, contentType: 'application/json',
-      body: JSON.stringify({ modo: 'real', compuertaActiva: true }),
+      body: JSON.stringify({
+        ambiente: 'pruebas', modo: 'real', compuertaActiva: true,
+        emisionRealHabilitada: false, motivos: [], conceptosEvaluados: [],
+      }),
     }));
 
     await page.goto('/siigo/parametrizacion');
@@ -168,7 +171,11 @@ test.describe('AC2 — los cuatro estados', () => {
       });
     });
     await page.route(/\/api\/siigo\/compuerta(\?|$)/, (route) => route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify({ modo: 'real', compuertaActiva: true }),
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({
+        ambiente: 'pruebas', modo: 'real', compuertaActiva: true,
+        emisionRealHabilitada: false, motivos: [], conceptosEvaluados: [],
+      }),
     }));
 
     await page.goto('/siigo/parametrizacion');
