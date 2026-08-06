@@ -3,7 +3,7 @@ import { pgTable, serial, varchar, text, boolean, timestamp, time, integer, bigi
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() { return 'bytea'; },
 });
-import { sql } from 'drizzle-orm';
+import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
@@ -3532,4 +3532,51 @@ export const siigoCatalogos = pgTable('siigo_catalogos', {
   // ambiente, por nombre».
   ambienteTipoActivoIdx: index('idx_siigo_catalogos_ambiente_tipo_activo')
     .on(t.ambiente, t.tipo, t.activo, t.nombre),
+}));
+
+/**
+ * Configuración global de emisión, por ambiente (HU #11284).
+ *
+ * Con qué tipo de comprobante, vendedor, forma de pago y centro de costo nacen las facturas. Los
+ * cuatro son identificadores de UNA empresa de Siigo, así que la configuración es por ambiente
+ * igual que los catálogos y el mapeo de conceptos.
+ *
+ * Guardar INSERTA una fila nueva y apaga la anterior en vez de actualizar en sitio: con estos
+ * valores se emiten documentos ante la DIAN, y «¿con qué vendedor salió la factura de marzo?» solo
+ * se puede responder si la configuración de marzo sigue existiendo. El índice único parcial sobre
+ * `vigente` es lo que garantiza el AC1 —una sola vigente por ambiente— desde la base.
+ *
+ * Tres campos describen decisiones que contabilidad NO ha tomado, implementadas como configuración
+ * para que responderlas sea cambiar un dato: forma de pago única (AC3), plazo de vencimiento (AC4)
+ * y estrategia de numeración (AC5).
+ */
+export const siigoConfigEmision = pgTable('siigo_config_emision', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Códigos de la copia local de los catálogos. Nunca se escriben a mano. */
+  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
+  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
+  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
+  /** Obligatorio solo si el tipo de comprobante elegido lo exige (`centroCostoObligatorio`). */
+  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  /** Cero = de contado. Es una afirmación, no un hueco. El cálculo vive en la HU de emisión. */
+  plazoVencimientoDias: integer('plazo_vencimiento_dias').notNull().default(0),
+  /** Solo 'siigo' (AC5). Añadir «lo envía FLITO» exige migración, es decir, una decisión. */
+  estrategiaNumeracion: varchar('estrategia_numeracion', { length: 30 }).notNull().default('siigo'),
+  notas: text('notas'),
+  /** false = configuración histórica. */
+  vigente: boolean('vigente').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // AC1 — una sola vigente por ambiente. Parcial: las apagadas son historial y se repiten.
+  vigenteUq: uniqueIndex('idx_siigo_config_emision_vigente')
+    .on(t.ambiente)
+    .where(sql`${t.vigente}`),
+  // DESC igual que en la migración 0130: la consulta real es «lo más reciente primero», y una
+  // deriva de dirección entre `schema.ts` y la base es de las que no se notan hasta que alguien
+  // regenera algo a partir del esquema.
+  historialIdx: index('idx_siigo_config_emision_historial').on(t.ambiente, desc(t.createdAt)),
 }));

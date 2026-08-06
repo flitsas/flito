@@ -82,3 +82,25 @@ export function detalleTecnico(entrada: unknown): string {
   if (entrada instanceof Error) return sanearMensaje(`${entrada.name}: ${entrada.message}`);
   return sanearMensaje(String(entrada));
 }
+
+/**
+ * ¿Es una violación de índice único (`23505` de Postgres)?
+ *
+ * Vive aquí, junto al resto de lo que este módulo sabe sobre la FORMA de los errores de drizzle,
+ * porque el motivo es el mismo: desde `drizzle-orm` 0.45 `PgSession` envuelve todo error del driver
+ * en un `DrizzleQueryError`, así que el código de Postgres ya no está en la raíz sino en `cause`.
+ * Mirar `e.code` a secas es código muerto — un `if` que nunca entra y una traducción que nunca
+ * ocurre, con el 500 y la fuga del SQL que eso arrastra.
+ *
+ * Lo usan el mapeo de conceptos (HU #11282/#11283) y la configuración de emisión (HU #11284). Estaba
+ * duplicado y se unificó aquí: si drizzle vuelve a cambiar la envoltura, hay un solo sitio que
+ * corregir en vez de dos que se desincronizan.
+ */
+export function esViolacionDeUnico(e: unknown): boolean {
+  let actual: unknown = e;
+  for (let saltos = 0; actual !== null && actual !== undefined && saltos < 5; saltos += 1) {
+    if ((actual as { code?: string }).code === '23505') return true;
+    actual = (actual as { cause?: unknown }).cause;
+  }
+  return false;
+}

@@ -47,6 +47,7 @@ import type { SiigoAmbiente } from './credenciales.service.js';
 import {
   consultarProductoPorCodigo, estadoDeValidacion, motivoLegible, validarMapeoContraSiigo,
 } from './siigo.productos.service.js';
+import { esViolacionDeUnico } from './siigo.redaccion.js';
 
 /** Falla de negocio del mapeo. El router la traduce a un status HTTP. */
 export class SiigoMapeoError extends Error {
@@ -327,22 +328,6 @@ function contradice<T>(entrante: T | null | undefined, previo: T | null | undefi
   return entrante !== previo;
 }
 
-/**
- * ¿Es la violación del índice único parcial (`23505`)?
- *
- * Desde drizzle-orm 0.45.2 el error del driver ya no llega crudo: `PgSession` envuelve TODA
- * excepción en `DrizzleQueryError`, cuyo `message` es `Failed query: <sql>\nparams: <valores>`. El
- * código de Postgres queda en `cause`, no en la raíz. Mirar `e.code` a secas es código muerto, y
- * dejar escapar ese error arrastra el SQL con sus parámetros hasta el log del `errorHandler`.
- */
-function esViolacionDeUnico(e: unknown): boolean {
-  let actual: unknown = e;
-  for (let saltos = 0; actual !== null && actual !== undefined && saltos < 5; saltos += 1) {
-    if ((actual as { code?: string }).code === '23505') return true;
-    actual = (actual as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 const MENSAJE_DUPLICADO = 'Ya hay una configuración activa para ese concepto y tipo de trámite '
   + 'en este ambiente. Edítala en vez de crear otra.';
