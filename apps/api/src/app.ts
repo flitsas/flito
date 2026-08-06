@@ -32,6 +32,7 @@ import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.rout
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
+import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
 import siigoParametrizacionRoutes from './modules/siigo/parametrizacion.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
@@ -191,6 +192,7 @@ export function createApp() {
   app.use('/api/flito/bolsas', flitoBolsasRoutes);
   app.use('/api/finanzas', finanzasRoutes);
   app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
+  app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
   app.use('/api/siigo/parametrizacion', siigoParametrizacionRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);

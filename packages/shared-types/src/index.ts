@@ -63,3 +63,5 @@ export * from './flito-bolsas-transito.js';
 export * from './flito-certificacion.js';
 // Siigo — catálogos de parametrización contable cacheados en FLITO (Feature #11239).
 export * from './siigo-catalogos.js';
+// Facturación electrónica: conceptos facturables, clasificación tributaria y mapeo a Siigo.
+export * from './siigo-facturacion.js';

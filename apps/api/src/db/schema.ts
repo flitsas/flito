@@ -3398,6 +3398,71 @@ export const siigoOperaciones = pgTable('siigo_operaciones', {
 }));
 
 /**
+ * Mapeo de cada concepto facturable al producto que lo representa en Siigo (HU #11282).
+ *
+ * Es la tabla que hace que el AC3 sea cierto: el armado de la factura lee de aquí la clasificación
+ * tributaria, los impuestos y la unidad de medida, así que cambiarlos es editar configuración y no
+ * desplegar. En el servicio de armado no puede aparecer ninguna condición sobre un concepto
+ * concreto — si la ves, es un bug de diseño, no un atajo.
+ *
+ * `ambiente` forma parte de la identidad de la fila. El `codigoProducto` y los ids de `impuestos`
+ * pertenecen a UNA empresa de Siigo, y pruebas y producción son empresas distintas con ids
+ * distintos (docs/integraciones/siigo-api.md §Notas, punto 6). Sin ambiente en la llave, configurar
+ * contra pruebas dejaría escrito un código que en producción es otro producto — y eso ya es una
+ * factura mal emitida ante la DIAN. Además la HU #11285 exige que al cambiar de ambiente NO se
+ * hereden confirmaciones del otro, cosa imposible con una sola fila por concepto.
+ *
+ * `tipoTramite` NULL = configuración genérica; con tipo de trámite, precedencia sobre la genérica.
+ * Misma convención ya probada en `flitoTarifasCompania`.
+ *
+ * NO modela retenciones (AC7): no está confirmado si ReteICA, ReteIVA o autorretención aplican a
+ * las facturas de FLIT. Incorporarlas sería añadir columnas aquí, no rehacer el modelo.
+ */
+export const siigoMapeoConceptos = pgTable('siigo_mapeo_conceptos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  concepto: varchar('concepto', { length: 30 }).notNull(),
+  /** NULL = configuración genérica del concepto. Normalizado en mayúsculas. */
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  /** `code` de POST /v1/products: alfanumérico, sin espacios, ≤30. NULL = sin mapear todavía. */
+  codigoProducto: varchar('codigo_producto', { length: 30 }),
+  nombreProducto: varchar('nombre_producto', { length: 200 }),
+  /** gravado | exento | excluido. NULL = SIN DECLARAR, que no es lo mismo que excluido. */
+  clasificacionTributaria: varchar('clasificacion_tributaria', { length: 12 }),
+  /** `[{ id, nombre?, porcentaje? }]` con ids de GET /v1/taxes de ESTA empresa de Siigo. */
+  impuestos: jsonb('impuestos').notNull().default(sql`'[]'::jsonb`),
+  unidadMedida: varchar('unidad_medida', { length: 20 }),
+  /** Dinero que FLIT recauda y traslada (SOAT, impuesto, derecho), no ingreso propio. */
+  ingresoParaTerceros: boolean('ingreso_para_terceros').notNull().default(false),
+  /**
+   * AC6 — GMF. `false` con `lineaPropiaPendiente = true` significa «sin decidir», NO «se absorbe».
+   * Quien arme la factura debe mirar el pendiente antes de actuar.
+   */
+  facturaLineaPropia: boolean('factura_linea_propia').notNull().default(false),
+  lineaPropiaPendiente: boolean('linea_propia_pendiente').notNull().default(false),
+  confirmadoContabilidad: boolean('confirmado_contabilidad').notNull().default(false),
+  /** Quién y cuándo confirmó. NO se limpian al revertir: el AC4 pide que el rastro sobreviva. */
+  confirmadoPorId: integer('confirmado_por_id').references(() => users.id),
+  confirmadoEn: timestamp('confirmado_en', { withTimezone: true }),
+  confirmacionRevertidaEn: timestamp('confirmacion_revertida_en', { withTimezone: true }),
+  /** Nombres de los campos que tumbaron la confirmación. Nunca valores. */
+  confirmacionRevertidaPor: varchar('confirmacion_revertida_por', { length: 300 }),
+  activo: boolean('activo').notNull().default(true),
+  notas: text('notas'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // Una sola fila viva por ambiente + concepto + tipo. El COALESCE evita varias genéricas del mismo
+  // concepto (NULL no colisiona con NULL). Parcial: las desactivadas son historial.
+  unicoActivoIdx: uniqueIndex('idx_siigo_mapeo_unico_activo')
+    .on(t.ambiente, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`)
+    .where(sql`${t.activo}`),
+  ambienteConceptoIdx: index('idx_siigo_mapeo_ambiente_concepto').on(t.ambiente, t.concepto),
+}));
+
+/**
  * Copia local de los catálogos de Siigo (HU #11281).
  *
  * Siigo permite 100 peticiones por minuto por empresa. Resolver el nombre de un vendedor o de una
