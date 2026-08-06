@@ -101,7 +101,13 @@ export const CLASIFICACION_TRIBUTARIA_LABEL: Record<ClasificacionTributaria, str
   excluido: 'Excluido',
 };
 
-/** Equivalencia con `tax_classification` de la API de Siigo. */
+/**
+ * Equivalencia con `tax_classification` de la API de Siigo (`POST /v1/products`).
+ *
+ * Vive aquí, pegado a la constante que traduce, y no en el servicio que arma el cuerpo: es la
+ * correspondencia con el API, no una decisión del flujo de creación. Si mañana Siigo admite un
+ * cuarto valor, este es el único sitio que lo sabe.
+ */
 export const CLASIFICACION_TRIBUTARIA_SIIGO: Record<ClasificacionTributaria, 'Taxed' | 'Exempt' | 'Excluded'> = {
   gravado: 'Taxed',
   exento: 'Exempt',

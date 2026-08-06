@@ -43,6 +43,20 @@ export interface OpcionesSimulacion {
   aleatorio?: () => number;
   tasaError?: number;
   tasaTimeout?: number;
+  /**
+   * Cuerpo de la petición, para las rutas que responden en función de lo enviado (HU #11286: la
+   * creación de productos devuelve el `code` y el `name` que recibió).
+   *
+   * Va aquí y no como tercer parámetro posicional porque ese sitio ya lo ocupan las opciones en las
+   * llamadas existentes; cambiarlo habría roto los tests del simulador sin ganar nada.
+   */
+  cuerpo?: unknown;
+  /**
+   * Ambiente de la petición. Los productos que el simulador recuerda se particionan por él: pruebas
+   * y produccion son empresas distintas en Siigo, y mezclarlas daría por bueno un código que el API
+   * real no resolvería.
+   */
+  ambiente?: string;
 }
 
 /** Token simulado. Se distingue a simple vista de uno real para que nadie lo confunda en un log. */
@@ -233,6 +247,39 @@ export const PRODUCTOS_SIMULADOS: readonly { code: string; active: boolean; name
   PRODUCTS_SIMULADOS;
 
 /**
+ * Productos creados durante la vida del proceso (HU #11286).
+ *
+ * Separados de las fixtures y MUTABLES a propósito. El AC7 pide que el flujo de vinculación se
+ * pueda probar de extremo a extremo sin ambiente real, y ese flujo es: crear → el mapeo se
+ * actualiza → la actualización REVALIDA el código contra Siigo. Si lo recién creado no apareciera
+ * en la siguiente consulta, la vinculación fallaría con «no existe» y el simulador no serviría para
+ * ensayar justo lo que la historia pide ensayar.
+ */
+const productosCreadosEnSimulacion: Array<{
+  ambiente: string; id: string; code: string; name: string; active: boolean;
+}> = [];
+
+/**
+ * Tope de productos recordados. El simulador es una ayuda de desarrollo, no un almacén: sin cota,
+ * un proceso largo acumularía sin límite. Al llegar al tope se desaloja el más antiguo.
+ */
+const MAX_PRODUCTOS_SIMULADOS = 200;
+
+/**
+ * Consecutivo PROPIO de los productos simulados.
+ *
+ * Separado del de facturas a propósito: compartirlo hacía que crear productos desplazara los
+ * números de las facturas simuladas, y que reiniciar uno dejara el otro descuadrado.
+ */
+let consecutivoProducto = 0;
+
+/** Solo para tests y para el arranque, igual que `reiniciarConsecutivoSimulado`. */
+export function reiniciarProductosSimulados(): void {
+  productosCreadosEnSimulacion.length = 0;
+  consecutivoProducto = 0;
+}
+
+/**
  * Aplica los filtros de consulta que Siigo sí honra en los catálogos.
  *
  * Solo `document-types?type=` filtra de verdad en Siigo. `payment-types?document_type=` acota por
@@ -254,6 +301,8 @@ function filtrarCatalogoSimulado(recurso: string, query: URLSearchParams, elemen
 export function respuestaSimulada(
   metodo: MetodoHttp, ruta: string, opciones: OpcionesSimulacion = {},
 ): RespuestaSimulada {
+  // Ambiente al que pertenece la simulación: los productos recordados se particionan por él.
+  const ambiente = opciones.ambiente ?? env.SIIGO_AMBIENTE;
   const aleatorio = opciones.aleatorio ?? Math.random;
   const tasaTimeout = opciones.tasaTimeout ?? env.SIIGO_MOCK_TIMEOUT_RATE;
   const tasaError = opciones.tasaError ?? env.SIIGO_MOCK_ERROR_RATE;
@@ -306,6 +355,69 @@ export function respuestaSimulada(
     };
   }
 
+  // Creación de producto (HU #11286). Antes esta ruta caía en la rama final de éxito vacío y
+  // devolvía un objeto sin identificador ni código, con lo que el flujo de vinculación no se podía
+  // probar. Responde con la forma documentada de `ProductOut` y RECUERDA lo creado, para que la
+  // revalidación posterior lo encuentre (AC7).
+  if (metodo === 'POST' && /^\/v1\/products\/?$/.test(ruta)) {
+    const enviado = (opciones.cuerpo ?? {}) as Record<string, unknown>;
+    const code = typeof enviado.code === 'string' ? enviado.code : 'MOCK-PROD';
+    const name = typeof enviado.name === 'string' ? enviado.name : 'Producto simulado';
+
+    // Siigo exige `code` único: el simulador replica ese rechazo con la misma estructura de error.
+    // La unicidad se comprueba DENTRO del ambiente: pruebas y produccion son empresas distintas en
+    // Siigo, y un simulador que las mezclara daría verde por una razón que el API real no concede.
+    const yaExiste = PRODUCTS_SIMULADOS.some((p) => p.code === code)
+      || productosCreadosEnSimulacion.some((p) => p.code === code && p.ambiente === ambiente);
+    if (yaExiste) {
+      return {
+        status: 400,
+        ok: false,
+        datos: {
+          Status: 400,
+          Errors: [{
+            Code: 'already_exists',
+            Message: 'Product code already exists (simulado)',
+            Params: ['code'],
+            Detail: 'Respuesta generada por el modo simulado de FLITO.',
+          }],
+        },
+      };
+    }
+
+    consecutivoProducto += 1;
+    const id = `mock-product-${consecutivoProducto}`;
+    if (productosCreadosEnSimulacion.length >= MAX_PRODUCTOS_SIMULADOS) {
+      productosCreadosEnSimulacion.shift();
+    }
+    productosCreadosEnSimulacion.push({ ambiente, id, code, name, active: true });
+
+    return {
+      status: 201,
+      ok: true,
+      datos: {
+        id,
+        code,
+        name,
+        account_group: { id: enviado.account_group ?? 1253, name: 'Grupo simulado' },
+        type: enviado.type ?? 'Service',
+        stock_control: enviado.stock_control === true,
+        active: true,
+        tax_classification: enviado.tax_classification ?? 'Taxed',
+        taxes: Array.isArray(enviado.taxes) ? enviado.taxes : [],
+        prices: [],
+        unit: { code: enviado.unit ?? '94', name: 'unidad' },
+        unit_label: 'unidad',
+        reference: null,
+        description: null,
+        additional_fields: {},
+        available_quantity: 0,
+        warehouses: [],
+        metadata: { created: '2026-08-06T00:00:00.000Z', last_updated: null },
+      },
+    };
+  }
+
   // Consulta de producto por código (HU #11283). Va ANTES del listado genérico: sin esto el
   // simulador respondería `results: []` a todo código y la validación no tendría caso feliz.
   const producto = /^\/v1\/products\/?\?(.*)$/.exec(ruta);
@@ -314,7 +426,11 @@ export function respuestaSimulada(
     if (codigo !== null) {
       // Siigo compara el `code` tal cual; el simulador hace lo mismo para no ser más permisivo que
       // el original y dejar pasar en pruebas un código que en producción no resolvería.
-      const encontrados = PRODUCTS_SIMULADOS.filter((p) => p.code === codigo);
+      // Se busca también entre los creados en esta simulación: es lo que hace posible el AC7.
+      const encontrados = [
+        ...PRODUCTS_SIMULADOS,
+        ...productosCreadosEnSimulacion.filter((p) => p.ambiente === ambiente),
+      ].filter((p) => p.code === codigo);
       return {
         status: 200,
         ok: true,

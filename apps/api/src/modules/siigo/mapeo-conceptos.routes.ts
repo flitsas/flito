@@ -22,7 +22,7 @@ import {
 import rateLimit from 'express-rate-limit';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { env } from '../../config/env.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 import {
@@ -30,6 +30,7 @@ import {
   estadoMapeo, listarMapeo, obtenerMapeo, revalidarMapeo, SiigoMapeoError,
   type MapeoConcepto,
 } from './mapeo-conceptos.service.js';
+import { crearProductoDeConcepto } from './crear-producto.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -149,6 +150,9 @@ const revalidacionLimiter = rateLimit({
   max: 4,
   keyGenerator: userOrIpKey('siigo-reval'),
   message: { error: 'La revalidación contra Siigo está limitada a 4 por hora.' },
+  // Con store en memoria el tope sería POR PROCESO y se reiniciaría en cada despliegue. Hoy da
+  // igual —PM2 corre una instancia— pero el freno se degradaría en silencio al escalar.
+  store: makeStore('rl:siigo-reval:'),
 });
 
 // POST /revalidar — vuelve a comprobar contra Siigo todo lo ya configurado (HU #11283, AC7).
@@ -200,6 +204,58 @@ router.post('/', ESCRITURA, async (req: Request, res: Response) => {
       detail: `Alta de configuración específica · ${resumen(creado)}`,
     });
     res.status(201).json(creado);
+  } catch (e) { mapeoFallo(res, e); }
+});
+
+/**
+ * Freno de la creación de productos (HU #11286).
+ *
+ * Cada intento gasta al menos dos peticiones de la cuota de Siigo —la búsqueda previa y la
+ * creación— y esa cuota se comparte con la emisión de facturas. Además, a diferencia de una
+ * consulta, esto ESCRIBE en el catálogo de la empresa: un bucle accidental dejaría productos
+ * basura que no se pueden borrar, solo desactivar.
+ *
+ * Diez por hora y no treinta: la frecuencia esperada son seis —uno por concepto facturable— más
+ * reintentos. El tope de una escritura irreversible se dimensiona por lo que hace falta, no por lo
+ * que parece cómodo.
+ */
+const creacionProductoLimiter = rateLimit({
+  windowMs: 3_600_000,
+  max: 10,
+  keyGenerator: userOrIpKey('siigo-crear-producto'),
+  message: { error: 'La creación de productos en Siigo está limitada a 10 por hora.' },
+  store: makeStore('rl:siigo-crear-producto:'),
+});
+
+const crearProductoSchema = z.object({
+  // Opcional: si no viene, se propone el sugerido del concepto y se valida igual (AC1).
+  codigo: z.string().regex(CODIGO_PRODUCTO_SIIGO_RE,
+    'El código de producto de Siigo es alfanumérico, sin espacios y de máximo 30 caracteres').optional(),
+  nombre: z.string().min(1).max(200).optional(),
+  grupoInventarioCodigo: z.string().min(1).max(60),
+});
+
+// POST /:id/producto — crea en Siigo el producto que le falta al concepto y lo vincula (HU #11286).
+//
+// Escritura del mapeo: solo `admin`, igual que el resto de ediciones (AC8 de la HU #11282). Crear
+// un producto en el catálogo de la empresa es más consecuente que editar una fila, no menos.
+router.post('/:id/producto', ESCRITURA, creacionProductoLimiter, async (req: Request, res: Response) => {
+  if (!UUID_RE.test(req.params.id)) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const parsed = crearProductoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const usuarioId = req.user?.sub as number;
+
+  try {
+    const r = await crearProductoDeConcepto(req.params.id, parsed.data, usuarioId);
+    await audit(req, {
+      action: 'create', resource: 'siigo_producto', resourceId: r.codigo,
+      detail: `${r.desenlace === 'creado' ? 'Producto creado en Siigo' : 'Producto existente vinculado'} `
+        + `· ambiente=${r.ambiente} modo=${r.modo} codigo=${r.codigo} mapeo=${req.params.id}`,
+    });
+    res.status(r.desenlace === 'creado' ? 201 : 200).json(r);
   } catch (e) { mapeoFallo(res, e); }
 });
 

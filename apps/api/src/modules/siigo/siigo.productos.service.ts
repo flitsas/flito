@@ -313,3 +313,50 @@ export function estadoDeValidacion(v: ValidacionMapeo): EstadoValidacionMapeo {
     default: return 'sin_validar';
   }
 }
+
+// ── Creación de productos (HU #11286) ───────────────────────────────────────
+
+/** Cuerpo de `POST /v1/products` tal como lo documenta Siigo. En inglés: es la forma del API. */
+export interface SiigoProductoNuevoApi {
+  code: string;
+  name: string;
+  account_group: number;
+  type: 'Product' | 'Service';
+  stock_control: boolean;
+  active: boolean;
+  tax_classification?: 'Taxed' | 'Exempt' | 'Excluded';
+  taxes?: Array<{ id: number }>;
+  unit?: string;
+}
+
+/**
+ * Crea un producto en Siigo.
+ *
+ * `type: 'Service'` y `stock_control: false` no son configurables: lo que FLITO factura son
+ * servicios y derechos de trámite, no inventario. Un producto con control de existencias exigiría
+ * movimientos de bodega que aquí no existen, y Siigo rechazaría la factura.
+ *
+ * Timeout corto por la misma razón que la consulta: hay alguien esperando delante de un formulario.
+ * Sin reintentos automáticos —`maxIntentos: 1`— porque **crear no es idempotente**: un reintento
+ * sobre un timeout que en realidad llegó a Siigo produce el segundo intento un `already_exists`, y
+ * en el peor caso dos productos. Quien llama decide qué hacer, y el flujo de alta ya busca antes de
+ * crear (AC2), así que el reintento humano es seguro.
+ */
+export async function crearProducto(
+  cuerpo: SiigoProductoNuevoApi, ambiente: SiigoAmbiente,
+): Promise<SiigoProductoApi> {
+  return ejecutarConResiliencia(
+    () => siigoRequestOrThrow<SiigoProductoApi>({
+      metodo: 'POST',
+      ruta: '/v1/products',
+      cuerpo,
+      ambiente,
+      timeoutMs: TIMEOUT_CONSULTA_PRODUCTO_MS,
+    }),
+    {
+      clave: claveResiliencia(ambiente),
+      claveCortacircuitos: claveCortacircuitosProductos(ambiente),
+      maxIntentos: 1,
+    },
+  );
+}

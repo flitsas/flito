@@ -154,3 +154,69 @@ export interface ResultadoRevalidacion {
  * facturas mientras dura.
  */
 export const MAX_CODIGOS_POR_REVALIDACION = 100;
+
+// ── Creación de productos en Siigo (HU #11286) ──────────────────────────────
+//
+// Crear desde FLITO el producto que le falta a un concepto, para no salir a la interfaz de Siigo y
+// volver a copiar códigos a mano.
+
+/**
+ * Prefijo de los códigos que propone FLITO.
+ *
+ * No es decoración: el catálogo de productos de una empresa de Siigo lo comparten otras áreas, y un
+ * código sin espacio de nombres —`SOAT` a secas— tiene muchas papeletas de chocar con algo que ya
+ * existe y que no es lo nuestro. Con el prefijo, quien mire el catálogo en Siigo Nube sabe de dónde
+ * salió la fila.
+ */
+export const PREFIJO_CODIGO_PRODUCTO_FLIT = 'FLIT-';
+
+/**
+ * Código sugerido para un concepto (AC1): alfanumérico, sin espacios, ≤30 y LEGIBLE.
+ *
+ * Legible importa tanto como válido. Un hash cumpliría el formato y sería inútil para quien abra el
+ * catálogo en Siigo a buscar por qué una factura salió con ese producto. Se deriva del concepto
+ * en mayúsculas y con guion, que es lo que `CODIGO_PRODUCTO_SIIGO_RE` admite.
+ *
+ * El más largo de los seis conceptos es `impuesto_vehicular` → `FLIT-IMPUESTO-VEHICULAR`, 23
+ * caracteres: cabe de sobra. El recorte final está por si algún día se añade un concepto largo.
+ */
+export function codigoSugeridoDeConcepto(concepto: string): string {
+  const cuerpo = concepto.toUpperCase().replace(/_/g, '-').replace(/[^A-Z0-9.-]/g, '');
+  return `${PREFIJO_CODIGO_PRODUCTO_FLIT}${cuerpo}`.slice(0, 30);
+}
+
+/** Lo que hay que decidir para crear un producto. */
+export interface DatosCreacionProducto {
+  /** Si se omite, se propone el sugerido del concepto. Editable antes de confirmar (AC1). */
+  codigo?: string;
+  /** Nombre en Siigo. Si se omite, la etiqueta del concepto. */
+  nombre?: string;
+  /**
+   * Grupo de inventario (`account_group`). Obligatorio en Siigo, tiene que existir y estar activo,
+   * y es INMUTABLE una vez que el producto tiene movimiento — por eso se elige del catálogo
+   * sincronizado y no se escribe.
+   */
+  grupoInventarioCodigo: string;
+}
+
+/** Qué pasó al intentar crear el producto de un concepto. */
+export const DESENLACES_CREACION_PRODUCTO = ['creado', 'vinculado_existente'] as const;
+
+export type DesenlaceCreacionProducto = typeof DESENLACES_CREACION_PRODUCTO[number];
+
+/**
+ * Resultado de crear (o vincular) el producto de un concepto.
+ *
+ * `vinculado_existente` no es un fallo (AC2): el código ya correspondía a un producto de Siigo, así
+ * que se vincula en vez de duplicar. Distinguirlo de `creado` importa para que la pantalla diga qué
+ * ocurrió de verdad en vez de un «listo» que oculta que no se creó nada.
+ */
+export interface ResultadoCreacionProducto {
+  desenlace: DesenlaceCreacionProducto;
+  codigo: string;
+  nombre: string | null;
+  ambiente: string;
+  modo: string;
+  /** Mensaje operativo de lo ocurrido. */
+  mensaje: string;
+}
