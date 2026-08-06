@@ -76,6 +76,16 @@ interface ConfigEmision {
 
 interface ElementoCatalogo { codigo: string; nombre: string; activo: boolean }
 
+/**
+ * Las opciones de un campo, con el fallo aparte.
+ *
+ * «Vacío» y «no se pudo cargar» son cosas distintas y no pueden pintarse igual: un 403 por un rol
+ * que cambió a mitad de sesión, o un corte del limitador, se leerían como «este catálogo no tiene
+ * datos» y llevarían a quien parametriza a pedir una sincronización —seis llamadas de la cuota que
+ * comparte toda la compañía— para arreglar algo que no estaba roto ahí.
+ */
+interface OpcionesCampo { elementos: ElementoCatalogo[]; fallo: string | null }
+
 /** De qué catálogo se puebla cada campo. Mismo mapa que usa el servidor. */
 const CATALOGO_DE_CAMPO: Record<CampoCatalogoEmision, string> = {
   documentoTipo: 'document_type',
@@ -94,7 +104,7 @@ export default function CatalogosYEmision({ ambiente, puedeEditar, onCambio }: {
 }) {
   const [resumen, setResumen] = useState<ResumenCatalogo[]>([]);
   const [config, setConfig] = useState<ConfigEmision | null>(null);
-  const [opciones, setOpciones] = useState<Partial<Record<CampoCatalogoEmision, ElementoCatalogo[]>>>({});
+  const [opciones, setOpciones] = useState<Partial<Record<CampoCatalogoEmision, OpcionesCampo>>>({});
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -113,13 +123,20 @@ export default function CatalogosYEmision({ ambiente, puedeEditar, onCambio }: {
       setConfig(cfg.config);
 
       // Las opciones de los cuatro campos salen de la copia local: nunca se escriben (AC4).
+      //
+      // Un catálogo que falla NO tumba la pantalla —los otros tres siguen siendo utilizables— pero
+      // tampoco se disfraza de vacío: el fallo viaja con la lista y se muestra en su campo.
       const listas = await Promise.all(CAMPOS_CATALOGO_EMISION.map(async (campo) => {
-        const r = await api.get<{ elementos: ElementoCatalogo[] }>(
-          `/siigo/parametrizacion/catalogos/${CATALOGO_DE_CAMPO[campo]}?ambiente=${ambiente}`,
-        ).catch(() => ({ elementos: [] as ElementoCatalogo[] }));
-        return [campo, (r.elementos ?? []).filter((e) => e.activo)] as const;
+        try {
+          const r = await api.get<{ elementos: ElementoCatalogo[] }>(
+            `/siigo/parametrizacion/catalogos/${CATALOGO_DE_CAMPO[campo]}?ambiente=${ambiente}`,
+          );
+          return [campo, { elementos: (r.elementos ?? []).filter((e) => e.activo), fallo: null }] as const;
+        } catch (e2) {
+          return [campo, { elementos: [], fallo: errorMessage(e2) }] as const;
+        }
       }));
-      setOpciones(Object.fromEntries(listas) as Partial<Record<CampoCatalogoEmision, ElementoCatalogo[]>>);
+      setOpciones(Object.fromEntries(listas) as Partial<Record<CampoCatalogoEmision, OpcionesCampo>>);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -266,6 +283,7 @@ export default function CatalogosYEmision({ ambiente, puedeEditar, onCambio }: {
         config={config}
         opciones={opciones}
         onGuardado={async () => { await cargar(); onCambio(); }}
+        onReintentar={() => { void cargar(); }}
       />
     </div>
   );
@@ -273,12 +291,13 @@ export default function CatalogosYEmision({ ambiente, puedeEditar, onCambio }: {
 
 // ── Configuración global de emisión ─────────────────────────────────────────
 
-function FormularioEmision({ ambiente, puedeEditar, config, opciones, onGuardado }: {
+function FormularioEmision({ ambiente, puedeEditar, config, opciones, onGuardado, onReintentar }: {
   ambiente: string;
   puedeEditar: boolean;
   config: ConfigEmision | null;
-  opciones: Partial<Record<CampoCatalogoEmision, ElementoCatalogo[]>>;
+  opciones: Partial<Record<CampoCatalogoEmision, OpcionesCampo>>;
   onGuardado: () => Promise<void>;
+  onReintentar: () => void;
 }) {
   const [valores, setValores] = useState<Record<CampoCatalogoEmision, string>>({
     documentoTipo: '', vendedor: '', formaPago: '', centroCosto: '',
@@ -374,7 +393,7 @@ function FormularioEmision({ ambiente, puedeEditar, config, opciones, onGuardado
                 onChange={(e) => setValores((v) => ({ ...v, [campo]: e.target.value }))}
               >
                 <option value="">Sin configurar</option>
-                {(opciones[campo] ?? []).map((o) => (
+                {(opciones[campo]?.elementos ?? []).map((o) => (
                   <option key={o.codigo} value={o.codigo}>{o.nombre}</option>
                 ))}
               </select>
@@ -384,7 +403,23 @@ function FormularioEmision({ ambiente, puedeEditar, config, opciones, onGuardado
                   {d?.mensaje ?? 'Este valor dejó de ser válido en Siigo.'}
                 </p>
               )}
-              {(opciones[campo] ?? []).length === 0 && (
+              {/* Fallo y vacío se dicen distinto a propósito: el vacío se arregla sincronizando,
+                  el fallo no. Anunciar «no hay opciones» cuando lo que hubo fue un 403 manda a
+                  quien parametriza a gastar cuota de Siigo persiguiendo el problema equivocado. */}
+              {opciones[campo]?.fallo ? (
+                <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+                  <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+                  No se pudieron cargar las opciones: {opciones[campo]?.fallo}{' '}
+                  <button
+                    type="button"
+                    onClick={onReintentar}
+                    className="flit-focus font-semibold underline"
+                    style={{ color: 'var(--flit-info)' }}
+                  >
+                    Reintentar
+                  </button>
+                </p>
+              ) : (opciones[campo]?.elementos ?? []).length === 0 && (
                 <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
                   No hay opciones sincronizadas para este catálogo.
                 </p>

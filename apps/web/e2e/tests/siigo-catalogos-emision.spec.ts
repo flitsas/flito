@@ -142,6 +142,25 @@ test.describe('AC2 — los cuatro estados', () => {
     await expect(page.getByText(/Sin ellos no se puede elegir/)).toBeVisible();
   });
 
+  test('un catálogo que falla NO se disfraza de vacío', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mock(page);
+    // Solo el de vendedores falla: los otros tres siguen utilizables.
+    await page.route(/\/api\/siigo\/parametrizacion\/catalogos\/user/, (route) => route.fulfill({
+      status: 403, contentType: 'application/json',
+      body: JSON.stringify({ error: 'Sin permisos para esta operación' }),
+    }));
+    await abrirPestana(page);
+
+    // «No hay opciones» mandaría a sincronizar —seis llamadas de la cuota que comparte toda la
+    // compañía— a arreglar algo que no estaba roto ahí.
+    await expect(page.getByRole('alert').filter({ hasText: /No se pudieron cargar las opciones/ })).toBeVisible();
+    await expect(page.getByText('No hay opciones sincronizadas para este catálogo.')).toHaveCount(0);
+
+    // El resto de la pantalla sigue en pie: el fallo de un catálogo no la tumba.
+    await expect(page.getByLabel(/^Forma de pago/)).toBeEnabled();
+  });
+
   test('el error ofrece reintentar y el reintento vuelve a pedir', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mock(page);
