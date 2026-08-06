@@ -182,6 +182,56 @@ export const CATALOGOS_SIMULADOS: Record<string, unknown[]> = {
   'cost-centers': COST_CENTERS_SIMULADOS,
 };
 
+// ── Productos simulados (HU #11283) ─────────────────────────────────────────
+//
+// Hasta esta HU el simulador respondía un listado vacío a `/v1/products`, con lo que TODO código
+// resultaba inexistente y la validación no se podía ejercer: no había forma de probar el caso feliz
+// ni de distinguirlo del inactivo.
+//
+// El AC5 exige que el simulador conozca los tres casos —existente y activo, existente e inactivo, e
+// inexistente— porque son las tres ramas de la validación. El tercero no necesita fixture: es
+// cualquier código que no esté en esta lista.
+//
+// Los códigos siguen la forma que admite Siigo (alfanumérico con `.`, `_` y `-`, hasta 30) y cubren
+// los seis conceptos facturables, para que la parametrización completa se pueda configurar y
+// validar en modo simulado de punta a punta.
+
+/** Productos (`GET /v1/products?code=`). Uno por concepto facturable, más un caso inactivo. */
+const PRODUCTS_SIMULADOS = [
+  {
+    id: 'mock-prod-soat', code: 'SOAT-2024', name: 'SOAT — Seguro Obligatorio', active: true,
+    account_group: 1254, taxes: [], unit: '94',
+  },
+  {
+    id: 'mock-prod-imp', code: 'IMP-VEHICULAR', name: 'Impuesto vehicular', active: true,
+    account_group: 1254, taxes: [], unit: '94',
+  },
+  {
+    id: 'mock-prod-der', code: 'DER-TRANSITO', name: 'Derecho de tránsito', active: true,
+    account_group: 1254, taxes: [], unit: '94',
+  },
+  {
+    id: 'mock-prod-tram', code: 'TRAMITE-DIGITAL', name: 'Trámite digital', active: true,
+    account_group: 1253, taxes: [{ id: 13156, name: 'IVA 19%', percentage: 19 }], unit: '94',
+  },
+  {
+    id: 'mock-prod-log', code: 'LOGISTICA', name: 'Servicio de logística', active: true,
+    account_group: 1253, taxes: [{ id: 13156, name: 'IVA 19%', percentage: 19 }], unit: '94',
+  },
+  {
+    id: 'mock-prod-gmf', code: 'GMF-4X1000', name: 'Gravamen a los movimientos financieros',
+    active: true, account_group: 1253, taxes: [], unit: '94',
+  },
+  {
+    id: 'mock-prod-off', code: 'PRODUCTO-INACTIVO', name: 'Producto descontinuado', active: false,
+    account_group: 1255, taxes: [], unit: '94',
+  },
+];
+
+/** Exportado para que los tests afirmen sobre los mismos datos que sirve el simulador. */
+export const PRODUCTOS_SIMULADOS: readonly { code: string; active: boolean; name: string }[] =
+  PRODUCTS_SIMULADOS;
+
 /**
  * Aplica los filtros de consulta que Siigo sí honra en los catálogos.
  *
@@ -254,6 +304,27 @@ export function respuestaSimulada(
         metadata: { created: '2026-08-04T00:00:00.000Z', last_updated: null },
       },
     };
+  }
+
+  // Consulta de producto por código (HU #11283). Va ANTES del listado genérico: sin esto el
+  // simulador respondería `results: []` a todo código y la validación no tendría caso feliz.
+  const producto = /^\/v1\/products\/?\?(.*)$/.exec(ruta);
+  if (metodo === 'GET' && producto) {
+    const codigo = new URLSearchParams(producto[1]!).get('code');
+    if (codigo !== null) {
+      // Siigo compara el `code` tal cual; el simulador hace lo mismo para no ser más permisivo que
+      // el original y dejar pasar en pruebas un código que en producción no resolvería.
+      const encontrados = PRODUCTS_SIMULADOS.filter((p) => p.code === codigo);
+      return {
+        status: 200,
+        ok: true,
+        datos: {
+          pagination: { page: 1, page_size: 25, total_results: encontrados.length },
+          results: encontrados,
+          _links: {},
+        },
+      };
+    }
   }
 
   // Listados: forma paginada documentada.

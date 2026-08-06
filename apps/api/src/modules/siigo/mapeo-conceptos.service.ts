@@ -21,7 +21,7 @@
 // las facturas de FLIT. El día que contabilidad lo confirme, incorporarlas es añadir columnas a
 // `siigo_mapeo_conceptos` y leerlas en el armado — el modelo y el flujo de confirmación no cambian.
 
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   CAMPOS_QUE_REVIERTEN_CONFIRMACION,
   CAMPO_REVIERTE_LABEL,
@@ -29,19 +29,34 @@ import {
   CONCEPTOS_FACTURABLES,
   esClasificacionTributaria,
   esConceptoFacturable,
+  esEstadoValidacionMapeo,
   normalizarTipoTramite,
   type CampoQueRevierteConfirmacion,
   type ClasificacionTributaria,
   type ConceptoFacturable,
+  type ConceptoRevalidado,
+  type EstadoValidacionMapeo,
+  MAX_CODIGOS_POR_REVALIDACION,
   type ImpuestoAplicable,
+  type ResultadoRevalidacion,
+  type ValidacionMapeo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { siigoMapeoConceptos } from '../../db/schema.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
+import {
+  consultarProductoPorCodigo, estadoDeValidacion, motivoLegible, validarMapeoContraSiigo,
+} from './siigo.productos.service.js';
 
 /** Falla de negocio del mapeo. El router la traduce a un status HTTP. */
 export class SiigoMapeoError extends Error {
-  readonly codigo: 'no_existe' | 'datos' | 'duplicado' | 'no_editable';
+  /**
+   * `validacion` y `no_verificable` son distintos a propósito (AC6): el primero dice que el dato
+   * está mal y hay que corregirlo, el segundo que Siigo no respondió y el dato puede estar bien.
+   * El router los traduce a estados HTTP distintos para que la pantalla no tenga que adivinar.
+   */
+  readonly codigo: 'no_existe' | 'datos' | 'duplicado' | 'no_editable' | 'validacion'
+  | 'no_verificable' | 'en_curso';
   constructor(codigo: SiigoMapeoError['codigo'], message: string) {
     super(message);
     this.name = 'SiigoMapeoError';
@@ -74,6 +89,10 @@ export interface MapeoConcepto {
   confirmacionRevertidaPor: string | null;
   activo: boolean;
   notas: string | null;
+  /** Última comprobación del código de producto contra Siigo (HU #11283). */
+  validacionEstado: EstadoValidacionMapeo;
+  validacionMensaje: string | null;
+  validadoEn: string | null;
   /**
    * Derivado, no almacenado: la fila está lista para armar una línea de factura. Se calcula aquí
    * para que la pantalla y el armado no puedan discrepar sobre qué significa «listo».
@@ -91,13 +110,27 @@ type FilaMapeo = typeof siigoMapeoConceptos.$inferSelect;
  * siga abierta, dar la fila por lista sería elegir una de las dos respuestas en silencio.
  */
 function esListoParaFacturar(f: Pick<FilaMapeo,
-  'codigoProducto' | 'clasificacionTributaria' | 'confirmadoContabilidad' | 'activo' | 'lineaPropiaPendiente'>): boolean {
+  'codigoProducto' | 'clasificacionTributaria' | 'confirmadoContabilidad' | 'activo'
+  | 'lineaPropiaPendiente' | 'validacionEstado'>): boolean {
   return f.activo
     && f.confirmadoContabilidad
     && !f.lineaPropiaPendiente
     && !!f.codigoProducto
-    && !!f.clasificacionTributaria;
+    && !!f.clasificacionTributaria
+    && !VALIDACION_BLOQUEA_FACTURACION.has(f.validacionEstado);
 }
+
+/**
+ * Estados de validación que impiden facturar (HU #11283).
+ *
+ * Solo los que afirman que el producto está MAL. `no_verificable` queda fuera a propósito: dice que
+ * Siigo no respondió cuando se miró, no que el producto no sirva. Si bloqueara, una caída de diez
+ * minutos dejaría toda la parametrización marcada como no facturable hasta que alguien revalidara a
+ * mano, mucho después de que Siigo volviera. `sin_validar` tampoco bloquea: es el estado de las
+ * filas anteriores a esta HU, y convertirlas en no facturables de golpe sería un cambio de
+ * comportamiento que ninguna HU pidió.
+ */
+const VALIDACION_BLOQUEA_FACTURACION = new Set<string>(['no_existe', 'inactivo']);
 
 function aVista(f: FilaMapeo): MapeoConcepto {
   return {
@@ -120,6 +153,11 @@ function aVista(f: FilaMapeo): MapeoConcepto {
     confirmacionRevertidaPor: f.confirmacionRevertidaPor,
     activo: f.activo,
     notas: f.notas,
+    validacionEstado: (esEstadoValidacionMapeo(f.validacionEstado)
+      ? f.validacionEstado
+      : 'sin_validar'),
+    validacionMensaje: f.validacionMensaje,
+    validadoEn: f.validadoEn ? f.validadoEn.toISOString() : null,
     listoParaFacturar: esListoParaFacturar(f),
   };
 }
@@ -315,6 +353,44 @@ function traducirDuplicado(e: unknown): never {
   throw e;
 }
 
+/**
+ * HU #11283 — Valida contra Siigo y traduce el rechazo a un error de dominio.
+ *
+ * Se ejecuta ANTES de cualquier escritura, que es lo que hace cierto el «el mapeo conserva su valor
+ * anterior» del AC1 y el «no queda ningún mapeo guardado sin validar» del AC6: si esto lanza, la
+ * tabla no se ha tocado.
+ *
+ * Los tres códigos de salida no son adorno. `datos` es un formato mal escrito (400), `validacion`
+ * es un dato que no existe en Siigo (422) y `no_verificable` es Siigo caído (503). Quien opera hace
+ * cosas distintas con cada uno, y una pantalla que reciba siempre 400 no puede distinguirlas.
+ */
+async function exigirValidacionDeSiigo(
+  datos: { codigoProducto?: string | null; impuestos?: ImpuestoAplicable[] },
+  ambiente: SiigoAmbiente,
+): Promise<ValidacionMapeo> {
+  const v = await validarMapeoContraSiigo(datos, ambiente);
+  if (v.valido) return v;
+
+  if (v.motivo === 'formato') throw new SiigoMapeoError('datos', v.mensaje);
+  if (v.motivo === 'no_verificable') throw new SiigoMapeoError('no_verificable', v.mensaje);
+  throw new SiigoMapeoError('validacion', v.mensaje);
+}
+
+/** Los tres campos de validación que se escriben junto a cualquier cambio de producto o impuestos. */
+function camposDeValidacion(v: ValidacionMapeo): {
+  validacionEstado: EstadoValidacionMapeo;
+  validacionMensaje: string;
+  validadoEn: Date | null;
+} {
+  return {
+    validacionEstado: estadoDeValidacion(v),
+    validacionMensaje: recortarPorPuntosDeCodigo(v.mensaje, 300),
+    // La fecha sale del veredicto, no del reloj: si no se comprobó nada, no hay fecha que poner. El
+    // CHECK `siigo_mapeo_validacion_fechada` de la migración 0129 exige exactamente esa coherencia.
+    validadoEn: v.verificadoEn === null ? null : new Date(v.verificadoEn),
+  };
+}
+
 /** Frase legible de qué tumbó la confirmación. Nombres de campo, nunca valores. */
 export function motivoDeReversion(campos: CampoQueRevierteConfirmacion[]): string {
   return `Cambio en ${campos.map((k) => CAMPO_REVIERTE_LABEL[k]).join(', ')}`;
@@ -351,11 +427,28 @@ export async function actualizarMapeo(
       'La configuración genérica de un concepto no se puede desactivar; edítala o déjala sin código de producto.');
   }
 
+  // HU #11283 — Solo se valida cuando la edición toca lo que Siigo puede desmentir. Un cambio de
+  // notas no gasta una petición de la cuota, y tampoco debe poder fallar porque Siigo esté caído.
+  const tocaValidable = cambios.codigoProducto !== undefined || cambios.impuestos !== undefined;
+  const validacion = tocaValidable
+    ? await exigirValidacionDeSiigo({
+      codigoProducto: cambios.codigoProducto !== undefined
+        ? cambios.codigoProducto
+        : actual.codigoProducto,
+      // El estado que se valida es el RESULTANTE, no el que llegó en el cuerpo: cambiar solo el
+      // código con unos impuestos ya guardados tiene que verificar la pareja que va a quedar.
+      impuestos: cambios.impuestos !== undefined
+        ? cambios.impuestos
+        : normalizarImpuestos(actual.impuestos),
+    }, actual.ambiente as SiigoAmbiente)
+    : null;
+
   const sensibles = camposSensiblesQueCambian(actual, cambios);
   const revierte = actual.confirmadoContabilidad && sensibles.length > 0;
 
   const [fila] = await db.update(siigoMapeoConceptos)
     .set({
+      ...(validacion ? camposDeValidacion(validacion) : {}),
       ...(cambios.codigoProducto !== undefined ? { codigoProducto: cambios.codigoProducto } : {}),
       ...(cambios.nombreProducto !== undefined ? { nombreProducto: cambios.nombreProducto } : {}),
       ...(cambios.clasificacionTributaria !== undefined
@@ -463,7 +556,14 @@ export async function crearMapeoEspecifico(
       eq(siigoMapeoConceptos.activo, true),
     )).limit(1);
 
+  // HU #11283 — Antes del INSERT. Un alta que no se pudo verificar no se guarda a medias (AC6).
+  const validacion = await exigirValidacionDeSiigo({
+    codigoProducto: datos.codigoProducto ?? null,
+    impuestos: datos.impuestos ?? [],
+  }, datos.ambiente);
+
   const [fila] = await db.insert(siigoMapeoConceptos).values({
+    ...camposDeValidacion(validacion),
     ambiente: datos.ambiente,
     concepto: datos.concepto,
     tipoTramite: tipo,
@@ -547,4 +647,179 @@ export async function estadoMapeo(ambiente: SiigoAmbiente): Promise<EstadoMapeo>
     conceptosConDecisionPendiente: [...conceptosConDecisionPendiente],
     completo: conceptosPendientes.length === 0,
   };
+}
+
+// ─────────────────────────── AC7 — Revalidación de lo configurado ───────────────────────────
+
+/** Veredicto de un código concreto, ya traducido al estado que se persiste. */
+interface VeredictoCodigo {
+  estado: EstadoValidacionMapeo;
+  mensaje: string;
+}
+
+/**
+ * Ambientes con una revalidación en curso. Dos a la vez sobre el mismo ambiente duplicarían el
+ * consumo de la cuota de Siigo —que se comparte con la emisión de facturas— para producir el mismo
+ * informe dos veces.
+ *
+ * En proceso y no en Redis a conciencia: `ecosystem.config.cjs` no declara `instances`, así que PM2
+ * corre una sola instancia de la API y esta guarda las cubre todas. **Si algún día se pasa a modo
+ * cluster o a varias réplicas, esto deja de bastar** y hay que moverlo a un lock en Redis, junto
+ * con el limitador de la ruta.
+ */
+const revalidacionesEnCurso = new Set<string>();
+
+/**
+ * Solo para tests y para el arranque del proceso, igual que `reiniciarLimitador` en
+ * `siigo.resiliencia.ts`. Sin esto, un test que dejara la marca puesta haría fallar a todos los
+ * siguientes con un mensaje que no tiene nada que ver con lo que prueban.
+ */
+export function reiniciarRevalidaciones(): void {
+  revalidacionesEnCurso.clear();
+}
+
+/**
+ * Recorta por PUNTOS DE CÓDIGO, no por unidades UTF-16.
+ *
+ * `slice` parte los pares suplentes: un nombre de producto con un carácter fuera del BMP justo en
+ * el límite dejaría medio par, y Postgres rechazaría el UPDATE con un error que aquí, dentro del
+ * bucle de revalidación, no está capturado — subiría al `errorHandler`, que registra `err.message`
+ * sin sanear. Es el mismo camino de fuga que la HU #11281 cerró en la bitácora WORM.
+ */
+function recortarPorPuntosDeCodigo(texto: string, maximo: number): string {
+  const puntos = [...texto];
+  return puntos.length <= maximo ? texto : puntos.slice(0, maximo).join('');
+}
+
+/**
+ * Comprueba UN código contra Siigo. No lanza: un fallo es `no_verificable`, no una excepción que
+ * abortaría la revalidación entera y dejaría a medias las filas que sí se podían mirar.
+ */
+async function comprobarCodigo(codigo: string, ambiente: SiigoAmbiente): Promise<VeredictoCodigo> {
+  try {
+    const c = await consultarProductoPorCodigo(codigo, ambiente);
+    if (!c.existe) {
+      return {
+        estado: 'no_existe',
+        mensaje: `El producto ${codigo} ya no existe en Siigo. Créalo de nuevo o corrige el mapeo.`,
+      };
+    }
+    if (!c.activo) {
+      return {
+        estado: 'inactivo',
+        mensaje: `El producto ${codigo} quedó INACTIVO en Siigo. Actívalo antes de la próxima factura.`,
+      };
+    }
+    return { estado: 'valido', mensaje: `Verificado contra Siigo: ${c.nombre ?? codigo}.` };
+  } catch (e) {
+    // `motivoLegible` y no `detalleTecnico`: este texto se PERSISTE en `validacion_mensaje` y se
+    // devuelve al cliente. El detalle crudo se queda en el log del servidor.
+    return {
+      estado: 'no_verificable',
+      mensaje: `No se pudo verificar ${codigo}: ${motivoLegible(e)}`,
+    };
+  }
+}
+
+/**
+ * AC7 — Revalida todas las filas activas de un ambiente que tengan código de producto, y deja el
+ * resultado ESCRITO en cada fila para que la pantalla las señale al abrirla.
+ *
+ * Tres decisiones:
+ *
+ *   1. **Un código se consulta UNA vez.** Dos conceptos pueden apuntar al mismo producto —el caso
+ *      normal cuando una específica hereda de su genérica—, y preguntar dos veces gasta cuota de las
+ *      100 por minuto para recibir exactamente la misma respuesta.
+ *   2. **Secuencial, no en paralelo.** El limitador de tasa ya serializa; lanzarlas todas a la vez
+ *      solo llenaría su cola y haría que la primera espera se pareciera a un cuelgue.
+ *   3. **No toca la confirmación de contabilidad.** Que un producto desaparezca de Siigo no
+ *      invalida el criterio tributario que contabilidad firmó, que es sobre el concepto y no sobre
+ *      el producto. Tumbarla aquí obligaría a recoger firmas cada vez que alguien reorganiza el
+ *      catálogo en Siigo Nube.
+ */
+export async function revalidarMapeo(
+  ambiente: SiigoAmbiente, usuarioId: number,
+): Promise<ResultadoRevalidacion> {
+  if (revalidacionesEnCurso.has(ambiente)) {
+    throw new SiigoMapeoError('en_curso',
+      `Ya hay una revalidación en curso para el ambiente ${ambiente}. Espera a que termine: `
+      + 'dos a la vez duplicarían el consumo de la cuota de Siigo sin dar más información.');
+  }
+  revalidacionesEnCurso.add(ambiente);
+
+  try {
+    const filas = await db.select().from(siigoMapeoConceptos)
+      .where(and(
+        eq(siigoMapeoConceptos.ambiente, ambiente),
+        eq(siigoMapeoConceptos.activo, true),
+        isNotNull(siigoMapeoConceptos.codigoProducto),
+      ))
+      .orderBy(asc(siigoMapeoConceptos.concepto), asc(siigoMapeoConceptos.tipoTramite));
+
+    const porCodigo = new Map<string, VeredictoCodigo>();
+    const conNovedad: ConceptoRevalidado[] = [];
+    const noVerificados: ConceptoRevalidado[] = [];
+    const codigosOmitidos = new Set<string>();
+    let revisados = 0;
+
+    for (const f of filas) {
+      const codigo = f.codigoProducto;
+      if (codigo === null) continue; // Imposible por el WHERE; el tipo no lo sabe.
+
+      let veredicto = porCodigo.get(codigo);
+      if (veredicto === undefined) {
+        // Tope de códigos DISTINTOS por ejecución. Las filas que comparten un código ya consultado
+        // siguen procesándose: lo que se acota es el consumo de cuota, no el trabajo local.
+        if (porCodigo.size >= MAX_CODIGOS_POR_REVALIDACION) {
+          codigosOmitidos.add(codigo);
+          continue;
+        }
+        veredicto = await comprobarCodigo(codigo, ambiente);
+        porCodigo.set(codigo, veredicto);
+      }
+
+      revisados += 1;
+      await db.update(siigoMapeoConceptos)
+        .set({
+          validacionEstado: veredicto.estado,
+          validacionMensaje: recortarPorPuntosDeCodigo(veredicto.mensaje, 300),
+          // Fecha del ÚLTIMO INTENTO, incluido `no_verificable`. Es lo que responde «¿cuándo se
+          // miró esto por última vez?», que es la pregunta que se hace ante una fila dudosa.
+          validadoEn: new Date(),
+          updatedBy: usuarioId,
+          updatedAt: new Date(),
+        })
+        .where(eq(siigoMapeoConceptos.id, f.id));
+
+      if (veredicto.estado === 'valido') continue;
+
+      const item: ConceptoRevalidado = {
+        id: f.id,
+        concepto: f.concepto,
+        tipoTramite: f.tipoTramite,
+        codigoProducto: codigo,
+        estado: veredicto.estado,
+        mensaje: veredicto.mensaje,
+      };
+      // `no_verificable` va a su propia lista: informar de «3 conceptos con problemas» cuando lo que
+      // pasó es que Siigo no respondió sería trasladar al informe justo la confusión que el AC6 pide
+      // evitar en el guardado.
+      if (veredicto.estado === 'no_verificable') noVerificados.push(item);
+      else conNovedad.push(item);
+    }
+
+    return {
+      ambiente,
+      ejecutadaEn: new Date().toISOString(),
+      revisados,
+      conNovedad,
+      noVerificados,
+      truncado: codigosOmitidos.size > 0,
+      codigosPendientes: codigosOmitidos.size,
+    };
+  } finally {
+    // En `finally`: si la consulta a la base falla, la marca no puede quedarse puesta o el ambiente
+    // se bloquearía hasta reiniciar el proceso.
+    revalidacionesEnCurso.delete(ambiente);
+  }
 }

@@ -3449,6 +3449,23 @@ export const siigoMapeoConceptos = pgTable('siigo_mapeo_conceptos', {
   confirmacionRevertidaPor: varchar('confirmacion_revertida_por', { length: 300 }),
   activo: boolean('activo').notNull().default(true),
   notas: text('notas'),
+  /**
+   * Última comprobación del código de producto contra Siigo (HU #11283).
+   *
+   * Es un dato CON FECHA, no una propiedad permanente: alguien puede inactivar el producto en Siigo
+   * Nube sin tocar FLITO, y entonces una fila «válida» deja de serlo sin que nadie se entere hasta
+   * la primera factura rechazada. `no_verificable` NO es lo mismo que `no_existe`: significa que
+   * Siigo no respondió y el dato puede estar perfecto.
+   *
+   * Deliberadamente separado de `confirmadoContabilidad`: son dos afirmaciones de dos responsables
+   * distintos. Contabilidad firma el tratamiento tributario; la validación comprueba que el
+   * producto existe. Colapsarlas haría que revalidar tumbara firmas contables.
+   */
+  validacionEstado: varchar('validacion_estado', { length: 20 }).notNull().default('sin_validar'),
+  /** Texto accionable. Nunca el mensaje crudo de Siigo, ni SQL, ni la clave del cortacircuitos. */
+  validacionMensaje: varchar('validacion_mensaje', { length: 300 }),
+  /** Fecha del último INTENTO. Con `no_verificable` hubo intento y no hubo respuesta. */
+  validadoEn: timestamp('validado_en', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   createdBy: integer('created_by').references(() => users.id),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3460,6 +3477,10 @@ export const siigoMapeoConceptos = pgTable('siigo_mapeo_conceptos', {
     .on(t.ambiente, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`)
     .where(sql`${t.activo}`),
   ambienteConceptoIdx: index('idx_siigo_mapeo_ambiente_concepto').on(t.ambiente, t.concepto),
+  // Lo que busca la pantalla tras una revalidación son las EXCEPCIONES, no el total.
+  validacionNovedadIdx: index('idx_siigo_mapeo_validacion_novedad')
+    .on(t.ambiente, t.validacionEstado)
+    .where(sql`${t.validacionEstado} IN ('no_existe', 'inactivo', 'no_verificable')`),
 }));
 
 /**
