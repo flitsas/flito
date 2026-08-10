@@ -8,6 +8,8 @@ import { sql, desc } from 'drizzle-orm';
 import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
 // Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
 import type { ComparacionCampo } from '@operaciones/shared-types';
+// Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
+import type { SiigoDestinatario } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -3849,4 +3851,32 @@ export const siigoFacturaCorrecciones = pgTable('siigo_factura_correcciones', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   facturaIdx: index('idx_siigo_correcciones_factura').on(t.facturaId, desc(t.createdAt)),
+}));
+
+/**
+ * Acta de entrega por correo de cada factura (HU #11334, migración 0141).
+ *
+ * El correo lo envía **Siigo**, no FLITO: esto no es una cola de salida y no toca
+ * `notification_outbox`. Lo que se guarda es qué le pedimos a Siigo y qué contestó.
+ *
+ * Append-only con una única puerta: se pueden vaciar los `destinatarios` por un derecho de
+ * supresión (Ley 1581) conservando el hecho del envío. Cualquier otro UPDATE y todo DELETE mueren
+ * en el disparador — ver el encabezado de la migración.
+ */
+export const siigoFacturaEnvios = pgTable('siigo_factura_envios', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  /** 'emision' = el correo que Siigo mandó solo al crear; 'reenvio' = lo pidió una persona. */
+  origen: varchar('origen', { length: 12 }).notNull(),
+  resultado: varchar('resultado', { length: 16 }).notNull(),
+  /** [{ correo, origen }]. La procedencia es lo que hace auditable la resolución de destinatarios. */
+  destinatarios: jsonb('destinatarios').$type<SiigoDestinatario[]>().notNull().default([]),
+  destinatariosPurgadosEn: timestamp('destinatarios_purgados_en', { withTimezone: true }),
+  codigo: varchar('codigo', { length: 60 }),
+  motivo: text('motivo'),
+  /** NULL cuando lo originó la emisión: ahí no hay una persona que lo pidiera. */
+  solicitadoPor: integer('solicitado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_envios_factura').on(t.facturaId, desc(t.createdAt)),
 }));
