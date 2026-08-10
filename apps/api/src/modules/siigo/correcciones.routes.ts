@@ -3,12 +3,13 @@
 // AC7 — quién entra. Registrar una corrección es afirmar que un documento ante la DIAN se tocó, así
 // que escriben `admin` y `financiera`; `auditor` lee y no escribe, que es lo que significa auditar.
 //
-// **Por qué `requireRole` y no una página de permisos.** El modelo de páginas y grants de la
-// operación de facturación lo define la HU #11342, que va en paralelo y todavía no está en esta
-// rama. Inventar aquí una clave de permiso obligaría a las dos historias a acordarla por telepatía y
-// dejaría la peor versión del error: dos fuentes de verdad sobre quién puede tocar una factura.
-// Cuando #11342 aterrice, esta guarda se sustituye por la suya — y hasta entonces la ruta NO está
-// abierta, que es lo que importa.
+// **La guarda es la de la HU #11342, ya integrada.** Esta ruta nació con `requireRole` porque el
+// catálogo de acciones iba en paralelo y no estaba en su rama; inventar una clave allí habría dejado
+// dos fuentes de verdad sobre quién puede tocar una factura. Ya existe la única: `corregir` en
+// `ACCIONES_SIIGO`, que hoy resuelve a los mismos `admin` y `financiera` — así que sustituirla no
+// cambia quién entra, cambia DÓNDE se decide. A partir de aquí, cambiar quién corrige es editar una
+// fila de `ROLES_POR_ACCION`, y el intento denegado queda en la bitácora como el de cualquier otra
+// acción, cosa que `requireRole` no hacía.
 //
 // Las guardas van como middleware ANTES del handler, nunca dentro: así una ruta nueva que se olvide
 // de la guarda se nota leyendo el `router.<verbo>`.
@@ -18,8 +19,9 @@ import { z } from 'zod';
 import {
   SIIGO_CORRECCION_MOTIVO_MAX, SIIGO_CORRECCION_MOTIVO_MIN, SIIGO_CORRECCION_TIPOS,
 } from '@operaciones/shared-types';
-import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
+import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { exigirAccionSiigo } from './siigo.permisos.js';
 import {
   consultarCorrecciones, correccionesDeTramites, registrarCorreccion, SiigoCorreccionError,
 } from './correcciones.service.js';
@@ -27,9 +29,9 @@ import {
 const router = Router();
 router.use(authMiddleware);
 
-const LECTURA = requireRole('admin', 'auditor', 'financiera');
+const LECTURA = exigirAccionSiigo('consultar');
 /** Registrar una corrección es una escritura sobre la historia fiscal: auditor queda fuera. */
-const ESCRITURA = requireRole('admin', 'financiera');
+const ESCRITURA = exigirAccionSiigo('corregir');
 
 const idSchema = z.string().uuid();
 

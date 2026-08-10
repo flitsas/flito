@@ -382,4 +382,29 @@ describe('el criterio de «aceptada» vive en un solo sitio', () => {
   it('una fallida nunca lo es, tenga lo que tenga en el CUFE', () => {
     expect(facturaAceptadaPorLaDian({ estado: 'fallida', cufe: 'abc' })).toBe(false);
   });
+
+  // Reconciliación con la HU #11330: cuando la DIAN se pronunció, manda su palabra y no el CUFE.
+  it('con historial, lo que decide es lo que dijo la DIAN', () => {
+    const emitida = { estado: 'emitida', cufe: 'abc' } as const;
+    expect(facturaAceptadaPorLaDian(emitida, { estado: 'aceptada' })).toBe(true);
+    expect(facturaAceptadaPorLaDian(emitida, { estado: 'en_validacion' })).toBe(false);
+    expect(facturaAceptadaPorLaDian(emitida, { estado: 'rechazada' })).toBe(false);
+  });
+
+  // El caso que el criterio anterior no podía ver: anular no borra el CUFE.
+  it('una anulada NO se archiva aunque conserve el CUFE', () => {
+    const conCufe = { estado: 'emitida', cufe: 'CUFE-QUE-SOBREVIVE' } as const;
+    expect(facturaAceptadaPorLaDian(conCufe)).toBe(true);
+    expect(facturaAceptadaPorLaDian(conCufe, { estado: 'anulada' })).toBe(false);
+  });
+
+  it('sin pronunciamiento todavía, se conserva el criterio del CUFE', () => {
+    expect(facturaAceptadaPorLaDian({ estado: 'emitida', cufe: 'abc' }, null)).toBe(true);
+    expect(facturaAceptadaPorLaDian({ estado: 'emitida', cufe: null }, null)).toBe(false);
+  });
+
+  it('el estado ante la DIAN no resucita una factura que no se emitió', () => {
+    expect(facturaAceptadaPorLaDian({ estado: 'fallida', cufe: 'abc' }, { estado: 'aceptada' }))
+      .toBe(false);
+  });
 });
