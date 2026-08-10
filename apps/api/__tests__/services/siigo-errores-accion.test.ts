@@ -14,11 +14,12 @@ import {
   codigosSinCatalogar,
   olvidarCodigosSinCatalogar,
   ETIQUETA_RESPONSABLE,
+  MARCA_CAMPO_OMITIDO,
   MARCA_SECRETO_OMITIDO,
   CODIGO_RESPUESTA_INESPERADA,
   type ResponsableError,
 } from '../../src/modules/siigo/siigo.errors.js';
-import { MARCA_SQL_OMITIDO, MAX_LONGITUD_MENSAJE } from '../../src/modules/siigo/siigo.redaccion.js';
+import { MAX_LONGITUD_MENSAJE } from '../../src/modules/siigo/siigo.redaccion.js';
 
 /** Cuerpo de error con la forma que documenta Siigo. */
 function cuerpo(code: string, params: string[] = ['code']) {
@@ -262,20 +263,33 @@ describe('AC5 — el texto no filtra detalles técnicos', () => {
     expect(e.guia.texto).not.toContain('clientes');
   });
 
-  it('un volcado de SQL colado en un nombre de campo se corta', () => {
+  // Estos dos esperaban las marcas ESPECÍFICAS de SQL y de secreto, que son las que produce la
+  // lista negra de contenido. Desde la HU #11333 los `params` pasan antes por una lista BLANCA de
+  // forma —un nombre de campo no lleva espacios, ni comillas, ni un `=` con un valor detrás—, que
+  // los ataja antes y cubre estrictamente más: también una cédula o un correo, que ninguna lista
+  // negra reconoce. La garantía que estos tests defienden sigue en pie y es más fuerte; lo que
+  // cambia es qué marca aparece. Las marcas específicas siguen aplicando donde la lista negra es la
+  // única defensa, como el propio código de error —ver el test del JWT, justo debajo.
+  it('un volcado de SQL colado en un nombre de campo no sale, y se dice que se omitió algo', () => {
     const guia = guiaParaCodigo('invalid_value', {
       params: ['Failed query: insert into "siigo_operaciones" values ($1)'],
     });
 
     expect(guia.texto).not.toMatch(/siigo_operaciones/);
-    expect(guia.texto).toContain(MARCA_SQL_OMITIDO);
+    expect(guia.texto).toContain(MARCA_CAMPO_OMITIDO);
   });
 
   it('algo con pinta de credencial en un campo se sustituye por una marca', () => {
     const guia = guiaParaCodigo('invalid_value', { params: ['access_key=8f3a91c2d7e5'] });
 
     expect(guia.texto).not.toContain('8f3a91c2d7e5');
-    expect(guia.texto).toContain(MARCA_SECRETO_OMITIDO);
+    expect(guia.texto).toContain(MARCA_CAMPO_OMITIDO);
+  });
+
+  it('y un dato personal, que ninguna lista negra reconocía, tampoco sale', () => {
+    const guia = guiaParaCodigo('invalid_identification', { params: ['1032456789'] });
+    expect(guia.texto).not.toContain('1032456789');
+    expect(guia.texto).toContain(MARCA_CAMPO_OMITIDO);
   });
 
   it('un token JWT colado en el código de error tampoco sale', () => {

@@ -431,6 +431,9 @@ const MAX_CAMPOS = 200;
  */
 const MAX_PARAMS = 10;
 
+/** Lo que se enseña en lugar de un `param` que no tiene forma de nombre de campo. */
+export const MARCA_CAMPO_OMITIDO = '[valor omitido]';
+
 /**
  * Forma de un NOMBRE DE CAMPO. Lo que no la tenga, no se muestra.
  *
@@ -474,7 +477,11 @@ export function campoLegible(params: readonly string[] | undefined): string {
     // miles de cadenas construye un texto de cientos de MB antes de que nadie lo recorte.
     .slice(0, MAX_PARAMS)
     .map((p) => (typeof p === 'string' ? p.trim() : ''))
-    .filter((p) => p !== '' && FORMA_DE_CAMPO.test(p));
+    .filter((p) => p !== '')
+    // Lo que no tiene forma de campo se SUSTITUYE, no se descarta. Descartarlo en silencio haría
+    // que un rechazo con un solo error pareciera no señalar ningún campo, y quien lo lea no sabría
+    // si Siigo no dijo nada o si dijo algo que no se pudo enseñar. La marca conserva esa diferencia.
+    .map((p) => (FORMA_DE_CAMPO.test(p) ? p : MARCA_CAMPO_OMITIDO));
 
   return recortar(admitidos.join(', '), MAX_CAMPOS);
 }
