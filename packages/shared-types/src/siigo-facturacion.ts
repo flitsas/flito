@@ -41,13 +41,39 @@ export const CONCEPTO_FACTURABLE_LABEL: Record<ConceptoFacturable, string> = {
 };
 
 /**
+ * Valores de una liquidación sellada, uno por concepto facturable.
+ *
+ * Los seis campos son OBLIGATORIOS a propósito. Con ellos opcionales, un `{}` —un `select` parcial,
+ * una fila no encontrada resuelta como objeto vacío, un DTO recortado— compilaba sin una queja, y
+ * aguas abajo eso significa «ningún concepto aplica», que en una compuerta de emisión es abrir sin
+ * haber comprobado nada. Exigirlos convierte ese caso en un error de compilación.
+ *
+ * Son **cadenas o `null`** porque `numeric` de PostgreSQL llega así por drizzle. `null` = el
+ * concepto no aplica a ese trámite; cualquier otro valor —incluido `'0.00'`— aplica.
+ */
+export interface ValoresLiquidacion {
+  valorSoat: string | null;
+  valorImpuesto: string | null;
+  valorDerecho: string | null;
+  valorTramiteDigital: string | null;
+  valorLogistica: string | null;
+  valorGmf: string | null;
+}
+
+/**
  * Columna de `flito_liquidaciones` que aporta el valor de cada concepto.
  *
  * Es la trazabilidad del AC1 escrita como dato: quien arme la factura toma el valor de aquí y no de
  * un `switch` sobre el nombre del concepto. Si una columna se renombra, este mapa es el único sitio
  * que hay que tocar y TypeScript señala el resto.
+ *
+ * El valor está tipado como `keyof ValoresLiquidacion` y no como `string`: así la promesa del
+ * párrafo anterior es real. Con `string`, quien indexara con este mapa necesitaba un `as keyof …`
+ * que desactivaba la comprobación entera — y una columna renombrada se leía como `undefined`, es
+ * decir, como «el concepto no aplica», en silencio.
  */
-export const CONCEPTO_FACTURABLE_COLUMNA_LIQUIDACION: Record<ConceptoFacturable, string> = {
+export const CONCEPTO_FACTURABLE_COLUMNA_LIQUIDACION:
+Record<ConceptoFacturable, keyof ValoresLiquidacion> = {
   soat: 'valorSoat',
   impuesto_vehicular: 'valorImpuesto',
   derecho_transito: 'valorDerecho',
