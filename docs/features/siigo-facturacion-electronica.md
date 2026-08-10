@@ -281,6 +281,22 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
   este alcance o se maneja a mano en Siigo Nube?) y el documental (¿qué forma tiene el contrato?).
   El segundo se puede levantar sin decidir nada. Hasta entonces, ningún diseño debe afirmar que la
   corrección de una factura emitida sea una nota crédito: no lo sabemos.
+
+  **Lo que ya está implementado y NO depende de esa respuesta** (HU #11343): la mitad de registro.
+  «Por ahora se maneja a mano en Siigo Nube» también necesita software — sin él, corregir por fuera
+  deja el trámite mintiendo en FLITO. Existen `siigo_factura_correcciones` (tabla nueva con clave
+  foránea a `siigo_facturas`, **sin una sola columna sobre ella**, append-only) y la función pura
+  `evaluarCorreccion()`, que decide qué es admisible **a partir del estado y del tiempo, sin llamar
+  a Siigo**. Tres cosas que ese código se cuida de NO afirmar:
+  - el catálogo de tipos es `anulacion`, `borrado` y `otra`: **no existe `nota_credito`**, porque
+    nombrarlo sería convertir la incógnita en un hecho. Ampliarlo exige migración;
+  - para una factura con CUFE, la evaluación **no nombra la operación**: dice que la vía es
+    registrar lo que se haya hecho por fuera, y deja el «qué» en manos de quien lo hizo;
+  - la **ventana** de anulación es un parámetro con valor «no establecida», no una constante
+    inventada. Cuando se establezca será un número, no lógica nueva.
+
+  El ejecutor que actúa contra la API de Siigo es la HU #11344 y sigue bloqueado; la columna
+  `ejecutor` nace desde el primer día para que ese día sea una función nueva y no una migración.
 - Permisos: qué rol puede emitir (hoy `financiera`, `admin`, `auditor` leen el reporte; liquidar y
   facturar exigen escritura).
 

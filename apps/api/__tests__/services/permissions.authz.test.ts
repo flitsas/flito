@@ -164,6 +164,9 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       // HU #11287: ver la parametrización que respalda una factura emitida es parte de auditar.
       // El backend le concede lectura en las tres rutas de Siigo; la pantalla no le deja escribir.
       'siigo_parametrizacion',
+      // HU #11342: la bandeja de operación de facturación electrónica. VER las facturas y su línea
+      // de tiempo es auditar; las acciones que las mueven se las niega la tabla de siigo.permisos.ts.
+      'siigo_operacion',
     ].sort());
   });
 
