@@ -34,6 +34,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { siigoRequestOrThrow } from './siigo.client.js';
 import { claveResiliencia } from './siigo.catalogos.service.js';
 import { aplicarEstadoDian } from './siigo.estado-dian.service.js';
+import { resolverMotivoDeRechazo } from './siigo.motivo-rechazo.service.js';
 import { modoSiigo } from './siigo.mock.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 import { motivoLegible } from './siigo.productos.service.js';
@@ -307,11 +308,21 @@ async function sondearFacturaInterno(f: FacturaPorSondear): Promise<DesenlaceSon
 
   const cufe = typeof cuerpo.cufe === 'string' && cuerpo.cufe.trim() !== '' ? cuerpo.cufe.trim() : null;
 
+  // HU #11333 — un rechazo se explica en el mismo momento en que se detecta. Resolverlo aquí, y no
+  // esperar al barrido, es lo que hace que la PRIMERA fila del historial que dice «rechazada» ya
+  // diga también por qué: si no, quedaría un hueco visible en la pantalla entre que se detecta y se
+  // explica, y ese hueco es justo cuando alguien va a mirar. El barrido sigue existiendo para las
+  // que se queden pendientes.
+  const motivo = estado === 'rechazada'
+    ? (await resolverMotivoDeRechazo(f)).motivo
+    : null;
+
   // AC1 — se entrega por la puerta de ingesta. Este archivo no escribe en el historial.
   const r = await aplicarEstadoDian({
     facturaId: f.id,
     estado,
     cufe,
+    motivo,
     fuente: 'sondeo',
     payload: soloLoQueJustificaLaDecision(datos),
   });

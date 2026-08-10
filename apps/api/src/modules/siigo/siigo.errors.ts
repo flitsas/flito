@@ -426,6 +426,33 @@ const MAX_CAMPOS = 200;
  * un volcado. Esto es la segunda línea, por si un código o un nombre de campo trae dentro algo que
  * no debería salir del proceso.
  */
+/**
+ * Cuántos `Params` se miran. El array lo llena Siigo, no nosotros.
+ */
+const MAX_PARAMS = 10;
+
+/** Lo que se enseña en lugar de un `param` que no tiene forma de nombre de campo. */
+export const MARCA_CAMPO_OMITIDO = '[valor omitido]';
+
+/**
+ * Forma de un NOMBRE DE CAMPO. Lo que no la tenga, no se muestra.
+ *
+ * **Lista blanca, y aquí está el porqué.** `Params` debería traer la ruta del campo que Siigo
+ * rechazó (`customer.identification`), pero eso no está documentado y el array lo llena el
+ * proveedor: para códigos como `invalid_identification` o `invalid_email` es perfectamente posible
+ * que devuelva el VALOR rechazado —una cédula, un correo— en vez de la ruta. Ese texto acaba en
+ * `siigo_factura_estados_dian.motivo` y en `siigo_operaciones.mensaje`, dos tablas append-only que
+ * NO están en el flujo de olvido: un dato personal que entre ahí no se puede rectificar ni suprimir.
+ *
+ * `redactarSecretos` no basta y no es su culpa: es una lista negra de credenciales —`bearer`, JWT,
+ * `token:`— y ninguna lista negra reconoce una cédula suelta ni un correo. La misma lección que la
+ * HU #11332 aplicó al payload del sondeo, aplicada aquí: si no se puede enumerar lo peligroso, hay
+ * que enumerar lo aceptable.
+ *
+ * Un nombre de campo no lleva arroba, ni espacios, ni rachas largas de dígitos. Un valor sí.
+ */
+const FORMA_DE_CAMPO = /^(?!.*\d{6})[A-Za-z_][A-Za-z0-9_.[\]-]{0,59}$/;
+
 const PATRONES_SECRETO: RegExp[] = [
   /\bbearer\s+[\w.~+/-]+=*/gi,
   /\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]+/g,
@@ -434,6 +461,29 @@ const PATRONES_SECRETO: RegExp[] = [
 
 function redactarSecretos(texto: string): string {
   return PATRONES_SECRETO.reduce((acc, patron) => acc.replace(patron, MARCA_SECRETO_OMITIDO), texto);
+}
+
+/**
+ * Cómo se muestra el campo que Siigo señala. **Una sola definición, y por eso está exportada.**
+ *
+ * Los `Params` de Siigo son datos de fuera: pasan por `redactarSecretos` y se acotan. Quien los
+ * pinte por su cuenta —componiendo el motivo de un rechazo, por ejemplo— se saltaría esa defensa
+ * sin enterarse, y tendríamos dos formas distintas de enseñar lo mismo con distinto nivel de
+ * protección. La HU #11333 la usa por esto.
+ */
+export function campoLegible(params: readonly string[] | undefined): string {
+  const admitidos = (params ?? [])
+    // Tope de elementos ANTES de unir: el array lo llena el proveedor y `join` sobre cientos de
+    // miles de cadenas construye un texto de cientos de MB antes de que nadie lo recorte.
+    .slice(0, MAX_PARAMS)
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter((p) => p !== '')
+    // Lo que no tiene forma de campo se SUSTITUYE, no se descarta. Descartarlo en silencio haría
+    // que un rechazo con un solo error pareciera no señalar ningún campo, y quien lo lea no sabría
+    // si Siigo no dijo nada o si dijo algo que no se pudo enseñar. La marca conserva esa diferencia.
+    .map((p) => (FORMA_DE_CAMPO.test(p) ? p : MARCA_CAMPO_OMITIDO));
+
+  return recortar(admitidos.join(', '), MAX_CAMPOS);
 }
 
 function recortar(valor: string, max: number): string {
@@ -490,13 +540,26 @@ function entradaDesconocida(codigo: string): EntradaCatalogo {
  * estar registrado igual: para eso sirve el registro.
  */
 function anotarSiDesconocido(codigo: string): void {
-  if (CATALOGO[codigo]) return;
+  if (enCatalogo(codigo)) return;
   registrarCodigoDesconocido(recortar(codigo, MAX_CODIGO));
+}
+
+/**
+ * ¿El catálogo tiene ESTE código, o solo lo hereda del prototipo?
+ *
+ * `CATALOGO` es un objeto literal, así que `CATALOGO['constructor']` devuelve la función `Object`
+ * —truthy— y `CATALOGO['toString']` una función. Sin esta comprobación, un `Code: "constructor"`
+ * en la respuesta de Siigo se daba por conocido, su `descripcion` era `undefined`, y la cadena
+ * literal «undefined» acababa escrita en una columna append-only que no se puede corregir. Además
+ * silenciaba el registro de códigos sin catalogar, que es la alarma de que falta uno.
+ */
+function enCatalogo(codigo: string): boolean {
+  return Object.hasOwn(CATALOGO, codigo);
 }
 
 /** Punto ÚNICO de resolución de un código contra el catálogo. */
 function buscarEntrada(codigo: string): { entrada: EntradaCatalogo; conocido: boolean } {
-  const entrada = CATALOGO[codigo];
+  const entrada = enCatalogo(codigo) ? CATALOGO[codigo] : undefined;
   if (entrada) return { entrada, conocido: true };
   anotarSiDesconocido(codigo);
   return { entrada: entradaDesconocida(recortar(codigo, MAX_CODIGO)), conocido: false };
@@ -536,7 +599,7 @@ export function guiaParaCodigo(
 ): GuiaErrorSiigo {
   const { entrada, conocido } = buscarEntrada(codigo);
   const reintentable = opciones.reintentable ?? entrada.reintentable === true;
-  const campos = recortar((opciones.params ?? []).join(', '), MAX_CAMPOS);
+  const campos = campoLegible(opciones.params);
   const responsableEtiqueta = ETIQUETA_RESPONSABLE[entrada.responsable];
 
   const partes = [entrada.descripcion];

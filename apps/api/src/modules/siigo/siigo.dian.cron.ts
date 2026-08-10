@@ -16,6 +16,7 @@ import { env } from '../../config/env.js';
 import { withLock } from '../../shared/utils/lock.js';
 import { loggerFor } from '../../shared/logger.js';
 import { PRESUPUESTO_POR_CICLO, sondearEstadosDian } from './siigo.sondeo-dian.service.js';
+import { resolverMotivosPendientes } from './siigo.motivo-rechazo.service.js';
 
 const log = loggerFor('siigo.dian.cron');
 const HOST_ID = `${os.hostname()}-${process.pid}`;
@@ -44,6 +45,14 @@ const LOCK_TTL_MS = 4 * 60_000;
  * pierde: sale primero en el siguiente, porque el orden es por antigüedad de la última consulta.
  */
 const PLAZO_DEL_CICLO_MS = Math.floor(LOCK_TTL_MS * 0.5);
+/**
+ * Cuántos motivos de rechazo pendientes se resuelven por ciclo.
+ *
+ * Menor que el presupuesto del sondeo, y con razón: los rechazos son la excepción, no la norma. Un
+ * lote grande aquí le quitaría turnos al seguimiento de las facturas que sí están saliendo bien.
+ */
+const LOTE_MOTIVOS = 5;
+
 /** Arranque diferido: al levantar el proceso hay cosas más urgentes que preguntar por la DIAN. */
 const RETRASO_INICIAL_MS = 120_000;
 
@@ -68,11 +77,22 @@ async function tick(): Promise<void> {
   }
   enCurso = true;
   try {
-    const r = await withLock(NOMBRE_CERROJO, LOCK_TTL_MS,
-      () => sondearEstadosDian(presupuesto(), { plazoMs: PLAZO_DEL_CICLO_MS }));
+    const r = await withLock(NOMBRE_CERROJO, LOCK_TTL_MS, async () => {
+      const estados = await sondearEstadosDian(presupuesto(), { plazoMs: PLAZO_DEL_CICLO_MS });
+      // Los rechazos que se quedaron sin explicar (HU #11333). Va DENTRO del mismo cerrojo y del
+      // mismo ciclo, no en un cron aparte: comparte la cuota de la empresa con el sondeo y con la
+      // emisión, así que darle su propio reloj sería darle un presupuesto que nadie coordina.
+      //
+      // El sondeo ya resuelve el motivo en el momento de detectar el rechazo; esto recoge solo lo
+      // que quedó pendiente porque la consulta del detalle falló.
+      const motivos = await resolverMotivosPendientes(LOTE_MOTIVOS);
+      return { ...estados, motivos };
+    });
     // `null` = otra instancia lo está corriendo. No es un fallo y no se registra como tal: en un
     // despliegue de tres instancias, dos de cada tres ciclos terminan así por diseño.
-    if (r && r.consultadas > 0) log.info({ host: HOST_ID, ...r }, 'ciclo de sondeo del estado DIAN');
+    if (r && (r.consultadas > 0 || r.motivos.revisadas > 0)) {
+      log.info({ host: HOST_ID, ...r }, 'ciclo de sondeo del estado DIAN');
+    }
   } catch (e) {
     log.error({ err: e instanceof Error ? e.message : e }, 'ciclo de sondeo del estado DIAN falló');
   } finally {
