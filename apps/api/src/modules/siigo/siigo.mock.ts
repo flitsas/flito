@@ -336,6 +336,35 @@ export function respuestaSimulada(
     };
   }
 
+  // Envío por correo de una factura (HU #11334). Va también ANTES del listado genérico.
+  //
+  // El simulador RECHAZA lo que el ambiente real rechaza —más de cinco direcciones, o una lista
+  // vacía—, porque un simulador más permisivo que Siigo es peor que no tenerlo: haría pasar en
+  // desarrollo justo el caso que revienta en producción, que es el único que interesa ensayar.
+  const correo = /^\/v1\/invoices\/([^/]+)\/mail\/?$/.exec(ruta);
+  if (metodo === 'POST' && correo) {
+    const enviadoAlCorreo = (opciones.cuerpo ?? {}) as { mail_to?: unknown };
+    const destinos = Array.isArray(enviadoAlCorreo.mail_to) ? enviadoAlCorreo.mail_to : [];
+    if (destinos.length === 0 || destinos.length > 5) {
+      return {
+        status: 400,
+        ok: false,
+        datos: {
+          Errors: [{
+            Code: 'invalid_mail_to',
+            Message: 'mail_to debe tener entre 1 y 5 direcciones.',
+            Params: [String(destinos.length)],
+          }],
+        },
+      };
+    }
+    return {
+      status: 200,
+      ok: true,
+      datos: { id: correo[1], mail: { send: true, to: destinos } },
+    };
+  }
+
   // PDF y XML de una factura (HU #11335). Va ANTES del listado genérico de `/v1/invoices`, que si
   // no se traga estas dos rutas y responde `results: []` — una respuesta sin documento con la que el
   // archivo no se puede ensayar, ni en su caso feliz ni en el de contenido ilegible.

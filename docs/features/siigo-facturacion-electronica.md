@@ -254,6 +254,34 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
 - Panel de estado: emitidas, aceptadas por DIAN, rechazadas con su motivo, pendientes de envío.
 - Reenvío manual de correo y reintento manual de las rechazadas, desde el reporte.
 
+**Entregado por la HU #11334 (migración 0141).** El envío y el reenvío quedan en un acta propia,
+`siigo_factura_envios`, con clave foránea a la factura y **sin ninguna columna nueva sobre ella**:
+«¿se envió?» es consecuencia de que existan filas, no un estado que alguien deba mantener. Tres
+notas que el texto de arriba no podía anticipar:
+
+- **Tres resultados, no dos.** `enviado` / `fallido` / `no_realizado`. El tercero es el cliente sin
+  correo en la ficha: nunca salió, así que no hay cuota gastada ni nada que reintentar. Meterlo en
+  `fallido` haría que la bandeja invitara a reintentar indefinidamente algo que va a volver a no
+  salir.
+- **Los dos correos de la ficha siguen sin unificarse, a propósito.** `resolverDestinatarios()`
+  devuelve hoy solo `clients.email` (D-3). Que el contacto fiscal deba recibirlo también es una
+  pregunta de contabilidad sin responder, y aislarla en una función hace que responderla sea añadir
+  un origen a una lista — no rehacer el envío. Un test falla si alguien la responde sin documentarlo.
+- **Ley 1581 sin renunciar a la prueba de entrega.** El acta es append-only con **una sola puerta**:
+  se pueden redactar los destinatarios conservando el hecho del envío (cuándo, con qué resultado).
+  El disparador de la 0141 rechaza cualquier otro `UPDATE`, todo `DELETE` y el `TRUNCATE` —que no
+  dispara los triggers de fila y habría sido una puerta trasera—. El flujo de olvido de
+  `privacy.routes.ts` pasa así de 14 tablas a 15.
+- **La purga busca por dos caminos, y hacen falta los dos.** Por la compañía de la factura *y* por
+  la dirección en sí (contención jsonb con índice GIN). Solo por compañía quedarían fuera tres
+  clases de acta con datos personales dentro —trámites con `compania_id` nulo, direcciones escritas
+  a mano en la factura de un tercero, y una segunda ejecución del olvido—, y en las tres el sistema
+  le diría al titular que se le olvidó sin haberlo hecho.
+- **Ninguna dirección sale del acta.** Ni a la bitácora, ni al log de auditoría, ni al log técnico,
+  ni a la columna `motivo` —que la purga no vacía—. Los mensajes de error señalan la POSICIÓN de la
+  dirección inválida, no su valor, y lo que contesta Siigo se redacta antes de guardarse. El acta es
+  el único sitio que las guarda porque es el único que se puede limpiar.
+
 ---
 
 ## F6 — Auditoría, errores y reversa

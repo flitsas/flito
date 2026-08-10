@@ -12,6 +12,7 @@ import {
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
 import { deletePhoto } from '../../services/storage.js';
 import { logger } from '../../shared/logger.js';
@@ -52,6 +53,12 @@ const forgetLimiter = rateLimit({
 //
 // Lo que hace: reemplaza nombre, email, teléfono, dirección con valores tipo "[ANONIMIZADO]"
 // y un hash determinístico del doc original para mantener relaciones referenciales.
+//
+// Cobertura (HU #11334, 2026-08-10): 15 tablas — se suma siigo_factura_envios, que guarda a qué
+// direcciones se envió cada factura electrónica. Ahí NO se anonimiza la fila: se REDACTAN las
+// direcciones y se conserva el hecho del envío (cuándo, con qué resultado), porque ese hecho es la
+// prueba de entrega ante una glosa de la DIAN y no es un dato del titular. La tabla es append-only
+// y su disparador solo admite esa transición exacta; ver la migración 0141.
 //
 // Cobertura (Ola D 2026-05-06): 14 tablas — clients, vehicles, soat_requests, tramites_digitales,
 // laft_counterparties, laft_beneficial_owners, driver_profile, tramites_validaciones, alcohol_tests,
@@ -135,6 +142,15 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   // ===== Transacción: anonimización BD =====
   const summary = await db.transaction(async (tx) => {
     const stats: Record<string, number> = {};
+
+    // Las direcciones del titular ANTES de anonimizarlas: después ya no se pueden conocer, y la
+    // purga de las actas de envío (paso 15) las necesita para alcanzar los correos que se
+    // escribieron a mano en la factura de otra empresa — que la búsqueda por compañía no ve.
+    const correosDelTitular = (await tx.select({
+      email: clients.email, contactEmail: clients.contactEmail,
+    }).from(clients).where(matchByDoc(clients.document)))
+      .flatMap((c) => [c.email, c.contactEmail])
+      .filter((c): c is string => typeof c === 'string' && c.trim() !== '');
 
     // 1. clients: por documento
     const cli = await tx.update(clients).set({
@@ -331,6 +347,13 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       notas: null,
     }).where(matchByDoc(destinatariosCarga.documento)).returning({ id: destinatariosCarga.id });
     stats.destinatarios_carga = dest.length;
+
+    // 15. siigo_factura_envios: se redactan las direcciones, se conserva el acta. Se busca por la
+    // compañía Y por la dirección: solo por compañía quedarían fuera las actas de trámites sin
+    // empresa resuelta y los destinatarios escritos a mano en facturas de terceros.
+    stats.siigo_factura_envios = await purgarDestinatariosDeClientes(
+      cli.map((c) => c.id), correosDelTitular, tx,
+    );
 
     return stats;
   });
