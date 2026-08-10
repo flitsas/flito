@@ -75,3 +75,5 @@ export * from './siigo-compuerta.js';
 export * from './siigo-terceros.js';
 // Por qué un cliente no se puede facturar todavía: motivos nombrados uno por uno.
 export * from './siigo-validador-cliente.js';
+// Estados de la factura electrónica y estrategias de agrupación (Feature #11242).
+export * from './siigo-factura.js';
