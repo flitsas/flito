@@ -88,6 +88,19 @@ const envSchema = z.object({
   SIIGO_MODE: z.enum(['mock', 'real']).default('mock'),
   SIIGO_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   SIIGO_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0),
+  // Freno por proporción de errores (HU #11341). Siigo bloquea el usuario API si durante 7 días
+  // más del 80 % de las peticiones son errores. Medir con ESOS MISMOS números frenaría en el
+  // instante exacto del bloqueo, que es tarde: hay que llegar antes por los dos lados.
+  //   · Ventana más corta (24 h): una racha sostenida se ve el mismo día en que empieza, no al
+  //     séptimo. El tope es 168 h —los 7 días de Siigo—: más allá se mediría algo que Siigo ya no
+  //     penaliza.
+  //   · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
+  //     el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
+  SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
+  SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
+  // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa
+  // entera por una muestra que no significa nada.
+  SIIGO_FRENO_MIN_OPERACIONES: z.coerce.number().int().min(1).default(20),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.

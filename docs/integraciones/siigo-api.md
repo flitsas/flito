@@ -53,6 +53,23 @@ comprobante creado previamente en vez de duplicarlo. **No** enviar el header en 
   de uso algunas transacciones tardan más.
 - **Bloqueo temporal del usuario API** si durante 7 días más del 80 % de los requests son errores.
 
+> **Cómo se protege FLITO de esos tres límites.** Son tres fenómenos distintos y hay tres mecanismos
+> separados; ninguno sustituye a otro (HU #11249 y #11341):
+>
+> | Riesgo | Mecanismo | Dónde |
+> |---|---|---|
+> | Cuota de 100/min por empresa | limitador de ventana deslizante, el excedente espera | `siigo.resiliencia.ts` |
+> | Un endpoint concreto caído | cortacircuitos por endpoint | `siigo.resiliencia.ts` |
+> | Bloqueo del usuario API por proporción de errores | **freno por proporción acumulada** | `siigo.freno.service.ts` |
+>
+> El freno se calcula sobre `siigo_operaciones` (sin contador aparte) en una ventana de **24 h** con
+> umbral del **60 %** —`SIIGO_FRENO_VENTANA_HORAS`, `SIIGO_FRENO_UMBRAL`,
+> `SIIGO_FRENO_MIN_OPERACIONES`—. Los números son deliberadamente más estrictos que los de Siigo:
+> medir 7 días al 80 % frenaría en el instante exacto del bloqueo, que ya es tarde. Los errores
+> causados por datos nuestros (`parameter_required` y compañía) **no** cuentan, ni en el numerador ni
+> en el denominador: no dicen nada sobre la salud del servicio. Estado y reactivación manual en
+> `GET`/`POST /api/siigo/freno`.
+
 ### Códigos HTTP
 
 `200` OK · `201` Created · `400` Bad Request · `401` sin `access_token` válido · `403` sin permisos ·
