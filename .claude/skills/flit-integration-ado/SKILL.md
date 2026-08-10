@@ -9,7 +9,7 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 **Repositorio de código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards (proyecto `FLIT - FLITO`).
 
-**GitHub:** usar el CLI `gh` como vía principal (más simple para PR/checks); el servidor MCP `github` está disponible como alternativa.
+**GitHub:** servidor MCP `github` **primero** (`list_pull_requests`, `pull_request_read`, `create_pull_request`, `merge_pull_request`, `actions_*`). En esta máquina `gh` no es el CLI de GitHub (visor de ayuda): comprobar con `gh --version` antes de usarlo; si no es el CLI real, no usarlo. Donde este documento mencione `gh`, traducir a la herramienta MCP equivalente.
 
 ---
 
@@ -24,7 +24,9 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 | **Deploy PDN** | `Custom.DeployPDN` | Modo B | PR **MERGED** → target `release` |
 | **Discussion** | `System.History` | Modo A y B | Comentario HTML breve (no duplicar el HTML largo de Commits) |
 
-**Prohibido:** cambiar `System.State` (Resolved/Active/Closed lo gestionan implementación y PO). **Prohibido:** `Deploy * = true` si CI del merge commit no está en verde.
+**Prohibido:** cambiar `System.State` (Resolved/Active/Closed lo gestionan implementación y PO). **Prohibido:** `Deploy * = true` si el CI que valida la integración (ver Modo B §2) no está en verde.
+
+**PRs sin HU (docs/chore):** merge a `develop` con «sí» humano y checks verdes está permitido; **no** hay Modo A/B en ADO (no hay work item). Rama típica `docs/*` o `chore/*`, no `feat/flito-hu*`.
 
 ---
 
@@ -32,14 +34,14 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 ### Modo A — Registro de PR (hilo principal — rol integración)
 
-**Cuándo:** Tras crear el PR en GitHub (`gh pr create`, target `develop` por defecto).
+**Cuándo:** Tras crear el PR en GitHub (MCP `create_pull_request`, target `develop` por defecto). Solo aplica a PRs de **HU** con work item en ADO.
 
 **Quién:** el hilo principal con esta skill (no frontend/backend-agent). **No existe un agente
 `integration-agent` separado** — el rol integración lo asume el hilo principal.
 
 **ADO (sin confirmación extra si va encadenado tras crear PR):**
 
-1. `PATCH` `Custom.Commits` — bloque **«PR abierta»** (ver plantilla).
+1. `PATCH` `Custom.Commits` — bloque **«PR abierta»** en HTML (plantilla Modo A abajo). No dejar solo una línea de texto suelta: el HTML es el formato canónico al registrar.
 2. `PATCH` `System.History` — una línea: PR #N registrada, enlace GitHub.
 3. `PATCH` relación `Hyperlink` al PR (si no existe ya).
 
@@ -49,18 +51,20 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 ### Modo B — Confirmación post-merge (Líder Técnico / hilo principal)
 
-**Cuándo:** Tras un merge a `develop` (agente bajo autorización o humano) o tras merge de promoción a `staging`/`release` (siempre humano); o cuando el Líder Técnico pide validar integración y confirmar Deploy.
+**Cuándo:** Tras un merge a `develop` (agente bajo autorización o humano) o tras merge de promoción a `staging`/`release` (siempre humano); o cuando el Líder Técnico pide validar integración y confirmar Deploy. Solo PRs con HU en ADO.
 
 **Invocación típica:** *«Valida si ya se integró el PR y actualiza Azure»* — **no** requiere segundo «sí» (solo verificación + PATCH ADO).
 
 **Flujo:**
 
-1. **GitHub:** `gh pr view <N> --json state,mergedAt,mergeCommit,baseRefName,headRefName,url,additions,deletions,changedFiles`
-   - Si `state != MERGED` → informar «PR aún no integrada» y **no** poner Deploy * en true.
-2. **CI del merge commit:** `gh api repos/{owner}/{repo}/commits/{merge_sha}/check-runs` — todos los checks requeridos en `success` (o `skipped` aceptable según política del repo).
-   - Si algún check requerido falla → **bloquear** Deploy * = true; reportar URL del run fallido.
+1. **GitHub (MCP):** `pull_request_read` method `get` — `state`, `merged_at`, merge SHA, `base.ref`, `head.ref`, `html_url`, diff stats.
+   - Si no está `MERGED` → informar «PR aún no integrada» y **no** poner Deploy * en true.
+2. **CI que valida la integración:** checks requeridos (`build + test`, `dependency-audit`, `secret-scan`; `lint` si corre) en `success` (o `skipped` aceptable).
+   - Caso normal: check-runs del **merge commit** del PR.
+   - **Cadena apilada / merges en ráfaga:** el workflow CI usa `cancel-in-progress` por ref; los runs de merges intermedios a `develop` suelen quedar `cancelled`. El gate es el CI del **tip de `develop`** que ya contiene el merge (y el resto de la cadena), no exigir verde en cada SHA intermedio cancelado.
+   - Si el tip (o el merge commit, en caso normal) tiene un check requerido en rojo → **bloquear** Deploy * = true; reportar URL del run fallido.
 3. **ADO:** leer HU actual (`GET workitem`) — comprobar `System.State == Resolved`; si no, **avisar** al humano (no cambiar estado).
-4. **ADO:** `PATCH` `Custom.Commits` — **añadir** bloque **«Integrado»** **sin borrar** el bloque «PR abierta» (reemplazar campo con HTML concatenado: sección anterior + `<hr/>` + nueva sección).
+4. **ADO:** `PATCH` `Custom.Commits` — **añadir** bloque **«Integrado»** **sin borrar** el contenido previo (reemplazar campo con HTML concatenado: sección anterior + `<hr/>` + nueva sección).
 5. **ADO:** según `baseRefName` del PR merged:
 
 | `baseRefName` | Campo Deploy |
@@ -115,7 +119,10 @@ Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `
 <p><strong>{DeployDEV|DeployQA|DeployPDN}:</strong> <code>true</code> — integrado en <code>{baseRefName}</code>.</p>
 ```
 
-**Regla de merge de contenido:** antes del PATCH Modo B, `GET` el valor actual de `Custom.Commits`. Si ya existe HTML Modo A, **conservarlo** y concatenar la sección Integrado. Si estaba vacío, publicar solo la sección Integrado.
+**Regla de merge de contenido:** antes del PATCH Modo B, `GET` el valor actual de `Custom.Commits`.
+- Si hay HTML Modo A (u otro contenido previo, aunque sea texto plano de una línea) → **conservarlo** y concatenar `<hr/>` + sección Integrado.
+- Si estaba vacío → publicar solo la sección Integrado.
+- No reescribir el historial previo «para dejarlo bonito»; el append es la operación.
 
 ---
 
@@ -159,7 +166,7 @@ Menciones con `<a href="mailto:{email}">@{nombre}</a>`.
 
 (usar `Custom.DeployQA` o `Custom.DeployPDN` según tabla de ramas).
 
-Con MCP: `mcp__azure-devops__wit_update_work_item`. Con REST: `json.dumps(patch, ensure_ascii=False)` en Python o `JSON.stringify(patch)` + `charset=utf-8` en Node.
+Con MCP: `wit_work_item_write` (servidor ADO/`azure-devops`). Con REST: `json.dumps(patch, ensure_ascii=False)` en Python o `JSON.stringify(patch)` + `charset=utf-8` en Node.
 
 **Hyperlink PR:**
 
@@ -177,24 +184,18 @@ Con MCP: `mcp__azure-devops__wit_update_work_item`. Con REST: `json.dumps(patch,
 
 ---
 
-## GitHub — comandos
+## GitHub — vía MCP (canónica)
 
-```bash
-# Crear PR (hilo principal, target develop por defecto)
-gh pr create --base develop --head <branch> --title "HU{id}: ..." --body-file pr-body.md
+| Operación | MCP `github` |
+|-----------|----------------|
+| Crear PR | `create_pull_request` (base `develop`) |
+| Ver PR / merge SHA | `pull_request_read` method `get` |
+| Checks del HEAD o merge | `pull_request_read` method `get_check_runs`; runs en rama: `actions_list` |
+| Merge (sí textual / Feature) | `merge_pull_request` con `merge_method: merge` |
 
-# Modo B — estado
-gh pr view <N> --repo <owner/repo> --json state,mergedAt,mergeCommit,baseRefName,headRefName,url,commits,additions,deletions,changedFiles
+**Owner/repo:** `git remote get-url origin` → `flitsas/flito`.
 
-# Checks del merge commit
-gh pr checks <N> --repo <owner/repo>
-gh api repos/<owner>/<repo>/commits/<merge_sha>/check-runs --jq '.check_runs[] | {name, conclusion}'
-
-# Merge (solo con "sí" textual — humano o Líder Técnico)
-gh pr merge <N> --merge   # o --squash según estrategia acordada
-```
-
-**Detección owner/repo:** `git remote get-url origin` o `gh repo view --json nameWithOwner`.
+Si en otro entorno existe el CLI real `gh`, puede usarse como atajo; **no** sustituye MCP cuando `gh --version` no es el CLI de GitHub.
 
 ---
 
@@ -203,21 +204,21 @@ gh pr merge <N> --merge   # o --squash según estrategia acordada
 Aplican cuando el hilo principal (o el Líder Técnico) **ejecuta** el merge. El agente solo puede
 mergear si **`baseRefName` es exactamente `develop`** y hay autorización del Feature (o «sí»
 textual por ese PR). Merge a `staging`/`release` → siempre humano (`flit-release`). Ejecución vía
-MCP `github` (`merge_pull_request`, merge commit); no usar `gh` en esta máquina.
+MCP `github` (`merge_pull_request`, merge commit).
 
 | # | Condición | Verificación |
 |---|-----------|----------------|
 | 1 | PR `OPEN` | `state == OPEN` |
-| 2 | Rama origen válida | `feat/flito-*` (flujo HU) |
+| 2 | Rama origen | Flujo HU: `feat/flito-*`. Docs/chore (`docs/*`, `chore/*`): permitidos con «sí» humano; **sin** Modo A/B ADO |
 | 3 | Target | Agente: **solo `develop`**. Humano/LT: también `staging` / `release` (promoción) |
 | 4 | Autorización | «puedes mergear a develop este Feature» (sesión) **o** «sí» textual por este PR |
 | 5 | CI build/test | check `build + test` → `success` |
 | 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
 | 7 | Sin conflictos | mergeable / no conflict |
-| 8 | HU en ADO: `Custom.Refinement=true`, Story Points | `GET workitem` (flujo HU) |
+| 8 | HU en ADO (solo flujo HU) | `Custom.Refinement=true`, Story Points — `GET workitem`. Omitir en docs/chore |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
 
-Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` → Modo B (Deploy DEV).
+Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` de una HU → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
 
 ---
 
@@ -240,8 +241,10 @@ Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` →
 
 | Situación | Acción |
 |-----------|--------|
-| `Custom.Commits` 400 | Enviar JSON UTF-8 con `charset=utf-8`; con MCP usar `wit_update_work_item` |
-| PR merged pero CI rojo | No Deploy * = true; comentario en Discussion con enlace al run |
+| `Custom.Commits` 400 | Enviar JSON UTF-8 con `charset=utf-8`; con MCP usar `wit_work_item_write` |
+| PR merged pero CI tip/merge rojo | No Deploy * = true; comentario en Discussion con enlace al run |
+| Merges en cadena: CI intermedio `cancelled` | Esperado por concurrency; validar tip de `develop` (Modo B §2) |
+| PR docs/chore sin HU | Merge con sí + CI verde; no Modo A/B |
 | Target `staging` pero usuario esperaba DEV | Explicar matriz develop→DEV, staging→QA, release→PDN |
 | Duplicar Hyperlink PR | `GET` relations antes de `add` |
 

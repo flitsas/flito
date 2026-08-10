@@ -67,13 +67,13 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 
 ## Git flow
 
-- Una rama por HU, **siempre desde `develop` actualizado**: `feat/flito-hu<ID>-<slug-corto>` (lo exige la precondición de merge de `flit-integration-ado`).
+- Una rama por HU, **siempre desde `develop` actualizado**: `feat/flito-hu<ID>-<slug-corto>` (lo exige la precondición de merge de `flit-integration-ado`). Ramas `docs/*` / `chore/*` sin HU: merge a `develop` con «sí» humano y CI verde; **sin** Modo A/B en ADO.
 - **Nunca `git add -A` ni `git add .`**: el working tree puede tener parches de demo. Archivos explícitos + `git status --short` antes de commitear.
 - `.claude/` **sí está versionado** (es el equipo de agentes/skills del repo): sus cambios se commitean como cualquier archivo. Lo que no se commitea: parches locales de demo (stubs de OCR, MinIO local).
-- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos, rama `feat/flito-*`). Estrategia: merge commit. Tras el merge → `flit-integration-ado` Modo B (Deploy DEV).
+- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos; HU → rama `feat/flito-*`). Estrategia: merge commit. Tras merge de HU → `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
 - **Merge a `staging` / `release`:** siempre humano (`flit-release`). Ningún agente mergea promociones.
 - Cerrar un Feature es exclusivo del Product Owner.
-- En esta máquina **`gh` no es el CLI de GitHub** (es un visor de ayuda): el PR y sus checks se gestionan con el servidor MCP `github`. Comprobar con `gh --version` antes de asumir.
+- **GitHub:** MCP `github` es la vía canónica (PR, checks, merge). En esta máquina **`gh` no es el CLI de GitHub** (visor de ayuda): comprobar con `gh --version` antes de asumir; si no es el CLI real, no usarlo.
 - **Hook `pre-push` (versionado en `scripts/git-hooks/`, activo vía `core.hooksPath`)**: bloquea el push si gitleaks encuentra secretos en los commits que suben, o si hay vulnerabilidades **Critical** en dependencias de producción. High/Moderate avisan (CI `dependency-audit` bloquea el merge). En un clone nuevo, activarlo una vez con `git config core.hooksPath scripts/git-hooks`. Escape manual documentado: `git push --no-verify`. Falsos positivos de gitleaks: justificados en `.gitleaks.toml` con scope estricto (nunca allowlist global).
 
 ## Verificación (salida real, nunca inventada)
