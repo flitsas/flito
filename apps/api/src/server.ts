@@ -11,6 +11,7 @@ import { startDocumentAlertsCron, stopDocumentAlertsCron } from './modules/fleet
 import { startScheduleCron, stopScheduleCron } from './modules/maintenance/schedule.cron.js';
 import { startDriverAlertsCron, stopDriverAlertsCron } from './modules/drivers/documents.cron.js';
 import { startRndcRetryCron, stopRndcRetryCron } from './modules/rndc/retry.cron.js';
+import { startSiigoDianCron, stopSiigoDianCron } from './modules/siigo/siigo.dian.cron.js';
 import { startRetentionCron, stopRetentionCron } from './modules/privacy/retention.cron.js';
 import { startJornadaAutocloseCron, stopJornadaAutocloseCron } from './modules/jornadas/autoclose.cron.js';
 import { startPesvRecordatoriosCron, stopPesvRecordatoriosCron } from './modules/pesv/recordatorios.cron.js';
@@ -60,6 +61,8 @@ const server = app.listen(env.PORT, () => {
     // FLITO: archiva el PDF y el XML de las facturas que la DIAN ya aceptó (HU #11335).
     // Noop si SIIGO_ARCHIVO_CRON_ENABLED=0.
     startSiigoArchivoCron();
+    // FLITO: sondeo del estado ante la DIAN (noop si SIIGO_DIAN_CRON_ENABLED=0).
+    startSiigoDianCron();
   }
 });
 
@@ -95,6 +98,7 @@ function shutdown(signal: string) {
   stopDerechosDriveCron();
   stopFlitSync();
   stopSiigoArchivoCron();
+  stopSiigoDianCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

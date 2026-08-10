@@ -95,3 +95,51 @@ export interface SiigoEstadoDianRegistro {
   /** Cuándo se confirmó por última vez que el estado seguía siendo este. */
   verificadoEn: string;
 }
+
+/**
+ * Traducción del `stamp.status` de Siigo al estado ante la DIAN (HU #11332).
+ *
+ * **Este mapa es corto a propósito y es una incógnita, no un hecho.** `docs/integraciones/siigo-api.md`
+ * documenta que `stamp.send` envía el documento a la DIAN, pero **no enumera los valores de
+ * `stamp.status`**. Lo único observado es `Audit`, que es lo que devuelve una factura recién creada;
+ * el resto son los nombres que la API usa en su propia documentación pública de respuesta.
+ *
+ * Las claves se comparan en minúsculas para no depender de la capitalización, que tampoco está fijada.
+ *
+ * **Lo que NO se hace es adivinar.** Un `status` que no esté aquí deja el estado como estaba y queda
+ * en la bitácora — ver `traducirEstadoStamp`. La alternativa, mapear lo desconocido a algo, es la
+ * peor de todas: marcaría como rechazada una factura que la DIAN aceptó, o al revés, y las dos
+ * mentiras se propagan a un reporte que alguien usa para decidir. Un estado que no avanza se nota;
+ * uno que avanza mal, no.
+ *
+ * Ampliarlo cuando se conozcan más valores es añadir una fila aquí, y el test que fija su tamaño
+ * obliga a que ese día alguien lo documente.
+ */
+export const SIIGO_STAMP_STATUS_A_ESTADO_DIAN: Readonly<Record<string, SiigoEstadoDian>> =
+  Object.assign(Object.create(null) as Record<string, SiigoEstadoDian>, {
+    audit: 'en_validacion',
+    pending: 'en_validacion',
+    accepted: 'aceptada',
+    rejected: 'rechazada',
+    cancelled: 'anulada',
+    canceled: 'anulada',
+  });
+
+/**
+ * Traduce lo que Siigo dice del sello. `null` = «no sé qué significa esto», que NO es un estado.
+ *
+ * Devolver `null` en vez de un valor por defecto es la decisión entera: quien llama tiene que
+ * decidir explícitamente qué hacer con lo desconocido, y no puede confundirlo con «en validación».
+ */
+export function traducirEstadoStamp(status: unknown): SiigoEstadoDian | null {
+  if (typeof status !== 'string') return null;
+
+  // `Object.create(null)` arriba y esta validación de salida son DOS defensas contra el mismo error,
+  // y las dos hacen falta. Con un objeto literal corriente, `status: "constructor"` no devuelve
+  // `undefined` sino la función `Object`, heredada del prototipo — así que el `?? null` no dispara y
+  // el valor sale como si fuera un estado. Eso rompería justo la invariante que sostiene esta HU
+  // («lo desconocido no se convierte en un estado») y por el peor camino: sin fila en la bitácora, y
+  // reventando después dentro de la ingesta con un error que aborta el ciclo entero.
+  const candidato: unknown = SIIGO_STAMP_STATUS_A_ESTADO_DIAN[status.trim().toLowerCase()];
+  return esEstadoDian(candidato) ? candidato : null;
+}

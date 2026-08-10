@@ -60,14 +60,31 @@ export const OPERACION_FRENO = 'freno_integracion';
 export const OPERACION_REACTIVACION = 'freno_reactivado';
 
 /**
- * Operaciones internas que nunca salieron a la red.
+ * El sondeo del estado ante la DIAN (HU #11332). SÍ sale a la red, y aun así no se mide aquí.
  *
- * Excluirlas del conteo es lo que impide que el freno se realimente: el rechazo se registra como
- * `error_negocio`, y contarlo haría que un freno activo produjera exactamente los errores que lo
- * mantienen activo. La reactivación se registra como `ok` y contarla diluiría la proporción justo
- * después de levantarla, que es cuando más falta hace medir limpio.
+ * **El freno existe para proteger la emisión, y el sondeo no es emisión.** Un ciclo de seguimiento
+ * que falla no dice nada sobre si se puede facturar: dice que no se pudo consultar el estado de algo
+ * que ya se facturó. Contarlo invierte el propósito del freno — bastaría **una sola factura
+ * fantasma** (borrada en Siigo Nube, o con un identificador que Siigo ya no reconoce) fallando cada
+ * ciclo para acumular cientos de fallos al día y **bloquear la facturación entera** por un problema
+ * que no la afecta.
+ *
+ * Lo que sí protege al usuario API de Siigo frente a un sondeo enloquecido es su cortacircuitos
+ * propio (`claveCortacircuitosSondeo`) y la cadencia con espera creciente, que son frenos locales al
+ * seguimiento y no cierran la puerta de emitir.
  */
-const OPERACIONES_INTERNAS = [OPERACION_FRENO, OPERACION_REACTIVACION] as const;
+export const OPERACION_SONDEO_DIAN = 'dian_sondeo_estado';
+
+/**
+ * Operaciones que no se miden.
+ *
+ * Las dos primeras son internas y nunca salieron a la red: excluirlas es lo que impide que el freno
+ * se realimente —el rechazo se registra como `error_negocio`, y contarlo haría que un freno activo
+ * produjera exactamente los errores que lo mantienen activo—, y la reactivación se registra como
+ * `ok`, que diluiría la proporción justo después de levantarla, cuando más falta hace medir limpio.
+ * La tercera se excluye por la razón de arriba: es seguimiento, no emisión.
+ */
+const OPERACIONES_INTERNAS = [OPERACION_FRENO, OPERACION_REACTIVACION, OPERACION_SONDEO_DIAN] as const;
 
 /**
  * Resultados que sí hablan de la salud del servicio.
