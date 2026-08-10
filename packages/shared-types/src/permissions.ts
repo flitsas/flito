@@ -107,6 +107,13 @@ export const PAGES = {
   // para toda la parametrización: son pantallas del mismo trabajo y de la misma persona, y
   // partirla obligaría a conceder dos permisos para completar una tarea.
   siigo_parametrizacion: 'Facturación electrónica — Parametrización',
+  // Facturación electrónica (Feature #11244): la pantalla de OPERACIÓN — bandeja de facturas,
+  // línea de tiempo de cada una y las acciones de emitir, reintentar, reenviar o corregir.
+  // Clave PROPIA y distinta de `siigo_parametrizacion` y de `finanzas_reporte_costos` a propósito:
+  // parametrizar es decidir cómo se factura (se hace una vez y casi no se toca), operar es empujar
+  // facturas todos los días, y el reporte de costos es otro trabajo con otra audiencia. Unirlas
+  // obligaría a conceder la operación diaria a quien solo debe parametrizar, o al revés.
+  siigo_operacion: 'Facturación electrónica — Operación',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -121,7 +128,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas'] },
-  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion'] },
+  { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
 
@@ -151,7 +158,12 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
     // Parametrización de facturación electrónica: el backend concede lectura a `auditor` en las
     // tres rutas (mapeo, configuración y compuerta) porque ver la parametrización que respalda una
     // factura emitida es parte de auditar. La pantalla no le deja escribir nada.
-    'siigo_parametrizacion'],
+    'siigo_parametrizacion',
+    // Operación de facturación electrónica: VER la bandeja, la línea de tiempo y el estado de cada
+    // factura es exactamente lo que audita un revisor fiscal. Las acciones que mueven una factura
+    // (emitir, reintentar, corregir…) le están negadas en el servidor por la tabla de
+    // `siigo.permisos.ts`, que solo le concede `consultar`. Ver y operar no son el mismo permiso.
+    'siigo_operacion'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
@@ -167,7 +179,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // La parametrización de facturación electrónica es suya: `financiera` es quien FIRMA la
   // confirmación de contabilidad de cada concepto (AC8 de la HU #11282). Ve la pantalla completa,
   // pero el backend solo le admite el endpoint de confirmar; el resto de la edición es de `admin`.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'siigo_parametrizacion'],
+  // La operación de facturación electrónica también es suya: `financiera` es quien emite, reintenta
+  // y corrige el día a día (valor conservador de hoy en `siigo.permisos.ts`: escritura para `admin`
+  // y `financiera`). Si mañana se decide que solo emite `admin`, se edita esa tabla y esta línea.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'siigo_parametrizacion', 'siigo_operacion'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos
