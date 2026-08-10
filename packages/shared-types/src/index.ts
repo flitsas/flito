@@ -73,3 +73,5 @@ export * from './siigo-emision.js';
 export * from './siigo-compuerta.js';
 // Datos fiscales del cliente para existir como tercero en Siigo (Feature #11241).
 export * from './siigo-terceros.js';
+// Por qué un cliente no se puede facturar todavía: motivos nombrados uno por uno.
+export * from './siigo-validador-cliente.js';
