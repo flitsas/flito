@@ -84,3 +84,55 @@ export interface SiigoFactura {
   requiereRevision: boolean;
   revisionMotivo: string | null;
 }
+
+/**
+ * En qué punto del ciclo está la factura de un trámite, visto desde el reporte de costos (HU #11336).
+ *
+ * **Es una COMBINACIÓN de dos ejes, no una columna.** El estado de emisión (¿salió de FLITO?) y el
+ * estado ante la DIAN (¿lo aceptó la autoridad?) son independientes y el sistema los guarda por
+ * separado, con razón: una factura puede estar emitida y rechazada a la vez, y aplanarlos en una
+ * sola columna obligaría a mantenerla sincronizada desde dos sitios. Lo que esta lista define es
+ * cómo se traduce ese par a la frase que le sirve a quien mira el reporte.
+ *
+ * El orden es el del ciclo, y la pantalla lo respeta: se lee de izquierda a derecha como avanza una
+ * factura. `fallido` va al final aunque ocurra pronto, porque es donde alguien tiene que actuar.
+ */
+export const SIIGO_ESTADOS_REPORTE = [
+  /** Nunca se le pidió factura electrónica. NO es un fallo: es que todavía no le toca (AC4). */
+  'no_enviado',
+  /** Se pidió y está en curso. Es un estado que se resuelve solo; nadie tiene que hacer nada. */
+  'en_proceso',
+  /** Salió de FLITO y Siigo la recibió, pero la DIAN todavía no se ha pronunciado. */
+  'emitido',
+  /** La DIAN la aceptó. Es el final feliz y el único que cierra el ciclo. */
+  'aceptado',
+  /** La DIAN la rechazó. Hay algo que corregir y el motivo lo explica (HU #11333). */
+  'rechazado',
+  /**
+   * La DIAN la anuló. Séptimo estado, más allá de los seis que enumera el AC1, y con motivo:
+   * mostrar una factura anulada como «Emitida» es una afirmación falsa en una pantalla de control,
+   * y contabilidad la usa para cuadrar. El AC enumera lo que tiene que estar, no prohíbe distinguir
+   * algo que el sistema sabe. La suma sigue cuadrando con el total, que es lo que el AC1 exige.
+   */
+  'anulado',
+  /** El intento de emitir falló. Distinto de `no_enviado`: aquí sí se intentó (AC4). */
+  'fallido',
+] as const;
+export type SiigoEstadoReporte = (typeof SIIGO_ESTADOS_REPORTE)[number];
+
+export const SIIGO_ESTADO_REPORTE_ETIQUETA: Record<SiigoEstadoReporte, string> = {
+  no_enviado: 'Sin enviar',
+  en_proceso: 'En proceso',
+  emitido: 'Emitida',
+  aceptado: 'Aceptada por la DIAN',
+  rechazado: 'Rechazada por la DIAN',
+  anulado: 'Anulada',
+  fallido: 'Falló al emitir',
+};
+
+export function esEstadoReporte(v: unknown): v is SiigoEstadoReporte {
+  return typeof v === 'string' && (SIIGO_ESTADOS_REPORTE as readonly string[]).includes(v);
+}
+
+/** Los contadores del reporte: uno por estado, más el total para poder cuadrar (AC1). */
+export type SiigoResumenReporte = Record<SiigoEstadoReporte, number> & { total: number };
