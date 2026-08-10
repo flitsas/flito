@@ -3626,6 +3626,18 @@ export const siigoConfigEmision = pgTable('siigo_config_emision', {
   plazoVencimientoDias: integer('plazo_vencimiento_dias').notNull().default(0),
   /** Solo 'siigo' (AC5). Añadir «lo envía FLITO» exige migración, es decir, una decisión. */
   estrategiaNumeracion: varchar('estrategia_numeracion', { length: 30 }).notNull().default('siigo'),
+  // Las cuatro preguntas de negocio que siguen ABIERTAS (HU #11323). Viven aquí, y no dentro del
+  // código de emisión, para que responderlas sea un UPDATE y no un cambio de programa. Cada una
+  // lleva su pregunta escrita: dentro de un año tiene que verse que era una incógnita y no una
+  // decisión que alguien tomó sin decirlo.
+  /** Pregunta 7 — ¿aplican ReteICA/ReteIVA/autorretención? Un solo valor; ampliar exige migración. */
+  retencionesEstrategia: varchar('retenciones_estrategia', { length: 30 }).notNull().default('ninguna'),
+  /** Pregunta 15 — se asume COP. Un solo valor admitido. */
+  moneda: varchar('moneda', { length: 3 }).notNull().default('COP'),
+  /** Pregunta 13 — ¿se factura el histórico ya marcado como facturado? Por defecto, desde hoy. */
+  historicoDesde: date('historico_desde').notNull().defaultNow(),
+  /** Minutos tras los cuales una factura `en_proceso` se considera huérfana y se reconcilia. */
+  arrendamientoEnProcesoMin: integer('arrendamiento_en_proceso_min').notNull().default(15),
   notas: text('notas'),
   /** false = configuración histórica. */
   vigente: boolean('vigente').notNull().default(true),
@@ -3642,4 +3654,105 @@ export const siigoConfigEmision = pgTable('siigo_config_emision', {
   // deriva de dirección entre `schema.ts` y la base es de las que no se notan hasta que alguien
   // regenera algo a partir del esquema.
   historialIdx: index('idx_siigo_config_emision_historial').on(t.ambiente, desc(t.createdAt)),
+}));
+
+/**
+ * Lote de facturación: el conjunto de trámites que se factura junto (HU #11323, Feature #11242).
+ *
+ * **Su identidad es determinista y sale de lo que contiene.** Con un id aleatorio, dos encolados
+ * del mismo trámite producirían dos lotes, dos claves de idempotencia distintas y **dos facturas
+ * DIAN reales** — la misma carrera que el `UNIQUE` sobre `idempotencyKey` evita un nivel más abajo,
+ * pero fuera de su alcance. Reencolar el mismo conjunto devuelve el lote que ya existía.
+ */
+export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Solo 'por_tramite' (D-1 diferida). Consolidar exige migración, es decir, una decisión. */
+  estrategia: varchar('estrategia', { length: 30 }).notNull().default('por_tramite'),
+  /** sha256 hex de los ids de trámite ORDENADOS: el orden de selección no cambia la identidad. */
+  huella: varchar('huella', { length: 64 }).notNull(),
+  creadoPor: integer('creado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Es también la garantía del AC1: entre un SELECT y un INSERT cabe otra petición, así que la
+  // idempotencia del encolado no puede vivir en el servicio.
+  naturalUq: uniqueIndex('idx_siigo_lotes_natural').on(t.ambiente, t.estrategia, t.huella),
+}));
+
+/**
+ * La factura electrónica (HU #11323).
+ *
+ * Una factura aceptada por la DIAN **no se puede deshacer**, así que toda la unicidad de este
+ * módulo la impone la base de datos y nunca el código.
+ *
+ * El `UNIQUE` de la clave de idempotencia es **por ambiente**, no global. Global parece más seguro
+ * y es lo contrario: `pruebas` y `produccion` son empresas distintas de Siigo, así que un lote
+ * ensayado en pruebas dejaría su clave ocupada y la emisión real del mismo lote fallaría para
+ * siempre.
+ */
+export const siigoFacturas = pgTable('siigo_facturas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  loteId: uuid('lote_id').notNull().references(() => siigoLotesFacturacion.id),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Pregunta 9 abierta (¿una sola empresa emisora?). Registrarlo ahora es gratis; después, imposible. */
+  empresaEmisoraNit: varchar('empresa_emisora_nit', { length: 20 }),
+  /** Derivada del lote, estable, NUNCA aleatoria. El contrato exige alfanumérico ≤30. */
+  idempotencyKey: varchar('idempotency_key', { length: 30 }).notNull(),
+
+  siigoInvoiceId: varchar('siigo_invoice_id', { length: 60 }),
+  numero: varchar('numero', { length: 60 }),
+  comprobanteNombre: varchar('comprobante_nombre', { length: 120 }),
+  cufe: varchar('cufe', { length: 200 }),
+  publicUrl: text('public_url'),
+  /** `numeric` llega como CADENA por drizzle. No compararlo con un número sin convertir. */
+  totalSiigo: numeric('total_siigo', { precision: 14, scale: 2 }),
+
+  estado: varchar('estado', { length: 20 }).notNull().default('en_proceso'),
+  /** Reloj del arrendamiento: sin esto, un worker caído bloquea la clave para siempre. */
+  enProcesoDesde: timestamp('en_proceso_desde', { withTimezone: true }),
+  intentos: integer('intentos').notNull().default(0),
+  errorCode: varchar('error_code', { length: 80 }),
+  errorDetalle: text('error_detalle'),
+  enviadaEn: timestamp('enviada_en', { withTimezone: true }),
+
+  /**
+   * Marca APARTE del estado. Una factura emitida cuyo total no cuadra con la liquidación sigue
+   * estando emitida —el documento existe ante la DIAN— y además necesita que alguien la mire.
+   * Como estado se habría perdido la primera mitad.
+   */
+  requiereRevision: boolean('requiere_revision').notNull().default(false),
+  revisionMotivo: text('revision_motivo'),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  idemUq: uniqueIndex('idx_siigo_facturas_idem').on(t.ambiente, t.idempotencyKey),
+  enProcesoIdx: index('idx_siigo_facturas_en_proceso').on(t.enProcesoDesde),
+  estadoIdx: index('idx_siigo_facturas_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+}));
+
+/**
+ * Qué trámites cubre cada factura (HU #11323).
+ *
+ * **N:1 desde el primer día** aunque hoy siempre tenga una sola fila: es lo que permitirá habilitar
+ * la facturación consolidada sin migrar `siigoFacturas`.
+ *
+ * `activo` es un espejo de «su factura no está fallida», mantenido por un disparador. Existe porque
+ * el predicado de un índice parcial no admite subconsultas, y comprobarlo en el servicio no sirve:
+ * entre el SELECT y el INSERT caben dos peticiones, y el resultado de esa carrera son dos facturas
+ * DIAN sobre el mismo trámite.
+ */
+export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id),
+  /** Se guarda para poder explicar una factura vieja aunque la liquidación cambie después. */
+  liquidacionId: uuid('liquidacion_id').references(() => flitoLiquidaciones.id, { onDelete: 'set null' }),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_factura_tramites_factura').on(t.facturaId),
+  // Parcial a propósito: una factura `fallida` NO ocupa el trámite, porque el reintento legítimo
+  // tiene que poder volver a facturarlo.
+  vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo').on(t.tramiteId).where(sql`${t.activo}`),
 }));

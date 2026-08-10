@@ -27,6 +27,10 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      // Worktrees de agentes: son COPIAS COMPLETAS del repo. Sin esto, `npm run lint` analiza el
+      // código tres veces y el conteo de warnings —que la regla 20 usa como umbral— deja de
+      // significar nada.
+      '.claude/**',
       'docs/**',
       // Assets vendor minificados (pdf.js, tesseract) — no son código del equipo.
       'apps/web/public/**',

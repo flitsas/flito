@@ -232,7 +232,7 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
 
 ---
 
-## F5 — Seguimiento DIAN, entrega al solicitante y archivo
+## F5 — Seguimiento DIAN, entrega al cliente y archivo
 
 **Objetivo:** cerrar el ciclo: que la factura quede aceptada, entregada y archivada.
 
@@ -240,8 +240,12 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
 - Reconciliador periódico del estado DIAN: `GET /v1/invoices/{id}` para leer el CUFE y
   `GET /v1/invoices/{id}/stamp/errors` para las rechazadas. (Evaluar antes el grupo **Webhooks** de
   Siigo, aún sin revisar: si notifica el estado, se evita el polling.)
-- Envío por correo al solicitante: `POST /v1/invoices/{id}/mail` (hasta 5 direcciones) o `mail` en
-  la creación. Pregunta 3 define el destinatario.
+- Envío por correo: `POST /v1/invoices/{id}/mail` (hasta 5 direcciones) o `mail` en la creación.
+  **El destinatario ya está decidido** (D-3): `clients.email`, el correo de la compañía. El texto
+  anterior decía «al solicitante» y remitía a la pregunta 3, que se resolvió en §1.1; era texto
+  viejo. Ojo con un matiz que D-3 no podía prever: la HU #11292 añadió `clients.contactEmail`, el
+  correo del **contacto fiscal**, así que hoy hay dos correos plausibles en la ficha del cliente y
+  no son la misma persona.
 - Descarga y archivo de **PDF y XML** (`/pdf`, `/xml`) en S3 bajo `clients.flitoCarpetaStorage`,
   enlazados al trámite para que queden junto a los demás soportes.
 - La respuesta de emisión se normaliza a `cufe`, `pdf_url`, `stamp_status` y `public_url` como en
@@ -263,9 +267,20 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
   (`parameter_required` → falta un dato; `invalid_dian_resolution` → resolución vencida; etc.).
 - Reintento masivo controlado y marcado manual de `fallido_definitivo`.
 - **Reversa:** hoy `reversar` está prohibido después de `facturado`. Con factura electrónica emitida
-  y aceptada por la DIAN, la corrección solo puede ser una **nota crédito** (`/v1/credit-notes`);
-  la **anulación electrónica** (`DELETE /v1/invoices/{id}`, estado `anulada`) aplica en ventanas y
-  estados DIAN distintos. Pregunta 8 define si entran en este alcance o en una feature posterior.
+  hay que corregirla por otra vía, y **cuál es esa vía no está establecida todavía**:
+  - Siigo expone **dos operaciones distintas**, no una: `DELETE /v1/invoices/{id}` es **borrar** y
+    `POST /v1/invoices/{id}/annul` es **anular** (ver `docs/integraciones/siigo-api.md` §3). Una
+    versión anterior de este documento las citaba como si fueran la misma cosa; era un error.
+  - Y la misma sección dice que **no se puede editar, borrar ni anular** una factura que esté en
+    proceso de envío a la DIAN o ya aceptada (que tenga CUFE). Es decir: contra lo que hoy sabemos,
+    **ninguna de las dos aplica a una factura aceptada**, que es justo el caso que hay que corregir.
+  - Queda la **nota crédito** (`/v1/credit-notes`), pero ese grupo de la API **todavía no se ha
+    leído** — figura entre las secciones pendientes de `docs/integraciones/siigo-api.md`.
+
+  Por tanto la pregunta 8 tiene **dos bloqueos, no uno**: el de negocio (¿entra la corrección en
+  este alcance o se maneja a mano en Siigo Nube?) y el documental (¿qué forma tiene el contrato?).
+  El segundo se puede levantar sin decidir nada. Hasta entonces, ningún diseño debe afirmar que la
+  corrección de una factura emitida sea una nota crédito: no lo sabemos.
 - Permisos: qué rol puede emitir (hoy `financiera`, `admin`, `auditor` leen el reporte; liquidar y
   facturar exigen escritura).
 

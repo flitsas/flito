@@ -75,5 +75,7 @@ export * from './siigo-compuerta.js';
 export * from './siigo-terceros.js';
 // Por qué un cliente no se puede facturar todavía: motivos nombrados uno por uno.
 export * from './siigo-validador-cliente.js';
+// Estados de la factura electrónica y estrategias de agrupación (Feature #11242).
+export * from './siigo-factura.js';
 // Freno por proporción de errores: dejar de insistir antes de que Siigo bloquee el usuario API.
 export * from './siigo-freno.js';
