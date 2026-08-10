@@ -26,6 +26,10 @@ import {
   flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
+// Ficha fiscal (HU #11298). Vive en su propio componente desde el primer commit: esta pantalla ya
+// tiene dos pestañas, un modal y dos formularios, y no cabe más sin acercarse al techo de 800.
+import FichaFiscal, { ChipFacturable } from '../components/clientes/FichaFiscal';
+import type { VeredictoCliente } from '../components/clientes/tipos';
 
 // Un cliente ES una compañía FLITO: misma tabla. Por eso la autogestión, las tarifas y los datos de
 // contacto se administran en el mismo sitio.
@@ -83,10 +87,21 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
   const [clients, setClients] = useState<Client[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [tarifasDe, setTarifasDe] = useState<Client | null>(null);
+  const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
+  const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
 
   const load = () => { api.get<Client[]>('/clients').then(setClients).catch(() => setClients([])); };
-  useEffect(() => { load(); }, []);
+
+  // Quién puede facturarse y quién no (AC5). Se pide aparte del listado: un fallo del informe no
+  // puede dejar sin pantalla de clientes a quien solo venía a mirar una tarifa.
+  const cargarVeredictos = () => {
+    api.get<{ data: VeredictoCliente[] }>('/siigo/clientes/validacion/detalle?incluirFacturables=true&limit=500')
+      .then((r) => setVeredictos(new Map((r.data ?? []).map((v) => [v.clienteId, v]))))
+      .catch(() => setVeredictos(new Map()));
+  };
+
+  useEffect(() => { load(); cargarVeredictos(); }, []);
 
   const handleCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -168,6 +183,7 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                 <FlitTh center>Impuestos</FlitTh>
                 <FlitTh center>Logística</FlitTh>
                 <FlitTh center>Parcial</FlitTh>
+                <FlitTh>Facturación</FlitTh>
                 <FlitTh />
               </FlitTr>
             </thead>
@@ -183,9 +199,15 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
                   <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
+                  <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
-                    <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                      onClick={() => setTarifasDe(c)}>Tarifas</button>
+                    <div className="flex gap-2">
+                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                        onClick={() => setTarifasDe(c)}>Tarifas</button>
+                      <button className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                        aria-label={`Datos fiscales de ${c.name}`}
+                        onClick={() => setFiscalDe(c)}>Datos fiscales</button>
+                    </div>
                   </td>
                 </FlitTr>
               ))}
@@ -202,6 +224,17 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
 
       {tarifasDe && (
         <ModalTarifas cliente={tarifasDe} editable={editaTarifas} onClose={() => setTarifasDe(null)} />
+      )}
+
+      {fiscalDe && (
+        <FichaFiscal
+          clienteId={fiscalDe.id}
+          clienteNombre={fiscalDe.name}
+          editable={editaAutogestion}
+          onClose={() => setFiscalDe(null)}
+          // AC5 — al completar los datos la señal se actualiza sin recargar la pantalla.
+          onGuardado={() => { load(); cargarVeredictos(); }}
+        />
       )}
     </>
   );

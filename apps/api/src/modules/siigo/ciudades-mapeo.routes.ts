@@ -13,7 +13,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   SiigoCiudadMapeoError, confirmarCiudad, equivalenciasObsoletas,
-  estadoMapeoCiudades, proponerEquivalencias,
+  estadoMapeoCiudades, proponerEquivalencias, propuestaDeCliente,
 } from './siigo.ciudades-mapeo.service.js';
 
 const router = Router();
@@ -65,6 +65,19 @@ router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
 router.get('/obsoletas', LECTURA, async (_req: Request, res: Response) => {
   const data = await equivalenciasObsoletas();
   res.json({ total: data.length, data });
+});
+
+// GET /:id/propuesta — la equivalencia de UN cliente, para su ficha fiscal (HU #11298).
+router.get('/:id/propuesta', LECTURA, async (req: Request, res: Response) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const parsed = paisSchema.safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ error: 'País inválido' }); return; }
+  try {
+    res.json(await propuestaDeCliente(id, parsed.data.pais));
+  } catch (e) {
+    if (!responderError(res, e)) throw e;
+  }
 });
 
 // POST /:id/confirmar — fija los códigos de un cliente (AC4).
