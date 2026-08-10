@@ -42,6 +42,7 @@ import siigoCiudadesMapeoRoutes from './modules/siigo/ciudades-mapeo.routes.js';
 import siigoFrenoRoutes from './modules/siigo/freno.routes.js';
 import siigoCorreccionesRoutes from './modules/siigo/correcciones.routes.js';
 import siigoEnviosRoutes from './modules/siigo/envio-correo.routes.js';
+import siigoFacturacionTramitesRoutes from './modules/siigo/facturacion-tramites.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -210,6 +211,7 @@ export function createApp() {
   app.use('/api/siigo/freno', siigoFrenoRoutes);
   app.use('/api/siigo/correcciones', siigoCorreccionesRoutes);
   app.use('/api/siigo/envios', siigoEnviosRoutes);
+  app.use('/api/siigo/facturacion', siigoFacturacionTramitesRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma

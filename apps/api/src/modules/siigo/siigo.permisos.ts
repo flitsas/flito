@@ -20,7 +20,11 @@
 // cosas: parametrizar se hace una vez, operar se hace todos los días.
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import type { UserRole } from '@operaciones/shared-types';
+import {
+  ACCIONES_SIIGO, ACCION_DE_LECTURA, ROLES_POR_ACCION,
+  esAccionDeOperacion, esAccionSiigo, puedeEjecutar, rolesDe,
+  type AccionSiigo,
+} from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 
@@ -32,78 +36,16 @@ import { registrarOperacion } from './siigo.operaciones.repo.js';
  * pregunta 8 del diseño (nota crédito frente a anulación), que también sigue abierta: cambie lo que
  * cambie la respuesta, cambia el flujo, no el sitio donde se decide el permiso—.
  */
-export const ACCIONES_SIIGO = [
-  // Lectura: bandeja, línea de tiempo y estado de una factura.
-  'consultar',
-  // Operación: mueven una factura o su relación con la DIAN.
-  'emitir',
-  'reintentar',
-  'reenviar_correo',
-  'marcar_fallido',
-  'reactivar',
-  'corregir',
-  'anular',
-] as const;
-
-export type AccionSiigo = (typeof ACCIONES_SIIGO)[number];
-
-/**
- * Lectura para auditoría también. Ver la bandeja, la línea de tiempo o el estado de una factura es
- * justamente lo que hace un revisor fiscal; negárselo no protege nada y le obliga a pedir capturas.
- */
-const LECTURA: readonly UserRole[] = ['admin', 'financiera', 'auditor'];
-
-/**
- * Escritura sin auditoría. `auditor` mira y no toca: es la misma línea que ya trazan
- * `flito-liquidacion.routes.ts` y `finanzas.routes.ts`.
- */
-const OPERACION: readonly UserRole[] = ['admin', 'financiera'];
-
-/**
- * LA TABLA. Una fila por acción; cambiar quién puede algo es cambiar su fila.
- *
- * `Record<AccionSiigo, …>` y no un objeto suelto a propósito: si mañana se agrega una acción a
- * `ACCIONES_SIIGO` y se olvida asignarle roles, el compilador lo para. Una acción sin fila no puede
- * existir por descuido.
- */
-export const ROLES_POR_ACCION: Record<AccionSiigo, readonly UserRole[]> = {
-  consultar: LECTURA,
-  emitir: OPERACION,
-  reintentar: OPERACION,
-  reenviar_correo: OPERACION,
-  marcar_fallido: OPERACION,
-  reactivar: OPERACION,
-  corregir: OPERACION,
-  anular: OPERACION,
+// El catálogo vive en `@operaciones/shared-types` desde la HU #11337, porque tiene DOS
+// consumidores: este servidor, que decide el 403, y la pantalla, que decide si pinta el botón.
+// Mientras estuvo solo aquí, la interfaz reimplementaba la regla y eran dos definiciones de lo
+// mismo que coincidían por costumbre. Se reexporta para que todo lo que ya lo importaba de este
+// archivo siga funcionando sin tocar un solo router.
+export {
+  ACCIONES_SIIGO, ACCION_DE_LECTURA, ROLES_POR_ACCION,
+  esAccionDeOperacion, esAccionSiigo, puedeEjecutar, rolesDe,
+  type AccionSiigo,
 };
-
-/** Única acción de lectura. El resto modifica algo y por eso se le niega a `auditor`. */
-export const ACCION_DE_LECTURA: AccionSiigo = 'consultar';
-
-export function esAccionSiigo(valor: string): valor is AccionSiigo {
-  return (ACCIONES_SIIGO as readonly string[]).includes(valor);
-}
-
-/**
- * Roles que pueden una acción. Una acción NO declarada devuelve lista vacía, es decir, se niega a
- * todo el mundo. Negar por defecto y no permitir por defecto es lo que hace que declarar de más
- * (acciones sin ruta) sea seguro y declarar de menos (una ruta con un nombre mal escrito) sea un
- * 403 evidente en vez de una puerta abierta.
- */
-export function rolesDe(accion: string): readonly UserRole[] {
-  return esAccionSiigo(accion) ? ROLES_POR_ACCION[accion] : [];
-}
-
-/** ¿Este rol puede esta acción? Sin rol (petición sin autenticar) nunca puede nada. */
-export function puedeEjecutar(role: string | null | undefined, accion: string): boolean {
-  if (!role) return false;
-  return (rolesDe(accion) as readonly string[]).includes(role);
-}
-
-/** Acción que modifica algo. `consultar` no lo es; una acción desconocida tampoco (no existe). */
-export function esAccionDeOperacion(accion: string): boolean {
-  return esAccionSiigo(accion) && accion !== ACCION_DE_LECTURA;
-}
 
 /**
  * El texto del 403. Distingue los dos casos porque el usuario hace cosas distintas con cada uno:

@@ -11,6 +11,11 @@ import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import VisorSoportes from '../components/flit/VisorSoportes';
+import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
+import CeldaFacturacion from '../components/finanzas/CeldaFacturacion';
+import FichaFacturacion from '../components/finanzas/FichaFacturacion';
+import type { FacturacionTramite, ResumenFacturacion } from '../components/finanzas/tiposFacturacion';
+import { puedeEjecutar, type SiigoEstadoReporte } from '@operaciones/shared-types';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, flitPillBtn,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -163,6 +168,16 @@ export default function FinanzasReporteCostos() {
   const [soportesDe, setSoportesDe] = useState<Fila | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
 
+  // Facturación electrónica (HU #11337). Se carga aparte del reporte a propósito: si un fallo del
+  // módulo de Siigo tumbara la carga del reporte, quien viene a conciliar costos se quedaría sin la
+  // pantalla entera por algo que no necesitaba para conciliar.
+  const [resumenFe, setResumenFe] = useState<ResumenFacturacion | null>(null);
+  const [feCargando, setFeCargando] = useState(true);
+  const [feError, setFeError] = useState<string | null>(null);
+  const [fichasFe, setFichasFe] = useState<Map<string, FacturacionTramite>>(new Map());
+  const [estadoFe, setEstadoFe] = useState<SiigoEstadoReporte | null>(null);
+  const [fichaAbierta, setFichaAbierta] = useState<{ ficha: FacturacionTramite; idFlit: string } | null>(null);
+
   const [buscar, setBuscar] = useState('');
   const [empresa, setEmpresa] = useState('');
   const [tipo, setTipo] = useState('');
@@ -189,6 +204,7 @@ export default function FinanzasReporteCostos() {
     if (aprobadoHasta) p.set('aprobadoHasta', aprobadoHasta);
     if (estados.length) p.set('estados', estados.join(','));
     if (docCompleta) p.set('documentacionCompleta', 'si');
+    if (estadoFe) p.set('estadoFacturacion', estadoFe);
     return p;
   };
 
@@ -196,16 +212,17 @@ export default function FinanzasReporteCostos() {
     setBuscar(''); setEmpresa(''); setTipo(''); setEtapa('');
     setDesde(''); setHasta(''); setAprobadoDesde(''); setAprobadoHasta('');
     setDocCompleta(false);
+    setEstadoFe(null);
     // Vuelve al punto de partida del reporte, no a «todos los estados»: quien limpia quiere el
     // estado inicial de la pantalla, y ese es Aprobado.
     setEstados([ESTADO_POR_DEFECTO]);
   };
 
-  const hayFiltros = buscar !== '' || empresa !== '' || tipo !== '' || etapa !== '' || docCompleta
+  const hayFiltros = estadoFe !== null || buscar !== '' || empresa !== '' || tipo !== '' || etapa !== '' || docCompleta
     || desde !== '' || hasta !== '' || aprobadoDesde !== '' || aprobadoHasta !== ''
     || estadosKey !== ESTADO_POR_DEFECTO;
 
-  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta]);
+  useEffect(() => { setPage(1); setSeleccion(new Set()); }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, estadoFe]);
 
   useEffect(() => {
     setError(null);
@@ -213,7 +230,34 @@ export default function FinanzasReporteCostos() {
     p.set('page', String(page));
     api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, page, recarga]);
+  }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, estadoFe, page, recarga]);
+
+  // Los contadores. Mismo filtro que la tabla salvo el propio estado, que lo excluye el servidor.
+  useEffect(() => {
+    setFeCargando(true);
+    setFeError(null);
+    api.get<ResumenFacturacion>(`/finanzas/reporte-costos/facturacion-electronica?${params().toString()}`)
+      .then(setResumenFe)
+      .catch((e) => { setResumenFe(null); setFeError(errorMessage(e)); })
+      .finally(() => setFeCargando(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, estadoFe, recarga]);
+
+  // La ficha de los trámites de ESTA página. Por lote y no una petición por fila: doscientas
+  // peticiones para dibujar una tabla las encolaría el navegador de seis en seis.
+  useEffect(() => {
+    const ids = (data?.items ?? []).map((f) => f.tramiteId);
+    if (ids.length === 0) { setFichasFe(new Map()); return; }
+    // `URLSearchParams` y no interpolar: los identificadores vienen del servidor y hoy son UUID,
+    // pero el día que ese campo cambie de forma, un `&` o un `#` sueltos partirían la consulta en
+    // dos parámetros. Escapar aquí cuesta nada; descubrirlo después, una tarde.
+    api.get<{ items: FacturacionTramite[] }>(
+      `/siigo/facturacion/tramites?${new URLSearchParams({ ids: ids.join(',') }).toString()}`)
+      .then((r) => setFichasFe(new Map(r.items.map((i) => [i.tramiteId, i]))))
+      // Un fallo aquí NO rompe el reporte: las filas se pintan sin la columna de facturación, que
+      // es información añadida y no el motivo por el que alguien abrió esta pantalla.
+      .catch(() => setFichasFe(new Map()));
+  }, [data]);
 
   useEffect(() => { api.get<Facetas>('/finanzas/reporte-costos/facetas').then(setFacetas).catch(() => setFacetas(null)); }, []);
 
@@ -326,6 +370,17 @@ export default function FinanzasReporteCostos() {
         </div>
       </FlitCard>
 
+      {/* HU #11337 — los contadores van DEBAJO de los filtros y ENCIMA de la tabla: cuentan sobre lo
+          que los filtros dejan y describen lo que se ve abajo, así que su sitio es entre los dos. */}
+      <ContadoresFacturacion
+        resumen={resumenFe}
+        cargando={feCargando}
+        error={feError}
+        seleccionado={estadoFe}
+        onSeleccionar={setEstadoFe}
+        onReintentar={() => setRecarga((n) => n + 1)}
+      />
+
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
       {aviso && <FlitCard><p className="text-sm" style={{ color: 'var(--flit-blue-text)' }}>{aviso}</p></FlitCard>}
 
@@ -388,6 +443,7 @@ export default function FinanzasReporteCostos() {
                   <FlitTh center>{CONCEPTO.digital}</FlitTh>
                   <FlitTh center>GMF</FlitTh>
                   <FlitTh center>Total</FlitTh>
+                  <FlitTh center>Factura DIAN</FlitTh>
                   <FlitTh />
                 </FlitTr>
               </thead>
@@ -427,6 +483,10 @@ export default function FinanzasReporteCostos() {
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.tramiteDigital} falta={faltaDe(f, CONCEPTO.digital)} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.gmf} /></td>
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
+                    <td className="px-3 py-2 text-center">
+                      <CeldaFacturacion ficha={fichasFe.get(f.tramiteId)}
+                        onAbrir={(ficha) => setFichaAbierta({ ficha, idFlit: f.idFlit })} />
+                    </td>
                     <td className="px-3 py-2">
                       <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
                         onLiquidar={() => liquidarUno(f)} onFacturar={() => facturarUno(f)}
@@ -459,6 +519,21 @@ export default function FinanzasReporteCostos() {
 
           <div className="mt-3"><Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} /></div>
         </FlitCard>
+      )}
+
+      {fichaAbierta && (
+        <FichaFacturacion
+          ficha={fichaAbierta.ficha}
+          idFlit={fichaAbierta.idFlit}
+          // LA MISMA tabla que usa el servidor para decidir el 403, no una regla paralela. Cuando
+          // la pantalla reimplementaba «admin o financiera», eran dos definiciones de lo mismo que
+          // coincidían por costumbre: el día que una cambiara, la pantalla ofrecería un botón que
+          // el servidor rechaza —o escondería uno que sí se puede pulsar— y ninguno de los dos
+          // fallos aparece en los tests de la otra mitad.
+          puedeOperar={puedeEjecutar(user?.role, 'reenviar_correo')}
+          onClose={() => setFichaAbierta(null)}
+          onCambio={() => setRecarga((n) => n + 1)}
+        />
       )}
 
       {soportesDe && (
