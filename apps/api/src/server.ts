@@ -21,6 +21,7 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
+import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -56,6 +57,9 @@ const server = app.listen(env.PORT, () => {
     startValidacionStaleCron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
+    // FLITO: archiva el PDF y el XML de las facturas que la DIAN ya aceptó (HU #11335).
+    // Noop si SIIGO_ARCHIVO_CRON_ENABLED=0.
+    startSiigoArchivoCron();
   }
 });
 
@@ -90,6 +94,7 @@ function shutdown(signal: string) {
   stopValidacionStaleCron();
   stopDerechosDriveCron();
   stopFlitSync();
+  stopSiigoArchivoCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

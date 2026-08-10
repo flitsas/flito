@@ -13,7 +13,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas, flitoLogisticaDocumentos,
-  flitoSoat, flitoSoportes, flitoTramites,
+  flitoSoat, flitoSoportes, flitoTramites, siigoFacturaTramites,
 } from '../../db/schema.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 
@@ -39,7 +39,8 @@ function ordenar(soportes: SoporteVista[]): SoporteVista[] {
  * Los descartados en la cola de revisión no son evidencia de nada: quedan fuera.
  */
 async function porRegistro(
-  columna: typeof flitoSoportes.soatId | typeof flitoSoportes.impuestoId | typeof flitoSoportes.derechoId,
+  columna: typeof flitoSoportes.soatId | typeof flitoSoportes.impuestoId
+    | typeof flitoSoportes.derechoId | typeof flitoSoportes.siigoFacturaId,
   registroId: string,
   origen: string,
 ): Promise<SoporteVista[]> {
@@ -124,6 +125,25 @@ export async function soportesDeTramite(tramiteId: string): Promise<SoporteVista
   if (t.soatId) salida.push(...await porRegistro(flitoSoportes.soatId, t.soatId, 'soat'));
   if (t.impuestoId) salida.push(...await porRegistro(flitoSoportes.impuestoId, t.impuestoId, 'impuesto'));
   if (t.derechoId) salida.push(...await porRegistro(flitoSoportes.derechoId, t.derechoId, 'derecho'));
+
+  // El PDF y el XML de la factura electrónica (HU #11335). Se consultan aparte y no con los otros
+  // tres porque el trámite no los alcanza por una columna suya: cuelgan de la factura, y el puente
+  // es `siigo_factura_tramites`. Solo las VIVAS —una factura fallida se reintenta y sus documentos,
+  // si existieran, no son el soporte de nada.
+  //
+  // Que salgan por aquí es además lo que resuelve el permiso (AC6): las dos rutas que sirven esta
+  // lista ya exigen acceso a Gestión de trámites o al reporte de costos, y la URL es un enlace
+  // firmado con caducidad, igual que la de los demás soportes. No hay una ruta de descarga nueva
+  // que proteger, que es exactamente lo que se buscaba.
+  const facturas = await db.select({ facturaId: siigoFacturaTramites.facturaId })
+    .from(siigoFacturaTramites)
+    .where(and(
+      eq(siigoFacturaTramites.tramiteId, tramiteId),
+      eq(siigoFacturaTramites.activo, true),
+    ));
+  for (const f of facturas) {
+    salida.push(...await porRegistro(flitoSoportes.siigoFacturaId, f.facturaId, 'factura_electronica'));
+  }
 
   return ordenar(salida);
 }

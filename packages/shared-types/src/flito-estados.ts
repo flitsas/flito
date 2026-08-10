@@ -238,6 +238,12 @@ export const TipoSoporte = {
   FACTURA_VENTA: 'factura_venta',
   RECIBO_IMPUESTO: 'recibo_impuesto',
   RECIBO_IMPUESTO_SIN_MARCA_AGUA: 'recibo_impuesto_sin_marca_agua',
+  // HU #11335 — los dos documentos de la factura electrónica que FLITO emite ante la DIAN. Nada
+  // que ver con `FACTURA_VENTA`, que es la del concesionario y llega de fuera. Viven en el mismo
+  // catálogo porque acaban en la misma tabla y en la misma lista de la pantalla; lo que se deriva
+  // de ellos (extensión, content-type, endpoint de Siigo) está en `siigo-archivo.ts`.
+  FACTURA_ELECTRONICA_PDF: 'factura_electronica_pdf',
+  FACTURA_ELECTRONICA_XML: 'factura_electronica_xml',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];

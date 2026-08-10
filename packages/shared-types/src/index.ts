@@ -83,3 +83,5 @@ export * from './siigo-freno.js';
 export * from './siigo-estado-dian.js';
 // Corrección de una factura ya emitida: qué admite cada estado y qué se registró (Feature #11244).
 export * from './siigo-correccion.js';
+// Archivo del PDF y el XML de la factura como soporte del trámite (Feature #11243).
+export * from './siigo-archivo.js';
