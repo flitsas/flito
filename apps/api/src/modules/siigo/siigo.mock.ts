@@ -336,6 +336,27 @@ export function respuestaSimulada(
     };
   }
 
+  // PDF y XML de una factura (HU #11335). Va ANTES del listado genérico de `/v1/invoices`, que si
+  // no se traga estas dos rutas y responde `results: []` — una respuesta sin documento con la que el
+  // archivo no se puede ensayar, ni en su caso feliz ni en el de contenido ilegible.
+  //
+  // La forma es la documentada: JSON con el archivo en base64. Los contenidos son mínimos pero
+  // AUTÉNTICOS —el PDF empieza por `%PDF` y el XML por `<?xml`— porque el servicio comprueba esa
+  // firma antes de archivar, y un simulador que devolviera texto cualquiera daría por buena una
+  // respuesta que el ambiente real haría fallar.
+  const documento = /^\/v1\/invoices\/([^/]+)\/(pdf|xml)\/?$/.exec(ruta);
+  if (metodo === 'GET' && documento) {
+    const id = decodeURIComponent(documento[1]!);
+    const contenido = documento[2] === 'pdf'
+      ? `%PDF-1.4\n% factura simulada ${id}\n%%EOF\n`
+      : `<?xml version="1.0" encoding="UTF-8"?>\n<Invoice><ID>${id}</ID></Invoice>\n`;
+    return {
+      status: 200,
+      ok: true,
+      datos: { id, base64: Buffer.from(contenido, 'utf8').toString('base64') },
+    };
+  }
+
   // Creación de tercero.
   if (metodo === 'POST' && /^\/v1\/customers\/?$/.test(ruta)) {
     return {

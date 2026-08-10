@@ -2750,6 +2750,11 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // HU #10950: soporte del derecho de tránsito. Nullable como los otros dos: un soporte cuelga de
   // exactamente uno de los tres flujos (o de ninguno, mientras espera en la cola de revisión).
   derechoId: uuid('derecho_id').references(() => flitoDerechosTramite.id, { onDelete: 'cascade' }),
+  // HU #11335: el PDF y el XML de la factura electrónica. CUARTA clave foránea nullable del mismo
+  // patrón, y no un `tramiteId`: esta tabla nunca ha tenido esa columna, y el trámite se alcanza
+  // desde `siigo_factura_tramites`, que además sabe qué facturas siguen vivas. Es una FK HACIA
+  // `siigo_facturas`, no una columna sobre ella (AC7).
+  siigoFacturaId: uuid('siigo_factura_id').references(() => siigoFacturas.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
@@ -2758,6 +2763,10 @@ export const flitoSoportes = pgTable('flito_soportes', {
   descartado: boolean('descartado').notNull().default(false),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+  // AC3 — un solo documento de cada tipo por factura. La garantía es de la base y no del servicio:
+  // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
+  facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)
+    .where(sql`${t.siigoFacturaId} IS NOT NULL AND ${t.descartado} = false`),
 }));
 
 // Cola de revisión OCR (CA-06/CA-07). Los gestores no la resuelven (RN-04/RN-05).

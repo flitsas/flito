@@ -77,3 +77,5 @@ export * from './siigo-terceros.js';
 export * from './siigo-validador-cliente.js';
 // Estados de la factura electrónica y estrategias de agrupación (Feature #11242).
 export * from './siigo-factura.js';
+// Archivo del PDF y el XML de la factura como soporte del trámite (Feature #11243).
+export * from './siigo-archivo.js';

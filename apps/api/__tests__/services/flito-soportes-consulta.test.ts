@@ -27,23 +27,46 @@ describe('soportesDeTramite', () => {
     expect(await soportesDeTramite('t1')).toBeNull();
   });
 
-  it('devuelve los cuatro orígenes, no el primero que encuentra', async () => {
+  it('devuelve los cinco orígenes, no el primero que encuentra', async () => {
     kdb.when.scenario({
       flito_tramites: [{ soatId: 's1', impuestoId: 'i1', derechoId: 'd1' }],
       flito_logistica_documentos: [{
         id: 'log-1', tipo: 'licencia', foto: 'flito/foto.jpg', createdAt: new Date('2026-07-04T00:00:00Z'),
         actaPdf: null, actaEn: null, actaId: null,
       }],
+      // HU #11335: la factura electrónica no cuelga del trámite sino de la factura, y el puente es
+      // esta tabla. Solo las vivas.
+      siigo_factura_tramites: [{ facturaId: 'fac-1' }],
     });
-    // Las tres consultas a flito_soportes salen en orden: SOAT, impuesto, derecho.
+    // Las cuatro consultas a flito_soportes salen en orden: SOAT, impuesto, derecho, factura.
     kdb.when
       .selectOnce('flito_soportes', [soporte('sop-soat', 'soat.pdf', '2026-07-01T00:00:00Z')])
       .selectOnce('flito_soportes', [soporte('sop-imp', 'impuesto.pdf', '2026-07-03T00:00:00Z')])
-      .selectOnce('flito_soportes', [soporte('sop-der', 'recibo.pdf', '2026-07-02T00:00:00Z')]);
+      .selectOnce('flito_soportes', [soporte('sop-der', 'recibo.pdf', '2026-07-02T00:00:00Z')])
+      .selectOnce('flito_soportes', [soporte('sop-fac', 'factura-FV-1.pdf', '2026-07-05T00:00:00Z')]);
 
     const salida = await soportesDeTramite('t1');
 
-    expect(salida?.map((s) => s.origen).sort()).toEqual(['derecho', 'impuesto', 'logistica', 'soat']);
+    expect(salida?.map((s) => s.origen).sort())
+      .toEqual(['derecho', 'factura_electronica', 'impuesto', 'logistica', 'soat']);
+  });
+
+  it('los documentos de la factura salen por la MISMA lista que los demás, y firmados', async () => {
+    // Es lo que resuelve el permiso del AC6 sin una ruta nueva: las dos rutas que sirven esta lista
+    // ya exigen acceso a Gestión de trámites o al reporte de costos, y la URL es un enlace con
+    // caducidad, no la ruta del almacenamiento.
+    kdb.when.scenario({
+      flito_tramites: [{ soatId: null, impuestoId: null, derechoId: null }],
+      flito_logistica_documentos: [],
+      siigo_factura_tramites: [{ facturaId: 'fac-1' }],
+      flito_soportes: [soporte('sop-xml', 'factura-FV-1.xml', '2026-07-05T00:00:00Z')],
+    });
+
+    const salida = await soportesDeTramite('t1');
+
+    expect(salida).toHaveLength(1);
+    expect(salida?.[0]).toMatchObject({ origen: 'factura_electronica', nombreArchivo: 'factura-FV-1.xml' });
+    expect(salida?.[0].url).toMatch(/^\/api\/files\?key=.*&exp=\d+&sig=[a-f0-9]{64}$/);
   });
 
   it('los ordena del más reciente al más antiguo: lo último cargado es lo que se viene a mirar', async () => {

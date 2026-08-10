@@ -128,6 +128,22 @@ describe('AC2 — el simulador respeta el contrato', () => {
     expect(r.ok).toBe(true);
     expect(r.status).toBe(200);
   });
+
+  // HU #11335 — el archivo del PDF y el XML.
+  it('el PDF y el XML de una factura traen contenido de verdad, no un listado vacío', () => {
+    // Antes de esta HU estas dos rutas caían en el listado genérico de `/v1/invoices` y respondían
+    // `results: []`. Con eso el archivo no se podía ensayar: no había caso feliz que probar.
+    for (const [documento, firma] of [['pdf', '%PDF'], ['xml', '<?xml']] as const) {
+      const d = respuestaSimulada('GET', `/v1/invoices/inv-1/${documento}`).datos as { base64: string };
+      expect(typeof d.base64).toBe('string');
+      expect(Buffer.from(d.base64, 'base64').toString('utf8').startsWith(firma)).toBe(true);
+    }
+  });
+
+  it('el listado de facturas sigue siendo un listado: la ruta del documento no se lo come', () => {
+    const d = respuestaSimulada('GET', '/v1/invoices').datos as Record<string, unknown>;
+    expect(d).toHaveProperty('results');
+  });
 });
 
 describe('AC3 — se pueden ensayar los fallos', () => {
