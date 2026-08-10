@@ -3758,6 +3758,59 @@ export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
 }));
 
 /**
+ * Historial del estado ante la DIAN (HU #11330, Feature #11243).
+ *
+ * **Eje distinto del `estado` de `siigoFacturas`.** Aquel responde «¿consiguió FLITO emitirla?»;
+ * este, «¿qué dice la autoridad tributaria del documento que ya existe?». Metidos en el mismo
+ * campo, una factura `anulada` dejaría de constar como `emitida`, cuando el documento existe ante
+ * la DIAN y existirá siempre. Por eso esta HU **no añade una sola columna a `siigoFacturas`**.
+ *
+ * **Append-only.** El estado vigente es la última fila, no un campo que se sobrescribe: «¿cuándo
+ * pasó a rechazada y por qué?» es la pregunta que se hace cuando algo va mal, y un campo
+ * sobrescrito no la puede responder. Los disparadores de la migración `0137` prohíben el `DELETE` y
+ * limitan el `UPDATE` a que `verificadoEn` avance.
+ *
+ * Se escribe por una sola puerta —`aplicarEstadoDian()`— y nunca directamente.
+ */
+export const siigoFacturaEstadosDian = pgTable('siigo_factura_estados_dian', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull()
+    .references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  /**
+   * Orden total. No sobra teniendo `createdAt`: el `now()` de PostgreSQL es la hora de INICIO DE LA
+   * TRANSACCIÓN, así que dos filas de la misma transacción comparten instante y el desempate por
+   * un uuid aleatorio sería aleatorio también. «La última fila» se decide por aquí, nunca por fecha.
+   */
+  secuencia: bigserial('secuencia', { mode: 'number' }).notNull(),
+  estado: varchar('estado', { length: 20 }).notNull(),
+  /** El CUFE observado. Se repite en cada fila: prueba que se habla del mismo documento. */
+  cufe: varchar('cufe', { length: 200 }),
+  /** Da sentido a `rechazada`. Sin él, el historial dice que algo falló y no dice qué. */
+  motivo: text('motivo'),
+  /** `emision | sondeo | webhook | manual`. Ver `siigo-estado-dian.ts`. */
+  fuente: varchar('fuente', { length: 12 }).notNull(),
+  /** Respuesta cruda YA SANEADA. Nunca contiene la clave con la que se factura. */
+  payload: jsonb('payload'),
+  registradoPor: integer('registrado_por').references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Cuándo se confirmó por última vez que el estado seguía siendo este. **Única columna mutable**,
+   * y solo hacia adelante: confirmar que una factura sigue aceptada no es un hecho nuevo del
+   * documento, es una observación nuestra. Si cada sondeo escribiera una fila, un mes de consultas
+   * cada quince minutos dejaría ~2900 filas idénticas y el historial dejaría de ser legible.
+   */
+  verificadoEn: timestamp('verificado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // UNIQUE y no un índice normal: un `bigserial` se puede sobrescribir o reiniciar, y dos filas de
+  // la misma factura con el mismo número volverían ambigua «la última».
+  secuenciaUq: uniqueIndex('idx_siigo_estado_dian_secuencia').on(t.facturaId, desc(t.secuencia)),
+  facturaFechaIdx: index('idx_siigo_estado_dian_factura_fecha').on(t.facturaId, desc(t.createdAt)),
+  // Parcial: las aceptadas y anuladas son la mayoría de la tabla y no hay nada que volver a preguntar.
+  pendientesIdx: index('idx_siigo_estado_dian_pendientes').on(t.verificadoEn)
+    .where(sql`${t.estado} = 'en_validacion'`),
+}));
+
+/**
  * La corrección de una factura ya emitida, hecha por fuera y registrada aquí (HU #11343).
  *
  * **Tabla nueva con clave foránea, sin una sola columna sobre `siigoFacturas`.** No es estética: la
