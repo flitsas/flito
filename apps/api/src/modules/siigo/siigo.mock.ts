@@ -298,6 +298,19 @@ function filtrarCatalogoSimulado(recurso: string, query: URLSearchParams, elemen
  * `docs/integraciones/siigo-api.md`, de modo que quien las consume no necesita saber en qué modo
  * está corriendo.
  */
+/**
+ * Terceros que el simulador recuerda, por identificador. Se comparte entre llamadas para poder
+ * ensayar consultar → crear → volver a consultar, que es el ciclo del AC7.
+ */
+const tercerosSimulados = new Map<string, Record<string, unknown>>();
+let consecutivoTercero = 0;
+
+/** Vacía la memoria del simulador. Solo para tests: sin esto se filtran entre casos. */
+export function olvidarTercerosSimulados(): void {
+  tercerosSimulados.clear();
+  consecutivoTercero = 0;
+}
+
 export function respuestaSimulada(
   metodo: MetodoHttp, ruta: string, opciones: OpcionesSimulacion = {},
 ): RespuestaSimulada {
@@ -386,23 +399,106 @@ export function respuestaSimulada(
     };
   }
 
-  // Creación de tercero.
-  if (metodo === 'POST' && /^\/v1\/customers\/?$/.test(ruta)) {
+  // Terceros (HU #11297). Antes había aquí una creación que devolvía SIEMPRE el mismo tercero fijo:
+  // servía para comprobar que la petición salía, y no para nada más. Con ella, asegurar dos veces el
+  // mismo cliente «creaba» dos veces sin quejarse, que es justo el error que en producción deja dos
+  // terceros —o un rechazo— y una factura contra el equivocado.
+  //
+  // Ahora el simulador RECUERDA y aplica las reglas de Siigo: la clave es (identificación,
+  // sucursal), repetirla en la misma sucursal se rechaza, y el `PUT` REEMPLAZA en vez de fusionar.
+  // Un simulador más permisivo que el ambiente real es peor que no tenerlo.
+  const unTercero = /^\/v1\/customers\/([^/?]+)\/?$/.exec(ruta);
+
+  if (metodo === 'GET' && /^\/v1\/customers\/?(\?|$)/.test(ruta)) {
+    const q = new URLSearchParams(ruta.includes('?') ? ruta.slice(ruta.indexOf('?') + 1) : '');
+    const identificacion = (q.get('identification') ?? '').trim();
+    const sucursal = Number(q.get('branch_office') ?? 0);
+    const encontrados = [...tercerosSimulados.values()].filter((t) =>
+      String(t.identification ?? '').trim() === identificacion
+      && Number(t.branch_office ?? 0) === sucursal);
     return {
-      status: 201,
+      status: 200,
       ok: true,
       datos: {
-        id: 'mock-customer-1',
-        type: 'Customer',
-        person_type: 'Company',
-        id_type: { code: '31', name: 'NIT' },
-        identification: '900123456',
-        branch_office: 0,
-        name: ['Empresa simulada'],
-        active: true,
-        metadata: { created: '2026-08-04T00:00:00.000Z', last_updated: null },
+        pagination: { page: 1, page_size: 25, total_results: encontrados.length },
+        results: encontrados,
+        _links: {},
       },
     };
+  }
+
+  if (metodo === 'GET' && unTercero) {
+    const t = tercerosSimulados.get(unTercero[1]);
+    return t
+      ? { status: 200, ok: true, datos: t }
+      : { status: 404, ok: false, datos: { Errors: [{ Code: 'not_found', Message: 'Customer not found' }] } };
+  }
+
+  if (metodo === 'POST' && /^\/v1\/customers\/?$/.test(ruta)) {
+    const enviado = (opciones.cuerpo ?? {}) as Record<string, unknown>;
+    const identificacion = String(enviado.identification ?? '').trim();
+    const sucursal = Number(enviado.branch_office ?? 0);
+
+    // Obligatorios según §2 de la documentación. El simulador los EXIGE porque Siigo los exige: si
+    // aceptara una creación sin identificación ni nombre, un código que se olvide de armarlos
+    // pasaría aquí y fallaría en el ambiente real, que es el único sitio donde molesta.
+    if (identificacion === '' || !Array.isArray(enviado.name) || enviado.name.length === 0) {
+      return {
+        status: 400,
+        ok: false,
+        datos: {
+          Errors: [{
+            Code: 'invalid_customer',
+            Message: 'identification and name are required.',
+            Params: ['identification', 'name'],
+          }],
+        },
+      };
+    }
+
+    const yaEsta = [...tercerosSimulados.values()].some((t) =>
+      String(t.identification ?? '').trim() === identificacion
+      && Number(t.branch_office ?? 0) === sucursal);
+    if (yaEsta) {
+      return {
+        status: 400,
+        ok: false,
+        datos: {
+          Errors: [{
+            Code: 'duplicated_identification',
+            Message: 'Identification already exists for this branch office.',
+            Params: ['identification'],
+          }],
+        },
+      };
+    }
+    consecutivoTercero += 1;
+    const creado: Record<string, unknown> = {
+      type: 'Customer',
+      active: true,
+      ...enviado,
+      id: `mock-customer-${consecutivoTercero}`,
+      // Campos que Siigo guarda y FLITO NO modela. Están aquí a propósito: son exactamente los que
+      // un `PUT` construido solo con lo nuestro borraría, y el test lo comprueba.
+      related_users: { seller_id: 629, collector_id: 629 },
+      comments: 'Cliente heredado del maestro de contabilidad.',
+      metadata: { created: '2026-08-04T00:00:00.000Z', last_updated: null },
+    };
+    tercerosSimulados.set(String(creado.id), creado);
+    return { status: 201, ok: true, datos: creado };
+  }
+
+  if (metodo === 'PUT' && unTercero) {
+    const id = unTercero[1];
+    if (!tercerosSimulados.has(id)) {
+      return { status: 404, ok: false, datos: { Errors: [{ Code: 'not_found', Message: 'Customer not found' }] } };
+    }
+    // REEMPLAZA, no fusiona: es el comportamiento documentado y la razón entera de que el servicio
+    // lea antes de escribir. Un simulador que fusionara escondería el borrado.
+    const enviado = (opciones.cuerpo ?? {}) as Record<string, unknown>;
+    const reemplazado = { ...enviado, id };
+    tercerosSimulados.set(id, reemplazado);
+    return { status: 200, ok: true, datos: reemplazado };
   }
 
   // Creación de producto (HU #11286). Antes esta ruta caía en la rama final de éxito vacío y

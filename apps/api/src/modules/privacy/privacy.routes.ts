@@ -13,6 +13,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
+import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
 import { deletePhoto } from '../../services/storage.js';
 import { logger } from '../../shared/logger.js';
@@ -59,6 +60,13 @@ const forgetLimiter = rateLimit({
 // direcciones y se conserva el hecho del envío (cuándo, con qué resultado), porque ese hecho es la
 // prueba de entrega ante una glosa de la DIAN y no es un dato del titular. La tabla es append-only
 // y su disparador solo admite esa transición exacta; ver la migración 0141.
+//
+// Cobertura (HU #11297, 2026-08-10): 16 tablas — se suma `siigo_terceros`, que guarda la
+// identificación del titular EN CLARO porque hace falta para reencontrar su tercero en Siigo. Este
+// flujo anonimiza `clients.document` y NO borra la fila del cliente, así que el `ON DELETE CASCADE`
+// de esa tabla no alcanzaba: sin esto, la cédula sobreviviría a su propia supresión en una tabla que
+// nadie recuerda. Se anonimiza con el MISMO hash que recibe `clients.document`, para que el vínculo
+// siga siendo rastreable como pareja.
 //
 // Cobertura (Ola D 2026-05-06): 14 tablas — clients, vehicles, soat_requests, tramites_digitales,
 // laft_counterparties, laft_beneficial_owners, driver_profile, tramites_validaciones, alcohol_tests,
@@ -354,6 +362,9 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
     stats.siigo_factura_envios = await purgarDestinatariosDeClientes(
       cli.map((c) => c.id), correosDelTitular, tx,
     );
+
+    // 16. siigo_terceros: la identificación del titular, en la tabla del vínculo con Siigo.
+    stats.siigo_terceros = await anonimizarTercerosDeClientes(cli.map((c) => c.id), docHash, tx);
 
     return stats;
   });
