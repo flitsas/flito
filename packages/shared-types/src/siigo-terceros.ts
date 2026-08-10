@@ -158,6 +158,7 @@ export const CLIENTS_COLUMNAS_PII = [
  */
 export const CLIENTS_COLUMNAS_SIN_PII = [
   'id', 'documentType', 'city', 'active', 'createdAt',
+  'cityTextoOrigen', 'cityConfirmadaPor', 'cityConfirmadaEn',
   'soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable',
   'logisticaPermiteParcial', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
   'flitoProveedorSoatId',
