@@ -22,6 +22,12 @@ vi.mock('../../src/db/client.js', () => ({
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 
+/** La orquestación de creación tiene spec propio; aquí solo importa la frontera HTTP. */
+const crearProductoMock = vi.fn();
+vi.mock('../../src/modules/siigo/crear-producto.service.js', () => ({
+  crearProductoDeConcepto: (...args: unknown[]) => crearProductoMock(...args),
+}));
+
 // Igual que en el spec de servicio: aquí se prueba QUIÉN entra, no si el producto existe en Siigo.
 // La validación de la HU #11283 tiene su propio spec de fronteras HTTP.
 vi.mock('../../src/modules/siigo/siigo.productos.service.js', async (original) => {
@@ -458,5 +464,113 @@ describe('POST /revalidar — permisos y freno de cuota', () => {
     const detalle = auditMock.mock.calls.at(-1)![1].detail as string;
     expect(detalle).toContain('revisados=0');
     expect(detalle).toContain('truncado=false');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// HU #11286 — fronteras de la creación de productos en Siigo.
+describe('POST /:id/producto — permisos, validación y auditoría', () => {
+  beforeEach(() => {
+    crearProductoMock.mockReset().mockResolvedValue({
+      desenlace: 'creado',
+      codigo: 'FLIT-LOGISTICA',
+      nombre: 'Servicio de logística',
+      ambiente: 'pruebas',
+      modo: 'mock',
+      mensaje: 'Producto FLIT-LOGISTICA creado en Siigo y vinculado al concepto.',
+    });
+  });
+
+  it('sin token → 401', async () => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .send({ grupoInventarioCodigo: '1253' });
+    expect(r.status).toBe(401);
+  });
+
+  it('admin crea → 201 con el desenlace', async () => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('admin'))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(201);
+    expect(r.body.desenlace).toBe('creado');
+  });
+
+  it('vincular un producto existente responde 200, no 201: no se creó nada', async () => {
+    crearProductoMock.mockResolvedValue({
+      desenlace: 'vinculado_existente', codigo: 'FLIT-LOGISTICA', nombre: 'Ya estaba',
+      ambiente: 'pruebas', modo: 'mock', mensaje: 'ya existía',
+    });
+    const app = await buildApp();
+
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('admin'))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(200);
+    expect(r.body.desenlace).toBe('vinculado_existente');
+  });
+
+  it.each(ROLES_SIN_ESCRITURA)('%s no crea productos → 403', async (role) => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth(role))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(403);
+    expect(crearProductoMock).not.toHaveBeenCalled();
+  });
+
+  it('financiera tampoco: crear un producto en el catálogo es más consecuente que editar', async () => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('financiera'))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(403);
+  });
+
+  it('el grupo de inventario es obligatorio', async () => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('admin'))
+      .send({});
+
+    expect(r.status).toBe(400);
+    expect(crearProductoMock).not.toHaveBeenCalled();
+  });
+
+  it('un código con espacios lo para Zod antes del servicio', async () => {
+    const app = await buildApp();
+    const r = await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('admin'))
+      .send({ codigo: 'CON ESPACIOS', grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(400);
+    expect(crearProductoMock).not.toHaveBeenCalled();
+  });
+
+  it('un id que no es UUID no llega al servicio', async () => {
+    const app = await buildApp();
+    const r = await request(app).post('/api/siigo/mapeo-conceptos/no-es-uuid/producto')
+      .set('Authorization', await auth('admin'))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    expect(r.status).toBe(400);
+    expect(crearProductoMock).not.toHaveBeenCalled();
+  });
+
+  it('la auditoría registra el desenlace, el ambiente y el modo', async () => {
+    const app = await buildApp();
+    await request(app).post(`/api/siigo/mapeo-conceptos/${ID}/producto`)
+      .set('Authorization', await auth('admin'))
+      .send({ grupoInventarioCodigo: '1253' });
+
+    const detalle = auditMock.mock.calls.at(-1)![1].detail as string;
+    expect(detalle).toMatch(/Producto creado en Siigo/);
+    expect(detalle).toContain('ambiente=pruebas');
+    expect(detalle).toContain('modo=mock');
   });
 });

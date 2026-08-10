@@ -77,7 +77,9 @@ export async function siigoRequest<T = unknown>(req: SiigoRequest): Promise<Siig
   // El orden importa: validar la idempotencia arriba y cortar aquí hace que el simulador ejerza las
   // mismas reglas de uso que el modo real, en vez de ser un atajo que las esquiva.
   if (enModoMock()) {
-    const simulada = respuestaSimulada(req.metodo, req.ruta);
+    // El cuerpo viaja al simulador: la creación de productos responde con el `code` y el `name`
+    // que recibió, que es lo que permite ensayar la vinculación de extremo a extremo (HU #11286).
+    const simulada = respuestaSimulada(req.metodo, req.ruta, { cuerpo: req.cuerpo, ambiente });
     return { status: simulada.status, ok: simulada.ok, datos: simulada.datos as T };
   }
 
