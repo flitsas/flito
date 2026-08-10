@@ -77,3 +77,5 @@ export * from './siigo-terceros.js';
 export * from './siigo-validador-cliente.js';
 // Estados de la factura electrónica y estrategias de agrupación (Feature #11242).
 export * from './siigo-factura.js';
+// Corrección de una factura ya emitida: qué admite cada estado y qué se registró (Feature #11244).
+export * from './siigo-correccion.js';

@@ -25,6 +25,8 @@ import {
   registrarConsumoTransito, reversarConsumoTransito,
 } from '../flito-bolsas/flito-bolsas-transito.service.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
+// AC5 de la HU #11343: qué se puede hacer con la factura de un trámite que alguien intenta reversar.
+import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -542,7 +544,18 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
     .where(eq(flitoLiquidaciones.tramiteId, tramiteId)).limit(1);
   if (!l) throw new LiquidacionError('El trámite no está liquidado');
   if (l.estado === ESTADO_LIQUIDACION.FACTURADO) {
-    throw new LiquidacionError('El trámite ya está facturado: su liquidación no puede reversarse');
+    // HU #11343, AC5 — **la prohibición no cambia**: una factura electrónica aceptada por la DIAN no
+    // se deshace reversando una fila de FLITO. Lo que cambia es que el mensaje deja de ser un
+    // callejón sin salida. Antes decía «no puede reversarse» y ahí se acababa, y quien lo leía se iba
+    // a preguntar por WhatsApp — donde la respuesta no queda registrada en ningún sitio.
+    //
+    // `viaDeCorreccionDeTramite` no lanza: si la consulta falla o el trámite se facturó por otro
+    // medio, devuelve null y el mensaje se queda como estaba. Convertir un rechazo de negocio
+    // explicado en un 500 sería peor que no dar la vía.
+    const via = await viaDeCorreccionDeTramite(tramiteId);
+    throw new LiquidacionError(via
+      ? `El trámite ya está facturado: su liquidación no puede reversarse. ${via}`
+      : 'El trámite ya está facturado: su liquidación no puede reversarse');
   }
 
   await db.transaction(async (tx) => {
