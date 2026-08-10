@@ -161,6 +161,9 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
       // HU #10967: el reporte consolida datos que el auditor ya ve uno a uno.
       'finanzas_reporte_costos',
+      // HU #11287: ver la parametrización que respalda una factura emitida es parte de auditar.
+      // El backend le concede lectura en las tres rutas de Siigo; la pantalla no le deja escribir.
+      'siigo_parametrizacion',
     ].sort());
   });
 
