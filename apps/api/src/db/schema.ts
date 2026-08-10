@@ -3756,3 +3756,35 @@ export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
   // tiene que poder volver a facturarlo.
   vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo').on(t.tramiteId).where(sql`${t.activo}`),
 }));
+
+/**
+ * La corrección de una factura ya emitida, hecha por fuera y registrada aquí (HU #11343).
+ *
+ * **Tabla nueva con clave foránea, sin una sola columna sobre `siigoFacturas`.** No es estética: la
+ * Feature #11242 tiene que poder seguir evolucionando su fila sin arrastrar a nadie, y una factura
+ * corregida **sigue existiendo ante la DIAN** — el documento no desaparece de la historia porque
+ * alguien lo haya anulado después.
+ *
+ * **Append-only por disparador**, como `siigoOperaciones`. Lo que afirma que una factura se corrigió
+ * no puede reescribirse; si se pudiera, no probaría nada. Este módulo no expone actualización ni
+ * borrado, y no por olvido: la base los prohíbe.
+ *
+ * `tipo` **no incluye `nota_credito`**, y esa ausencia es la decisión: no se sabe si corregir una
+ * factura emitida es una nota crédito (pregunta 8, abierta). Ver la migración `0140`.
+ */
+export const siigoFacturaCorrecciones = pgTable('siigo_factura_correcciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id),
+  tipo: varchar('tipo', { length: 20 }).notNull(),
+  /** Solo 'manual'. El ejecutor que actúa contra Siigo es la HU #11344, bloqueada. */
+  ejecutor: varchar('ejecutor', { length: 20 }).notNull().default('manual'),
+  /** Sin identificador no se puede verificar en Siigo, y una corrección no verificable es un rumor. */
+  documentoSiigo: varchar('documento_siigo', { length: 100 }).notNull(),
+  motivo: text('motivo').notNull(),
+  /** Cuándo se hizo EN SIIGO. `createdAt` es cuándo se anotó en FLITO. */
+  fechaCorreccion: date('fecha_correccion').notNull(),
+  registradoPor: integer('registrado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_correcciones_factura').on(t.facturaId, desc(t.createdAt)),
+}));
