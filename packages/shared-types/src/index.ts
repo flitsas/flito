@@ -81,6 +81,8 @@ export * from './siigo-factura.js';
 export * from './siigo-freno.js';
 // Estado ante la DIAN y de dónde salió el dato. Eje APARTE del estado de emisión (Feature #11243).
 export * from './siigo-estado-dian.js';
+// Quién puede cada acción de facturación electrónica. Lo leen el servidor Y la pantalla (#11342).
+export * from './siigo-permisos.js';
 // Corrección de una factura ya emitida: qué admite cada estado y qué se registró (Feature #11244).
 export * from './siigo-correccion.js';
 // Entrega de la factura por correo y reenvío: el correo lo manda Siigo, FLITO lo registra (#11243).

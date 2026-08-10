@@ -61,8 +61,44 @@ async function mockFacetas(page: import('@playwright/test').Page, estados: strin
     }) }));
 }
 
+/**
+ * Facturación electrónica (HU #11337). Se mockea SIEMPRE, aunque el test no la mire: la pantalla la
+ * consulta al abrirse, y dejarla sin ruta haría que todos los casos anteriores pintaran el estado de
+ * error de los contadores. Un mock que solo cubre lo que el test afirma deja el resto en un estado
+ * que nadie eligió.
+ */
+const RESUMEN_FE = {
+  no_enviado: 3, en_proceso: 1, emitido: 0, aceptado: 1, rechazado: 1, anulado: 0, fallido: 0, total: 6,
+};
+
+const FICHA_ACEPTADA = {
+  tramiteId: FILA_FACTURADA.tramiteId, facturaId: 'f-aceptada', numero: 'FV-1-100',
+  estadoEmision: 'emitida', estado: 'aceptado', estadoDian: 'aceptada', motivo: null,
+  motivoPendiente: false, verificadoEn: '2026-08-10T10:00:00.000Z', cufe: 'cufe-100',
+  documentos: { pdf: true, xml: true }, correo: { veces: 1, ultimoEnviadoEn: '2026-08-09T10:00:00.000Z' },
+};
+
+const FICHA_RECHAZADA = {
+  ...FICHA_ACEPTADA, tramiteId: FILA_LIQUIDADA.tramiteId, facturaId: 'f-rechazada',
+  estado: 'rechazado', estadoDian: 'rechazada',
+  motivo: 'La resolución DIAN no es válida o está vencida. Revísala en Siigo Nube.',
+  documentos: { pdf: false, xml: false },
+};
+
+async function mockFacturacion(
+  page: import('@playwright/test').Page,
+  fichas = [FICHA_ACEPTADA, FICHA_RECHAZADA],
+  resumen: unknown = RESUMEN_FE,
+) {
+  await page.route(/\/api\/finanzas\/reporte-costos\/facturacion-electronica/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resumen) }));
+  await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: fichas }) }));
+}
+
 async function mock(page: import('@playwright/test').Page) {
   await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page);
   await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
 }
@@ -445,5 +481,137 @@ test.describe('Finanzas — Reporte de costos', () => {
     await expect(tabla.getByRole('button', { name: 'Liquidar' })).toHaveCount(0);
     await expect(tabla.getByRole('button', { name: 'Facturar' })).toHaveCount(0);
     await expect(tabla.getByRole('button', { name: 'Reversar' })).toHaveCount(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11337 — facturación electrónica dentro del reporte de costos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Reporte de costos — facturación electrónica', () => {
+  test('los contadores se ven y dicen cuántos hay en cada punto', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // El total se muestra para poder comprobar que los grupos cuadran. Un tablero cuyos grupos no
+    // suman el total no se nota mirando los grupos: se nota tres semanas después, conciliando.
+    await expect(page.getByText('6 trámite(s) en el filtro actual')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Rechazada por la DIAN/ })).toBeVisible();
+  });
+
+  test('un rechazo se explica en la fila, sin abrir nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // El motivo va en el `title` de la celda: en una tabla de doscientas filas, obligar a abrir un
+    // modal por fila para saber por qué falló es hacer doscientos clics para leer un informe.
+    const celda = page.getByTitle(/resolución DIAN no es válida/);
+    await expect(celda).toBeVisible();
+  });
+
+  test('la ficha explica el rechazo y NO ofrece una consulta que se queda esperando', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-rechazada', veces: 0, vecesEnviado: 0, ultimo: null, ultimoEnviado: null, envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByTitle(/resolución DIAN no es válida/).click();
+
+    await expect(page.getByText('Motivo del rechazo')).toBeVisible();
+    await expect(page.getByText(/resolución DIAN no es válida/)).toBeVisible();
+    // AC3 — la DIAN no responde al instante, así que no hay botón que prometa una consulta en vivo.
+    await expect(page.getByRole('button', { name: /Consultar estado/i })).toHaveCount(0);
+    await expect(page.getByText(/Última verificación ante la DIAN/)).toBeVisible();
+  });
+
+  test('auditor ve el estado pero no puede reenviar el correo', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await mock(page);
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-aceptada', veces: 1, vecesEnviado: 1,
+        ultimo: { id: 'e1', origen: 'reenvio', resultado: 'enviado', destinatarios: [{ correo: 'pagos@acme.test', origen: 'compania' }], motivo: null, codigo: null, creadoEn: '2026-08-09T10:00:00.000Z' },
+        ultimoEnviado: { id: 'e1', origen: 'reenvio', resultado: 'enviado', destinatarios: [], motivo: null, codigo: null, creadoEn: '2026-08-09T10:00:00.000Z' },
+        envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: /Aceptada por la DIAN — ver detalle/ }).first().click();
+
+    // Auditar es mirar. Ve el estado y la entrega; no ve la acción que modifica.
+    await expect(page.getByText('Entrega al cliente')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reenviar correo' })).toHaveCount(0);
+  });
+
+  test('antes de reenviar se ve a qué dirección va', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-aceptada', veces: 1, vecesEnviado: 1,
+        ultimo: { id: 'e1', origen: 'reenvio', resultado: 'enviado', destinatarios: [{ correo: 'pagos@acme.test', origen: 'compania' }], motivo: null, codigo: null, creadoEn: '2026-08-09T10:00:00.000Z' },
+        ultimoEnviado: { id: 'e1', origen: 'reenvio', resultado: 'enviado', destinatarios: [], motivo: null, codigo: null, creadoEn: '2026-08-09T10:00:00.000Z' },
+        envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: /Aceptada por la DIAN — ver detalle/ }).first().click();
+
+    // AC5 — se ve el destinatario ANTES de confirmar. Reenviar una factura a una dirección que no
+    // se ha visto es mandar un documento fiscal a ciegas.
+    await expect(page.getByText(/pagos@acme.test/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reenviar correo' })).toBeEnabled();
+  });
+
+  test('los documentos que aún no están archivados se dicen, no se ofrecen', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-rechazada', veces: 0, vecesEnviado: 0, ultimo: null, ultimoEnviado: null, envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByTitle(/resolución DIAN no es válida/).click();
+
+    // AC6 — ofrecer una descarga que va a fallar es peor que decir que todavía no está.
+    await expect(page.getByText(/se archivan cuando la DIAN acepta/)).toBeVisible();
+  });
+
+  test('si los contadores fallan, se dice y se puede reintentar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await page.route(/\/api\/finanzas\/reporte-costos\/facturacion-electronica/, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Base no disponible' }) }));
+    await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    // AC2 — el error va ANTES que el vacío: si la carga falló, no se sabe si hay datos, y decir
+    // «no hay ninguna factura todavía» sería afirmar algo que nadie ha comprobado.
+    await expect(page.getByText(/No se pudo consultar el estado de la facturación/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
+    // Y el reporte sigue en pie: un fallo de facturación no puede tumbar la conciliación de costos.
+    await expect(page.getByText('FLIT-2001')).toBeVisible();
+  });
+
+  test('sin ningún trámite enviado a facturación, se explica cuál es el primer paso', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page, [], {
+      no_enviado: 0, en_proceso: 0, emitido: 0, aceptado: 0, rechazado: 0, anulado: 0, fallido: 0, total: 0,
+    });
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(page.getByText(/El primer paso es liquidarlos/)).toBeVisible();
   });
 });
