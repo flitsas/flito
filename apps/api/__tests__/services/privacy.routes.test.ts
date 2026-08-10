@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { CLIENTS_COLUMNAS_PII, CLIENTS_COLUMNAS_SIN_PII } from '@operaciones/shared-types';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 
@@ -253,6 +254,63 @@ describe('POST /forget — flujo principal', () => {
     expect(auditEntry.detail).toMatch(/Ley 1581/);
     expect(auditEntry.detail).toMatch(/afectados:/);
     expect(auditEntry.detail).toMatch(/s3_deleted:/);
+  });
+
+  // HU #11292 — los datos fiscales de Siigo añadieron columnas de PII a `clients`.
+  //
+  // Un borrado que deja el correo y el teléfono del contacto en columnas nuevas mientras anonimiza
+  // el resto de la ficha no es un borrado: es un borrado aparente, que es justo lo que la Ley 1581
+  // castiga. Esta prueba existe para que la próxima columna de PII que alguien añada a `clients` no
+  // se cuele sin pasar por aquí.
+  it('el derecho al olvido también limpia el contacto fiscal de Siigo', async () => {
+    let anonimizacionClients: Record<string, unknown> | undefined;
+    selectMock.mockImplementation(() => chain([]));
+    transactionMock.mockImplementationOnce(async (cb: any) => {
+      let primeraTabla = true;
+      const tx = {
+        select: vi.fn(() => chain([{ id: 1 }])),
+        execute: vi.fn().mockResolvedValue([{ id: 1 }]),
+        update: vi.fn(() => ({
+          set: (payload: Record<string, unknown>) => {
+            // `clients` es la primera tabla que anonimiza el handler.
+            if (primeraTabla) { anonimizacionClients = payload; primeraTabla = false; }
+            return { where: () => ({ returning: () => Promise.resolve([{ id: 1 }]) }) };
+          },
+        })),
+      };
+      return cb(tx);
+    });
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '900123456', reason: 'titular ejerce derecho al olvido' });
+    expect(r.status).toBe(200);
+
+    // Cada columna declarada como PII tiene que aparecer en el borrado. `name` y `document` no van
+    // a null —se sustituyen por el marcador y por el hash— así que basta con que estén.
+    for (const campo of CLIENTS_COLUMNAS_PII) {
+      expect(Object.keys(anonimizacionClients ?? {})).toContain(campo);
+    }
+    // Los códigos fiscales NO se tocan: no identifican a nadie y borrarlos rompería la
+    // trazabilidad contable de las facturas ya emitidas.
+    for (const campo of ['personType', 'idType', 'branchOffice', 'fiscalResponsibilities']) {
+      expect(anonimizacionClients).not.toHaveProperty(campo);
+    }
+  });
+
+  // El canario de verdad: que las dos listas cubran la tabla ENTERA.
+  //
+  // Sin esto, la prueba de arriba solo verifica las columnas que alguien se acordó de listar, y una
+  // columna de PII añadida mañana pasaría en verde sin borrarse nunca. Contrastarlas contra el
+  // esquema real obliga a clasificar cada columna nueva: o es dato personal y se borra, o se
+  // declara que no lo es. Por omisión no se puede quedar.
+  it('toda columna de clients está clasificada como PII o como no-PII', async () => {
+    const { getTableColumns } = await import('drizzle-orm');
+    const { clients } = await import('../../src/db/schema.js');
+    const clasificadas = new Set<string>([...CLIENTS_COLUMNAS_PII, ...CLIENTS_COLUMNAS_SIN_PII]);
+    const sinClasificar = Object.keys(getTableColumns(clients)).filter((col) => !clasificadas.has(col));
+    expect(sinClasificar).toEqual([]);
   });
 
   it('docHash es determinístico (mismo doc → mismo hash)', async () => {

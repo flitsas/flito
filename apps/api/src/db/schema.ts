@@ -97,9 +97,33 @@ export const clients = pgTable('clients', {
   flitoCarpetaStorage: varchar('flito_carpeta_storage', { length: 300 }),
   // Tolerancia (en pesos) entre valor liquidado y pagado antes de marcar para revisión.
   flitoToleranciaValorImpuesto: numeric('flito_tolerancia_valor_impuesto', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Siigo (Feature #11241, HU #11292): lo que exige para crear el tercero. Nada de esto es
+  // obligatorio para crear un cliente en FLITO; su ausencia solo impide facturarlo.
+  // `documentType` sigue siendo texto libre a propósito: cerrarlo rompería filas existentes.
+  personType: varchar('person_type', { length: 10 }),
+  idType: varchar('id_type', { length: 10 }),
+  checkDigit: smallint('check_digit'),
+  fiscalResponsibilities: text('fiscal_responsibilities').array().notNull().default(sql`'{}'::text[]`),
+  countryCode: varchar('country_code', { length: 2 }),
+  stateCode: varchar('state_code', { length: 5 }),
+  cityCode: varchar('city_code', { length: 10 }),
+  commercialName: varchar('commercial_name', { length: 200 }),
+  // La clave real del tercero en Siigo es (identificación, sucursal), no la identificación sola.
+  branchOffice: integer('branch_office').notNull().default(0),
+  contactFirstName: varchar('contact_first_name', { length: 100 }),
+  contactLastName: varchar('contact_last_name', { length: 100 }),
+  contactEmail: varchar('contact_email', { length: 150 }),
+  phoneIndicative: varchar('phone_indicative', { length: 10 }),
+  phoneNumber: varchar('phone_number', { length: 10 }),
+  // Para poder auditar la derivación masiva de la 0132 y no pisar lo que clasificó una persona.
+  personTypeOrigen: varchar('person_type_origen', { length: 20 }).notNull().default('sin_derivar'),
+  // Lo que la migración encontró y bloquea facturar. Vacío NO significa facturable: el veredicto
+  // completo lo calcula el informe de la HU #11296, que mira además dirección, contacto y ciudad.
+  facturacionBloqueos: text('facturacion_bloqueos').array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentIdx: index('idx_clients_document').on(t.document),
+  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice),
 }));
 
 export const vehicles = pgTable('vehicles', {

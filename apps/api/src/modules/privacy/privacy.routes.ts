@@ -144,6 +144,18 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       address: ANON_ADDRESS,
       document: docHash,
       notes: null,
+      // Datos fiscales de Siigo (HU #11292): el nombre comercial y el contacto son datos
+      // personales igual que los de arriba. Olvidarlos aquí dejaría el correo y el teléfono de
+      // una persona en columnas nuevas mientras el resto de su ficha queda anonimizada — el
+      // borrado sería aparente, y esa es exactamente la falla que la Ley 1581 castiga.
+      // Los códigos fiscales (`personType`, `idType`, ciudad, sucursal) NO se tocan: no
+      // identifican a nadie por sí solos y borrarlos rompería la trazabilidad contable.
+      commercialName: null,
+      contactFirstName: null,
+      contactLastName: null,
+      contactEmail: null,
+      phoneIndicative: null,
+      phoneNumber: null,
     }).where(matchByDoc(clients.document)).returning({ id: clients.id });
     stats.clients = cli.length;
 
