@@ -96,6 +96,10 @@ const envSchema = z.object({
   //     penaliza.
   //   · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
   //     el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
+  // Cuántas facturas mira cada ciclo del sondeo del estado DIAN (HU #11332, AC2). El número
+  // correcto depende del volumen de cada instalación: la cuota de 100/min es de la EMPRESA y la
+  // comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
+  SIIGO_DIAN_SONDEO_LOTE: z.coerce.number().int().min(1).max(200).optional(),
   SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
   SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
   // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa

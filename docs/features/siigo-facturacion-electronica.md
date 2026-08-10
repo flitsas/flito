@@ -254,6 +254,24 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
 - Panel de estado: emitidas, aceptadas por DIAN, rechazadas con su motivo, pendientes de envío.
 - Reenvío manual de correo y reintento manual de las rechazadas, desde el reporte.
 
+**Entregado por la HU #11332 (sin migración).** El sondeo del estado ante la DIAN corre como ciclo
+periódico cada cinco minutos, con cerrojo compartido para que dos instancias no consulten lo mismo.
+Tres notas:
+
+- **La cuota se comparte a propósito.** El sondeo usa la MISMA clave de limitador que la emisión,
+  porque el límite de 100/min es de la *empresa*, no del endpoint. Una clave propia no crearía cuota
+  nueva: crearía la ilusión de tenerla, y el que se quedaría sin turnos sería el que factura. El
+  freno real es el presupuesto por ciclo (`SIIGO_DIAN_SONDEO_LOTE`, 20 por defecto). El
+  cortacircuitos sí es propio.
+- **La edad hace de contador de intentos.** Con un ciclo periódico, los intentos son proporcionales
+  a la antigüedad, así que la cadencia se deriva de la edad de la factura y no de un contador
+  persistido — que habría que actualizar en cada intento, incluidos los fallidos, y que al olvidarse
+  de subir convertiría el sondeo en un bucle.
+- **`stamp.status` no está documentado.** La traducción a estado DIAN vive en un mapa deliberadamente
+  corto, y **un valor desconocido no se convierte en un estado**: deja el estado como estaba y queda
+  en la bitácora. Adivinar marcaría como rechazada una factura aceptada, y esa mentira se propaga a
+  un reporte que alguien usa para decidir. Un estado que no avanza se nota; uno que avanza mal, no.
+
 **Entregado por la HU #11334 (migración 0141).** El envío y el reenvío quedan en un acta propia,
 `siigo_factura_envios`, con clave foránea a la factura y **sin ninguna columna nueva sobre ella**:
 «¿se envió?» es consecuencia de que existan filas, no un estado que alguien deba mantener. Tres

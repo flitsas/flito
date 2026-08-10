@@ -493,6 +493,38 @@ export function respuestaSimulada(
     }
   }
 
+  // Estado de UNA factura (HU #11332). Va ANTES del listado genérico, que si no se traga esta ruta
+  // y responde `results: []` — una respuesta sin `stamp` con la que el sondeo no se puede ensayar.
+  //
+  // El identificador decide el estado, para poder ensayar los cuatro caminos sin tocar la base:
+  // `...-rechazada` rechaza, `...-validacion` sigue en curso, `...-raro` devuelve un `status` que
+  // FLITO no sabe traducir —el caso que NO debe convertirse en un estado adivinado— y cualquier
+  // otro acepta. Un simulador que solo supiera decir «aceptada» dejaría sin ensayar justo lo que
+  // duele.
+  const unaFactura = /^\/v1\/invoices\/([^/]+)\/?$/.exec(ruta);
+  if (metodo === 'GET' && unaFactura) {
+    const id = unaFactura[1];
+    const estado = id.endsWith('-rechazada') ? 'Rejected'
+      : id.endsWith('-validacion') ? 'Audit'
+      : id.endsWith('-raro') ? 'UnEstadoQueNadieDocumento'
+      : 'Accepted';
+    return {
+      status: 200,
+      ok: true,
+      datos: {
+        id,
+        name: `FV-1-${id.slice(-4)}`,
+        date: '2026-08-04',
+        // El CUFE solo existe cuando la DIAN aceptó. Devolverlo siempre haría que el sondeo
+        // pareciera correcto aunque leyera el campo equivocado.
+        cufe: estado === 'Accepted' ? `cufe-${id}` : null,
+        stamp: { send: true, status: estado },
+        mail: { send: false },
+        public_url: `https://documentview.siigo.com/document?data=${id}`,
+      },
+    };
+  }
+
   // Listados: forma paginada documentada.
   if (metodo === 'GET' && /^\/v1\/(invoices|customers|products)/.test(ruta)) {
     return {
