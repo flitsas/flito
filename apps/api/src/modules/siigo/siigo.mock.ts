@@ -493,6 +493,39 @@ export function respuestaSimulada(
     }
   }
 
+  // Detalle del rechazo (HU #11333). Va ANTES de la consulta de la factura, que si no se traga esta
+  // ruta por ser un prefijo suyo.
+  //
+  // `...-multi` devuelve VARIOS errores porque el caso de uno solo no ensaya el AC3: un rechazo con
+  // tres causas y una sola mostrada hace que se corrija una, se reintente, y vuelva a rechazarse por
+  // la segunda. `...-sindetalle` devuelve la lista vacía, que es «rechazó y no dice por qué» —
+  // distinto de un fallo de consulta y hay que poder distinguirlos.
+  const detalleRechazo = /^\/v1\/invoices\/([^/]+)\/stamp\/errors\/?$/.exec(ruta);
+  if (metodo === 'GET' && detalleRechazo) {
+    const id = detalleRechazo[1];
+    if (id.endsWith('-sindetalle')) return { status: 200, ok: true, datos: { results: [] } };
+    if (id.endsWith('-multi')) {
+      return {
+        status: 200,
+        ok: true,
+        datos: {
+          results: [
+            { Code: 'invalid_dian_resolution', Message: 'Invalid DIAN resolution', Params: [] },
+            { Code: 'invalid_identification', Message: 'Invalid identification', Params: ['customer.identification'] },
+            { Code: 'un_codigo_que_no_esta_en_el_catalogo', Message: 'Unmapped', Params: [] },
+          ],
+        },
+      };
+    }
+    return {
+      status: 200,
+      ok: true,
+      datos: {
+        results: [{ Code: 'invalid_dian_resolution', Message: 'Invalid DIAN resolution', Params: [] }],
+      },
+    };
+  }
+
   // Estado de UNA factura (HU #11332). Va ANTES del listado genérico, que si no se traga esta ruta
   // y responde `results: []` — una respuesta sin `stamp` con la que el sondeo no se puede ensayar.
   //

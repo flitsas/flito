@@ -143,3 +143,21 @@ export function traducirEstadoStamp(status: unknown): SiigoEstadoDian | null {
   const candidato: unknown = SIIGO_STAMP_STATUS_A_ESTADO_DIAN[status.trim().toLowerCase()];
   return esEstadoDian(candidato) ? candidato : null;
 }
+
+/**
+ * Marcador de «rechazada, pero todavía no sabemos por qué» (HU #11333, AC5).
+ *
+ * Hace falta porque `motivo === null` ya significa algo distinto: que nadie ha preguntado. Sin este
+ * valor, una factura cuyo detalle de errores no se pudo obtener sería indistinguible de un rechazo
+ * sin causa registrada, y quien opera no sabría si esperar o si ir a mirar a Siigo Nube.
+ *
+ * Es un texto y no un booleano porque vive en la columna `motivo` del historial, que es append-only:
+ * añadir una columna para esto obligaría a una migración sobre una tabla inmutable para expresar un
+ * estado transitorio.
+ */
+export const SIIGO_MOTIVO_RECHAZO_PENDIENTE = 'Motivo pendiente de consultar en Siigo.';
+
+/** ¿El motivo es el marcador de pendiente y no una explicación de verdad? */
+export function esMotivoPendiente(motivo: string | null | undefined): boolean {
+  return typeof motivo === 'string' && motivo.trim() === SIIGO_MOTIVO_RECHAZO_PENDIENTE;
+}

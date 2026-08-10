@@ -76,6 +76,16 @@ export const OPERACION_REACTIVACION = 'freno_reactivado';
 export const OPERACION_SONDEO_DIAN = 'dian_sondeo_estado';
 
 /**
+ * Resolver el motivo de un rechazo (HU #11333). Nombre propio y no el del sondeo de estado.
+ *
+ * Son dos endpoints distintos que pueden caerse por separado, y el nombre de la operación es además
+ * el ancla de cadencia de cada barrido: compartirlo haría que un fallo consultando el detalle de un
+ * rechazo retrasara el sondeo del ESTADO de esa factura, mezclando la salud de dos cosas distintas
+ * en la misma métrica. Se excluye del freno por la misma razón que el sondeo: es seguimiento.
+ */
+export const OPERACION_MOTIVO_RECHAZO = 'dian_motivo_rechazo';
+
+/**
  * Operaciones que no se miden.
  *
  * Las dos primeras son internas y nunca salieron a la red: excluirlas es lo que impide que el freno
@@ -84,7 +94,9 @@ export const OPERACION_SONDEO_DIAN = 'dian_sondeo_estado';
  * `ok`, que diluiría la proporción justo después de levantarla, cuando más falta hace medir limpio.
  * La tercera se excluye por la razón de arriba: es seguimiento, no emisión.
  */
-const OPERACIONES_INTERNAS = [OPERACION_FRENO, OPERACION_REACTIVACION, OPERACION_SONDEO_DIAN] as const;
+const OPERACIONES_INTERNAS = [
+  OPERACION_FRENO, OPERACION_REACTIVACION, OPERACION_SONDEO_DIAN, OPERACION_MOTIVO_RECHAZO,
+] as const;
 
 /**
  * Resultados que sí hablan de la salud del servicio.
