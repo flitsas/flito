@@ -1,6 +1,6 @@
 ---
 name: flit-modo-desarrollo-auto
-description: Modo de desarrollo auto — ciclo completo y repetible por cada HU de un Feature en el proyecto FLIT - FLITO. Activa la HU en Azure, desarrolla en rama nueva desde develop, corre tests y pipelines, y cierra con commit + push + PR; luego repite con la siguiente HU hasta terminar el Feature. Triggers "modo de desarrollo auto", "modo auto", "implementa el feature completo", "sigue con la siguiente historia", flit-modo-desarrollo-auto.
+description: Modo de desarrollo auto — ciclo completo y repetible por cada HU de un Feature en el proyecto FLIT - FLITO. Por defecto usa cadena apilada (no espera el merge entre HUs). Activa Feature/HU en Azure, desarrolla, corre tests y cierra con PR; luego sigue con la siguiente HU. Triggers "modo de desarrollo auto", "modo auto", "implementa el feature completo", "feature completo sin interrupción", "sigue con la siguiente historia", flit-modo-desarrollo-auto.
 ---
 
 # Modo de desarrollo auto
@@ -18,36 +18,96 @@ Esta skill **orquesta**; no duplica la lógica de las otras:
 El Feature padre (ej. `#10938`) o una lista de HU. Si solo dan el Feature, obtener sus hijas por
 WIQL y ordenarlas por dependencias (las declaradas en *Dependencies* dentro de Acceptance Criteria).
 
+## Modo continuo (cadena apilada) — defecto del Feature completo
+
+Cuando la entrada es un **Feature** (o la petición es "feature completo", "sin interrupción",
+"modo auto"), **no se pausa entre HUs esperando el merge**. Tras abrir el PR y CI en verde, el
+agente **mergea a `develop`** (regla de `AGENTS.md`) y rebasea la pila antes de seguir.
+
+**Autorización (nivel B):** al arrancar el Feature, pedir **una vez** autorización explícita del
+humano para mergear a `develop` durante ese Feature (p. ej. "puedes mergear a develop este
+Feature"). Sin esa autorización, los PRs quedan abiertos y se sigue en cadena apilada sin merge
+(comportamiento anterior). Un "sí" por PR también basta, pero no es el defecto.
+
+```
+HU1 → rama desde develop              → PR #1 → CI verde → merge a develop (agente)
+HU2 → rama desde rama-HU1             → (tras merge #1) rebase sobre develop → PR #2 → merge
+HU3 → rama desde rama-HU2             → idem
+…sin pausar el desarrollo…
+```
+
+**Qué no cambia:** una rama por HU; gates por HU (tests, `flit-code-review`, `security-agent` si
+aplica); HU a `Resolved`; merge a `staging`/`release` siempre humano (`flit-release`).
+
+**Cuándo sí se pausa** (única excepción al continuo): CI rojo de la HU actual, veredicto
+`BLOQUEADO`/`FAIL` en el paso 4b, cambios pedidos en revisión de un PR de la pila, AC ambiguo o
+decisión de negocio pendiente. En esos casos se para **esa** HU (o la pila afectada), se deja
+comentario en Discussion y se informa al humano — no se sigue construyendo encima de rojo.
+
+**Modo secuencial (opt-in):** solo si el humano pide explícitamente "una HU a la vez", "espera el
+merge" o "secuencial". Entonces cada HU nace de `develop` actualizado; con autorización del
+Feature, el agente mergea tras CI verde antes de arrancar la siguiente.
+
 ## El ciclo (por cada HU, en orden de dependencias)
 
 ### 1. Activar en Azure
 
-- `System.State` → **`Active`** vía `wit_update_work_item`.
+- **Feature padre primero** (regla de `AGENTS.md`): si el Feature padre está `New`, pasarlo a **`Active`** con comentario de inicio en su Discussion (mecánica del paso 1 de `flit-gestion-hu`). Si ya está `Active`, no rehacer.
+- `System.State` de la HU → **`Active`** vía `wit_update_work_item`.
 - Comentario de inicio en Discussion (plantilla de `flit-gestion-hu`).
 - Si la HU ya está `Active` o `Resolved`, **no** rehacer: continuar donde quedó.
 
-### 2. Rama nueva desde develop
+### 2. Rama nueva (cadena apilada por defecto)
 
-**Siempre** una rama por HU, **siempre** basada en `develop` actualizado:
+**Siempre** una rama por HU. Convención de nombre: `feat/flito-*` (lo exige la precondición 2 de
+`flit-integration-ado`).
+
+**Primera HU del Feature** (o modo secuencial):
 
 ```bash
 git checkout develop && git pull --ff-only origin develop
 git checkout -b feat/flito-hu<ID>-<slug-corto>
 ```
 
-Convención de nombre: `feat/flito-*` (lo exige la precondición 2 de `flit-integration-ado`).
+**HUs siguientes en modo continuo** (defecto): ramificar desde la rama de la HU previa, no desde
+`develop`:
 
-**Si la HU necesita código de otra HU cuyo PR aún no está en `develop`:**
+```bash
+git checkout feat/flito-hu<ANTERIOR>-<slug>
+git pull --ff-only origin feat/flito-hu<ANTERIOR>-<slug>   # si ya está en remoto
+git checkout -b feat/flito-hu<ID>-<slug-corto>
+```
 
 | Situación | Estrategia |
 |---|---|
-| La HU previa ya tiene PR abierto sin merge | `git cherry-pick <sha>...<sha>` de los commits necesarios, o `git rebase --onto` |
-| Se necesita la rama previa completa | Ramificar de ella: `git checkout -b feat/flito-hu<ID>-... feat/flito-hu<ANTERIOR>-...` y dejarlo dicho en el PR |
-| Solo hacen falta tipos/esquema | Cherry-pick únicamente esos commits |
+| Cadena apilada (defecto del Feature) | Ramificar de la rama previa; declarar dependencia en el PR |
+| Solo hacen falta tipos/esquema de la previa | Cherry-pick únicamente esos commits sobre `develop` |
+| Modo secuencial (opt-in del humano) | Esperar merge de la previa; ramificar de `develop` actualizado |
 
-Dejar **constancia en el cuerpo del PR** de qué se trajo y de dónde, para que quien revise entienda
-por qué el diff incluye cambios ajenos a la HU. Tras el merge de la HU previa, rebasar sobre
-`develop` para que los commits duplicados desaparezcan.
+**Cuerpo del PR (obligatorio en cadena):** declarar el eslabón y la dependencia, p. ej.:
+
+```
+Cadena del Feature #<FID> — eslabón N de M.
+Depende de PR #<previo> (HU #<id-previa>). Mergear en orden.
+Tras el merge de #<previo>, esta rama se rebaseará sobre develop.
+```
+
+### 2b. Merge a `develop` (tras CI verde, si hay autorización)
+
+Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por este PR):
+
+1. Verificar precondiciones de `flit-integration-ado` (base = `develop`, tres checks CI en
+   `success`, sin conflictos, rama `feat/flito-*`).
+2. Mergear con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a `staging`/`release`.
+3. `flit-integration-ado` **Modo B** (Deploy DEV + Commits integrado).
+4. Rebasar las ramas pendientes de la pila sobre `origin/develop` y
+   `git push --force-with-lease` solo de la rama propia.
+
+Sin autorización: dejar el PR abierto y continuar la cadena apilada (el humano mergea cuando quiera;
+tras cada merge humano, rebasear igual).
+
+**Tras cada merge (agente o humano) de un eslabón:** rebasar las ramas pendientes sobre `develop`
+(`git fetch origin && git rebase origin/develop`) y force-with-lease solo de la rama propia.
 
 ### 3. Desarrollo
 
@@ -130,28 +190,40 @@ necesita la relación formal (habría que añadirla a mano o vía REST con PAT).
 `System.State` → **`Resolved`** + comentario de entrega a QA (plantilla de `flit-gestion-hu`), solo
 si build y pipeline están en verde.
 
-### 7. Siguiente HU
+### 7. Siguiente HU (sin esperar merge humano)
 
-Volver al paso 1 con la siguiente historia del Feature. Al terminar todas, reportar al usuario el
-resumen: HU, rama, PR, estado del pipeline.
+En **modo continuo** (defecto): si hay autorización de merge a `develop` y el paso 2b ya mergeó,
+continuar con la siguiente HU sobre `develop` actualizado (o rebasar la pila y seguir). Si no hay
+autorización, arrancar la siguiente desde la rama previa **aunque el PR actual siga abierto**.
+
+En **modo secuencial** (opt-in): no arrancar la siguiente hasta que la actual esté mergeada en
+`develop` (por el agente bajo autorización, o por el humano).
+
+Al terminar todas, reportar: HU, rama, PR, eslabón, estado del pipeline, merges hechos y PRs
+pendientes.
 
 ## Reglas innegociables
 
 1. **Nunca `git add -A` ni `git add .`** — el working tree puede tener parches de demo que no deben
    commitearse. Listar archivos explícitamente y verificar con `git status --short`.
-2. **Nunca hacer merge del PR.** El merge es de un humano o del Líder Técnico. Esta skill llega
-   hasta el PR abierto.
+2. **Merge solo a `develop`**, y solo con autorización del Feature (o "sí" por PR) + precondiciones
+   de `flit-integration-ado` en verde. **Nunca** mergear a `staging` ni `release`.
 3. **Nunca `Resolved` con build o pipeline en rojo.**
 4. **Nunca abrir el PR sin el paso 4b en verde** — `flit-code-review` y, cuando aplique,
    `security-agent`. La seguridad no es opcional ni queda a criterio del momento.
 5. **Nunca commitear secretos** ni `.env`.
-6. **Una rama por HU**, siempre desde `develop` actualizado. No reutilizar la rama de otra HU salvo
-   por la estrategia de dependencias del paso 2, y dejándolo escrito en el PR.
+6. **Una rama por HU.** En modo continuo, la N-ésima nace de la rama de la (N-1) o de `develop`
+   tras merge del eslabón previo; en modo secuencial, de `develop` actualizado. Dejarlo escrito
+   en el cuerpo del PR.
 7. **No tocar `Custom.Evidences`** aquí (lo llena el rol de tests/QA) ni los campos `Deploy *`
-   (los llena `flit-integration-ado` Modo B, post-merge).
-8. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra), **parar esa
-   HU**, dejar comentario en Discussion explicando el bloqueo, y continuar con la siguiente que no
-   dependa de ella. Informar al usuario al final.
+   sin pasar por `flit-integration-ado` Modo B.
+8. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra, CI rojo o
+   revisión pedida en un eslabón de la pila), **parar esa HU** (y no apilar encima), dejar
+   comentario en Discussion explicando el bloqueo, y continuar solo con HUs que **no** dependan
+   de ella. Informar al usuario al final.
+9. **Nunca apilar ni mergear sobre rojo.** Si el PR del eslabón previo tiene checks fallando, no
+   se mergea ni se abre la siguiente rama hasta que ese eslabón esté verde o el humano decida
+   cortar la dependencia.
 
 ## Cuándo parar y preguntar
 
@@ -159,11 +231,14 @@ resumen: HU, rama, PR, estado del pipeline.
 - Hace falta una decisión de negocio que no está en la HU.
 - El cambio exige tocar algo fuera del alcance del Feature.
 - Un test que ya existía empieza a fallar por una razón no obvia.
+- Un PR de la pila recibe cambios pedidos en revisión (hay que rebasar los eslabones encima).
 
 ## Checklist de salida por HU
 
+- [ ] Feature padre en `Active` (regla de `AGENTS.md`)
 - [ ] HU en `Active` al empezar, `Resolved` al terminar
-- [ ] Rama `feat/flito-hu<ID>-*` creada desde `develop` actualizado
+- [ ] Rama `feat/flito-hu<ID>-*` creada (desde `develop` o desde la rama previa, según el modo)
+- [ ] En cadena: dependencia y eslabón declarados en el cuerpo del PR
 - [ ] Todos los AC cubiertos
 - [ ] Build, tests y pipeline en verde
 - [ ] `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES (paso 4b)
@@ -171,4 +246,5 @@ resumen: HU, rama, PR, estado del pipeline.
 - [ ] Commit sin archivos colados (`git status --short` limpio)
 - [ ] PR abierto contra `develop`
 - [ ] PR registrado en ADO (`flit-integration-ado` Modo A)
-- [ ] Sin merge ejecutado
+- [ ] Si hay autorización: merge a `develop` (MCP github) + Modo B; si no, PR pendiente de merge humano
+- [ ] Siguiente HU arrancada sin pausa injustificada (modo continuo) — o merge previo confirmado (secuencial)

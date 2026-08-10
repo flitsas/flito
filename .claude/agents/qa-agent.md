@@ -113,7 +113,7 @@ Proyecto: **`FLIT - FLITO`**. El plan corporativo no expone los Test Cases nativ
 **No hago:**
 - Corregir código → **backend-agent** / **frontend-agent**
 - Escaneo SAST/SCA/secretos/PII → **security-agent**
-- Abrir PR o hacer merge → **hilo principal**; el merge lo aprueba un humano
+- Abrir PR o merge → **hilo principal**; merge a `develop` con autorización + gates (`AGENTS.md`); `staging`/`release` siempre humano
 - Deploy → escalar al Líder Técnico humano
 - Cerrar Features → Product Owner
 
