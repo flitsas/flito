@@ -152,7 +152,16 @@ export function evaluarCliente(c: ClienteEvaluable): VeredictoCliente {
 }
 
 /** Las columnas que necesita la evaluación. Proyección explícita: nada de `select()` a secas. */
-const COLUMNAS = {
+/**
+ * Proyección explícita de lo que `evaluarCliente` necesita, y NADA más.
+ *
+ * **Exportada desde la HU #11324**, que evalúa clientes dentro de una consulta más grande. La
+ * alternativa que probé primero —`to_jsonb(clients)`— parecía equivalente y no lo era: `to_jsonb`
+ * usa los nombres de COLUMNA (`person_type`, `id_type`…) y este evaluador espera los del modelo
+ * (`personType`, `idType`…). Solo coincidían tres de quince, así que todo cliente salía «no
+ * facturable» con seis motivos falsos. Compartir la proyección es lo que impide que vuelva a pasar.
+ */
+export const COLUMNAS_CLIENTE_EVALUABLE = {
   id: clients.id,
   name: clients.name,
   document: clients.document,
@@ -195,7 +204,7 @@ export async function informeClientes(opciones: OpcionesInforme = {}): Promise<{
   const limit = Math.min(opciones.limit ?? LIMITE_DEFECTO, LIMITE_MAXIMO);
   const offset = Math.max(0, opciones.offset ?? 0);
 
-  const filas = await db.select(COLUMNAS).from(clients)
+  const filas = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients)
     .where(eq(clients.active, true))
     .orderBy(clients.name);
 
@@ -216,7 +225,7 @@ export async function informeClientes(opciones: OpcionesInforme = {}): Promise<{
  * tienen contacto y 3 no tienen tipo de persona, el trabajo grande es capturar contactos.
  */
 export async function resumenValidacionClientes(): Promise<ResumenValidacionClientes> {
-  const filas = await db.select(COLUMNAS).from(clients).where(eq(clients.active, true));
+  const filas = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients).where(eq(clients.active, true));
   const veredictos = filas.map((f) => evaluarCliente(f as ClienteEvaluable));
 
   const conteos = new Map<MotivoNoFacturable, number>();
@@ -245,7 +254,7 @@ export async function resumenValidacionClientes(): Promise<ResumenValidacionClie
 
 /** Veredicto de un cliente puntual (AC5). `null` si no existe. */
 export async function veredictoCliente(clienteId: number): Promise<VeredictoCliente | null> {
-  const [fila] = await db.select(COLUMNAS).from(clients).where(eq(clients.id, clienteId)).limit(1);
+  const [fila] = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients).where(eq(clients.id, clienteId)).limit(1);
   return fila ? evaluarCliente(fila as ClienteEvaluable) : null;
 }
 

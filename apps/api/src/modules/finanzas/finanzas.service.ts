@@ -233,7 +233,19 @@ const EXPR_LISTA = sql`(NOT ${seLiquido} AND NOT ${EXPR_BLOQUEADA})`;
  * Logística vive aparte, en `flito_logistica_documentos`: sus documentos nacen del flujo de entrega,
  * no de una carga de comprobantes.
  */
-const EXPR_DOC_COMPLETA = sql`(
+/**
+ * Documentación completa: los soportes de los conceptos que FLITO gestiona de verdad.
+ *
+ * **Exportada desde la HU #11324, y es importante que se reutilice y no se copie.** La condición
+ * depende de tres tablas y de la interacción entre la autogestión de la compañía, la modalidad del
+ * organismo y la excepción por trámite. Reescribirla en otro sitio produciría dos definiciones de
+ * «documentación completa» que coinciden hoy y divergen en cuanto una cambie — y la divergencia no
+ * falla: solo hace que el reporte y la elegibilidad discrepen sobre el mismo trámite.
+ *
+ * Quien la use debe aplicar los mismos joins (`conJoins`), porque las referencias de columna se
+ * resuelven contra ellos.
+ */
+export const EXPR_DOC_COMPLETA = sql`(
      (NOT ${GESTIONA_SOAT} OR EXISTS (
         SELECT 1 FROM flito_soportes s WHERE s.soat_id = ${flitoTramites.soatId} AND NOT s.descartado))
   -- El impuesto se salta con la MISMA regla con la que se exige (RN-01, los dos ejes): si el
