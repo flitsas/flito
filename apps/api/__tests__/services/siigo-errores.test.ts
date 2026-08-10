@@ -234,8 +234,11 @@ describe('AC6 — los errores no filtran secretos', () => {
     const e = traducirErrorSiigo(400, cuerpo('parameter_required'));
     const plano = JSON.parse(JSON.stringify(e)) as Record<string, unknown>;
 
+    // `accionSugerida`, `responsable`, `responsableEtiqueta` y `textoOperativo` los añadió la
+    // HU #11339: sin ellos la bandeja de fallidos vuelve a enseñar un código pelado.
     expect(Object.keys(plano).sort()).toEqual([
-      'code', 'descripcionOperativa', 'detail', 'message', 'name', 'params', 'reintentable', 'status',
+      'accionSugerida', 'code', 'descripcionOperativa', 'detail', 'message', 'name', 'params',
+      'reintentable', 'responsable', 'responsableEtiqueta', 'status', 'textoOperativo',
     ]);
     expect(plano.name).toBe('SiigoApiError');
   });
