@@ -37,6 +37,7 @@ import {
   type SiigoArchivoDocumento,
   type SiigoArchivoResumen,
   type SiigoDocumentoFactura,
+  type SiigoEstadoDian,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoSoportes, flitoTramites, siigoFacturaTramites, siigoFacturas } from '../../db/schema.js';
@@ -47,6 +48,7 @@ import { siigoRequestOrThrow } from './siigo.client.js';
 import { claveResiliencia } from './siigo.catalogos.service.js';
 import { modoSiigo } from './siigo.mock.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
+import { estadoDianVigente } from './siigo.estado-dian.service.js';
 import { motivoLegible } from './siigo.productos.service.js';
 import { ejecutarConResiliencia } from './siigo.resiliencia.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -108,16 +110,33 @@ interface FacturaAArchivar {
 /**
  * ¿La DIAN la aceptó? (AC2)
  *
- * **Criterio provisional y ÚNICO PUNTO donde cambiarlo.** El historial de estado ante la DIAN es la
- * HU #11330 y todavía no existe; mientras tanto, la prueba disponible es el CUFE: Siigo lo devuelve
- * cuando el documento quedó aceptado, y sin él lo que hay es un comprobante enviado, no aceptado.
- * Es el criterio conservador —no archiva de más—, y como el barrido vuelve a mirar cada ciclo, una
- * factura que se acepte más tarde se archiva sola, sin que nadie intervenga.
+ * **Ahora lo dice el historial, no una deducción.** Esta función se escribió cuando la HU #11330 aún
+ * no existía y la única prueba disponible era el CUFE: Siigo lo devuelve al aceptar el documento.
+ * Era el criterio conservador, pero era una *deducción nuestra* sobre lo que había dicho la
+ * autoridad — y deducir «aceptada» de un campo que se rellena al aceptar no es lo mismo que leer
+ * que la DIAN dijo «aceptada».
  *
- * Cuando llegue la #11330 esta función se reescribe contra el historial y no hay que tocar nada más.
+ * La diferencia importa en un caso concreto: una factura **anulada** conserva su CUFE. Con el
+ * criterio anterior seguiría pareciendo aceptada indefinidamente, y el barrido intentaría archivar
+ * los documentos de algo que ya no está vigente.
+ *
+ * Se conserva `estado === 'emitida'` como primera condición porque son dos ejes: sin documento
+ * emitido no hay nada que la DIAN pueda haber aceptado, y preguntarle al historial por una factura
+ * que nunca salió es una consulta desperdiciada.
  */
-export function facturaAceptadaPorLaDian(f: Pick<FacturaAArchivar, 'estado' | 'cufe'>): boolean {
-  return f.estado === 'emitida' && f.cufe !== null && f.cufe.trim() !== '';
+export function facturaAceptadaPorLaDian(
+  f: Pick<FacturaAArchivar, 'estado' | 'cufe'>,
+  estadoDian?: { estado: SiigoEstadoDian } | null,
+): boolean {
+  if (f.estado !== 'emitida') return false;
+  // Si la DIAN ya se pronunció, manda su palabra: `rechazada` y `anulada` no se archivan aunque
+  // conserven el CUFE, y `en_validacion` todavía no toca.
+  if (estadoDian) return estadoDian.estado === 'aceptada';
+  // Sin pronunciamiento —factura emitida antes de que existiera el eje DIAN, o que el sondeo aún
+  // no ha consultado— se conserva el criterio anterior. Dejar de archivar todo lo ya emitido sería
+  // peor que archivarlo con el criterio viejo, y el barrido lo reevalúa en cuanto llegue la
+  // primera respuesta de la DIAN.
+  return f.cufe !== null && f.cufe.trim() !== '';
 }
 
 async function cargarFactura(facturaId: string): Promise<FacturaAArchivar | null> {
@@ -388,7 +407,9 @@ export async function archivarFactura(facturaId: string): Promise<SiigoArchivoRe
 
   // AC2 — solo se archiva lo que la DIAN aceptó. No se descarga nada y no se marca ningún fallo:
   // no es un error, es que todavía no toca.
-  if (!facturaAceptadaPorLaDian(f)) {
+  // El estado ante la DIAN es un eje aparte del de emisión (HU #11330) y sale de la base, no de la
+  // red: consultarlo aquí no gasta cuota de Siigo.
+  if (!facturaAceptadaPorLaDian(f, await estadoDianVigente(f.id))) {
     return {
       facturaId: f.id,
       estado: 'pendiente_dian',
