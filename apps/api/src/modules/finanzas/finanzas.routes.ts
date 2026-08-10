@@ -5,8 +5,10 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
   aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
+  resumenFacturacionElectronicaDelReporte,
   type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
+import { esEstadoReporte, type SiigoEstadoReporte } from '@operaciones/shared-types';
 
 const router = Router();
 router.use(authMiddleware);
@@ -24,6 +26,14 @@ const lista = (v: unknown): string[] | undefined => {
 /** Etapa del ciclo de cobro. Una desconocida se ignora: mejor el universo entero que un error. */
 const etapa = (v: unknown): EtapaReporte | undefined =>
   (typeof v === 'string' && (ETAPAS as readonly string[]).includes(v) ? v as EtapaReporte : undefined);
+/**
+ * Estado de facturación electrónica (HU #11336). Uno desconocido se IGNORA, igual que la etapa: la
+ * alternativa —devolver 400— convertiría un enlace guardado en favoritos, hecho antes de que el
+ * catálogo cambiara, en una pantalla rota. Mejor el universo entero que un error.
+ */
+const estadoFe = (v: unknown): SiigoEstadoReporte | undefined =>
+  (esEstadoReporte(v) ? v : undefined);
+
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
 const fecha = (v: unknown): string | undefined => {
   const s = str(v);
@@ -37,6 +47,7 @@ function filtrosDe(q: Request['query']): FiltrosReporte {
     documentacionCompleta: q.documentacionCompleta === 'si',
     desde: fecha(q.desde), hasta: fecha(q.hasta),
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
+    estadoFacturacion: estadoFe(q.estadoFacturacion),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }
@@ -49,6 +60,21 @@ router.get('/reporte-costos', LECTURA, async (req: Request, res: Response) => {
 // GET /reporte-costos/facetas — valores para los filtros (estados, empresas, tipos).
 router.get('/reporte-costos/facetas', LECTURA, async (_req: Request, res: Response) => {
   res.json(await facetas());
+});
+
+/**
+ * GET /reporte-costos/facturacion-electronica — los contadores por estado (HU #11336).
+ *
+ * Misma guarda de lectura que el resto del reporte (AC6): quien puede ver el reporte puede ver sus
+ * contadores, y nadie más. No se inventa un permiso nuevo — sería una segunda verdad sobre quién
+ * puede mirar lo mismo.
+ *
+ * Recibe los MISMOS filtros que el listado, y por eso cuenta sobre el mismo conjunto (AC3). No
+ * llama a Siigo (AC5): la pantalla lo consulta cada vez que se abre, y si cada apertura gastara
+ * peticiones de la ventana de 100 por minuto, mirar el reporte frenaría la emisión.
+ */
+router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Request, res: Response) => {
+  res.json(await resumenFacturacionElectronicaDelReporte(filtrosDe(req.query)));
 });
 
 // GET /reporte-costos/export — CSV de TODO el filtro, no solo de la página visible.

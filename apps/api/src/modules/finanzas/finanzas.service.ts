@@ -19,6 +19,10 @@ import {
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
+import {
+  condicionEstadoFacturacion, resumenFacturacionElectronica,
+} from './finanzas.facturacion-electronica.js';
+import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
 /**
  * En qué punto del ciclo de cobro está el trámite. Son cuatro cajones EXCLUYENTES, y entre los
@@ -44,6 +48,11 @@ export interface FiltrosReporte {
   desde?: string; hasta?: string;
   /** Rango sobre la fecha de aprobación, en formato yyyy-mm-dd. Independiente del anterior. */
   aprobadoDesde?: string; aprobadoHasta?: string;
+  /**
+   * Estado de facturación electrónica (HU #11336). Se compone con los demás filtros, no los anula:
+   * es una condición más en la misma lista.
+   */
+  estadoFacturacion?: SiigoEstadoReporte;
   page?: number; pageSize?: number;
 }
 
@@ -238,7 +247,7 @@ const EXPR_DOC_COMPLETA = sql`(
         SELECT 1 FROM flito_logistica_documentos d WHERE d.tramite_id = ${flitoTramites.id}))
 )`;
 
-function condiciones(f: FiltrosReporte): SQL[] {
+export function condiciones(f: FiltrosReporte): SQL[] {
   const conds: SQL[] = [];
   const t = f.buscar?.trim();
   if (t) {
@@ -258,6 +267,10 @@ function condiciones(f: FiltrosReporte): SQL[] {
   if (f.etapa === 'por_facturar') conds.push(sql`${flitoLiquidaciones.estado} = 'liquidado'`);
   if (f.etapa === 'facturado') conds.push(sql`${flitoLiquidaciones.estado} = 'facturado'`);
   if (f.documentacionCompleta) conds.push(EXPR_DOC_COMPLETA);
+  // HU #11336 — la MISMA expresión que alimenta los contadores. Dos definiciones de «en qué punto
+  // está esta factura» acabarían discrepando, y el filtro y los números dirían cosas distintas de
+  // la misma fila: un bicho que no falla, solo miente.
+  if (f.estadoFacturacion) conds.push(condicionEstadoFacturacion(f.estadoFacturacion));
 
   // Los dos rangos son inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   //
@@ -278,7 +291,7 @@ function condiciones(f: FiltrosReporte): SQL[] {
  * la exportación: si el conteo y la página no llevan exactamente los mismos joins, el total y las
  * filas dejan de cuadrar sin que nada avise.
  */
-function conJoins<Q extends PgSelect>(q: Q) {
+export function conJoins<Q extends PgSelect>(q: Q) {
   return q
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
@@ -480,6 +493,34 @@ export async function reporteCostos(f: FiltrosReporte = {}): Promise<ReporteCost
     items: rows.map((r: Record<string, unknown>) => aFila(r)),
     total: Number(countRows[0]?.total ?? 0), page, pageSize, totales, resumen,
   };
+}
+
+/**
+ * Los contadores de facturación electrónica del reporte (HU #11336, AC3).
+ *
+ * Vive aquí y no en el archivo de la HU porque es quien conoce `conJoins` y `condiciones`; la lógica
+ * de qué estado tiene cada trámite sí vive allí, en una sola definición que comparten el filtro y
+ * estos contadores.
+ *
+ * **Los demás filtros SÍ se aplican; el propio estado de facturación, NO.** Es la misma lección que
+ * el reporte ya aprendió con las etapas: si estos contadores se filtraran por el estado elegido,
+ * elegir «rechazado» dejaría los otros seis en cero y la pantalla diría que no queda nada más —
+ * cuando lo único que pasa es que se está mirando una parte. Los contadores son el mapa; el filtro
+ * es dónde estás parado. Un mapa que solo dibuja la calle en la que estás no sirve para moverse.
+ *
+ * El AC3 sigue cumpliéndose, y es importante entender por qué no hay contradicción: pide contar
+ * sobre el mismo conjunto FILTRADO, y eso es exactamente lo que se hace con la empresa, las fechas,
+ * el tipo y el estado del trámite. Lo que se excluye es solo la dimensión que los propios
+ * contadores desglosan, que no es un filtro más: es el eje del desglose.
+ */
+export async function resumenFacturacionElectronicaDelReporte(
+  f: FiltrosReporte = {},
+): Promise<SiigoResumenReporte> {
+  const conds = condiciones({ ...f, estadoFacturacion: undefined });
+  return resumenFacturacionElectronica(
+    (q) => conJoins(q as PgSelect) as typeof q,
+    conds.length ? and(...conds) : undefined,
+  );
 }
 
 /** Todas las filas del filtro, sin paginar, para exportar. Tope duro por si el filtro está vacío. */
