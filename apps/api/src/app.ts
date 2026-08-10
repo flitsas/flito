@@ -39,6 +39,7 @@ import siigoParametrizacionRoutes from './modules/siigo/parametrizacion.routes.j
 import siigoCiudadesRoutes from './modules/siigo/ciudades.routes.js';
 import siigoValidadorClienteRoutes from './modules/siigo/validador-cliente.routes.js';
 import siigoCiudadesMapeoRoutes from './modules/siigo/ciudades-mapeo.routes.js';
+import siigoFrenoRoutes from './modules/siigo/freno.routes.js';
 import siigoCorreccionesRoutes from './modules/siigo/correcciones.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
@@ -205,6 +206,7 @@ export function createApp() {
   app.use('/api/siigo/ciudades', siigoCiudadesRoutes);
   app.use('/api/siigo/clientes', siigoValidadorClienteRoutes);
   app.use('/api/siigo/clientes-ciudades', siigoCiudadesMapeoRoutes);
+  app.use('/api/siigo/freno', siigoFrenoRoutes);
   app.use('/api/siigo/correcciones', siigoCorreccionesRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);

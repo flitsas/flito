@@ -77,6 +77,8 @@ export * from './siigo-terceros.js';
 export * from './siigo-validador-cliente.js';
 // Estados de la factura electrónica y estrategias de agrupación (Feature #11242).
 export * from './siigo-factura.js';
+// Freno por proporción de errores: dejar de insistir antes de que Siigo bloquee el usuario API.
+export * from './siigo-freno.js';
 // Estado ante la DIAN y de dónde salió el dato. Eje APARTE del estado de emisión (Feature #11243).
 export * from './siigo-estado-dian.js';
 // Corrección de una factura ya emitida: qué admite cada estado y qué se registró (Feature #11244).
