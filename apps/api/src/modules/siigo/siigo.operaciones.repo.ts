@@ -12,7 +12,7 @@
 // disparador, un dato personal escrito por error ya no se puede rectificar ni suprimir (Ley 1581,
 // art. 8), así que el filtro tiene que estar ANTES del INSERT y no depender de quién llame.
 
-import { and, desc, eq, gte, lte, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lte, notInArray, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { siigoOperaciones } from '../../db/schema.js';
 import { detalleTecnico, sanearMensaje } from './siigo.redaccion.js';
@@ -132,4 +132,99 @@ export async function consultarBitacora(f: FiltroBitacora = {}) {
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(siigoOperaciones.createdAt))
     .limit(limite);
+}
+
+// ── Agregados de la bitácora (HU #11341) ────────────────────────────────────
+//
+// Las dos consultas que siguen son de SOLO LECTURA y viven aquí, y no en quien las usa, porque este
+// es el único módulo que toca `siigo_operaciones`: que el acceso a la tabla esté en un sitio es lo
+// que permite razonar sobre qué se escribe y qué nunca se escribe. La invariante del módulo sigue
+// intacta —no hay `actualizar` ni `borrar`, y no los habrá— y hay un test que la vigila.
+//
+// El freno se calcula sobre estas dos consultas y sobre nada más: NO hay tabla nueva ni contador
+// paralelo (AC1). El índice `idx_siigo_op_resultado` sobre `(resultado, created_at)` es el que hace
+// barato el agrupado.
+
+export interface ConteoPorResultado {
+  resultado: ResultadoOperacion;
+  total: number;
+}
+
+export interface FiltroConteo {
+  ambiente: string;
+  /** `real` o `mock`. Obligatorio: mezclar los dos modos falsea cualquier medición (AC1). */
+  modo: string;
+  desde: Date;
+  hasta?: Date;
+  /**
+   * Operaciones que NO deben contarse. Es lo que impide la realimentación del freno: el propio
+   * rechazo se registra en la bitácora, y si contara como una operación más, un freno activo se
+   * mantendría a sí mismo indefinidamente sin que Siigo tenga nada que ver.
+   */
+  excluir?: readonly string[];
+}
+
+/** Operaciones agrupadas por resultado dentro de una ventana. */
+export async function contarPorResultado(f: FiltroConteo): Promise<ConteoPorResultado[]> {
+  const conds: SQL[] = [
+    eq(siigoOperaciones.ambiente, f.ambiente),
+    eq(siigoOperaciones.modo, f.modo),
+    gte(siigoOperaciones.createdAt, f.desde),
+  ];
+  if (f.hasta) conds.push(lte(siigoOperaciones.createdAt, f.hasta));
+  if (f.excluir && f.excluir.length > 0) {
+    conds.push(notInArray(siigoOperaciones.operacion, [...f.excluir]));
+  }
+
+  const filas = await db
+    .select({ resultado: siigoOperaciones.resultado, total: count() })
+    .from(siigoOperaciones)
+    .where(and(...conds))
+    .groupBy(siigoOperaciones.resultado);
+
+  // `count()` llega como cadena por el driver de Postgres cuando el total desborda un int32.
+  // `Number(...)` aquí y no en quien consume: una proporción calculada sobre cadenas da NaN.
+  return filas.map((r) => ({
+    resultado: r.resultado as ResultadoOperacion,
+    total: Number(r.total),
+  }));
+}
+
+/** Cuándo y por quién quedó registrada una operación concreta. */
+export interface MarcaOperacion {
+  createdAt: Date;
+  createdBy: number | null;
+}
+
+/**
+ * Primera o última vez que se registró una operación dada.
+ *
+ * Es lo que convierte la bitácora en el registro de quién reactivó la integración y cuándo (AC4),
+ * sin necesidad de una tabla de estado: el hecho ya está escrito, y en una tabla que nadie puede
+ * editar ni borrar.
+ */
+export async function marcaDeOperacion(f: {
+  operacion: string;
+  ambiente: string;
+  modo: string;
+  desde?: Date;
+  orden: 'primera' | 'ultima';
+}): Promise<MarcaOperacion | null> {
+  const conds: SQL[] = [
+    eq(siigoOperaciones.operacion, f.operacion),
+    eq(siigoOperaciones.ambiente, f.ambiente),
+    eq(siigoOperaciones.modo, f.modo),
+  ];
+  if (f.desde) conds.push(gte(siigoOperaciones.createdAt, f.desde));
+
+  const filas = await db
+    .select({ createdAt: siigoOperaciones.createdAt, createdBy: siigoOperaciones.createdBy })
+    .from(siigoOperaciones)
+    .where(and(...conds))
+    .orderBy(f.orden === 'primera'
+      ? asc(siigoOperaciones.createdAt)
+      : desc(siigoOperaciones.createdAt))
+    .limit(1);
+
+  return filas[0] ?? null;
 }
