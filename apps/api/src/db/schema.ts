@@ -3880,3 +3880,29 @@ export const siigoFacturaEnvios = pgTable('siigo_factura_envios', {
 }, (t) => ({
   facturaIdx: index('idx_siigo_envios_factura').on(t.facturaId, desc(t.createdAt)),
 }));
+
+/**
+ * Vínculo entre un cliente de FLITO y su tercero en Siigo (HU #11297, migración 0143).
+ *
+ * La clave del tercero EN SIIGO es la pareja (identificación, sucursal): una identificación puede
+ * repetirse allá si la sucursal es distinta. El índice único va sobre las dos.
+ */
+export const siigoTerceros = pgTable('siigo_terceros', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: integer('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  /** Lo único que no podemos reconstruir por nuestra cuenta si se pierde. */
+  siigoCustomerId: varchar('siigo_customer_id', { length: 60 }).notNull(),
+  /** Copia de la pareja en el momento del vínculo: permite detectar una discrepancia posterior. */
+  identificacion: varchar('identificacion', { length: 50 }).notNull(),
+  sucursal: integer('sucursal').notNull().default(0),
+  /** Hash del objeto EXACTO enviado. Responde «¿cambió?» sin guardar una copia de los datos. */
+  huella: varchar('huella', { length: 64 }).notNull(),
+  sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  parejaUq: uniqueIndex('idx_siigo_terceros_identificacion_sucursal').on(t.identificacion, t.sucursal),
+  clienteUq: uniqueIndex('idx_siigo_terceros_cliente').on(t.clientId),
+  /** Y un tercero tiene UN cliente: sin esto, dos clientes pueden acabar facturando contra el mismo. */
+  customerUq: uniqueIndex('idx_siigo_terceros_customer').on(t.siigoCustomerId),
+}));

@@ -170,6 +170,31 @@ con un mensaje accionable, no con un error genérico de Siigo.
 
 ---
 
+**Entregado por la HU #11297 (migración 0143).** El vínculo cliente ↔ tercero vive en
+`siigo_terceros`, con índice único sobre **(identificación, sucursal)** porque esa es la clave real
+en Siigo: una identificación puede repetirse allá si la sucursal difiere. Tres notas que costaron
+encontrarse:
+
+- **La pregunta abierta «¿FLITO sobrescribe al vincular?» estaba ya respondida en el AC3**, y en el
+  sentido seguro: pide reenviar el objeto completo **y** que ningún campo que Siigo ya tenía quede
+  vacío. Con un `PUT` que reemplaza, eso solo se cumple leyendo el tercero antes de escribirlo y
+  superponiendo encima lo que FLITO posee. El vendedor, el cobrador y los comentarios sobreviven.
+- **Omitir no es mandar vacío.** Un `phones: []` no dice «no tengo teléfono»: dice «bórrale el
+  teléfono». Los opcionales sin dato se omiten, y por eso son opcionales en el tipo. Si al crear
+  faltan, Siigo rechaza — ruidoso, visible y reversible.
+- **No poder leer el tercero aborta la actualización.** Sobrescribir sin saber qué había es el
+  borrado silencioso que la fusión existe para impedir.
+
+El simulador dejó de devolver un tercero fijo: ahora recuerda, exige los obligatorios y rechaza una
+identificación repetida en la misma sucursal, como haría Siigo. Un simulador más permisivo que el
+ambiente real deja pasar en desarrollo justo lo que revienta en producción.
+
+**Sigue abierta** la pregunta de si en Siigo Nube ya existen terceros con sucursal distinta de cero.
+No bloquea el código —la sucursal es una columna con su valor conservador— y se responde con una
+consulta a Siigo Nube, no con una decisión de nadie.
+
+---
+
 ## F4 — Emisión de la factura electrónica desde Reporte de costos
 
 **Objetivo:** el disparador funcional del requerimiento.

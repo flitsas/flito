@@ -116,11 +116,23 @@ describe('AC2 — el simulador respeta el contrato', () => {
     expect(Array.isArray(respuestaSimulada('GET', '/v1/payment-types').datos)).toBe(true);
   });
 
+  // HU #11297 — el simulador dejó de devolver un tercero fijo. Antes respondía siempre el mismo
+  // objeto, así que este test pasaba con una petición SIN cuerpo, que Siigo rechazaría. Ahora hace
+  // eco de lo enviado y exige los obligatorios: un simulador más permisivo que el ambiente real
+  // deja pasar en desarrollo justo lo que revienta en producción.
   it('crear un tercero devuelve la forma de CustomerOut', () => {
-    const d = respuestaSimulada('POST', '/v1/customers').datos as Record<string, unknown>;
+    const d = respuestaSimulada('POST', '/v1/customers', {
+      cuerpo: { identification: '900123456', branch_office: 0, name: ['Empresa simulada'] },
+    }).datos as Record<string, unknown>;
     expect(d).toHaveProperty('id');
     expect(d).toHaveProperty('identification');
     expect(Array.isArray(d.name)).toBe(true); // en Siigo `name` es un arreglo
+  });
+
+  it('crear un tercero SIN los obligatorios se rechaza, como haría Siigo', () => {
+    const r = respuestaSimulada('POST', '/v1/customers');
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(400);
   });
 
   it('una ruta no contemplada devuelve éxito vacío, no un 404 inventado', () => {
