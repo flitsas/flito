@@ -20,7 +20,8 @@ import {
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
 import {
-  condicionEstadoFacturacion, resumenFacturacionElectronica,
+  condicionEstadoFacturacion, facturacionDeFila, resumenFacturacionElectronica,
+  SELECT_FACTURACION_ELECTRONICA, type FacturacionDeFila,
 } from './finanzas.facturacion-electronica.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
@@ -56,8 +57,15 @@ export interface FiltrosReporte {
   page?: number; pageSize?: number;
 }
 
-/** `null` = no aplica o no configurado. NUNCA cero: un cero implícito cuadra totales falsos. */
-export interface FilaReporte {
+/**
+ * `null` = no aplica o no configurado. NUNCA cero: un cero implícito cuadra totales falsos.
+ *
+ * Hereda de `FacturacionDeFila` el estado de la factura electrónica, su número y la marca de
+ * revisión (HU #11328, AC4). Se hereda en vez de repetir los tres campos para que el compilador
+ * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
+ * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
+ */
+export interface FilaReporte extends FacturacionDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -362,6 +370,10 @@ const SELECT_FILA = {
   soatAutogestionable: sql<boolean>`${AUTO_SOAT}`,
   impuestosAutogestionable: sql<boolean>`${AUTO_IMPUESTO}`,
   logisticaAutogestionable: sql<boolean>`${AUTO_LOGISTICA}`,
+  // Facturación electrónica (HU #11328, AC4). Se compone, no se pega: las expresiones viven en
+  // `finanzas.facturacion-electronica.ts` junto al filtro y a los contadores que las comparten,
+  // que es lo único que garantiza que la celda, el filtro y el número de arriba digan lo mismo.
+  ...SELECT_FACTURACION_ELECTRONICA,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -430,6 +442,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     pendientesPago,
     autogestionados,
     noAplican,
+    ...facturacionDeFila(r),
   };
 }
 

@@ -17,6 +17,8 @@
 // restricción solo en el código significaría que un `UPDATE` suelto puede meter un estado que nadie
 // sabe interpretar. Hay una prueba que compara las dos listas y falla si se separan.
 
+import type { MotivoElegibilidad } from './siigo-elegibilidad.js';
+
 /**
  * Los cuatro estados de una fila de la cola. Cerrados, y no se solapan (AC2).
  *
@@ -84,18 +86,27 @@ export const SIIGO_COLA_DESENLACES = [
 ] as const;
 export type SiigoColaDesenlace = (typeof SIIGO_COLA_DESENLACES)[number];
 
-/** Qué hizo el encolado. `encolar()` es idempotente: pedir dos veces lo mismo no crea dos filas. */
-export type SiigoColaResultadoEncolado =
+/**
+ * Qué hizo el encolado. `encolar()` es idempotente: pedir dos veces lo mismo no crea dos filas.
+ *
+ * Array `as const` y no solo un `type`, por la misma razón que los desenlaces: la lista de
+ * resultados de la RUTA (HU #11328) se construye a partir de esta, y derivarla es la única forma de
+ * que no puedan separarse. Con dos uniones escritas a mano, añadir aquí un resultado dejaría a la
+ * respuesta HTTP con un contador que nadie suma y un caso que la pantalla no sabe pintar.
+ */
+export const SIIGO_RESULTADOS_ENCOLADO = [
   /** No estaba: se creó la fila y el trabajador la tomará. */
-  | 'encolado'
+  'encolado',
   /** Ya estaba en cola (`pendiente` o `error`) y se devuelve tal cual. */
-  | 'ya_en_cola'
+  'ya_en_cola',
   /** Ya se envió. No se vuelve a encolar: el documento existe. */
-  | 'ya_enviado'
+  'ya_enviado',
   /** Estaba dada por perdida y no se reactivó. Requiere pedirlo explícitamente. */
-  | 'fallido_definitivo'
+  'fallido_definitivo',
   /** Estaba dada por perdida y quien encoló pidió reactivarla: contadores a cero y cita para ya. */
-  | 'reactivado';
+  'reactivado',
+] as const;
+export type SiigoColaResultadoEncolado = (typeof SIIGO_RESULTADOS_ENCOLADO)[number];
 
 /** Una fila de la cola tal como la devolverá la API (HU #11328). */
 export interface SiigoColaItem {
@@ -120,4 +131,110 @@ export interface SiigoColaItem {
 
 export function esEstadoCola(v: unknown): v is SiigoColaEstado {
   return typeof v === 'string' && (SIIGO_COLA_ESTADOS as readonly string[]).includes(v);
+}
+
+// ── Enviar a facturación: el contrato de la ruta (HU #11328) ────────────────
+
+/**
+ * Qué pasó con CADA trámite de un envío.
+ *
+ * Es la lista del encolado MÁS los dos desenlaces que ocurren antes de llegar a la cola, y se
+ * deriva de ella en vez de repetirla: si mañana `encolar()` distingue un caso nuevo, aparece aquí
+ * solo y el `Record` de contadores obliga a contarlo.
+ *
+ *   `no_elegible` — la evaluación de elegibilidad lo frenó. No se creó lote ni fila de cola, y los
+ *                   motivos viajan tal cual los devolvió esa evaluación (AC2).
+ *   `error`       — el encolado de ESE trámite falló por sí mismo. Existe para que el fallo de uno
+ *                   no se lleve por delante a los demás de la selección (AC1): sin un desenlace
+ *                   propio, la única salida sería un 500 para toda la petición y quien envió
+ *                   cincuenta trámites no sabría cuáles quedaron dentro.
+ */
+export const SIIGO_RESULTADOS_ENVIO = [
+  ...SIIGO_RESULTADOS_ENCOLADO, 'no_elegible', 'error',
+] as const;
+export type SiigoResultadoEnvio = (typeof SIIGO_RESULTADOS_ENVIO)[number];
+
+/**
+ * Los resultados que significan «no se encoló y hay que hacer algo».
+ *
+ * `ya_en_cola` y `ya_enviado` NO están: son respuestas idempotentes a una petición repetida, no
+ * rechazos. Contarlos como rechazo haría que refrescar una pantalla pareciera un problema.
+ */
+export const SIIGO_RESULTADOS_ENVIO_RECHAZO: readonly SiigoResultadoEnvio[] = [
+  'no_elegible', 'fallido_definitivo', 'error',
+];
+
+/** Los que dejan trabajo nuevo en la cola. Son los que suma `encolados`. */
+export const SIIGO_RESULTADOS_ENVIO_ENCOLADO: readonly SiigoResultadoEnvio[] = [
+  'encolado', 'reactivado',
+];
+
+/** Qué pasó con un trámite del envío. */
+export interface SiigoEnvioTramite {
+  tramiteId: string;
+  resultado: SiigoResultadoEnvio;
+  /**
+   * Los motivos de la evaluación de elegibilidad, **palabra por palabra** (AC2).
+   *
+   * Vacío salvo en `no_elegible`. Esta ruta no redacta ni resume ninguno: una segunda versión del
+   * mismo diagnóstico sería siempre la que se quedara vieja, y quien lee el rechazo aquí y la
+   * elegibilidad allá vería dos explicaciones distintas del mismo hecho.
+   */
+  motivos: MotivoElegibilidad[];
+  /** El estado de su fila de cola, cuando llegó a haber una. */
+  estado: SiigoColaEstado | null;
+  colaId: string | null;
+  loteId: string | null;
+  /** Solo en `error`: qué impidió encolar ESTE trámite. No es un motivo de elegibilidad. */
+  detalle: string | null;
+}
+
+/**
+ * El recuento del envío (AC1).
+ *
+ * Los tres primeros números responden preguntas distintas y por eso no se solapan: `encolados` es
+ * trabajo nuevo, `yaEstaban` es una repetición inocua y `rechazados` es lo que exige que alguien
+ * actúe. `porResultado` los desglosa entero para que la suma siempre cuadre con `total`.
+ */
+export interface SiigoResumenEnvio {
+  total: number;
+  encolados: number;
+  yaEstaban: number;
+  rechazados: number;
+  porResultado: Record<SiigoResultadoEnvio, number>;
+}
+
+/** La respuesta de enviar a facturación. */
+export interface SiigoRespuestaEnvio {
+  /**
+   * El ambiente en que se encoló. Va en la respuesta porque lo decide el SERVIDOR y no quien
+   * llama: quien envía tiene derecho a saber contra qué empresa de Siigo acaba de encolar.
+   */
+  ambiente: string;
+  items: SiigoEnvioTramite[];
+  resumen: SiigoResumenEnvio;
+}
+
+/** Un resumen de envío con todos los resultados a cero: ninguno desaparece por no tener casos. */
+export function resumenEnvioVacio(): SiigoResumenEnvio {
+  const porResultado = Object.fromEntries(
+    SIIGO_RESULTADOS_ENVIO.map((r) => [r, 0]),
+  ) as Record<SiigoResultadoEnvio, number>;
+  return { total: 0, encolados: 0, yaEstaban: 0, rechazados: 0, porResultado };
+}
+
+/**
+ * Cuenta los resultados de un envío. Vive aquí, y no en el servidor, porque la pantalla que muestre
+ * el desglose tiene que contar igual: dos aritméticas del mismo hecho acabarían discrepando.
+ */
+export function resumirEnvio(items: SiigoEnvioTramite[]): SiigoResumenEnvio {
+  const r = resumenEnvioVacio();
+  r.total = items.length;
+  for (const it of items) {
+    r.porResultado[it.resultado] += 1;
+    if (SIIGO_RESULTADOS_ENVIO_ENCOLADO.includes(it.resultado)) r.encolados += 1;
+    else if (SIIGO_RESULTADOS_ENVIO_RECHAZO.includes(it.resultado)) r.rechazados += 1;
+    else r.yaEstaban += 1;
+  }
+  return r;
 }

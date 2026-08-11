@@ -11,6 +11,9 @@ import type { SiigoEstadoReporte } from '@operaciones/shared-types';
 
 const TONO: Record<SiigoEstadoReporte, ChipTone> = {
   no_enviado: 'draft',
+  // En cola: mismo tono que «en proceso», porque para quien mira significan lo mismo —está en
+  // marcha, no hay nada que hacer— y la etiqueta ya distingue si existe documento (HU #11328).
+  encolado: 'active',
   en_proceso: 'active',
   emitido: 'active',
   aceptado: 'success',

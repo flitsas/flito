@@ -44,6 +44,7 @@ import siigoFrenoRoutes from './modules/siigo/freno.routes.js';
 import siigoCorreccionesRoutes from './modules/siigo/correcciones.routes.js';
 import siigoEnviosRoutes from './modules/siigo/envio-correo.routes.js';
 import siigoFacturacionTramitesRoutes from './modules/siigo/facturacion-tramites.routes.js';
+import siigoFacturacionRoutes from './modules/siigo/facturacion.routes.js';
 import siigoTercerosRoutes from './modules/siigo/terceros.routes.js';
 import siigoElegibilidadRoutes from './modules/siigo/elegibilidad.routes.js';
 import siigoReconciliacionRoutes from './modules/siigo/reconciliacion.routes.js';
@@ -216,7 +217,14 @@ export function createApp() {
   app.use('/api/siigo/freno', siigoFrenoRoutes);
   app.use('/api/siigo/correcciones', siigoCorreccionesRoutes);
   app.use('/api/siigo/envios', siigoEnviosRoutes);
+  // Dos routers sobre el MISMO prefijo, y es deliberado: `facturacion-tramites` sirve
+  // `GET /tramites` (qué le pasó a la factura de cada trámite, HU #11337) y `facturacion` sirve
+  // `POST /` y `GET /` (encolar y estado de la cola, HU #11328). Son dos caras de la misma
+  // sustantiva y separarlas en dos prefijos obligaría a la pantalla a conocer dos URL para hablar de
+  // lo mismo. Express prueba el primero y, al no casar ninguna de sus rutas, pasa al segundo; el
+  // orden importa solo en que ninguno debe declarar un patrón que trague las rutas del otro.
   app.use('/api/siigo/facturacion', siigoFacturacionTramitesRoutes);
+  app.use('/api/siigo/facturacion', siigoFacturacionRoutes);
   app.use('/api/siigo/terceros', siigoTercerosRoutes);
   app.use('/api/siigo/elegibilidad', siigoElegibilidadRoutes);
   app.use('/api/siigo/reconciliacion', siigoReconciliacionRoutes);

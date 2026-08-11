@@ -16,6 +16,8 @@ import type { ResumenFacturacion } from './tiposFacturacion';
 /** Tono de cada estado. `rechazado` y `fallido` comparten el rojo: los dos piden que alguien actúe. */
 const TONO: Record<SiigoEstadoReporte, ChipTone> = {
   no_enviado: 'draft',
+  // En cola: en marcha, nadie tiene que hacer nada. Mismo tono que «en proceso» (HU #11328).
+  encolado: 'active',
   en_proceso: 'active',
   emitido: 'active',
   aceptado: 'success',

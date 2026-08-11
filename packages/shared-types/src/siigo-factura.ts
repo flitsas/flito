@@ -100,6 +100,19 @@ export interface SiigoFactura {
 export const SIIGO_ESTADOS_REPORTE = [
   /** Nunca se le pidió factura electrónica. NO es un fallo: es que todavía no le toca (AC4). */
   'no_enviado',
+  /**
+   * Alguien pulsó «enviar a facturación» y el trabajador todavía no lo ha tomado (HU #11328).
+   *
+   * Nace con la ruta que permite encolar, y no antes, porque hasta entonces era un estado
+   * inalcanzable. Existe porque sin él un trámite encolado se pintaba como `no_enviado`, es decir,
+   * exactamente igual que uno que nadie ha tocado: quien mira el reporte no podía distinguir «ya lo
+   * pedí, espera» de «esto sigue sin pedirse», y volvería a pulsar sobre lo que ya está en marcha.
+   *
+   * Va antes de `en_proceso` porque es antes en el ciclo: `en_proceso` significa que la clave de
+   * idempotencia ya está reservada, o sea que la factura EXISTE como documento a medio hacer. Aquí
+   * todavía no hay ningún documento, solo una fila de cola.
+   */
+  'encolado',
   /** Se pidió y está en curso. Es un estado que se resuelve solo; nadie tiene que hacer nada. */
   'en_proceso',
   /** Salió de FLITO y Siigo la recibió, pero la DIAN todavía no se ha pronunciado. */
@@ -122,6 +135,9 @@ export type SiigoEstadoReporte = (typeof SIIGO_ESTADOS_REPORTE)[number];
 
 export const SIIGO_ESTADO_REPORTE_ETIQUETA: Record<SiigoEstadoReporte, string> = {
   no_enviado: 'Sin enviar',
+  // «En cola» y no «Enviado»: lo que se envió fue la orden, no la factura. Rotularlo «Enviado»
+  // haría creer que hay un documento ante la DIAN cuando todavía no ha salido ni una petición.
+  encolado: 'En cola',
   en_proceso: 'En proceso',
   emitido: 'Emitida',
   aceptado: 'Aceptada por la DIAN',
