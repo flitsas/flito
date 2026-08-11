@@ -1,6 +1,6 @@
 ---
 name: flit-code-review
-description: Revisión estructurada de un diff antes de abrir el PR en el monorepo FLITO. Aplica el checklist del repo (patrón routes/service, imports .js, 4 estados de UI, guardas de permiso, tests con salida real, git status limpio), detecta archivos colados y escala a security-agent cuando el diff toca superficie sensible (auth, PII, multer, rutas nuevas, shared-types). Emite veredicto OK / OK-CON-OBSERVACIONES / BLOQUEADO. Triggers code review, revisa el diff, revisión antes del PR, flit-code-review.
+description: Revisión estructurada de un diff antes de abrir el PR en el monorepo FLITO. Aplica el checklist del repo (patrón routes/service, imports .js, 4 estados de UI, guardas de permiso, tests con salida real, git status limpio), detecta archivos colados y escala a security-agent (superficie sensible) y a db-review-agent (schema.ts / migrations). Emite veredicto OK / OK-CON-OBSERVACIONES / BLOQUEADO. Triggers code review, revisa el diff, revisión antes del PR, flit-code-review.
 ---
 
 # flit-code-review — revisión de diff pre-PR
@@ -33,7 +33,7 @@ description: Revisión estructurada de un diff antes de abrir el PR en el monore
 - [ ] Imports relativos con extensión `.js`.
 - [ ] Sin SQL concatenado: query builder de Drizzle o `sql` parametrizado.
 - [ ] Rutas nuevas con `authMiddleware` (+ `requireRole` si aplica) y montadas en `src/app.ts`.
-- [ ] Migraciones nuevas generadas con `npm run db:generate`, sin editar migraciones anteriores.
+- [ ] Migraciones nuevas: SQL plano a mano en `apps/api/src/db/migrations/` (nunca `drizzle-kit generate`/`migrate`; no editar migraciones ya aplicadas).
 - [ ] Sin credenciales/hosts hardcodeados (`process.env` / `src/config`).
 - [ ] Si tocó `packages/shared-types`: `grep` de usos en `apps/web` realizado.
 
@@ -58,6 +58,16 @@ Invocar `security-agent` sobre el diff cuando toque **cualquiera** de:
 
 Si el diff no toca nada de eso, declararlo explícitamente ("superficie sensible: no aplica") — nunca omitir el paso en silencio.
 
+### 5. Escalado a esquema BD (bloqueante)
+
+Invocar `db-review-agent` cuando el diff toque **cualquiera** de:
+
+- `apps/api/src/db/schema.ts`
+- `apps/api/src/db/migrations/*.sql` (alta o cambio de migración)
+
+Si no toca esquema ni migraciones, declarar "db-review: no aplica". Hallazgos críticos del
+`db-review-agent` → veredicto **BLOQUEADO** hasta corrección vía `backend-agent`.
+
 ## Veredicto
 
 ```
@@ -71,11 +81,13 @@ Observaciones (no bloquean)
 - …
 
 Seguridad: [escalado a security-agent: veredicto | no aplica — por qué]
+Esquema: [escalado a db-review-agent: veredicto | no aplica — por qué]
 
 Veredicto: OK | OK-CON-OBSERVACIONES | BLOQUEADO
 ```
 
-- **BLOQUEADO** si hay ≥1 hallazgo bloqueante o si falta salida real de tests → corregir y re-revisar. El PR no se abre.
+- **BLOQUEADO** si hay ≥1 hallazgo bloqueante, falta salida real de tests, o un escalado
+  security/db-review quedó en FAIL/crítico → corregir y re-revisar. El PR no se abre.
 - **OK-CON-OBSERVACIONES**: el PR puede abrirse; las observaciones van en el cuerpo del PR.
 - **OK**: limpio.
 

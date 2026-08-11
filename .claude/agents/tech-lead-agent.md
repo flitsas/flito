@@ -107,7 +107,7 @@ Soy un subagente: **no puedo llamar a otros subagentes**. Cierro con:
 HANDOFF
   Modo: A|B|C|D
   Resultado: <Feature redactado | N HUs | veredicto DoR/DoD | informe>
-  Siguiente: [architecture-agent para diseño | backend-agent/frontend-agent por HU]
+  Siguiente: [architecture-agent si no trivial | ux-agent si UI nueva | backend-agent/frontend-agent por HU | flit-modo-desarrollo-auto si Feature completo]
   Pendiente humano: <aprobaciones y publicaciones en ADO>
 ```
 

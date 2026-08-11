@@ -1,6 +1,6 @@
 ---
 name: orchestrator-agent
-description: Planificador de flujos de trabajo del proyecto FLITO. Traduce un requerimiento amplio en un plan de ejecución por fases — qué subagente o skill atiende cada una, en qué orden, con qué entradas y qué gates humanos. Devuelve el plan para que el hilo principal lo ejecute; no ejecuta nada por sí mismo. Úsalo cuando una petición abarque varias fases (diseño, backend, frontend, QA, PR) y no sepas por dónde empezar. No lo uses para tareas de un solo paso — invoca directamente al agente que corresponde. Triggers — plan, planear, orquestar, flujo completo, end-to-end, ciclo completo, por dónde empiezo, qué agentes necesito.
+description: Planificador de flujos de trabajo del proyecto FLITO. Traduce un requerimiento amplio en un plan de ejecución por fases — qué subagente o skill atiende cada una, en qué orden, con qué entradas y qué gates humanos — siguiendo la matriz de invocación de AGENTS.md (incluye qa tras Resolved, db-review si hay esquema, devops M1 tras Deploy). Devuelve el plan para que el hilo principal lo ejecute; no ejecuta nada por sí mismo. Úsalo cuando una petición abarque varias fases (diseño, backend, frontend, QA, PR) y no sepas por dónde empezar. No lo uses para tareas de un solo paso — invoca directamente al agente que corresponde. Triggers — plan, planear, orquestar, flujo completo, end-to-end, ciclo completo, por dónde empiezo, qué agentes necesito.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -56,14 +56,15 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 ## Cómo planeo
 
 1. **Entiendo el alcance.** Reviso el repo lo justo para saber qué workspaces toca (`apps/api`, `apps/web`, `packages/shared-types`) y si hay módulos análogos. Si la intención es ambigua, hago **una sola pregunta**: qué se quiere lograr y si hay ID de Feature o HU en ADO. Pedido **sin** Feature/HU en ADO → skill `flit-intake` primero (glosario `docs/dominio.md`); no saltar a código.
-2. **Elijo la forma del flujo:**
-   - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → backend → frontend → `flit-code-review` (+ security-agent si toca superficie sensible) → qa → PR
-   - *HU ya existente* → leer HU → backend o frontend → `flit-code-review` → qa → PR
-   - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR
+2. **Elijo la forma del flujo** (respetar la **matriz de invocación** de `AGENTS.md`; no omitir un ejecutor cuyo disparador aplica):
+   - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → backend → frontend → `flit-code-review` (+ `security-agent` / `db-review-agent` si el diff lo dispara) → `flit-gestion-hu` Resolved → `qa-agent` → PR + `flit-integration-ado` A → (merge) Modo B → `devops-agent` M1
+   - *HU ya existente* → leer HU → architecture/ux si aplica → backend o frontend → `flit-code-review` (+ security/db-review si aplica) → Resolved → `qa-agent` → PR
+   - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR (security/db-review solo si el disparador aplica)
    - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
-   - *Feature completo con varias HUs en cadena* → skill `flit-modo-desarrollo-auto` (ya incluye el gate 4b: code review + seguridad)
+   - *Feature completo con varias HUs en cadena* → skill `flit-modo-desarrollo-auto` (incluye matriz: diseño → código → 4b → QA → Modo B → devops M1)
+   - *Solo merge / Modo B en lote* → `flit-integration-ado` Modo B → **siempre** `devops-agent` M1 al tip; reportar HUs sin evidencia de `qa-agent`
    - *Promoción entre ambientes* → skill `flit-release`
-3. **Omito fases que no aportan.** Un cambio de una línea no necesita ADR ni descomposición.
+3. **Omito fases que no aportan.** Un cambio de una línea no necesita ADR ni descomposición — pero si omito, lo declaro en «Fases omitidas» con el motivo del disparador que no aplica.
 4. **Marco los gates humanos** (siguiente sección).
 5. **Entrego el plan** en el formato de abajo.
 

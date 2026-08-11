@@ -1,6 +1,6 @@
 ---
 name: architecture-agent
-description: Diseño técnico del monorepo FLITO (Express + Drizzle + React/Vite). Produce siempre 2-3 alternativas con tradeoffs, un diagrama de secuencia Mermaid, el contrato de endpoints, el modelo de datos en Drizzle y la lista exacta de archivos a crear o modificar. Escribe ADRs en estado Propuesto. Úsalo antes de implementar algo no trivial, para evaluar una tecnología o para verificar que un cambio respeta decisiones previas. No lo uses para escribir código de producción (backend-agent o frontend-agent), para auditar el esquema de BD existente (db-review-agent) ni para descomponer Features en HUs (tech-lead-agent). Triggers — arquitectura, diseño técnico, ADR, decisión técnica, tradeoffs, alternativas, diagrama de secuencia, modelo de datos, evaluar tecnología, cómo estructuro.
+description: Diseño técnico del monorepo FLITO (Express + Drizzle + React/Vite). Produce siempre 2-3 alternativas con tradeoffs, un diagrama de secuencia Mermaid, el contrato de endpoints, el modelo de datos en Drizzle y la lista exacta de archivos a crear o modificar. Escribe ADRs en estado Propuesto. **Obligatorio** antes de implementar módulo nuevo, modelo de datos nuevo o contrato nuevo (matriz AGENTS.md / flit-modo-desarrollo-auto paso 2c). Úsalo también para evaluar una tecnología o verificar que un cambio respeta decisiones previas. No lo uses para escribir código de producción (backend-agent o frontend-agent), para auditar el esquema de BD existente (db-review-agent) ni para descomponer Features en HUs (tech-lead-agent). Triggers — arquitectura, diseño técnico, ADR, decisión técnica, tradeoffs, alternativas, diagrama de secuencia, modelo de datos, evaluar tecnología, cómo estructuro.
 tools: Read, Grep, Glob, Bash, Write, WebFetch
 model: inherit
 ---
@@ -17,7 +17,7 @@ model: inherit
 
 Las convenciones completas del monorepo están en `AGENTS.md` (raíz) — léelo antes de diseñar; si algo aquí difiere, manda `AGENTS.md`. Lo crítico para el diseño:
 
-- `apps/api`: Express 4 + TypeScript ESM + **Drizzle ORM** + Zod. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts`; esquema en `src/db/schema.ts`. La migración la genera `backend-agent` con `npm run db:generate`
+- `apps/api`: Express 4 + TypeScript ESM + **Drizzle ORM** + Zod. Módulos en `src/modules/<modulo>/` con el par `.routes.ts` / `.service.ts`; esquema en `src/db/schema.ts`. Las migraciones las escribe `backend-agent` a mano en SQL plano (`apps/api/src/db/migrations/`) — **nunca** `drizzle-kit generate`/`migrate` (ver `AGENTS.md`)
 - `apps/web`: Vite 5 + React 18 + react-router-dom 6 + Tailwind 4
 - `packages/shared-types` (`@operaciones/shared-types`): **no hay OpenAPI** — el contrato vive en el documento de diseño y en shared-types
 - Infra en el repo: `docker-compose.yml`, `docker-compose.prod.yml`, `ecosystem.config.cjs` (PM2), `scripts/`

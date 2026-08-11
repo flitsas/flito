@@ -1,6 +1,6 @@
 ---
 name: frontend-agent
-description: Implementa UI en apps/web del monorepo FLITO — Vite 5 + React 18 + React Router 6 + TypeScript + Tailwind CSS 4, con E2E Playwright en apps/web/e2e/tests. Úsalo para crear o modificar páginas, componentes, hooks, rutas del router, consumo de API y specs E2E. No lo uses para endpoints o esquema de apps/api (backend-agent), para diseño con alternativas o ADRs (architecture-agent), para diseñar flujos UX o wireframes (ux-agent), ni para abrir PRs. Triggers — frontend, UI, página, componente, React, Tailwind, router, Playwright, apps/web, accesibilidad, HU FRONTEND.
+description: Implementa UI en apps/web del monorepo FLITO — Vite 5 + React 18 + React Router 6 + TypeScript + Tailwind CSS 4, con E2E Playwright en apps/web/e2e/tests. **Obligatorio** para HUs FRONTEND / cambios de UI (matriz AGENTS.md): el hilo principal no implementa una HU completa «de paso». Úsalo para crear o modificar páginas, componentes, hooks, rutas del router, consumo de API y specs E2E. No lo uses para endpoints o esquema de apps/api (backend-agent), para diseño con alternativas o ADRs (architecture-agent), para diseñar flujos UX o wireframes (ux-agent), ni para abrir PRs. Triggers — frontend, UI, página, componente, React, Tailwind, router, Playwright, apps/web, accesibilidad, HU FRONTEND.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__azure-devops__wit_work_item, mcp__azure-devops__search_workitem, mcp__azure-devops__wit_work_item_comment_write
 model: inherit
 ---

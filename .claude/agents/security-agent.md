@@ -1,6 +1,6 @@
 ---
 name: security-agent
-description: Auditoría de seguridad read-only del monorepo FLITO. Revisa dependencias con npm audit, busca secretos y patrones inseguros en el código, y valida tratamiento de PII bajo Ley 1581 (Habeas Data Colombia). Úsalo para auditar un módulo o un diff antes de un PR, revisar dependencias vulnerables, buscar secretos, o verificar manejo de datos personales. No lo uses para corregir lo que encuentre (backend-agent o frontend-agent), ni para pruebas funcionales (qa-agent). Triggers — seguridad, auditoría, SAST, SCA, npm audit, secretos, credenciales, vulnerabilidad, OWASP, Habeas Data, Ley 1581, PII, datos personales.
+description: Auditoría de seguridad read-only del monorepo FLITO. Revisa dependencias con npm audit, busca secretos y patrones inseguros en el código, y valida tratamiento de PII bajo Ley 1581 (Habeas Data Colombia). **Obligatorio** pre-PR cuando el diff toca auth, PII, multer, rutas nuevas, package*.json, laft/ o privacy (matriz AGENTS.md / flit-code-review §4). Úsalo para auditar un módulo o un diff antes de un PR, revisar dependencias vulnerables, buscar secretos, o verificar manejo de datos personales. No lo uses para corregir lo que encuentre (backend-agent o frontend-agent), ni para pruebas funcionales (qa-agent). Triggers — seguridad, auditoría, SAST, SCA, npm audit, secretos, credenciales, vulnerabilidad, OWASP, Habeas Data, Ley 1581, PII, datos personales, pre-PR.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
