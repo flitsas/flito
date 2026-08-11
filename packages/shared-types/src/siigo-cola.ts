@@ -169,6 +169,53 @@ export const SIIGO_RESULTADOS_ENVIO_ENCOLADO: readonly SiigoResultadoEnvio[] = [
   'encolado', 'reactivado',
 ];
 
+/**
+ * Cómo se llama cada desenlace en pantalla (HU #11329).
+ *
+ * Vive aquí, junto al catálogo y no en la pantalla, por la misma razón que `SIIGO_COLA_ESTADO_ETIQUETA`
+ * y `SIIGO_ESTADO_REPORTE_ETIQUETA`: un catálogo y su texto no se separan en dos paquetes, o el día
+ * que se añada un desenlace habrá uno de los dos que no se entere.
+ *
+ * Al ser `Record<SiigoResultadoEnvio, string>`, añadir mañana un resultado a `SIIGO_RESULTADOS_ENVIO`
+ * **no compila** hasta que alguien le escriba su texto — que es justo el aviso que hace falta: un
+ * desenlace sin rótulo se pintaría como `undefined` en el diálogo de resultados.
+ */
+export const SIIGO_RESULTADO_ENVIO_ETIQUETA: Record<SiigoResultadoEnvio, string> = {
+  encolado: 'En cola para emitir',
+  reactivado: 'Reactivados',
+  ya_en_cola: 'Ya estaba en cola',
+  ya_enviado: 'Ya se había enviado',
+  fallido_definitivo: 'Dados por perdidos',
+  no_elegible: 'No se puede facturar todavía',
+  error: 'No se pudo encolar',
+};
+
+/**
+ * Qué significa cada desenlace, en una línea bajo su encabezado.
+ *
+ * **`error` y `no_elegible` no dicen lo mismo, y por eso no se explican igual**: el primero es que
+ * algo se rompió al registrar el envío —se reintenta— y el segundo, que el servidor lo revisó y
+ * todavía no procede —reintentar devolvería lo mismo—. Distinguirlos solo por color dejaría fuera a
+ * quien no distingue rojo de gris; el texto es el que carga con la diferencia.
+ *
+ * `ya_en_cola` y `ya_enviado` son el AC6 escrito: quien acaba de pulsar dos veces y teme haber
+ * facturado dos veces necesita leer, con esas palabras, que no se duplicó nada.
+ */
+export const SIIGO_RESULTADO_ENVIO_EXPLICACION: Record<SiigoResultadoEnvio, string> = {
+  encolado: 'La factura sale sola en los próximos minutos. No hay que volver a pulsar.',
+  reactivado: 'Estaban dados por perdidos y volvieron a la cola. Se reintentan desde ya.',
+  ya_en_cola: 'Ya se habían enviado y siguen esperando su turno. No se pidieron dos veces.',
+  ya_enviado: 'Su factura ya salió a Siigo. El estado va en la columna «Factura DIAN».',
+  fallido_definitivo:
+    'Se intentaron varias veces y ya no se reintentan solos. Hay que pedirlo a mano.',
+  no_elegible:
+    'El servidor los revisó y todavía no cumplen. No se reintenta: hay que resolver el motivo '
+    + 'primero.',
+  error:
+    'No es un rechazo: algo falló al registrar el envío de estos trámites. Los demás sí entraron. '
+    + 'Se puede reintentar.',
+};
+
 /** Qué pasó con un trámite del envío. */
 export interface SiigoEnvioTramite {
   tramiteId: string;

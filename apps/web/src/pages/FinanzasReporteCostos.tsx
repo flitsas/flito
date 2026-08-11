@@ -2,9 +2,10 @@
 // liquidado, o un ESTIMADO en vivo si no. La distinción se pinta, porque un estimado puede cambiar
 // mañana y un sellado no. Rol `financiera` (+ admin/auditor, este último en solo lectura).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
@@ -14,8 +15,15 @@ import VisorSoportes from '../components/flit/VisorSoportes';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import CeldaFacturacion from '../components/finanzas/CeldaFacturacion';
 import FichaFacturacion from '../components/finanzas/FichaFacturacion';
+import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
+import AccionEnviarFactura from '../components/finanzas/AccionEnviarFactura';
+import DialogoEnvioFacturacion, { type TramiteDelEnvio } from '../components/finanzas/DialogoEnvioFacturacion';
+import { useElegibilidadFacturacion } from '../components/finanzas/useElegibilidadFacturacion';
 import type { FacturacionTramite, ResumenFacturacion } from '../components/finanzas/tiposFacturacion';
-import { puedeEjecutar, type SiigoEstadoReporte } from '@operaciones/shared-types';
+import {
+  puedeEjecutar,
+  type MotivoElegibilidad, type SiigoEnvioTramite, type SiigoEstadoReporte, type SiigoResumenEnvio,
+} from '@operaciones/shared-types';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, flitInp, FlitPillGroup, flitPillBtn,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -38,6 +46,15 @@ interface Fila {
   autogestionados: string[];
   /** Los que no aplican por el organismo, no por la compañía. Hoy solo el impuesto. */
   noAplican: string[];
+  /**
+   * Facturación electrónica de la fila. **El servidor ya las mandaba** (`FilaReporte extends
+   * FacturacionDeFila`) y esta interfaz no las declaraba, así que la columna «Factura DIAN» solo
+   * podía apoyarse en el mapa de fichas —que por diseño únicamente devuelve trámites CON factura— y
+   * un trámite recién encolado se seguía pintando «—» (HU #11329).
+   */
+  estadoFacturacion: SiigoEstadoReporte;
+  facturaNumero: string | null;
+  facturaRequiereRevision: boolean;
 }
 interface Totales {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
@@ -158,6 +175,11 @@ export default function FinanzasReporteCostos() {
   // Auditoría observa la conciliación; no la ejecuta.
   const puedeLiquidar = user?.role === 'admin' || user?.role === 'financiera';
   const puedeReversar = user?.role === 'admin';
+  // LA MISMA tabla que usa el servidor para decidir el 403 (HU #11329), no `puedeLiquidar`: hoy
+  // resuelven a la misma lista, pero son dos definiciones de cosas distintas, y el día que
+  // `ROLES_POR_ACCION.emitir` cambie la pantalla ofrecería un botón que el servidor rechaza.
+  const puedeEmitir = puedeEjecutar(user?.role, 'emitir');
+  const puedeReactivar = puedeEjecutar(user?.role, 'reactivar');
 
   const [data, setData] = useState<Reporte | null>(null);
   const [facetas, setFacetas] = useState<Facetas | null>(null);
@@ -177,6 +199,20 @@ export default function FinanzasReporteCostos() {
   const [fichasFe, setFichasFe] = useState<Map<string, FacturacionTramite>>(new Map());
   const [estadoFe, setEstadoFe] = useState<SiigoEstadoReporte | null>(null);
   const [fichaAbierta, setFichaAbierta] = useState<{ ficha: FacturacionTramite; idFlit: string } | null>(null);
+
+  // Envío a facturación electrónica (HU #11329).
+  const [envio, setEnvio] = useState<{
+    tramites: TramiteDelEnvio[]; excluidos: (TramiteDelEnvio & { motivos: MotivoElegibilidad[] })[];
+  } | null>(null);
+  /**
+   * El parche local del AC5: en cuanto llega el 202, las filas encoladas se pintan «En cola» sin
+   * recargar. No es una regla inventada — es el mismo valor que `EXPR_ENCOLADO` devolverá en la
+   * siguiente carga— y se vacía cuando llegan datos nuevos, que son los que mandan.
+   */
+  const [parcheFe, setParcheFe] = useState<Map<string, SiigoEstadoReporte>>(new Map());
+  /** Lo que salva a quien cerró el diálogo sin leerlo. */
+  const [anuncio, setAnuncio] = useState('');
+  const tarjetaEnvioRef = useRef<HTMLHeadingElement>(null);
 
   const [buscar, setBuscar] = useState('');
   const [empresa, setEmpresa] = useState('');
@@ -228,7 +264,11 @@ export default function FinanzasReporteCostos() {
     setError(null);
     const p = params();
     p.set('page', String(page));
-    api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`).then(setData).catch((e) => setError(errorMessage(e)));
+    api.get<Reporte>(`/finanzas/reporte-costos?${p.toString()}`)
+      // El parche local se descarta con los datos nuevos: mandan los del servidor. Si la recarga
+      // falla, el parche sobrevive — el servidor ya había afirmado que quedó encolado.
+      .then((r) => { setData(r); setParcheFe(new Map()); })
+      .catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta, estadosKey, docCompleta, estadoFe, page, recarga]);
 
@@ -271,7 +311,83 @@ export default function FinanzasReporteCostos() {
   // Es la misma condición que exige el backend al sellar: si aquí faltara una, el botón se ofrecería
   // activo para fallar al pulsarlo.
   const liquidable = (f: Fila) => !f.sellada && faltantes(f).length === 0;
-  const liquidables = filas.filter(liquidable);
+
+  // ── Envío a facturación electrónica (HU #11329) ───────────────────────────
+
+  const estadoFeDe = (f: Fila) => parcheFe.get(f.tramiteId) ?? f.estadoFacturacion;
+  /**
+   * Sobre quién tiene sentido PREGUNTAR. No decide elegibilidad —eso solo lo dice el servidor—:
+   * decide el universo al que la acción aplica.
+   *
+   * `estadoLiquidacion === 'facturado'` es literalmente la misma columna que lee `motivosLocales()`
+   * en el servidor, no una regla paralela que se le parezca. `encolado` se descuenta aparte y solo
+   * él: es el único estado en el que hay trabajo en marcha y el servidor seguiría diciendo
+   * «elegible», así que ofrecer el botón invitaría a pulsar sobre algo que ya está en curso — que es
+   * justo lo que el AC6 evita. Los demás estados siguen pasando por el veredicto del servidor, que
+   * los rechaza con su motivo (`ya_facturado`) cuando hay factura viva.
+   */
+  const esCandidato = (f: Fila) => f.estadoLiquidacion === 'facturado' && estadoFeDe(f) !== 'encolado';
+  const candidatos = filas.filter(esCandidato);
+
+  // La MISMA clave de invalidación que el reporte: cambiar de filtro, de página o recargar vacía
+  // los veredictos guardados.
+  const claveVista = [buscar, empresa, tipo, etapa, desde, hasta, aprobadoDesde, aprobadoHasta,
+    estadosKey, docCompleta, estadoFe, page, recarga].join('|');
+  const elegibilidad = useElegibilidadFacturacion(
+    candidatos.map((f) => f.tramiteId), puedeEmitir, claveVista);
+
+  const esElegible = (f: Fila) => elegibilidad.veredictos.get(f.tramiteId)?.elegible === true;
+  /** Lo accionable de la página: lo liquidable y lo que puede irse a facturación. */
+  const accionable = (f: Fila) => liquidable(f) || (puedeEmitir && esCandidato(f));
+  const accionables = filas.filter(accionable);
+  const seleccionados = filas.filter((f) => seleccion.has(f.tramiteId));
+  /**
+   * Los dos conjuntos son **disjuntos por construcción**: `liquidable` exige `!sellada` y ser
+   * candidato exige `estadoLiquidacion === 'facturado'`, que implica `sellada`. Ninguna fila cuenta
+   * en los dos números, y por eso una sola selección puede servir a dos acciones sin ambigüedad.
+   */
+  const liquidablesSel = seleccionados.filter(liquidable);
+  const enviablesSel = seleccionados.filter((f) => esCandidato(f) && esElegible(f));
+  const enviablesPagina = candidatos.filter(esElegible);
+  const conSeleccion = puedeEmitir && enviablesSel.length > 0;
+
+  const deEnvio = (f: Fila): TramiteDelEnvio => ({ tramiteId: f.tramiteId, idFlit: f.idFlit });
+
+  /** Abre el diálogo con los elegibles del conjunto y, plegado, el porqué de los que se quedan. */
+  const abrirEnvio = (conjunto: Fila[]) => setEnvio({
+    tramites: conjunto.filter(esElegible).map(deEnvio),
+    excluidos: conjunto.filter((f) => !esElegible(f)).map((f) => ({
+      ...deEnvio(f), motivos: elegibilidad.veredictos.get(f.tramiteId)?.motivos ?? [],
+    })),
+  });
+
+  const marcarEncolados = (items: SiigoEnvioTramite[]) => setParcheFe((m) => {
+    const n = new Map(m);
+    // `ya_en_cola` también: lo estaban ya, y la fila lo estaba pintando mal.
+    for (const i of items) {
+      if (i.resultado === 'encolado' || i.resultado === 'reactivado' || i.resultado === 'ya_en_cola') {
+        n.set(i.tramiteId, 'encolado');
+      }
+    }
+    return n;
+  });
+
+  const cerrarEnvio = (resumen: SiigoResumenEnvio | null) => {
+    const enviados = envio?.tramites.map((t) => t.tramiteId) ?? [];
+    setEnvio(null);
+    if (resumen) {
+      setAnuncio(`${resumen.encolados} trámite(s) quedaron en cola. ${resumen.rechazados} no se pudieron enviar.`);
+      setSeleccion((s) => new Set([...s].filter((id) => !enviados.includes(id))));
+      // «Sin recargar» es sin `window.location.reload`: la tabla se repinta con datos nuevos.
+      refrescar();
+    }
+    // `useFocusTrap` devuelve el foco al disparador; si esa fila ya no existe —se fue a «En cola»
+    // con el filtro «Por facturar» puesto—, `focus()` sobre un nodo desmontado deja el foco en
+    // `<body>`. Se rescata al encabezado de la tarjeta de envío.
+    setTimeout(() => {
+      if (document.activeElement === document.body) tarjetaEnvioRef.current?.focus();
+    }, 0);
+  };
 
   const ejecutar = async (fn: () => Promise<string>) => {
     setEnProceso(true); setError(null); setAviso(null);
@@ -285,9 +401,12 @@ export default function FinanzasReporteCostos() {
     return `${f.idFlit} liquidado.`;
   });
 
+  // Solo los LIQUIDABLES de la selección, no `[...seleccion]` entero. Desde que la casilla también
+  // se pinta en los trámites `facturado` (HU #11329), mandar la selección completa enviaría a
+  // liquidar cosas ya selladas — que el backend rechaza, y con razón.
   const liquidarLote = () => ejecutar(async () => {
     const r = await api.post<{ liquidados: string[]; fallidos: { motivo: string }[] }>(
-      '/flito/liquidacion/lote/liquidar', { tramiteIds: [...seleccion] });
+      '/flito/liquidacion/lote/liquidar', { tramiteIds: liquidablesSel.map((f) => f.tramiteId) });
     return `${r.liquidados.length} liquidados, ${r.fallidos.length} sin liquidar.`;
   });
 
@@ -406,17 +525,53 @@ export default function FinanzasReporteCostos() {
         </FlitCard>
       )}
 
+      {/* La barra dice cuántos de los seleccionados sirven para cada acción ANTES de pulsar nada
+          (AC3): con dos acciones sobre una misma selección, «14 seleccionados» a secas no dice
+          cuántos van a moverse. */}
       {puedeLiquidar && seleccion.size > 0 && (
         <FlitCard>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm font-semibold">{seleccion.size} seleccionado(s)</span>
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={liquidarLote}>
-              {enProceso ? 'Liquidando…' : 'Liquidar seleccionados'}
+            <span className="text-sm font-semibold">
+              {seleccion.size} seleccionado(s) · {liquidablesSel.length} se pueden liquidar
+              {puedeEmitir && ` · ${enviablesSel.length} se pueden enviar a facturación electrónica`}
+            </span>
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              disabled={enProceso || liquidablesSel.length === 0} onClick={liquidarLote}>
+              {enProceso ? 'Liquidando…' : `Liquidar ${liquidablesSel.length}`}
             </button>
+            {conSeleccion && (
+              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                onClick={() => abrirEnvio(seleccionados.filter(esCandidato))}>
+                Enviar {enviablesSel.length} a facturación electrónica
+              </button>
+            )}
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setSeleccion(new Set())}>Quitar selección</button>
           </div>
         </FlitCard>
       )}
+
+      {/* La tarjeta de envío NO se monta para quien no puede emitir: al `auditor` el estado ya se lo
+          dan los contadores, la columna y la ficha; esto es el envoltorio de la acción. */}
+      {puedeEmitir && filas.length > 0 && (
+        <TarjetaEnvioFacturacion
+          cargando={elegibilidad.cargando}
+          error={elegibilidad.error}
+          onReintentar={elegibilidad.reintentar}
+          filas={filas.length}
+          candidatos={candidatos.length}
+          resumen={elegibilidad.resumen}
+          elegibles={conSeleccion ? enviablesSel.length : enviablesPagina.length}
+          universo={conSeleccion ? seleccion.size : candidatos.length}
+          deLaSeleccion={conSeleccion}
+          onEnviar={() => abrirEnvio(conSeleccion ? seleccionados.filter(esCandidato) : candidatos)}
+          onVerPorFacturar={() => setEtapa('por_facturar')}
+          puedeVerConfiguracion={hasPage(user, 'siigo_parametrizacion')}
+          tituloRef={tarjetaEnvioRef}
+        />
+      )}
+
+      {/* Lo que salva a quien cerró el diálogo sin leerlo. */}
+      <p className="sr-only" role="status" aria-live="polite">{anuncio}</p>
 
       {data && filas.length === 0 && <FlitCard><FlitEmpty>No hay trámites que coincidan con los filtros.</FlitEmpty></FlitCard>}
 
@@ -429,9 +584,11 @@ export default function FinanzasReporteCostos() {
                 <FlitTr>
                   {puedeLiquidar && (
                     <FlitTh>
-                      <input type="checkbox" aria-label="Seleccionar liquidables"
-                        checked={liquidables.length > 0 && liquidables.every((f) => seleccion.has(f.tramiteId))}
-                        onChange={(e) => setSeleccion(e.target.checked ? new Set(liquidables.map((f) => f.tramiteId)) : new Set())} />
+                      {/* Selecciona TODO lo accionable de la página, no solo lo liquidable: desde
+                          la HU #11329 hay dos acciones sobre la selección. */}
+                      <input type="checkbox" aria-label="Seleccionar los trámites con acciones de esta página"
+                        checked={accionables.length > 0 && accionables.every((f) => seleccion.has(f.tramiteId))}
+                        onChange={(e) => setSeleccion(e.target.checked ? new Set(accionables.map((f) => f.tramiteId)) : new Set())} />
                     </FlitTh>
                   )}
                   {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
@@ -452,7 +609,9 @@ export default function FinanzasReporteCostos() {
                   <FlitTr key={f.tramiteId}>
                     {puedeLiquidar && (
                       <td className="px-3 py-2">
-                        {liquidable(f) && (
+                        {/* Sin casilla en las filas sobre las que no hay ninguna acción. No es un
+                            hueco: es que ahí no hay nada que marcar. */}
+                        {accionable(f) && (
                           <input type="checkbox" aria-label={`Seleccionar ${f.idFlit}`}
                             checked={seleccion.has(f.tramiteId)}
                             onChange={() => setSeleccion((s) => {
@@ -484,13 +643,21 @@ export default function FinanzasReporteCostos() {
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.gmf} /></td>
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
                     <td className="px-3 py-2 text-center">
-                      <CeldaFacturacion ficha={fichasFe.get(f.tramiteId)}
+                      <CeldaFacturacion ficha={fichasFe.get(f.tramiteId)} estadoFila={estadoFeDe(f)}
                         onAbrir={(ficha) => setFichaAbierta({ ficha, idFlit: f.idFlit })} />
                     </td>
                     <td className="px-3 py-2">
                       <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
                         onLiquidar={() => liquidarUno(f)} onFacturar={() => facturarUno(f)}
-                        onReversar={(m) => reversarUno(f, m)} onSoportes={() => setSoportesDe(f)} />
+                        onReversar={(m) => reversarUno(f, m)} onSoportes={() => setSoportesDe(f)}
+                        // Va al final de la celda: el orden de foco es Soporte → Enviar → ¿Por qué
+                        // no?, la acción antes que su explicación.
+                        accionEnvio={puedeEmitir && esCandidato(f) && (
+                          <AccionEnviarFactura tramiteId={f.tramiteId} idFlit={f.idFlit}
+                            veredicto={elegibilidad.veredictos.get(f.tramiteId)}
+                            cargando={elegibilidad.cargando} error={elegibilidad.error !== null}
+                            onReintentar={elegibilidad.reintentar} onEnviar={() => abrirEnvio([f])} />
+                        )} />
                     </td>
                   </FlitTr>
                 ))}
@@ -539,6 +706,17 @@ export default function FinanzasReporteCostos() {
       {soportesDe && (
         <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
           onClose={() => setSoportesDe(null)} />
+      )}
+
+      {envio && envio.tramites.length > 0 && (
+        <DialogoEnvioFacturacion
+          tramites={envio.tramites}
+          excluidos={envio.excluidos}
+          puedeReactivar={puedeReactivar}
+          idFlitDe={(id) => filas.find((f) => f.tramiteId === id)?.idFlit ?? id}
+          onEncolados={marcarEncolados}
+          onCerrar={cerrarEnvio}
+        />
       )}
     </div>
   );
@@ -592,9 +770,11 @@ function FiltroEstados({ opciones, seleccion, onCambio }: {
   );
 }
 
-function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, onFacturar, onReversar, onSoportes }: {
+function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, onFacturar, onReversar, onSoportes, accionEnvio }: {
   fila: Fila; puedeLiquidar: boolean; puedeReversar: boolean; enProceso: boolean;
   onLiquidar: () => void; onFacturar: () => void; onReversar: (motivo: string) => void; onSoportes: () => void;
+  /** La acción de facturación electrónica, cuando aplica a esta fila (HU #11329). */
+  accionEnvio?: ReactNode;
 }) {
   const [reversando, setReversando] = useState(false);
   const [motivo, setMotivo] = useState('');
@@ -633,6 +813,10 @@ function Acciones({ fila, puedeLiquidar, puedeReversar, enProceso, onLiquidar, o
           <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setReversando(true)}>Reversar</button>
         )
       )}
+
+      {/* «Facturar» y «Enviar a facturación» NUNCA coinciden en la misma fila: el primero solo se
+          pinta con `liquidado` y el segundo solo con `facturado`. */}
+      {accionEnvio}
     </div>
   );
 }
