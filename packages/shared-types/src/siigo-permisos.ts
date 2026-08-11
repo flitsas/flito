@@ -43,6 +43,19 @@ const LECTURA: readonly UserRole[] = ['admin', 'financiera', 'auditor'];
 /**
  * Escritura sin auditoría. `auditor` mira y no toca: es la misma línea que ya trazan
  * `flito-liquidacion.routes.ts` y `finanzas.routes.ts`.
+ *
+ * **ESTA es la constante única de «quién puede emitir» (HU #11328, AC6.)** La historia pedía crear
+ * un `ROLES_EMISION_FE` en `permissions.ts` y **no se creó a propósito**: sería una SEGUNDA
+ * definición de lo mismo, y el AC6 pide exactamente lo contrario —una sola—. `ROLES_POR_ACCION.emitir`
+ * ya resuelve a `['admin', 'financiera']`, que es literalmente la guarda `ESCRITURA` de
+ * `POST /flito/liquidacion/:tramiteId/facturar`, el botón del que la emisión es el paso siguiente.
+ * La herencia que pedía el AC ya estaba hecha; lo que faltaba era dejarlo escrito. Hay una prueba
+ * que compara esta lista con `ROLES_LIQUIDACION_ESCRITURA` —la del propio botón de facturar, que
+ * `flito-liquidacion.routes.ts` exporta para eso— y falla si alguien separa las dos.
+ *
+ * La pregunta 16 («¿quién emite: financiera, admin o ambos?») sigue abierta, y responderla es editar
+ * esta línea y nada más — que es justo lo que el AC6 exige. Crear la constante paralela habría
+ * obligado a editar dos, con la garantía de que un día se editaría solo una.
  */
 const OPERACION: readonly UserRole[] = ['admin', 'financiera'];
 

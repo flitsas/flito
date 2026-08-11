@@ -62,6 +62,9 @@ export interface ResumenEnvios {
  */
 export const TONO_ESTADO: Record<SiigoEstadoReporte, 'neutro' | 'espera' | 'exito' | 'alerta'> = {
   no_enviado: 'neutro',
+  // `encolado` comparte el tono de espera con `en_proceso` (HU #11328): los dos significan «va en
+  // camino, no hagas nada». Lo que los separa —si ya existe documento— lo dice la etiqueta.
+  encolado: 'espera',
   en_proceso: 'espera',
   emitido: 'espera',
   aceptado: 'exito',

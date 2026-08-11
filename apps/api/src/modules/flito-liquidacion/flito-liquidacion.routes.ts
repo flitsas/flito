@@ -15,7 +15,18 @@ const router = Router();
 router.use(authMiddleware);
 
 const LECTURA = requireRole('admin', 'financiera', 'auditor');
-const ESCRITURA = requireRole('admin', 'financiera');
+
+/**
+ * Quién puede liquidar y facturar.
+ *
+ * Se exporta la LISTA, no solo el middleware, porque la emisión electrónica (HU #11328) hereda de
+ * aquí: facturar es el botón, emitir ante la DIAN es el paso siguiente, y no tendría sentido que
+ * quien no puede lo primero pudiera lo segundo. Con la lista exportada, una prueba comprueba que
+ * `ROLES_POR_ACCION.emitir` sigue coincidiendo con esta; sin ella, cambiar una y no la otra no
+ * rompería nada y las dos definiciones se separarían en silencio.
+ */
+export const ROLES_LIQUIDACION_ESCRITURA = ['admin', 'financiera'] as const;
+const ESCRITURA = requireRole(...ROLES_LIQUIDACION_ESCRITURA);
 // Deshacer un sellado es más delicado que hacerlo: solo administración.
 const REVERSO = requireRole('admin');
 

@@ -21,6 +21,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import {
   SIIGO_ESTADOS_REPORTE,
+  esEstadoReporte,
   type SiigoEstadoReporte,
   type SiigoResumenReporte,
 } from '@operaciones/shared-types';
@@ -58,8 +59,7 @@ import { flitoTramites } from '../../db/schema.js';
  * subconsulta siempre hay una. El caso de un trámite sin ninguna fila lo resuelve el `COALESCE` de
  * abajo, que es donde de verdad ocurre.)
  */
-export const EXPR_ESTADO_FACTURACION: SQL<string> = sql<string>`(
-  SELECT CASE
+const CASO_ESTADO_FACTURA: SQL = sql`CASE
     WHEN sf.estado = 'fallida'      THEN 'fallido'
     WHEN sf.estado = 'en_proceso'   THEN 'en_proceso'
     WHEN dian.estado = 'aceptada'   THEN 'aceptado'
@@ -68,36 +68,164 @@ export const EXPR_ESTADO_FACTURACION: SQL<string> = sql<string>`(
     -- 'en_validacion' y la ausencia de pronunciamiento caen aquí: la factura salió y la DIAN
     -- todavía no ha dicho nada definitivo.
     ELSE 'emitido'
-  END
-  FROM siigo_factura_tramites sft
-  JOIN siigo_facturas sf ON sf.id = sft.factura_id
+  END`;
+
+/**
+ * La factura que MANDA para un trámite, proyectando lo que se le pida.
+ *
+ * Existe como función y no como subconsultas copiadas porque «cuál de las facturas de este trámite
+ * es la que cuenta» tiene una sola respuesta —la del `WHERE` y el `ORDER BY`— y el día que se ajuste
+ * tiene que ajustarse para todos los que preguntan. Con dos copias, el estado vendría de una factura
+ * y el número que se muestra al lado, de otra: una fila del reporte diciendo «Emitida» con el número
+ * del intento anterior es peor que no mostrar número.
+ *
+ * El estado ante la DIAN se pide APARTE y no siempre: solo lo necesita el `CASE` del estado. Dejarlo
+ * fijo añadiría a cada proyección un acceso al historial que esa proyección no lee —200 por página,
+ * y a expensas de que el planificador se dé cuenta—. Lo que no puede variar entre llamadas es qué
+ * factura se elige, y eso vive aquí; de dónde saca cada una sus columnas, sí.
+ */
+function deLaFacturaQueManda(proyeccion: SQL, conEstadoDian = false): SQL {
+  const dian = conEstadoDian ? sql`
   LEFT JOIN LATERAL (
     SELECT estado
       FROM siigo_factura_estados_dian d
      WHERE d.factura_id = sf.id
      ORDER BY d.secuencia DESC
      LIMIT 1
-  ) dian ON true
+  ) dian ON true` : sql.empty();
+
+  return sql`(
+  SELECT ${proyeccion}
+  FROM siigo_factura_tramites sft
+  JOIN siigo_facturas sf ON sf.id = sft.factura_id${dian}
   WHERE sft.tramite_id = ${flitoTramites.id}
     AND (sft.activo OR sf.estado = 'fallida')
   ORDER BY sft.activo DESC, sf.created_at DESC
   LIMIT 1
 )`;
+}
+
+export const EXPR_ESTADO_FACTURACION: SQL<string> =
+  sql<string>`${deLaFacturaQueManda(CASO_ESTADO_FACTURA, true)}`;
 
 /**
- * Lo mismo, pero contemplando que el trámite no tenga NINGUNA fila en la tabla puente.
+ * ¿Hay trabajo en la cola para este trámite y todavía no ha salido nada? (HU #11328).
  *
- * La subconsulta de arriba devuelve `NULL` —no `'no_enviado'`— cuando no hay ni enlace, porque un
- * `SELECT` sin filas no ejecuta su `CASE`. Sin este `COALESCE`, un trámite al que nunca se le pidió
- * factura no encajaría en ningún grupo y la suma de los contadores no cuadraría con el total, que
- * es justo lo que el AC1 exige comprobar.
+ * Sin esto, un trámite recién encolado se pintaba `no_enviado`: exactamente igual que uno al que
+ * nadie ha tocado. Mientras nada en el repositorio podía encolar, la distinción no existía; desde
+ * que la ruta de esta historia lo permite, decir «Sin enviar» sobre algo que está en cola es una
+ * afirmación falsa en una pantalla de control, y lleva a volver a pulsar sobre lo que ya está en
+ * marcha.
+ *
+ * **Solo `pendiente` y `error`**, que son los dos estados con los que el trabajador vuelve a
+ * mirarla. `enviado` no hace falta —hay factura, y la subconsulta de arriba manda—, y
+ * `fallido_definitivo` se deja fuera a propósito: se sale del alcance de esta historia y tocaría
+ * decidir si un lote dado por perdido SIN ninguna factura debe contarse como `fallido`, que es una
+ * pregunta con consecuencias en la bandeja de fallidos (HU #11340).
+ *
+ * **No filtra por ambiente**, igual que la subconsulta de facturas: el despliegue tiene un solo
+ * `SIIGO_AMBIENTE` y el reporte no recibe ninguno, así que filtrar aquí y no allá sería incoherente
+ * —y para hacerlo en los dos sitios habría que meter configuración dentro de una expresión SQL
+ * compartida—. Si algún día conviven ambientes en la misma base, se cambian las dos a la vez.
+ */
+const EXPR_ENCOLADO: SQL<string> = sql<string>`(
+  SELECT 'encolado'::text
+    FROM siigo_cola_facturacion c
+    JOIN siigo_lote_tramites lt ON lt.lote_id = c.lote_id
+   WHERE lt.tramite_id = ${flitoTramites.id}
+     AND c.estado IN ('pendiente', 'error')
+   LIMIT 1
+)`;
+
+/**
+ * La escalera completa: la factura manda, después la cola, y al final «nunca se pidió».
+ *
+ * **El orden ES la regla, no una preferencia de escritura.** La factura va primero porque cualquier
+ * cosa que ya haya pasado con el documento —que falló, que está en curso, que la DIAN se pronunció—
+ * es más específica que «hay algo en cola»: una fila de cola en `error` acompaña a una factura
+ * `fallida`, y ahí lo que hay que enseñar es el fallo, no que se reintentará. Poner `encolado`
+ * delante taparía `fallido`, que es justo el estado sobre el que alguien tiene que actuar.
+ *
+ * El `COALESCE` de dos tramos existe porque cada subconsulta devuelve `NULL` —no una cadena— cuando
+ * no encuentra filas: un `SELECT` sin filas no ejecuta su `CASE`. Sin el último tramo, un trámite
+ * al que nunca se le pidió factura no encajaría en ningún grupo y la suma de los contadores no
+ * cuadraría con el total, que es lo que el AC1 de la HU #11336 exige comprobar.
  */
 export const EXPR_ESTADO_FACTURACION_COMPLETA: SQL<string> =
-  sql<string>`COALESCE(${EXPR_ESTADO_FACTURACION}, 'no_enviado')`;
+  sql<string>`COALESCE(${EXPR_ESTADO_FACTURACION}, ${EXPR_ENCOLADO}, 'no_enviado')`;
 
 /** Condición para filtrar por estado (AC2). Se compone con las demás, no las sustituye. */
 export function condicionEstadoFacturacion(estado: SiigoEstadoReporte): SQL {
   return sql`${EXPR_ESTADO_FACTURACION_COMPLETA} = ${estado}`;
+}
+
+// ── Lo que cada fila del reporte lleva de su factura (HU #11328, AC4) ───────
+
+/** Lo que el reporte añade a cada fila sobre su factura electrónica. */
+export interface FacturacionDeFila {
+  /** El punto del ciclo en que está. Nunca `null`: un trámite sin factura es `no_enviado`. */
+  estadoFacturacion: SiigoEstadoReporte;
+  /** El número del documento, cuando ya lo hay. `null` mientras no exista factura o no tenga número. */
+  facturaNumero: string | null;
+  /**
+   * Marca APARTE del estado: una factura emitida cuyo total no cuadra con la liquidación SIGUE
+   * emitida —el documento existe ante la DIAN— y además necesita que alguien la mire. Como estado
+   * se habría perdido la primera mitad, y quien concilia el cierre necesita las dos.
+   */
+  facturaRequiereRevision: boolean;
+}
+
+/**
+ * Las columnas de facturación electrónica de una fila, **en la MISMA consulta** que el resto (AC4).
+ *
+ * Se resuelve con subconsultas correlacionadas y no con una llamada por fila: la página pinta hasta
+ * 200 trámites, y preguntar por cada uno serían 200 consultas para dibujar una tabla. Tampoco con
+ * joins, por la razón que ya explica `EXPR_ESTADO_FACTURACION`: un trámite puede tener varias
+ * facturas y el `count(distinct)` que hoy cuadra los totales dejaría de cuadrar sin que nada avise.
+ *
+ * Son DOS subconsultas y no una sola que devuelva las tres cosas, a propósito. El estado se proyecta
+ * con **la misma expresión** que filtra y que alimenta los contadores: si se leyera de un `jsonb`
+ * armado aparte, la celda de la fila y el filtro serían dos definiciones del mismo estado, y el día
+ * que una cambiara la tabla mostraría un estado que el filtro no encuentra. El precio es un índice
+ * más por fila; el de la alternativa es que la pantalla mienta.
+ */
+export const SELECT_FACTURACION_ELECTRONICA = {
+  estadoFacturacion: sql<string>`${EXPR_ESTADO_FACTURACION_COMPLETA}`,
+  // `jsonb` y no dos subconsultas más: los dos datos salen de LA MISMA factura —la que manda—, y
+  // pedirlos por separado abriría la puerta a que cada uno viniera de una distinta.
+  facturaDatos: sql<unknown>`${deLaFacturaQueManda(
+    sql`jsonb_build_object('numero', sf.numero, 'requiereRevision', sf.requiere_revision)`,
+  )}`,
+} as const;
+
+/**
+ * Traduce esas dos columnas a la fila del reporte.
+ *
+ * Un estado que no esté en el catálogo cae a `no_enviado` en vez de viajar en crudo: el tipo dice
+ * `SiigoEstadoReporte` y la pantalla indexa con él un `Record` de etiquetas, así que un valor
+ * inesperado pintaría `undefined` en una celda. La expresión SQL solo produce valores del catálogo,
+ * de modo que esto es un cinturón sobre tirantes — y el sitio donde se notaría si dejara de serlo.
+ */
+export function facturacionDeFila(r: Record<string, unknown>): FacturacionDeFila {
+  const estado = String(r.estadoFacturacion ?? '');
+  const datos = objeto(r.facturaDatos);
+  return {
+    estadoFacturacion: esEstadoReporte(estado) ? estado : 'no_enviado',
+    facturaNumero: typeof datos.numero === 'string' && datos.numero !== '' ? datos.numero : null,
+    facturaRequiereRevision: datos.requiereRevision === true,
+  };
+}
+
+/** El `jsonb` como objeto, venga ya parseado por el driver o como texto. */
+function objeto(v: unknown): Record<string, unknown> {
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
+  if (typeof v === 'string') {
+    try {
+      const p: unknown = JSON.parse(v);
+      if (p && typeof p === 'object' && !Array.isArray(p)) return p as Record<string, unknown>;
+    } catch { /* un jsonb ilegible es «no hay factura», no un 500 en mitad del reporte. */ }
+  }
+  return {};
 }
 
 /** Un resumen con todos los estados a cero. El punto de partida, para que ninguno falte. */
