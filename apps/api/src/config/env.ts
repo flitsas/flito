@@ -100,6 +100,12 @@ const envSchema = z.object({
   // correcto depende del volumen de cada instalación: la cuota de 100/min es de la EMPRESA y la
   // comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
   SIIGO_DIAN_SONDEO_LOTE: z.coerce.number().int().min(1).max(200).optional(),
+  // Cuántas filas de la cola procesa cada ciclo del trabajador de emisión (HU #11327).
+  // El defecto (15) sale de una cuenta, no de un gusto: peor caso ≈ 6 peticiones por fila (los 4
+  // intentos de `ejecutarConResiliencia` más el margen del tercero) ≈ 90 < las 100 por minuto que
+  // permite Siigo, y el ciclo corre cada 2 min > la ventana de 60 s. El tope de 60 es el punto en
+  // que un ciclo empezaría a hacer dormir al limitador y a comerse la cuota del sondeo DIAN.
+  SIIGO_COLA_LOTE: z.coerce.number().int().min(1).max(60).optional(),
   SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
   SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
   // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa

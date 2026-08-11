@@ -803,6 +803,39 @@ describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
     expect(loEscrito()).not.toHaveProperty('estado');
   });
 
+  it('lo permanente NO cuenta como fallo del servicio: frenaría la facturación entera', async () => {
+    // El bloqueante que encontró la auditoría de la HU #11327 al enganchar el barrido a un cron.
+    // `error_tecnico` cuenta en el numerador Y en el denominador del freno; `error_negocio` queda
+    // fuera de los dos. Una huérfana con impedimento permanente —compañía sin tercero, identificación
+    // anonimizada por un derecho de supresión— vuelve cada media hora y produce ~48 registros al día
+    // SIN una sola petición a la red. Bastaba una factura atascada y un fin de semana flojo para que
+    // el freno saltara y la empresa dejara de facturar por algo que no tiene que ver con Siigo.
+    huerfana();
+    kdb.execute.mockResolvedValue([{ id_flit: 'FLIT-9001', identificacion: null, sucursal: null }]);
+
+    await reconciliarFactura(FACTURA, { ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15 });
+
+    expect(registrarOperacionMock).toHaveBeenCalledWith(expect.objectContaining({
+      operacion: 'factura_reconciliar',
+      codigo: 'reconciliacion_indeterminada',
+      resultado: 'error_negocio',
+    }));
+  });
+
+  it('lo transitorio SÍ cuenta: un corte de red sí habla de la salud de Siigo', async () => {
+    // La otra mitad de la misma regla. Si se excluyera todo, el freno dejaría de ver los fallos de
+    // reconciliación que sí son del servicio, que es justo lo que existe para detectar.
+    huerfana();
+    siigoRequestOrThrowMock.mockRejectedValueOnce(new Error('ECONNRESET'));
+
+    await reconciliarFactura(FACTURA, { ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15 });
+
+    expect(registrarOperacionMock).toHaveBeenCalledWith(expect.objectContaining({
+      operacion: 'factura_reconciliar',
+      resultado: 'error_tecnico',
+    }));
+  });
+
   it('lo transitorio NO se marca para revisión, solo descansa', async () => {
     huerfana();
     siigoRequestOrThrowMock.mockRejectedValueOnce(new Error('ECONNRESET'));

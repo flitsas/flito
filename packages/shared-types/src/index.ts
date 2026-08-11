@@ -91,3 +91,5 @@ export * from './siigo-correccion.js';
 export * from './siigo-envio.js';
 // Archivo del PDF y el XML de la factura como soporte del trámite (Feature #11243).
 export * from './siigo-archivo.js';
+// Cola de emisión: qué queda por facturar y cuándo le toca. Eje APARTE del estado del documento.
+export * from './siigo-cola.js';

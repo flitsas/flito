@@ -105,6 +105,57 @@ describe('circuitBreaker — half-open tras RESET_MS=60s', () => {
   });
 });
 
+// HU #11327 — preguntar por el circuito ANTES de empezar un trabajo que se sabe que va a rebotar.
+//
+// El caso que lo motiva es caro: `emitirFactura` reserva la clave de idempotencia y solo entonces
+// llama a Siigo. Con el circuito abierto, la llamada muere con `CircuitoAbiertoError` —que NO es un
+// `SiigoApiError`—, así que el emisor no puede afirmar que Siigo la rechazara y deja la fila
+// `en_proceso`. Correctamente, pero el POST no salió nunca: una clave reservada ocupando su trámite
+// ~45 minutos por una petición que no se hizo.
+describe('circuitoAbierto — consulta pura del estado', () => {
+  it('un circuito que nunca falló no está abierto', async () => {
+    const { circuitoAbierto } = await import('../../src/services/circuitBreaker.js');
+    expect(circuitoAbierto('cb-consulta-virgen')).toBe(false);
+  });
+
+  it('dice que sí en cuanto el circuito se abre', async () => {
+    const { circuitoAbierto, withCircuitBreaker } = await import('../../src/services/circuitBreaker.js');
+    const fn = vi.fn().mockRejectedValue(new Error('down'));
+    for (let i = 0; i < 5; i++) {
+      await expect(withCircuitBreaker('cb-consulta-1', fn)).rejects.toThrow();
+    }
+    expect(circuitoAbierto('cb-consulta-1')).toBe(true);
+  });
+
+  it('respeta el medio abierto: pasado RESET_MS deja probar otra vez', async () => {
+    // Decir «abierto» aquí impediría la llamada de prueba con la que el circuito se cierra, y el
+    // circuito no volvería a cerrarse nunca.
+    const { circuitoAbierto, withCircuitBreaker } = await import('../../src/services/circuitBreaker.js');
+    const fn = vi.fn().mockRejectedValue(new Error('down'));
+    for (let i = 0; i < 5; i++) {
+      await expect(withCircuitBreaker('cb-consulta-2', fn)).rejects.toThrow();
+    }
+    expect(circuitoAbierto('cb-consulta-2')).toBe(true);
+
+    vi.setSystemTime(Date.now() + 61_000);
+    expect(circuitoAbierto('cb-consulta-2')).toBe(false);
+  });
+
+  it('NO muta el estado: preguntar no reabre ni cierra nada', async () => {
+    // Quien decide reabrir es la llamada real. Si la consulta tocara el estado, un diagnóstico que
+    // preguntara por el circuito estaría cambiando lo que mide.
+    const { circuitoAbierto, withCircuitBreaker } = await import('../../src/services/circuitBreaker.js');
+    const fn = vi.fn().mockRejectedValue(new Error('down'));
+    for (let i = 0; i < 5; i++) {
+      await expect(withCircuitBreaker('cb-consulta-3', fn)).rejects.toThrow();
+    }
+    for (let i = 0; i < 10; i++) expect(circuitoAbierto('cb-consulta-3')).toBe(true);
+    // Sigue rechazando sin invocar: las diez consultas no le devolvieron ningún crédito.
+    await expect(withCircuitBreaker('cb-consulta-3', fn)).rejects.toThrow(/temporalmente/);
+    expect(fn).toHaveBeenCalledTimes(5);
+  });
+});
+
 describe('circuitBreaker — circuitos independientes por nombre', () => {
   it('falla en circuito A no afecta circuito B', async () => {
     const { withCircuitBreaker } = await import('../../src/services/circuitBreaker.js');

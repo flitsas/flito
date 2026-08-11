@@ -86,16 +86,29 @@ export const OPERACION_SONDEO_DIAN = 'dian_sondeo_estado';
 export const OPERACION_MOTIVO_RECHAZO = 'dian_motivo_rechazo';
 
 /**
+ * Poner un lote en la cola de emisión (HU #11327). **No sale a la red, así que no se mide.**
+ *
+ * Encolar es un INSERT y nada más: la petición contra Siigo la hace después el trabajador, y ese sí
+ * se mide como lo que es. Contar el encolado inflaría el DENOMINADOR con operaciones que jamás
+ * pudieron fallar por culpa de Siigo, y un denominador inflado debilita el freno exactamente igual
+ * que contar los errores de datos: mil encolados sanos y cien emisiones caídas darían un 9 % y la
+ * integración seguiría insistiendo con el servicio roto.
+ */
+export const OPERACION_ENCOLAR = 'factura_encolar';
+
+/**
  * Operaciones que no se miden.
  *
  * Las dos primeras son internas y nunca salieron a la red: excluirlas es lo que impide que el freno
  * se realimente —el rechazo se registra como `error_negocio`, y contarlo haría que un freno activo
  * produjera exactamente los errores que lo mantienen activo—, y la reactivación se registra como
  * `ok`, que diluiría la proporción justo después de levantarla, cuando más falta hace medir limpio.
- * La tercera se excluye por la razón de arriba: es seguimiento, no emisión.
+ * Las dos siguientes se excluyen por la razón de arriba: son seguimiento, no emisión. La última
+ * porque no sale a la red.
  */
 const OPERACIONES_INTERNAS = [
   OPERACION_FRENO, OPERACION_REACTIVACION, OPERACION_SONDEO_DIAN, OPERACION_MOTIVO_RECHAZO,
+  OPERACION_ENCOLAR,
 ] as const;
 
 /**

@@ -23,6 +23,28 @@ export class CircuitoAbiertoError extends Error {
   }
 }
 
+/**
+ * ¿Está abierto el circuito AHORA MISMO? Consulta pura: no toca el estado.
+ *
+ * Existe para poder decidir ANTES de empezar un trabajo que se sabe que va a rebotar. El caso que la
+ * motiva es concreto y caro: `emitirFactura` reserva la clave de idempotencia y solo entonces llama
+ * a Siigo. Con el circuito abierto, la llamada muere con `CircuitoAbiertoError` —que no es un
+ * `SiigoApiError`—, así que el emisor no puede afirmar que Siigo la rechazara y deja la fila
+ * `en_proceso`, que es lo correcto: no sabe si el POST salió. Pero el POST no salió nunca. Resultado:
+ * una factura reservada ocupando su trámite unos 45 minutos —lo que tarde el arrendamiento más el
+ * barrido— por una petición que jamás se hizo. Preguntar antes cuesta un `Map.get`.
+ *
+ * **Respeta el medio abierto.** Pasado `RESET_MS` desde el último fallo, `withCircuitBreaker` deja
+ * pasar la siguiente llamada para probar si el servicio volvió; decir «abierto» aquí impediría esa
+ * prueba y el circuito no se cerraría nunca. Y no muta nada: quien decide reabrir es la llamada real,
+ * no quien pregunta.
+ */
+export function circuitoAbierto(name: string): boolean {
+  const state = circuits.get(name);
+  if (!state || !state.open) return false;
+  return Date.now() - state.lastFailure <= RESET_MS;
+}
+
 export function withCircuitBreaker<T>(name: string, fn: () => Promise<T>): Promise<T> {
   const state = circuits.get(name) || { failures: 0, lastFailure: 0, open: false };
 

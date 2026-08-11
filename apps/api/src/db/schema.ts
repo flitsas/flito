@@ -3769,6 +3769,88 @@ export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
 }));
 
 /**
+ * Qué trámites contiene un lote (HU #11327, migración 0144).
+ *
+ * La huella del lote lo IDENTIFICA —sha256 del conjunto ordenado— pero no se puede invertir: sirve
+ * para reconocer «esto ya se encoló», no para saber qué hay dentro. Mientras el único que emitía era
+ * quien acababa de elegir los trámites daba igual; el trabajador de la cola toma una fila con un
+ * `loteId` y nada más, así que sin esta tabla no puede saber qué facturar.
+ *
+ * La pertenencia se guarda en el LOTE y no en la cola a propósito: la cola dice cuándo toca
+ * trabajar, el lote dice sobre qué. Duplicarla en la cola daría dos definiciones del mismo conjunto.
+ */
+export const siigoLoteTramites = pgTable('siigo_lote_tramites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  loteId: uuid('lote_id').notNull()
+    .references(() => siigoLotesFacturacion.id, { onDelete: 'cascade' }),
+  // RESTRICT explícito: un trámite que se encoló para facturar no se borra dejando el lote
+  // apuntando al vacío. El SQL ya lo dice; declararlo aquí evita que `schema.ts` y la migración
+  // discrepen, que es una deriva que este repo ya pagó una vez.
+  tramiteId: uuid('tramite_id').notNull()
+    .references(() => flitoTramites.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Idempotencia del alta: `asegurarLote` se repite en cada emisión y en cada encolado del mismo
+  // conjunto, y tiene que poder repetirse sin duplicar la pertenencia.
+  parUq: uniqueIndex('idx_siigo_lote_tramites_par').on(t.loteId, t.tramiteId),
+  tramiteIdx: index('idx_siigo_lote_tramites_tramite').on(t.tramiteId),
+}));
+
+/**
+ * La cola de emisión: qué queda por facturar y cuándo le toca (HU #11327, migración 0144).
+ *
+ * **Eje APARTE de `siigoFacturas`**, que responde «¿qué le pasó al documento?» y por eso no tiene ni
+ * puede tener un estado `pendiente`: su fila nace cuando se reserva la clave de idempotencia, y
+ * reservar la clave ya es estar en proceso. Lo que está pendiente es el trámite.
+ *
+ * **Lo que esta tabla NO garantiza.** No impide la doble factura —eso son la reserva de la clave, el
+ * índice de trámites vivos y el `Idempotency-Key`—: impide el TRABAJO duplicado, que dos instancias
+ * gasten cuota intentando lo mismo. Y lo impide con el arrendamiento, que no es un quinto estado
+ * sino una propiedad de la fila: al vencer vuelve a ser elegible sola, sin que nadie limpie nada
+ * detrás de un proceso caído.
+ */
+export const siigoColaFacturacion = pgTable('siigo_cola_facturacion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // RESTRICT: la fila de cola es el rastro de que alguien pidió facturar esto.
+  loteId: uuid('lote_id').notNull()
+    .references(() => siigoLotesFacturacion.id, { onDelete: 'restrict' }),
+  /** Denormalizado del lote: la sentencia que selecciona Y BLOQUEA no debe alcanzar a otra tabla. */
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  estado: varchar('estado', { length: 24 }).notNull().default('pendiente'),
+  /** Desenlaces de red: Siigo contestó y rechazó. Son los que gastan el techo. */
+  intentos: integer('intentos').notNull().default(0),
+  maxIntentos: integer('max_intentos').notNull().default(5),
+  /** Ciclos SIN desenlace. Techo propio: un Siigo lento no puede dar una factura por perdida. */
+  esperas: integer('esperas').notNull().default(0),
+  maxEsperas: integer('max_esperas').notNull().default(20),
+  /** NOT NULL: una fila sin cita deja de facturarse en silencio, sin que nadie reciba un error. */
+  proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }).notNull().defaultNow(),
+  ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
+  /** Arrendamiento, no estado. Las dos columnas van juntas o no van (lo afirma un CHECK). */
+  tomadoPor: varchar('tomado_por', { length: 120 }),
+  tomadoEn: timestamp('tomado_en', { withTimezone: true }),
+  /** La factura que produjo el trabajo. La cola la LEE del resultado; nunca escribe en facturas. */
+  facturaId: uuid('factura_id').references(() => siigoFacturas.id, { onDelete: 'restrict' }),
+  desenlace: varchar('desenlace', { length: 20 }),
+  errorCode: varchar('error_code', { length: 80 }),
+  errorDetalle: text('error_detalle'),
+  encoladoPor: integer('encolado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Reencolar el mismo conjunto NO crea una segunda fila, y lo garantiza el índice: entre un SELECT
+  // y un INSERT cabe otra petición.
+  loteUq: uniqueIndex('idx_siigo_cola_lote').on(t.loteId),
+  // La consulta del trabajador, exactamente. Parcial: lo terminado es la mayor parte de la tabla con
+  // el tiempo y no se vuelve a mirar nunca.
+  listaIdx: index('idx_siigo_cola_lista').on(t.ambiente, t.proximoIntentoAt, t.createdAt)
+    .where(sql`${t.estado} IN ('pendiente', 'error')`),
+  estadoIdx: index('idx_siigo_cola_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+  facturaIdx: index('idx_siigo_cola_factura').on(t.facturaId)
+    .where(sql`${t.facturaId} IS NOT NULL`),
+}));
+
+/**
  * Historial del estado ante la DIAN (HU #11330, Feature #11243).
  *
  * **Eje distinto del `estado` de `siigoFacturas`.** Aquel responde «¿consiguió FLITO emitirla?»;

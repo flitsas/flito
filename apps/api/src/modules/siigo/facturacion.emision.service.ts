@@ -35,9 +35,9 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { MotivoElegibilidad } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoLiquidaciones, flitoTramites, siigoFacturas, siigoFacturaTramites,
-  siigoLotesFacturacion, vehicles,
+  flitoLiquidaciones, flitoTramites, siigoFacturas, siigoFacturaTramites, vehicles,
 } from '../../db/schema.js';
+import { asegurarLote } from './facturacion.lote.repo.js';
 import { logger } from '../../shared/logger.js';
 import { siigoRequestOrThrow } from './siigo.client.js';
 import { ejecutarConResiliencia, SiigoOperacionFallida } from './siigo.resiliencia.js';
@@ -64,8 +64,9 @@ export const TIMEOUT_EMISION_MS = 120_000;
 
 export const OPERACION_EMISION = 'factura_emitir';
 
-/** La única estrategia de lote admitida hoy. Consolidar exige migración (D-1, diferida). */
-export const ESTRATEGIA_LOTE = 'por_tramite';
+// La estrategia de lote vive con el lote (`facturacion.lote.repo.ts`) desde que la cola también lo
+// crea. Se reexporta para que quien la importe desde aquí siga encontrándola.
+export { ESTRATEGIA_LOTE } from './facturacion.lote.repo.js';
 
 /**
  * Circuito propio de la emisión.
@@ -409,41 +410,7 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
   };
 }
 
-// ── El lote y la reserva ────────────────────────────────────────────────────
-
-/**
- * El lote del conjunto, creado o recuperado (AC1 de la HU del modelo).
- *
- * La identidad es el CONTENIDO, no un id nuevo: con un id aleatorio, dos encolados del mismo trámite
- * darían dos lotes, dos claves de idempotencia y dos facturas DIAN. El `ON CONFLICT` deja que lo
- * garantice el índice único, porque entre un SELECT y un INSERT cabe otra petición.
- */
-async function asegurarLote(
-  ambiente: SiigoAmbiente, huella: string, usuarioId: number | null,
-): Promise<string> {
-  const [creado] = await db.insert(siigoLotesFacturacion)
-    .values({ ambiente, estrategia: ESTRATEGIA_LOTE, huella, creadoPor: usuarioId })
-    .onConflictDoNothing({
-      target: [siigoLotesFacturacion.ambiente, siigoLotesFacturacion.estrategia, siigoLotesFacturacion.huella],
-    })
-    .returning({ id: siigoLotesFacturacion.id });
-  if (creado) return String(creado.id);
-
-  const [existente] = await db.select({ id: siigoLotesFacturacion.id })
-    .from(siigoLotesFacturacion)
-    .where(and(
-      eq(siigoLotesFacturacion.ambiente, ambiente),
-      eq(siigoLotesFacturacion.estrategia, ESTRATEGIA_LOTE),
-      eq(siigoLotesFacturacion.huella, huella),
-    ))
-    .limit(1);
-  if (!existente) {
-    // Solo puede pasar si alguien borró el lote entre el INSERT y el SELECT. No se inventa uno:
-    // seguir con un lote desconocido acabaría en una clave de idempotencia sin dueño.
-    throw new SiigoEmisionError('datos', 'El lote de facturación desapareció mientras se creaba.');
-  }
-  return String(existente.id);
-}
+// ── La reserva ──────────────────────────────────────────────────────────────
 
 /** Lo que se sabe de la fila reservada. Se lee entero porque el conflicto se resuelve por estado. */
 export interface FilaFacturaReservada {
@@ -906,7 +873,14 @@ export async function emitirFactura(
   });
 
   // ── AC1 — la reserva, y solo entonces la red ──────────────────────────────
-  const loteId = await asegurarLote(ambiente, preparacion.huella, usuarioId);
+  const loteId = await asegurarLote({
+    ambiente, huella: preparacion.huella, tramiteIds: ids, creadoPor: usuarioId,
+  });
+  if (!loteId) {
+    // Solo puede pasar si alguien borró el lote entre el INSERT y el SELECT. No se inventa uno:
+    // seguir con un lote desconocido acabaría en una clave de idempotencia sin dueño.
+    throw new SiigoEmisionError('datos', 'El lote de facturación desapareció mientras se creaba.');
+  }
   let fila = await reservarClave({
     loteId, ambiente, clave: preparacion.clave, tramites: preparacion.tramites, ahora,
   });
