@@ -57,6 +57,15 @@ export interface OpcionesSimulacion {
    * real no resolvería.
    */
   ambiente?: string;
+  /**
+   * Clave de idempotencia de la petición (HU #11326).
+   *
+   * Llega hasta aquí porque **Siigo la honra de verdad**: repetir la misma clave devuelve el
+   * comprobante ya creado en vez de duplicarlo. Un simulador que la ignorara crearía dos facturas
+   * ante un reintento y daría por bueno justo el escenario que toda la historia existe para impedir
+   * — sería más permisivo que el ambiente real, que es la peor clase de simulador.
+   */
+  idempotencyKey?: string;
 }
 
 /** Token simulado. Se distingue a simple vista de uno real para que nadie lo confunda en un log. */
@@ -84,7 +93,175 @@ function errorSimulado(): RespuestaSimulada {
 
 /** Consecutivo estable dentro del proceso: dos facturas simuladas no comparten número. */
 let consecutivo = 0;
-export function reiniciarConsecutivoSimulado(): void { consecutivo = 0; }
+
+/**
+ * Facturas que el simulador recuerda (HU #11326), por identificador y por clave de idempotencia.
+ *
+ * Hasta esta HU el simulador devolvía una factura FIJA que ignoraba el cuerpo: mismo total cero,
+ * mismo cliente, sin observaciones y sin memoria. Con eso no se podía ensayar nada de lo que esta
+ * historia decide — ni que un reintento con la misma clave no duplica, ni que el descuadre de total
+ * se marca, ni que la reconciliación encuentra por las observaciones lo que se emitió.
+ */
+const facturasSimuladas = new Map<string, Record<string, unknown>>();
+const facturasPorClave = new Map<string, string>();
+
+/** Tope efectivo del tamaño de página, como el ejemplo documentado de Siigo. Ver el listado. */
+export const PAGE_SIZE_MAX_SIMULADO = 25;
+
+export function reiniciarConsecutivoSimulado(): void {
+  consecutivo = 0;
+  facturasSimuladas.clear();
+  facturasPorClave.clear();
+}
+
+/** Error de datos con la forma exacta de Siigo, para poder ejercer el traductor de verdad. */
+function faltaCampo(campo: string): RespuestaSimulada {
+  return {
+    status: 400,
+    ok: false,
+    datos: {
+      Status: 400,
+      Errors: [{
+        Code: 'parameter_required',
+        Message: `The field ${campo} is required.`,
+        Params: [campo],
+        Detail: 'Respuesta generada por el modo simulado de FLITO.',
+      }],
+    },
+  };
+}
+
+function esObjeto(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Crea —o devuelve— una factura simulada.
+ *
+ * **Exige lo que Siigo exige.** Un simulador más permisivo que el ambiente real hace pasar en
+ * desarrollo justo el caso que revienta en producción, que es el único que interesa ensayar. Los
+ * obligatorios son los documentados en `docs/integraciones/siigo-api.md` §3.
+ *
+ * **Y honra la clave de idempotencia**, que es la razón de ser de esta HU: repetir la misma clave
+ * devuelve el comprobante ya creado, con un 200 en vez de un 201, tal como hace Siigo. Sin esto, el
+ * ensayo del reintento crearía dos facturas y diría que todo está bien.
+ */
+function crearFacturaSimulada(cuerpo: unknown, idempotencyKey?: string): RespuestaSimulada {
+  if (idempotencyKey) {
+    const yaCreada = facturasPorClave.get(idempotencyKey);
+    if (yaCreada) {
+      return { status: 200, ok: true, datos: facturasSimuladas.get(yaCreada)! };
+    }
+  }
+
+  if (!esObjeto(cuerpo)) return faltaCampo('document');
+
+  const documento = esObjeto(cuerpo.document) ? cuerpo.document : null;
+  if (!documento || typeof documento.id !== 'number') return faltaCampo('document.id');
+  if (typeof cuerpo.date !== 'string' || !cuerpo.date) return faltaCampo('date');
+
+  const cliente = esObjeto(cuerpo.customer) ? cuerpo.customer : null;
+  if (!cliente || typeof cliente.identification !== 'string' || !cliente.identification) {
+    return faltaCampo('customer.identification');
+  }
+  if (typeof cuerpo.seller !== 'number') return faltaCampo('seller');
+
+  const items = Array.isArray(cuerpo.items) ? cuerpo.items : [];
+  if (items.length === 0) return faltaCampo('items');
+  for (const it of items) {
+    if (!esObjeto(it) || typeof it.code !== 'string' || !it.code) return faltaCampo('items.code');
+    if (typeof it.quantity !== 'number') return faltaCampo('items.quantity');
+    if (typeof it.price !== 'number') return faltaCampo('items.price');
+  }
+
+  const pagos = Array.isArray(cuerpo.payments) ? cuerpo.payments : [];
+  if (pagos.length === 0) return faltaCampo('payments');
+
+  consecutivo += 1;
+  const id = `mock-invoice-${consecutivo}`;
+  // El total lo CALCULA, no lo copia del pago: es lo que permite que un descuadre entre lo que FLITO
+  // esperaba y lo que Siigo liquida se pueda ensayar (AC6). Devolver el valor enviado haría que
+  // cuadrara siempre y el camino de revisión no se probaría nunca.
+  const total = items.reduce((s: number, it: unknown) => {
+    const i = it as { price: number; quantity: number };
+    return s + i.price * i.quantity;
+  }, 0);
+
+  const factura: Record<string, unknown> = {
+    id,
+    document: { id: documento.id },
+    number: consecutivo,
+    name: `FV-1-${consecutivo}`,
+    date: cuerpo.date,
+    customer: {
+      identification: cliente.identification,
+      branch_office: typeof cliente.branch_office === 'number' ? cliente.branch_office : 0,
+    },
+    total,
+    balance: total,
+    seller: cuerpo.seller,
+    // Recién creada, la DIAN todavía no se ha pronunciado: `Audit` y sin CUFE. Devolver un CUFE aquí
+    // haría parecer aceptada una factura que todavía está en validación.
+    stamp: { send: cuerpo.stamp === undefined ? false : true, status: 'Audit' },
+    mail: { send: cuerpo.mail === true },
+    observations: typeof cuerpo.observations === 'string' ? cuerpo.observations : '',
+    items,
+    payments: pagos,
+    public_url: `https://documentview.siigo.com/document?data=${id}`,
+    metadata: { created: `${cuerpo.date}T00:00:00.000Z`, last_updated: null },
+  };
+
+  facturasSimuladas.set(id, factura);
+  if (idempotencyKey) facturasPorClave.set(idempotencyKey, id);
+  return { status: 201, ok: true, datos: factura };
+}
+
+/**
+ * Listado de facturas con los filtros que Siigo documenta (HU #11326).
+ *
+ * Es lo que usa la reconciliación para averiguar si la factura llegó a existir, así que un listado
+ * que siempre responde vacío —lo que hacía el simulador— convertía «no se pudo comprobar» en «no
+ * existe» sin que nada avisara. Ese es exactamente el camino que acaba emitiendo la segunda factura.
+ *
+ * Pagina de verdad porque el tope de páginas de la búsqueda es una salida no concluyente, y sin
+ * paginación real esa rama no se podría ensayar.
+ */
+function listarFacturasSimuladas(query: URLSearchParams): RespuestaSimulada {
+  const identificacion = query.get('customer_identification');
+  const sucursal = query.get('customer_branch_office');
+  const pagina = Math.max(1, Number(query.get('page') ?? '1') || 1);
+  // El tamaño de página lo decide el SERVIDOR, no quien pregunta. La documentación de Siigo muestra
+  // el listado respondiendo `page_size: 25` con `total_results: 253`, y no declara máximo. Este
+  // simulador topa en 25 a propósito: devolver siempre lo pedido hacía imposible ensayar el caso en
+  // que llegan menos de los que caben — que es justo donde un recorrido ingenuo se declara completo
+  // habiendo visto una fracción del listado, y concluye que una factura no existe.
+  const tam = Math.min(Math.max(1, Number(query.get('page_size') ?? '25') || 25), PAGE_SIZE_MAX_SIMULADO);
+
+  let todas = [...facturasSimuladas.values()];
+  if (identificacion) {
+    todas = todas.filter((f) => {
+      const c = f.customer as { identification?: unknown } | undefined;
+      return c?.identification === identificacion;
+    });
+  }
+  if (sucursal !== null) {
+    todas = todas.filter((f) => {
+      const c = f.customer as { branch_office?: unknown } | undefined;
+      return String(c?.branch_office ?? 0) === sucursal;
+    });
+  }
+
+  const inicio = (pagina - 1) * tam;
+  return {
+    status: 200,
+    ok: true,
+    datos: {
+      pagination: { page: pagina, page_size: tam, total_results: todas.length },
+      results: todas.slice(inicio, inicio + tam),
+      _links: {},
+    },
+  };
+}
 
 // ── Catálogos simulados (HU #11281) ─────────────────────────────────────────
 //
@@ -323,30 +500,9 @@ export function respuestaSimulada(
   if (tasaTimeout > 0 && aleatorio() < tasaTimeout) throw new SiigoMockTimeout();
   if (tasaError > 0 && aleatorio() < tasaError) return errorSimulado();
 
-  // Creación de factura de venta.
+  // Creación de factura de venta (HU #11326).
   if (metodo === 'POST' && /^\/v1\/invoices\/?$/.test(ruta)) {
-    consecutivo += 1;
-    return {
-      status: 201,
-      ok: true,
-      datos: {
-        id: `mock-invoice-${consecutivo}`,
-        document: { id: 24446 },
-        number: consecutivo,
-        name: `FV-1-${consecutivo}`,
-        date: '2026-08-04',
-        customer: { identification: '900123456', branch_office: 0 },
-        total: 0,
-        balance: 0,
-        seller: 629,
-        stamp: { send: true, status: 'Audit' },
-        mail: { send: false },
-        items: [],
-        payments: [],
-        public_url: `https://documentview.siigo.com/document?data=mock-${consecutivo}`,
-        metadata: { created: '2026-08-04T00:00:00.000Z', last_updated: null },
-      },
-    };
+    return crearFacturaSimulada(opciones.cuerpo, opciones.idempotencyKey);
   }
 
   // Envío por correo de una factura (HU #11334). Va también ANTES del listado genérico.
@@ -652,6 +808,14 @@ export function respuestaSimulada(
         public_url: `https://documentview.siigo.com/document?data=${id}`,
       },
     };
+  }
+
+  // Listado de facturas con filtros (HU #11326). Va ANTES del listado genérico, que responde vacío
+  // siempre — y un vacío falso aquí es lo que haría concluir a la reconciliación que la factura no
+  // existe cuando sí existe.
+  const listadoFacturas = /^\/v1\/invoices(?:\/)?(?:\?(.*))?$/.exec(ruta);
+  if (metodo === 'GET' && listadoFacturas) {
+    return listarFacturasSimuladas(new URLSearchParams(listadoFacturas[1] ?? ''));
   }
 
   // Listados: forma paginada documentada.

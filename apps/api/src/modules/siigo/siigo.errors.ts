@@ -681,7 +681,14 @@ export class SiigoApiError extends Error {
   get descripcionOperativa(): string {
     const { entrada } = buscarEntrada(this.code);
     if (this.params.length === 0) return entrada.descripcion;
-    const campos = recortar(this.params.join(', '), MAX_CAMPOS);
+    // `campoLegible` y no `params.join`, que era lo que había aquí. Los dos pintaban lo mismo y solo
+    // uno filtraba, así que la lista blanca de la HU #11333 protegía el motivo de rechazo y dejaba
+    // esta puerta abierta — y este texto acaba en `siigo_operaciones.mensaje`, que es WORM: lo que
+    // entra ahí no se puede rectificar ni suprimir. Siigo documenta que `Params` trae nombres de
+    // campo, pero nada lo garantiza, y el día que traiga un valor sería una identificación en una
+    // tabla donde los arts. 8.d y 8.e de la Ley 1581 ya no se pueden ejercer.
+    const campos = campoLegible(this.params);
+    if (!campos) return entrada.descripcion;
     return `${entrada.descripcion} Campo: ${campos}.`;
   }
 

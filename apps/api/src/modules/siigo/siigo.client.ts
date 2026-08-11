@@ -24,6 +24,18 @@ const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9]{1,30}$/;
 /** Timeout largo: Siigo recomienda 120 s o más en creación de comprobantes. */
 const TIMEOUT_POR_DEFECTO_MS = 120_000;
 
+/**
+ * La ruta sin su cadena de consulta, para poder nombrarla en un mensaje de error.
+ *
+ * Los filtros son lo único de una ruta que puede llevar datos de una persona, y los mensajes de
+ * error acaban en sitios de los que no se pueden borrar. El path solo dice qué endpoint falló, que
+ * es lo que hace falta para diagnosticar.
+ */
+export function rutaSinQuery(ruta: string): string {
+  const corte = ruta.indexOf('?');
+  return corte === -1 ? ruta : ruta.slice(0, corte);
+}
+
 export interface SiigoRequest {
   metodo: MetodoHttp;
   /** Ruta relativa, empezando por `/`. Ej.: `/v1/invoices`. */
@@ -79,7 +91,9 @@ export async function siigoRequest<T = unknown>(req: SiigoRequest): Promise<Siig
   if (enModoMock()) {
     // El cuerpo viaja al simulador: la creación de productos responde con el `code` y el `name`
     // que recibió, que es lo que permite ensayar la vinculación de extremo a extremo (HU #11286).
-    const simulada = respuestaSimulada(req.metodo, req.ruta, { cuerpo: req.cuerpo, ambiente });
+    const simulada = respuestaSimulada(req.metodo, req.ruta, {
+      cuerpo: req.cuerpo, ambiente, idempotencyKey: req.idempotencyKey,
+    });
     return { status: simulada.status, ok: simulada.ok, datos: simulada.datos as T };
   }
 
@@ -109,8 +123,14 @@ export async function siigoRequest<T = unknown>(req: SiigoRequest): Promise<Siig
 
     if (respuesta.status === 401) {
       throw new SiigoAuthError(
-        `Siigo rechazó la petición ${req.metodo} ${req.ruta} incluso con un token recién renovado. `
-        + 'Verifica las credenciales del ambiente en la administración de la integración.',
+        // `rutaSinQuery` y no `req.ruta`: la cadena de consulta lleva los filtros, y algunos de
+        // ellos son datos del titular —`customer_identification` es un NIT casi siempre y una
+        // CÉDULA cuando el cliente es persona natural—. Este mensaje viaja hasta
+        // `siigo_operaciones.mensaje`, que es WORM: lo que entra ahí no se puede rectificar ni
+        // suprimir, así que los derechos del art. 8 de la Ley 1581 dejarían de poder ejercerse.
+        // El path sin filtros dice lo mismo para diagnosticar: qué endpoint rechazó el token.
+        `Siigo rechazó la petición ${req.metodo} ${rutaSinQuery(req.ruta)} incluso con un token `
+        + 'recién renovado. Verifica las credenciales del ambiente en la administración de la integración.',
         401,
       );
     }

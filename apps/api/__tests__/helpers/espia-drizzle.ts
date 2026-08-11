@@ -13,6 +13,14 @@ import type { KeyedDb } from './keyed-db.js';
 export interface Mutacion {
   tabla: string;
   datos: Record<string, unknown>;
+  /**
+   * Valores enlazados del `where` de esta mutación.
+   *
+   * Sin esto, un UPDATE condicionado y uno sin condición son indistinguibles para el mock —que
+   * ignora el filtro y devuelve lo que el test registró—, así que un test podría afirmar que una
+   * carrera está resuelta cuando la condición que la resuelve ya no está en el código.
+   */
+  filtros: string[];
 }
 
 export interface EspiaDrizzle {
@@ -58,6 +66,15 @@ export function paramsDe(cond: unknown): string[] {
   return out;
 }
 
+/** Engancha el `where` de una mutación para dejar sus valores enlazados junto al payload. */
+function anotarWhere(chain: Record<string, unknown>, m: Mutacion): void {
+  const original = chain.where as (v: unknown) => unknown;
+  chain.where = (cond: unknown) => {
+    m.filtros.push(...paramsDe(cond));
+    return original(cond);
+  };
+}
+
 export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
   const inserts: Mutacion[] = [];
   const updates: Mutacion[] = [];
@@ -82,7 +99,9 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
       const c = insertBase(tbl);
       const original = c.values as (v: unknown) => unknown;
       c.values = (v: Record<string, unknown>) => {
-        inserts.push({ tabla: nombreTabla(tbl), datos: v });
+        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [] };
+        inserts.push(m);
+        anotarWhere(c, m);
         return original(v);
       };
       return c;
@@ -93,7 +112,9 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
       const c = updateBase(tbl);
       const original = c.set as (v: unknown) => unknown;
       c.set = (v: Record<string, unknown>) => {
-        updates.push({ tabla: nombreTabla(tbl), datos: v });
+        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [] };
+        updates.push(m);
+        anotarWhere(c, m);
         return original(v);
       };
       return c;

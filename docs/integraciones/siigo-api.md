@@ -299,6 +299,12 @@ donde cada factura trae su `status_code`, su `idempotency_key` y el detalle crea
 `created_start`, `created_end`, `updated_start`, `updated_end`, `date_start`, `date_end`,
 `name` (ej. `FV-003-457`), `customer_identification`, `customer_branch_office`, `document_id`.
 
+> **No hay filtro por `observations`.** Importa porque FLITO escribe ahí el identificador FLIT para
+> poder reconocer sus facturas, y es lo que la reconciliación de la HU #11326 necesita encontrar.
+> Al no poder filtrarlo en origen, esa búsqueda filtra por `customer_identification` más el rango de
+> fechas y **reconoce leyendo** las observaciones de cada resultado, paginando. De ahí que agotar el
+> tope de páginas sin encontrarla no signifique que no exista.
+
 ### Respuesta
 
 `id` (UUID), `document`, `number`, `name` (`FV-2-22`), `date`, `customer`, `cost_center`,

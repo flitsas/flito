@@ -20,6 +20,25 @@
 /** Sustituto de todo lo que vaya detrás de la primera marca de SQL. */
 export const MARCA_SQL_OMITIDO = '[consulta SQL omitida]';
 
+/** Sustituto del valor de un filtro que puede llevar datos del titular. */
+export const MARCA_FILTRO_OMITIDO = '[filtro omitido]';
+
+/**
+ * Filtros de una URL cuyo VALOR puede ser un dato personal.
+ *
+ * `customer_identification` es un NIT casi siempre y una **cédula** cuando el cliente es persona
+ * natural. Aparece en la cadena de consulta de las búsquedas contra Siigo, y basta con que un error
+ * mencione la ruta para que acabe en `siigo_operaciones.mensaje`, que prohíbe UPDATE y DELETE: una
+ * vez escrito, los derechos de rectificación y supresión (Ley 1581, art. 8 lit. d y e) ya no se
+ * pueden ejercer sobre él. Se recorta el valor y se conserva el nombre, que es lo que sirve para
+ * entender qué se estaba buscando.
+ */
+const FILTROS_CON_PII = /\b(customer_identification|identification|document|nit|cedula)=[^&\s"']*/gi;
+
+function redactarFiltrosDeRuta(mensaje: string): string {
+  return mensaje.replace(FILTROS_CON_PII, (_m, clave: string) => `${clave}=${MARCA_FILTRO_OMITIDO}`);
+}
+
 /**
  * Tope de longitud del mensaje. La columna es `text`, así que no lo impone la base: lo impone que
  * una bitácora inmutable no puede crecer sin límite por un error con un volcado dentro.
@@ -62,6 +81,8 @@ export function sanearMensaje(mensaje: string): string {
     const prefijo = mensaje.slice(0, corte).trimEnd();
     salida = prefijo.length > 0 ? `${prefijo} ${MARCA_SQL_OMITIDO}` : MARCA_SQL_OMITIDO;
   }
+
+  salida = redactarFiltrosDeRuta(salida);
 
   return salida.length > MAX_LONGITUD_MENSAJE
     ? `${salida.slice(0, MAX_LONGITUD_MENSAJE)}…`

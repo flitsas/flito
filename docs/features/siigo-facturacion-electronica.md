@@ -237,10 +237,26 @@ consulta a Siigo Nube, no con una decisión de nadie.
     que sin esta condición dos reintentos simultáneos sobre la misma fila `fallida` emiten **dos
     facturas DIAN** — justo la carrera que la restricción `UNIQUE` viene a evitar.
   - **`en_proceso` tiene arrendamiento, no es un estado terminal.** Una fila en `en_proceso` con
-    más de N minutos (parámetro de operación, sugerido 15) se considera huérfana —worker caído
-    entre la reserva y el `UPDATE`— y entra a la reconciliación descrita arriba, que la resuelve a
-    `emitida` si Siigo tiene la factura o a `fallida` si no. Sin esta regla, `en_proceso` bloquea
-    la clave indefinidamente: el mismo problema que se corrigió para `fallida`, mudado de estado.
+    más de N minutos (`siigo_config_emision.arrendamiento_en_proceso_min`, por defecto 15) se
+    considera huérfana —worker caído entre la reserva y el `UPDATE`— y entra a la reconciliación
+    descrita arriba, que la resuelve a `emitida` si Siigo tiene la factura o a `fallida` si no. Sin
+    esta regla, `en_proceso` bloquea la clave indefinidamente: el mismo problema que se corrigió
+    para `fallida`, mudado de estado.
+  - **La reconciliación NO busca por `observations`, porque ese filtro no existe** (corregido al
+    implementar la HU #11326). `GET /v1/invoices` solo filtra por fechas, `name`, `document_id`,
+    `customer_identification` y `customer_branch_office` (§3 de
+    [`docs/integraciones/siigo-api.md`](../integraciones/siigo-api.md)). Así que se filtra en Siigo
+    por el cliente y el rango de fechas, y la factura se **reconoce** leyendo las observaciones de
+    los resultados. El identificador FLIT sigue siendo la marca; lo que cambia es que el filtrado no
+    lo puede hacer Siigo.
+  - **La reconciliación tiene un tercer desenlace: `indeterminada`.** «No la encontré» y «no pude
+    comprobarlo» no son lo mismo, y confundirlos es una vía directa a la segunda factura: si un
+    error de red, un cuerpo ilegible, un tope de páginas o un tercero sin vincular se tradujeran a
+    «no existe», la fila pasaría a `fallida`, un reintento la reclamaría y emitiría de nuevo. Solo
+    se concluye que no existe cuando la búsqueda **terminó entera y con éxito**; en cualquier otro
+    caso la fila se deja **exactamente como estaba** y espera al siguiente barrido.
+  - **La reconciliación nunca emite.** Consulta, y escribe el resultado. Reintentar es
+    responsabilidad del camino normal, que pasa por la reserva.
 - Tabla puente `siigo_factura_tramites`: `factura_id` → `tramite_id` + `liquidacion_id`.
   **Es una relación N:1 desde el inicio** aunque hoy siempre tenga una sola fila por factura; es
   lo que permite habilitar la consolidación después sin migrar la tabla principal (D-1, §7).
