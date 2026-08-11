@@ -12,6 +12,9 @@ const FILA_ESTIMADA = {
   soat: 450000, impuesto: 120000, derechoTramite: 80000, logistica: 15000, tramiteDigital: 200000,
   gmf: 3460, total: 868460, sellada: false, estadoLiquidacion: null, noConfigurados: [], sinRecibo: [],
   pendientesPago: [], autogestionados: [], noAplican: [],
+  // El reporte manda estas tres columnas en cada fila (HU #11329): la celda «Factura DIAN» las usa
+  // para pintar «En cola» cuando todavía no existe ninguna factura.
+  estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -68,7 +71,8 @@ async function mockFacetas(page: import('@playwright/test').Page, estados: strin
  * que nadie eligió.
  */
 const RESUMEN_FE = {
-  no_enviado: 3, en_proceso: 1, emitido: 0, aceptado: 1, rechazado: 1, anulado: 0, fallido: 0, total: 6,
+  no_enviado: 3, encolado: 0, en_proceso: 1, emitido: 0, aceptado: 1, rechazado: 1, anulado: 0,
+  fallido: 0, total: 6,
 };
 
 const FICHA_ACEPTADA = {
@@ -85,6 +89,27 @@ const FICHA_RECHAZADA = {
   documentos: { pdf: false, xml: false },
 };
 
+/**
+ * Elegibilidad (HU #11329). Se mockea SIEMPRE, por la misma razón que los contadores: con un rol que
+ * puede emitir, la pantalla la consulta al abrirse en cuanto hay un trámite `facturado`, y dejarla
+ * sin ruta pintaría la tarjeta de envío en su estado de error — con un «Reintentar» de más que
+ * rompe las búsquedas por rol de los casos que ni la miran.
+ */
+async function mockElegibilidad(page: import('@playwright/test').Page) {
+  await page.route(/\/api\/siigo\/elegibilidad\/tramites/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      items: [{ tramiteId: FILA_FACTURADA.tramiteId, elegible: true, motivos: [] }],
+      resumen: {
+        total: 1, elegibles: 1, noElegibles: 0, anterioresAlCorte: 0,
+        porMotivo: {
+          liquidacion_no_facturada: 0, documentacion_incompleta: 0, anterior_al_corte: 0,
+          sin_compania: 0, tercero_sin_vincular: 0, cliente_no_facturable: 0,
+          compuerta_cerrada: 0, ya_facturado: 0,
+        },
+      },
+    }) }));
+}
+
 async function mockFacturacion(
   page: import('@playwright/test').Page,
   fichas = [FICHA_ACEPTADA, FICHA_RECHAZADA],
@@ -94,6 +119,7 @@ async function mockFacturacion(
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(resumen) }));
   await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: fichas }) }));
+  await mockElegibilidad(page);
 }
 
 async function mock(page: import('@playwright/test').Page) {
@@ -497,7 +523,9 @@ test.describe('Reporte de costos — facturación electrónica', () => {
     // El total se muestra para poder comprobar que los grupos cuadran. Un tablero cuyos grupos no
     // suman el total no se nota mirando los grupos: se nota tres semanas después, conciliando.
     await expect(page.getByText('6 trámite(s) en el filtro actual')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Rechazada por la DIAN/ })).toBeVisible();
+    // Por el nombre COMPLETO de la pastilla: la celda de la fila rechazada es otro botón que se
+    // llama igual, y una búsqueda parcial devuelve los dos.
+    await expect(page.getByRole('button', { name: 'Rechazada por la DIAN 1' })).toBeVisible();
   });
 
   test('un rechazo se explica en la fila, sin abrir nada', async ({ page }) => {
@@ -541,7 +569,7 @@ test.describe('Reporte de costos — facturación electrónica', () => {
       }) }));
     await page.goto('/finanzas/reporte-costos');
 
-    await page.getByRole('button', { name: /Aceptada por la DIAN — ver detalle/ }).first().click();
+    await page.getByTitle(/Aceptada por la DIAN — ver detalle/).first().click();
 
     // Auditar es mirar. Ve el estado y la entrega; no ve la acción que modifica.
     await expect(page.getByText('Entrega al cliente')).toBeVisible();
@@ -560,7 +588,7 @@ test.describe('Reporte de costos — facturación electrónica', () => {
       }) }));
     await page.goto('/finanzas/reporte-costos');
 
-    await page.getByRole('button', { name: /Aceptada por la DIAN — ver detalle/ }).first().click();
+    await page.getByTitle(/Aceptada por la DIAN — ver detalle/).first().click();
 
     // AC5 — se ve el destinatario ANTES de confirmar. Reenviar una factura a una dirección que no
     // se ha visto es mandar un documento fiscal a ciegas.
@@ -590,6 +618,7 @@ test.describe('Reporte de costos — facturación electrónica', () => {
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Base no disponible' }) }));
     await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+    await mockElegibilidad(page);
     await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
     await page.goto('/finanzas/reporte-costos');
@@ -606,7 +635,8 @@ test.describe('Reporte de costos — facturación electrónica', () => {
     await loginAs(page, OPERACIONES_USER);
     await mockFacetas(page, ['Aprobado']);
     await mockFacturacion(page, [], {
-      no_enviado: 0, en_proceso: 0, emitido: 0, aceptado: 0, rechazado: 0, anulado: 0, fallido: 0, total: 0,
+      no_enviado: 0, encolado: 0, en_proceso: 0, emitido: 0, aceptado: 0, rechazado: 0, anulado: 0,
+      fallido: 0, total: 0,
     });
     await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));

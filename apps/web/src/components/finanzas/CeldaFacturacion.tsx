@@ -25,14 +25,33 @@ const TONO: Record<SiigoEstadoReporte, ChipTone> = {
 interface Props {
   /** `undefined` = a este trámite nunca se le pidió factura. No es un fallo de carga. */
   ficha: FacturacionTramite | undefined;
+  /**
+   * El estado que el REPORTE ya trae en la fila (HU #11329).
+   *
+   * Hace falta porque `/siigo/facturacion/tramites` —de donde sale `ficha`— solo devuelve trámites
+   * **con factura**, por diseño. Un trámite recién encolado no tiene ninguna todavía, así que sin
+   * esto se seguiría pintando «—»: exactamente igual que uno al que nadie ha tocado. En una pantalla
+   * de control eso es una afirmación falsa, y además invita a volver a pulsar sobre lo que ya está
+   * en marcha (AC5 y AC6).
+   */
+  estadoFila?: SiigoEstadoReporte;
   onAbrir: (ficha: FacturacionTramite) => void;
 }
 
-export default function CeldaFacturacion({ ficha, onAbrir }: Props) {
-  // Sin ficha se pinta una raya y no «Sin enviar»: el reporte muestra trámites que quizá ni siquiera
-  // están liquidados, y afirmar «sin enviar» sobre uno al que todavía no le toca sugiere un trabajo
-  // pendiente que no existe. La raya dice «aquí no hay nada que mirar», que es la verdad.
+export default function CeldaFacturacion({ ficha, estadoFila, onAbrir }: Props) {
   if (!ficha) {
+    // No es pulsable: no hay ficha que abrir todavía —la factura no existe— y un botón que no lleva
+    // a ningún sitio enseña a desconfiar del resto de la columna.
+    if (estadoFila === 'encolado') {
+      return (
+        <span title="En cola para emitir. La factura sale sola en los próximos minutos.">
+          <StatusChip tone={TONO.encolado}>{SIIGO_ESTADO_REPORTE_ETIQUETA.encolado}</StatusChip>
+        </span>
+      );
+    }
+    // Una raya y no «Sin enviar»: el reporte muestra trámites que quizá ni siquiera están
+    // liquidados, y afirmar «sin enviar» sobre uno al que todavía no le toca sugiere un trabajo
+    // pendiente que no existe. La raya dice «aquí no hay nada que mirar», que es la verdad.
     return <span style={{ color: 'var(--flit-text-muted)' }}>—</span>;
   }
 
