@@ -131,4 +131,29 @@ Prohibido declarar una HU terminada sin la salida real pegada de los comandos an
 
 Glosario de producto: [`docs/dominio.md`](docs/dominio.md). Pedido sin Feature/HU en ADO → skill `flit-intake` antes de crear work items o código.
 
+### Matriz de invocación (obligatoria para el hilo principal)
+
+El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el disparador. No sustituir al especialista haciendo su trabajo «de paso» (salvo fix trivial de ≤~20 líneas en un solo archivo, o pedido explícito del humano de no usar subagentes). Cada subagente cierra con `HANDOFF`; el hilo principal es quien encadena.
+
+| Momento | Disparador (sí → invocar) | Ejecutor | Si se omite |
+|---|---|---|---|
+| Pedido informal sin Feature/HU | No hay WI en ADO | `flit-intake` | Trabajo sin trazabilidad |
+| Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden | `orchestrator-agent` | Fases saltadas |
+| Feature / descomponer HUs / DoR | Planear o refinar backlog | `tech-lead-agent` | HUs mal cortadas |
+| Antes de código no trivial | Módulo nuevo, modelo de datos nuevo, contrato nuevo, decisión técnica con tradeoffs | `architecture-agent` | Diseño implícito en el diff |
+| Antes de UI nueva significativa | Pantalla/wizard/bandeja nueva o HU FRONTEND sin spec de interacción | `ux-agent` | UI inventada en el agent de código |
+| Implementar `apps/api` | HU BACKEND o diff en API/esquema/migración | `backend-agent` | Lógica fuera de patrón |
+| Implementar `apps/web` | HU FRONTEND o diff en páginas/componentes | `frontend-agent` | 4 estados / permisos rotos |
+| Pre-PR (siempre) | Antes de abrir PR de HU | `flit-code-review` | PR sin checklist |
+| Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy | `security-agent` | Riesgo de seguridad |
+| Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` | `db-review-agent` | Drift / FKs / índices |
+| Ciclo ADO Active→Resolved | Activar o cerrar HU | `flit-gestion-hu` | Estados huérfanos |
+| Tras `Resolved` (HU con AC Gherkin o UI) | Entrega a QA | `qa-agent` (modo A TCs si faltan; modo B ejecución) | Deploy sin certificación |
+| Al abrir PR / post-merge | PR↔ADO, Deploy * | `flit-integration-ado` A/B | Commits/Deploy vacíos |
+| Tras Modo B con `DeployDEV/QA/PDN=true` | Ambiente desplegado o ráfaga de merges a `develop` | `devops-agent` M1 (una vez por tip/ambiente, no por cada PR de la ráfaga) | Deploy sin smoke |
+| Promoción staging/release | Pedido de promover | `flit-release` (+ qa D + devops post-merge) | Promoción sin gates |
+| Feature completo en cadena | «modo auto» / feature completo | `flit-modo-desarrollo-auto` (ya encadena la matriz por HU) | — |
+
+**Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
+
 Los subagentes no pueden invocar a otros subagentes: cada uno devuelve un bloque `HANDOFF` y el hilo principal continúa. Gates humanos que **nunca** se omiten: activar una HU, crear rama/commit/push, abrir PR, **autorizar merge a `develop` del Feature** (una vez por Feature o "sí" por PR), merge a `staging`/`release`, cerrar un Feature, instalar herramientas, desplegar. El merge a `develop` bajo gates, tras esa autorización, lo ejecuta el agente.

@@ -1,6 +1,6 @@
 ---
 name: flit-gestion-hu
-description: Guía el ciclo de implementación de una HU en Azure DevOps (proyecto FLIT - FLITO) — activación (Active), build, cierre técnico (Resolved) y entrega a QA con comentarios HTML y menciones mailto. Usar al implementar una HU asignada. Triggers Active, Resolved, implementar HU, flit-gestion-hu, entrega QA.
+description: Guía el ciclo de implementación de una HU en Azure DevOps (proyecto FLIT - FLITO) — activación (Active), build, cierre técnico (Resolved) y entrega a QA con comentarios HTML y menciones mailto. Tras Resolved, el hilo principal debe invocar qa-agent (matriz AGENTS.md) cuando la HU tenga AC Gherkin o UI. Usar al implementar una HU asignada. Triggers Active, Resolved, implementar HU, flit-gestion-hu, entrega QA.
 ---
 
 # flit-gestion-hu — ciclo Active → Resolved de una HU
@@ -50,9 +50,14 @@ description: Guía el ciclo de implementación de una HU en Azure DevOps (proyec
 <div><a href="mailto:{QA_LEAD_EMAIL}">@{QA_LEAD_NAME}</a> — Por favor proceder con la validación de esta HU.</div>
 ```
 
+3. **HANDOFF a `qa-agent`** (el hilo principal lo ejecuta; esta skill no invoca subagentes):
+   - HU con AC Gherkin o FRONTEND → `qa-agent` modo A (TCs si faltan) + modo B (ejecución).
+   - HU BACKEND-only → al menos modo B sobre tests del módulo; declarar si se omite E2E.
+   - Sin entorno → comentario «QA pendiente de entorno» y listarlo en el reporte; no inventar evidencia.
+
 ## Reglas
 
 - Todas las menciones `@` en ADO deben usar `<a href="mailto:...">`.
 - Prohibido `Resolved` si el build falla.
 - El registro del PR y los campos `Custom.Commits` / `Deploy *` los gestiona `flit-integration-ado`, **no** esta skill.
-- La auditoría formal de QA la ejecuta el rol/agente de QA (fuera del alcance de esta skill).
+- El comentario de entrega a QA **no sustituye** la ejecución de `qa-agent` — solo notifica; la auditoría formal la corre el agente/rol de QA (matriz de `AGENTS.md`).

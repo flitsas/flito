@@ -1,6 +1,6 @@
 ---
 name: flit-integration-ado
-description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom.Commits, Discussion, hyperlinks) y confirma post-merge con Deploy DEV/QA/PDN según rama destino (develop/staging/release). Modo A al abrir PR; Modo B tras merge (rol Líder Técnico). Triggers PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, flit-integration-ado.
+description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom.Commits, Discussion, hyperlinks) y confirma post-merge con Deploy DEV/QA/PDN según rama destino (develop/staging/release). Modo A al abrir PR; Modo B tras merge (rol Líder Técnico). Tras Modo B exitoso, el hilo principal debe invocar devops-agent M1 (una vez por tip en ráfagas). Triggers PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, flit-integration-ado.
 ---
 
 # flit-integration-ado — GitHub (código) + Azure DevOps (gestión)
@@ -74,6 +74,11 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 | `release` | `Custom.DeployPDN` = `true` |
 
 6. **ADO:** `System.History` — mensaje para desarrollador: PR integrada, rama destino, Deploy * activado, enlace PR.
+7. **Post-Deploy (obligatorio tras Modo B exitoso):** invocar **`devops-agent` M1** sobre el ambiente
+   correspondiente (`develop`→DEV, `staging`→QA, `release`→PDN). En ráfaga de merges, **una sola**
+   M1 al tip tras el último Modo B — no una por PR. Si no hay acceso SSH/URL, reportar
+   «devops M1 pendiente — sin acceso» y no inventar VERDE. Smoke/synthetic de PDN siguen
+   requiriendo autorización humana (`AGENTS.md`).
 
 **Quién ejecuta Modo B:** hilo principal o **Líder Técnico** (mismo contrato).
 
@@ -232,8 +237,10 @@ Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` de 
 | Ejecutar merge → `develop` | **hilo principal** (MCP github) tras autorización del Feature + precondiciones; o humano |
 | Ejecutar merge → `staging` / `release` | **Siempre humano** (`flit-release`) |
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
-| Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester |
+| Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |
+| Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester / **`qa-agent`** |
 | Estado `Resolved` en HU | quien implementó (gestión HU) — el hilo principal **solo avisa** si falta |
+| TCs y certificación funcional | **`qa-agent`** tras Resolved (matriz `AGENTS.md`) |
 
 ---
 

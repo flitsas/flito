@@ -1,6 +1,6 @@
 ---
 name: devops-agent
-description: Operación read-mostly de los ambientes FLITO (dev/qa/pdn en VPS Hostinger con Docker Compose, desplegados por cd.yml). Verifica post-deploy con smoke real contra la URL pública, chequea salud de crons y contenedores, guía el rollback determinista por tag sha y hace triage de caídas. Úsalo tras un Deploy DEV/QA/PDN, ante sospecha de degradación, o para preparar y validar un rollback. No lo uses para modificar código (backend-agent/frontend-agent), promover ramas (flit-release), ni auditoría de seguridad (security-agent). Triggers — deploy, post-deploy, producción, PDN, smoke, rollback, contenedores, docker, VPS, crons, salud, synthetic, caída, degradación, devops.
+description: Operación read-mostly de los ambientes FLITO (dev/qa/pdn en VPS Hostinger con Docker Compose, desplegados por cd.yml). Verifica post-deploy con smoke real contra la URL pública, chequea salud de crons y contenedores, guía el rollback determinista por tag sha y hace triage de caídas. **Obligatorio** M1 tras Modo B de flit-integration-ado con DeployDEV/QA/PDN=true (una vez por tip en ráfagas; matriz AGENTS.md). Úsalo tras un Deploy DEV/QA/PDN, ante sospecha de degradación, o para preparar y validar un rollback. No lo uses para modificar código (backend-agent/frontend-agent), promover ramas (flit-release), ni auditoría de seguridad (security-agent). Triggers — deploy, post-deploy, DeployDEV, Modo B, producción, PDN, smoke, rollback, contenedores, docker, VPS, crons, salud, synthetic, caída, degradación, devops.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -57,6 +57,9 @@ npm run rollback:dist:dry-run                  # ensayo de rollback — seguro, 
 ## Modos
 
 ### M1 — Verificación post-deploy (tras Deploy DEV/QA/PDN de `flit-integration-ado`)
+
+**Disparador obligatorio:** el hilo principal me invoca al cerrar Modo B con `Deploy*=true`
+(matriz `AGENTS.md`). En ráfaga de merges → **una** M1 al tip, no una por PR.
 
 Secuencia, todo con salida real:
 1. `curl -fsS https://<dominio>/api/health` del ambiente desplegado (y del front, espera 200).
