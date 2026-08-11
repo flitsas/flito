@@ -115,9 +115,21 @@ async function esperarTurno(
   }
 }
 
-/** Espera creciente con tope. El tope evita que el intento 6 duerma media hora. */
-export function backoffMs(intento: number, base = BACKOFF_BASE_MS): number {
-  return Math.min(base * 2 ** (intento - 1), BACKOFF_MAX_MS);
+/**
+ * Espera creciente con tope. El tope evita que el intento 6 duerma media hora.
+ *
+ * **El tope es un parámetro y no una constante, y esa es la corrección.** Con el techo fijo en
+ * `BACKOFF_MAX_MS`, subir la base no servía de nada: `backoffMs(4, 60_000)` daba 30 s igual que
+ * `backoffMs(4, 1_000)`, porque el `Math.min` recortaba antes. Para un reintento EN MEMORIA está
+ * bien —a los 30 s ya no se gana nada esperando más y solo se retiene la cola—, pero un reintento
+ * PERSISTIDO es otra cosa: la fila no está reteniendo nada mientras espera, y volver cada 30 s
+ * contra un Siigo caído durante una hora son 120 peticiones inútiles que además engordan la
+ * proporción de errores que mide el freno. Quien agenda en una tabla pasa su propio techo.
+ *
+ * El valor por defecto no cambia, así que los dos usos en memoria siguen exactamente igual.
+ */
+export function backoffMs(intento: number, base = BACKOFF_BASE_MS, tope = BACKOFF_MAX_MS): number {
+  return Math.min(base * 2 ** (intento - 1), tope);
 }
 
 /**

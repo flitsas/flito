@@ -170,6 +170,21 @@ describe('AC2 — respuesta de límite excedido', () => {
     expect(backoffMs(10, 1000)).toBe(30_000);
   });
 
+  it('el tope se puede subir para agendar reintentos PERSISTIDOS (HU #11327)', () => {
+    // El techo fijo de 30 s hacía inútil subir la base: `backoffMs(4, 60_000)` daba 30 s igual que
+    // con base 1 s. Para una espera EN MEMORIA está bien —a los 30 s ya no se gana nada y solo se
+    // retiene la cola—, pero una fila de cola que vuelve cada 30 s contra un Siigo caído durante una
+    // hora son 120 peticiones inútiles que además engordan la proporción que mide el freno.
+    expect(backoffMs(4, 60_000)).toBe(30_000);
+    expect(backoffMs(4, 60_000, 30 * 60_000)).toBe(480_000);
+    expect(backoffMs(10, 60_000, 30 * 60_000)).toBe(30 * 60_000);
+  });
+
+  it('el defecto no cambia: los dos usos en memoria siguen igual', () => {
+    expect(backoffMs(3)).toBe(4_000);
+    expect(backoffMs(10)).toBe(30_000);
+  });
+
   it('cada reintento consume cupo: un reintento también es una petición para Siigo', async () => {
     const reloj = relojFalso();
     const clave = claveUnica();

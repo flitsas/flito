@@ -1,0 +1,501 @@
+// Siigo — la cola de emisión: qué queda por facturar y cuándo le toca (HU #11327, Feature #11242).
+//
+// **Este archivo es el ÚNICO que escribe en `siigo_cola_facturacion`.** No es una preferencia de
+// estilo: la fila de cola lleva un arrendamiento y dos contadores con techos distintos, y las tres
+// cosas solo significan algo si se mueven juntas. Un `UPDATE` suelto desde otro módulo que tocara el
+// estado sin soltar el arrendamiento dejaría una fila terminada y arrendada —cosa que un CHECK
+// prohíbe—, y uno que tocara los contadores sin la cita dejaría una fila que no vuelve nunca.
+//
+// **Y este archivo NO escribe en `siigo_facturas`. Nunca.** Lee el `ResultadoEmision` que devuelve
+// `emitirFactura` y guarda lo que dice. La razón es que el estado del documento tiene un dueño
+// —`facturacion.emision.service.ts` y, cuando aquel se queda a medias, la reconciliación— y un
+// segundo escritor sobre una fila que representa un documento ante la DIAN es exactamente la clase de
+// cosa que produce una factura marcada como fallida estando viva. Hay una prueba que lo comprueba.
+//
+// DÓNDE ESTÁ LA EXCLUSIÓN (AC6)
+//
+// En `tomarLote`, y **en la base de datos, no en una variable**. Ver el comentario largo de esa
+// función: la sentencia selecciona y marca a la vez, así que no existe el instante entre «la vi» y
+// «la marqué» por el que se cuelan dos trabajadores.
+
+import { and, desc, eq, sql } from 'drizzle-orm';
+import type {
+  SiigoColaDesenlace, SiigoColaEstado, SiigoColaItem, SiigoColaResultadoEncolado,
+} from '@operaciones/shared-types';
+import { SIIGO_COLA_ARRENDAMIENTO_MIN } from '@operaciones/shared-types';
+import { db } from '../../db/client.js';
+import { siigoColaFacturacion } from '../../db/schema.js';
+import { asegurarLote, lotesDeTramites } from './facturacion.lote.repo.js';
+import { huellaDeTramites } from './facturacion.armado.js';
+import { registrarOperacion } from './siigo.operaciones.repo.js';
+import { sanearMensaje } from './siigo.redaccion.js';
+import { OPERACION_ENCOLAR } from './siigo.freno.service.js';
+import { modoSiigo } from './siigo.mock.js';
+import type { SiigoAmbiente } from './credenciales.service.js';
+
+/** Fallo de uso de la cola. La ruta de la HU #11328 lo traducirá a HTTP. */
+export class SiigoColaError extends Error {
+  readonly codigo: 'sin_tramites' | 'lote' | 'no_existe';
+
+  constructor(codigo: SiigoColaError['codigo'], message: string) {
+    super(message);
+    this.name = 'SiigoColaError';
+    this.codigo = codigo;
+  }
+}
+
+const COLUMNAS = {
+  id: siigoColaFacturacion.id,
+  loteId: siigoColaFacturacion.loteId,
+  ambiente: siigoColaFacturacion.ambiente,
+  estado: siigoColaFacturacion.estado,
+  intentos: siigoColaFacturacion.intentos,
+  maxIntentos: siigoColaFacturacion.maxIntentos,
+  esperas: siigoColaFacturacion.esperas,
+  maxEsperas: siigoColaFacturacion.maxEsperas,
+  proximoIntentoAt: siigoColaFacturacion.proximoIntentoAt,
+  ultimoIntentoAt: siigoColaFacturacion.ultimoIntentoAt,
+  facturaId: siigoColaFacturacion.facturaId,
+  desenlace: siigoColaFacturacion.desenlace,
+  errorCode: siigoColaFacturacion.errorCode,
+  errorDetalle: siigoColaFacturacion.errorDetalle,
+  createdAt: siigoColaFacturacion.createdAt,
+  updatedAt: siigoColaFacturacion.updatedAt,
+};
+
+function fecha(v: unknown): Date | null {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
+  if (typeof v !== 'string' && typeof v !== 'number') return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function aItem(f: Record<string, unknown>): SiigoColaItem {
+  return {
+    id: String(f.id),
+    loteId: String(f.loteId),
+    ambiente: String(f.ambiente),
+    estado: String(f.estado) as SiigoColaEstado,
+    intentos: Number(f.intentos) || 0,
+    maxIntentos: Number(f.maxIntentos) || 0,
+    esperas: Number(f.esperas) || 0,
+    maxEsperas: Number(f.maxEsperas) || 0,
+    // La cita nunca es nula en la base (NOT NULL). Si aquí llegara algo ilegible se publica el
+    // instante de lectura y no una cadena vacía: una fila sin cita legible es una anomalía que hay
+    // que ver, no un hueco que se rellena en silencio.
+    proximoIntentoAt: (fecha(f.proximoIntentoAt) ?? new Date()).toISOString(),
+    ultimoIntentoAt: fecha(f.ultimoIntentoAt)?.toISOString() ?? null,
+    facturaId: (f.facturaId as string | null) ?? null,
+    desenlace: (f.desenlace as SiigoColaDesenlace | null) ?? null,
+    errorCode: (f.errorCode as string | null) ?? null,
+    errorDetalle: (f.errorDetalle as string | null) ?? null,
+    createdAt: (fecha(f.createdAt) ?? new Date()).toISOString(),
+    updatedAt: (fecha(f.updatedAt) ?? new Date()).toISOString(),
+  };
+}
+
+// ── Encolar ─────────────────────────────────────────────────────────────────
+
+export interface EntradaEncolado {
+  tramiteIds: string[];
+  ambiente: SiigoAmbiente;
+  usuarioId: number | null;
+  /**
+   * Volver a poner en cola algo dado por perdido.
+   *
+   * Apagado por omisión, y con motivo: `fallido_definitivo` significa «esto no se arregla
+   * reintentando» (AC2, AC5). Si el encolado normal lo reactivara, una pantalla que reencola al
+   * refrescar volvería a poner en cola justo lo que ya se descartó, y el techo de intentos dejaría
+   * de significar nada. Reactivar es una decisión de quien opera, no un efecto secundario.
+   */
+  reactivar?: boolean;
+  ahora?: Date;
+}
+
+export interface ResultadoEncolado {
+  colaId: string;
+  loteId: string;
+  estado: SiigoColaEstado;
+  resultado: SiigoColaResultadoEncolado;
+}
+
+/**
+ * AC1 — Pone un lote en la cola y VUELVE. No llama a Siigo ni una sola vez.
+ *
+ * Todo lo que hace es determinar el lote —que es un `INSERT ... ON CONFLICT` sobre una identidad
+ * derivada del contenido— y crear su fila de cola. La emisión la hace después el trabajador. Que
+ * aquí no haya ni una petición es lo que permite que quien pide facturar reciba respuesta en
+ * milisegundos aunque Siigo esté lento, caído o frenado.
+ *
+ * Es idempotente por el índice único sobre `lote_id`, no por una comprobación previa: entre un
+ * SELECT y un INSERT cabe otra petición, y el resultado de esa carrera serían dos filas de cola
+ * pidiendo el mismo trabajo.
+ */
+export async function encolar(entrada: EntradaEncolado): Promise<ResultadoEncolado> {
+  const ids = [...new Set(entrada.tramiteIds)].filter(Boolean).sort();
+  if (ids.length === 0) {
+    throw new SiigoColaError('sin_tramites', 'No se indicó ningún trámite que encolar.');
+  }
+  const ahora = entrada.ahora ?? new Date();
+  const { ambiente, usuarioId = null } = entrada;
+
+  const loteId = await asegurarLote({
+    ambiente, huella: huellaDeTramites(ids), tramiteIds: ids, creadoPor: usuarioId,
+  });
+  if (!loteId) {
+    throw new SiigoColaError(
+      'lote', 'El lote de facturación desapareció mientras se creaba. No se encoló nada.',
+    );
+  }
+
+  const [creada] = await db.insert(siigoColaFacturacion)
+    .values({
+      loteId,
+      ambiente,
+      estado: 'pendiente',
+      // La cita es AHORA: lo recién pedido sale en el próximo ciclo, no cuando toque a un reintento.
+      proximoIntentoAt: ahora,
+      encoladoPor: usuarioId,
+      createdAt: ahora,
+      updatedAt: ahora,
+    })
+    .onConflictDoNothing({ target: siigoColaFacturacion.loteId })
+    .returning(COLUMNAS);
+
+  if (creada) {
+    const item = aItem(creada as Record<string, unknown>);
+    await anotar(item, 'encolado', usuarioId);
+    return { colaId: item.id, loteId, estado: item.estado, resultado: 'encolado' };
+  }
+
+  return resolverConflicto({ loteId, ahora, usuarioId, reactivar: entrada.reactivar === true });
+}
+
+async function resolverConflicto(ctx: {
+  loteId: string; ahora: Date; usuarioId: number | null; reactivar: boolean;
+}): Promise<ResultadoEncolado> {
+  const existente = await filaDeLote(ctx.loteId);
+  if (!existente) {
+    // El índice dice que hay una fila para ese lote y la lectura no la encuentra: o la borraron en
+    // este instante —no hay DELETE concedido, así que sería a mano— o hay algo roto. No se inventa
+    // una segunda fila: eso sí produciría dos trabajos para el mismo lote.
+    throw new SiigoColaError(
+      'lote', 'La cola tiene ocupado ese lote con una fila que no se pudo leer. No se encoló nada.',
+    );
+  }
+  const salida = (resultado: SiigoColaResultadoEncolado): ResultadoEncolado => ({
+    colaId: existente.id, loteId: ctx.loteId, estado: existente.estado, resultado,
+  });
+
+  // Ya se envió: el documento existe. Reencolarlo no produciría una segunda factura —la clave de
+  // idempotencia lo impide— pero sí una petición inútil, y sobre todo una respuesta que haría creer
+  // que hay algo en marcha cuando lo que hay es una factura hecha.
+  if (existente.estado === 'enviado') return salida('ya_enviado');
+  if (existente.estado === 'pendiente' || existente.estado === 'error') return salida('ya_en_cola');
+  if (!ctx.reactivar) return salida('fallido_definitivo');
+
+  const reactivada = await reactivarFila(existente.id, ctx.ahora);
+  if (!reactivada) {
+    // Otro la reactivó entre la lectura y el UPDATE. La condición de estado viaja DENTRO del UPDATE
+    // justo para esto: quien no recibe fila no ha reactivado nada y no debe decir que sí.
+    const tras = await filaDeLote(ctx.loteId);
+    return { colaId: existente.id, loteId: ctx.loteId, estado: tras?.estado ?? existente.estado, resultado: 'ya_en_cola' };
+  }
+  await anotar(reactivada, 'reactivado', ctx.usuarioId);
+  return { colaId: reactivada.id, loteId: ctx.loteId, estado: reactivada.estado, resultado: 'reactivado' };
+}
+
+/**
+ * Devuelve una fila dada por perdida a la cola, con los contadores a cero.
+ *
+ * La condición de estado va DENTRO del `UPDATE`, no en un `SELECT` previo: dos reactivaciones
+ * simultáneas leerían las dos `fallido_definitivo` y las dos creerían haberla reactivado, con lo que
+ * la segunda pisaría los contadores de un trabajo que ya podía estar en curso.
+ */
+async function reactivarFila(colaId: string, ahora: Date): Promise<SiigoColaItem | null> {
+  const [fila] = await db.update(siigoColaFacturacion)
+    .set({
+      estado: 'pendiente',
+      intentos: 0,
+      esperas: 0,
+      proximoIntentoAt: ahora,
+      // El error anterior se borra: describía por qué se dio por perdida, y dejarlo haría creer que
+      // el intento nuevo ya falló por lo mismo antes de haber empezado.
+      errorCode: null,
+      errorDetalle: null,
+      desenlace: null,
+      // Y la factura también. La columna dice «la factura que produjo el trabajo», y la del intento
+      // anterior no la produjo este: dejarla haría que una fila recién puesta en cola afirmara un
+      // documento que todavía no tiene. Si el trabajo vuelve a la misma factura —lo normal, porque
+      // la clave es la misma—, el desenlace la escribirá otra vez.
+      facturaId: null,
+      updatedAt: ahora,
+    })
+    .where(and(
+      eq(siigoColaFacturacion.id, colaId),
+      eq(siigoColaFacturacion.estado, 'fallido_definitivo'),
+    ))
+    .returning(COLUMNAS);
+  return fila ? aItem(fila as Record<string, unknown>) : null;
+}
+
+/**
+ * Deja rastro del encolado en la bitácora.
+ *
+ * Se registra solo cuando la cola CAMBIÓ —alta o reactivación—, no en cada llamada: un encolado que
+ * no cambia nada es una respuesta idempotente, y escribir una fila por cada refresco de pantalla
+ * llenaría de ruido la tabla desde la que se diagnostican las emisiones.
+ *
+ * La operación está en `OPERACIONES_INTERNAS` del freno, así que no entra en la proporción de
+ * errores: no salió a la red y contarla debilitaría el freno inflando su denominador.
+ */
+async function anotar(
+  item: SiigoColaItem, resultado: SiigoColaResultadoEncolado, usuarioId: number | null,
+): Promise<void> {
+  await registrarOperacion({
+    operacion: OPERACION_ENCOLAR,
+    entidadTipo: 'siigo_cola',
+    entidadId: item.id,
+    ambiente: item.ambiente,
+    modo: modoSiigo(),
+    resultado: 'ok',
+    codigo: resultado,
+    mensaje: `Lote ${item.loteId} ${resultado === 'encolado' ? 'encolado' : 'reactivado'} para emisión.`,
+    createdBy: usuarioId,
+  });
+}
+
+async function filaDeLote(loteId: string): Promise<SiigoColaItem | null> {
+  const [f] = await db.select(COLUMNAS).from(siigoColaFacturacion)
+    .where(eq(siigoColaFacturacion.loteId, loteId))
+    .limit(1);
+  return f ? aItem(f as Record<string, unknown>) : null;
+}
+
+// ── Tomar trabajo ───────────────────────────────────────────────────────────
+
+/** Lo mínimo para decidir qué hacer con una fila. El resto lo sabe el lote. */
+export interface FilaTomada {
+  id: string;
+  loteId: string;
+  intentos: number;
+  esperas: number;
+  maxIntentos: number;
+  maxEsperas: number;
+}
+
+export interface EntradaToma {
+  ambiente: SiigoAmbiente;
+  limite: number;
+  /** Quién la toma. Host y pid, para que un diagnóstico diga qué instancia la tiene. */
+  tomadoPor: string;
+  ahora: Date;
+  arrendamientoMin?: number;
+}
+
+/**
+ * AC6 — Toma hasta `limite` filas y las marca como suyas. **UNA sola sentencia.**
+ *
+ * Aquí está la garantía de la historia y conviene explicar por qué no vale la versión de dos pasos.
+ * El patrón que se copia habitualmente —`SELECT … FOR UPDATE SKIP LOCKED` con `db.execute`, y
+ * después un `UPDATE` con los ids obtenidos— **no excluye nada** cuando el SELECT va fuera de una
+ * transacción: los candados de fila viven lo que vive la transacción, y una sentencia suelta es su
+ * propia transacción, así que se sueltan en cuanto el SELECT termina. Entre ese instante y el UPDATE
+ * cabe entero el SELECT de la otra instancia, que ve las mismas filas sin bloquear y se las lleva
+ * también. (Existe así en `rndc/retry.cron.ts`, donde la exclusión real la da el `withLock` de
+ * alrededor, no el `SKIP LOCKED`; aquí el cerrojo del cron protege el CICLO, no la fila.)
+ *
+ * Con la CTE, el candado se toma dentro de la misma sentencia que hace el `UPDATE`, y no se suelta
+ * hasta que esa sentencia confirma —y para entonces el arrendamiento ya está escrito—. No existe el
+ * instante entre «la vi» y «la marqué». Un segundo trabajador que llegue mientras tanto salta esas
+ * filas por el `SKIP LOCKED` y se lleva las siguientes, que es justo lo que se quiere: dos
+ * instancias trabajando, ninguna repitiendo.
+ *
+ * El orden —cita, y luego antigüedad— es lo que impide que una fila con muchos reintentos se quede
+ * atrás para siempre: cuando su cita vence, compite con el resto en igualdad.
+ */
+export async function tomarLote(entrada: EntradaToma): Promise<FilaTomada[]> {
+  if (entrada.limite <= 0) return [];
+  const minutos = entrada.arrendamientoMin ?? SIIGO_COLA_ARRENDAMIENTO_MIN;
+  const corte = new Date(entrada.ahora.getTime() - minutos * 60_000);
+
+  const resultado = await db.execute(sql`
+    WITH candidatas AS (
+      SELECT id FROM siigo_cola_facturacion
+       WHERE ambiente = ${entrada.ambiente}
+         AND estado IN ('pendiente', 'error')
+         AND proximo_intento_at <= ${entrada.ahora}
+         AND (tomado_en IS NULL OR tomado_en < ${corte})
+       ORDER BY proximo_intento_at, created_at
+       LIMIT ${entrada.limite}
+       FOR UPDATE SKIP LOCKED
+    )
+    UPDATE siigo_cola_facturacion c
+       SET tomado_por = ${entrada.tomadoPor}, tomado_en = ${entrada.ahora}, updated_at = ${entrada.ahora}
+      FROM candidatas k
+     WHERE c.id = k.id
+    RETURNING c.id, c.lote_id, c.intentos, c.esperas, c.max_intentos, c.max_esperas
+  `);
+
+  return filasDe(resultado).map((f) => ({
+    id: String(f.id),
+    loteId: String(f.lote_id),
+    intentos: Number(f.intentos) || 0,
+    esperas: Number(f.esperas) || 0,
+    maxIntentos: Number(f.max_intentos) || 0,
+    maxEsperas: Number(f.max_esperas) || 0,
+  }));
+}
+
+/**
+ * Las filas de un `execute`, venga como venga el driver.
+ *
+ * `postgres-js` devuelve un array; otros devuelven `{ rows }`. Un cambio de driver que rompiera esto
+ * en silencio dejaría al trabajador creyendo que la cola está vacía, que es la avería más difícil de
+ * ver: no hay error, simplemente deja de facturarse.
+ */
+function filasDe(r: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(r)) return r as Array<Record<string, unknown>>;
+  const rows = (r as { rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) ? rows as Array<Record<string, unknown>> : [];
+}
+
+// ── Cerrar el trabajo ───────────────────────────────────────────────────────
+
+interface DesenlaceComun {
+  colaId: string;
+  /** El arrendamiento propio. Si la fila ya es de otro, no se escribe nada. */
+  tomadoPor: string;
+  desenlace: SiigoColaDesenlace;
+  intentos: number;
+  esperas: number;
+  errorCode?: string | null;
+  errorDetalle?: string | null;
+  ahora: Date;
+}
+
+/**
+ * Qué hacer con la fila, ya decidido por el trabajador.
+ *
+ * Es una unión discriminada y no un objeto con todo opcional **porque refleja los CHECK de la
+ * tabla**: `enviado` exige factura y `error` exige cita. Con campos opcionales, olvidarse de uno
+ * daría un error de restricción en tiempo de ejecución dentro de un ciclo de fondo, que es donde
+ * menos se ve; así no compila.
+ */
+export type InstruccionDesenlace = DesenlaceComun & (
+  | { estado: 'enviado'; facturaId: string }
+  | { estado: 'error'; proximoIntentoAt: Date; facturaId?: string | null }
+  | { estado: 'fallido_definitivo'; facturaId?: string | null }
+);
+
+/**
+ * Escribe el desenlace y SUELTA el arrendamiento. Devuelve `false` si la fila ya no era nuestra.
+ *
+ * La condición sobre `tomado_por` no es decorativa. Un ciclo puede tardar más que el arrendamiento
+ * —`emitirFactura` reintenta hasta cuatro veces con esperas, y el limitador puede dormir— y para
+ * entonces otra instancia ha podido tomar la fila legítimamente. Sin la condición, el trabajador
+ * lento escribiría el desenlace de SU intento sobre el trabajo del otro: en el peor caso, un
+ * `fallido_definitivo` de hace veinte minutos encima de una fila que acaba de emitir.
+ *
+ * El arrendamiento se suelta siempre y en el mismo `UPDATE`. Dejarlo puesto haría que un
+ * `fallido_definitivo` incumpliera el CHECK que prohíbe un trabajo terminado y arrendado, y que una
+ * fila devuelta a `error` esperase además a que venciera el arrendamiento para volver a ser
+ * elegible: dos relojes para la misma espera.
+ */
+export async function registrarDesenlace(i: InstruccionDesenlace): Promise<boolean> {
+  const filas = await db.update(siigoColaFacturacion)
+    .set({
+      estado: i.estado,
+      intentos: i.intentos,
+      esperas: i.esperas,
+      // Sin cita explícita se conserva la que hubiera: los estados terminales no la usan, y
+      // moverla a `ahora` haría que un `fallido_definitivo` pareciera tener trabajo pendiente.
+      ...(i.estado === 'error' ? { proximoIntentoAt: i.proximoIntentoAt } : {}),
+      ultimoIntentoAt: i.ahora,
+      tomadoPor: null,
+      tomadoEn: null,
+      facturaId: i.facturaId ?? null,
+      desenlace: i.desenlace,
+      errorCode: i.errorCode ? i.errorCode.slice(0, 80) : null,
+      // `sanearMensaje` SIEMPRE: un error del motor envuelto por drizzle llega con la sentencia y
+      // sus parámetros dentro, y esta columna acaba en pantalla.
+      errorDetalle: i.errorDetalle ? sanearMensaje(i.errorDetalle) : null,
+      updatedAt: i.ahora,
+    })
+    .where(and(
+      eq(siigoColaFacturacion.id, i.colaId),
+      eq(siigoColaFacturacion.tomadoPor, i.tomadoPor),
+    ))
+    .returning({ id: siigoColaFacturacion.id });
+  return filas.length > 0;
+}
+
+/**
+ * Suelta el arrendamiento sin tocar nada más. Es el apagado limpio (AC7).
+ *
+ * Lo que se libera vuelve a estar disponible en el ciclo siguiente con su cita intacta: no se
+ * reintenta antes de tiempo ni gasta un intento. Sin esto, apagar el proceso con filas tomadas las
+ * dejaría esperando a que venciera el arrendamiento —veinte minutos de nada— aunque el trabajador
+ * supiera perfectamente que no las iba a mirar.
+ */
+export async function liberar(args: {
+  colaId: string; tomadoPor: string; ahora: Date;
+}): Promise<boolean> {
+  const filas = await db.update(siigoColaFacturacion)
+    .set({ tomadoPor: null, tomadoEn: null, updatedAt: args.ahora })
+    .where(and(
+      eq(siigoColaFacturacion.id, args.colaId),
+      eq(siigoColaFacturacion.tomadoPor, args.tomadoPor),
+    ))
+    .returning({ id: siigoColaFacturacion.id });
+  return filas.length > 0;
+}
+
+// ── Consultar ───────────────────────────────────────────────────────────────
+
+/** La fila de la cola de cada trámite, para quien pregunta por trámites y no por lotes. */
+export interface ColaDeTramite {
+  tramiteId: string;
+  cola: SiigoColaItem;
+}
+
+/**
+ * AC1 — En qué punto está lo que se encoló, mientras el trabajador lo procesa.
+ *
+ * Se resuelve por la PERTENENCIA del lote y no recalculando la huella de cada trámite. Con la huella
+ * solo se puede preguntar por el conjunto exacto que alguien encoló: mientras la estrategia sea
+ * `por_tramite` coincide con «un trámite», y el día que se consolide, `huellaDeTramites([id])` no
+ * encontraría el lote de {A, B} y la pantalla diría que ese trámite no está en cola cuando sí lo
+ * está. La pertenencia responde bien en los dos casos.
+ */
+export async function colaDeTramites(
+  ambiente: SiigoAmbiente, tramiteIds: string[],
+): Promise<ColaDeTramite[]> {
+  const ids = [...new Set(tramiteIds)].filter(Boolean);
+  if (ids.length === 0) return [];
+
+  const pertenencia = await lotesDeTramites(ambiente, ids);
+  if (pertenencia.length === 0) return [];
+
+  const loteIds = [...new Set(pertenencia.map((p) => p.loteId))];
+  const filas = await db.select(COLUMNAS).from(siigoColaFacturacion)
+    .where(and(
+      eq(siigoColaFacturacion.ambiente, ambiente),
+      sql`${siigoColaFacturacion.loteId} = ANY(${sql.param(loteIds)}::uuid[])`,
+    ))
+    .orderBy(desc(siigoColaFacturacion.createdAt));
+
+  const porLote = new Map<string, SiigoColaItem>();
+  for (const f of filas) {
+    const item = aItem(f as Record<string, unknown>);
+    porLote.set(item.loteId, item);
+  }
+
+  const salida: ColaDeTramite[] = [];
+  for (const p of pertenencia) {
+    const cola = porLote.get(p.loteId);
+    // Un lote sin fila de cola es normal: lo crea también la emisión directa, que no encola nada.
+    if (cola) salida.push({ tramiteId: p.tramiteId, cola });
+  }
+  return salida;
+}

@@ -544,7 +544,26 @@ export async function reconciliarFactura(
       entidadId: facturaId,
       ambiente: opciones.ambiente,
       modo,
-      resultado: 'error_tecnico',
+      // **Lo permanente NO es un fallo del servicio, y confundirlos frena la facturación entera.**
+      //
+      // El freno de la HU #11341 mide `error_tecnico` en el numerador Y en el denominador;
+      // `error_negocio` queda fuera de los dos, porque es el resultado de «un dato nuestro está
+      // mal». Un impedimento permanente —la compañía sin tercero vinculado, una identificación
+      // anonimizada por un derecho de supresión, un identificador FLIT ambiguo— es exactamente eso,
+      // y encima se detecta **antes de la primera petición**: no dice absolutamente nada sobre la
+      // salud de Siigo.
+      //
+      // Registrarlo como `error_tecnico` tenía una consecuencia que solo aparece al engancharlo al
+      // trabajador de la HU #11327: el barrido corre cada dos minutos, una huérfana permanente
+      // vuelve cada media hora, y eso son unos cuarenta y ocho fallos diarios sin una sola llamada a
+      // la red. Bastaba una factura atascada y un fin de semana flojo para que el freno saltara y la
+      // empresa dejara de facturar por un problema que no tenía nada que ver con Siigo. Es el mismo
+      // razonamiento que ya dejó fuera al sondeo DIAN, escrito unas líneas más arriba en
+      // `siigo.freno.service.ts`.
+      //
+      // Lo TRANSITORIO sigue midiéndose: un corte de red o un cuerpo ilegible sí hablan del
+      // servicio, y son justo lo que el freno existe para detectar.
+      resultado: busqueda.permanente === true ? 'error_negocio' : 'error_tecnico',
       codigo: 'reconciliacion_indeterminada',
       mensaje: busqueda.motivo,
       duracionMs: Date.now() - inicio,

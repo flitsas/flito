@@ -23,6 +23,7 @@ import { startPortalReminderCron, stopPortalReminderCron } from './modules/trami
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
+import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -63,6 +64,9 @@ const server = app.listen(env.PORT, () => {
     startSiigoArchivoCron();
     // FLITO: sondeo del estado ante la DIAN (noop si SIIGO_DIAN_CRON_ENABLED=0).
     startSiigoDianCron();
+    // FLITO: vacía la cola de emisión y rescata las facturas huérfanas (HU #11327).
+    // Noop si SIIGO_COLA_CRON_ENABLED=0.
+    startSiigoColaCron();
   }
 });
 
@@ -99,6 +103,7 @@ function shutdown(signal: string) {
   stopFlitSync();
   stopSiigoArchivoCron();
   stopSiigoDianCron();
+  stopSiigoColaCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');
