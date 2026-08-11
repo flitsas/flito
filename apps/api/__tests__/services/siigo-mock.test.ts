@@ -78,7 +78,7 @@ describe('AC1 — en modo simulado no sale tráfico', () => {
   });
 
   it('crear una factura devuelve una respuesta simulada sin red', async () => {
-    const r = await siigoRequest({ metodo: 'POST', ruta: '/v1/invoices', cuerpo: { date: '2026-08-04' } });
+    const r = await siigoRequest({ metodo: 'POST', ruta: '/v1/invoices', cuerpo: facturaValida() });
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(r.status).toBe(201);
@@ -86,9 +86,26 @@ describe('AC1 — en modo simulado no sale tráfico', () => {
   });
 });
 
+// HU #11326 — el simulador dejó de devolver una factura FIJA. Antes respondía siempre el mismo
+// objeto —total cero, cliente inventado, sin observaciones—, así que estos tests pasaban con una
+// petición sin cuerpo, que Siigo rechazaría con `parameter_required`. Ahora exige los obligatorios
+// documentados y calcula el total de las líneas: un simulador más permisivo que el ambiente real
+// deja pasar en desarrollo justo lo que revienta en producción.
+function facturaValida(over: Record<string, unknown> = {}) {
+  return {
+    document: { id: 24446 },
+    date: '2026-08-04',
+    customer: { identification: '900123456', branch_office: 0 },
+    seller: 629,
+    items: [{ code: 'P-1', quantity: 1, price: 1000 }],
+    payments: [{ id: 5636, value: 1000 }],
+    ...over,
+  };
+}
+
 describe('AC2 — el simulador respeta el contrato', () => {
   it('la factura simulada trae los campos documentados', () => {
-    const r = respuestaSimulada('POST', '/v1/invoices');
+    const r = respuestaSimulada('POST', '/v1/invoices', { cuerpo: facturaValida() });
     const d = r.datos as Record<string, unknown>;
 
     // Los mismos campos que devuelve InvoiceOutDian según la documentación.
@@ -99,8 +116,8 @@ describe('AC2 — el simulador respeta el contrato', () => {
   });
 
   it('dos facturas simuladas no comparten consecutivo', () => {
-    const a = respuestaSimulada('POST', '/v1/invoices').datos as { number: number };
-    const b = respuestaSimulada('POST', '/v1/invoices').datos as { number: number };
+    const a = respuestaSimulada('POST', '/v1/invoices', { cuerpo: facturaValida() }).datos as { number: number };
+    const b = respuestaSimulada('POST', '/v1/invoices', { cuerpo: facturaValida() }).datos as { number: number };
     expect(b.number).toBe(a.number + 1);
   });
 

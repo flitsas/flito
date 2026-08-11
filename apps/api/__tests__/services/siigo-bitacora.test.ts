@@ -211,6 +211,27 @@ describe('la redacción alcanza también al mensaje', () => {
     expect(sanearMensaje(mensaje)).toBe(mensaje);
   });
 
+  // HU #11326 — la búsqueda de la reconciliación lleva la identificación del titular en la cadena de
+  // consulta, y un error que mencione la ruta la arrastra hasta aquí. `customer_identification` es
+  // un NIT casi siempre y una CÉDULA cuando el cliente es persona natural; una vez escrita en una
+  // tabla que prohíbe UPDATE y DELETE, los derechos de rectificación y supresión del art. 8 de la
+  // Ley 1581 ya no se pueden ejercer sobre ella.
+  it('recorta el valor de los filtros de URL que pueden llevar datos del titular', () => {
+    const mensaje = 'Siigo rechazó GET /v1/invoices?customer_identification=1036640908&page=1 con 401.';
+    const saneado = sanearMensaje(mensaje);
+
+    expect(saneado).not.toContain('1036640908');
+    // El NOMBRE del filtro se conserva: sirve para entender qué se estaba buscando.
+    expect(saneado).toContain('customer_identification=');
+    // Y lo que no es dato del titular sigue ahí.
+    expect(saneado).toContain('page=1');
+  });
+
+  it('el recorte de filtros no se come un texto que solo los mencione', () => {
+    const mensaje = 'Falta configurar el filtro customer_identification en la integración.';
+    expect(sanearMensaje(mensaje)).toBe(mensaje);
+  });
+
   it('las palabras sueltas en español no disparan el recorte', () => {
     // El corte exige un identificador entrecomillado, que es como compila drizzle. Sin eso, un
     // texto operativo que mencione «actualizar» o «seleccionar» quedaría mutilado sin motivo.

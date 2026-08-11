@@ -219,6 +219,51 @@ export async function obtenerConfigEmision(ambiente: SiigoAmbiente): Promise<Con
   return aVista(fila, await catalogosDeEmision(ambiente));
 }
 
+/**
+ * Los parámetros con los que se ARMA la factura (HU #11326).
+ *
+ * Aparte de `obtenerConfigEmision` porque responden preguntas distintas. Aquella es para la
+ * pantalla: trae el diagnóstico campo a campo y por eso consulta los catálogos. Esta es para emitir,
+ * y trae las cuatro columnas que la pantalla no enseña —la moneda, la estrategia de retenciones, el
+ * corte del histórico y el arrendamiento— porque son datos de negocio, no de configuración visible.
+ *
+ * Vive en este módulo, y no en el de emisión, para que `siigo_config_emision` siga teniendo **un
+ * solo lector**. Dos módulos leyendo la misma tabla acaban discrepando sobre qué fila es la vigente,
+ * y aquí la fila vigente decide con qué comprobante se factura ante la DIAN.
+ */
+export interface ParametrosEmisionVigentes {
+  documentoTipoCodigo: string | null;
+  vendedorCodigo: string | null;
+  formaPagoCodigo: string | null;
+  centroCostoCodigo: string | null;
+  plazoVencimientoDias: number;
+  estrategiaNumeracion: EstrategiaNumeracion;
+  /** Pregunta 7, abierta. Mientras valga `ninguna` no se envía `retentions[]`. */
+  retencionesEstrategia: string;
+  /** Pregunta 15, abierta. Hoy solo `COP`. */
+  moneda: string;
+  /** Minutos tras los cuales una factura `en_proceso` se considera huérfana. */
+  arrendamientoEnProcesoMin: number;
+}
+
+export async function parametrosDeEmision(
+  ambiente: SiigoAmbiente,
+): Promise<ParametrosEmisionVigentes | null> {
+  const f = await filaVigente(ambiente);
+  if (!f) return null;
+  return {
+    documentoTipoCodigo: f.documentoTipoCodigo,
+    vendedorCodigo: f.vendedorCodigo,
+    formaPagoCodigo: f.formaPagoCodigo,
+    centroCostoCodigo: f.centroCostoCodigo,
+    plazoVencimientoDias: f.plazoVencimientoDias,
+    estrategiaNumeracion: esEstrategiaNumeracion(f.estrategiaNumeracion) ? f.estrategiaNumeracion : 'siigo',
+    retencionesEstrategia: f.retencionesEstrategia,
+    moneda: f.moneda,
+    arrendamientoEnProcesoMin: f.arrendamientoEnProcesoMin,
+  };
+}
+
 /** Historial de configuraciones de un ambiente, de la más reciente a la más antigua. */
 export async function historialConfigEmision(
   ambiente: SiigoAmbiente, limite = 20,
