@@ -38,8 +38,10 @@ export interface EntradaLote {
    */
   conceptos: readonly string[];
   /**
-   * La emisión elegida al enviar (A2). Todo `null` = usar la configuración global vigente, que es
-   * lo que hacían los lotes anteriores.
+   * La emisión elegida al enviar (A2). Todo `null` = lote anterior a la 0148, sin con qué emitir.
+   *
+   * **Ya NO significa «usar la configuración global»**: esa configuración se retiró el 2026-08-13 y
+   * `prepararEmision` rechaza el lote que llegue sin comprobante, vendedor y forma de pago.
    */
   emision?: EmisionElegida | null;
   creadoPor: number | null;
@@ -144,19 +146,32 @@ export async function conceptosDelLote(loteId: string): Promise<ConceptoFacturab
     .from(siigoLotesFacturacion)
     .where(eq(siigoLotesFacturacion.id, loteId))
     .limit(1);
-  // Se filtra contra el catálogo en vez de confiar en la columna. `text[]` no tiene CHECK, y un
-  // valor que ya no sea un concepto conocido —porque se renombró o se retiró— llegaría al armado
-  // como una clave que el mapeo no tiene y acabaría en `concepto_sin_mapeo`, culpando al mapeo de
-  // un dato viejo. Descartarlo aquí deja el fallo donde de verdad está.
-  return [...(fila?.conceptos ?? [])].filter(esConceptoFacturable).sort();
+  return conceptosDeLaColumna(fila?.conceptos);
+}
+
+/**
+ * La columna `conceptos` leída como catálogo. **Una sola definición**, y por eso está exportada.
+ *
+ * Se filtra contra el catálogo en vez de confiar en la columna. `text[]` no tiene CHECK, y un valor
+ * que ya no sea un concepto conocido —porque se renombró o se retiró— llegaría al armado como una
+ * clave que el mapeo no tiene y acabaría en `concepto_sin_mapeo`, culpando al mapeo de un dato
+ * viejo. Descartarlo aquí deja el fallo donde de verdad está.
+ *
+ * La usa también la reconciliación, que lee esta columna por un JOIN y no por este repositorio: sin
+ * exportarla, ese segundo lector tendría su propia idea de qué contiene un lote, y dos lecturas
+ * distintas del mismo lote es justo lo que produce un descuadre inventado.
+ */
+export function conceptosDeLaColumna(valor: readonly string[] | null | undefined): ConceptoFacturable[] {
+  return [...(valor ?? [])].filter(esConceptoFacturable).sort();
 }
 
 /**
  * La emisión que se eligió para este lote (A2).
  *
- * **Todo `null` significa «la configuración global», no «vacío».** Quien llama tiene que resolver
- * esa ausencia contra `parametrosDeEmision`, no tratarla como una configuración incompleta: es lo
- * que permite emitir los lotes anteriores a A2 exactamente como se emitían.
+ * **Todo `null` significa «lote anterior al 2026-08-13, sin con qué emitir».** Hasta la 0148
+ * significaba «usar la configuración global» y quien llamaba tenía que resolver esa ausencia contra
+ * los parámetros del ambiente; esa configuración ya no existe, así que ahora no hay nada detrás y
+ * `prepararEmision` rechaza el lote pidiendo que se reenvíen los trámites. Ver la 0148.
  */
 export async function emisionDelLote(loteId: string): Promise<EmisionElegida> {
   const [fila] = await db.select({

@@ -3670,9 +3670,17 @@ export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
   /** Conceptos elegidos al enviar, ordenados. Vacío = lote anterior a A1 (todos los aplicables). */
   conceptos: text('conceptos').array().notNull().default(sql`'{}'::text[]`),
   /**
-   * Snapshot de la emisión elegida al enviar (A2). `null` = usar la configuración global vigente,
-   * que es lo que hacían los lotes anteriores. Entra en la huella: cambiar el vendedor cambia la
-   * factura, así que cambia la identidad del lote.
+   * Snapshot INMUTABLE de la emisión elegida al enviar (A2). Entra en la huella: cambiar el vendedor
+   * cambia la factura, así que cambia la identidad del lote.
+   *
+   * **`null` = lote encolado antes del 2026-08-13, al que le falta con qué emitir.** Hasta la 0148
+   * significaba «usar la configuración global vigente»; esa configuración se retiró y ya no hay nada
+   * detrás, así que `prepararEmision` rechaza el lote y pide reenviar los trámites. No se puso
+   * `NOT NULL` para no tener que inventarle un vendedor a esos lotes en una migración — se prefiere
+   * una fila que falla ruidosamente al emitir sobre una que emite con datos que nadie eligió.
+   *
+   * `centroCostoCodigo` es la excepción: ahí `null` sigue siendo legítimo, porque solo es obligatorio
+   * cuando el comprobante lo exige (`cost_center_mandatory` de `/v1/document-types`).
    */
   documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
   vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
@@ -3736,6 +3744,11 @@ export const siigoFacturas = pgTable('siigo_facturas', {
   idemUq: uniqueIndex('idx_siigo_facturas_idem').on(t.ambiente, t.idempotencyKey),
   enProcesoIdx: index('idx_siigo_facturas_en_proceso').on(t.enProcesoDesde),
   estadoIdx: index('idx_siigo_facturas_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+  // Migración 0149. **No es para el JOIN de la reconciliación**, que entra por `id` —la primaria— y
+  // desde esa única fila alcanza el lote por la primaria del lote: ese camino no lo toca. Está
+  // porque `lote_id` era una clave foránea SIN índice, y sin él cualquier comprobación de integridad
+  // sobre `siigo_lotes_facturacion` recorre esta tabla entera, que solo crece.
+  loteIdx: index('idx_siigo_facturas_lote').on(t.loteId),
 }));
 
 /**

@@ -342,7 +342,11 @@ export interface EntradaPreparacion {
   ambiente: SiigoAmbiente;
   /** Conceptos elegidos (A1). Vacío = lote anterior a A1: todos los aplicables. */
   conceptos?: readonly ConceptoFacturable[];
-  /** Emisión elegida (A2). Cada campo nulo cae a la configuración global vigente. */
+  /**
+   * Emisión elegida (A2), tal cual la guardó el lote. **No hay respaldo detrás**: sin comprobante,
+   * vendedor y forma de pago se lanza `sin_configuracion`, también cuando quien llama solo quería
+   * recalcular un total. Omitirla no es «que use lo de siempre», es un error garantizado.
+   */
   emision?: EmisionElegida | null;
   tercero: TerceroResuelto;
   ahora: Date;

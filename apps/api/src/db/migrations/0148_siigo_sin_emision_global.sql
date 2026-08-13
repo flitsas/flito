@@ -38,10 +38,22 @@
 -- firmó y CON QUÉ se emitió: borrarlas eliminaba la respuesta a «¿con qué parametrización salió
 -- aquella factura de marzo?».
 --
--- Aquí no ocurre eso, y por una razón concreta: **lo que se emitió con cada lote ya está guardado en
--- el propio lote**. La 0147 añadió `documento_tipo_codigo`, `vendedor_codigo`, `forma_pago_codigo` y
--- `centro_costo_codigo` a `siigo_lotes_facturacion` como snapshot inmutable, y esas columnas son la
--- respuesta a esa pregunta. Estas de aquí son la configuración que YA NO se usa, no el historial.
+-- Aquí no ocurre eso, y la razón es `siigo_operaciones.request_body`. Esa tabla es WORM por
+-- disparador —no se puede reescribir ni borrar— y guarda el CUERPO REAL de cada intento de emisión
+-- con `document`, `seller`, `cost_center` y `payments` dentro (lo compone `peticionParaBitacora`, en
+-- `facturacion.emision.service.ts`). Es decir: la respuesta a «¿con qué salió aquella factura?» no
+-- es la configuración que estaba puesta ese día, sino lo que de verdad viajó a Siigo, intento por
+-- intento. Estas columnas nunca fueron esa respuesta: eran la plantilla de la que salía.
+--
+-- **El snapshot del lote NO sirve como respuesta para lo antiguo, y conviene decirlo.** La 0147
+-- añadió `documento_tipo_codigo`, `vendedor_codigo`, `forma_pago_codigo` y `centro_costo_codigo` a
+-- `siigo_lotes_facturacion`, pero solo los lotes creados DESDE la 0147 los llevan; los anteriores
+-- los tienen en NULL. Para esos, la bitácora es la única respuesta — y basta.
+--
+-- Lo que sí se pierde, dicho sin adornos: los valores que tenían las FILAS HISTÓRICAS de esta
+-- tabla, es decir, con qué estuvo configurado el ambiente en cada periodo. Se asume a sabiendas.
+-- Esa historia no explica ninguna factura concreta —para eso está la bitácora— y conservarla
+-- costaba mantener nueve columnas muertas que ningún código vuelve a leer.
 --
 -- Las filas históricas sí se conservan: no se borra ninguna.
 

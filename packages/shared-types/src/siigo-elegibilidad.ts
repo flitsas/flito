@@ -29,6 +29,15 @@ export const MOTIVOS_TRAMITE_NO_ELEGIBLE = [
   'documentacion_incompleta',
   /** Facturado antes de la fecha de corte del histórico (pregunta 13). */
   'anterior_al_corte',
+  /**
+   * El ambiente no tiene corte del histórico configurado, así que no se factura nada.
+   *
+   * Es el hermano explícito de `anterior_al_corte`: sin fecha de corte no se puede afirmar que un
+   * trámite esté después de ella, y en la única puerta que hay antes de la DIAN eso se resuelve
+   * bloqueando. Existe como motivo PROPIO —y no como un `anterior_al_corte` genérico— porque la
+   * acción es otra: no se arregla el trámite ni se sube la fecha, se siembra la fila del ambiente.
+   */
+  'sin_corte_configurado',
   /** El trámite no tiene compañía resuelta: sin cliente no hay tercero ni factura. */
   'sin_compania',
   /** La compañía todavía no tiene tercero vinculado en Siigo (HU #11297). */
@@ -60,6 +69,12 @@ export const MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO: Record<MotivoTramiteNoElegible, s
   anterior_al_corte:
     'El trámite se facturó antes de la fecha desde la que se emite factura electrónica. Si debe '
     + 'entrar, cambia esa fecha en la configuración de emisión.',
+  // Dice a quién acudir, no qué tocar: la fila del ambiente se siembra con una migración y no hay
+  // pantalla que la escriba, así que mandar a alguien a «configurarlo» sería mandarlo a buscar algo
+  // que no existe. El texto tiene que sobrevivir a que lo lea quien factura, no quien despliega.
+  sin_corte_configurado:
+    'Este ambiente todavía no tiene configurado desde cuándo se emite factura electrónica, y sin '
+    + 'esa fecha no se factura nada. No es un problema del trámite: avisa al equipo técnico.',
   sin_compania:
     'El trámite no tiene una compañía asociada, así que no hay a quién facturarle.',
   // NO dice «no existe en Siigo», y la diferencia costó una tarde de depuración: lo que falta es el

@@ -598,12 +598,21 @@ describe('AC4 — el arrendamiento de en_proceso', () => {
 describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
   const VENCIDA = new Date(AHORA.getTime() - 3_600_000);
 
-  /** La huérfana, sus trámites y su tercero. */
+  /**
+   * La huérfana, sus trámites y su tercero.
+   *
+   * **Trae el contenido de su lote**, y no es decoración: `cargarHuerfana` lo lee por un JOIN desde
+   * `siigo_facturas`, así que en el mock —que enruta por la tabla del `from`— viaja en esta misma
+   * fila. Sin él, el recálculo del total esperado no se puede hacer y la comprobación de descuadre
+   * se apaga entera, que es justo lo que estas pruebas existen para no volver a permitir.
+   */
   function huerfana(estado = 'en_proceso'): void {
     kdb.when
       .select('siigo_facturas', [{
         id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
         enProcesoDesde: VENCIDA, estado,
+        // `EMISION` tal cual: sus cuatro claves son las mismas que devuelve el `select` del JOIN.
+        conceptos: ['soat', 'tramite_digital'], ...EMISION,
       }])
       .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
       // El UPDATE devuelve fila: la reconciliación comprueba que llegó a escribir antes de afirmar
@@ -934,6 +943,121 @@ describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
 
     expect(r.desenlace).toBe('en_curso');
     expect(peticiones).toHaveLength(0);
+  });
+
+  /**
+   * AC6 desde la reconciliación — la comprobación de descuadre TIENE que ejecutarse.
+   *
+   * Este bloque nace de una regresión que 4.628 pruebas dejaron pasar, y por eso está escrito por
+   * el mecanismo y no por el resultado. `revisionEsperada` llamaba a `prepararEmision` sin los
+   * conceptos ni la emisión del lote. Mientras existió la configuración global de emisión eso caía
+   * al respaldo y funcionaba; al retirarla, la llamada lanza `sin_configuracion` SIEMPRE, el `catch`
+   * lo convierte en «no se pudo recalcular el total esperado» y el resultado es que la comprobación
+   * que detecta un descuadre entre lo que Siigo cobró y la liquidación NO SE EJECUTA NUNCA.
+   *
+   * Es el peor tipo de fallo: nada se rompe, nada se registra como error, todas las facturas quedan
+   * marcadas «para revisión» con un motivo que parece técnico, y nadie se entera de que la puerta
+   * está abierta. Lo único que lo delata es afirmar las dos mitades —que lo que cuadra NO se marca,
+   * y que lo que no cuadra se marca CON SUS NÚMEROS—, que es lo que se hace aquí.
+   */
+  describe('la comprobación de descuadre se ejecuta de verdad', () => {
+    /** El listado de Siigo devuelve UNA factura, la de este trámite, con el total que se le pida. */
+    function siigoLaTieneCon(total: number): void {
+      siigoRequestOrThrowMock.mockResolvedValue({
+        pagination: { page: 1, page_size: 1, total_results: 1 },
+        results: [{
+          id: 'inv-rec', observations: 'FLITO · FLIT-9001 · placa ABC123',
+          name: '1', total,
+        }],
+      });
+    }
+
+    it('un total que cuadra NO se marca para revisión', async () => {
+      // La mitad que el fallo hacía imposible: con el recálculo apagado, TODA factura reconciliada
+      // salía marcada. Una alarma que suena siempre es una alarma que se ignora, y con ella se
+      // ignora el descuadre real del test siguiente.
+      huerfana();
+      siigoLaTieneCon(150_000); // SOAT 100.000 + trámite digital 50.000
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(false);
+      expect(loEscrito().revisionMotivo).toBeNull();
+    });
+
+    it('un total que NO cuadra se marca, y el motivo trae los dos números', async () => {
+      huerfana();
+      siigoLaTieneCon(200_000);
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(true);
+      // El motivo tiene que ser el del descuadre, no un «no se pudo comprobar»: son diagnósticos
+      // opuestos y mandan a mirar sitios distintos.
+      expect(loEscrito().revisionMotivo).toContain('200000.00');
+      expect(loEscrito().revisionMotivo).toContain('150000.00');
+      expect(loEscrito().revisionMotivo).not.toMatch(/no se pudo recalcular/i);
+    });
+
+    it('una factura de selección PARCIAL no inventa un descuadre', async () => {
+      // El matiz que convierte el arreglo fácil en el arreglo correcto: pasar `conceptos: []` haría
+      // pasar los dos tests de arriba, porque vacío significa «todos los aplicables». Sobre una
+      // factura que solo cobró el trámite digital, ese recálculo sumaría además el SOAT y marcaría
+      // un descuadre de 100.000 en una factura perfectamente correcta.
+      kdb.when
+        .select('siigo_facturas', [{
+          id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
+          enProcesoDesde: VENCIDA, estado: 'en_proceso',
+          conceptos: ['tramite_digital'], ...EMISION,
+        }])
+        .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
+        .update('siigo_facturas', [{ id: FACTURA }]);
+      kdb.execute.mockResolvedValue([
+        { id_flit: 'FLIT-9001', identificacion: '900123456', sucursal: 0 },
+      ]);
+      siigoLaTieneCon(50_000); // solo el trámite digital
+
+      await reconciliarFactura(FACTURA, { ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15 });
+
+      expect(loEscrito().requiereRevision).toBe(false);
+      expect(loEscrito().revisionMotivo).toBeNull();
+    });
+
+    it('un lote sin snapshot de emisión NO se da por cuadrado: se dice que no se pudo', async () => {
+      // Los lotes encolados antes del 2026-08-13 no guardan con qué se emitió, así que el armador
+      // los rechaza y el total no se puede reconstruir. La respuesta correcta no es callar —eso
+      // sería un descuadre dado por bueno— sino marcarla para que alguien la mire.
+      kdb.when
+        .select('siigo_facturas', [{
+          id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
+          enProcesoDesde: VENCIDA, estado: 'en_proceso',
+          conceptos: ['soat', 'tramite_digital'],
+          documentoTipoCodigo: null, vendedorCodigo: null,
+          formaPagoCodigo: null, centroCostoCodigo: null,
+        }])
+        .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
+        .update('siigo_facturas', [{ id: FACTURA }]);
+      kdb.execute.mockResolvedValue([
+        { id_flit: 'FLIT-9001', identificacion: '900123456', sucursal: 0 },
+      ]);
+      siigoLaTieneCon(150_000);
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      // Queda `emitida`: el documento existe ante la DIAN pase lo que pase. Lo que cambia es la
+      // marca, que es APARTE del estado justo para poder decir las dos cosas a la vez.
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(true);
+      expect(loEscrito().revisionMotivo).toMatch(/no se pudo recalcular/i);
+    });
   });
 
   describe('reconocer la factura por sus observaciones', () => {

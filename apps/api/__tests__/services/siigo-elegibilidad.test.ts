@@ -64,11 +64,27 @@ describe('AC4 — el corte del histórico es un dato, no un supuesto', () => {
     expect(nombres(fila({ ...t, historicoDesde: '2026-06-01' }))).toContain('anterior_al_corte');
   });
 
-  it('sin fecha configurada NO se bloquea nada', () => {
-    // La ausencia de configuración no puede comportarse como una prohibición silenciosa: alguien
-    // buscaría durante horas por qué no se factura nada y no habría nada que encontrar.
-    expect(nombres(fila({ historicoDesde: null, facturadoEn: '2020-01-01' })))
-      .not.toContain('anterior_al_corte');
+  it('sin fecha configurada NO se factura nada, y se dice por qué', () => {
+    // **Esta prueba afirmaba lo contrario, y esa era la regresión.** El razonamiento de entonces
+    // seguía en pie —«la ausencia de configuración no puede comportarse como una prohibición
+    // silenciosa: alguien buscaría durante horas por qué no se factura y no habría nada que
+    // encontrar»— pero la 0148 retiró la pantalla que escribía la tabla y «no hay fila» pasó a ser
+    // el estado normal de cualquier ambiente. Con la regla vieja, el único control que impide
+    // facturar histórico no autorizado quedaba apagado en todas partes, sin ruido.
+    //
+    // Lo que se conserva del argumento original es el antídoto, no la conclusión: se bloquea, pero
+    // con un motivo PROPIO que se cuenta y se pinta. Un bloqueo explicado no es un bloqueo
+    // silencioso, y en la única puerta antes de la DIAN el error tiene que caer de este lado.
+    const m = nombres(fila({ historicoDesde: null, facturadoEn: '2020-01-01' }));
+    expect(m).toContain('sin_corte_configurado');
+    // Y NO se disfraza del otro motivo: «se facturó antes del corte» mandaría a subir una fecha que
+    // no existe, en vez de a sembrarla.
+    expect(m).not.toContain('anterior_al_corte');
+  });
+
+  it('con fecha configurada, el motivo de ambiente sin sembrar desaparece', () => {
+    expect(nombres(fila())).not.toContain('sin_corte_configurado');
+    expect(nombres(fila({ facturadoEn: '2025-12-31' }))).not.toContain('sin_corte_configurado');
   });
 
   it('ante la duda BLOQUEA, nunca deja pasar', () => {
@@ -156,6 +172,9 @@ describe('AC1 — los motivos se enumeran TODOS, no se corta en el primero', () 
     expect(t.liquidacion_no_facturada).toMatch(/reporte de costos/i);
     expect(t.tercero_sin_vincular).toMatch(/sincron/i);
     expect(t.anterior_al_corte).toMatch(/configuración de emisión/i);
+    // Este manda a AVISAR, no a configurar: la fila del ambiente se siembra con una migración y no
+    // hay pantalla donde tocarla. Decir «configúralo» sería mandar a buscar algo que no existe.
+    expect(t.sin_corte_configurado).toMatch(/equipo técnico/i);
   });
 });
 

@@ -21,9 +21,11 @@
 //   3. **Ni una petición a Siigo** (AC7). Todo sale de tablas locales, incluido el vínculo del
 //      tercero: preguntarle a Siigo si el cliente existe, en cada carga de pantalla, gastaría la
 //      cuota que comparte con la emisión.
-//   4. **El corte del histórico es un dato, no un supuesto** (AC4). Vive en `historico_desde` de la
-//      configuración de emisión, y cambiar esa fecha cambia el veredicto sin tocar código. Es la
-//      pregunta 13 aislada en una columna.
+//   4. **El corte del histórico es un dato, no un supuesto** (AC4). Vive en `historico_desde` de
+//      `siigo_config_emision`, y cambiar esa fecha cambia el veredicto sin tocar código. Es la
+//      pregunta 13 aislada en una columna. Desde la 0148 ninguna pantalla la escribe: la siembra
+//      una migración (la 0149), y **sin fila vigente no se factura nada** — ver el porqué junto a
+//      `sin_corte_configurado`, más abajo.
 
 import { sql } from 'drizzle-orm';
 import {
@@ -97,10 +99,31 @@ export function motivosLocales(f: FilaElegibilidad): MotivoElegibilidad[] {
 
   if (!f.documentacionCompleta) motivos.push(motivo('documentacion_incompleta'));
 
-  // AC4 — el corte es un dato. Si no hay fecha configurada no se bloquea nada: la ausencia de
-  // configuración no debe comportarse como una prohibición silenciosa, o alguien buscaría durante
-  // horas por qué no se factura y no habría nada que encontrar.
+  // AC4 — el corte es un dato, y **su ausencia también dice algo**.
   //
+  // Hasta la 0148 esto no bloqueaba cuando no había fecha, con este razonamiento: «la ausencia de
+  // configuración no debe comportarse como una prohibición silenciosa, o alguien buscaría durante
+  // horas por qué no se factura y no habría nada que encontrar». El razonamiento sigue siendo bueno
+  // y aquí no se descarta — lo que se descarta es la conclusión que se sacó de él.
+  //
+  // Lo que cambió: la 0148 retiró la pantalla que escribía esta tabla, así que «no hay fila» dejó de
+  // ser un descuido de instalación y pasó a ser el estado NORMAL de un ambiente recién migrado. Con
+  // la regla anterior, el único control que impide facturar histórico no autorizado quedaba apagado
+  // en todas partes y sin que nadie se enterase: exactamente el silencio que se quería evitar, pero
+  // del lado que se paga ante la DIAN.
+  //
+  // Así que se invierte, y lo que se conserva del argumento original es el ANTÍDOTO: el bloqueo no
+  // es silencioso. `sin_corte_configurado` es un motivo propio, con su texto, que se cuenta en el
+  // resumen y se pinta en la pantalla diciendo que el ambiente no está sembrado y a quién avisar.
+  // Nadie busca durante horas algo que la propia tarjeta explica.
+  //
+  // Y el error cae del lado seguro, que es el mismo criterio que gobierna el párrafo de abajo: un
+  // falso «no elegible» se corrige mirando; un falso «elegible» se corrige ante la autoridad.
+  //
+  // La 0149 siembra la fila de los dos ambientes, así que este camino es el de un ambiente nuevo sin
+  // sembrar, no el de todos los días.
+  if (!f.historicoDesde) motivos.push(motivo('sin_corte_configurado'));
+
   // **Las fechas se comparan como CADENAS, y es seguro por construcción.** Las dos llegan en
   // `YYYY-MM-DD` —la de la liquidación por el `::date::text` de la consulta, la del corte por ser
   // una columna `date`—, y en ese formato el orden lexicográfico ES el cronológico. Y si alguna
