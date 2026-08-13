@@ -1,16 +1,20 @@
-// FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497).
+// FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497) y del token
+// SIMIT (HU #11498).
 //
 // Base: `/api/flito/comparendos`. Aquí solo se valida, se traduce y se deja rastro; las reglas de
-// negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06, en su
-// cabecera). Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
+// negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06) y en
+// `flito-comparendos.token.service.ts` (RN-07..RN-10), en sus cabeceras. Este módulo NO es el gate
+// SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
-// El resto de la superficie del Feature —token SIMIT, adapters, `POST /sync` y la lectura de
-// registros— la añaden las HUs #11498, #11499, #11500 y #11502 sobre este mismo router.
+// El resto de la superficie del Feature —adapters, `POST /sync` y la lectura de registros— la
+// añaden las HUs #11499, #11500 y #11502 sobre este mismo router.
 
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { ComparendosError } from './flito-comparendos.errors.js';
 import {
   actualizarCausal,
@@ -26,6 +30,7 @@ import {
   normalizarCodigoFuente,
   normalizarNit,
 } from './flito-comparendos.service.js';
+import { guardarTokenSimit, obtenerMetaTokenSimit } from './flito-comparendos.token.service.js';
 
 const router = Router();
 
@@ -57,6 +62,50 @@ function fallo(res: Response, e: unknown): void {
 function datosInvalidos(res: Response, error: z.ZodError): void {
   res.status(400).json({ error: 'Datos inválidos', details: error.flatten() });
 }
+
+// ─────────────────────────────── Limitadores de escritura ──────────────────────────────────────
+//
+// Van sobre rutas concretas y después de los guardas del router: quien no pasa `authMiddleware` o
+// `requireRole` ni siquiera consume cuota, así que un 401 en bucle no puede agotarle el cupo a un
+// administrador legítimo. `userOrIpKey` cuenta por usuario cuando lo hay (y por IP normalizada a
+// /64 cuando no), de modo que dos administradores no se pisan la cuota entre sí.
+
+/**
+ * `PUT` del token: 10 por minuto y usuario.
+ *
+ * Configurar el token es un gesto humano que ocurre una vez y se repite cuando el proveedor lo
+ * rota. Un límite estrecho es lo que convierte este endpoint en un mal sitio para probar valores a
+ * ciegas —cada intento cifra, abre transacción y escribe una fila de historial—, y de paso acota lo
+ * que puede hacer una sesión de administrador robada antes de que salte el ruido en auditoría.
+ */
+const tokenLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-token'),
+  message: { error: 'Demasiadas actualizaciones del token SIMIT, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-token:'),
+});
+
+/**
+ * Alta de NITs monitoreados: 30 por minuto y usuario.
+ *
+ * Lo pidió el gate de seguridad de la HU #11497 y no es un límite de higiene: cada NIT del catálogo
+ * multiplica las llamadas que el sync hace contra Verifik en CADA corrida, así que dar de alta
+ * cientos de NITs en un bucle no llena una tabla, agota la cuota contratada con el proveedor y deja
+ * el módulo sin sincronizar para todos. Más holgado que el del token porque cargar el catálogo
+ * inicial a mano es un caso real; 30/min sigue haciendo imposible el bucle.
+ */
+const altaNitLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-nit'),
+  message: { error: 'Demasiadas altas de NIT, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-nit:'),
+});
 
 const idSchema = z.string().uuid();
 
@@ -108,7 +157,7 @@ router.get('/nits', async (_req: Request, res: Response) => {
   res.json(await listarNits());
 });
 
-router.post('/nits', async (req: Request, res: Response) => {
+router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
   const parsed = crearNitSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   try {
@@ -268,6 +317,62 @@ router.patch('/causales/:id', async (req: Request, res: Response) => {
       detail: `Causal "${actualizada.nombre}": activa=${actualizada.activo}, orden=${actualizada.orden}`,
     });
     res.json(actualizada);
+  } catch (e) { fallo(res, e); }
+});
+
+// ─────────────────────────────── Token SIMIT (CF-03) ────────────────────────────────────────────
+
+/**
+ * El token entra por aquí UNA vez y no vuelve a salir (ADR-0002).
+ *
+ * `max(2048)` no es un número redondo cualquiera: los JWT de Verifik rondan el kilobyte y 2 KB deja
+ * margen sin admitir un cuerpo que solo puede ser un intento de llenar la tabla. `min(1)` porque
+ * una cadena vacía cifra igual de bien que un token y dejaría la integración rota con un
+ * `configurado: true` mintiendo en la pantalla.
+ *
+ * Sin `.trim()` deliberadamente: recortar un secreto es adivinar. Si el proveedor emitiera un token
+ * con espacios significativos, un trim silencioso lo rompería y el fallo aparecería mucho después,
+ * en un 401 del proveedor que nadie ataría a este endpoint.
+ */
+const tokenSimitSchema = z.object({
+  token: z.string().min(1, 'El token no puede estar vacío').max(2048, 'El token admite hasta 2048 caracteres'),
+});
+
+/**
+ * `GET` — metadatos y nada más: `configurado`, cuándo, quién y bajo qué versión de llave.
+ *
+ * No hay ninguna variante de esta ruta que devuelva el token, ni enmascarado ni por un prefijo. No
+ * lleva limitador: es una lectura sin secreto y la pantalla de configuración la pide en cada carga.
+ */
+router.get('/config/token-simit', async (_req: Request, res: Response) => {
+  res.json(await obtenerMetaTokenSimit());
+});
+
+/**
+ * `PUT` — cifra y rota. Responde exactamente lo mismo que el `GET`, nunca un eco del token.
+ *
+ * Es `PUT` y no `POST` porque el recurso es uno solo y la operación es idempotente en su efecto
+ * observable: mandar dos veces el mismo token deja la misma configuración (con dos filas de
+ * historial, que es el rastro que CF-03 quiere).
+ */
+router.put('/config/token-simit', tokenLimiter, async (req: Request, res: Response) => {
+  const parsed = tokenSimitSchema.safeParse(req.body);
+  // `flatten()` devuelve los MENSAJES de las reglas, nunca el valor que se validó: un token
+  // demasiado largo no vuelve al cliente dentro del detalle del error.
+  if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
+
+  try {
+    const { id, meta } = await guardarTokenSimit(parsed.data.token, req.user?.sub ?? null);
+    // Ni el token ni un fragmento suyo en el detalle: un prefijo sigue siendo material de la
+    // credencial, y `audit_logs` se consulta y se exporta. Lo que queda escrito es QUÉ cambió y
+    // bajo qué llave — quién y cuándo los pone el propio middleware.
+    await audit(req, {
+      action: 'update',
+      resource: 'flito_comparendos_token',
+      resourceId: String(id),
+      detail: `Token SIMIT actualizado (keyVersion=${meta.keyVersion})`,
+    });
+    res.json(meta);
   } catch (e) { fallo(res, e); }
 });
 
