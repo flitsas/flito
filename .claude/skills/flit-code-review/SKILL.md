@@ -7,7 +7,7 @@ description: Revisión estructurada de un diff antes de abrir el PR en el monore
 
 **Fuente de verdad de convenciones:** `AGENTS.md` (raíz del monorepo). Esta skill solo aplica el checklist; no redefine las reglas.
 
-**Cuándo se invoca:** antes de abrir un PR (paso obligatorio del ciclo de `flit-modo-desarrollo-auto`) o cuando el usuario pide "revisa el diff" / "code review" de la rama o de los cambios sin commitear.
+**Cuándo se invoca:** **siempre** antes de `create_pull_request` — también cuando el usuario diga solo «crea / abre / sube el PR». Ese pedido autoriza abrir el PR *después* de este checklist, no lo sustituye. También cuando pida "revisa el diff" / "code review", o en el paso 4b de `flit-modo-desarrollo-auto`. Aplica a PRs de HU y a `docs/*` / `chore/*`.
 
 **Autonomía:** read-only sobre el código. No corrijo nada: reporto hallazgos y veredicto; las correcciones las hace `backend-agent` / `frontend-agent` o el humano.
 

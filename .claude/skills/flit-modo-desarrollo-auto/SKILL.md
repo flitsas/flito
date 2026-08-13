@@ -249,7 +249,8 @@ pendientes.
 3. **Nunca `Resolved` con build o pipeline en rojo.**
 4. **Nunca abrir el PR sin el paso 4b en verde** — `flit-code-review` y, cuando aplique,
    `security-agent` y/o `db-review-agent`. La seguridad y el esquema no son opcionales ni quedan
-   a criterio del momento.
+   a criterio del momento. Un «crea el PR» del humano **no** salta el 4b: solo autoriza el
+   `create_pull_request` cuando los gates ya están en verde (ver `.cursor/rules/pre-pr-gates.mdc`).
 5. **Nunca commitear secretos** ni `.env`.
 6. **Una rama por HU.** En modo continuo, la N-ésima nace de la rama de la (N-1) o de `develop`
    tras merge del eslabón previo; en modo secuencial, de `develop` actualizado. Dejarlo escrito
