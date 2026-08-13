@@ -11,6 +11,10 @@
 // Ampliar este archivo, no reutilizarlo desde fuera: los errores de las HUs siguientes (token,
 // clientes, sync) son de este módulo y caben aquí; los de otros dominios, no.
 
+// Único import del archivo y sin peso en runtime (`import type` se borra al compilar): el
+// vocabulario de las fuentes se declara junto a los DTOs crudos que lo usan, no duplicado aquí.
+import type { ComparendosOrigenFuente } from './clients/types.js';
+
 /** Raíz de los errores del módulo. Lo que NO herede de aquí es un fallo inesperado y sale como 500. */
 export class ComparendosError extends Error {
   /** Estado HTTP con el que la ruta responde. */
@@ -124,6 +128,140 @@ export class ComparendosTokenRotacionConcurrenteError extends ComparendosError {
       'token_rotacion_concurrente',
       409,
       'Otra actualización del token SIMIT se completó al mismo tiempo. Verifica cuál quedó activo y vuelve a intentarlo si hace falta.',
+    );
+  }
+}
+
+// ─────────────────────── Fuentes externas: Verifik y UTS (HU #11499) ────────────────────────────
+//
+// Los cuatro fallos de transporte que hay que poder distinguir en un `sync_run_step`, y una regla
+// que vale para todos: **el mensaje de estos errores se escribe para acabar en un log y en la
+// columna `mensaje` del step**, así que no lleva token, ni cabeceras, ni NIT. Ese es el motivo de
+// que se construyan aquí y no en cada adapter: si cada cliente redactara su propio texto, la
+// promesa «no se filtra la credencial» dependería de que nadie se despistara al añadir el quinto.
+//
+// Lo que sí llevan es `httpStatus` (el del PROVEEDOR, distinto del `status` con el que responde
+// nuestra API) y `fuente`, que son exactamente las dos columnas que el sync necesita escribir.
+
+/** Nombre legible de la fuente para los mensajes. El municipio se identifica por su código UTS. */
+function etiquetaFuente(origen: ComparendosOrigenFuente, fuente: string): string {
+  return origen === 'simit' ? 'Verifik SIMIT' : `el UTS municipal (fuente ${fuente})`;
+}
+
+/**
+ * Raíz de los fallos de una fuente externa.
+ *
+ * Ojo con los dos «status»: `status` (heredado) es con lo que responde ESTA API y `httpStatus` es
+ * lo que respondió el proveedor. Se llaman distinto justamente para que no se confundan al
+ * escribir el step.
+ */
+export class ComparendosFuenteError extends ComparendosError {
+  readonly origen: ComparendosOrigenFuente;
+  /** `'simit'` o el `codigoFuente` del municipio. Va tal cual a `sync_run_steps.fuente`. */
+  readonly fuente: string;
+  /** Código HTTP del proveedor, o `null` cuando no llegó a haber respuesta (timeout, red, config). */
+  readonly httpStatus: number | null;
+
+  constructor(
+    codigo: string, status: number,
+    origen: ComparendosOrigenFuente, fuente: string, httpStatus: number | null,
+    mensaje: string,
+  ) {
+    super(codigo, status, mensaje);
+    this.origen = origen;
+    this.fuente = fuente;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/**
+ * Falta la base URL del proveedor y el módulo está en modo `real`.
+ *
+ * 503 y no 500 por lo mismo que la llave maestra: no hay bug que arreglar, hay algo que
+ * provisionar. Y falla explícito ANTES de construir nada — sin esto la petición saldría hacia una
+ * URL con `undefined` dentro y el error llegaría disfrazado de fallo de red.
+ */
+export class ComparendosFuenteNoConfiguradaError extends ComparendosFuenteError {
+  constructor(origen: ComparendosOrigenFuente, fuente: string, variable: string) {
+    super(
+      'fuente_no_configurada', 503, origen, fuente, null,
+      `No hay base URL para ${etiquetaFuente(origen, fuente)}: define ${variable} en el entorno `
+      + 'o deja COMPARENDOS_SIMIT_MODE=mock mientras no haya credenciales.',
+    );
+  }
+}
+
+/**
+ * El proveedor no respondió dentro de `COMPARENDOS_HTTP_TIMEOUT_MS`.
+ *
+ * 504 para que se distinga de un error del proveedor: aquí no sabemos si la consulta salió bien o
+ * mal, solo que no llegó a tiempo. Al sync le importa la diferencia — un timeout NO autoriza a
+ * inactivar los comparendos de ese NIT (ADR-0001 §5).
+ */
+export class ComparendosFuenteTimeoutError extends ComparendosFuenteError {
+  constructor(origen: ComparendosOrigenFuente, fuente: string, timeoutMs: number) {
+    super(
+      'fuente_timeout', 504, origen, fuente, null,
+      `${etiquetaFuente(origen, fuente)} no respondió en ${timeoutMs} ms.`,
+    );
+  }
+}
+
+/**
+ * El proveedor respondió, pero con un código que no es 2xx.
+ *
+ * El 401/403 se comenta aparte porque es, con diferencia, el fallo más probable de Verifik y el
+ * mensaje decide cuánto tarda alguien en arreglarlo. Se nombra el token como algo a REVISAR; el
+ * valor no aparece por ningún lado.
+ */
+export class ComparendosFuenteHttpError extends ComparendosFuenteError {
+  constructor(origen: ComparendosOrigenFuente, fuente: string, httpStatus: number) {
+    const pista = httpStatus === 401 || httpStatus === 403
+      ? ' Revisa el token SIMIT configurado: puede haber expirado o no tener permiso sobre esta consulta.'
+      : '';
+    super(
+      'fuente_http', 502, origen, fuente, httpStatus,
+      `${etiquetaFuente(origen, fuente)} respondió HTTP ${httpStatus}.${pista}`,
+    );
+  }
+}
+
+/**
+ * No hubo respuesta: DNS, conexión rechazada, TLS, socket cerrado a media.
+ *
+ * El mensaje lleva el `code` de Node (`ECONNREFUSED`, `ENOTFOUND`…) y NO el mensaje original del
+ * error. Es deliberado: el `code` es un enumerado corto y seguro, mientras que un mensaje de
+ * librería es texto arbitrario que podría arrastrar la URL, un cuerpo o cualquier cosa que
+ * mañana alguien decida meter ahí. Lo que se pierde en detalle se recupera en el `err` estructurado
+ * que el adapter registra, que no sale de los logs de la API.
+ */
+export class ComparendosFuenteRedError extends ComparendosFuenteError {
+  constructor(origen: ComparendosOrigenFuente, fuente: string, codigoRed: string) {
+    super(
+      'fuente_red', 502, origen, fuente, null,
+      `No se pudo contactar a ${etiquetaFuente(origen, fuente)} (código de red: ${codigoRed}).`,
+    );
+  }
+}
+
+/**
+ * Respondió 2xx pero el cuerpo no trae ninguna lista de comparendos reconocible.
+ *
+ * Podría devolverse una lista vacía y seguir. **No se hace, y es la decisión más importante de este
+ * archivo:** un «cero comparendos» que en realidad es «no entendí la respuesta» le diría al sync
+ * que ese NIT ya no debe nada, y la regla de inactivación (ADR-0001 §5) apagaría todo su histórico.
+ * Fallar aquí convierte un cambio de contrato del proveedor en un step fallido y visible, que es
+ * exactamente lo que el spike #11501 necesita ver.
+ *
+ * `pista` describe la FORMA del cuerpo (nombres de clave o tamaño), nunca su contenido: los valores
+ * son PII de tránsito y el objetivo es diagnosticar el contrato, no leer los datos.
+ */
+export class ComparendosFuenteRespuestaIlegibleError extends ComparendosFuenteError {
+  constructor(origen: ComparendosOrigenFuente, fuente: string, httpStatus: number, pista: string) {
+    super(
+      'fuente_respuesta_ilegible', 502, origen, fuente, httpStatus,
+      `La respuesta de ${etiquetaFuente(origen, fuente)} no contiene una lista de comparendos `
+      + `reconocible (${pista}).`,
     );
   }
 }
