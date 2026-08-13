@@ -20,13 +20,14 @@
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type {
+  ConceptoFacturable,
   SiigoColaDesenlace, SiigoColaEstado, SiigoColaItem, SiigoColaResultadoEncolado,
 } from '@operaciones/shared-types';
 import { SIIGO_COLA_ARRENDAMIENTO_MIN } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { siigoColaFacturacion } from '../../db/schema.js';
 import { asegurarLote, lotesDeTramites } from './facturacion.lote.repo.js';
-import { huellaDeTramites } from './facturacion.armado.js';
+import { huellaDeLote, type EmisionElegida } from './facturacion.armado.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 import { sanearMensaje } from './siigo.redaccion.js';
 import { OPERACION_ENCOLAR } from './siigo.freno.service.js';
@@ -35,7 +36,7 @@ import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** Fallo de uso de la cola. La ruta de la HU #11328 lo traducirá a HTTP. */
 export class SiigoColaError extends Error {
-  readonly codigo: 'sin_tramites' | 'lote' | 'no_existe';
+  readonly codigo: 'sin_tramites' | 'sin_conceptos' | 'lote' | 'no_existe';
 
   constructor(codigo: SiigoColaError['codigo'], message: string) {
     super(message);
@@ -98,6 +99,14 @@ function aItem(f: Record<string, unknown>): SiigoColaItem {
 
 export interface EntradaEncolado {
   tramiteIds: string[];
+  /**
+   * Los conceptos que se van a facturar (A1). No opcional a propósito: con un valor por omisión,
+   * un llamador que se olvidara de pasarlos facturaría algo distinto de lo que se pidió, y el
+   * síntoma sería una factura ante la DIAN, no un error de compilación.
+   */
+  conceptos: readonly ConceptoFacturable[];
+  /** La emisión elegida para la empresa de estos trámites (A2). Ausente = configuración global. */
+  emision?: EmisionElegida | null;
   ambiente: SiigoAmbiente;
   usuarioId: number | null;
   /**
@@ -136,11 +145,25 @@ export async function encolar(entrada: EntradaEncolado): Promise<ResultadoEncola
   if (ids.length === 0) {
     throw new SiigoColaError('sin_tramites', 'No se indicó ningún trámite que encolar.');
   }
+  const conceptos = [...new Set(entrada.conceptos)].sort();
+  if (conceptos.length === 0) {
+    throw new SiigoColaError(
+      'sin_conceptos',
+      'No se indicó ningún concepto que facturar. Una factura sin líneas no es una factura.',
+    );
+  }
   const ahora = entrada.ahora ?? new Date();
   const { ambiente, usuarioId = null } = entrada;
 
   const loteId = await asegurarLote({
-    ambiente, huella: huellaDeTramites(ids), tramiteIds: ids, creadoPor: usuarioId,
+    ambiente,
+    // C3 — la huella cubre trámites Y conceptos. Con solo los trámites, dos envíos del mismo
+    // conjunto con selecciones distintas compartían identidad y el segundo no emitía nada.
+    huella: huellaDeLote(ids, conceptos, entrada.emision),
+    tramiteIds: ids,
+    conceptos,
+    emision: entrada.emision,
+    creadoPor: usuarioId,
   });
   if (!loteId) {
     throw new SiigoColaError(
@@ -319,19 +342,31 @@ export async function tomarLote(entrada: EntradaToma): Promise<FilaTomada[]> {
   const minutos = entrada.arrendamientoMin ?? SIIGO_COLA_ARRENDAMIENTO_MIN;
   const corte = new Date(entrada.ahora.getTime() - minutos * 60_000);
 
+  // Las fechas viajan como TEXTO ISO con su cast explícito, nunca como `Date`.
+  //
+  // No es cosmética: `db.execute` acaba en `client.unsafe(query, params)` de postgres.js, que —a
+  // diferencia de su plantilla etiquetada— NO aplica los serializadores por tipo y le pasa el
+  // parámetro tal cual al codificador. Un `Date` ahí revienta con «The "string" argument must be of
+  // type string […]. Received an instance of Date», y revienta SIEMPRE: esta consulta no podía tomar
+  // ni una sola fila contra una base real.
+  //
+  // No lo detectó ninguna prueba porque todas corren contra la base mockeada, que acepta cualquier
+  // parámetro. Es el patrón que ya usa `jornadas/autoclose.cron.ts` por el mismo motivo.
   const resultado = await db.execute(sql`
     WITH candidatas AS (
       SELECT id FROM siigo_cola_facturacion
        WHERE ambiente = ${entrada.ambiente}
          AND estado IN ('pendiente', 'error')
-         AND proximo_intento_at <= ${entrada.ahora}
-         AND (tomado_en IS NULL OR tomado_en < ${corte})
+         AND proximo_intento_at <= ${entrada.ahora.toISOString()}::timestamptz
+         AND (tomado_en IS NULL OR tomado_en < ${corte.toISOString()}::timestamptz)
        ORDER BY proximo_intento_at, created_at
        LIMIT ${entrada.limite}
        FOR UPDATE SKIP LOCKED
     )
     UPDATE siigo_cola_facturacion c
-       SET tomado_por = ${entrada.tomadoPor}, tomado_en = ${entrada.ahora}, updated_at = ${entrada.ahora}
+       SET tomado_por = ${entrada.tomadoPor},
+           tomado_en = ${entrada.ahora.toISOString()}::timestamptz,
+           updated_at = ${entrada.ahora.toISOString()}::timestamptz
       FROM candidatas k
      WHERE c.id = k.id
     RETURNING c.id, c.lote_id, c.intentos, c.esperas, c.max_intentos, c.max_esperas

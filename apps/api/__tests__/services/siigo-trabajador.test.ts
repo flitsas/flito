@@ -41,9 +41,18 @@ vi.mock('../../src/modules/siigo/facturacion.cola.service.js', async (original) 
 });
 
 const tramitesDelLoteMock = vi.fn();
+/** A1 — el trabajador lee del LOTE qué se factura, no de la liquidación. */
+const conceptosDelLoteMock = vi.fn();
+/** A2 — y con qué configuración de emisión. Todo nulo = la global, como antes de A2. */
+const emisionDelLoteMock = vi.fn();
 vi.mock('../../src/modules/siigo/facturacion.lote.repo.js', async (original) => {
   const real = await original<typeof import('../../src/modules/siigo/facturacion.lote.repo.js')>();
-  return { ...real, tramitesDelLote: (id: string) => tramitesDelLoteMock(id) };
+  return {
+    ...real,
+    tramitesDelLote: (id: string) => tramitesDelLoteMock(id),
+    conceptosDelLote: (id: string) => conceptosDelLoteMock(id),
+    emisionDelLote: (id: string) => emisionDelLoteMock(id),
+  };
 });
 
 const circuitoAbiertoMock = vi.fn(() => false);
@@ -95,6 +104,10 @@ beforeEach(() => {
   registrarDesenlaceMock.mockResolvedValue(true);
   liberarMock.mockResolvedValue(true);
   tramitesDelLoteMock.mockResolvedValue([TRAMITE]);
+  conceptosDelLoteMock.mockResolvedValue(['tramite_digital']);
+  emisionDelLoteMock.mockResolvedValue({
+    documentoTipoCodigo: null, vendedorCodigo: null, formaPagoCodigo: null, centroCostoCodigo: null,
+  });
   emitirFacturaMock.mockResolvedValue(resultado());
   circuitoAbiertoMock.mockReturnValue(false);
   CICLO.dormir.mockClear();

@@ -19,7 +19,6 @@
 //      endpoint de emisión directamente recibe el mismo rechazo.
 
 import type { ConceptoFacturable } from './siigo-facturacion.js';
-import type { CampoCatalogoEmision } from './siigo-emision.js';
 
 /**
  * Por qué está cerrada la compuerta. Cada tipo lleva una acción distinta, y por eso son valores
@@ -27,19 +26,19 @@ import type { CampoCatalogoEmision } from './siigo-emision.js';
  *
  *   · `concepto_sin_confirmar` → contabilidad tiene que firmar el concepto.
  *   · `concepto_no_listo`      → falta producto, clasificación, o el producto dejó de ser válido.
- *   · `config_incompleta`      → faltan valores en la configuración global de emisión.
- *   · `config_invalida`        → los hay, pero dejaron de existir o quedaron inactivos en Siigo.
- *   · `sin_configurar`         → nadie ha guardado todavía una configuración en este ambiente.
  *   · `sin_conceptos`          → la liquidación no trae ni un concepto facturable. NO es «todo en
  *     orden»: es que no hay nada que comprobar, y una compuerta que abre sin haber comprobado nada
  *     no es una compuerta.
+ *
+ * **Se retiraron `config_incompleta`, `config_invalida` y `sin_configurar`** (2026-08-13). Miraban
+ * la configuración global de emisión, que desapareció: el comprobante, el vendedor y la forma de
+ * pago se eligen en cada envío, así que cuando esta compuerta se evalúa todavía no existen. Que
+ * falten se comprueba donde sí se sabe qué se eligió —el diálogo de envío y `prepararEmision`—, no
+ * aquí.
  */
 export const TIPOS_MOTIVO_COMPUERTA = [
   'concepto_sin_confirmar',
   'concepto_no_listo',
-  'config_incompleta',
-  'config_invalida',
-  'sin_configurar',
   'sin_conceptos',
 ] as const;
 
@@ -52,8 +51,6 @@ export interface MotivoCompuerta {
   detalle: string;
   /** Conceptos implicados, cuando el motivo es de mapeo. */
   conceptos?: ConceptoFacturable[];
-  /** Campos implicados, cuando el motivo es de configuración global. */
-  campos?: CampoCatalogoEmision[];
 }
 
 /** Veredicto de la compuerta para un ambiente. */

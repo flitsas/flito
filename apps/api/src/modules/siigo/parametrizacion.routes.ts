@@ -10,12 +10,16 @@
 // a ejecutarse y, por tanto, sin que salga ninguna petición hacia Siigo.
 
 import { Router, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { SIIGO_TIPOS_CATALOGO } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { exigirAccionSiigo } from './siigo.permisos.js';
 import {
-  leerCatalogo, resumenCatalogos, sincronizarCatalogos,
+  CATALOGOS_DE_EMISION, esCatalogoDeEmision, leerCatalogo, leerCatalogoEnVivo,
+  resumenCatalogos, sincronizarCatalogos, traducirFalloCatalogo,
 } from './siigo.catalogos.service.js';
 
 const router = Router();
@@ -57,6 +61,58 @@ router.get('/catalogos', LECTURA, async (req: Request, res: Response) => {
   const data = await resumenCatalogos({ ambiente: query.data.ambiente });
   res.json({ data });
 });
+
+/**
+ * Limitador de la lectura en vivo, más estrecho que el de la copia local.
+ *
+ * Cada consulta es un viaje a Siigo contra la cuota de 100/min que comparte la emisión. El paso de
+ * emisión pide cuatro catálogos de una vez, así que un usuario abriendo y cerrando el diálogo gasta
+ * de cuatro en cuatro; el tope deja margen para varios envíos seguidos sin dejar sin cuota a lo que
+ * factura. Misma forma que el limitador del listado de productos, por el mismo motivo.
+ */
+const vivoLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('siigo-catalogos-vivo'),
+  store: makeStore('rl:siigo-catalogos-vivo:'),
+  message: { error: 'Demasiadas consultas a los catálogos de Siigo. Espera un momento.' },
+});
+
+/**
+ * GET /catalogos-vivo/:tipo — un catálogo de emisión leído de Siigo AHORA.
+ *
+ * Es lo que alimenta el paso «con qué se emite» de un envío. No hay copia local detrás ni botón de
+ * sincronizar que alguien deba acordarse de pulsar: si acaban de crear el vendedor en Siigo, aparece.
+ *
+ * Solo los cuatro de emisión. Los demás (`tax`, `account_group`) se consultan constantemente para
+ * pintar el mapeo, y para esos la copia local sigue siendo lo correcto.
+ *
+ * La guarda es `consultar`, no una de operación: mirar un catálogo no factura nada. Y el ambiente no
+ * se acepta por parámetro —a diferencia de las lecturas locales— porque esto SALE a la red contra
+ * una empresa real; el ambiente es el del servidor, igual que en el envío y en los productos.
+ */
+router.get('/catalogos-vivo/:tipo', exigirAccionSiigo('consultar'), vivoLimiter,
+  async (req: Request, res: Response) => {
+    const tipo = req.params.tipo;
+    if (typeof tipo !== 'string' || !esCatalogoDeEmision(tipo)) {
+      res.status(400).json({
+        error: 'Ese catálogo no se lee en vivo',
+        catalogosValidos: CATALOGOS_DE_EMISION,
+      });
+      return;
+    }
+
+    try {
+      res.json({ tipo, elementos: await leerCatalogoEnVivo(tipo) });
+    } catch (e) {
+      // 502 y no 500: el fallo es de Siigo o del cortacircuitos, no de esta API. `traducirFalloCatalogo`
+      // ya convierte credenciales, circuito abierto y respuestas raras en algo accionable.
+      const { codigo, mensaje } = traducirFalloCatalogo(e);
+      res.status(502).json({ error: mensaje, codigo });
+    }
+  });
 
 // GET /catalogos/:tipo — elementos de un catálogo, desde la copia local. Nunca llama a Siigo (AC3).
 router.get('/catalogos/:tipo', LECTURA, async (req: Request, res: Response) => {

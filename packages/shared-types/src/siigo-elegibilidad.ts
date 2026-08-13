@@ -62,8 +62,13 @@ export const MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO: Record<MotivoTramiteNoElegible, s
     + 'entrar, cambia esa fecha en la configuración de emisión.',
   sin_compania:
     'El trámite no tiene una compañía asociada, así que no hay a quién facturarle.',
+  // NO dice «no existe en Siigo», y la diferencia costó una tarde de depuración: lo que falta es el
+  // VÍNCULO en FLITO, y la empresa suele estar perfectamente cargada en Siigo Nube. El mensaje
+  // anterior mandaba a buscar el problema en el sitio equivocado —credenciales, ambiente, la propia
+  // API de Siigo— cuando la acción correcta siempre fue sincronizar desde la ficha.
   tercero_sin_vincular:
-    'La compañía todavía no existe como tercero en Siigo. Sincronízala desde su ficha.',
+    'La compañía todavía no está vinculada con su tercero de Siigo. Sincronízala desde su ficha: '
+    + 'si ya existe en Siigo, se vincula sola y de paso completa los datos que falten aquí.',
   cliente_no_facturable:
     'La ficha fiscal del cliente está incompleta.',
   compuerta_cerrada:
@@ -84,6 +89,14 @@ export interface ElegibilidadTramite {
   elegible: boolean;
   /** Vacío cuando es elegible. Nunca un motivo genérico: si no se sabe, no se inventa. */
   motivos: MotivoElegibilidad[];
+  /**
+   * A quién se le factura. `null` = el trámite no tiene compañía, que ya es un motivo por sí solo.
+   *
+   * Viaja desde A2 porque la configuración de emisión se elige POR EMPRESA: sin este dato, el
+   * diálogo de envío no puede agrupar las filas ni precargar el vendedor de cada una, y tendría que
+   * volver a preguntar por algo que esta consulta ya sabe.
+   */
+  companiaId: number | null;
 }
 
 /**

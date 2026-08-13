@@ -37,6 +37,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { SiigoRespuestaEnvio } from '@operaciones/shared-types';
+import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -45,6 +46,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { exigirAccionSiigo, registrarAccionSiigo } from './siigo.permisos.js';
 import { colaDeTramites, SiigoColaError } from './facturacion.cola.service.js';
 import { enviarAFacturacion, TOPE_TRAMITES_ENVIO } from './facturacion.encolado.service.js';
+import { emisionRecordada } from './emision-cliente.repo.js';
 import { SiigoIntegracionFrenadaError } from './siigo.freno.service.js';
 
 const router = Router();
@@ -100,6 +102,21 @@ const consultaLimiter = rateLimit({
  */
 const envioSchema = z.object({
   tramiteIds: z.array(z.string().uuid()).min(1).max(TOPE_TRAMITES_ENVIO),
+  // A1 — qué se factura viaja explícito y SIN valor por omisión. Un default aquí («todos los
+  // aplicables», que es lo que hacía antes) convertiría el olvido de un cliente en una factura ante
+  // la DIAN con conceptos que nadie pidió, y eso no se deshace.
+  conceptos: z.array(z.enum(CONCEPTOS_FACTURABLES)).min(1).max(CONCEPTOS_FACTURABLES.length),
+  // A2 — la emisión elegida, una entrada por empresa. OPCIONAL, y aquí sí con motivo: su ausencia
+  // cae a la configuración global vigente, que es una configuración explícita que alguien guardó y
+  // con la que se venía emitiendo. No es lo mismo que el default de `conceptos`, que habría sido
+  // deducir de la liquidación algo que nadie eligió.
+  emision: z.array(z.object({
+    clienteId: z.number().int().positive(),
+    documentoTipoCodigo: z.string().trim().max(60).nullable(),
+    vendedorCodigo: z.string().trim().max(60).nullable(),
+    formaPagoCodigo: z.string().trim().max(60).nullable(),
+    centroCostoCodigo: z.string().trim().max(60).nullable(),
+  })).max(TOPE_TRAMITES_ENVIO).optional(),
   // Reactivar lo dado por perdido es una decisión de quien opera, no un efecto secundario de
   // reenviar: por eso viaja explícito y apagado por omisión (AC3).
   reactivar: z.boolean().optional(),
@@ -134,13 +151,15 @@ router.post('/', EMISION, exigirReactivar, envioLimiter, async (req: Request, re
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
     return;
   }
-  const { tramiteIds, reactivar } = parsed.data;
+  const { tramiteIds, conceptos, emision, reactivar } = parsed.data;
   const usuarioId = req.user?.sub ?? null;
 
   let salida: SiigoRespuestaEnvio;
   try {
     salida = await enviarAFacturacion({
       tramiteIds,
+      conceptos,
+      emision,
       // AQUÍ, y en ningún otro sitio. El cuerpo no participa en esta línea.
       ambiente: env.SIIGO_AMBIENTE,
       usuarioId,
@@ -259,5 +278,30 @@ function fallo(res: Response, e: unknown): void {
   }
   throw e;
 }
+
+/**
+ * GET /emision — lo último que se usó con cada cliente (A2).
+ *
+ * Lo consume el diálogo de envío para precargar una fila por empresa. Los clientes sin memoria
+ * simplemente no salen, y la pantalla cae a la configuración global, que es la semilla.
+ *
+ * Guarda de LECTURA y no de emisión: preguntar con qué se facturó la última vez no factura nada.
+ */
+router.get('/emision', LECTURA, consultaLimiter, async (req: Request, res: Response) => {
+  const parsed = z.object({ clienteIds: z.string().trim().min(1) }).safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const ids = parsed.data.clienteIds.split(',')
+    .map((x) => Number(x.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  if (ids.length === 0 || ids.length > TOPE_TRAMITES_ENVIO) {
+    res.status(400).json({ error: `Indica entre 1 y ${TOPE_TRAMITES_ENVIO} clientes.` });
+    return;
+  }
+
+  res.json({ items: await emisionRecordada(env.SIIGO_AMBIENTE, ids) });
+});
 
 export default router;

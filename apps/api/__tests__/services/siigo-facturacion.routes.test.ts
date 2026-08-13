@@ -73,6 +73,8 @@ vi.mock('../../src/modules/siigo/facturacion.cola.service.js', () => ({
 }));
 
 const A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+/** A1 — qué se factura viaja en el cuerpo y sin valor por omisión. Hoy, solo el trámite digital. */
+const CONCEPTOS = ['tramite_digital'];
 const B = 'bbbbbbbb-2222-4111-8111-bbbbbbbbbbbb';
 
 async function buildApp() {
@@ -147,7 +149,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
     accionesExigidas.length = 0;
 
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A], reactivar: true });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A], reactivar: true });
 
     expect(accionesExigidas).toContain('reactivar');
   });
@@ -157,7 +159,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
     accionesExigidas.length = 0;
 
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     expect(accionesExigidas).toContain('emitir');
     expect(accionesExigidas).not.toContain('reactivar');
@@ -166,7 +168,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
   it.each<TestRole>(['admin', 'financiera'])('%s puede enviar → 202', async (role) => {
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth(role)).send({ tramiteIds: [A] });
+      .set('Authorization', await auth(role)).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     expect(r.status).toBe(202);
     expect(enviarMock).toHaveBeenCalledTimes(1);
@@ -179,7 +181,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
     const consulta = await request(app)
       .get(`/api/siigo/facturacion?tramiteIds=${A}`).set('Authorization', cabecera);
     const envio = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', cabecera).send({ tramiteIds: [A] });
+      .set('Authorization', cabecera).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     // Mirar la cola es exactamente lo que hace un revisor fiscal; llenarla no.
     expect(consulta.status).toBe(200);
@@ -191,7 +193,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
   it('el intento denegado queda en la bitácora, con el rol y sin datos personales', async () => {
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('auditor', 55)).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('auditor', 55)).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     const fila = registrarMock.mock.calls.map((c) => c[0])
       .find((r) => r.operacion === 'permiso_denegado');
@@ -209,7 +211,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
       const cabecera = await auth(role);
 
       expect((await request(app).post('/api/siigo/facturacion')
-        .set('Authorization', cabecera).send({ tramiteIds: [A] })).status).toBe(403);
+        .set('Authorization', cabecera).send({ conceptos: CONCEPTOS, tramiteIds: [A] })).status).toBe(403);
       expect((await request(app).get(`/api/siigo/facturacion?tramiteIds=${A}`)
         .set('Authorization', cabecera)).status).toBe(403);
     },
@@ -217,7 +219,7 @@ describe('AC6 — quién puede emitir lo decide UNA constante compartida', () =>
 
   it('sin token no se envía nada', async () => {
     const app = await buildApp();
-    const r = await request(app).post('/api/siigo/facturacion').send({ tramiteIds: [A] });
+    const r = await request(app).post('/api/siigo/facturacion').send({ conceptos: CONCEPTOS, tramiteIds: [A] });
     expect(r.status).toBe(401);
     expect(enviarMock).not.toHaveBeenCalled();
   });
@@ -230,7 +232,7 @@ describe('El ambiente sale del servidor, pase lo que pase', () => {
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
       .set('Authorization', await auth('admin'))
-      .send({ tramiteIds: [A], ambiente: 'produccion' });
+      .send({ conceptos: CONCEPTOS, tramiteIds: [A], ambiente: 'produccion' });
 
     // Ignorarlo también sería seguro, pero dejaría al que llama convencido de que eligió. Y si
     // alguien quitara el `.strict()` creyendo que el campo se usa, el fallo sería silencioso.
@@ -242,7 +244,7 @@ describe('El ambiente sale del servidor, pase lo que pase', () => {
     const { env } = await import('../../src/config/env.js');
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('financiera')).send({ tramiteIds: [A, B] });
+      .set('Authorization', await auth('financiera')).send({ conceptos: CONCEPTOS, tramiteIds: [A, B] });
 
     expect(enviarMock.mock.calls[0]![0]).toMatchObject({
       ambiente: env.SIIGO_AMBIENTE, tramiteIds: [A, B], usuarioId: 42,
@@ -252,7 +254,7 @@ describe('El ambiente sale del servidor, pase lo que pase', () => {
   it('y la respuesta dice contra qué ambiente se encoló', async () => {
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
     expect(r.body.ambiente).toBe('pruebas');
   });
 });
@@ -291,7 +293,7 @@ describe('AC1 — la respuesta trae el desglose completo, también con rechazos'
 
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A, B] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A, B] });
 
     // Un 4xx global por un trámite malo obligaría a enviar de uno en uno.
     expect(r.status).toBe(202);
@@ -305,7 +307,7 @@ describe('AC1 — la respuesta trae el desglose completo, también con rechazos'
   it('202 y no 201: cuando esto responde no existe ninguna factura todavía', async () => {
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     expect(r.status).toBe(202);
     // Un 201 con `Location` prometería un documento que quizá nunca llegue a emitirse.
@@ -315,11 +317,11 @@ describe('AC1 — la respuesta trae el desglose completo, también con rechazos'
   it('`reactivar` llega al servicio tal cual, y por omisión no viaja', async () => {
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
     expect(enviarMock.mock.calls[0]![0].reactivar).toBeUndefined();
 
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A], reactivar: true });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A], reactivar: true });
     expect(enviarMock.mock.calls[1]![0].reactivar).toBe(true);
   });
 });
@@ -376,7 +378,7 @@ describe('Con el freno puesto no se encola', () => {
 
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     // 503 y no 409: no es que la petición esté mal, es que el servicio de abajo no está disponible
     // ahora. Un 4xx haría creer a quien integra que tiene que cambiar lo que envía.
@@ -401,7 +403,7 @@ describe('AC7 — queda rastro de quién envió y sobre qué trámites', () => {
   it('se registra en la auditoría general con la lista de trámites', async () => {
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('financiera')).send({ tramiteIds: [A, B] });
+      .set('Authorization', await auth('financiera')).send({ conceptos: CONCEPTOS, tramiteIds: [A, B] });
 
     expect(auditMock).toHaveBeenCalledTimes(1);
     const entrada = auditMock.mock.calls[0]![1] as Record<string, string>;
@@ -415,7 +417,7 @@ describe('AC7 — queda rastro de quién envió y sobre qué trámites', () => {
   it('y en la bitácora del módulo, atribuido a quien lo pidió', async () => {
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin', 91)).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin', 91)).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     const fila = registrarMock.mock.calls.map((c) => c[0]).find((r) => r.operacion === 'emitir');
     expect(fila).toBeTruthy();
@@ -449,7 +451,7 @@ describe('AC7 — queda rastro de quién envió y sobre qué trámites', () => {
 
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     // «Quién pidió facturar qué» es la pregunta que se hace después, cuando algo salió mal. Que no
     // entrara nada no la hace menos interesante: el intento existió.
@@ -464,7 +466,7 @@ describe('AC7 — queda rastro de quién envió y sobre qué trámites', () => {
 
     const app = await buildApp();
     const r = await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('admin')).send({ tramiteIds: [A] });
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
 
     // Los dos registradores se tragan sus errores por diseño; esto lo fija por si alguno dejara de
     // hacerlo. Perder el rastro es malo; perder el encolado que ya ocurrió, peor.

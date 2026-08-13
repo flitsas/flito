@@ -271,19 +271,23 @@ describe('Correcciones de la auditoría', () => {
     expect(evaluarCliente(enSnakeCase as never).facturable).toBe(false);
   });
 
-  it('B3 — la consulta proyecta las claves del modelo, no las de la columna', async () => {
+  it('C7 — la consulta ya NO trae la ficha fiscal del cliente', async () => {
+    // B3 vigilaba que la proyección del cliente usara las claves del modelo y no las de la columna.
+    // Desde C7 esa proyección no existe: la elegibilidad dejó de juzgar la ficha fiscal, porque sus
+    // campos existen para CREAR el tercero en Siigo y no para facturar.
+    //
+    // Lo que se afirma ahora es más fuerte y de paso es una victoria de PII: quince columnas de
+    // `clients` —dirección, teléfonos, nombre del contacto— dejaron de viajar en una consulta que el
+    // reporte dispara en cada carga de pantalla, para doscientos trámites a la vez.
     const fuente = (await import('node:fs')).readFileSync(
       new URL('../../src/modules/siigo/facturacion.elegibilidad.service.ts', import.meta.url), 'utf8');
-
-    // Se miran solo las líneas de CÓDIGO: el comentario que explica por qué ya no se usa
-    // `to_jsonb` menciona la palabra, y un test que no distinga prosa de código obligaría a
-    // borrar justo la explicación que evita que alguien lo reintroduzca.
     const codigo = fuente.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
 
     expect(codigo).not.toContain('to_jsonb');
-    expect(codigo).toContain("'personType'");
-    // Y sin el cast que tapaba el desajuste.
     expect(codigo).not.toContain('as never');
+    expect(codigo).not.toContain("'contactFirstName'");
+    expect(codigo).not.toContain("'phoneNumber'");
+    expect(codigo).not.toContain('evaluarCliente');
   });
 
   it('B2 — la fecha se resuelve en hora de Colombia, no en UTC', async () => {

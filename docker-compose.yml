@@ -41,6 +41,23 @@ x-api-env: &api-env
   RUNT_INTERNAL_KEY: ${RUNT_INTERNAL_KEY:-flito-local-dev-runt-key-0000}
   PII_ENC_KEY: ${PII_ENC_KEY:-0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0}
   PII_HMAC_KEY: ${PII_HMAC_KEY:-a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90}
+  # ─ Facturación electrónica Siigo ─
+  # El access_key NO va aquí: vive cifrado en `siigo_credenciales` bajo SIIGO_ENC_KEY y se
+  # registra por API. Del entorno salen solo la llave maestra que lo descifra y el Partner-Id.
+  #
+  # SIIGO_ENC_KEY va SIN valor por omisión, a diferencia de JWT_SECRET y las PII_*. No es
+  # descuido: credenciales.service.ts decidió que sin llave maestra no se opera, y una llave
+  # de relleno cifraría el access_key con un valor distinto en cada máquina — el día que se
+  # configurara la real dejarían de descifrar sin explicación. Sin valor, Compose no inyecta
+  # la variable y la API arranca igual; solo falla la operación de Siigo, con el código
+  # `llave_maestra`, que es exactamente lo que hay que ver. Compose la toma del .env si está.
+  SIIGO_ENC_KEY:
+  SIIGO_PARTNER_ID: ${SIIGO_PARTNER_ID:-}
+  # Estas tres SÍ llevan valor por omisión: env.ts las valida con enum y url, y un enum vacío
+  # aborta el boot en vez de caer al default (`.default()` solo cubre undefined, no '').
+  SIIGO_MODE: ${SIIGO_MODE:-mock}
+  SIIGO_AMBIENTE: ${SIIGO_AMBIENTE:-pruebas}
+  SIIGO_BASE_URL: ${SIIGO_BASE_URL:-https://api.siigo.com}
   # ─ Integraciones opcionales (mock/vacío por defecto en dev) ─
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   RNDC_MODE: ${RNDC_MODE:-mock}

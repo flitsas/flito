@@ -419,3 +419,46 @@ describe('AC7 — frontera con la emisión', () => {
     expect(acta.resultado).toBe('no_realizado');
   });
 });
+
+describe('A6 — el correo al cliente solo sale de producción', () => {
+  it('una factura de pruebas se rechaza antes de tocar la red', async () => {
+    // Omitir `mail` al crear la factura cierra la puerta de la emisión, no esta. El destinatario
+    // sale de `clients.email`: es la dirección real de una empresa real, y un correo que salió ya
+    // lo leyó alguien.
+    kdb.when.select('siigo_facturas', [factura({ ambiente: 'pruebas' })]);
+
+    await expect(enviarFacturaPorCorreo(FACTURA_ID)).rejects.toMatchObject({
+      codigo: 'ambiente_no_productivo',
+    });
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('no deja acta: no es un envío que salió mal, es uno que no se intentó', async () => {
+    // Un acta de `no_realizado` diría que se evaluaron los destinatarios, y no se llegó ni a eso.
+    kdb.when.select('siigo_facturas', [factura({ ambiente: 'pruebas' })]);
+
+    await expect(enviarFacturaPorCorreo(FACTURA_ID)).rejects.toThrow(SiigoEnvioError);
+    expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('el ambiente manda por encima del estado de la factura', async () => {
+    // Una factura de pruebas SIN emitir cumple dos motivos de rechazo. El que se devuelve es el del
+    // ambiente, porque es el que sigue siendo cierto cuando el otro deje de serlo: arreglar la
+    // factura no va a permitir mandar el correo desde QA.
+    kdb.when.select('siigo_facturas', [factura({ ambiente: 'pruebas', estado: 'en_proceso', siigoInvoiceId: null })]);
+
+    await expect(enviarFacturaPorCorreo(FACTURA_ID)).rejects.toMatchObject({
+      codigo: 'ambiente_no_productivo',
+    });
+  });
+
+  it('en producción sigue saliendo, con destinatarios y todo', async () => {
+    kdb.when.select('siigo_facturas', [factura()]);
+    elInsertDevuelveElActa();
+
+    const acta = await enviarFacturaPorCorreo(FACTURA_ID);
+
+    expect(siigoRequestOrThrowMock).toHaveBeenCalled();
+    expect(acta.resultado).toBe('enviado');
+  });
+});

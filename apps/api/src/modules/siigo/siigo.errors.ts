@@ -168,12 +168,12 @@ const CATALOGO: Record<string, EntradaCatalogo> = {
   },
   invalid_code: {
     descripcion: 'Un código enviado no existe o no está activo en Siigo Nube.',
-    accion: 'Vuelve a sincronizar los catálogos de Siigo en FLITO y comprueba el código señalado (producto, forma de pago o vendedor).',
+    accion: 'Comprueba en Siigo Nube el código señalado (producto, forma de pago o vendedor): dejó de existir o se inactivó. Al reenviar, las listas se leen de Siigo en el momento, así que ya no aparecerá.',
     responsable: 'operacion',
   },
   invalid_cost_center: {
     descripcion: 'El centro de costos no existe o está inactivo.',
-    accion: 'Elige un centro de costos activo en la parametrización de FLITO, o pide a contabilidad que reactive ese en Siigo Nube.',
+    accion: 'Al reenviar, elige un centro de costos activo en el paso de emisión, o pide a contabilidad que reactive ese en Siigo Nube.',
     responsable: 'operacion',
   },
   invalid_currency: {
@@ -203,7 +203,7 @@ const CATALOGO: Record<string, EntradaCatalogo> = {
   },
   invalid_document: {
     descripcion: 'El tipo de comprobante no es válido para esta operación.',
-    accion: 'Confirma con contabilidad qué tipo de comprobante corresponde y ajústalo en la configuración de emisión de FLITO.',
+    accion: 'Confirma con contabilidad qué tipo de comprobante corresponde y elígelo en el paso de emisión al reenviar.',
     responsable: 'contabilidad',
   },
   invalid_email: {
@@ -232,8 +232,12 @@ const CATALOGO: Record<string, EntradaCatalogo> = {
     responsable: 'soporte',
   },
   invalid_payment: {
-    descripcion: 'La forma de pago no es válida o no está activa.',
-    accion: 'Elige otra forma de pago en FLITO, o pide a contabilidad que active esa en Siigo Nube.',
+    descripcion: 'La forma de pago no es válida, no está activa, o maneja fecha de vencimiento.',
+    // FLITO no maneja plazo, así que no envía `due_date`; una forma de pago con vencimiento lo
+    // exige y la factura se cae. Normalmente no se puede elegir una así —el selector las esconde
+    // leyendo `due_date` del catálogo—, de modo que llegar aquí significa que la configuración
+    // cambió en Siigo Nube después de elegirla, y eso es lo que hay que decir.
+    accion: 'Elige una forma de pago de contado al reenviar. Si esa forma de pago maneja fecha de vencimiento en Siigo Nube, no sirve: FLITO no factura a crédito. Contabilidad puede activarla como de contado o indicar cuál usar.',
     responsable: 'operacion',
   },
   invalid_plan_type: {
@@ -343,6 +347,19 @@ const CATALOGO: Record<string, EntradaCatalogo> = {
     accion: 'Espera: la cola vuelve a enviarlo cuando pase el minuto. Si se repite todos los días, soporte técnico debe revisar el ritmo de emisión.',
     responsable: 'automatico',
     reintentable: true,
+  },
+  read_only: {
+    descripcion: 'La cuenta de Siigo Nube está en modo SOLO LECTURA: no admite crear ningún documento.',
+    // No es un problema de esta factura ni de su parametrización: es de la cuenta entera, y hasta
+    // que se levante no va a emitirse nada. Merece decirlo así de claro, porque el síntoma —una
+    // factura que se rechaza— invita a revisar el comprobante, el cliente o el producto, y ahí no
+    // hay nada que arreglar.
+    //
+    // `reintentable: false` a propósito: reintentar contra una cuenta en solo lectura gasta cuota
+    // para obtener exactamente el mismo rechazo, y llena de errores la bitácora que alimenta el
+    // freno de emisión.
+    accion: 'Contabilidad debe revisar el estado del producto Siigo Nube (suscripción, pago o plan): mientras esté en solo lectura, NINGUNA factura se puede emitir. No es un problema de este trámite.',
+    responsable: 'contabilidad',
   },
   [CODIGO_RESPUESTA_INESPERADA]: {
     descripcion: 'Siigo respondió algo que no cumple la estructura de error que documenta.',

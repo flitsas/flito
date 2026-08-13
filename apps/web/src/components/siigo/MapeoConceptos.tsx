@@ -19,7 +19,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import {
-  CLASIFICACIONES_TRIBUTARIAS,
   CLASIFICACION_TRIBUTARIA_LABEL,
   CODIGO_PRODUCTO_SIIGO_RE,
   CONCEPTO_FACTURABLE_LABEL,
@@ -31,6 +30,7 @@ import GradientButton from '../flit/GradientButton';
 import StatusChip from '../flit/StatusChip';
 import FlitModal from '../flit/FlitModal';
 import { CARD, fecha, inputCls } from './estilos';
+import SelectorProducto from './SelectorProducto';
 
 interface Impuesto { id: number; nombre?: string | null; porcentaje?: number | null }
 
@@ -64,16 +64,21 @@ function estadoDeFila(m: MapeoConcepto): EstadoFila {
   return m.confirmadoContabilidad ? 'confirmado' : 'sin_confirmar';
 }
 
-const ESTADO_CHIP: Record<EstadoFila, { tono: 'draft' | 'warning' | 'success'; texto: string }> = {
+/**
+ * Desde A7 el único estado que EXIGE algo es «sin mapear»: la firma de contabilidad ya no bloquea
+ * la emisión, porque el tratamiento tributario dejó de vivir en FLITO. Por eso «sin confirmar» pasó
+ * de tono `warning` a neutro — una pantalla que sigue pintando en ámbar algo que ya no detiene nada
+ * manda a alguien a resolver un problema que no existe.
+ */
+const ESTADO_CHIP: Record<EstadoFila, { tono: 'draft' | 'active' | 'success'; texto: string }> = {
   sin_mapear: { tono: 'draft', texto: 'Sin mapear' },
-  sin_confirmar: { tono: 'warning', texto: 'Sin confirmar' },
-  confirmado: { tono: 'success', texto: 'Confirmado' },
+  sin_confirmar: { tono: 'active', texto: 'Mapeado' },
+  confirmado: { tono: 'success', texto: 'Mapeado y confirmado' },
 };
 
-export default function MapeoConceptos({ ambiente, puedeEditar, puedeConfirmar, onCambio }: {
+export default function MapeoConceptos({ ambiente, puedeEditar, onCambio }: {
   ambiente: Ambiente;
   puedeEditar: boolean;
-  puedeConfirmar: boolean;
   /** Avisa al caparazón para que reevalúe la compuerta: lo que se edita aquí la mueve. */
   onCambio: () => void;
 }) {
@@ -98,22 +103,6 @@ export default function MapeoConceptos({ ambiente, puedeEditar, puedeConfirmar, 
   }, [ambiente]);
 
   useEffect(() => { void cargar(); }, [cargar]);
-
-  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
-
-  const confirmar = async (m: MapeoConcepto) => {
-    setConfirmandoId(m.id);
-    try {
-      await api.post(`/siigo/mapeo-conceptos/${m.id}/confirmar`);
-      toast.success('Confirmación de contabilidad registrada');
-      await cargar();
-      onCambio();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setConfirmandoId(null);
-    }
-  };
 
   const genericas = useMemo(() => filas.filter((f) => f.tipoTramite === null), [filas]);
   const especificas = useMemo(() => filas.filter((f) => f.tipoTramite !== null), [filas]);
@@ -192,11 +181,8 @@ export default function MapeoConceptos({ ambiente, puedeEditar, puedeConfirmar, 
                     key={m.id}
                     m={m}
                     puedeEditar={puedeEditar}
-                    puedeConfirmar={puedeConfirmar}
-                    confirmando={confirmandoId === m.id}
                     onEditar={() => setEditando(m)}
                     onCrearProducto={() => setCreando(m)}
-                    onConfirmar={() => { void confirmar(m); }}
                   />
                 ))}
               </tbody>
@@ -227,16 +213,11 @@ export default function MapeoConceptos({ ambiente, puedeEditar, puedeConfirmar, 
 
 // ── Fila ────────────────────────────────────────────────────────────────────
 
-function FilaMapeo({ m, puedeEditar, puedeConfirmar, confirmando, onEditar, onCrearProducto, onConfirmar }: {
+function FilaMapeo({ m, puedeEditar, onEditar, onCrearProducto }: {
   m: MapeoConcepto;
   puedeEditar: boolean;
-  puedeConfirmar: boolean;
-  /** true mientras el POST está en vuelo: sin esto, un doble clic deja dos entradas en la
-      auditoría contable, que es un registro con valor probatorio. */
-  confirmando: boolean;
   onEditar: () => void;
   onCrearProducto: () => void;
-  onConfirmar: () => void;
 }) {
   const estado = estadoDeFila(m);
   const chip = ESTADO_CHIP[estado];
@@ -316,21 +297,6 @@ function FilaMapeo({ m, puedeEditar, puedeConfirmar, confirmando, onEditar, onCr
               Editar
             </button>
           )}
-          {puedeConfirmar && !m.confirmadoContabilidad && m.codigoProducto !== null && (
-            <button
-              type="button"
-              onClick={onConfirmar}
-              disabled={confirmando}
-              // Texto oscuro sobre blanco y el verde solo en el borde. Blanco sobre
-              // `--flit-success` daba 1.97:1, muy por debajo del 4.5:1 que la regla 12 exige — y
-              // es el ÚNICO afordance de escritura del rol `financiera` en toda la pantalla.
-              className="flit-focus rounded-[10px] border-2 px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
-              style={{ borderColor: 'var(--flit-success)', color: 'var(--flit-text-primary)' }}
-              aria-label={`Confirmar contabilidad de ${etiqueta}`}
-            >
-              {confirmando ? 'Confirmando…' : 'Confirmar'}
-            </button>
-          )}
         </div>
       </td>
     </tr>
@@ -345,18 +311,20 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
   onGuardado: () => Promise<void>;
 }) {
   const [codigoProducto, setCodigoProducto] = useState(m.codigoProducto ?? '');
-  const [clasificacion, setClasificacion] = useState<ClasificacionTributaria | ''>(
-    m.clasificacionTributaria ?? '',
-  );
   const [unidadMedida, setUnidadMedida] = useState(m.unidadMedida ?? '');
   const [terceros, setTerceros] = useState(m.ingresoParaTerceros);
   const [guardando, setGuardando] = useState(false);
   const [fallo, setFallo] = useState<string | null>(null);
 
-  /** AC5 — ¿este cambio tumbaría la confirmación? Se avisa ANTES de guardar. */
+  /**
+   * AC5 — ¿este cambio tumbaría la confirmación? Se avisa ANTES de guardar.
+   *
+   * Sigue en pie aunque la confirmación ya no BLOQUEE desde A7: la fila conserva quién firmó y
+   * cuándo, y tumbar esa firma sin avisar es lo que hace que se deje de confiar en ella. La
+   * clasificación tributaria salió de la cuenta porque salió del formulario: ya no se edita.
+   */
   const tumbaConfirmacion = m.confirmadoContabilidad && (
     codigoProducto !== (m.codigoProducto ?? '')
-    || clasificacion !== (m.clasificacionTributaria ?? '')
     || terceros !== m.ingresoParaTerceros
   );
 
@@ -370,7 +338,9 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
     try {
       await api.patch(`/siigo/mapeo-conceptos/${m.id}`, {
         codigoProducto: codigoProducto === '' ? null : codigoProducto,
-        clasificacionTributaria: clasificacion === '' ? null : clasificacion,
+        // `clasificacionTributaria` NO viaja: desde A7 el tratamiento tributario es de Siigo y esta
+        // pantalla dejó de editarlo. La columna sigue en la base como historial de lo que FLITO
+        // llegó a declarar; mandar `null` aquí lo borraría.
         unidadMedida: unidadMedida === '' ? null : unidadMedida,
         ingresoParaTerceros: terceros,
       });
@@ -389,40 +359,15 @@ function ModalEditar({ m, onCerrar, onGuardado }: {
   return (
     <FlitModal title={`Editar ${CONCEPTO_FACTURABLE_LABEL[m.concepto as keyof typeof CONCEPTO_FACTURABLE_LABEL] ?? m.concepto}`} onClose={onCerrar}>
       <form onSubmit={guardar} className="space-y-4">
-        <Campo etiqueta="Código de producto en Siigo" htmlFor="codigo-producto">
-          <input
-            id="codigo-producto"
-            className={inputCls}
-            value={codigoProducto}
-            onChange={(e) => setCodigoProducto(e.target.value)}
-            placeholder="FLIT-LOGISTICA"
-            aria-invalid={!formatoValido}
-            aria-describedby={formatoValido ? undefined : 'codigo-producto-error'}
-          />
-          {!formatoValido && (
-            <p id="codigo-producto-error" className="mt-1 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-              Alfanumérico (admite punto, guion y guion bajo), sin espacios y máximo 30 caracteres.
-            </p>
-          )}
+        {/* A5 — se ELIGE de la lista real de Siigo. El nombre que se ve aquí es el que va a salir
+            en el documento; un código pelado no dice si es el producto correcto. */}
+        <Campo etiqueta="Producto en Siigo" htmlFor="codigo-producto">
+          <SelectorProducto id="codigo-producto" valor={codigoProducto} onCambio={setCodigoProducto} />
           {m.codigoProducto && (
             <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
               Valor actual: <span className="font-mono">{m.codigoProducto}</span>
             </p>
           )}
-        </Campo>
-
-        <Campo etiqueta="Clasificación tributaria" htmlFor="clasificacion">
-          <select
-            id="clasificacion"
-            className={inputCls}
-            value={clasificacion}
-            onChange={(e) => setClasificacion(e.target.value as ClasificacionTributaria | '')}
-          >
-            <option value="">Sin declarar</option>
-            {CLASIFICACIONES_TRIBUTARIAS.map((c) => (
-              <option key={c} value={c}>{CLASIFICACION_TRIBUTARIA_LABEL[c]}</option>
-            ))}
-          </select>
         </Campo>
 
         <Campo etiqueta="Unidad de medida" htmlFor="unidad">

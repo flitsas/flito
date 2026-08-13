@@ -32,7 +32,7 @@
 // reconciliación —que sí consulta— solo actúa sobre filas que ya nadie está emitiendo.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { MotivoElegibilidad } from '@operaciones/shared-types';
+import type { ConceptoFacturable, MotivoElegibilidad } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   flitoLiquidaciones, flitoTramites, siigoFacturas, siigoFacturaTramites, vehicles,
@@ -47,14 +47,15 @@ import { modoSiigo } from './siigo.mock.js';
 import { SiigoApiError } from './siigo.errors.js';
 import { asegurarTercero } from './siigo.terceros.service.js';
 import { evaluarElegibilidad } from './facturacion.elegibilidad.service.js';
-import { parametrosDeEmision } from './config-emision.service.js';
+import { parametrosOperativos } from './config-emision.service.js';
 import { resolverMapeo } from './mapeo-conceptos.service.js';
 import { conceptosAplicables } from './siigo.compuerta.service.js';
 import {
-  armarFactura, claveIdempotencia, huellaDeTramites,
+  armarFactura, claveIdempotencia, conceptosFacturados, huellaDeLote, type EmisionElegida,
   type FacturaArmada, type MapeoPorConcepto, type TerceroResuelto, type TramiteFacturable,
 } from './facturacion.armado.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
+import { efectosExternosPermitidos } from './siigo.config.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 const log = logger.child({ component: 'siigo.emision' });
@@ -204,8 +205,13 @@ export function peticionParaBitacora(
     currency: cuerpo.currency,
     items: cuerpo.items,
     payments: cuerpo.payments,
-    stamp: cuerpo.stamp,
-    mail: cuerpo.mail,
+    // Se normaliza la AUSENCIA a un `false` explícito. `undefined` desaparece al serializar el
+    // JSON, y entonces una factura que deliberadamente no se timbró quedaría idéntica a una
+    // anotada por una versión vieja de esta función: ni el sondeo ni una auditoría podrían
+    // distinguirlas. Ojo con la dirección del cambio: este `false` es lo que se REGISTRA, no lo que
+    // se envió — a Siigo no le viajó nada.
+    stamp: cuerpo.stamp ?? { send: false },
+    mail: cuerpo.mail ?? false,
     /** El adquiriente, por su id en FLITO. Ni identificación ni nombre. */
     clienteId,
     /** Sucursal sí: es un número de configuración de Siigo, no un dato de nadie. */
@@ -226,13 +232,18 @@ export function peticionParaBitacora(
  * existe ante la DIAN pase lo que pase: convertirlo en un estado habría perdido esa mitad.
  */
 export function revisionDeTotal(totalSiigo: number | null, totalEsperado: number): string | null {
+  // C4 — «según la liquidación» era falso desde A1. El total esperado es la suma de las LÍNEAS
+  // ARMADAS, y desde que los conceptos se eligen al enviar, esa suma y el total de la liquidación
+  // dejan de coincidir a propósito: se factura el trámite digital y el resto va por reintegro. El
+  // mensaje viejo mandaba a buscar un descuadre que no existe, justo en el caso normal.
   if (totalSiigo === null) {
-    return `Siigo no reportó el total de la factura. El esperado según la liquidación es ${totalEsperado.toFixed(2)}.`;
+    return 'Siigo no reportó el total de la factura. El esperado, sumando los conceptos facturados, '
+      + `es ${totalEsperado.toFixed(2)}.`;
   }
   const diferencia = totalSiigo - totalEsperado;
   if (Math.abs(diferencia) <= TOLERANCIA_TOTAL) return null;
-  return `El total devuelto por Siigo (${totalSiigo.toFixed(2)}) no coincide con el de la liquidación `
-    + `(${totalEsperado.toFixed(2)}). Diferencia: ${diferencia.toFixed(2)}.`;
+  return `El total devuelto por Siigo (${totalSiigo.toFixed(2)}) no coincide con la suma de los `
+    + `conceptos facturados (${totalEsperado.toFixed(2)}). Diferencia: ${diferencia.toFixed(2)}.`;
 }
 
 export interface FilaTramiteEmision {
@@ -329,6 +340,10 @@ export interface EntradaPreparacion {
   tramiteIds: string[];
   tramites: FilaTramiteEmision[];
   ambiente: SiigoAmbiente;
+  /** Conceptos elegidos (A1). Vacío = lote anterior a A1: todos los aplicables. */
+  conceptos?: readonly ConceptoFacturable[];
+  /** Emisión elegida (A2). Cada campo nulo cae a la configuración global vigente. */
+  emision?: EmisionElegida | null;
   tercero: TerceroResuelto;
   ahora: Date;
 }
@@ -346,6 +361,7 @@ export interface EntradaPreparacion {
  */
 export async function prepararEmision(entrada: EntradaPreparacion): Promise<PreparacionEmision> {
   const { tramiteIds, tramites, ambiente, tercero, ahora } = entrada;
+  const conceptos = entrada.conceptos ?? [];
   if (tramites.length === 0) {
     throw new SiigoEmisionError('sin_tramites', 'No se encontró ninguno de los trámites indicados.');
   }
@@ -361,15 +377,37 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
     );
   }
 
-  const config = await parametrosDeEmision(ambiente);
-  if (!config || !config.documentoTipoCodigo || !config.vendedorCodigo || !config.formaPagoCodigo) {
+  // Con qué se emite sale ÚNICAMENTE de lo elegido en el envío. No hay configuración global detrás.
+  //
+  // Antes la había, y era el respaldo de lo que nadie eligiera. Se quitó a propósito: un respaldo
+  // global significa que cambiar el vendedor de una empresa lo cambiaba para todas, y que una
+  // factura podía salir con un vendedor que quien la envió nunca vio. El vendedor, el comprobante y
+  // la forma de pago son una ELECCIÓN de quien factura, y se hace en cada envío.
+  //
+  // Que falte alguno no es un caso de borde tolerable: es un lote que no se puede emitir. Y como el
+  // envío no deja continuar sin ellos, llegar aquí sin los tres significa un lote encolado antes de
+  // este cambio. El mensaje lo dice, porque la salida es reenviarlo, no esperar.
+  const elegida = entrada.emision;
+  const resuelta = {
+    documentoTipoCodigo: elegida?.documentoTipoCodigo ?? null,
+    vendedorCodigo: elegida?.vendedorCodigo ?? null,
+    formaPagoCodigo: elegida?.formaPagoCodigo ?? null,
+    centroCostoCodigo: elegida?.centroCostoCodigo ?? null,
+  };
+  if (!resuelta.documentoTipoCodigo || !resuelta.vendedorCodigo || !resuelta.formaPagoCodigo) {
     throw new SiigoEmisionError(
       'sin_configuracion',
-      'La configuración de emisión del ambiente está incompleta: falta el tipo de comprobante, el vendedor o la forma de pago.',
+      'Este lote no tiene con qué emitir: le falta el tipo de comprobante, el vendedor o la forma de pago. '
+      + 'Se encoló antes de que esos datos se eligieran en el envío; vuelve a enviar los trámites para elegirlos.',
     );
   }
 
   const mapeo = await cargarMapeo(ambiente, tramites);
+
+  // Fuera de producción la factura se CREA en Siigo y ahí se queda: no se timbra ante la DIAN ni se
+  // le manda copia al cliente. La decisión se toma aquí —el único punto que sabe contra qué empresa
+  // se emite— y baja al armador como dato. Ver `efectosExternosPermitidos`.
+  const efectosExternos = efectosExternosPermitidos(ambiente);
 
   const armada = armarFactura({
     tramites: tramites.map((t) => ({
@@ -381,15 +419,14 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
     })),
     tercero,
     parametros: {
-      documentoTipoCodigo: config.documentoTipoCodigo,
-      vendedorCodigo: config.vendedorCodigo,
-      formaPagoCodigo: config.formaPagoCodigo,
-      centroCostoCodigo: config.centroCostoCodigo,
-      plazoVencimientoDias: config.plazoVencimientoDias,
-      moneda: config.moneda,
-      retencionesEstrategia: config.retencionesEstrategia,
-      estrategiaNumeracion: config.estrategiaNumeracion,
+      documentoTipoCodigo: resuelta.documentoTipoCodigo,
+      vendedorCodigo: resuelta.vendedorCodigo,
+      formaPagoCodigo: resuelta.formaPagoCodigo,
+      centroCostoCodigo: resuelta.centroCostoCodigo,
+      timbrarEnDian: efectosExternos,
+      enviarCorreoAlCliente: efectosExternos,
     },
+    conceptos,
     mapeo,
     fecha: fechaDocumento(ahora),
   });
@@ -399,7 +436,7 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
   // configurado. Se quita aquí, en el único sitio que llama a la red.
   const { _total: _descartado, ...cuerpo } = armada;
 
-  const huella = huellaDeTramites(tramiteIds);
+  const huella = huellaDeLote(tramiteIds, conceptos);
   return {
     armada,
     cuerpo: cuerpo as unknown as Record<string, unknown>,
@@ -490,6 +527,8 @@ export async function reservarClave(entrada: {
   ambiente: SiigoAmbiente;
   clave: string;
   tramites: FilaTramiteEmision[];
+  /** Conceptos elegidos (A1). Vacío = lote anterior: una sola fila puente con `concepto` nulo. */
+  conceptos?: readonly ConceptoFacturable[];
   ahora: Date;
 }): Promise<FilaFacturaReservada | null> {
   return db.transaction(async (tx) => {
@@ -509,11 +548,21 @@ export async function reservarClave(entrada: {
 
     const fila = aFila(creada as Record<string, unknown>);
     try {
-      await tx.insert(siigoFacturaTramites).values(entrada.tramites.map((t) => ({
-        facturaId: fila.id,
-        tramiteId: t.tramiteId,
-        liquidacionId: t.liquidacionId,
-      })));
+      // D-5 — una fila por (trámite, CONCEPTO), no una por trámite. Es lo que permite facturar
+      // mañana la logística de un trámite cuyo trámite digital se facturó ayer, y lo que sigue
+      // impidiendo lo que de verdad importaba: emitir dos veces el MISMO concepto del mismo
+      // trámite. Sin conceptos —lote anterior a A1— se escribe una sola fila con `concepto` nulo,
+      // que es lo que aquellas facturas significaban: toda la liquidación.
+      await tx.insert(siigoFacturaTramites).values(entrada.tramites.flatMap((t) => {
+        const suyos = conceptosFacturados(t.valores, entrada.conceptos ?? []);
+        const filas = (entrada.conceptos ?? []).length === 0 ? [null] : suyos;
+        return filas.map((concepto) => ({
+          facturaId: fila.id,
+          tramiteId: t.tramiteId,
+          liquidacionId: t.liquidacionId,
+          concepto,
+        }));
+      }));
     } catch (e) {
       // El índice parcial `idx_siigo_factura_tramites_vivo` acaba de impedir que un trámite esté en
       // dos facturas vivas. Es una carrera legítima: otro proceso lo facturó entre la elegibilidad y
@@ -776,6 +825,13 @@ function rechazoConcluyente(status: number): boolean {
 
 export interface OpcionesEmision {
   ambiente: SiigoAmbiente;
+  /**
+   * Qué conceptos factura este lote (A1). Vacío = lote anterior a A1, que cubría todos los
+   * aplicables; el trabajador lo lee de `conceptosDelLote` y lo pasa tal cual.
+   */
+  conceptos?: readonly ConceptoFacturable[];
+  /** Emisión elegida del lote (A2). El trabajador la lee de `emisionDelLote` y la pasa tal cual. */
+  emision?: EmisionElegida | null;
   usuarioId?: number | null;
   /** Inyectable: probar el arrendamiento sin esperar quince minutos reales. */
   ahora?: () => Date;
@@ -801,7 +857,11 @@ export async function emitirFactura(
     throw new SiigoEmisionError('sin_tramites', 'No se indicó ningún trámite que facturar.');
   }
 
-  const huella = huellaDeTramites(ids);
+  // A1 — la identidad del lote incluye QUÉ se factura. Con la lista vacía degrada a la huella de
+  // antes de A1, que es lo que permite emitir lo que ya estaba en cola cuando esta historia entró.
+  const conceptos = opciones.conceptos ?? [];
+  const emision = opciones.emision ?? null;
+  const huella = huellaDeLote(ids, conceptos, emision);
   const clave = claveIdempotencia(ambiente, huella);
 
   // ── AC7 — las guardas, ANTES de cualquier petición ────────────────────────
@@ -814,7 +874,7 @@ export async function emitirFactura(
   // en el que el segundo trámite no tiene el cliente en regla — y el fallo no se vería, porque la
   // factura saldría bien. Un veredicto que falte cuenta como no elegible: un trámite del que la
   // elegibilidad no dice nada no es un trámite aprobado.
-  const veredictos = await evaluarElegibilidad(ids, ambiente);
+  const veredictos = await evaluarElegibilidad(ids, ambiente, conceptos);
   const porTramite = new Map(veredictos.map((v) => [v.tramiteId, v]));
   const bloqueos: MotivoElegibilidad[] = [];
   for (const id of ids) {
@@ -868,13 +928,15 @@ export async function emitirFactura(
     tramiteIds: ids,
     tramites,
     ambiente,
+    conceptos,
+    emision,
     tercero: { identificacion: tercero.identificacion, sucursal: tercero.sucursal },
     ahora,
   });
 
   // ── AC1 — la reserva, y solo entonces la red ──────────────────────────────
   const loteId = await asegurarLote({
-    ambiente, huella: preparacion.huella, tramiteIds: ids, creadoPor: usuarioId,
+    ambiente, huella: preparacion.huella, tramiteIds: ids, conceptos, emision, creadoPor: usuarioId,
   });
   if (!loteId) {
     // Solo puede pasar si alguien borró el lote entre el INSERT y el SELECT. No se inventa uno:
@@ -882,7 +944,7 @@ export async function emitirFactura(
     throw new SiigoEmisionError('datos', 'El lote de facturación desapareció mientras se creaba.');
   }
   let fila = await reservarClave({
-    loteId, ambiente, clave: preparacion.clave, tramites: preparacion.tramites, ahora,
+    loteId, ambiente, clave: preparacion.clave, tramites: preparacion.tramites, conceptos, ahora,
   });
 
   if (!fila) {
@@ -1059,7 +1121,7 @@ export function companiaDelGrupo(tramites: FilaTramiteEmision[]): number {
  * inmortal — que es justo lo que el arrendamiento existe para impedir.
  */
 export async function arrendamientoConfigurado(ambiente: SiigoAmbiente): Promise<number> {
-  const config = await parametrosDeEmision(ambiente);
+  const config = await parametrosOperativos(ambiente);
   return config?.arrendamientoEnProcesoMin ?? 15;
 }
 

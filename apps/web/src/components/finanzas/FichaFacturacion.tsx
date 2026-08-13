@@ -99,14 +99,28 @@ export default function FichaFacturacion({ ficha, idFlit, puedeOperar, onClose, 
             <span style={{ color: 'var(--flit-text-secondary)' }}>Factura {ficha.numero}</span>
           )}
           <span className="ml-auto text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            {ficha.verificadoEn
-              ? `Última verificación ante la DIAN: ${fechaCorta(ficha.verificadoEn)}`
-              : 'Todavía no se ha verificado ante la DIAN'}
+            {!ficha.timbrada
+              ? 'Sin enviar a la DIAN'
+              : ficha.verificadoEn
+                ? `Última verificación ante la DIAN: ${fechaCorta(ficha.verificadoEn)}`
+                : 'Todavía no se ha verificado ante la DIAN'}
           </span>
         </section>
 
+        {/* A6 — una factura que no se timbró no está esperando nada, y decir lo contrario manda a
+            alguien a vigilar una pantalla que no va a cambiar nunca. Va ANTES del aviso de abajo
+            porque los dos son mutuamente excluyentes: o se está verificando, o no se envió. */}
+        {emitida && !ficha.timbrada && (
+          <p className="rounded-lg px-3 py-2 text-xs"
+            style={{ background: 'var(--flit-warning-bg, rgba(201, 154, 79, 0.10))', color: 'var(--flit-text-secondary)' }}>
+            Esta factura se creó en Siigo pero <strong>no se envió a la DIAN</strong>, porque no se
+            emitió desde producción. No tiene CUFE ni validación, y no se le entrega al cliente.
+            Sirve para comprobar que la factura se arma bien, no para cobrar.
+          </p>
+        )}
+
         {/* AC3 — se dice que la comprobación corre sola, en vez de ofrecer un botón que espera. */}
-        {emitida && ficha.estadoDian !== 'aceptada' && ficha.estadoDian !== 'rechazada' && (
+        {emitida && ficha.timbrada && ficha.estadoDian !== 'aceptada' && ficha.estadoDian !== 'rechazada' && (
           <p className="rounded-lg px-3 py-2 text-xs"
             style={{ background: 'rgba(79, 116, 201, 0.08)', color: 'var(--flit-blue-text)' }}>
             La verificación ante la DIAN está en curso y se repite sola cada pocos minutos. La DIAN
@@ -163,8 +177,14 @@ export default function FichaFacturacion({ ficha, idFlit, puedeOperar, onClose, 
                   : 'Todavía no se ha entregado por correo.'}
               </p>
 
-              {/* A dónde va, ANTES de confirmar. Sale del último acta: es lo que de verdad se usó. */}
-              {envios.ultimo?.destinatarios?.length ? (
+              {/* A dónde va, ANTES de confirmar. Sale del último acta: es lo que de verdad se usó.
+                  Sin timbrar no se anuncia destinatario: no hay a dónde, y nombrar el correo de un
+                  cliente al lado de un botón que no va a enviar nada invita a probar «a ver». */}
+              {!ficha.timbrada ? (
+                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                  El correo al cliente solo sale desde producción.
+                </p>
+              ) : envios.ultimo?.destinatarios?.length ? (
                 <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
                   Se enviará a: {envios.ultimo.destinatarios.map((d) => d.correo).join(', ')}
                 </p>
@@ -179,12 +199,14 @@ export default function FichaFacturacion({ ficha, idFlit, puedeOperar, onClose, 
                   type="button"
                   className={`${flitBtnSecondarySm} mt-2`}
                   style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
-                  disabled={!emitida || enviando}
+                  disabled={!emitida || !ficha.timbrada || enviando}
                   // El motivo del deshabilitado va en el `title`: un botón apagado sin explicación
                   // obliga a adivinar, y quien adivina suele culpar al sistema.
-                  title={emitida
-                    ? 'Vuelve a enviarle la factura al cliente'
-                    : 'La factura todavía no existe en Siigo: primero tiene que emitirse'}
+                  title={!ficha.timbrada
+                    ? 'Esta factura no se envió a la DIAN: fuera de producción no se le manda correo al cliente'
+                    : emitida
+                      ? 'Vuelve a enviarle la factura al cliente'
+                      : 'La factura todavía no existe en Siigo: primero tiene que emitirse'}
                   onClick={() => void reenviar()}
                 >
                   {enviando ? 'Enviando…' : 'Reenviar correo'}

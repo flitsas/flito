@@ -466,3 +466,35 @@ describe('Un CUFE que no cuadra se denuncia, no se pisa', () => {
     expect(mensajes.some((m) => /CUFE distinto/i.test(m))).toBe(true);
   });
 });
+
+describe('A6 — solo se sondea lo que de verdad se timbró', () => {
+  it('la consulta descarta todo lo que no sea produccion', async () => {
+    // Fuera de producción la factura se crea en Siigo y no se envía a la DIAN, así que NUNCA va a
+    // tener un estado que consultar. Sin este filtro cumpliría el predicado de «sin resolver» en
+    // todos los ciclos, para siempre.
+    //
+    // Se compila la consulta con el dialecto REAL de drizzle, igual que la prueba de la cadencia:
+    // lo que se afirma es el SQL que de verdad se manda, no el texto del archivo.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    kdb.execute.mockResolvedValueOnce([]);
+    await sondearEstadosDian(5);
+
+    const { sql: texto } = new PgDialect().sqlToQuery(kdb.execute.mock.calls[0][0]);
+    expect(texto).toMatch(/f\.ambiente\s*=\s*'produccion'/);
+  });
+
+  it('el filtro va en el WHERE y no después: no se traen filas para descartarlas', async () => {
+    // Traerlas y filtrarlas en JS gastaría el LIMIT en facturas que se van a tirar, que es
+    // exactamente la inanición que el AC4 de la HU #11332 quiere evitar.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    kdb.execute.mockResolvedValueOnce([]);
+    await sondearEstadosDian(5);
+
+    const { sql: texto } = new PgDialect().sqlToQuery(kdb.execute.mock.calls[0][0]);
+    const where = texto.indexOf('WHERE');
+    const limite = texto.indexOf('LIMIT');
+    const filtro = texto.search(/f\.ambiente\s*=\s*'produccion'/);
+    expect(filtro).toBeGreaterThan(where);
+    expect(filtro).toBeLessThan(limite);
+  });
+});

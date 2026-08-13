@@ -6,10 +6,14 @@
 //
 // CUATRO DECISIONES
 //
-//   1. **Una sola evaluación, y las comprobaciones que ya existen se LLAMAN.** El veredicto del
-//      cliente lo da el validador de la HU #11296; el de la parametrización, la compuerta de la
-//      #11285. Sus motivos se propagan tal cual, palabra por palabra. Reescribirlos aquí crearía una
-//      segunda versión del mismo diagnóstico, y la copia sería siempre la que se quedara vieja.
+//   1. **Una sola evaluación, y las comprobaciones que ya existen se LLAMAN.** El veredicto de la
+//      parametrización lo da la compuerta de la HU #11285 y sus motivos se propagan tal cual,
+//      palabra por palabra. Reescribirlos aquí crearía una segunda versión del mismo diagnóstico, y
+//      la copia sería siempre la que se quedara vieja.
+//
+//      **La ficha fiscal del cliente ya NO se juzga aquí** (C7). Sus cinco campos existen para crear
+//      el tercero en Siigo, no para facturar, y adelantarlos bloqueaba por algo que a lo mejor no
+//      hace falta: si la empresa ya está en Siigo Nube, sincronizar la vincula sin pedir ninguno.
 //   2. **Se evalúa por LOTES, no fila a fila.** El reporte pinta doscientos trámites por página y
 //      consulta la elegibilidad en cada carga. Una consulta por fila serían doscientas por pantalla,
 //      y las funciones `exigir*` hacen una consulta cada una. Aquí se cargan los datos de una vez y
@@ -33,10 +37,10 @@ import {
   type ValoresLiquidacion,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients, flitoLiquidaciones, flitoTramites } from '../../db/schema.js';
+import { flitoLiquidaciones, flitoTramites } from '../../db/schema.js';
 import { EXPR_DOC_COMPLETA, conJoins } from '../finanzas/finanzas.service.js';
-import { conceptosAplicables, evaluarCompuerta } from './siigo.compuerta.service.js';
-import { evaluarCliente, type ClienteEvaluable } from './siigo.validador-cliente.service.js';
+import { evaluarCompuerta } from './siigo.compuerta.service.js';
+import { conceptosFacturados } from './facturacion.armado.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
@@ -60,8 +64,6 @@ export interface FilaElegibilidad {
    * confusión hace desaparecer conceptos que sí hay que facturar.
    */
   valores: ValoresLiquidacion;
-  /** La fila del cliente, en la forma EXACTA que el validador espera. Sin casts que tapen. */
-  cliente: ClienteEvaluable | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -172,29 +174,6 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
       terceroVinculado: sql<boolean>`EXISTS (SELECT 1 FROM siigo_terceros st WHERE st.client_id = ${flitoTramites.companiaId})`,
       facturaViva: sql<boolean>`EXISTS (
         SELECT 1 FROM siigo_factura_tramites sft WHERE sft.tramite_id = ${flitoTramites.id} AND sft.activo)`,
-      // B3 — la proyección EXPLÍCITA que el validador espera, no `to_jsonb(clients)`. Parecían
-      // equivalentes y no lo eran: `to_jsonb` usa los nombres de COLUMNA (`person_type`) y el
-      // evaluador espera los del modelo (`personType`). Coincidían tres de quince, así que TODO
-      // cliente salía «no facturable» con seis motivos falsos — y un cast mío impedía que el
-      // compilador lo dijera. De paso deja de arrastrar las 36 columnas de `clients`, con su NIT y
-      // sus correos, para usar quince.
-      cliente: sql<unknown>`CASE WHEN ${clients.id} IS NULL THEN NULL ELSE jsonb_build_object(
-        'id', ${clients.id},
-        'name', ${clients.name},
-        'document', ${clients.document},
-        'personType', ${clients.personType},
-        'idType', ${clients.idType},
-        'fiscalResponsibilities', ${clients.fiscalResponsibilities},
-        'address', ${clients.address},
-        'countryCode', ${clients.countryCode},
-        'stateCode', ${clients.stateCode},
-        'cityCode', ${clients.cityCode},
-        'phoneIndicative', ${clients.phoneIndicative},
-        'phoneNumber', ${clients.phoneNumber},
-        'contactFirstName', ${clients.contactFirstName},
-        'contactLastName', ${clients.contactLastName},
-        'facturacionBloqueos', ${clients.facturacionBloqueos}
-      ) END`,
     }).from(flitoTramites).$dynamic(),
   ).where(sql`${flitoTramites.id} = ANY(${sql.param(ids)}::uuid[])`);
 
@@ -215,7 +194,6 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
       valorLogistica: (f.valorLogistica as string | null) ?? null,
       valorGmf: (f.valorGmf as string | null) ?? null,
     },
-    cliente: (f.cliente as ClienteEvaluable | null) ?? null,
   }));
 }
 
@@ -228,7 +206,7 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
  * esta memoria, cada fila repetiría la misma consulta de mapeos para obtener la misma respuesta.
  */
 export async function evaluarElegibilidad(
-  tramiteIds: string[], ambiente: SiigoAmbiente,
+  tramiteIds: string[], ambiente: SiigoAmbiente, conceptos: readonly ConceptoFacturable[] = [],
 ): Promise<ElegibilidadTramite[]> {
   const filas = await cargarFilas(tramiteIds, ambiente);
   const compuertaPorClave = new Map<string, MotivoElegibilidad[]>();
@@ -237,25 +215,44 @@ export async function evaluarElegibilidad(
   for (const f of filas) {
     const motivos = motivosLocales(f);
 
-    // AC2 — el veredicto del cliente lo da el validador, y sus motivos se propagan TAL CUAL.
-    if (f.cliente) {
-      const v = evaluarCliente(f.cliente);
-      if (!v.facturable) {
-        for (const falta of v.faltantes) {
-          motivos.push({ motivo: 'cliente_no_facturable', detalle: falta.detalle });
-        }
-      }
-    }
+    // C7 (segunda mitad) — la ficha fiscal del cliente YA NO se juzga aquí.
+    //
+    // El AC2 original propagaba los faltantes del validador —responsabilidad fiscal, dirección,
+    // ubicación, teléfono, contacto— como motivos de no elegibilidad. Esos cinco campos existen para
+    // armar el `POST /v1/customers`, y desde C7 solo se exigen en la rama que de verdad CREA el
+    // tercero. Adelantarlos aquí bloqueaba por algo que a lo mejor no hace falta: si la empresa ya
+    // está cargada en Siigo Nube, sincronizar la vincula sin pedir ninguno y además rellena los
+    // huecos de FLITO con lo que Siigo devuelve.
+    //
+    // Lo que queda en su lugar es un motivo accionable y uno solo: `tercero_sin_vincular`, que dice
+    // «sincronízala». La sincronización decidirá si puede vincular o si de verdad hay que crear, y
+    // en ese caso enumerará qué falta —con las mismas palabras del validador, que sigue corriendo
+    // donde importa—.
+    //
+    // Con el tercero YA vinculado tampoco hacen falta: la factura solo manda `identification` y
+    // `branch_office`, y si el `PUT` llegara a hacer falta, `asegurarTercero` hidrata desde Siigo
+    // ANTES de validar.
 
     // AC2 — y el de la parametrización lo da la compuerta, igual.
-    const conceptos = conceptosAplicables(f.valores);
-    const clave = conceptos.slice().sort().join('|');
+    // C2 — se juzga lo que se va a FACTURAR, no lo que el trámite tenga liquidado. Sin esto, un
+    // trámite con SOAT sin producto de Siigo bloqueaba una factura de trámite digital en la que el
+    // SOAT no aparece — y el SOAT no lleva producto porque se cobra por reintegro, no por factura.
+    //
+    // La lista vacía sigue significando «todos los aplicables»: es lo que pide el reporte, que
+    // pinta la elegibilidad de cada fila ANTES de que nadie haya elegido nada.
+    const conceptosDelTramite = conceptosFacturados(f.valores, conceptos);
+    // La clave del caché es la del TRÁMITE, no la de la entrada: dos trámites que facturan lo mismo
+    // comparten veredicto de compuerta, y con la lista de entrada todos compartirían el mismo aunque
+    // liquiden cosas distintas.
+    const clave = conceptosDelTramite.slice().sort().join('|');
     if (!compuertaPorClave.has(clave)) {
-      compuertaPorClave.set(clave, await motivosDeCompuerta(ambiente, conceptos));
+      compuertaPorClave.set(clave, await motivosDeCompuerta(ambiente, conceptosDelTramite, conceptos.length > 0));
     }
     motivos.push(...(compuertaPorClave.get(clave) ?? []));
 
-    salida.push({ tramiteId: f.tramiteId, elegible: motivos.length === 0, motivos });
+    salida.push({
+      tramiteId: f.tramiteId, elegible: motivos.length === 0, motivos, companiaId: f.companiaId,
+    });
   }
 
   // Un trámite pedido que no existe no se calla: sale como no elegible sin compañía, que es la
@@ -264,7 +261,8 @@ export async function evaluarElegibilidad(
   const vistos = new Set(salida.map((s) => s.tramiteId));
   for (const id of new Set(tramiteIds.filter((i) => UUID_RE.test(i)))) {
     if (!vistos.has(id)) {
-      salida.push({ tramiteId: id, elegible: false, motivos: [motivo('sin_compania')] });
+      // Un trámite que la consulta no encontró: sin compañía que reportar, y ese es el motivo.
+      salida.push({ tramiteId: id, elegible: false, motivos: [motivo('sin_compania')], companiaId: null });
     }
   }
 
@@ -279,12 +277,24 @@ export async function evaluarElegibilidad(
  * decisión en vez de dejar pasar el trámite por no haber evaluado nada.
  */
 async function motivosDeCompuerta(
-  ambiente: SiigoAmbiente, conceptos: readonly ConceptoFacturable[],
+  ambiente: SiigoAmbiente, conceptos: readonly ConceptoFacturable[], haySeleccion: boolean,
 ): Promise<MotivoElegibilidad[]> {
+  // C2 (segunda mitad) — SIN selección no se juzga lo que depende de ella.
+  //
+  // El reporte pinta la elegibilidad de cada fila al abrirse, cuando nadie ha elegido todavía qué
+  // facturar. Evaluar entonces «todos los conceptos aplicables» exigía producto de Siigo para el
+  // SOAT, el impuesto y el derecho de tránsito —que se cobran por reintegro y NUNCA van a tener
+  // uno—, así que el botón salía apagado con un motivo imposible de resolver. Justo el problema que
+  // C2 debía cerrar, entrando por la puerta de atrás.
+  //
+  // Lo que depende de la selección se juzga donde la selección existe: en el envío, que llama a esta
+  // misma función con los conceptos reales, y cuyo rechazo el diálogo enumera trámite a trámite.
+  if (!haySeleccion) return [];
+
   if (conceptos.length === 0) {
     return [{
       motivo: 'compuerta_cerrada',
-      detalle: 'La liquidación no trae ningún concepto facturable con valor. No hay nada que facturar.',
+      detalle: 'Ninguno de los conceptos elegidos aplica a este trámite: no hay nada que facturarle.',
     }];
   }
   const estado = await evaluarCompuerta(ambiente, conceptos);

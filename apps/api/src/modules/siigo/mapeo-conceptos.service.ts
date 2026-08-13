@@ -104,20 +104,31 @@ export interface MapeoConcepto {
 type FilaMapeo = typeof siigoMapeoConceptos.$inferSelect;
 
 /**
- * Una fila sirve para facturar cuando tiene producto, tiene clasificación tributaria declarada,
- * contabilidad la confirmó, está activa y no le queda ninguna decisión abierta.
+ * Una fila sirve para facturar cuando tiene producto, está activa y ese producto no está marcado
+ * como inválido en Siigo.
  *
- * El `lineaPropiaPendiente` cuenta como bloqueo a propósito (AC6): mientras la decisión del GMF
- * siga abierta, dar la fila por lista sería elegir una de las dos respuestas en silencio.
+ * **A7 — el tratamiento tributario dejó de ser de FLITO.** Antes se exigían además
+ * `clasificacionTributaria` y `confirmadoContabilidad`, y las dos condiciones custodiaban una copia
+ * de algo que Siigo ya publica: `GET /v1/products` devuelve `taxes[]` de cada producto con su id,
+ * tipo y porcentaje. FLITO mantenía ese duplicado y encima pedía firmarlo, lo que obligaba a
+ * declarar en FLITO el IVA de conceptos que ni siquiera se facturan.
+ *
+ * Ahora la factura no envía `taxes` —es campo opcional del contrato— y los aplica Siigo desde el
+ * producto. Con eso no queda nada tributario aquí que confirmar, y la pregunta se reduce a la única
+ * que FLITO puede responder: **¿qué producto de Siigo es este concepto?**
+ *
+ * Lo que esto mueve, dicho sin rodeos: la garantía de que el IVA sale bien pasa a depender de la
+ * parametrización de Siigo Nube, no de una firma en FLITO. Es donde contabilidad trabaja, pero un
+ * producto mal configurado allá ya no lo detiene nada de este lado.
+ *
+ * El `lineaPropiaPendiente` sigue bloqueando (AC6): esa decisión —si el GMF va como línea propia—
+ * no es tributaria y sigue sin tomarse.
  */
 function esListoParaFacturar(f: Pick<FilaMapeo,
-  'codigoProducto' | 'clasificacionTributaria' | 'confirmadoContabilidad' | 'activo'
-  | 'lineaPropiaPendiente' | 'validacionEstado'>): boolean {
+  'codigoProducto' | 'activo' | 'lineaPropiaPendiente' | 'validacionEstado'>): boolean {
   return f.activo
-    && f.confirmadoContabilidad
     && !f.lineaPropiaPendiente
     && !!f.codigoProducto
-    && !!f.clasificacionTributaria
     && !VALIDACION_BLOQUEA_FACTURACION.has(f.validacionEstado);
 }
 

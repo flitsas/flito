@@ -154,6 +154,13 @@ export async function facturasPorSondear(presupuesto: number): Promise<FacturaPo
       LEFT JOIN vigente v ON v.factura_id = f.id
       LEFT JOIN ultimo_intento i ON i.entidad_id = f.id::text
      WHERE f.estado = 'emitida'
+       -- Solo producción timbra (ver efectosExternosPermitidos en siigo.config.ts), así que solo
+       -- producción tiene un estado ante la DIAN que consultar. Sin esta condición, cada factura de
+       -- pruebas o QA cumpliría el predicado de abajo PARA SIEMPRE —nunca va a tener estado, porque
+       -- nunca se envió— y entraría en todos los ciclos. Y no sería gratis: el presupuesto por
+       -- ciclo se comparte con la emisión, y el ORDER BY de más abajo prioriza justamente lo que
+       -- nunca se ha consultado. Las de QA desplazarían a las de producción de su propio sondeo.
+       AND f.ambiente = 'produccion'
        AND f.siigo_invoice_id IS NOT NULL
        AND btrim(f.siigo_invoice_id) <> ''
        -- AC3: solo lo que no está resuelto. Las aceptadas, rechazadas y anuladas no se traen, así

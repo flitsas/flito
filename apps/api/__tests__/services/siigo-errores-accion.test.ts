@@ -69,6 +69,20 @@ describe('AC1 — cada error conocido trae acción y responsable', () => {
     expect(guia.texto).toMatch(/Lo resuelve: contabilidad, en Siigo Nube\./);
   });
 
+  it('la cuenta en solo lectura se dice como lo que es: un muro de la cuenta, no del trámite', () => {
+    // Visto en pruebas el 2026-08-13: la cuenta entera pasó a solo lectura y Siigo devolvió
+    // `read_only`, que el catálogo no conocía. Sin entrada, caía en la rama genérica y el mensaje
+    // invitaba a revisar el comprobante o el cliente — donde no había nada que arreglar.
+    const r = traducirErrorSiigo(400, cuerpo('read_only', ['']));
+
+    expect(r.guia.responsable).toBe('contabilidad');
+    // Lo que de verdad tiene que quedar claro: no es este trámite, y no se emite NADA.
+    expect(r.guia.accion).toMatch(/NINGUNA factura/);
+    expect(r.guia.accion).toMatch(/no es un problema de este trámite/i);
+    // Y no se reintenta: contra una cuenta en solo lectura solo gasta cuota y ensucia el freno.
+    expect(r.guia.reintentable ?? false).toBe(false);
+  });
+
   it('un error de credenciales no se le echa encima a quien opera: es de soporte', () => {
     expect(guiaParaCodigo('unauthorized').responsable).toBe('soporte');
     expect(guiaParaCodigo('invalid_partner_id').responsable).toBe('soporte');

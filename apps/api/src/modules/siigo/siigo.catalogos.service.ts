@@ -795,6 +795,85 @@ export async function leerCatalogo(
   };
 }
 
+/** Los cuatro catálogos que alimentan la elección de emisión de un envío. */
+export const CATALOGOS_DE_EMISION = ['document_type', 'user', 'payment_type', 'cost_center'] as const;
+
+export type CatalogoDeEmision = typeof CATALOGOS_DE_EMISION[number];
+
+export function esCatalogoDeEmision(v: string): v is CatalogoDeEmision {
+  return (CATALOGOS_DE_EMISION as readonly string[]).includes(v);
+}
+
+/**
+ * Un catálogo de emisión leído EN VIVO de Siigo, sin tocar la copia local.
+ *
+ * **Por qué en vivo y no desde la copia.** Estos cuatro se abren para elegir y se cierran, igual que
+ * el listado de productos: se leen una vez por envío, no miles de veces para pintar una pantalla.
+ * Una copia local suya obligaba a un botón de «sincronizar» —que alguien tenía que acordarse de
+ * pulsar— y ofrecía una lista vieja justo en el momento en que alguien acaba de crear el vendedor en
+ * Siigo, que es cuando se abre este selector. El botón se quitó y la copia dejó de ser la fuente.
+ *
+ * La copia local sigue existiendo para los catálogos que SÍ se consultan constantemente (los grupos
+ * de inventario y los impuestos del mapeo de conceptos), y por eso este módulo conserva
+ * `sincronizarCatalogos`: son dos usos distintos de la misma API, no dos verdades.
+ *
+ * Reutiliza `DEFINICIONES` a propósito. La normalización —qué es el código, qué es el nombre, qué
+ * significa `due_date` o `cost_center_mandatory`— tiene que ser la misma se guarde o no: dos
+ * normalizadores para el mismo endpoint acabarían discrepando sobre qué vendedor está activo.
+ *
+ * No captura errores: los propaga tal cual para que la ruta los traduzca con
+ * `traducirFalloCatalogo` y responda 502. Un fallo aquí no es una lista vacía.
+ */
+export async function leerCatalogoEnVivo(
+  tipo: CatalogoDeEmision,
+  opciones: { ambiente?: SiigoAmbiente } = {},
+): Promise<SiigoCatalogoElemento[]> {
+  const ambiente = ambienteEfectivo(opciones.ambiente);
+  const definicion = DEFINICIONES.find((d) => d.tipo === tipo);
+  if (!definicion) throw new SiigoCatalogoFormaInesperada(tipo);
+
+  const datos = await ejecutarConResiliencia(
+    () => siigoRequestOrThrow({
+      metodo: 'GET',
+      ruta: definicion.ruta,
+      ambiente: ambiente as SiigoAmbiente,
+      timeoutMs: TIMEOUT_CATALOGO_MS,
+    }),
+    {
+      clave: claveResiliencia(ambiente),
+      claveCortacircuitos: claveCortacircuitos(ambiente, definicion.tipo),
+      maxIntentos: MAX_INTENTOS_CATALOGO,
+    },
+  );
+
+  const crudos = extraerElementos(datos);
+  if (crudos === null) throw new SiigoCatalogoFormaInesperada(definicion.tipo);
+
+  // Misma deduplicación por código que la sincronización, y por el mismo motivo: Siigo puede repetir
+  // un elemento, y dos opciones idénticas en un desplegable son una forma de elegir mal.
+  const porCodigo = new Map<string, SiigoCatalogoElemento>();
+  const leidoEn = new Date().toISOString();
+  for (const crudo of crudos.slice(0, MAX_ELEMENTOS_POR_CATALOGO)) {
+    const normalizado = definicion.normalizar(crudo);
+    if (!normalizado) continue;
+    // Solo lo activo: aquí no hay historial que preservar —no se guarda nada— y una opción inactiva
+    // en el desplegable solo sirve para que Siigo rechace la factura después.
+    if (!normalizado.activo) continue;
+    porCodigo.set(normalizado.codigo, {
+      codigo: normalizado.codigo,
+      nombre: normalizado.nombre,
+      descripcion: normalizado.descripcion,
+      activo: true,
+      atributos: normalizado.atributos,
+      // No es una fecha de sincronización: es cuándo se leyó. Se conserva el nombre del campo
+      // porque el tipo es compartido, y el valor es honesto — se acaba de traer.
+      sincronizadoEn: leidoEn,
+    });
+  }
+
+  return [...porCodigo.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
 /**
  * Resumen de los seis catálogos: cuántos elementos tiene cada uno y cuándo se trajo.
  *

@@ -20,6 +20,15 @@ WORKDIR /app
 # @playwright/test está en devDeps de apps/web; no se necesitan navegadores.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
+# V8 dimensiona el old-space según la RAM total de la máquina: por debajo de ~15 GB
+# el tope queda en ~2 GB. El chequeo de tipos de apps/api necesita ~1.6 GB de heap
+# —2108 archivos y 3.4 M líneas de .d.ts, de las que `googleapis` aporta el 95 % por
+# el barrel de services/googleDrive.ts— así que en un equipo de 16 GB nominales
+# (14.9 GiB reales) el build muere con «heap out of memory» (exit 134), mientras que
+# en CI, con más RAM, pasa. Este tope explícito quita esa dependencia del hardware.
+# Solo aplica a la etapa de build; el runtime no lo hereda.
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # Manifests primero → capa de npm ci cacheable mientras no cambien deps.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json

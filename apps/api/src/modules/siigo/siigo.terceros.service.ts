@@ -25,7 +25,7 @@
 
 import { createHash } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
-import { SIIGO_ID_TIPOS_CODIGOS } from '@operaciones/shared-types';
+import { RESPONSABILIDADES_FISCALES_CODIGOS, SIIGO_ID_TIPOS_CODIGOS } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, siigoTerceros } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -40,7 +40,7 @@ import { motivoLegible } from './siigo.productos.service.js';
 // tercera copia sería el patrón que estas Features llevan corrigiendo toda la iteración.
 import { detalleTecnico, esViolacionDeUnico } from './siigo.redaccion.js';
 import { ejecutarConResiliencia } from './siigo.resiliencia.js';
-import { exigirClienteFacturable } from './siigo.validador-cliente.service.js';
+import { ClienteNoFacturableError, exigirClienteFacturable } from './siigo.validador-cliente.service.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 const log = loggerFor('siigo.terceros');
@@ -107,18 +107,68 @@ export interface TerceroSiigo {
 }
 
 /**
- * Arma el objeto que Siigo espera a partir de la ficha del cliente.
+ * Lo ÚNICO que hace falta para buscar el tercero en Siigo: la pareja identificación + sucursal.
  *
- * **Pura.** No lee la base ni llama a nadie, así que las reglas de forma —que son casi todo el
- * riesgo de esta historia— se prueban sin red. Lo que no se puede armar bien NO se maquilla: quien
- * llama ya comprobó con el validador que el cliente es facturable, y si algo falta aquí es que esa
- * comprobación y esta se han desincronizado, cosa que un test detecta y un valor por defecto oculta.
+ * Existe aparte de `armarTercero` porque buscar y escribir necesitan cosas distintas, y meterlas en
+ * la misma puerta tenía una consecuencia concreta: un cliente sin clasificar en FLITO —sin tipo de
+ * persona, sin tipo de documento— no se podía ni BUSCAR, aunque estuviera perfectamente cargado en
+ * Siigo Nube con todos esos datos. El candado estaba del lado equivocado de la puerta que abre.
+ *
+ * `GET /v1/customers` solo filtra por `identification` y `branch_office`, así que esto es
+ * literalmente todo lo que la consulta consume.
  */
-export function armarTercero(c: FichaCliente): TerceroSiigo {
+export function identidadDeCliente(c: FichaCliente): { identification: string; branch_office: number } {
   const identificacion = (c.document ?? '').trim();
   if (identificacion === '') {
     throw new SiigoTerceroError('sin_identificacion', 'El cliente no tiene identificación.');
   }
+  return { identification: identificacion, branch_office: c.branchOffice };
+}
+
+/**
+ * Marca de «vinculado, pero la ficha local no da para armar el tercero».
+ *
+ * No es un sha256 y no puede serlo: 64 caracteres hexadecimales nunca van a producir esta cadena,
+ * así que ninguna comparación de huellas la acepta por accidente y la próxima sincronización vuelve
+ * a intentar completar la ficha en vez de responder «nada cambió».
+ */
+export const SIN_HUELLA = 'sin-armar';
+
+export type Armado =
+  | { ok: true; valor: TerceroSiigo }
+  | { ok: false; error: SiigoTerceroError };
+
+/**
+ * `armarTercero` en forma de resultado, para las ramas que pueden seguir sin él.
+ *
+ * Existe porque «no se puede armar» dejó de ser un final: entre el intento y la escritura está la
+ * lectura de Siigo, que a menudo aporta justo lo que faltaba. Solo se relanza el fallo cuando ya no
+ * queda de dónde sacarlo.
+ *
+ * Captura únicamente `SiigoTerceroError`. Cualquier otra excepción es un defecto de programación y
+ * tragarla la convertiría en un «falta un dato» que mandaría a alguien a revisar una ficha correcta.
+ */
+export function intentarArmar(c: FichaCliente): Armado {
+  try {
+    return { ok: true, valor: armarTercero(c) };
+  } catch (e) {
+    if (e instanceof SiigoTerceroError) return { ok: false, error: e };
+    throw e;
+  }
+}
+
+/**
+ * Arma el objeto COMPLETO que Siigo espera a partir de la ficha del cliente.
+ *
+ * **Pura.** No lee la base ni llama a nadie, así que las reglas de forma —que son casi todo el
+ * riesgo de esta historia— se prueban sin red. Lo que no se puede armar bien NO se maquilla: un
+ * «NO REPORTA» de relleno sería una afirmación ante la DIAN que nadie autorizó.
+ *
+ * **Solo hace falta para ESCRIBIR** (`POST` o `PUT`). Para buscar basta `identidadDeCliente`, y las
+ * ramas que únicamente vinculan usan `intentarArmar` para poder seguir aunque esto falle.
+ */
+export function armarTercero(c: FichaCliente): TerceroSiigo {
+  const { identification: identificacion } = identidadDeCliente(c);
 
   // Se comprueba contra el catálogo, no solo que no esté vacío: la columna tiene su CHECK en la
   // base, pero este objeto viaja a un sistema de contabilidad y un código inventado se convierte
@@ -184,6 +234,200 @@ export function armarTercero(c: FichaCliente): TerceroSiigo {
   }
 
   return tercero;
+}
+
+// ── Hidratación: lo que Siigo puede aportarle a la ficha de FLITO (C7) ──────
+
+/**
+ * Los campos de `clients` que un tercero de Siigo puede rellenar.
+ *
+ * Exactamente los que exige `evaluarCliente` para considerar facturable a un cliente, y ni uno más:
+ * hidratar es tapar el hueco que impide facturar, no importar la ficha entera de Siigo a FLITO.
+ */
+export interface HuecosDeCliente {
+  /**
+   * Los dos que deciden si el tercero se puede siquiera ARMAR, y por eso encabezan la lista.
+   *
+   * Sin ellos `armarTercero` no produce nada, así que un cliente al que le falten queda fuera de
+   * todas las ramas —incluida la de vincular, que no los necesita para nada—. Siigo los publica en
+   * `person_type` y `id_type.code`, y es la fuente correcta: sobre un tercero que ya existe allá,
+   * lo que Siigo diga que es MANDA sobre lo que FLITO haya dejado sin clasificar.
+   */
+  personType?: 'Person' | 'Company';
+  idType?: string;
+  fiscalResponsibilities?: string[];
+  address?: string;
+  countryCode?: string;
+  stateCode?: string;
+  cityCode?: string;
+  phoneIndicative?: string;
+  phoneNumber?: string;
+  contactFirstName?: string;
+  contactLastName?: string;
+}
+
+/** Recorta y descarta el vacío. `undefined` significa «Siigo tampoco lo tiene». */
+function texto(v: unknown, max: number): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const limpio = v.trim();
+  if (limpio === '' || limpio.length > max) return undefined;
+  return limpio;
+}
+
+/** Un teléfono de FLITO son dígitos y como mucho diez. Lo que no encaje NO se guarda: ver abajo. */
+function digitos(v: unknown): string | undefined {
+  const t = texto(v, 10);
+  return t !== undefined && /^[0-9]{1,10}$/.test(t) ? t : undefined;
+}
+
+/**
+ * El inverso de `armarTercero`: qué le puede aportar a FLITO el tercero que Siigo ya tiene (C7).
+ *
+ * **Función pura y sin base de datos**, igual que su gemela, y por el mismo motivo: lo que sale de
+ * aquí acaba en la ficha fiscal de un cliente.
+ *
+ * **Lo que no encaja se descarta en silencio, y es deliberado.** Siigo admite en un teléfono cosas
+ * que la columna de FLITO no —`varchar(10)` y solo dígitos, porque la ruta de clientes lo exige
+ * así—, y una responsabilidad fiscal que no esté en el catálogo de la DIAN no es un dato: es un
+ * código que nadie va a poder interpretar. Ante la duda se deja el hueco: un hueco lo ve quien
+ * factura y lo llena en un minuto, mientras que un valor colado en una ficha fiscal se descubre
+ * cuando la DIAN rechaza la factura.
+ */
+export function camposDesdeTercero(existente: Record<string, unknown>): HuecosDeCliente {
+  const huecos: HuecosDeCliente = {};
+
+  // Tipo de persona. Los dos únicos valores que FLITO admite, y se comprueban: `person_type` viaja
+  // como texto libre en la respuesta, y colar un tercer valor en la columna rompería el `CHECK`.
+  const tipoPersona = texto(existente.person_type, 20);
+  if (tipoPersona === 'Person' || tipoPersona === 'Company') huecos.personType = tipoPersona;
+
+  // Tipo de identificación. Se valida contra el catálogo por el mismo motivo que `armarTercero` lo
+  // valida al salir: este código viaja a un sistema contable, y uno inventado se convierte allá en
+  // un tercero con el documento equivocado.
+  const idTipo = esObjeto(existente.id_type) ? texto(existente.id_type.code, 10) : undefined;
+  if (idTipo !== undefined && (SIIGO_ID_TIPOS_CODIGOS as readonly string[]).includes(idTipo)) {
+    huecos.idType = idTipo;
+  }
+
+  const responsabilidades = Array.isArray(existente.fiscal_responsibilities)
+    ? (existente.fiscal_responsibilities as Array<Record<string, unknown>>)
+      .map((r) => texto(r?.code, 10))
+      .filter((c): c is string => c !== undefined
+        && (RESPONSABILIDADES_FISCALES_CODIGOS as readonly string[]).includes(c))
+    : [];
+  if (responsabilidades.length > 0) huecos.fiscalResponsibilities = responsabilidades;
+
+  const direccion = esObjeto(existente.address) ? existente.address : undefined;
+  if (direccion) {
+    const calle = texto(direccion.address, 300);
+    if (calle !== undefined) huecos.address = calle;
+
+    const ciudad = esObjeto(direccion.city) ? direccion.city : undefined;
+    if (ciudad) {
+      const pais = texto(ciudad.country_code, 2);
+      const departamento = texto(ciudad.state_code, 5);
+      const municipio = texto(ciudad.city_code, 10);
+      // Los tres o ninguno: el validador los evalúa como una sola cosa («falta el país, el
+      // departamento o la ciudad»), así que rellenar dos de tres deja el motivo en pie y encima
+      // esconde cuál falta.
+      if (pais && departamento && municipio) {
+        huecos.countryCode = pais;
+        huecos.stateCode = departamento;
+        huecos.cityCode = municipio;
+      }
+    }
+  }
+
+  const telefono = Array.isArray(existente.phones) && esObjeto(existente.phones[0])
+    ? existente.phones[0] : undefined;
+  if (telefono) {
+    const indicativo = digitos(telefono.indicative);
+    const numero = digitos(telefono.number);
+    // Igual que la ubicación: el validador pide los dos juntos.
+    if (indicativo && numero) {
+      huecos.phoneIndicative = indicativo;
+      huecos.phoneNumber = numero;
+    }
+  }
+
+  const contacto = Array.isArray(existente.contacts) && esObjeto(existente.contacts[0])
+    ? existente.contacts[0] : undefined;
+  if (contacto) {
+    const nombre = texto(contacto.first_name, 100);
+    if (nombre !== undefined) {
+      huecos.contactFirstName = nombre;
+      const apellido = texto(contacto.last_name, 100);
+      // El apellido acompaña al nombre y solo si viene; su ausencia no es un hueco que bloquee.
+      if (apellido !== undefined) huecos.contactLastName = apellido;
+    }
+  }
+
+  return huecos;
+}
+
+/**
+ * Rellena en la ficha del cliente SOLO lo que está vacío, con lo que Siigo ya sabe (C7).
+ *
+ * Devuelve los nombres de los campos rellenados, para la bitácora. Vacío = no había nada que
+ * rellenar, que es el caso normal a partir de la segunda vez.
+ *
+ * **De una sola vía y solo sobre huecos.** Nunca pisa un valor que FLITO tenga, ni siquiera si
+ * difiere del de Siigo: eso sería convertir a Siigo en el maestro de la ficha y abrir la pregunta de
+ * quién gana en el `PUT` siguiente, que es justo lo que `fusionarConExistente` decidió no abrir.
+ * Aquí solo se responde a «FLITO no lo sabe y Siigo sí».
+ */
+export async function hidratarClienteDesdeSiigo(
+  clienteId: number, existente: Record<string, unknown> | null,
+): Promise<string[]> {
+  if (!existente) return [];
+  const huecos = camposDesdeTercero(existente);
+  if (Object.keys(huecos).length === 0) return [];
+
+  const actual = await cargarCliente(clienteId);
+  if (!actual) return [];
+
+  const cambios: Record<string, unknown> = {};
+  const puesto: string[] = [];
+
+  const rellenarSiVacio = (campo: keyof HuecosDeCliente, vacioAhora: boolean) => {
+    const valor = huecos[campo];
+    if (valor === undefined || !vacioAhora) return;
+    cambios[campo] = valor;
+    puesto.push(campo);
+  };
+
+  // Primero los dos que desbloquean el armado. `personType` cuenta como vacío cuando no es ninguno
+  // de los dos valores válidos: la 0132 dejó filas con la columna en blanco, y una cadena vacía no
+  // es «persona natural», es «nadie lo ha clasificado».
+  rellenarSiVacio('personType', actual.personType !== 'Person' && actual.personType !== 'Company');
+  rellenarSiVacio('idType', !(SIIGO_ID_TIPOS_CODIGOS as readonly string[])
+    .includes((actual.idType ?? '').trim()));
+  rellenarSiVacio('fiscalResponsibilities', (actual.fiscalResponsibilities ?? []).length === 0);
+  rellenarSiVacio('address', vacioTexto(actual.address));
+  // La terna de ubicación se evalúa junta, igual que se arma junta.
+  const sinUbicacion = vacioTexto(actual.countryCode) || vacioTexto(actual.stateCode) || vacioTexto(actual.cityCode);
+  rellenarSiVacio('countryCode', sinUbicacion);
+  rellenarSiVacio('stateCode', sinUbicacion);
+  rellenarSiVacio('cityCode', sinUbicacion);
+  const sinTelefono = vacioTexto(actual.phoneIndicative) || vacioTexto(actual.phoneNumber);
+  rellenarSiVacio('phoneIndicative', sinTelefono);
+  rellenarSiVacio('phoneNumber', sinTelefono);
+  const sinContacto = vacioTexto(actual.contactFirstName);
+  rellenarSiVacio('contactFirstName', sinContacto);
+  rellenarSiVacio('contactLastName', sinContacto && vacioTexto(actual.contactLastName));
+
+  if (puesto.length === 0) return [];
+
+  // Sin sello de actualización: `clients` no tiene `updated_at`. El rastro de esta escritura queda
+  // en la bitácora de Siigo, con los NOMBRES de los campos rellenados y nunca sus valores —son
+  // dirección, teléfono y nombre de una persona, y `siigo_operaciones` es append-only—.
+  await db.update(clients).set(cambios).where(eq(clients.id, clienteId));
+
+  return puesto;
+}
+
+function vacioTexto(v: string | null | undefined): boolean {
+  return v === null || v === undefined || v.trim() === '';
 }
 
 /**
@@ -351,12 +595,40 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
     throw new SiigoTerceroError('cliente_no_existe', `No existe el cliente ${clienteId}.`);
   }
 
-  // AC5 — un cliente no facturable NO sale a la red. Lanza con los motivos nombrados uno por uno.
-  await exigirClienteFacturable(clienteId);
-
+  // C7 — la validación de facturabilidad se exige antes de ESCRIBIR en Siigo, no antes de LEER.
+  //
+  // Estaba aquí arriba, y era un candado del lado equivocado de la puerta: los cinco campos que
+  // pide —responsabilidad fiscal, dirección, ubicación, teléfono, contacto— existen para armar el
+  // `POST /v1/customers`, y en la rama que solo VINCULA un tercero que Siigo ya tiene no se usa
+  // ninguno. El efecto era que una empresa perfectamente cargada en Siigo Nube no se podía vincular
+  // porque la copia de FLITO estaba incompleta, y la única salida era volver a teclear en FLITO lo
+  // que ya estaba escrito enfrente.
+  //
+  // **`armarTercero` bajó por el mismo motivo, y no era una excepción razonable sino el mismo
+  // error una puerta más adentro.** Se quedaba arriba «porque hace falta para buscar», y no es
+  // cierto: buscar solo consume identificación y sucursal (`identidadDeCliente`). Lo que exigía de
+  // más —tipo de persona, tipo de documento, nombre armable— es justo lo que Siigo devuelve y la
+  // hidratación sabe copiar, así que pedirlo ANTES de leer dejaba fuera exactamente a los clientes
+  // que esta rama existe para rescatar: los que están completos allá y en blanco aquí.
+  //
+  // Ahora se intenta armar, y si no se puede se sigue adelante con la identidad. Solo las ramas que
+  // ESCRIBEN exigen el armado, y para entonces la hidratación ya tuvo su oportunidad.
   const ambiente = process.env.SIIGO_AMBIENTE ?? 'pruebas';
-  const nuestro = armarTercero(cliente);
-  const huella = huellaDeTercero(nuestro);
+  const identidad = identidadDeCliente(cliente);
+  let armado = intentarArmar(cliente);
+  let huella = armado.ok ? huellaDeTercero(armado.valor) : null;
+
+  /**
+   * El tercero armado, o el fallo original si sigue sin poder armarse.
+   *
+   * Lo lanza tal cual —`sin_identificacion`, con el campo que falta— porque para cuando se llama a
+   * esto ya se leyó de Siigo y se hidrató: si todavía falta algo, es que ni Siigo lo tiene, y el
+   * mensaje del validador es lo único accionable que queda.
+   */
+  const exigirArmado = (): TerceroSiigo => {
+    if (armado.ok) return armado.valor;
+    throw armado.error;
+  };
 
   const [vinculo] = await db.select().from(siigoTerceros)
     .where(eq(siigoTerceros.clientId, clienteId)).limit(1);
@@ -372,12 +644,35 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
       mensaje,
     });
 
+  /**
+   * C7 — tapa con lo que Siigo acaba de devolver los huecos de la ficha, y rearma si algo cambió.
+   *
+   * El rearmado no es opcional: `nuestro` y `huella` se calcularon con la ficha vieja, y guardar esa
+   * huella dejaría el vínculo diciendo que hay diferencias con Siigo cuando ya no las hay — un `PUT`
+   * inútil en cada sincronización, para siempre.
+   */
+  const hidratarYRearmar = async (leido: Record<string, unknown> | null): Promise<void> => {
+    const rellenados = await hidratarClienteDesdeSiigo(clienteId, leido);
+    if (rellenados.length === 0) return;
+    const refrescado = await cargarCliente(clienteId);
+    if (refrescado) {
+      armado = intentarArmar(refrescado);
+      huella = armado.ok ? huellaDeTercero(armado.valor) : null;
+    }
+    await bitacora('ok',
+      `Ficha del cliente ${clienteId} completada desde Siigo: ${rellenados.join(', ')}.`);
+  };
+
   try {
     // ── Ya vinculado ────────────────────────────────────────────────────────
     if (vinculo) {
       // AC4 — nada cambió: ni una petición. Es la rama más frecuente con diferencia, porque los
       // datos fiscales de un cliente cambian una vez al año y se factura todas las semanas.
-      if (vinculo.huella === huella) {
+      //
+      // Con la ficha sin armar `huella` es `null`, que no coincide con nada: se cae al camino largo,
+      // que lee de Siigo e hidrata. Es lo que se quiere — un vínculo cuya ficha local está coja se
+      // arregla solo la próxima vez que alguien lo sincroniza.
+      if (huella !== null && vinculo.huella === huella) {
         return {
           clienteId, siigoCustomerId: vinculo.siigoCustomerId,
           identificacion: vinculo.identificacion, sucursal: vinculo.sucursal,
@@ -392,6 +687,17 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
       // tratar ese `null` como «no existe» y mandar el objeto crudo era exactamente el borrado que
       // toda esta historia previene, entrando por la única puerta que quedaba abierta.
       const existente = await traerPorId(vinculo.siigoCustomerId, ambiente, vinculo.identificacion, vinculo.sucursal);
+
+      // C7 — se rellenan los huecos ANTES de validar. Ya tenemos delante lo que Siigo sabe: pedirle
+      // a alguien que lo teclee otra vez para poder mandar un `PUT` sería absurdo.
+      await hidratarYRearmar(existente);
+
+      // Aquí SÍ: el `PUT` reemplaza, y mandar la ficha coja de FLITO borraría en Siigo Nube lo que
+      // este cliente tenga y nosotros no. `fusionarConExistente` protege lo que FLITO no modela,
+      // pero no puede proteger un campo que FLITO sí modela y tiene vacío.
+      await exigirClienteFacturable(clienteId);
+
+      const nuestro = exigirArmado();
       const completo = fusionarConExistente(existente, nuestro);
 
       await ejecutarConResiliencia(
@@ -412,7 +718,10 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
         .set({
           identificacion: nuestro.identification,
           sucursal: nuestro.branch_office,
-          huella,
+          // No es `huella!`: se acaba de armar con éxito —`exigirArmado` habría lanzado— así que
+          // se recalcula sobre lo que de verdad se envió, sin apoyarse en una variable que el
+          // compilador no puede saber que ya está resuelta.
+          huella: huellaDeTercero(nuestro),
           sincronizadoEn: new Date(),
           updatedAt: new Date(),
         })
@@ -429,7 +738,11 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
     // ── Sin vincular ────────────────────────────────────────────────────────
     // AC1 — se consulta antes de crear. Crear a ciegas produciría el duplicado que el índice único
     // de Siigo rechaza… salvo que la sucursal difiera, en cuyo caso lo ACEPTA y quedan dos.
-    const encontrado = await buscarTercero(nuestro.identification, nuestro.branch_office, ambiente);
+    //
+    // Se busca con `identidad`, no con el tercero armado: esta consulta solo filtra por
+    // identificación y sucursal, y exigir el resto era lo que impedía rescatar al cliente que ya
+    // está completo en Siigo Nube.
+    const encontrado = await buscarTercero(identidad.identification, identidad.branch_office, ambiente);
 
     let siigoCustomerId: string;
     let desenlace: DesenlaceTercero;
@@ -441,13 +754,21 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
         throw new SiigoTerceroError('siigo_rechazo',
           'Siigo devolvió un tercero sin identificador; no se puede vincular.');
       }
+      // C7 — vincular NO exige que FLITO tenga la ficha completa: no se escribe nada en Siigo, solo
+      // se guarda de qué tercero se trata. Y de paso se aprovecha lo que se acaba de leer para
+      // tapar los huecos, así el `PUT` de la próxima vez no salga cojo.
+      await hidratarYRearmar(encontrado);
     } else {
+      // AC5 — crear es la ÚNICA rama en la que FLITO tiene que aportarlo todo, porque no existe
+      // nada enfrente de dónde sacarlo. Un cliente no facturable no sale a la red.
+      await exigirClienteFacturable(clienteId);
+
       const creado = await ejecutarConResiliencia(
         () => siigoRequestOrThrow<unknown>({
           metodo: 'POST',
           ruta: '/v1/customers',
           ambiente: ambiente as SiigoAmbiente,
-          cuerpo: nuestro,
+          cuerpo: exigirArmado(),
           timeoutMs: TIMEOUT_TERCERO_MS,
         }),
         { clave: claveResiliencia(ambiente), claveCortacircuitos: claveCortacircuitosTerceros(ambiente) },
@@ -464,9 +785,16 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
       await db.insert(siigoTerceros).values({
         clientId: clienteId,
         siigoCustomerId,
-        identificacion: nuestro.identification,
-        sucursal: nuestro.branch_office,
-        huella,
+        identificacion: identidad.identification,
+        sucursal: identidad.branch_office,
+        // Vinculando un tercero cuya ficha local sigue coja —Siigo tampoco tenía todo— el vínculo
+        // se guarda igual, porque vincular es lo que desbloquea facturar: la factura solo manda
+        // `identification` y `branch_office`, y los dos están.
+        //
+        // La huella queda con un centinela que NO puede coincidir con ningún sha256, de modo que la
+        // próxima sincronización se salte el atajo de «nada cambió» y vuelva a intentar completar
+        // la ficha. Guardar aquí una huella inventada dejaría el vínculo afirmando que está al día.
+        huella: huella ?? SIN_HUELLA,
       });
     } catch (e) {
       // AC8 — otra petición ganó la carrera. No es un fallo: el tercero está vinculado, que es lo
@@ -493,7 +821,7 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
           ? ` Se creó el tercero ${siigoCustomerId} en Siigo y quedó SIN vincular: revísalo.`
           : '';
         await bitacora('error_negocio',
-          `Otro cliente ya está vinculado a la identificación ${nuestro.identification} (sucursal ${nuestro.branch_office}).${huerfano}`);
+          `Otro cliente ya está vinculado a la identificación ${identidad.identification} (sucursal ${identidad.branch_office}).${huerfano}`);
         throw new SiigoTerceroError('siigo_rechazo',
           `Otro cliente de FLITO ya está vinculado a esa identificación y sucursal.${huerfano}`);
       }
@@ -503,12 +831,21 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
     await bitacora('ok', `Tercero del cliente ${clienteId} ${desenlace === 'creado' ? 'creado' : 'vinculado'} en Siigo.`);
     return {
       clienteId, siigoCustomerId,
-      identificacion: nuestro.identification, sucursal: nuestro.branch_office,
+      identificacion: identidad.identification, sucursal: identidad.branch_office,
       desenlace,
     };
   } catch (e) {
     // AC6 — traducido a lenguaje operativo, y el vínculo local NO queda a medio escribir: se escribe
     // después de que Siigo confirme, nunca antes.
+    // C7 — el fallo del validador sube TAL CUAL, y esto no es un detalle de estilo.
+    //
+    // Desde que la guarda vive dentro del `try` —tiene que estar ahí: solo se exige en las ramas que
+    // escriben—, este `catch` la alcanza. Y `motivoLegible` está escrito para fallos de la RED: le
+    // da a cualquier excepción que no reconozca un «Siigo no respondió», que aquí sería mentira dos
+    // veces —Siigo respondió, y el problema es de FLITO— y además borraría lo único que sirve para
+    // arreglarlo: la lista de qué campo falta, que es el AC5 entero.
+    if (e instanceof ClienteNoFacturableError) throw e;
+
     const motivo = motivoLegible(e);
     log.error({ err: detalleTecnico(e), clienteId }, 'no se pudo asegurar el tercero en Siigo');
     await bitacora(

@@ -884,13 +884,18 @@ export async function reconciliarHuerfanas(
     .where(and(
       eq(siigoFacturas.ambiente, opciones.ambiente),
       eq(siigoFacturas.estado, 'en_proceso'),
-      sql`${siigoFacturas.enProcesoDesde} < ${corte}`,
+      // ISO con cast, no el `Date` pelado. Un fragmento `sql` crudo no lleva el tipo de la columna,
+      // así que drizzle lo manda como parámetro suelto a `client.unsafe` de postgres.js, que no
+      // aplica serializadores y revienta al codificar un `Date`. Comparar con `eq()` sí funcionaría
+      // —ahí drizzle sí conoce la columna—, pero aquí hace falta `<`. Mismo motivo que en
+      // `tomarLote`, y también invisible para las pruebas, que corren contra la base mockeada.
+      sql`${siigoFacturas.enProcesoDesde} < ${corte.toISOString()}::timestamptz`,
       // Espera entre intentos, y NO exclusión. Ninguna fila desaparece del barrido —eso la volvería
       // invisible y su trámite, irrecuperable— pero tampoco se reintenta en cada pasada: cada
       // reconciliación toca `updated_at`, así que una que no concluye descansa antes de volver.
       // Es lo que impide que una huérfana imposible gaste diez consultas por barrido de la misma
       // cuota que necesita la emisión, y que llene de errores la bitácora que alimenta el freno.
-      sql`${siigoFacturas.updatedAt} < ${esperaHasta}`,
+      sql`${siigoFacturas.updatedAt} < ${esperaHasta.toISOString()}::timestamptz`,
     ))
     // Las más antiguas primero: son las que llevan más tiempo con su trámite retenido.
     .orderBy(siigoFacturas.enProcesoDesde)

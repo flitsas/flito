@@ -33,7 +33,6 @@ import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
-import siigoConfigEmisionRoutes from './modules/siigo/config-emision.routes.js';
 import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
 import siigoParametrizacionRoutes from './modules/siigo/parametrizacion.routes.js';
 import siigoCiudadesRoutes from './modules/siigo/ciudades.routes.js';
@@ -46,6 +45,7 @@ import siigoEnviosRoutes from './modules/siigo/envio-correo.routes.js';
 import siigoFacturacionTramitesRoutes from './modules/siigo/facturacion-tramites.routes.js';
 import siigoFacturacionRoutes from './modules/siigo/facturacion.routes.js';
 import siigoTercerosRoutes from './modules/siigo/terceros.routes.js';
+import siigoProductosRoutes from './modules/siigo/productos.routes.js';
 import siigoElegibilidadRoutes from './modules/siigo/elegibilidad.routes.js';
 import siigoReconciliacionRoutes from './modules/siigo/reconciliacion.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
@@ -207,7 +207,6 @@ export function createApp() {
   app.use('/api/finanzas', finanzasRoutes);
   app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
   app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
-  app.use('/api/siigo/config-emision', siigoConfigEmisionRoutes);
   app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
   app.use('/api/siigo/parametrizacion', siigoParametrizacionRoutes);
   app.use('/api/siigo/ciudades', siigoCiudadesRoutes);
@@ -225,6 +224,7 @@ export function createApp() {
   // orden importa solo en que ninguno debe declarar un patrón que trague las rutas del otro.
   app.use('/api/siigo/facturacion', siigoFacturacionTramitesRoutes);
   app.use('/api/siigo/facturacion', siigoFacturacionRoutes);
+  app.use('/api/siigo/productos', siigoProductosRoutes);
   app.use('/api/siigo/terceros', siigoTercerosRoutes);
   app.use('/api/siigo/elegibilidad', siigoElegibilidadRoutes);
   app.use('/api/siigo/reconciliacion', siigoReconciliacionRoutes);

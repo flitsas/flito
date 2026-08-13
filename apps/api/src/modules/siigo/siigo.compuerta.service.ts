@@ -18,7 +18,6 @@
 //      que cambiar de ambiente reevalúa por construcción y no hereda confirmaciones del otro.
 
 import {
-  CAMPO_CATALOGO_EMISION_ETIQUETA,
   CONCEPTOS_FACTURABLES,
   CONCEPTO_FACTURABLE_COLUMNA_LIQUIDACION,
   type ConceptoFacturable,
@@ -26,7 +25,6 @@ import {
   type MotivoCompuerta,
   type ValoresLiquidacion,
 } from '@operaciones/shared-types';
-import { estadoConfigEmision } from './config-emision.service.js';
 import { listarMapeo, type MapeoConcepto } from './mapeo-conceptos.service.js';
 import { modoSiigo } from './siigo.mock.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -92,7 +90,6 @@ async function evaluar(
 
   // ── Mapeo de conceptos (AC1) ──────────────────────────────────────────────
   const filas = await listarMapeo(ambiente);
-  const sinConfirmar: ConceptoFacturable[] = [];
   const noListos: ConceptoFacturable[] = [];
 
   for (const concepto of conceptos) {
@@ -102,56 +99,34 @@ async function evaluar(
       noListos.push(concepto);
       continue;
     }
-    // Basta que UNA de las filas aplicables no esté firmada: la específica tiene precedencia sobre
-    // la genérica, y cuál se use depende del tipo de trámite, que aquí no se conoce.
-    if (suyas.some((f) => !f.confirmadoContabilidad)) sinConfirmar.push(concepto);
-    else if (suyas.some((f) => !f.listoParaFacturar)) noListos.push(concepto);
+    // A7 — ya no se pregunta por la firma de contabilidad. Lo que firmaba era el tratamiento
+    // tributario que FLITO guardaba en copia, y esa copia dejó de existir: la factura no envía
+    // `taxes` y los aplica Siigo desde el producto. Ver `esListoParaFacturar`.
+    if (suyas.some((f) => !f.listoParaFacturar)) noListos.push(concepto);
   }
 
-  if (sinConfirmar.length > 0) {
-    motivos.push({
-      tipo: 'concepto_sin_confirmar',
-      detalle: `Falta la confirmación de contabilidad en: ${sinConfirmar.join(', ')}.`,
-      conceptos: sinConfirmar,
-    });
-  }
   if (noListos.length > 0) {
     motivos.push({
       tipo: 'concepto_no_listo',
-      detalle: `Configuración incompleta o inválida en: ${noListos.join(', ')}. Revisa el código de `
-        + 'producto, la clasificación tributaria y el resultado de la última validación.',
+      detalle: `Falta elegir el producto de Siigo en: ${noListos.join(', ')}.`,
       conceptos: noListos,
     });
   }
 
-  // ── Configuración global de emisión (AC4) ─────────────────────────────────
-  const config = await estadoConfigEmision(ambiente);
-
-  if (!config.configurada) {
-    motivos.push({
-      tipo: 'sin_configurar',
-      detalle: `No hay configuración de emisión guardada para el ambiente ${ambiente}. `
-        + 'Defínela antes de emitir.',
-    });
-  } else {
-    if (config.faltantes.length > 0) {
-      motivos.push({
-        tipo: 'config_incompleta',
-        detalle: 'Faltan valores en la configuración de emisión: '
-          + `${config.faltantes.map((c) => CAMPO_CATALOGO_EMISION_ETIQUETA[c]).join(', ')}.`,
-        campos: [...config.faltantes],
-      });
-    }
-    if (config.invalidos.length > 0) {
-      motivos.push({
-        tipo: 'config_invalida',
-        detalle: 'Valores de la configuración de emisión que dejaron de ser válidos en Siigo: '
-          + `${config.invalidos.map((c) => c.etiqueta).join(', ')}.`,
-        campos: config.invalidos.map((c) => c.campo),
-      });
-    }
-  }
-
+  // ── Ya no se evalúa ninguna configuración global de emisión ───────────────
+  //
+  // Aquí se comprobaba que el ambiente tuviera guardados un comprobante, un vendedor, una forma de
+  // pago y un centro de costo válidos. Esa configuración desapareció: los cuatro se ELIGEN en cada
+  // envío, por empresa, de los catálogos leídos de Siigo en el momento.
+  //
+  // Y no se sustituye por una comprobación equivalente, porque no hay nada que comprobar por
+  // adelantado: lo que se elija todavía no existe cuando esta función corre. Lo que de verdad
+  // protege —no emitir sin comprobante, sin vendedor o sin forma de pago— vive en los dos únicos
+  // sitios que saben qué se eligió: el envío, que no deja continuar sin ellos, y `prepararEmision`,
+  // que rechaza el lote al que le falten.
+  //
+  // La compuerta se queda con lo que sí es una precondición estable del ambiente: el mapeo de
+  // conceptos.
   return motivos;
 }
 

@@ -78,8 +78,23 @@ const RESUMEN_FE = {
 const FICHA_ACEPTADA = {
   tramiteId: FILA_FACTURADA.tramiteId, facturaId: 'f-aceptada', numero: 'FV-1-100',
   estadoEmision: 'emitida', estado: 'aceptado', estadoDian: 'aceptada', motivo: null,
+  // Timbrada: estas fichas son las de producción, que son las que tienen estado ante la DIAN.
+  timbrada: true,
   motivoPendiente: false, verificadoEn: '2026-08-10T10:00:00.000Z', cufe: 'cufe-100',
   documentos: { pdf: true, xml: true }, correo: { veces: 1, ultimoEnviadoEn: '2026-08-09T10:00:00.000Z' },
+};
+
+/**
+ * A6 — creada en Siigo pero NO enviada a la DIAN, porque no se emitió desde producción.
+ *
+ * Sin CUFE y sin verificación, y las dos ausencias son consecuencia de `timbrada: false`, no ruido
+ * de la fixture: el sondeo ni siquiera mira estas facturas, así que su `estadoDian` es `null` para
+ * siempre.
+ */
+const FICHA_SIN_TIMBRAR = {
+  ...FICHA_ACEPTADA, tramiteId: FILA_FACTURADA.tramiteId, facturaId: 'f-sin-timbrar',
+  estado: 'emitido', estadoDian: null, timbrada: false, cufe: null, verificadoEn: null,
+  documentos: { pdf: false, xml: false },
 };
 
 const FICHA_RECHAZADA = {
@@ -574,6 +589,51 @@ test.describe('Reporte de costos — facturación electrónica', () => {
     // Auditar es mirar. Ve el estado y la entrega; no ve la acción que modifica.
     await expect(page.getByText('Entrega al cliente')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reenviar correo' })).toHaveCount(0);
+  });
+
+  test('A6 — una factura sin timbrar lo dice, y no promete una verificación que no va a llegar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page, [FICHA_SIN_TIMBRAR]);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-sin-timbrar', veces: 0, vecesEnviado: 0, ultimo: null, ultimoEnviado: null, envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByTitle(/Emitida — ver detalle/).first().click();
+
+    await expect(page.getByText(/no se envió a la DIAN/)).toBeVisible();
+    await expect(page.getByText('Sin enviar a la DIAN')).toBeVisible();
+    // Lo que NO debe aparecer: el aviso de que la verificación corre sola. Después del filtro por
+    // ambiente del sondeo, esa frase es falsa — el cron ya no mira estas facturas.
+    await expect(page.getByText(/verificación ante la DIAN está en curso/)).toHaveCount(0);
+    await expect(page.getByText(/Última verificación ante la DIAN/)).toHaveCount(0);
+  });
+
+  test('A6 — sin timbrar no se ofrece el reenvío, y se explica por qué', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFacetas(page, ['Aprobado']);
+    await mockFacturacion(page, [FICHA_SIN_TIMBRAR]);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
+    await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        facturaId: 'f-sin-timbrar', veces: 0, vecesEnviado: 0, ultimo: null, ultimoEnviado: null, envios: [],
+      }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByTitle(/Emitida — ver detalle/).first().click();
+
+    // El botón existe y está apagado, no desaparece: quien opera tiene que poder ver que la acción
+    // existe y por qué hoy no. Es el mismo reparto que «Enviar a facturación» hace con sus motivos.
+    const boton = page.getByRole('button', { name: 'Reenviar correo' });
+    await expect(boton).toBeDisabled();
+    await expect(boton).toHaveAttribute('title', /no se envió a la DIAN/);
+    // Y no se nombra el correo del cliente al lado de un botón que no va a enviar nada.
+    await expect(page.getByText('El correo al cliente solo sale desde producción.')).toBeVisible();
   });
 
   test('antes de reenviar se ve a qué dirección va', async ({ page }) => {

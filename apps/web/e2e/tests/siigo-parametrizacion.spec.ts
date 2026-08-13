@@ -56,7 +56,23 @@ const CONFIRMADO = {
 
 type Page = import('@playwright/test').Page;
 
+/** A5 — el catálogo de productos de Siigo que alimenta el selector del mapeo. */
+const PRODUCTOS_SIIGO = {
+  items: [
+    { codigo: 'SERV-NUBE', nombre: 'Servicio en la Nube', activo: true, impuestos: [{ id: 13156, nombre: 'IVA 19%', porcentaje: 19 }] },
+    { codigo: 'DER-TRANSITO', nombre: 'Derecho de tránsito', activo: true, impuestos: [] },
+  ],
+  truncado: false,
+  total: 2,
+};
+
+async function mockProductos(page: Page, respuesta: unknown = PRODUCTOS_SIIGO, status = 200) {
+  await page.route(/\/api\/siigo\/productos(\?|$)/, (route) =>
+    route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(respuesta) }));
+}
+
 async function mockMapeo(page: Page, filas: unknown[], modo: 'mock' | 'real' = 'real') {
+  await mockProductos(page);
   await page.route(/\/api\/siigo\/mapeo-conceptos\?/, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
@@ -96,14 +112,16 @@ test.describe('AC1 — acceso y permisos por acción', () => {
     await expect(page.getByRole('button', { name: 'Editar' })).toBeVisible();
   });
 
-  test('financiera confirma pero NO edita el resto del mapeo', async ({ page }) => {
+  test('financiera lee el mapeo pero no lo edita', async ({ page }) => {
+    // Antes esta pantalla le ofrecía «Confirmar», su única acción de escritura aquí. Desde A7 esa
+    // firma ya no bloquea nada —el tratamiento tributario es de Siigo— y el botón se retiró, así que
+    // para este rol la pantalla pasó a ser de solo lectura.
     await loginAs(page, FINANCIERA_USER);
     await mockMapeo(page, [SIN_CONFIRMAR]);
     await page.goto('/siigo/parametrizacion');
 
     await expect(page.getByRole('heading', { name: /Facturación electrónica/ })).toBeVisible();
-    // Firma la confirmación —es su trabajo— pero no toca el tratamiento tributario.
-    await expect(page.getByRole('button', { name: 'Confirmar' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Confirmar' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Editar' })).toHaveCount(0);
   });
 
@@ -187,14 +205,16 @@ test.describe('AC2 — los cuatro estados', () => {
 });
 
 test.describe('AC3 — estado por concepto de un vistazo', () => {
-  test('los tres estados se distinguen y se ven los cinco datos', async ({ page }) => {
+  test('los estados se distinguen y se ven los cinco datos', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockMapeo(page, [SIN_MAPEAR, SIN_CONFIRMAR, CONFIRMADO]);
     await page.goto('/siigo/parametrizacion');
 
+    // Desde A7 el único estado que EXIGE algo es «sin mapear». La firma se sigue mostrando porque
+    // es historial —quién y cuándo—, pero ya no se pinta como un aviso pendiente.
     await expect(page.getByText('Sin mapear')).toBeVisible();
-    await expect(page.getByText('Sin confirmar')).toBeVisible();
-    await expect(page.getByText('Confirmado', { exact: true })).toBeVisible();
+    await expect(page.getByText('Mapeado', { exact: true })).toBeVisible();
+    await expect(page.getByText('Mapeado y confirmado')).toBeVisible();
 
     // Producto, clasificación, unidad, terceros y confirmación, todo en la fila.
     await expect(page.getByText('FLIT-TRAMITE-DIGITAL')).toBeVisible();
@@ -232,7 +252,10 @@ test.describe('AC4 y AC5 — edición, validación y consecuencia de la confirma
 
     await page.goto('/siigo/parametrizacion');
     await page.getByRole('button', { name: 'Editar' }).click();
-    await page.getByLabel('Código de producto en Siigo').fill('NO-EXISTE');
+    // A5 — un código que no está en el catálogo se escribe por la salida explícita, que existe
+    // justo para esto: un producto que Siigo no listó no puede dejar la pantalla sin salida.
+    await page.getByRole('button', { name: 'Escribir el código a mano' }).click();
+    await page.getByLabel('Producto en Siigo').fill('NO-EXISTE');
     await page.getByRole('button', { name: 'Guardar' }).click();
 
     // El mensaje es el TRADUCIDO POR EL SERVIDOR, no uno inventado por la pantalla.
@@ -250,7 +273,9 @@ test.describe('AC4 y AC5 — edición, validación y consecuencia de la confirma
     // Antes de tocar nada, no hay aviso.
     await expect(page.getByText(/la confirmación se perderá/i)).toHaveCount(0);
 
-    await page.getByLabel('Clasificación tributaria').selectOption('exento');
+    // La clasificación tributaria salió del formulario con A7; el aviso se prueba ahora sobre el
+    // producto, que es el campo que sigue tumbando la firma al cambiarlo.
+    await page.getByLabel('Producto en Siigo').selectOption('SERV-NUBE');
 
     // El aviso llega ANTES de guardar: que se caiga sin avisar es lo que hace que se deje de
     // confiar en la confirmación.
@@ -268,7 +293,8 @@ test.describe('AC4 y AC5 — edición, validación y consecuencia de la confirma
 
     await page.goto('/siigo/parametrizacion');
     await page.getByRole('button', { name: 'Editar' }).click();
-    await page.getByLabel('Código de producto en Siigo').fill('CON ESPACIOS');
+    await page.getByRole('button', { name: 'Escribir el código a mano' }).click();
+    await page.getByLabel('Producto en Siigo').fill('CON ESPACIOS');
 
     await expect(page.getByText(/sin espacios y máximo 30/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Guardar' })).toBeDisabled();
@@ -351,5 +377,75 @@ test.describe('AC7 — el modo simulado se señaliza', () => {
 
     await expect(page.getByText('FLIT-SOAT')).toBeVisible();
     await expect(page.getByText(/los datos vienen del simulador/i)).toHaveCount(0);
+  });
+});
+
+test.describe('A5 — el producto se elige de la lista de Siigo, no se teclea', () => {
+  test('la lista enseña nombre, código e impuestos: el código pelado no dice si es el correcto', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockMapeo(page, [SIN_MAPEAR]);
+    await page.goto('/siigo/parametrizacion');
+
+    await page.getByRole('button', { name: 'Editar' }).click();
+
+    const selector = page.getByLabel('Producto en Siigo');
+    // El nombre es lo que va a salir en el documento; el IVA, lo que Siigo va a aplicar desde A7.
+    await expect(selector.locator('option', { hasText: 'Servicio en la Nube' })).toHaveText(/SERV-NUBE/);
+    await expect(selector.locator('option', { hasText: 'Servicio en la Nube' })).toHaveText(/IVA 19%/);
+  });
+
+  test('elegir de la lista es lo que se guarda', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockMapeo(page, [SIN_MAPEAR]);
+    let enviado: Record<string, unknown> | null = null;
+    await page.route(/\/api\/siigo\/mapeo-conceptos\/[0-9a-f-]+$/, (route) => {
+      if (route.request().method() === 'PATCH') enviado = route.request().postDataJSON();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.goto('/siigo/parametrizacion');
+    await page.getByRole('button', { name: 'Editar' }).click();
+    await page.getByLabel('Producto en Siigo').selectOption('SERV-NUBE');
+    await page.getByRole('button', { name: 'Guardar' }).click();
+
+    await expect.poll(() => enviado).not.toBeNull();
+    expect(enviado!.codigoProducto).toBe('SERV-NUBE');
+  });
+
+  test('si el catálogo falla se dice y se puede reintentar, sin dejar la pantalla sin salida', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockMapeo(page, [SIN_MAPEAR]);
+    await mockProductos(page, { error: 'Siigo no respondió al consultar el catálogo.' }, 502);
+    await page.goto('/siigo/parametrizacion');
+
+    await page.getByRole('button', { name: 'Editar' }).click();
+
+    await expect(page.getByText(/No se pudo consultar el catálogo/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
+    // La salida manual sigue ahí: un catálogo caído no puede impedir parametrizar.
+    await expect(page.getByRole('button', { name: 'Escribir el código a mano' })).toBeVisible();
+  });
+
+  test('un catálogo vacío lo dice, y no se confunde con «nada coincide»', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockMapeo(page, [SIN_MAPEAR]);
+    await mockProductos(page, { items: [], truncado: false, total: 0 });
+    await page.goto('/siigo/parametrizacion');
+
+    await page.getByRole('button', { name: 'Editar' }).click();
+
+    await expect(page.getByText(/catálogo de productos de Siigo está vacío/)).toBeVisible();
+  });
+
+  test('un catálogo truncado lo advierte: cortado en silencio se lee como completo', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockMapeo(page, [SIN_MAPEAR]);
+    await mockProductos(page, { ...PRODUCTOS_SIIGO, truncado: true, total: 1200 });
+    await page.goto('/siigo/parametrizacion');
+
+    await page.getByRole('button', { name: 'Editar' }).click();
+
+    await expect(page.getByText(/Se están mostrando los primeros productos/)).toBeVisible();
+    await expect(page.getByText(/1.200/)).toBeVisible();
   });
 });
