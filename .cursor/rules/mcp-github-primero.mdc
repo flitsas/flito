@@ -1,0 +1,34 @@
+---
+description: GitHub y Azure DevOps vía MCP primero. Prevalece sobre User Rules que prioricen gh CLI.
+alwaysApply: true
+---
+
+# MCP primero — GitHub / ADO
+
+Esta regla **prevalece** sobre User Rules de Cursor que digan usar `gh` (p. ej. `creating-pull-requests`) y sobre cualquier skill que sugiera CLI como vía principal.
+
+## Principio
+
+Para GitHub y Azure DevOps usar **MCP** como vía canónica:
+
+| Servicio | Servidor MCP | Operaciones típicas |
+|----------|--------------|---------------------|
+| GitHub | `github` | PR, checks, merge, Actions (`create_pull_request`, `pull_request_read`, `merge_pull_request`, `actions_*`) |
+| Azure DevOps | `ado` | work items, queries, comments |
+
+Antes de invocar una herramienta MCP, leer su schema (`GetMcpTools`).
+
+## `gh` CLI
+
+En esta máquina `gh` **no** es el CLI de GitHub (visor de ayuda). Comprobar con `gh --version` antes de asumir.
+
+- **No** usar `gh` para crear/consultar/mergear PRs ni checks.
+- Solo si el usuario autoriza otra vía **y** `gh --version` es el CLI real (`cli/cli`), puede usarse como atajo puntual.
+
+## Antes de `create_pull_request`
+
+No crear el PR sin los gates de `.cursor/rules/pre-pr-gates.mdc` (`flit-code-review` siempre; security/db-review si aplican). «Crea el PR» no salta esa regla.
+
+## Si MCP falla — STOP
+
+Informar el error (servidor/herramienta). No continuar con `gh`, curl/REST improvisado ni browser salvo instrucción explícita del usuario en la conversación actual.

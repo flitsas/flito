@@ -144,7 +144,7 @@ El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el di
 | Antes de UI nueva significativa | Pantalla/wizard/bandeja nueva o HU FRONTEND sin spec de interacción | `ux-agent` | UI inventada en el agent de código |
 | Implementar `apps/api` | HU BACKEND o diff en API/esquema/migración | `backend-agent` | Lógica fuera de patrón |
 | Implementar `apps/web` | HU FRONTEND o diff en páginas/componentes | `frontend-agent` | 4 estados / permisos rotos |
-| Pre-PR (siempre) | Antes de abrir PR de HU | `flit-code-review` | PR sin checklist |
+| Pre-PR (siempre) | Antes de `create_pull_request` (aunque el humano diga «crea el PR») | `flit-code-review` | PR sin checklist |
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` | `db-review-agent` | Drift / FKs / índices |
 | Ciclo ADO Active→Resolved | Activar o cerrar HU | `flit-gestion-hu` | Estados huérfanos |
@@ -157,3 +157,5 @@ El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el di
 **Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
 
 Los subagentes no pueden invocar a otros subagentes: cada uno devuelve un bloque `HANDOFF` y el hilo principal continúa. Gates humanos que **nunca** se omiten: activar una HU, crear rama/commit/push, abrir PR, **autorizar merge a `develop` del Feature** (una vez por Feature o "sí" por PR), merge a `staging`/`release`, cerrar un Feature, instalar herramientas, desplegar. El merge a `develop` bajo gates, tras esa autorización, lo ejecuta el agente.
+
+**«Crea / abre el PR» no salta la matriz.** Ese pedido solo autoriza abrir el PR *después* de evaluar y ejecutar los gates Pre-PR de la tabla (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara). Veredicto `BLOQUEADO` / `FAIL` / hallazgos críticos de esquema → no llamar a `create_pull_request`. Si un gate no aplica, declararlo explícitamente (nunca omitirlo en silencio). Detalle operativo: `.cursor/rules/pre-pr-gates.mdc` y skill `flit-code-review`.
