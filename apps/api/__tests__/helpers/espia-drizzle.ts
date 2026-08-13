@@ -21,6 +21,15 @@ export interface Mutacion {
    * carrera está resuelta cuando la condición que la resuelve ya no está en el código.
    */
   filtros: string[];
+  /**
+   * Condiciones `where` en crudo, tal como las construyó drizzle.
+   *
+   * `filtros` alcanza para «¿se filtró por esta llave?», pero no para «¿qué columnas y qué operadores
+   * entraron en el WHERE?». Cuando eso importa —un UPDATE masivo cuya seguridad depende de una
+   * condición concreta— el test las serializa con `PgDialect.sqlToQuery()` y afirma sobre el SQL real
+   * en vez de sobre lo que el mock quiso devolver.
+   */
+  condiciones: unknown[];
 }
 
 export interface EspiaDrizzle {
@@ -71,6 +80,7 @@ function anotarWhere(chain: Record<string, unknown>, m: Mutacion): void {
   const original = chain.where as (v: unknown) => unknown;
   chain.where = (cond: unknown) => {
     m.filtros.push(...paramsDe(cond));
+    m.condiciones.push(cond);
     return original(cond);
   };
 }
@@ -99,7 +109,7 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
       const c = insertBase(tbl);
       const original = c.values as (v: unknown) => unknown;
       c.values = (v: Record<string, unknown>) => {
-        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [] };
+        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [], condiciones: [] };
         inserts.push(m);
         anotarWhere(c, m);
         return original(v);
@@ -112,7 +122,7 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
       const c = updateBase(tbl);
       const original = c.set as (v: unknown) => unknown;
       c.set = (v: Record<string, unknown>) => {
-        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [] };
+        const m: Mutacion = { tabla: nombreTabla(tbl), datos: v, filtros: [], condiciones: [] };
         updates.push(m);
         anotarWhere(c, m);
         return original(v);

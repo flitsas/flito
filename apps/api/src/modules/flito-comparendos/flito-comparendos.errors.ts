@@ -267,6 +267,151 @@ export class ComparendosFuenteRespuestaIlegibleError extends ComparendosFuenteEr
 }
 
 /**
+ * Respondió 2xx con ítems, pero (casi) ninguno traía un número de comparendo reconocible.
+ *
+ * Es la hermana pequeña de `ComparendosFuenteRespuestaIlegibleError` y existe por lo mismo: el
+ * cuerpo tenía forma de lista, así que el adapter lo dio por bueno, pero el mapa de homologación no
+ * le saca la llave a las filas. Un `source_path` equivocado en `flito_comparendos_field_map` o un
+ * campo que el proveedor renombró producen exactamente esto, y **pasan la validación de RN-12**, que
+ * solo comprueba que EXISTA algún candidato para `numeroComparendo`, no que acierte. Sin este error
+ * el paso quedaría `ok`, el NIT saldría con cobertura completa y el barrido apagaría su histórico
+ * entero por una ausencia que solo existe en la homologación.
+ *
+ * El mensaje lleva CONTEOS y el nombre de la fuente, nunca valores: se persiste en
+ * `sync_steps.mensaje` y ahí no entra PII de tránsito (RN-20).
+ */
+export class ComparendosHomologacionIlegibleError extends ComparendosFuenteError {
+  constructor(
+    origen: ComparendosOrigenFuente, fuente: string, httpStatus: number | null,
+    ignorados: number, leidos: number,
+  ) {
+    super(
+      'homologacion_ilegible', 502, origen, fuente, httpStatus,
+      `${ignorados} de ${leidos} ítems de ${etiquetaFuente(origen, fuente)} no traen un número de `
+      + 'comparendo reconocible: revisa la versión vigente de flito_comparendos_field_map. No se '
+      + 'inactivó nada de este NIT por esta fuente.',
+    );
+  }
+}
+
+// ─────────────────────────── Sincronización (CF-05/CF-06, HU #11500) ────────────────────────────
+//
+// Precondiciones de la corrida. Todas se comprueban ANTES de llamar a ningún proveedor: gastar
+// cuota de Verifik para descubrir después que la corrida no se podía escribir sería tirar dinero y,
+// en el caso del modo simulado, escribir datos inventados en producción.
+
+/**
+ * Ya hay una corrida en marcha (CF-06).
+ *
+ * 409 y no 429: no es que se esté pidiendo demasiado, es que este recurso admite exactamente un
+ * escritor a la vez. Dos syncs simultáneos sobre las mismas tablas competirían por el mismo
+ * `numero_comparendo` y, peor, cada uno vería como «ausentes» los comparendos que el otro todavía no
+ * ha escrito: el resultado serían inactivaciones en falso.
+ */
+export class ComparendosSyncEnCursoError extends ComparendosError {
+  constructor() {
+    super(
+      'sync_en_curso',
+      409,
+      'Ya hay una sincronización de comparendos en curso. Espera a que termine antes de lanzar otra.',
+    );
+  }
+}
+
+/** No hay ningún NIT activo que sincronizar: el catálogo está vacío o todos están desactivados. */
+export class ComparendosSinNitsActivosError extends ComparendosError {
+  constructor() {
+    super(
+      'sin_nits_activos',
+      400,
+      'No hay NITs activos en el catálogo de monitoreo. Agrega al menos uno (o reactívalo) antes de sincronizar.',
+    );
+  }
+}
+
+/**
+ * El filtro `nits` nombra NITs que no están activos en el catálogo.
+ *
+ * Se listan los valores rechazados —vienen del propio cuerpo de la petición, así que no se le está
+ * contando nada nuevo a quien la mandó— porque la alternativa («alguno de los NITs no es válido»)
+ * obliga a probar de uno en uno. No van al log: ahí el NIT viaja enmascarado.
+ */
+export class ComparendosFiltroNitsInvalidoError extends ComparendosError {
+  constructor(desconocidos: readonly string[]) {
+    super(
+      'nits_filtro_invalido',
+      400,
+      `Estos NITs no están activos en el catálogo de monitoreo: ${desconocidos.join(', ')}.`,
+    );
+  }
+}
+
+/**
+ * `COMPARENDOS_SIMIT_MODE=mock` en producción: la corrida se aborta ANTES de escribir nada.
+ *
+ * Es el hallazgo que dejó abierto el gate de la HU #11499 y no es una comprobación de higiene. En
+ * `mock` los adapters devuelven comparendos INVENTADOS —y deterministas, con números `MOCK-…`—; si
+ * la variable no se provisiona en PDN, el modo por defecto es precisamente `mock` y el sync
+ * escribiría esos datos fabricados en la base productiva creyéndolos reales, marcaría los NITs como
+ * cubiertos e **inactivaría el histórico verdadero** por «ausencia». Un dato inventado se puede
+ * borrar; un histórico apagado con su timeline reescrito, no.
+ *
+ * 503 y no 500: el código está bien, lo que falta es provisionar la variable.
+ */
+export class ComparendosModoSimuladoEnProduccionError extends ComparendosError {
+  constructor() {
+    super(
+      'modo_simulado_en_produccion',
+      503,
+      'La sincronización está en modo simulado (COMPARENDOS_SIMIT_MODE=mock) y el entorno es de '
+      + 'producción: se abortó para no escribir comparendos fabricados. Define '
+      + 'COMPARENDOS_SIMIT_MODE=real con las credenciales del proveedor.',
+    );
+  }
+}
+
+/**
+ * El alcance pedido no cabe en el tiempo máximo de una corrida (RN-21).
+ *
+ * La corrida es síncrona y se protege con un lock de TTL derivado del alcance, y ese TTL tiene un
+ * techo: es también el tiempo que el módulo quedaría bloqueado si el proceso muriese a mitad. Un
+ * alcance que no quepa se rechaza ANTES de empezar en vez de arrancar una corrida que se cortará por
+ * deadline a la mitad — habiendo gastado ya cuota del proveedor.
+ *
+ * 400 y no 503: no hay nada que provisionar, hay que pedir menos NITs por corrida. El mensaje dice
+ * cuántos caben con el catálogo de municipios y el timeout actuales, que es el dato accionable.
+ */
+export class ComparendosScopeDemasiadoGrandeError extends ComparendosError {
+  constructor(pedidos: number, maximo: number) {
+    super(
+      'scope_demasiado_grande',
+      400,
+      `El alcance pedido (${pedidos} NIT(s)) no cabe en el tiempo máximo de una corrida con los `
+      + `municipios activos y el timeout configurados. Sincroniza como máximo ${maximo} NIT(s) por `
+      + 'corrida usando el filtro `nits`, o desactiva municipios del catálogo.',
+    );
+  }
+}
+
+/**
+ * `flito_comparendos_field_map` no tiene un mapa utilizable (RN-12).
+ *
+ * Sin homologación no se puede leer el número de comparendo de ningún ítem, así que TODAS las
+ * fuentes parecerían devolver listas vacías y la inactivación apagaría el histórico completo. Se
+ * falla antes de llamar a nadie.
+ */
+export class ComparendosMapaHomologacionVacioError extends ComparendosError {
+  constructor() {
+    super(
+      'mapa_homologacion_vacio',
+      503,
+      'No hay un mapa de homologación utilizable en flito_comparendos_field_map. La migración 0150 '
+      + 'siembra la versión 1: restáurala antes de sincronizar.',
+    );
+  }
+}
+
+/**
  * `unique_violation` de PostgreSQL.
  *
  * Se comprueba ADEMÁS de consultar antes si la fila existe, no en su lugar. La consulta previa da el
