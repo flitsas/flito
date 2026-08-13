@@ -45,6 +45,19 @@ Para Siigo (detalle técnico): [`docs/integraciones/siigo-api.md`](integraciones
 | Módulos legacy (`soat`, `tramites`, `liquidacion`, …) | Coexisten; no unificar sin instrucción explícita |
 | Reporte de costos | UI de finanzas donde se dispara selección/envío a emisión |
 
+## Monitoreo de comparendos (FLITO)
+
+| Término canónico | También dicen… | Qué es en FLITO |
+|---|---|---|
+| **Monitoreo de comparendos** | “SIMIT operativo”, multas multi-empresa, panel de comparendos | Módulo `flito-comparendos` (`/api/flito/comparendos`): ingesta SIMIT Verifik + municipales UTS, catálogos y sync bajo demanda. **No** es el gate SIMIT de traspaso, ni el pre-vuelo, ni el incidente PESV `comparendo`. |
+| **NIT monitoreado** | empresa, cliente a consultar | NIT parametrizado que alimenta SIMIT (`documentNumber`) y UTS (`nit`). Puede coincidir con una compañía `clients`, pero el catálogo es propio del módulo. |
+| **Municipio fuente** | secretaría, ciudad UTS | Código enviado como `fuente` a ConsultarInfraccion; lista parametrizable (seed: BELLO, ITAGUI, …). |
+| **Número de comparendo** | comparendo, multa, consecutivo | Clave de unicidad del registro consolidado. La **placa** es dato/filtro, no unicidad. |
+| **Sync de comparendos** | actualización, barrido | Disparo manual (endpoint/botón); sin cron en 17a. Global o por NIT(s). |
+| **Causal operativa** | estado de gestión, seguimiento | Catálogo CRUD; se asigna al comparendo en gestión (Feature 17b). Distinta del `estado` activo/inactivo del sync. |
+
+Diseño 17a: [`docs/features/flito-comparendos-ingesta-parametrizacion.md`](features/flito-comparendos-ingesta-parametrizacion.md).
+
 ## Cómo usarlo
 
 1. En intake o al redactar Features: mapear el lenguaje del humano a la columna **Término canónico**.
