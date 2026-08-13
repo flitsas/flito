@@ -30,6 +30,7 @@ import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js'
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
+import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
 import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
 import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
@@ -204,6 +205,9 @@ export function createApp() {
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', flitoLogisticaRoutes);
   app.use('/api/flito/bolsas', flitoBolsasRoutes);
+  // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
+  // el incidente PESV `comparendo` — ver ADR-0001.
+  app.use('/api/flito/comparendos', flitoComparendosRoutes);
   app.use('/api/finanzas', finanzasRoutes);
   app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
   app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
