@@ -6,6 +6,17 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+/**
+ * Trata `VAR=` (en blanco) como ausente.
+ *
+ * `.optional()` de Zod tolera `undefined`, no `''`: dotenv convierte una línea en blanco en cadena
+ * vacía, que sí está definida, así que la validación corre igual y falla. Sin esto, copiar
+ * `.env.example` a `.env` deja la API sin arrancar por un error que no menciona que la causa fue
+ * dejar la variable en blanco — y empuja a rellenar una llave a las apuradas para desatascar el
+ * boot, que es justo lo contrario del defecto seguro.
+ */
+const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: z.coerce.number().default(3005),
@@ -113,6 +124,32 @@ const envSchema = z.object({
   SIIGO_FRENO_MIN_OPERACIONES: z.coerce.number().int().min(1).default(20),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
+  // ── Monitoreo de comparendos (Feature #11492, 17a) ─────────────────────────
+  //
+  // Hosts SIEMPRE por env, nunca en el código: es decisión cerrada del Feature. Los proveedores
+  // cambian de dominio y cada ambiente apunta a uno distinto. Sin default para no fingir que hay
+  // un valor bueno; los adapters fallan explícito si falta y `MODE=real`.
+  VERIFIK_SIMIT_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  UTS_MUNICIPAL_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  // Llave maestra del token SIMIT (ADR-0002). Dedicada y no derivada de SIIGO_ENC_KEY / RNDC_ENC_KEY
+  // por mínimo privilegio: si se compromete una, las otras integraciones siguen protegidas. Opcional
+  // aquí para que el boot no exija provisionarla antes de que el módulo se use; el servicio del
+  // token falla explícito cuando falta (no cifra ni descifra a medias).
+  COMPARENDOS_ENC_KEY: z.preprocess(
+    vacioComoAusente,
+    z.string().regex(/^[0-9a-fA-F]{64}$/, 'COMPARENDOS_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  ),
+  // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
+  COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
+  // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
+  // parametrizable — decisión humana del 2026-08-13. En 17a es política declarada y configurada: el
+  // cron de purga queda fuera de alcance, así que este valor todavía no borra nada por sí solo.
+  COMPARENDOS_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(24),
+  // Timeout por llamada al proveedor y cuántas municipales van en paralelo por NIT (ADR-0001 §7).
+  // No son ajustes de gusto: el sync es síncrono y el nginx del web corta a los ~120 s, así que la
+  // matriz NIT × municipios en serie con los 15 s por defecto de `httpsGetJson` se pasa de largo.
+  COMPARENDOS_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
+  COMPARENDOS_SYNC_CONCURRENCIA: z.coerce.number().int().min(1).max(12).default(5),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),
