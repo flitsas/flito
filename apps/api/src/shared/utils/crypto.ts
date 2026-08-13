@@ -259,6 +259,84 @@ export function decryptSiigoSecret(bundle: CipherBundle, aadParts: AadParts): st
   return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]).toString('utf8');
 }
 
+// ============================================================================
+// Comparendos — keyspace propio del token SIMIT (Feature #11492 17a, HU #11498)
+// ============================================================================
+// Cifra el token de Verifik/SIMIT que vive en `flito_comparendos_token_simit`. Llave dedicada
+// `COMPARENDOS_ENC_KEY` (ADR-0002), NO derivada de SIIGO_ENC_KEY ni de RNDC_ENC_KEY: por mínimo
+// privilegio, comprometer una integración no debe comprometer las otras, y cada dominio rota su
+// llave a su ritmo.
+//
+// Igual que Siigo —y a diferencia de RNDC— aquí NO hay derivación de respaldo en desarrollo. Es
+// deliberado: derivar en silencio dejaría el token cifrado con una clave distinta según el entorno
+// y, el día que se provisionara la real, dejaría de descifrar. El síntoma (el sync falla contra
+// Verifik) no se parecería en nada a la causa (la llave del entorno).
+
+const COMPARENDOS_KEY_VERSION_CURRENT = 1;
+
+/** Error de configuración del entorno: distingue «falta la llave» de «falló el cifrado». */
+export class ComparendosEncKeyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ComparendosEncKeyError';
+  }
+}
+
+function loadComparendosKey(version: number): Buffer {
+  if (version !== COMPARENDOS_KEY_VERSION_CURRENT) {
+    throw new ComparendosEncKeyError(`COMPARENDOS_ENC_KEY versión ${version} no configurada`);
+  }
+  const keyHex = env.COMPARENDOS_ENC_KEY;
+  if (!keyHex) {
+    throw new ComparendosEncKeyError(
+      'COMPARENDOS_ENC_KEY no está configurada: el token SIMIT no puede cifrarse ni descifrarse. '
+      + 'Defínela con 64 caracteres hexadecimales (32 bytes).',
+    );
+  }
+  if (!/^[0-9a-fA-F]{64}$/.test(keyHex)) {
+    throw new ComparendosEncKeyError('COMPARENDOS_ENC_KEY debe ser 64 hex chars (32 bytes)');
+  }
+  const buf = Buffer.from(keyHex, 'hex');
+  // Mismo filtro de entropía que RNDC y Siigo: una llave de bytes uniformes («000…», «fff…») pasa el
+  // regex y cifra sin quejarse, y eso es exactamente lo que hay que rechazar antes de guardar nada.
+  //
+  // Se envuelve por dos motivos: el helper es compartido y sus mensajes nombran a RNDC_ENC_KEY
+  // —decirle a quien opera que revise la variable equivocada es peor que no decir nada—, y lanza un
+  // `Error` pelado, que la ruta no sabría distinguir de un fallo interno y saldría como 500 en vez
+  // del 503 de configuración que es.
+  try {
+    assertSufficientEntropy(buf);
+  } catch (e) {
+    const detalle = e instanceof Error ? e.message.replace(/^RNDC_ENC_KEY rechazada: /, '') : String(e);
+    throw new ComparendosEncKeyError(`COMPARENDOS_ENC_KEY rechazada: ${detalle}`);
+  }
+  return buf;
+}
+
+export function encryptComparendosSecret(plaintext: string, aadParts: AadParts): CipherBundle {
+  const keyVersion = COMPARENDOS_KEY_VERSION_CURRENT;
+  const key = loadComparendosKey(keyVersion);
+  const iv = crypto.randomBytes(12);
+  const aad = buildAad(aadParts, keyVersion);
+
+  const cipherObj = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipherObj.setAAD(aad);
+  const cipher = Buffer.concat([cipherObj.update(plaintext, 'utf8'), cipherObj.final()]);
+  const authTag = cipherObj.getAuthTag();
+
+  return { cipher, iv, authTag, keyVersion };
+}
+
+export function decryptComparendosSecret(bundle: CipherBundle, aadParts: AadParts): string {
+  const key = loadComparendosKey(bundle.keyVersion);
+  const aad = buildAad(aadParts, bundle.keyVersion);
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, bundle.iv);
+  decipher.setAAD(aad);
+  decipher.setAuthTag(bundle.authTag);
+  return Buffer.concat([decipher.update(bundle.cipher), decipher.final()]).toString('utf8');
+}
+
 /**
  * Normaliza un documento (cédula/NIT) eliminando todo lo que no sea dígito.
  * Acepta inputs como "1.036.640.908", " 1036640908 ", "CC 1036640908".

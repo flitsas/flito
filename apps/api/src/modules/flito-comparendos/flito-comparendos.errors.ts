@@ -62,13 +62,92 @@ export class ComparendosNitEnUsoError extends ComparendosError {
   }
 }
 
+// ─────────────────────────── Token SIMIT (CF-03, HU #11498) ─────────────────────────────────────
+//
+// Los tres salen como 503 y no como 500 a propósito: el código está bien, lo que falta es
+// configuración —la llave del entorno, el token, o una fila que quedó ilegible—. Un 500 le dice a
+// quien opera «hay un bug»; un 503 con estos códigos le dice qué provisionar.
+
+/**
+ * Falta `COMPARENDOS_ENC_KEY` o no es una llave válida.
+ *
+ * Es la traducción al dominio de `ComparendosEncKeyError` (crypto): el servicio la captura para que
+ * la ruta pueda responder sin importar nada de `shared/utils/crypto.js`, y para que el caso
+ * «entorno mal configurado» no se confunda nunca con «el token está corrupto».
+ */
+export class ComparendosLlaveMaestraError extends ComparendosError {
+  constructor(mensaje: string) {
+    super('llave_maestra', 503, mensaje);
+  }
+}
+
+/** No hay token SIMIT que usar: ni fila activa ni bootstrap de entorno. */
+export class ComparendosTokenNoConfiguradoError extends ComparendosError {
+  constructor() {
+    super(
+      'token_no_configurado',
+      503,
+      'No hay token SIMIT configurado. Regístralo en la configuración del módulo de comparendos '
+      + '(PUT /api/flito/comparendos/config/token-simit) antes de sincronizar.',
+    );
+  }
+}
+
+/**
+ * El ciphertext del token no verifica: la fila está corrupta o fue manipulada.
+ *
+ * La fila queda desactivada, igual que en `siigo_credenciales`: reintentar un ciphertext que no
+ * autentica en cada corrida del sync solo produce ruido, y dejarla activa esconde que hay que
+ * volver a registrar el token. El motivo se escribe en la propia fila, no solo en el log.
+ */
+export class ComparendosTokenDescifradoError extends ComparendosError {
+  constructor() {
+    super(
+      'token_descifrado',
+      503,
+      'El token SIMIT guardado no pudo descifrarse y quedó desactivado. Regístralo de nuevo desde '
+      + 'la configuración del módulo de comparendos.',
+    );
+  }
+}
+
+/**
+ * Dos rotaciones del token a la vez: el índice único parcial dejó pasar solo una.
+ *
+ * Es 409 y no 503 porque no hay nada que provisionar: el token quedó bien guardado, solo que lo
+ * guardó la otra petición. Reintentar es la respuesta correcta, y decirlo así evita que un 500
+ * mande a alguien a buscar un fallo que no existe.
+ */
+export class ComparendosTokenRotacionConcurrenteError extends ComparendosError {
+  constructor() {
+    super(
+      'token_rotacion_concurrente',
+      409,
+      'Otra actualización del token SIMIT se completó al mismo tiempo. Verifica cuál quedó activo y vuelve a intentarlo si hace falta.',
+    );
+  }
+}
+
 /**
  * `unique_violation` de PostgreSQL.
  *
  * Se comprueba ADEMÁS de consultar antes si la fila existe, no en su lugar. La consulta previa da el
  * mensaje bueno en el caso normal; esto cubre la carrera: entre el SELECT y el INSERT cabe otra
  * petición, y sin esto ese caso —raro, pero real— saldría como 500 en vez de como el 409 que es.
+ *
+ * **Recorre la cadena de `cause`, y no es defensa preventiva:** desde la 0.44, `drizzle-orm` envuelve
+ * toda excepción de query en un `DrizzleQueryError` y deja la original en `cause`
+ * (`drizzle-orm/pg-core/session.cjs`, versión instalada 0.45.2). Mirando solo el nivel superior,
+ * `code` es `undefined` y la carrera saldría como 500 — exactamente lo que este helper existe para
+ * evitar. Los tests con mock no lo detectan porque lanzan el error de PostgreSQL en crudo.
  */
 export function esViolacionDeUnicidad(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && (e as { code?: unknown }).code === '23505';
+  // Tope de profundidad: una cadena de causas cíclica colgaría el proceso, y ningún driver anida
+  // más de un par de niveles.
+  for (let actual: unknown = e, saltos = 0; actual != null && saltos < 5; saltos++) {
+    if (typeof actual !== 'object') break;
+    if ((actual as { code?: unknown }).code === '23505') return true;
+    actual = (actual as { cause?: unknown }).cause;
+  }
+  return false;
 }

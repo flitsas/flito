@@ -139,6 +139,12 @@ const envSchema = z.object({
     vacioComoAusente,
     z.string().regex(/^[0-9a-fA-F]{64}$/, 'COMPARENDOS_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
   ),
+  // Bootstrap SOLO de desarrollo del token SIMIT (HU #11498). La fuente de verdad operativa es la
+  // fila cifrada de `flito_comparendos_token_simit`: esto existe para que un entorno recién clonado
+  // pueda probar el sync sin pasar antes por el PUT, y el servicio lo usa únicamente cuando NO hay
+  // fila activa. Nunca se loguea ni se devuelve por el API. En PDN no sustituye al cifrado en
+  // reposo — un token en env no tiene trazabilidad de quién lo puso ni cuándo (CF-03).
+  VERIFIK_SIMIT_TOKEN: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
