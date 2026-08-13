@@ -41,6 +41,7 @@ import { registrarOperacion } from './siigo.operaciones.repo.js';
 import { motivoLegible } from './siigo.productos.service.js';
 import { ejecutarConResiliencia } from './siigo.resiliencia.js';
 import { detalleTecnico } from './siigo.redaccion.js';
+import { efectosExternosPermitidos } from './siigo.config.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 const log = loggerFor('siigo.envio');
@@ -64,6 +65,7 @@ export class SiigoEnvioError extends Error {
   readonly codigo:
     | 'no_existe'
     | 'factura_no_emitida'
+    | 'ambiente_no_productivo'
     | 'cliente_sin_correo'
     | 'demasiados_destinatarios'
     | 'destinatario_invalido';
@@ -260,6 +262,21 @@ export async function enviarFacturaPorCorreo(
 ): Promise<SiigoEnvioRegistro> {
   const f = await cargarFactura(facturaId);
   if (!f) throw new SiigoEnvioError('no_existe', 'La factura no existe.');
+
+  // A6 — el segundo camino al correo del cliente, y el que se olvida.
+  //
+  // Omitir `mail` al crear la factura cierra la puerta de la emisión, no esta: aquí se llama a
+  // `POST /v1/invoices/{id}/mail` con la dirección REAL de la empresa, que sale de `clients.email`.
+  // Un clic en «reenviar» desde QA le manda una factura de ensayo a un cliente de verdad, y eso no
+  // se puede deshacer. Va ANTES de comprobar el estado de la factura a propósito: no es un problema
+  // de esta factura, es que en este ambiente no se manda correo a nadie.
+  if (!efectosExternosPermitidos(f.ambiente as SiigoAmbiente)) {
+    throw new SiigoEnvioError(
+      'ambiente_no_productivo',
+      `Las facturas del ambiente ${f.ambiente} no se envían por correo: solo se crean en Siigo. `
+      + 'El correo al cliente únicamente sale desde producción.',
+    );
+  }
 
   // AC5 — no se reenvía lo que todavía no existe en Siigo. Se lanza en vez de registrar porque no
   // es un envío que salió mal: es una operación que no tenía sentido pedir.

@@ -743,6 +743,27 @@ export function respuestaSimulada(
         },
       };
     }
+
+    // A3 — el LISTADO paginado, sin filtro de código. Antes caía en la rama genérica de más abajo y
+    // devolvía cero resultados, con lo que el selector de producto salía vacío en modo simulado: la
+    // pantalla que existe para elegir un producto no se podía ensayar sin Siigo real.
+    const query = new URLSearchParams(producto[1] ?? '');
+    const todos = [
+      ...PRODUCTS_SIMULADOS,
+      ...productosCreadosEnSimulacion.filter((p) => p.ambiente === ambiente),
+    ];
+    const tam = Math.max(1, Number(query.get('page_size') ?? 25) || 25);
+    const pagina = Math.max(1, Number(query.get('page') ?? 1) || 1);
+    const desde = (pagina - 1) * tam;
+    return {
+      status: 200,
+      ok: true,
+      datos: {
+        pagination: { page: pagina, page_size: tam, total_results: todos.length },
+        results: todos.slice(desde, desde + tam),
+        _links: {},
+      },
+    };
   }
 
   // Detalle del rechazo (HU #11333). Va ANTES de la consulta de la factura, que si no se traga esta

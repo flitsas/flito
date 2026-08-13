@@ -14,6 +14,15 @@ export interface FacturacionTramite {
   estadoEmision: string;
   estado: SiigoEstadoReporte;
   estadoDian: SiigoEstadoDian | null;
+  /**
+   * `false` = la factura se creó en Siigo pero NO se envió a la DIAN, porque el ambiente no es
+   * producción (A6). Lo resuelve el servidor: aquí no se deduce del ambiente, para que la regla
+   * viva en un solo sitio.
+   *
+   * Cambia dos cosas de la pantalla, y las dos mentirían si se ignorara: `estadoDian` se queda en
+   * `null` para siempre —el sondeo no la mira— y el correo al cliente no se puede reenviar.
+   */
+  timbrada: boolean;
   /** El motivo del rechazo, en lenguaje operativo. `null` si no aplica o no se sabe. */
   motivo: string | null;
   /**

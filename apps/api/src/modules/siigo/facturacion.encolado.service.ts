@@ -31,11 +31,13 @@
 //      puede tardar; el resto de la aplicación no tiene por qué enterarse.
 
 import type {
-  MotivoElegibilidad, SiigoEnvioTramite, SiigoRespuestaEnvio,
+  ConceptoFacturable, MotivoElegibilidad, SiigoEnvioTramite, SiigoRespuestaEnvio,
 } from '@operaciones/shared-types';
 import { resumirEnvio } from '@operaciones/shared-types';
 import { evaluarElegibilidad } from './facturacion.elegibilidad.service.js';
 import { encolar } from './facturacion.cola.service.js';
+import { recordarEmision } from './emision-cliente.repo.js';
+import type { EmisionElegida } from './facturacion.armado.js';
 import { exigirIntegracionNoFrenada } from './siigo.freno.service.js';
 import { sanearMensaje } from './siigo.redaccion.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -52,6 +54,24 @@ export const TOPE_TRAMITES_ENVIO = 200;
 
 export interface EntradaEnvio {
   tramiteIds: string[];
+  /**
+   * Qué conceptos van en la factura (A1). Se elige al enviar y NO se deduce de la liquidación: a
+   * una empresa se le gestiona el trámite entero pero solo se le factura electrónicamente una parte
+   * —hoy, el trámite digital—; el resto se recupera por reintegro.
+   *
+   * Van para toda la selección y no por trámite: quien marca cincuenta filas del reporte está
+   * facturando lo mismo de todas. Discriminar por trámite sería otra historia y otra pantalla.
+   */
+  conceptos: readonly ConceptoFacturable[];
+  /**
+   * La emisión elegida, UNA POR EMPRESA (A2). Ausente o sin la empresa de un trámite = ese trámite
+   * se emite con la configuración global vigente, que es lo que se hacía antes de A2.
+   *
+   * Por empresa y no por trámite porque el vendedor y la forma de pago son atributos del cliente:
+   * cincuenta trámites de la misma empresa comparten los cuatro valores, y pedirlos cincuenta veces
+   * sería el camino más lento y el que más se equivoca.
+   */
+  emision?: ReadonlyArray<EmisionElegida & { clienteId: number }>;
   /**
    * Contra qué empresa de Siigo se encola. **Lo decide el servidor** (`env.SIIGO_AMBIENTE`) y nunca
    * quien llama: dejarlo elegir al cliente sería ofrecer un botón para emitir en producción desde
@@ -88,14 +108,42 @@ export async function enviarAFacturacion(entrada: EntradaEnvio): Promise<SiigoRe
   // Se conserva el orden en que llegaron, sin duplicados: quien envió una lista espera la respuesta
   // en el mismo orden para poder casarla con sus filas sin buscar por identificador.
   const ids = [...new Set(entrada.tramiteIds.filter(Boolean))];
+  const conceptos = [...new Set(entrada.conceptos)];
 
+  // C2 — la elegibilidad se evalúa contra los conceptos ELEGIDOS, no contra los que el trámite
+  // tenga liquidados. Sin esto, un trámite con SOAT sin mapear bloquearía una factura de trámite
+  // digital en la que el SOAT no aparece.
   const veredictos = new Map(
-    (await evaluarElegibilidad(ids, ambiente)).map((v) => [v.tramiteId, v]),
+    (await evaluarElegibilidad(ids, ambiente, conceptos)).map((v) => [v.tramiteId, v]),
+  );
+
+  // A2 — la emisión se indexa por empresa una sola vez. Cada trámite busca la suya por su compañía,
+  // que la elegibilidad ya resolvió: sin eso habría que volver a consultarla por trámite.
+  const emisionPorCliente = new Map<number, EmisionElegida>(
+    (entrada.emision ?? []).map((e) => [e.clienteId, {
+      documentoTipoCodigo: e.documentoTipoCodigo,
+      vendedorCodigo: e.vendedorCodigo,
+      formaPagoCodigo: e.formaPagoCodigo,
+      centroCostoCodigo: e.centroCostoCodigo,
+    }]),
   );
 
   const items: SiigoEnvioTramite[] = [];
+  const recordados = new Set<number>();
   for (const tramiteId of ids) {
-    items.push(await enviarUno(tramiteId, veredictos.get(tramiteId)?.motivos, entrada));
+    const veredicto = veredictos.get(tramiteId);
+    const companiaId = veredicto?.companiaId ?? null;
+    const emision = companiaId === null ? undefined : emisionPorCliente.get(companiaId);
+
+    const item = await enviarUno(tramiteId, veredicto?.motivos, entrada, emision);
+    items.push(item);
+
+    // Se recuerda solo lo que de verdad se encoló, y una vez por empresa. Recordar una elección que
+    // acabó en rechazo precargaría el próximo diálogo con algo que nunca llegó a facturar nada.
+    if (item.resultado === 'encolado' && companiaId !== null && emision && !recordados.has(companiaId)) {
+      recordados.add(companiaId);
+      await recordarEmision(ambiente, companiaId, emision, entrada.usuarioId);
+    }
   }
 
   return { ambiente, items, resumen: resumirEnvio(items) };
@@ -112,6 +160,7 @@ export async function enviarAFacturacion(entrada: EntradaEnvio): Promise<SiigoRe
  */
 async function enviarUno(
   tramiteId: string, motivos: MotivoElegibilidad[] | undefined, entrada: EntradaEnvio,
+  emision: EmisionElegida | undefined,
 ): Promise<SiigoEnvioTramite> {
   const base = { tramiteId, motivos: [], estado: null, colaId: null, loteId: null, detalle: null };
 
@@ -129,6 +178,8 @@ async function enviarUno(
   try {
     const r = await encolar({
       tramiteIds: [tramiteId],
+      conceptos: entrada.conceptos,
+      emision,
       ambiente: entrada.ambiente,
       usuarioId: entrada.usuarioId,
       reactivar: entrada.reactivar,

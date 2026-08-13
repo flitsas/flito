@@ -56,3 +56,24 @@ export function configDisponible(): boolean {
     return false;
   }
 }
+
+/**
+ * Si este ambiente puede producir efectos FUERA de Siigo: el timbre ante la DIAN y el correo al
+ * cliente (HU A6).
+ *
+ * Los dos comparten regla porque comparten la propiedad que importa: **no se deshacen**. Una
+ * factura que la DIAN aceptó solo se corrige con nota crédito, y un correo que salió ya lo leyó
+ * alguien. Crear el documento en Siigo Nube, en cambio, es reversible y es justo lo que hace falta
+ * para ensayar.
+ *
+ * **Se deriva del ambiente y no se configura, a propósito.** Un interruptor con este poder es un
+ * interruptor que algún día está mal puesto —y el día que lo esté, lo que sale es una factura real
+ * a nombre de FLIT o un correo a un cliente que no esperaba nada—. Derivarlo lo vuelve imposible de
+ * equivocar sin editar código, que es exactamente la fricción que se quiere.
+ *
+ * Si algún día hace falta ensayar el timbre contra la empresa de pruebas, eso es una decisión
+ * nueva: se toma entonces y se escribe aquí, no se deja abierta «por si acaso».
+ */
+export function efectosExternosPermitidos(ambiente: SiigoAmbiente): boolean {
+  return ambiente === 'produccion';
+}

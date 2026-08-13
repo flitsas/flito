@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
-import type { EstadoConfigEmision, ValoresLiquidacion } from '@operaciones/shared-types';
+import type { ValoresLiquidacion } from '@operaciones/shared-types';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -28,17 +28,6 @@ vi.mock('../../src/modules/siigo/mapeo-conceptos.service.js', async (original) =
   return {
     ...real,
     listarMapeo: vi.fn(async (ambiente: string) => mapeoPorAmbiente[ambiente] ?? []),
-  };
-});
-
-/** Estado de la configuración global por ambiente. */
-const configPorAmbiente: Record<string, EstadoConfigEmision> = {};
-vi.mock('../../src/modules/siigo/config-emision.service.js', async (original) => {
-  const real = await original<typeof import('../../src/modules/siigo/config-emision.service.js')>();
-  return {
-    ...real,
-    estadoConfigEmision: vi.fn(async (ambiente: string) => configPorAmbiente[ambiente]
-      ?? { ambiente, configurada: false, completa: false, faltantes: [], invalidos: [] }),
   };
 });
 
@@ -63,12 +52,6 @@ function mapeoSano(ambiente = 'pruebas') {
   mapeoPorAmbiente[ambiente] = CONCEPTOS_FACTURABLES.map((c) => mapeo(c, { ambiente }));
 }
 
-function configSana(ambiente = 'pruebas') {
-  configPorAmbiente[ambiente] = {
-    ambiente, configurada: true, completa: true, faltantes: [], invalidos: [],
-  };
-}
-
 /**
  * Liquidación sellada completa. Los seis campos son obligatorios en `ValoresLiquidacion`: un objeto
  * parcial ya no compila, que es justo la red que faltaba.
@@ -88,16 +71,13 @@ function liquidacion(over: Partial<ValoresLiquidacion> = {}): ValoresLiquidacion
 beforeEach(() => {
   modo = 'real';
   for (const k of Object.keys(mapeoPorAmbiente)) delete mapeoPorAmbiente[k];
-  for (const k of Object.keys(configPorAmbiente)) delete configPorAmbiente[k];
   mapeoSano();
-  configSana();
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
 describe('AC1 — un concepto sin confirmar bloquea la emisión real', () => {
-  it('bloquea y enumera exactamente qué conceptos faltan por confirmar', async () => {
+  it('bloquea y enumera exactamente qué conceptos no tienen producto', async () => {
     mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES.map((c) => mapeo(c, {
-      confirmadoContabilidad: c !== 'gmf' && c !== 'logistica',
       listoParaFacturar: c !== 'gmf' && c !== 'logistica',
     }));
 
@@ -105,27 +85,29 @@ describe('AC1 — un concepto sin confirmar bloquea la emisión real', () => {
     const e = await estadoCompuerta('pruebas');
 
     expect(e.emisionRealHabilitada).toBe(false);
-    const motivo = e.motivos.find((m) => m.tipo === 'concepto_sin_confirmar')!;
+    const motivo = e.motivos.find((m) => m.tipo === 'concepto_no_listo')!;
     // Enumera, no dice «faltan 2».
     expect(motivo.conceptos).toEqual(['logistica', 'gmf']);
     expect(motivo.detalle).toContain('logistica');
     expect(motivo.detalle).toContain('gmf');
   });
 
-  it('«sin confirmar» y «confirmado pero no listo» son motivos DISTINTOS', async () => {
-    mapeoPorAmbiente.pruebas = [
-      mapeo('soat', { confirmadoContabilidad: false, listoParaFacturar: false }),
-      mapeo('logistica', { confirmadoContabilidad: true, listoParaFacturar: false }),
-      ...CONCEPTOS_FACTURABLES.filter((c) => c !== 'soat' && c !== 'logistica').map((c) => mapeo(c)),
-    ];
+  it('A7 — la firma de contabilidad YA NO bloquea', async () => {
+    // Lo que esa firma custodiaba era el tratamiento tributario que FLITO guardaba en copia, y esa
+    // copia dejó de existir: la factura no envía `taxes` y los aplica Siigo desde el producto. Sin
+    // nada tributario de este lado, no queda nada que firmar aquí.
+    //
+    // Y conviene tenerlo escrito: esto MUEVE la garantía del IVA a la parametrización de Siigo
+    // Nube. Si alguien la quiere de vuelta en FLITO, esta prueba es la que hay que cambiar a
+    // propósito, no un efecto que se descubra con una factura ya emitida.
+    mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES
+      .map((c) => mapeo(c, { confirmadoContabilidad: false, listoParaFacturar: true }));
 
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
     const e = await estadoCompuerta('pruebas');
 
-    // Lo resuelven dos personas distintas: contabilidad firma; quien parametriza completa el
-    // producto. Un mensaje único mandaría la mitad de los casos a la persona equivocada.
-    expect(e.motivos.find((m) => m.tipo === 'concepto_sin_confirmar')!.conceptos).toEqual(['soat']);
-    expect(e.motivos.find((m) => m.tipo === 'concepto_no_listo')!.conceptos).toEqual(['logistica']);
+    expect(e.motivos.some((m) => m.tipo === 'concepto_sin_confirmar')).toBe(false);
+    expect(e.emisionRealHabilitada).toBe(true);
   });
 
   it('un concepto sin ninguna fila viva bloquea, y no como problema de firma', async () => {
@@ -140,18 +122,18 @@ describe('AC1 — un concepto sin confirmar bloquea la emisión real', () => {
     expect(e.motivos.some((m) => m.tipo === 'concepto_sin_confirmar')).toBe(false);
   });
 
-  it('basta que UNA fila del concepto no esté firmada: la específica manda sobre la genérica', async () => {
+  it('basta que UNA fila del concepto no esté lista: la específica manda sobre la genérica', async () => {
     mapeoPorAmbiente.pruebas = [
       ...CONCEPTOS_FACTURABLES.map((c) => mapeo(c)),
-      // Específica sin firmar sobre un concepto cuya genérica sí está firmada.
-      mapeo('soat', { id: 'm-soat-esp', tipoTramite: 'TRASPASO', confirmadoContabilidad: false }),
+      // Específica sin producto sobre un concepto cuya genérica sí lo tiene.
+      mapeo('soat', { id: 'm-soat-esp', tipoTramite: 'TRASPASO', listoParaFacturar: false }),
     ];
 
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
     const e = await estadoCompuerta('pruebas');
 
     // Cuál se usa depende del tipo de trámite, que aquí no se conoce: hay que exigir las dos.
-    expect(e.motivos.find((m) => m.tipo === 'concepto_sin_confirmar')!.conceptos).toEqual(['soat']);
+    expect(e.motivos.find((m) => m.tipo === 'concepto_no_listo')!.conceptos).toEqual(['soat']);
   });
 
   it('con todo firmado y listo, la compuerta abre', async () => {
@@ -289,64 +271,29 @@ describe('AC3 — en modo simulado la compuerta no aplica, pero se dice', () => 
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-describe('AC4 — la configuración global incompleta también bloquea', () => {
-  it('faltando un campo obligatorio, se rechaza señalando cuál', async () => {
-    configPorAmbiente.pruebas = {
-      ambiente: 'pruebas', configurada: true, completa: false,
-      faltantes: ['vendedor'], invalidos: [],
-    };
-
+describe('la configuración global de emisión ya no existe, y la compuerta no la mira', () => {
+  it('sin nada configurado en el ambiente, la compuerta no inventa un motivo de configuración', async () => {
+    // Hasta el 2026-08-13 aquí se comprobaba que el ambiente tuviera guardados comprobante,
+    // vendedor, forma de pago y centro de costo, y se emitían los motivos `sin_configurar`,
+    // `config_incompleta` y `config_invalida`. Esa configuración se retiró: los cuatro se eligen en
+    // cada envío, así que cuando esta compuerta corre TODAVÍA NO EXISTEN y no hay nada que mirar.
+    //
+    // Con el mapeo completo, la compuerta abre. Que falte con qué emitir se comprueba donde sí se
+    // sabe qué se eligió: el diálogo de envío y `prepararEmision`.
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
     const e = await estadoCompuerta('pruebas');
 
-    expect(e.emisionRealHabilitada).toBe(false);
-    const motivo = e.motivos.find((m) => m.tipo === 'config_incompleta')!;
-    expect(motivo.campos).toEqual(['vendedor']);
-    expect(motivo.detalle).toContain('Vendedor');
+    expect(e.motivos.map((m) => m.tipo)).toEqual([]);
   });
 
-  it('un valor que dejó de ser válido en Siigo bloquea igual', async () => {
-    configPorAmbiente.pruebas = {
-      ambiente: 'pruebas', configurada: true, completa: false, faltantes: [],
-      invalidos: [{
-        campo: 'formaPago', etiqueta: 'Forma de pago', codigo: '5639', nombre: 'Consignación',
-        validez: 'inactivo', mensaje: 'quedó inactivo',
-      }],
-    };
-
-    const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
-    const e = await estadoCompuerta('pruebas');
-
-    const motivo = e.motivos.find((m) => m.tipo === 'config_invalida')!;
-    expect(motivo.campos).toEqual(['formaPago']);
-    expect(motivo.detalle).toContain('Forma de pago');
-  });
-
-  it('sin ninguna configuración guardada, el motivo lo dice explícitamente', async () => {
-    delete configPorAmbiente.pruebas;
-
-    const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
-    const e = await estadoCompuerta('pruebas');
-
-    expect(e.motivos.some((m) => m.tipo === 'sin_configurar')).toBe(true);
-    // Y no se reporta además como «incompleta»: sería el mismo problema contado dos veces.
-    expect(e.motivos.some((m) => m.tipo === 'config_incompleta')).toBe(false);
-  });
-
-  it('el mapeo y la configuración bloquean de forma independiente', async () => {
+  it('lo único que sigue bloqueando es el mapeo de conceptos', async () => {
     mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES
-      .map((c) => mapeo(c, { confirmadoContabilidad: false, listoParaFacturar: false }));
-    configPorAmbiente.pruebas = {
-      ambiente: 'pruebas', configurada: true, completa: false,
-      faltantes: ['documentoTipo'], invalidos: [],
-    };
+      .map((c) => mapeo(c, { listoParaFacturar: false }));
 
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
     const e = await estadoCompuerta('pruebas');
 
-    // Los dos motivos, no el primero que aparezca: quien destrabe uno tiene que saber que falta otro.
-    expect(e.motivos.map((m) => m.tipo).sort())
-      .toEqual(['concepto_sin_confirmar', 'config_incompleta']);
+    expect(e.motivos.map((m) => m.tipo)).toEqual(['concepto_no_listo']);
   });
 });
 
@@ -361,10 +308,8 @@ describe('AC5 — el estado de la compuerta es consultable', () => {
   });
 
   it('devuelve si está habilitada y, si no, la lista de motivos', async () => {
-    configPorAmbiente.pruebas = {
-      ambiente: 'pruebas', configurada: true, completa: false,
-      faltantes: ['formaPago'], invalidos: [],
-    };
+    mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES
+      .map((c) => mapeo(c, { listoParaFacturar: false }));
 
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
     const e = await estadoCompuerta('pruebas');
@@ -406,10 +351,8 @@ describe('AC6 — la compuerta vive en el servidor', () => {
 describe('AC7 — el cambio de ambiente reevalúa y no hereda', () => {
   it('confirmar en pruebas no abre la compuerta de producción', async () => {
     mapeoSano('pruebas');
-    configSana('pruebas');
-    // Producción sin nada configurado.
+    // Producción sin nada parametrizado.
     delete mapeoPorAmbiente.produccion;
-    delete configPorAmbiente.produccion;
 
     const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
 
@@ -422,22 +365,16 @@ describe('AC7 — el cambio de ambiente reevalúa y no hereda', () => {
 
     expect((await estadoCompuerta('pruebas')).emisionRealHabilitada).toBe(true);
 
-    // Alguien inactiva un vendedor en Siigo Nube; nadie toca FLITO.
-    configPorAmbiente.pruebas = {
-      ambiente: 'pruebas', configurada: true, completa: false, faltantes: [],
-      invalidos: [{
-        campo: 'vendedor', etiqueta: 'Vendedor', codigo: '35073', nombre: 'Diana Osorio',
-        validez: 'inactivo', mensaje: 'quedó inactivo',
-      }],
-    };
+    // El producto de un concepto deja de ser utilizable; nadie recalcula nada a mano.
+    mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES
+      .map((c) => mapeo(c, { listoParaFacturar: false }));
 
     // Un veredicto guardado sería un permiso para emitir con parametrización vieja.
     expect((await estadoCompuerta('pruebas')).emisionRealHabilitada).toBe(false);
   });
 
-  it('cada ambiente lee SU mapeo y SU configuración', async () => {
+  it('cada ambiente lee SU mapeo', async () => {
     mapeoSano('produccion');
-    configSana('produccion');
     mapeoPorAmbiente.pruebas = CONCEPTOS_FACTURABLES
       .map((c) => mapeo(c, { confirmadoContabilidad: false, listoParaFacturar: false }));
 
@@ -466,12 +403,11 @@ describe('Regresión — la compuerta no abre sin haber comprobado nada', () => 
 
   it('la invariante se mantiene incluso con TODO lo demás en orden', async () => {
     mapeoSano();
-    configSana();
     const { exigirCompuertaAbierta } =
       await import('../../src/modules/siigo/siigo.compuerta.service.js');
 
-    // Cero conceptos evaluados nunca habilita emisión real. Ni con el mapeo perfecto y la
-    // configuración completa: no hay nada que comprobar, y eso no es un aprobado.
+    // Cero conceptos evaluados nunca habilita emisión real. Ni con el mapeo perfecto: no hay nada
+    // que comprobar, y eso no es un aprobado.
     await expect(exigirCompuertaAbierta('pruebas', liquidacion())).rejects.toThrow();
   });
 
@@ -503,5 +439,27 @@ describe('Regresión — la compuerta no abre sin haber comprobado nada', () => 
     // compuerta sin una sola queja del compilador.
     expect(tipos).toMatch(/valorSoat: string \| null;/);
     expect(tipos).not.toMatch(/valorSoat\?: string \| null;/);
+  });
+});
+
+describe('la elegibilidad de un trámite no depende de con qué se vaya a emitir', () => {
+  it('la compuerta por conceptos no menciona comprobante, vendedor ni forma de pago', async () => {
+    // El comprobante, el vendedor y la forma de pago se ELIGEN al enviar, y desde el 2026-08-13 no
+    // hay ninguna configuración global detrás. Bloquear aquí por ellos dejaba el botón del reporte
+    // apagado por algo que quien envía decide dos pantallas más adelante — y ahora, además, sería
+    // bloquear por un dato que en este momento todavía no existe en ninguna parte.
+    const { evaluarCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
+    const e = await evaluarCompuerta('pruebas', ['tramite_digital']);
+
+    expect(e.motivos).toEqual([]);
+  });
+
+  it('la pantalla de parametrización tampoco: pregunta solo por el mapeo', async () => {
+    // Antes esta pantalla sí miraba la configuración global. Ya no queda ninguna que mirar.
+    const { estadoCompuerta } = await import('../../src/modules/siigo/siigo.compuerta.service.js');
+    const e = await estadoCompuerta('pruebas');
+
+    expect(e.motivos).toEqual([]);
+    expect(e.emisionRealHabilitada).toBe(true);
   });
 });

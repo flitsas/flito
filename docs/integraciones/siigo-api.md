@@ -13,6 +13,8 @@ oficial. Se va ampliando a medida que se revisan nuevas secciones.
 > `/api-description-document`.
 
 **Secciones revisadas:** Autenticación · Convenciones generales · Clientes · Facturas de Venta · Productos · Catálogos
+**Última revisión:** 2026-08-13 — se reconfirmaron contra el blueprint los campos obligatorios de
+`POST /v1/invoices`, el lote asíncrono, los filtros de clientes y `GET /v1/document-types?type=FV`.
 **Pendientes:** Categorías de Inventario · Cotizaciones · Notas Crédito · Facturas de compra · Documento soporte · Recibos de Caja · Recibos de pago · Comprobantes Contables · Reportes · Webhooks
 
 ---
@@ -241,6 +243,19 @@ items[].price           number  → máx. 6 decimales
 payments[].id           number  → medio de pago (GET /v1/payment-types)
 payments[].value        number  → máx. 2 decimales
 ```
+
+> **Qué envía FLITO, y qué no** (decisiones del 2026-08-13). Se manda **solo lo obligatorio**:
+> `document`, `date`, `customer.identification`, `seller`, `items[]` (`code`, `quantity`, `price`) y
+> `payments[]` (`id`, `value`), más `cost_center` cuando el comprobante lo exige. Se omiten a
+> propósito, y cada omisión tiene una respuesta detrás:
+>
+> | Campo | Por qué no se envía |
+> |---|---|
+> | `items[].taxes` | Los impuestos los aplica Siigo desde el producto (A7) |
+> | `retentions[]` | Las retenciones se configuran en el **tercero**, no por documento |
+> | `currency` | Es «moneda **extranjera**»: en COP lo correcto es omitirlo, no mandar `{code:'COP'}` |
+> | `number` | El consecutivo lo asigna Siigo; ni siquiera existe en `InvoiceIn` |
+> | `payments[].due_date` | No se maneja plazo. Las formas de pago con vencimiento se filtran al elegir |
 
 ### Campos opcionales relevantes
 

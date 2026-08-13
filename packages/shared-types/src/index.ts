@@ -68,7 +68,6 @@ export * from './siigo-facturacion.js';
 // Productos de Siigo y validación en vivo del mapeo antes de guardarlo.
 export * from './siigo-productos.js';
 // Configuración global de emisión: comprobante, vendedor, forma de pago y centro de costo.
-export * from './siigo-emision.js';
 // Compuerta: qué impide emitir contra el ambiente real sin confirmación de contabilidad.
 export * from './siigo-compuerta.js';
 // Datos fiscales del cliente para existir como tercero en Siigo (Feature #11241).

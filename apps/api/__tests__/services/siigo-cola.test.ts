@@ -40,6 +40,8 @@ const {
 const TRAMITE = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const OTRO_TRAMITE = 'aaaaaaaa-2222-4111-8111-aaaaaaaaaaaa';
 const LOTE = 'llllllll-1111-4111-8111-llllllllllll';
+/** Lo que se factura hoy: solo el trámite digital. El resto va por reintegro (A1). */
+const CONCEPTOS = ['tramite_digital'] as const;
 const COLA = 'cccccccc-1111-4111-8111-cccccccccccc';
 const FACTURA = 'ffffffff-1111-4111-8111-ffffffffffff';
 const AHORA = new Date('2026-08-11T15:00:00.000Z');
@@ -88,7 +90,7 @@ beforeEach(() => {
 
 describe('AC1 — encolar no llama a Siigo ni una sola vez', () => {
   it('crea el lote, la fila de cola y vuelve', async () => {
-    const r = await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    const r = await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
 
     expect(r.resultado).toBe('encolado');
     expect(r.estado).toBe('pendiente');
@@ -97,26 +99,26 @@ describe('AC1 — encolar no llama a Siigo ni una sola vez', () => {
   });
 
   it('la cita del alta es AHORA: lo recién pedido sale en el próximo ciclo', async () => {
-    await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
     expect(espia.ultimoInsertEn('siigo_cola_facturacion').proximoIntentoAt).toEqual(AHORA);
   });
 
   it('deja escrito qué contiene el lote: sin eso el trabajador no sabría qué facturar', async () => {
     // La huella IDENTIFICA el lote y no se puede invertir. El trabajador toma una fila con un
     // `loteId` y nada más.
-    await encolar({ tramiteIds: [TRAMITE, OTRO_TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE, OTRO_TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
     const pertenencia = espia.insertsEn('siigo_lote_tramites')[0]!.datos as unknown as Array<{ tramiteId: string }>;
     expect(pertenencia.map((p) => p.tramiteId).sort()).toEqual([TRAMITE, OTRO_TRAMITE].sort());
   });
 
   it('sin trámites no encola nada', async () => {
-    await expect(encolar({ tramiteIds: [], ambiente: 'pruebas', usuarioId: 3 }))
+    await expect(encolar({ conceptos: CONCEPTOS, tramiteIds: [], ambiente: 'pruebas', usuarioId: 3 }))
       .rejects.toThrow(SiigoColaError);
   });
 
   it('deja rastro en la bitácora con la operación que el freno NO mide', async () => {
     const { OPERACION_ENCOLAR } = await import('../../src/modules/siigo/siigo.freno.service.js');
-    await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
     expect(registrarOperacionMock).toHaveBeenCalledWith(
       expect.objectContaining({ operacion: OPERACION_ENCOLAR, resultado: 'ok', createdBy: 3 }),
     );
@@ -131,7 +133,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
 
   it('ya en cola — devuelve la que hay sin tocarla', async () => {
     conflictoCon(filaCola({ estado: 'error', intentos: 2 }));
-    const r = await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    const r = await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
 
     expect(r.resultado).toBe('ya_en_cola');
     expect(espia.updatesEn('siigo_cola_facturacion')).toHaveLength(0);
@@ -140,7 +142,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
 
   it('ya enviada — no se vuelve a encolar un documento que existe', async () => {
     conflictoCon(filaCola({ estado: 'enviado', facturaId: FACTURA }));
-    const r = await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    const r = await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
 
     expect(r.resultado).toBe('ya_enviado');
     expect(espia.updatesEn('siigo_cola_facturacion')).toHaveLength(0);
@@ -150,7 +152,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
     // `fallido_definitivo` significa «esto no se arregla reintentando». Si el encolado normal lo
     // reactivara, una pantalla que reencola al refrescar volvería a poner en cola lo ya descartado.
     conflictoCon(filaCola({ estado: 'fallido_definitivo', intentos: 5 }));
-    const r = await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    const r = await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
 
     expect(r.resultado).toBe('fallido_definitivo');
     expect(espia.updatesEn('siigo_cola_facturacion')).toHaveLength(0);
@@ -161,6 +163,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
     kdb.when.update('siigo_cola_facturacion', [filaCola({ estado: 'pendiente' })]);
 
     const r = await encolar({
+      conceptos: CONCEPTOS,
       tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA, reactivar: true,
     });
 
@@ -184,6 +187,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
     kdb.when.update('siigo_cola_facturacion', []);
 
     const r = await encolar({
+      conceptos: CONCEPTOS,
       tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA, reactivar: true,
     });
     expect(r.resultado).toBe('ya_en_cola');
@@ -192,7 +196,7 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
 
   it('si el lote desaparece mientras se crea, no se encola nada', async () => {
     kdb.when.insert('siigo_lotes_facturacion', []).select('siigo_lotes_facturacion', []);
-    await expect(encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3 }))
+    await expect(encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3 }))
       .rejects.toThrow(SiigoColaError);
     expect(espia.insertsEn('siigo_cola_facturacion')).toHaveLength(0);
   });
@@ -201,6 +205,27 @@ describe('encolar es idempotente, y lo garantiza el índice', () => {
 // ── AC6 — la exclusión la garantiza la base de datos ───────────────────────
 
 /** Texto SQL de una plantilla drizzle, con los parámetros fuera. */
+/**
+ * Todos los `Date` que viajan dentro de la consulta, a cualquier profundidad.
+ *
+ * Drizzle mete los valores interpolados **directamente** como trozos —un `Date` es un chunk, no un
+ * `Param` con `.value`—, así que hay que buscar la instancia, no una propiedad. Se cubren las dos
+ * formas por si una versión futura los envuelve.
+ */
+function fechasEnLaConsulta(q: unknown): Date[] {
+  const fechas: Date[] = [];
+  const visitar = (n: unknown): void => {
+    if (n instanceof Date) { fechas.push(n); return; }
+    if (n === null || typeof n !== 'object') return;
+    if (Array.isArray(n)) { n.forEach(visitar); return; }
+    const o = n as Record<string, unknown>;
+    if (Array.isArray(o.queryChunks)) o.queryChunks.forEach(visitar);
+    if ('value' in o && !Array.isArray(o.value)) visitar(o.value);
+  };
+  visitar(q);
+  return fechas;
+}
+
 function textoSql(q: unknown): string {
   const trozos: string[] = [];
   const visitar = (n: unknown): void => {
@@ -240,6 +265,20 @@ describe('AC6 — una sola instancia procesa cada fila', () => {
     expect(sql).toMatch(/UPDATE siigo_cola_facturacion c SET tomado_por =/);
     expect(sql.indexOf('UPDATE siigo_cola_facturacion c'))
       .toBeGreaterThan(sql.indexOf('FOR UPDATE SKIP LOCKED'));
+  });
+
+  it('ninguna fecha viaja como Date: el driver no sabe codificarla (regresión 2026-08-13)', async () => {
+    // `db.execute` termina en `client.unsafe(query, params)` de postgres.js, que —a diferencia de su
+    // plantilla etiquetada— NO aplica serializadores por tipo. Un `Date` ahí lanza «The "string"
+    // argument must be of type string […]. Received an instance of Date», y lanza SIEMPRE: con un
+    // solo `Date` en la consulta, el trabajador no podía tomar NI UNA fila contra una base real.
+    //
+    // La suite entera corre contra la base mockeada, que acepta cualquier parámetro, así que el
+    // fallo sobrevivió a 30 pruebas de este mismo archivo. Esta guarda mira los PARÁMETROS, que es
+    // lo único que el mock no puede disimular.
+    await tomarLote(TOMA);
+
+    expect(fechasEnLaConsulta(kdb.execute.mock.calls[0]![0])).toEqual([]);
   });
 
   it('NO usa el camino de dos pasos, que no excluye nada', async () => {
@@ -394,7 +433,7 @@ describe('I1 — la cola no escribe en siigo_facturas', () => {
   });
 
   it('encolar no toca la tabla de facturas ni de lejos', async () => {
-    await encolar({ tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
+    await encolar({ conceptos: CONCEPTOS, tramiteIds: [TRAMITE], ambiente: 'pruebas', usuarioId: 3, ahora: AHORA });
     expect(espia.updatesEn('siigo_facturas')).toHaveLength(0);
     expect(espia.insertsEn('siigo_facturas')).toHaveLength(0);
   });

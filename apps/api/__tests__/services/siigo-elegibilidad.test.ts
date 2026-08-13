@@ -64,11 +64,27 @@ describe('AC4 — el corte del histórico es un dato, no un supuesto', () => {
     expect(nombres(fila({ ...t, historicoDesde: '2026-06-01' }))).toContain('anterior_al_corte');
   });
 
-  it('sin fecha configurada NO se bloquea nada', () => {
-    // La ausencia de configuración no puede comportarse como una prohibición silenciosa: alguien
-    // buscaría durante horas por qué no se factura nada y no habría nada que encontrar.
-    expect(nombres(fila({ historicoDesde: null, facturadoEn: '2020-01-01' })))
-      .not.toContain('anterior_al_corte');
+  it('sin fecha configurada NO se factura nada, y se dice por qué', () => {
+    // **Esta prueba afirmaba lo contrario, y esa era la regresión.** El razonamiento de entonces
+    // seguía en pie —«la ausencia de configuración no puede comportarse como una prohibición
+    // silenciosa: alguien buscaría durante horas por qué no se factura y no habría nada que
+    // encontrar»— pero la 0148 retiró la pantalla que escribía la tabla y «no hay fila» pasó a ser
+    // el estado normal de cualquier ambiente. Con la regla vieja, el único control que impide
+    // facturar histórico no autorizado quedaba apagado en todas partes, sin ruido.
+    //
+    // Lo que se conserva del argumento original es el antídoto, no la conclusión: se bloquea, pero
+    // con un motivo PROPIO que se cuenta y se pinta. Un bloqueo explicado no es un bloqueo
+    // silencioso, y en la única puerta antes de la DIAN el error tiene que caer de este lado.
+    const m = nombres(fila({ historicoDesde: null, facturadoEn: '2020-01-01' }));
+    expect(m).toContain('sin_corte_configurado');
+    // Y NO se disfraza del otro motivo: «se facturó antes del corte» mandaría a subir una fecha que
+    // no existe, en vez de a sembrarla.
+    expect(m).not.toContain('anterior_al_corte');
+  });
+
+  it('con fecha configurada, el motivo de ambiente sin sembrar desaparece', () => {
+    expect(nombres(fila())).not.toContain('sin_corte_configurado');
+    expect(nombres(fila({ facturadoEn: '2025-12-31' }))).not.toContain('sin_corte_configurado');
   });
 
   it('ante la duda BLOQUEA, nunca deja pasar', () => {
@@ -156,6 +172,9 @@ describe('AC1 — los motivos se enumeran TODOS, no se corta en el primero', () 
     expect(t.liquidacion_no_facturada).toMatch(/reporte de costos/i);
     expect(t.tercero_sin_vincular).toMatch(/sincron/i);
     expect(t.anterior_al_corte).toMatch(/configuración de emisión/i);
+    // Este manda a AVISAR, no a configurar: la fila del ambiente se siembra con una migración y no
+    // hay pantalla donde tocarla. Decir «configúralo» sería mandar a buscar algo que no existe.
+    expect(t.sin_corte_configurado).toMatch(/equipo técnico/i);
   });
 });
 
@@ -271,19 +290,23 @@ describe('Correcciones de la auditoría', () => {
     expect(evaluarCliente(enSnakeCase as never).facturable).toBe(false);
   });
 
-  it('B3 — la consulta proyecta las claves del modelo, no las de la columna', async () => {
+  it('C7 — la consulta ya NO trae la ficha fiscal del cliente', async () => {
+    // B3 vigilaba que la proyección del cliente usara las claves del modelo y no las de la columna.
+    // Desde C7 esa proyección no existe: la elegibilidad dejó de juzgar la ficha fiscal, porque sus
+    // campos existen para CREAR el tercero en Siigo y no para facturar.
+    //
+    // Lo que se afirma ahora es más fuerte y de paso es una victoria de PII: quince columnas de
+    // `clients` —dirección, teléfonos, nombre del contacto— dejaron de viajar en una consulta que el
+    // reporte dispara en cada carga de pantalla, para doscientos trámites a la vez.
     const fuente = (await import('node:fs')).readFileSync(
       new URL('../../src/modules/siigo/facturacion.elegibilidad.service.ts', import.meta.url), 'utf8');
-
-    // Se miran solo las líneas de CÓDIGO: el comentario que explica por qué ya no se usa
-    // `to_jsonb` menciona la palabra, y un test que no distinga prosa de código obligaría a
-    // borrar justo la explicación que evita que alguien lo reintroduzca.
     const codigo = fuente.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
 
     expect(codigo).not.toContain('to_jsonb');
-    expect(codigo).toContain("'personType'");
-    // Y sin el cast que tapaba el desajuste.
     expect(codigo).not.toContain('as never');
+    expect(codigo).not.toContain("'contactFirstName'");
+    expect(codigo).not.toContain("'phoneNumber'");
+    expect(codigo).not.toContain('evaluarCliente');
   });
 
   it('B2 — la fecha se resuelve en hora de Colombia, no en UTC', async () => {

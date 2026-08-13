@@ -29,10 +29,21 @@ vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => ({
   asegurarTercero: (id: number) => asegurarTerceroMock(id),
 }));
 
-const parametrosDeEmisionMock = vi.fn();
+const parametrosOperativosMock = vi.fn();
 vi.mock('../../src/modules/siigo/config-emision.service.js', () => ({
-  parametrosDeEmision: (amb: string) => parametrosDeEmisionMock(amb),
+  parametrosOperativos: (amb: string) => parametrosOperativosMock(amb),
 }));
+
+/**
+ * Con qué se emite. Ya NO sale de una configuración global: se elige al enviar y viaja con el lote,
+ * así que las pruebas lo pasan explícitamente igual que lo hace el trabajador de la cola.
+ */
+const EMISION = {
+  documentoTipoCodigo: '24446',
+  vendedorCodigo: '629',
+  formaPagoCodigo: '5636',
+  centroCostoCodigo: null,
+};
 
 const resolverMapeoMock = vi.fn();
 vi.mock('../../src/modules/siigo/mapeo-conceptos.service.js', () => ({
@@ -140,10 +151,8 @@ function escenarioFeliz(): void {
     clienteId: 7, siigoCustomerId: 'cus-1', identificacion: '900123456', sucursal: 0,
     desenlace: 'sin_cambios',
   });
-  parametrosDeEmisionMock.mockResolvedValue({
-    documentoTipoCodigo: '24446', vendedorCodigo: '629', formaPagoCodigo: '5636',
-    centroCostoCodigo: null, plazoVencimientoDias: 0, estrategiaNumeracion: 'siigo',
-    retencionesEstrategia: 'ninguna', moneda: 'COP', arrendamientoEnProcesoMin: 15,
+  parametrosOperativosMock.mockResolvedValue({
+    historicoDesde: '2026-01-01', arrendamientoEnProcesoMin: 15,
   });
   resolverMapeoMock.mockImplementation(async (_a: string, concepto: string) => ({
     origen: 'generica',
@@ -187,7 +196,7 @@ beforeEach(() => {
 
 describe('AC1 — la reserva precede a la red', () => {
   it('emite y devuelve el resultado con lo que Siigo contestó', async () => {
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('emitida');
     expect(r.siigoInvoiceId).toBe('mock-invoice-1');
@@ -216,16 +225,16 @@ describe('AC1 — la reserva precede a la red', () => {
       return r.datos;
     });
 
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     expect(orden).toEqual(['reserva', 'post']);
   });
 
   it('la clave de idempotencia viaja en el POST y es estable entre llamadas', async () => {
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     const primera = peticiones[0]!.idempotencyKey;
 
     peticiones.length = 0;
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(primera).toBeTruthy();
     expect(peticiones[0]!.idempotencyKey).toBe(primera);
@@ -245,9 +254,25 @@ describe('AC1 — la reserva precede a la red', () => {
   it('el cuerpo que viaja a Siigo NO lleva _total', async () => {
     // `_total` es trazabilidad interna: el armador lo marca así. Enviarlo sería un campo desconocido
     // en un documento fiscal, y Siigo rechaza lo que su comprobante no tiene configurado.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     expect(peticiones[0]!.cuerpo).not.toHaveProperty('_total');
     expect(peticiones[0]!.cuerpo).toHaveProperty('items');
+  });
+
+  it('A6 — en pruebas el cuerpo NO pide timbrar ni enviar correo', async () => {
+    // La factura se crea en Siigo Nube y ahí se queda. Es lo único que separa un ensayo de un
+    // documento ante la DIAN y un correo a un cliente real, y ninguna de las dos cosas se deshace.
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
+    expect(peticiones[0]!.cuerpo).not.toHaveProperty('stamp');
+    expect(peticiones[0]!.cuerpo).not.toHaveProperty('mail');
+  });
+
+  it('A6 — en producción sí, y sin que nadie lo configure', async () => {
+    // La regla se deriva del ambiente. Si algún día se vuelve configurable, esta prueba es la que
+    // obliga a decidirlo a propósito en vez de descubrirlo con una factura sin timbrar.
+    await emitirFactura([TRAMITE], { ambiente: 'produccion', ahora: () => AHORA, emision: EMISION });
+    expect(peticiones[0]!.cuerpo).toHaveProperty('stamp', { send: true });
+    expect(peticiones[0]!.cuerpo).toHaveProperty('mail', true);
   });
 });
 
@@ -267,7 +292,7 @@ describe('AC2 — cada estado de la fila reservada tiene una salida', () => {
       errorCode: null, errorDetalle: null,
     });
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('ya_emitida');
     expect(r.siigoInvoiceId).toBe('inv-viejo');
@@ -283,7 +308,7 @@ describe('AC2 — cada estado de la fila reservada tiene una salida', () => {
     });
 
     const r = await emitirFactura([TRAMITE], {
-      ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15, emision: EMISION,
     });
 
     expect(r.desenlace).toBe('en_curso');
@@ -299,7 +324,7 @@ describe('AC2 — cada estado de la fila reservada tiene una salida', () => {
     });
 
     const r = await emitirFactura([TRAMITE], {
-      ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15, emision: EMISION,
     });
 
     expect(r.desenlace).toBe('huerfana');
@@ -318,7 +343,7 @@ describe('AC2 — cada estado de la fila reservada tiene una salida', () => {
       requiereRevision: false, revisionMotivo: null, errorCode: null, errorDetalle: null,
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(peticiones).toHaveLength(1);
     expect(r.desenlace).toBe('emitida');
@@ -347,7 +372,7 @@ describe('AC3 — dos reintentos simultáneos, una sola factura', () => {
       // El UPDATE no devuelve fila: se la llevó el otro reintento.
       .update('siigo_facturas', []);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(peticiones).toHaveLength(0);
     expect(r.desenlace).toBe('en_curso');
@@ -391,8 +416,8 @@ describe('AC3 — dos reintentos simultáneos, una sola factura', () => {
       .select('siigo_facturas', [{ ...reclamada, estado: 'fallida', intentos: 1 }])
       .update('siigo_facturas', [reclamada]);
 
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const posts = peticiones.filter((p) => p.metodo === 'POST');
     expect(posts).toHaveLength(2);
@@ -418,7 +443,7 @@ describe('AC3 — el reintento del POST no puede crear una segunda factura', () 
       return atenderConSimulador(req);
     });
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(intentos).toBe(4);
     const claves = new Set(peticiones.map((p) => p.idempotencyKey));
@@ -436,7 +461,7 @@ describe('AC3 — el reintento del POST no puede crear una segunda factura', () 
     usarResilienciaReal = true;
     siigoRequestOrThrowMock.mockRejectedValue(new Error('ETIMEDOUT'));
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('huerfana');
     expect(espia.updatesEn('siigo_facturas')).toHaveLength(0);
@@ -457,7 +482,7 @@ describe('AC3 — el reintento del POST no puede crear una segunda factura', () 
       traducirErrorSiigo(status, { Status: status, Errors: [{ Code: 'x', Message: 'y', Params: [] }] }),
     );
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('huerfana');
     expect(espia.updatesEn('siigo_facturas')).toHaveLength(0);
@@ -478,7 +503,7 @@ describe('AC3 — el reintento del POST no puede crear una segunda factura', () 
       errorCode: 'parameter_required', errorDetalle: 'seller',
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     expect(r.desenlace).toBe('fallida');
   });
 });
@@ -487,7 +512,7 @@ describe('las escrituras del emisor se condicionan por estado', () => {
   it('marcar emitida exige que la fila siga en proceso', async () => {
     // Sin esta condición, un emisor lento que sobreviva a su arrendamiento pisa lo que el barrido ya
     // reconcilió. La reconciliación se protege así desde el principio; esto era la mitad que faltaba.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const [update] = espia.updatesEn('siigo_facturas');
     expect(update!.datos.estado).toBe('emitida');
@@ -500,7 +525,7 @@ describe('las escrituras del emisor se condicionan por estado', () => {
         Status: 400, Errors: [{ Code: 'parameter_required', Message: 'x', Params: [] }],
       }),
     );
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const [update] = espia.updatesEn('siigo_facturas');
     expect(update!.datos.estado).toBe('fallida');
@@ -512,7 +537,7 @@ describe('las escrituras del emisor se condicionan por estado', () => {
     // `fallida`, ser reclamada por otro emisor y volver a `en_proceso` con su marca: un emisor
     // zombi cumpliría la condición sobre la fila de ese otro y la pisaría, liberando el trámite con
     // una petición todavía en vuelo. `en_proceso_desde` es el sello de quién la tiene ahora.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const [update] = espia.updatesEn('siigo_facturas');
     const enlazados = espia.updatesEn('siigo_facturas')[0]!.filtros;
@@ -573,12 +598,21 @@ describe('AC4 — el arrendamiento de en_proceso', () => {
 describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
   const VENCIDA = new Date(AHORA.getTime() - 3_600_000);
 
-  /** La huérfana, sus trámites y su tercero. */
+  /**
+   * La huérfana, sus trámites y su tercero.
+   *
+   * **Trae el contenido de su lote**, y no es decoración: `cargarHuerfana` lo lee por un JOIN desde
+   * `siigo_facturas`, así que en el mock —que enruta por la tabla del `from`— viaja en esta misma
+   * fila. Sin él, el recálculo del total esperado no se puede hacer y la comprobación de descuadre
+   * se apaga entera, que es justo lo que estas pruebas existen para no volver a permitir.
+   */
   function huerfana(estado = 'en_proceso'): void {
     kdb.when
       .select('siigo_facturas', [{
         id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
         enProcesoDesde: VENCIDA, estado,
+        // `EMISION` tal cual: sus cuatro claves son las mismas que devuelve el `select` del JOIN.
+        conceptos: ['soat', 'tramite_digital'], ...EMISION,
       }])
       .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
       // El UPDATE devuelve fila: la reconciliación comprueba que llegó a escribir antes de afirmar
@@ -599,7 +633,7 @@ describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
     // Primero se emite de verdad contra el simulador, para que exista una factura con las
     // observaciones que escribe el armador. Buscar una factura inventada no probaría el
     // reconocimiento, que es lo único que esta función hace.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     peticiones.length = 0;
     huerfana();
 
@@ -909,6 +943,121 @@ describe('AC5 — reconciliar lo que se emitió y aquí no consta', () => {
 
     expect(r.desenlace).toBe('en_curso');
     expect(peticiones).toHaveLength(0);
+  });
+
+  /**
+   * AC6 desde la reconciliación — la comprobación de descuadre TIENE que ejecutarse.
+   *
+   * Este bloque nace de una regresión que 4.628 pruebas dejaron pasar, y por eso está escrito por
+   * el mecanismo y no por el resultado. `revisionEsperada` llamaba a `prepararEmision` sin los
+   * conceptos ni la emisión del lote. Mientras existió la configuración global de emisión eso caía
+   * al respaldo y funcionaba; al retirarla, la llamada lanza `sin_configuracion` SIEMPRE, el `catch`
+   * lo convierte en «no se pudo recalcular el total esperado» y el resultado es que la comprobación
+   * que detecta un descuadre entre lo que Siigo cobró y la liquidación NO SE EJECUTA NUNCA.
+   *
+   * Es el peor tipo de fallo: nada se rompe, nada se registra como error, todas las facturas quedan
+   * marcadas «para revisión» con un motivo que parece técnico, y nadie se entera de que la puerta
+   * está abierta. Lo único que lo delata es afirmar las dos mitades —que lo que cuadra NO se marca,
+   * y que lo que no cuadra se marca CON SUS NÚMEROS—, que es lo que se hace aquí.
+   */
+  describe('la comprobación de descuadre se ejecuta de verdad', () => {
+    /** El listado de Siigo devuelve UNA factura, la de este trámite, con el total que se le pida. */
+    function siigoLaTieneCon(total: number): void {
+      siigoRequestOrThrowMock.mockResolvedValue({
+        pagination: { page: 1, page_size: 1, total_results: 1 },
+        results: [{
+          id: 'inv-rec', observations: 'FLITO · FLIT-9001 · placa ABC123',
+          name: '1', total,
+        }],
+      });
+    }
+
+    it('un total que cuadra NO se marca para revisión', async () => {
+      // La mitad que el fallo hacía imposible: con el recálculo apagado, TODA factura reconciliada
+      // salía marcada. Una alarma que suena siempre es una alarma que se ignora, y con ella se
+      // ignora el descuadre real del test siguiente.
+      huerfana();
+      siigoLaTieneCon(150_000); // SOAT 100.000 + trámite digital 50.000
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(false);
+      expect(loEscrito().revisionMotivo).toBeNull();
+    });
+
+    it('un total que NO cuadra se marca, y el motivo trae los dos números', async () => {
+      huerfana();
+      siigoLaTieneCon(200_000);
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(true);
+      // El motivo tiene que ser el del descuadre, no un «no se pudo comprobar»: son diagnósticos
+      // opuestos y mandan a mirar sitios distintos.
+      expect(loEscrito().revisionMotivo).toContain('200000.00');
+      expect(loEscrito().revisionMotivo).toContain('150000.00');
+      expect(loEscrito().revisionMotivo).not.toMatch(/no se pudo recalcular/i);
+    });
+
+    it('una factura de selección PARCIAL no inventa un descuadre', async () => {
+      // El matiz que convierte el arreglo fácil en el arreglo correcto: pasar `conceptos: []` haría
+      // pasar los dos tests de arriba, porque vacío significa «todos los aplicables». Sobre una
+      // factura que solo cobró el trámite digital, ese recálculo sumaría además el SOAT y marcaría
+      // un descuadre de 100.000 en una factura perfectamente correcta.
+      kdb.when
+        .select('siigo_facturas', [{
+          id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
+          enProcesoDesde: VENCIDA, estado: 'en_proceso',
+          conceptos: ['tramite_digital'], ...EMISION,
+        }])
+        .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
+        .update('siigo_facturas', [{ id: FACTURA }]);
+      kdb.execute.mockResolvedValue([
+        { id_flit: 'FLIT-9001', identificacion: '900123456', sucursal: 0 },
+      ]);
+      siigoLaTieneCon(50_000); // solo el trámite digital
+
+      await reconciliarFactura(FACTURA, { ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15 });
+
+      expect(loEscrito().requiereRevision).toBe(false);
+      expect(loEscrito().revisionMotivo).toBeNull();
+    });
+
+    it('un lote sin snapshot de emisión NO se da por cuadrado: se dice que no se pudo', async () => {
+      // Los lotes encolados antes del 2026-08-13 no guardan con qué se emitió, así que el armador
+      // los rechaza y el total no se puede reconstruir. La respuesta correcta no es callar —eso
+      // sería un descuadre dado por bueno— sino marcarla para que alguien la mire.
+      kdb.when
+        .select('siigo_facturas', [{
+          id: FACTURA, ambiente: 'pruebas', idempotencyKey: 'abc123',
+          enProcesoDesde: VENCIDA, estado: 'en_proceso',
+          conceptos: ['soat', 'tramite_digital'],
+          documentoTipoCodigo: null, vendedorCodigo: null,
+          formaPagoCodigo: null, centroCostoCodigo: null,
+        }])
+        .select('siigo_factura_tramites', [{ tramiteId: TRAMITE }])
+        .update('siigo_facturas', [{ id: FACTURA }]);
+      kdb.execute.mockResolvedValue([
+        { id_flit: 'FLIT-9001', identificacion: '900123456', sucursal: 0 },
+      ]);
+      siigoLaTieneCon(150_000);
+
+      const r = await reconciliarFactura(FACTURA, {
+        ambiente: 'pruebas', ahora: () => AHORA, arrendamientoMin: 15,
+      });
+
+      // Queda `emitida`: el documento existe ante la DIAN pase lo que pase. Lo que cambia es la
+      // marca, que es APARTE del estado justo para poder decir las dos cosas a la vez.
+      expect(r.desenlace).toBe('emitida');
+      expect(loEscrito().requiereRevision).toBe(true);
+      expect(loEscrito().revisionMotivo).toMatch(/no se pudo recalcular/i);
+    });
   });
 
   describe('reconocer la factura por sus observaciones', () => {
@@ -1222,7 +1371,7 @@ describe('AC6 — un total distinto se marca, no se acepta', () => {
       return { id: 'mock-invoice-1', number: 1, name: 'FV-1-1', total: 151000, public_url: 'https://x' };
     });
 
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const [update] = espia.updatesEn('siigo_facturas');
     // Emitida: el documento existe ante la DIAN pase lo que pase con el total.
@@ -1233,7 +1382,7 @@ describe('AC6 — un total distinto se marca, no se acepta', () => {
   });
 
   it('cuadrando, no se marca nada', async () => {
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const [update] = espia.updatesEn('siigo_facturas');
     expect(update!.datos.requiereRevision).toBe(false);
@@ -1251,7 +1400,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       motivos: [{ motivo: 'compuerta_cerrada', detalle: 'La parametrización no está confirmada.' }],
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('no_elegible');
     expect(r.motivos).toEqual(['La parametrización no está confirmada.']);
@@ -1270,7 +1419,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       ],
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
     expect(r.motivos).toEqual(['Falta el tipo de identificación.', 'Falta el soporte del SOAT.']);
   });
 
@@ -1289,7 +1438,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       errorCode: null, errorDetalle: null,
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('ya_emitida');
     expect(r.siigoInvoiceId).toBe('inv-1');
@@ -1306,7 +1455,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
     }]);
     kdb.when.select('siigo_facturas', []);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('no_elegible');
     expect(peticiones).toHaveLength(0);
@@ -1322,7 +1471,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       { tramiteId: otro, elegible: false, motivos: [{ motivo: 'documentacion_incompleta', detalle: 'Falta el SOAT.' }] },
     ]);
 
-    const r = await emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('no_elegible');
     expect(r.motivos).toContain('Falta el SOAT.');
@@ -1333,7 +1482,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
     const otro = 'cccccccc-1111-4111-8111-cccccccccccc';
     evaluarElegibilidadMock.mockResolvedValue([{ tramiteId: TRAMITE, elegible: true, motivos: [] }]);
 
-    const r = await emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('no_elegible');
     expect(peticiones).toHaveLength(0);
@@ -1347,7 +1496,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       throw Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
     });
 
-    await expect(emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA }))
+    await expect(emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION }))
       .rejects.toThrow(/Otro proceso acaba de facturar/);
     expect(peticiones).toHaveLength(0);
   });
@@ -1365,7 +1514,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
       filaTramite(), filaTramite({ tramiteId: otro, idFlit: 'FLIT-9002', companiaId: 9 }),
     ]);
 
-    await expect(emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA }))
+    await expect(emitirFactura([TRAMITE, otro], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION }))
       .rejects.toThrow(/compañías distintas/);
     expect(peticiones).toHaveLength(0);
   });
@@ -1373,7 +1522,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
   it('sin compañía no hay a quién facturarle', async () => {
     kdb.when.select('flito_tramites', [filaTramite({ companiaId: null })]);
 
-    await expect(emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA }))
+    await expect(emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION }))
       .rejects.toThrow(/compañía asociada/);
     expect(peticiones).toHaveLength(0);
   });
@@ -1383,7 +1532,7 @@ describe('AC7 — un rechazo no consume cuota ni deja la clave reservada', () =>
 
 describe('AC8 — todo intento queda registrado', () => {
   it('el éxito se registra con ambiente, modo, duración y resultado', async () => {
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, usuarioId: 3 });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, usuarioId: 3, emision: EMISION });
 
     expect(registrarOperacionMock).toHaveBeenCalledWith(expect.objectContaining({
       operacion: 'factura_emitir',
@@ -1398,10 +1547,23 @@ describe('AC8 — todo intento queda registrado', () => {
     expect(r.modo).toBeTruthy();
   });
 
+  it('A6 — la bitácora dice que NO se timbró, no se calla', async () => {
+    // `undefined` desaparece al serializar el JSON. Sin normalizar la ausencia a un `false`
+    // explícito, una factura deliberadamente sin timbrar quedaría idéntica a una anotada por una
+    // versión vieja de esta función, y nadie podría distinguirlas después.
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
+
+    const { requestBody } = registrarOperacionMock.mock.calls[0]![0] as { requestBody: Record<string, unknown> };
+    expect(requestBody.stamp).toEqual({ send: false });
+    expect(requestBody.mail).toBe(false);
+    // Y el `false` es lo REGISTRADO, no lo enviado: a Siigo no le viajó ninguna de las dos claves.
+    expect(peticiones[0]!.cuerpo).not.toHaveProperty('stamp');
+  });
+
   it('la respuesta se registra NORMALIZADA, no cruda', async () => {
     // El cuerpo de Siigo trae el cliente entero. Esta tabla prohíbe UPDATE y DELETE por disparador,
     // así que un dato personal escrito aquí por error ya no se puede rectificar ni suprimir.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const registro = registrarOperacionMock.mock.calls[0]![0] as { responseBody: unknown };
     expect(registro.responseBody).not.toHaveProperty('customer');
@@ -1414,7 +1576,7 @@ describe('AC8 — todo intento queda registrado', () => {
     // derechos del art. 8 de la Ley 1581 no se pueden ejercer sobre su contenido. La identificación
     // puede ser una cédula —el modelo admite `personType: 'Person'`— y la placa es dato personal en
     // cuanto es asociable a su propietario, que es justo lo que FLITO guarda.
-    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     const { requestBody } = registrarOperacionMock.mock.calls[0]![0] as { requestBody: Record<string, unknown> };
     expect(JSON.stringify(requestBody)).not.toContain('900123456');
@@ -1439,7 +1601,7 @@ describe('AC8 — todo intento queda registrado', () => {
       errorCode: 'parameter_required', errorDetalle: 'seller',
     }]);
 
-    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA });
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
 
     expect(r.desenlace).toBe('fallida');
     expect(r.errorCode).toBe('parameter_required');
@@ -1566,12 +1728,14 @@ describe('preparar el armado', () => {
     })).rejects.toThrow(SiigoEmisionError);
   });
 
-  it('sin configuración de emisión tampoco', async () => {
-    parametrosDeEmisionMock.mockResolvedValue(null);
+  it('un lote sin con qué emitir se rechaza y dice que hay que reenviarlo', async () => {
+    // Ya no existe una configuración global a la que caer: si el lote no trae comprobante,
+    // vendedor y forma de pago, es un lote encolado antes del cambio y no se puede emitir. El
+    // mensaje tiene que decir la salida —reenviar—, no solo que falta algo.
     await expect(prepararEmision({
       tramiteIds: [TRAMITE], tramites: await cargarTramites([TRAMITE]),
       ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA,
-    })).rejects.toThrow(/configuración de emisión/);
+    })).rejects.toThrow(/vuelve a enviar los trámites/);
   });
 
   it('la clave de idempotencia no depende del orden de los trámites', async () => {
@@ -1580,9 +1744,11 @@ describe('preparar el armado', () => {
     const tramites = await cargarTramites([TRAMITE, otro]);
 
     const a = await prepararEmision({
-      tramiteIds: [TRAMITE, otro], tramites, ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA });
+      tramiteIds: [TRAMITE, otro], tramites, ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA,
+      emision: EMISION });
     const b = await prepararEmision({
-      tramiteIds: [otro, TRAMITE], tramites, ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA });
+      tramiteIds: [otro, TRAMITE], tramites, ambiente: 'pruebas', tercero: TERCERO, ahora: AHORA,
+      emision: EMISION });
 
     expect(a.clave).toBe(b.clave);
   });

@@ -3609,48 +3609,30 @@ export const siigoCiudades = pgTable('siigo_ciudades', {
 }));
 
 /**
- * Configuración global de emisión, por ambiente (HU #11284).
+ * Parámetros operativos del ambiente (migración 0148; antes «configuración global de emisión»).
  *
- * Con qué tipo de comprobante, vendedor, forma de pago y centro de costo nacen las facturas. Los
- * cuatro son identificadores de UNA empresa de Siigo, así que la configuración es por ambiente
- * igual que los catálogos y el mapeo de conceptos.
+ * **Ya no dice con qué nacen las facturas.** Hasta el 2026-08-13 guardaba el tipo de comprobante, el
+ * vendedor, la forma de pago y el centro de costo con los que se emitía TODO un ambiente. Se retiró:
+ * los cuatro se eligen en cada envío, por empresa, y quedan como snapshot inmutable en
+ * `siigoLotesFacturacion`. Una configuración global significaba que cambiar el vendedor de una
+ * empresa lo cambiaba para todas.
  *
- * Guardar INSERTA una fila nueva y apaga la anterior en vez de actualizar en sitio: con estos
- * valores se emiten documentos ante la DIAN, y «¿con qué vendedor salió la factura de marzo?» solo
- * se puede responder si la configuración de marzo sigue existiendo. El índice único parcial sobre
- * `vigente` es lo que garantiza el AC1 —una sola vigente por ambiente— desde la base.
+ * Con ella se fueron las cuatro columnas que sostenían preguntas de negocio abiertas —retenciones,
+ * moneda, numeración y plazo de vencimiento—, porque esas preguntas se respondieron y una respuesta
+ * no necesita una palanca. Están en la 0148 con su respuesta.
  *
- * Tres campos describen decisiones que contabilidad NO ha tomado, implementadas como configuración
- * para que responderlas sea cambiar un dato: forma de pago única (AC3), plazo de vencimiento (AC4)
- * y estrategia de numeración (AC5).
+ * Quedan dos valores, y siguen en tabla y no en una variable `SIIGO_*` a propósito: son por
+ * ambiente, quedan historiados y admiten `CHECK`. No hay pantalla ni endpoint que los escriba —se
+ * cambian con una migración—, así que el historial se conserva pero ya nadie inserta filas nuevas.
  */
 export const siigoConfigEmision = pgTable('siigo_config_emision', {
   id: uuid('id').primaryKey().defaultRandom(),
   ambiente: varchar('ambiente', { length: 12 }).notNull(),
-  /** Códigos de la copia local de los catálogos. Nunca se escriben a mano. */
-  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
-  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
-  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
-  /** Obligatorio solo si el tipo de comprobante elegido lo exige (`centroCostoObligatorio`). */
-  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
-  /** Cero = de contado. Es una afirmación, no un hueco. El cálculo vive en la HU de emisión. */
-  plazoVencimientoDias: integer('plazo_vencimiento_dias').notNull().default(0),
-  /** Solo 'siigo' (AC5). Añadir «lo envía FLITO» exige migración, es decir, una decisión. */
-  estrategiaNumeracion: varchar('estrategia_numeracion', { length: 30 }).notNull().default('siigo'),
-  // Las cuatro preguntas de negocio que siguen ABIERTAS (HU #11323). Viven aquí, y no dentro del
-  // código de emisión, para que responderlas sea un UPDATE y no un cambio de programa. Cada una
-  // lleva su pregunta escrita: dentro de un año tiene que verse que era una incógnita y no una
-  // decisión que alguien tomó sin decirlo.
-  /** Pregunta 7 — ¿aplican ReteICA/ReteIVA/autorretención? Un solo valor; ampliar exige migración. */
-  retencionesEstrategia: varchar('retenciones_estrategia', { length: 30 }).notNull().default('ninguna'),
-  /** Pregunta 15 — se asume COP. Un solo valor admitido. */
-  moneda: varchar('moneda', { length: 3 }).notNull().default('COP'),
-  /** Pregunta 13 — ¿se factura el histórico ya marcado como facturado? Por defecto, desde hoy. */
+  /** Desde cuándo se factura. No hay histórico: lo anterior no se emite (pregunta 13, respondida). */
   historicoDesde: date('historico_desde').notNull().defaultNow(),
   /** Minutos tras los cuales una factura `en_proceso` se considera huérfana y se reconcilia. */
   arrendamientoEnProcesoMin: integer('arrendamiento_en_proceso_min').notNull().default(15),
-  notas: text('notas'),
-  /** false = configuración histórica. */
+  /** false = fila histórica. */
   vigente: boolean('vigente').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   createdBy: integer('created_by').references(() => users.id),
@@ -3680,8 +3662,30 @@ export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
   ambiente: varchar('ambiente', { length: 12 }).notNull(),
   /** Solo 'por_tramite' (D-1 diferida). Consolidar exige migración, es decir, una decisión. */
   estrategia: varchar('estrategia', { length: 30 }).notNull().default('por_tramite'),
-  /** sha256 hex de los ids de trámite ORDENADOS: el orden de selección no cambia la identidad. */
+  /**
+   * sha256 hex de los ids de trámite Y los conceptos, ambos ORDENADOS: ni el orden de selección en
+   * la pantalla ni el de los conceptos cambian la identidad del lote (A1, migración 0146).
+   */
   huella: varchar('huella', { length: 64 }).notNull(),
+  /** Conceptos elegidos al enviar, ordenados. Vacío = lote anterior a A1 (todos los aplicables). */
+  conceptos: text('conceptos').array().notNull().default(sql`'{}'::text[]`),
+  /**
+   * Snapshot INMUTABLE de la emisión elegida al enviar (A2). Entra en la huella: cambiar el vendedor
+   * cambia la factura, así que cambia la identidad del lote.
+   *
+   * **`null` = lote encolado antes del 2026-08-13, al que le falta con qué emitir.** Hasta la 0148
+   * significaba «usar la configuración global vigente»; esa configuración se retiró y ya no hay nada
+   * detrás, así que `prepararEmision` rechaza el lote y pide reenviar los trámites. No se puso
+   * `NOT NULL` para no tener que inventarle un vendedor a esos lotes en una migración — se prefiere
+   * una fila que falla ruidosamente al emitir sobre una que emite con datos que nadie eligió.
+   *
+   * `centroCostoCodigo` es la excepción: ahí `null` sigue siendo legítimo, porque solo es obligatorio
+   * cuando el comprobante lo exige (`cost_center_mandatory` de `/v1/document-types`).
+   */
+  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
+  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
+  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
+  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
   creadoPor: integer('creado_por').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -3740,6 +3744,11 @@ export const siigoFacturas = pgTable('siigo_facturas', {
   idemUq: uniqueIndex('idx_siigo_facturas_idem').on(t.ambiente, t.idempotencyKey),
   enProcesoIdx: index('idx_siigo_facturas_en_proceso').on(t.enProcesoDesde),
   estadoIdx: index('idx_siigo_facturas_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+  // Migración 0149. **No es para el JOIN de la reconciliación**, que entra por `id` —la primaria— y
+  // desde esa única fila alcanza el lote por la primaria del lote: ese camino no lo toca. Está
+  // porque `lote_id` era una clave foránea SIN índice, y sin él cualquier comprobación de integridad
+  // sobre `siigo_lotes_facturacion` recorre esta tabla entera, que solo crece.
+  loteIdx: index('idx_siigo_facturas_lote').on(t.loteId),
 }));
 
 /**
@@ -3759,13 +3768,21 @@ export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
   tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id),
   /** Se guarda para poder explicar una factura vieja aunque la liquidación cambie después. */
   liquidacionId: uuid('liquidacion_id').references(() => flitoLiquidaciones.id, { onDelete: 'set null' }),
+  /** Qué concepto cubre. `null` = factura anterior a A1, que cubría todos los aplicables. */
+  concepto: varchar('concepto', { length: 30 }),
   activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   facturaIdx: index('idx_siigo_factura_tramites_factura').on(t.facturaId),
   // Parcial a propósito: una factura `fallida` NO ocupa el trámite, porque el reintento legítimo
   // tiene que poder volver a facturarlo.
-  vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo').on(t.tramiteId).where(sql`${t.activo}`),
+  //
+  // Por (trámite, concepto) desde A1 (D-5): lo que impide es emitir DOS VECES el mismo concepto del
+  // mismo trámite —dos documentos ante la DIAN, irreversibles—, no facturar mañana otro concepto.
+  // El COALESCE cubre las filas históricas con `concepto` NULL, que en un índice único serían todas
+  // distintas entre sí y dejarían sin protección justo a los datos que ya existen.
+  vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo')
+    .on(t.tramiteId, sql`COALESCE(${t.concepto}, '*')`).where(sql`${t.activo}`),
 }));
 
 /**
@@ -3969,6 +3986,30 @@ export const siigoFacturaEnvios = pgTable('siigo_factura_envios', {
  * La clave del tercero EN SIIGO es la pareja (identificación, sucursal): una identificación puede
  * repetirse allá si la sucursal es distinta. El índice único va sobre las dos.
  */
+/**
+ * Lo último que se usó al facturarle a un cliente (A2, migración 0147).
+ *
+ * **Recuerda, no parametriza.** Se escribe sola al enviar y solo sirve para precargar el diálogo
+ * del envío siguiente. Con qué configuración salió cada factura vive en el lote, que es inmutable.
+ */
+export const siigoEmisionCliente = pgTable('siigo_emision_cliente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: integer('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
+  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
+  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
+  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  actualizadoPor: integer('actualizado_por').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // `pruebas` y `produccion` son empresas distintas de Siigo: un vendedor de una no significa nada
+  // en la otra, y precargar el diálogo de producción con un código de pruebas sería un rechazo que
+  // nadie entendería.
+  clienteAmbienteUq: uniqueIndex('idx_siigo_emision_cliente').on(t.clientId, t.ambiente),
+}));
+
 export const siigoTerceros = pgTable('siigo_terceros', {
   id: uuid('id').primaryKey().defaultRandom(),
   clientId: integer('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),

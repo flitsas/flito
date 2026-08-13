@@ -405,15 +405,34 @@ F2 y F3 son paralelizables una vez exista F1. F4 depende de ambas.
 Las cuatro bloqueantes originales ya se resolvieron (§1.1): dos con decisión (D-3, D-4) y dos
 diferidas con una estrategia de diseño que impide que bloqueen el desarrollo (D-1, D-2 → §7).
 
+### Respondidas el 2026-08-13
+
+Cinco de las de abajo dejaron de ser incógnitas. Se dejan escritas con su respuesta, y no borradas,
+porque cuatro de ellas estaban implementadas como columnas de `siigo_config_emision` —para que
+responderlas fuera un `UPDATE`— y la migración `0148` las retiró: dentro de un año tiene que poder
+verse que fueron preguntas y cuál fue la respuesta, no que alguien las decidió sin decirlo.
+
+| # | Pregunta | Respuesta | Qué implica en el código |
+|---|---|---|---|
+| 6 | Forma de pago | **Se captura por cliente**, no es una parametrización fija | Se elige en cada envío, por empresa, y se recuerda en `siigo_emision_cliente`. Sin plazo: no se envía `payments[].due_date`, y las formas de pago con vencimiento **no se ofrecen** al elegir |
+| 7 | Retenciones | **Se configuran en el tercero** en Siigo Nube | FLITO nunca envía `retentions[]`. Si un cliente existe en Siigo, ya trae sus retenciones |
+| 12 | Numeración | **La asigna Siigo** | Nunca se envía `number` — de hecho no existe en `InvoiceIn` |
+| 13 | Histórico | **No se factura histórico** | Se arranca desde la puesta en marcha (`historico_desde`). Lo anterior no se emite |
+| 15 | Moneda | **COP** | No se envía `currency`: ese campo es «Código de Moneda **Extranjera**», así que en COP lo correcto es omitirlo |
+
+De la 6 se desprende un riesgo que conviene tener presente: si contabilidad configura en Siigo Nube
+la forma de pago habitual **con vencimiento**, esa opción desaparece del selector y quien factura se
+queda sin poder elegirla. La salida es configurarla de contado, no reintentar.
+
 ### Importantes (se pueden asumir, pero conviene confirmar)
 
 5. **GMF (4x1000).** ¿Se factura como una línea más (un producto «GMF»), o se absorbe dentro del
    valor de otro concepto? Facturar un gravamen bancario como producto tiene lectura tributaria.
-6. **Forma de pago.** No existe en FLITO. ¿Una forma de pago fija parametrizada (p. ej. «Crédito»
-   con vencimiento a N días), o se captura por cliente? Si maneja vencimiento, Siigo exige
-   `due_date` y **no admite más de una forma de pago** en la factura.
-7. **Retenciones.** ¿Aplican ReteICA/ReteIVA/autorretención en las facturas de FLIT? Siigo lo
-   soporta con `retentions[]`, pero hay que saber cuáles y cuándo.
+6. ~~**Forma de pago.**~~ **RESPONDIDA (2026-08-13): se captura por cliente**, al enviar, y se
+   recuerda para el próximo envío de esa empresa. Sin plazo de vencimiento, así que no se envía
+   `due_date` y las formas de pago que lo manejan se filtran del selector.
+7. ~~**Retenciones.**~~ **RESPONDIDA (2026-08-13): se definen en el tercero**, en Siigo Nube. Un
+   cliente que existe ya las trae configuradas, así que FLITO no envía `retentions[]`.
 8. **Notas crédito y anulación.** Si un trámite facturado hay que corregirlo o anularlo, ¿entran
    la nota crédito y la anulación electrónica en este alcance o se manejan manualmente en Siigo por
    ahora? Son operaciones distintas: la anulación aplica en ventanas y estados DIAN que la nota
@@ -425,13 +444,14 @@ diferidas con una estrategia de diseño que impide que bloqueen el desarrollo (D
 11. **Universo facturable.** ¿Solo trámites con liquidación **sellada** y documentación completa, o
     también estimados? (Recomendación: solo sellados; un estimado puede cambiar mañana y una factura
     electrónica aceptada por la DIAN no.)
-12. **Numeración.** ¿Se deja que Siigo asigne el consecutivo (recomendado), o FLITO debe enviar
-    `number`? Y ¿la resolución DIAN vigente ya está cargada en Siigo?
-13. **Histórico.** ¿Se van a facturar electrónicamente trámites ya marcados como facturados en
-    FLITO, o solo los nuevos desde la puesta en marcha?
+12. ~~**Numeración.**~~ **RESPONDIDA (2026-08-13): la asigna Siigo.** `number` es opcional y no
+    se envía. Sigue abierta la parte de la resolución DIAN vigente cargada en Siigo.
+13. ~~**Histórico.**~~ **RESPONDIDA (2026-08-13): solo los nuevos.** No hace falta arrastrar el
+    histórico; se arranca desde un momento dado (`historico_desde`).
 14. **Sucursales (`branch_office`).** ¿Un cliente FLITO puede tener varias sucursales en Siigo? La
     clave real del tercero en Siigo es `identification + branch_office`.
-15. **Moneda.** ¿Siempre COP? (Se asume que sí.)
+15. ~~**Moneda.**~~ **RESPONDIDA (2026-08-13): siempre COP**, y por tanto `currency` no se envía:
+    el campo es para moneda extranjera.
 16. **Rol autorizado.** ¿Quién puede disparar la emisión: `financiera`, `admin`, ambos?
 
 ---

@@ -58,7 +58,13 @@ const cuerpoSchema = z.object({
     .optional(),
 });
 
-/** Traduce el fallo del servicio a HTTP. El servicio no sabe de códigos de estado, y así queda. */
+/**
+ * Traduce el fallo del servicio a HTTP. El servicio no sabe de códigos de estado, y así queda.
+ *
+ * `ambiente_no_productivo` (A6) cae en el 409 general y es lo correcto: no es que falten permisos
+ * —un 403 diría eso y mandaría a alguien a revisar roles—, es que la petición choca con el estado
+ * del sistema. El `codigo` del cuerpo es lo que la interfaz mira para explicar cuál de los dos.
+ */
 function estadoDe(codigo: SiigoEnvioError['codigo']): number {
   return codigo === 'no_existe' ? 404 : 409;
 }

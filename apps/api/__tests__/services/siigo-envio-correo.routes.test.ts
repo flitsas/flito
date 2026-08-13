@@ -41,9 +41,14 @@ vi.mock('../../src/modules/siigo/siigo.resiliencia.js', async (original) => {
 
 const FACTURA_ID = '11111111-2222-3333-4444-555555555555';
 
+/**
+ * `produccion` y no `pruebas`: desde A6 el correo solo sale de producción, así que una factura de
+ * pruebas ya no llega a ninguna de las ramas que estas pruebas ejercitan. El caso contrario tiene
+ * su propio bloque al final del archivo.
+ */
 function facturaConCliente(over: Record<string, unknown> = {}) {
   return {
-    id: FACTURA_ID, ambiente: 'pruebas', siigoInvoiceId: 'inv-1', numero: 'FV-100',
+    id: FACTURA_ID, ambiente: 'produccion', siigoInvoiceId: 'inv-1', numero: 'FV-100',
     estado: 'emitida', clienteEmail: 'pagos@cliente.test', clienteContactEmail: null,
     ...over,
   };
@@ -180,6 +185,24 @@ describe('Lo que la ruta responde cuando el servicio dice que no', () => {
 
     expect(r.status).toBe(409);
     expect(r.body.codigo).toBe('factura_no_emitida');
+  });
+
+  it('A6 — una factura de pruebas → 409 con ambiente_no_productivo', async () => {
+    // 409 y no 403: no faltan permisos —un 403 mandaría a alguien a revisar roles— sino que la
+    // petición choca con el estado del sistema. El `codigo` del cuerpo es lo que distingue cuál de
+    // los dos conflictos es, y lo que la interfaz usa para explicarlo.
+    kdb.when.select('siigo_facturas', [facturaConCliente({ ambiente: 'pruebas' })]);
+
+    const app = await buildApp();
+    const r = await request(app)
+      .post(`/api/siigo/envios/factura/${FACTURA_ID}`)
+      .set('Authorization', await auth('admin'))
+      .send({});
+
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('ambiente_no_productivo');
+    expect(r.body.error).toMatch(/producci[oó]n/i);
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
   });
 
   it('una factura inexistente → 404', async () => {

@@ -149,3 +149,43 @@ describe('las tres carreras que este modelo cierra siguen cerradas', () => {
     expect(MIGRACION).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION)\s*;/im);
   });
 });
+
+/**
+ * El corte del histórico tiene que estar SEMBRADO (migración 0149).
+ *
+ * La 0148 retiró la pantalla que escribía `siigo_config_emision` y la tabla se quedó sin escritor:
+ * cero filas, `historico_desde` nulo, y el único control que impide facturar histórico no autorizado
+ * apagado sin ruido. La 0149 la siembra, y la elegibilidad bloquea cuando no hay fila.
+ *
+ * Estas afirmaciones son sobre el TEXTO de la migración —esta suite corre con la base mockeada— y
+ * existen para que la siembra no desaparezca en un refactor. Que se aplique de verdad se comprobó
+ * ejecutándola contra PostgreSQL 16, dos veces seguidas, y está en el PR.
+ */
+describe('la 0149 siembra el corte del histórico', () => {
+  const SEMILLA = readFileSync(
+    path.resolve(process.cwd(), 'src/db/migrations/0149_siigo_corte_historico_sembrado.sql'),
+    'utf8',
+  );
+
+  it('siembra los dos ambientes: uno sin fila no factura nada', () => {
+    expect(SEMILLA).toMatch(/INSERT INTO siigo_config_emision[\s\S]*'produccion'[\s\S]*'pruebas'/);
+  });
+
+  it('la fecha es EXPLÍCITA, no `current_date`', () => {
+    // Con `current_date`, el corte de producción sería el día del despliegue: una fecha que nadie
+    // decidió y que cambia según cuándo se aplique la migración. Ante la DIAN eso no vale.
+    expect(SEMILLA).toMatch(/DATE '2026-08-13'/);
+    expect(SEMILLA).not.toMatch(/historico_desde[^;]*current_date/i);
+  });
+
+  it('es repetible y NO pisa lo que alguien ya hubiera configurado', () => {
+    // El `WHERE vigente` no es adorno: sin él, PostgreSQL no reconoce el índice único PARCIAL de la
+    // 0130 y la sentencia falla. Y `DO NOTHING` en vez de `DO UPDATE` porque una fila puesta a mano
+    // la eligió una persona.
+    expect(SEMILLA).toMatch(/ON CONFLICT \(ambiente\) WHERE vigente DO NOTHING/);
+  });
+
+  it('no abre transacción propia (ADR-DB-001)', () => {
+    expect(SEMILLA).not.toMatch(/^\s*(BEGIN|COMMIT|ROLLBACK|START\s+TRANSACTION)\s*;/im);
+  });
+});

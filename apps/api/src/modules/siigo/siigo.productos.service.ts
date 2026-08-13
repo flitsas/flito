@@ -360,3 +360,104 @@ export async function crearProducto(
     },
   );
 }
+
+// ── Listado para elegir producto (A3) ───────────────────────────────────────
+
+/**
+ * Tope de páginas que se recorren en un listado.
+ *
+ * FLIT factura un puñado de servicios, no un inventario: cinco páginas de cien son quinientos
+ * productos, muy por encima de lo que esta empresa tiene y muy por debajo de agotar la cuota, que se
+ * comparte con la emisión. Si alguna vez se queda corto, el resultado lo DICE (`truncado`) en vez de
+ * devolver una lista incompleta que parece completa.
+ */
+export const MAX_PAGINAS_PRODUCTOS = 5;
+export const TAM_PAGINA_PRODUCTOS = 100;
+
+export interface ProductoDeSiigo {
+  codigo: string;
+  nombre: string;
+  activo: boolean;
+  /** Los impuestos que Siigo tiene configurados. Desde A7 son la fuente: FLITO no guarda copia. */
+  impuestos: Array<{ id: number; nombre: string | null; porcentaje: number | null }>;
+}
+
+export interface ListadoProductos {
+  items: ProductoDeSiigo[];
+  /** `true` = hay más productos en Siigo de los que se miraron. La pantalla TIENE que decirlo. */
+  truncado: boolean;
+  /** Lo que Siigo dice que hay en total, si lo reporta. */
+  total: number | null;
+}
+
+/**
+ * Los productos de Siigo, para elegir uno.
+ *
+ * **Siigo no tiene filtro por nombre.** Sus filtros documentados en `GET /v1/products` son `code`,
+ * `id` y rangos de fechas — nada más. Así que el filtro por texto se aplica AQUÍ, sobre lo que se
+ * trajo, y por eso se traen varias páginas en vez de una: filtrar la primera página de veinticinco
+ * y llamarlo búsqueda devolvería «no hay resultados» para un producto que existe, que es la peor
+ * respuesta posible en un selector.
+ *
+ * Lo que se recorre está acotado y el tope se declara en la respuesta. Un listado que se corta en
+ * silencio se lee como completo, y quien no encuentre su producto va a pensar que no está en Siigo.
+ */
+export async function listarProductos(
+  ambiente: SiigoAmbiente, opciones: { busqueda?: string } = {},
+): Promise<ListadoProductos> {
+  const busqueda = (opciones.busqueda ?? '').trim().toLowerCase();
+  const items: ProductoDeSiigo[] = [];
+  let total: number | null = null;
+  let truncado = false;
+
+  for (let pagina = 1; pagina <= MAX_PAGINAS_PRODUCTOS; pagina += 1) {
+    const datos = await ejecutarConResiliencia(
+      () => siigoRequestOrThrow<SiigoListadoApi<SiigoProductoApi>>({
+        metodo: 'GET',
+        ruta: `/v1/products?page=${pagina}&page_size=${TAM_PAGINA_PRODUCTOS}`,
+        ambiente,
+        timeoutMs: TIMEOUT_CONSULTA_PRODUCTO_MS,
+      }),
+      {
+        clave: claveResiliencia(ambiente),
+        claveCortacircuitos: claveCortacircuitosProductos(ambiente),
+      },
+    );
+
+    const pagina_ = datos?.results ?? [];
+    for (const p of pagina_) items.push(aProducto(p));
+
+    const reportado = datos?.pagination?.total_results;
+    if (typeof reportado === 'number' && Number.isFinite(reportado)) total = reportado;
+
+    // Se para cuando la página viene incompleta: es el final del listado sin tener que fiarse del
+    // total, que Siigo no siempre reporta.
+    if (pagina_.length < TAM_PAGINA_PRODUCTOS) break;
+    if (pagina === MAX_PAGINAS_PRODUCTOS) truncado = true;
+  }
+
+  const filtrados = busqueda === ''
+    ? items
+    : items.filter((p) => p.codigo.toLowerCase().includes(busqueda)
+      || p.nombre.toLowerCase().includes(busqueda));
+
+  // Por nombre y no por fecha de creación, que es como los devuelve Siigo: quien busca «Servicio en
+  // la Nube» en un desplegable espera orden alfabético, no cronológico inverso.
+  filtrados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  return { items: filtrados, truncado, total };
+}
+
+/** Traduce un producto de la API. `active` ausente = INACTIVO: mismo sesgo que la consulta por código. */
+function aProducto(p: SiigoProductoApi): ProductoDeSiigo {
+  return {
+    codigo: typeof p.code === 'string' ? p.code : '',
+    nombre: typeof p.name === 'string' ? p.name : '',
+    activo: p.active === true,
+    impuestos: (p.taxes ?? []).flatMap((t) => (typeof t?.id === 'number' ? [{
+      id: t.id,
+      nombre: typeof t.name === 'string' ? t.name : null,
+      porcentaje: typeof t.percentage === 'number' ? t.percentage : null,
+    }] : [])),
+  };
+}

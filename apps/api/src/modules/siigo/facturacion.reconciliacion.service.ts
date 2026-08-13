@@ -31,14 +31,17 @@
 // resultado es el que pide el AC; el camino es el que la API permite.
 
 import { and, eq, sql } from 'drizzle-orm';
+import type { ConceptoFacturable } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { siigoFacturas, siigoFacturaTramites } from '../../db/schema.js';
+import { siigoFacturas, siigoFacturaTramites, siigoLotesFacturacion } from '../../db/schema.js';
 import { logger } from '../../shared/logger.js';
 import { siigoRequestOrThrow } from './siigo.client.js';
 import { ejecutarConResiliencia } from './siigo.resiliencia.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 import { detalleTecnico, sanearMensaje } from './siigo.redaccion.js';
 import { modoSiigo } from './siigo.mock.js';
+import { conceptosDeLaColumna } from './facturacion.lote.repo.js';
+import type { EmisionElegida } from './facturacion.armado.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
   arrendamientoConfigurado, arrendamientoVencido, cargarTramites, claveCortacircuitosEmision,
@@ -101,6 +104,23 @@ interface FacturaHuerfana {
   sucursal: number | null;
   /** Cuándo se tocó por última vez el vínculo del tercero. Ver la guarda de llave en `buscarEnSiigo`. */
   terceroActualizadoEn: Date | null;
+  /**
+   * Qué conceptos factura su lote (A1). Vacío = lote anterior a A1: todos los aplicables.
+   *
+   * **Sin esto no se puede recalcular el total esperado, y pasar una lista vacía NO es equivalente.**
+   * Vacío significa «todos los aplicables», así que una factura de selección parcial —tres conceptos
+   * de los cinco de la liquidación— se recalcularía sumando los cinco y produciría un descuadre que
+   * no existe. Es decir: la comprobación del AC6 diría que sobra dinero en una factura correcta.
+   */
+  conceptos: ConceptoFacturable[];
+  /**
+   * Con qué se emitió: el snapshot inmutable del lote (A2).
+   *
+   * Todo `null` = lote anterior al 2026-08-13. `prepararEmision` lo rechaza, y por eso el total de
+   * esas facturas antiguas no se puede recalcular: se dice con todas las letras en la marca de
+   * revisión en vez de darlas por cuadradas.
+   */
+  emision: EmisionElegida;
 }
 
 /**
@@ -121,6 +141,12 @@ function identificacionAnonimizada(identificacion: string): boolean {
  * reconciliar hiciera falta preguntar quién es el cliente, un fallo de esa consulta contaminaría el
  * veredicto sobre la factura. Cada pregunta a la red que se pueda evitar es una fuente menos de
  * `indeterminada`.
+ *
+ * **El lote entra por un JOIN, no por una segunda consulta.** Ahí están los conceptos elegidos y el
+ * snapshot de con qué se emitió, y sin los dos no se puede recalcular el total esperado. El JOIN va
+ * de la primaria de la factura a la primaria del lote —una fila cada una— así que no cuesta ningún
+ * viaje más; leerlo aparte sí abriría la puerta a reconciliar con un lote y explicarlo con otro.
+ * `INNER` y no `LEFT` porque `lote_id` es `NOT NULL` con clave foránea: toda factura tiene su lote.
  */
 async function cargarHuerfana(facturaId: string): Promise<FacturaHuerfana | null> {
   const [f] = await db.select({
@@ -130,7 +156,15 @@ async function cargarHuerfana(facturaId: string): Promise<FacturaHuerfana | null
     enProcesoDesde: siigoFacturas.enProcesoDesde,
     createdAt: siigoFacturas.createdAt,
     estado: siigoFacturas.estado,
-  }).from(siigoFacturas).where(eq(siigoFacturas.id, facturaId)).limit(1);
+    conceptos: siigoLotesFacturacion.conceptos,
+    documentoTipoCodigo: siigoLotesFacturacion.documentoTipoCodigo,
+    vendedorCodigo: siigoLotesFacturacion.vendedorCodigo,
+    formaPagoCodigo: siigoLotesFacturacion.formaPagoCodigo,
+    centroCostoCodigo: siigoLotesFacturacion.centroCostoCodigo,
+  }).from(siigoFacturas)
+    .innerJoin(siigoLotesFacturacion, eq(siigoLotesFacturacion.id, siigoFacturas.loteId))
+    .where(eq(siigoFacturas.id, facturaId))
+    .limit(1);
   if (!f) return null;
 
   const puentes = await db.select({ tramiteId: siigoFacturaTramites.tramiteId })
@@ -165,6 +199,16 @@ async function cargarHuerfana(facturaId: string): Promise<FacturaHuerfana | null
     // absurdo, y ese vacío se leería como «la factura no existe».
     sucursal: sucursalValida(filas[0]?.sucursal),
     terceroActualizadoEn: aFecha(filas[0]?.tercero_actualizado_en),
+    // Por el repositorio del lote y no con un `filter` propio: qué contiene la columna `conceptos`
+    // lo define un solo sitio. Dos lecturas distintas del mismo lote producirían dos totales
+    // esperados distintos, y el que sobrara se escribiría como un descuadre que nadie tiene.
+    conceptos: conceptosDeLaColumna(f.conceptos),
+    emision: {
+      documentoTipoCodigo: f.documentoTipoCodigo ?? null,
+      vendedorCodigo: f.vendedorCodigo ?? null,
+      formaPagoCodigo: f.formaPagoCodigo ?? null,
+      centroCostoCodigo: f.centroCostoCodigo ?? null,
+    },
   };
 }
 
@@ -843,6 +887,16 @@ export async function resolverHuerfanaAMano(
  * Si no se puede reconstruir —falta el vínculo del tercero, o el mapeo cambió— **no se afirma que
  * cuadre**: se marca para revisión diciendo que no se pudo comprobar. Un silencio aquí sería un
  * descuadre dado por bueno.
+ *
+ * **Se le pasa el CONTENIDO del lote, y eso no es opcional.** `prepararEmision` exige el snapshot de
+ * emisión desde que se retiró la configuración global: llamarla sin él lanza `sin_configuracion`
+ * SIEMPRE, el `catch` de abajo lo convierte en «no se pudo recalcular» y la comprobación de
+ * descuadre deja de ejecutarse para todas las huérfanas sin que nada lo denuncie. Pasó, y ninguna
+ * prueba lo vio: el fallo no rompe nada, solo apaga una comprobación.
+ *
+ * Y los conceptos tienen que ser LOS DEL LOTE. Una lista vacía no es un valor neutro —significa
+ * «todos los aplicables»—, así que sobre una factura de selección parcial recalcularía de más y
+ * marcaría un descuadre inexistente en una factura correcta.
  */
 async function revisionEsperada(
   h: FacturaHuerfana, ambiente: SiigoAmbiente, emitida: FacturaEmitida, ahora: Date,
@@ -855,6 +909,8 @@ async function revisionEsperada(
       tramiteIds: h.tramiteIds,
       tramites: await cargarTramites(h.tramiteIds),
       ambiente,
+      conceptos: h.conceptos,
+      emision: h.emision,
       tercero: { identificacion: h.identificacion, sucursal: h.sucursal ?? 0 },
       ahora,
     });
@@ -884,13 +940,18 @@ export async function reconciliarHuerfanas(
     .where(and(
       eq(siigoFacturas.ambiente, opciones.ambiente),
       eq(siigoFacturas.estado, 'en_proceso'),
-      sql`${siigoFacturas.enProcesoDesde} < ${corte}`,
+      // ISO con cast, no el `Date` pelado. Un fragmento `sql` crudo no lleva el tipo de la columna,
+      // así que drizzle lo manda como parámetro suelto a `client.unsafe` de postgres.js, que no
+      // aplica serializadores y revienta al codificar un `Date`. Comparar con `eq()` sí funcionaría
+      // —ahí drizzle sí conoce la columna—, pero aquí hace falta `<`. Mismo motivo que en
+      // `tomarLote`, y también invisible para las pruebas, que corren contra la base mockeada.
+      sql`${siigoFacturas.enProcesoDesde} < ${corte.toISOString()}::timestamptz`,
       // Espera entre intentos, y NO exclusión. Ninguna fila desaparece del barrido —eso la volvería
       // invisible y su trámite, irrecuperable— pero tampoco se reintenta en cada pasada: cada
       // reconciliación toca `updated_at`, así que una que no concluye descansa antes de volver.
       // Es lo que impide que una huérfana imposible gaste diez consultas por barrido de la misma
       // cuota que necesita la emisión, y que llene de errores la bitácora que alimenta el freno.
-      sql`${siigoFacturas.updatedAt} < ${esperaHasta}`,
+      sql`${siigoFacturas.updatedAt} < ${esperaHasta.toISOString()}::timestamptz`,
     ))
     // Las más antiguas primero: son las que llevan más tiempo con su trámite retenido.
     .orderBy(siigoFacturas.enProcesoDesde)

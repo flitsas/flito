@@ -16,6 +16,8 @@ import {
   type SiigoEstadoReporte,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
+import { efectosExternosPermitidos } from './siigo.config.js';
+import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** Tope de trámites por consulta. El reporte pinta 200 por página; el doble sobra y acota el abuso. */
 export const TOPE_TRAMITES_CONSULTA = 400;
@@ -31,6 +33,17 @@ export interface FacturacionDeTramite {
   estado: SiigoEstadoReporte;
   /** Lo que dijo la DIAN. `null` = todavía no se ha pronunciado. */
   estadoDian: SiigoEstadoDian | null;
+  /**
+   * Si esta factura se envió a la DIAN (A6). Fuera de producción se crea en Siigo y ahí se queda.
+   *
+   * **Viaja resuelto y no como el ambiente en crudo** para que la pantalla no tenga que repetir la
+   * regla de `efectosExternosPermitidos`. Una segunda copia de esa condición en el frontend es una
+   * copia que algún día dice lo contrario que el servidor, y el síntoma sería la pantalla afirmando
+   * que una factura está en validación cuando nunca se envió.
+   *
+   * Con `false`, `estadoDian` es `null` PARA SIEMPRE: el sondeo ni siquiera la mira.
+   */
+  timbrada: boolean;
   /** Por qué la rechazó, en lenguaje operativo. `null` = no aplica o nadie ha preguntado. */
   motivo: string | null;
   /** `true` cuando se preguntó por el motivo y no se pudo obtener: la pantalla lo dice (AC4). */
@@ -68,6 +81,7 @@ export async function facturacionDeTramites(tramiteIds: string[]): Promise<Factu
            sf.id            AS factura_id,
            sf.numero,
            sf.estado        AS estado_emision,
+           sf.ambiente,
            sf.cufe,
            dian.estado      AS estado_dian,
            dian.motivo      AS motivo,
@@ -142,6 +156,7 @@ export async function facturacionDeTramites(tramiteIds: string[]): Promise<Factu
       estadoEmision,
       estado: estadoCombinado(estadoEmision, estadoDian),
       estadoDian,
+      timbrada: efectosExternosPermitidos(String(f.ambiente) as SiigoAmbiente),
       // Un motivo que solo dice «pendiente de consultar» no es una explicación: la pantalla lo
       // trata aparte para poder decirlo en vez de enseñar una frase que no explica nada (AC4).
       motivo: esMotivoPendiente(motivo) ? null : motivo,

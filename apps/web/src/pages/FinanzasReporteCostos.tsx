@@ -351,7 +351,15 @@ export default function FinanzasReporteCostos() {
   const enviablesPagina = candidatos.filter(esElegible);
   const conSeleccion = puedeEmitir && enviablesSel.length > 0;
 
-  const deEnvio = (f: Fila): TramiteDelEnvio => ({ tramiteId: f.tramiteId, idFlit: f.idFlit });
+  // A4 — el diálogo agrupa por empresa para preguntar la emisión una vez por cliente, así que
+  // necesita saber de quién es cada trámite. El id lo trae el veredicto de elegibilidad, que ya lo
+  // resolvió; el nombre, la fila. Preguntarlo otra vez sería una consulta de más.
+  const deEnvio = (f: Fila): TramiteDelEnvio => ({
+    tramiteId: f.tramiteId,
+    idFlit: f.idFlit,
+    clienteId: elegibilidad.veredictos.get(f.tramiteId)?.companiaId ?? null,
+    empresa: f.empresa,
+  });
 
   /** Abre el diálogo con los elegibles del conjunto y, plegado, el porqué de los que se quedan. */
   const abrirEnvio = (conjunto: Fila[]) => setEnvio({

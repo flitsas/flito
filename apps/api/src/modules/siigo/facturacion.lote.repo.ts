@@ -15,8 +15,10 @@
 // **en el lote y no en la cola**: la cola dice cuándo toca trabajar, el lote dice sobre qué.
 
 import { and, asc, eq, sql } from 'drizzle-orm';
+import { esConceptoFacturable, type ConceptoFacturable } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { siigoLotesFacturacion, siigoLoteTramites } from '../../db/schema.js';
+import type { EmisionElegida } from './facturacion.armado.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** La única estrategia de lote admitida hoy. Consolidar exige migración (D-1, diferida). */
@@ -24,10 +26,24 @@ export const ESTRATEGIA_LOTE = 'por_tramite';
 
 export interface EntradaLote {
   ambiente: SiigoAmbiente;
-  /** sha256 hex del conjunto ORDENADO de trámites. La calcula `huellaDeTramites`. */
+  /** sha256 hex de trámites Y conceptos, ambos ordenados. La calcula `huellaDeLote`. */
   huella: string;
   /** Los trámites del conjunto. Es la preimagen de la huella, no una segunda verdad. */
   tramiteIds: string[];
+  /**
+   * Los conceptos que se van a facturar (A1). Preimagen de la huella igual que los trámites.
+   *
+   * Se guardan porque el envío solo ENCOLA: la emisión ocurre después, en el cron, y sin esto
+   * volvería a deducir la lista de la liquidación y saldría una factura que nadie pidió.
+   */
+  conceptos: readonly string[];
+  /**
+   * La emisión elegida al enviar (A2). Todo `null` = lote anterior a la 0148, sin con qué emitir.
+   *
+   * **Ya NO significa «usar la configuración global»**: esa configuración se retiró el 2026-08-13 y
+   * `prepararEmision` rechaza el lote que llegue sin comprobante, vendedor y forma de pago.
+   */
+  emision?: EmisionElegida | null;
   creadoPor: number | null;
 }
 
@@ -57,6 +73,13 @@ async function crearORecuperar(entrada: EntradaLote): Promise<string | null> {
       ambiente: entrada.ambiente,
       estrategia: ESTRATEGIA_LOTE,
       huella: entrada.huella,
+      // Ordenados al guardar, igual que al calcular la huella: la fila y el hash tienen que contar
+      // la misma historia para que se puedan contrastar cuando alguien pregunte por una factura.
+      conceptos: [...new Set(entrada.conceptos)].sort(),
+      documentoTipoCodigo: entrada.emision?.documentoTipoCodigo ?? null,
+      vendedorCodigo: entrada.emision?.vendedorCodigo ?? null,
+      formaPagoCodigo: entrada.emision?.formaPagoCodigo ?? null,
+      centroCostoCodigo: entrada.emision?.centroCostoCodigo ?? null,
       creadoPor: entrada.creadoPor,
     })
     .onConflictDoNothing({
@@ -108,6 +131,64 @@ export async function tramitesDelLote(loteId: string): Promise<string[]> {
     .where(eq(siigoLoteTramites.loteId, loteId))
     .orderBy(asc(siigoLoteTramites.tramiteId));
   return filas.map((f) => String(f.tramiteId));
+}
+
+/**
+ * Los conceptos que este lote va a facturar (A1).
+ *
+ * **Vacío significa «lote anterior a A1», no «ninguno».** Aquellos lotes se crearon cuando la
+ * factura llevaba todos los conceptos aplicables de la liquidación, y quien llama tiene que
+ * distinguir los dos casos: emitir un lote vacío como si nadie hubiera elegido nada produciría una
+ * factura sin líneas, y tratarlo como «todos» es lo que aquellos lotes de verdad significaban.
+ */
+export async function conceptosDelLote(loteId: string): Promise<ConceptoFacturable[]> {
+  const [fila] = await db.select({ conceptos: siigoLotesFacturacion.conceptos })
+    .from(siigoLotesFacturacion)
+    .where(eq(siigoLotesFacturacion.id, loteId))
+    .limit(1);
+  return conceptosDeLaColumna(fila?.conceptos);
+}
+
+/**
+ * La columna `conceptos` leída como catálogo. **Una sola definición**, y por eso está exportada.
+ *
+ * Se filtra contra el catálogo en vez de confiar en la columna. `text[]` no tiene CHECK, y un valor
+ * que ya no sea un concepto conocido —porque se renombró o se retiró— llegaría al armado como una
+ * clave que el mapeo no tiene y acabaría en `concepto_sin_mapeo`, culpando al mapeo de un dato
+ * viejo. Descartarlo aquí deja el fallo donde de verdad está.
+ *
+ * La usa también la reconciliación, que lee esta columna por un JOIN y no por este repositorio: sin
+ * exportarla, ese segundo lector tendría su propia idea de qué contiene un lote, y dos lecturas
+ * distintas del mismo lote es justo lo que produce un descuadre inventado.
+ */
+export function conceptosDeLaColumna(valor: readonly string[] | null | undefined): ConceptoFacturable[] {
+  return [...(valor ?? [])].filter(esConceptoFacturable).sort();
+}
+
+/**
+ * La emisión que se eligió para este lote (A2).
+ *
+ * **Todo `null` significa «lote anterior al 2026-08-13, sin con qué emitir».** Hasta la 0148
+ * significaba «usar la configuración global» y quien llamaba tenía que resolver esa ausencia contra
+ * los parámetros del ambiente; esa configuración ya no existe, así que ahora no hay nada detrás y
+ * `prepararEmision` rechaza el lote pidiendo que se reenvíen los trámites. Ver la 0148.
+ */
+export async function emisionDelLote(loteId: string): Promise<EmisionElegida> {
+  const [fila] = await db.select({
+    documentoTipoCodigo: siigoLotesFacturacion.documentoTipoCodigo,
+    vendedorCodigo: siigoLotesFacturacion.vendedorCodigo,
+    formaPagoCodigo: siigoLotesFacturacion.formaPagoCodigo,
+    centroCostoCodigo: siigoLotesFacturacion.centroCostoCodigo,
+  })
+    .from(siigoLotesFacturacion)
+    .where(eq(siigoLotesFacturacion.id, loteId))
+    .limit(1);
+  return {
+    documentoTipoCodigo: fila?.documentoTipoCodigo ?? null,
+    vendedorCodigo: fila?.vendedorCodigo ?? null,
+    formaPagoCodigo: fila?.formaPagoCodigo ?? null,
+    centroCostoCodigo: fila?.centroCostoCodigo ?? null,
+  };
 }
 
 /**

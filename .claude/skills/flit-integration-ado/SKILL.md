@@ -11,6 +11,8 @@ description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom
 
 **GitHub:** servidor MCP `github` **primero** (`list_pull_requests`, `pull_request_read`, `create_pull_request`, `merge_pull_request`, `actions_*`). En esta máquina `gh` no es el CLI de GitHub (visor de ayuda): comprobar con `gh --version` antes de usarlo; si no es el CLI real, no usarlo. Donde este documento mencione `gh`, traducir a la herramienta MCP equivalente.
 
+**Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
+
 ---
 
 ## Campos ADO (canónicos)
@@ -200,7 +202,7 @@ Con MCP: `wit_work_item_write` (servidor ADO/`azure-devops`). Con REST: `json.du
 
 **Owner/repo:** `git remote get-url origin` → `flitsas/flito`.
 
-Si en otro entorno existe el CLI real `gh`, puede usarse como atajo; **no** sustituye MCP cuando `gh --version` no es el CLI de GitHub.
+**No usar `gh` como vía principal.** En esta máquina no es el CLI de GitHub. Solo si el usuario autoriza explícitamente otra vía *y* `gh --version` confirma el CLI real de GitHub (cli/cli), puede usarse como atajo puntual; MCP sigue siendo la vía canónica.
 
 ---
 

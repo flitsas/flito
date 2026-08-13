@@ -76,7 +76,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 |---|---|
 | Activar una HU en ADO | antes de empezar a implementarla |
 | Crear rama, commit o push | antes de tocar git |
-| Abrir el PR | antes de `gh pr create` |
+| Abrir el PR | autorización humana a abrir; **antes** ejecutar Pre-PR (`flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` |
 | **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal puede mergear vía MCP github; sin autorización, lo mergea el humano |
 | **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |

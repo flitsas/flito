@@ -11,8 +11,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { crearEspia } from '../helpers/espia-drizzle.js';
 
 const kdb = createKeyedDb();
+/** Cuenta QUÉ se escribió, no solo en qué tabla: C7 afirma que solo se rellenan los huecos. */
+const espia = crearEspia(kdb);
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
 
 /** El cliente es facturable salvo que un test diga lo contrario (AC5). */
@@ -49,9 +52,12 @@ vi.mock('../../src/modules/siigo/siigo.operaciones.repo.js', async (original) =>
 });
 
 const {
-  armarTercero, asegurarTercero, buscarTercero, fusionarConExistente, huellaDeTercero,
-  SiigoTerceroError,
+  armarTercero, asegurarTercero, buscarTercero, camposDesdeTercero, fusionarConExistente,
+  huellaDeTercero, identidadDeCliente, intentarArmar, SIN_HUELLA, SiigoTerceroError,
 } = await import('../../src/modules/siigo/siigo.terceros.service.js');
+
+const { ClienteNoFacturableError } = await import(
+  '../../src/modules/siigo/siigo.validador-cliente.service.js');
 
 /** Una compañía con la ficha fiscal completa. */
 function ficha(over: Record<string, unknown> = {}) {
@@ -81,6 +87,7 @@ function ficha(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   kdb.reset();
+  espia.reiniciar();
   olvidarTercerosSimulados();
   siigoRequestOrThrowMock.mockClear();
   registrarOperacionMock.mockClear();
@@ -239,22 +246,63 @@ describe('AC2 — la clave es la identificación CON la sucursal', () => {
   });
 });
 
-describe('AC5 — un cliente no facturable no sale a la red', () => {
-  it('se rechaza ANTES de llamar a Siigo', async () => {
+describe('AC5 + C7 — un cliente no facturable no ESCRIBE en Siigo, pero sí se puede leer', () => {
+  // El AC5 original decía «no sale a la red» y lo comprobaba sobre cualquier petición. C7 corrigió
+  // dónde va el candado: los cinco campos que exige el validador existen para armar el
+  // `POST /v1/customers`, así que bloquear también la BÚSQUEDA impedía vincular una empresa que ya
+  // estaba perfectamente cargada en Siigo Nube. Lo que el AC protege de verdad —que no se escriba
+  // en contabilidad con una ficha coja— sigue intacto, y es lo que estas pruebas afirman ahora.
+
+  it('sin tercero en Siigo, no se crea: crear es la rama que sí necesita la ficha completa', async () => {
     kdb.when.select('clients', [ficha()]);
-    exigirClienteFacturableMock.mockRejectedValueOnce(
-      new Error('Falta el código de ciudad y la responsabilidad fiscal.'));
+    kdb.when.select('siigo_terceros', []);
+    // La búsqueda no encuentra nada, así que la única salida sería crear.
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [] });
+    // La clase REAL y no un `new Error` suelto: desde C7 la guarda vive dentro del `try`, y lo que
+    // distingue «falta un dato de FLITO» de «Siigo no respondió» es precisamente el tipo. Un Error
+    // genérico aquí daría por buena una traducción que en producción no ocurre.
+    exigirClienteFacturableMock.mockRejectedValueOnce(new ClienteNoFacturableError(7, [
+      { motivo: 'ubicacion_faltante', detalle: 'Falta el código de ciudad.', campo: 'cityCode' },
+      { motivo: 'responsabilidad_fiscal_faltante', detalle: 'Falta la responsabilidad fiscal.', campo: 'fiscalResponsibilities' },
+    ]));
 
     await expect(asegurarTercero(7)).rejects.toThrow();
-    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+
+    const metodos = siigoRequestOrThrowMock.mock.calls.map((c) => (c[0] as { metodo: string }).metodo);
+    expect(metodos).toEqual(['GET']);
+    expect(metodos).not.toContain('POST');
+    expect(metodos).not.toContain('PUT');
   });
 
   it('el mensaje enumera lo que falta', async () => {
     kdb.when.select('clients', [ficha()]);
-    exigirClienteFacturableMock.mockRejectedValueOnce(
-      new Error('Falta el código de ciudad y la responsabilidad fiscal.'));
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [] });
+    // La clase REAL y no un `new Error` suelto: desde C7 la guarda vive dentro del `try`, y lo que
+    // distingue «falta un dato de FLITO» de «Siigo no respondió» es precisamente el tipo. Un Error
+    // genérico aquí daría por buena una traducción que en producción no ocurre.
+    exigirClienteFacturableMock.mockRejectedValueOnce(new ClienteNoFacturableError(7, [
+      { motivo: 'ubicacion_faltante', detalle: 'Falta el código de ciudad.', campo: 'cityCode' },
+      { motivo: 'responsabilidad_fiscal_faltante', detalle: 'Falta la responsabilidad fiscal.', campo: 'fiscalResponsibilities' },
+    ]));
 
     await expect(asegurarTercero(7)).rejects.toThrow(/ciudad/);
+  });
+
+  it('si el tercero YA existe en Siigo, la ficha incompleta no impide vincularlo', async () => {
+    // El caso que motivó C7. Vincular no escribe nada en Siigo: solo guarda de qué tercero se trata.
+    kdb.when.select('clients', [ficha()]);
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({
+      results: [{ id: 'cus-77', identification: '900123456', branch_office: 0 }],
+    });
+
+    const r = await asegurarTercero(7);
+
+    expect(r.desenlace).toBe('vinculado_existente');
+    expect(r.siigoCustomerId).toBe('cus-77');
+    // Y el validador ni se consulta: no hay nada que validar cuando no se va a escribir.
+    expect(exigirClienteFacturableMock).not.toHaveBeenCalled();
   });
 });
 
@@ -497,5 +545,272 @@ describe('Correcciones de la auditoría — los caminos que borraban o mezclaban
     // como distintos hace que no se encuentre el tercero, se intente crear, Siigo responda
     // «duplicada» y el cliente quede bloqueado para siempre.
     expect(normalizarIdentificacion(' ab123 ')).toBe('AB123');
+  });
+});
+
+describe('C7 — lo que Siigo ya sabe se aprovecha, no se vuelve a pedir', () => {
+  /** Un tercero de Siigo con la ficha fiscal completa. */
+  function terceroDeSiigo(over: Record<string, unknown> = {}) {
+    return {
+      id: 'cus-77',
+      identification: '900123456',
+      branch_office: 0,
+      fiscal_responsibilities: [{ code: 'R-99-PN' }],
+      address: {
+        address: 'Carrera 7 # 71-21',
+        city: { country_code: 'CO', state_code: '11', city_code: '11001' },
+      },
+      phones: [{ indicative: '601', number: '7422111' }],
+      contacts: [{ first_name: 'Lucía', last_name: 'Peña', email: 'lucia@transur.test' }],
+      ...over,
+    };
+  }
+
+  it('traduce el tercero de Siigo a los campos de la ficha', () => {
+    expect(camposDesdeTercero(terceroDeSiigo())).toEqual({
+      fiscalResponsibilities: ['R-99-PN'],
+      address: 'Carrera 7 # 71-21',
+      countryCode: 'CO',
+      stateCode: '11',
+      cityCode: '11001',
+      phoneIndicative: '601',
+      phoneNumber: '7422111',
+      contactFirstName: 'Lucía',
+      contactLastName: 'Peña',
+    });
+  });
+
+  it('un teléfono que la columna de FLITO no admite se descarta, no se recorta', () => {
+    // `phone_number` es varchar(10) y solo dígitos. Recortar «(601) 742-2111 ext 4» produciría un
+    // teléfono que no es el de nadie; dejar el hueco lo ve quien factura y lo llena bien.
+    const huecos = camposDesdeTercero(terceroDeSiigo({
+      phones: [{ indicative: '+57', number: '742 2111 ext 4' }],
+    }));
+    expect(huecos).not.toHaveProperty('phoneIndicative');
+    expect(huecos).not.toHaveProperty('phoneNumber');
+  });
+
+  it('una responsabilidad fiscal fuera del catálogo de la DIAN no entra', () => {
+    const huecos = camposDesdeTercero(terceroDeSiigo({
+      fiscal_responsibilities: [{ code: 'R-INVENTADA' }, { code: 'R-99-PN' }],
+    }));
+    expect(huecos.fiscalResponsibilities).toEqual(['R-99-PN']);
+  });
+
+  it('la ubicación es los tres códigos o ninguno', () => {
+    // El validador los evalúa como una sola cosa: rellenar dos de tres deja el motivo en pie y
+    // encima esconde cuál falta.
+    const huecos = camposDesdeTercero(terceroDeSiigo({
+      address: { address: 'Carrera 7 # 71-21', city: { country_code: 'CO', state_code: '', city_code: '11001' } },
+    }));
+    expect(huecos.address).toBe('Carrera 7 # 71-21');
+    expect(huecos).not.toHaveProperty('countryCode');
+    expect(huecos).not.toHaveProperty('cityCode');
+  });
+
+  it('un tercero sin nada que aportar no aporta nada', () => {
+    expect(camposDesdeTercero({ id: 'cus-77', identification: '900123456' })).toEqual({});
+  });
+
+  it('al vincular, rellena en la ficha SOLO lo que estaba vacío', async () => {
+    kdb.when.select('clients', [ficha({
+      address: null, contactFirstName: null, contactLastName: null,
+      countryCode: null, stateCode: null, cityCode: null,
+    })]);
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [terceroDeSiigo()] });
+
+    await asegurarTercero(7);
+
+    const [aClientes] = espia.updatesEn('clients').map((m) => m.datos);
+    expect(aClientes).toBeDefined();
+    expect(aClientes).toMatchObject({
+      address: 'Carrera 7 # 71-21',
+      contactFirstName: 'Lucía',
+      countryCode: 'CO',
+    });
+    // El teléfono de la ficha YA tenía valor: no se toca, ni siquiera para «corregirlo».
+    expect(aClientes).not.toHaveProperty('phoneNumber');
+    expect(aClientes).not.toHaveProperty('fiscalResponsibilities');
+  });
+
+  it('con la ficha completa no escribe nada en clients', async () => {
+    kdb.when.select('clients', [ficha()]);
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [terceroDeSiigo()] });
+
+    await asegurarTercero(7);
+
+    expect(espia.updatesEn('clients')).toHaveLength(0);
+  });
+
+  it('deja constancia de QUÉ campos se rellenaron, nunca de sus valores', async () => {
+    // `siigo_operaciones` es append-only: una dirección o un teléfono escritos ahí ya no se pueden
+    // rectificar ni suprimir, y son datos personales.
+    kdb.when.select('clients', [ficha({ address: null, contactFirstName: null })]);
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [terceroDeSiigo()] });
+
+    await asegurarTercero(7);
+
+    const mensajes = registrarOperacionMock.mock.calls.map((c) => (c[0] as { mensaje: string }).mensaje);
+    const hidratacion = mensajes.find((m) => /completada desde Siigo/.test(m));
+    expect(hidratacion).toBeDefined();
+    expect(hidratacion).toContain('address');
+    expect(hidratacion).toContain('contactFirstName');
+    expect(hidratacion).not.toContain('Carrera 7');
+    expect(hidratacion).not.toContain('Lucía');
+  });
+});
+
+
+// ───────────────────────────────────────────────────────────────────────────────
+describe('Un cliente SIN CLASIFICAR se puede buscar y vincular (regresión 2026-08-13)', () => {
+  /**
+   * El caso real que lo destapó: RENTING S.A.S, NIT 811011779.
+   *
+   * En FLITO llegó de una migración con nombre, documento y nada más — sin tipo de persona y sin
+   * tipo de documento—. En Siigo Nube estaba completo. El reporte de costos decía «la compañía
+   * todavía no existe como tercero en Siigo», lo cual mandaba a revisar credenciales y ambiente, y
+   * sincronizar desde la ficha fallaba con «no tiene un tipo de identificación válido»: `armarTercero`
+   * corría ANTES de buscar y exigía justo los dos campos que Siigo tenía delante.
+   */
+  function sinClasificar(over: Record<string, unknown> = {}) {
+    return ficha({
+      id: 3,
+      name: 'RENTING S.A.S',
+      document: '811011779',
+      idType: '',
+      personType: '',
+      fiscalResponsibilities: [],
+      address: null,
+      countryCode: null,
+      stateCode: null,
+      cityCode: null,
+      contactFirstName: null,
+      contactLastName: null,
+      phoneIndicative: null,
+      phoneNumber: null,
+      ...over,
+    });
+  }
+
+  /** Lo que Siigo devolvió de verdad para ese NIT, recortado a lo que la hidratación mira. */
+  function rentingEnSiigo() {
+    return {
+      id: 'd3b394d1-a60e-4868-9e86-10c900dfbaeb',
+      person_type: 'Company',
+      id_type: { code: '31', name: 'NIT' },
+      identification: '811011779',
+      branch_office: 0,
+      name: ['Renting Colombia SAS'],
+      fiscal_responsibilities: [{ code: 'R-99-PN' }],
+      address: {
+        address: 'Cll52# 14-30 local 340',
+        city: { country_code: 'Co', state_code: '05', city_code: '05001' },
+      },
+      phones: [{ indicative: '604', number: '4899008' }],
+      contacts: [{ first_name: 'Sharon Viviana', last_name: 'Beleño Elles' }],
+    };
+  }
+
+  it('la identidad para buscar no exige tipo de persona ni tipo de documento', () => {
+    // Es lo único que `GET /v1/customers` filtra, así que es lo único que se puede exigir.
+    expect(identidadDeCliente(sinClasificar())).toEqual({
+      identification: '811011779', branch_office: 0,
+    });
+  });
+
+  it('sin identificación sí se niega: sin ella no hay a quién buscar', () => {
+    expect(() => identidadDeCliente(sinClasificar({ document: '  ' })))
+      .toThrow(SiigoTerceroError);
+  });
+
+  it('armar el tercero completo SIGUE fallando, y ese fallo ya no bloquea la búsqueda', () => {
+    const r = intentarArmar(sinClasificar());
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error.codigo).toBe('sin_identificacion');
+  });
+
+  it('el tipo de persona y el de documento se traen de Siigo', () => {
+    const huecos = camposDesdeTercero(rentingEnSiigo());
+    expect(huecos.personType).toBe('Company');
+    expect(huecos.idType).toBe('31');
+  });
+
+  it('un tipo de documento que no está en el catálogo de Siigo no entra', () => {
+    // Mismo criterio que al salir: un código inventado se convierte allá en un tercero con el
+    // documento equivocado.
+    const huecos = camposDesdeTercero({ ...rentingEnSiigo(), id_type: { code: 'ZZ' } });
+    expect(huecos).not.toHaveProperty('idType');
+  });
+
+  it('un tipo de persona que no es Person ni Company tampoco', () => {
+    const huecos = camposDesdeTercero({ ...rentingEnSiigo(), person_type: 'Alien' });
+    expect(huecos).not.toHaveProperty('personType');
+  });
+
+  it('VINCULA el tercero existente y completa la ficha, sin escribir en Siigo', async () => {
+    kdb.when.select('clients', [sinClasificar()]);
+    kdb.when.select('siigo_terceros', []);
+    kdb.when.insert('siigo_terceros', () => [{ id: 'v-3' }]);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [rentingEnSiigo()] });
+
+    const r = await asegurarTercero(3);
+
+    expect(r.desenlace).toBe('vinculado_existente');
+    expect(r.siigoCustomerId).toBe('d3b394d1-a60e-4868-9e86-10c900dfbaeb');
+    expect(r.identificacion).toBe('811011779');
+
+    // Una sola petición, y de LECTURA. Vincular no escribe nada en Siigo.
+    expect(siigoRequestOrThrowMock).toHaveBeenCalledTimes(1);
+    expect(siigoRequestOrThrowMock.mock.calls[0]![0]!.metodo).toBe('GET');
+
+    // Y la ficha queda clasificada con lo que Siigo dijo que era.
+    const [aClientes] = espia.updatesEn('clients').map((m) => m.datos);
+    expect(aClientes).toMatchObject({ personType: 'Company', idType: '31' });
+  });
+
+  it('no se le pide al validador que apruebe nada: vincular no escribe', async () => {
+    kdb.when.select('clients', [sinClasificar()]);
+    kdb.when.select('siigo_terceros', []);
+    kdb.when.insert('siigo_terceros', () => [{ id: 'v-3' }]);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [rentingEnSiigo()] });
+
+    await asegurarTercero(3);
+
+    expect(exigirClienteFacturableMock).not.toHaveBeenCalled();
+  });
+
+  it('si Siigo tampoco tiene con qué clasificarlo, se vincula igual y queda marcado para reintentar', async () => {
+    // Vincular es lo que desbloquea facturar —la factura solo manda identificación y sucursal—, así
+    // que un tercero pelado no puede impedirlo. Pero la huella NO puede fingir que está al día.
+    kdb.when.select('clients', [sinClasificar()]);
+    kdb.when.select('siigo_terceros', []);
+    kdb.when.insert('siigo_terceros', () => [{ id: 'v-3' }]);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({
+      results: [{ id: 'cus-pelado', identification: '811011779', branch_office: 0 }],
+    });
+
+    const r = await asegurarTercero(3);
+
+    expect(r.desenlace).toBe('vinculado_existente');
+    const [insertado] = espia.insertsEn('siigo_terceros').map((m) => m.datos);
+    expect(insertado).toMatchObject({ huella: SIN_HUELLA });
+  });
+
+  it('CREAR sigue exigiendo la ficha completa: ahí no hay de dónde sacarla', async () => {
+    // El candado no se quitó, se movió a la puerta correcta. Sin tercero enfrente, FLITO tiene que
+    // aportarlo todo, y un cliente sin clasificar no sale a la red.
+    kdb.when.select('clients', [sinClasificar()]);
+    kdb.when.select('siigo_terceros', []);
+    siigoRequestOrThrowMock.mockResolvedValueOnce({ results: [] });
+    exigirClienteFacturableMock.mockRejectedValueOnce(
+      new ClienteNoFacturableError(3, [{ motivo: 'id_tipo_faltante', detalle: 'Falta el tipo de identificación de Siigo.' }]));
+
+    await expect(asegurarTercero(3)).rejects.toBeInstanceOf(ClienteNoFacturableError);
+    // Se consultó, pero NO se creó nada.
+    expect(siigoRequestOrThrowMock).toHaveBeenCalledTimes(1);
+    expect(siigoRequestOrThrowMock.mock.calls[0]![0]!.metodo).toBe('GET');
   });
 });

@@ -66,8 +66,10 @@ const MOTIVOS_3003 = [
 
 const ELEGIBILIDAD_POR_DEFECTO = {
   items: [
-    { tramiteId: ELEGIBLE.tramiteId, elegible: true, motivos: [] },
-    { tramiteId: NO_ELEGIBLE.tramiteId, elegible: false, motivos: MOTIVOS_3003 },
+    // `companiaId` viaja desde A2: es lo que permite al paso 2 agrupar por empresa y precargar el
+    // vendedor de cada una sin volver a preguntar por algo que esta consulta ya sabe.
+    { tramiteId: ELEGIBLE.tramiteId, elegible: true, motivos: [], companiaId: 41 },
+    { tramiteId: NO_ELEGIBLE.tramiteId, elegible: false, motivos: MOTIVOS_3003, companiaId: 41 },
   ],
   resumen: {
     total: 2, elegibles: 1, noElegibles: 1, anterioresAlCorte: 0,
@@ -108,6 +110,49 @@ async function mock(page: Page, opciones: {
       contentType: 'application/json',
       body: JSON.stringify(opciones.elegibilidad ?? ELEGIBILIDAD_POR_DEFECTO),
     }));
+  // A4 — el paso 2 lee los catálogos EN VIVO de Siigo y la memoria por cliente. Se mockean SIEMPRE,
+  // también en los casos que no los miran: sin ruta, el diálogo se quedaría en su estado de error.
+  //
+  // El mismo elemento sirve para los cuatro catálogos, y `manejaVencimiento: false` no es relleno:
+  // las formas de pago con vencimiento se filtran, así que con `true` el desplegable saldría vacío.
+  await page.route(/\/api\/siigo\/parametrizacion\/catalogos-vivo\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ elementos: [{
+        codigo: '629', nombre: 'Opción de prueba', activo: true,
+        atributos: { manejaVencimiento: false, centroCostoObligatorio: false },
+      }] }),
+    }));
+  // Lo recordado de cada empresa. Se responde para los ids que la petición pida, en vez de fijar
+  // uno: el `clienteId` lo pone la página a partir del trámite, y clavarlo aquí ataría la prueba a
+  // un dato que no controla.
+  //
+  // Viene COMPLETO en el caso por defecto porque, sin configuración global a la que caer, una
+  // memoria vacía deja el envío bloqueado — que es justo lo que comprueba su propia prueba.
+  await page.route(/\/api\/siigo\/facturacion\/emision/, (route) => {
+    const ids = (new URL(route.request().url()).searchParams.get('clienteIds') ?? '')
+      .split(',').filter(Boolean).map(Number);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ items: ids.map((clienteId) => ({
+        clienteId, documentoTipoCodigo: '629', vendedorCodigo: '629',
+        formaPagoCodigo: '629', centroCostoCodigo: null,
+      })) }),
+    });
+  });
+}
+
+/**
+ * Atraviesa los dos pasos del diálogo (A4): confirma la selección y luego la emisión.
+ *
+ * En un helper y no repetido en cada prueba porque el número de pasos es del diálogo, no de lo que
+ * cada prueba afirma: si mañana hay un tercero, se cambia aquí.
+ */
+async function enviarDesdeDialogo(page: Page, cuantos: number) {
+  await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+  await page.getByRole('button', { name: `Enviar ${cuantos} a facturación`, exact: true }).click();
 }
 
 /** El `POST` del envío. Devuelve el 202 que se le pase y anota los cuerpos que recibió. */
@@ -362,7 +407,7 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
     // Fase 1 — se dice qué se va a enviar y qué se queda fuera, con su porqué plegado.
     await expect(page.getByText(/Se van a enviar/)).toBeVisible();
     await expect(page.getByText(/Se emite una factura electrónica por trámite/)).toBeVisible();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
 
     // Fase 4 — encabezado con los tres números del `resumen`, y CINCO desenlaces no colapsados en
     // un único «listo»: cada grupo con su etiqueta, su explicación y su detalle.
@@ -376,7 +421,22 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
     await expect(page.getByRole('button', { name: 'Reintentar 1 que falló' })).toBeVisible();
 
     // Solo los elegibles salieron a la red, y sin `reactivar` ni ningún campo de más (`.strict()`).
-    expect(cuerpos).toEqual([{ tramiteIds: [ELEGIBLE.tramiteId] }]);
+    // A1 — el cuerpo lleva QUÉ se factura, y arranca en trámite digital porque es lo único que hoy
+    // se cobra por factura electrónica. El resto se recupera por reintegro.
+    //
+    // `emision` viaja SIEMPRE desde el 2026-08-13: al no haber configuración global detrás, una
+    // empresa ausente del cuerpo es un lote que después no se podrá emitir.
+    expect(cuerpos).toEqual([{
+      tramiteIds: [ELEGIBLE.tramiteId],
+      conceptos: ['tramite_digital'],
+      emision: [{
+        clienteId: expect.any(Number),
+        documentoTipoCodigo: '629',
+        vendedorCodigo: '629',
+        formaPagoCodigo: '629',
+        centroCostoCodigo: null,
+      }],
+    }]);
   });
 
   test('las filas encoladas pasan a «En cola» sin recargar, y cerrar refresca los datos', async ({ page }) => {
@@ -394,7 +454,7 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
     await expect(fila.getByText('En cola')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Enviar FLIT-3002 a facturación electrónica' }).click();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
     await expect(page.getByRole('heading', { name: /enviados a la cola/ })).toBeVisible();
 
     // Sin navegación: la fila cambia debajo del diálogo abierto.
@@ -416,7 +476,7 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Enviar FLIT-3002 a facturación electrónica' }).click();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
 
     await expect(page.getByRole('heading', { name: '0 enviados a la cola · 1 ya estaban · 0 no se pudieron enviar' })).toBeVisible();
     await page.getByText('Ya estaba en cola').click();
@@ -436,7 +496,7 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Enviar FLIT-3002 a facturación electrónica' }).click();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
 
     await expect(page.getByText(/La facturación electrónica está frenada ahora mismo: La emisión está frenada por incidencia/)).toBeVisible();
     await expect(page.getByText(/No se encoló ningún trámite/)).toBeVisible();
@@ -453,7 +513,7 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Enviar FLIT-3002 a facturación electrónica' }).click();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
 
     // Reintentar a ciegas es justo lo que el AC6 evita: la idempotencia del servidor protegería,
     // pero una interfaz que empuja a repetir lo que no sabe si ocurrió enseña a desconfiar de sí.
@@ -474,10 +534,150 @@ test.describe('Envío a facturación — el diálogo y su resultado', () => {
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Enviar FLIT-3002 a facturación electrónica' }).click();
-    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+    await enviarDesdeDialogo(page, 1);
 
     await page.getByRole('button', { name: 'Volver a intentar los 1 dados por perdidos' }).click();
     await expect.poll(() => cuerpos.length).toBe(2);
-    expect(cuerpos[1]).toEqual({ tramiteIds: [ELEGIBLE.tramiteId], reactivar: true });
+    expect(cuerpos[1]).toEqual({
+      tramiteIds: [ELEGIBLE.tramiteId],
+      conceptos: ['tramite_digital'],
+      emision: [{
+        clienteId: expect.any(Number),
+        documentoTipoCodigo: '629',
+        vendedorCodigo: '629',
+        formaPagoCodigo: '629',
+        centroCostoCodigo: null,
+      }],
+      reactivar: true,
+    });
+  });
+});
+
+test.describe('A1 — qué conceptos van en la factura se elige aquí', () => {
+  test('arranca en trámite digital y se puede cambiar antes de confirmar', async ({ page }) => {
+    // Arranca ahí porque es lo único que hoy se factura electrónicamente, pero es una elección y no
+    // una deducción: esa diferencia es toda la historia.
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+
+    await expect(page.getByRole('checkbox', { name: 'Trámite digital FLIT' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'SOAT' })).not.toBeChecked();
+
+    await page.getByRole('checkbox', { name: 'Logística' }).check();
+    await enviarDesdeDialogo(page, 1);
+
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    expect([...(cuerpos[0] as { conceptos: string[] }).conceptos].sort())
+      .toEqual(['logistica', 'tramite_digital']);
+  });
+
+  test('sin ningún concepto marcado no se envía nada', async ({ page }) => {
+    // Una factura sin líneas no es una factura. El servidor también lo rechaza; esto evita el viaje.
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('checkbox', { name: 'Trámite digital FLIT' }).uncheck();
+    await enviarDesdeDialogo(page, 1);
+
+    await expect(page.getByText(/Elige al menos un concepto/)).toBeVisible();
+    expect(cuerpos).toHaveLength(0);
+  });
+});
+
+test.describe('A4 — con qué se emite se elige por empresa, al enviar', () => {
+  test('una fila por empresa, con los cuatro valores del catálogo de Siigo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+
+    await expect(page.getByRole('group', { name: /ACME SAS/ })).toBeVisible();
+    for (const etiqueta of ['Comprobante', 'Vendedor', 'Forma de pago']) {
+      await expect(page.getByLabel(etiqueta, { exact: true })).toBeVisible();
+    }
+    // El centro de costo se marca opcional: el comprobante decide si Siigo lo exige.
+    await expect(page.getByLabel('Centro de costo (opcional)')).toBeVisible();
+  });
+
+  test('lo elegido viaja por empresa, y los tres obligatorios van completos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+    await page.getByLabel('Vendedor', { exact: true }).selectOption('629');
+    await page.getByRole('button', { name: 'Enviar 1 a facturación', exact: true }).click();
+
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    const emision = (cuerpos[0] as { emision: Array<Record<string, unknown>> }).emision;
+    expect(emision).toHaveLength(1);
+    expect(emision[0]!.vendedorCodigo).toBe('629');
+    // Ya NO puede viajar un nulo en los tres obligatorios: no hay configuración global que lo
+    // resuelva después, así que un nulo aquí sería un lote condenado a no emitirse.
+    expect(emision[0]!.documentoTipoCodigo).toBe('629');
+    expect(emision[0]!.formaPagoCodigo).toBe('629');
+  });
+
+  test('se puede volver atrás sin perder los conceptos elegidos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA);
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('checkbox', { name: 'Logística' }).check();
+    await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+    await page.getByRole('button', { name: 'Atrás' }).click();
+
+    await expect(page.getByRole('checkbox', { name: 'Logística' })).toBeChecked();
+  });
+
+  test('un catálogo que vuelve vacío lo dice y señala dónde se arregla', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA);
+    // Un desplegable sin opciones no explica nada; el texto sí. Y ahora apunta a Siigo Nube, que es
+    // donde se arregla: ya no hay sincronización en FLITO que pulsar.
+    await page.route(/\/api\/siigo\/parametrizacion\/catalogos-vivo\//, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ elementos: [] }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+
+    await expect(page.getByText(/Siigo no devolvió ninguna opción activa/).first()).toBeVisible();
+  });
+
+  test('sin elegir con qué emitir, el envío queda bloqueado y dice a qué empresa le falta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA);
+    // Empresa sin memoria: es la primera vez que se le factura.
+    await page.route(/\/api\/siigo\/facturacion\/emision/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+    await page.goto('/finanzas/reporte-costos');
+
+    await page.getByRole('button', { name: 'Enviar 1 a facturación electrónica' }).click();
+    await page.getByRole('button', { name: 'Siguiente: con qué se emite' }).click();
+
+    // Ya no hay «Por defecto» al que caer: la configuración global se retiró el 2026-08-13, así que
+    // un envío sin elegir nada produciría un lote que no se puede emitir.
+    await expect(page.getByText(/Falta elegir con qué emitir en:/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Enviar 1 a facturación$/ })).toBeDisabled();
   });
 });
