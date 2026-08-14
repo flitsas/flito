@@ -1,27 +1,33 @@
 // FLITO comparendos — lectura del consolidado y del timeline (HU #11502, AC1/AC3, CF-09/CF-11).
 //
-// Las tres rutas que 17b va a consumir. Lo que se demuestra, por orden de importancia:
+// Las cuatro rutas que 17b va a consumir. Lo que se demuestra, por orden de importancia:
 //
-//   1. **Los payloads crudos no salen del módulo** (RN-31). No se comprueba mirando la respuesta
+//   1. **La identidad no viaja en la URL** (AGENTS.md §14). `nit` y `placa` se filtran por el
+//      CUERPO de `POST /registros/buscar`, y el `GET` del listado los rechaza con un 400 en vez de
+//      aceptarlos: una URL con un NIT sobrevive en el access log del proxy y en el historial, dos
+//      sitios fuera de la retención del módulo.
+//   2. **Los payloads crudos no salen del módulo** (RN-31). No se comprueba mirando la respuesta
 //      —el mock devuelve lo que se le registre— sino la PROYECCIÓN de la consulta: las columnas se
 //      enumeran una a una y ninguna es `payload_*`. Si mañana alguien cambia el `select(...)` por un
 //      `select()`, este archivo lo dice.
-//   2. **Los filtros son los que dicen ser** (RN-33). El WHERE se serializa a SQL real: un filtro
+//   3. **Los filtros son los que dicen ser** (RN-33). El WHERE se serializa a SQL real: un filtro
 //      por NIT que no filtra y uno que filtra son idénticos para un mock que devuelve lo registrado
 //      pase lo que pase, y la diferencia entre los dos es devolverle a alguien los comparendos de
 //      todas las empresas.
-//   3. **La paginación es por cursor y sobre un orden estable** (RN-32). Se afirma el `ORDER BY`, el
+//   4. **La paginación es por cursor y sobre un orden estable** (RN-32). Se afirma el `ORDER BY`, el
 //      `LIMIT n+1`, el contenido del cursor emitido y el WHERE de la segunda página.
-//   4. **Toda lectura de datos personales deja rastro** (Ley 1581 art. 17, HU #11511): es el
+//   5. **Toda lectura de datos personales deja rastro** (Ley 1581 art. 17, HU #11511): es el
 //      consumidor que `flito-comparendos.pii.ts` estaba esperando.
-//   5. **Nada de esto lo ve quien no es admin** (CF-12) ni nadie sin autenticar.
-//   6. **El token SIMIT no aparece en ninguna respuesta** (AC3).
+//   6. **Nada de esto lo ve quien no es admin** (CF-12) ni nadie sin autenticar.
+//   7. **Nada de un origen que no sea el canónico sale por el API**: ni el token SIMIT, ni una clave
+//      inesperada dentro del `detalle` de un evento (RN-35).
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { getTableName } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import { COMPARENDOS_REGISTROS_LIMIT_MAX } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 
@@ -43,6 +49,7 @@ vi.mock('../../src/shared/pii-audit.js', () => ({
 
 const BASE = '/api/flito/comparendos';
 const REGISTROS = `${BASE}/registros`;
+const BUSCAR = `${REGISTROS}/buscar`;
 const TABLA = 'flito_comparendos_registros';
 const EVENTOS = 'flito_comparendos_eventos';
 
@@ -190,6 +197,21 @@ describe('registros — quién puede leer', () => {
     expect((await request(app).get(`${REGISTROS}/${ID_1}/eventos`).set('Authorization', cabecera)).status).toBe(403);
     expect(lecturas).toHaveLength(0);
   });
+
+  it('**la búsqueda por NIT/placa nace con los mismos guardas**: sin token 401, sin rol 403', async () => {
+    kdb.when.select(TABLA, [fila()]);
+    const app = await buildApp();
+
+    const anonimo = await request(app).post(BUSCAR).send({ nit: '900123456' });
+    const auditor = await request(app).post(BUSCAR)
+      .set('Authorization', await auth('auditor')).send({ nit: '900123456' });
+
+    expect(anonimo.status).toBe(401);
+    expect(auditor.status).toBe(403);
+    // Los guardas están a nivel de router: una ruta nueva no depende de que su autor los recuerde.
+    expect(lecturas).toHaveLength(0);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────── Listado: forma y proyección (AC1, RN-31) ───────────────────────────
@@ -264,14 +286,104 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       expect(JSON.stringify(cuerpo).toLowerCase()).not.toContain('token');
     }
   });
+
+  it('**un secreto GUARDADO en el `detalle` de un evento tampoco sale** (RN-35)', async () => {
+    // El caso anterior solo demuestra que una fixture limpia sale limpia. Este ensucia la fila en
+    // el único sitio de la respuesta que no está enumerado campo a campo —`detalle` es JSONB— y es
+    // por tanto el único camino real por el que un secreto podría colarse al API.
+    const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmbGl0In0.7mB-kQ';
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento({
+      detalle: {
+        motivo: 'ausente_en_todas_las_fuentes',
+        token: TOKEN,
+        placa: 'XYZ789',
+        respuestaProveedor: { authorization: `Bearer ${TOKEN}` },
+      },
+    })]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const detalle = await request(app).get(`${REGISTROS}/${ID_1}`).set('Authorization', cabecera);
+    const timeline = await request(app).get(`${REGISTROS}/${ID_1}/eventos`).set('Authorization', cabecera);
+
+    for (const cuerpo of [detalle.body, timeline.body]) {
+      const json = JSON.stringify(cuerpo);
+      expect(json).not.toContain(TOKEN);
+      expect(json).not.toContain('XYZ789');
+      expect(json.toLowerCase()).not.toContain('authorization');
+    }
+    // Y lo canónico sigue saliendo: esto no pasa por vaciar `detalle`.
+    expect(timeline.body[0].detalle).toEqual({ motivo: 'ausente_en_todas_las_fuentes' });
+  });
+
+  it('un `detalle` del que no sobrevive ninguna clave conocida vuelve como `null`, no como `{}`', async () => {
+    kdb.when.select(TABLA, [{ id: ID_1 }]).select(EVENTOS, [evento({ detalle: { loQueSea: 1 } })]);
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}/${ID_1}/eventos`).set('Authorization', await auth());
+
+    // «Sin contexto conocido» tiene una sola representación: la pantalla no distingue dos vacíos.
+    expect(r.body[0].detalle).toBeNull();
+  });
+});
+
+// ─────────────────────────── Dónde viajan los filtros (AGENTS.md §14) ───────────────────────────
+
+describe('la identidad no viaja en la URL (§14)', () => {
+  it('**`GET /registros?nit=` es 400**: el filtro de identidad ya no existe en la query', async () => {
+    kdb.when.select(TABLA, [fila()]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const porNit = await request(app).get(`${REGISTROS}?nit=900123456`).set('Authorization', cabecera);
+    const porPlaca = await request(app).get(`${REGISTROS}?placa=ABC123`).set('Authorization', cabecera);
+
+    // Un 400 y no un «se ignora»: quien todavía llame con el contrato viejo tiene que enterarse, y
+    // un NIT en la URL que «funciona a medias» es un NIT en el access log del proxy igualmente.
+    expect(porNit.status).toBe(400);
+    expect(porPlaca.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('**`POST /registros/buscar` responde 200, no 201**: es una búsqueda, no un alta', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).post(BUSCAR)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    expect(r.status).toBe(200);
+    expect(r.body.items).toHaveLength(1);
+    // La única escritura de la ruta es el rastro de acceso; nada del consolidado se toca.
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(kdb.delete).not.toHaveBeenCalled();
+  });
+
+  it('un cuerpo sin filtros de identidad es una búsqueda sin filtrar, no un 400', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).post(BUSCAR).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(listado().condiciones).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────── Listado: filtros (AC1, RN-33) ──────────────────────────────────────
 
-describe('GET /registros — los filtros filtran de verdad', () => {
+describe('los filtros filtran de verdad', () => {
+  /** Filtros que no identifican a nadie: siguen en la query, del `GET` y del `POST`. */
   async function listar(query: string) {
     kdb.when.select(TABLA, [fila()]);
     return request(await buildApp()).get(`${REGISTROS}${query}`).set('Authorization', await auth());
+  }
+
+  /** Filtros de identidad: por el cuerpo del `POST`, con la paginación todavía en la query. */
+  async function buscar(cuerpo: Record<string, unknown>, query = '') {
+    kdb.when.select(TABLA, [fila()]);
+    return request(await buildApp()).post(`${BUSCAR}${query}`)
+      .set('Authorization', await auth()).send(cuerpo);
   }
 
   it('sin filtros no monta WHERE: el listado completo no es un filtro vacío mal construido', async () => {
@@ -289,7 +401,7 @@ describe('GET /registros — los filtros filtran de verdad', () => {
   });
 
   it('**`nit` normaliza igual que el catálogo**: «900.123.456» encuentra lo guardado', async () => {
-    await listar('?nit=900.123.456');
+    await buscar({ nit: '900.123.456' });
 
     const w = whereDe(listado());
     expect(w.sql).toContain('"nit_monitoreado"');
@@ -298,7 +410,7 @@ describe('GET /registros — los filtros filtran de verdad', () => {
   });
 
   it('**`placa` normaliza con el MISMO normalizador del merge**: «abc-123» encuentra «ABC123»', async () => {
-    await listar('?placa=abc-123');
+    await buscar({ placa: 'abc-123' });
 
     const w = whereDe(listado());
     expect(w.sql).toContain('"placa"');
@@ -306,12 +418,21 @@ describe('GET /registros — los filtros filtran de verdad', () => {
   });
 
   it('`nit` y `placa` son igualdad, no coincidencia parcial (RN-33)', async () => {
-    await listar('?nit=900123456&placa=ABC123');
+    await buscar({ nit: '900123456', placa: 'ABC123' });
 
     const w = whereDe(listado());
     // Un `like` sobre un identificador sería barrer datos personales de a poco.
     expect(w.sql).not.toContain('like');
     expect(w.params).toEqual(['900123456', 'ABC123']);
+  });
+
+  it('el cuerpo y la query se combinan: buscar por NIT no deja de acotar por estado', async () => {
+    await buscar({ nit: '900123456' }, '?estado=activo');
+
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"estado"');
+    expect(w.sql).toContain('"nit_monitoreado"');
+    expect(w.params).toEqual(['activo', '900123456']);
   });
 
   it('`q` busca por el NÚMERO, en mayúsculas y por contenido', async () => {
@@ -336,7 +457,7 @@ describe('GET /registros — los filtros filtran de verdad', () => {
   });
 
   it('una placa que al normalizar no deja nada devuelve página vacía, NO el listado completo', async () => {
-    const r = await listar('?placa=---');
+    const r = await buscar({ placa: '---' });
 
     // Ignorar el filtro sería devolverle todo el módulo a quien pidió un vehículo.
     expect(r.status).toBe(200);
@@ -344,25 +465,57 @@ describe('GET /registros — los filtros filtran de verdad', () => {
     expect(lecturas).toHaveLength(0);
   });
 
-  it('un filtro vacío (`?nit=`) es un filtro sin poner, no un 400', async () => {
-    const r = await listar('?nit=&placa=&q=&estado=');
+  it('**un filtro mal escrito (`?nits=` / `{ nits }`) es 400 y no un volcado del módulo**', async () => {
+    const enQuery = await listar('?nits=900123456');
+    const enCuerpo = await buscar({ nits: '900123456' });
+
+    expect(enQuery.status).toBe(400);
+    expect(enCuerpo.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('un NIT con caracteres fuera del alfabeto se rechaza en el borde', async () => {
+    const r = await buscar({ nit: '900123456&x=1' });
+
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────── Un parámetro vacío se lee igual en todas partes ────────────────────
+
+describe('un parámetro vacío es un parámetro sin poner, y lo es para todos', () => {
+  it('los filtros de la query vacíos no montan WHERE ni devuelven 400', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}?q=&estado=&cursor=`).set('Authorization', await auth());
 
     expect(r.status).toBe(200);
     expect(listado().condiciones).toHaveLength(0);
   });
 
-  it('**un filtro mal escrito (`?nits=`) es 400 y no un volcado del módulo**', async () => {
-    const r = await listar('?nits=900123456');
+  it('**`?limit=` vacío también**: era el único parámetro con otra regla', async () => {
+    kdb.when.select(TABLA, [fila()]);
 
-    expect(r.status).toBe(400);
-    expect(lecturas).toHaveLength(0);
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}?limit=`).set('Authorization', await auth());
+
+    // Antes daba 400 mientras `?q=` se ignoraba: dos respuestas distintas para el mismo gesto.
+    expect(r.status).toBe(200);
+    // Y cae en el valor por defecto, no en «sin límite».
+    expect(listado().limite).toBe(51);
   });
 
-  it('un NIT con caracteres fuera del alfabeto se rechaza en el borde', async () => {
-    const r = await listar('?nit=900123456%26x%3D1');
+  it('los filtros de identidad vacíos o nulos en el cuerpo se leen igual', async () => {
+    kdb.when.select(TABLA, [fila()]);
 
-    expect(r.status).toBe(400);
-    expect(lecturas).toHaveLength(0);
+    const r = await request(await buildApp()).post(BUSCAR)
+      // `null` es como un formulario serializa el campo que el usuario borró.
+      .set('Authorization', await auth()).send({ nit: '', placa: null });
+
+    expect(r.status).toBe(200);
+    expect(listado().condiciones).toHaveLength(0);
   });
 });
 
@@ -472,6 +625,63 @@ describe('GET /registros — paginación por cursor', () => {
 
     expect(r.status).toBe(400);
     expect(lecturas).toHaveLength(0);
+  });
+
+  it('**el tope de página es 50**: 60 peticiones por minuto × 50 filas es el techo real', async () => {
+    kdb.when.select(TABLA, [fila()]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const tope = await request(app).get(`${REGISTROS}?limit=50`).set('Authorization', cabecera);
+    const pasado = await request(app).get(`${REGISTROS}?limit=51`).set('Authorization', cabecera);
+
+    expect(tope.status).toBe(200);
+    // 200 por página eran 12 000 NITs y placas por minuto y usuario; 50 son 3 000.
+    expect(pasado.status).toBe(400);
+    expect(COMPARENDOS_REGISTROS_LIMIT_MAX).toBe(50);
+  });
+
+  it('la búsqueda por cuerpo pagina igual: el cursor y el límite siguen en la query', async () => {
+    kdb.when.select(TABLA, [fila()]);
+    const cursor = Buffer.from(`${ANTES.toISOString()}|${ID_2}`, 'utf8').toString('base64url');
+
+    await request(await buildApp()).post(`${BUSCAR}?limit=10&cursor=${cursor}`)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    expect(listado().limite).toBe(11);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"nit_monitoreado"');
+    expect(w.sql).toContain('"created_at" <');
+  });
+
+  it('un cursor corrupto en la búsqueda es 400 igual que en el listado', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).post(`${BUSCAR}?cursor=no-es-un-cursor`)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    expect(r.status).toBe(400);
+    expect(r.body.codigo).toBe('cursor_invalido');
+  });
+});
+
+// ─────────────────────────── Caché (Low del gate de seguridad) ──────────────────────────────────
+
+describe('las respuestas con datos personales no se guardan en caché', () => {
+  it('**`no-store` en el listado, en la búsqueda y en el detalle**', async () => {
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, []);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const lista = await request(app).get(REGISTROS).set('Authorization', cabecera);
+    const busqueda = await request(app).post(BUSCAR).set('Authorization', cabecera).send({ nit: '900123456' });
+    const detalle = await request(app).get(`${REGISTROS}/${ID_1}`).set('Authorization', cabecera);
+
+    // Un NIT y una placa no tienen por qué quedarse en el disco del navegador ni en un proxy
+    // intermedio después de que la pantalla se cierre.
+    for (const r of [lista, busqueda, detalle]) {
+      expect(r.headers['cache-control']).toBe('no-store');
+    }
   });
 });
 
@@ -584,11 +794,29 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
     expect(String(ultimoAcceso().motivo)).toContain('filas=2');
   });
 
+  it('**la búsqueda por cuerpo deja el MISMO rastro que el listado**', async () => {
+    kdb.when.select(TABLA, [fila(), fila({ id: ID_2 })]);
+
+    const r = await request(await buildApp()).post(BUSCAR)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    // Mover el filtro al cuerpo no puede costar el registro de acceso: es justo la lectura que un
+    // titular preguntaría quién hizo.
+    expect(r.status).toBe(200);
+    expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
+    expect(ultimoAcceso()).toMatchObject({
+      resourceTipo: 'flito_comparendos_registro',
+      accion: 'search',
+      camposAccedidos: ['nit_monitoreado', 'placa'],
+    });
+    expect(String(ultimoAcceso().motivo)).toContain('filas=2');
+  });
+
   it('**los filtros van al motivo enmascarados**: el rastro no publica el dato que protege', async () => {
     kdb.when.select(TABLA, [fila()]);
 
-    await request(await buildApp())
-      .get(`${REGISTROS}?nit=900123456&placa=ABC123&estado=activo`).set('Authorization', await auth());
+    await request(await buildApp()).post(`${BUSCAR}?estado=activo`)
+      .set('Authorization', await auth()).send({ nit: '900123456', placa: 'ABC123' });
 
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('900123456');
@@ -631,17 +859,21 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
 // ─────────────────────────── Limitador de la lectura ────────────────────────────────────────────
 
 describe('registros — rateLimiter del listado', () => {
-  it('corta el bucle de paginación con 429', async () => {
+  it('**el bucle de paginación paga 429 a las 60 páginas, y la búsqueda comparte esa cuota**', async () => {
     kdb.when.select(TABLA, [fila()]);
     const app = await buildApp();
     // Usuario propio: el limitador cuenta por `sub` y así este caso no le gasta cuota al resto.
     const cabecera = await auth('admin', 5150);
 
     let ultimo = 0;
-    for (let i = 0; i < 61; i++) {
+    for (let i = 0; i < 60; i++) {
       ultimo = (await request(app).get(REGISTROS).set('Authorization', cabecera)).status;
     }
+    expect(ultimo).toBe(200);
 
-    expect(ultimo).toBe(429);
+    // Por el cuerpo no hay una cuota nueva: si la hubiera, el techo del módulo sería el doble.
+    const porCuerpo = await request(app).post(BUSCAR).set('Authorization', cabecera).send({});
+
+    expect(porCuerpo.status).toBe(429);
   });
 });

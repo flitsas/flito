@@ -9,11 +9,18 @@
 //
 // Lo que falta de la superficie del Feature —el PATCH de gestión (causal/observación) y el export—
 // es de 17b y se añadirá sobre este mismo router. Toda lectura que devuelva datos personales deja
-// rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17).
+// rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con
+// `Cache-Control: no-store`.
+//
+// **Los filtros de identidad no viajan en la URL** (AGENTS.md §14): buscar por NIT o por placa es
+// `POST /registros/buscar` con esos dos valores en el CUERPO. La query solo lleva lo que no
+// identifica a nadie —estado, número de comparendo, paginación— y el `:id` del path es un UUID
+// opaco, que la norma admite explícitamente.
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { COMPARENDOS_REGISTROS_LIMIT_MAX } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
@@ -37,6 +44,7 @@ import {
   listarEventos,
   listarRegistros,
   obtenerRegistro,
+  type FiltroRegistros,
 } from './flito-comparendos.registros.service.js';
 import {
   CAMPOS_PII_REGISTRO,
@@ -149,10 +157,17 @@ const syncLimiter = rateLimit({
  * Lectura del consolidado: 60 peticiones por minuto y usuario.
  *
  * Es el único limitador del módulo que protege una LECTURA, y no está aquí por coste de cómputo
- * —una página es un SELECT con `LIMIT`— sino por lo que se lee: cada página son hasta 200 filas con
- * NIT y placa, y paginar en bucle es exactamente la forma de vaciar un módulo de datos personales
- * sin lanzar un solo error. El registro de acceso deja el rastro; esto pone el techo. 60/min es
- * ~1 petición por segundo: sobra para una pantalla que pagina a mano y corta el bucle automático.
+ * —una página es un SELECT con `LIMIT`— sino por lo que se lee: cada página son hasta
+ * `COMPARENDOS_REGISTROS_LIMIT_MAX` filas con NIT y placa, y paginar en bucle es exactamente la
+ * forma de vaciar un módulo de datos personales sin lanzar un solo error.
+ *
+ * **Este límite no corta el bucle: le pone precio.** Multiplicado por el tamaño de página, el techo
+ * real es 60 × 50 = **3 000 NITs y placas por minuto y usuario** —180 000 a la hora—, así que quien
+ * tenga una sesión de administrador válida puede vaciar el módulo si le dedica tiempo. Lo que hace
+ * este limitador es que ese vaciado tarde y quede escrito: el registro de acceso (Ley 1581 art. 17)
+ * anota cada página con su usuario, su hora y sus filtros, y 3 000 filas por minuto son un rastro
+ * imposible de confundir con una pantalla que pagina a mano. Bajar el tope de página de 200 a 50
+ * dividió ese techo por cuatro sin quitarle nada al uso real (una tabla no muestra 200 filas).
  */
 const registrosLimiter = rateLimit({
   windowMs: 60_000,
@@ -539,14 +554,26 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
 
 // ─────────────────────────────── Registros consolidados (CF-09, CF-11) ──────────────────────────
 //
-// Las tres rutas son de SOLO LECTURA y no hay ninguna que escriba un campo de fuente: el CF-09 pide
-// exactamente eso (RN-04). El PATCH de gestión —lo único editable, `causalId` y `observacion`— es
-// de 17b y aquí no existe ni como stub: una ruta que acepta un cuerpo y no hace nada es peor que no
-// tenerla.
+// Las cuatro rutas son de SOLO LECTURA y no hay ninguna que escriba un campo de fuente: el CF-09
+// pide exactamente eso (RN-04). `POST /registros/buscar` es un POST por dónde viajan sus filtros,
+// no por lo que hace: responde 200, no crea nada y no tiene efectos secundarios más allá del
+// registro de acceso que deja cualquier lectura de este módulo.
+//
+// El PATCH de gestión —lo único editable, `causalId` y `observacion`— es de 17b y aquí no existe ni
+// como stub: una ruta que acepta un cuerpo y no hace nada es peor que no tenerla.
 
-/** Un filtro que llega vacío (`?nit=`) es un filtro sin poner, no un filtro que no valida. */
+/**
+ * Un filtro que llega vacío es un filtro sin poner, no un filtro que no valida.
+ *
+ * Vale para los dos bordes y por eso contempla los dos vacíos: `?nit=` en la query (cadena vacía) y
+ * `{ "nit": null }` en el cuerpo, que es como un formulario serializa un campo que el usuario
+ * borró. Rechazar cualquiera de los dos convertiría «quité el filtro» en un 400.
+ */
 const vacioEsAusente = <T extends z.ZodTypeAny>(esquema: T) =>
-  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), esquema.optional());
+  z.preprocess(
+    (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+    esquema.optional(),
+  );
 
 /**
  * La placa se valida con el alfabeto de lo que un humano escribe («ABC-123», «abc 123») y la
@@ -559,54 +586,129 @@ const placaFiltroSchema = z.string().trim()
   .regex(/^[A-Za-z0-9 -]+$/, 'La placa admite letras, dígitos, espacio y guion');
 
 /**
- * Query de `GET /registros`.
+ * Query de lista, compartida por `GET /registros` y `POST /registros/buscar`.
  *
- * `.strict()` por lo mismo que en `POST /sync`, y aquí pesa más: `?nits=900123456` —el error de
- * dedo— se ignoraría en silencio y devolvería TODOS los comparendos de todas las empresas a quien
- * pidió los de una. En un listado de datos personales, un filtro mal escrito tiene que ser un 400.
+ * Solo lleva lo que NO identifica a una persona: el estado de monitoreo, un fragmento del número de
+ * comparendo —un consecutivo del Estado— y la paginación. Es la mitad del contrato que sí puede
+ * acabar en un access log sin que eso sea una fuga (AGENTS.md §14).
+ *
+ * `.strict()` por lo mismo que en `POST /sync`, y aquí pesa más: `?estados=activo` —el error de
+ * dedo— se ignoraría en silencio y devolvería un listado más ancho del que se pidió. Es además lo
+ * que hace que `GET /registros?nit=900123456` sea un **400** y no una consulta que funciona: el
+ * filtro de identidad ya no vive en la query, y quien lo intente tiene que enterarse.
+ *
+ * `limit` se preprocesa igual que los demás en vez de dejarlo en un `z.coerce` pelado: sin eso,
+ * `?limit=` (vacío) era el único parámetro que devolvía 400 mientras `?nit=`, `?q=` o `?estado=`
+ * vacíos se tomaban como ausentes. Dos reglas distintas para el mismo gesto —mandar el parámetro
+ * sin valor— es justo el tipo de asimetría que un cliente descubre en producción.
  */
 const registrosQuerySchema = z.object({
   estado: vacioEsAusente(z.enum(['activo', 'inactivo'])),
-  // El mismo esquema del catálogo: el NIT se normaliza antes de medirlo y el alfabeto queda cerrado.
-  nit: vacioEsAusente(nitSchema),
-  placa: vacioEsAusente(placaFiltroSchema),
   // Mínimo 3 caracteres: `q=1` recorrería la tabla para devolver medio módulo.
   q: vacioEsAusente(z.string().trim().min(3, 'Busca por al menos 3 caracteres del número').max(60)),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
+  limit: z.preprocess(
+    (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+    z.coerce.number().int().min(1).max(COMPARENDOS_REGISTROS_LIMIT_MAX)
+      .default(COMPARENDOS_REGISTROS_LIMIT_MAX),
+  ),
   cursor: vacioEsAusente(z.string().max(200)),
 }).strict();
 
 /**
- * Listado paginado por cursor (AC1).
+ * Cuerpo de `POST /registros/buscar`: los dos filtros que identifican a alguien.
+ *
+ * `nit` reutiliza el MISMO esquema del catálogo —se normaliza antes de medirlo y el alfabeto queda
+ * cerrado—, así que un valor con `&` o `=` se rechaza aquí igual que en el alta.
+ *
+ * `.strict()` con más motivo que en la query: `{ "nits": "900123456" }` se ignoraría en silencio y
+ * devolvería los comparendos de TODAS las empresas a quien pidió los de una. En un listado de datos
+ * personales, un filtro mal escrito tiene que ser un 400.
+ */
+const registrosBusquedaSchema = z.object({
+  nit: vacioEsAusente(nitSchema),
+  placa: vacioEsAusente(placaFiltroSchema),
+}).strict();
+
+/**
+ * Consulta, rastro y respuesta de una página. Lo comparten las dos rutas de listado.
  *
  * Deja registro de acceso ANTES de responder (Ley 1581 art. 17): esta es la lectura masiva del
- * módulo —hasta 200 NITs y placas por página— y es justo la que hay que poder reconstruir cuando un
- * titular pregunte quién consultó sus datos. Los filtros van al motivo enmascarados; de eso se
- * ocupa `registrarAccesoComparendos`, no esta ruta.
+ * módulo y es justo la que hay que poder reconstruir cuando un titular pregunte quién consultó sus
+ * datos. Los filtros van al motivo enmascarados; de eso se ocupa `registrarAccesoComparendos`, no
+ * esta función.
+ *
+ * @throws lo que lance el servicio (cursor inválido); lo traduce el `catch` de cada ruta.
+ */
+async function entregarPagina(req: Request, res: Response, filtro: FiltroRegistros): Promise<void> {
+  const pagina = await listarRegistros(filtro);
+  await registrarAccesoComparendos(req, {
+    recurso: RECURSO_REGISTROS,
+    accion: 'search',
+    campos: [...CAMPOS_PII_REGISTRO],
+    filas: pagina.items.length,
+    filtros: {
+      estado: filtro.estado,
+      nit: filtro.nit,
+      placa: filtro.placa,
+      q: filtro.q,
+    },
+  });
+  res.set('Cache-Control', 'no-store');
+  res.json(pagina);
+}
+
+/**
+ * Listado sin filtros de identidad (AC1). **Sigue siendo un GET, y a propósito.**
+ *
+ * Es la vista por defecto de la pantalla: «los comparendos, los últimos primero». Lo que el §14
+ * prohíbe es que la URL cargue con la identidad de alguien, y esta no la lleva —estado, número y
+ * cursor no identifican a nadie—, así que convertirla en POST no quitaría ni un dato personal de
+ * ningún log y sí perdería lo que un GET da gratis: es idempotente y seguro por definición, se
+ * puede reintentar, y cualquiera que lea el router ve de un vistazo qué rutas leen y cuál busca.
+ * La búsqueda por NIT o placa es la otra ruta, y no hay forma de hacerla desde aquí: `.strict()`
+ * convierte `?nit=` en un 400.
  */
 router.get('/registros', registrosLimiter, async (req: Request, res: Response) => {
   const parsed = registrosQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
 
   try {
-    const pagina = await listarRegistros(parsed.data);
-    await registrarAccesoComparendos(req, {
-      recurso: RECURSO_REGISTROS,
-      accion: 'search',
-      campos: [...CAMPOS_PII_REGISTRO],
-      filas: pagina.items.length,
-      filtros: {
-        estado: parsed.data.estado,
-        nit: parsed.data.nit,
-        placa: parsed.data.placa,
-        q: parsed.data.q,
-      },
-    });
-    res.json(pagina);
+    await entregarPagina(req, res, parsed.data);
   } catch (e) { fallo(res, e); }
 });
 
-/** Un comparendo con su timeline (AC1). El 404 lo decide el error de dominio, no esta ruta. */
+/**
+ * Búsqueda con filtros de identidad (AC1, AGENTS.md §14).
+ *
+ * El NIT y la placa van en el cuerpo porque una URL es el peor sitio donde dejar un dato personal:
+ * la escribe entera el access log del proxy, la guarda el historial del navegador y viaja en el
+ * `Referer` de la petición siguiente — tres registros que no están bajo la retención de 24 meses
+ * del módulo ni bajo el `pii_access_log` que la Ley 1581 exige. La paginación y los filtros que no
+ * identifican a nadie siguen en la query, compartiendo esquema con el `GET`: que la búsqueda lleve
+ * un NIT no cambia cómo se pagina.
+ *
+ * Responde **200**, no 201: no crea nada. El único efecto de esta ruta fuera de la respuesta es la
+ * fila del registro de acceso, que es la misma que deja el `GET`.
+ */
+router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Response) => {
+  const query = registrosQuerySchema.safeParse(req.query);
+  if (!query.success) { datosInvalidos(res, query.error); return; }
+  // Sin cuerpo es una búsqueda sin filtros de identidad, no un error: `req.body` puede ni existir
+  // si el cliente no manda `Content-Type`.
+  const cuerpo = registrosBusquedaSchema.safeParse(req.body ?? {});
+  if (!cuerpo.success) { datosInvalidos(res, cuerpo.error); return; }
+
+  try {
+    await entregarPagina(req, res, { ...query.data, ...cuerpo.data });
+  } catch (e) { fallo(res, e); }
+});
+
+/**
+ * Un comparendo con su timeline (AC1). El 404 lo decide el error de dominio, no esta ruta.
+ *
+ * Sigue siendo `GET` con el id en el path: el §14 admite explícitamente los identificadores OPACOS
+ * —un UUID no dice nada de nadie— y es lo que separa este caso del filtro por NIT.
+ */
 router.get('/registros/:id', registrosLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
@@ -621,6 +723,7 @@ router.get('/registros/:id', registrosLimiter, async (req: Request, res: Respons
       filas: 1,
       referencia: registro.id,
     });
+    res.set('Cache-Control', 'no-store');
     res.json(registro);
   } catch (e) { fallo(res, e); }
 });
@@ -628,14 +731,16 @@ router.get('/registros/:id', registrosLimiter, async (req: Request, res: Respons
 /**
  * Timeline suelto (CF-11).
  *
- * **No deja registro de acceso, y es una decisión, no un olvido:** un evento son `tipo`, la corrida
- * que lo produjo y un `detalle` que por RN-20 no lleva NIT, placa ni nada del proveedor. No hay
- * ningún dato personal en la respuesta, y anotar en `pii_access_log` lecturas que no exponen datos
- * personales lo llena de ruido justo hasta el punto en que deja de poder consultarse — que es lo
- * único que un registro de acceso tiene que poder hacerse.
+ * **No deja registro de acceso ni sale con `no-store`, y es una decisión, no un olvido:** un evento
+ * son `tipo`, la corrida que lo produjo y un `detalle` que por RN-20 no lleva NIT, placa ni nada del
+ * proveedor —y desde RN-35 el API lo proyecta por lista blanca, así que tampoco puede llevarlo por
+ * accidente—. No hay ningún dato personal en la respuesta: anotar en `pii_access_log` lecturas que
+ * no exponen datos personales lo llena de ruido justo hasta el punto en que deja de poder
+ * consultarse, y prohibir la caché de algo que no es personal es ceremonia sin efecto.
  *
- * Si 17b enriquece `detalle` con algo del registro (la placa en el evento, por ejemplo), esta ruta
- * pasa a necesitar `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ * Las dos decisiones cuelgan del mismo hecho, así que se revisan juntas: si 17b enriquece `detalle`
+ * con algo del registro (la placa en el evento, por ejemplo), esta ruta pasa a necesitar
+ * `registrarAccesoComparendos` con `RECURSO_REGISTROS` **y** la cabecera.
  */
 router.get('/registros/:id/eventos', registrosLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);

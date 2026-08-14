@@ -197,7 +197,9 @@ export type ComparendosRegistroEstado = 'activo' | 'inactivo';
 export type ComparendosOrigenMerge = 'simit' | 'municipal' | 'ambos';
 
 /**
- * Un comparendo consolidado, tal como lo devuelve `GET /registros` (CF-09).
+ * Un comparendo consolidado, tal como lo devuelven `GET /registros` y `POST /registros/buscar`
+ * (CF-09). Las dos rutas devuelven exactamente esta forma; lo único que cambia entre ellas es por
+ * dónde entran los filtros de identidad.
  *
  * **Todo lo de arriba de `estado` es dato de FUENTE y es de solo lectura**: lo escribe el sync y no
  * hay endpoint que lo edite (RN-04). Lo único que 17b podrá tocar es `causalId` y `observacion`.
@@ -254,12 +256,18 @@ export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reapar
  * `detalle` es el contexto mínimo del evento —`{ origen }` en el alta y la reaparición,
  * `{ motivo }` en la inactivación— y por RN-20 no lleva NIT, placa ni nada del proveedor: el
  * registro al que apunta ya tiene esos datos.
+ *
+ * El API lo devuelve por LISTA BLANCA de esas dos claves (RN-35): la columna es JSONB y lo que se
+ * guardó ahí es lo único de la respuesta del módulo que no está enumerado campo a campo, así que
+ * enumerarlo también aquí es lo que impide que cualquier cosa escrita en esa columna —hoy o por un
+ * proceso futuro— salga por el API sin que nadie lo decidiera.
  */
 export interface ComparendoEvento {
   id: string;
   tipo: ComparendosEventoTipo;
   /** Corrida que lo produjo. `null` solo en filas anteriores a que se registrara la corrida. */
   syncRunId: string | null;
+  /** `{ origen }`, `{ motivo }`, o `null` si el evento no trae ninguno de los dos. */
   detalle: Record<string, unknown> | null;
   ocurridoEn: string;
 }
@@ -270,22 +278,53 @@ export interface ComparendoRegistroDetalle extends ComparendoRegistro {
 }
 
 /**
- * Filtros de `GET /registros` (CF-09).
+ * Tamaño máximo —y por defecto— de una página de registros.
  *
- * `nit` y `placa` son coincidencia EXACTA sobre el valor normalizado (el NIT sin puntos, la placa
- * en mayúsculas y sin guiones): son identificadores, y una búsqueda parcial sobre un identificador
- * es una forma de barrer datos personales de a poco. `q` sí es parcial, pero solo sobre el NÚMERO
- * de comparendo, que no identifica a una persona.
+ * Vive aquí y no solo en el router para que la pantalla no lo adivine ni pida 200 y reciba un 400.
+ * El número sale de multiplicarlo por el limitador de la lectura (60 peticiones por minuto y
+ * usuario): 50 filas × 60 = 3 000 NITs y placas por minuto, que es el techo de exfiltración que el
+ * módulo acepta para un administrador con sesión válida.
  */
-export interface ComparendosRegistrosFiltro {
+export const COMPARENDOS_REGISTROS_LIMIT_MAX = 50;
+
+/**
+ * Parámetros de LISTA. Viajan en la query, y pueden hacerlo porque ninguno identifica a una persona.
+ *
+ * Son los mismos en `GET /registros` y en `POST /registros/buscar`: la paginación no cambia porque
+ * la búsqueda lleve filtros de identidad, y definirla una sola vez evita que las dos rutas se
+ * separen. `q` es parcial pero solo sobre el NÚMERO de comparendo —un consecutivo del Estado— y por
+ * eso no es un identificador de persona.
+ */
+export interface ComparendosRegistrosQuery {
   estado?: ComparendosRegistroEstado;
-  nit?: string;
-  placa?: string;
   /** Fragmento del número de comparendo (mínimo 3 caracteres). */
   q?: string;
+  /** 1..{@link COMPARENDOS_REGISTROS_LIMIT_MAX}. Ausente = el máximo. */
   limit?: number;
+  /** El `nextCursor` de la página anterior, tal cual llegó. Opaco: no se construye en el cliente. */
   cursor?: string;
 }
+
+/**
+ * Cuerpo de `POST /registros/buscar` (CF-09): los filtros que SÍ identifican.
+ *
+ * Van en el cuerpo y no en la query por la norma de datos personales del proyecto (AGENTS.md §14):
+ * un NIT o una placa en una URL acaba en el access log del proxy, en el historial del navegador y
+ * en el `Referer` de la siguiente petición, y ninguno de esos tres sitios está bajo la retención ni
+ * el registro de acceso que la Ley 1581 exige para este módulo.
+ *
+ * Los dos son coincidencia EXACTA sobre el valor normalizado (el NIT sin puntos, la placa en
+ * mayúsculas y sin guiones): una búsqueda parcial sobre un identificador es una forma de barrer
+ * datos personales de a poco.
+ */
+export interface ComparendosRegistrosBusqueda {
+  nit?: string;
+  placa?: string;
+}
+
+/** Filtro resuelto que consume el servicio: la query más el cuerpo, ya validados. */
+export interface ComparendosRegistrosFiltro
+  extends ComparendosRegistrosQuery, ComparendosRegistrosBusqueda {}
 
 /**
  * Página de registros. Paginación por CURSOR, no por `offset`.

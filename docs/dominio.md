@@ -80,7 +80,15 @@ se va por `ON DELETE CASCADE`. Detalles que importan al leer la cifra:
 - **Se frena solo** si los candidatos superan un porcentaje de la tabla (`COMPARENDOS_PURGA_MAX_RATIO`) o si nadie ha sincronizado en `COMPARENDOS_PURGA_SYNC_MAX_DIAS`: con el sync parado, `ultimo_visto_en` deja de avanzar en toda la tabla y la purga acabaría borrando datos vigentes en silencio.
 - Los payloads crudos de los proveedores se guardan **podados** a la lista blanca del mapa de homologación, y **no** salen por el API.
 
-Cada lectura que devuelve NIT o placa queda anotada en `pii_access_log` (Ley 1581 art. 17), con los filtros enmascarados.
+Cada lectura que devuelve NIT o placa queda anotada en `pii_access_log` (Ley 1581 art. 17), con los filtros enmascarados,
+y sale con `Cache-Control: no-store`.
+
+**Buscar por NIT o por placa es `POST /registros/buscar`, con esos dos valores en el cuerpo** (AGENTS.md §14). No es una
+mutación: responde 200 y no crea nada. El `GET /registros` sigue existiendo para la vista por defecto y solo admite lo que
+no identifica a nadie —estado, número de comparendo, paginación—; un `?nit=` en la query es un **400**, no un filtro que se
+ignora. El motivo es que una URL con un NIT dentro se queda escrita en el access log del proxy, en el historial del
+navegador y en el `Referer` de la petición siguiente, tres registros que no están bajo la retención de 24 meses ni bajo el
+`pii_access_log`. Los identificadores opacos sí van en el path: `GET /registros/:id` es un UUID y no dice nada de nadie.
 
 Diseño 17a: [`docs/features/flito-comparendos-ingesta-parametrizacion.md`](features/flito-comparendos-ingesta-parametrizacion.md).
 

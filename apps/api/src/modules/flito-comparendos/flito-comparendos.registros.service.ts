@@ -32,17 +32,28 @@
 //        —`placa=A` devolvería el parque entero—, y este módulo consulta deudas de terceros. Lo
 //        único que admite coincidencia parcial es `q`, que busca sobre el NÚMERO de comparendo: es
 //        un consecutivo del Estado y no identifica a una persona.
+//        Esos dos filtros entran por el CUERPO de `POST /registros/buscar` y no por la query de un
+//        GET (AGENTS.md §14): un NIT o una placa en la URL sobrevive en el access log del proxy, en
+//        el historial del navegador y en el `Referer`, tres sitios fuera de la retención y del
+//        registro de acceso que la Ley 1581 exige aquí. Para este archivo da igual de dónde vengan
+//        —recibe el filtro ya validado—, pero la regla se escribe donde vive la consulta.
 //
 // RN-34  El registro de acceso (Ley 1581 art. 17) lo pone la RUTA, con
 //        `registrarAccesoComparendos`, y no este archivo: es el borde HTTP quien sabe QUIÉN pidió
 //        la lectura. Este servicio no toca `req`.
+//
+// RN-35  El `detalle` de un evento sale por LISTA BLANCA (`origen`, `motivo`), no tal cual está en
+//        la columna. Es JSONB —lo único de la respuesta que no está enumerado campo a campo—, y
+//        devolverlo entero significaría que cualquier clave que alguien escriba ahí en el futuro se
+//        publica por el API sin que nadie lo haya decidido. Hoy el sync solo escribe esas dos
+//        (RN-20), así que la lista blanca no quita nada; lo que hace es que siga siendo verdad.
 
 import { and, desc, eq, like, lt, or, type SQL } from 'drizzle-orm';
 import type {
   ComparendoEvento,
   ComparendoRegistro,
   ComparendoRegistroDetalle,
-  ComparendosRegistroEstado,
+  ComparendosRegistrosFiltro,
   ComparendosRegistrosPagina,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -124,12 +135,38 @@ function eventoDto(f: FilaEvento): ComparendoEvento {
     id: f.id,
     tipo: f.tipo,
     syncRunId: f.syncRunId,
-    // La columna es JSONB y drizzle la tipa como `unknown`. Solo se deja pasar un objeto: el sync
-    // escribe `{ origen }` o `{ motivo }`, y un valor suelto (número, cadena) en `detalle` sería una
-    // fila escrita por algo que no es este módulo.
-    detalle: esObjeto(f.detalle) ? f.detalle : null,
+    detalle: detalleDto(f.detalle),
     ocurridoEn: f.createdAt.toISOString(),
   };
+}
+
+/**
+ * Claves que un `detalle` puede publicar (RN-35). Son las dos que escribe el sync (RN-20): `origen`
+ * en el alta y la reaparición, `motivo` en la inactivación.
+ */
+const CLAVES_DETALLE = ['origen', 'motivo'] as const;
+
+/**
+ * Proyecta el `detalle` de un evento igual que `COLUMNAS_REGISTRO` proyecta la fila: por lista
+ * blanca (RN-35).
+ *
+ * La columna es JSONB y drizzle la tipa como `unknown`, así que primero se exige un objeto —un
+ * valor suelto (número, cadena) en `detalle` sería una fila escrita por algo que no es este
+ * módulo— y después se copian solo las claves conocidas. Sin ese segundo paso, `detalle` sería el
+ * único hueco por el que algo no enumerado llegaría a la respuesta: basta con que un proceso futuro
+ * guarde ahí la placa, la respuesta del proveedor o el token con el que se llamó.
+ *
+ * Un `detalle` del que no sobrevive ninguna clave vuelve como `null` y no como `{}`: «este evento
+ * no trae contexto conocido» tiene una sola representación y la pantalla no distingue dos vacíos.
+ */
+function detalleDto(valor: unknown): Record<string, unknown> | null {
+  if (!esObjeto(valor)) return null;
+
+  const limpio: Record<string, unknown> = {};
+  for (const clave of CLAVES_DETALLE) {
+    if (valor[clave] !== undefined) limpio[clave] = valor[clave];
+  }
+  return Object.keys(limpio).length > 0 ? limpio : null;
 }
 
 function esObjeto(valor: unknown): valor is Record<string, unknown> {
@@ -199,14 +236,15 @@ function despuesDelCursor(c: Cursor): SQL {
 
 // ─────────────────────────────── Listado (CF-09) ────────────────────────────────────────────────
 
-export interface FiltroRegistros {
-  estado?: ComparendosRegistroEstado;
-  nit?: string;
-  placa?: string;
-  /** Fragmento del número de comparendo. La ruta ya le exige un mínimo de longitud. */
-  q?: string;
+/**
+ * El filtro que ya está validado. Es el compartido, con `limit` obligatorio: la ruta siempre lo
+ * resuelve —por el parámetro o por el defecto—, así que aquí no hay «sin límite» que contemplar.
+ *
+ * `nit` y `placa` llegan del cuerpo de `POST /registros/buscar` y el resto de la query; este
+ * archivo no distingue entre los dos orígenes ni tiene por qué (RN-33).
+ */
+export interface FiltroRegistros extends ComparendosRegistrosFiltro {
   limit: number;
-  cursor?: string;
 }
 
 /** `%` y `_` son comodines de LIKE: sin escaparlos, `q=%` devolvería la tabla entera. */
