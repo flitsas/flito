@@ -6,16 +6,20 @@
 //      CUERPO de `POST /registros/buscar`, y el `GET` del listado los rechaza con un 400 en vez de
 //      aceptarlos: una URL con un NIT sobrevive en el access log del proxy y en el historial, dos
 //      sitios fuera de la retención del módulo.
-//   2. **Los payloads crudos no salen del módulo** (RN-31). No se comprueba mirando la respuesta
-//      —el mock devuelve lo que se le registre— sino la PROYECCIÓN de la consulta: las columnas se
-//      enumeran una a una y ninguna es `payload_*`. Si mañana alguien cambia el `select(...)` por un
-//      `select()`, este archivo lo dice.
+//   2. **Los payloads crudos no salen del módulo** (RN-31). Se comprueba por los dos lados y en las
+//      DOS consultas —la del listado y la del detalle, que no ordena y por eso se le escapaba a la
+//      aserción del listado—: la PROYECCIÓN enumera las columnas una a una y ninguna es `payload_*`,
+//      y la fila que devuelve el mock SÍ los trae, con una cédula reconocible dentro, de modo que
+//      cambiar el `select(...)` por un `select()` no solo cambia la proyección sino que saca el
+//      centinela por la respuesta.
 //   3. **Los filtros son los que dicen ser** (RN-33). El WHERE se serializa a SQL real: un filtro
 //      por NIT que no filtra y uno que filtra son idénticos para un mock que devuelve lo registrado
 //      pase lo que pase, y la diferencia entre los dos es devolverle a alguien los comparendos de
 //      todas las empresas.
 //   4. **La paginación es por cursor y sobre un orden estable** (RN-32). Se afirma el `ORDER BY`, el
-//      `LIMIT n+1`, el contenido del cursor emitido y el WHERE de la segunda página.
+//      `LIMIT n+1`, el contenido del cursor emitido y el WHERE de la segunda página —por IGUALDAD,
+//      porque `'"id" <='` contiene `'"id" <'` y un `toContain` no distingue los dos—, y además se
+//      RECORREN tres páginas contra una mini-tabla que aplica ese WHERE de verdad.
 //   5. **Toda lectura de datos personales deja rastro** (Ley 1581 art. 17, HU #11511): es el
 //      consumidor que `flito-comparendos.pii.ts` estaba esperando.
 //   6. **Nada de esto lo ve quien no es admin** (CF-12) ni nadie sin autenticar.
@@ -53,11 +57,24 @@ const BUSCAR = `${REGISTROS}/buscar`;
 const TABLA = 'flito_comparendos_registros';
 const EVENTOS = 'flito_comparendos_eventos';
 
-const ID_1 = '11111111-1111-4111-8111-111111111111';
-const ID_2 = '22222222-2222-4222-8222-222222222222';
+/** Ids del mismo formato que solo se distinguen por su dígito: su orden es el del dígito. */
+const idNumero = (n: number) => {
+  const d = String(n);
+  return `${d.repeat(8)}-${d.repeat(4)}-4${d.repeat(3)}-8${d.repeat(3)}-${d.repeat(12)}`;
+};
+
+const ID_1 = idNumero(1);
+const ID_2 = idNumero(2);
 const RUN = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const AHORA = new Date('2026-08-13T15:30:00.000Z');
 const ANTES = new Date('2026-08-12T09:00:00.000Z');
+const HACE_TIEMPO = new Date('2026-08-01T07:00:00.000Z');
+
+/**
+ * El dato personal que los payloads del proveedor llevan dentro y que ninguna respuesta puede
+ * mostrar. Es una cadena reconocible a propósito: si algún día sale, el fallo se lee solo.
+ */
+const CEDULA_EN_PAYLOAD = 'cedula-del-propietario-1032456789';
 
 async function buildApp() {
   const app = express();
@@ -67,10 +84,28 @@ async function buildApp() {
   return app;
 }
 
-const auth = async (role: TestRole = 'admin', sub = 7) =>
+/**
+ * Cabecera de un usuario propio del bloque.
+ *
+ * **El `sub` es distinto en cada `describe` a propósito.** El limitador de la lectura cuenta 60
+ * peticiones por minuto y USUARIO, su ventana no se reinicia entre tests y este archivo hace bastantes
+ * más de 60 en total. Con un `sub` compartido, cualquier fallo real —que vitest reintenta, gastando
+ * el doble de cuota— empuja al resto del archivo contra el techo y los tests siguientes fallan con un
+ * `429` que no tiene nada que ver con lo que se rompió. El bloque del propio limitador ya lo hacía;
+ * esto lo generaliza.
+ */
+const sesion = (sub: number) => async (role: TestRole = 'admin') =>
   `Bearer ${await testToken({ sub, username: 'ops@flit.io', role })}`;
 
-/** Fila del consolidado tal como la devuelve la proyección del servicio. */
+/**
+ * Fila del consolidado tal como la traería la base **sin proyectar**: con `payload_simit` y
+ * `payload_municipal` dentro.
+ *
+ * No es la fila que el servicio pide —él enumera sus columnas y ninguna es un payload— y por eso
+ * sirve: es lo que un `db.select()` sin lista de columnas devolvería. Con una fixture limpia, una
+ * aserción sobre el cuerpo de la respuesta no puede distinguir «no se proyectan» de «no había nada
+ * que proyectar», que es exactamente el hueco que dejaba la versión anterior de este archivo.
+ */
 const fila = (over: Record<string, unknown> = {}) => ({
   id: ID_1,
   numeroComparendo: '05001000000012345678',
@@ -95,6 +130,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   observacion: null,
   createdAt: ANTES,
   updatedAt: AHORA,
+  // La respuesta del tercero sobre un tercero: existe para poder re-mergear sin volver a llamar al
+  // proveedor, no para alimentar una pantalla (RN-31).
+  payloadSimit: { propietario: { documento: CEDULA_EN_PAYLOAD }, direccion: 'CL 30 # 4-12' },
+  payloadMunicipal: { deudor: CEDULA_EN_PAYLOAD, telefono: '3001234567' },
   ...over,
 });
 
@@ -153,9 +192,78 @@ function instalarEspia(): void {
 const lecturasEn = (tabla: string) => lecturas.filter((l) => l.tabla === tabla);
 /** La consulta de listado: la única sobre registros que ordena. */
 const listado = () => lecturasEn(TABLA).find((l) => l.orden.length > 0)!;
+/**
+ * La consulta del DETALLE (`obtenerRegistro`): la que busca UN registro por id y no ordena.
+ *
+ * Existe porque `listado()` filtra por «tiene ORDER BY» y por tanto NUNCA miraba esta: la ruta que
+ * devuelve un registro entero se quedaba sin ninguna aserción de proyección. Solo vale en tests que
+ * piden el detalle: `listarEventos` también consulta esta tabla sin ordenar, aunque proyectando un
+ * único `id`.
+ */
+const consultaDetalle = () => lecturasEn(TABLA).find((l) => l.orden.length === 0)!;
 const sqlDe = (c: unknown) => dialecto.sqlToQuery(c as never);
 const whereDe = (c: Consulta) => sqlDe(c.condiciones[0]);
 const ordenDe = (c: Consulta) => c.orden.map((o) => sqlDe(o).sql).join(', ');
+
+// ─────────────────────────── Mini-tabla en memoria (para RECORRER páginas) ──────────────────────
+//
+// `keyed-db` devuelve las filas registradas pase lo que pase, así que con él «paginar» es pedir tres
+// veces la misma respuesta: un cursor que repite filas y uno que no se ven idénticos. Para que un
+// recorrido signifique algo tiene que haber alguien que APLIQUE el WHERE, y es esto.
+//
+// Lo que esta tabla no hace es decidir el criterio. Los dos operadores del keyset se LEEN del SQL
+// que construyó el servicio, no se dan por supuestos: si el desempate por `id` pasara de `<` a `<=`,
+// aquí se pagina con `<=` —como haría PostgreSQL— y la fila que cierra una página vuelve a salir en
+// la siguiente. Reimplementar el criterio «como debería ser» sería probar el test contra sí mismo.
+
+type Comparador = '<' | '<=';
+
+/** Los dos operadores del cursor, tal como el servicio los escribió. */
+function operadoresDelCursor(sql: string): [Comparador, Comparador] {
+  const m = /"created_at" (<=?) \$1 or .+"created_at" = \$2 and .+"id" (<=?) \$3/.exec(sql);
+  if (!m) throw new Error(`WHERE de cursor con una forma que esta tabla no sabe simular: ${sql}`);
+  return [m[1] as Comparador, m[2] as Comparador];
+}
+
+/** ISO y UUID en minúsculas comparan igual como cadena que como `timestamptz` y `uuid`. */
+const menorQue = (op: Comparador, a: string, b: string) => (op === '<' ? a < b : a <= b);
+
+interface FilaPaginable { id: string; createdAt: Date }
+
+/**
+ * Resolver de `keyed-db` que responde una consulta del listado como lo haría PostgreSQL: filtra por
+ * el cursor, ordena por `(created_at, id)` descendente y corta por el `LIMIT` que se pidió.
+ *
+ * `keyed-db` lo invoca al resolver la promesa, cuando la cadena ya está armada, así que la última
+ * lectura registrada sobre la tabla es la consulta que hay que responder.
+ */
+function tablaEnMemoria<T extends FilaPaginable>(filas: T[]) {
+  return (): T[] => {
+    const q = lecturasEn(TABLA).at(-1)!;
+    // Esta tabla solo sabe simular el orden del listado; con otro estaría respondiendo otra consulta.
+    expect(ordenDe(q)).toContain('"created_at" desc');
+    expect(ordenDe(q)).toContain('"id" desc');
+
+    const ordenadas = [...filas].sort((a, b) => {
+      const porFecha = b.createdAt.getTime() - a.createdAt.getTime();
+      if (porFecha !== 0) return porFecha;
+      return a.id === b.id ? 0 : (a.id < b.id ? 1 : -1);
+    });
+
+    let visibles = ordenadas;
+    if (q.condiciones.length > 0) {
+      const w = whereDe(q);
+      const [opFecha, opId] = operadoresDelCursor(w.sql);
+      const [corteFecha, , corteId] = w.params as string[];
+      visibles = ordenadas.filter((f) => {
+        const fecha = f.createdAt.toISOString();
+        return menorQue(opFecha, fecha, corteFecha)
+          || (fecha === corteFecha && menorQue(opId, f.id, corteId));
+      });
+    }
+    return q.limite === null ? visibles : visibles.slice(0, q.limite);
+  };
+}
 
 /** Lo que el helper de PII recibió en su última llamada. */
 const ultimoAcceso = () => logPiiAccessMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
@@ -170,6 +278,8 @@ beforeEach(() => {
 // ─────────────────────────── Guardas (AC1, CF-12) ───────────────────────────────────────────────
 
 describe('registros — quién puede leer', () => {
+  const auth = sesion(7101);
+
   it('sin Authorization → 401 y no se consulta nada', async () => {
     const r = await request(await buildApp()).get(REGISTROS);
 
@@ -217,6 +327,8 @@ describe('registros — quién puede leer', () => {
 // ─────────────────────────── Listado: forma y proyección (AC1, RN-31) ───────────────────────────
 
 describe('GET /registros — la forma de lo que devuelve', () => {
+  const auth = sesion(7102);
+
   it('devuelve items con la forma de `ComparendoRegistro` y `nextCursor`', async () => {
     kdb.when.select(TABLA, [fila()]);
 
@@ -253,16 +365,22 @@ describe('GET /registros — la forma de lo que devuelve', () => {
     expect(r.body.nextCursor).toBeNull();
   });
 
-  it('**la consulta no pide los payloads crudos** (RN-31)', async () => {
+  it('**el listado no pide los payloads crudos ni los devuelve** (RN-31)', async () => {
     kdb.when.select(TABLA, [fila()]);
 
-    await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
 
     // Lo que no sale de la base no se puede filtrar por descuido más arriba.
     expect(listado().proyeccion).not.toContain('payloadSimit');
     expect(listado().proyeccion).not.toContain('payloadMunicipal');
-    // Y sí trae lo que el contrato promete, para que esto no pase por proyectar de menos.
+    // Y sí trae lo que el contrato promete, para que esto no pase por proyectar de menos —ni por
+    // un `select()` sin argumentos, que dejaría la proyección VACÍA y haría pasar las dos negativas.
     expect(listado().proyeccion).toEqual(expect.arrayContaining(['numeroComparendo', 'placa', 'estado']));
+    // La otra mitad: la fila del mock SÍ lleva los dos payloads, con una cédula dentro. Si alguien
+    // devolviera lo leído sin proyectar, el centinela saldría por aquí.
+    expect(r.body.items[0]).not.toHaveProperty('payloadSimit');
+    expect(r.body.items[0]).not.toHaveProperty('payloadMunicipal');
+    expect(JSON.stringify(r.body)).not.toContain(CEDULA_EN_PAYLOAD);
   });
 
   it('el `monto` viaja como CADENA: `numeric(14,2)` por un `double` pierde el último centavo', async () => {
@@ -327,9 +445,36 @@ describe('GET /registros — la forma de lo que devuelve', () => {
   });
 });
 
+// ─────────────────────────── Las cuatro rutas solo leen (CF-09, RN-04) ──────────────────────────
+
+describe('la lectura del consolidado no escribe en ninguna de sus cuatro rutas', () => {
+  const auth = sesion(7111);
+
+  it('**ni el listado, ni la búsqueda, ni el detalle, ni el timeline tocan un campo de fuente**', async () => {
+    // El servicio no tiene un solo INSERT/UPDATE/DELETE y esto es esa promesa vista desde fuera. Se
+    // comprueban las CUATRO y no solo `POST /buscar`: el POST era el único sospechoso por su verbo,
+    // pero el que un día crecerá con un «marcar como visto» es cualquiera de los otros tres.
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento()]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const lista = await request(app).get(REGISTROS).set('Authorization', cabecera);
+    const busqueda = await request(app).post(BUSCAR).set('Authorization', cabecera).send({ nit: '900123456' });
+    const detalle = await request(app).get(`${REGISTROS}/${ID_1}`).set('Authorization', cabecera);
+    const timeline = await request(app).get(`${REGISTROS}/${ID_1}/eventos`).set('Authorization', cabecera);
+
+    for (const r of [lista, busqueda, detalle, timeline]) expect(r.status).toBe(200);
+    expect(kdb.insert).not.toHaveBeenCalled();
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(kdb.delete).not.toHaveBeenCalled();
+  });
+});
+
 // ─────────────────────────── Dónde viajan los filtros (AGENTS.md §14) ───────────────────────────
 
 describe('la identidad no viaja en la URL (§14)', () => {
+  const auth = sesion(7103);
+
   it('**`GET /registros?nit=` es 400**: el filtro de identidad ya no existe en la query', async () => {
     kdb.when.select(TABLA, [fila()]);
     const app = await buildApp();
@@ -373,6 +518,8 @@ describe('la identidad no viaja en la URL (§14)', () => {
 // ─────────────────────────── Listado: filtros (AC1, RN-33) ──────────────────────────────────────
 
 describe('los filtros filtran de verdad', () => {
+  const auth = sesion(7104);
+
   /** Filtros que no identifican a nadie: siguen en la query, del `GET` y del `POST`. */
   async function listar(query: string) {
     kdb.when.select(TABLA, [fila()]);
@@ -415,6 +562,14 @@ describe('los filtros filtran de verdad', () => {
     const w = whereDe(listado());
     expect(w.sql).toContain('"placa"');
     expect(w.params).toEqual(['ABC123']);
+  });
+
+  it('**y con ESPACIOS también**: «abc 123» es lo que sale de copiar una placa de un correo', async () => {
+    await buscar({ placa: 'abc 123' });
+
+    // El alfabeto del filtro admite el espacio (`placaFiltroSchema`) justo para que esto llegue al
+    // servicio; sin la normalización sería una búsqueda de una placa que no existe → página vacía.
+    expect(whereDe(listado()).params).toEqual(['ABC123']);
   });
 
   it('`nit` y `placa` son igualdad, no coincidencia parcial (RN-33)', async () => {
@@ -485,6 +640,8 @@ describe('los filtros filtran de verdad', () => {
 // ─────────────────────────── Un parámetro vacío se lee igual en todas partes ────────────────────
 
 describe('un parámetro vacío es un parámetro sin poner, y lo es para todos', () => {
+  const auth = sesion(7105);
+
   it('los filtros de la query vacíos no montan WHERE ni devuelven 400', async () => {
     kdb.when.select(TABLA, [fila()]);
 
@@ -522,6 +679,8 @@ describe('un parámetro vacío es un parámetro sin poner, y lo es para todos', 
 // ─────────────────────────── Paginación por cursor (AC1, RN-32) ─────────────────────────────────
 
 describe('GET /registros — paginación por cursor', () => {
+  const auth = sesion(7106);
+
   it('**ordena por `(created_at, id)` descendente**: el orden no se mueve bajo quien pagina', async () => {
     kdb.when.select(TABLA, [fila()]);
 
@@ -578,11 +737,55 @@ describe('GET /registros — paginación por cursor', () => {
 
     const w = whereDe(listado());
     // Keyset: «más viejo que el corte, o del mismo instante y con id menor».
-    expect(w.sql).toContain('"created_at" <');
-    expect(w.sql).toContain('"id" <');
+    //
+    // Por IGUALDAD y no con `toContain`: `'"id" <='` CONTIENE `'"id" <'`, así que un `toContain`
+    // daba por buena la única mutación que rompe la garantía —cambiar `lt` por `lte` en el
+    // desempate—, que es justo la que hace que la fila del corte salga en las dos páginas.
+    expect(w.sql).toBe(
+      `("${TABLA}"."created_at" < $1 or ("${TABLA}"."created_at" = $2 and "${TABLA}"."id" < $3))`,
+    );
     expect(w.sql).not.toContain('offset');
     // Drizzle serializa el `Date` del filtro a ISO al construir la consulta.
     expect(w.params).toEqual([ANTES.toISOString(), ANTES.toISOString(), ID_2]);
+  });
+
+  it('**tres páginas seguidas: ni una fila repetida ni una perdida, con `created_at` empatados**', async () => {
+    // La aserción de arriba mira el SQL; esta mira el RESULTADO, que es la garantía que el operador
+    // nota. El conjunto está armado sobre el caso que rompe: dos altas de la misma corrida comparten
+    // `created_at` al milisegundo y el corte de la primera página cae justo entre ellas. Con `<=` en
+    // el desempate por `id`, la fila que cierra la página 1 vuelve a salir de primera en la 2 —el
+    // mismo comparendo dos veces en pantalla— y la última nunca se alcanza.
+    const universo = [
+      fila({ id: idNumero(5), createdAt: AHORA }),
+      fila({ id: idNumero(4), createdAt: ANTES }),        // ─┐ misma corrida: `created_at` idéntico
+      fila({ id: idNumero(3), createdAt: ANTES }),        // ─┘ y el corte de la página 1 en medio
+      fila({ id: idNumero(2), createdAt: HACE_TIEMPO }),
+      fila({ id: idNumero(1), createdAt: HACE_TIEMPO }),
+    ];
+    kdb.when.select(TABLA, tablaEnMemoria(universo));
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    const recorridos: string[] = [];
+    let cursor: string | null = null;
+    let paginas = 0;
+    do {
+      const sufijo: string = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+      const r = await request(app).get(`${REGISTROS}?limit=2${sufijo}`).set('Authorization', cabecera);
+      expect(r.status).toBe(200);
+      recorridos.push(...r.body.items.map((i: { id: string }) => i.id));
+      cursor = r.body.nextCursor as string | null;
+      paginas++;
+      // Tope de seguridad: un cursor que no avanza pagina para siempre, y colgar el test sería una
+      // forma peor de fallar que decir en qué página se fue de madre.
+    } while (cursor !== null && paginas < 6);
+
+    // Ni una repetida — y nombrando cuál, que es lo que el operador vería dos veces en la tabla.
+    expect(recorridos.filter((id, i) => recorridos.indexOf(id) !== i)).toEqual([]);
+    // ...ni una perdida, y en el orden que el listado promete.
+    expect(recorridos).toEqual([idNumero(5), idNumero(4), idNumero(3), idNumero(2), idNumero(1)]);
+    // 5 filas de 2 en 2 son exactamente 3 páginas: si hicieran falta más, el cursor no avanza.
+    expect(paginas).toBe(3);
   });
 
   it('el cursor se combina con los filtros en lugar de reemplazarlos', async () => {
@@ -651,7 +854,9 @@ describe('GET /registros — paginación por cursor', () => {
     expect(listado().limite).toBe(11);
     const w = whereDe(listado());
     expect(w.sql).toContain('"nit_monitoreado"');
-    expect(w.sql).toContain('"created_at" <');
+    // `< \$` y no `toContain('<')`: un `<=` no casa con esto (ver el keyset del `GET`).
+    expect(w.sql).toMatch(/"created_at" < \$\d/);
+    expect(w.sql).toMatch(/"id" < \$\d/);
   });
 
   it('un cursor corrupto en la búsqueda es 400 igual que en el listado', async () => {
@@ -668,6 +873,8 @@ describe('GET /registros — paginación por cursor', () => {
 // ─────────────────────────── Caché (Low del gate de seguridad) ──────────────────────────────────
 
 describe('las respuestas con datos personales no se guardan en caché', () => {
+  const auth = sesion(7107);
+
   it('**`no-store` en el listado, en la búsqueda y en el detalle**', async () => {
     kdb.when.select(TABLA, [fila()]).select(EVENTOS, []);
     const app = await buildApp();
@@ -688,6 +895,8 @@ describe('las respuestas con datos personales no se guardan en caché', () => {
 // ─────────────────────────── Detalle y timeline (AC1, CF-11) ────────────────────────────────────
 
 describe('GET /registros/:id — detalle con timeline', () => {
+  const auth = sesion(7108);
+
   it('devuelve el registro y sus eventos, del más reciente al más antiguo', async () => {
     kdb.when.select(TABLA, [fila()]).select(EVENTOS, [
       evento({ id: ID_2, tipo: 'inactivacion', detalle: { motivo: 'ausente_en_todas_las_fuentes' }, createdAt: AHORA }),
@@ -711,6 +920,26 @@ describe('GET /registros/:id — detalle con timeline', () => {
     // Los eventos de una corrida se insertan en un solo statement y comparten `created_at`: sin
     // desempate, el timeline bailaría entre dos peticiones idénticas.
     expect(ordenDe(eventos)).toContain('"id" desc');
+  });
+
+  it('**el DETALLE tampoco pide los payloads crudos ni los devuelve** (RN-31)', async () => {
+    // El listado tenía su aserción de proyección desde el principio; esta consulta NO, porque el
+    // helper que la buscaba filtraba por «tiene ORDER BY» y el detalle no ordena. Y es la ruta que
+    // devuelve UN registro entero: el sitio natural donde un `select(COLUMNAS)` se convierte en un
+    // `select()` el día que haga falta una columna más.
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento()]);
+
+    const r = await request(await buildApp()).get(`${REGISTROS}/${ID_1}`).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(consultaDetalle().proyeccion).not.toContain('payloadSimit');
+    expect(consultaDetalle().proyeccion).not.toContain('payloadMunicipal');
+    // Positiva por lo mismo que en el listado: `select()` deja la proyección vacía.
+    expect(consultaDetalle().proyeccion)
+      .toEqual(expect.arrayContaining(['numeroComparendo', 'placa', 'estado']));
+    expect(r.body).not.toHaveProperty('payloadSimit');
+    expect(r.body).not.toHaveProperty('payloadMunicipal');
+    expect(JSON.stringify(r.body)).not.toContain(CEDULA_EN_PAYLOAD);
   });
 
   it('un `detalle` que no es un objeto se devuelve como `null`, no como un valor suelto', async () => {
@@ -741,6 +970,8 @@ describe('GET /registros/:id — detalle con timeline', () => {
 });
 
 describe('GET /registros/:id/eventos — timeline suelto', () => {
+  const auth = sesion(7109);
+
   it('devuelve solo los eventos del registro pedido', async () => {
     kdb.when.select(TABLA, [{ id: ID_1 }]).select(EVENTOS, [evento()]);
 
@@ -779,6 +1010,8 @@ describe('GET /registros/:id/eventos — timeline suelto', () => {
 // ─────────────────────────── Registro de acceso a PII (AC3, HU #11511) ──────────────────────────
 
 describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
+  const auth = sesion(7110);
+
   it('**el listado registra un acceso `search`** con los campos personales y cuántas filas se entregaron', async () => {
     kdb.when.select(TABLA, [fila(), fila({ id: ID_2 })]);
 
@@ -859,11 +1092,14 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
 // ─────────────────────────── Limitador de la lectura ────────────────────────────────────────────
 
 describe('registros — rateLimiter del listado', () => {
+  // Usuario propio, como el de todos los bloques: el limitador cuenta por `sub` y este caso agota su
+  // cuota entera a propósito.
+  const auth = sesion(5150);
+
   it('**el bucle de paginación paga 429 a las 60 páginas, y la búsqueda comparte esa cuota**', async () => {
     kdb.when.select(TABLA, [fila()]);
     const app = await buildApp();
-    // Usuario propio: el limitador cuenta por `sub` y así este caso no le gasta cuota al resto.
-    const cabecera = await auth('admin', 5150);
+    const cabecera = await auth();
 
     let ultimo = 0;
     for (let i = 0; i < 60; i++) {
