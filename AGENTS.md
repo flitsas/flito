@@ -54,7 +54,11 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 
 ### Seguridad y datos personales (Ley 1581 — Habeas Data)
 
-14. Nunca loguear passwords, tokens, cédulas ni PII sin redactar (backend ni consola del navegador). Nunca PII en URLs.
+14. Nunca loguear passwords, tokens, cédulas ni PII sin redactar (backend ni consola del navegador). **PII en URLs (path o query):**
+    - **Prohibido siempre** en URLs de páginas web (`apps/web` rutas/query del router) y en logs de access: cédula, teléfono, dirección, correo personal, tokens, biométricos.
+    - **API autenticada — default de diseño:** filtros con PII o cuasi-PII (cédula, NIT de persona/empresa monitoreada, placa, nombre) van en **body** (`POST …/buscar` o equivalente), no en query. IDs opacos (`uuid`) sí pueden ir en path.
+    - **Excepción GET+query** solo si un ADR lo declara y `security-agent` lo acepta, con mitigaciones obligatorias: auth + `requireRole`, `logPiiAccess` en la lectura, DTO sin payloads crudos, y sin registrar la query en claro en access logs/logger.
+    - Roles canónicos: solo los de `USER_ROLES` en `packages/shared-types/src/permissions.ts`. El rol `operaciones` **ya no existe** (fusionado en `admin`, CF-12): no diseñarlo ni usarlo en `requireRole` / matrices UX.
 15. Nunca commitear secretos ni `.env*`. Un secreto real en el diff es **bloqueante absoluto**: se rota y no se mergea.
 16. El producto maneja datos de conductores y propietarios: cifrado en reposo cuando aplica, registro en la auditoría PII (`apps/api/src/shared/pii-audit.ts`), política de retención declarada. Anclas: módulos `laft/` y `privacy/`.
 17. `multer` siempre con `fileFilter` y `limits`; validación de MIME real, no solo por extensión.
@@ -102,7 +106,7 @@ Prohibido declarar una HU terminada sin la salida real pegada de los comandos an
 ## Gestión del trabajo (Azure DevOps + GitHub)
 
 - **Código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards, proyecto **`FLIT - FLITO`** (con espacios; codificar en URLs REST).
-- Toda lectura/escritura en ADO pasa por la skill `flit-azure-devops`: MCP `azure-devops` primero → REST (PAT) como fallback → borrador `.md` local.
+- Toda lectura/escritura en ADO pasa por la skill `flit-azure-devops`: MCP servidor **`ado`** primero → REST (PAT) como fallback → borrador `.md` local. Nunca usar el id legado `azure-devops`.
 - Ciclo de una HU: `flit-gestion-hu` (Active → Resolved → entrega a QA). Creación de HUs: `flit-crear-hu`. Registro PR ↔ ADO y Deploy DEV/QA/PDN: `flit-integration-ado`. Ciclo completo por Feature: `flit-modo-desarrollo-auto` (**cadena apilada por defecto**; merge a `develop` bajo gates tras autorización del Feature — ver Git flow).
 - Nunca escribir en ADO sin un "sí" explícito del humano. Nunca asignar work items al sprint activo — siempre al siguiente.
 - **Activar una HU exige que su Feature padre esté `Active`**: la skill que activa la HU (`flit-gestion-hu` / `flit-modo-desarrollo-auto`) pasa el padre de `New` a `Active` con comentario de inicio en su Discussion (si ya está `Active`, no rehacer; si la HU no tiene padre, se declara en el comentario). Lo valida `tech-lead-agent` modo C en el DoR. El cierre del Feature sigue siendo exclusivo del Product Owner.
@@ -133,7 +137,14 @@ Glosario de producto: [`docs/dominio.md`](docs/dominio.md). Pedido sin Feature/H
 
 ### Matriz de invocación (obligatoria para el hilo principal)
 
-El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el disparador. No sustituir al especialista haciendo su trabajo «de paso» (salvo fix trivial de ≤~20 líneas en un solo archivo, o pedido explícito del humano de no usar subagentes). Cada subagente cierra con `HANDOFF`; el hilo principal es quien encadena.
+El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el disparador, usando la
+herramienta de delegación del runtime (`Agent` / `Task` / `Skill` con el **nombre exacto**). No
+sustituir al especialista haciendo su trabajo «de paso» (salvo fix trivial de ≤~20 líneas en un solo
+archivo, o pedido explícito del humano de no usar subagentes). Cada subagente cierra con `HANDOFF`;
+el hilo principal es quien encadena.
+
+**Qué no cuenta como invocación:** checklist improvisado en el chat; comentario ADO de cortesía;
+`wit_*` / `curl` sueltos; «gates cerrados» en prosa; reutilizar el veredicto de otra HU de la cadena.
 
 | Momento | Disparador (sí → invocar) | Ejecutor | Si se omite |
 |---|---|---|---|
@@ -142,17 +153,29 @@ El hilo principal **debe** invocar al ejecutor de la fila cuando se cumple el di
 | Feature / descomponer HUs / DoR | Planear o refinar backlog | `tech-lead-agent` | HUs mal cortadas |
 | Antes de código no trivial | Módulo nuevo, modelo de datos nuevo, contrato nuevo, decisión técnica con tradeoffs | `architecture-agent` | Diseño implícito en el diff |
 | Antes de UI nueva significativa | Pantalla/wizard/bandeja nueva o HU FRONTEND sin spec de interacción | `ux-agent` | UI inventada en el agent de código |
-| Implementar `apps/api` | HU BACKEND o diff en API/esquema/migración | `backend-agent` | Lógica fuera de patrón |
+| Implementar `apps/api` | HU BACKEND o diff en API/esquema/migración (**también la 1.ª HU / «solo esquema»**) | `backend-agent` | Lógica fuera de patrón / HU codeada en el hilo |
 | Implementar `apps/web` | HU FRONTEND o diff en páginas/componentes | `frontend-agent` | 4 estados / permisos rotos |
-| Pre-PR (siempre) | Antes de `create_pull_request` (aunque el humano diga «crea el PR») | `flit-code-review` | PR sin checklist |
+| Pre-PR (siempre, **cada** PR) | Antes de `create_pull_request` (aunque el humano diga «crea el PR»); `security-agent` **no** lo sustituye | **Skill** `flit-code-review` | PR sin checklist / veredicto inventado |
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` | `db-review-agent` | Drift / FKs / índices |
-| Ciclo ADO Active→Resolved | Activar o cerrar HU | `flit-gestion-hu` | Estados huérfanos |
-| Tras `Resolved` (HU con AC Gherkin o UI) | Entrega a QA | `qa-agent` (modo A TCs si faltan; modo B ejecución) | Deploy sin certificación |
-| Al abrir PR / post-merge | PR↔ADO, Deploy * | `flit-integration-ado` A/B | Commits/Deploy vacíos |
-| Tras Modo B con `DeployDEV/QA/PDN=true` | Ambiente desplegado o ráfaga de merges a `develop` | `devops-agent` M1 (una vez por tip/ambiente, no por cada PR de la ráfaga) | Deploy sin smoke |
+| Ciclo ADO Active→Resolved | Activar **o** cerrar **cada** HU (plantillas) | **Skill** `flit-gestion-hu` | Estados huérfanos / plantillas rotas |
+| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Entrega a QA — comentario HTML **no basta**; invocar aunque el entorno falle (`SIN-ENTORNO`) | `qa-agent` (A si faltan TCs; B siempre que aplique) | «Entregada a QA» sin certificación |
+| Al abrir PR / post-merge | PR↔ADO; Discussion **no** sustituye `Custom.Commits` | **Skill** `flit-integration-ado` A/B | Commits/Deploy vacíos |
+| Tras Modo B con `Deploy*=true` | Ambiente desplegado o **fin de ráfaga** (una M1 al tip; curl del hilo no cuenta) | `devops-agent` M1 | Deploy sin smoke formal |
 | Promoción staging/release | Pedido de promover | `flit-release` (+ qa D + devops post-merge) | Promoción sin gates |
-| Feature completo en cadena | «modo auto» / feature completo | `flit-modo-desarrollo-auto` (ya encadena la matriz por HU) | — |
+| Feature completo en cadena | «modo auto» / feature completo | `flit-modo-desarrollo-auto` (encadena la matriz **por HU** con Skill/Agent reales) | — |
+
+#### Anti-patrones (prohibidos)
+
+| Hacer esto… | …en lugar de | Gravedad |
+|---|---|---|
+| Codear la HU (o su migración) con `Edit`/`Write` del hilo | `backend-agent` / `frontend-agent` | Alta |
+| Tabla «mi review» en el chat | Skill `flit-code-review` | Alta |
+| Solo `security-agent` y abrir PR | Skill `flit-code-review` + security si aplica | Alta |
+| `wit_work_item_write` sin skill ni plantillas | Skill `flit-gestion-hu` | Media–Alta |
+| Evidencia solo en Discussion | Skill `flit-integration-ado` → `Custom.Commits` | Alta |
+| Comentario «listo para QA» y seguir | `qa-agent` | Alta |
+| `curl /health` del hilo como «M1» | `devops-agent` M1 | Alta |
 
 **Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
 

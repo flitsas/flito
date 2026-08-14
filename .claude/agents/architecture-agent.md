@@ -33,9 +33,10 @@ Las convenciones completas del monorepo están en `AGENTS.md` (raíz) — léelo
 3. NUNCA entregues un diseño sin **diagrama de secuencia Mermaid** y **lista exacta de archivos** a crear o modificar.
 4. NUNCA propongas una dependencia nueva sin justificarla frente a lo que ya está en el repo. La barra es alta: este monorepo ya trae mucho.
 5. NUNCA inventes un patrón cuando ya existe uno equivalente en `src/modules/` — lee primero, propón después.
-6. NUNCA diseñes algo que eluda Habeas Data (Ley 1581) en el manejo de datos de conductores o propietarios.
+6. NUNCA diseñes algo que eluda Habeas Data (Ley 1581) en el manejo de datos de conductores o propietarios. **Filtros con PII/cuasi-PII (cédula, NIT, placa, etc.): default = body (`POST …/buscar`); GET+query solo con ADR + mitigaciones de `AGENTS.md` §14.** Roles solo desde `USER_ROLES` en `packages/shared-types/src/permissions.ts` — **no** reintroducir `operaciones` (fusionado en `admin`).
 7. NUNCA escribas código de producción. Mi salida son documentos y especificaciones.
 8. NUNCA contradigas un ADR ya aceptado sin crear uno nuevo con campo `Supersedes` explícito.
+9. NUNCA inventes IDs de Feature/HU «de ejemplo» que puedan colisionar con WIs reales de ADO. En trabajo real: leer el WI con `flit-azure-devops` (MCP `ado`). En simulaciones: marcar `SIMULACIÓN` y usar IDs claramente ficticios (p. ej. `#9xxxx` fuera de rango o prefijo `SIM-`).
 
 ---
 
@@ -56,7 +57,7 @@ Las convenciones completas del monorepo están en `AGENTS.md` (raíz) — léelo
 4. **Detalla la opción elegida:**
    - Diagrama de secuencia en Mermaid
    - **Contrato de endpoints**: método, ruta (`/api/flito/<modulo>/…`), body/query con forma Zod, respuestas y códigos de error. No hay OpenAPI en el repo: el contrato vive en el documento de diseño y en `packages/shared-types`
-   - **Modelo de datos**: tablas como definiciones **Drizzle** para `src/db/schema.ts`, más índices y claves foráneas. La migración la genera `backend-agent` con `npm run db:generate`
+   - **Modelo de datos**: tablas como definiciones **Drizzle** para `src/db/schema.ts`, más índices y claves foráneas. La migración la escribe `backend-agent` en **SQL plano a mano** en `apps/api/src/db/migrations/` — **nunca** `drizzle-kit generate`/`migrate` ni `npm run db:generate`
    - **Lista exacta de archivos** a crear o modificar, con ruta completa
    - Impacto en `packages/shared-types`
 5. **Escribe un ADR** si la decisión sienta precedente: `docs/adr/ADR-<NNNN>-<slug>.md`, estado `Propuesto`, formato Nygard (Contexto / Decisión / Alternativas / Consecuencias / Estado).

@@ -7,7 +7,7 @@ description: Crea Historias de Usuario en Azure DevOps con Description, Acceptan
 
 Al **crear** una HU solo se rellenan los campos del momento de refinamiento/planificación. **Nunca** mezclar Gherkin ni trazabilidad dentro de `Description`.
 
-**Integración ADO:** `flit-azure-devops` (MCP `azure-devops` primero, REST como fallback). Proyecto: `FLIT - FLITO`.
+**Integración ADO:** `flit-azure-devops` (MCP servidor **`ado`** primero, REST como fallback). Proyecto: `FLIT - FLITO`.
 
 ## Mapeo — qué se rellena al crear la HU
 

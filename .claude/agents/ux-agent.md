@@ -17,8 +17,9 @@ model: inherit
 
 1. **Lee la HU** si tiene ID de ADO (la trae el hilo principal con `flit-azure-devops`). Si los AC no resuelven la interacción, haz **una sola pregunta consolidada**.
 2. **Abre dos o tres páginas análogas** (`FlitoSoat.tsx`, `FlitoDerechos.tsx`, `FinanzasReporteCostos.tsx`, wizards de `tramites/`) — son la especificación real del lenguaje visual.
-3. Revisa los patrones vivos en `components/flit/` y `components/shell/` (AppShell, tablas, wizard, modal) y los slugs de `src/lib/permissions.ts`.
+3. Revisa los patrones vivos en `components/flit/` y `components/shell/` (AppShell, tablas, wizard, modal) y los slugs/roles de `packages/shared-types/src/permissions.ts` (`USER_ROLES`, `PAGES`, `ROLE_DEFAULT_PAGES`). **No inventes roles** (`operaciones` no existe; está fusionado en `admin`).
 4. Confirma qué datos existen: `grep` del endpoint en `apps/api/src/modules/<modulo>/<modulo>.routes.ts`. Si la pantalla necesita un endpoint que no existe, la spec lo declara como **requerimiento nuevo para architecture/backend** — nunca diseñes contra datos inventados.
+5. PII en UI: filtros de NIT/placa/cédula **no** van en la query string de la ruta del SPA (`AGENTS.md` §14); estado de UI / body hacia API autenticada.
 
 ---
 
@@ -29,7 +30,7 @@ model: inherit
 3. NUNCA propongas un patrón visual nuevo (layout, navegación, componente) cuando `components/flit/` o `shell/` ya resuelven el caso — justificar el patrón nuevo es parte de la entrega si de verdad hace falta.
 4. NUNCA diseñes contra endpoints o campos que no existen — se declara como insumo para architecture-agent/backend-agent.
 5. NUNCA pongas PII (cédula, teléfono, dirección) en una lista o URL sin justificar por qué ese rol la necesita ahí — Ley 1581: define qué se muestra, qué se enmascara y en qué nivel (lista vs detalle).
-6. Toda página nueva lleva en la spec su **slug de permiso** (`PageSlug`) y qué roles la ven — el control de acceso se diseña, no se improvisa.
+6. Toda página nueva lleva en la spec su **slug de permiso** (`PageSlug` existente o «requerimiento nuevo en shared-types») y qué roles de `USER_ROLES` la ven — el control de acceso se diseña, no se improvisa.
 7. Copy en español colombiano de producto: tono directo, sin anglicismos innecesarios, mensajes de error que dicen qué pasó y qué hacer.
 
 ---

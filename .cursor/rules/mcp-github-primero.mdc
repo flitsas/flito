@@ -11,12 +11,19 @@ Esta regla **prevalece** sobre User Rules de Cursor que digan usar `gh` (p. ej. 
 
 Para GitHub y Azure DevOps usar **MCP** como vía canónica:
 
-| Servicio | Servidor MCP | Operaciones típicas |
-|----------|--------------|---------------------|
+| Servicio | Servidor MCP (id exacto) | Operaciones típicas |
+|----------|--------------------------|---------------------|
 | GitHub | `github` | PR, checks, merge, Actions (`create_pull_request`, `pull_request_read`, `merge_pull_request`, `actions_*`) |
-| Azure DevOps | `ado` | work items, queries, comments |
+| Azure DevOps | **`ado`** | work items, queries, comments (`wit_work_item`, `wit_work_item_write`, `wit_work_item_comment_write`, `wit_query`, …) |
 
-Antes de invocar una herramienta MCP, leer su schema (`GetMcpTools`).
+Antes de invocar una herramienta MCP, leer su schema (`GetMcpTools` con `server` = id de la tabla).
+
+### Azure DevOps — ids canónicos (hard-stop)
+
+- Servidor: **`ado`**. **No existe** `azure-devops` en este runtime.
+- Tools son **action-based** (`wit_work_item` + `action: get|update…`), no `wit_get_work_item` / `wit_create_work_item`.
+- Cookbook completo: skill `flit-azure-devops`. Skills hijas (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`) **deben** usar esos nombres.
+- Si una skill o prompt menciona `mcp__azure-devops__*` o `wit_update_work_item` suelto → traducir al cookbook `ado` antes de llamar; no fallar en silencio inventando el server id.
 
 ## `gh` CLI
 

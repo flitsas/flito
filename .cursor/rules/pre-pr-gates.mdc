@@ -22,17 +22,19 @@ Orden fijo:
 
 | ¿Aplica? | Ejecutor | Criterio |
 |----------|----------|----------|
-| **Siempre** | skill `flit-code-review` (leer y seguir `.claude/skills/flit-code-review/SKILL.md`) | Antes de cualquier PR (HU, docs, chore) |
-| Si el diff toca auth, PII, multer, rutas nuevas, `package*.json`, laft/, privacy | `security-agent` | Matriz `AGENTS.md` |
+| **Siempre** | skill `flit-code-review` (herramienta `Skill` / leer y seguir `.claude/skills/flit-code-review/SKILL.md` hasta el veredicto canónico) | Antes de **cada** PR (HU, docs, chore) — también en cadena apilada; `security-agent` **no** lo sustituye |
+| Si el diff toca auth, PII, multer, rutas nuevas, `package*.json`, laft/, privacy | `security-agent` | Matriz `AGENTS.md` (complementa el code-review) |
 | Si el diff toca `apps/api/src/db/schema.ts` o `src/db/migrations/` | `db-review-agent` | Matriz `AGENTS.md` |
 
 Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo del PR («superficie sensible: no aplica», «db-review: no aplica»). Nunca omitirlo en silencio.
 
+**No cuenta como `flit-code-review`:** una tabla improvisada «mi revisión» en el chat, reutilizar el veredicto de otra HU, o abrir el PR «y revisar después».
+
 ## Hard-stop
 
 - Veredicto `flit-code-review` = **BLOQUEADO**, o `security-agent` = **FAIL**, o `db-review-agent` con hallazgos críticos → **no** llamar `create_pull_request`. Corregir (o pedir corrección) y re-ejecutar el gate.
-- Prohibido inventar «ya revisado» sin haber leído/ejecutado la skill o invocado el subagente en este hilo (o citar HANDOFF/veredicto reciente del mismo diff/HEAD).
+- Prohibido inventar «ya revisado» / «gates cerrados» sin haber ejecutado la skill o invocado el subagente **en este hilo sobre este diff/HEAD** (o citar HANDOFF/veredicto reciente del mismo SHA).
 
 ## Tras gates en verde
 
-Crear el PR solo con MCP `github` (`create_pull_request`). Ver regla `mcp-github-primero.mdc`.
+Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`.

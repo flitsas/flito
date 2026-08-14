@@ -67,11 +67,13 @@ Revisa a mano, con foco en lo que este stack expone:
 - **Secretos al cliente**: cualquier credencial en `apps/web/src/**` — todo lo que va al bundle es público
 - **Rate limiting**: endpoints sensibles (auth, OCR, cargas masivas) sin `rateLimiter`
 - **Logs**: `console.log`/`logger` con tokens, cédulas o cuerpos de request completos
+- **PII en URLs**: query/path de API o router web con cédula/teléfono/dirección/token; también NIT/placa en query **sin** las mitigaciones de `AGENTS.md` §14 (preferir FAIL y recomendar `POST …/buscar` + `logPiiAccess`)
+- **Roles deprecados**: `requireRole('operaciones')` o ensanchar `router.use(requireRole(...))` con roles que no están en `USER_ROLES` / CF-12
 
 ### Capa 4 — Habeas Data (Ley 1581 de 2012)
 El producto maneja datos de conductores y propietarios: nombre, cédula, teléfono, dirección, biométricos. Anclas reales en el repo: `apps/api/src/shared/pii-audit.ts`, módulos `laft/` y `privacy/`, script `laft:backfill-pii`.
 
-Por cada campo PII que toque el cambio, verifica: cifrado en reposo cuando aplica, registro en la auditoría PII, ausencia en logs y URLs, y política de retención declarada. Reporta faltantes como bloqueantes.
+Por cada campo PII que toque el cambio, verifica: cifrado en reposo cuando aplica, registro en la auditoría PII (`logPiiAccess` / `pii-audit.ts`), ausencia en logs y URLs (o excepción §14 documentada), DTO sin payloads crudos en listados, y política de retención declarada. Reporta faltantes como bloqueantes.
 
 ---
 
