@@ -1,13 +1,14 @@
-// FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497) y del token
-// SIMIT (HU #11498).
+// FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497), del token
+// SIMIT (HU #11498) y de la sincronización (HU #11500).
 //
 // Base: `/api/flito/comparendos`. Aquí solo se valida, se traduce y se deja rastro; las reglas de
-// negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06) y en
-// `flito-comparendos.token.service.ts` (RN-07..RN-10), en sus cabeceras. Este módulo NO es el gate
-// SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
+// negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06), en
+// `flito-comparendos.token.service.ts` (RN-07..RN-10) y en `flito-comparendos.sync.service.ts`
+// (RN-15..RN-20), en sus cabeceras. Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo:
+// ver ADR-0001.
 //
-// El resto de la superficie del Feature —adapters, `POST /sync` y la lectura de registros— la
-// añaden las HUs #11499, #11500 y #11502 sobre este mismo router.
+// Lo que falta de la superficie del Feature —la lectura de registros y el PATCH de gestión— lo
+// añaden las HUs #11502 y 17b sobre este mismo router.
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -31,6 +32,11 @@ import {
   normalizarNit,
 } from './flito-comparendos.service.js';
 import { guardarTokenSimit, obtenerMetaTokenSimit } from './flito-comparendos.token.service.js';
+import {
+  ejecutarSync,
+  listarSyncRuns,
+  obtenerSyncRun,
+} from './flito-comparendos.sync.service.js';
 
 const router = Router();
 
@@ -105,6 +111,25 @@ const altaNitLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-comparendos-nit'),
   message: { error: 'Demasiadas altas de NIT, espere 1 minuto' },
   store: makeStore('rl:flito-comparendos-nit:'),
+});
+
+/**
+ * `POST /sync`: 4 corridas por minuto y usuario.
+ *
+ * El más estrecho de los tres, y con diferencia el que más protege: cada corrida son
+ * `NITs × (1 + municipios activos)` peticiones a los proveedores, hechas de verdad y contra una
+ * cuota que se paga. Con 20 NITs y 8 municipios, una sola corrida son 180 llamadas; un doble clic
+ * impaciente en la pantalla las duplica. El 409 de `sync_en_curso` ya impide el solapamiento, pero
+ * no impide encadenar corridas seguidas — eso lo hace este límite.
+ */
+const syncLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 4,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-sync'),
+  message: { error: 'Demasiadas sincronizaciones seguidas, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-sync:'),
 });
 
 const idSchema = z.string().uuid();
@@ -373,6 +398,85 @@ router.put('/config/token-simit', tokenLimiter, async (req: Request, res: Respon
       detail: `Token SIMIT actualizado (keyVersion=${meta.keyVersion})`,
     });
     res.json(meta);
+  } catch (e) { fallo(res, e); }
+});
+
+// ─────────────────────────────── Sincronización (CF-05, CF-06) ──────────────────────────────────
+
+/**
+ * Cuerpo de `POST /sync`. Todo opcional: sin `nits` se sincronizan todos los activos (AC1).
+ *
+ * `nits` reutiliza el MISMO `nitSchema` del alta del catálogo, y no una versión relajada: el valor
+ * viaja literal a los proveedores, así que el alfabeto se cierra también aquí. Que un NIT esté bien
+ * escrito no significa que se monitoree — de eso se ocupa el servicio, que responde 400
+ * `nits_filtro_invalido` nombrando los que no están activos.
+ *
+ * El tope de 200 no es el tamaño del catálogo: es lo que impide que un cuerpo con diez mil NITs
+ * obligue a normalizarlos y consultarlos antes de poder rechazarlos.
+ */
+const syncSchema = z.object({
+  nits: z.array(nitSchema).max(200, 'Como máximo 200 NITs por corrida').optional(),
+// `.strict()` y no el laissez-faire de Zod por defecto: `{ "nit": "900123456" }` —singular, el error
+// de dedo más fácil de cometer— pasaría como cuerpo vacío y dispararía un sync GLOBAL cuando quien
+// lo mandó pedía UN NIT. Con el catálogo entero detrás, esa confusión se paga en cuota del proveedor
+// y en minutos de espera. Mejor un 400 que diga que la clave no existe.
+}).strict();
+
+/**
+ * Dispara la sincronización y responde con el resultado completo (AC1).
+ *
+ * Síncrono a propósito (ADR-0001 §7): no hay 202 ni polling en 17a. Lo que evita el corte del nginx
+ * (~120 s) es el pool de llamadas municipales del servicio, no devolver antes de tiempo.
+ *
+ * Los estados de error los traduce `fallo` desde el código del error de dominio: 409
+ * `sync_en_curso`, 400 sin NITs o con filtro inválido, 503 `token_no_configurado` /
+ * `modo_simulado_en_produccion` / `mapa_homologacion_vacio`. Aquí no se decide ninguno.
+ */
+router.post('/sync', syncLimiter, async (req: Request, res: Response) => {
+  // `req.body` puede no existir si el cliente no manda cuerpo ni `Content-Type`: un sync global se
+  // pide con un POST pelado y eso tiene que funcionar.
+  const parsed = syncSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
+
+  try {
+    const resultado = await ejecutarSync({
+      nits: parsed.data.nits,
+      actorId: req.user?.sub ?? null,
+    });
+
+    // La bitácora guarda el ALCANCE y los contadores, no la lista de NITs: en una corrida global son
+    // todo el catálogo y no aportan nada que no esté ya en `sync_runs.scope_nits`, que es donde vive
+    // el detalle. `resourceId` es el id de la corrida, así que desde la auditoría se llega a él.
+    await audit(req, {
+      action: 'update',
+      resource: 'flito_comparendos_sync',
+      resourceId: resultado.runId,
+      detail: `Sync ${resultado.estado} (${resultado.resumen?.modo ?? '—'}) sobre ${resultado.scopeNits.length} NIT(s): `
+        + `${resultado.resumen?.upserts ?? 0} registros, ${resultado.resumen?.primeraLlegada ?? 0} nuevos, `
+        + `${resultado.resumen?.inactivados ?? 0} inactivados, ${resultado.resumen?.reactivados ?? 0} reaparecidos`,
+    });
+
+    res.json(resultado);
+  } catch (e) { fallo(res, e); }
+});
+
+/** Últimas corridas. `limit` acotado: sin tope, un `?limit=999999` sería un volcado de la tabla. */
+const runsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+router.get('/sync/runs', async (req: Request, res: Response) => {
+  const parsed = runsQuerySchema.safeParse(req.query);
+  if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
+  res.json(await listarSyncRuns(parsed.data.limit));
+});
+
+/** Detalle de una corrida con sus `steps[]`: qué fuente falló, con qué código y cuánto tardó (AC4). */
+router.get('/sync/runs/:id', async (req: Request, res: Response) => {
+  const id = leerId(req, res);
+  if (id === null) return;
+  try {
+    res.json(await obtenerSyncRun(id));
   } catch (e) { fallo(res, e); }
 });
 

@@ -156,6 +156,13 @@ const envSchema = z.object({
   // matriz NIT × municipios en serie con los 15 s por defecto de `httpsGetJson` se pasa de largo.
   COMPARENDOS_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
   COMPARENDOS_SYNC_CONCURRENCIA: z.coerce.number().int().min(1).max(12).default(5),
+  // Freno de inactivación masiva del sync (RN-24). Una corrida cuyo barrido apagaría más de estos
+  // topes no apaga nada y se cierra como `partial`. El escenario que cubre no necesita atacante: un
+  // token vencido cuyo proveedor conteste 200 con lista vacía pasa todos los filtros sin ruido, y el
+  // histórico apagado es reversible en los registros pero NO en el timeline. Los defaults son la
+  // escala de un catálogo normal; súbelos si la operación real los roza.
+  COMPARENDOS_INACTIVACION_MAX_FILAS: z.coerce.number().int().min(1).max(1_000_000).default(200),
+  COMPARENDOS_INACTIVACION_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.5),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),
