@@ -203,11 +203,20 @@ Errores sync: `400` sin NIT activos / NIT filtro inválido; `409 sync_en_curso` 
 
 ### Lectura para 17b (contratos, sin UI)
 
-| Método | Ruta | Query | Respuesta | Notas |
-|---|---|---|---|---|
-| `GET` | `/registros` | `estado?`, `nit?`, `placa?`, `q?` (número), `limit`, `cursor` | `{ items: ComparendoRegistro[], nextCursor? }` | Solo lectura; sin PATCH de campos fuente |
-| `GET` | `/registros/:id` | — | `ComparendoRegistroDetalle` (+ timeline) | |
-| `GET` | `/registros/:id/eventos` | — | `ComparendoEvento[]` | |
+| Método | Ruta | Query | Body | Respuesta | Notas |
+|---|---|---|---|---|---|
+| `GET` | `/registros` | `estado?`, `q?` (número), `limit`, `cursor` | — | `{ items: ComparendoRegistro[], nextCursor }` | Vista por defecto. Sin filtros de identidad: `?nit=` es **400** |
+| `POST` | `/registros/buscar` | las mismas de arriba | `{ nit?, placa? }` | igual que el `GET` | Búsqueda, no mutación: responde **200** |
+| `GET` | `/registros/:id` | — | — | `ComparendoRegistroDetalle` (+ timeline) | El `id` es un UUID opaco: el path lo admite |
+| `GET` | `/registros/:id/eventos` | — | — | `ComparendoEvento[]` | Sin PII en la respuesta (RN-20/RN-35) |
+
+> **Corrección sobre el AC1 original (HU #11502).** El diseño pedía `GET /registros` con `nit` y `placa` en la query, y eso
+> incumple AGENTS.md §14: los filtros con PII o cuasi-PII van en el **cuerpo** de un `POST …/buscar`. Se descartó tramitar
+> el ADR de excepción porque su mitigación principal —que nginx no registre la query en claro— depende de una configuración
+> que no está versionada en el repo y no se puede verificar. Todo lo demás del AC1 (paginación por cursor, límite de página,
+> proyección sin payloads) se mantiene. Tope de página: **50** filas.
+>
+> Las tres lecturas con NIT o placa salen con `Cache-Control: no-store` y dejan registro en `pii_access_log`.
 
 **Fuera de 17a (17b):** PATCH causal/observación, PageSlug, export Excel, UI config.
 

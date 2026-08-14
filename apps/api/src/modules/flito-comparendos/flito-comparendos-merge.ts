@@ -279,9 +279,13 @@ function numeroCanonico(valor: unknown): string | null {
  * Placa: mayúsculas y solo alfanuméricos.
  *
  * Los proveedores la mandan como `ABC123`, `ABC-123` o `abc 123` y las tres son el mismo vehículo.
- * Normalizarla aquí es lo que hará que el filtro por placa de la HU #11502 encuentre algo.
+ * Normalizarla aquí es lo que hace que el filtro por placa de `GET /registros` encuentre algo.
+ *
+ * Se EXPORTA por eso mismo: el filtro de la HU #11502 tiene que normalizar su entrada exactamente
+ * igual que se normalizó lo guardado. Con dos implementaciones parecidas, el día que una cambie el
+ * filtro deja de encontrar filas que existen, y ese fallo se ve como «no hay comparendos».
  */
-function placaCanonica(valor: unknown): string | null {
+export function placaCanonica(valor: unknown): string | null {
   if (typeof valor !== 'string' && typeof valor !== 'number') return null;
   const s = String(valor).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   return s === '' ? null : s.slice(0, ANCHO.placa);
