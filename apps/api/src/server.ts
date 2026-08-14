@@ -24,6 +24,9 @@ import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tra
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
 import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
 import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
+import {
+  startComparendosPurgaCron, stopComparendosPurgaCron,
+} from './modules/flito-comparendos/flito-comparendos-purga.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -67,6 +70,9 @@ const server = app.listen(env.PORT, () => {
     // FLITO: vacía la cola de emisión y rescata las facturas huérfanas (HU #11327).
     // Noop si SIIGO_COLA_CRON_ENABLED=0.
     startSiigoColaCron();
+    // FLITO: purga por retención de comparendos (HU #11511, Ley 1581). Consume
+    // COMPARENDOS_RETENTION_MONTHS. Noop si COMPARENDOS_PURGA_CRON_ENABLED!=1.
+    startComparendosPurgaCron();
   }
 });
 
@@ -104,6 +110,7 @@ function shutdown(signal: string) {
   stopSiigoArchivoCron();
   stopSiigoDianCron();
   stopSiigoColaCron();
+  stopComparendosPurgaCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

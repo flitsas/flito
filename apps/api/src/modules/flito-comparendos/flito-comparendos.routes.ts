@@ -8,7 +8,8 @@
 // ver ADR-0001.
 //
 // Lo que falta de la superficie del Feature —la lectura de registros y el PATCH de gestión— lo
-// añaden las HUs #11502 y 17b sobre este mismo router.
+// añaden las HUs #11502 y 17b sobre este mismo router. Toda lectura que devuelva datos personales
+// deja rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17).
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -32,6 +33,11 @@ import {
   normalizarNit,
 } from './flito-comparendos.service.js';
 import { guardarTokenSimit, obtenerMetaTokenSimit } from './flito-comparendos.token.service.js';
+import {
+  CAMPOS_PII_SYNC_RUN,
+  RECURSO_SYNC_RUN,
+  registrarAccesoComparendos,
+} from './flito-comparendos.pii.js';
 import {
   ejecutarSync,
   listarSyncRuns,
@@ -465,10 +471,25 @@ const runsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+/**
+ * Las dos lecturas de corridas dejan registro de acceso (HU #11511, Ley 1581 art. 17).
+ *
+ * No es celo de más: `scope_nits` es la lista de NITs monitoreados y cada paso lleva el suyo, y un
+ * NIT de persona natural es un documento de identidad —lo dice el COMMENT de la 0150—. Es la única
+ * lectura de datos personales que este módulo expone hoy; `GET /registros` (HU #11502) usará el
+ * mismo `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ */
 router.get('/sync/runs', async (req: Request, res: Response) => {
   const parsed = runsQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
-  res.json(await listarSyncRuns(parsed.data.limit));
+  const runs = await listarSyncRuns(parsed.data.limit);
+  await registrarAccesoComparendos(req, {
+    recurso: RECURSO_SYNC_RUN,
+    accion: 'search',
+    campos: [...CAMPOS_PII_SYNC_RUN],
+    filas: runs.length,
+  });
+  res.json(runs);
 });
 
 /** Detalle de una corrida con sus `steps[]`: qué fuente falló, con qué código y cuánto tardó (AC4). */
@@ -476,7 +497,17 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
-    res.json(await obtenerSyncRun(id));
+    const run = await obtenerSyncRun(id);
+    // Después de leer y solo si se leyó: un 404 no es un acceso a datos de nadie, y registrarlo
+    // llenaría el log de accesos que no ocurrieron.
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_SYNC_RUN,
+      accion: 'read',
+      campos: [...CAMPOS_PII_SYNC_RUN],
+      filas: run.steps?.length ?? 0,
+      referencia: run.runId,
+    });
+    res.json(run);
   } catch (e) { fallo(res, e); }
 });
 

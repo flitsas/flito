@@ -32,6 +32,12 @@
 //        `(registro_id, tipo, sync_run_id)` de la 0150 y no por confiar en el flujo: re-ejecutar una
 //        corrida con los mismos datos no puede duplicar ni filas ni eventos.
 //
+// RN-25  Los `payload_*` que escribe esta corrida van PODADOS a la lista blanca del `field_map`
+//        (HU #11511, ver la cabecera de `flito-comparendos-merge.ts`): la respuesta íntegra del
+//        proveedor —con el nombre y el documento del infractor, que es una persona natural y no la
+//        empresa monitoreada— no llega a la base. La poda ocurre en el acumulador, así que este
+//        archivo no ve nunca el ítem completo más allá de la llamada al adapter.
+//
 // RN-20  Nada de PII cruda en logs ni en `sync_steps.mensaje`. El NIT sale enmascarado
 //        (`maskDocument`), la placa no sale, y el `mensaje` del paso viene siempre de los errores
 //        tipados del módulo —que se construyen sin token, sin cabeceras y sin datos del proveedor—.
@@ -761,8 +767,10 @@ async function escribirRegistros(
       if (existente) {
         await tx.update(flitoComparendosRegistros).set({
           ...comun,
-          // Los payloads crudos solo se pisan si esta corrida trajo uno nuevo: el de la otra fuente
-          // sigue siendo la materia prima del spike de homologación.
+          // Los payloads solo se pisan si esta corrida trajo uno nuevo: el de la otra fuente sigue
+          // siendo la materia prima del spike de homologación. Llegan aquí YA PODADOS a la lista
+          // blanca del `field_map` (RN-25): lo que este UPDATE escribe no lleva nombre ni documento
+          // del infractor.
           ...(consolidado.payloadSimit === null || consolidado.payloadSimit === undefined
             ? {} : { payloadSimit: consolidado.payloadSimit }),
           ...(consolidado.payloadMunicipal === null || consolidado.payloadMunicipal === undefined

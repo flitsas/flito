@@ -4190,6 +4190,11 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   nitIdx: index('idx_flito_comparendos_nit').on(t.nitMonitoreado),
   placaIdx: index('idx_flito_comparendos_placa').on(t.placa),
   estadoIdx: index('idx_flito_comparendos_estado').on(t.estado),
+  // Purga por retención (HU #11511, migración 0152). Ninguno de los de arriba cubre el filtro de la
+  // purga —`WHERE ultimo_visto_en < corte ORDER BY ultimo_visto_en LIMIT n`, hasta 20 veces por
+  // pasada, más el `count(*)` del dryRun y del freno—, que sin índice es un recorrido secuencial de
+  // la tabla que más crece del módulo.
+  ultimoVistoIdx: index('idx_flito_comparendos_ultimo_visto').on(t.ultimoVistoEn),
 }));
 
 /**
@@ -4222,7 +4227,11 @@ export const flitoComparendosSyncRuns = pgTable('flito_comparendos_sync_runs', {
   iniciadoPor: integer('iniciado_por').references(() => users.id),
   iniciadoEn: timestamp('iniciado_en', { withTimezone: true }).notNull().defaultNow(),
   finalizadoEn: timestamp('finalizado_en', { withTimezone: true }),
-});
+}, (t) => ({
+  // Purga por retención (HU #11511, migración 0152): candidatos por antigüedad, heartbeat de la
+  // última corrida ok y listado de corridas recientes. La tabla no tenía más índice que su PK.
+  iniciadoIdx: index('idx_flito_comparendos_sync_runs_iniciado').on(t.iniciadoEn),
+}));
 
 /**
  * Un paso por par (NIT, fuente). No es telemetría: es la condición del CF-10. Solo se inactiva por
