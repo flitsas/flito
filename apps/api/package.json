@@ -16,6 +16,7 @@
     "flito:seed": "tsx src/scripts/flito-seed.ts",
     "flito:backfill-soat": "tsx src/scripts/flito-backfill-soat.ts",
     "flito:backfill-propietario": "tsx src/scripts/flito-backfill-propietario-vehiculo.ts",
+    "comparendos:purga:dry": "tsx src/scripts/flito-comparendos-purga-dry.ts",
     "laft:backfill-pii": "tsx src/scripts/laft-encrypt-pii-backfill.ts",
     "traspaso:reconcile-paso": "tsx src/scripts/reconcile-traspaso-paso.ts"
   },

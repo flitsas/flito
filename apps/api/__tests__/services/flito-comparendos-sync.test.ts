@@ -534,6 +534,53 @@ describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
     });
   });
 
+  /**
+   * El payload de la fuente que HOY no reportó no se pisa — y la forma de no pisarlo es OMITIR la
+   * clave del `set()`, no mandarla en `null` (TC #11522).
+   *
+   * La distinción parece nimia y no lo es: `payload_simit: null` en el UPDATE borraría en cada
+   * corrida la materia prima del spike de homologación de la otra fuente, en silencio y sin que
+   * ninguna aserción existente se enterase — el test de UPDATE de arriba usa `toMatchObject`, que
+   * por definición no falla ante claves de MÁS.
+   *
+   * Y la rama es rutinaria, no defensiva: `acumularMunicipal` construye el consolidado con
+   * `payloadSimit: null`, así que la recorre CADA comparendo visto por una sola fuente en CADA
+   * corrida. Por eso se afirma sobre el objeto que de verdad llega a `.set()` (el espía guarda la
+   * referencia, no una copia) y con `not.toHaveProperty`, que distingue «ausente» de «vale null».
+   */
+  it('cuando solo reporta el municipio, el UPDATE OMITE la clave payloadSimit (no la manda en null)', async () => {
+    escenario({ existentes: [filaRegistro({ vistoEnSimit: true, vistoEnMunicipal: false })] });
+    // SIMIT no ve este comparendo en esta corrida: el consolidado llega con `payloadSimit: null`.
+    simitMock.mockImplementation(async () => respuestaSimit([]));
+
+    await sync();
+
+    const actualizado = updatesEn('flito_comparendos_registros')
+      .find((d) => d.estado !== 'inactivo') as Record<string, unknown>;
+
+    expect(actualizado).not.toHaveProperty('payloadSimit');
+    expect(Object.keys(actualizado)).not.toContain('payloadSimit');
+    // Y el que sí se reportó viaja, o el UPDATE no estaría conservando nada sino ignorando todo.
+    expect(actualizado.payloadMunicipal).toEqual(ITEM_MUNICIPAL);
+  });
+
+  it('cuando solo reporta SIMIT, el UPDATE OMITE la clave payloadMunicipal (no la manda en null)', async () => {
+    // Sin municipios no hay consulta municipal: el consolidado llega con `payloadMunicipal: null`.
+    escenario({
+      municipios: [],
+      existentes: [filaRegistro({ vistoEnSimit: true, vistoEnMunicipal: true, municipioFuente: 'BELLO' })],
+    });
+
+    await sync();
+
+    const actualizado = updatesEn('flito_comparendos_registros')
+      .find((d) => d.estado !== 'inactivo') as Record<string, unknown>;
+
+    expect(actualizado).not.toHaveProperty('payloadMunicipal');
+    expect(Object.keys(actualizado)).not.toContain('payloadMunicipal');
+    expect(actualizado.payloadSimit).toEqual(ITEM_SIMIT);
+  });
+
   it('un ítem sin número reconocible se descarta y se cuenta, no se escribe a medias', async () => {
     escenario({ municipios: [] });
     simitMock.mockImplementation(async () => respuestaSimit([

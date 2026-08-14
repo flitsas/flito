@@ -53,7 +53,8 @@
 //        configurables porque la primera pasada tras encender el cron en una base con años de
 //        histórico puede superar el porcentaje legítimamente: para ese caso se sube el umbral a
 //        conciencia, una vez, después de mirar el `dryRun` — que es justo lo que un freno tiene que
-//        obligar a hacer.
+//        obligar a hacer. La pasada en seco se lanza con `npm run comparendos:purga:dry -w apps/api`
+//        (`src/scripts/flito-comparendos-purga-dry.ts`).
 
 import os from 'os';
 import { count, desc, inArray, lt, sql } from 'drizzle-orm';
@@ -167,8 +168,9 @@ export function corteDeRetencion(ahora: Date, meses: number): Date {
  *
  * @param opts.dryRun  Cuenta candidatos —TODOS, con un `count(*)` y el mismo `WHERE`— y no borra
  *                     nada. Es lo que hay que correr antes de encender el cron en un ambiente con
- *                     histórico: dice cuánto se llevaría por delante la purga, que es la pregunta
- *                     que nadie quiere responder después. El conteo no está acotado por
+ *                     histórico —`npm run comparendos:purga:dry -w apps/api`—: dice cuánto se
+ *                     llevaría por delante la purga, que es la pregunta que nadie quiere responder
+ *                     después. El conteo no está acotado por
  *                     `LOTE × MAX_LOTES`: ese tope es el ritmo de UNA pasada, y lo que la pasada en
  *                     seco tiene que responder es cuánto hay en total (si no cabe en una pasada, lo
  *                     dice `truncado`). También evalúa el freno de RN-30 y lo reporta en
