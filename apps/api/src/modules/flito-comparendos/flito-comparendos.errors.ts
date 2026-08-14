@@ -411,6 +411,30 @@ export class ComparendosMapaHomologacionVacioError extends ComparendosError {
   }
 }
 
+// ─────────────────────── Lectura del consolidado (CF-09, HU #11502) ─────────────────────────────
+
+/**
+ * El `cursor` de `GET /registros` no es uno de los que este módulo emite.
+ *
+ * 400 y no 404: el cursor no nombra un recurso, describe por dónde iba la lista. Y se responde con
+ * un código propio en vez de tratarlo como «sin resultados» porque un cursor corrupto —recortado al
+ * copiarlo, o de una versión anterior del formato— devolvería silenciosamente la PRIMERA página, y
+ * quien pagina lo leería como que la lista se acabó y volvió a empezar. Mejor decir que el cursor no
+ * sirve y que se pida la primera página a propósito.
+ *
+ * El mensaje no repite el valor recibido: es un dato opaco que no aporta nada al leerlo.
+ */
+export class ComparendosCursorInvalidoError extends ComparendosError {
+  constructor() {
+    super(
+      'cursor_invalido',
+      400,
+      'El cursor de paginación no es válido o pertenece a otra versión del listado. '
+      + 'Pide la primera página sin `cursor`.',
+    );
+  }
+}
+
 /**
  * `unique_violation` de PostgreSQL.
  *

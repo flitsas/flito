@@ -92,5 +92,5 @@ export * from './siigo-envio.js';
 export * from './siigo-archivo.js';
 // Cola de emisión: qué queda por facturar y cuándo le toca. Eje APARTE del estado del documento.
 export * from './siigo-cola.js';
-// Monitoreo de comparendos: catálogos de NITs, municipios fuente y causales (Feature #11492).
+// Monitoreo de comparendos: catálogos, token, sync y lectura del consolidado (Feature #11492).
 export * from './flito-comparendos.js';

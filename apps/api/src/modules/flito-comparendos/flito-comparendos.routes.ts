@@ -1,15 +1,15 @@
 // FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497), del token
-// SIMIT (HU #11498) y de la sincronización (HU #11500).
+// SIMIT (HU #11498), de la sincronización (HU #11500) y de la lectura del consolidado (HU #11502).
 //
 // Base: `/api/flito/comparendos`. Aquí solo se valida, se traduce y se deja rastro; las reglas de
 // negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06), en
-// `flito-comparendos.token.service.ts` (RN-07..RN-10) y en `flito-comparendos.sync.service.ts`
-// (RN-15..RN-20), en sus cabeceras. Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo:
-// ver ADR-0001.
+// `flito-comparendos.token.service.ts` (RN-07..RN-10), en `flito-comparendos.sync.service.ts`
+// (RN-15..RN-24) y en `flito-comparendos.registros.service.ts` (RN-31..RN-34), en sus cabeceras.
+// Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
-// Lo que falta de la superficie del Feature —la lectura de registros y el PATCH de gestión— lo
-// añaden las HUs #11502 y 17b sobre este mismo router. Toda lectura que devuelva datos personales
-// deja rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17).
+// Lo que falta de la superficie del Feature —el PATCH de gestión (causal/observación) y el export—
+// es de 17b y se añadirá sobre este mismo router. Toda lectura que devuelva datos personales deja
+// rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17).
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -34,7 +34,14 @@ import {
 } from './flito-comparendos.service.js';
 import { guardarTokenSimit, obtenerMetaTokenSimit } from './flito-comparendos.token.service.js';
 import {
+  listarEventos,
+  listarRegistros,
+  obtenerRegistro,
+} from './flito-comparendos.registros.service.js';
+import {
+  CAMPOS_PII_REGISTRO,
   CAMPOS_PII_SYNC_RUN,
+  RECURSO_REGISTROS,
   RECURSO_SYNC_RUN,
   registrarAccesoComparendos,
 } from './flito-comparendos.pii.js';
@@ -136,6 +143,25 @@ const syncLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-comparendos-sync'),
   message: { error: 'Demasiadas sincronizaciones seguidas, espere 1 minuto' },
   store: makeStore('rl:flito-comparendos-sync:'),
+});
+
+/**
+ * Lectura del consolidado: 60 peticiones por minuto y usuario.
+ *
+ * Es el único limitador del módulo que protege una LECTURA, y no está aquí por coste de cómputo
+ * —una página es un SELECT con `LIMIT`— sino por lo que se lee: cada página son hasta 200 filas con
+ * NIT y placa, y paginar en bucle es exactamente la forma de vaciar un módulo de datos personales
+ * sin lanzar un solo error. El registro de acceso deja el rastro; esto pone el techo. 60/min es
+ * ~1 petición por segundo: sobra para una pantalla que pagina a mano y corta el bucle automático.
+ */
+const registrosLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-registros'),
+  message: { error: 'Demasiadas consultas de comparendos seguidas, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-registros:'),
 });
 
 const idSchema = z.string().uuid();
@@ -508,6 +534,114 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
       referencia: run.runId,
     });
     res.json(run);
+  } catch (e) { fallo(res, e); }
+});
+
+// ─────────────────────────────── Registros consolidados (CF-09, CF-11) ──────────────────────────
+//
+// Las tres rutas son de SOLO LECTURA y no hay ninguna que escriba un campo de fuente: el CF-09 pide
+// exactamente eso (RN-04). El PATCH de gestión —lo único editable, `causalId` y `observacion`— es
+// de 17b y aquí no existe ni como stub: una ruta que acepta un cuerpo y no hace nada es peor que no
+// tenerla.
+
+/** Un filtro que llega vacío (`?nit=`) es un filtro sin poner, no un filtro que no valida. */
+const vacioEsAusente = <T extends z.ZodTypeAny>(esquema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), esquema.optional());
+
+/**
+ * La placa se valida con el alfabeto de lo que un humano escribe («ABC-123», «abc 123») y la
+ * normaliza el servicio con el MISMO normalizador con el que se guardó (RN-33). El mínimo de 3 no
+ * es cosmético: `placa=A` sería un barrido del parque entero disfrazado de filtro.
+ */
+const placaFiltroSchema = z.string().trim()
+  .min(3, 'La placa debe tener al menos 3 caracteres')
+  .max(12)
+  .regex(/^[A-Za-z0-9 -]+$/, 'La placa admite letras, dígitos, espacio y guion');
+
+/**
+ * Query de `GET /registros`.
+ *
+ * `.strict()` por lo mismo que en `POST /sync`, y aquí pesa más: `?nits=900123456` —el error de
+ * dedo— se ignoraría en silencio y devolvería TODOS los comparendos de todas las empresas a quien
+ * pidió los de una. En un listado de datos personales, un filtro mal escrito tiene que ser un 400.
+ */
+const registrosQuerySchema = z.object({
+  estado: vacioEsAusente(z.enum(['activo', 'inactivo'])),
+  // El mismo esquema del catálogo: el NIT se normaliza antes de medirlo y el alfabeto queda cerrado.
+  nit: vacioEsAusente(nitSchema),
+  placa: vacioEsAusente(placaFiltroSchema),
+  // Mínimo 3 caracteres: `q=1` recorrería la tabla para devolver medio módulo.
+  q: vacioEsAusente(z.string().trim().min(3, 'Busca por al menos 3 caracteres del número').max(60)),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  cursor: vacioEsAusente(z.string().max(200)),
+}).strict();
+
+/**
+ * Listado paginado por cursor (AC1).
+ *
+ * Deja registro de acceso ANTES de responder (Ley 1581 art. 17): esta es la lectura masiva del
+ * módulo —hasta 200 NITs y placas por página— y es justo la que hay que poder reconstruir cuando un
+ * titular pregunte quién consultó sus datos. Los filtros van al motivo enmascarados; de eso se
+ * ocupa `registrarAccesoComparendos`, no esta ruta.
+ */
+router.get('/registros', registrosLimiter, async (req: Request, res: Response) => {
+  const parsed = registrosQuerySchema.safeParse(req.query);
+  if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
+
+  try {
+    const pagina = await listarRegistros(parsed.data);
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_REGISTROS,
+      accion: 'search',
+      campos: [...CAMPOS_PII_REGISTRO],
+      filas: pagina.items.length,
+      filtros: {
+        estado: parsed.data.estado,
+        nit: parsed.data.nit,
+        placa: parsed.data.placa,
+        q: parsed.data.q,
+      },
+    });
+    res.json(pagina);
+  } catch (e) { fallo(res, e); }
+});
+
+/** Un comparendo con su timeline (AC1). El 404 lo decide el error de dominio, no esta ruta. */
+router.get('/registros/:id', registrosLimiter, async (req: Request, res: Response) => {
+  const id = leerId(req, res);
+  if (id === null) return;
+  try {
+    const registro = await obtenerRegistro(id);
+    // Después de leer y solo si se leyó, igual que en `/sync/runs/:id`: un 404 no es un acceso a
+    // los datos de nadie.
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_REGISTROS,
+      accion: 'read',
+      campos: [...CAMPOS_PII_REGISTRO],
+      filas: 1,
+      referencia: registro.id,
+    });
+    res.json(registro);
+  } catch (e) { fallo(res, e); }
+});
+
+/**
+ * Timeline suelto (CF-11).
+ *
+ * **No deja registro de acceso, y es una decisión, no un olvido:** un evento son `tipo`, la corrida
+ * que lo produjo y un `detalle` que por RN-20 no lleva NIT, placa ni nada del proveedor. No hay
+ * ningún dato personal en la respuesta, y anotar en `pii_access_log` lecturas que no exponen datos
+ * personales lo llena de ruido justo hasta el punto en que deja de poder consultarse — que es lo
+ * único que un registro de acceso tiene que poder hacerse.
+ *
+ * Si 17b enriquece `detalle` con algo del registro (la placa en el evento, por ejemplo), esta ruta
+ * pasa a necesitar `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ */
+router.get('/registros/:id/eventos', registrosLimiter, async (req: Request, res: Response) => {
+  const id = leerId(req, res);
+  if (id === null) return;
+  try {
+    res.json(await listarEventos(id));
   } catch (e) { fallo(res, e); }
 });
 
