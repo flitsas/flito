@@ -1,13 +1,34 @@
 ---
 name: flit-code-review
-description: Revisión estructurada de un diff antes de abrir el PR en el monorepo FLITO. Aplica el checklist del repo (patrón routes/service, imports .js, 4 estados de UI, guardas de permiso, tests con salida real, git status limpio), detecta archivos colados y escala a security-agent (superficie sensible) y a db-review-agent (schema.ts / migrations). Emite veredicto OK / OK-CON-OBSERVACIONES / BLOQUEADO. Triggers code review, revisa el diff, revisión antes del PR, flit-code-review.
+description: |
+  Revisión estructurada del diff ANTES de abrir el PR en el monorepo FLITO. Checklist AGENTS.md (routes/service, imports .js, 4 estados UI, permisos, tests con salida real, git limpio); escala a security-agent y db-review-agent. Veredicto OK / OK-CON-OBSERVACIONES / BLOQUEADO.
+  INVOCACIÓN OBLIGATORIA: el hilo principal DEBE cargar esta skill (herramienta Skill flit-code-review) en CADA HU/PR — también en modo auto y aunque el humano diga solo «crea el PR». security-agent NO sustituye esta skill.
+  PROHIBIDO: checklist improvisado en el chat del hilo, «gates cerrados» sin veredicto de esta skill, o saltarla «porque ya pasó security».
+  Triggers — code review, revisa el diff, revisión antes del PR, pre-PR, create_pull_request, flit-code-review, flit-modo-desarrollo-auto paso 4b.
 ---
 
 # flit-code-review — revisión de diff pre-PR
 
 **Fuente de verdad de convenciones:** `AGENTS.md` (raíz del monorepo). Esta skill solo aplica el checklist; no redefine las reglas.
 
-**Cuándo se invoca:** **siempre** antes de `create_pull_request` — también cuando el usuario diga solo «crea / abre / sube el PR». Ese pedido autoriza abrir el PR *después* de este checklist, no lo sustituye. También cuando pida "revisa el diff" / "code review", o en el paso 4b de `flit-modo-desarrollo-auto`. Aplica a PRs de HU y a `docs/*` / `chore/*`.
+## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
+
+| Disparador | ¿Invocar esta Skill? |
+|---|---|
+| Antes de `create_pull_request` (cualquier HU, docs, chore) | **SÍ — siempre** |
+| Humano dice «crea / abre / sube el PR» | **SÍ primero**; el pedido solo autoriza el PR *después* del veredicto |
+| Paso 4b de `flit-modo-desarrollo-auto` (cada eslabón de la cadena) | **SÍ — en cada HU**, no solo en la primera |
+| Pedido «revisa el diff» / «code review» | **SÍ** |
+
+**Cómo contar:** herramienta `Skill` con `skill: flit-code-review` (o leer y **seguir** este `SKILL.md` de punta a punta en el turno) y emitir el bloque de **Veredicto** canónico abajo.
+
+**NO cuenta (anti-patrones graves):**
+- Tabla improvisada «Mi revisión» en el chat sin cargar la skill
+- Haber corrido solo `security-agent` / `db-review-agent` y dar por cerrado el pre-PR
+- Reusar el veredicto de la HU anterior en la cadena apilada
+- Abrir el PR y «revisar después»
+
+**Relación con otros gates:** esta skill es el **checklist de proceso+código**. Escala a `security-agent` / `db-review-agent` cuando aplique; esos agentes **complementan**, no reemplazan.
 
 **Autonomía:** read-only sobre el código. No corrijo nada: reporto hallazgos y veredicto; las correcciones las hace `backend-agent` / `frontend-agent` o el humano.
 
@@ -44,7 +65,7 @@ description: Revisión estructurada de un diff antes de abrir el PR en el monore
 - [ ] Página nueva registrada en `App.tsx` con `lazy()` + guarda de permiso (`hasPage`/`PageSlug`).
 - [ ] `dangerouslySetInnerHTML` solo con sanitización en la misma expresión.
 - [ ] Accesibilidad: labels asociados, `aria-label` donde aplica, foco visible.
-- [ ] Sin PII en consola ni en URLs.
+- [ ] Sin PII en consola ni en URLs del SPA; filtros sensibles vía estado UI / API según `AGENTS.md` §14.
 
 ### 4. Escalado a seguridad (bloqueante)
 
@@ -54,7 +75,8 @@ Invocar `security-agent` sobre el diff cuando toque **cualquiera** de:
 - Subida de archivos (`multer`) o validación de MIME
 - Rutas nuevas o cambios en `requireRole`/`authMiddleware`
 - `package.json` / `package-lock.json` (dependencias nuevas)
-- Manejo de campos PII (cédula, teléfono, dirección, biométricos)
+- Manejo de campos PII (cédula, teléfono, dirección, biométricos, NIT/placa en listados/búsqueda)
+- `requireRole` con roles fuera de `USER_ROLES` o reintroducción de `operaciones`
 
 Si el diff no toca nada de eso, declararlo explícitamente ("superficie sensible: no aplica") — nunca omitir el paso en silencio.
 

@@ -1,6 +1,9 @@
 ---
 name: flit-modo-desarrollo-auto
-description: Modo de desarrollo auto — ciclo completo y repetible por cada HU de un Feature en el proyecto FLIT - FLITO. Por defecto usa cadena apilada (no espera el merge entre HUs). Encadena la matriz de AGENTS.md: diseño (architecture/ux) → backend/frontend → flit-code-review (+ security/db-review) → Resolved → qa-agent → PR/Modo B → devops M1. Activa Feature/HU en Azure, desarrolla, corre tests y cierra con PR; luego sigue con la siguiente HU. Triggers "modo de desarrollo auto", "modo auto", "implementa el feature completo", "feature completo sin interrupción", "sigue con la siguiente historia", flit-modo-desarrollo-auto.
+description: |
+  Modo auto por Feature (FLIT - FLITO): cadena apilada por defecto. Por CADA HU encadena la matriz AGENTS.md con herramientas reales Skill/Agent — no checklists del hilo.
+  Orden fijo por HU: flit-gestion-hu (Active) → architecture/ux si aplica → backend/frontend-agent (NUNCA codear HU completa en el hilo) → flit-code-review (+ security/db-review) → PR → flit-integration-ado Modo A → Resolved vía flit-gestion-hu → qa-agent → merge → Modo B → devops-agent M1 (una vez por tip en ráfagas).
+  Saltar un ejecutor o sustituirlo por comentario ADO / curl / «gates cerrados» en prosa = violación. Triggers — modo de desarrollo auto, modo auto, feature completo, sin interrupción, sigue con la siguiente historia, flit-modo-desarrollo-auto.
 ---
 
 # Modo de desarrollo auto
@@ -9,14 +12,32 @@ Ciclo cerrado por HU, repetido hasta que **todas** las historias del Feature que
 Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invocación** vive en `AGENTS.md` — aquí solo se fija en qué paso del ciclo se dispara cada ejecutor:
 
 - `flit-azure-devops` — conexión MCP/REST, encoding, idempotencia
-- `flit-gestion-hu` — estados `Active` / `Resolved` y comentarios
+- `flit-gestion-hu` — estados `Active` / `Resolved` y comentarios (**Skill en cada HU**)
 - `architecture-agent` / `ux-agent` — diseño previo cuando aplica (paso 2c)
 - `backend-agent` / `frontend-agent` — implementación (paso 3); el hilo principal no «codea de paso» una HU completa
-- `flit-code-review` — revisión del diff antes del PR (paso 4b)
+- `flit-code-review` — revisión del diff antes del PR (paso 4b) (**Skill en cada HU**)
 - `security-agent` / `db-review-agent` — gates pre-PR cuando el diff lo dispara (paso 4b)
-- `qa-agent` — TCs/ejecución tras `Resolved` cuando aplica (paso 6b)
-- `flit-integration-ado` — registro del PR en `Custom.Commits` y Deploy tras merge
-- `devops-agent` — M1 post-Deploy (paso 2b / fin de ráfaga)
+- `qa-agent` — TCs/ejecución tras `Resolved` (**Agent en cada HU que aplique**)
+- `flit-integration-ado` — Modo A al abrir PR y Modo B post-merge (**Skill; `Custom.Commits` obligatorio**)
+- `devops-agent` — M1 post-Deploy (paso 2b / fin de ráfaga) (**Agent; curl del hilo no cuenta**)
+
+## Contrato de invocación (rompe el ciclo si se viola)
+
+En **cada** HU de la ráfaga el hilo principal debe usar la herramienta de delegación del runtime
+(`Skill` / `Agent` / `Task`) con el nombre exacto del ejecutor. **No cuenta** como cumplimiento:
+
+| Anti-patrón | Ejecutor que se saltó |
+|---|---|
+| `Edit`/`Write` de la HU entera en el hilo (incluida «solo migración/esquema») | `backend-agent` / `frontend-agent` |
+| Tabla «mi code-review» en el chat sin `Skill flit-code-review` | `flit-code-review` |
+| Solo `security-agent` y abrir PR | `flit-code-review` (complementa, no sustituye) |
+| `wit_*` sueltos sin `Skill flit-gestion-hu` / plantillas | `flit-gestion-hu` |
+| Discussion «PR registrado» sin `Custom.Commits` vía `flit-integration-ado` | `flit-integration-ado` |
+| Comentario «listo para QA» sin lanzar `qa-agent` | `qa-agent` |
+| `curl /api/health` del hilo presentado como M1 | `devops-agent` |
+
+Si un paso no aplica, **declararlo en el cuerpo del PR / reporte** («architecture: no aplica — …»).
+Omitir en silencio = fallo de proceso.
 
 ## Entrada
 
@@ -58,9 +79,9 @@ Feature, el agente mergea tras CI verde antes de arrancar la siguiente.
 
 ### 1. Activar en Azure
 
-- **Feature padre primero** (regla de `AGENTS.md`): si el Feature padre está `New`, pasarlo a **`Active`** con comentario de inicio en su Discussion (mecánica del paso 1 de `flit-gestion-hu`). Si ya está `Active`, no rehacer.
-- `System.State` de la HU → **`Active`** vía `wit_update_work_item`.
-- Comentario de inicio en Discussion (plantilla de `flit-gestion-hu`).
+- **`Skill flit-gestion-hu` Paso 1** (obligatorio en **cada** HU, no solo la primera):
+  - **Feature padre primero** (regla de `AGENTS.md`): si el Feature padre está `New`, pasarlo a **`Active`** con comentario de inicio en su Discussion. Si ya está `Active`, no rehacer.
+  - `System.State` de la HU → **`Active`** + comentario de inicio (plantilla de la skill).
 - Si la HU ya está `Active` o `Resolved`, **no** rehacer: continuar donde quedó.
 
 ### 2. Rama nueva (cadena apilada por defecto)
@@ -117,10 +138,11 @@ Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por
 1. Verificar precondiciones de `flit-integration-ado` (base = `develop`, tres checks CI en
    `success`, sin conflictos, rama `feat/flito-*`).
 2. Mergear con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a `staging`/`release`.
-3. `flit-integration-ado` **Modo B** (Deploy DEV + Commits integrado).
-4. Tras Modo B (o al cerrar una ráfaga de merges de la pila): invocar **`devops-agent` M1** una vez
-   sobre el tip/ambiente DEV — no por cada PR intermedio. Si no hay acceso al ambiente, declararlo
-   en el reporte («devops M1: no ejecutado — sin acceso») y no fingir VERDE.
+3. **`Skill flit-integration-ado` Modo B** (Deploy DEV + Commits integrado en `Custom.Commits`).
+4. Tras Modo B (o al cerrar una ráfaga de merges de la pila): invocar **`Agent devops-agent` M1** una vez
+   sobre el tip/ambiente DEV — no por cada PR intermedio, **tampoco cero**. Un `curl` del hilo no
+   sustituye el Agent. Si no hay acceso al ambiente, el Agent debe devolver HANDOFF `SIN-ACCESO`
+   (no fingir VERDE).
 5. Rebasar las ramas pendientes de la pila sobre `origin/develop` y
    `git push --force-with-lease` solo de la rama propia.
 
@@ -132,9 +154,11 @@ tras cada merge humano, rebasear igual).
 
 ### 3. Desarrollo
 
-Invocar **`backend-agent`** y/o **`frontend-agent`** según el tipo de HU (no implementar una HU
-completa «de paso» en el hilo principal). Cumplir los Acceptance Criteria uno por uno, respetando
-el stack y las convenciones del repo (`AGENTS.md`). No ampliar el alcance a otras HU.
+Invocar **`backend-agent`** y/o **`frontend-agent`** (`Agent`/`Task`) según el tipo de HU.
+**Prohibido** implementar una HU completa «de paso» en el hilo principal — también la primera HU
+del Feature y las de «solo esquema/migración/seeds». Excepción única: fix ≤~20 líneas en un
+archivo tras HANDOFF, o pedido explícito del humano. Cumplir los AC uno a uno (`AGENTS.md`).
+No ampliar el alcance a otras HU.
 
 ### 4. Tests y pipelines
 
@@ -172,10 +196,12 @@ consultar en bucle, lanzar un `sleep` con `run_in_background` y volver a mirar c
 
 ### 4b. Revisión y seguridad pre-PR (gate obligatorio)
 
-Con el diff completo de la rama (`git diff origin/develop...HEAD`), **antes** de commitear y abrir PR:
+Con el diff completo de la rama (`git diff origin/develop...HEAD`), **antes** de abrir PR
+(**en cada HU**, no solo la primera):
 
-1. **`flit-code-review`** sobre el diff: checklist de proceso, backend y frontend. Veredicto
-   `BLOQUEADO` → corregir y re-revisar; el PR no se abre.
+1. **`Skill flit-code-review`** sobre el diff (veredicto canónico OK / OK-CON-OBSERVACIONES /
+   BLOQUEADO). Un resumen improvisado del hilo **no** sustituye la skill. `BLOQUEADO` → corregir
+   y re-revisar; el PR no se abre.
 2. **`security-agent`** sobre el diff cuando toque superficie sensible (criterio de la propia
    skill / `flit-code-review`): `auth`, `permissions`, `pii-audit`, `laft/`, `privacy/`, `multer`,
    rutas nuevas, `package*.json` o campos PII. Veredicto `FAIL` → corregir; no hay excepción sin
@@ -203,30 +229,36 @@ en esta máquina `gh` es **otro programa** con el mismo nombre (un visor de ayud
 GitHub. Comprobar con `gh --version` antes de asumir lo contrario. Para consultar el estado del PR
 y sus checks, `mcp__github__pull_request_read` con `method: get_check_runs` / `get_status`.
 
-Luego `flit-integration-ado` **Modo A**: registrar el PR en `Custom.Commits` y comentario en
-Discussion. **Limitación conocida:** `mcp__azure-devops__wit_update_work_item` tipa el `value` como
-string, así que **no** admite `op: add` sobre `/relations/-` — el Hyperlink formal al PR no se puede
-crear por MCP. Dejar el enlace dentro de `Custom.Commits` y de Discussion, y avisar al usuario si
-necesita la relación formal (habría que añadirla a mano o vía REST con PAT).
+Luego **`Skill flit-integration-ado` Modo A**: registrar el PR en `Custom.Commits` (HTML canónico)
+y comentario breve en Discussion. Discussion **sola no basta**. Si el campo `Custom.Commits` es
+muy largo, resumir historial previo y concatenar — **no** abandonar el campo «por tokens».
+**Limitación conocida (hyperlink formal):** preferir `wit_work_item_link_write` con
+`action: "link_to_pull_request"` o `add_artifact_link` (servidor MCP **`ado`**, cookbook en
+`flit-azure-devops`). Si el schema/sesión no permite la relación, dejar el enlace dentro de
+`Custom.Commits` y Discussion — **no** abandonar Commits. Los `updates[].value` de
+`wit_work_item_write` van como string (HTML incluido).
 
 ### 6. Cerrar la HU
 
-`System.State` → **`Resolved`** + comentario de entrega a QA (plantilla de `flit-gestion-hu`), solo
-si build y pipeline están en verde.
+**`Skill flit-gestion-hu` Paso 3:** `System.State` → **`Resolved`** + comentario de entrega a QA
+(plantillas de la skill), solo si build y pipeline están en verde. No cerrar con `wit_*` sueltos
+sin la skill.
 
-### 6b. QA (cuando aplica)
+### 6b. QA (obligatorio cuando aplica — no negociable)
 
-Tras `Resolved`, invocar **`qa-agent`**:
+Tras `Resolved`, **lanzar `qa-agent`** (`Agent`/`Task`) **antes** de dar la HU por «entregada a QA»:
 
 - HU con AC Gherkin o FRONTEND: modo **A** (TCs si no existen) y modo **B** (ejecución) cuando el
   entorno lo permita.
 - HU BACKEND-only sin UI: al menos modo B sobre tests Vitest del módulo tocado; TCs Task hijas si
   los AC lo exigen.
-- Si el entorno E2E no está levantado: dejar comentario en Discussion («QA pendiente de entorno»)
-  y listarlo en el reporte del Feature — **no** marcar evidencia inventada.
+- Si el entorno E2E no está levantado: **igual se invoca** el agente; HANDOFF `SIN-ENTORNO` +
+  comentario en Discussion — **no** marcar evidencia inventada ni omitir la invocación.
 
-En cadena apilada, el QA por HU no bloquea arrancar la siguiente **si** el paso 4b y CI están
-verdes; sí bloquea declarar el Feature «listo para staging» sin esos QA.
+En cadena apilada se puede arrancar la siguiente HU en paralelo **solo si ya se invocó**
+`qa-agent` en la actual (aunque quede `SIN-ENTORNO`). **Prohibido** saltar el 6b y «dejar QA
+pendiente» sin Agent. Sin evidencia de `qa-agent` en las HUs del Feature → no declarar el Feature
+«listo para staging».
 
 ### 7. Siguiente HU (sin esperar merge humano)
 
@@ -265,7 +297,11 @@ pendientes.
    se mergea ni se abre la siguiente rama hasta que ese eslabón esté verde o el humano decida
    cortar la dependencia.
 10. **Nunca saltar la matriz de `AGENTS.md`** en un Feature «modo auto»: architecture/ux cuando
-    apliquen, backend/frontend para implementar, qa tras Resolved, devops M1 tras Deploy.
+    apliquen; **`backend-agent`/`frontend-agent` para implementar (toda HU)**; **`Skill
+    flit-code-review` + `Skill flit-gestion-hu` + `Skill flit-integration-ado` en cada eslabón**;
+    **`qa-agent` tras cada Resolved aplicable**; **`devops-agent` M1 al tip tras Modo B / ráfaga**.
+    Sustituir cualquiera por prosa, curl o PATCH ADO suelto = fallo de proceso (ver Contrato de
+    invocación).
 
 ## Cuándo parar y preguntar
 
@@ -282,16 +318,17 @@ pendientes.
 - [ ] Rama `feat/flito-hu<ID>-*` creada (desde `develop` o desde la rama previa, según el modo)
 - [ ] En cadena: dependencia y eslabón declarados en el cuerpo del PR
 - [ ] Diseño previo: `architecture-agent` / `ux-agent` ejecutados o «no aplica» declarado
-- [ ] Implementación vía `backend-agent` / `frontend-agent` (según tipo de HU)
+- [ ] Implementación vía **Agent** `backend-agent` / `frontend-agent` (no código de HU completa en el hilo)
 - [ ] Todos los AC cubiertos
 - [ ] Build, tests y pipeline en verde
-- [ ] `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES (paso 4b)
+- [ ] **Skill** `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES (paso 4b, esta HU)
 - [ ] `security-agent` ejecutado si el diff tocó superficie sensible (o declarado "no aplica")
 - [ ] `db-review-agent` ejecutado si el diff tocó esquema/migraciones (o declarado "no aplica")
 - [ ] Commit sin archivos colados (`git status --short` limpio)
 - [ ] PR abierto contra `develop`
-- [ ] PR registrado en ADO (`flit-integration-ado` Modo A)
-- [ ] Si hay autorización: merge a `develop` (MCP github) + Modo B; si no, PR pendiente de merge humano
-- [ ] Tras Modo B / fin de ráfaga: `devops-agent` M1 (o «no ejecutado — sin acceso» declarado)
-- [ ] Tras Resolved: `qa-agent` cuando aplica (o «QA pendiente de entorno» en Discussion)
+- [ ] **Skill** `flit-integration-ado` Modo A → `Custom.Commits` (no solo Discussion)
+- [ ] **Skill** `flit-gestion-hu` → `Resolved` + plantilla entrega QA
+- [ ] **Agent** `qa-agent` invocado (HANDOFF real o `SIN-ENTORNO` declarado por el agente)
+- [ ] Si hay autorización: merge a `develop` (MCP github) + **Skill** Modo B; si no, PR pendiente de merge humano
+- [ ] Tras Modo B / fin de ráfaga: **Agent** `devops-agent` M1 (o HANDOFF `SIN-ACCESO`)
 - [ ] Siguiente HU arrancada sin pausa injustificada (modo continuo) — o merge previo confirmado (secuencial)

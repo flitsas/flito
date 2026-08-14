@@ -1,15 +1,35 @@
 ---
 name: flit-integration-ado
-description: Registra PRs de GitHub (repo flitsas/flito) en Azure DevOps (Custom.Commits, Discussion, hyperlinks) y confirma post-merge con Deploy DEV/QA/PDN según rama destino (develop/staging/release). Modo A al abrir PR; Modo B tras merge (rol Líder Técnico). Tras Modo B exitoso, el hilo principal debe invocar devops-agent M1 (una vez por tip en ráfagas). Triggers PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, flit-integration-ado.
+description: |
+  Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama.
+  INVOCACIÓN OBLIGATORIA: Skill flit-integration-ado Modo A en CADA PR de HU al abrirlo; Modo B en CADA merge a develop/staging/release (o al tip de una ráfaga). Discussion NO sustituye Custom.Commits.
+  Tras Modo B con Deploy*=true el hilo DEBE invocar devops-agent M1 (una vez por tip en ráfagas).
+  Triggers — PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, Modo A, Modo B, flit-integration-ado, flit-modo-desarrollo-auto pasos 5 y 2b.
 ---
 
 # flit-integration-ado — GitHub (código) + Azure DevOps (gestión)
 
-**Contrato ADO:** `flit-azure-devops` (MCP `azure-devops` primero; REST con UTF-8 como fallback).
+**Contrato ADO:** `flit-azure-devops` (MCP servidor **`ado`** primero; REST con UTF-8 como fallback).
 
 **Repositorio de código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards (proyecto `FLIT - FLITO`).
 
 **GitHub:** servidor MCP `github` **primero** (`list_pull_requests`, `pull_request_read`, `create_pull_request`, `merge_pull_request`, `actions_*`). En esta máquina `gh` no es el CLI de GitHub (visor de ayuda): comprobar con `gh --version` antes de usarlo; si no es el CLI real, no usarlo. Donde este documento mencione `gh`, traducir a la herramienta MCP equivalente.
+
+## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
+
+| Disparador | Modo | Campo obligatorio |
+|---|---|---|
+| Justo después de `create_pull_request` de una HU | **Modo A** | `Custom.Commits` sección «PR abierta» (HTML) + Discussion breve + hyperlink si se puede |
+| PR de HU **MERGED** a `develop` / `staging` / `release` | **Modo B** | Añadir «Integrado» en `Custom.Commits` **sin borrar** lo previo + `Deploy*` según rama |
+| Ráfaga de merges | Modo B por PR (o consolidado al tip con evidencia de cada SHA) + **una** `devops-agent` M1 al tip | No omitir Commits «por presupuesto de tokens» |
+
+**Cómo contar:** herramienta `Skill` con `skill: flit-integration-ado` y args `Modo A|B` + IDs de PR/HU. Seguir plantillas HTML de este documento.
+
+**NO cuenta (anti-patrones graves):**
+- Solo un comentario en Discussion «PR registrado» / «integrado» **sin** actualizar `Custom.Commits`
+- Omitir Modo A/B «porque el campo ya pesa muchos KB» — si hay límite, **resumir** el HTML previo y concatenar; no abandonar el campo
+- PATCH ADO sueltos sin cargar esta skill ni las plantillas
+- Dar por cerrado el post-merge sin invocar `devops-agent` M1 tras `Deploy*=true`
 
 **Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
 
@@ -173,7 +193,7 @@ Menciones con `<a href="mailto:{email}">@{nombre}</a>`.
 
 (usar `Custom.DeployQA` o `Custom.DeployPDN` según tabla de ramas).
 
-Con MCP: `wit_work_item_write` (servidor ADO/`azure-devops`). Con REST: `json.dumps(patch, ensure_ascii=False)` en Python o `JSON.stringify(patch)` + `charset=utf-8` en Node.
+Con MCP: `wit_work_item_write` (servidor **`ado`**). Con REST: `json.dumps(patch, ensure_ascii=False)` en Python o `JSON.stringify(patch)` + `charset=utf-8` en Node.
 
 **Hyperlink PR:**
 
