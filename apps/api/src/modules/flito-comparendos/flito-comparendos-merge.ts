@@ -29,6 +29,31 @@
 //        prototipo. Por eso aquí no hay ni un `Object.assign` sobre ellos, la lectura de campos se
 //        hace con `hasOwnProperty` y el canónico se construye campo a campo, nunca por clave
 //        calculada.
+//
+// RN-25  Del ítem crudo se conserva SOLO lo que el mapa vigente sabe leer (HU #11511). El resto —y
+//        en SIMIT eso incluye normalmente el NOMBRE y el DOCUMENTO del infractor, una persona
+//        natural que no es la empresa monitoreada— no se guarda en `payload_*`. Decisión humana del
+//        2026-08-13: podar en vez de cifrar, porque lo que no se guarda no hay que cifrarlo, ni
+//        purgarlo, ni auditar quién lo leyó (Ley 1581, principio de minimización).
+//
+//        La lista blanca se DERIVA de los `source_path` de la versión vigente del `field_map` y no
+//        se escribe aparte: dos listas —una en la tabla y otra en el código— se desincronizarían en
+//        la primera corrección del mapa, y el síntoma sería silencioso (un candidato nuevo que
+//        nunca llega al payload). Corolario deliberado: añadir un campo a la lista blanca es
+//        insertar una fila en el `field_map`, sin migración ni despliegue.
+//
+//        La lista blanca filtra por CLAVE y la poda filtra además por FORMA: solo se persisten
+//        valores ESCALARES, que es lo único que `homologar` sabe leer. Un `source_path` permitido
+//        cuyo valor sea un subárbol se descartaría entero — es la vía por la que un
+//        `valorAPagar: { total, titular: { nombre, documento } }` volvería a meter la PII por una
+//        clave autorizada. Y una lista blanca VACÍA nunca significa «bórralo todo»: significa que
+//        el mapa vigente no describe este origen, así que no se persiste payload y se deja intacto
+//        el que hubiera (ver `podarPayload`).
+//
+//        Lo que se paga a cambio, y se asume: la red de ADR-0003 encoge. Si el spike #11501
+//        descubre que hacía falta un campo que se podó, re-mergear desde el JSONB ya no basta y hay
+//        que volver a consultar al proveedor. Se cambia una pérdida de datos recuperable
+//        (re-consulta) por una fuga de datos personales que no lo es.
 
 import { asc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -350,6 +375,109 @@ function parsearImporte(bruto: string): number | null {
   return negativo ? -numero : numero;
 }
 
+// ─────────────────────────────── Poda del payload crudo (RN-25) ─────────────────────────────────
+
+/**
+ * La lista blanca de un origen: los `source_path` que el mapa vigente sabe leer.
+ *
+ * Sale de `candidatos`, que es exactamente lo que `primerValor` puede consultar, así que el payload
+ * guardado queda con la forma mínima que permite re-homologar: ni un campo de más (nombre y
+ * documento del infractor se caen aquí), ni uno de menos.
+ *
+ * Se calcula UNA vez por origen y corrida —no por ítem— porque la lista es la misma para los miles
+ * de comparendos de una corrida y recorrer el mapa por ítem sería trabajo repetido sin motivo.
+ */
+export function camposConservables(candidatos: CandidatosPorCampo): ReadonlySet<string> {
+  const permitidos = new Set<string>();
+  for (const rutas of candidatos.values()) {
+    for (const ruta of rutas) permitidos.add(ruta);
+  }
+  return permitidos;
+}
+
+/**
+ * Claves que NUNCA se copian al payload, esté o no `source_path` en el mapa (RN-14).
+ *
+ * `podarPayload` ya escribe con `defineProperty`, así que un `__proto__` no contamina el objeto que
+ * este módulo construye. Lo que se evita aquí es lo otro: que la clave llegue VIVA al JSONB y se
+ * quede ahí esperando a un consumidor futuro —el visor de 17b, un `GET /registros`— que rehidrate la
+ * fila con `Object.assign` o un spread y sí monte el gadget. Un `__proto__` no es un campo legítimo
+ * de un proveedor de tránsito bajo ninguna versión del mapa, así que no hay nada que perder.
+ */
+const CLAVES_NUNCA_PERSISTIDAS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * ¿El valor es un escalar que el merge sabe leer y que por tanto vale la pena guardar?
+ *
+ * La lista blanca filtra por CLAVE; esto filtra por FORMA. Sin este segundo filtro quedaba una
+ * grieta entre «la lista blanca es lo que el merge sabe leer» y lo que de verdad se escribía: un
+ * `source_path` permitido cuyo valor fuese un subárbol —`"valorAPagar": { "total": 604100,
+ * "titular": { "nombre": …, "documento": … } }`— se persistía ENTERO, con los datos de persona
+ * dentro, aunque `homologar` (`texto`, `montoCanonico`, …) no pueda extraer nada de un objeto y
+ * devuelva `null`. Guardar lo que ningún re-merge puede aprovechar no es red de ADR-0003: es la
+ * misma fuga con otra ruta.
+ *
+ * `boolean` y `null` se admiten aunque el canónico no los use hoy: no llevan PII dentro y son formas
+ * legítimas de un campo del proveedor («pagado: false»). `undefined` no, porque no sobrevive a
+ * `JSON.stringify` dentro de un objeto y guardarlo sería guardar una clave que desaparece al leerla
+ * de vuelta del JSONB.
+ */
+function esEscalarPersistible(valor: unknown): boolean {
+  return valor === null
+    || typeof valor === 'string' || typeof valor === 'number' || typeof valor === 'boolean';
+}
+
+/**
+ * Copia del ítem con SOLO los campos de la lista blanca (RN-25). Lo demás no se persiste.
+ *
+ * Devuelve `null` —y no `{}`— cuando la lista blanca del origen viene VACÍA. La diferencia no es
+ * cosmética y es el hallazgo del gate: `{}` significa «de este ítem no se conserva nada» y, al
+ * llegar al UPSERT, PISA el payload que ya estaba en la fila; `null` significa «no sé qué conservar
+ * de este origen» y el sync lo trata como «esta corrida no trajo payload», dejando intacto lo
+ * escrito (ver el UPDATE de `flito-comparendos.sync.service.ts`). Una lista blanca vacía es la señal
+ * de que el mapa vigente no describe este origen —una v2 que solo cubre SIMIT, exactamente lo que el
+ * spike #11501 va a sembrar—, y de un mapa que no describe el origen no se sigue que sus datos
+ * sobren: se sigue que no sabemos leerlos. Ante la duda, no borrar.
+ *
+ * Hoy ese caso además implica que ningún ítem del origen se puede identificar (sin candidatos,
+ * `numeroComparendo` sale `null` y `acumular*` lo descarta antes de llegar aquí), así que el `null`
+ * es cinturón sobre tirantes. Se pone igual porque esa coincidencia es un acoplamiento a distancia
+ * con `homologar`: el día que el número se derive de otro sitio, o que alguien reutilice
+ * `podarPayload`, el vaciado silencioso volvería sin que nada lo avise.
+ *
+ * Tres detalles que no son estilo:
+ *
+ *   · Se itera sobre la LISTA BLANCA y no sobre las claves del ítem. Recorrer el ítem y descartar
+ *     lo que no esté permitido da el mismo resultado hoy, pero invierte la carga de la prueba: la
+ *     versión que recorre lo permitido no puede dejar pasar un campo nuevo del proveedor ni aunque
+ *     alguien se equivoque en la condición.
+ *
+ *   · Se descarta lo que no sea escalar (`esEscalarPersistible`) y las claves de RN-14
+ *     (`CLAVES_NUNCA_PERSISTIDAS`).
+ *
+ *   · La escritura va con `defineProperty` y no con `podado[clave] = valor` (RN-14). `source_path`
+ *     es una columna de texto: una fila con `__proto__` haría que la asignación normal invocara el
+ *     setter heredado y cambiara el PROTOTIPO del objeto en vez de crear una propiedad.
+ *     `defineProperty` siempre crea una propiedad propia.
+ */
+export function podarPayload(
+  item: Record<string, unknown>, permitidos: ReadonlySet<string>,
+): Record<string, unknown> | null {
+  if (permitidos.size === 0) return null;
+
+  const podado: Record<string, unknown> = {};
+  for (const clave of permitidos) {
+    if (CLAVES_NUNCA_PERSISTIDAS.has(clave)) continue;
+    if (!Object.prototype.hasOwnProperty.call(item, clave)) continue;
+    const valor = item[clave];
+    if (!esEscalarPersistible(valor)) continue;
+    Object.defineProperty(podado, clave, {
+      value: valor, enumerable: true, writable: true, configurable: true,
+    });
+  }
+  return podado;
+}
+
 // ─────────────────────────────── Merge de las dos fuentes (RN-13) ───────────────────────────────
 
 /**
@@ -362,8 +490,10 @@ function parsearImporte(bruto: string): number | null {
 export interface ConsolidadoComparendo {
   numero: string;
   simit: ComparendoCanonico | null;
+  /** Ítem crudo YA PODADO a la lista blanca (RN-25). El original no sale de esta función. */
   payloadSimit: unknown;
   municipal: ComparendoCanonico | null;
+  /** Ídem para el municipal. */
   payloadMunicipal: unknown;
   /** `codigo_fuente` del municipio que lo devolvió. No lo trae el proveedor: lo pone el sync. */
   municipioFuente: string | null;
@@ -385,23 +515,31 @@ export type AcumuladorNit = Map<string, ConsolidadoComparendo>;
  * segunda copia no aporta nada y sobrescribirla solo haría depender el resultado del orden de la
  * lista. Devuelve cuántos ítems se descartaron por no traer número reconocible, que es justamente la
  * señal que el spike #11501 necesita ver.
+ *
+ * El payload se PODA aquí (RN-25), en el mismo sitio en que se decide conservarlo. Podar más tarde
+ * —al escribir— dejaría el ítem íntegro vivo en el acumulador de toda la corrida y bastaría con que
+ * alguien logueara ese objeto para publicar los datos del infractor.
  */
 export function acumularSimit(
   acumulador: AcumuladorNit, items: readonly Record<string, unknown>[], candidatos: CandidatosPorCampo,
 ): number {
   let ignorados = 0;
+  const permitidos = camposConservables(candidatos);
   for (const item of items) {
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
     const previo = acumulador.get(canonico.numeroComparendo);
     if (previo) {
-      if (previo.simit === null) { previo.simit = canonico; previo.payloadSimit = item; }
+      if (previo.simit === null) {
+        previo.simit = canonico;
+        previo.payloadSimit = podarPayload(item, permitidos);
+      }
       continue;
     }
     acumulador.set(canonico.numeroComparendo, {
       numero: canonico.numeroComparendo,
       simit: canonico,
-      payloadSimit: item,
+      payloadSimit: podarPayload(item, permitidos),
       municipal: null,
       payloadMunicipal: null,
       municipioFuente: null,
@@ -423,6 +561,7 @@ export function acumularMunicipal(
   candidatos: CandidatosPorCampo, codigoFuente: string,
 ): number {
   let ignorados = 0;
+  const permitidos = camposConservables(candidatos);
   for (const item of items) {
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
@@ -430,7 +569,7 @@ export function acumularMunicipal(
     if (previo) {
       if (previo.municipal === null) {
         previo.municipal = canonico;
-        previo.payloadMunicipal = item;
+        previo.payloadMunicipal = podarPayload(item, permitidos);
         previo.municipioFuente = codigoFuente;
       }
       continue;
@@ -440,7 +579,7 @@ export function acumularMunicipal(
       simit: null,
       payloadSimit: null,
       municipal: canonico,
-      payloadMunicipal: item,
+      payloadMunicipal: podarPayload(item, permitidos),
       municipioFuente: codigoFuente,
     });
   }

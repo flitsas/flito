@@ -148,9 +148,23 @@ const envSchema = z.object({
   // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
   COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
   // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
-  // parametrizable — decisión humana del 2026-08-13. En 17a es política declarada y configurada: el
-  // cron de purga queda fuera de alcance, así que este valor todavía no borra nada por sí solo.
+  // parametrizable — decisión humana del 2026-08-13. Desde la HU #11511 la CONSUME de verdad
+  // `flito-comparendos-purga.cron.ts`: los comparendos que nadie ha vuelto a ver desde el corte y las
+  // corridas de sync anteriores a él se borran (con su timeline y sus pasos, por CASCADE).
   COMPARENDOS_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(24),
+  // Puerta positiva del cron de purga (RN-28), mismo criterio que PRIVACY_RETENTION_CRON_ENABLED: un
+  // job que BORRA no se enciende por desplegarse, sino cuando alguien decide que puede empezar. Con
+  // la puerta cerrada, `runComparendosPurgaOnce()` sigue siendo invocable a mano (y en seco).
+  COMPARENDOS_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // Freno de la purga (RN-30), el análogo irreversible del freno de inactivación. `LOTE × MAX_LOTES`
+  // limita el RITMO del borrado (10 000 filas/día), no el daño: una purga equivocada vacía la tabla
+  // igual, solo que despacio. Una pasada se aborta entera si los candidatos superan MAX_RATIO de la
+  // tabla, o si no hay ninguna corrida de sync terminada en SYNC_MAX_DIAS — el reloj de la retención
+  // es `ultimo_visto_en` y solo lo mueve el sync: con el sync parado, la tabla envejece ENTERA y la
+  // purga acabaría borrando datos vigentes en silencio. Subir MAX_RATIO es la salida deliberada para
+  // la primera pasada de una base con años de histórico, después de mirar el `dryRun`.
+  COMPARENDOS_PURGA_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.25),
+  COMPARENDOS_PURGA_SYNC_MAX_DIAS: z.coerce.number().int().min(1).max(365).default(7),
   // Timeout por llamada al proveedor y cuántas municipales van en paralelo por NIT (ADR-0001 §7).
   // No son ajustes de gusto: el sync es síncrono y el nginx del web corta a los ~120 s, así que la
   // matriz NIT × municipios en serie con los 15 s por defecto de `httpsGetJson` se pasa de largo.

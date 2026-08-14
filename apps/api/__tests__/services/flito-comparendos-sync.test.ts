@@ -487,6 +487,29 @@ describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
     expect(insertado.payloadMunicipal).toEqual(ITEM_MUNICIPAL);
   });
 
+  it('**lo que se persiste va podado: los datos del infractor no llegan a la base** (HU #11511)', async () => {
+    escenario();
+    // Lo que devuelve Verifik de verdad: el comparendo y QUIÉN lo tiene encima. El infractor es una
+    // persona natural y no la empresa monitoreada — datos personales de un tercero (Ley 1581).
+    simitMock.mockImplementation(async () => respuestaSimit([{
+      ...ITEM_SIMIT,
+      nombreInfractor: 'JUAN CARLOS PEREZ GOMEZ',
+      documentoInfractor: '1036640908',
+      correoInfractor: 'juan.perez@example.com',
+    }]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    // La poda ocurre en el acumulador, antes de que el payload exista como cosa persistible: lo que
+    // llega al INSERT es exactamente la lista blanca del `field_map`, ni un campo más.
+    expect(insertado.payloadSimit).toEqual(ITEM_SIMIT);
+    const escrito = JSON.stringify(insertado.payloadSimit);
+    expect(escrito).not.toContain('JUAN CARLOS');
+    expect(escrito).not.toContain('1036640908');
+    expect(escrito).not.toContain('juan.perez@example.com');
+  });
+
   it('sobre una fila existente actualiza sin insertar y sin tocar lo que nadie reportó', async () => {
     escenario({
       existentes: [filaRegistro({ vistoEnMunicipal: false, descripcionInfraccion: null })],
