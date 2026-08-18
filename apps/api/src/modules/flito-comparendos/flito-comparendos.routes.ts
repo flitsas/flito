@@ -1,5 +1,7 @@
 // FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497), del token
-// SIMIT (HU #11498), de la sincronización (HU #11500) y de la lectura del consolidado (HU #11502).
+// SIMIT (HU #11498), de la sincronización (HU #11500) y de la lectura del consolidado (HU #11502),
+// que la HU #11555 (Feature #11495 17b) amplía con los filtros de listado por municipio, fuente y
+// causal.
 //
 // Base: `/api/flito/comparendos`. Aquí solo se valida, se traduce y se deja rastro; las reglas de
 // negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06), en
@@ -586,11 +588,24 @@ const placaFiltroSchema = z.string().trim()
   .regex(/^[A-Za-z0-9 -]+$/, 'La placa admite letras, dígitos, espacio y guion');
 
 /**
+ * Un booleano de query string, escrito a mano y con el alfabeto cerrado a `true`/`false`.
+ *
+ * **No es `z.coerce.boolean()`, y esa es toda la razón de que exista**: `coerce` aplica la
+ * veracidad de JavaScript, donde la cadena `'false'` es `true` por no estar vacía. Un
+ * `?sinCausal=false` que filtrara por «sin causal» sería el peor de los fallos posibles aquí —el
+ * usuario quita el filtro y la lista se estrecha— y no lo delataría ningún error. Lo que no es
+ * exactamente uno de los dos literales es un 400: `?sinCausal=1` no se adivina.
+ */
+const booleanoDeQuery = z.enum(['true', 'false']).transform((v) => v === 'true');
+
+/**
  * Query de lista, compartida por `GET /registros` y `POST /registros/buscar`.
  *
  * Solo lleva lo que NO identifica a una persona: el estado de monitoreo, un fragmento del número de
- * comparendo —un consecutivo del Estado— y la paginación. Es la mitad del contrato que sí puede
- * acabar en un access log sin que eso sea una fuga (AGENTS.md §14).
+ * comparendo —un consecutivo del Estado—, los tres filtros de gestión de la HU #11555 y la
+ * paginación. Es la mitad del contrato que sí puede acabar en un access log sin que eso sea una
+ * fuga (AGENTS.md §14): un municipio, un origen de merge y el id de una causal describen al
+ * comparendo, no a su titular.
  *
  * `.strict()` por lo mismo que en `POST /sync`, y aquí pesa más: `?estados=activo` —el error de
  * dedo— se ignoraría en silencio y devolvería un listado más ancho del que se pidió. Es además lo
@@ -606,13 +621,33 @@ const registrosQuerySchema = z.object({
   estado: vacioEsAusente(z.enum(['activo', 'inactivo'])),
   // Mínimo 3 caracteres: `q=1` recorrería la tabla para devolver medio módulo.
   q: vacioEsAusente(z.string().trim().min(3, 'Busca por al menos 3 caracteres del número').max(60)),
+  // El MISMO esquema del catálogo (normaliza y luego mide): el filtro compara contra el
+  // `codigo_fuente` que se guardó, así que tiene que aceptar exactamente lo que aquel aceptó y
+  // aplastarlo igual. De regalo hereda su alfabeto cerrado, que aquí no protege una URL saliente
+  // pero sigue impidiendo que un valor con metacaracteres llegue al servicio.
+  municipio: vacioEsAusente(codigoFuenteSchema),
+  // `origen_merge`, no el municipio: qué fuentes han visto el comparendo (CF-08). Un valor fuera
+  // del enum es 400 aquí y la base no se toca.
+  fuente: vacioEsAusente(z.enum(['simit', 'municipal', 'ambos'])),
+  // UUID y no cadena libre: `causal_id` es `uuid` en PostgreSQL y una comparación contra algo que
+  // no lo es revienta con un 22P02 —un 500— en lugar de decir qué pasa.
+  causalId: vacioEsAusente(z.string().uuid('La causal debe ser un identificador válido')),
+  sinCausal: vacioEsAusente(booleanoDeQuery),
   limit: z.preprocess(
     (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v),
     z.coerce.number().int().min(1).max(COMPARENDOS_REGISTROS_LIMIT_MAX)
       .default(COMPARENDOS_REGISTROS_LIMIT_MAX),
   ),
   cursor: vacioEsAusente(z.string().max(200)),
-}).strict();
+}).strict()
+  // «Con esta causal» y «sin ninguna causal» son preguntas incompatibles, y su intersección está
+  // vacía SIEMPRE. Dejarlas pasar respondería 200 con una lista vacía, que en una pantalla de
+  // gestión se lee como «no hay comparendos así» y no como «pediste dos filtros que se anulan» — el
+  // operador ajustaría el resto de la búsqueda persiguiendo un resultado que no puede llegar.
+  .refine((q) => !(q.causalId !== undefined && q.sinCausal === true), {
+    message: 'No se puede filtrar por una causal y por la ausencia de causal a la vez',
+    path: ['sinCausal'],
+  });
 
 /**
  * Cuerpo de `POST /registros/buscar`: los dos filtros que identifican a alguien.
@@ -646,11 +681,20 @@ async function entregarPagina(req: Request, res: Response, filtro: FiltroRegistr
     accion: 'search',
     campos: [...CAMPOS_PII_REGISTRO],
     filas: pagina.items.length,
+    // El orden importa y no es alfabético: `motivo` es `varchar(200)` y se recorta por el final, así
+    // que delante va lo que un titular preguntaría —con qué identidad se buscó— y detrás los
+    // criterios de negocio. Si alguna vez el recorte muerde, muerde lo prescindible. Los tres de la
+    // HU #11555 van con su valor literal porque no lo son de nadie; el enmascarado de `nit` y
+    // `placa` lo pone `registrarAccesoComparendos`, no esta función.
     filtros: {
       estado: filtro.estado,
       nit: filtro.nit,
       placa: filtro.placa,
       q: filtro.q,
+      municipio: filtro.municipio,
+      fuente: filtro.fuente,
+      causalId: filtro.causalId,
+      sinCausal: filtro.sinCausal,
     },
   });
   res.set('Cache-Control', 'no-store');

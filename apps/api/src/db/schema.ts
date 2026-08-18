@@ -4195,6 +4195,30 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // pasada, más el `count(*)` del dryRun y del freno—, que sin índice es un recorrido secuencial de
   // la tabla que más crece del módulo.
   ultimoVistoIdx: index('idx_flito_comparendos_ultimo_visto').on(t.ultimoVistoEn),
+  // Filtros del listado (HU #11555, migración 0153). Los dos primeros llevan detrás las MISMAS
+  // columnas del cursor y en el MISMO orden (`created_at DESC, id DESC`, RN-32): con la IGUALDAD
+  // delante, el índice entrega la página ya ordenada y el plan pierde el nodo de `Sort`. Sin esa
+  // cola, filtrar por municipio sería recorrer la tabla entera y ordenarla para quedarse con 50
+  // filas. `origen_merge` no tiene índice a propósito: son tres valores sobre toda la tabla y el
+  // planner no lo usaría.
+  municipioCreadoIdx: index('idx_flito_comparendos_municipio_creado')
+    .on(t.municipioFuente, desc(t.createdAt), desc(t.id)),
+  causalCreadoIdx: index('idx_flito_comparendos_causal_creado')
+    .on(t.causalId, desc(t.createdAt), desc(t.id)),
+  // `sinCausal=true` necesita un índice PARCIAL propio, y no es una duplicación del anterior: para
+  // que un índice entregue el orden ya hecho, su primera columna tiene que estar fijada por una
+  // IGUALDAD, y `causal_id IS NULL` no lo es. Medido sobre 200.000 filas (AC5 de la #11555), el
+  // índice de arriba no evita el `Sort` ni forzando el plan a mano —`Index Only Scan` + `Sort`,
+  // 25,7 ms—, y sin forzar nada el planner elige `Seq Scan` + `top-N heapsort`: 43 ms y 6.343
+  // buffers. Con este parcial la misma consulta baja a 0,14 ms y 7 buffers.
+  //
+  // Sacar `causal_id` del cuerpo al `WHERE` es lo que lo hace posible: dentro del índice ya no hay
+  // más que filas sin causal, así que `(created_at DESC, id DESC)` manda desde la primera columna.
+  // Y sale más barato de mantener que el índice completo de la causal (6,8 MB contra 12 MB) porque
+  // solo indexa la parte de la tabla que le toca.
+  sinCausalCreadoIdx: index('idx_flito_comparendos_sin_causal_creado')
+    .on(desc(t.createdAt), desc(t.id))
+    .where(sql`${t.causalId} is null`),
 }));
 
 /**

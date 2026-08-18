@@ -1,6 +1,7 @@
 // FLITO — Monitoreo de comparendos: catálogos de parametrización (Feature #11492 17a, HU #11497),
 // metadatos del token SIMIT (HU #11498), resultado de la sincronización (HU #11500) y lectura del
-// registro consolidado con su timeline (HU #11502).
+// registro consolidado con su timeline (HU #11502). Los filtros de listado por municipio, fuente y
+// causal son de 17b (Feature #11495, HU #11555) y se añadieron sobre `ComparendosRegistrosQuery`.
 //
 // Lo que este archivo NO declara, y es deliberado: `PageSlug` del módulo y los contratos del export
 // a Excel son de 17b, y el PATCH de gestión (causal/observación) también. Publicar hoy el tipo de
@@ -294,11 +295,50 @@ export const COMPARENDOS_REGISTROS_LIMIT_MAX = 50;
  * la búsqueda lleve filtros de identidad, y definirla una sola vez evita que las dos rutas se
  * separen. `q` es parcial pero solo sobre el NÚMERO de comparendo —un consecutivo del Estado— y por
  * eso no es un identificador de persona.
+ *
+ * Los tres filtros de la HU #11555 —`municipio`, `fuente` y la causal— están aquí y no en
+ * {@link ComparendosRegistrosBusqueda} por esa misma razón y no por comodidad: un código de
+ * municipio, un origen de merge y el id de una causal describen al COMPARENDO y a cómo se gestiona,
+ * no a su titular, así que verlos en un access log del proxy no cuenta nada de nadie. La línea de
+ * AGENTS.md §14 pasa exactamente por ahí, y por eso el NIT y la placa siguen sin poder cruzarla.
  */
 export interface ComparendosRegistrosQuery {
   estado?: ComparendosRegistroEstado;
   /** Fragmento del número de comparendo (mínimo 3 caracteres). */
   q?: string;
+  /**
+   * `codigoFuente` del municipio donde se vio el comparendo. Coincidencia EXACTA.
+   *
+   * Es el valor literal de {@link ComparendosMunicipio.codigoFuente} —«ITAGUI», no «Itagüí»—, que
+   * es lo que el sync guarda en el registro: el código con el que se le preguntó al proveedor, no
+   * el nombre que se le enseña a un humano. La pantalla debe mandar el `codigoFuente` de la opción
+   * elegida en el catálogo, no lo que esa opción muestra.
+   *
+   * Un municipio DESACTIVADO en el catálogo sigue siendo un filtro legítimo: dar de baja la fuente
+   * deja de consultarla, no borra los comparendos que ya trajo, y no poder mirarlos sería perder de
+   * vista deuda viva por un cambio de parametrización.
+   */
+  municipio?: string;
+  /**
+   * Qué fuentes han visto el comparendo (`origen_merge`), que NO es de qué municipio es.
+   *
+   * `fuente=simit` son los que solo ha reportado el SIMIT —esos tienen `municipioFuente` en `null`,
+   * así que combinarlo con `municipio` devuelve una página vacía por construcción, no por error—;
+   * `municipal`, los que solo ha visto el municipio; `ambos`, los que confirman las dos. Es el
+   * filtro con el que se responde «¿qué tiene el SIMIT que el municipio todavía no?».
+   */
+  fuente?: ComparendosOrigenMerge;
+  /** Id de la causal de gestión asignada (CF-04). Excluyente con {@link sinCausal}. */
+  causalId?: string;
+  /**
+   * Solo los comparendos SIN causal asignada. Excluyente con {@link causalId}.
+   *
+   * Existe como parámetro propio y no como un `causalId` vacío porque «sin clasificar» es la cola de
+   * trabajo real de la pantalla de gestión —lo que falta por mirar— y un valor ausente ya significa
+   * «no filtres por causal». Mandar los dos a la vez es un 400: la intersección siempre estaría
+   * vacía, y responder una lista vacía a una pregunta contradictoria se lee como «no hay nada».
+   */
+  sinCausal?: boolean;
   /** 1..{@link COMPARENDOS_REGISTROS_LIMIT_MAX}. Ausente = el máximo. */
   limit?: number;
   /** El `nextCursor` de la página anterior, tal cual llegó. Opaco: no se construye en el cliente. */
