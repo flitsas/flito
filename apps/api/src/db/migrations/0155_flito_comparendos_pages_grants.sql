@@ -1,0 +1,85 @@
+-- 0155_flito_comparendos_pages_grants.sql
+-- Feature #11495 (17b) — Monitoreo de comparendos. HU #11559 (la pantalla de comparendos tiene
+-- página propia en el catálogo de permisos).
+-- Autor: equipo FLITO. Motivo: hasta 17b los comparendos no eran una PANTALLA, eran un cron y unos
+-- endpoints. Esta HU les da vista propia, y con ella un slug propio en el catálogo de páginas:
+-- `flito_comparendos`. El catálogo vive en CÓDIGO (`packages/shared-types/src/permissions.ts`), así
+-- que lo único que el código NO puede hacer por sí solo —y es exactamente lo que hace este
+-- archivo— es otorgar la página a los administradores que YA EXISTEN en la base (AC4).
+--
+-- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner ya envuelve cada archivo con `sql.begin()`).
+-- Idempotente en el sentido fuerte: la segunda pasada no cambia NI UNA FILA (ver abajo).
+--
+-- ============================================================================
+-- POR QUÉ SOLO `admin`, Y POR QUÉ ESO NO ES UNA OMISIÓN
+-- ============================================================================
+--
+-- El router del módulo gatea ENTERO por rol, no por endpoint:
+--
+--     apps/api/src/modules/flito-comparendos/flito-comparendos.routes.ts
+--       router.use(authMiddleware);
+--       router.use(requireRole('admin'));
+--
+-- No hay una sola ruta de comparendos que responda algo distinto de 403 a un rol que no sea
+-- `admin` — tampoco a `auditor`, que en el resto de FLITO sí lee. Conceder la página a otro rol no
+-- abriría datos (el servidor sigue negando), pero pondría en su menú una opción que revienta en la
+-- primera petición: una pantalla en blanco con un 403 detrás. Por eso aquí NO se replica lo que
+-- hacen `0036_pesv_pages_grants.sql` (que además concede a `compliance`) ni el reparto por rol de
+-- otras migraciones de páginas: el criterio no es «a quién le vendría bien verlo», es «a quién le
+-- responde el backend».
+--
+-- Para el propio `admin` esto es defensa en profundidad, igual que en el precedente 0131:
+-- `ROLE_DEFAULT_PAGES.admin` es `Object.keys(PAGES)`, así que un admin ya ve la página por rol sin
+-- que nadie le escriba nada en `allowed_pages`. Lo que se materializa aquí es el caso en que
+-- alguien restrinja a un admin por `allowed_pages`: que no se le caiga la pantalla sin querer.
+--
+-- ============================================================================
+-- LA FORMA DEL UPDATE: `array_append`, NO `array_agg(DISTINCT …)`
+-- ============================================================================
+--
+-- Los precedentes de esta familia no dicen todos lo mismo, así que hay que elegir:
+--
+--   · `0022_fleet_pages_grants.sql`, `0029_maintenance_pages_grants.sql`, `0036_pesv_pages_grants.sql`
+--     → `array_append(...)` + guarda `NOT (<slug> = ANY(...))`.
+--   · `0131_siigo_parametrizacion_pages_grants.sql`, `0136_siigo_operacion_pages_grants.sql`
+--     → `array_agg(DISTINCT p) FROM unnest(allowed_pages || ARRAY[<slug>])` + la misma guarda.
+--   · `0044_rndc_pages_grants.sql` → `array_agg(DISTINCT …)` y **sin guarda**: reescribe la fila de
+--     todos los admin en cada pasada. Re-ejecutarla no falla, pero tampoco es un no-op. Descartado.
+--
+-- Se elige la forma de la 0022/0029/0036 —`array_append`— aunque el AC cite la 0131 como
+-- precedente, porque de la 0131 lo que hay que heredar es el CRITERIO (solo `admin`, defensa en
+-- profundidad, guarda de idempotencia) y ese criterio se conserva íntegro. Lo que cambia es la
+-- expresión, y cambia a mejor: `array_agg(DISTINCT p)` no solo añade el slug, además **reordena
+-- alfabéticamente y deduplica el arreglo entero** de cada admin que aún no la tenía. Es un efecto
+-- lateral que nadie pidió sobre datos de usuarios reales, y ensucia el diff de la migración con
+-- filas que cambian por motivos ajenos a esta HU. `array_append` toca lo mínimo: pega el slug al
+-- final y deja el resto del arreglo exactamente como estaba.
+--
+-- No es teórico: las dos formas se corrieron sobre el mismo admin sembrado con
+-- `{users,dashboard,flito_tablero}` (orden no alfabético, que es como quedan los arreglos reales,
+-- porque `PATCH /users` guarda el orden en que la UI los envía):
+--
+--     array_append  → {users,dashboard,flito_tablero,flito_comparendos}   (una entrada más)
+--     array_agg     → {dashboard,flito_comparendos,flito_tablero,users}   (la fila entera, otra)
+--
+-- Con un arreglo ya ordenado alfabéticamente las dos formas son indistinguibles, así que la
+-- diferencia solo aparece si el fixture está desordenado a propósito.
+--
+-- La guarda `AND NOT (... = ANY(...))` es lo que hace la migración idempotente de verdad: en la
+-- segunda pasada el `WHERE` no selecciona ninguna fila (todos los admin ya tienen el slug), así que
+-- el `UPDATE` reporta `UPDATE 0` y no reescribe `allowed_pages` de nadie. Sin ella, `array_append`
+-- duplicaría el slug y `array_agg(DISTINCT …)` reescribiría filas sin necesidad.
+--
+-- El slug literal `flito_comparendos` tiene que coincidir EXACTAMENTE con la clave de `PAGES` en
+-- `packages/shared-types/src/permissions.ts`. Un error de tecleo aquí no falla: concede en silencio
+-- un permiso que no existe, y nadie se entera hasta que alguien abre la pantalla y no la ve.
+--
+-- No hay `GRANT` en este archivo pese al nombre (que sigue la convención de la familia
+-- `*_pages_grants.sql`): esta HU no crea ninguna tabla ni secuencia. Las de comparendos ya las
+-- otorgó `0150_flito_comparendos_ingesta.sql` a `operaciones_app`.
+
+UPDATE users
+   SET allowed_pages = array_append(COALESCE(allowed_pages, ARRAY[]::text[]), 'flito_comparendos')
+ WHERE role = 'admin'
+   -- Idempotente: a quien ya la tiene no lo selecciona, así que la segunda pasada es UPDATE 0.
+   AND NOT ('flito_comparendos' = ANY(COALESCE(allowed_pages, ARRAY[]::text[])));

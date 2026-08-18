@@ -59,6 +59,11 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_derechos', to: '/flito/derechos',               section: 'gestion',       label: 'Derechos de tránsito',     keywords: 'flito derecho tramite cuenta cobro organismo recibo valor radicado carga masiva zip consolidado pendientes' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
+  // Comparendos monitoreados (Feature #11495): SIN `roles`, a diferencia de SOAT e Impuestos. Ese
+  // campo restringe DENTRO de quienes ya tienen el slug, y aquí el slug no se lo da por defecto
+  // ningún rol (`ROLE_DEFAULT_PAGES` no se toca): repetir la regla en dos sitios solo crea dos
+  // sitios que pueden divergir.
+  { page: 'flito_comparendos', to: '/flito/comparendos',         section: 'gestion',       label: 'Comparendos',             keywords: 'comparendo simit multa infraccion placa nit transito monitoreo' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
   { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin'],        keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia' },
