@@ -88,13 +88,17 @@ const ITEM_GROUP: Record<string, string> = {
   '/flito/impuestos':   'SOAT e Impuestos',
   '/flito/logistica':   'Logística',
   '/flito/ruta':        'Logística',
+  // Comparendos es monitoreo de lo que reportan las fuentes, no un trámite que se despacha: su
+  // subgrupo propio evita que caiga en la columna sin título del final del panel. Un subgrupo de un
+  // solo ítem ya existe («Auditoría»), así que no es un patrón nuevo.
+  '/flito/comparendos': 'Comparendos',
   '/flito/bitacora':    'Auditoría',
 };
 
 /** Orden estable de los subgrupos por módulo (los no listados van al final). */
 const GROUP_ORDER: Record<string, string[]> = {
   pesv:    ['Dirección', 'Operación', 'Personas', 'Cumplimiento'],
-  gestion: ['Trámites', 'Logística', 'Maestros', 'SOAT e Impuestos', 'Auditoría'],
+  gestion: ['Trámites', 'Logística', 'Maestros', 'SOAT e Impuestos', 'Comparendos', 'Auditoría'],
 };
 
 export function groupOf(item: NavItem): string | null {

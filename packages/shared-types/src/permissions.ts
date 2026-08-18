@@ -96,6 +96,14 @@ export const PAGES = {
   flito_logistica: 'FLITO — Logística',
   // FLITO Logística — ruta del mensajero (PWA de campo, Fase 2): recogidas y entregas asignadas.
   flito_logistica_ruta: 'FLITO — Mi ruta (mensajero)',
+  // Monitoreo de comparendos (Feature #11495, 17b): el visor de lo que SIMIT y los municipios
+  // reportan de los NIT vigilados. Clave PROPIA y no una sub-vista de `flito_tramites`: quien opera
+  // comparendos no tiene por qué entrar al resto del sistema, y ese es justo el permiso que esta
+  // pantalla concede. NO se añade a `ROLE_DEFAULT_PAGES` en ninguna fila —`admin` la obtiene por
+  // tenerlas todas—; en particular NO se le da a `auditor`, que sí entra al resto de FLITO en
+  // lectura: el router de `/flito/comparendos` exige `admin` entero, así que darle la página sería
+  // regalarle una pantalla que responde 403 en cada petición.
+  flito_comparendos: 'FLITO — Comparendos',
   // Bolsas prepago del cliente (Feature #11120): saldo, movimientos, cierres y estado de cuenta de
   // los organismos. Es dinero, así que solo la ven Administración y Financiera — ni siquiera
   // auditoría, a diferencia del resto de vistas FLITO.
@@ -127,7 +135,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
