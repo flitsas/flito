@@ -1,9 +1,9 @@
 ---
 name: flit-code-review
 description: |
-  Revisión estructurada del diff ANTES de abrir el PR en el monorepo FLITO. Checklist AGENTS.md (routes/service, imports .js, 4 estados UI, permisos, tests con salida real, git limpio); escala a security-agent y db-review-agent. Veredicto OK / OK-CON-OBSERVACIONES / BLOQUEADO.
-  INVOCACIÓN OBLIGATORIA: el hilo principal DEBE cargar esta skill (herramienta Skill flit-code-review) en CADA HU/PR — también en modo auto y aunque el humano diga solo «crea el PR». security-agent NO sustituye esta skill.
-  PROHIBIDO: checklist improvisado en el chat del hilo, «gates cerrados» sin veredicto de esta skill, o saltarla «porque ya pasó security».
+  Revisión estructurada del diff ANTES de abrir el PR en el monorepo FLITO. Checklist AGENTS.md; escala a security-agent y db-review-agent. Veredicto canónico OK / OK-CON-OBSERVACIONES / BLOQUEADO.
+  INVOCACIÓN OBLIGATORIA antes de create_pull_request en CADA PR. Orden fijo: review → luego PR (nunca al revés). security-agent NO sustituye esta skill.
+  PROHIBIDO: imitar con tabla «mi revisión», «gates cerrados» sin bloque Veredicto, o revisar después de abrir el PR.
   Triggers — code review, revisa el diff, revisión antes del PR, pre-PR, create_pull_request, flit-code-review, flit-modo-desarrollo-auto paso 4b.
 ---
 
@@ -20,13 +20,19 @@ description: |
 | Paso 4b de `flit-modo-desarrollo-auto` (cada eslabón de la cadena) | **SÍ — en cada HU**, no solo en la primera |
 | Pedido «revisa el diff» / «code review» | **SÍ** |
 
-**Cómo contar:** herramienta `Skill` con `skill: flit-code-review` (o leer y **seguir** este `SKILL.md` de punta a punta en el turno) y emitir el bloque de **Veredicto** canónico abajo.
+**Cómo contar:** herramienta `Skill` con `skill: flit-code-review` **o** `Read` de este `SKILL.md`
+en el mismo turno, **seguir** el checklist de punta a punta, y emitir el bloque **Veredicto**
+canónico (con la línea `Veredicto: OK|…`). Sin ese bloque → no hubo code-review.
 
-**NO cuenta (anti-patrones graves):**
-- Tabla improvisada «Mi revisión» en el chat sin cargar la skill
+**Orden fijo (rompe si se invierte):** diff listo → **esta skill** (+ security/db si aplica) →
+veredicto OK / OK-CON-OBSERVACIONES → **entonces** `create_pull_request`. Review **después** del
+PR = fallo de proceso (aunque el veredicto sea OK).
+
+**NO cuenta — imitación (anti-patrones graves):**
+- Tabla improvisada «Mi revisión» / «gates cerrados» sin cargar esta skill ni el veredicto canónico
 - Haber corrido solo `security-agent` / `db-review-agent` y dar por cerrado el pre-PR
 - Reusar el veredicto de la HU anterior en la cadena apilada
-- Abrir el PR y «revisar después»
+- Abrir el PR y «revisar después» (aunque sea retrospectivo «documental», no desbloquea el PR ya abierto como si el gate se hubiera cumplido)
 
 **Relación con otros gates:** esta skill es el **checklist de proceso+código**. Escala a `security-agent` / `db-review-agent` cuando aplique; esos agentes **complementan**, no reemplazan.
 

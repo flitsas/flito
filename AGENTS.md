@@ -143,13 +143,16 @@ sustituir al especialista haciendo su trabajo «de paso» (salvo fix trivial de 
 archivo, o pedido explícito del humano de no usar subagentes). Cada subagente cierra con `HANDOFF`;
 el hilo principal es quien encadena.
 
-**Qué no cuenta como invocación:** checklist improvisado en el chat; comentario ADO de cortesía;
-`wit_*` / `curl` sueltos; «gates cerrados» en prosa; reutilizar el veredicto de otra HU de la cadena.
+**Qué cuenta como invocación (prueba mínima):**
+- **Skill:** herramienta `Skill` con el nombre exacto **o** `Read` de su `SKILL.md` en el mismo turno **y** ejecución de sus pasos/plantillas/veredicto canónico (no solo citar el nombre).
+- **Agent:** herramienta `Agent`/`Task` con `subagent_type` exacto **y** bloque `HANDOFF` en la salida del subagente.
+
+**Qué no cuenta (imitación — prohibida):** checklist improvisado en el chat; comentario ADO «usando @flit-…» / branded **sin** haber cargado la skill; `wit_*` / `curl` sueltos; «gates cerrados» en prosa; reutilizar el veredicto de otra HU; abrir PR y «revisar después»; tests del `backend-agent` presentados como certificación QA; plan del hilo que diga «el hilo hace de paso» un rol de la matriz.
 
 | Momento | Disparador (sí → invocar) | Ejecutor | Si se omite |
 |---|---|---|---|
 | Pedido informal sin Feature/HU | No hay WI en ADO | `flit-intake` | Trabajo sin trazabilidad |
-| Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden | `orchestrator-agent` | Fases saltadas |
+| Alcance multi-fase / «por dónde empiezo» | Varias fases o duda de orden | `orchestrator-agent` (plan con Skill/Agent reales + ledger) | Fases saltadas / orquestación improvisada |
 | Feature / descomponer HUs / DoR | Planear o refinar backlog | `tech-lead-agent` | HUs mal cortadas |
 | Antes de código no trivial | Módulo nuevo, modelo de datos nuevo, contrato nuevo, decisión técnica con tradeoffs | `architecture-agent` | Diseño implícito en el diff |
 | Antes de UI nueva significativa | Pantalla/wizard/bandeja nueva o HU FRONTEND sin spec de interacción | `ux-agent` | UI inventada en el agent de código |
@@ -159,11 +162,12 @@ el hilo principal es quien encadena.
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` | `db-review-agent` | Drift / FKs / índices |
 | Ciclo ADO Active→Resolved | Activar **o** cerrar **cada** HU (plantillas) | **Skill** `flit-gestion-hu` | Estados huérfanos / plantillas rotas |
-| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Entrega a QA — comentario HTML **no basta**; invocar aunque el entorno falle (`SIN-ENTORNO`) | `qa-agent` (A si faltan TCs; B siempre que aplique) | «Entregada a QA» sin certificación |
+| HU `Active` con AC Gherkin (ideal, en paralelo al dev) | Generar TCs temprano | `qa-agent` **modo A** | TCs improvisados al cierre |
+| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Certificación — comentario HTML **no basta**; invocar aunque el entorno falle (`SIN-ENTORNO`) | `qa-agent` **modo B** (A si aún faltan TCs) | «Entregada a QA» sin HANDOFF |
 | Al abrir PR / post-merge | PR↔ADO; Discussion **no** sustituye `Custom.Commits` | **Skill** `flit-integration-ado` A/B | Commits/Deploy vacíos |
 | Tras Modo B con `Deploy*=true` | Ambiente desplegado o **fin de ráfaga** (una M1 al tip; curl del hilo no cuenta) | `devops-agent` M1 | Deploy sin smoke formal |
 | Promoción staging/release | Pedido de promover | `flit-release` (+ qa D + devops post-merge) | Promoción sin gates |
-| Feature completo en cadena | «modo auto» / feature completo | `flit-modo-desarrollo-auto` (encadena la matriz **por HU** con Skill/Agent reales) | — |
+| Feature completo en cadena | «modo auto» / feature completo | **Skill** `flit-modo-desarrollo-auto` (encadena la matriz **por HU** con Skill/Agent reales) | Ciclo improvisado |
 
 #### Anti-patrones (prohibidos)
 
@@ -172,10 +176,14 @@ el hilo principal es quien encadena.
 | Codear la HU (o su migración) con `Edit`/`Write` del hilo | `backend-agent` / `frontend-agent` | Alta |
 | Tabla «mi review» en el chat | Skill `flit-code-review` | Alta |
 | Solo `security-agent` y abrir PR | Skill `flit-code-review` + security si aplica | Alta |
-| `wit_work_item_write` sin skill ni plantillas | Skill `flit-gestion-hu` | Media–Alta |
-| Evidencia solo en Discussion | Skill `flit-integration-ado` → `Custom.Commits` | Alta |
-| Comentario «listo para QA» y seguir | `qa-agent` | Alta |
+| Comentario ADO «usando @flit-gestion-hu» + `wit_*` sin cargar la Skill | Skill `flit-gestion-hu` | **Alta (imitación)** |
+| Comentario «PR registrado» / branded integration sin `Custom.Commits` vía Skill | Skill `flit-integration-ado` | **Alta (imitación)** |
+| Improvisar el ciclo del Feature sin `flit-modo-desarrollo-auto` | Skill `flit-modo-desarrollo-auto` | Alta |
+| Plan que diga «el hilo hace de paso» roles de la matriz | `orchestrator-agent` con invocaciones reales | Alta |
+| Comentario «listo para QA» y seguir / Vitest del backend como «QA» | `qa-agent` (HANDOFF real) | **Alta** |
 | `curl /health` del hilo como «M1» | `devops-agent` M1 | Alta |
+
+**Ledger por HU (recomendado en modo auto):** al cerrar cada eslabón, listar en el reporte del hilo: `gestion ✅|❌ · impl-agent ✅|❌ · code-review ✅|❌ · security/db ✅|N/A · integration-A ✅|❌ · qa HANDOFF ✅|SIN-ENTORNO|❌ · merge · integration-B ✅|❌ · M1 tip ✅|N/A`. Sin fila `qa` en ✅/SIN-ENTORNO → la HU **no** está «entregada a QA».
 
 **Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
 

@@ -2,8 +2,8 @@
 name: flit-gestion-hu
 description: |
   Ciclo Active → Resolved de una HU en Azure DevOps (FLIT - FLITO): activar Feature+HU, comentario de inicio, cierre Resolved y entrega a QA (HTML + mailto).
-  INVOCACIÓN OBLIGATORIA: el hilo principal DEBE cargar esta skill (Skill flit-gestion-hu) en CADA HU al activar y al resolver — también en modo auto. No basta con wit_work_item_write «a mano» sin seguir las plantillas/pasos.
-  Tras Resolved (paso 3): el hilo DEBE invocar qa-agent (matriz AGENTS.md); el comentario de entrega NO sustituye a qa-agent.
+  INVOCACIÓN OBLIGATORIA: cargar esta Skill en CADA HU (Active y Resolved). PROHIBIDO imitarla con comentario «usando @flit-gestion-hu» + wit_* sin cargar la skill.
+  Tras Resolved: el hilo DEBE lanzar Agent qa-agent; el HTML de entrega NO certifica ni sustituye al agente.
   Triggers — Active, Resolved, implementar HU, flit-gestion-hu, entrega QA, activar HU, cerrar HU, flit-modo-desarrollo-auto pasos 1 y 6.
 ---
 
@@ -19,14 +19,24 @@ description: |
 | Build/AC verdes y se va a cerrar técnicamente | **Paso 3 — Cierre** (`Resolved` + comentario entrega QA) |
 | Siguiente HU de la misma ráfaga | **Otra vez Paso 1** — no reutilizar solo el de la primera HU |
 
-**Cómo contar:** herramienta `Skill` con `skill: flit-gestion-hu` (args con el ID de la HU y si es inicio o cierre) y aplicar plantillas HTML de este documento.
+**Cómo contar:** herramienta `Skill` con `skill: flit-gestion-hu` (args: ID de HU + `inicio|cierre`)
+**o** `Read` de este `SKILL.md` en el mismo turno, y **entonces** aplicar las plantillas HTML.
 
-**NO cuenta (anti-patrones graves):**
-- `wit_work_item_write` / `wit_work_item_comment_write` sueltos sin cargar la skill ni las plantillas
-- Activar solo la primera HU del Feature y en las siguientes cambiar estado «de memoria»
-- Dar por cerrada la entrega a QA solo con el comentario HTML (falta el HANDOFF a `qa-agent`)
+**NO cuenta — imitación (anti-patrones graves):**
+- Comentario ADO «🤖 usando @flit-gestion-hu» + `wit_*` **sin** haber cargado esta skill en el turno
+- `wit_work_item_write` / `wit_work_item_comment_write` sueltos «de memoria»
+- Activar solo la primera HU del Feature y en las siguientes cambiar estado sin esta skill
+- Dar por cerrada la entrega a QA solo con el comentario HTML (falta el `Agent qa-agent`)
 
-**Encadenamiento obligatorio tras Paso 3:** el hilo principal invoca `qa-agent` (ver matriz). Esta skill **no** invoca subagentes; deja el HANDOFF explícito.
+**Orden obligatorio:** (1) cargar esta skill → (2) plantillas + PATCH estado → (3) tras Paso 3,
+el hilo lanza `qa-agent`. El HTML de entrega **notifica**; no certifica.
+
+**Encadenamiento obligatorio tras Paso 3:** el hilo principal invoca `qa-agent` (matriz `AGENTS.md`).
+Esta skill **no** invoca subagentes; el cierre del Paso 3 debe terminar con la línea de HANDOFF:
+
+```
+HANDOFF → hilo: lanzar qa-agent modo A+B|B sobre HU #<id> (AC Gherkin/UI/BACKEND según aplique)
+```
 
 ## Requisitos
 
@@ -76,6 +86,8 @@ description: |
    - HU BACKEND-only → al menos modo B sobre tests del módulo; declarar si se omite E2E.
    - Sin entorno → **igual invocar** el agente; HANDOFF `SIN-ENTORNO` + comentario «QA pendiente de entorno»; no inventar evidencia.
    - **Prohibido** dar por cerrada la HU en el reporte del Feature sin ese HANDOFF.
+   - **Prohibido** continuar el modo auto a la siguiente HU marcando «entregada a QA» si aún no
+     se lanzó el Agent (el comentario HTML solo no basta).
 
 ## Reglas
 

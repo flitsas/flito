@@ -2,8 +2,8 @@
 name: flit-integration-ado
 description: |
   Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama.
-  INVOCACIÓN OBLIGATORIA: Skill flit-integration-ado Modo A en CADA PR de HU al abrirlo; Modo B en CADA merge a develop/staging/release (o al tip de una ráfaga). Discussion NO sustituye Custom.Commits.
-  Tras Modo B con Deploy*=true el hilo DEBE invocar devops-agent M1 (una vez por tip en ráfagas).
+  INVOCACIÓN OBLIGATORIA: cargar esta Skill Modo A en CADA PR de HU; Modo B en CADA merge (o tip de ráfaga). Discussion / comentario branded NO sustituyen Custom.Commits (anti-imitación).
+  Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip).
   Triggers — PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, Modo A, Modo B, flit-integration-ado, flit-modo-desarrollo-auto pasos 5 y 2b.
 ---
 
@@ -23,13 +23,17 @@ description: |
 | PR de HU **MERGED** a `develop` / `staging` / `release` | **Modo B** | Añadir «Integrado» en `Custom.Commits` **sin borrar** lo previo + `Deploy*` según rama |
 | Ráfaga de merges | Modo B por PR (o consolidado al tip con evidencia de cada SHA) + **una** `devops-agent` M1 al tip | No omitir Commits «por presupuesto de tokens» |
 
-**Cómo contar:** herramienta `Skill` con `skill: flit-integration-ado` y args `Modo A|B` + IDs de PR/HU. Seguir plantillas HTML de este documento.
+**Cómo contar:** herramienta `Skill` con `skill: flit-integration-ado` y args `Modo A|B` + IDs de
+PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTML. El campo
+`Custom.Commits` actualizado con el HTML canónico es la prueba de Modo A/B; Discussion es auxiliar.
 
-**NO cuenta (anti-patrones graves):**
-- Solo un comentario en Discussion «PR registrado» / «integrado» **sin** actualizar `Custom.Commits`
+**NO cuenta — imitación (anti-patrones graves):**
+- Comentario Discussion branded («usando @flit-integration-ado») **sin** PATCH a `Custom.Commits`
+- Solo un comentario «PR registrado» / «integrado» **sin** actualizar `Custom.Commits`
 - Omitir Modo A/B «porque el campo ya pesa muchos KB» — si hay límite, **resumir** el HTML previo y concatenar; no abandonar el campo
-- PATCH ADO sueltos sin cargar esta skill ni las plantillas
+- PATCH ADO / `wit_*` sueltos sin cargar esta skill ni las plantillas
 - Dar por cerrado el post-merge sin invocar `devops-agent` M1 tras `Deploy*=true`
+- Modo B solo en Discussion cuando `Custom.Commits` quedó vacío (caso #11500 — no repetir)
 
 **Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
 
