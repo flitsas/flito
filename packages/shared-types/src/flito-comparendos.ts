@@ -244,12 +244,40 @@ export interface ComparendoRegistro {
   /** Gestión de 17b. En 17a siempre llegan como los dejó el alta, porque nadie los escribe todavía. */
   causalId: string | null;
   observacion: string | null;
+  /**
+   * Cuándo se gestionó por última vez (HU #11556), o `null` si nadie la ha gestionado — que es lo
+   * que devuelve TODO lo anterior a esta HU.
+   *
+   * No es `actualizadoEn`, y la diferencia importa: aquel lo reescribe el sync en cada corrida, así
+   * que una fila gestionada ayer por una persona y una que el sync tocó hace diez minutos tienen el
+   * mismo `actualizadoEn`. Este solo se mueve cuando alguien gestiona.
+   */
+  gestionActualizadaEn: string | null;
+  /**
+   * Quién la gestionó por última vez: el **id** del usuario, no su nombre.
+   *
+   * Igual que {@link ComparendosSyncRun.iniciadoPor}, y por lo mismo: resolver el id a un nombre es
+   * cosa de la pantalla, que ya tiene el directorio de usuarios cargado. Devolverlo aquí obligaría
+   * a un `JOIN` en cada página del listado para un dato que en la mayoría de las filas es `null`.
+   */
+  gestionActualizadaPor: number | null;
   creadoEn: string;
   actualizadoEn: string;
 }
 
-/** Qué le pasó al registro. Los tres los escribe el sync; ninguno se crea a mano (CF-11). */
-export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reaparicion';
+/**
+ * Qué le pasó al registro.
+ *
+ * Los tres primeros los escribe el SYNC y ninguno se crea a mano (CF-11): son lo que las fuentes
+ * dijeron del comparendo. `gestion` (HU #11556) es el primero que escribe una PERSONA —cuando
+ * cambia la causal o la observación desde el visor— y por eso es también el único cuyo `syncRunId`
+ * es `null` por construcción y no por antigüedad de la fila.
+ *
+ * El orden de esta unión es el de `pg_enum` en la base (migración 0154), y el valor nuevo va al
+ * final: el orden de un enum de PostgreSQL es su orden de comparación, y reordenarlo es un cambio
+ * de datos disfrazado de cambio de tipo.
+ */
+export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reaparicion' | 'gestion';
 
 /**
  * Una entrada del timeline (CF-11).
