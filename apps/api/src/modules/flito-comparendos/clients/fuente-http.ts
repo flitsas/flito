@@ -33,37 +33,87 @@ export interface ContextoFuente {
  * Lo segundo permitiría que un test cambiara el valor y el adapter siguiera con la foto vieja, pero
  * sobre todo: este número es el que hace viable el sync síncrono. La matriz NIT × municipios va
  * contra un nginx que corta a los ~120 s (ADR-0001 §7), así que los 15 s por defecto de
- * `httpsGetJson` —y no digamos los 90 s de `httpsJson`— no son un valor conservador, son el valor
- * que hace que la corrida entera muera antes de terminar.
+ * `httpsGetJson` no son un valor conservador: son el valor que hace que la corrida entera muera
+ * antes de terminar.
  */
 export function limiteDeTiempoMs(): number {
   return env.COMPARENDOS_HTTP_TIMEOUT_MS;
 }
 
 /**
- * Base URL del proveedor, exigida y normalizada (sin barras finales).
+ * Base URL del proveedor: exigida, VALIDADA y normalizada (sin barras finales).
  *
- * Se comprueba antes de construir la URL para que la ausencia salga como
- * `fuente_no_configurada` (503, dice qué variable falta) y no como una petición a
+ * Se comprueba antes de construir la URL para que un valor ausente o inservible salga como
+ * `fuente_no_configurada` (503, dice qué variable revisar) y no como una petición a
  * `undefined/v2/...` que acabaría de error de DNS. Nunca hay host por defecto en el código: los
  * hosts son decisión de despliegue cerrada del Feature.
+ *
+ * Las tres comprobaciones no son celo de validación; cada una cierra un fallo concreto:
+ *
+ *   1. **Parsea o no sirve.** Un valor que `new URL` no acepta reventaría más adelante como
+ *      `TypeError` crudo dentro del `try` del adapter y saldría convertido en `fuente_red`, que es
+ *      exactamente el diagnóstico equivocado: no falló la red, falló la provisión.
+ *   2. **`https:` o nada.** El transporte compartido (`integraciones/http.ts`) habla `https`
+ *      incondicionalmente, así que una base `http://` NO significa «va en texto plano»: significa
+ *      que la petición sale igual contra el 443 de ese host. Si el host resulta tener el 443
+ *      abierto con certificado válido, el NIT se remite a un endpoint que nadie revisó; si no lo
+ *      tiene, el operador recibe un error opaco de TLS o de DNS. Rechazarlo aquí convierte una
+ *      limitación documentada en un fallo explícito y accionable. **Esto no es un rodeo para
+ *      soportar `http://`**: mientras el LT no cierre con el proveedor si expone HTTPS, la fuente
+ *      municipal solo es ejercitable en `mock`.
+ *   3. **Sin `search` ni `hash`.** Los adapters concatenan `${base}${RUTA}?${params}`; una base con
+ *      `?` o `#` pegado produciría una URL con la query partida en dos y parámetros del despliegue
+ *      mezclados con los nuestros. Es el único punto donde la base se interpola, y así deja de
+ *      poder inyectar nada en la query que lleva el NIT.
+ *
+ * Los mensajes describen la FORMA del valor (esquema, «trae query»), nunca el valor: viajan al
+ * cuerpo de la respuesta y a `flito_comparendos_sync_steps.mensaje`, que se conserva.
+ *
+ * En `mock` no se llega aquí: los dos adapters cortocircuitan antes, de modo que un entorno local
+ * sin variables provisionadas sigue ejerciendo el módulo entero.
  */
 export function baseUrlExigida(
   valor: string | undefined, variable: string, ctx: ContextoFuente,
 ): string {
   const base = valor?.trim();
   if (!base) throw new ComparendosFuenteNoConfiguradaError(ctx.origen, ctx.fuente, variable);
+
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    throw new ComparendosFuenteNoConfiguradaError(
+      ctx.origen, ctx.fuente, variable, 'la base no es una URL absoluta',
+    );
+  }
+
+  if (url.protocol !== 'https:') {
+    throw new ComparendosFuenteNoConfiguradaError(
+      ctx.origen, ctx.fuente, variable,
+      `la base usa el esquema ${url.protocol.replace(':', '')} y el transporte del monorepo solo `
+      + 'habla https',
+    );
+  }
+  if (url.search || url.hash) {
+    throw new ComparendosFuenteNoConfiguradaError(
+      ctx.origen, ctx.fuente, variable,
+      'la base debe ser solo el origen (y una ruta, si el proveedor está tras un prefijo): no '
+      + 'puede traer query string ni fragmento',
+    );
+  }
+
   return base.replace(/\/+$/, '');
 }
 
 /**
  * Corre la petición con un techo de tiempo propio.
  *
- * `httpsGetJson` acepta su propio `timeoutMs` y aborta el socket de verdad; `httpsJson` no —tiene
- * 90 s fijos dentro— y por eso el POST de Verifik necesita esta carrera. Se prefiere esto a añadir
- * un parámetro a `integraciones/http.ts`, que es un helper compartido con traspaso, RUNT y
- * Fasecolda: la deuda que queda (un socket que puede seguir abierto hasta que el helper lo cierre)
- * es acotada y no compromete el presupuesto de tiempo del sync, que es lo que este techo protege.
+ * El `timeoutMs` de `httpsGetJson` aborta el socket de verdad, pero es un techo de INACTIVIDAD: un
+ * proveedor que gotee un byte por debajo de ese plazo mantiene la petición viva indefinidamente.
+ * Esta carrera pone encima el plazo ABSOLUTO, y la necesitan las dos fuentes (las dos son GET).
+ * Se prefiere esto a añadir un parámetro a `integraciones/http.ts`, que es un helper compartido con
+ * traspaso, RUNT y Fasecolda: la deuda que queda (un socket que puede seguir abierto hasta que el
+ * helper lo cierre) es acotada y no compromete el presupuesto de tiempo del sync.
  *
  * El temporizador se limpia siempre en el `finally`; si aun así quedara vivo, el `unref` evita que
  * sea él quien mantenga el proceso despierto.
@@ -197,6 +247,19 @@ function describirForma(cuerpo: unknown): string {
  * respuesta ilegible—. Lo demás es la capa de red, y de ahí solo se conserva el `code` de Node:
  * el mensaje original es texto de librería, y de un texto de librería no se puede prometer que no
  * arrastre la URL o el cuerpo de la petición.
+ *
+ * **AVISO — esta función es el único punto que impide que una URL con el NIT dentro salga por
+ * la puerta del error.** Las consultas a las dos fuentes son GET con el documento en la query
+ * (contrato de los proveedores, ver `verifik-simit.client.ts`), y un `Error` de red trae la URL
+ * completa en su `message` (`connect ECONNREFUSED https://…?documentNumber=900123456`). Ese
+ * mensaje se descarta **a propósito** y se sustituye por el `code`; el error resultante se loguea,
+ * se devuelve por el API y se persiste en `flito_comparendos_sync_steps.mensaje`.
+ *
+ * Quien edite esto: no propagues `e.message`, ni lo anexes «para depurar», ni pases el error
+ * original como `cause` (pino serializa `cause`). Si hace falta más diagnóstico, añade campos
+ * cerrados —`code`, `syscall`—, nunca texto libre de la librería. Lo fija el test «la URL con el
+ * NIT dentro no acaba en ningún log, ni en el camino feliz ni en el de error»
+ * (`__tests__/services/flito-comparendos-clients.test.ts`).
  */
 export function comoErrorDeFuente(e: unknown, ctx: ContextoFuente): ComparendosFuenteError {
   if (e instanceof ComparendosFuenteError) return e;

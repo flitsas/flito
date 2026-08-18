@@ -8,8 +8,11 @@
 //      producen.
 //   2. `mock` no toca la red y no exige ni base URL ni token (AC1/AC2). `setup.ts` no define las
 //      dos variables de host a propósito: si el modo simulado las necesitara, estos tests fallarían.
-//   3. En `real`, la petición sale bien formada —método, URL, cabeceras, cuerpo— y con el techo de
-//      tiempo del módulo, no con el de la librería (ADR-0001 §7).
+//   3. En `real`, la petición sale bien formada —método, URL, parámetros y cabeceras— y con el
+//      techo de tiempo del módulo, no con el de la librería (ADR-0001 §7). Las DOS fuentes son GET:
+//      Verifik recibe `documentType`/`documentNumber` como parámetros de BÚSQUEDA (contrato del
+//      proveedor, corregido el 2026-08-18) y el UTS recibe `fuente`/`nit` en su ruta completa
+//      `/infraction/api/Infraccion/ConsultarInfraccionFuente`.
 //   4. Timeout, HTTP no-OK, red caída y cuerpo ilegible salen como errores TIPADOS con `codigo` y
 //      `httpStatus`, que son las dos columnas que el `sync_run_step` de la HU #11500 va a escribir.
 //
@@ -163,16 +166,20 @@ describe('modo mock: no hay red, no hay credenciales', () => {
 describe('Verifik en modo real: la petición que sale', () => {
   beforeEach(() => {
     modoReal();
-    httpsJsonMock.mockResolvedValue({ status: 200, data: { data: [{ numeroComparendo: 'A-1' }] } });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [{ numeroComparendo: 'A-1' }] } });
   });
 
-  it('POST a /v2/co/simit/consultar con documentType=NIT y documentNumber en el cuerpo', async () => {
+  it('GET a /v2/co/simit/consultar con documentType y documentNumber como parámetros', async () => {
     const r = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
-    const [metodo, url, cuerpo] = httpsJsonMock.mock.calls[0];
-    expect(metodo).toBe('POST');
-    expect(url).toBe('https://verifik.test/v2/co/simit/consultar');
-    expect(cuerpo).toEqual({ documentType: 'NIT', documentNumber: NIT });
+    // GET y con los dos valores en la QUERY: es el contrato de Verifik. La versión anterior de
+    // este módulo mandaba un POST con los dos en el cuerpo, que el proveedor no lee.
+    const url = new URL(String(httpsGetJsonMock.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe('https://verifik.test/v2/co/simit/consultar');
+    expect(url.searchParams.get('documentType')).toBe('NIT');
+    expect(url.searchParams.get('documentNumber')).toBe(NIT);
+    // Y nada de cuerpo: `httpsGetJson` no lo admite, así que no hay dónde esconderlo.
+    expect(httpsJsonMock).not.toHaveBeenCalled();
     expect(r.httpStatus).toBe(200);
     expect(r.modo).toBe('real');
     expect(r.items).toEqual([{ numeroComparendo: 'A-1' }]);
@@ -181,7 +188,7 @@ describe('Verifik en modo real: la petición que sale', () => {
   it('manda el Bearer con el token inyectado', async () => {
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
-    const cabeceras = httpsJsonMock.mock.calls[0][3] as Record<string, string>;
+    const cabeceras = httpsGetJsonMock.mock.calls[0][1] as Record<string, string>;
     expect(cabeceras.Authorization).toBe(`Bearer ${TOKEN}`);
     // Y el token inyectado se usa tal cual: no se vuelve a pedir a la base una vez por NIT.
     expect(obtenerTokenSimitMock).not.toHaveBeenCalled();
@@ -191,8 +198,23 @@ describe('Verifik en modo real: la petición que sale', () => {
     await consultarComparendosSimit(NIT);
 
     expect(obtenerTokenSimitMock).toHaveBeenCalledTimes(1);
-    const cabeceras = httpsJsonMock.mock.calls[0][3] as Record<string, string>;
+    const cabeceras = httpsGetJsonMock.mock.calls[0][1] as Record<string, string>;
     expect(cabeceras.Authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it('pide que no se cachee: la clave de caché de esta petición lleva el NIT dentro', async () => {
+    await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+
+    const cabeceras = httpsGetJsonMock.mock.calls[0][1] as Record<string, string>;
+    expect(cabeceras['Cache-Control']).toBe('no-store');
+  });
+
+  it('usa el timeout del módulo y no el de la librería', async () => {
+    await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+
+    const [, , timeoutMs] = httpsGetJsonMock.mock.calls[0];
+    expect(timeoutMs).toBe(entorno.COMPARENDOS_HTTP_TIMEOUT_MS);
+    expect(timeoutMs).toBe(8000);
   });
 
   it('la barra final de la base URL no duplica la barra de la ruta', async () => {
@@ -200,7 +222,8 @@ describe('Verifik en modo real: la petición que sale', () => {
 
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
-    expect(httpsJsonMock.mock.calls[0][1]).toBe('https://verifik.test/v2/co/simit/consultar');
+    const url = new URL(String(httpsGetJsonMock.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe('https://verifik.test/v2/co/simit/consultar');
   });
 
   it('respeta el prefijo de ruta de la base URL (hay ambientes detrás de un gateway)', async () => {
@@ -208,13 +231,20 @@ describe('Verifik en modo real: la petición que sale', () => {
 
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
-    expect(httpsJsonMock.mock.calls[0][1]).toBe('https://gateway.test/verifik/v2/co/simit/consultar');
+    const url = new URL(String(httpsGetJsonMock.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe('https://gateway.test/verifik/v2/co/simit/consultar');
   });
 
-  it('el NIT no viaja en la query string: no se siembra en los logs de acceso de los proxys', async () => {
-    await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+  it('el NIT sale codificado como parámetro y no interpolado a mano', async () => {
+    // El NIT en la URL es una imposición del contrato de Verifik, en una llamada saliente (lo que
+    // aplica ahí es la Ley 1581, no AGENTS.md §14, que regula nuestras superficies). Lo que sí
+    // controlamos es que salga por `URLSearchParams`: un valor con `&` o `?` dentro no puede
+    // convertirse en otro parámetro de la petición.
+    await consultarComparendosSimit('900123456&documentType=CC', { token: new Redacted(TOKEN) });
 
-    expect(String(httpsJsonMock.mock.calls[0][1])).not.toContain(NIT);
+    const url = new URL(String(httpsGetJsonMock.mock.calls[0][0]));
+    expect(url.searchParams.getAll('documentType')).toEqual(['NIT']);
+    expect(url.searchParams.get('documentNumber')).toBe('900123456&documentType=CC');
   });
 });
 
@@ -226,14 +256,20 @@ describe('UTS municipal en modo real: la query que sale', () => {
     httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [{ numero: 'M-1' }] } });
   });
 
-  it('GET a ConsultarInfraccion con fuente y nit', async () => {
+  it('GET a la ruta COMPLETA del contrato UTS, con fuente y nit', async () => {
     const r = await consultarComparendosMunicipales(NIT, 'BELLO');
 
+    // Ruta completa `/infraction/api/Infraccion/ConsultarInfraccionFuente` (corrección del
+    // 2026-08-18): con la ruta corta `/ConsultarInfraccion` el proveedor devuelve 404.
     const [url] = httpsGetJsonMock.mock.calls[0];
-    expect(url).toBe(`https://uts.test/ConsultarInfraccion?fuente=BELLO&nit=${NIT}`);
+    expect(url).toBe(
+      `https://uts.test/infraction/api/Infraccion/ConsultarInfraccionFuente?fuente=BELLO&nit=${NIT}`,
+    );
     expect(r.items).toEqual([{ numero: 'M-1' }]);
     expect(r.fuente).toBe('BELLO');
-    // Ni una llamada al SIMIT de traspaso: son otro dominio (ADR-0001 §4).
+    // Una sola petición y a este host: el UTS no se mezcla con Verifik ni con el SIMIT de
+    // traspaso, que son otro dominio (ADR-0001 §4).
+    expect(httpsGetJsonMock).toHaveBeenCalledTimes(1);
     expect(httpsJsonMock).not.toHaveBeenCalled();
   });
 
@@ -278,6 +314,17 @@ describe('UTS municipal en modo real: la query que sale', () => {
     expect(JSON.stringify(cabeceras)).not.toContain(TOKEN);
     expect(obtenerTokenSimitMock).not.toHaveBeenCalled();
   });
+
+  it('pide que no se cachee, y aquí es la ÚNICA protección: esta llamada no va autenticada', async () => {
+    // La RFC 9111 ya restringe el caché compartido de respuestas a peticiones con `Authorization`.
+    // El UTS no lleva ninguna, así que sin este encabezado nada le impide a un proxy intermedio
+    // guardar una respuesta cuya clave de caché es una URL con el NIT dentro.
+    await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    const cabeceras = httpsGetJsonMock.mock.calls[0][1] as Record<string, string>;
+    expect(cabeceras['Cache-Control']).toBe('no-store');
+    expect(cabeceras.Authorization).toBeUndefined();
+  });
 });
 
 // ─────────────────────────────── AC3 · Errores de transporte ────────────────────────────────────
@@ -286,7 +333,7 @@ describe('errores tipados de las fuentes', () => {
   beforeEach(() => modoReal());
 
   it('HTTP no-OK de Verifik → fuente_http con el status del proveedor', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 401, data: { error: 'unauthorized' } });
+    httpsGetJsonMock.mockResolvedValue({ status: 401, data: { error: 'unauthorized' } });
 
     await expect(consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) })).rejects.toMatchObject({
       codigo: 'fuente_http',
@@ -298,7 +345,7 @@ describe('errores tipados de las fuentes', () => {
   });
 
   it('el 401 sugiere revisar el token, sin enseñarlo', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 401, data: {} });
+    httpsGetJsonMock.mockResolvedValue({ status: 401, data: {} });
 
     const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
 
@@ -326,11 +373,11 @@ describe('errores tipados de las fuentes', () => {
     expect(fallo.message).toContain('8000 ms');
   });
 
-  it('Verifik colgado → el techo de tiempo del módulo corta igual, aunque el helper no lo soporte', async () => {
-    // `httpsJson` tiene 90 s fijos dentro y no acepta timeout: por eso el adapter corre su propia
-    // carrera. Sin ella, una corrida del sync moriría en el nginx antes que en el cliente.
+  it('Verifik colgado → el techo ABSOLUTO del módulo corta, no solo el de inactividad del socket', async () => {
+    // El `timeoutMs` de `httpsGetJson` es de INACTIVIDAD: un proveedor que gotee no lo dispara
+    // nunca. Sin la carrera, una corrida del sync moriría en el nginx antes que en el cliente.
     entorno.COMPARENDOS_HTTP_TIMEOUT_MS = 25;
-    httpsJsonMock.mockImplementation(() => new Promise(() => { /* nunca resuelve */ }));
+    httpsGetJsonMock.mockImplementation(() => new Promise(() => { /* nunca resuelve */ }));
 
     const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
 
@@ -344,7 +391,7 @@ describe('errores tipados de las fuentes', () => {
     const roto = Object.assign(new Error(`connect ECONNREFUSED 10.0.0.1:443 Authorization: Bearer ${TOKEN}`), {
       code: 'ECONNREFUSED',
     });
-    httpsJsonMock.mockRejectedValue(roto);
+    httpsGetJsonMock.mockRejectedValue(roto);
 
     const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
 
@@ -355,7 +402,7 @@ describe('errores tipados de las fuentes', () => {
   });
 
   it('2xx con un cuerpo sin lista reconocible → error, NUNCA lista vacía', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 200, data: { mensaje: 'sin resultados', meta: {} } });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { mensaje: 'sin resultados', meta: {} } });
 
     const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
 
@@ -367,7 +414,7 @@ describe('errores tipados de las fuentes', () => {
   });
 
   it('una lista vacía de verdad sí pasa: el proveedor contestó lo que se le preguntó', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 200, data: { data: [] } });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [] } });
 
     const r = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
@@ -443,6 +490,65 @@ describe('errores tipados de las fuentes', () => {
     expect(httpsJsonMock).not.toHaveBeenCalled();
     expect(httpsGetJsonMock).not.toHaveBeenCalled();
   });
+
+  it('una base `http://` se RECHAZA: no sale la petición contra el 443 de ese host', async () => {
+    // El caso del UTS municipal, que hoy solo publica texto plano. `integraciones/http.ts` habla
+    // `https` incondicionalmente, así que sin esta comprobación una base `http://` no significaba
+    // «va sin cifrar»: la petición salía igual contra el 443 —con el NIT en la query, contra un
+    // endpoint que nadie revisó— o moría con un error opaco de TLS/DNS. Ahora es un fallo de
+    // provisión, explícito y con el nombre de la variable dentro.
+    modoReal('http://verifik.test', 'http://ec2-cualquiera.compute-1.amazonaws.com');
+
+    const simit = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
+    const uts = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(simit).toMatchObject({ codigo: 'fuente_no_configurada', status: 503, httpStatus: null });
+    expect(uts).toMatchObject({ codigo: 'fuente_no_configurada', status: 503, httpStatus: null });
+    expect(uts.message).toContain('UTS_MUNICIPAL_BASE_URL');
+    expect(uts.message).toContain('http');
+    expect(httpsGetJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('una base con query o fragmento se rechaza: es el único punto interpolado de la URL', async () => {
+    // Los adapters concatenan `${base}${RUTA}?${params}`. Una base con `?` pegado partiría la query
+    // en dos y mezclaría parámetros del despliegue con el `documentNumber` que ponemos nosotros.
+    modoReal('https://verifik.test/?apiKey=x', 'https://uts.test/#frag');
+
+    const simit = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
+    const uts = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(simit).toMatchObject({ codigo: 'fuente_no_configurada', status: 503 });
+    expect(uts).toMatchObject({ codigo: 'fuente_no_configurada', status: 503 });
+    expect(httpsGetJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('una base que no parsea da error de CONFIGURACIÓN, no un TypeError disfrazado de red', async () => {
+    // Sin el try/catch alrededor de `new URL`, esto reventaría dentro del `try` del adapter y
+    // saldría como `fuente_red`: el diagnóstico exactamente equivocado (no falló la red, falló la
+    // provisión) y encima con el mensaje crudo de la librería.
+    modoReal('verifik.test/v2', 'uts.test');
+
+    const simit = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
+    const uts = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(simit).toMatchObject({ codigo: 'fuente_no_configurada', status: 503 });
+    expect(simit.name).toBe('ComparendosFuenteNoConfiguradaError');
+    expect(uts).toMatchObject({ codigo: 'fuente_no_configurada', status: 503 });
+    expect(httpsGetJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('en mock una base `http://` no molesta: el entorno local no se rompe', async () => {
+    // La validación vive DESPUÉS del cortocircuito de mock, a propósito: un clon recién hecho —o
+    // con el host de texto plano que dio el proveedor puesto en el .env— sigue ejerciendo el
+    // módulo entero sin tocar la red.
+    entorno.COMPARENDOS_SIMIT_MODE = 'mock';
+    entorno.VERIFIK_SIMIT_BASE_URL = 'http://verifik.test';
+    entorno.UTS_MUNICIPAL_BASE_URL = 'http://ec2-cualquiera.compute-1.amazonaws.com';
+
+    await expect(consultarComparendosSimit(NIT)).resolves.toMatchObject({ modo: 'mock' });
+    await expect(consultarComparendosMunicipales(NIT, 'BELLO')).resolves.toMatchObject({ modo: 'mock' });
+    expect(httpsGetJsonMock).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────── El token no se filtra ──────────────────────────────────────────
@@ -451,7 +557,7 @@ describe('el token no aparece en ningún log ni mensaje', () => {
   beforeEach(() => modoReal());
 
   it('camino feliz: se registran códigos y conteos, no la petición', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 200, data: { data: [{ numeroComparendo: 'A-1' }] } });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [{ numeroComparendo: 'A-1' }] } });
 
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
@@ -461,7 +567,7 @@ describe('el token no aparece en ningún log ni mensaje', () => {
   });
 
   it('camino de error: tampoco al fallar, que es cuando se suele volcar todo', async () => {
-    httpsJsonMock.mockRejectedValue(Object.assign(new Error(`boom Bearer ${TOKEN}`), { code: 'ECONNRESET' }));
+    httpsGetJsonMock.mockRejectedValue(Object.assign(new Error(`boom Bearer ${TOKEN}`), { code: 'ECONNRESET' }));
 
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch(() => undefined);
 
@@ -472,13 +578,45 @@ describe('el token no aparece en ningún log ni mensaje', () => {
   });
 
   it('el NIT se registra enmascarado (Ley 1581), nunca en claro', async () => {
-    httpsJsonMock.mockResolvedValue({ status: 200, data: { data: [] } });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [] } });
 
     await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
     expect(logueado()).not.toContain(NIT);
     // `maskDocument`: primeros 2 y últimos 3 caracteres, el resto tapado.
     expect(logueado()).toContain('90****456');
+  });
+
+  it('la URL con el NIT dentro no acaba en ningún log, ni en el camino feliz ni en el de error', async () => {
+    // El contrato de Verifik obliga a poner el NIT en la query de una llamada SALIENTE (AGENTS.md
+    // §14 gobierna nuestras superficies, no las de un tercero; lo que aplica ahí es la Ley 1581).
+    // Lo que NO se puede admitir es que además lo escribamos nosotros en nuestros propios logs: ni
+    // la URL entera, ni el nombre del parámetro con su valor al lado.
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [] } });
+    await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+
+    httpsGetJsonMock.mockRejectedValue(
+      // El peor caso realista: la librería vuelca la URL —NIT incluido— en el mensaje del error.
+      Object.assign(new Error(`connect ECONNREFUSED https://verifik.test/v2/co/simit/consultar?documentNumber=${NIT}`),
+        { code: 'ECONNREFUSED' }),
+    );
+    const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
+
+    expect(logueado()).not.toContain(NIT);
+    expect(logueado()).not.toContain('documentNumber');
+    expect(logueado()).not.toContain('/v2/co/simit/consultar');
+    // Y tampoco en el mensaje del error, que se PERSISTE en `sync_steps.mensaje` (RN-20).
+    expect(fallo.message).not.toContain(NIT);
+    expect(fallo.message).not.toContain('documentNumber');
+  });
+
+  it('la URL del UTS con el NIT tampoco se registra', async () => {
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [] } });
+
+    await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    expect(logueado()).not.toContain(NIT);
+    expect(logueado()).not.toContain('ConsultarInfraccionFuente');
   });
 
   it('el token envuelto se redacta solo si alguien lo serializa por descuido', async () => {

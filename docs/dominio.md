@@ -51,7 +51,7 @@ Para Siigo (detalle técnico): [`docs/integraciones/siigo-api.md`](integraciones
 |---|---|---|
 | **Monitoreo de comparendos** | “SIMIT operativo”, multas multi-empresa, panel de comparendos | Módulo `flito-comparendos` (`/api/flito/comparendos`): ingesta SIMIT Verifik + municipales UTS, catálogos y sync bajo demanda. **No** es el gate SIMIT de traspaso, ni el pre-vuelo, ni el incidente PESV `comparendo`. |
 | **NIT monitoreado** | empresa, cliente a consultar | NIT parametrizado que alimenta SIMIT (`documentNumber`) y UTS (`nit`). Puede coincidir con una compañía `clients`, pero el catálogo es propio del módulo. |
-| **Municipio fuente** | secretaría, ciudad UTS | Código enviado como `fuente` a ConsultarInfraccion; lista parametrizable (seed: BELLO, ITAGUI, …). |
+| **Municipio fuente** | secretaría, ciudad UTS | Código enviado como `fuente` a `ConsultarInfraccionFuente` (UTS); lista parametrizable (seed: BELLO, ITAGUI, …). |
 | **Número de comparendo** | comparendo, multa, consecutivo | Clave de unicidad del registro consolidado. La **placa** es dato/filtro, no unicidad. |
 | **Registro consolidado** | comparendo, fila del panel | Una deuda vista por una o dos fuentes y fundida en una fila (SIMIT manda, el municipio rellena huecos). Sus campos de fuente son de **solo lectura**: los escribe el sync y no hay endpoint que los edite. |
 | **Sync de comparendos** | actualización, barrido | Disparo manual (endpoint/botón); sin cron en 17a. Global o por NIT(s). |

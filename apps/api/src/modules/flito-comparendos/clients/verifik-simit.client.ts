@@ -22,7 +22,7 @@
 //   3. Ningún error de este archivo lleva el token en el mensaje: los mensajes los construyen las
 //      clases de `flito-comparendos.errors.ts`.
 
-import { httpsJson } from '../../integraciones/http.js';
+import { httpsGetJson } from '../../integraciones/http.js';
 import { env } from '../../../config/env.js';
 import { loggerFor } from '../../../shared/logger.js';
 import { maskDocument } from '../../../shared/utils/pii.js';
@@ -34,6 +34,7 @@ import {
   conLimiteDeTiempo,
   exigirHttpOk,
   extraerLista,
+  limiteDeTiempoMs,
   type ContextoFuente,
 } from './fuente-http.js';
 import {
@@ -46,7 +47,12 @@ const log = loggerFor('flito-comparendos');
 
 const CTX: ContextoFuente = { origen: 'simit', fuente: FUENTE_SIMIT };
 
-/** Ruta del endpoint de consulta. Constante del contrato del proveedor; el host va por entorno. */
+/**
+ * Ruta del endpoint de consulta. Constante del contrato del proveedor; el host va por entorno.
+ *
+ * El verbo es **GET**: así lo publica Verifik. No es una elección de este módulo (ver el porqué del
+ * NIT en la query más abajo, en `consultarComparendosSimit`).
+ */
 const RUTA_CONSULTA = '/v2/co/simit/consultar';
 
 /** Verifik discrimina el tipo de documento; este módulo monitorea empresas, siempre por NIT. */
@@ -86,20 +92,51 @@ export async function consultarComparendosSimit(
 
   const base = baseUrlExigida(env.VERIFIK_SIMIT_BASE_URL, 'VERIFIK_SIMIT_BASE_URL', CTX);
   const token = opciones.token ?? await obtenerTokenSimit();
-  const url = `${base}${RUTA_CONSULTA}`;
 
-  // El NIT viaja en el CUERPO y no en la query. Es un POST, así que el cuerpo es su sitio natural,
-  // pero sobre todo: una query string se queda escrita en el log de acceso de cada proxy por el
-  // que pasa, y el NIT monitoreado es dato de empresa que no tiene por qué sembrarse ahí. Efecto
-  // secundario útil: en esta URL no se interpola ni un solo valor de usuario.
-  const cuerpo = { documentType: TIPO_DOCUMENTO, documentNumber: nit };
+  // `documentType` y `documentNumber` son PARÁMETROS DE BÚSQUEDA, no cuerpo: el contrato de
+  // Verifik para esta consulta es GET, y en un GET el cuerpo no está definido —el proveedor
+  // sencillamente no lo lee—. Es el contrato de un tercero, no una decisión nuestra.
+  //
+  // La consecuencia hay que decirla en voz alta: el NIT monitoreado —dato de empresa— viaja escrito
+  // en una URL y queda, por tanto, en el log de acceso de cualquier proxy del proveedor.
+  //
+  // Qué regla aplica y cuál no, porque importa: **AGENTS.md §14 gobierna NUESTRAS superficies** —las
+  // URLs de páginas de `apps/web`, nuestros access logs y los filtros de nuestra API autenticada—, y
+  // ahí su default de diseño (PII en el cuerpo de un `POST …/buscar`, no en la query) se sigue
+  // cumpliendo entero: el API de comparendos busca por NIT en body. Esto de aquí es una llamada
+  // SALIENTE a un tercero, que §14 no regula; sus mitigaciones (`auth`, `requireRole`,
+  // `logPiiAccess`) son de una lectura nuestra y no tienen dónde aplicarse en un GET a Verifik.
+  //
+  // Lo que sí aplica es la **Ley 1581**: remitir el NIT monitoreado a Verifik —y al UTS— es una
+  // transferencia de datos a un tercero, y ESA es la razón por la que esto merece un comentario.
+  // Queda registrada como consecuencia asumida del contrato del proveedor (Feature 17a, «Decisiones
+  // cerradas» §7); si algún día Verifik publica un POST equivalente, se mueve.
+  //
+  // Bajo nuestro control queda el resto, y se cumple: esta URL no se registra en ninguna línea de
+  // log de este módulo, el NIT solo sale por `maskDocument`, y `comoErrorDeFuente` descarta el
+  // mensaje original de la capa de red precisamente para que una URL con el NIT dentro no se cuele
+  // por la puerta del error.
+  //
+  // `URLSearchParams` y no interpolación, igual que en el adapter municipal: el NIT llega
+  // normalizado del catálogo, pero codificar aquí protege también lo que entre por un seed, una
+  // migración o un script.
+  const parametros = new URLSearchParams({ documentType: TIPO_DOCUMENTO, documentNumber: nit });
+  const url = `${base}${RUTA_CONSULTA}?${parametros.toString()}`;
 
   try {
-    const respuesta = await conLimiteDeTiempo(() => httpsJson('POST', url, cuerpo, {
+    // Las DOS cosas, como en el municipal: el `timeoutMs` de `httpsGetJson` aborta el socket, pero
+    // es un timeout de INACTIVIDAD; la carrera pone encima el plazo ABSOLUTO que protege el
+    // presupuesto de tiempo del sync (ADR-0001 §7) frente al techo de ~120 s del nginx.
+    const respuesta = await conLimiteDeTiempo(() => httpsGetJson(url, {
       // Aquí y solo aquí se desenvuelve. El objeto muere con la llamada y no se registra nunca.
       Authorization: `Bearer ${token.unwrap()}`,
       Accept: 'application/json',
-    }), CTX);
+      // La clave de caché de esta petición ES la URL, y la URL lleva el NIT dentro. La RFC 9111 ya
+      // impide a un caché compartido guardar una respuesta a petición autenticada, pero eso
+      // depende de que el proxy la respete: decirlo explícitamente cuesta una línea y le quita la
+      // discreción. En el UTS, que no lleva `Authorization`, es la única protección que hay.
+      'Cache-Control': 'no-store',
+    }, limiteDeTiempoMs()), CTX);
 
     const httpStatus = exigirHttpOk(respuesta.status, CTX);
     const items = extraerLista<ComparendoCrudoSimit>(respuesta.data, httpStatus, CTX);

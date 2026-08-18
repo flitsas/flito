@@ -32,7 +32,7 @@ Patrones análogos en el repo:
 | Cliente HTTP sin acoplar dominio | `integraciones/http.ts` (`httpsJson`, `httpsGetJson`) |
 | Normalización de forma SIMIT (referencia de campos, no de transporte) | `integraciones/simit.direct.ts` → `SimitComparendo` / `normalizeComparendos` |
 
-**Qué NO reutilizar como dueño de dominio:** `consultarSimit`, `simit.direct` (PoW FCM), `cea-proxy`, `traspaso-simit-gate`, tablas PESV. El Feature pide Verifik (`POST …/v2/co/simit/consultar`) + UTS municipal — distinto del SIMIT FCM/CEA.
+**Qué NO reutilizar como dueño de dominio:** `consultarSimit`, `simit.direct` (PoW FCM), `cea-proxy`, `traspaso-simit-gate`, tablas PESV. El Feature pide Verifik (`GET …/v2/co/simit/consultar?documentType&documentNumber`) + UTS municipal (`GET …/infraction/api/Infraccion/ConsultarInfraccionFuente?fuente&nit`) — distinto del SIMIT FCM/CEA.
 
 ## Alternativas
 
@@ -101,7 +101,7 @@ sequenceDiagram
   Svc->>DB: INSERT sync_run (running)
   Svc->>Tok: decrypt token (Redacted; nunca log)
   loop cada NIT del scope
-    Svc->>V: POST /v2/co/simit/consultar (Bearer)
+    Svc->>V: GET /v2/co/simit/consultar?documentType&documentNumber (Bearer)
     alt OK
       V-->>Svc: lista comparendos
       Svc->>DB: upsert canónico (fuente simit) + step ok
@@ -111,7 +111,7 @@ sequenceDiagram
       Note over Svc: NIT marcado "simit_incompleto"; no inactivar por este NIT
     end
     loop cada municipio activo
-      Svc->>U: GET ConsultarInfraccion?fuente&nit
+      Svc->>U: GET /infraction/api/Infraccion/ConsultarInfraccionFuente?fuente&nit
       alt OK
         U-->>Svc: lista
         Svc->>DB: merge municipal (solo campos ausentes) + step ok
@@ -580,9 +580,15 @@ Bootstrap opcional: si no hay fila activa y existe `VERIFIK_SIMIT_TOKEN` en env 
 4. **Sync síncrono** en v1 con **paralelismo acotado** de steps municipales (no 202/polling); cola asíncrona = ADR sucesor si la matriz crece.
 5. ADRs 0001–0003 → **Aceptado**.
 6. **Corrección post-review (2026-08-13):** migración `0150_*` (no 0149); env prefix `COMPARENDOS_*` (ortografía correcta).
+7. **Corrección de contratos (2026-08-18, sin Bug — el contrato se documentó mal desde el origen, no es una regresión):** las **dos** fuentes son **GET**. En Verifik, `documentType` y `documentNumber` son parámetros de búsqueda y **no** cuerpo; en UTS la ruta completa es `/infraction/api/Infraccion/ConsultarInfraccionFuente` (antes se documentó `/ConsultarInfraccion`, incompleta). Consecuencia asumida: el NIT viaja en la URL de Verifik (y del UTS) por contrato del proveedor.
+
+   **Qué regla aplica.** No es una excepción a AGENTS.md §14: §14 regula **nuestras** superficies —URLs de páginas de `apps/web`, nuestros access logs y los filtros de nuestra API autenticada— y su default de diseño (PII y cuasi-PII en el **cuerpo** de un `POST …/buscar`) **se sigue cumpliendo entero** en este módulo: el API de comparendos busca por NIT en body. Lo que cambia aquí es una llamada **saliente** a un tercero, que §14 no gobierna (sus mitigaciones —`auth`, `requireRole`, `logPiiAccess`— son de una lectura nuestra y no tienen dónde aplicarse en un GET a Verifik). Lo que sí aplica es la **Ley 1581**: remitir el NIT monitoreado a Verifik y al UTS es una **transferencia a un tercero**, y esa es la razón por la que el punto merece estar escrito.
+
+   **Garantías nuestras, verificadas por `security-agent` (PASS-CON-OBSERVACIONES, 0 bloqueantes, 2026-08-18):** ninguna URL de estas llamadas se registra en log alguno del módulo; el NIT solo sale por `maskDocument`; `comoErrorDeFuente` descarta el mensaje original de la capa de red —que trae la URL completa— y conserva solo el `code`; y las dos peticiones salen con `Cache-Control: no-store` para que ningún proxy intermedio almacene una respuesta cuya clave de caché lleva el NIT dentro.
 
 ## Riesgos abiertos (no bloquean Modo B)
 
 1. **Payloads reales Verifik/UTS** — mapa v1 provisional; spike cierra homologación.
 2. **Valores de hosts por ambiente** — Ops provisiona `VERIFIK_SIMIT_BASE_URL`, `UTS_MUNICIPAL_BASE_URL`, `COMPARENDOS_ENC_KEY`.
 3. **Normalización del número de comparendo** — trim + case; cerrar en spike.
+4. **UTS municipal solo publica `http://`** — el host indicado por el proveedor (`http://ec2-<id>.compute-1.amazonaws.com`) es texto plano, y `integraciones/http.ts` (`httpsJson`/`httpsGetJson`) usa `https.request` incondicionalmente. Por tanto **el modo `real` de la fuente municipal no es operativo todavía**; `COMPARENDOS_SIMIT_MODE=mock` es el único modo ejercitable de esa fuente. Desde 2026-08-18 la limitación está **forzada en el código** y no solo documentada: `baseUrlExigida` rechaza con 503 `fuente_no_configurada` cualquier base que no sea `https:` (antes, una base `http://` no habría fallado por texto plano sino que habría salido igual contra el 443 de ese host, o habría dado un error opaco de TLS/DNS). `UTS_MUNICIPAL_BASE_URL` tampoco admite **puerto**: el helper compartido arma la petición con `{ hostname, path }` y descarta `u.port` — añadirlo toca traspaso, RUNT y Fasecolda y va en su propio PR. Decisión del Líder Técnico (2026-08-18): **preguntar antes al proveedor si expone HTTPS** en vez de abrir el cliente compartido a texto plano (lo usan también traspaso, RUNT y Fasecolda). Si la respuesta es que no, se evaluará un transporte `http` acotado a esta única fuente, con ADR.
