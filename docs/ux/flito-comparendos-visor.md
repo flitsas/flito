@@ -376,12 +376,13 @@ Banda dentro de `FlitCard` con `role="alert"`, encima de la tabla, con la tabla 
 
 | Caso | Copy | Acción |
 |---|---|---|
-| Genérico (500, red, tiempo agotado) | «No se pudieron cargar los comparendos: `<mensaje del servidor>`.» | `[Reintentar]` |
+| Genérico (500, red, tiempo agotado) | «No se pudieron cargar los comparendos: `<mensaje del servidor>`.» — **⚠ en suspenso: ver el aviso al final de esta subsección** | `[Reintentar]` |
 | **429** del limitador de lectura | «Se hicieron demasiadas consultas seguidas. Espera un minuto y vuelve a intentarlo. El módulo limita las consultas porque cada página trae datos personales.» | `[Reintentar]` |
 | **400 `cursor_invalido`** | «El listado cambió mientras paginabas y esta página ya no existe. Vuelve al principio para ver los datos actuales.» | `[Volver a la primera página]` |
 | **403** | «Tu usuario ya no tiene acceso a los comparendos. Habla con un administrador.» | Sin reintento |
 
-- `<mensaje del servidor>` sale de `errorMessage(e)`, que conserva el texto del backend.
+- ~~`<mensaje del servidor>` sale de `errorMessage(e)`, que conserva el texto del backend.~~ **Ya no:
+  la HU #11559 retiró el eco del backend. Ver el aviso al final de esta subsección.**
 - **`cursor_invalido` es la excepción a esa regla y por eso está en la tabla.** El mensaje real del
   backend es «El cursor de paginación no es válido o pertenece a otra versión del listado. Pide la
   primera página sin `cursor`» — correcto para quien integra contra el API, incomprensible para quien
@@ -389,6 +390,29 @@ Banda dentro de `FlitCard` con `role="alert"`, encima de la tabla, con la tabla 
   por el texto.
 - El 429 **no oculta el botón de reintentar**: esconderlo obligaría a recargar la página entera, que
   es otra petición.
+
+> **⚠ Aviso vigente para #11560, #11557 y #11558 — `<mensaje del servidor>` no se pinta hoy en
+> ninguna pantalla del módulo, y no debe reinstalarse mientras esta decisión siga abierta.**
+>
+> - **Qué cambió.** La **HU #11559** (implementada) eliminó el eco del texto del backend: el copy de
+>   error se **deriva del código de estado**. El motivo no fue una lista de huecos que tapar uno a
+>   uno: `security-agent` demostró que el filtro que intentaba sanear ese texto en el cliente dejaba
+>   pasar un NIT con separadores (`900.123.456-7`, que es como lo escriben SIMIT y los organismos),
+>   una cédula con puntos, una placa, un host interno y una IP privada —y que el caso de test usaba
+>   el NIT **sin** formato, el único que sí bloqueaba, así que el agujero estaba en verde—. Un filtro
+>   por forma siempre va por detrás del siguiente formato.
+> - **La decisión de producto/UX sigue abierta.** Está planteada al Líder Técnico y **no está
+>   aprobada**: este documento no la da por cerrada en ningún sentido. Lo firme hasta que se cierre
+>   es la conducta: **no pintar el mensaje del servidor**.
+> - **Si algún día se quiere ese texto en pantalla, el camino no es un filtro en el cliente** —ya se
+>   intentó y falló— **sino un contrato del servidor**: un campo aparte, garantizado libre de datos
+>   del titular. Eso es un requerimiento para architecture-agent / backend-agent, no una tarea de
+>   frontend.
+> - **Copy en vigor**, tal como quedó en `FlitoComparendos.tsx` con la #11559: genérico «No se
+>   pudieron cargar los comparendos. Vuelve a intentarlo; si sigue fallando, avisa a soporte.»; sin
+>   respuesta (`ApiError.status === 0`) «No hubo respuesta del servidor al cargar los comparendos.
+>   Revisa tu conexión y vuelve a intentarlo.». El 403, el 429 y el `cursor_invalido` no cambian: ya
+>   eran copy propio derivado del estado o del `codigo`.
 
 #### 3 · Vacío — dos casos que no dicen lo mismo
 
@@ -511,8 +535,17 @@ cualquier otra superficie (regla 9).
 |---|---|---|
 | **422 `export_demasiado_grande`** | «Son demasiadas filas para un solo archivo: el máximo son 5.000 y tu filtro trae más. Afina la búsqueda —por estado, por NIT o por placa— y vuelve a exportar.» | `[Cerrar el aviso]`; el botón vuelve a reposo |
 | **429** | «Ya se descargaron varios archivos en el último minuto. Espera un minuto y vuelve a intentarlo.» | `[Reintentar]` |
-| Otro error con respuesta | «No se pudo generar el archivo: `<mensaje del servidor>`.» | `[Reintentar]` |
+| Otro error con respuesta | «No se pudo generar el archivo: `<mensaje del servidor>`.» — **⚠ en suspenso: ver la nota bajo esta tabla** | `[Reintentar]` |
 | **Sin respuesta** (`ApiError.status === 0`) | «El archivo tardó demasiado en generarse. Vuelve a intentarlo con un filtro más estrecho.» | `[Reintentar]` |
+
+> **⚠ `<mensaje del servidor>` también está en suspenso aquí** (ver el aviso de «Pantalla 1 ·
+> Estados · 2 · Error»). La **#11559** dejó de hacer eco del texto del backend y deriva el copy del
+> código de estado, porque el filtro que intentaba sanearlo en el cliente dejaba pasar NIT con
+> separadores (`900.123.456-7`), cédulas con puntos, placas, hosts internos e IP privadas. **La
+> decisión de producto/UX sigue abierta y sin aprobar.** Mientras siga abierta, la **#11558** pinta
+> «No se pudo generar el archivo. Vuelve a intentarlo.» y **no** añade nada que venga del servidor.
+> Traer ese texto exigiría un **campo aparte en el contrato del servidor**, garantizado libre de datos
+> del titular — no un filtro en el frontend.
 
 - **El export manda exactamente los filtros de la vista** —`estado`, `q`, `nit`, `placa`— y
   **nunca** `cursor` ni `limit`: se exporta el conjunto filtrado, no la página. Que el archivo
@@ -651,10 +684,21 @@ añadir un tipo mañana **no compila** hasta que alguien le escriba su texto.
 | Estado | Qué se ve |
 |---|---|
 | **Cargando** | El panel se abre **de inmediato** con el número de comparendo en el título (ya se conoce de la fila) y el cuerpo en esqueleto: tres bloques de barras con la forma de las tres secciones. `role="status" aria-busy="true"`. Abrir un modal vacío que tarda 400 ms en aparecer se siente como un clic perdido |
-| **Error** | Dentro del panel, `role="alert"`: «No se pudo cargar el comparendo: `<mensaje del servidor>.`» + `[Reintentar]` + `[Cerrar]`. **El modal no se cierra solo**: cerrarlo por un error obliga a buscar la fila otra vez |
+| **Error** | Dentro del panel, `role="alert"`: «No se pudo cargar el comparendo: `<mensaje del servidor>.`» — **⚠ en suspenso: ver la nota bajo esta tabla** + `[Reintentar]` + `[Cerrar]`. **El modal no se cierra solo**: cerrarlo por un error obliga a buscar la fila otra vez |
 | **Error 404** | «Este comparendo ya no está en el sistema. Puede que se haya purgado por retención de datos.» + `[Cerrar y actualizar la lista]`, que cierra **y** recarga la página actual de la tabla |
 | **Vacío** | **No existe un panel vacío**: un registro con todos sus campos nulos sigue teniendo número, NIT, estado y al menos un evento (`primera_llegada`). Lo que sí hay son **campos** vacíos, y cada uno se pinta «—» con `<span class="sr-only">Sin dato</span>`. Si `eventos[]` llegara vacío —que no debería—, la sección dice «Sin movimientos registrados», el mismo texto que ya usa `HistorialEstados` |
 | **Lleno** | El wireframe de arriba |
+
+> **⚠ `<mensaje del servidor>` de la fila «Error» está en suspenso** (ver el aviso de «Pantalla 1 ·
+> Estados · 2 · Error»). La **#11559** retiró el eco del texto del backend y deriva el copy del código
+> de estado, porque el filtro que intentaba sanearlo en el cliente dejaba pasar NIT con separadores
+> (`900.123.456-7`), cédulas con puntos, placas, hosts internos e IP privadas. **Aquí pesa más que en
+> la lista: este panel se pide por identificador, así que es justo donde un mensaje del backend tiene
+> más probabilidad de repetir el dato consultado.** Mientras la decisión de producto/UX siga abierta
+> —lo está, planteada al Líder Técnico y sin aprobar—, quien implemente el panel (**#11560**) pinta
+> «No se pudo cargar el comparendo. Vuelve a intentarlo.» sin nada del servidor. Si se quisiera ese
+> texto, hace falta un **campo aparte en el contrato del servidor**, garantizado libre de datos del
+> titular, no un filtro en el cliente.
 
 ### Datos
 
@@ -734,10 +778,22 @@ que dos personas trabajando el mismo comparendo no se pisen el campo que no toca
 
 | Situación | Copy | Qué pasa con lo escrito |
 |---|---|---|
-| 400 de validación | «No se pudo guardar la gestión: `<mensaje del servidor>`.» | **Se conserva** |
+| 400 de validación | «No se pudo guardar la gestión: `<mensaje del servidor>`.» — **⚠ en suspenso: ver la nota bajo esta tabla** | **Se conserva** |
 | 404 | «Este comparendo ya no está en el sistema. Copia tu observación antes de cerrar.» | Se conserva, campos inhabilitados |
 | 403 | «Tu usuario ya no puede gestionar comparendos.» | Se conserva |
-| 500 / sin respuesta | «No se pudo guardar la gestión: `<mensaje del servidor>`.» + `[Reintentar]` | **Se conserva** |
+| 500 / sin respuesta | «No se pudo guardar la gestión: `<mensaje del servidor>`.» — **⚠ en suspenso: ver la nota bajo esta tabla** + `[Reintentar]` | **Se conserva** |
+
+> **⚠ `<mensaje del servidor>` está en suspenso en las dos filas de arriba y en el wireframe «Error al
+> guardar»** (ver el aviso de «Pantalla 1 · Estados · 2 · Error»). La **#11559** retiró el eco del
+> texto del backend y deriva el copy del código de estado, porque el filtro que intentaba sanearlo en
+> el cliente dejaba pasar NIT con separadores (`900.123.456-7`), cédulas con puntos, placas, hosts
+> internos e IP privadas. **Este formulario se trabaja sobre un comparendo concreto e identificado**,
+> así que es de los peores sitios donde reinstalar el eco. Mientras la decisión de producto/UX siga
+> abierta —lo está, planteada al Líder Técnico y sin aprobar—, la **#11557** pinta «No se pudo guardar
+> la gestión: revisa la causal y la observación.» en el 400 y «No se pudo guardar la gestión. Vuelve a
+> intentarlo.» en el 500 o sin respuesta, **sin** repetir nada del servidor; lo escrito se conserva
+> igual en los dos casos. Traer el detalle real del 400 exigiría un **campo aparte en el contrato del
+> servidor**, garantizado libre de datos del titular — no un filtro en el frontend.
 
 > **Lo escrito no se borra nunca por un error.** Una observación es texto que alguien redactó
 > mirando un caso; perderla por un 500 es la clase de cosa que hace que la gente deje de usar el
@@ -897,10 +953,15 @@ anteriores]` si existe.
 | Cualquiera de los anteriores en la URL | **nunca** | nunca | §14 |
 
 - La respuesta sale con `Cache-Control: no-store` desde el servidor; el navegador no la guarda.
-- **Aviso para QA y para backend:** los mensajes de error del servidor se pintan literales. Si algún
-  error del módulo llegara a incluir el NIT o la placa consultada en su texto, ese valor acabaría en
-  una captura de pantalla compartida por chat. El contrato esperado es «no se encontró el
-  comparendo», no «no se encontró el comparendo de ABC123». Hay un caso a vigilar en las pruebas.
+- **Aviso para QA y para backend:** ~~los mensajes de error del servidor se pintan literales.~~
+  **Desde la #11559 ya no: el copy de error se deriva del código de estado y la pantalla no hace eco
+  del texto del backend** (la historia completa y la decisión abierta están en el aviso de
+  «Pantalla 1 · Estados · 2 · Error»). **Lo que caduca es la descripción del comportamiento actual,
+  no la exigencia al backend**, que sigue vigente igual: el día que exista el campo del contrato ese
+  texto sí llegaría a pantalla. Si algún error del módulo llegara a incluir el NIT o la placa
+  consultada en su texto, ese valor acabaría en una captura de pantalla compartida por chat. El
+  contrato esperado es «no se encontró el comparendo», no «no se encontró el comparendo de ABC123».
+  Hay un caso a vigilar en las pruebas.
 
 ---
 

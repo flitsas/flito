@@ -206,6 +206,23 @@ test.describe('FLITO — Comparendos · cascarón (AC5)', () => {
     await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
   });
 
+  test('sin respuesta: copy de conexión y el reintento sigue ofreciéndose', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // `route.abort` reproduce las dos formas de «no hubo respuesta» que `api.ts` convierte en un
+    // `ApiError` con `status === 0`: la red caída y el tope de tiempo de la petición. Es la única
+    // rama de error que no nace de un código HTTP, así que es también la única que un mock de
+    // `status`/`body` no puede provocar.
+    await page.route(API_REGISTROS, (route) => route.abort('failed'));
+
+    await page.goto('/flito/comparendos');
+
+    await expect(page.getByRole('alert')).toContainText(/No hubo respuesta del servidor/);
+    // Reintentar es exactamente lo que hay que hacer cuando vuelve la conexión.
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
+    // Y no se cuela el estado de vacío: nadie comprobó que no haya comparendos.
+    await expect(page.getByText(/Todavía no hay comparendos registrados/)).toHaveCount(0);
+  });
+
   // «Sin exponer detalles internos» (AC5) se prueba por lo que la pantalla NO dice, así que la
   // lista de cuerpos tiene que incluir los formatos que un filtro ingenuo deja pasar. Los tres
   // primeros son diagnóstico de máquina; los cuatro últimos son el caso que la spec de UX marca
