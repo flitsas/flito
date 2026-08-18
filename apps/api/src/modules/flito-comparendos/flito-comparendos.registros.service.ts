@@ -108,6 +108,10 @@ const COLUMNAS_REGISTRO = {
   ultimoSyncRunId: flitoComparendosRegistros.ultimoSyncRunId,
   causalId: flitoComparendosRegistros.causalId,
   observacion: flitoComparendosRegistros.observacion,
+  // Auditoría de la gestión (HU #11556). Sale por la lista blanca como todo lo demás: la columna
+  // nueva no se publica por existir, se publica porque está escrita aquí.
+  gestionActualizadaEn: flitoComparendosRegistros.gestionActualizadaEn,
+  gestionActualizadaPor: flitoComparendosRegistros.gestionActualizadaPor,
   createdAt: flitoComparendosRegistros.createdAt,
   updatedAt: flitoComparendosRegistros.updatedAt,
 } as const;
@@ -140,6 +144,13 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     ultimoSyncRunId: f.ultimoSyncRunId,
     causalId: f.causalId,
     observacion: f.observacion,
+    // `timestamptz` → ISO, igual que `inactivadoEn`: `null` cuando nadie ha gestionado la fila, que
+    // es el caso de todo lo anterior a la HU #11556. Pedir la columna en `COLUMNAS_REGISTRO` y
+    // olvidarla aquí devolvería `undefined` sin que ninguna aserción de proyección lo notara.
+    gestionActualizadaEn: f.gestionActualizadaEn?.toISOString() ?? null,
+    // El id del usuario, no su nombre (igual que `ComparendosSyncRun.iniciadoPor`): resolverlo es
+    // cosa de la pantalla, y un JOIN por página para un dato casi siempre nulo no se paga.
+    gestionActualizadaPor: f.gestionActualizadaPor,
     creadoEn: f.createdAt.toISOString(),
     actualizadoEn: f.updatedAt.toISOString(),
   };

@@ -118,6 +118,15 @@ corrida diría «gestionada anoche» siendo mentira. Dos salidas:
 | **A — sin fecha en la lista** | La columna «Gestión» muestra la causal o «Sin gestión»; el **cuándo** y el **quién** viven en el detalle, en el evento `gestion` del timeline (HU #11556) | **Es lo que especifica este documento.** No necesita nada nuevo y no muestra ningún dato que no exista |
 | B — `gestionActualizadaEn` / `gestionActualizadaPor` en `ComparendoRegistro` | La lista podría ordenar y filtrar por gestión reciente | **Requerimiento para architecture/backend en la HU #11557**, si producto lo quiere. **No** se diseña contra ello hoy |
 
+> **Nota de la HU [#11556](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11556)
+> (2026-08-18) — corrección de referencia cruzada, no un rediseño.** La **opción B se adelantó una
+> HU**: `gestionActualizadaEn` y `gestionActualizadaPor` ya existen en `ComparendoRegistro` y en el
+> esquema desde la #11556, no desde la #11557, y llegan en `null` mientras nadie haya gestionado.
+> **Esta pantalla sigue especificada contra la opción A** y no cambia nada de lo escrito aquí: que el
+> dato exista en el contrato no obliga a pintarlo. La pregunta 13 al PO —¿la lista necesita el
+> «cuándo»?— **sigue abierta**, y si la respuesta fuera que sí, *ordenar* por gestión exigiría un
+> índice parcial y un cursor distinto del de RN-32: otra HU, no un ajuste de esta.
+
 **4. `municipioFuente` es `null` cuando el comparendo solo lo reportó SIMIT** (comentario del
 contrato, línea 228). No es un dato faltante: es información. La celda dice «—» y el detalle lo
 explica; no se rellena con el municipio del organismo ni con nada deducido.
@@ -1116,6 +1125,10 @@ causal pero no **cuándo** se gestionó ni **quién**, porque el contrato no lo 
 ¿Basta con tenerlo en el timeline del detalle, o la lista necesita «gestionado hace 3 días» para
 poder priorizar? Si es lo segundo, la HU #11557 añade dos campos y esta columna crece. **No cambia
 nada de lo aquí especificado.**
+
+> **Actualización (HU #11556, 2026-08-18).** Los dos campos **ya existen**: los añadió la #11556 —no
+> la #11557— al esquema y al contrato. Lo que sigue abierto es solo la mitad de producto: si la
+> columna debe mostrarlos. Ordenar por ellos seguiría siendo otra HU (índice parcial + cursor nuevo).
 
 ---
 

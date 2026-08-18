@@ -131,6 +131,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   ultimoSyncRunId: RUN,
   causalId: null,
   observacion: null,
+  // Auditoría de gestión (HU #11556): así llega TODO lo anterior a esa HU, que es el AC5. Los casos
+  // que necesitan una fila ya gestionada las sobreescriben con `fila({ ... })`.
+  gestionActualizadaEn: null,
+  gestionActualizadaPor: null,
   createdAt: ANTES,
   updatedAt: AHORA,
   // La respuesta del tercero sobre un tercero: existe para poder re-mergear sin volver a llamar al
@@ -431,6 +435,8 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       ultimoSyncRunId: RUN,
       causalId: null,
       observacion: null,
+      gestionActualizadaEn: null,
+      gestionActualizadaPor: null,
       creadoEn: ANTES.toISOString(),
       actualizadoEn: AHORA.toISOString(),
     });
@@ -515,6 +521,147 @@ describe('GET /registros — la forma de lo que devuelve', () => {
 
     // «Sin contexto conocido» tiene una sola representación: la pantalla no distingue dos vacíos.
     expect(r.body[0].detalle).toBeNull();
+  });
+});
+
+// ─────────────────────────── Auditoría de gestión (HU #11556, AC4/AC5) ─────────────────────────
+//
+// Las dos columnas nuevas —`gestion_actualizada_en` y `gestion_actualizada_por`— existen desde la
+// migración 0154 y todavía no las escribe nadie: el endpoint que las mueve es de la #11557. Lo que
+// esta HU tiene que demostrar es, por tanto, lo aburrido y lo que se rompe en silencio:
+//
+//   · que la lectura que YA existía no cambió de forma y que las filas anteriores devuelven `null`
+//     en las dos (AC5), en las TRES superficies que devuelven un registro — no solo en el listado,
+//     que es la única con aserción de proyección desde la #11502;
+//   · que el DTO las MAPEA, y no solo que la proyección las pide. Son dos listas distintas
+//     (`COLUMNAS_REGISTRO` y `registroDto`) y olvidar la segunda devuelve `undefined`, que
+//     `JSON.stringify` borra de la respuesta: ninguna aserción de proyección lo ve, y la pantalla
+//     recibe un campo que «a veces no viene» en lugar de un `null`;
+//   · que el timeline NO cambió de forma: el `detalle` sigue saliendo por la lista blanca de dos
+//     claves (RN-35), así que un evento de gestión con contexto propio publica `null` hasta que la
+//     #11557 decida ampliarla.
+
+describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
+  const auth = sesion(7113);
+
+  /** Una fila YA gestionada: la que la #11557 dejará al escribir causal u observación. */
+  const GESTIONADA_EN = new Date('2026-08-17T14:05:00.000Z');
+  const GESTIONADA_POR = 4210;
+  const gestionada = () => fila({
+    causalId: '55555555-5555-4555-8555-555555555555',
+    observacion: 'Se solicitó soporte al organismo',
+    gestionActualizadaEn: GESTIONADA_EN,
+    gestionActualizadaPor: GESTIONADA_POR,
+  });
+
+  it('**la proyección las pide**: salen por la lista blanca, no por existir en la tabla (RN-31)', async () => {
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento()]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    await request(app).get(REGISTROS).set('Authorization', cabecera);
+    expect(listado().proyeccion).toEqual(
+      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor']),
+    );
+
+    lecturas.length = 0;
+    await request(app).get(`${REGISTROS}/${ID_1}`).set('Authorization', cabecera);
+    // El detalle proyecta por su cuenta y es la ruta que devuelve el registro entero: una columna
+    // que solo estuviera en el listado dejaría al visor sin ella.
+    expect(consultaDetalle().proyeccion).toEqual(
+      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor']),
+    );
+  });
+
+  it('**el DTO las MAPEA**, no solo la proyección las pide: `en` a ISO y `por` como id', async () => {
+    // Este es el caso que ninguna aserción de proyección puede dar: pedir la columna y no copiarla
+    // en `registroDto` deja `undefined`, que `JSON.stringify` elimina — la respuesta se queda sin la
+    // clave y todas las comprobaciones de «no publica de más» siguen en verde.
+    kdb.when.select(TABLA, [gestionada()]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body.items[0].gestionActualizadaEn).toBe(GESTIONADA_EN.toISOString());
+    // El **id**, no el nombre (igual que `ComparendosSyncRun.iniciadoPor`): resolverlo es de la
+    // pantalla, y un número que se convirtiera en objeto sería un cambio de contrato.
+    expect(r.body.items[0].gestionActualizadaPor).toBe(GESTIONADA_POR);
+    expect(typeof r.body.items[0].gestionActualizadaPor).toBe('number');
+  });
+
+  it('**AC5 — `GET /registros`**: un registro anterior a la HU trae las dos claves en `null`', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    // Presentes y nulas: `null` y no ausentes, para que la pantalla no distinga «no vino» de «no la
+    // ha gestionado nadie». `toHaveProperty` es lo que separa las dos cosas; `?? null` no.
+    expect(r.body.items[0]).toHaveProperty('gestionActualizadaEn', null);
+    expect(r.body.items[0]).toHaveProperty('gestionActualizadaPor', null);
+  });
+
+  it('**AC5 — `POST /registros/buscar`**: la búsqueda devuelve la misma forma que el listado', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).post(BUSCAR)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    expect(r.status).toBe(200);
+    expect(r.body.items[0]).toHaveProperty('gestionActualizadaEn', null);
+    expect(r.body.items[0]).toHaveProperty('gestionActualizadaPor', null);
+  });
+
+  it('**AC5 — `GET /registros/:id`**: el detalle también, y sin tocar el resto de la forma', async () => {
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento()]);
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}/${ID_1}`).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty('gestionActualizadaEn', null);
+    expect(r.body).toHaveProperty('gestionActualizadaPor', null);
+    // La lectura existente NO cambia de forma (AC5): el detalle sigue siendo el registro más su
+    // timeline, y las claves de siempre siguen donde estaban.
+    expect(r.body.causalId).toBeNull();
+    expect(r.body.observacion).toBeNull();
+    expect(r.body.actualizadoEn).toBe(AHORA.toISOString());
+    expect(r.body.eventos).toHaveLength(1);
+  });
+
+  it('el detalle de una fila ya gestionada mapea igual que el listado', async () => {
+    kdb.when.select(TABLA, [gestionada()]).select(EVENTOS, []);
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}/${ID_1}`).set('Authorization', await auth());
+
+    expect(r.body.gestionActualizadaEn).toBe(GESTIONADA_EN.toISOString());
+    expect(r.body.gestionActualizadaPor).toBe(GESTIONADA_POR);
+  });
+
+  it('**el timeline no cambia de forma**: un evento `gestion` publica su tipo y `detalle` en `null`', async () => {
+    // El enum de la base gana `gestion` con la 0154, pero `CLAVES_DETALLE` sigue siendo
+    // `['origen', 'motivo']` (RN-35): un evento de gestión que guarde su propio contexto —qué causal
+    // se puso, por ejemplo— NO lo publica todavía. Ampliar la lista blanca es una decisión de la
+    // #11557 y tiene que tomarse a la vista, no colarse porque el `detalle` sea JSONB.
+    kdb.when.select(TABLA, [gestionada()]).select(EVENTOS, [evento({
+      tipo: 'gestion',
+      syncRunId: null,
+      detalle: { causalId: '55555555-5555-4555-8555-555555555555', observacion: 'texto libre' },
+      createdAt: GESTIONADA_EN,
+    })]);
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}/${ID_1}/eventos`).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toEqual({
+      id: '33333333-3333-4333-8333-333333333333',
+      tipo: 'gestion',
+      // `null` por construcción y no por antigüedad: este evento no lo produce una corrida.
+      syncRunId: null,
+      detalle: null,
+      ocurridoEn: GESTIONADA_EN.toISOString(),
+    });
   });
 });
 

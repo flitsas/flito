@@ -4045,8 +4045,12 @@ export const flitoComparendosEstadoEnum = pgEnum('flito_comparendos_estado', ['a
 export const flitoComparendosSyncEstadoEnum = pgEnum('flito_comparendos_sync_estado', [
   'running', 'completed', 'partial', 'failed',
 ]);
+// El cuarto valor, `gestion`, lo añade la migración 0154 (HU #11556) y va AL FINAL: el orden de
+// `pg_enum` es el orden de comparación del tipo, y un `ADD VALUE ... BEFORE/AFTER` reordenaría algo
+// que nadie pidió reordenar. Los tres primeros los escribe el sync; `gestion` lo escribe una
+// persona desde el endpoint de gestión (HU #11557), y es el único que no viene de una corrida.
 export const flitoComparendosEventoTipoEnum = pgEnum('flito_comparendos_evento_tipo', [
-  'primera_llegada', 'inactivacion', 'reaparicion',
+  'primera_llegada', 'inactivacion', 'reaparicion', 'gestion',
 ]);
 export const flitoComparendosOrigenMergeEnum = pgEnum('flito_comparendos_origen_merge', [
   'simit', 'municipal', 'ambos',
@@ -4183,6 +4187,19 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // Gestión operativa: columnas de 17a, escritura de 17b.
   causalId: uuid('causal_id').references(() => flitoComparendosCausales.id),
   observacion: text('observacion'),
+  // Auditoría de la gestión (HU #11556, migración 0154). `updated_at` NO sirve para esto: lo
+  // reescribe el sync en cada corrida, así que no distingue una fila gestionada ayer por una
+  // persona de una que el sync tocó hace diez minutos. Las dos son nullable y sin default: `null`
+  // significa «nadie la ha gestionado», que es lo que vale para todo el histórico anterior.
+  //
+  // `integer` y no `uuid` porque `users.id` es `serial`: una FK hereda el tipo de a quien apunta.
+  // Y `onDelete: 'restrict'` porque esto es auditoría — un `set null` dejaría la fila diciendo que
+  // se gestionó en una fecha y por nadie. Un usuario que gestionó comparendos no se borra, se
+  // desactiva. La cláusula está afirmada contra la 0154 en un test de paridad, porque degradarla
+  // deja un esquema válido y una auditoría falseada.
+  gestionActualizadaEn: timestamp('gestion_actualizada_en', { withTimezone: true }),
+  gestionActualizadaPor: integer('gestion_actualizada_por')
+    .references(() => users.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
