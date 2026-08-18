@@ -18,8 +18,11 @@
 //      todas las empresas.
 //   4. **La paginación es por cursor y sobre un orden estable** (RN-32). Se afirma el `ORDER BY`, el
 //      `LIMIT n+1`, el contenido del cursor emitido y el WHERE de la segunda página —por IGUALDAD,
-//      porque `'"id" <='` contiene `'"id" <'` y un `toContain` no distingue los dos—, y además se
-//      RECORREN tres páginas contra una mini-tabla que aplica ese WHERE de verdad.
+//      porque `'<='` contiene `'<'` y un `toContain` no distingue los dos—, y además se RECORREN
+//      tres páginas contra una mini-tabla que aplica ese WHERE de verdad. Desde la #11555 se afirma
+//      también la FORMA del keyset —comparación de tuplas— y no solo las filas que devuelve: es la
+//      diferencia entre entrar al índice como rango y releer en cada página todo lo ya paginado, y
+//      no hay resultado que la delate.
 //   5. **Toda lectura de datos personales deja rastro** (Ley 1581 art. 17, HU #11511): es el
 //      consumidor que `flito-comparendos.pii.ts` estaba esperando.
 //   6. **Nada de esto lo ve quien no es admin** (CF-12) ni nadie sin autenticar.
@@ -218,21 +221,62 @@ const ordenDe = (c: Consulta) => c.orden.map((o) => sqlDe(o).sql).join(', ');
 
 type Comparador = '<' | '<=';
 
-/** Los dos operadores del cursor, tal como el servicio los escribió. */
-function operadoresDelCursor(sql: string): [Comparador, Comparador] {
-  const m = /"created_at" (<=?) \$1 or .+"created_at" = \$2 and .+"id" (<=?) \$3/.exec(sql);
-  if (!m) throw new Error(`WHERE de cursor con una forma que esta tabla no sabe simular: ${sql}`);
-  return [m[1] as Comparador, m[2] as Comparador];
+interface Consulta_ { sql: string; params: unknown[] }
+
+interface CorteDelCursor { op: Comparador; fecha: string; id: string }
+
+/**
+ * El operador del cursor y los dos valores contra los que compara, tal como el servicio los
+ * escribió.
+ *
+ * Es UN operador y no dos porque el keyset se escribe como comparación de tuplas —
+ * `(created_at, id) < ($1, $2)`—, que es lo único que PostgreSQL reconoce como rango del índice: la
+ * forma equivalente con `OR` selecciona las mismas filas pero sale como `Filter`, y entonces cada
+ * página relee todo lo ya paginado. Se lee del SQL igual que antes y por lo mismo: si alguien
+ * cambiara ese `<` por `<=`, aquí se pagina con `<=` —como haría PostgreSQL— y la fila del corte
+ * vuelve a salir en la página siguiente.
+ *
+ * Los valores se leen por el ÍNDICE del parámetro (`$1`, `$2`…) y no por su posición en el array:
+ * en cuanto el listado lleva un filtro delante —un municipio, por ejemplo— el keyset deja de ser lo
+ * primero que se parametriza, y dar por hecho que sí sería paginar con el valor equivocado y no
+ * enterarse.
+ *
+ * Devuelve `null` cuando el WHERE no menciona `created_at`: eso es un listado FILTRADO sin cursor,
+ * es decir la primera página de una lista acotada, y es una consulta perfectamente legítima. Lo que
+ * sí es un fallo del test —y por eso lanza— es que haya keyset y esta tabla no sepa leerlo.
+ */
+function corteDelCursor(w: Consulta_): CorteDelCursor | null {
+  if (!w.sql.includes('"created_at"')) return null;
+  const m = /"created_at", .+?"id"\) (<=?) \(\$(\d+)::timestamptz, \$(\d+)::uuid\)/.exec(w.sql);
+  if (!m) throw new Error(`WHERE de cursor con una forma que esta tabla no sabe simular: ${w.sql}`);
+  return {
+    op: m[1] as Comparador,
+    fecha: w.params[Number(m[2]) - 1] as string,
+    id: w.params[Number(m[3]) - 1] as string,
+  };
+}
+
+/**
+ * El municipio por el que la consulta acota, o `null` si no acota por ninguno.
+ *
+ * Se LEE del SQL igual que los operadores del cursor, y por el mismo motivo: si el servicio dejara
+ * de aplicar el filtro en la página 2, esta tabla dejaría de filtrar con él y el recorrido traería
+ * comparendos de otro municipio — que es exactamente el fallo que hay que ver.
+ */
+function municipioDelWhere(w: Consulta_): string | null {
+  const m = /"municipio_fuente" = \$(\d+)/.exec(w.sql);
+  return m ? String(w.params[Number(m[1]) - 1]) : null;
 }
 
 /** ISO y UUID en minúsculas comparan igual como cadena que como `timestamptz` y `uuid`. */
 const menorQue = (op: Comparador, a: string, b: string) => (op === '<' ? a < b : a <= b);
 
-interface FilaPaginable { id: string; createdAt: Date }
+interface FilaPaginable { id: string; createdAt: Date; municipioFuente?: string | null }
 
 /**
- * Resolver de `keyed-db` que responde una consulta del listado como lo haría PostgreSQL: filtra por
- * el cursor, ordena por `(created_at, id)` descendente y corta por el `LIMIT` que se pidió.
+ * Resolver de `keyed-db` que responde una consulta del listado como lo haría PostgreSQL: aplica el
+ * filtro por municipio y el corte del cursor, ordena por `(created_at, id)` descendente y corta por
+ * el `LIMIT` que se pidió.
  *
  * `keyed-db` lo invoca al resolver la promesa, cuando la cadena ya está armada, así que la última
  * lectura registrada sobre la tabla es la consulta que hay que responder.
@@ -253,16 +297,45 @@ function tablaEnMemoria<T extends FilaPaginable>(filas: T[]) {
     let visibles = ordenadas;
     if (q.condiciones.length > 0) {
       const w = whereDe(q);
-      const [opFecha, opId] = operadoresDelCursor(w.sql);
-      const [corteFecha, , corteId] = w.params as string[];
-      visibles = ordenadas.filter((f) => {
-        const fecha = f.createdAt.toISOString();
-        return menorQue(opFecha, fecha, corteFecha)
-          || (fecha === corteFecha && menorQue(opId, f.id, corteId));
-      });
+      const municipio = municipioDelWhere(w);
+      if (municipio !== null) {
+        visibles = visibles.filter((f) => f.municipioFuente === municipio);
+      }
+      const corte = corteDelCursor(w);
+      if (corte !== null) {
+        // `(a, b) < (x, y)` es, por definición, «a < x, o a = x y b < y»: la fecha SIEMPRE compara
+        // en estricto y el operador leído solo gobierna el desempate por `id`.
+        visibles = visibles.filter((f) => {
+          const fecha = f.createdAt.toISOString();
+          return fecha < corte.fecha
+            || (fecha === corte.fecha && menorQue(corte.op, f.id, corte.id));
+        });
+      }
     }
     return q.limite === null ? visibles : visibles.slice(0, q.limite);
   };
+}
+
+/**
+ * Recorre el listado página a página con la query dada y devuelve los ids en el orden en que
+ * salieron, más cuántas páginas hicieron falta.
+ *
+ * El tope de páginas es una red: un cursor que no avanza pagina para siempre, y colgar el test sería
+ * una forma peor de fallar que decir en qué página se fue de madre.
+ */
+async function recorrer(app: Awaited<ReturnType<typeof buildApp>>, cabecera: string, query: string) {
+  const ids: string[] = [];
+  let cursor: string | null = null;
+  let paginas = 0;
+  do {
+    const sufijo: string = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`;
+    const r = await request(app).get(`${REGISTROS}?${query}${sufijo}`).set('Authorization', cabecera);
+    expect(r.status).toBe(200);
+    ids.push(...r.body.items.map((i: { id: string }) => i.id));
+    cursor = r.body.nextCursor as string | null;
+    paginas++;
+  } while (cursor !== null && paginas < 6);
+  return { ids, paginas };
 }
 
 /** Lo que el helper de PII recibió en su última llamada. */
@@ -637,6 +710,241 @@ describe('los filtros filtran de verdad', () => {
   });
 });
 
+// ─────────────────────────── Filtros de gestión (HU #11555, RN-36) ──────────────────────────────
+//
+// Los tres filtros que 17b añade a la misma query: municipio, fuente y causal. Lo que se demuestra:
+//
+//   1. Que **filtran de verdad** —el WHERE se serializa a SQL real—, porque un filtro que no filtra
+//      y uno que filtra son idénticos para un mock que devuelve lo registrado pase lo que pase, y
+//      aquí la diferencia es enseñarle a un operador la cola de trabajo de otro municipio.
+//   2. Que **se suman a lo que ya había** en vez de reemplazarlo: al estado, a `q`, al cursor y a
+//      los filtros de identidad del cuerpo.
+//   3. Que **lo que no es un valor válido es un 400 y la base no se toca**: el enum de `fuente`, el
+//      UUID de la causal, y la combinación contradictoria de causal + sinCausal.
+//   4. Que **siguen en la query y eso no cambia la línea del §14**: ninguno de los tres identifica a
+//      una persona, y por eso pueden ir donde el NIT y la placa no pueden.
+
+describe('filtros por municipio, fuente y causal (HU #11555)', () => {
+  const auth = sesion(7112);
+
+  async function listar(query: string) {
+    kdb.when.select(TABLA, [fila()]);
+    return request(await buildApp()).get(`${REGISTROS}${query}`).set('Authorization', await auth());
+  }
+
+  it('**`municipio` acota por `municipio_fuente` y por IGUALDAD**, no por parecido', async () => {
+    const r = await listar('?municipio=BELLO');
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"municipio_fuente"');
+    // Un `like` aquí haría que «BELLO» arrastrara «BELLOS AIRES» si algún día existiera.
+    expect(w.sql).not.toContain('like');
+    expect(w.params).toEqual(['BELLO']);
+  });
+
+  it('**`municipio` normaliza como el catálogo**: «itagüí» encuentra lo guardado como «ITAGUI»', async () => {
+    const r = await listar('?municipio=itag%C3%BC%C3%AD');
+
+    // El valor guardado es el `codigoFuente` con el que se le pregunta al proveedor —mayúsculas y
+    // sin tildes—, así que sin este pliegue el filtro sería una lista vacía para el municipio que
+    // más obvio le resulta escribir a un humano.
+    expect(r.status).toBe(200);
+    expect(whereDe(listado()).params).toEqual(['ITAGUI']);
+  });
+
+  it('un municipio con metacaracteres de URL se rechaza en el borde, como en el catálogo', async () => {
+    const r = await listar('?municipio=BELLO%26token%3Dx');
+
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('`fuente=simit` acota por `origen_merge`, que es qué fuentes lo vieron (CF-08)', async () => {
+    const r = await listar('?fuente=simit');
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"origen_merge"');
+    // Y NO por municipio: son dos preguntas distintas sobre la misma fila.
+    expect(w.sql).not.toContain('"municipio_fuente"');
+    expect(w.params).toEqual(['simit']);
+  });
+
+  it('los tres valores del enum pasan, y son los del contrato', async () => {
+    for (const valor of ['simit', 'municipal', 'ambos']) {
+      lecturas.length = 0;
+      const r = await listar(`?fuente=${valor}`);
+
+      expect(r.status).toBe(200);
+      expect(whereDe(listado()).params).toEqual([valor]);
+    }
+  });
+
+  it('**una `fuente` fuera del enum → 400 sin tocar la base**', async () => {
+    const r = await listar('?fuente=municipal_bello');
+
+    // El enum se cierra en el borde: lo que no es uno de los tres no llega a construir un WHERE.
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('`causalId` acota por la causal asignada', async () => {
+    const r = await listar(`?causalId=${ID_2}`);
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"causal_id"');
+    expect(w.params).toEqual([ID_2]);
+  });
+
+  it('**una causal que no es UUID → 400** (y no un 22P02 de PostgreSQL disfrazado de 500)', async () => {
+    const r = await listar('?causalId=la-de-siempre');
+
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('**`sinCausal=true` es `IS NULL`**: la cola de lo que falta por clasificar', async () => {
+    const r = await listar('?sinCausal=true');
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"causal_id" is null');
+    // Un `causal_id = ''` no existe: la columna es `uuid` y no tiene cadena vacía.
+    expect(w.params).toEqual([]);
+  });
+
+  it('**`sinCausal=false` no filtra nada**: `z.coerce.boolean()` habría dicho lo contrario', async () => {
+    const r = await listar('?sinCausal=false');
+
+    // La cadena `'false'` es `true` para la veracidad de JavaScript. Con `coerce`, quitar el filtro
+    // habría ESTRECHADO la lista, y ningún error lo delataría.
+    expect(r.status).toBe(200);
+    expect(listado().condiciones).toHaveLength(0);
+  });
+
+  it('un `sinCausal` que no es `true` ni `false` → 400: no se adivina', async () => {
+    const r = await listar('?sinCausal=1');
+
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('**causal + sinCausal a la vez → 400**: su intersección está vacía siempre', async () => {
+    const r = await listar(`?causalId=${ID_2}&sinCausal=true`);
+
+    // Responder 200 con una lista vacía se leería como «no hay comparendos así» y mandaría al
+    // operador a ajustar el resto de la búsqueda persiguiendo un resultado imposible.
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('`causalId` con `sinCausal=false` sí pasa: no hay contradicción que rechazar', async () => {
+    const r = await listar(`?causalId=${ID_2}&sinCausal=false`);
+
+    expect(r.status).toBe(200);
+    expect(whereDe(listado()).params).toEqual([ID_2]);
+  });
+
+  it('**los tres se combinan entre sí y con `estado` y `q`**, no se reemplazan', async () => {
+    const r = await listar('?estado=activo&q=abc12345&municipio=BELLO&fuente=ambos&sinCausal=true');
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    for (const columna of ['"estado"', '"numero_comparendo"', '"municipio_fuente"', '"origen_merge"']) {
+      expect(w.sql).toContain(columna);
+    }
+    expect(w.sql).toContain('"causal_id" is null');
+    // El orden es el que construye el servicio; lo que importa es que no falte ninguno.
+    expect(w.params).toEqual(['activo', 'BELLO', 'ambos', '%ABC12345%']);
+  });
+
+  it('**el cursor se suma a los filtros nuevos**: la segunda página sigue acotada al municipio', async () => {
+    kdb.when.select(TABLA, [fila()]);
+    const cursor = Buffer.from(`${ANTES.toISOString()}|${ID_2}`, 'utf8').toString('base64url');
+
+    const r = await request(await buildApp())
+      .get(`${REGISTROS}?municipio=BELLO&cursor=${cursor}`).set('Authorization', await auth());
+
+    // Si el filtro se perdiera al pasar de página, la página 2 traería el módulo entero.
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"municipio_fuente"');
+    expect(w.sql).toMatch(/"created_at", .+"id"\) < \(\$\d::timestamptz, \$\d::uuid\)/);
+    // Tres parámetros y no cuatro: la tupla nombra cada valor del corte UNA vez, mientras que la
+    // forma con `OR` repetía la fecha para el desempate.
+    expect(w.params).toEqual(['BELLO', ANTES.toISOString(), ID_2]);
+  });
+
+  it('**tres páginas filtradas por municipio: ni una fila de otro municipio, ni repetidas ni perdidas**', async () => {
+    // La aserción de arriba mira el SQL de UNA página; esta recorre la lista entera contra una
+    // mini-tabla que aplica el filtro que LEE del WHERE. Es la garantía del AC1 vista como la ve un
+    // operador: si el municipio se perdiera al pasar de página, aquí aparecerían los de MEDELLIN.
+    //
+    // El conjunto está armado sobre el caso que rompe: los dos municipios se INTERCALAN en el orden
+    // de alta, así que un cursor que se calculara sobre la página sin filtrar —o un filtro que solo
+    // se aplicara en la primera— se saltaría filas de BELLO en vez de devolverlas.
+    const universo = [
+      fila({ id: idNumero(6), createdAt: AHORA, municipioFuente: 'BELLO' }),
+      fila({ id: idNumero(5), createdAt: AHORA, municipioFuente: 'MEDELLIN' }),
+      fila({ id: idNumero(4), createdAt: ANTES, municipioFuente: 'BELLO' }),
+      fila({ id: idNumero(3), createdAt: ANTES, municipioFuente: 'MEDELLIN' }),
+      fila({ id: idNumero(2), createdAt: HACE_TIEMPO, municipioFuente: 'BELLO' }),
+      fila({ id: idNumero(1), createdAt: HACE_TIEMPO, municipioFuente: 'MEDELLIN' }),
+    ];
+    kdb.when.select(TABLA, tablaEnMemoria(universo));
+    const app = await buildApp();
+
+    const { ids, paginas } = await recorrer(app, await auth(), 'limit=2&municipio=BELLO');
+
+    // Solo BELLO, los tres, sin repetir y en el orden que el listado promete.
+    expect(ids).toEqual([idNumero(6), idNumero(4), idNumero(2)]);
+    // 3 filas de 2 en 2 son 2 páginas: la segunda vuelve con una sola y sin cursor.
+    expect(paginas).toBe(2);
+  });
+
+  it('**y el filtro se combina con el NIT del cuerpo** (AC4): la búsqueda devuelve la intersección', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).post(`${BUSCAR}?municipio=BELLO&fuente=ambos`)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    expect(r.status).toBe(200);
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"municipio_fuente"');
+    expect(w.sql).toContain('"nit_monitoreado"');
+    expect(w.params).toEqual(['BELLO', 'ambos', '900123456']);
+  });
+
+  it('**el NIT sigue sin poder ir en la querystring** aunque el municipio sí (§14)', async () => {
+    const r = await listar('?municipio=BELLO&nit=900123456');
+
+    // Es la línea entera de esta HU: un municipio en un access log no cuenta nada de nadie; un NIT
+    // sí. Que la query gane filtros no la abre a los de identidad.
+    expect(r.status).toBe(400);
+    expect(lecturas).toHaveLength(0);
+  });
+
+  it('los filtros nuevos vacíos son filtros sin poner, como todos los demás', async () => {
+    const r = await listar('?municipio=&fuente=&causalId=&sinCausal=');
+
+    expect(r.status).toBe(200);
+    expect(listado().condiciones).toHaveLength(0);
+  });
+
+  it('**van al rastro de acceso con su valor literal**: no son de nadie, pero se registran', async () => {
+    await listar(`?municipio=BELLO&fuente=simit&causalId=${ID_2}`);
+
+    // El registro de acceso responde «quién miró qué»: sin los filtros, una lectura acotada a un
+    // municipio sería indistinguible de un volcado del módulo.
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).toContain('municipio=BELLO');
+    expect(motivo).toContain('fuente=simit');
+    expect(motivo).toContain(`causalId=${ID_2}`);
+  });
+});
+
 // ─────────────────────────── Un parámetro vacío se lee igual en todas partes ────────────────────
 
 describe('un parámetro vacío es un parámetro sin poner, y lo es para todos', () => {
@@ -738,15 +1046,21 @@ describe('GET /registros — paginación por cursor', () => {
     const w = whereDe(listado());
     // Keyset: «más viejo que el corte, o del mismo instante y con id menor».
     //
-    // Por IGUALDAD y no con `toContain`: `'"id" <='` CONTIENE `'"id" <'`, así que un `toContain`
-    // daba por buena la única mutación que rompe la garantía —cambiar `lt` por `lte` en el
-    // desempate—, que es justo la que hace que la fila del corte salga en las dos páginas.
+    // Por IGUALDAD y no con `toContain`: `'<='` CONTIENE `'<'`, así que un `toContain` daba por
+    // buena la única mutación que rompe la garantía —relajar el corte a `<=`—, que es justo la que
+    // hace que la fila del corte salga en las dos páginas.
+    //
+    // Y se afirma la FORMA, no solo el resultado: la tupla y el `OR` equivalente seleccionan las
+    // mismas filas, pero solo la tupla entra al índice como rango (`Index Cond`); con `OR` sale como
+    // `Filter` y cada página vuelve a leer todo lo ya paginado. Es una diferencia de plan que
+    // ninguna aserción sobre las filas devueltas puede ver, y por eso se fija aquí.
     expect(w.sql).toBe(
-      `("${TABLA}"."created_at" < $1 or ("${TABLA}"."created_at" = $2 and "${TABLA}"."id" < $3))`,
+      `("${TABLA}"."created_at", "${TABLA}"."id") < ($1::timestamptz, $2::uuid)`,
     );
     expect(w.sql).not.toContain('offset');
-    // Drizzle serializa el `Date` del filtro a ISO al construir la consulta.
-    expect(w.params).toEqual([ANTES.toISOString(), ANTES.toISOString(), ID_2]);
+    // La fecha se serializa a ISO en el servicio: dentro de una plantilla `sql` cruda el valor ya no
+    // pasa por el mapeador tipado de la columna, y el cast `::timestamptz` es lo que la ancla.
+    expect(w.params).toEqual([ANTES.toISOString(), ID_2]);
   });
 
   it('**tres páginas seguidas: ni una fila repetida ni una perdida, con `created_at` empatados**', async () => {
@@ -766,24 +1080,12 @@ describe('GET /registros — paginación por cursor', () => {
     const app = await buildApp();
     const cabecera = await auth();
 
-    const recorridos: string[] = [];
-    let cursor: string | null = null;
-    let paginas = 0;
-    do {
-      const sufijo: string = cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`;
-      const r = await request(app).get(`${REGISTROS}?limit=2${sufijo}`).set('Authorization', cabecera);
-      expect(r.status).toBe(200);
-      recorridos.push(...r.body.items.map((i: { id: string }) => i.id));
-      cursor = r.body.nextCursor as string | null;
-      paginas++;
-      // Tope de seguridad: un cursor que no avanza pagina para siempre, y colgar el test sería una
-      // forma peor de fallar que decir en qué página se fue de madre.
-    } while (cursor !== null && paginas < 6);
+    const { ids, paginas } = await recorrer(app, cabecera, 'limit=2');
 
     // Ni una repetida — y nombrando cuál, que es lo que el operador vería dos veces en la tabla.
-    expect(recorridos.filter((id, i) => recorridos.indexOf(id) !== i)).toEqual([]);
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
     // ...ni una perdida, y en el orden que el listado promete.
-    expect(recorridos).toEqual([idNumero(5), idNumero(4), idNumero(3), idNumero(2), idNumero(1)]);
+    expect(ids).toEqual([idNumero(5), idNumero(4), idNumero(3), idNumero(2), idNumero(1)]);
     // 5 filas de 2 en 2 son exactamente 3 páginas: si hicieran falta más, el cursor no avanza.
     expect(paginas).toBe(3);
   });
@@ -797,7 +1099,8 @@ describe('GET /registros — paginación por cursor', () => {
 
     const w = whereDe(listado());
     expect(w.sql).toContain('"estado"');
-    expect(w.params).toEqual(['activo', ANTES.toISOString(), ANTES.toISOString(), ID_2]);
+    // Tres y no cuatro: la tupla nombra la fecha del corte una sola vez.
+    expect(w.params).toEqual(['activo', ANTES.toISOString(), ID_2]);
   });
 
   it('**un cursor corrupto → 400 `cursor_invalido`, no la primera página en silencio**', async () => {
@@ -854,9 +1157,8 @@ describe('GET /registros — paginación por cursor', () => {
     expect(listado().limite).toBe(11);
     const w = whereDe(listado());
     expect(w.sql).toContain('"nit_monitoreado"');
-    // `< \$` y no `toContain('<')`: un `<=` no casa con esto (ver el keyset del `GET`).
-    expect(w.sql).toMatch(/"created_at" < \$\d/);
-    expect(w.sql).toMatch(/"id" < \$\d/);
+    // `) < (` y no `toContain('<')`: un `<=` no casa con esto (ver el keyset del `GET`).
+    expect(w.sql).toMatch(/"created_at", .+"id"\) < \(\$\d::timestamptz, \$\d::uuid\)/);
   });
 
   it('un cursor corrupto en la búsqueda es 400 igual que en el listado', async () => {

@@ -1,5 +1,6 @@
 // FLITO comparendos — lectura del registro consolidado y de su timeline (Feature #11492 17a,
-// HU #11502, CF-09/CF-11).
+// HU #11502, CF-09/CF-11), con los filtros de listado por municipio, fuente y causal que añadió la
+// HU #11555 (Feature #11495 17b, RN-36).
 //
 // Es el único archivo del módulo que LEE `flito_comparendos_registros` para devolvérselo a alguien.
 // El sync los escribe (`flito-comparendos.sync.service.ts`), la purga los borra
@@ -47,8 +48,22 @@
 //        devolverlo entero significaría que cualquier clave que alguien escriba ahí en el futuro se
 //        publica por el API sin que nadie lo haya decidido. Hoy el sync solo escribe esas dos
 //        (RN-20), así que la lista blanca no quita nada; lo que hace es que siga siendo verdad.
+//
+// RN-36  Los filtros que NO identifican a nadie —`municipio`, `fuente` y la causal (HU #11555)—
+//        entran por la QUERY, y no son una excepción al RN-33 sino su otra mitad: un código de
+//        municipio, un origen de merge y el id de una causal describen al COMPARENDO y a cómo se
+//        gestiona, no a su titular, así que ninguno de los tres convierte la URL en un rastro de
+//        datos personales. `municipio` compara por IGUALDAD contra `municipio_fuente` normalizado
+//        con `normalizarCodigoFuente` —el mismo normalizador con el que el catálogo guardó el
+//        código y con el que el sync lo escribió en el registro—, y NO se valida contra el
+//        catálogo a propósito: un municipio desactivado sigue teniendo comparendos en la base, y no
+//        poder listarlos sería perder de vista deuda viva por un cambio de parametrización.
+//        `sinCausal` es `causal_id IS NULL` y no una comparación contra vacío: la columna es `uuid`
+//        y no tiene cadena vacía que comparar. Que `causalId` y `sinCausal` juntos sean un 400 lo
+//        decide la RUTA (son dos parámetros contradictorios, y eso es validación de entrada); aquí,
+//        si llegaran los dos, el AND devuelve la página vacía que la lógica pide.
 
-import { and, desc, eq, like, lt, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import type {
   ComparendoEvento,
   ComparendoRegistro,
@@ -63,7 +78,7 @@ import {
   ComparendosNoEncontradoError,
 } from './flito-comparendos.errors.js';
 import { placaCanonica } from './flito-comparendos-merge.js';
-import { normalizarNit } from './flito-comparendos.service.js';
+import { normalizarCodigoFuente, normalizarNit } from './flito-comparendos.service.js';
 
 /**
  * Columnas que salen a la respuesta. Escritas una a una y no con `select()` a propósito (RN-31):
@@ -220,18 +235,26 @@ function decodificarCursor(valor: string): Cursor {
 /**
  * «Estrictamente después en el orden `(created_at DESC, id DESC)`».
  *
- * Se escribe como `or(lt, and(eq, lt))` y no como la comparación de tuplas `(a,b) < (x,y)` porque
- * así lo construye drizzle con sus propios parámetros tipados: la tupla obligaría a `sql` crudo y a
- * confiar en que PostgreSQL infiera `timestamptz` y `uuid` de dos parámetros sin tipo.
+ * Comparación de TUPLAS, y no el `or(lt, and(eq, lt))` con el que nació en la #11502. Las dos
+ * formas seleccionan exactamente las mismas filas, pero PostgreSQL solo reconoce la tupla como un
+ * RANGO del índice: la forma con `or` sale como `Filter`, de modo que cada página vuelve a leer y a
+ * descartar todo lo que ya se paginó, y el coste crece de forma lineal con la profundidad.
+ *
+ * Medido sobre 200.000 filas al sostener el AC5 de la #11555, en la página ~200 del filtro por
+ * municipio: con `or`, `Rows Removed by Filter: 10000` y 10.105 buffers (8,9 ms); con la tupla,
+ * `Index Cond` y 55 buffers (0,15 ms). El `ORDER BY` ya lo servía el índice en los dos casos — lo
+ * que la tupla arregla no es el orden, es el salto.
+ *
+ * El precio es `sql` crudo, y de ahí los dos casts explícitos: `::timestamptz` y `::uuid` son justo
+ * el reparo que documentaba la #11502 —que PostgreSQL tuviera que inferir el tipo de un parámetro
+ * suelto— resuelto en vez de esquivado. La fecha se serializa aquí a ISO y no se deja al driver
+ * dentro de una plantilla cruda, donde ya no pasa por el mapeador tipado de la columna.
  */
 function despuesDelCursor(c: Cursor): SQL {
-  return or(
-    lt(flitoComparendosRegistros.createdAt, c.createdAt),
-    and(
-      eq(flitoComparendosRegistros.createdAt, c.createdAt),
-      lt(flitoComparendosRegistros.id, c.id),
-    ),
-  )!;
+  // El alias es solo para que la tupla quepa en una línea: un salto dentro de la plantilla acaba
+  // DENTRO del SQL, y con él en cada aserción que compare la consulta.
+  const t = flitoComparendosRegistros;
+  return sql`(${t.createdAt}, ${t.id}) < (${c.createdAt.toISOString()}::timestamptz, ${c.id}::uuid)`;
 }
 
 // ─────────────────────────────── Listado (CF-09) ────────────────────────────────────────────────
@@ -264,6 +287,28 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
 
   if (filtro.estado !== undefined) {
     condiciones.push(eq(flitoComparendosRegistros.estado, filtro.estado));
+  }
+  if (filtro.municipio !== undefined) {
+    // El mismo normalizador del catálogo (RN-36): lo guardado es el `codigoFuente` con el que se le
+    // preguntó al proveedor —mayúsculas y sin tildes—, así que «Itagüí» tiene que encontrar
+    // «ITAGUI». Se normaliza aquí aunque la ruta ya lo haya hecho: el normalizador es idempotente y
+    // este servicio no puede depender de que su llamador se acuerde.
+    condiciones.push(eq(flitoComparendosRegistros.municipioFuente, normalizarCodigoFuente(filtro.municipio)));
+  }
+  if (filtro.fuente !== undefined) {
+    // `origen_merge`, que es «qué fuentes lo han visto» y no «de qué municipio es» (CF-08). Lo
+    // calcula el merge y por eso el filtro es por igualdad contra el enum, sin traducción.
+    condiciones.push(eq(flitoComparendosRegistros.origenMerge, filtro.fuente));
+  }
+  if (filtro.causalId !== undefined) {
+    condiciones.push(eq(flitoComparendosRegistros.causalId, filtro.causalId));
+  }
+  if (filtro.sinCausal === true) {
+    // La cola de trabajo de la pantalla de gestión: lo que falta por clasificar. `IS NULL` y no una
+    // igualdad contra vacío —la columna es `uuid`—, y solo con `=== true` para que `sinCausal=false`
+    // signifique «no filtres por causal» y no «los que SÍ tienen una», que es otra pregunta y
+    // tendría que pedirse de otra forma.
+    condiciones.push(isNull(flitoComparendosRegistros.causalId));
   }
   if (filtro.nit !== undefined) {
     // El mismo normalizador del catálogo: lo guardado son NITs sin puntos ni espacios, así que
