@@ -89,7 +89,12 @@ test.describe('FLITO — Comparendos · acceso', () => {
     await reposo(page);
 
     expect(espia.alApi.length).toBeGreaterThan(0);
-    expect(espia.alApi.every((l) => l.startsWith('GET /api/flito/comparendos/registros'))).toBe(true);
+    // Todo lo que sale es del módulo, y el listado está entre ello. El visor (HU #11560) añadió al
+    // montaje los tres catálogos de etiqueta —municipios, causales y NITs—, así que el aserto ya no
+    // puede ser «solo /registros»; lo que sigue valiendo es que ninguna otra superficie del API se
+    // toca y que ninguna de esas peticiones es un POST con identidad.
+    expect(espia.alApi.every((l) => l.startsWith('GET /api/flito/comparendos/'))).toBe(true);
+    expect(espia.alApi.some((l) => l === 'GET /api/flito/comparendos/registros')).toBe(true);
     expect(espia.alChunk.length).toBeGreaterThan(0);
     // Ni el NIT ni la placa viajan en la dirección del navegador (AGENTS.md §14).
     expect(page.url()).toMatch(/\/flito\/comparendos$/);
