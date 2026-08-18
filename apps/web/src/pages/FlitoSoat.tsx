@@ -269,7 +269,7 @@ export default function FlitoSoat() {
             <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
               onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
           </div>
-          <FlitTable>
+          <FlitTable label="Pólizas SOAT">
             <thead>
               <FlitTr>
                 {esOperaciones && seleccionables.length > 0 && (
