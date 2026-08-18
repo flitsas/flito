@@ -116,10 +116,13 @@ test.describe('FLITO — Comparendos · cascarón (AC5)', () => {
     // El estado se lee por su etiqueta, no por el color del punto.
     await expect(page.getByText('Activo', { exact: true })).toBeVisible();
     await expect(page.getByText('Inactivo', { exact: true })).toBeVisible();
-    await expect(page.getByText('—', { exact: true })).toBeVisible();
+    // Varias celdas de la fila sin placa, sin fecha, sin municipio y sin monto: `null` es
+    // información y se pinta «—» en todas, así que aquí se mira que exista, no que sea única.
+    await expect(page.getByText('—', { exact: true }).first()).toBeVisible();
 
-    // El API pagina por cursor y NO devuelve total: el contador no puede decir «de N».
-    const contador = page.getByText(/comparendos en esta página/);
+    // El API pagina por cursor y NO devuelve total: el contador no puede decir «de N». Se apunta al
+    // contador de la paginación y no a la región `aria-live`, que anuncia lo mismo en otras palabras.
+    const contador = page.getByText(/comparendos en esta página · página/);
     await expect(contador).toBeVisible();
     await expect(contador).not.toContainText(/\bde \d/);
   });

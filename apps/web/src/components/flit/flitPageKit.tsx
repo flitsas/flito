@@ -25,11 +25,11 @@ export function FlitTable({ children }: { children: ReactNode }) {
   );
 }
 
-export function FlitTh({ children, center }: { children?: ReactNode; center?: boolean }) {
+export function FlitTh({ children, center, className = '' }: { children?: ReactNode; center?: boolean; className?: string }) {
   return (
     <th
       scope="col"
-      className={`px-4 py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide`}
+      className={`px-4 py-2.5 ${center ? 'text-center' : 'text-left'} text-[11px] font-semibold uppercase tracking-wide ${className}`}
       style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}
     >
       {children}
@@ -86,10 +86,16 @@ export function FlitPillGroup({ children }: { children: ReactNode }) {
   );
 }
 
-export function FlitPillButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+export function FlitPillButton(
+  { active, onClick, children, pressed }:
+  { active: boolean; onClick: () => void; children: ReactNode;
+    /** `aria-pressed`. Sin él, un lector anuncia varios botones idénticos sin decir cuál está puesto. */
+    pressed?: boolean },
+) {
   return (
     <button
       type="button"
+      aria-pressed={pressed}
       onClick={onClick}
       className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors"
       style={flitPillBtn(active)}
