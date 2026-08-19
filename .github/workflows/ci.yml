@@ -42,13 +42,12 @@ jobs:
 
       # OPS-13 — gate de Rules of Hooks: falla si un hook se llama tras un early
       # return o dentro de un condicional (clase de bug de #147 = pantalla blanca).
-      # Sólo lee fuentes (sin build) → falla rápido. No reemplaza
-      # eslint-plugin-react-hooks (pendiente CI de tom, OPS-12).
+      # Sólo lee fuentes (sin build) → falla rápido. Complementa el
+      # eslint-plugin-react-hooks del job `lint` (OPS-12).
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
-      # Typecheck = lint (no hay ESLint configurado). El build de API es `tsc`,
-      # el de web es `tsc --noEmit && vite build`.
+      # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
       - name: Build API (tsc)
         run: npm run build:api
 
@@ -63,3 +62,76 @@ jobs:
       # (imports estáticos pesados, pérdida de code-splitting).
       - name: Bundle budget (web)
         run: npm run check:bundle
+
+  # Gate de lint — ESLint flat config (eslint.config.mjs). Son ERROR (= check
+  # rojo) max-lines (800 global; techos congelados por archivo legacy) y
+  # react-hooks/rules-of-hooks. La deuda preexistente reporta como warnings
+  # sin bloquear; endurecimiento gradual documentado en AGENTS.md.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+  # Gate de seguridad SCA — precondición de merge #6 de flit-integration-ado.
+  # Falla con cualquier vulnerabilidad High o Critical en dependencias de
+  # producción (tolerancia 0 según security-agent; una excepción aprobada se
+  # documenta en el PR y se registra, acotada a un advisory, en
+  # scripts/dependency-audit.mjs).
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: npm audit (dependencias de producción)
+        run: node scripts/dependency-audit.mjs
+
+  # Gate de secretos — precondición de merge #6 de flit-integration-ado.
+  # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.
+  # Se usa el binario directo y no la action oficial: la action exige licencia
+  # para organizaciones; el binario es MIT. Un hallazgo real = check rojo =
+  # merge bloqueado + rotación del secreto.
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+
+      - name: Scan de secretos (gitleaks)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=100
+            /tmp/gitleaks git --redact --log-opts="origin/${{ github.base_ref }}..HEAD" .
+          else
+            /tmp/gitleaks git --redact --log-opts="-100" .
+          fi

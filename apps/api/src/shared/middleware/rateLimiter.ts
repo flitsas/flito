@@ -15,7 +15,7 @@ export function userOrIpKey(prefix: string) {
 
 // Si Redis está disponible, usamos su store para rate limit distribuido entre instancias.
 // Si no, fallback al store in-memory por defecto de express-rate-limit.
-function makeStore(prefix: string): Options['store'] | undefined {
+export function makeStore(prefix: string): Options['store'] | undefined {
   const r = getRedis();
   if (!r) return undefined;
   return new RedisStore({

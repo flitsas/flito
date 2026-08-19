@@ -21,6 +21,9 @@ const FlitoBitacora = lazy(() => import('./pages/FlitoBitacora'));
 const FlitoCompuerta = lazy(() => import('./pages/FlitoCompuerta'));
 const FlitoLogistica = lazy(() => import('./pages/FlitoLogistica'));
 const FlitoRuta = lazy(() => import('./pages/FlitoRuta'));
+const FlitoBolsas = lazy(() => import('./pages/FlitoBolsas'));
+const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
+const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
@@ -161,6 +164,9 @@ function AppRoutes() {
         <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
         <Route path="/flito/logistica" element={<ProtectedRoute page="flito_logistica"><Lazy><FlitoLogistica /></Lazy></ProtectedRoute>} />
         <Route path="/flito/ruta" element={<ProtectedRoute page="flito_logistica_ruta"><Lazy><FlitoRuta /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/bolsas" element={<ProtectedRoute page="flito_bolsas"><Lazy><FlitoBolsas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/comparendos" element={<ProtectedRoute page="flito_comparendos"><Lazy><FlitoComparendos /></Lazy></ProtectedRoute>} />
+        <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />

@@ -1,17 +1,14 @@
 // Finanzas (HTTP). Montado en /api/finanzas. Lectura para el rol `financiera` (+ admin/auditor).
 
 import { Router, type Request, type Response } from 'express';
-import { eq, and } from 'drizzle-orm';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { db } from '../../db/client.js';
+import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
-  flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas, flitoLogisticaDocumentos,
-  flitoSoat, flitoSoportes, flitoTramites,
-} from '../../db/schema.js';
-import { firmarDescargaEntidad } from '../../services/storage.js';
-import {
-  aCsv, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION, type FiltrosReporte,
+  aCsv, ETAPAS, facetas, filasParaExportar, reporteCostos, TOPE_EXPORTACION,
+  resumenFacturacionElectronicaDelReporte,
+  type EtapaReporte, type FiltrosReporte,
 } from './finanzas.service.js';
+import { esEstadoReporte, type SiigoEstadoReporte } from '@operaciones/shared-types';
 
 const router = Router();
 router.use(authMiddleware);
@@ -26,7 +23,17 @@ const lista = (v: unknown): string[] | undefined => {
   const s = str(v);
   return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
 };
-const siNo = (v: unknown): 'si' | 'no' | undefined => (v === 'si' || v === 'no' ? v : undefined);
+/** Etapa del ciclo de cobro. Una desconocida se ignora: mejor el universo entero que un error. */
+const etapa = (v: unknown): EtapaReporte | undefined =>
+  (typeof v === 'string' && (ETAPAS as readonly string[]).includes(v) ? v as EtapaReporte : undefined);
+/**
+ * Estado de facturación electrónica (HU #11336). Uno desconocido se IGNORA, igual que la etapa: la
+ * alternativa —devolver 400— convertiría un enlace guardado en favoritos, hecho antes de que el
+ * catálogo cambiara, en una pantalla rota. Mejor el universo entero que un error.
+ */
+const estadoFe = (v: unknown): SiigoEstadoReporte | undefined =>
+  (esEstadoReporte(v) ? v : undefined);
+
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
 const fecha = (v: unknown): string | undefined => {
   const s = str(v);
@@ -36,9 +43,11 @@ const fecha = (v: unknown): string | undefined => {
 function filtrosDe(q: Request['query']): FiltrosReporte {
   return {
     buscar: str(q.buscar), estados: lista(q.estados), empresas: lista(q.empresas), tipos: lista(q.tipos),
-    liquidado: siNo(q.liquidado), facturado: siNo(q.facturado),
+    etapa: etapa(q.etapa),
+    documentacionCompleta: q.documentacionCompleta === 'si',
     desde: fecha(q.desde), hasta: fecha(q.hasta),
     aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
+    estadoFacturacion: estadoFe(q.estadoFacturacion),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }
@@ -51,6 +60,21 @@ router.get('/reporte-costos', LECTURA, async (req: Request, res: Response) => {
 // GET /reporte-costos/facetas — valores para los filtros (estados, empresas, tipos).
 router.get('/reporte-costos/facetas', LECTURA, async (_req: Request, res: Response) => {
   res.json(await facetas());
+});
+
+/**
+ * GET /reporte-costos/facturacion-electronica — los contadores por estado (HU #11336).
+ *
+ * Misma guarda de lectura que el resto del reporte (AC6): quien puede ver el reporte puede ver sus
+ * contadores, y nadie más. No se inventa un permiso nuevo — sería una segunda verdad sobre quién
+ * puede mirar lo mismo.
+ *
+ * Recibe los MISMOS filtros que el listado, y por eso cuenta sobre el mismo conjunto (AC3). No
+ * llama a Siigo (AC5): la pantalla lo consulta cada vez que se abre, y si cada apertura gastara
+ * peticiones de la ventana de 100 por minuto, mirar el reporte frenaría la emisión.
+ */
+router.get('/reporte-costos/facturacion-electronica', LECTURA, async (req: Request, res: Response) => {
+  res.json(await resumenFacturacionElectronicaDelReporte(filtrosDe(req.query)));
 });
 
 // GET /reporte-costos/export — CSV de TODO el filtro, no solo de la página visible.
@@ -67,81 +91,19 @@ router.get('/reporte-costos/export', LECTURA, async (req: Request, res: Response
  * GET /tramites/:id/soportes — TODOS los documentos del trámite, en una sola respuesta.
  *
  * Cada flujo servía los suyos por su propia ruta, así que verlos obligaba a varias llamadas y a
- * saber de antemano cuáles existían. Aquí no se elige: se devuelve lo que haya, de los cinco
+ * saber de antemano cuáles existían. Aquí no se elige: se devuelve lo que haya, de los cuatro
  * orígenes. Lo que no exista simplemente no aparece.
  *
- * Los tres primeros viven en `flito_soportes`; logística guarda los suyos aparte —la foto del
- * documento entregado y el acta firmada— y por eso se consultan por separado (HU #11025).
+ * El armado vive en shared/soportes: la misma lista se sirve desde Gestión de trámites, y las de
+ * un solo concepto desde el detalle de un SOAT o de un impuesto. Lo que cambia entre esas rutas es
+ * el rol que entra, no cómo se arma la lista.
  */
 router.get('/tramites/:id/soportes', LECTURA, async (req: Request, res: Response) => {
-  const tramiteId = req.params.id;
-  const [t] = await db.select({
-    soatId: flitoTramites.soatId, impuestoId: flitoImpuestos.id, derechoId: flitoDerechosTramite.id,
-  }).from(flitoTramites)
-    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
-    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
-    .where(eq(flitoTramites.id, tramiteId)).limit(1);
-
-  if (!t) { res.status(404).json({ error: 'El trámite no existe' }); return; }
-
-  const grupos: Array<{ origen: string; cond: ReturnType<typeof eq> | undefined }> = [
-    { origen: 'soat', cond: t.soatId ? eq(flitoSoportes.soatId, t.soatId) : undefined },
-    { origen: 'impuesto', cond: t.impuestoId ? eq(flitoSoportes.impuestoId, t.impuestoId) : undefined },
-    { origen: 'derecho', cond: t.derechoId ? eq(flitoSoportes.derechoId, t.derechoId) : undefined },
-  ];
-
-  const salida: Array<{ id: string; origen: string; tipo: string; nombreArchivo: string; url: string; subidoEn: string }> = [];
-
-  // Logística: la foto del documento entregado y el acta de entrega con sus firmas. No están en
-  // `flito_soportes` porque nacen del flujo de entrega, no de una carga de comprobantes.
-  const docsLogistica = await db.select({
-    id: flitoLogisticaDocumentos.id, tipo: flitoLogisticaDocumentos.tipo,
-    foto: flitoLogisticaDocumentos.fotoStorageKey, createdAt: flitoLogisticaDocumentos.createdAt,
-    actaPdf: flitoLogisticaActas.pdfStorageKey, actaEn: flitoLogisticaActas.createdAt,
-    actaId: flitoLogisticaActas.id,
-  }).from(flitoLogisticaDocumentos)
-    .leftJoin(flitoLogisticaActas, eq(flitoLogisticaDocumentos.actaId, flitoLogisticaActas.id))
-    .where(eq(flitoLogisticaDocumentos.tramiteId, tramiteId));
-
-  const actasVistas = new Set<string>();
-  for (const d of docsLogistica) {
-    if (d.foto) {
-      salida.push({
-        id: d.id, origen: 'logistica', tipo: d.tipo, nombreArchivo: `${d.tipo}.jpg`,
-        url: firmarDescargaEntidad(d.foto), subidoEn: d.createdAt.toISOString(),
-      });
-    }
-    // Un acta cubre varios documentos del mismo trámite: se lista una sola vez.
-    if (d.actaPdf && d.actaId && !actasVistas.has(d.actaId)) {
-      actasVistas.add(d.actaId);
-      salida.push({
-        id: d.actaId, origen: 'logistica', tipo: 'acta_entrega', nombreArchivo: 'Acta de entrega.pdf',
-        url: firmarDescargaEntidad(d.actaPdf), subidoEn: (d.actaEn ?? d.createdAt).toISOString(),
-      });
-    }
-  }
-
-  for (const g of grupos) {
-    if (!g.cond) continue;
-    const filas = await db.select({
-      id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo,
-      storageKey: flitoSoportes.storageKey, subidoEn: flitoSoportes.subidoEn,
-    }).from(flitoSoportes)
-      // Los descartados en la cola de revisión no son evidencia de nada: quedan fuera.
-      .where(and(g.cond, eq(flitoSoportes.descartado, false)));
-    for (const f of filas) {
-      salida.push({
-        id: f.id, origen: g.origen, tipo: f.tipo, nombreArchivo: f.nombreArchivo,
-        url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
-      });
-    }
-  }
-  // Del más reciente al más antiguo: lo último cargado es lo que se viene a mirar.
-  salida.sort((a, b) => b.subidoEn.localeCompare(a.subidoEn));
+  const soportes = await soportesDeTramite(req.params.id);
+  if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(salida);
+  res.json(soportes);
 });
 
 export default router;

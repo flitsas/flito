@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { esAlertaOperativa } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
@@ -67,6 +68,22 @@ router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
 // GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
 router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   res.json(await historial(req.params.id));
+});
+
+/**
+ * GET /:id/soportes — los documentos del trámite: SOAT, impuesto, derecho de tránsito y logística.
+ *
+ * Quien despacha desde esta pantalla es quien tiene que comprobar que el papel existe antes de
+ * entregar, y hasta ahora la única forma de verlo era irse al reporte de costos —que solo alcanza
+ * el rol financiera— o a la tabla de derechos. Es la misma lista que sirve finanzas; lo único
+ * propio de aquí es el rol que entra.
+ */
+router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+  const soportes = await soportesDeTramite(req.params.id);
+  if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
+  res.json(soportes);
 });
 
 // POST /crear-empresa — crea la empresa (cliente) de un trámite con empresa inexistente y re-vincula

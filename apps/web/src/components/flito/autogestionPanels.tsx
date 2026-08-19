@@ -113,6 +113,8 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
           <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Al conciliar el recibo, si el valor pagado difiere del liquidado más allá de la tolerancia de la compañía, se marca para revisión (no bloquea el pago). Actívalo solo donde el valor liquidado sea de fuente fiable.
           </p>
+          {/* La bolsa dejó de configurarse aquí: ya no es un interruptor por organismo, sino una
+              bolsa que agrupa varias secretarías y varios conceptos. Se define en Finanzas → Bolsas. */}
           {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={guardando} onClick={guardarParams}>Guardar parámetros</button>}
         </div>
 

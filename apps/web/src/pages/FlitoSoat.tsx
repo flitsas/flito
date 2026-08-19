@@ -6,17 +6,21 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
-import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
+import HistorialEstados from '../components/flit/HistorialEstados';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
+import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
@@ -27,8 +31,14 @@ interface SoatItem {
   id: string; vin: string; placa: string | null; marca: string | null; linea: string | null;
   estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
+  /** true = lo gestiona Operaciones por contingencia. El proveedor puede seguir viniendo: es de
+      quién se retomó, no quién lo trabaja (HU #11152/#11153). */
+  gestionOperaciones: boolean;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
-  tramitesFlit: string[]; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
+  tramitesFlit: string[];
+  /** Datos del trámite. Null cuando el SOAT sirve a varios que no coinciden (es por VIN, RN-01). */
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
+  enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   valorPagado: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
@@ -78,22 +88,54 @@ export default function FlitoSoat() {
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
+  // Al gestor no se le ofrece: su frontera ya excluye lo de Operaciones, así que «operaciones» le
+  // daría siempre vacío y «proveedor» sería redundante.
+  const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'proveedor'>('');
+  const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
   // Los multiselect se serializan a una clave para las dependencias de los efectos.
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(','); const provKey = proveedoresSel.join(',');
 
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0 || proveedoresSel.length > 0
-    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado;
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado || !!gestionSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
-    setSoloEstancado(false); setTexto('');
+    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setEstado(esGestor ? EstadoSoat.SOLICITADO : 'todos');
+  };
+
+  /**
+   * Las dos vistas con las que se trabaja la cola. Son combinaciones, no filtros sueltos: «listos
+   * para enviar» son dos condiciones y ponerlas a mano cada vez invita a olvidar una.
+   *
+   * Un gestor no ve «listos para enviar»: los Pendiente están fuera de su frontera (CA-09), así que
+   * el preset le devolvería siempre una lista vacía y parecería que no hay trabajo.
+   */
+  const PRESETS: Array<Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>> = [
+    ...(esGestor ? [] : [{
+      nombre: 'Listos para enviar',
+      descripcion: 'Pendientes que ya tienen proveedor asignado.',
+      filtros: { estado: EstadoSoat.PENDIENTE as EstadoSoat | 'todos', estancado: false },
+    }]),
+    {
+      nombre: 'Sin gestión',
+      descripcion: `Solicitados que superaron el ANS de ${ANS_OPERATIVO.SIN_GESTION_HORAS} horas.`,
+      filtros: { estado: EstadoSoat.SOLICITADO, estancado: true },
+    },
+  ];
+
+  const aplicarPreset = (p: Preset<{ estado: EstadoSoat | 'todos'; estancado: boolean }>) => {
+    limpiarFiltros();
+    setEstado(p.filtros.estado);
+    setSoloEstancado(p.filtros.estancado);
+    setPreset(p.nombre);
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -108,10 +150,11 @@ export default function FlitoSoat() {
     if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
     if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
+    if (gestionSel) q.set('gestion', gestionSel);
     q.set('page', String(page));
     api.get<ColaSoat>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -172,6 +215,21 @@ export default function FlitoSoat() {
               opciones={(facetas?.proveedores ?? []).map((p) => ({ value: p.id, label: p.nombre }))} />
           )}
 
+          {!esGestor && (
+            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              Gestiona
+              <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
+                onChange={(e) => setGestionSel(e.target.value as '' | 'operaciones' | 'proveedor')}>
+                <option value="">Cualquiera</option>
+                <option value="operaciones">Operaciones</option>
+                <option value="proveedor">Un proveedor</option>
+              </select>
+            </label>
+          )}
+
+          <FiltrosInteligentes presets={PRESETS} activo={preset}
+            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
+
           <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
             onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
@@ -211,7 +269,7 @@ export default function FlitoSoat() {
             <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="SOAT"
               onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
           </div>
-          <FlitTable>
+          <FlitTable label="Pólizas SOAT">
             <thead>
               <FlitTr>
                 {esOperaciones && seleccionables.length > 0 && (
@@ -221,8 +279,9 @@ export default function FlitoSoat() {
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
-                <FlitTh>Placa</FlitTh><FlitTh>Vehículo</FlitTh><FlitTh>Compañía</FlitTh>
-                <FlitTh>Proveedor</FlitTh><FlitTh>Estado</FlitTh>
+                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                <FlitTh>Compañía</FlitTh>
+                <FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
                 <FlitTh>Valor</FlitTh><FlitTh />
               </FlitTr>
@@ -238,16 +297,15 @@ export default function FlitoSoat() {
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 font-medium">
-                    {f.placa ?? '—'}
-                    {f.esMultiplePropietario && <span className="ml-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>multi</span>}
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    <div>{f.marca} {f.linea}</div>
-                    <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vin}</div>
-                  </td>
+                  {/* `varios`: un SOAT sin tipo NO es un dato que falte, es que sirve a varios
+                      trámites y no coinciden. La celda común lo distingue. */}
+                  <CeldaTramite idFlit={f.tramitesFlit.join(', ') || null} tipoTramite={f.tipoTramite}
+                    varios={f.tramitesFlit.length > 1}
+                    extra={f.esMultiplePropietario ? 'Múltiple propietario' : null} />
+                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
-                  <td className="px-3 py-2 text-sm">{f.proveedorSoatNombre ?? '—'}</td>
+                  <CeldaGestion soat={f} />
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
@@ -291,15 +349,25 @@ export default function FlitoSoat() {
   );
 }
 
+/**
+ * Valor centinela del selector de destino. La contingencia entra como una opción MÁS de la misma
+ * lista, y no como una casilla aparte, porque así un solo control decide el destino: es imposible
+ * pedir proveedor y Operaciones a la vez, que es justo lo que el servidor rechaza con un 400. El
+ * usuario nunca llega a ver ese error porque la interfaz no le deja construirlo.
+ */
+const DESTINO_OPERACIONES = '__operaciones__';
+
 function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
   ids: string[]; proveedores: Proveedor[]; onEnviado: () => void; onError: (m: string) => void;
 }) {
-  const [proveedorSoatId, setProveedorSoatId] = useState('');
+  const [destino, setDestino] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const aOperaciones = destino === DESTINO_OPERACIONES;
   const enviar = async () => {
     setEnviando(true);
     try {
-      await api.post('/flito/soat/enviar', { ids, proveedorSoatId });
+      await api.post('/flito/soat/enviar',
+        aOperaciones ? { ids, gestionOperaciones: true } : { ids, proveedorSoatId: destino });
       onEnviado();
     } catch (e) { onError(errorMessage(e)); }
     finally { setEnviando(false); }
@@ -308,20 +376,47 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
     <FlitCard>
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
-        <select className={`${flitInp} max-w-xs`} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
-          <option value="">Elige el proveedor…</option>
-          {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-        </select>
-        {/* Sin proveedor el SOAT quedaría en la cola de nadie. */}
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !proveedorSoatId} onClick={enviar}>
-          {enviando ? 'Enviando…' : 'Enviar al gestor'}
+        <label className="flex items-center gap-2 text-sm">
+          Enviar a
+          <select className={`${flitInp} max-w-xs`} value={destino} onChange={(e) => setDestino(e.target.value)}>
+            <option value="">Elige destino…</option>
+            <option value={DESTINO_OPERACIONES}>Gestionado por Operaciones</option>
+            <optgroup label="Proveedores">
+              {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </optgroup>
+          </select>
+        </label>
+        {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
+        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !destino} onClick={enviar}>
+          {enviando ? 'Enviando…' : aOperaciones ? 'Enviar a Operaciones' : 'Enviar al gestor'}
         </button>
       </div>
     </FlitCard>
   );
 }
 
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura';
+/**
+ * Quién gestiona el SOAT. Reutiliza la columna del proveedor en vez de añadir una nueva: la cola ya
+ * va ancha. En los que Operaciones retomó se dice de quién, que es el dato que hace útil el botón
+ * de devolver. El distintivo lleva texto y no solo color.
+ */
+function CeldaGestion({ soat }: { soat: SoatItem }) {
+  if (!soat.gestionOperaciones) {
+    return <td className="px-3 py-2 text-sm">{soat.proveedorSoatNombre ?? '—'}</td>;
+  }
+  return (
+    <td className="px-3 py-2 text-sm">
+      <StatusChip tone="warning">Operaciones</StatusChip>
+      {soat.proveedorSoatNombre && (
+        <div className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+          retomado de {soat.proveedorSoatNombre}
+        </div>
+      )}
+    </td>
+  );
+}
+
+type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura' | 'asumir' | 'devolver';
 
 function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, onClose, onCambio }: {
   soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
@@ -330,12 +425,17 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
   const [estadoDestino, setEstadoDestino] = useState<EstadoSoat>(EstadoSoat.PENDIENTE);
-  const [proveedorSoatId, setProveedorSoatId] = useState('');
+  const [proveedorSoatId, setProveedorSoatId] = useState(soat.proveedorSoatId ?? '');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Visor de los comprobantes de ESTE SOAT (la factura de la aseguradora), encima del detalle.
+  const [verSoportes, setVerSoportes] = useState(false);
 
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
   const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
+  // El traspaso de gestión solo tiene sentido mientras el SOAT está en gestión y sin pagar: en
+  // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
+  const traspasable = enAdquisicion || rechazado;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
@@ -360,10 +460,30 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
           <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
-          <Dato k="Proveedor" v={soat.proveedorSoatNombre ?? '—'} /><Dato k="Trámites FLIT" v={soat.tramitesFlit.join(', ') || '—'} />
+          <Dato k="Gestiona" v={soat.gestionOperaciones
+            ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
+            : soat.proveedorSoatNombre ?? '—'} /><Dato k="Trámites FLIT" v={soat.tramitesFlit.join(', ') || '—'} />
           <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />
+          {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
+              reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
+              SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
+            <dd className="text-sm">
+              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+                onClick={() => setVerSoportes(true)}>Ver soporte</button>
+            </dd>
+          </div>
         </dl>
+
+        {verSoportes && (
+          <VisorSoportes ruta={`/flito/soat/${soat.id}/soportes`} titulo={`SOAT ${soat.placa ?? soat.vin}`}
+            vacio="Este SOAT no tiene ninguna factura cargada todavía."
+            onClose={() => setVerSoportes(false)} />
+        )}
+
+        <HistorialEstados concepto="soat" registroId={soat.id} />
 
         {soat.compradores.length > 0 && (
           <div>
@@ -404,6 +524,12 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
             {esOperaciones && !enAdquisicion && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
             )}
+            {esOperaciones && traspasable && !soat.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
+            )}
+            {esOperaciones && traspasable && soat.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al proveedor</button>
+            )}
           </div>
         )}
 
@@ -423,6 +549,28 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
             <FormMotivo etiqueta="Motivo de la reversa (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
               enviando={enviando} minLen={5} onCancelar={() => { setAccion('idle'); setMotivo(''); }}
               onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/reversar`, { estadoDestino, motivo }))} />
+          </div>
+        )}
+
+        {accion === 'asumir' && (
+          <FormMotivo etiqueta="Motivo para asumirlo en Operaciones (mín. 5 caracteres)"
+            motivo={motivo} setMotivo={setMotivo} enviando={enviando} minLen={5}
+            onCancelar={() => { setAccion('idle'); setMotivo(''); }}
+            onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/asumir-operaciones`, { motivo }))} />
+        )}
+
+        {accion === 'devolver' && (
+          <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <FlitField label="Proveedor que lo retoma">
+              <select className={flitInp} value={proveedorSoatId} onChange={(e) => setProveedorSoatId(e.target.value)}>
+                <option value="">Selecciona…</option>
+                {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              </select>
+            </FlitField>
+            <FormMotivo etiqueta="Motivo de la devolución (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
+              enviando={enviando} minLen={5} deshabilitado={!proveedorSoatId}
+              onCancelar={() => { setAccion('idle'); setMotivo(''); }}
+              onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/devolver-gestor`, { proveedorSoatId, motivo }))} />
           </div>
         )}
 

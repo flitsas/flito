@@ -12,6 +12,8 @@ import {
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
+import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
 import { deletePhoto } from '../../services/storage.js';
 import { logger } from '../../shared/logger.js';
@@ -52,6 +54,19 @@ const forgetLimiter = rateLimit({
 //
 // Lo que hace: reemplaza nombre, email, teléfono, dirección con valores tipo "[ANONIMIZADO]"
 // y un hash determinístico del doc original para mantener relaciones referenciales.
+//
+// Cobertura (HU #11334, 2026-08-10): 15 tablas — se suma siigo_factura_envios, que guarda a qué
+// direcciones se envió cada factura electrónica. Ahí NO se anonimiza la fila: se REDACTAN las
+// direcciones y se conserva el hecho del envío (cuándo, con qué resultado), porque ese hecho es la
+// prueba de entrega ante una glosa de la DIAN y no es un dato del titular. La tabla es append-only
+// y su disparador solo admite esa transición exacta; ver la migración 0141.
+//
+// Cobertura (HU #11297, 2026-08-10): 16 tablas — se suma `siigo_terceros`, que guarda la
+// identificación del titular EN CLARO porque hace falta para reencontrar su tercero en Siigo. Este
+// flujo anonimiza `clients.document` y NO borra la fila del cliente, así que el `ON DELETE CASCADE`
+// de esa tabla no alcanzaba: sin esto, la cédula sobreviviría a su propia supresión en una tabla que
+// nadie recuerda. Se anonimiza con el MISMO hash que recibe `clients.document`, para que el vínculo
+// siga siendo rastreable como pareja.
 //
 // Cobertura (Ola D 2026-05-06): 14 tablas — clients, vehicles, soat_requests, tramites_digitales,
 // laft_counterparties, laft_beneficial_owners, driver_profile, tramites_validaciones, alcohol_tests,
@@ -136,6 +151,15 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   const summary = await db.transaction(async (tx) => {
     const stats: Record<string, number> = {};
 
+    // Las direcciones del titular ANTES de anonimizarlas: después ya no se pueden conocer, y la
+    // purga de las actas de envío (paso 15) las necesita para alcanzar los correos que se
+    // escribieron a mano en la factura de otra empresa — que la búsqueda por compañía no ve.
+    const correosDelTitular = (await tx.select({
+      email: clients.email, contactEmail: clients.contactEmail,
+    }).from(clients).where(matchByDoc(clients.document)))
+      .flatMap((c) => [c.email, c.contactEmail])
+      .filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+
     // 1. clients: por documento
     const cli = await tx.update(clients).set({
       name: ANON_NAME,
@@ -144,6 +168,18 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       address: ANON_ADDRESS,
       document: docHash,
       notes: null,
+      // Datos fiscales de Siigo (HU #11292): el nombre comercial y el contacto son datos
+      // personales igual que los de arriba. Olvidarlos aquí dejaría el correo y el teléfono de
+      // una persona en columnas nuevas mientras el resto de su ficha queda anonimizada — el
+      // borrado sería aparente, y esa es exactamente la falla que la Ley 1581 castiga.
+      // Los códigos fiscales (`personType`, `idType`, ciudad, sucursal) NO se tocan: no
+      // identifican a nadie por sí solos y borrarlos rompería la trazabilidad contable.
+      commercialName: null,
+      contactFirstName: null,
+      contactLastName: null,
+      contactEmail: null,
+      phoneIndicative: null,
+      phoneNumber: null,
     }).where(matchByDoc(clients.document)).returning({ id: clients.id });
     stats.clients = cli.length;
 
@@ -319,6 +355,16 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       notas: null,
     }).where(matchByDoc(destinatariosCarga.documento)).returning({ id: destinatariosCarga.id });
     stats.destinatarios_carga = dest.length;
+
+    // 15. siigo_factura_envios: se redactan las direcciones, se conserva el acta. Se busca por la
+    // compañía Y por la dirección: solo por compañía quedarían fuera las actas de trámites sin
+    // empresa resuelta y los destinatarios escritos a mano en facturas de terceros.
+    stats.siigo_factura_envios = await purgarDestinatariosDeClientes(
+      cli.map((c) => c.id), correosDelTitular, tx,
+    );
+
+    // 16. siigo_terceros: la identificación del titular, en la tabla del vínculo con Siigo.
+    stats.siigo_terceros = await anonimizarTercerosDeClientes(cli.map((c) => c.id), docHash, tx);
 
     return stats;
   });

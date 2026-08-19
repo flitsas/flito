@@ -21,6 +21,9 @@ import {
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+import VisorSoportes from '../components/flit/VisorSoportes';
 
 const PAGE_SIZE = 50;
 
@@ -37,42 +40,64 @@ interface DerechoRow {
   organismoCodigo: string | null; empresa: string | null; valor: string | null;
   fechaPago: string | null; numeroRadicado: string | null; tipoTramiteRecibo: string | null;
   origen: string; advertencias: string[] | null; soporteId: string | null; createdAt: string;
+  /** De qué documento salió. Null en los derechos anteriores a que esto se registrara. */
+  archivoOrigen: string | null; paginas: number[] | null;
+  procesamientoId: number | null; procesamientoArchivo: string | null;
+  /** Vehículo y datos del trámite, homologados con las demás tablas. */
+  vin: string | null; marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
 }
-/**
- * La bandeja es de los tres conceptos desde la HU #10982: un recibo que no cruza ya no se descarta,
- * venga de derechos, de SOAT o de impuestos.
- */
-const CONCEPTOS_PENDIENTE = [
-  { valor: '', etiqueta: 'Todos' },
-  { valor: 'derecho', etiqueta: 'Derechos' },
-  { valor: 'soat', etiqueta: 'SOAT' },
-  { valor: 'impuesto', etiqueta: 'Impuestos' },
-] as const;
-const ETIQUETA_CONCEPTO: Record<string, string> = { derecho: 'Derecho', soat: 'SOAT', impuesto: 'Impuesto' };
-const TONO_CONCEPTO: Record<string, ChipTone> = { derecho: 'active', soat: 'warning', impuesto: 'draft' };
 /** De dónde salió el recibo. En la tabla se veía el valor crudo de la columna. */
 const ETIQUETA_ORIGEN: Record<string, string> = { manual: 'Carga manual', drive: 'Drive de la secretaría' };
 
+/**
+ * El documento del que salió el recibo, bajo el canal.
+ *
+ * «Drive» o «Carga manual» dicen por dónde entró, no de qué papel. Con los consolidados —un PDF de
+ * trece páginas por día— eso no basta para volver al documento cuando alguien reclama: hace falta el
+ * archivo, y la página dentro de él.
+ *
+ * El nombre se toma del registro del barrido cuando existe, no de la columna del derecho: si alguien
+ * renombra el fichero en el Drive, el registro sigue guardando el nombre que tenía al procesarse.
+ */
+function ArchivoOrigen({ d }: { d: DerechoRow }) {
+  const nombre = d.procesamientoArchivo ?? d.archivoOrigen;
+  // Los derechos cargados antes de este cambio no lo tienen, y no es recuperable: en cualquier
+  // ventana de diez minutos hubo tres barridos, así que atribuirlos por fecha sería inventárselo.
+  if (!nombre) return <div className="mt-0.5" style={{ color: 'var(--flit-text-muted)' }}>Archivo no registrado</div>;
+  const paginas = d.paginas?.length
+    ? ` · pág. ${d.paginas.length > 1 ? `${d.paginas[0]}–${d.paginas[d.paginas.length - 1]}` : d.paginas[0]}`
+    : '';
+  return (
+    <div className="mt-0.5 break-all" style={{ color: 'var(--flit-text-secondary)' }} title={nombre}>
+      {nombre}{paginas}
+    </div>
+  );
+}
+
 interface ArchivoDrive {
   fileId: string; nombre: string; tamanoBytes: number | null;
-  modificadoEn: string | null; procesadoEn: string | null;
+  modificadoEn: string | null; modificadoPor: string | null;
+  procesadoEn: string | null; omitidoEn: string | null;
 }
 interface ResultadoProcesoDrive extends ResultadoCarga {
   archivo: string; totalPaginas: number; cuentasDetectadas: number; placasUnicas: number;
 }
 
-interface PendienteRow {
-  id: string; concepto: string; placa: string | null; valor: string | null; fechaPago: string | null;
-  tipoTramiteRecibo: string | null; organismoCodigo: string | null; origen: string;
-  intentos: number; ultimoIntentoEn: string; soporteId: string; nombreArchivo: string;
-  createdAt: string;
+/** Una pasada del procesador. Sobrevive al archivo: por eso hay `sigueEnDrive`. */
+interface RegistroRow {
+  id: number; fileId: string | null; nombreArchivo: string | null; estado: string;
+  modificadoPor: string | null; modificadoEn: string | null;
+  totalPaginas: number | null; cuentasDetectadas: number | null; placasUnicas: number | null;
+  valorTotal: string | null; error: string | null; procesadoEn: string; sigueEnDrive: boolean;
 }
-/** Qué se asoció y con qué, para poder verificar el cruce sin buscar los recibos uno a uno. */
-interface PendienteAsociado {
-  pendienteId: string; concepto: string; placa: string | null;
-  idFlit: string | null; tramiteId: string | null; registroId: string | null; detalle: string;
-}
-interface ResultadoReintento { revisados: number; asociados: number; detalle: PendienteAsociado[] }
+const TONO_ESTADO_PROC: Record<string, ChipTone> = {
+  completado: 'success', error: 'danger', omitido: 'neutral', procesando: 'active',
+};
+const ETIQUETA_ESTADO_PROC: Record<string, string> = {
+  completado: 'Procesado', error: 'Con error', omitido: 'Dado por visto', procesando: 'En curso',
+};
+
 
 // Cada canasta con su tono: lo que exige intervención humana no puede verse igual que lo resuelto.
 const CANASTAS = [
@@ -122,9 +147,17 @@ async function abrirSoporte(soporteId: string): Promise<void> {
  */
 function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void }) {
   const [archivos, setArchivos] = useState<ArchivoDrive[] | null>(null);
+  const [registro, setRegistro] = useState<RegistroRow[] | null>(null);
+  const [verRegistro, setVerRegistro] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [procesando, setProcesando] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    api.get<RegistroRow[]>('/flito/derechos/drive/registro')
+      .then(setRegistro)
+      .catch(() => setRegistro([]));
+  }, [nonce]);
 
   useEffect(() => {
     setArchivos(null); setError(null);
@@ -160,6 +193,72 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
         Las demás secretarías se cargan a mano desde arriba.
       </p>
 
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <span style={{ color: 'var(--flit-text-secondary)' }}>
+          Barrido automático diario a las 9:00. El botón queda para procesar cualquier día a demanda.
+        </span>
+        <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
+          onClick={() => setVerRegistro((v) => !v)}>
+          {verRegistro ? 'Ocultar el registro' : `Ver el registro${registro ? ` (${registro.length})` : ''}`}
+        </button>
+      </div>
+
+      {verRegistro && (
+        <FlitCard>
+          <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+            Registro de procesamientos
+          </h3>
+          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            Queda constancia de cada pasada, incluidas las de archivos que ya <strong>no están</strong> en
+            el Drive: la carpeta la manejan personas del organismo y un consolidado puede desaparecer.
+          </p>
+          {!registro && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
+          {registro && registro.length === 0 && <FlitEmpty>Todavía no se ha procesado ningún archivo.</FlitEmpty>}
+          {registro && registro.length > 0 && (
+            <div className="overflow-x-auto">
+              <FlitTable>
+                <thead>
+                  <FlitTr>
+                    <FlitTh>Archivo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Subido por</FlitTh>
+                    <FlitTh>Extraído</FlitTh><FlitTh>Valor</FlitTh><FlitTh>Procesado</FlitTh>
+                  </FlitTr>
+                </thead>
+                <tbody>
+                  {registro.map((r) => (
+                    <FlitTr key={r.id}>
+                      <td className="px-4 py-2 text-sm">
+                        <div className="font-medium">{r.nombreArchivo ?? '—'}</div>
+                        {!r.sigueEnDrive && (
+                          <div className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>
+                            Ya no está en el Drive
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <StatusChip tone={TONO_ESTADO_PROC[r.estado] ?? 'neutral'}>
+                          {ETIQUETA_ESTADO_PROC[r.estado] ?? r.estado}
+                        </StatusChip>
+                        {r.estado === 'error' && r.error && (
+                          <div className="mt-1 text-[11px]" style={{ color: 'var(--flit-danger)' }}>{r.error}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs">{r.modificadoPor ?? '—'}</td>
+                      <td className="px-4 py-2 text-xs tabular-nums">
+                        {r.cuentasDetectadas !== null
+                          ? `${r.cuentasDetectadas} cuenta(s) · ${r.placasUnicas ?? 0} placa(s)`
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-xs tabular-nums">{pesos(r.valorTotal)}</td>
+                      <td className="px-4 py-2 text-xs">{fechaHora(r.procesadoEn)}</td>
+                    </FlitTr>
+                  ))}
+                </tbody>
+              </FlitTable>
+            </div>
+          )}
+        </FlitCard>
+      )}
+
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
       {!archivos && !error && (
@@ -186,14 +285,29 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
               {archivos.map((a) => (
                 <FlitTr key={a.fileId}>
                   <td className="px-4 py-2.5 text-sm font-medium">{a.nombre}</td>
-                  <td className="px-4 py-2.5 text-xs">{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</td>
+                  {/* La fecha sola no era accionable: en una carpeta compartida lo que hace falta
+                      es saber a quién preguntar. */}
+                  <td className="px-4 py-2.5 text-xs">
+                    <div>{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</div>
+                    {a.modificadoPor && (
+                      <div style={{ color: 'var(--flit-text-muted)' }}>por {a.modificadoPor}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-xs tabular-nums">{tamano(a.tamanoBytes)}</td>
                   <td className="px-4 py-2.5 text-xs">
                     {/* Informativo, no una prohibición: si el organismo reemplazó el archivo del día
                         hay que poder releerlo. Lo que impide duplicar es el hash de cada recibo. */}
                     {a.procesadoEn
                       ? <StatusChip tone="success">{fechaHora(a.procesadoEn)}</StatusChip>
-                      : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
+                      : a.omitidoEn
+                        // Ya estaba en la carpeta cuando se encendió el barrido: se dio por visto
+                        // sin gastar OCR en histórico que nadie pidió. Se puede procesar a mano.
+                        ? (
+                          <span title="Ya estaba en la carpeta al encender el barrido automático. Se puede procesar a mano.">
+                            <StatusChip tone="neutral">Dado por visto</StatusChip>
+                          </span>
+                        )
+                        : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
                   </td>
                   <td className="px-4 py-2.5 text-center">
                     <button
@@ -220,7 +334,7 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
 }
 
 export default function FlitoDerechos() {
-  const [pestana, setPestana] = useState<'registrados' | 'pendientes' | 'drive'>('registrados');
+  const [pestana, setPestana] = useState<'registrados' | 'drive'>('registrados');
   const [archivos, setArchivos] = useState<File[]>([]);
   const [organismo, setOrganismo] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -231,15 +345,26 @@ export default function FlitoDerechos() {
   const [nonce, setNonce] = useState(0);
   const [derechos, setDerechos] = useState<DerechoRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [pendientes, setPendientes] = useState<PendienteRow[]>([]);
-  const [reintentando, setReintentando] = useState(false);
-  const [conceptoSel, setConceptoSel] = useState<'' | 'derecho' | 'soat' | 'impuesto'>('');
-  const [ultimoReintento, setUltimoReintento] = useState<PendienteAsociado[] | null>(null);
   // Filtros del listado de registrados (HU #11026). Antes solo había búsqueda por texto.
   const [organismosSel, setOrganismosSel] = useState<string[]>([]);
   const [origenesSel, setOrigenesSel] = useState<string[]>([]);
   const [pagado, setPagado] = useState({ desde: '', hasta: '' });
   const [facetas, setFacetas] = useState<{ organismos: string[]; origenes: string[] }>({ organismos: [], origenes: [] });
+  /** Trámite cuyo visor de documentos está abierto. Null = cerrado. */
+  const [soportesDe, setSoportesDe] = useState<{ tramiteId: string; idFlit: string } | null>(null);
+  const [conAdvertencia, setConAdvertencia] = useState(false);
+  const [preset, setPreset] = useState<string | null>(null);
+
+  /**
+   * La única vista con nombre que tiene sentido aquí. Un derecho «con advertencia» es uno cuyo
+   * concepto no cuadra con el del trámite: se registró igual, pero alguien debería mirarlo antes
+   * de que entre en una liquidación.
+   */
+  const PRESETS: Array<Preset<{ advertencia: boolean }>> = [{
+    nombre: 'Con advertencia',
+    descripcion: 'El concepto del recibo no coincide con el del trámite.',
+    filtros: { advertencia: true },
+  }];
 
   const recargar = useCallback(() => setNonce((n) => n + 1), []);
 
@@ -249,6 +374,7 @@ export default function FlitoDerechos() {
       if (buscar.trim()) q.set('buscar', buscar.trim());
       if (organismosSel.length) q.set('organismos', organismosSel.join(','));
       if (origenesSel.length) q.set('origenes', origenesSel.join(','));
+      if (conAdvertencia) q.set('conAdvertencia', 'si');
       if (pagado.desde) q.set('pagadoDesde', pagado.desde);
       if (pagado.hasta) q.set('pagadoHasta', pagado.hasta);
       api.get<{ items: DerechoRow[]; total: number }>(`/flito/derechos?${q}`)
@@ -257,7 +383,7 @@ export default function FlitoDerechos() {
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscar, page, nonce, organismosSel.join(','), origenesSel.join(','), pagado.desde, pagado.hasta]);
+  }, [buscar, page, nonce, organismosSel.join(','), origenesSel.join(','), pagado.desde, pagado.hasta, conAdvertencia]);
 
   useEffect(() => {
     api.get<{ organismos: string[]; origenes: string[] }>('/flito/derechos/facetas')
@@ -266,11 +392,6 @@ export default function FlitoDerechos() {
       .then((f) => setFacetas({ organismos: f?.organismos ?? [], origenes: f?.origenes ?? [] }))
       .catch(() => setFacetas({ organismos: [], origenes: [] }));
   }, [nonce]);
-
-  useEffect(() => {
-    const q = conceptoSel ? `?concepto=${conceptoSel}` : '';
-    api.get<PendienteRow[]>(`/flito/derechos/pendientes${q}`).then(setPendientes).catch(() => setPendientes([]));
-  }, [nonce, conceptoSel]);
 
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const totalResultado = useMemo(
@@ -297,21 +418,6 @@ export default function FlitoDerechos() {
     }
   }
 
-  async function reintentarPendientes() {
-    setReintentando(true);
-    try {
-      const r = await api.post<ResultadoReintento>('/flito/derechos/pendientes/reintentar');
-      toast.success(`${r.asociados} de ${r.revisados} pendiente(s) asociado(s)`);
-      // El detalle se guarda para pintarlo: un «2 asociados» no deja comprobar que el cruce fue el
-      // correcto sin ir a buscar los recibos uno a uno.
-      setUltimoReintento(r.detalle ?? []);
-      recargar();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setReintentando(false);
-    }
-  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -368,9 +474,6 @@ export default function FlitoDerechos() {
       <FlitPillGroup>
         <FlitPillButton active={pestana === 'registrados'} onClick={() => setPestana('registrados')}>
           Registrados ({total})
-        </FlitPillButton>
-        <FlitPillButton active={pestana === 'pendientes'} onClick={() => setPestana('pendientes')}>
-          Sin cruzar ({pendientes.length})
         </FlitPillButton>
         <FlitPillButton active={pestana === 'drive'} onClick={() => setPestana('drive')}>
           Drive · Medellín
@@ -440,6 +543,12 @@ export default function FlitoDerechos() {
             <ThFiltroMulti seleccion={origenesSel} onCambio={(v) => { setOrigenesSel(v); setPage(1); }}
               placeholder="Origen" vacio="Sin orígenes"
               opciones={facetas.origenes.map((o) => ({ value: o, label: ETIQUETA_ORIGEN[o] ?? o }))} />
+            <FiltrosInteligentes presets={PRESETS} activo={preset}
+              onAplicar={(p) => {
+                setOrganismosSel([]); setOrigenesSel([]); setPagado({ desde: '', hasta: '' }); setBuscar('');
+                setConAdvertencia(p.filtros.advertencia); setPreset(p.nombre); setPage(1);
+              }}
+              onQuitar={() => { setConAdvertencia(false); setPreset(null); setPage(1); }} />
             <RangoFechas etiqueta="Pagado" valor={pagado} onCambio={(r) => { setPagado(r); setPage(1); }} />
           </div>
 
@@ -450,22 +559,23 @@ export default function FlitoDerechos() {
               <FlitTable>
                 <thead>
                   <tr>
-                    <FlitTh>Placa</FlitTh>
-                    <FlitTh>Trámite</FlitTh>
+                    {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
                     <FlitTh>Empresa</FlitTh>
                     <FlitTh>Organismo</FlitTh>
-                    <FlitTh>Concepto</FlitTh>
+                    <FlitTh>Concepto del recibo</FlitTh>
                     <FlitTh>Valor</FlitTh>
                     <FlitTh>Fecha de pago</FlitTh>
                     <FlitTh>Origen</FlitTh>
                     <FlitTh center>Soporte</FlitTh>
+                    <FlitTh center>Documentos</FlitTh>
                   </tr>
                 </thead>
                 <tbody>
                   {derechos.map((d) => (
                     <FlitTr key={d.id}>
-                      <td className="px-4 py-2.5 text-sm font-semibold">{d.placa ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-sm">{d.idFlit}</td>
+                      <CeldaTramite idFlit={d.idFlit} tipoTramite={d.tipoTramite} />
+                      <CeldaVehiculo placa={d.placa} vin={d.vin} marca={d.marca} linea={d.linea} />
+                      <CeldaFechas creado={d.fechaCreacion} aprobado={d.fechaAprobacion} />
                       <td className="px-4 py-2.5 text-sm">{d.empresa ?? '—'}</td>
                       <td className="px-4 py-2.5 text-sm">{d.organismoCodigo ?? '—'}</td>
                       <td className="px-4 py-2.5 text-xs">
@@ -480,6 +590,7 @@ export default function FlitoDerechos() {
                       <td className="px-4 py-2.5 text-sm">{fecha(d.fechaPago)}</td>
                       <td className="px-4 py-2.5 text-xs">
                         <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{ETIQUETA_ORIGEN[d.origen] ?? d.origen}</StatusChip>
+                        <ArchivoOrigen d={d} />
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         {d.soporteId ? (
@@ -492,6 +603,16 @@ export default function FlitoDerechos() {
                             Ver PDF
                           </button>
                         ) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        {/* Los tres conceptos del trámite, no solo el derecho: quien revisa un
+                            derecho quiere comprobar si el SOAT y el impuesto están cargados, y
+                            hasta ahora tenía que irse al reporte de costos para averiguarlo. */}
+                        <button type="button" className="text-xs font-semibold underline"
+                          style={{ color: 'var(--flit-blue)' }}
+                          onClick={() => setSoportesDe({ tramiteId: d.tramiteId, idFlit: d.idFlit })}>
+                          Ver todos
+                        </button>
                       </td>
                     </FlitTr>
                   ))}
@@ -519,117 +640,13 @@ export default function FlitoDerechos() {
             </>
           )}
         </>
-      ) : pestana === 'pendientes' ? (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-              Recibos leídos que todavía no cruzan con ningún registro — de derechos, de SOAT o de
-              impuestos. El archivo queda guardado y el cruce se reintenta en cada sincronización con FLIT.
-            </p>
-            <button
-              type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-              disabled={reintentando || pendientes.length === 0} onClick={reintentarPendientes}
-            >
-              {reintentando ? 'Reintentando…' : 'Reintentar ahora'}
-            </button>
-          </div>
-
-          <FlitPillGroup>
-            {CONCEPTOS_PENDIENTE.map((c) => (
-              <FlitPillButton key={c.valor} active={conceptoSel === c.valor} onClick={() => setConceptoSel(c.valor)}>
-                {c.etiqueta}
-              </FlitPillButton>
-            ))}
-          </FlitPillGroup>
-
-          {ultimoReintento !== null && (
-            <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--flit-border)' }}>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="font-semibold">
-                  {ultimoReintento.length === 0
-                    ? 'El último reintento no encontró trámite para ningún pendiente.'
-                    : `Último reintento: ${ultimoReintento.length} documento(s) asociado(s)`}
-                </span>
-                <button type="button" className="underline" style={{ color: 'var(--flit-text-muted)' }}
-                  onClick={() => setUltimoReintento(null)}>Ocultar</button>
-              </div>
-              {ultimoReintento.length > 0 && (
-                <ul className="flex flex-col gap-1">
-                  {ultimoReintento.map((a) => (
-                    <li key={a.pendienteId} className="flex flex-wrap items-center gap-x-1">
-                      <StatusChip tone={TONO_CONCEPTO[a.concepto] ?? 'draft'}>
-                        {ETIQUETA_CONCEPTO[a.concepto] ?? a.concepto}
-                      </StatusChip>
-                      <span className="font-medium tabular-nums">{a.placa ?? 'sin placa'}</span>
-                      <span style={{ color: 'var(--flit-text-muted)' }}>→</span>
-                      {/* Sin trámite el enlace no lleva a ninguna parte: se dice y ya. */}
-                      {a.idFlit ? (
-                        <Link to={`/flito/tramites?buscar=${encodeURIComponent(a.idFlit)}`}
-                          className="tabular-nums hover:underline" style={{ color: 'var(--flit-blue-text)' }}>
-                          {a.idFlit}
-                        </Link>
-                      ) : <span className="italic" style={{ color: 'var(--flit-text-muted)' }}>sin trámite</span>}
-                      <span style={{ color: 'var(--flit-text-muted)' }}>· {a.detalle}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {pendientes.length === 0 ? (
-            <FlitEmpty>No hay recibos esperando su registro.</FlitEmpty>
-          ) : (
-            <FlitTable>
-              <thead>
-                <tr>
-                  <FlitTh>Origen</FlitTh>
-                  <FlitTh>Placa</FlitTh>
-                  <FlitTh>Archivo</FlitTh>
-                  <FlitTh>Concepto</FlitTh>
-                  <FlitTh>Valor</FlitTh>
-                  <FlitTh>Fecha de pago</FlitTh>
-                  <FlitTh center>Intentos</FlitTh>
-                  <FlitTh>Último intento</FlitTh>
-                  <FlitTh center>Soporte</FlitTh>
-                </tr>
-              </thead>
-              <tbody>
-                {pendientes.map((p) => (
-                  <FlitTr key={p.id}>
-                    <td className="px-4 py-2.5">
-                      <StatusChip tone={TONO_CONCEPTO[p.concepto] ?? 'neutral'}>
-                        {ETIQUETA_CONCEPTO[p.concepto] ?? p.concepto}
-                      </StatusChip>
-                    </td>
-                    {/* Sin placa el cruce automático es imposible; se dice, en vez de dejar la celda vacía. */}
-                    <td className="px-4 py-2.5 text-sm font-semibold">
-                      {p.placa ?? <span className="font-normal italic" style={{ color: 'var(--flit-text-muted)' }}>Sin placa</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs">{p.nombreArchivo}</td>
-                    <td className="px-4 py-2.5 text-xs">{p.tipoTramiteRecibo ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-sm">{pesos(p.valor)}</td>
-                    <td className="px-4 py-2.5 text-sm">{fecha(p.fechaPago)}</td>
-                    <td className="px-4 py-2.5 text-center text-sm">{p.intentos}</td>
-                    <td className="px-4 py-2.5 text-xs">{fechaHora(p.ultimoIntentoEn)}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <button
-                        type="button"
-                        className="text-xs font-semibold underline"
-                        style={{ color: 'var(--flit-blue)' }}
-                        onClick={() => abrirSoporte(p.soporteId)}
-                      >
-                        Ver PDF
-                      </button>
-                    </td>
-                  </FlitTr>
-                ))}
-              </tbody>
-            </FlitTable>
-          )}
-        </>
       ) : (
         <TabDrive onProcesado={(r) => { setResultado(r); recargar(); }} />
+      )}
+
+      {soportesDe && (
+        <VisorSoportes ruta={`/finanzas/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
+          onClose={() => setSoportesDe(null)} />
       )}
     </div>
   );

@@ -9,9 +9,12 @@ import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { historialDe } from '../../shared/historial/estado-historial.js';
+import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
-  cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat, facetasCola, detalle, enviarAlGestor,
+  asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
+  devolverAlGestor, facetasCola, detalle, enviarAlGestor,
   reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
@@ -81,6 +84,8 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     companias: numeros(req.query.companias),
     organismos: lista(req.query.organismos),
     proveedores: lista(req.query.proveedores),
+    // Un valor desconocido se ignora, como el resto de filtros: un filtro roto no tumba la pantalla.
+    gestion: req.query.gestion === 'operaciones' || req.query.gestion === 'proveedor' ? req.query.gestion : undefined,
     solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
     pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
     estancado: req.query.estancado === 'si',
@@ -103,21 +108,62 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   res.json(d);
 });
 
+// GET /:id/historial — cambios de estado, del más reciente al más antiguo.
+//
+// Pasa por `detalle()` antes de leer el historial y no directo a la tabla: es lo que aplica la
+// frontera del gestor. Sin ese paso, un proveedor podría leer la historia de un SOAT de otro
+// consultando su id, que es exactamente lo que el 404-no-403 del detalle evita.
+router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoSoat(req.user!);
+  const d = await detalle(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  res.json(await historialDe('soat', req.params.id));
+});
+
+/**
+ * GET /:id/soportes — los comprobantes cargados de este SOAT, con su enlace firmado.
+ *
+ * Quien mira un SOAT pagado quiere ver la factura que lo pagó sin salir del detalle: hasta ahora
+ * el archivo se cargaba desde aquí y solo se podía consultar desde el reporte de costos, al que
+ * el gestor del proveedor ni siquiera entra.
+ *
+ * Pasa por `detalle()` antes de leer los soportes, por lo mismo que el historial: es ese paso el
+ * que aplica la frontera del gestor, y sin él un proveedor podría leer los documentos de un SOAT
+ * ajeno consultando su id.
+ */
+router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+  const ctx = await contextoSoat(req.user!);
+  const d = await detalle(req.params.id, ctx);
+  if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
+  res.json(await soportesDeSoat(req.params.id));
+});
+
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.
-// El proveedor pasa a ser OBLIGATORIO (HU #10979). Antes podía omitirse y lo resolvía la regla de
-// enrutamiento pre-asignada en la sincronización; sin esas reglas, omitirlo dejaría el SOAT en la
-// cola de nadie y sin SLA con el que medirlo.
+//
+// Hay que nombrar un destino, y solo uno: un proveedor, o Operaciones. El proveedor se volvió
+// obligatorio en la HU #10979 porque omitirlo dejaba el SOAT en la cola de nadie y sin ANS con el
+// que medirlo. Ese riesgo sigue vigente, así que la contingencia (HU #11152) no relaja la regla:
+// añade el otro destino, también explícito. Marcar los dos —o ninguno— es un 400, porque un envío
+// sin dueño claro es justo lo que ninguna de las dos HU quiere.
 const enviarSchema = z.object({
   ids: z.array(z.string().uuid()).min(1),
-  proveedorSoatId: z.string().uuid({ message: 'Elige el proveedor al que se envía' }),
-});
+  proveedorSoatId: z.string().uuid().optional(),
+  gestionOperaciones: z.boolean().optional(),
+}).refine(
+  (d) => Boolean(d.proveedorSoatId) !== Boolean(d.gestionOperaciones),
+  { message: 'Elige el proveedor al que se envía, o marca que lo gestiona Operaciones. Una de las dos, no ambas.' },
+);
 router.post('/enviar', OPERACIONES, async (req: Request, res: Response) => {
   const parsed = enviarSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  const { ids, proveedorSoatId, gestionOperaciones } = parsed.data;
   const ctx = await contextoSoat(req.user!);
-  const resultado = await enviarAlGestor(parsed.data.ids, ctx, parsed.data.proveedorSoatId);
+  const resultado = await enviarAlGestor(ids, ctx, { proveedorSoatId, gestionOperaciones });
   if (resultado.enviados.length > 0) {
-    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: resultado.enviados.join(','), detail: `Enviados al gestor: ${resultado.enviados.length} (pendiente→en_adquisicion)` });
+    const destino = gestionOperaciones ? 'gestión de Operaciones' : `proveedor ${proveedorSoatId}`;
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: resultado.enviados.join(','), detail: `Enviados a ${destino}: ${resultado.enviados.length} (pendiente→en_adquisicion)` });
   }
   res.json(resultado);
 });
@@ -142,7 +188,7 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
   if (!parsed.success) { res.status(400).json({ error: 'El motivo es obligatorio' }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const soat = await reactivar(req.params.id, parsed.data.motivo);
+    const soat = await reactivar(req.params.id, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Reactivación (rechazado→pendiente): ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }
@@ -158,7 +204,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const soat = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo);
+    const soat = await reversar(req.params.id, parsed.data.estadoDestino, parsed.data.motivo, ctx);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Reversa → ${parsed.data.estadoDestino}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }
@@ -173,6 +219,39 @@ router.post('/:id/proveedor', OPERACIONES, async (req: Request, res: Response) =
     const ctx = await contextoSoat(req.user!);
     const { soat, anterior } = await cambiarProveedor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo);
     await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Cambio de proveedor ${anterior ?? '—'} → ${parsed.data.proveedorSoatId}: ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, soat);
+  } catch (e) { handleError(res, e); }
+});
+
+// POST /:id/asumir-operaciones y POST /:id/devolver-gestor — traspaso de gestión por contingencia
+// (HU #11153). Solo Operaciones, motivo ≥5 como en la reversa: es la misma clase de decisión, una
+// excepción que alguien tendrá que poder explicar después.
+//
+// Son el ÚNICO camino sancionado para la contingencia sobre un SOAT ya enviado. `/:id/proveedor`
+// sigue prohibiendo el salto de proveedor a proveedor En adquisición (RN-05) y no se toca: aquello
+// reasigna entre terceros, esto retira el caso de los terceros.
+const traspasoSchema = z.object({
+  motivo: z.string().min(5, 'El traspaso de gestión exige un motivo que explique el porqué'),
+});
+router.post('/:id/asumir-operaciones', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = traspasoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoSoat(req.user!);
+    const soat = await asumirEnOperaciones(req.params.id, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Gestión asumida por Operaciones (proveedor de origen ${soat.proveedorSoatId ?? '—'}): ${parsed.data.motivo.trim()}` });
+    await responderDetalle(res, ctx, soat);
+  } catch (e) { handleError(res, e); }
+});
+
+const devolverSchema = traspasoSchema.extend({ proveedorSoatId: z.string().uuid() });
+router.post('/:id/devolver-gestor', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = devolverSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+  try {
+    const ctx = await contextoSoat(req.user!);
+    const soat = await devolverAlGestor(req.params.id, parsed.data.proveedorSoatId, parsed.data.motivo, ctx);
+    await audit(req, { action: 'update', resource: 'flito_soat', resourceId: soat.id, detail: `Gestión devuelta al proveedor ${parsed.data.proveedorSoatId}: ${parsed.data.motivo.trim()}` });
     await responderDetalle(res, ctx, soat);
   } catch (e) { handleError(res, e); }
 });

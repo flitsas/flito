@@ -4,6 +4,7 @@ import { NAV_ITEMS, SECTION_LABEL, type NavItem } from './navItems';
 import { effectivePages } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
 import { startViewTransition } from '../../lib/viewTransitions';
+import ModalPortal from '../flit/ModalPortal';
 
 interface Props {
   open: boolean;
@@ -125,7 +126,10 @@ export default function CommandPalette({ open, onClose }: Props) {
   let runningIdx = 0;
 
   return (
+    <ModalPortal>
     <div
+      // Sin `flit-modal` a propósito: el panel es `.flit-shell-palette`, que SÍ cambia de fondo con
+      // el tema, así que aquí la tinta correcta es la del tema y no la fija de las superficies FLIT.
       className="fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] sm:pt-[14vh]"
       onClick={onClose}
       role="dialog"
@@ -306,5 +310,6 @@ export default function CommandPalette({ open, onClose }: Props) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

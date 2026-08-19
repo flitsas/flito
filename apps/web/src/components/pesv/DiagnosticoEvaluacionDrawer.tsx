@@ -29,6 +29,7 @@ import {
   FASE_LABEL,
   HISTORIAL_ACTION_LABEL,
 } from './diagnostico-helpers';
+import ModalPortal from '../flit/ModalPortal';
 
 interface Item {
   estandarId: number;
@@ -193,13 +194,14 @@ export default function DiagnosticoEvaluacionDrawer({
   const enDesarrolloSinComentario = nivel === 'en_desarrollo' && comentarios.trim().length < 10;
 
   return (
+    <ModalPortal>
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="evaluacion-drawer-title"
       // z-50: por encima del shell FLIT (sidebar/topbar). Antes z-40 empataba
       // con la barra superior y el shell interceptaba el pointer (PESV-09).
-      className="fixed inset-0 z-50 flex justify-end"
+      className="flit-modal fixed inset-0 z-50 flex justify-end"
       onKeyDown={handleKeyDown}
     >
       <div
@@ -375,6 +377,7 @@ export default function DiagnosticoEvaluacionDrawer({
         <ConflictDialog onClose={() => setConflict(false)} onReload={() => { setConflict(false); onSaved(); }} />
       )}
     </div>
+    </ModalPortal>
   );
 }
 

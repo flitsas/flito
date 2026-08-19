@@ -21,13 +21,24 @@
   --flit-cyan: #4FD4CC;
   --flit-blue: #4F74C9;
   --flit-blue-dark: #162744;
-  --flit-blue-text: #526FB8;
+  /* Azul de TEXTO. #526FB8 pasaba sobre tarjeta blanca (4,85) pero se quedaba en 4,31 sobre
+     --flit-bg-app, que es donde caen los títulos y los links que no viven dentro de una tarjeta
+     (RangoFechaFilter). #4D6AB2 es −5/−5/−6 por canal —invisible— y sube a 4,63 sobre el fondo de
+     página sin tocar los títulos de marca. */
+  --flit-blue-text: #4D6AB2;
   --flit-green: #70CF3A;
 
   /* Texto */
   --flit-text-primary: #162744;
   --flit-text-secondary: #59677D;
-  --flit-text-muted: #7D8798;
+  /* El valor del prototipo (#7D8798) daba 3,6:1 sobre blanco y no llegaba al mínimo WCAG AA de
+     4,5:1 para texto normal: se leía como un gris apagado en pantallas con luz. #667085 conserva el
+     mismo matiz frío y sube a ~5,0:1.
+     Bug #11604: ese 4,97 se midió sobre BLANCO, pero el fondo dominante de la app es
+     --flit-bg-app (#EAF2FF), donde el mismo hex se queda en 4,41 — de ahí los fallos de axe en la
+     pill inactiva y en el footer del shell. #646E82 es el mismo matiz (HSL 220°/13%) un 1,6% más
+     oscuro: 4,55 sobre #EAF2FF y 5,12 sobre blanco. */
+  --flit-text-muted: #646E82;
   --flit-text-inverse: #FFFFFF;
   --flit-text-brand-title: #526FB8;
 
@@ -42,7 +53,20 @@
   --flit-warning: #F05A35;
   --flit-danger: #E43D30;
   --flit-draft: #59677D;
-  --flit-muted: #7D8798;
+  /* Mismo color y mismo motivo que --flit-text-muted: los chips en tono apagado se leen igual de mal. */
+  --flit-muted: #646E82;
+
+  /* Estado — variante TINTA (texto).
+     Los tokens de estado de arriba son colores de SUPERFICIE: cumplen el 3:1 de elementos
+     gráficos, pero al usarlos como color de texto sobre su propio tinte no llegan al 4,5:1
+     (--flit-success sobre su tinte al 14% da 1,78). El kit no distinguía «color de superficie» de
+     «color de texto» y esa es la causa raíz de casi todos los fallos de #11604. Estas variantes
+     -ink son el nivel que faltaba: mismo matiz, luminosidad de texto.
+     Ratios (blanco / --flit-bg-app / tinte propio del chip): ver StatusChip.tsx. */
+  --flit-success-ink: #3C7C17;
+  --flit-warning-ink: #B94120;
+  --flit-danger-ink: #C02F24;
+  --flit-blue-ink: #4264B7;
 
   /* Gradientes */
   --flit-gradient-primary: linear-gradient(90deg, #4FD4CC 0%, #4F74C9 100%);
@@ -64,11 +88,12 @@
   --flit-input-height: 48px;
   --flit-button-height: 56px;
   --flit-topbar-height: 64px;
-  /* Altura por construcción del FlitNavBar (solo lg+): triggers h-9 (36px)
-     + my-1.5 arriba/abajo (6px + 6px) = 48px. Si la barra envuelve a 2 filas
-     en lg justos, la altura real será mayor — los offsets sticky que consumen
-     este token quedarían cortos; ver nota en FlitNavBar.tsx. */
-  --flit-navbar-height: 48px;
+  /* Alto que la navegación reserva BAJO el topbar. Desde que FlitNavBar es un
+     dock `fixed` al pie (HU #11143) no reserva ninguno: los offsets sticky que
+     suman este token (PesvDiagnostico, TramiteWizardShell) quedan pegados al
+     topbar, que es lo correcto. Se conserva el token para no reescribir esos
+     calc() y para que reponer una franja superior sea cambiar un valor. */
+  --flit-navbar-height: 0px;
 
   /* Sombras */
   --flit-shadow-card: 0 8px 24px rgba(22, 39, 68, 0.08);
@@ -93,16 +118,73 @@
   color: var(--flit-text-primary);
 }
 
-/* Anillo de foco azul FLIT consistente (WCAG 2.2 — foco visible). */
-.flit-auth .flit-focus:focus-visible,
-.flit-app .flit-focus:focus-visible {
-  outline: none;
-  border-color: var(--flit-border-focus);
-  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.28);
+/*
+ * Los modales cuelgan de <body> (ver ModalPortal), es decir FUERA de `.flit-app`, así que no
+ * heredaban el color de arriba sino el del tema Aura (`--color-text-primary`). Y ahí estaba el
+ * fallo: las superficies FLIT son de valor FIJO —`--flit-bg-modal` es #EEF5FF pase lo que pase—
+ * pero el color del tema Aura SÍ cambia con el tema. En tema oscuro eso dejaba texto casi blanco
+ * (#f0eee9) sobre un modal claro: ilegible, y solo en el texto que no llevaba color propio, que es
+ * por lo que aparecía en unos sitios sí y en otros no.
+ *
+ * Se arregla en el scope y no etiqueta por etiqueta: vale para todos los modales de la app, y no
+ * hay que acordarse de ponerle color a cada `<span>` nuevo.
+ */
+.flit-modal {
+  font-family: var(--flit-font);
+  color: var(--flit-text-primary);
 }
 
-/* Foco claro sobre superficies con gradiente (sidebar). */
-.flit-app .flit-focus-light:focus-visible {
+/* Anillo de foco azul FLIT consistente (WCAG 2.2 — foco visible).
+   El alfa era 0,28: un halo de 1,42:1 contra el blanco del input, muy por debajo del 3:1 que pide
+   SC 1.4.11 para indicadores de foco. Subir el alfa a 0,85 conserva el carácter de halo azul (no
+   es un borde sólido) y lo lleva a 3,44 sobre blanco, 3,22 sobre la cabecera de tabla y 3,13 sobre
+   --flit-bg-app, que son las tres superficies donde se pinta. Solo cambia la opacidad: ningún
+   token de marca se mueve.
+
+   Dos detalles de aplicación, ambos comprobados en pantalla:
+
+   · SIN el prefijo `.flit-app` / `.flit-auth`. Los modales y el drawer cuelgan de <body> por
+     ModalPortal —el mismo motivo que obligó a crear el scope `.flit-modal` de aquí arriba—, así
+     que con el prefijo la regla NO llegaba a ninguno de sus controles: los inputs y botones de
+     cada modal FLIT se quedaban con el anillo por defecto del navegador. `.flit-focus` es una
+     clase que se pone a mano: no necesita ancestro que la habilite.
+
+   · `!important`, con el diálogo exceptuado. `flitPillBtn(true)` pinta la pill ACTIVA con
+     --flit-shadow-card desde `style={{}}`, y un estilo en línea gana a cualquier hoja de estilo:
+     esa pill —una de las que el bug nombra— se quedaba sin ningún indicador de foco. La excepción
+     es el contenedor de FlitModal (`role="dialog"`), que lleva su sombra en línea y recibe el foco
+     por programa con `tabindex="-1"`: no es una parada de tabulador, así que no debe cambiar de
+     sombra al abrirse. */
+.flit-focus:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.65);
+  border-color: var(--flit-border-focus);
+  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.85);
+}
+.flit-focus:focus-visible:not([role='dialog']) {
+  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.85) !important;
+}
+
+/* Foco sobre superficies con gradiente (drawer del sidebar en <lg).
+   Era un anillo blanco al 65% → 1,45:1 sobre el extremo cian (#4FD4CC) del gradiente. Aquí no hay
+   ajuste pequeño posible: el cian es tan claro que ni el blanco puro llega (1,80). Se invierte a
+   navy, que sí cumple en TODO el recorrido del gradiente: 8,25 en el extremo cian y 3,32 en el
+   extremo azul (#4F74C9).
+   También pierde el prefijo `.flit-app`: su ÚNICO consumidor es FlitSidebar, que se pinta dentro
+   de un ModalPortal colgado de <body>. Con el prefijo la regla no llegaba nunca y el drawer
+   enseñaba el anillo por defecto de Chrome (blanco al 85% → los mismos ~1,45 sobre el cian). */
+.flit-focus-light:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--flit-blue-dark);
+}
+
+/* Foco para contenedores DESPLAZABLES que viven dentro de una tarjeta con `overflow: hidden`
+   (FlitTable). Un anillo hacia fuera —box-shadow o outline con offset positivo— lo recorta el
+   padre y el foco queda invisible: se arreglaría la navegación por teclado a costa de romper
+   «foco visible». Se usa `outline` con offset NEGATIVO porque el outline se pinta por encima del
+   contenido del elemento (a diferencia de un box-shadow `inset`, que las celdas taparían con su
+   propio fondo). Sólido --flit-border-focus: 4,49 sobre blanco y 4,14 sobre la cabecera de tabla,
+   holgado sobre el 3:1 de SC 1.4.11. */
+.flit-focus-inset:focus-visible {
+  outline: 3px solid var(--flit-border-focus);
+  outline-offset: -3px;
 }

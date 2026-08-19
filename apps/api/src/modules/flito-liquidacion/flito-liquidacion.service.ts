@@ -7,16 +7,26 @@
 // No confundir con `apps/api/src/modules/liquidacion/`, que es del subsistema antiguo
 // (`tramites_digitales` con id entero + órdenes de trabajo) y no tiene relación con FLITO.
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import {
-  EstadoImpuesto, EstadoSoat,
+  type ConceptoBolsaTransito, esConceptoBolsaTransito, EstadoImpuesto, EstadoSoat,
+  flitoGestionaImpuesto, ModalidadOrganismo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidacionEventos, flitoLiquidaciones,
-  flitoSoat, flitoTramites,
+  clients, flitoDerechosTramite, flitoExcepcionesAutogestion, flitoImpuestos,
+  flitoLiquidacionEventos, flitoLiquidaciones, flitoOrganismoVigencias, flitoSoat, flitoTramites,
 } from '../../db/schema.js';
 import { tarifaDe, type ValorTarifa } from '../flito-parametrizacion/flito-tarifas.service.js';
+import {
+  registrarSalidasLiquidacion, reversarSalidasLiquidacion, type SalidaConcepto,
+} from '../flito-bolsas/flito-bolsas.service.js';
+import {
+  registrarConsumoTransito, reversarConsumoTransito,
+} from '../flito-bolsas/flito-bolsas-transito.service.js';
+import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
+// AC5 de la HU #11343: qué se puede hacer con la factura de un trámite que alguien intenta reversar.
+import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -100,6 +110,14 @@ interface FilaCalculo {
   impuestoEstado: string | null;
   impuestoValorPagado: string | null;
   impuestosAutogestionable: boolean | null;
+  /** Modalidad vigente del organismo del trámite. null = sin vigencia abierta. */
+  modalidadOrganismo: string | null;
+  // Desbloqueos excepcionales de la autogestión, POR TRÁMITE (HU #10980). SOAT e impuesto llevan la
+  // marca en su propio registro; la logística no tiene registro, así que se resuelve por la
+  // excepción vigente.
+  soatExcepcion: boolean | null;
+  impuestoExcepcion: boolean | null;
+  logisticaExcepcion: boolean | null;
   derechoValor: string | null;
 }
 
@@ -118,11 +136,28 @@ function proyeccionCalculo() {
     impuestoId: flitoImpuestos.id,
     impuestoEstado: flitoImpuestos.estado,
     impuestoValorPagado: flitoImpuestos.valorPagado,
+    modalidadOrganismo: flitoOrganismoVigencias.modalidad,
+    soatExcepcion: flitoSoat.excepcionAutogestion,
+    impuestoExcepcion: flitoImpuestos.excepcionAutogestion,
+    logisticaExcepcion: sql<boolean>`${flitoExcepcionesAutogestion.id} IS NOT NULL`,
     derechoValor: flitoDerechosTramite.valor,
   }).from(flitoTramites)
     .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    // La vigencia ABIERTA del organismo (hasta IS NULL) es la que manda hoy. El índice único deja
+    // como mucho una por organismo, así que el join no multiplica filas.
+    .leftJoin(flitoOrganismoVigencias, and(
+      eq(flitoOrganismoVigencias.organismoCodigo, flitoTramites.organismoCodigo),
+      isNull(flitoOrganismoVigencias.hasta),
+    ))
+    // La logística desbloqueada excepcionalmente. Un trámite no puede tener dos excepciones vivas
+    // del mismo concepto (índice parcial), así que tampoco multiplica filas.
+    .leftJoin(flitoExcepcionesAutogestion, and(
+      eq(flitoExcepcionesAutogestion.tramiteId, flitoTramites.id),
+      eq(flitoExcepcionesAutogestion.concepto, 'logistica'),
+      isNull(flitoExcepcionesAutogestion.revocadoEn),
+    ))
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id));
 }
 
@@ -130,9 +165,34 @@ function proyeccionCalculo() {
  * Calcula lo que costaría liquidar, SIN sellar nada. Es lo que alimenta la previsualización y lo que
  * `liquidar()` persiste si no hay faltantes.
  *
- * Reglas de cada concepto:
- *  - SOAT / impuesto: el valor pagado. Si la compañía los autogestiona, no aplican (null, no cero).
- *    Si están pendientes, bloquean: sellar un cero congelaría un cobro que aún no ocurrió.
+ * QUIÉN GESTIONA CADA CONCEPTO decide qué se exige, y eso sale de la parametrización, no de si el
+ * registro existe:
+ *
+ *  - SOAT      → lo gestiona FLITO salvo que la compañía lo autogestione (`clients`).
+ *  - Impuesto  → RN-01: lo gestiona FLITO si la compañía no lo autogestiona Y el organismo está en
+ *                `requiere_gestion`. Sin vigencia abierta, el default es autogestionado.
+ *  - Logística → lo gestiona FLITO salvo que la compañía la autogestione.
+ *  - Derecho de tránsito y trámite digital → SIEMPRE los cobra FLITO; no hay parametrización que los
+ *    exima.
+ *
+ * Y por encima de todo eso manda el DESBLOQUEO EXCEPCIONAL (HU #10980): una compañía que autogestiona
+ * puede encargarle a FLITO trámites puntuales, y entonces ese concepto se gestiona, se exige y SE
+ * COBRA en ese trámite —solo en ese—. Es un desembolso real de FLITO: dejarlo fuera del total sería
+ * regalarlo. La marca vive en el registro creado (`flito_soat`, `flito_impuestos`); la logística no
+ * tiene registro propio, así que la lleva la excepción vigente.
+ *
+ * Y entonces: lo que FLITO gestiona TIENE que tener valor para poder sellar; lo que no gestiona vale
+ * null (nunca cero) y no estorba.
+ *
+ * Antes, la ausencia de registro de SOAT o de impuesto se leía como «exento» y dejaba liquidar. Esa
+ * lectura venía del sync, que no crea el registro cuando el concepto es autogestionado — pero no
+ * crearlo no es la única razón por la que puede faltar: si el trámite no llegó a estado Asignado, o
+ * llegó sin compañía u organismo emparejados, tampoco se crea, y ahí sí falta de verdad. Con la
+ * lectura vieja, un trámite de una compañía a la que FLITO le gestiona TODO se sellaba sin SOAT y
+ * sin impuesto, congelando un total al que le faltaban dos desembolsos reales.
+ *
+ * Reglas de valor:
+ *  - SOAT / impuesto: el valor pagado. Pendientes o inexistentes, bloquean.
  *  - Derecho de tránsito: el valor real del recibo. Sin recibo, bloquea.
  *  - Trámite digital: tarifa de la compañía. Sin tarifa, «No configurado» y bloquea.
  *  - Logística: tarifa de la compañía, salvo que la compañía autogestione su logística.
@@ -146,21 +206,40 @@ export async function calcular(tramiteId: string): Promise<CalculoLiquidacion> {
 async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
   const faltantes: string[] = [];
 
-  const soat: ConceptoLiquidado = f.soatAutogestionable
-    ? { valor: null, origen: 'La compañía autogestiona el SOAT', bloquea: false }
-    : f.soatId === null
-      ? { valor: null, origen: 'Sin SOAT (exento)', bloquea: false }
-      : f.soatEstado === EstadoSoat.PAGADO && f.soatValorPagado !== null
-        ? { valor: num(f.soatValorPagado), origen: 'Valor pagado del SOAT', bloquea: false }
-        : { valor: null, origen: `SOAT en estado "${f.soatEstado}"`, bloquea: true };
+  // Modalidad vigente del organismo; sin vigencia abierta, el default del dominio es autogestionado.
+  const modalidad = (f.modalidadOrganismo as ModalidadOrganismo | null) ?? ModalidadOrganismo.AUTOGESTIONADO;
 
-  const impuesto: ConceptoLiquidado = f.impuestosAutogestionable
-    ? { valor: null, origen: 'La compañía autogestiona el impuesto', bloquea: false }
-    : f.impuestoId === null
-      ? { valor: null, origen: 'Sin impuesto (exento)', bloquea: false }
-      : f.impuestoEstado === EstadoImpuesto.PAGADO && f.impuestoValorPagado !== null
-        ? { valor: num(f.impuestoValorPagado), origen: 'Valor pagado del impuesto', bloquea: false }
-        : { valor: null, origen: `Impuesto en estado "${f.impuestoEstado}"`, bloquea: true };
+  // Qué gestiona FLITO en ESTE trámite. El desbloqueo excepcional gana a la autogestión de la
+  // compañía: si se le encargó este SOAT, FLITO lo pagó y tiene que cobrarlo.
+  const gestionaSoat = !f.soatAutogestionable || Boolean(f.soatExcepcion);
+  const gestionaImpuesto = flitoGestionaImpuesto(Boolean(f.impuestosAutogestionable), modalidad)
+    || Boolean(f.impuestoExcepcion);
+  const gestionaLogistica = !f.logisticaAutogestionable || Boolean(f.logisticaExcepcion);
+
+  const soat: ConceptoLiquidado = !gestionaSoat
+    ? { valor: null, origen: 'La compañía autogestiona el SOAT', bloquea: false }
+    : f.soatEstado === EstadoSoat.PAGADO && f.soatValorPagado !== null
+      ? { valor: num(f.soatValorPagado), origen: 'Valor pagado del SOAT', bloquea: false }
+      // Sin registro y sin pagar bloquean igual, pero se dicen distinto: uno se resuelve en la cola
+      // de SOAT y el otro ni siquiera ha entrado en ella.
+      : {
+        valor: null, bloquea: true,
+        origen: f.soatId === null ? 'Sin SOAT gestionado' : `SOAT en estado "${f.soatEstado}"`,
+      };
+
+  const impuesto: ConceptoLiquidado = !gestionaImpuesto
+    ? {
+      valor: null, bloquea: false,
+      origen: f.impuestosAutogestionable
+        ? 'La compañía autogestiona el impuesto'
+        : 'El organismo no requiere gestión del impuesto',
+    }
+    : f.impuestoEstado === EstadoImpuesto.PAGADO && f.impuestoValorPagado !== null
+      ? { valor: num(f.impuestoValorPagado), origen: 'Valor pagado del impuesto', bloquea: false }
+      : {
+        valor: null, bloquea: true,
+        origen: f.impuestoId === null ? 'Sin impuesto gestionado' : `Impuesto en estado "${f.impuestoEstado}"`,
+      };
 
   const derecho: ConceptoLiquidado = f.derechoValor !== null
     ? { valor: num(f.derechoValor), origen: 'Recibo de derecho de tránsito', bloquea: false }
@@ -171,8 +250,9 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
     await tarifaDe(f.companiaId, 'tramite_digital', f.tipoTramite), etiquetaTipo,
   );
 
-  // La logística se cobra a toda compañía que no la autogestione, haya habido entrega o no.
-  const logistica: ConceptoLiquidado = f.logisticaAutogestionable
+  // La logística se cobra a toda compañía que no la autogestione, haya habido entrega o no —y a la
+  // que sí la autogestiona, en los trámites que le haya encargado a FLITO.
+  const logistica: ConceptoLiquidado = !gestionaLogistica
     ? { valor: null, origen: 'La compañía autogestiona su logística', bloquea: false }
     : deTarifa(await tarifaDe(f.companiaId, 'logistica', f.tipoTramite), etiquetaTipo);
 
@@ -196,6 +276,113 @@ async function calcularDeFila(f: FilaCalculo): Promise<CalculoLiquidacion> {
     soat, impuesto, derecho, tramiteDigital, logistica,
     baseGmf, tasaGmf: TASA_GMF, valorGmf, total, faltantes,
   };
+}
+
+/**
+ * Identificadores y organismos que necesita la bolsa para imputar cada salida (HU #11122).
+ *
+ * Van aparte del cálculo porque no son parte de lo que se sella: el cálculo responde «cuánto», esto
+ * responde «a qué organismo y con qué llave no cobrarlo dos veces».
+ */
+export interface IdentificadoresTramite {
+  companiaId: number | null;
+  soatId: string | null;
+  soatOrganismo: string | null;
+  impuestoId: string | null;
+  impuestoOrganismo: string | null;
+  derechoId: string | null;
+  derechoOrganismo: string | null;
+}
+
+async function identificadoresDe(tramiteId: string): Promise<IdentificadoresTramite | undefined> {
+  const [f] = await db.select({
+    companiaId: flitoTramites.companiaId,
+    soatId: flitoSoat.id,
+    soatOrganismo: flitoSoat.organismoCodigo,
+    impuestoId: flitoImpuestos.id,
+    impuestoOrganismo: flitoImpuestos.organismoCodigo,
+    derechoId: flitoDerechosTramite.id,
+    derechoOrganismo: flitoDerechosTramite.organismoCodigo,
+  }).from(flitoTramites)
+    .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
+    .where(eq(flitoTramites.id, tramiteId))
+    .limit(1);
+  return f;
+}
+
+/**
+ * Traduce el cálculo sellado a las salidas que consumirán la bolsa del cliente.
+ *
+ * Las LLAVES son lo delicado, porque definen qué se cobra una sola vez:
+ *  - SOAT      → `soat:{soatId}`. `flito_soat.vin` es UNIQUE, así que una fila es un vehículo: la
+ *                llave ya cobra una única vez por VIN aunque el trámite se anule y se rehaga (AC4).
+ *  - Impuesto  → `impuesto:{impuestoId}`. NO se puede deduplicar por VIN: `flito_impuestos` es una
+ *                fila POR TRÁMITE y el sistema no implementa RN-01 para impuestos. Si un trámite se
+ *                anula y el nuevo vuelve a pagar impuesto, hay dos pagos reales y la bolsa debe
+ *                mostrar dos salidas: taparlo aquí ocultaría un doble pago en vez de evitarlo.
+ *  - Los otros → `tramite:{tramiteId}:{concepto}`, que es su naturaleza: se pagan por radicación.
+ *
+ * El ORGANISMO de cada concepto sale de su propio registro y no del trámite: los tres se congelan al
+ * crearse y el del trámite se reescribe en cada sincronización, así que pueden diferir. Trámite
+ * digital y logística no llevan organismo: son honorarios de FLIT, no desembolsos a un organismo.
+ *
+ * El GMF va SIEMPRE al final (HU #11160). Las salidas se asientan en serie y cada una lee el saldo
+ * que dejó la anterior, así que el orden de esta lista es el orden del libro: poner el gravamen en
+ * cualquier otra posición dejaría el `saldo_resultante` de la última línea distinto del saldo final
+ * de la bolsa, que es justo lo que el extracto usa para auditar sin recalcular.
+ */
+export function salidasDe(calculo: CalculoLiquidacion, ids: IdentificadoresTramite): SalidaConcepto[] {
+  const salidas: SalidaConcepto[] = [];
+  const porTramite = (concepto: string) => `tramite:${calculo.tramiteId}:${concepto}`;
+
+  // Un concepto que cuesta cero no es un desembolso y no genera línea en el libro. Importa más de lo
+  // que parece: el tarifario admite el cero a propósito (una tarifa de cortesía), y como el asiento
+  // va dentro de la transacción del sellado, intentar mover $0 haría que el trámite no se pudiera
+  // liquidar en absoluto.
+  const cobrable = (v: number | null): v is number => v !== null && v > 0;
+
+  if (cobrable(calculo.soat.valor) && ids.soatId !== null) {
+    salidas.push({
+      concepto: 'soat', valor: calculo.soat.valor,
+      organismoCodigo: ids.soatOrganismo, llave: `soat:${ids.soatId}`,
+    });
+  }
+  if (cobrable(calculo.impuesto.valor) && ids.impuestoId !== null) {
+    salidas.push({
+      concepto: 'impuesto', valor: calculo.impuesto.valor,
+      organismoCodigo: ids.impuestoOrganismo, llave: `impuesto:${ids.impuestoId}`,
+    });
+  }
+  if (cobrable(calculo.derecho.valor)) {
+    salidas.push({
+      concepto: 'derecho', valor: calculo.derecho.valor,
+      organismoCodigo: ids.derechoOrganismo, llave: porTramite('derecho'),
+    });
+  }
+  if (cobrable(calculo.tramiteDigital.valor)) {
+    salidas.push({
+      concepto: 'tramite_digital', valor: calculo.tramiteDigital.valor,
+      organismoCodigo: null, llave: porTramite('tramite_digital'),
+    });
+  }
+  if (cobrable(calculo.logistica.valor)) {
+    salidas.push({
+      concepto: 'logistica', valor: calculo.logistica.valor,
+      organismoCodigo: null, llave: porTramite('logistica'),
+    });
+  }
+  // El gravamen, al final y sobre la base ya calculada. Si todos los conceptos no aplicaran o
+  // valieran cero, `valorGmf` sería cero y `cobrable` lo descarta igual que a cualquier otro: un
+  // trámite de cortesía completo se sella sin mover un peso de la bolsa.
+  if (cobrable(calculo.valorGmf)) {
+    salidas.push({
+      concepto: 'gmf', valor: calculo.valorGmf,
+      organismoCodigo: null, llave: porTramite('gmf'),
+    });
+  }
+  return salidas;
 }
 
 /** Liquidación vigente de un trámite, o null. */
@@ -261,14 +448,85 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     total: String(calculo.total), detalle, liquidadoPorId: usuarioId,
   };
 
+  const ids = await identificadoresDe(tramiteId);
+  // Se calculan UNA vez y alimentan los dos libros: el del cliente por lo que se le cobra, y el de
+  // tránsito por lo que se paga ante la secretaría. Recalcularlas por separado abriría la puerta a
+  // que los dos lados del asiento dejaran de cuadrar entre sí.
+  const salidas = ids ? salidasDe(calculo, ids) : [];
+
   const dto = await db.transaction(async (tx) => {
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
     await tx.insert(flitoLiquidacionEventos).values({
       tramiteId, accion: 'liquidar', usuarioId, snapshot: { ...detalle, total: calculo.total },
     });
+
+    // Las salidas de la bolsa se asientan DENTRO de esta transacción (HU #11122): si el sellado no
+    // cuaja, el descuento no puede quedar hecho. La compañía puede faltar en trámites que aún no
+    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar.
+    if (ids?.companiaId != null) {
+      await registrarSalidasLiquidacion(
+        tx,
+        {
+          companiaId: ids.companiaId,
+          tramiteId,
+          fecha: fechaContable(),
+          conceptos: salidas,
+        },
+        { userId: usuarioId, nombre: 'sistema' },
+      );
+    }
+
+    // El OTRO lado del asiento (HU #11161): lo que se paga ANTE una secretaría también consume la
+    // bolsa que FLIT precargó para ella. Es un libro distinto del de la compañía, así que el mismo
+    // concepto deja una línea en cada uno — en el del cliente por lo que se le cobra, en el de
+    // tránsito por lo que se gasta del saldo precargado.
+    //
+    // Se recorren las MISMAS salidas que ya alimentan la bolsa del cliente en vez de recalcularlas:
+    // cada una trae su concepto, su valor y el organismo de su propio registro (que puede diferir
+    // del organismo del trámite). Las que no van a una secretaría —trámite digital, logística, GMF—
+    // no traen organismo y quedan fuera solas; el GMF además ya viene incluido en el total del
+    // comprobante del organismo (AC4).
+    //
+    // No depende de la compañía: un cliente autogestionado consume igual, porque el pago ante la
+    // secretaría ocurre de todas formas. Y si ninguna bolsa cubre ese par, `registrarConsumoTransito`
+    // no hace nada: sellar un trámite de una secretaría que nadie metió en una bolsa sigue igual.
+    for (const salida of salidas) {
+      if (salida.organismoCodigo === null || !esConceptoDeTransito(salida.concepto)) continue;
+      await registrarConsumoTransito(
+        tx,
+        {
+          organismoCodigo: salida.organismoCodigo,
+          concepto: salida.concepto,
+          tramiteId,
+          valor: salida.valor,
+          fecha: fechaContable(),
+          llave: salida.llave,
+        },
+        { userId: usuarioId, nombre: 'sistema' },
+      );
+    }
+
     return aDto(fila, calculo.idFlit);
   });
   return dto;
+}
+
+/**
+ * ¿Este concepto se paga ANTE una secretaría?
+ *
+ * Estrecha el `string` de `SalidaConcepto` al subconjunto que la bolsa de tránsito puede cubrir. Los
+ * que quedan fuera (trámite digital, logística, GMF) no llevan organismo, así que en la práctica ya
+ * se filtran solos; esto además se lo demuestra al compilador.
+ */
+function esConceptoDeTransito(concepto: string): concepto is ConceptoBolsaTransito {
+  return esConceptoBolsaTransito(concepto);
+}
+
+/** Hoy en Colombia: la fecha con la que se imputa el descuento al periodo contable. */
+function fechaContable(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_COLOMBIA, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
 }
 
 /**
@@ -286,7 +544,18 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
     .where(eq(flitoLiquidaciones.tramiteId, tramiteId)).limit(1);
   if (!l) throw new LiquidacionError('El trámite no está liquidado');
   if (l.estado === ESTADO_LIQUIDACION.FACTURADO) {
-    throw new LiquidacionError('El trámite ya está facturado: su liquidación no puede reversarse');
+    // HU #11343, AC5 — **la prohibición no cambia**: una factura electrónica aceptada por la DIAN no
+    // se deshace reversando una fila de FLITO. Lo que cambia es que el mensaje deja de ser un
+    // callejón sin salida. Antes decía «no puede reversarse» y ahí se acababa, y quien lo leía se iba
+    // a preguntar por WhatsApp — donde la respuesta no queda registrada en ningún sitio.
+    //
+    // `viaDeCorreccionDeTramite` no lanza: si la consulta falla o el trámite se facturó por otro
+    // medio, devuelve null y el mensaje se queda como estaba. Convertir un rechazo de negocio
+    // explicado en un 500 sería peor que no dar la vía.
+    const via = await viaDeCorreccionDeTramite(tramiteId);
+    throw new LiquidacionError(via
+      ? `El trámite ya está facturado: su liquidación no puede reversarse. ${via}`
+      : 'El trámite ya está facturado: su liquidación no puede reversarse');
   }
 
   await db.transaction(async (tx) => {
@@ -294,6 +563,12 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
       tramiteId, accion: 'reversar', motivo: texto, usuarioId,
       snapshot: { ...(l.detalle as object ?? {}), total: Number(l.total), liquidadoEn: l.liquidadoEn.toISOString() },
     });
+    // Devuelve a la bolsa lo descontado por este sellado y libera las llaves, para que volver a
+    // liquidar vuelva a cobrar (HU #11122, AC5).
+    await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
+    // Y lo mismo del otro lado: las bolsas de tránsito recuperan lo que este trámite les consumió
+    // (HU #11161, AC9). Es un no-op si ninguna bolsa cubría sus conceptos.
+    await reversarConsumoTransito(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
     await tx.delete(flitoLiquidaciones).where(eq(flitoLiquidaciones.id, l.id));
   });
 }

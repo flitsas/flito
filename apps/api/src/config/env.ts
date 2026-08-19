@@ -6,6 +6,17 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+/**
+ * Trata `VAR=` (en blanco) como ausente.
+ *
+ * `.optional()` de Zod tolera `undefined`, no `''`: dotenv convierte una línea en blanco en cadena
+ * vacía, que sí está definida, así que la validación corre igual y falla. Sin esto, copiar
+ * `.env.example` a `.env` deja la API sin arrancar por un error que no menciona que la causa fue
+ * dejar la variable en blanco — y empuja a rellenar una llave a las apuradas para desatascar el
+ * boot, que es justo lo contrario del defecto seguro.
+ */
+const vacioComoAusente = (v: unknown) => (v === '' ? undefined : v);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: z.coerce.number().default(3005),
@@ -61,13 +72,111 @@ const envSchema = z.object({
   S3_ACCESS_KEY: z.string().min(3, 'S3_ACCESS_KEY es requerido'),
   S3_SECRET_KEY: z.string().min(8, 'S3_SECRET_KEY es requerido'),
   GOOGLE_DRIVE_KEY_PATH: z.string().optional(),
+  // Barrido diario del Drive de derechos: DESHABILITADO salvo '1' explícito. Puerta positiva a
+  // propósito — gasta OCR de pago, y no debe encenderse por deducir el entorno. Igual que
+  // PRIVACY_RETENTION_CRON_ENABLED.
+  DRIVE_DERECHOS_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // Hora local de Colombia a la que barre. Configurable para poder probarlo sin esperar al día
+  // siguiente; en producción no hay razón para moverlo de las 9.
+  DRIVE_DERECHOS_CRON_HORA: z.coerce.number().int().min(0).max(23).default(9),
   GOOGLE_DRIVE_FOLDER_ID: z.string().default('1cWFfPFpesQbHS6lLikumbDKYHO88G8DC'),
   // RNDC (Sprint 4 Fase 4.2): clave maestra AES-256-GCM (32 bytes hex = 64 chars).
   // En desarrollo se genera al boot si falta; en producción es obligatoria.
   RNDC_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'RNDC_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
   RNDC_MODE: z.enum(['mock', 'real']).default('mock'),
+  // Siigo API (Feature #11239): clave maestra AES-256-GCM propia (32 bytes hex = 64 chars).
+  // Opcional en el esquema para no romper entornos que aún no usan la integración, pero SIN
+  // derivación de respaldo: el servicio de credenciales falla explícitamente si falta (HU #11247).
+  SIIGO_ENC_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'SIIGO_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  SIIGO_BASE_URL: z.string().url().default('https://api.siigo.com'),
+  // Nombre de la aplicación integradora. Siigo lo exige en TODA petición y bloquea a quien envíe
+  // información falsa. Opcional aquí y validado al resolver la configuración: así el arranque no
+  // depende de una integración que puede no estar en uso todavía (HU #11248).
+  SIIGO_PARTNER_ID: z.string().optional(),
+  SIIGO_AMBIENTE: z.enum(['pruebas', 'produccion']).default('pruebas'),
+  // `mock` por defecto (HU #11252): mientras no haya credenciales del ambiente real, el valor
+  // seguro es NO salir a la red. Pasar a `real` es una decisión explícita de despliegue.
+  SIIGO_MODE: z.enum(['mock', 'real']).default('mock'),
+  SIIGO_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
+  SIIGO_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0),
+  // Freno por proporción de errores (HU #11341). Siigo bloquea el usuario API si durante 7 días
+  // más del 80 % de las peticiones son errores. Medir con ESOS MISMOS números frenaría en el
+  // instante exacto del bloqueo, que es tarde: hay que llegar antes por los dos lados.
+  //   · Ventana más corta (24 h): una racha sostenida se ve el mismo día en que empieza, no al
+  //     séptimo. El tope es 168 h —los 7 días de Siigo—: más allá se mediría algo que Siigo ya no
+  //     penaliza.
+  //   · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
+  //     el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
+  // Cuántas facturas mira cada ciclo del sondeo del estado DIAN (HU #11332, AC2). El número
+  // correcto depende del volumen de cada instalación: la cuota de 100/min es de la EMPRESA y la
+  // comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
+  SIIGO_DIAN_SONDEO_LOTE: z.coerce.number().int().min(1).max(200).optional(),
+  // Cuántas filas de la cola procesa cada ciclo del trabajador de emisión (HU #11327).
+  // El defecto (15) sale de una cuenta, no de un gusto: peor caso ≈ 6 peticiones por fila (los 4
+  // intentos de `ejecutarConResiliencia` más el margen del tercero) ≈ 90 < las 100 por minuto que
+  // permite Siigo, y el ciclo corre cada 2 min > la ventana de 60 s. El tope de 60 es el punto en
+  // que un ciclo empezaría a hacer dormir al limitador y a comerse la cuota del sondeo DIAN.
+  SIIGO_COLA_LOTE: z.coerce.number().int().min(1).max(60).optional(),
+  SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
+  SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
+  // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa
+  // entera por una muestra que no significa nada.
+  SIIGO_FRENO_MIN_OPERACIONES: z.coerce.number().int().min(1).default(20),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
+  // ── Monitoreo de comparendos (Feature #11492, 17a) ─────────────────────────
+  //
+  // Hosts SIEMPRE por env, nunca en el código: es decisión cerrada del Feature. Los proveedores
+  // cambian de dominio y cada ambiente apunta a uno distinto. Sin default para no fingir que hay
+  // un valor bueno; los adapters fallan explícito si falta y `MODE=real`.
+  VERIFIK_SIMIT_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  UTS_MUNICIPAL_BASE_URL: z.preprocess(vacioComoAusente, z.string().url().optional()),
+  // Llave maestra del token SIMIT (ADR-0002). Dedicada y no derivada de SIIGO_ENC_KEY / RNDC_ENC_KEY
+  // por mínimo privilegio: si se compromete una, las otras integraciones siguen protegidas. Opcional
+  // aquí para que el boot no exija provisionarla antes de que el módulo se use; el servicio del
+  // token falla explícito cuando falta (no cifra ni descifra a medias).
+  COMPARENDOS_ENC_KEY: z.preprocess(
+    vacioComoAusente,
+    z.string().regex(/^[0-9a-fA-F]{64}$/, 'COMPARENDOS_ENC_KEY debe ser 64 hex chars (32 bytes)').optional(),
+  ),
+  // Bootstrap SOLO de desarrollo del token SIMIT (HU #11498). La fuente de verdad operativa es la
+  // fila cifrada de `flito_comparendos_token_simit`: esto existe para que un entorno recién clonado
+  // pueda probar el sync sin pasar antes por el PUT, y el servicio lo usa únicamente cuando NO hay
+  // fila activa. Nunca se loguea ni se devuelve por el API. En PDN no sustituye al cifrado en
+  // reposo — un token en env no tiene trazabilidad de quién lo puso ni cuándo (CF-03).
+  VERIFIK_SIMIT_TOKEN: z.preprocess(vacioComoAusente, z.string().min(1).optional()),
+  // `mock` por defecto: sin credenciales reales, un test o un dev no deben salir a la red.
+  COMPARENDOS_SIMIT_MODE: z.enum(['mock', 'real']).default('mock'),
+  // Retención del histórico de registros/timeline (CF Habeas Data, Ley 1581). 24 meses por defecto,
+  // parametrizable — decisión humana del 2026-08-13. Desde la HU #11511 la CONSUME de verdad
+  // `flito-comparendos-purga.cron.ts`: los comparendos que nadie ha vuelto a ver desde el corte y las
+  // corridas de sync anteriores a él se borran (con su timeline y sus pasos, por CASCADE).
+  COMPARENDOS_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(24),
+  // Puerta positiva del cron de purga (RN-28), mismo criterio que PRIVACY_RETENTION_CRON_ENABLED: un
+  // job que BORRA no se enciende por desplegarse, sino cuando alguien decide que puede empezar. Con
+  // la puerta cerrada, `runComparendosPurgaOnce()` sigue siendo invocable a mano (y en seco).
+  COMPARENDOS_PURGA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // Freno de la purga (RN-30), el análogo irreversible del freno de inactivación. `LOTE × MAX_LOTES`
+  // limita el RITMO del borrado (10 000 filas/día), no el daño: una purga equivocada vacía la tabla
+  // igual, solo que despacio. Una pasada se aborta entera si los candidatos superan MAX_RATIO de la
+  // tabla, o si no hay ninguna corrida de sync terminada en SYNC_MAX_DIAS — el reloj de la retención
+  // es `ultimo_visto_en` y solo lo mueve el sync: con el sync parado, la tabla envejece ENTERA y la
+  // purga acabaría borrando datos vigentes en silencio. Subir MAX_RATIO es la salida deliberada para
+  // la primera pasada de una base con años de histórico, después de mirar el `dryRun`.
+  COMPARENDOS_PURGA_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.25),
+  COMPARENDOS_PURGA_SYNC_MAX_DIAS: z.coerce.number().int().min(1).max(365).default(7),
+  // Timeout por llamada al proveedor y cuántas municipales van en paralelo por NIT (ADR-0001 §7).
+  // No son ajustes de gusto: el sync es síncrono y el nginx del web corta a los ~120 s, así que la
+  // matriz NIT × municipios en serie con los 15 s por defecto de `httpsGetJson` se pasa de largo.
+  COMPARENDOS_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(8000),
+  COMPARENDOS_SYNC_CONCURRENCIA: z.coerce.number().int().min(1).max(12).default(5),
+  // Freno de inactivación masiva del sync (RN-24). Una corrida cuyo barrido apagaría más de estos
+  // topes no apaga nada y se cierra como `partial`. El escenario que cubre no necesita atacante: un
+  // token vencido cuyo proveedor conteste 200 con lista vacía pasa todos los filtros sin ruido, y el
+  // histórico apagado es reversible en los registros pero NO en el timeline. Los defaults son la
+  // escala de un catálogo normal; súbelos si la operación real los roza.
+  COMPARENDOS_INACTIVACION_MAX_FILAS: z.coerce.number().int().min(1).max(1_000_000).default(200),
+  COMPARENDOS_INACTIVACION_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.5),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),

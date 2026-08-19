@@ -8,6 +8,7 @@ import {
   flitInp, FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr,
   flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
+import ModalPortal from '../components/flit/ModalPortal';
 
 interface DriveFile {
   id: string;
@@ -431,8 +432,9 @@ export default function DriveViewer() {
       )}
 
       {(previewFile || previewLoading) && (
+        <ModalPortal>
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          className="flit-modal fixed inset-0 z-40 flex items-center justify-center p-4"
           style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
           {...previewBackdrop}
         >
@@ -468,6 +470,7 @@ export default function DriveViewer() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   );

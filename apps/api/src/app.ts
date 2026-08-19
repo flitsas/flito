@@ -29,7 +29,26 @@ import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
+import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
+import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
+import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
+import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
+import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
+import siigoParametrizacionRoutes from './modules/siigo/parametrizacion.routes.js';
+import siigoCiudadesRoutes from './modules/siigo/ciudades.routes.js';
+import siigoValidadorClienteRoutes from './modules/siigo/validador-cliente.routes.js';
+import siigoCiudadesMapeoRoutes from './modules/siigo/ciudades-mapeo.routes.js';
+import siigoLineaTiempoRoutes from './modules/siigo/linea-tiempo.routes.js';
+import siigoFrenoRoutes from './modules/siigo/freno.routes.js';
+import siigoCorreccionesRoutes from './modules/siigo/correcciones.routes.js';
+import siigoEnviosRoutes from './modules/siigo/envio-correo.routes.js';
+import siigoFacturacionTramitesRoutes from './modules/siigo/facturacion-tramites.routes.js';
+import siigoFacturacionRoutes from './modules/siigo/facturacion.routes.js';
+import siigoTercerosRoutes from './modules/siigo/terceros.routes.js';
+import siigoProductosRoutes from './modules/siigo/productos.routes.js';
+import siigoElegibilidadRoutes from './modules/siigo/elegibilidad.routes.js';
+import siigoReconciliacionRoutes from './modules/siigo/reconciliacion.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -185,7 +204,34 @@ export function createApp() {
   app.use('/api/flito/tablero', flitoTableroRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', flitoLogisticaRoutes);
+  app.use('/api/flito/bolsas', flitoBolsasRoutes);
+  // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
+  // el incidente PESV `comparendo` — ver ADR-0001.
+  app.use('/api/flito/comparendos', flitoComparendosRoutes);
   app.use('/api/finanzas', finanzasRoutes);
+  app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
+  app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
+  app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
+  app.use('/api/siigo/parametrizacion', siigoParametrizacionRoutes);
+  app.use('/api/siigo/ciudades', siigoCiudadesRoutes);
+  app.use('/api/siigo/clientes', siigoValidadorClienteRoutes);
+  app.use('/api/siigo/clientes-ciudades', siigoCiudadesMapeoRoutes);
+  app.use('/api/siigo/linea-tiempo', siigoLineaTiempoRoutes);
+  app.use('/api/siigo/freno', siigoFrenoRoutes);
+  app.use('/api/siigo/correcciones', siigoCorreccionesRoutes);
+  app.use('/api/siigo/envios', siigoEnviosRoutes);
+  // Dos routers sobre el MISMO prefijo, y es deliberado: `facturacion-tramites` sirve
+  // `GET /tramites` (qué le pasó a la factura de cada trámite, HU #11337) y `facturacion` sirve
+  // `POST /` y `GET /` (encolar y estado de la cola, HU #11328). Son dos caras de la misma
+  // sustantiva y separarlas en dos prefijos obligaría a la pantalla a conocer dos URL para hablar de
+  // lo mismo. Express prueba el primero y, al no casar ninguna de sus rutas, pasa al segundo; el
+  // orden importa solo en que ninguno debe declarar un patrón que trague las rutas del otro.
+  app.use('/api/siigo/facturacion', siigoFacturacionTramitesRoutes);
+  app.use('/api/siigo/facturacion', siigoFacturacionRoutes);
+  app.use('/api/siigo/productos', siigoProductosRoutes);
+  app.use('/api/siigo/terceros', siigoTercerosRoutes);
+  app.use('/api/siigo/elegibilidad', siigoElegibilidadRoutes);
+  app.use('/api/siigo/reconciliacion', siigoReconciliacionRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma

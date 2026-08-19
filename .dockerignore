@@ -4,6 +4,14 @@
 node_modules
 **/node_modules
 **/dist
+# Va JUNTO a `**/dist` y por el mismo motivo, no como una exclusión más de ruido:
+# `tsc -b` es incremental y decide si emite leyendo este fichero. Si el contexto se
+# lleva el de la máquina del desarrollador —donde ya se compiló— pero deja fuera el
+# `dist/` que describe, tsc concluye que todo está al día, sale con código 0 y NO
+# EMITE NADA. El build de la API falla después con TS2307 sin encontrar
+# `@operaciones/shared-types`, y solo en las máquinas donde alguien ya compiló: en un
+# checkout limpio o en CI el fichero no existe y la imagen se construye bien.
+**/*.tsbuildinfo
 **/.env
 **/.env.*
 !**/.env.example

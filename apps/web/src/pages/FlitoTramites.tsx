@@ -23,8 +23,11 @@ import FlitModal from '../components/flit/FlitModal';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import AntiguedadPill from '../components/flit/AntiguedadPill';
 import ThFiltroMulti, { type OpcionFiltro } from '../components/flit/ThFiltroMulti';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
+import VisorSoportes from '../components/flit/VisorSoportes';
+import ModalFacturaVenta, { nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -143,6 +146,8 @@ export default function FlitoTramites() {
   const [crearDemo, setCrearDemo] = useState(false);
   // Visor de factura de venta (modal): blob url + nombre para descargar.
   const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
+  // Visor de los soportes del trámite: SOAT, impuesto, derecho de tránsito y logística.
+  const [soportesDe, setSoportesDe] = useState<{ tramiteId: string; idFlit: string } | null>(null);
 
   // Filtros (se aplican EN EL SERVIDOR). Los de texto se debouncean para no disparar un fetch por tecla.
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
@@ -155,6 +160,7 @@ export default function FlitoTramites() {
   // Orden cronológico. 'antiguos' es el orden de trabajo del gestor: lo que lleva más esperando va
   // primero. El default sigue siendo lo más reciente, que es como se comportaba antes.
   const [ordenSel, setOrdenSel] = useState<'recientes' | 'antiguos'>('recientes');
+  const [preset, setPreset] = useState<string | null>(null);
   // La alerta vive en la URL, no en un useState: así el enlace del tablero la aplica al entrar y
   // la pantalla se puede compartir tal cual. Derivarla (en vez de copiarla a estado) evita que la
   // barra de direcciones y la tabla se desincronicen.
@@ -221,6 +227,35 @@ export default function FlitoTramites() {
   const ids = () => [...seleccion];
   const limpiar = () => setSeleccion(new Set());
   const n = seleccion.size;
+  const limpiarFiltros = () => {
+    setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]);
+    setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel('');
+    setOrdenSel('recientes'); setPreset(null);
+  };
+
+  /**
+   * La vista con la que se abre la pantalla al empezar el día: lo que ya está asignado y todavía no
+   * se ha movido en ninguno de los dos conceptos.
+   *
+   * Son cuatro condiciones —estado, SOAT, impuesto y orden— y ponerlas a mano cada mañana es
+   * exactamente el trabajo que un preset ahorra. El orden importa tanto como el filtro: sin
+   * `antiguos`, lo que lleva más esperando queda en la última página.
+   */
+  const PRESETS: Array<Preset<{ estados: string[]; soat: EstadoSoat[]; imp: EstadoImpuesto[] }>> = [{
+    nombre: 'Recién llegados sin gestionar',
+    descripcion: 'Asignados con SOAT e impuesto todavía en pendiente, los más antiguos primero.',
+    filtros: { estados: ['Asignado'], soat: [EstadoSoat.PENDIENTE], imp: [EstadoImpuesto.PENDIENTE] },
+  }];
+
+  const aplicarPreset = (p: Preset<{ estados: string[]; soat: EstadoSoat[]; imp: EstadoImpuesto[] }>) => {
+    limpiarFiltros();
+    setEstadosSel(p.filtros.estados);
+    setSoatSel(p.filtros.soat);
+    setImpSel(p.filtros.imp);
+    setOrdenSel('antiguos');
+    setPreset(p.nombre);
+  };
+
   const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
   const accionables = useMemo(() => filas.filter(esAccionable), [filas]);
 
@@ -235,13 +270,16 @@ export default function FlitoTramites() {
   const solicitarImpuestos = () => solicitarImpuestosLote(ids());
   const entregar = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'entrega', entrega: await api.post<ResEntrega>('/flito/tramites/entregar', { tramiteIds }) }));
 
-  // Ver la factura de venta de FLIT: el endpoint (auth) redirige a la URL S3 prefirmada; se descarga el
-  // blob y se muestra en un visor (modal) desde el que también se puede descargar.
-  const verFactura = async (impuestoId: string) => {
+  // Ver la factura de venta de FLIT: el endpoint (auth) sirve el PDF; se descarga el blob y se
+  // muestra en un visor (modal) desde el que también se puede descargar.
+  //
+  // El nombre lleva el id del trámite y NO el del impuesto: es el que se ve en la pantalla y con el
+  // que se concilia. Con el del impuesto, la carpeta de descargas quedaba llena de uuid.
+  const verFactura = async (fila: TramiteFila) => {
     setError(null);
     try {
-      const blob = await api.get<Blob>(`/flito/impuestos/${impuestoId}/factura-venta`);
-      setFactura({ url: URL.createObjectURL(blob), nombre: `factura-venta-${impuestoId}.pdf` });
+      const blob = await api.get<Blob>(`/flito/impuestos/${fila.impuesto!.id}/factura-venta`);
+      setFactura({ url: URL.createObjectURL(blob), nombre: nombreFacturaVenta(fila.idFlit) });
     } catch (e) { setError(errorMessage(e)); }
   };
   const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
@@ -352,6 +390,8 @@ export default function FlitoTramites() {
           <div className="mb-3 flex flex-wrap items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--flit-border)' }}>
             <input className={`${flitInp} h-9 min-w-[18rem]`} placeholder="Buscar placa, VIN, id o comprador…"
               value={texto} onChange={(e) => setTexto(e.target.value)} />
+            <FiltrosInteligentes presets={PRESETS} activo={preset}
+              onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
             <RangoFechas etiqueta="Creado" valor={creado} onCambio={(r) => { setCreado(r); setPage(1); }} />
             <RangoFechas etiqueta="Aprobado" valor={aprobado} onCambio={(r) => { setAprobado(r); setPage(1); }} />
             {/* Filtro rápido por autogestión de la empresa (SOAT e impuestos autogestionados). */}
@@ -399,7 +439,7 @@ export default function FlitoTramites() {
             )}
             {hayFiltros && (
               <button className="ml-auto text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}
-                onClick={() => { setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]); setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel(''); }}>Limpiar filtros</button>
+                onClick={limpiarFiltros}>Limpiar filtros</button>
             )}
           </div>
           {filas.length === 0 ? (
@@ -447,6 +487,7 @@ export default function FlitoTramites() {
                 </FlitTh>
                 <FlitTh>Logística</FlitTh>
                 <FlitTh>Derechos de tránsito</FlitTh>
+                <FlitTh>Soportes</FlitTh>
               </FlitTr>
             </thead>
             <tbody>
@@ -549,10 +590,26 @@ export default function FlitoTramites() {
                     {/* Sin recibo NO se pinta un estimado. Antes salía «$ 75.000 *», una constante
                         igual para todos los organismos: un número inventado que se lee como un
                         cobro real y que el reporte de costos ya dejó de mostrar. Decir que falta
-                        obliga a cargarlo; inventarlo invita a darlo por bueno. */}
+                        obliga a cargarlo; inventarlo invita a darlo por bueno.
+
+                        Y dice «Sin recibo», no «No configurado»: el derecho de tránsito no se
+                        configura en ninguna pantalla. Es un desembolso real que se lee del recibo
+                        pagado, como el SOAT y el impuesto. El rótulo viejo mandaba a buscar una
+                        parametrización que no existe. */}
                     {f.derechoTramiteValor !== null
                       ? pesos(f.derechoTramiteValor)
-                      : <span className="text-xs italic">No configurado</span>}
+                      : <span className="text-xs italic">Sin recibo</span>}
+                  </td>
+                  {/* Los comprobantes de los tres conceptos —SOAT, impuesto y derecho de tránsito—
+                      más lo que dejó logística. Quien despacha desde aquí es quien tiene que
+                      comprobar que el papel existe antes de entregar, y hasta ahora para verlo
+                      había que irse al reporte de costos o a la tabla de derechos. */}
+                  <td className="px-3 py-2 align-top">
+                    <button type="button" className="text-xs font-semibold underline"
+                      style={{ color: 'var(--flit-blue-text)' }}
+                      onClick={() => setSoportesDe({ tramiteId: f.tramiteId, idFlit: f.idFlit })}>
+                      Ver soportes
+                    </button>
                   </td>
                 </FlitTr>
               ))}
@@ -578,7 +635,12 @@ export default function FlitoTramites() {
 
       {resultado && <ModalResultado resultado={resultado} onCerrar={() => setResultado(null)} />}
       {historial && <ModalHistorial idFlit={historial.idFlit} items={historial.items} onCerrar={() => setHistorial(null)} />}
-      {factura && <ModalFactura url={factura.url} nombre={factura.nombre} onCerrar={cerrarFactura} />}
+      {factura && <ModalFacturaVenta url={factura.url} nombre={factura.nombre} onCerrar={cerrarFactura} />}
+
+      {soportesDe && (
+        <VisorSoportes ruta={`/flito/tramites/${soportesDe.tramiteId}/soportes`} titulo={soportesDe.idFlit}
+          onClose={() => setSoportesDe(null)} />
+      )}
 
       {desbloqueo && (
         <ModalDesbloqueo fila={desbloqueo}
@@ -738,23 +800,6 @@ function ModalHistorial({ idFlit, items, onCerrar }: { idFlit: string; items: Hi
         </div>
       )}
       <button className={`${flitBtnPrimary} mt-3`} style={flitBtnPrimaryStyle} onClick={onCerrar}>Cerrar</button>
-    </FlitModal>
-  );
-}
-
-// Crear la empresa (cliente) de un trámite cuya compañía FLIT no existe. El NIT viene precargado del
-// trámite; al crearla el backend re-vincula los trámites de ese NIT (los deja accionables sin re-sync).
-// Visor de la factura de venta: muestra el documento (PDF/imagen) embebido y permite descargarlo.
-function ModalFactura({ url, nombre, onCerrar }: { url: string; nombre: string; onCerrar: () => void }) {
-  return (
-    <FlitModal title="Factura de venta" onClose={onCerrar}>
-      <div className="space-y-3">
-        <iframe src={url} title="Factura de venta" className="h-[70vh] w-full rounded border" style={{ borderColor: 'var(--flit-border)' }} />
-        <div className="flex gap-2">
-          <a className={flitBtnPrimary} style={flitBtnPrimaryStyle} href={url} download={nombre}>Descargar</a>
-          <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onCerrar}>Cerrar</button>
-        </div>
-      </div>
     </FlitModal>
   );
 }
@@ -952,12 +997,12 @@ function CeldaSoat({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () 
 
 
 // Factura de venta (viene de FLIT, id S3). Con factura → botón para verla; sin factura → aviso.
-function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (impuestoId: string) => void }) {
+function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (fila: TramiteFila) => void }) {
   if (fila.facturaVentaFlitId) {
-    // El visor va por el impuesto (presigned S3). Sin impuesto todavía no hay a qué apuntar.
+    // El visor va por el impuesto (la factura vive en FLIT). Sin impuesto no hay a qué apuntar.
     return fila.impuesto
       ? <button className="text-[11px] font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
-          onClick={() => onVer(fila.impuesto!.id)}>Ver factura de venta</button>
+          onClick={() => onVer(fila)}>Ver factura de venta</button>
       : <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Factura en FLIT</span>;
   }
   return <span className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Sin factura de venta</span>;

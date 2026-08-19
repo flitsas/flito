@@ -1,194 +1,222 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
-import { useAuth } from '../../lib/auth';
-import { effectivePages } from '../../lib/permissions';
-import {
-  NAV_ITEMS, SECTION_LABEL, SECTION_ORDER, activeSectionForPath, type NavItem,
-} from '../shell/navItems';
+import { useEffect, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { SECTION_LABEL } from '../shell/navItems';
+import { useNavSections } from '../shell/useNavSections';
+import { useDisclosureNav } from '../shell/useDisclosureNav';
+import { useEdgeClamp } from '../shell/useEdgeClamp';
+import { SECTION_ICON, SECTION_ACCENT, groupItems } from '../shell/sectionMeta';
 import { IconChevronDown } from './icons';
 
-// FlitNavBar — navegación horizontal bajo el topbar (patrón Academy ADR-0023 /
-// CIA NavBar, adaptado a identidad FLIT). Reemplaza al sidebar fijo en desktop:
-// cada módulo con varios ítems es un disclosure dropdown (patrón APG "disclosure
-// navigation menu": button aria-expanded + lista de links, sin role=menu);
-// los módulos de un solo ítem son link directo. El filtrado por permisos usa
-// EXACTAMENTE la misma lógica que FlitSidebar/CommandPalette (effectivePages).
-// Solo visible en lg+; en mobile la navegación sigue en el drawer (hamburguesa).
+// FlitNavBar — navegación principal de escritorio: un dock flotante centrado al
+// PIE de la pantalla, por encima del contenido. Sustituye a la barra horizontal
+// que colgaba del topbar (HU #11143); el menú lateral sigue descartado como
+// patrón (decisión PO 2026-06-12) y solo vive como drawer en <lg.
+//
+// Cada módulo es una píldora con icono + nombre; el módulo de la ruta actual se
+// rellena con el gradiente de marca. Los módulos con varios ítems son un
+// disclosure APG (button aria-expanded + lista de links, SIN role="menu"); los
+// de un solo ítem, un link directo. El filtrado por permisos y el contrato de
+// teclado no viven aquí: son `useNavSections` y `useDisclosureNav`, compartidos
+// con el drawer, para que las tres navegaciones no puedan divergir.
+//
+// Dos piezas del proyecto que estaban escritas y sin consumidor entran en uso:
+//   · `.flit-shell-nav` (index.css) — vidrio blanco 94% + blur + shadow-card,
+//     con su propio override de [data-theme='dark'];
+//   · el view-transition name `floating-nav`.
+//
+// Al bajar por la página el dock se condensa a solo iconos; al subir se
+// reexpande. Los paneles abren HACIA ARRIBA, único sentido posible desde el pie.
 
-// PESV supera 20 ítems: el panel pasa a multi-columna a partir de este umbral.
-const MULTI_COLUMN_THRESHOLD = 8;
-
-interface SectionGroup {
-  section: NavItem['section'];
-  items: NavItem[];
-}
+/** Scroll bajo el cual el dock está siempre expandido. */
+const EXPAND_ZONE = 96;
 
 export default function FlitNavBar() {
-  const { user } = useAuth();
-  const { pathname } = useLocation();
-  const navRef = useRef<HTMLElement>(null);
-  const [openSection, setOpenSection] = useState<NavItem['section'] | null>(null);
+  const { grouped, routeSection } = useNavSections();
+  const { openSection, toggle, navRef, triggerId, panelId } = useDisclosureNav('flit-navbar');
+  const [condensed, setCondensed] = useState(false);
+  // El panel de PESV (4 columnas) se sale del viewport si el módulo queda a la
+  // derecha del dock.
+  const { ref: panelRef, shift } = useEdgeClamp<HTMLDivElement>(openSection);
 
-  const allowed = useMemo(() => effectivePages(user), [user]);
-  const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))),
-    [allowed, user],
-  );
-
-  const grouped: SectionGroup[] = useMemo(
-    () =>
-      SECTION_ORDER
-        .map((section) => ({ section, items: visibleItems.filter((it) => it.section === section) }))
-        .filter((g) => g.items.length > 0),
-    [visibleItems],
-  );
-
-  const routeSection = useMemo(
-    () => activeSectionForPath(pathname, visibleItems),
-    [pathname, visibleItems],
-  );
-
-  // Navegar cierra el dropdown abierto.
-  useEffect(() => { setOpenSection(null); }, [pathname]);
-
-  // Click/tap fuera cierra (es un dropdown de navegación, no un modal — la regla
-  // "cierre explícito" aplica a modales; los disclosures siguen el patrón APG).
-  // pointerdown (no mousedown) para cubrir touch en tablets con viewport lg+.
+  // Condensa al bajar, expande al subir. rAF para no leer scroll en cada evento.
+  //
+  // El LOCKOUT no es decorativo: al condensarse cambia el layout, el navegador
+  // ajusta el scroll para compensar y eso llega como un "scroll hacia arriba"
+  // que volvería a expandir el dock — y otra vez, en bucle. Tras cada cambio de
+  // estado ignoramos el scroll un instante, que es justo el rebote inducido.
+  const condensedRef = useRef(false);
   useEffect(() => {
-    if (!openSection) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!navRef.current?.contains(e.target as Node)) setOpenSection(null);
-    };
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => window.removeEventListener('pointerdown', onPointerDown);
-  }, [openSection]);
+    let lastY = window.scrollY;
+    let ticking = false;
+    let lockUntil = 0;
 
-  // Esc cierra y devuelve el foco al trigger de la sección abierta.
-  useEffect(() => {
-    if (!openSection) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      const trigger = navRef.current?.querySelector<HTMLButtonElement>(
-        `#flit-navbar-trigger-${openSection}`,
-      );
-      setOpenSection(null);
-      trigger?.focus();
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const y = window.scrollY;
+        const now = performance.now();
+        if (now >= lockUntil) {
+          let next: boolean | null = null;
+          if (y <= EXPAND_ZONE) next = false;
+          else if (y > lastY + 4) next = true;
+          else if (y < lastY - 8) next = false;
+          if (next !== null && next !== condensedRef.current) {
+            condensedRef.current = next;
+            lockUntil = now + 250;
+            setCondensed(next);
+          }
+        }
+        lastY = y;
+        ticking = false;
+      });
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [openSection]);
-
-  // ⌘K/Ctrl+K abre la CommandPalette: cerramos el dropdown para que el Escape
-  // de la palette nunca compita con el listener de Escape del navbar.
-  useEffect(() => {
-    if (!openSection) return;
-    const onPaletteKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') setOpenSection(null);
-    };
-    window.addEventListener('keydown', onPaletteKey);
-    return () => window.removeEventListener('keydown', onPaletteKey);
-  }, [openSection]);
-
-  const toggle = useCallback((section: NavItem['section']) => {
-    setOpenSection((prev) => (prev === section ? null : section));
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Un panel abierto fuerza la expansión: navegar entre iconos sueltos es
+  // desorientador.
+  useEffect(() => {
+    if (!openSection) return;
+    condensedRef.current = false;
+    setCondensed(false);
+  }, [openSection]);
 
   if (grouped.length === 0) return null;
 
+  const pillH = condensed ? 'h-9' : 'h-11';
+
   return (
-    <nav
-      ref={navRef}
-      aria-label="Navegación principal"
-      className="sticky z-20 hidden lg:block"
-      style={{
-        top: 'var(--flit-topbar-height)',
-        background: 'var(--flit-gradient-primary)',
-        boxShadow: '0 6px 18px rgba(22, 39, 68, 0.12)',
-      }}
-    >
-      {/* flex-wrap (no overflow-x-auto): un contenedor con scroll recortaría
-          los dropdowns absolutos. En anchos lg ajustados la barra crece a 2 filas.
-          Altura de 1 fila = h-9 (36px) + my-1.5 (12px) = 48px = --flit-navbar-height
-          (token consumido por los offsets sticky de páginas internas). Si la barra
-          envuelve a 2 filas, esos offsets quedan cortos: caso aceptado y documentado
-          en flit-tokens.css — solo ocurre en lg justos con los 9 módulos visibles. */}
-      <ul className="flex flex-wrap items-stretch gap-1 px-4 sm:px-6 lg:px-8">
+    // El contenedor cubre todo el ancho para poder centrar, pero deja pasar los
+    // clics: solo el dock y sus paneles son interactivos.
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 hidden justify-center px-4 pb-5 lg:flex">
+      <nav
+        ref={navRef}
+        aria-label="Navegación principal"
+        data-vt="floating-nav"
+        // gap y padding ajustados para que los 10 módulos de un admin quepan en
+        // UNA fila a 1440px: el dock pierde su gracia partido en dos.
+        className="flit-nav-capsule flit-shell-nav pointer-events-auto relative inline-flex max-w-full flex-wrap items-center justify-center gap-0.5 rounded-flit-pill p-1.5 transition-[height,padding] duration-200 ease-out motion-reduce:transition-none"
+      >
         {grouped.map(({ section, items }) => {
+          const SectionIcon = SECTION_ICON[section];
           const isRouteSection = routeSection === section;
           const isOpen = openSection === section;
+          const lit = isRouteSection || isOpen;
 
-          // Módulo de un solo ítem → link directo, sin dropdown.
+          const shared = `flit-focus group relative flex ${pillH} items-center gap-2 whitespace-nowrap rounded-flit-pill px-3 text-sm transition-all duration-200 ease-out motion-reduce:transition-none`;
+          // `flit-nav-pill` solo existe para que el tema oscuro pueda alcanzar
+          // estos textos (ver index.css); el módulo activo va sobre gradiente y
+          // ya es blanco en ambos temas.
+          const tone = lit
+            ? 'font-semibold text-white'
+            : 'flit-nav-pill font-medium text-flit-secondary hover:bg-flit-app hover:text-flit-ink';
+          const litStyle = lit
+            ? { background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }
+            : undefined;
+
+          // En condensado el label sigue en el DOM (sr-only): el nombre
+          // accesible del trigger no cambia, solo deja de verse.
+          const label = (text: string) => (
+            <span className={condensed ? 'sr-only' : 'truncate'}>{text}</span>
+          );
+
           if (items.length === 1) {
             const it = items[0];
             return (
-              <li key={section} className="flex">
-                <NavLink
-                  to={it.to}
-                  end={it.to === '/'}
-                  className="flit-focus-light my-1.5 flex h-9 items-center whitespace-nowrap rounded-lg px-3 text-sm font-medium text-white/90 transition-colors hover:bg-white/15 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
-                >
-                  {it.label}
-                </NavLink>
-              </li>
+              <NavLink
+                key={section}
+                to={it.to}
+                end={it.to === '/'}
+                className={`${shared} ${tone}`}
+                style={litStyle}
+              >
+                <SectionIcon
+                  className="h-[18px] w-[18px] shrink-0 transition-colors"
+                  style={{ color: lit ? '#FFFFFF' : SECTION_ACCENT[section] }}
+                />
+                {label(it.label)}
+              </NavLink>
             );
           }
 
-          const panelId = `flit-navbar-panel-${section}`;
-          const multiColumn = items.length > MULTI_COLUMN_THRESHOLD;
+          const groups = groupItems(section, items);
+          const multiColumn = groups.length > 1;
+
           return (
-            <li key={section} className="relative flex">
+            <div key={section} className="relative flex">
               <button
                 type="button"
-                id={`flit-navbar-trigger-${section}`}
+                id={triggerId(section)}
                 aria-expanded={isOpen}
-                aria-controls={panelId}
+                aria-controls={panelId(section)}
                 onClick={() => toggle(section)}
-                className={`flit-focus-light my-1.5 flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-sm font-medium transition-colors hover:bg-white/15 ${
-                  isRouteSection || isOpen ? 'bg-white/20 font-semibold text-white' : 'text-white/90'
-                }`}
+                className={`${shared} ${tone}`}
+                style={litStyle}
               >
-                {SECTION_LABEL[section]}
-                <IconChevronDown
-                  className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
+                <SectionIcon
+                  className="h-[18px] w-[18px] shrink-0 transition-colors"
+                  style={{ color: lit ? '#FFFFFF' : SECTION_ACCENT[section] }}
                 />
+                {label(SECTION_LABEL[section])}
+                {!condensed && (
+                  <IconChevronDown
+                    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-0' : 'rotate-180'} ${lit ? 'text-white/80' : 'text-flit-muted'}`}
+                  />
+                )}
               </button>
 
-              <div
-                id={panelId}
-                hidden={!isOpen}
-                className="absolute left-0 top-full z-30 mt-1 bg-white p-1.5"
-                style={{
-                  borderRadius: 'var(--flit-radius-md)',
-                  border: '1px solid var(--flit-border-soft)',
-                  boxShadow: 'var(--flit-shadow-card)',
-                  minWidth: multiColumn ? undefined : '15rem',
-                }}
-              >
-                <ul
-                  className={multiColumn ? 'grid gap-x-2 gap-y-0.5' : 'flex flex-col gap-0.5'}
-                  style={multiColumn ? {
-                    gridTemplateColumns: `repeat(${Math.ceil(items.length / 10)}, minmax(13rem, 1fr))`,
-                    gridAutoFlow: 'column',
-                    gridTemplateRows: `repeat(${Math.min(items.length, 10)}, auto)`,
-                  } : undefined}
+              {isOpen && (
+                <div
+                  ref={panelRef}
+                  id={panelId(section)}
+                  // bottom-full: desde el pie, el panel solo puede abrir hacia
+                  // arriba. max-height + scroll para que un módulo grande no se
+                  // salga por el techo en pantallas bajas.
+                  className="flit-panel-up absolute bottom-full left-0 z-30 mb-2.5 overflow-y-auto rounded-flit-lg border border-flit-soft bg-flit-card p-2"
+                  style={{
+                    boxShadow: 'var(--flit-shadow-modal)',
+                    minWidth: multiColumn ? undefined : '16rem',
+                    maxHeight: 'min(70vh, 32rem)',
+                    left: shift ? `${shift}px` : undefined,
+                    ['--flit-acc' as string]: SECTION_ACCENT[section],
+                  } as React.CSSProperties}
                 >
-                  {items.map((it) => (
-                    <li key={it.to}>
-                      <NavLink
-                        to={it.to}
-                        end={it.to === '/'}
-                        className="flit-focus block truncate rounded-lg px-3 py-2 text-sm text-[var(--flit-text-secondary)] transition-colors hover:bg-[var(--flit-bg-app)] hover:text-[var(--flit-text-primary)] aria-[current=page]:bg-[var(--flit-bg-app)] aria-[current=page]:font-semibold aria-[current=page]:text-[var(--flit-text-primary)]"
-                      >
-                        {it.label}
-                      </NavLink>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </li>
+                  <div className={multiColumn ? 'flex gap-1' : undefined}>
+                    {groups.map((g) => (
+                      <div key={g.title ?? '_'} className={multiColumn ? 'min-w-[13.5rem] flex-1' : undefined}>
+                        {g.title && multiColumn && (
+                          <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-flit-muted">
+                            {g.title}
+                          </p>
+                        )}
+                        <ul className="flex flex-col gap-0.5">
+                          {g.items.map((it) => (
+                            <li key={it.to}>
+                              <NavLink
+                                to={it.to}
+                                end={it.to === '/'}
+                                className="flit-focus group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-flit-secondary transition-colors hover:bg-flit-app hover:text-flit-ink aria-[current=page]:bg-flit-app aria-[current=page]:font-semibold aria-[current=page]:text-flit-ink"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-flit-soft transition-colors group-hover:bg-[var(--flit-acc)] group-aria-[current=page]:bg-[var(--flit-acc)]"
+                                />
+                                <span className="truncate">{it.label}</span>
+                              </NavLink>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })}
-      </ul>
-    </nav>
+      </nav>
+    </div>
   );
 }

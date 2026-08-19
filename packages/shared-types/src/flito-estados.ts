@@ -202,6 +202,24 @@ export const MODALIDAD_ORGANISMO_LABEL: Record<ModalidadOrganismo, string> = {
   autogestionado: 'Autogestionado por el organismo',
 };
 
+/**
+ * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
+ * está en modalidad `requiere_gestion`. En cualquier otro caso lo gestiona alguien más y FLITO ni lo
+ * paga ni lo cobra.
+ *
+ * Vive en el dominio compartido porque hay tres sitios que tienen que responder lo mismo y no pueden
+ * discrepar: el sync —que por eso no crea registro de impuesto—, la liquidación —que por eso no lo
+ * exige para sellar— y el reporte de costos —que por eso no lo pinta como una ausencia—. Estaba solo
+ * dentro del sync, así que los otros dos deducían la respuesta mirando si existía el registro, que
+ * es una pista, no la regla.
+ */
+export function flitoGestionaImpuesto(
+  impuestosAutogestionable: boolean,
+  modalidad: ModalidadOrganismo,
+): boolean {
+  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
+}
+
 /** Tipo de propiedad del vehículo. Cambia el mapeo de compradores (FEATURE_SOAT §9.6). */
 export const TipoPropiedad = {
   UNICO_PROPIETARIO: 'unico_propietario',
@@ -220,6 +238,12 @@ export const TipoSoporte = {
   FACTURA_VENTA: 'factura_venta',
   RECIBO_IMPUESTO: 'recibo_impuesto',
   RECIBO_IMPUESTO_SIN_MARCA_AGUA: 'recibo_impuesto_sin_marca_agua',
+  // HU #11335 — los dos documentos de la factura electrónica que FLITO emite ante la DIAN. Nada
+  // que ver con `FACTURA_VENTA`, que es la del concesionario y llega de fuera. Viven en el mismo
+  // catálogo porque acaban en la misma tabla y en la misma lista de la pantalla; lo que se deriva
+  // de ellos (extensión, content-type, endpoint de Siigo) está en `siigo-archivo.ts`.
+  FACTURA_ELECTRONICA_PDF: 'factura_electronica_pdf',
+  FACTURA_ELECTRONICA_XML: 'factura_electronica_xml',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];

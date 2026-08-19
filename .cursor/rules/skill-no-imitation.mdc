@@ -1,0 +1,36 @@
+---
+description: Las skills FLITO se cargan y ejecutan; no se imitan con comentarios ADO ni wit_* sueltos. QA y orquestación no son opcionales.
+alwaysApply: true
+---
+
+# Skills reales — prohibida la imitación
+
+Esta regla **prevalece** sobre atajos del hilo que «parecen» cumplir el proceso sin cargar la skill.
+
+## Principio
+
+Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit-modo-desarrollo-auto`, …) existen para **ejecutarse**. Un comentario HTML en Azure DevOps del tipo «usando @flit-…», un `wit_*` suelto, o un checklist inventado en el chat **no** sustituyen la skill.
+
+## Qué cuenta
+
+| Tipo | Prueba mínima |
+|------|----------------|
+| Skill | Herramienta `Skill` con el nombre exacto, **o** `Read` de `.claude/skills/<nombre>/SKILL.md` en el mismo turno **y** seguir sus pasos/plantillas/veredicto |
+| Agent | `Agent`/`Task` con `subagent_type` exacto **y** `HANDOFF` del subagente |
+
+## Qué no cuenta (hard-stop)
+
+- Branded Discussion + PATCH ADO «como si» fuera `flit-gestion-hu` / `flit-integration-ado`
+- «Gates cerrados» / «ya revisado» sin veredicto canónico de `flit-code-review` sobre **este** diff/HEAD
+- Abrir el PR y revisar después
+- Comentario «listo para QA» **sin** lanzar `qa-agent`
+- Reusar salida de Vitest/Playwright del `backend-agent` / hilo como certificación QA
+- Feature «modo auto» improvisado sin cargar `flit-modo-desarrollo-auto` (salvo pedido explícito de no usarla)
+
+## Orquestación
+
+Pedido multi-fase / Feature completo → cargar `flit-modo-desarrollo-auto` y/o invocar `orchestrator-agent`. El plan debe nombrar **Skill/Agent reales** por fase; prohibido proponer que el hilo «haga de paso» roles de la matriz `AGENTS.md`.
+
+## QA (participación mínima)
+
+Tras **cada** HU en `Resolved` con AC Gherkin, UI o BACKEND-only aplicable → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → HU a `Active` + corregir; **sin** Bug/modo C. Modo C solo con pedido explícito del QA. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».

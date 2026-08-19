@@ -9,9 +9,11 @@
 import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  auditLogs, clients, flitoCompradores, flitoImpuestos, flitoSoportes, flitoTramites,
-  organismosTransitoConfig, users, vehicles,
+  auditLogs, clients, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoSoportes,
+  flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
+import { aIso } from '../../shared/utils/fecha-rango.js';
+import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 
@@ -31,6 +33,9 @@ const FRONTERA_AUTOGESTION_IMP = sql`(NOT COALESCE(${clients.impuestosAutogestio
 
 export interface ImpuestoColaItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
+  /** Vehículo y datos del trámite, homologados con las demás tablas. */
+  marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
@@ -38,13 +43,35 @@ export interface ImpuestoColaItem {
   /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
   pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /** true = lo gestiona Operaciones por contingencia (HU #11155), no el gestor del organismo. */
+  gestionOperaciones: boolean;
+  /**
+   * Certificación vigente contra el RUNT, o `null` si el registro no está certificado (HU #11168).
+   *
+   * Viaja en el listado y no se consulta fila a fila: la cola pagina hasta 200 registros y una
+   * petición por fila para pintar una columna sería el patrón N+1 movido al navegador, con la
+   * columna parpadeando mientras llegan las respuestas.
+   *
+   * Solo lo que la cola necesita PINTAR. El detalle campo a campo vive en el certificado PDF y en la
+   * respuesta de certificar; meterlo aquí engordaría cada fila del listado con datos que la tabla no
+   * muestra.
+   */
+  certificacion: { id: string; certificadoEn: string; certificadoPorNombre: string } | null;
 }
 
 const SELECT_COLA = {
   id: flitoImpuestos.id, tramiteId: flitoImpuestos.tramiteId, idFlit: flitoTramites.idFlit,
+  // Homologación con las demás tablas (tipo, aprobación, creación, vehículo). El impuesto SÍ es por
+  // trámite, así que aquí no hay la ambigüedad que tiene el SOAT.
+  tipoTramite: flitoTramites.tipoTramite,
+  fechaAprobacion: flitoTramites.fechaAprobacion,
+  // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila.
+  fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+  marca: vehicles.brand, linea: vehicles.model,
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+  gestionOperaciones: flitoImpuestos.gestionOperaciones,
   enviadoEn: flitoImpuestos.enviadoEn, pagadoEn: flitoImpuestos.pagadoEn,
   motivoRechazo: flitoImpuestos.motivoRechazo, createdAt: flitoImpuestos.createdAt,
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
@@ -69,6 +96,11 @@ export interface FiltrosColaImpuestos {
   /** Multiselect. Vacío = sin acotar. En impuestos el equivalente al proveedor es el organismo. */
   companias?: number[];
   organismos?: string[];
+  /**
+   * Quién gestiona. Útil solo para Operaciones y auditoría: la frontera del gestor ya excluye lo de
+   * Operaciones, así que para él «operaciones» daría vacío y «organismo» sería redundante.
+   */
+  gestion?: 'operaciones' | 'organismo';
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
@@ -88,9 +120,12 @@ export interface ColaImpuestosPaginada {
  * `make_interval` y no concatenar texto: `sla || ' hours'` deja el tipo del parámetro ambiguo.
  */
 const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLICITADO}
-  AND ${organismosTransitoConfig.flitoSlaHoras} IS NOT NULL
   AND ${flitoImpuestos.enviadoEn} IS NOT NULL
-  AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${organismosTransitoConfig.flitoSlaHoras}))`;
+  AND CASE WHEN ${flitoImpuestos.gestionOperaciones}
+        THEN ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})
+        ELSE ${organismosTransitoConfig.flitoSlaHoras} IS NOT NULL
+             AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${organismosTransitoConfig.flitoSlaHoras})
+      END)`;
 
 /**
  * Condiciones de la cola, compartidas por la página y el conteo. `null` = la frontera del gestor
@@ -101,6 +136,13 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
 
   if (esGestor(ctx)) {
     if (!ctx.transitoCodigo) return null; // sin organismo no hay frontera → nada
+    // Lo asumido por Operaciones sale de su cola. Aquí la bandera no es una comodidad: no hay
+    // columna de destinatario que poner a null, así que es lo ÚNICO capaz de sacarlo — y sin ello
+    // el gestor podría pagar un recibo que Operaciones ya está pagando. Dinero real, dos veces.
+    //
+    // Va en las condiciones COMPARTIDAS por la página, el conteo y las facetas: si viviera solo en
+    // la consulta de filas, el total seguiría contándolo y nadie lo notaría.
+    conds.push(eq(flitoImpuestos.gestionOperaciones, false));
     conds.push(eq(flitoImpuestos.organismoCodigo, ctx.transitoCodigo));
     const visibles = f.estados?.length ? f.estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
     if (visibles.length === 0) return null;
@@ -124,6 +166,8 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
 
   if (f.companias?.length) conds.push(inArray(flitoImpuestos.companiaId, f.companias));
   if (f.organismos?.length) conds.push(inArray(flitoImpuestos.organismoCodigo, f.organismos));
+  if (f.gestion === 'operaciones') conds.push(eq(flitoImpuestos.gestionOperaciones, true));
+  else if (f.gestion === 'organismo') conds.push(eq(flitoImpuestos.gestionOperaciones, false));
 
   // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
   if (f.solicitadoDesde) conds.push(sql`${flitoImpuestos.enviadoEn} >= ${f.solicitadoDesde}::date`);
@@ -213,10 +257,37 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
   const principalPorTramite = new Map<string, typeof compradores[number]>();
   for (const c of compradores) if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
 
+  // Una sola consulta para toda la página, igual que los compradores. Un LEFT JOIN en `fromCola`
+  // habría servido, pero el índice único parcial ya garantiza como mucho una vigente por impuesto y
+  // esto deja el SELECT de la cola —que ya arrastra cinco joins— sin un sexto.
+  const impuestoIds = rows.map((r) => r.id);
+  const certificaciones = impuestoIds.length
+    ? await db.select({
+      id: flitoImpuestoCertificaciones.id,
+      impuestoId: flitoImpuestoCertificaciones.impuestoId,
+      createdAt: flitoImpuestoCertificaciones.createdAt,
+      certificadoPorNombre: flitoImpuestoCertificaciones.certificadoPorNombre,
+    })
+      .from(flitoImpuestoCertificaciones)
+      .where(and(
+        inArray(flitoImpuestoCertificaciones.impuestoId, impuestoIds),
+        eq(flitoImpuestoCertificaciones.vigente, true),
+      ))
+    : [];
+  const certPorImpuesto = new Map(certificaciones.map((c) => [c.impuestoId, c]));
+
   return rows.map((r) => {
     const p = principalPorTramite.get(r.tramiteId);
+    const cert = certPorImpuesto.get(r.id);
     return {
+      certificacion: cert
+        ? { id: cert.id, certificadoEn: cert.createdAt.toISOString(), certificadoPorNombre: cert.certificadoPorNombre }
+        : null,
       id: r.id, tramiteId: r.tramiteId, idFlit: r.idFlit, placa: r.placa, vin: r.vin ?? '',
+      marca: r.marca, linea: r.linea,
+      tipoTramite: r.tipoTramite,
+      fechaAprobacion: aIso(r.fechaAprobacion),
+      fechaCreacion: aIso(r.fechaCreacion),
       estado: r.estado as EstadoImpuesto,
       compradorNombre: p?.nombreCompleto ?? null, compradorDocumento: p?.numeroDocumento ?? null,
       companiaNombre: r.companiaNombre, organismoCodigo: r.organismoCodigo, organismoNombre: r.organismoNombre,
@@ -225,15 +296,29 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       marcadoPorDiferencia: r.marcadoPorDiferencia, tieneFacturaVenta: r.facturaVentaFlitId !== null,
       enviadoPorNombre: r.enviadoPorNombre, enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
-      estancado: estaEstancado(r.estado, r.enviadoEn),
+      estancado: estaEstancado(r.estado, r.enviadoEn, r.gestionOperaciones, r.organismoSla),
+      gestionOperaciones: r.gestionOperaciones,
       motivoRechazo: r.motivoRechazo, creadoEn: r.createdAt.toISOString(),
     };
   });
 }
 
-function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+/**
+ * Gemelo en JavaScript de `EXPR_ESTANCADO_IMP`. Conviven porque la píldora se pinta desde la fila ya
+ * ensamblada y el filtro tiene que ocurrir en la consulta; si una cambia, la otra debe cambiar con
+ * ella o la píldora dice una cosa y el conteo otra.
+ *
+ * Ojo: hasta la HU #11155 estas dos NO coincidían —el SQL medía contra el ANS del organismo y esto
+ * contra el global— pese a que el comentario afirmaba lo contrario. Ahora las dos aplican el mismo
+ * criterio: el ANS global de Operaciones cuando la contingencia está activa, y el del organismo
+ * cuando lo gestiona su gestor. Un organismo sin ANS configurado nunca marca a su gestor, pero sí
+ * marca lo que asumió Operaciones: el retraso deja de esconderse por una parametrización que falta.
+ */
+export function estaEstancado(estado: string, enviadoEn: Date | null, gestionOperaciones: boolean, slaOrganismo: number | null): boolean {
   if (estado !== EstadoImpuesto.SOLICITADO || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
+  const horas = gestionOperaciones ? ANS_OPERATIVO.SIN_GESTION_HORAS : slaOrganismo;
+  if (horas === null) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > horas;
 }
 
 /**
@@ -249,6 +334,9 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
   // aparecer en la lista (HU #11021).
   if (!row.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
+    // Antes que el organismo: lo que asumió Operaciones deja de ser suyo aunque el organismo siga
+    // siendo el mismo — y lo sigue siendo siempre, porque el impuesto se paga ante él igual.
+    if (row.imp.gestionOperaciones) return null;
     if (row.imp.organismoCodigo !== ctx.transitoCodigo) return null;
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
   }
@@ -256,15 +344,21 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
 }
 
 /**
- * Id de la factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
+ * Factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
  * Devuelve null si el impuesto no es accesible o su trámite aún no trae factura. Integración FLIT.
+ *
+ * Viene acompañada del id de FLIT del trámite, que no es adorno: es el nombre con el que se
+ * descarga el archivo. Nombrarlo por el id de la factura —un identificador de S3 que no aparece en
+ * ninguna pantalla— deja al usuario con una carpeta de ficheros que no puede emparejar con nada.
  */
-export async function facturaVentaFlitIdConAcceso(id: string, ctx: ImpuestoCtx): Promise<string | null> {
+export async function facturaVentaFlitConAcceso(
+  id: string, ctx: ImpuestoCtx,
+): Promise<{ facturaId: string; idFlit: string | null } | null> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) return null;
-  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId })
+  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId, idFlit: flitoTramites.idFlit })
     .from(flitoTramites).where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
-  return t?.facturaVentaFlitId ?? null;
+  return t?.facturaVentaFlitId ? { facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null } : null;
 }
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {
@@ -299,7 +393,7 @@ export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
  * evita que ambos manden el mismo registro. Solo cuenta con factura de venta cargada (estado
  * PENDIENTE ya lo garantiza: sin_factura no llega aquí).
  */
-export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx, gestionOperaciones = false): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
   const enviados = await db.transaction(async (tx) => {
     const locked = await tx.select({ id: flitoImpuestos.id }).from(flitoImpuestos)
@@ -308,12 +402,101 @@ export async function enviarAlGestor(ids: string[], ctx: ImpuestoCtx): Promise<R
       .for('update', { of: flitoImpuestos, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];
-    await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: new Date(), updatedAt: new Date() })
-      .where(inArray(flitoImpuestos.id, idsEnviados));
-    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, 'Envío al gestor (pendiente→solicitado).');
+    const ahora = new Date();
+    await tx.update(flitoImpuestos).set({
+      estado: EstadoImpuesto.SOLICITADO, enviadoPorId: ctx.userId, enviadoEn: ahora, updatedAt: ahora,
+      // A diferencia de SOAT no hay XOR que validar: sin proveedor con el que competir, la
+      // contingencia es solo una marca más sobre el mismo envío.
+      ...(gestionOperaciones
+        ? { gestionOperaciones: true, gestionOperacionesPorId: ctx.userId, gestionOperacionesEn: ahora }
+        : {}),
+    }).where(inArray(flitoImpuestos.id, idsEnviados));
+    const destino = gestionOperaciones ? 'gestión de Operaciones' : 'gestor';
+    for (const id of idsEnviados) await auditEnTx(tx, ctx, id, `Envío a ${destino} (pendiente→solicitado).`);
+    await registrarCambios(tx, idsEnviados.map((iid) => ({
+      concepto: 'impuesto' as const, registroId: iid,
+      estadoAnterior: EstadoImpuesto.PENDIENTE, estadoNuevo: EstadoImpuesto.SOLICITADO,
+      motivo: gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor',
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    })));
     return idsEnviados;
   });
   return { enviados, yaEnviados: ids.filter((id) => !enviados.includes(id)) };
+}
+
+// ────────────── Traspaso de gestión: Operaciones ↔ gestor del organismo (HU #11155) ──────────────
+
+/** Mientras el impuesto está en gestión y sin pagar. Igual que en SOAT. */
+const ESTADOS_TRASPASO_IMP: readonly EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD];
+
+function noAdmiteTraspasoImp(estado: EstadoImpuesto): ImpuestoError {
+  if (estado === EstadoImpuesto.PAGADO) {
+    return new ImpuestoError(400, 'Este impuesto ya está pagado: su gestión no se traspasa. Si hay que rehacerlo, primero reversarlo con justificación.');
+  }
+  return new ImpuestoError(400, `Este impuesto aún no se ha enviado a gestión (está en "${ESTADO_IMPUESTO_LABEL[estado]}").`);
+}
+
+function exigirMotivoImp(motivo: string, accion: string): string {
+  const limpio = motivo?.trim() ?? '';
+  if (limpio.length < 5) throw new ImpuestoError(400, `${accion} exige un motivo que explique el porqué`);
+  return limpio;
+}
+
+/**
+ * Operaciones asume la gestión de un impuesto. No cambia el estado ni toca `enviadoEn` —el tiempo
+ * que lleva esperando es el que es— y el organismo se conserva: el impuesto se paga ante él aunque
+ * lo tramite otro. Lo que cambia es quién lo trabaja, y con ello el ANS contra el que se mide.
+ */
+export async function asumirEnOperaciones(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
+  if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  const limpio = exigirMotivoImp(motivo, 'Asumir la gestión en Operaciones');
+  if (imp.gestionOperaciones) throw new ImpuestoError(400, 'Este impuesto ya lo gestiona Operaciones');
+  if (!ESTADOS_TRASPASO_IMP.includes(imp.estado as EstadoImpuesto)) throw noAdmiteTraspasoImp(imp.estado as EstadoImpuesto);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [u] = await tx.update(flitoImpuestos).set({
+      gestionOperaciones: true, gestionOperacionesMotivo: limpio,
+      gestionOperacionesPorId: ctx.userId, gestionOperacionesEn: ahora, updatedAt: ahora,
+    }).where(eq(flitoImpuestos.id, id)).returning();
+    await auditEnTx(tx, ctx, id, `Gestión asumida por Operaciones (organismo ${imp.organismoCodigo}): ${limpio}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado as EstadoImpuesto, estadoNuevo: imp.estado as EstadoImpuesto,
+      motivo: `Gestión asumida por Operaciones: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return u;
+  });
+}
+
+/**
+ * Devuelve el impuesto al gestor de su organismo. A diferencia de SOAT no recibe destinatario: el
+ * organismo nunca cambió, así que quitar la marca ya lo devuelve a quien le corresponde.
+ */
+export async function devolverAlGestor(id: string, motivo: string, ctx: ImpuestoCtx): Promise<typeof flitoImpuestos.$inferSelect> {
+  const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
+  if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  const limpio = exigirMotivoImp(motivo, 'Devolver la gestión al gestor del organismo');
+  if (!imp.gestionOperaciones) throw new ImpuestoError(400, 'Este impuesto no lo gestiona Operaciones: no hay nada que devolver');
+  if (!ESTADOS_TRASPASO_IMP.includes(imp.estado as EstadoImpuesto)) throw noAdmiteTraspasoImp(imp.estado as EstadoImpuesto);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [u] = await tx.update(flitoImpuestos).set({
+      gestionOperaciones: false, gestionOperacionesMotivo: null,
+      gestionOperacionesPorId: null, gestionOperacionesEn: null, updatedAt: ahora,
+    }).where(eq(flitoImpuestos.id, id)).returning();
+    await auditEnTx(tx, ctx, id, `Gestión devuelta al gestor del organismo ${imp.organismoCodigo}: ${limpio}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado as EstadoImpuesto, estadoNuevo: imp.estado as EstadoImpuesto,
+      motivo: `Gestión devuelta al gestor del organismo: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return u;
+  });
 }
 
 /** Rechazo del gestor. Solo desde En gestión; motivo obligatorio. */
@@ -325,6 +508,11 @@ export async function rechazar(id: string, motivo: string, ctx: ImpuestoCtx): Pr
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Rechazo (solicitado→con_novedad): ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: EstadoImpuesto.CON_NOVEDAD,
+      motivo: `Rechazo: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }
@@ -338,6 +526,11 @@ export async function reactivar(id: string, motivo: string, ctx: ImpuestoCtx): P
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: EstadoImpuesto.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Reactivación (rechazado→pendiente): ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: EstadoImpuesto.PENDIENTE,
+      motivo: `Reactivación: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }
@@ -354,6 +547,11 @@ export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo
   return db.transaction(async (tx) => {
     const [u] = await tx.update(flitoImpuestos).set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() }).where(eq(flitoImpuestos.id, id)).returning();
     await auditEnTx(tx, ctx, id, `Reversa ${imp.estado}→${estadoDestino}: ${motivo.trim()}`);
+    await registrarCambio(tx, {
+      concepto: 'impuesto', registroId: id,
+      estadoAnterior: imp.estado, estadoNuevo: estadoDestino,
+      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
     return u;
   });
 }

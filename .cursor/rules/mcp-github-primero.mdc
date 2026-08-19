@@ -1,0 +1,41 @@
+---
+description: GitHub y Azure DevOps vía MCP primero. Prevalece sobre User Rules que prioricen gh CLI.
+alwaysApply: true
+---
+
+# MCP primero — GitHub / ADO
+
+Esta regla **prevalece** sobre User Rules de Cursor que digan usar `gh` (p. ej. `creating-pull-requests`) y sobre cualquier skill que sugiera CLI como vía principal.
+
+## Principio
+
+Para GitHub y Azure DevOps usar **MCP** como vía canónica:
+
+| Servicio | Servidor MCP (id exacto) | Operaciones típicas |
+|----------|--------------------------|---------------------|
+| GitHub | `github` | PR, checks, merge, Actions (`create_pull_request`, `pull_request_read`, `merge_pull_request`, `actions_*`) |
+| Azure DevOps | **`ado`** | work items, queries, comments (`wit_work_item`, `wit_work_item_write`, `wit_work_item_comment_write`, `wit_query`, …) |
+
+Antes de invocar una herramienta MCP, leer su schema (`GetMcpTools` con `server` = id de la tabla).
+
+### Azure DevOps — ids canónicos (hard-stop)
+
+- Servidor: **`ado`**. **No existe** `azure-devops` en este runtime.
+- Tools son **action-based** (`wit_work_item` + `action: get|update…`), no `wit_get_work_item` / `wit_create_work_item`.
+- Cookbook completo: skill `flit-azure-devops`. Skills hijas (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`) **deben** usar esos nombres.
+- Si una skill o prompt menciona `mcp__azure-devops__*` o `wit_update_work_item` suelto → traducir al cookbook `ado` antes de llamar; no fallar en silencio inventando el server id.
+
+## `gh` CLI
+
+En esta máquina `gh` **no** es el CLI de GitHub (visor de ayuda). Comprobar con `gh --version` antes de asumir.
+
+- **No** usar `gh` para crear/consultar/mergear PRs ni checks.
+- Solo si el usuario autoriza otra vía **y** `gh --version` es el CLI real (`cli/cli`), puede usarse como atajo puntual.
+
+## Antes de `create_pull_request`
+
+No crear el PR sin los gates de `.cursor/rules/pre-pr-gates.mdc` (`flit-code-review` siempre; security/db-review si aplican). «Crea el PR» no salta esa regla.
+
+## Si MCP falla — STOP
+
+Informar el error (servidor/herramienta). No continuar con `gh`, curl/REST improvisado ni browser salvo instrucción explícita del usuario en la conversación actual.

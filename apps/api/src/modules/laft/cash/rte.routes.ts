@@ -75,9 +75,15 @@ router.post('/generar/:anio/:mes', generateLimiter, async (req: Request, res: Re
   const { anio, mes } = p;
 
   // Anti-overlap: no generar RTE de un mes que aún no termina.
+  //
+  // `mes` es 1-based, así que Date.UTC(anio, mes, 1) es el primer instante del
+  // mes SIGUIENTE: el punto exacto en que el periodo queda cerrado. Antes se
+  // comparaba contra Date.UTC(anio, mes, 0), que es el último día a las 00:00 —
+  // durante todo ese último día el mes se daba por cerrado y el reporte salía
+  // sin las transacciones de la jornada.
   const today = new Date();
-  const lastDay = new Date(Date.UTC(anio, mes, 0));
-  if (today < lastDay) {
+  const finDelMes = new Date(Date.UTC(anio, mes, 1));
+  if (today < finDelMes) {
     res.status(422).json({ error: 'No se puede generar RTE de un mes en curso — espere al cierre del mes' });
     return;
   }

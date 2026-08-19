@@ -84,7 +84,9 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     await setupBase(page);
     await page.route('**/api/tramites**', (route) => jsonRoute(200, { items: [tramitePaso5({ withOrg: true })], total: [tramitePaso5({ withOrg: true })].length, limit: 50, offset: 0 })(route));
     await page.route('**/api/validacion-identidad/estado/77', (route) =>
-      jsonRoute(200, { ok: true, validaciones: [{ estado: 'aprobado', score: 95 }] })(route));
+      // documento debe coincidir con el comprador: resolverValidacionVigentePorDocumento
+      // filtra por titular y sin match deja Identidad=Pendiente → CTA disabled.
+      jsonRoute(200, { ok: true, validaciones: [{ id: 1, documento: '1020304050', estado: 'aprobado', score: 95 }] })(route));
     await page.route('**/api/tramites/77/documentos', (route) => jsonRoute(200, REQUIRED_DOCS)(route));
     let enviado = false;
     await page.route('**/api/tramites/77', (route) => {
@@ -379,7 +381,8 @@ test.describe('Trámite · Wizard admin (matrícula inicial)', () => {
     };
     await setupBase(page);
     await page.route('**/api/tramites**', (route) => jsonRoute(200, { items: [t88], total: 1, limit: 50, offset: 0 })(route));
-    await page.route('**/api/validacion-identidad/estado/88', (route) => jsonRoute(200, { ok: true, validaciones: [{ estado: 'aprobado', score: 95 }] })(route));
+    await page.route('**/api/validacion-identidad/estado/88', (route) =>
+      jsonRoute(200, { ok: true, validaciones: [{ id: 1, documento: '1020304050', estado: 'aprobado', score: 95 }] })(route));
     await page.route('**/api/tramites/88/documentos', (route) => jsonRoute(200, REQUIRED_DOCS)(route));
     let solicitado = false;
     await page.route('**/api/tramites/88/firma/solicitar', (route) => { solicitado = true; return jsonRoute(201, { firma: { id: 1, rol: 'comprador', estado: 'enviada' }, signUrl: 'https://x' })(route); });

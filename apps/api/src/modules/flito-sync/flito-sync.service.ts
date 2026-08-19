@@ -11,15 +11,19 @@ import { db } from '../../db/client.js';
 import {
   auditLogs, flitoCompradores, flitoImpuestos, flitoSoat, flitoTramiteHistorial, flitoTramites, systemKv, vehicles,
 } from '../../db/schema.js';
+import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
-  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, ModalidadOrganismo, resolverCodigoOrganismoFlit,
+  EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, flitoGestionaImpuesto, resolverCodigoOrganismoFlit,
   soatBloqueaReencolado,
 } from '@operaciones/shared-types';
 import {
   companiaPorNit, modalidadVigente, organismoPorCodigo,
   type CompaniaRow,
 } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import {
+  anioGravableEnCurso, impuestoBloqueantePorVehiculo,
+} from '../flito-impuestos/impuesto-por-vehiculo.js';
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores } from './mapeo-compradores.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
@@ -90,18 +94,14 @@ async function auditSistema(exec: DbOrTx, entry: { action: 'create' | 'update'; 
   await exec.insert(auditLogs).values({ userId: null, userEmail: ACTOR_SISTEMA, action: entry.action, resource: entry.resource, resourceId: entry.resourceId, detail: entry.detail });
 }
 
-/**
- * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
- * está en modalidad `requiere_gestion`. En cualquier otro caso es autogestionado (exento) y NO se
- * crea registro de impuesto (la UI lo muestra "Autogestionado", igual que el SOAT autogestionado).
- */
-export function flitoGestionaImpuesto(impuestosAutogestionable: boolean, modalidad: ModalidadOrganismo): boolean {
-  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
-}
+// RN-01 Impuestos (`flitoGestionaImpuesto`) vive ahora en shared-types: la liquidación y el reporte
+// de costos necesitan la misma respuesta y no pueden depender de si aquí se creó o no el registro.
+// Se re-exporta porque este módulo era su sitio y hay quien la importa desde aquí.
+export { flitoGestionaImpuesto };
 
 function nuevoResultado(): ResultadoSync {
   return {
-    tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0,
+    tramitesLeidos: 0, tramitesNuevos: 0, tramitesActualizados: 0, tramitesSinCambios: 0, soatCreados: 0, soatBloqueadosPorVin: 0, impuestosBloqueadosPorVehiculo: 0,
     impuestosCreados: 0, companiasFaltantes: 0,
     organismosSinEmparejar: 0, ejecutadoEn: new Date().toISOString(),
   };
@@ -168,22 +168,53 @@ async function sincronizarUno(tx: Tx, tf: TramiteFlit, r: ResultadoSync): Promis
   // SOAT/impuestos requieren compañía y organismo emparejados y estado Asignado.
   if (esAsignado(tf.estadoFlit) && compania && organismo) {
     await resolverSoat(tx, tf, tramiteId, soatId, vehiculoId, compania, organismo.codigo, r);
-    await resolverImpuesto(tx, tf, tramiteId, compania, organismo.codigo, r);
+    await resolverImpuesto(tx, tf, tramiteId, vehiculoId, compania, organismo.codigo, r);
   }
 
   // Logística: los trámites aprobados son la fuente de la consola (se listan directo desde
   // flito_tramites); la LT NO nace aquí, sino del escaneo del PDF417 por el mensajero en campo.
 }
 
+/**
+ * Titular que se guarda en el vehículo: el comprador principal (el primero que trae FLIT, `cedulanit`
+ * en el reporte crudo).
+ *
+ * El dato ya se guardaba en `flito_compradores` desde el principio, pero NO en el vehículo, y hay
+ * módulos que preguntan por el propietario al vehículo y no al trámite: la certificación contra el
+ * RUNT (HU #11165) y el refresco de SOAT. Sin esto, esos módulos ven un propietario vacío en
+ * prácticamente toda la flota y se bloquean solos.
+ */
+function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string | null } {
+  const [principal] = tf.compradores;
+  const documento = principal?.numeroDocumento?.trim() || null;
+  return {
+    nombre: principal?.nombreCompleto?.trim().slice(0, 200) || null,
+    // `flito_compradores.numero_documento` admite 30 y `vehicles.owner_document` solo 20. Recortar un
+    // documento lo convertiría en otro documento, así que uno más largo se descarta: consultar el RUNT
+    // con un número mutilado es peor que consultarlo por VIN, que es a lo que se cae sin documento.
+    documento: documento && documento.length <= 20 ? documento : null,
+  };
+}
+
 async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
-  const set = { plate: tf.placa, ...(tf.marca ? { brand: tf.marca } : {}), ...(tf.linea ? { model: tf.linea } : {}), updatedAt: new Date() };
+  const titular = titularDe(tf);
+  // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
+  // propietario que ya conocíamos (p. ej. el que dejó el OCR de la tarjeta de propiedad).
+  const propietario = {
+    ...(titular.nombre ? { ownerName: titular.nombre } : {}),
+    ...(titular.documento ? { ownerDocument: titular.documento } : {}),
+  };
+  const set = { plate: tf.placa, ...(tf.marca ? { brand: tf.marca } : {}), ...(tf.linea ? { model: tf.linea } : {}), ...propietario, updatedAt: new Date() };
   if (existente) {
     await tx.update(vehicles).set(set).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
   const [creado] = await tx.insert(vehicles)
-    .values({ vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId })
+    .values({
+      vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId,
+      ownerName: titular.nombre, ownerDocument: titular.documento,
+    })
     .returning({ id: vehicles.id });
   return creado.id;
 }
@@ -297,6 +328,13 @@ async function resolverSoat(
   await tx.update(flitoTramites).set({ soatId: soat.id, updatedAt: new Date() }).where(eq(flitoTramites.id, tramiteId));
   r.soatCreados += 1;
   await auditSistema(tx, { action: 'create', resource: 'flito_soat', resourceId: soat.id, detail: `SOAT creado para VIN ${tf.vin} (trámite ${tf.idFlit}). El proveedor se asigna al enviarlo al gestor.` });
+  // Primer eslabón de la línea de tiempo. Sin él, el historial de un SOAT recién nacido empezaría
+  // en su primer cambio y no se vería cuándo entró en la cola, que es la mitad de la pregunta.
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soat.id,
+    estadoAnterior: null, estadoNuevo: EstadoSoat.PENDIENTE,
+    motivo: `Alta desde FLIT (trámite ${tf.idFlit}).`, origen: 'sistema',
+  });
 }
 
 /**
@@ -304,7 +342,7 @@ async function resolverSoat(
  * NO se carga a mano: viene de FLIT. Si el organismo requiere gestión y el trámite trae factura, el
  * impuesto arranca en 'pendiente' (listo para enviar); sin factura, en 'sin_factura'.
  */
-async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, compania: CompaniaRow, organismoCodigo: string, r: ResultadoSync): Promise<void> {
+async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, vehiculoId: number, compania: CompaniaRow, organismoCodigo: string, r: ResultadoSync): Promise<void> {
   const [existente] = await tx.select().from(flitoImpuestos).where(eq(flitoImpuestos.tramiteId, tramiteId)).limit(1);
   if (existente) {
     // El estado es del módulo, no del sync. Solo se completa el valor liquidado si llega.
@@ -318,6 +356,20 @@ async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, comp
   // Autogestionado (compañía o organismo) → exento: no se crea registro (como el SOAT autogestionado).
   if (!flitoGestionaImpuesto(compania.impuestosAutogestionable, modalidad)) return;
 
+  // El impuesto es del VEHÍCULO y del año, no del trámite. Si otro trámite del mismo vehículo ya lo
+  // pidió o lo pagó este año, crear otro registro abriría la puerta a un segundo desembolso real por
+  // el mismo concepto — que es justo lo que `resolverSoat` evita por VIN desde el principio.
+  const anio = anioGravableEnCurso();
+  const bloqueante = await impuestoBloqueantePorVehiculo(tx, vehiculoId, anio, tramiteId);
+  if (bloqueante) {
+    r.impuestosBloqueadosPorVehiculo += 1;
+    await auditSistema(tx, {
+      action: 'update', resource: 'flito_impuesto', resourceId: bloqueante.id,
+      detail: `Alta bloqueada (impuesto por vehículo): el vehículo del trámite ${tf.idFlit} ya tiene impuesto en "${bloqueante.estado}" para ${anio} en el trámite ${bloqueante.tramiteId}.`,
+    });
+    return;
+  }
+
   const [impuesto] = await tx.insert(flitoImpuestos).values({
     tramiteId, estado: EstadoImpuesto.PENDIENTE, organismoCodigo, companiaId: compania.id, modalidadAplicada: modalidad,
     valorLiquidado: numOrNull(tf.valorImpuestoLiquidado),
@@ -327,5 +379,10 @@ async function resolverImpuesto(tx: Tx, tf: TramiteFlit, tramiteId: string, comp
   await auditSistema(tx, {
     action: 'create', resource: 'flito_impuesto', resourceId: impuesto.id,
     detail: `Impuesto creado en "pendiente" (trámite ${tf.idFlit}, organismo ${organismoCodigo}).`,
+  });
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: impuesto.id,
+    estadoAnterior: null, estadoNuevo: EstadoImpuesto.PENDIENTE,
+    motivo: `Alta desde FLIT (trámite ${tf.idFlit}, organismo ${organismoCodigo}).`, origen: 'sistema',
   });
 }

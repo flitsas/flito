@@ -174,14 +174,21 @@ export async function crearEmpresaDesdeTramite(
   nombre: string, nit: string, autogestion: { soat: boolean; impuestos: boolean; logistica: boolean }, ctx: TramitesCtx,
 ): Promise<ResultadoCrearEmpresa> {
   const doc = nit.trim();
-  const [existente] = await db.select({ id: clients.id }).from(clients).where(eq(clients.document, doc)).limit(1);
+  // Mismo criterio que la unicidad de `clients.routes.ts` (HU #11292). Con `eq(document, doc)` a
+  // secas, un cliente guardado como `' 900789123'` —típico de un import antiguo— no se encontraba y
+  // este flujo insertaba un segundo cliente con el mismo NIT. En Siigo los dos serían el mismo
+  // tercero y el segundo pisaría al primero; aquí, además, el duplicado nace sin la marca de
+  // conflicto que sí puso la migración 0132 a los preexistentes, así que parece limpio.
+  const docCliente = doc.toUpperCase();
+  const [existente] = await db.select({ id: clients.id }).from(clients)
+    .where(sql`trim(upper(${clients.document})) = ${docCliente}`).limit(1);
   let companiaId: number;
   let yaExistia = false;
   if (existente) { companiaId = existente.id; yaExistia = true; }
   else {
     const [creada] = await db.insert(clients)
       .values({
-        name: nombre.trim(), document: doc, documentType: 'NIT',
+        name: nombre.trim(), document: docCliente, documentType: 'NIT',
         soatAutogestionable: autogestion.soat, impuestosAutogestionable: autogestion.impuestos,
         logisticaAutogestionable: autogestion.logistica,
       })
@@ -651,7 +658,10 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
     soatIds.add(t.soatId);
   }
 
-  const { enviados, yaEnviados } = await enviarSoat([...soatIds], soatCtx(ctx), proveedorSoatId);
+  // Desde Gestión Trámites el proveedor sigue siendo obligatorio: la contingencia (HU #11152) se
+  // opera desde el módulo SOAT, que es donde se ve de quién se retoma cada registro. Aquí solo se
+  // adapta la forma de la llamada, sin cambiar el comportamiento.
+  const { enviados, yaEnviados } = await enviarSoat([...soatIds], soatCtx(ctx), { proveedorSoatId });
   return { enviados: enviados.length, yaEnviados: yaEnviados.length, autogestionados, sinRegistro };
 }
 

@@ -52,8 +52,11 @@ beforeEach(() => {
 
 const CTX = { userId: 1, username: 'ops@x.io', role: 'admin' };
 
-const archivoDrive = (id: string, name: string, modifiedTime = '2026-07-18T10:00:00Z') =>
-  ({ id, name, mimeType: 'application/pdf', size: '2048', createdTime: modifiedTime, modifiedTime, webViewLink: '', parents: [] });
+const archivoDrive = (id: string, name: string, modifiedTime = '2026-07-18T10:00:00Z') => ({
+  id, name, mimeType: 'application/pdf', size: '2048', createdTime: modifiedTime, modifiedTime,
+  webViewLink: '', parents: [],
+  lastModifyingUser: { displayName: 'carteraitsmedellin', emailAddress: 'cartera@its.gov.co' },
+});
 
 /** El alta del registro de auditoría, que toda llamada a `procesarArchivoDrive` hace primero. */
 const altaAuditoria = () => insertMock.mockReturnValueOnce({
@@ -123,6 +126,52 @@ describe('archivosDelDrive — qué se ofrece para procesar', () => {
   });
 });
 
+describe('archivosDelDrive — quién modificó', () => {
+  it('nombra a quien tocó el archivo, no solo cuándo', async () => {
+    // En una carpeta compartida la fecha sola no es accionable: hace falta saber a quién preguntar.
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f1', 'FLIT 18-07-2026.pdf')]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    const [a] = await archivosDelDrive();
+
+    expect(a.modificadoPor).toBe('carteraitsmedellin');
+  });
+
+  it('cae al correo si Google no expone el nombre', async () => {
+    listFilesMock.mockResolvedValueOnce([{
+      ...archivoDrive('f1', 'FLIT 18-07-2026.pdf'),
+      lastModifyingUser: { emailAddress: 'cartera@its.gov.co' },
+    }]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    expect((await archivosDelDrive())[0].modificadoPor).toBe('cartera@its.gov.co');
+  });
+
+  it('sin autor no inventa nada', async () => {
+    listFilesMock.mockResolvedValueOnce([{ ...archivoDrive('f1', 'a.pdf'), lastModifyingUser: undefined }]);
+    selectMock.mockReturnValueOnce(chain([]));
+
+    expect((await archivosDelDrive())[0].modificadoPor).toBeNull();
+  });
+
+  it('distingue el dado por visto del nunca mirado', async () => {
+    // «Omitido» lo escribe el arranque del barrido: es distinto de no tener registro.
+    listFilesMock.mockResolvedValueOnce([archivoDrive('f1', 'visto.pdf'), archivoDrive('f2', 'nuevo.pdf')]);
+    selectMock.mockReturnValueOnce(chain([
+      { fileId: 'f1', estado: 'omitido', createdAt: new Date('2026-07-29T14:00:00Z') },
+    ]));
+
+    const out = await archivosDelDrive();
+    const visto = out.find((a) => a.fileId === 'f1')!;
+    const nuevo = out.find((a) => a.fileId === 'f2')!;
+
+    expect(visto.omitidoEn).toBe('2026-07-29T14:00:00.000Z');
+    expect(visto.procesadoEn).toBeNull();
+    expect(nuevo.omitidoEn).toBeNull();
+    expect(nuevo.procesadoEn).toBeNull();
+  });
+});
+
 describe('procesarArchivoDrive — el consolidado del día', () => {
   const analizado = () => ({
     name: 'FLIT 18-07-2026.pdf',
@@ -149,8 +198,31 @@ describe('procesarArchivoDrive — el consolidado del día', () => {
 
     expect(registrarDesdeExtraccionMock).toHaveBeenCalledTimes(2);
     for (const llamada of registrarDesdeExtraccionMock.mock.calls) {
-      expect(llamada[2]).toEqual({ origen: 'drive', organismoCodigo: ORGANISMO_DRIVE });
+      expect(llamada[2]).toMatchObject({ origen: 'drive', organismoCodigo: ORGANISMO_DRIVE });
     }
+  });
+
+  it('cada derecho dice de qué consolidado y de qué páginas salió', async () => {
+    altaAuditoria();
+    cierreAuditoria();
+    analizarPdfDeDriveMock.mockResolvedValueOnce(analizado());
+    separarPorPlacaMock.mockResolvedValueOnce(new Map([
+      ['QYS441', Buffer.from('%PDF-1')],
+      ['NOP111', Buffer.from('%PDF-2')],
+    ]));
+    registrarDesdeExtraccionMock.mockResolvedValue(resultadoVacio());
+
+    await procesarArchivoDrive('f1', CTX);
+
+    const porPlaca = new Map(registrarDesdeExtraccionMock.mock.calls.map((c) => [c[0].originalname, c[2]]));
+    // El nombre del consolidado y el id del barrido, para poder volver al papel desde la tabla.
+    expect(porPlaca.get('QYS441.pdf')).toMatchObject({
+      archivoOrigen: 'FLIT 18-07-2026.pdf', procesamientoId: 77,
+    });
+    // Y las páginas COMO LAS CUENTA UNA PERSONA: `paginasPorPlaca` las trae en base 0 porque es lo
+    // que pdf-lib necesita para extraerlas, pero un «página 0» en la traza no significa nada.
+    expect(porPlaca.get('QYS441.pdf')).toMatchObject({ paginas: [1, 2] });
+    expect(porPlaca.get('NOP111.pdf')).toMatchObject({ paginas: [3] });
   });
 
   it('varias páginas de una misma placa son un solo recibo, no dos pagos', async () => {
