@@ -33,7 +33,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import ExcelJS from 'exceljs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { getTableName } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
@@ -93,6 +96,16 @@ vi.mock('../../src/shared/utils/excel.js', async (importOriginal) => {
 
 const espia = crearEspia(kdb);
 
+/**
+ * Las columnas del archivo, importadas DESPUÉS de los mocks (el servicio lee `env` y `db`).
+ *
+ * Se traen de producción y no se copian aquí: una lista duplicada en el test acabaría afirmando
+ * contra sí misma el día que alguien cambie una y no la otra.
+ */
+const { COLUMNAS_EXPORT: COLUMNAS } = await import(
+  '../../src/modules/flito-comparendos/flito-comparendos.export.service.js'
+);
+
 const BASE = '/api/flito/comparendos';
 const RUTA = `${BASE}/registros/export`;
 const REGISTROS = `${BASE}/registros`;
@@ -103,7 +116,15 @@ const ANTES = new Date('2026-08-12T09:00:00.000Z');
 
 const NIT = '900123456';
 const PLACA = 'ABC123';
-const OBSERVACION = 'Acuerdo de pago con el propietario, cuota 1 el 30 de agosto';
+/**
+ * Observación de la fixture. **No contiene el nombre de la causal, y es deliberado**: con un texto
+ * como «Acuerdo de pago con el propietario…», un `expect(texto).toContain('Acuerdo de pago')` sobre
+ * el workbook entero queda satisfecho por la columna Observación y sigue verde aunque la columna
+ * Causal salga vacía. Las dos se afirman por CELDA, además, para que ninguna se apoye en la otra.
+ */
+const OBSERVACION = 'Se pactó abono del 50% con el titular, primera cuota el 30 de agosto';
+/** Nombre de la causal en el catálogo. Ninguna otra celda de la fila lo repite. */
+const CAUSAL_NOMBRE = 'Retención en la fuente';
 /** Dato personal que vive en los payloads crudos y que NINGUNA celda del archivo puede llevar. */
 const CEDULA_EN_PAYLOAD = 'cedula-del-propietario-1032456789';
 
@@ -124,7 +145,7 @@ const fila = (over: Record<string, unknown> = {}) => ({
   estado: 'activo',
   estadoFuente: 'PENDIENTE',
   origenMerge: 'ambos',
-  causalNombre: 'Acuerdo de pago',
+  causalNombre: CAUSAL_NOMBRE,
   observacion: OBSERVACION,
   gestionActualizadaEn: AHORA,
   gestionActualizadaPor: 42,
@@ -170,15 +191,28 @@ const exportar = async (cabecera: string, query = '', cuerpo: unknown = {}) =>
 
 // ── Espías de la consulta ────────────────────────────────────────────────────────────────────────
 
-/** Proyección y `limit` de cada SELECT, por tabla: es donde se afirman el RN-42 y el RN-44. */
-const consultas: { tabla: string; columnas: string[]; limit: number | null }[] = [];
+/**
+ * Proyección, `limit` y `WHERE` de cada SELECT, por tabla.
+ *
+ * El `where` se guarda en crudo y se serializa con `PgDialect` al afirmarlo. Es la única forma de
+ * ver QUÉ columnas y qué operadores entraron en la consulta: el mock ignora el filtro y devuelve lo
+ * que el test registró, así que sin esto un export que se dejara filtros por el camino devolvería
+ * las mismas filas de la fixture y ningún aserto se enteraría. `espia.filtrosUsados()` no alcanza
+ * —solo recoge valores enlazados de tipo texto, y ni el `like` ni los booleanos aparecen ahí—.
+ */
+const consultas: {
+  tabla: string;
+  columnas: string[];
+  limit: number | null;
+  where: unknown;
+}[] = [];
 
 function instalarEspias(): void {
   const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
   kdb.select.mockImplementation((...args: unknown[]) => {
     const chain = selectBase(...args);
     const columnas = args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [];
-    const consulta = { tabla: '__sin_from__', columnas, limit: null as number | null };
+    const consulta = { tabla: '__sin_from__', columnas, limit: null as number | null, where: null as unknown };
     const from = chain.from as (t: unknown) => unknown;
     chain.from = (tbl: unknown) => {
       consulta.tabla = nombre(tbl);
@@ -187,8 +221,18 @@ function instalarEspias(): void {
     };
     const limit = chain.limit as (n: number) => unknown;
     chain.limit = (n: number) => { consulta.limit = n; return limit(n); };
+    const where = chain.where as (c: unknown) => unknown;
+    chain.where = (cond: unknown) => { consulta.where = cond; return where(cond); };
     return chain;
   });
+}
+
+/** El `WHERE` de la única lectura del consolidado, ya en SQL y con sus parámetros. */
+function whereDelExport(): { sql: string; params: unknown[] } {
+  const lecturas = consultasDelConsolidado();
+  expect(lecturas).toHaveLength(1);
+  expect(lecturas[0].where).not.toBeNull();
+  return new PgDialect().sqlToQuery(lecturas[0].where as never);
 }
 
 function nombre(tbl: unknown): string {
@@ -206,6 +250,19 @@ async function libro(cuerpo: Buffer): Promise<ExcelJS.Worksheet> {
   return hoja!;
 }
 
+/**
+ * El valor de una celda por CLAVE de columna.
+ *
+ * Afirmar sobre `textoDe(hoja)` sirve para lo que no puede estar en ninguna parte (un payload), pero
+ * no para lo que tiene que estar EN SU SITIO: una columna vacía pasa desapercibida en cuanto otra
+ * celda de la fila contiene un texto parecido.
+ */
+function celda(hoja: ExcelJS.Worksheet, nFila: number, clave: string): unknown {
+  const indice = COLUMNAS.findIndex((c) => c.key === clave);
+  expect(indice, `la columna \`${clave}\` ya no existe en COLUMNAS_EXPORT`).toBeGreaterThanOrEqual(0);
+  return hoja.getRow(nFila).getCell(indice + 1).value;
+}
+
 /** Todo el texto del workbook, para buscar lo que NO puede estar. */
 function textoDe(hoja: ExcelJS.Worksheet): string {
   const partes: string[] = [];
@@ -216,6 +273,20 @@ function textoDe(hoja: ExcelJS.Worksheet): string {
 }
 
 const ultimoAcceso = () => logPiiAccessMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+
+/**
+ * El código del router, leído de disco.
+ *
+ * Dos hechos de esta HU no se pueden observar desde una petición —que no exista un `GET` del export
+ * y que cada limitador tenga su propio namespace de cuota— y los dos importan en producción. Se lee
+ * el archivo en vez de importarlo: importarlo arrastraría media API y sus efectos de arranque.
+ */
+function fuenteDelRouter(): string {
+  return readFileSync(
+    fileURLToPath(new URL('../../src/modules/flito-comparendos/flito-comparendos.routes.ts', import.meta.url)),
+    'utf8',
+  );
+}
 
 beforeEach(() => {
   kdb.reset();
@@ -265,17 +336,18 @@ describe('AC1 — el export es un POST con los filtros de identidad en el cuerpo
   it('`limit` y `cursor` son 400: un export no pagina', async () => {
     const cabecera = await sesion();
 
+    // **`limit=25` es el caso que prueba algo.** `?limit=200` sería 400 aunque el `.omit()`
+    // desapareciera —200 excede el `.max(50)` del esquema base— y `?cursor=abc` lo sería por no
+    // decodificar: los dos pasan sin el `.omit()`. Un valor DENTRO del rango del listado solo puede
+    // ser 400 si el export lo rechaza por su cuenta; sin el `.omit()` respondería 200 ignorando el
+    // parámetro en silencio, que es justo lo que el contrato promete que no ocurre.
+    expect((await exportar(cabecera, '?limit=25')).status).toBe(400);
     expect((await exportar(cabecera, '?limit=200')).status).toBe(400);
     expect((await exportar(cabecera, '?cursor=abc')).status).toBe(400);
   });
 
-  it('el router no declara ninguna variante GET del export', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { fileURLToPath } = await import('node:url');
-    const fuente = readFileSync(
-      fileURLToPath(new URL('../../src/modules/flito-comparendos/flito-comparendos.routes.ts', import.meta.url)),
-      'utf8',
-    );
+  it('el router no declara ninguna variante GET del export', () => {
+    const fuente = fuenteDelRouter();
 
     // Cualquier `router.get('…export…')` volvería a poner el NIT y la placa en la URL —que es lo
     // único que este endpoint existe para evitar— y lo haría sin romper ningún otro test.
@@ -298,11 +370,8 @@ describe('AC2 — una fila por registro, las columnas del visor, sin payloads', 
     expect(encabezado.font?.bold).toBe(true);
     expect((encabezado.fill as ExcelJS.FillPattern)?.fgColor?.argb).toBe('FF1F2937');
 
-    const { COLUMNAS_EXPORT } = await import(
-      '../../src/modules/flito-comparendos/flito-comparendos.export.service.js'
-    );
     const cabeceras = (encabezado.values as unknown[]).slice(1).map(String);
-    expect(cabeceras).toEqual(COLUMNAS_EXPORT.map((c) => c.header));
+    expect(cabeceras).toEqual(COLUMNAS.map((c) => c.header));
     // Las tres que el AC nombra por su nombre.
     expect(cabeceras).toContain('Causal');
     expect(cabeceras).toContain('Observación');
@@ -322,18 +391,21 @@ describe('AC2 — una fila por registro, las columnas del visor, sin payloads', 
 
     const r = await exportar(await sesion());
     const hoja = await libro(r.body as Buffer);
-    const texto = textoDe(hoja);
 
-    // Un archivo cuya columna «Causal» fuera el UUID cumpliría el AC leído literal y no serviría
-    // para conciliar con nadie, que es para lo que existe la HU.
-    expect(texto).toContain('Acuerdo de pago');
-    expect(texto).toContain(OBSERVACION);
+    // **Por celda y no por `textoDe(hoja)`**: una columna Causal vacía pasaría desapercibida si otra
+    // celda de la fila contuviera un texto parecido —que es exactamente lo que ocurría cuando la
+    // observación de la fixture empezaba por el nombre de la causal—. Y un archivo cuya columna
+    // Causal fuera el UUID cumpliría el AC leído literal sin servir para conciliar con nadie.
+    expect(celda(hoja, 2, 'causal')).toBe(CAUSAL_NOMBRE);
+    expect(celda(hoja, 2, 'observacion')).toBe(OBSERVACION);
     // 14:00 UTC son las 09:00 en Colombia. En UTC el archivo diría que la gestión fue cinco horas
     // más tarde, y nada dentro del `.xlsx` delataría la zona.
-    expect(texto).toContain('2026-08-19 09:00');
+    expect(celda(hoja, 2, 'gestionActualizadaEn')).toBe('2026-08-19 09:00');
     // El monto va como NÚMERO para poder sumarse en la hoja, no como el texto del JSON.
-    const montos = hoja.getRow(2).values as unknown[];
-    expect(montos).toContain(604100);
+    expect(celda(hoja, 2, 'monto')).toBe(604100);
+    // Y el NIT y la placa siguen en su columna: son las dos que el rastro declara.
+    expect(celda(hoja, 2, 'nitMonitoreado')).toBe(NIT);
+    expect(celda(hoja, 2, 'placa')).toBe(PLACA);
   });
 
   it('**no lleva `payload_simit` ni `payload_municipal` en ninguna celda (RN-31)**', async () => {
@@ -488,6 +560,43 @@ describe('AC5 — 5 exports por minuto y usuario, con cuota propia', () => {
     expect((await exportar(cabecera)).status).toBe(429);
   });
 
+  it('agotar la cuota del VISOR no impide exportar: el eje inverso', async () => {
+    kdb.when.select(TABLA, []);
+    const cabecera = await sesion();
+    const app = await buildApp();
+
+    // 60 páginas es la cuota entera de la lectura interactiva. Sin cuotas separadas, quien haya
+    // estado trabajando la tabla un rato descubriría que ya no puede descargar lo que está viendo —
+    // y el mensaje que recibiría hablaría de «consultas», no de exports.
+    for (let i = 0; i < 60; i++) {
+      await request(app).get(REGISTROS).set('Authorization', cabecera);
+    }
+    expect((await request(app).get(REGISTROS).set('Authorization', cabecera)).status).toBe(429);
+
+    kdb.when.select(TABLA, filas(1));
+    expect((await exportar(cabecera)).status).toBe(200);
+  });
+
+  it('**cada limitador tiene su propio namespace de cuota (el eje que el runtime no enseña)**', async () => {
+    const fuente = fuenteDelRouter();
+
+    // Por qué esto es análisis estático y no una petición más: sin Redis, `makeStore()` devuelve
+    // `undefined` y `express-rate-limit` le da a CADA limitador su propio `MemoryStore`, así que
+    // darle al export la llave del listado seguiría saliendo verde en toda la suite. En producción
+    // hay Redis y esos prefijos SON la separación: dos limitadores que compartan namespace comparten
+    // contador, y entonces las cuotas dejan de ser dos.
+    const llaves = [...fuente.matchAll(/userOrIpKey\('([^']+)'\)/g)].map((m) => m[1]);
+    const stores = [...fuente.matchAll(/makeStore\('([^']+)'\)/g)].map((m) => m[1]);
+
+    expect(llaves).toContain('flito-comparendos-export');
+    expect(stores).toContain('rl:flito-comparendos-export:');
+    // La regla, no el valor: ningún limitador del módulo puede repetir el namespace de otro.
+    expect(new Set(llaves).size).toBe(llaves.length);
+    expect(new Set(stores).size).toBe(stores.length);
+    // Y hay más de uno, para que la aserción anterior no sea trivialmente cierta.
+    expect(llaves.length).toBeGreaterThan(1);
+  });
+
   it('agotar la cuota del export no deja sin paginar al visor: son dos presupuestos', async () => {
     kdb.when.select(TABLA, filas(1));
     const cabecera = await sesion();
@@ -575,6 +684,65 @@ describe('AC7 — solo admin exporta', () => {
 // ─────────────────────────── Reutilización del filtro (HU #11555) ───────────────────────────────
 
 describe('el export filtra igual que el visor', () => {
+  it('**los SEIS filtros del visor llegan al WHERE, no solo el NIT y la placa**', async () => {
+    kdb.when.select(TABLA, filas(1));
+    const CAUSAL = '22222222-2222-4222-8222-222222222222';
+
+    const r = await exportar(
+      await sesion(),
+      `?estado=activo&municipio=itagui&fuente=simit&causalId=${CAUSAL}&q=12345`,
+      { nit: '900.123.456', placa: 'abc-123' },
+    );
+    expect(r.status).toBe(200);
+
+    const { sql, params } = whereDelExport();
+
+    // Qué se está cazando: un export que ignorara los filtros de la pantalla entregaría hasta 5 000
+    // filas con NIT, placa y observación a quien había filtrado por municipio — con los siete AC en
+    // verde y un `pii_access_log` que parecería veraz, porque el motivo anota los filtros PEDIDOS,
+    // no los aplicados. La fixture del mock devuelve lo mismo se filtre o no, así que ninguna
+    // aserción sobre el contenido del archivo puede ver esto: solo el WHERE real lo demuestra.
+    expect(sql).toContain('"estado"');
+    expect(sql).toContain('"municipio_fuente"');
+    expect(sql).toContain('"origen_merge"');
+    expect(sql).toContain('"causal_id"');
+    expect(sql).toContain('"numero_comparendo"');
+    expect(sql).toContain('"nit_monitoreado"');
+    expect(sql).toContain('"placa"');
+
+    // Los valores, ya normalizados por el MISMO normalizador con el que se guardaron: «itagui» tiene
+    // que buscar «ITAGUI» y «900.123.456» buscar «900123456», o el archivo saldría vacío sin que
+    // nadie lo notara. El `%…%` del número es la búsqueda por contenido del listado (RN-33).
+    expect(params).toEqual(expect.arrayContaining([
+      'activo', 'ITAGUI', 'simit', CAUSAL, '900123456', 'ABC123', '%12345%',
+    ]));
+    // Ni uno de más: un filtro que se colara sin estar en el visor cambiaría el conjunto exportado.
+    expect(params).toHaveLength(7);
+  });
+
+  it('`sinCausal` viaja como `IS NULL`, que es la cola de trabajo de la pantalla', async () => {
+    kdb.when.select(TABLA, filas(1));
+
+    const r = await exportar(await sesion(), '?sinCausal=true');
+    expect(r.status).toBe(200);
+
+    const { sql, params } = whereDelExport();
+    // No es una comparación contra vacío —la columna es `uuid`—, y no lleva parámetro: si alguien lo
+    // tradujera a `causal_id = ''` reventaría en producción y aquí, con el mock, pasaría de largo.
+    expect(sql.toLowerCase()).toContain('"causal_id" is null');
+    expect(params).toHaveLength(0);
+  });
+
+  it('sin ningún filtro no se inventa un WHERE: el export es de todo el consolidado', async () => {
+    kdb.when.select(TABLA, filas(1));
+
+    await exportar(await sesion());
+
+    // El otro lado del caso anterior: un `WHERE` fantasma —un `estado = 'activo'` por defecto, por
+    // ejemplo— haría que el archivo no contuviera lo que la pantalla muestra sin filtros.
+    expect(consultasDelConsolidado()[0].where).toBeUndefined();
+  });
+
   it('una placa que al normalizar no deja nada devuelve un archivo VACÍO, no la tabla entera', async () => {
     // `placaFiltroSchema` acepta «- -» (tres caracteres del alfabeto permitido) y `placaCanonica` lo
     // reduce a `null`. Ignorar el filtro ahí entregaría hasta 5 000 NITs y placas a quien pidió UN
