@@ -569,7 +569,20 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
 
     // La tabla no mete una parada de tabulador por celda: 50 filas × 12 columnas serían 600 paradas
     // para llegar a la paginación.
-    await expect(page.getByRole('table').getByRole('button')).toHaveCount(0);
+    //
+    // Hasta la HU #11562 esto se afirmaba con `toHaveCount(0)`, porque no había ni un control en la
+    // tabla. Ahora el número de comparendo ES un botón —abre el panel de detalle— y ese cero se
+    // volvería rojo. **Lo que protege esta línea no es el cero, es la proporción**: UN control por
+    // fila y ni uno más. Con el cero se habría borrado la afirmación entera y con ella la única
+    // defensa contra la celda enfocable; con la cuenta atada a `PAGINA.items.length` la afirmación
+    // sigue viva y además crece sola si mañana el fixture trae más filas.
+    const filas = (PAGINA.items as unknown[]).length;
+    await expect(page.getByRole('table').getByRole('button')).toHaveCount(filas);
+    // Y el control de cada fila lleva su nombre accesible, porque el texto visible —un número de
+    // catorce cifras— no dice qué pasa al pulsarlo.
+    await expect(
+      page.getByRole('button', { name: `Ver el comparendo ${FILA.numeroComparendo}` }),
+    ).toBeVisible();
     await expect(page.getByRole('table').locator('caption')).toHaveClass(/sr-only/);
   });
 });

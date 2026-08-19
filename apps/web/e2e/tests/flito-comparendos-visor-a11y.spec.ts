@@ -13,6 +13,13 @@
 //
 // Lo que sí es determinista y no depende de nada de esto —etiquetas, recorrido de teclado, foco
 // visible, `role="alert"`, `aria-live`— vive en los otros dos specs del módulo.
+//
+// La HU #11562 añade al final los CUATRO estados del panel de detalle. Es superficie nueva sobre
+// `ModalPortal`, es decir colgada de `<body>`: hasta el Bug #11604 —que quitó el prefijo `.flit-app`
+// de las reglas de foco justo por eso— sus controles no habrían tenido ni anillo de foco. Los cuatro
+// se miden por separado porque los que rompen el contraste son el de ERROR (rojo sobre superficie
+// clara) y el de GUARDANDO (controles inhabilitados), y ninguno de los dos está en pantalla cuando
+// el panel se pintó bien.
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
@@ -29,8 +36,11 @@ const CATALOGOS = [
   '**/api/flito/comparendos/nits',
 ];
 
+const REGISTRO_ID = '11111111-1111-4111-8111-111111111111';
+const CAUSAL_ID = '453cc851-646e-4001-b936-6abe0b7a0570';
+
 const FILA = {
-  id: '11111111-1111-4111-8111-111111111111',
+  id: REGISTRO_ID,
   numeroComparendo: '11001000123456',
   nitMonitoreado: '900123456',
   placa: 'ABC123',
@@ -82,6 +92,30 @@ async function pantalla(page: Page, body: unknown) {
     status: 200, contentType: 'application/json', body: JSON.stringify(body),
   }));
   await page.goto('/flito/comparendos');
+}
+
+const EVENTOS = [
+  { id: 'e1', tipo: 'gestion', syncRunId: null, detalle: { motivo: 'gestion_registrada' }, ocurridoEn: '2026-08-18T14:14:00Z' },
+  { id: 'e2', tipo: 'inactivacion', syncRunId: null, detalle: { motivo: 'ausente_en_todas_las_fuentes' }, ocurridoEn: '2026-06-12T08:11:00Z' },
+  { id: 'e3', tipo: 'primera_llegada', syncRunId: null, detalle: { origen: 'simit' }, ocurridoEn: '2026-05-02T08:12:00Z' },
+];
+
+const DETALLE = {
+  ...FILA,
+  causalId: CAUSAL_ID,
+  observacion: 'Se envió copia al cliente.',
+  gestionActualizadaEn: '2026-08-18T14:14:00Z',
+  gestionActualizadaPor: { id: 7, nombre: 'María Ruiz' },
+  eventos: EVENTOS,
+};
+
+/** Comprueba y deja constancia. Se imprimen TODAS las violaciones, también las leves. */
+async function sinViolacionesGraves(page: Page, etiqueta: string) {
+  const violaciones = await correrAxe(page);
+  const graves = violaciones.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+  console.log(`[QA a11y · ${etiqueta}] ${violaciones.length} violaciones: ${JSON.stringify(violaciones)}`);
+  expect(graves, `violaciones serias/críticas en «${etiqueta}»: ${JSON.stringify(graves)}`).toEqual([]);
+  expect(violaciones.filter((v) => v.id === 'color-contrast'), `contraste en «${etiqueta}»`).toEqual([]);
 }
 
 test.describe('FLITO — Comparendos · AC7 accesibilidad (HU #11560)', () => {
@@ -139,5 +173,98 @@ test.describe('FLITO — Comparendos · AC7 accesibilidad (HU #11560)', () => {
     console.log(`[QA a11y · error] ${violaciones.length} violaciones: ${JSON.stringify(violaciones)}`);
     expect(graves, `violaciones serias/críticas en el estado de error: ${JSON.stringify(graves)}`).toEqual([]);
     expect(violaciones.filter((v) => v.id === 'color-contrast'), 'contraste del texto de error').toEqual([]);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// HU #11562 — los cuatro estados del PANEL de detalle.
+//
+// El panel cuelga de <body> por `ModalPortal`, así que axe lo ve entero sin nada especial. Lo que
+// hace falta es MONTARLO en cada uno de sus cuatro estados, y para tres de ellos eso significa
+// retener o romper una respuesta a propósito: cargando y guardando no duran lo suficiente con un
+// mock instantáneo como para medirlos.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+const API_DETALLE = `**/api/flito/comparendos/registros/${REGISTRO_ID}`;
+const API_GESTION = `**/api/flito/comparendos/registros/${REGISTRO_ID}/gestion`;
+
+/** Deja la lista pintada con su fila y devuelve el botón que abre el panel. */
+async function conLista(page: Page) {
+  await pantalla(page, { items: [FILA], nextCursor: null });
+  const abrir = page.getByRole('button', { name: `Ver el comparendo ${FILA.numeroComparendo}` });
+  await expect(abrir).toBeVisible();
+  return abrir;
+}
+
+test.describe('FLITO — Comparendos · panel de detalle: accesibilidad (HU #11562, AC8)', () => {
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  test.beforeEach(() => {
+    test.skip(
+      !AXE_PATH && !AXE_CDN,
+      'axe no disponible: exporta QA_AXE_PATH=/ruta/axe.min.js (determinista) o QA_AXE_CDN=1. '
+      + 'Se prefiere SALTAR antes que dar por certificado el contraste sin haberlo medido.',
+    );
+  });
+
+  test('AC8/TC — panel CARGANDO: el esqueleto se anuncia y no rompe contraste', async ({ page }) => {
+    let soltar = () => {};
+    const retenido = new Promise<void>((r) => { soltar = r; });
+    const abrir = await conLista(page);
+    await page.route(API_DETALLE, async (r) => {
+      await retenido;
+      await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE) });
+    });
+
+    await abrir.click();
+    await expect(page.getByRole('dialog').getByRole('status')).toHaveAttribute('aria-busy', 'true');
+    await sinViolacionesGraves(page, 'panel cargando');
+    soltar();
+  });
+
+  test('AC8/TC — panel con DATOS: el estado que todo el mundo mira', async ({ page }) => {
+    const abrir = await conLista(page);
+    await page.route(API_DETALLE, (r) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE),
+    }));
+
+    await abrir.click();
+    await expect(page.getByRole('dialog')).toContainText('EN COBRO COACTIVO');
+    await sinViolacionesGraves(page, 'panel con datos');
+  });
+
+  test('AC8/TC — panel en ERROR: rojo sobre superficie clara, que es donde se pierde el 4,5:1', async ({ page }) => {
+    const abrir = await conLista(page);
+    await page.route(API_DETALLE, (r) => r.fulfill({
+      status: 500, contentType: 'application/json', body: '{"error":"boom"}',
+    }));
+
+    await abrir.click();
+    await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
+    await sinViolacionesGraves(page, 'panel en error');
+  });
+
+  test('AC8/TC — panel GUARDANDO: los controles inhabilitados también tienen que leerse', async ({ page }) => {
+    let soltar = () => {};
+    const retenido = new Promise<void>((r) => { soltar = r; });
+    const abrir = await conLista(page);
+    await page.route(API_DETALLE, (r) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE),
+    }));
+    await page.route(API_GESTION, async (r) => {
+      await retenido;
+      await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE) });
+    });
+
+    await abrir.click();
+    const panel = page.getByRole('dialog');
+    await expect(panel).toContainText('EN COBRO COACTIVO');
+    await panel.getByLabel('Observación').fill('Otra cosa.');
+    await panel.getByRole('button', { name: 'Guardar gestión' }).click();
+
+    await expect(panel.getByRole('button', { name: 'Guardando…' })).toBeVisible();
+    await expect(panel.getByLabel('Observación')).toBeDisabled();
+    await sinViolacionesGraves(page, 'panel guardando');
+    soltar();
   });
 });

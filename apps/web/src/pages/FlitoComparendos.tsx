@@ -34,22 +34,34 @@
 //     el AC no dice: al cambiar de criterio se vacía TAMBIÉN la pila, o «Anterior» desde la nueva
 //     primera página devolvería una página del listado viejo.
 //
+// La HU #11562 enganchó aquí el panel de detalle, y con él tres decisiones de cableado:
+//
+//   · **El número de comparendo pasó de texto a botón.** Deja de ser cierto que «un botón que no
+//     abre nada es peor que ninguno»: ya abre. Sigue siendo UNO por fila y ninguno más, que es lo
+//     que impide que la tabla meta una parada de tabulador por celda.
+//   · **La fila se parchea en sitio tras gestionar** (`parchearItem`), con el cuerpo del `PATCH`.
+//     No se vuelve a pedir la página: hacerlo movería la lista bajo los pies de quien acaba de
+//     gestionar y, con cursor, una fila reordenada puede desaparecer de la vista.
+//   · **El foco tiene un respaldo** (`encabezadoResultadosRef`) para cuando la fila que abrió el
+//     panel ya no está en el DOM al cerrarlo. Sin él, `.focus()` sobre ese nodo desmontado no hace
+//     nada y el foco se queda en `<body>` (nota QA #63).
+//
 // Lo que todavía NO cuelga de aquí, y por eso no se promete en pantalla con un control inhabilitado
 // ni con un «próximamente»:
 //
-//   · `PanelDetalleComparendo` (HU del detalle) — mientras no exista, el número de comparendo es
-//     texto y no un botón: un botón que no abre nada es peor que ninguno. Con él llegan también las
-//     columnas de nivel C (estado en la fuente, observación, visto por última vez, corrida).
-//   · `FormularioGestion` (HU #11557) y `ExportarComparendos` (HU #11558).
+//   · `ExportarComparendos` (HU #11558).
 //   · `BarraFiltrosComparendos` crece con municipio, fuente y causal en la HU #11561: el estado de
 //     búsqueda (`CriteriosComparendos`) ya los lleva opcionales y ya viajan en la query, así que esa
 //     HU es una barra nueva y no un rediseño de este cableado.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 
+import { useRef, useState } from 'react';
+import type { ComparendoRegistro, ComparendoRegistroDetalle } from '@operaciones/shared-types';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 import BarraFiltrosComparendos from '../components/flito/comparendos/BarraFiltrosComparendos';
 import PaginacionCursor from '../components/flito/comparendos/PaginacionCursor';
+import PanelDetalleComparendo from '../components/flito/comparendos/PanelDetalleComparendo';
 import TablaComparendos, { TablaComparendosCargando } from '../components/flito/comparendos/TablaComparendos';
 import {
   hayCriterios, useCatalogosComparendos, useComparendosLista,
@@ -73,9 +85,26 @@ export default function FlitoComparendos() {
   // el efecto del debounce de la barra para no relanzarse en cada render.
   const {
     criterios, items, cargando, error, pagina, hayAnterior, haySiguiente,
-    aplicar, limpiar, anterior, siguiente, recargar, volverAlPrincipio,
+    aplicar, limpiar, anterior, siguiente, recargar, volverAlPrincipio, parchearItem,
   } = useComparendosLista();
   const catalogos = useCatalogosComparendos();
+
+  // La fila abierta, no solo su id: el panel pinta el número en el título ANTES de que llegue
+  // ninguna respuesta, y ese número ya se conoce porque está en la fila que se acaba de pulsar.
+  const [abierto, setAbierto] = useState<ComparendoRegistro | null>(null);
+  /**
+   * Respaldo del foco al cerrar el panel (AC8 · nota QA #63).
+   *
+   * Cuelga del ENCABEZADO de la región de resultados y no del `<caption>` de la tabla, que es lo
+   * que la nota pedía al pie de la letra. El motivo es que el caso en que este respaldo hace falta
+   * —cerrar tras un 404, que además recarga la lista— es justo aquel en el que la tabla se
+   * desmonta: el foco aterrizaría en el `<caption>` del esqueleto y lo perdería otra vez al llegar
+   * los datos, porque ese nodo también se va. Este encabezado está montado en los CUATRO estados de
+   * la vista, así que es el único destino que no puede desaparecer bajo el foco. Cumple lo que la
+   * nota persigue —«al encabezado de la tabla, nunca a `<body>`»— y además anuncia algo con
+   * sentido: un `<caption>` recibiendo foco no dice dónde has quedado.
+   */
+  const encabezadoResultadosRef = useRef<HTMLHeadingElement>(null);
 
   const filtrado = hayCriterios(criterios);
 
@@ -103,6 +132,19 @@ export default function FlitoComparendos() {
       <BarraFiltrosComparendos criterios={criterios} onAplicar={aplicar} onLimpiar={limpiar} />
 
       <FlitCard>
+        {/* Encabezado de la región de resultados y destino de respaldo del foco (AC8).
+            `sr-only focus:not-sr-only`: no ocupa sitio —el título de la página ya nombra la
+            pantalla— pero **se hace visible al recibir el foco**, porque un elemento enfocado que
+            no se ve incumple «foco visible» para quien navega con teclado sin lector. */}
+        <h2
+          ref={encabezadoResultadosRef}
+          tabIndex={-1}
+          className="flit-focus sr-only rounded focus:not-sr-only focus:mb-3 focus:block focus:text-sm focus:font-semibold"
+          style={{ color: 'var(--flit-text-primary)' }}
+        >
+          Lista de comparendos
+        </h2>
+
         {/* Los cuatro estados, en este orden: el ERROR va antes que el vacío. Si la consulta falló
             no se sabe si hay filas, y decir «no hay comparendos» sería afirmar algo que nadie
             comprobó. Por el mismo motivo, bajo el error no se deja pintada una tabla anterior. */}
@@ -185,6 +227,7 @@ export default function FlitoComparendos() {
               items={items}
               catalogos={catalogos}
               mostrarInactivado={criterios.estado === 'inactivo'}
+              onAbrir={setAbierto}
             />
             <PaginacionCursor
               enEstaPagina={items.length}
@@ -197,6 +240,25 @@ export default function FlitoComparendos() {
           </>
         )}
       </FlitCard>
+
+      {/* El panel se monta con el clic, no con la respuesta: abre de inmediato con el número en el
+          título y el cuerpo en esqueleto. Montarlo al llegar los datos, además de sentirse como un
+          clic perdido, rompería la restauración del foco (ver `PanelDetalleComparendo`). */}
+      {abierto && (
+        <PanelDetalleComparendo
+          fila={abierto}
+          catalogos={catalogos}
+          onCerrar={() => setAbierto(null)}
+          onCerrarYRecargar={() => { setAbierto(null); recargar(); }}
+          onGestionado={(nuevo: ComparendoRegistroDetalle) => {
+            // Se le quita `eventos` antes de guardarlo en la lista: el timeline es del panel y en la
+            // fila sería un campo que nadie lee y que crecería con cada gestión de la sesión.
+            const { eventos: _eventos, ...fila } = nuevo;
+            parchearItem(fila);
+          }}
+          respaldoFocoRef={encabezadoResultadosRef}
+        />
+      )}
     </div>
   );
 }
