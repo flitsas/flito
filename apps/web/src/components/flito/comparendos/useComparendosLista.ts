@@ -203,6 +203,19 @@ export interface ListaComparendos {
   recargar: () => void;
   /** Vuelve a la primera página tirando la pila. Es la salida del `cursor_invalido`. */
   volverAlPrincipio: () => void;
+  /**
+   * Reemplaza UNA fila con el registro que devolvió el `PATCH` de gestión (HU #11562, AC3).
+   *
+   * **No vuelve a pedir la página, y eso es el requisito, no un atajo.** Volver a pedirla movería la
+   * lista bajo los pies de quien acaba de gestionar —con cursor, una fila reordenada puede
+   * desaparecer de la vista— y además gastaría una consulta del limitador y una fila del registro de
+   * acceso PII por cada gestión. La respuesta del PATCH ya es el registro completo, así que aquí no
+   * se compara nada ni se mezclan campos: la fila vieja se sustituye entera por la nueva.
+   *
+   * Si el id no está en la página que se está viendo, no hace nada: no se inventa una fila que el
+   * filtro puesto no eligió.
+   */
+  parchearItem: (registro: ComparendoRegistro) => void;
 }
 
 /**
@@ -295,6 +308,14 @@ export function useComparendosLista(): ListaComparendos {
     setConsulta((c) => (c.pila.length ? { ...c, pila: c.pila.slice(0, -1) } : c));
   }, []);
 
+  // Solo toca `items`. `consulta` no se mueve, así que el efecto de la petición NO se vuelve a
+  // disparar: es lo que hace que refrescar la fila no sea re-consultar.
+  const parchearItem = useCallback((registro: ComparendoRegistro) => {
+    setItems((prev) => (prev
+      ? prev.map((i) => (i.id === registro.id ? registro : i))
+      : prev));
+  }, []);
+
   return {
     criterios: consulta.criterios,
     items,
@@ -309,6 +330,7 @@ export function useComparendosLista(): ListaComparendos {
     siguiente,
     recargar,
     volverAlPrincipio,
+    parchearItem,
   };
 }
 
@@ -327,9 +349,21 @@ export interface CatalogosComparendos {
   causales: Record<string, string>;
   /** NIT → alias. */
   alias: Record<string, string>;
+  /**
+   * El catálogo de causales SIN aplanar (HU #11562).
+   *
+   * La tabla solo necesita el nombre, pero el selector del formulario de gestión necesita además
+   * `orden` —que existe para que la lista no se ordene alfabéticamente— y `activo` —para dejar en
+   * la lista la causal inactiva que ya está asignada, y solo esa—. Se guarda la lista tal cual
+   * llegó en vez de añadir dos mapas más: el mapa de nombres se deriva de ella y no pueden
+   * separarse.
+   */
+  listaCausales: ComparendosCausal[];
 }
 
-const CATALOGOS_VACIOS: CatalogosComparendos = { municipios: {}, causales: {}, alias: {} };
+const CATALOGOS_VACIOS: CatalogosComparendos = {
+  municipios: {}, causales: {}, alias: {}, listaCausales: [],
+};
 
 export function useCatalogosComparendos(): CatalogosComparendos {
   const [catalogos, setCatalogos] = useState<CatalogosComparendos>(CATALOGOS_VACIOS);
@@ -346,6 +380,7 @@ export function useCatalogosComparendos(): CatalogosComparendos {
       setCatalogos({
         municipios: Object.fromEntries((municipios ?? []).map((m) => [m.codigoFuente, m.nombre])),
         causales: Object.fromEntries((causales ?? []).map((c) => [c.id, c.nombre])),
+        listaCausales: causales ?? [],
         alias: Object.fromEntries(
           (nits ?? []).filter((n) => n.alias).map((n) => [n.nit, n.alias as string]),
         ),

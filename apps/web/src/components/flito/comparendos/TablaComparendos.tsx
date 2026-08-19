@@ -18,56 +18,13 @@ import type { ReactNode } from 'react';
 import type { ComparendoRegistro } from '@operaciones/shared-types';
 import { FlitTable, FlitTh, FlitTr } from '../../flit/flitPageKit';
 import StatusChip from '../../flit/StatusChip';
+// `fechaColombia` es la que hasta la HU #11562 se llamaba `fechaHoraColombia` y NO pinta hora: la
+// tabla no la necesita —trece columnas y una corrida diaria— y cambiarla habría movido tres
+// columnas. La que sí lleva hora vive en `formato.ts` con ese nombre y la usa el panel de detalle.
+import { SIN_DATO, etiquetaOrigen, fechaColombia, fechaCorta, pesos } from './formato';
 import type { CatalogosComparendos } from './useComparendosLista';
 
-/** Guion de ausencia. `null` es información: hay fuentes que no traen la placa, la fecha o el monto. */
-const SIN_DATO = '—';
 
-/**
- * Monto en pesos colombianos (AC1). Se formatea sobre `Number(monto)` **solo para mostrar**.
- */
-export function pesos(monto: string | null): string {
-  if (monto === null || monto.trim() === '') return SIN_DATO;
-  const n = Number(monto);
-  if (!Number.isFinite(n)) return SIN_DATO;
-  return n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
-}
-
-/**
- * `YYYY-MM-DD` → «12 jul 2026».
- *
- * Se parte la cadena a mano en vez de pasar por `new Date(fecha)`: esa forma la interpreta como
- * medianoche UTC y, al pintarla en hora de Colombia (UTC−5), retrocede un día — el comparendo decía
- * 12 y la tabla mostraba 11. Es una fecha de calendario, sin hora que convertir.
- */
-export function fechaCorta(fecha: string | null): string {
-  if (!fecha) return SIN_DATO;
-  const [y, m, d] = fecha.split('-').map(Number);
-  if (!y || !m || !d) return fecha;
-  return new Date(y, m - 1, d)
-    .toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-/**
- * Instante (columna `timestamptz`) en **hora de Colombia** (AC1), no en la del navegador.
- *
- * La zona va explícita: un operador con el portátil en otra zona —o un runner de CI en UTC— vería
- * «03:12» convertido a su hora local y creería que la corrida pasó a otra hora de la que pasó.
- */
-export function fechaHoraColombia(instante: string | null): string {
-  if (!instante) return SIN_DATO;
-  const t = new Date(instante);
-  if (Number.isNaN(t.getTime())) return SIN_DATO;
-  return t.toLocaleDateString('es-CO', {
-    timeZone: 'America/Bogota', day: 'numeric', month: 'short', year: 'numeric',
-  });
-}
-
-const ETIQUETA_ORIGEN: Record<ComparendoRegistro['origenMerge'], string> = {
-  simit: 'SIMIT',
-  municipal: 'Municipal',
-  ambos: 'Ambos',
-};
 
 const CELDA = 'px-4 py-2.5 text-sm';
 
@@ -99,9 +56,11 @@ interface Props {
    * una columna de guiones por definición (`inactivadoEn` es `null` mientras el registro está vivo).
    */
   mostrarInactivado: boolean;
+  /** Abre el panel de detalle (HU #11562). Lo dispara el botón del número, y nada más de la fila. */
+  onAbrir: (registro: ComparendoRegistro) => void;
 }
 
-export default function TablaComparendos({ items, catalogos, mostrarInactivado }: Props) {
+export default function TablaComparendos({ items, catalogos, mostrarInactivado, onAbrir }: Props) {
   return (
     <FlitTable label="Comparendos monitoreados">
       <caption className="sr-only">
@@ -136,7 +95,22 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado }
           const infraccion = [c.codigoInfraccion, c.descripcionInfraccion].filter(Boolean).join(' · ');
           return (
             <FlitTr key={c.id}>
-              <Celda clase="whitespace-nowrap font-medium">{c.numeroComparendo}</Celda>
+              {/* La ÚNICA parada de tabulador de la fila (HU #11562, AC1 y AC8). Es un `<button>` y
+                  no un `<div onClick>`: se alcanza con teclado, se anuncia como acción y lleva su
+                  propio nombre accesible, porque el texto visible —un número de catorce cifras— no
+                  dice qué pasa al pulsarlo. Y es UNO por fila y no uno por celda: con 50 filas ×
+                  13 columnas, celdas enfocables serían 650 paradas hasta la paginación. */}
+              <Celda clase="whitespace-nowrap font-medium">
+                <button
+                  type="button"
+                  onClick={() => onAbrir(c)}
+                  aria-label={`Ver el comparendo ${c.numeroComparendo}`}
+                  className="flit-focus rounded font-medium underline-offset-2 hover:underline"
+                  style={{ color: 'var(--flit-blue-text)' }}
+                >
+                  {c.numeroComparendo}
+                </button>
+              </Celda>
               <Celda clase="whitespace-nowrap">{c.placa ?? SIN_DATO}</Celda>
               <Celda clase="whitespace-nowrap">
                 {c.nitMonitoreado}
@@ -165,14 +139,14 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado }
                 {causal
                   ? <StatusChip tone="success">{causal}</StatusChip>
                   : <StatusChip tone="draft">Sin gestión</StatusChip>}
-                {/* Cuándo y quién, cuando los hay. Hoy llegan siempre en `null` —nadie ha gestionado
-                    todavía, el PATCH es de la HU #11557— y por eso esta línea no se ve: se pinta lo
-                    que el registro trae, no un hueco reservado. `gestionActualizadaPor` es el ID del
-                    usuario, no su nombre; resolverlo a un nombre es otra consulta y otra HU. */}
+                {/* Cuándo y quién, cuando los hay: se pinta lo que el registro trae, no un hueco
+                    reservado. Desde la HU #11562 `gestionActualizadaPor` llega resuelto —`{ id,
+                    nombre }`— y aquí se escribe el NOMBRE: antes era el id suelto y esta línea decía
+                    «· usuario 5», que no responde «quién hizo la última gestión». */}
                 {c.gestionActualizadaEn && (
                   <span className="mt-0.5 block text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                    {fechaHoraColombia(c.gestionActualizadaEn)}
-                    {c.gestionActualizadaPor !== null && ` · usuario ${c.gestionActualizadaPor}`}
+                    {fechaColombia(c.gestionActualizadaEn)}
+                    {c.gestionActualizadaPor !== null && ` · ${c.gestionActualizadaPor.nombre}`}
                   </span>
                 )}
               </td>
@@ -180,10 +154,10 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado }
                   de …» ocupa cuatro líneas en una columna estrecha y arrastra el alto de toda la
                   fila. Es contexto útil, no un dato que haya que leer entero aquí. */}
               <CeldaB><span className="line-clamp-1 max-w-[13rem]">{c.organismo ?? SIN_DATO}</span></CeldaB>
-              <CeldaB clase="whitespace-nowrap">{ETIQUETA_ORIGEN[c.origenMerge]}</CeldaB>
-              <CeldaB clase="whitespace-nowrap">{fechaHoraColombia(c.primeraVistoEn)}</CeldaB>
+              <CeldaB clase="whitespace-nowrap">{etiquetaOrigen(c.origenMerge)}</CeldaB>
+              <CeldaB clase="whitespace-nowrap">{fechaColombia(c.primeraVistoEn)}</CeldaB>
               {mostrarInactivado && (
-                <CeldaB clase="whitespace-nowrap">{fechaHoraColombia(c.inactivadoEn)}</CeldaB>
+                <CeldaB clase="whitespace-nowrap">{fechaColombia(c.inactivadoEn)}</CeldaB>
               )}
             </FlitTr>
           );

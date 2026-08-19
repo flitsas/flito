@@ -28,6 +28,10 @@
 //      `pii_access_log` «quién miró datos personales» — la respuesta lleva NIT y placa. Ninguno de
 //      los dos escribe la observación, la placa ni el NIT.
 //   6. **Nada de esto lo hace quien no es admin, ni nadie sin autenticar** (AC9, CF-12).
+//
+// Desde la HU #11562 se comprueba además que la respuesta trae al autor de la gestión RESUELTO a
+// `{ id, nombre }`: el PATCH lo hereda de `obtenerRegistro`, y ese «lo hereda» es justo la clase de
+// cosa que deja de ser verdad sin que nadie lo note el día que alguien construya el DTO aquí.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
@@ -112,6 +116,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   observacion: null,
   gestionActualizadaEn: null,
   gestionActualizadaPor: null,
+  // Desde la HU #11562 la lectura trae también el NOMBRE del autor por un `leftJoin` a `users`, así
+  // que la fila que devuelve el mock lo lleva: no es una columna de esta tabla. `null` mientras la
+  // fila no está gestionada — el join no casa nada.
+  gestionAutorNombre: null,
   createdAt: ANTES,
   updatedAt: AHORA,
   payloadSimit: { propietario: { documento: CEDULA_EN_PAYLOAD }, direccion: 'CL 30 # 4-12' },
@@ -259,6 +267,30 @@ describe('AC1 — PATCH con causal y observación: 200, columnas escritas, sello
     // El UPDATE va acotado por el id del comparendo y no por nada más: sin esta aserción, un
     // `where` perdido escribiría la observación de uno en la tabla entera y el mock no se enteraría.
     expect(updates()[0].filtros).toContain(ID);
+  });
+
+  it('**la respuesta trae al autor RESUELTO** (`{ id, nombre }`), porque la construye la lectura (HU #11562)', async () => {
+    // El PATCH no reconstruye el DTO: devuelve `obtenerRegistro(id, tx)`. Se comprueba en vez de
+    // darlo por hecho porque es lo que hace que el panel del visor pueda pintar «gestionado por X»
+    // sin una segunda petición — y porque una futura copia local de la proyección aquí volvería a
+    // publicar el id suelto sin que la suite de lectura se enterase.
+    const NOMBRE_AUTOR = 'Marcela Restrepo';
+    escenario({
+      registro: fila({
+        gestionActualizadaEn: AHORA,
+        gestionActualizadaPor: SUB,
+        gestionAutorNombre: NOMBRE_AUTOR,
+      }),
+    });
+
+    const r = await gestionar({ observacion: OBSERVACION }, await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body.gestionActualizadaPor).toEqual({ id: SUB, nombre: NOMBRE_AUTOR });
+    // Y el nombre no se filtra a ninguno de los dos rastros: la bitácora dice qué se cambió y el
+    // registro de acceso qué datos del TITULAR se vieron. Quién lo hizo ya viaja como `userId`.
+    expect(JSON.stringify(auditMock.mock.calls.at(-1)?.[1])).not.toContain(NOMBRE_AUTOR);
+    expect(JSON.stringify(logPiiAccessMock.mock.calls.at(-1)?.[1])).not.toContain(NOMBRE_AUTOR);
   });
 
   it('**`gestion_actualizada_por` es el usuario del token y `gestion_actualizada_en` la hora del servidor**', async () => {

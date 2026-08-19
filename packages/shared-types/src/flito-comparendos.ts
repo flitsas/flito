@@ -6,6 +6,10 @@
 // El PATCH de gestión —`ComparendosGestionPatch` y `COMPARENDOS_OBSERVACION_MAX`— es de 17b y se
 // publica desde la HU #11557, que es la que expone el endpoint que lo consume.
 //
+// `ComparendoRegistro.gestionActualizadaPor` cambió de forma en la HU #11562 (de `number` a
+// `{ id, nombre }`): el porqué está en su propio comentario, y es el único cambio incompatible que
+// este archivo ha tenido.
+//
 // El export a Excel —`ComparendosExportRequest` y `COMPARENDOS_EXPORT_MAX_FILAS`— es de la HU
 // #11558 y está al final del archivo, publicado desde la HU que expone el endpoint que lo consume.
 // (`PageSlug` del módulo no está aquí por otro motivo: el catálogo de páginas vive en
@@ -257,13 +261,27 @@ export interface ComparendoRegistro {
    */
   gestionActualizadaEn: string | null;
   /**
-   * Quién la gestionó por última vez: el **id** del usuario, no su nombre.
+   * Quién la gestionó por última vez: el id **y el nombre** del usuario, o `null` si nadie la ha
+   * gestionado.
    *
-   * Igual que {@link ComparendosSyncRun.iniciadoPor}, y por lo mismo: resolver el id a un nombre es
-   * cosa de la pantalla, que ya tiene el directorio de usuarios cargado. Devolverlo aquí obligaría
-   * a un `JOIN` en cada página del listado para un dato que en la mayoría de las filas es `null`.
+   * Misma forma que {@link ComparendosTokenSimitMeta.actualizadoPor}, y por la misma razón: el
+   * único uso de este campo es escribir «gestionado por X» en una pantalla, y un id suelto no lo
+   * permite. La versión anterior publicaba solo el número dando por hecho que la pantalla tenía un
+   * directorio de usuarios cargado con el que resolverlo — y no lo hay: no existe hook ni endpoint
+   * de directorio consumible desde el visor de comparendos, así que el id se pintaba literalmente
+   * («usuario 5»), que no es «quién hizo la última gestión» (HU #11562, AC5). El `JOIN` que esto
+   * cuesta es un `LEFT JOIN` por clave primaria contra `users`, una vez por página.
+   *
+   * **No sigue el criterio de {@link ComparendosSyncRun.iniciadoPor}, que sigue siendo un id**, y la
+   * diferencia es deliberada: una corrida de sync la dispara quien administra el módulo y su autor
+   * solo se mira para depurar; esto lo lee a diario quien reparte el trabajo del equipo.
+   *
+   * El nombre es de una persona identificable (personal interno): se publica a quien ya puede ver el
+   * comparendo entero, pero no se escribe en logs, ni en el `detail` de `audit_logs`, ni en el
+   * `motivo` de `pii_access_log`. El export a Excel sigue llevando el **id** y no el nombre a
+   * propósito (`flito-comparendos.export.service.ts`): ahí el archivo sale del perímetro.
    */
-  gestionActualizadaPor: number | null;
+  gestionActualizadaPor: { id: number; nombre: string } | null;
   creadoEn: string;
   actualizadoEn: string;
 }

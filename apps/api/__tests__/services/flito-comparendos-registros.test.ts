@@ -135,6 +135,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   // que necesitan una fila ya gestionada las sobreescriben con `fila({ ... })`.
   gestionActualizadaEn: null,
   gestionActualizadaPor: null,
+  // El nombre del autor de la gestión, que desde la HU #11562 llega por el `leftJoin` a `users` y
+  // NO es una columna de esta tabla. `null` porque el join no casa nada cuando la fila no está
+  // gestionada — que es justo lo que un `innerJoin` convertiría en «esta fila no existe».
+  gestionAutorNombre: null,
   createdAt: ANTES,
   updatedAt: AHORA,
   // La respuesta del tercero sobre un tercero: existe para poder re-mergear sin volver a llamar al
@@ -163,9 +167,17 @@ const evento = (over: Record<string, unknown> = {}) => ({
 
 const dialecto = new PgDialect();
 
+/** Un `JOIN` de la consulta: de qué TIPO es, contra qué tabla y con qué condición. */
+interface Join {
+  tipo: 'left' | 'inner';
+  tabla: string;
+  on: unknown;
+}
+
 interface Consulta {
   tabla: string;
   proyeccion: string[];
+  joins: Join[];
   condiciones: unknown[];
   orden: unknown[];
   limite: number | null;
@@ -182,10 +194,22 @@ function instalarEspia(): void {
   kdb.select.mockImplementation((...args: unknown[]) => {
     const chain = base(...args);
     const proyeccion = args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [];
-    const registro: Consulta = { tabla: '__sin_from__', proyeccion, condiciones: [], orden: [], limite: null };
+    const registro: Consulta = {
+      tabla: '__sin_from__', proyeccion, joins: [], condiciones: [], orden: [], limite: null,
+    };
 
     const from = chain.from as (t: unknown) => unknown;
     chain.from = (tbl: unknown) => { registro.tabla = nombre(tbl); lecturas.push(registro); return from(tbl); };
+    // El TIPO del join se registra porque el mock lo pasa de largo: `leftJoin` e `innerJoin`
+    // devuelven las mismas filas registradas, así que ningún resultado distingue los dos y el
+    // cambio —que borraría del listado todo comparendo sin gestionar— no se vería (RN-46).
+    for (const [metodo, tipo] of [['leftJoin', 'left'], ['innerJoin', 'inner']] as const) {
+      const original = chain[metodo] as (t: unknown, on: unknown) => unknown;
+      chain[metodo] = (tbl: unknown, on: unknown) => {
+        registro.joins.push({ tipo, tabla: nombre(tbl), on });
+        return original(tbl, on);
+      };
+    }
     const where = chain.where as (v: unknown) => unknown;
     chain.where = (c: unknown) => { if (c !== undefined) registro.condiciones.push(c); return where(c); };
     const orderBy = chain.orderBy as (...v: unknown[]) => unknown;
@@ -540,18 +564,27 @@ describe('GET /registros — la forma de lo que devuelve', () => {
 //   · que el timeline NO cambió de forma: el `detalle` sigue saliendo por la lista blanca de dos
 //     claves (RN-35), así que un evento de gestión con contexto propio publica `null` hasta que la
 //     #11557 decida ampliarla.
+//
+// Desde la HU #11562 `gestionActualizadaPor` es `{ id, nombre } | null` y no el id suelto (RN-46),
+// así que este bloque comprueba además las tres cosas que ese cambio puede romper en silencio:
+// que el join sea LEFT y no INNER —con INNER, todo comparendo sin gestionar desaparecería del
+// listado, y ningún mock que devuelva filas registradas lo notaría—, que un autor que no casa
+// devuelva `null` entero y no medio objeto, y que el NOMBRE no se cuele en el registro de acceso.
 
-describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
+describe('auditoría de gestión: la zona nueva de la fila (HU #11556, #11562)', () => {
   const auth = sesion(7113);
 
-  /** Una fila YA gestionada: la que la #11557 dejará al escribir causal u observación. */
+  /** Una fila YA gestionada, con el nombre del autor tal como lo trae el `leftJoin` a `users`. */
   const GESTIONADA_EN = new Date('2026-08-17T14:05:00.000Z');
   const GESTIONADA_POR = 4210;
-  const gestionada = () => fila({
+  const NOMBRE_AUTOR = 'Marcela Restrepo';
+  const gestionada = (over: Record<string, unknown> = {}) => fila({
     causalId: '55555555-5555-4555-8555-555555555555',
     observacion: 'Se solicitó soporte al organismo',
     gestionActualizadaEn: GESTIONADA_EN,
     gestionActualizadaPor: GESTIONADA_POR,
+    gestionAutorNombre: NOMBRE_AUTOR,
+    ...over,
   });
 
   it('**la proyección las pide**: salen por la lista blanca, no por existir en la tabla (RN-31)', async () => {
@@ -561,7 +594,7 @@ describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
 
     await request(app).get(REGISTROS).set('Authorization', cabecera);
     expect(listado().proyeccion).toEqual(
-      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor']),
+      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor', 'gestionAutorNombre']),
     );
 
     lecturas.length = 0;
@@ -569,11 +602,42 @@ describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
     // El detalle proyecta por su cuenta y es la ruta que devuelve el registro entero: una columna
     // que solo estuviera en el listado dejaría al visor sin ella.
     expect(consultaDetalle().proyeccion).toEqual(
-      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor']),
+      expect.arrayContaining(['gestionActualizadaEn', 'gestionActualizadaPor', 'gestionAutorNombre']),
     );
   });
 
-  it('**el DTO las MAPEA**, no solo la proyección las pide: `en` a ISO y `por` como id', async () => {
+  it('**del join sale SOLO el nombre**: `users` no publica nada más por venir en la consulta', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    // La lista blanca del RN-31 no deja de aplicar porque la columna venga de otra tabla: el correo,
+    // el `username` y el rol del gestor no tienen por qué salir del API para escribir un nombre.
+    for (const clave of ['username', 'email', 'role', 'passwordHash', 'allowedPages']) {
+      expect(listado().proyeccion).not.toContain(clave);
+    }
+  });
+
+  it('**el join es LEFT y contra `users`**, en las DOS lecturas: con INNER se iría medio listado', async () => {
+    kdb.when.select(TABLA, [fila()]).select(EVENTOS, [evento()]);
+    const app = await buildApp();
+    const cabecera = await auth();
+
+    await request(app).get(REGISTROS).set('Authorization', cabecera);
+    // La mayoría de los comparendos tiene `gestion_actualizada_por` en NULL. Un `innerJoin` no los
+    // dejaría sin nombre: los dejaría FUERA de la página, y como el mock devuelve las filas
+    // registradas pase lo que pase, ninguna aserción sobre el cuerpo podría verlo. Por eso se afirma
+    // el TIPO del join y no su efecto.
+    expect(listado().joins).toEqual([{ tipo: 'left', tabla: 'users', on: expect.anything() }]);
+    expect(sqlDe(listado().joins[0].on).sql)
+      .toBe('"users"."id" = "flito_comparendos_registros"."gestion_actualizada_por"');
+
+    lecturas.length = 0;
+    await request(app).get(`${REGISTROS}/${ID_1}`).set('Authorization', cabecera);
+    expect(consultaDetalle().joins).toEqual([{ tipo: 'left', tabla: 'users', on: expect.anything() }]);
+  });
+
+  it('**el DTO las MAPEA**, no solo la proyección las pide: `en` a ISO y `por` como `{ id, nombre }`', async () => {
     // Este es el caso que ninguna aserción de proyección puede dar: pedir la columna y no copiarla
     // en `registroDto` deja `undefined`, que `JSON.stringify` elimina — la respuesta se queda sin la
     // clave y todas las comprobaciones de «no publica de más» siguen en verde.
@@ -583,10 +647,41 @@ describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
 
     expect(r.status).toBe(200);
     expect(r.body.items[0].gestionActualizadaEn).toBe(GESTIONADA_EN.toISOString());
-    // El **id**, no el nombre (igual que `ComparendosSyncRun.iniciadoPor`): resolverlo es de la
-    // pantalla, y un número que se convirtiera en objeto sería un cambio de contrato.
-    expect(r.body.items[0].gestionActualizadaPor).toBe(GESTIONADA_POR);
-    expect(typeof r.body.items[0].gestionActualizadaPor).toBe('number');
+    // El id **y** el nombre (HU #11562, AC5): con el id suelto la pantalla no puede escribir quién
+    // gestionó —no hay directorio de usuarios que consultar— y acaba pintando «usuario 4210».
+    // `toEqual` sobre el objeto entero y no un `toMatchObject`: un `{ id }` sin `nombre` —que es lo
+    // que devuelve olvidar el join— tiene que fallar aquí.
+    expect(r.body.items[0].gestionActualizadaPor).toEqual({ id: GESTIONADA_POR, nombre: NOMBRE_AUTOR });
+  });
+
+  it('un autor que el join NO resuelve vuelve como `null` entero, no como medio objeto', async () => {
+    // No puede pasar con la FK puesta (`ON DELETE RESTRICT`), y por eso se prueba: si algún día
+    // pasa, la pantalla tiene que recibir el mismo `null` que ya sabe pintar y no un objeto sin
+    // `nombre`, que `JSON.stringify` entrega como `{ "id": 4210 }` y la pantalla como «undefined».
+    kdb.when.select(TABLA, [gestionada({ gestionAutorNombre: null })]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.body.items[0]).toHaveProperty('gestionActualizadaPor', null);
+    // Y la fecha SÍ sigue saliendo: que no se sepa el nombre no borra que la fila está gestionada.
+    expect(r.body.items[0].gestionActualizadaEn).toBe(GESTIONADA_EN.toISOString());
+  });
+
+  it('**el nombre del autor no entra en el registro de acceso** (Ley 1581, RN-46)', async () => {
+    kdb.when.select(TABLA, [gestionada()]);
+
+    const r = await request(await buildApp()).post(BUSCAR)
+      .set('Authorization', await auth()).send({ nit: '900123456' });
+
+    // Sale por la respuesta, que es a quien ya puede ver el comparendo entero…
+    expect(r.body.items[0].gestionActualizadaPor.nombre).toBe(NOMBRE_AUTOR);
+    // …y no por `pii_access_log`, que se consulta y se exporta. El `motivo` de esa tabla lleva los
+    // filtros de la consulta; el nombre de quien gestionó no es un filtro y no tiene por qué acabar
+    // ahí — ni en `campos_accedidos`, que enumera los campos del TITULAR.
+    expect(logPiiAccessMock).toHaveBeenCalled();
+    // Solo el payload: el primer argumento es `req`, que es circular y además no lo escribe este
+    // módulo. Lo que se persiste en `pii_access_log` sale entero de este objeto.
+    expect(JSON.stringify(ultimoAcceso())).not.toContain(NOMBRE_AUTOR);
   });
 
   it('**AC5 — `GET /registros`**: un registro anterior a la HU trae las dos claves en `null`', async () => {
@@ -635,7 +730,7 @@ describe('auditoría de gestión: la zona nueva de la fila (HU #11556)', () => {
       .get(`${REGISTROS}/${ID_1}`).set('Authorization', await auth());
 
     expect(r.body.gestionActualizadaEn).toBe(GESTIONADA_EN.toISOString());
-    expect(r.body.gestionActualizadaPor).toBe(GESTIONADA_POR);
+    expect(r.body.gestionActualizadaPor).toEqual({ id: GESTIONADA_POR, nombre: NOMBRE_AUTOR });
   });
 
   it('**el timeline no cambia de forma**: un evento `gestion` publica su tipo y `detalle` en `null`', async () => {

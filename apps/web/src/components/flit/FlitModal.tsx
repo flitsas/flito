@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 import { useEscape, useBackdropClose, useFocusTrap } from '../../lib/hooks';
 import { IconClose } from './icons';
 import ModalPortal from './ModalPortal';
@@ -19,9 +19,20 @@ interface FlitModalProps {
    * es quien sabe cuánto mide. Gana sobre `wide`.
    */
   full?: boolean;
+  /**
+   * Dónde dejar el foco al cerrar si el elemento que abrió el modal **ya no está en el DOM**
+   * (HU #11562, AC8). Opcional: sin él, el comportamiento es el de siempre.
+   *
+   * Lo necesita cualquier modal que cambie la lista que hay debajo — gestionar un comparendo puede
+   * sacar su fila del filtro puesto, y `.focus()` sobre esa fila desmontada no hace nada y deja el
+   * foco en `<body>`. Apunta al encabezado de la lista (`tabIndex={-1}`).
+   */
+  restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
-export default function FlitModal({ title, onClose, children, wide = false, full = false }: FlitModalProps) {
+export default function FlitModal(
+  { title, onClose, children, wide = false, full = false, restoreFocusRef }: FlitModalProps,
+) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   // Con un modal abierto encima de otro —el visor de documentos sobre el detalle de un SOAT—, Esc
@@ -33,8 +44,9 @@ export default function FlitModal({ title, onClose, children, wide = false, full
     const abiertos = document.querySelectorAll('[data-flit-modal]');
     if (abiertos.length === 0 || abiertos[abiertos.length - 1] === overlayRef.current) onClose();
   });
-  // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar.
-  useFocusTrap(dialogRef);
+  // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar — al disparador si
+  // sigue ahí, y si no al respaldo que le pasen (nunca a <body>).
+  useFocusTrap(dialogRef, true, restoreFocusRef);
   return (
     // Colgado de <body>: dentro de `<main>` —que es un item flex— ningún z-index basta para pasar
     // por encima de la barra de navegación, y la cabecera con el botón de cerrar quedaba tapada en
