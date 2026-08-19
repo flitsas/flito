@@ -175,18 +175,26 @@ export class ComparendosFuenteError extends ComparendosError {
 }
 
 /**
- * Falta la base URL del proveedor y el módulo está en modo `real`.
+ * La base URL del proveedor falta o no sirve, y el módulo está en modo `real`.
  *
  * 503 y no 500 por lo mismo que la llave maestra: no hay bug que arreglar, hay algo que
  * provisionar. Y falla explícito ANTES de construir nada — sin esto la petición saldría hacia una
  * URL con `undefined` dentro y el error llegaría disfrazado de fallo de red.
+ *
+ * `problema` existe porque «falta» y «está mal» se arreglan distinto: una base con esquema no
+ * soportado o con query pegada no se diagnostica leyendo «no hay base URL». El texto lo escribe
+ * quien valida (`baseUrlExigida`) y describe la FORMA del valor, nunca el valor.
  */
 export class ComparendosFuenteNoConfiguradaError extends ComparendosFuenteError {
-  constructor(origen: ComparendosOrigenFuente, fuente: string, variable: string) {
+  constructor(
+    origen: ComparendosOrigenFuente, fuente: string, variable: string,
+    problema = 'no hay base URL',
+  ) {
     super(
       'fuente_no_configurada', 503, origen, fuente, null,
-      `No hay base URL para ${etiquetaFuente(origen, fuente)}: define ${variable} en el entorno `
-      + 'o deja COMPARENDOS_SIMIT_MODE=mock mientras no haya credenciales.',
+      `Configuración inválida para ${etiquetaFuente(origen, fuente)}: ${problema}. `
+      + `Revisa ${variable} en el entorno o deja COMPARENDOS_SIMIT_MODE=mock mientras no haya `
+      + 'credenciales.',
     );
   }
 }

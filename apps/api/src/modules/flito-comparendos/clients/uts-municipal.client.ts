@@ -9,6 +9,25 @@
 // Sin token: el UTS no pide autorización. El único secreto del módulo es el de Verifik y no tiene
 // nada que hacer en esta petición — mandarlo «por si acaso» sería regalarle la credencial a un
 // tercero.
+//
+// ── Limitación conocida: el proveedor publica el endpoint sobre `http://` ────────────────────────
+//
+// El host que dio el proveedor va sobre `http://` (texto plano) y el transporte que usa este
+// adapter —`integraciones/http.ts`— habla `https` incondicionalmente. Por tanto **el modo `real`
+// contra el UTS municipal no puede funcionar todavía**: `mock` sigue siendo el único modo
+// ejercitable de esta fuente.
+//
+// Y no se deja a la suerte: `baseUrlExigida` **rechaza** una base que no sea `https:` con
+// `fuente_no_configurada` (503). Sin esa comprobación, una base `http://` no habría significado
+// «va en texto plano» sino «sale igual contra el 443 de ese host» —y si ese 443 está abierto, el
+// NIT se remite a un endpoint que nadie revisó; y si no lo está, el operador recibe un error opaco
+// de TLS o de DNS en lugar del error de provisión que este módulo diseñó justo para esto.
+//
+// Es deliberado y no un descuido: abrir el helper a texto plano mandaría el NIT monitoreado por la
+// red sin cifrar y afectaría de paso a traspaso, RUNT y Fasecolda, que comparten ese helper. La
+// decisión del Líder Técnico es preguntar antes al proveedor si expone HTTPS; solo si la respuesta
+// es que no, se evaluará un transporte http acotado a esta fuente. Hasta entonces, lo que hay aquí
+// es el verbo y la ruta correctos, no una integración operativa.
 
 import { httpsGetJson } from '../../integraciones/http.js';
 import { env } from '../../../config/env.js';
@@ -27,8 +46,20 @@ import type { ComparendoCrudoMunicipal, RespuestaFuenteMunicipal } from './types
 
 const log = loggerFor('flito-comparendos');
 
-/** Ruta del contrato UTS. El host de cada ambiente va por `UTS_MUNICIPAL_BASE_URL`. */
-const RUTA_CONSULTA = '/ConsultarInfraccion';
+/**
+ * Ruta del contrato UTS, completa. El host de cada ambiente va por `UTS_MUNICIPAL_BASE_URL`.
+ *
+ * `UTS_MUNICIPAL_BASE_URL` es **solo el origen** (`https://host`): el prefijo
+ * `/infraction/api/Infraccion` es parte del contrato del proveedor y vive aquí, no en la variable.
+ * Si alguien provisiona la base ya con ese prefijo, la ruta saldría duplicada.
+ *
+ * Sin puerto: `integraciones/http.ts` arma la petición con `{ hostname, path }` y **descarta el
+ * `port` de la URL**, así que un `…:8080` saldría en silencio contra el 443 de ese host. Añadir
+ * `port` al helper es cambio de un helper compartido (traspaso, RUNT, Fasecolda) y va en su propio
+ * PR; mientras tanto la variable no admite puerto, y el que hoy publica el proveedor va sobre
+ * `http://`, que este adapter rechaza (ver la cabecera del archivo).
+ */
+const RUTA_CONSULTA = '/infraction/api/Infraccion/ConsultarInfraccionFuente';
 
 /**
  * Infracciones que el UTS de un municipio tiene para un NIT.
@@ -65,9 +96,16 @@ export async function consultarComparendosMunicipales(
     // un timeout de INACTIVIDAD — un proveedor que gotee un byte cada 7 s no lo dispara nunca y
     // mantiene la petición viva indefinidamente. La carrera pone encima el plazo ABSOLUTO, que es
     // lo que protege el presupuesto de tiempo del sync (ADR-0001 §7) frente al techo de ~120 s del
-    // nginx. Sin ella, el camino con el helper «bueno» estaba menos protegido que el del POST.
+    // nginx. Sin ella, un proveedor que gotea deja la corrida entera colgada.
     const respuesta = await conLimiteDeTiempo(
-      () => httpsGetJson(url, { Accept: 'application/json' }, limiteDeTiempoMs()),
+      () => httpsGetJson(url, {
+        Accept: 'application/json',
+        // La clave de caché de esta petición ES la URL, y la URL lleva el NIT dentro. Aquí importa
+        // más que en Verifik: esta llamada NO lleva `Authorization`, así que la restricción de la
+        // RFC 9111 al caché compartido de respuestas autenticadas no aplica y este encabezado es
+        // lo único que le quita a un proxy intermedio la discreción de almacenarla.
+        'Cache-Control': 'no-store',
+      }, limiteDeTiempoMs()),
       ctx,
     );
 
