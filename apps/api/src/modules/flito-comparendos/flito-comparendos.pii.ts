@@ -53,6 +53,26 @@ export const RECURSO_SYNC_RUN = 'flito_comparendos_sync_run';
 export const CAMPOS_PII_REGISTRO = ['nit_monitoreado', 'placa'] as const;
 
 /**
+ * La observación de gestión (HU #11557).
+ *
+ * Va APARTE de {@link CAMPOS_PII_REGISTRO} por el mismo criterio que los payloads, y con un motivo
+ * propio: **es el único campo del módulo que redacta una PERSONA**. El NIT y la placa vienen de una
+ * fuente y están acotados por su forma; una observación es texto libre escrito mirando un caso
+ * concreto, y ahí puede acabar un nombre, un teléfono o el número de un radicado sin que ninguna
+ * validación pueda impedirlo. Declararla es lo que hace que `campos_accedidos` diga la verdad sobre
+ * lo que la respuesta entregó — y una página del listado entrega hasta
+ * `COMPARENDOS_REGISTROS_LIMIT_MAX` de ellas.
+ *
+ * Listada por separado, además, se puede responder «¿quién ha leído observaciones?» con una consulta
+ * al log en vez de releyendo el código de cada endpoint.
+ *
+ * **Se añade solo cuando la respuesta la incluye.** Hasta la HU #11557 la columna existía pero
+ * ningún camino de código la escribía; desde que hay un endpoint que la llena, toda lectura que la
+ * devuelva tiene que declararla.
+ */
+export const CAMPOS_PII_OBSERVACION = ['observacion'] as const;
+
+/**
  * Los payloads crudos, para cuando un endpoint los devuelva.
  *
  * Van APARTE de `CAMPOS_PII_REGISTRO` y no fundidos con ellos: desde la HU #11511 el payload está

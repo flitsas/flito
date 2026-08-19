@@ -443,6 +443,38 @@ export class ComparendosCursorInvalidoError extends ComparendosError {
   }
 }
 
+// ─────────────────────── Gestión del comparendo (HU #11557, 17b) ────────────────────────────────
+
+/**
+ * La causal que se quiere asignar no sirve: no existe, o está desactivada en el catálogo.
+ *
+ * **422 y no 400.** El cuerpo está bien formado —`causalId` es un UUID y el esquema lo aceptó—; lo
+ * que falla es la entidad a la que apunta, y esa diferencia es la que permite a la pantalla
+ * distinguir «revisa lo que escribiste» de «esa causal ya no se puede usar, recarga el catálogo».
+ * Tampoco es un 404: el recurso de la petición es el COMPARENDO, y ese sí existe —responder 404
+ * aquí haría creer que el comparendo desapareció—.
+ *
+ * **No se dice cuál de los dos casos fue**, y es deliberado: «no existe» y «está desactivada» se
+ * responden igual porque el catálogo de causales no es información que este endpoint tenga que
+ * enumerar, y porque la pantalla actúa igual en los dos casos (recargar `GET /causales`).
+ *
+ * Lo que sí es una excepción escrita y no un descuido: una causal desactivada que el comparendo YA
+ * tenía asignada se admite. Quien está escribiendo una observación sobre un comparendo clasificado
+ * hace meses no puede quedar bloqueado porque alguien retiró esa causal del catálogo entretanto, y
+ * obligarle a cambiarla sería obligarle a reclasificar lo que no venía a reclasificar. La regla vive
+ * en el servicio, que es quien sabe qué causal tenía la fila.
+ */
+export class ComparendosCausalInvalidaError extends ComparendosError {
+  constructor() {
+    super(
+      'causal_invalida',
+      422,
+      'La causal indicada no existe o está desactivada en el catálogo. Recarga las causales y elige '
+      + 'una activa.',
+    );
+  }
+}
+
 /**
  * `unique_violation` de PostgreSQL.
  *

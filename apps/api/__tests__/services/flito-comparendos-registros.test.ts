@@ -1471,7 +1471,10 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
     expect(ultimoAcceso()).toMatchObject({
       resourceTipo: 'flito_comparendos_registro',
       accion: 'search',
-      camposAccedidos: ['nit_monitoreado', 'placa'],
+      // `observacion` entra con la HU #11557: desde que hay un endpoint que la escribe, es texto
+      // libre redactado por una persona y la lectura la entrega —hasta 50 por página—, así que el
+      // rastro tiene que declararla o estaría diciendo menos PII de la que sacó.
+      camposAccedidos: ['nit_monitoreado', 'placa', 'observacion'],
     });
     expect(String(ultimoAcceso().motivo)).toContain('filas=2');
   });
@@ -1489,7 +1492,10 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
     expect(ultimoAcceso()).toMatchObject({
       resourceTipo: 'flito_comparendos_registro',
       accion: 'search',
-      camposAccedidos: ['nit_monitoreado', 'placa'],
+      // `observacion` entra con la HU #11557: desde que hay un endpoint que la escribe, es texto
+      // libre redactado por una persona y la lectura la entrega —hasta 50 por página—, así que el
+      // rastro tiene que declararla o estaría diciendo menos PII de la que sacó.
+      camposAccedidos: ['nit_monitoreado', 'placa', 'observacion'],
     });
     expect(String(ultimoAcceso().motivo)).toContain('filas=2');
   });

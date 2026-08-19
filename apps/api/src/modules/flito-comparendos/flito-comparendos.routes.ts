@@ -1,18 +1,19 @@
 // FLITO comparendos — frontera HTTP de los catálogos (Feature #11492 17a, HU #11497), del token
 // SIMIT (HU #11498), de la sincronización (HU #11500) y de la lectura del consolidado (HU #11502),
 // que la HU #11555 (Feature #11495 17b) amplía con los filtros de listado por municipio, fuente y
-// causal.
+// causal, y la HU #11557 con el PATCH de gestión — la única escritura sobre un comparendo.
 //
 // Base: `/api/flito/comparendos`. Aquí solo se valida, se traduce y se deja rastro; las reglas de
 // negocio y todo el acceso a datos viven en `flito-comparendos.service.ts` (RN-01..RN-06), en
 // `flito-comparendos.token.service.ts` (RN-07..RN-10), en `flito-comparendos.sync.service.ts`
-// (RN-15..RN-24) y en `flito-comparendos.registros.service.ts` (RN-31..RN-34), en sus cabeceras.
+// (RN-15..RN-24), en `flito-comparendos.registros.service.ts` (RN-31..RN-36) y en
+// `flito-comparendos.gestion.service.ts` (RN-37..RN-41), en sus cabeceras.
 // Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
-// Lo que falta de la superficie del Feature —el PATCH de gestión (causal/observación) y el export—
-// es de 17b y se añadirá sobre este mismo router. Toda lectura que devuelva datos personales deja
-// rastro con `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con
-// `Cache-Control: no-store`.
+// Lo que falta de la superficie del Feature —el export a Excel— es de la HU #11558 y se añadirá
+// sobre este mismo router. Toda respuesta que lleve datos personales deja rastro con
+// `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con `Cache-Control: no-store`,
+// incluida la del PATCH de gestión: escribe dos columnas y devuelve el registro entero.
 //
 // **Los filtros de identidad no viajan en la URL** (AGENTS.md §14): buscar por NIT o por placa es
 // `POST /registros/buscar` con esos dos valores en el CUERPO. La query solo lleva lo que no
@@ -22,7 +23,10 @@
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { COMPARENDOS_REGISTROS_LIMIT_MAX } from '@operaciones/shared-types';
+import {
+  COMPARENDOS_OBSERVACION_MAX,
+  COMPARENDOS_REGISTROS_LIMIT_MAX,
+} from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
@@ -48,7 +52,9 @@ import {
   obtenerRegistro,
   type FiltroRegistros,
 } from './flito-comparendos.registros.service.js';
+import { gestionarComparendo } from './flito-comparendos.gestion.service.js';
 import {
+  CAMPOS_PII_OBSERVACION,
   CAMPOS_PII_REGISTRO,
   CAMPOS_PII_SYNC_RUN,
   RECURSO_REGISTROS,
@@ -561,8 +567,8 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
 // no por lo que hace: responde 200, no crea nada y no tiene efectos secundarios más allá del
 // registro de acceso que deja cualquier lectura de este módulo.
 //
-// El PATCH de gestión —lo único editable, `causalId` y `observacion`— es de 17b y aquí no existe ni
-// como stub: una ruta que acepta un cuerpo y no hace nada es peor que no tenerla.
+// La única escritura sobre un comparendo es el PATCH de gestión (HU #11557), que está al final del
+// archivo y toca exactamente dos columnas: `causal_id` y `observacion`. Ni una de las de fuente.
 
 /**
  * Un filtro que llega vacío es un filtro sin poner, no un filtro que no valida.
@@ -679,7 +685,7 @@ async function entregarPagina(req: Request, res: Response, filtro: FiltroRegistr
   await registrarAccesoComparendos(req, {
     recurso: RECURSO_REGISTROS,
     accion: 'search',
-    campos: [...CAMPOS_PII_REGISTRO],
+    campos: [...CAMPOS_PII_REGISTRO, ...CAMPOS_PII_OBSERVACION],
     filas: pagina.items.length,
     // El orden importa y no es alfabético: `motivo` es `varchar(200)` y se recorta por el final, así
     // que delante va lo que un titular preguntaría —con qué identidad se buscó— y detrás los
@@ -763,7 +769,7 @@ router.get('/registros/:id', registrosLimiter, async (req: Request, res: Respons
     await registrarAccesoComparendos(req, {
       recurso: RECURSO_REGISTROS,
       accion: 'read',
-      campos: [...CAMPOS_PII_REGISTRO],
+      campos: [...CAMPOS_PII_REGISTRO, ...CAMPOS_PII_OBSERVACION],
       filas: 1,
       referencia: registro.id,
     });
@@ -791,6 +797,161 @@ router.get('/registros/:id/eventos', registrosLimiter, async (req: Request, res:
   if (id === null) return;
   try {
     res.json(await listarEventos(id));
+  } catch (e) { fallo(res, e); }
+});
+
+// ─────────────────────────────── Gestión del comparendo (CF-05, HU #11557) ──────────────────────
+//
+// La ÚNICA escritura del módulo sobre un comparendo, y toca dos columnas de las veintitantas de la
+// tabla: la causal y la observación. Todo lo demás es dato de fuente y no se edita (RN-04, CF-09) —
+// lo que en este archivo significa que el esquema es `.strict()` y que un cuerpo con `placa`,
+// `monto` u `origenMerge` dentro es un 400, no un cuerpo del que se ignoran tres claves.
+
+/**
+ * Cuerpo del PATCH. Estricto, con las dos claves opcionales por separado y ninguna obligatoria —
+ * pero no las dos ausentes.
+ *
+ * `.strict()` hace aquí dos trabajos y el segundo es el que importa. El primero es el de siempre:
+ * `{ "observaciones": "…" }` —el error de dedo— se ignoraría en silencio y respondería 200 diciendo
+ * que se guardó algo que no se guardó. El segundo es que convierte en un **400 explícito** cualquier
+ * intento de escribir un campo de FUENTE por esta puerta: `placa`, `monto`, `origen_merge`,
+ * `estado`… ninguno existe en este esquema, así que la respuesta a mandarlos no es «se ignoró», es
+ * «eso no se edita». Que la inmutabilidad de la fuente se sostenga en la VALIDACIÓN y no solo en el
+ * `set()` del servicio es deliberado: son dos candados y el de aquí se lee sin abrir otro archivo.
+ *
+ * El `refine` final es el mismo criterio que en `PATCH /nits/:id`: un cuerpo vacío es un 400 y no un
+ * no-op silencioso. Aquí además tiene una consecuencia propia —un `{}` que respondiera 200 dejaría
+ * un evento `gestion` en el timeline por un cambio que no ocurrió—.
+ */
+const gestionSchema = z.object({
+  // UUID y no cadena libre, por lo mismo que en el filtro del listado: `causal_id` es `uuid` en
+  // PostgreSQL y una comparación contra algo que no lo es revienta con un `22P02` —un 500— en vez
+  // de decir qué pasa. `null` es un valor legítimo: retira la causal.
+  causalId: z.string().uuid('La causal debe ser un identificador válido').nullable().optional(),
+  observacion: z.string()
+    // `trim()` antes de medir, como en el resto del módulo: el tope es de caracteres escritos, no de
+    // espacios pegados al final por un copiar y pegar.
+    .trim()
+    // **La fuente del número es `packages/shared-types` y no este archivo** (AC5): el contador de
+    // caracteres del formulario y esta validación tienen que ser el mismo número o el usuario
+    // descubre el tope real en un 400 después de haber escrito.
+    .max(
+      COMPARENDOS_OBSERVACION_MAX,
+      `La observación admite hasta ${COMPARENDOS_OBSERVACION_MAX} caracteres`,
+    )
+    // El byte cero no cabe en una columna `text` de PostgreSQL: llegaría hasta el driver y saldría
+    // como un `22021` (un 500) en vez de como el 400 que es. Un JSON puede llevarlo (`\u0000`), así
+    // que se cierra aquí. El resto de caracteres de control —incluido el salto de línea— se admiten:
+    // esto es un campo de texto largo y la observación no se concatena a ninguna bitácora (RN-41).
+    // Es un `refine` y no un `regex` porque un carácter de control dentro de una expresión regular
+    // es un aviso de ESLint (`no-control-regex`) que aquí sería ruido: la comprobación es «no lo
+    // contiene», que se dice mejor sin regex.
+    .refine((v) => !v.includes('\u0000'), 'La observación no admite caracteres nulos')
+    // Una observación que al recortar queda vacía es una observación borrada, no una cadena vacía
+    // guardada: la columna acabaría con dos formas de decir «no hay nada» y la pantalla tendría que
+    // distinguirlas para nada. Es la misma normalización que `vacioEsAusente` hace en los filtros,
+    // con la diferencia de que aquí vacío no significa «no filtres» sino «vacíalo».
+    .transform((v) => (v === '' ? null : v))
+    .nullable()
+    .optional(),
+}).strict()
+  .refine((d) => d.causalId !== undefined || d.observacion !== undefined, {
+    message: 'Nada que actualizar: manda `causalId`, `observacion` o las dos',
+  });
+
+/**
+ * Gestión del comparendo: 30 por minuto y usuario.
+ *
+ * **Es un limitador de LECTURA disfrazado de escritura, y por eso existe.** La respuesta de este
+ * PATCH es el registro completo —con NIT y placa— más su timeline, exactamente lo que devuelve
+ * `GET /registros/:id`; sin este limitador, quien quisiera leer registros de uno en uno sin gastar
+ * la cuota de `registrosLimiter` solo tendría que pedirlos por aquí mandando la causal que la fila
+ * ya tiene. El número es más holgado que el de la lectura por fila porque gestionar es un gesto
+ * humano y lento (elegir una causal, escribir una observación), y 30/min sigue siendo un techo que
+ * ningún operador real toca.
+ *
+ * Va después de los guardas del router, como los otros cuatro: quien no pasa `authMiddleware` ni
+ * `requireRole` no consume cuota, así que un 401 en bucle no le agota el cupo a nadie.
+ */
+const gestionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-gestion'),
+  message: { error: 'Demasiadas gestiones seguidas, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-gestion:'),
+});
+
+/**
+ * `PATCH /registros/:id/gestion` — asigna o retira la causal y la observación (AC1..AC9).
+ *
+ * Deja rastro en los DOS registros, que responden preguntas distintas y no se sustituyen (lo dice
+ * la cabecera de `flito-comparendos.pii.ts`): `audit()` responde «quién CAMBIÓ qué» y es lo que
+ * hacen las otras nueve escrituras del módulo; `registrarAccesoComparendos` responde «quién MIRÓ
+ * datos personales», y hace falta porque la respuesta lleva NIT y placa — este endpoint escribe dos
+ * columnas y devuelve una lectura completa del registro.
+ *
+ * Ni la observación ni la placa ni el NIT entran en ninguno de los dos rastros: el `detail` de la
+ * bitácora dice qué campos se tocaron y cuánto medía el texto, nunca el texto (RN-41).
+ */
+router.patch('/registros/:id/gestion', gestionLimiter, async (req: Request, res: Response) => {
+  const id = leerId(req, res);
+  if (id === null) return;
+  const parsed = gestionSchema.safeParse(req.body ?? {});
+  if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
+
+  // `authMiddleware` corre antes que esta ruta y rechaza sin token, así que en la práctica siempre
+  // hay `sub`. Se comprueba igualmente porque aquí el actor es OBLIGATORIO y no opcional como en el
+  // resto del módulo: el `CHECK` de la 0156 ata `gestion_actualizada_por` a
+  // `gestion_actualizada_en`, así que un `?? null` con la fecha puesta sería un `23514` de la base
+  // —un 500— en lugar de esta respuesta honesta.
+  const actorId = req.user?.sub;
+  if (actorId === undefined) { res.status(401).json({ error: 'Sesión no válida' }); return; }
+
+  try {
+    const registro = await gestionarComparendo(id, parsed.data, actorId);
+
+    const campos = [
+      parsed.data.causalId !== undefined ? `causal=${parsed.data.causalId ?? '—'}` : null,
+      parsed.data.observacion !== undefined
+        // La LONGITUD, nunca el texto (RN-41): `audit_logs` se consulta y se exporta, y una
+        // observación la escribe una persona que pudo poner ahí lo que le pareciera relevante.
+        ? `observación=${parsed.data.observacion === null ? 'sin observación' : `${parsed.data.observacion.length} caracteres`}`
+        : null,
+    ].filter((p): p is string => p !== null);
+
+    await audit(req, {
+      action: 'update',
+      resource: 'flito_comparendos_registro',
+      resourceId: registro.id,
+      // Sin NIT y sin placa: el `resourceId` ya identifica el comparendo y desde él se llega a la
+      // fila. La bitácora de este módulo nunca ha escrito la placa y no empieza aquí.
+      detail: `Gestión del comparendo: ${campos.join(', ')}`,
+    });
+
+    // El registro de acceso va con `accion: 'read'` y no con una acción de escritura, y no es un
+    // apaño: esta tabla registra ACCESOS, y lo que hubo aquí es que alguien VIO el NIT, la placa y
+    // la observación de este comparendo — justo lo que la respuesta le entregó. El «quién cambió
+    // qué» lo cuenta `audit()`, arriba, que es la otra mitad y no se sustituyen.
+    //
+    // Meter un valor de escritura en `accion` costaría dos uniones de TypeScript
+    // (`shared/pii-audit.ts` y el `AccesoComparendos` de este módulo; la columna es `varchar(20)`
+    // sin CHECK, y en `packages/shared-types` no hay nada) y rompería los agregados de
+    // `/api/privacy/pii-access/stats`, que cuentan por acción. Ninguna de las dos cosas es cara; lo
+    // que sería equivocado es el significado.
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_REGISTROS,
+      accion: 'read',
+      campos: [...CAMPOS_PII_REGISTRO, ...CAMPOS_PII_OBSERVACION],
+      filas: 1,
+      referencia: registro.id,
+    });
+
+    // Igual que las otras tres rutas que devuelven registros: la respuesta lleva NIT y placa, así
+    // que no se cachea en ningún sitio intermedio.
+    res.set('Cache-Control', 'no-store');
+    res.json(registro);
   } catch (e) { fallo(res, e); }
 });
 

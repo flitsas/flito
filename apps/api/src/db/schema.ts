@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, time, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, smallserial, uuid, customType, smallint, doublePrecision, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, time, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, smallserial, uuid, customType, smallint, doublePrecision, primaryKey, check } from 'drizzle-orm/pg-core';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() { return 'bytea'; },
@@ -4236,6 +4236,15 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   sinCausalCreadoIdx: index('idx_flito_comparendos_sin_causal_creado')
     .on(desc(t.createdAt), desc(t.id))
     .where(sql`${t.causalId} is null`),
+  // El sello de la gestión es una sola cosa (HU #11557, migración 0156): o están la fecha y el
+  // autor, o no está ninguno de los dos. Una fecha sin autor diría que la fila se gestionó y no fue
+  // nadie —el mismo daño que el `ON DELETE RESTRICT` de arriba impide por el otro lado (ADR-0005)—
+  // y un autor sin fecha sería la mitad de una auditoría. La escritura las pone siempre juntas,
+  // también al vaciar la causal y la observación; esto es lo que lo sostiene desde la base.
+  gestionAuditoriaChk: check(
+    'flito_comparendos_gestion_auditoria_chk',
+    sql`(${t.gestionActualizadaEn} is null) = (${t.gestionActualizadaPor} is null)`,
+  ),
 }));
 
 /**

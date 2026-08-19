@@ -4,9 +4,10 @@
 //
 // Es el único archivo del módulo que LEE `flito_comparendos_registros` para devolvérselo a alguien.
 // El sync los escribe (`flito-comparendos.sync.service.ts`), la purga los borra
-// (`flito-comparendos-purga.cron.ts`) y aquí solo se consultan: **no hay ni un INSERT, ni un UPDATE,
-// ni un DELETE en este archivo**, y eso es el CF-09 en su forma más literal — los campos de fuente
-// no se editan desde el API (RN-04).
+// (`flito-comparendos-purga.cron.ts`), la gestión de 17b escribe sus dos únicas columnas editables
+// —causal y observación— desde `flito-comparendos.gestion.service.ts` (HU #11557), y aquí solo se
+// consultan: **no hay ni un INSERT, ni un UPDATE, ni un DELETE en este archivo**, y eso es el CF-09
+// en su forma más literal — los campos de fuente no se editan desde el API (RN-04).
 //
 // ── Reglas de negocio ────────────────────────────────────────────────────────────────────────────
 //
@@ -369,9 +370,21 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
 
 // ─────────────────────────────── Detalle y timeline (CF-11) ─────────────────────────────────────
 
+/**
+ * Quién ejecuta la consulta: la conexión de siempre o una transacción en curso.
+ *
+ * Existe para que la escritura de la gestión (HU #11557) pueda construir su respuesta DENTRO de su
+ * propia transacción, con este mismo código y sin una segunda copia de la proyección. Leer fuera
+ * dejaba una ventana real: entre el COMMIT y la lectura cabe la purga por retención, y el endpoint
+ * habría respondido 404 con el cambio ya escrito y sin llegar a dejar sus dos rastros.
+ *
+ * Por defecto es `db`, así que las tres lecturas del módulo no cambian en nada.
+ */
+type Ejecutor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /** Timeline de un registro, del evento más reciente al más antiguo. */
-async function eventosDe(registroId: string): Promise<ComparendoEvento[]> {
-  const filas = await db.select().from(flitoComparendosEventos)
+async function eventosDe(registroId: string, ejecutor: Ejecutor = db): Promise<ComparendoEvento[]> {
+  const filas = await ejecutor.select().from(flitoComparendosEventos)
     .where(eq(flitoComparendosEventos.registroId, registroId))
     // El desempate por `id` no es cosmético: los eventos de una misma corrida se insertan en un
     // único statement y comparten `created_at`, así que sin él su orden sería el que quisiera
@@ -383,16 +396,22 @@ async function eventosDe(registroId: string): Promise<ComparendoEvento[]> {
 /**
  * Un registro con su timeline.
  *
+ * @param ejecutor Transacción en curso, cuando quien lee es el mismo que acaba de escribir: así ve
+ *                 sus propios cambios y no hay ventana entre el COMMIT y la lectura. Por defecto,
+ *                 `db`.
  * @throws ComparendosNoEncontradoError si el id no existe (la ruta lo traduce a 404).
  */
-export async function obtenerRegistro(id: string): Promise<ComparendoRegistroDetalle> {
-  const [fila] = await db.select(COLUMNAS_REGISTRO)
+export async function obtenerRegistro(
+  id: string,
+  ejecutor: Ejecutor = db,
+): Promise<ComparendoRegistroDetalle> {
+  const [fila] = await ejecutor.select(COLUMNAS_REGISTRO)
     .from(flitoComparendosRegistros)
     .where(eq(flitoComparendosRegistros.id, id))
     .limit(1);
   if (!fila) throw new ComparendosNoEncontradoError('El comparendo no existe.');
 
-  return { ...registroDto(fila), eventos: await eventosDe(id) };
+  return { ...registroDto(fila), eventos: await eventosDe(id, ejecutor) };
 }
 
 /**
