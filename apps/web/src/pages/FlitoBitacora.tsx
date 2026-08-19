@@ -70,7 +70,7 @@ export default function FlitoBitacora() {
         )}
 
         {!!data?.length && (
-          <FlitTable>
+          <FlitTable label="Bitácora de movimientos">
             <thead>
               <FlitTr>
                 <FlitTh>Fecha</FlitTh><FlitTh>Recurso</FlitTh><FlitTh>Acción</FlitTh>

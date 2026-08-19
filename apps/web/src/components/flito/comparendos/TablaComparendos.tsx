@@ -103,7 +103,7 @@ interface Props {
 
 export default function TablaComparendos({ items, catalogos, mostrarInactivado }: Props) {
   return (
-    <FlitTable>
+    <FlitTable label="Comparendos monitoreados">
       <caption className="sr-only">
         Comparendos monitoreados. Activo o inactivo es lo que dicen las fuentes, no si está pagado:
         «inactivo» significa que dejaron de reportarlo.
@@ -202,7 +202,7 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado }
 export function TablaComparendosCargando() {
   return (
     <div role="status" aria-busy="true" aria-label="Cargando comparendos">
-      <FlitTable>
+      <FlitTable label="Comparendos monitoreados">
         <caption className="sr-only">Cargando comparendos monitoreados</caption>
         <thead>
           <FlitTr>
