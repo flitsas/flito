@@ -20,6 +20,7 @@
 //
 // Datos SINTÉTICOS (Ley 1581): «900123456» y «ABC123» son de ejemplo. Ni un dato real entra en un
 // spec, ni siquiera en un fixture.
+import { COMPARENDOS_OBSERVACION_MAX } from '@operaciones/shared-types';
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
@@ -568,10 +569,26 @@ test.describe('FLITO — Comparendos · detalle y gestión (HU #11562)', () => {
     await panel(page).locator('form').evaluate((f) => (f as HTMLFormElement).requestSubmit());
     expect(traza.cuerpos, 'no salió ningún PATCH').toEqual([]);
 
-    // Justo en el tope sí se puede guardar: el límite es «hasta 1000», no «menos de 1000».
-    await panel(page).getByLabel('Observación').fill('x'.repeat(1000));
-    await expect(panel(page)).toContainText('1000 / 1000 caracteres');
+    // Justo en el tope sí se puede guardar, y esto **llega hasta el PATCH a propósito**.
+    //
+    // Antes el test se paraba en `toBeEnabled()`, y eso NO prueba lo que el caso dice probar: un
+    // botón habilitado y un `enviar` que traga el submit exactamente en 1000 caracteres conviven
+    // tan campantes. El peligro que este TC cubre —que el borde se caiga por un `>=` donde va un
+    // `>`— vive en la capa de abajo, así que la afirmación tiene que ser sobre la RED: sale el
+    // PATCH, y su cuerpo lleva los 1000 caracteres enteros, sin recortar.
+    const alTope = 'x'.repeat(COMPARENDOS_OBSERVACION_MAX);
+    traza.gestion = { status: 200, body: { ...DETALLE, observacion: alTope } };
+    await panel(page).getByLabel('Observación').fill(alTope);
+    await expect(panel(page)).toContainText(`${COMPARENDOS_OBSERVACION_MAX} / ${COMPARENDOS_OBSERVACION_MAX} caracteres`);
+    // Y el mensaje de exceso NO está: el límite es «hasta 1000», no «menos de 1000».
+    await expect(panel(page)).not.toContainText('La observación admite hasta');
     await expect(boton(page, 'Guardar gestión')).toBeEnabled();
+
+    await boton(page, 'Guardar gestión').click();
+    await expect.poll(() => traza.cuerpos.length, 'el máximo exacto SÍ se manda').toBe(1);
+    const enviado = JSON.parse(traza.cuerpos[0]) as { observacion: string };
+    expect(enviado.observacion, 'no se recorta ni un carácter').toHaveLength(COMPARENDOS_OBSERVACION_MAX);
+    expect(enviado.observacion).toBe(alTope);
   });
 
   test('AC6 — una causal que el servidor rechaza se explica y el detalle no queda a medias', async ({ page }) => {
@@ -675,6 +692,47 @@ test.describe('FLITO — Comparendos · detalle y gestión (HU #11562)', () => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
     // Y vuelve exactamente al botón que lo abrió, no al principio de la página.
     await expect(origen).toBeFocused();
+  });
+
+  test('AC8 — la trampa de foco se arma con el ESQUELETO, no cuando llegan los datos', async ({ page }) => {
+    // El peligro que cierra este caso está escrito en `useFocusTrap` y hasta ahora solo lo protegía
+    // un comentario: condicionar `enabled` a que los datos hayan cargado. Es tentador —el esqueleto
+    // no tiene nada enfocable— y rompe DOS cosas a la vez, así que se afirman las dos.
+    //
+    // Ningún otro test lo puede ver: todos los mocks resuelven al instante y la fase de esqueleto
+    // no dura ni un fotograma. Aquí la respuesta se retiene a mano.
+    await loginAs(page, OPERACIONES_USER);
+    const traza = await mockModulo(page);
+    let soltar = () => {};
+    const retenido = new Promise<void>((r) => { soltar = r; });
+    await page.route(`**/api/flito/comparendos/registros/${REGISTRO_ID}`, async (route) => {
+      traza.peticiones.push(`GET /registros/${REGISTRO_ID}`);
+      await retenido;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DETALLE) });
+    });
+
+    await page.goto('/flito/comparendos');
+    const origen = boton(page, `Ver el comparendo ${FILA.numeroComparendo}`);
+    await origen.focus();
+    await origen.press('Enter');
+
+    // (1) MIENTRAS carga. Con `enabled` atado a los datos, el foco se quedaría FUERA del diálogo
+    // —en la fila de la tabla— y el lector de pantalla no anunciaría que se abrió nada.
+    await expect(panel(page).getByRole('status')).toHaveAttribute('aria-busy', 'true');
+    await expect(panel(page), 'el foco entra al abrir, no al cargar').toBeFocused();
+
+    soltar();
+    await expect(panel(page)).toContainText('EN COBRO COACTIVO');
+    // Llegar los datos no puede sacar el foco de donde estaba.
+    await expect(panel(page)).toBeFocused();
+
+    // (2) Y al CERRAR. Ésta es la mitad que menos se ve: si el efecto se rearmara al llegar los
+    // datos, `previouslyFocused` capturaría el propio contenedor del diálogo —que para entonces ya
+    // tiene el foco— y al cerrar el foco acabaría en un nodo desmontado, es decir en <body>.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(origen, 'vuelve a la fila, no a <body>').toBeFocused();
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('BODY');
   });
 
   test('AC8 — si la fila de origen ya no existe, el foco va al encabezado y NUNCA a <body>', async ({ page }) => {
