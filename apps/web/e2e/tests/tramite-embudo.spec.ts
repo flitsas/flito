@@ -79,7 +79,8 @@ test.describe('Trámite · Embudo + resume wizard', () => {
     await page.route('**/api/tramites**', (route) =>
       jsonRoute(200, { items: [cardData()], total: 1, limit: 50, offset: 0 })(route));
     await page.route('**/api/validacion-identidad/estado/77', (route) =>
-      jsonRoute(200, { ok: true, validaciones: [{ estado: 'aprobado', score: 95 }] })(route));
+      // documento = comprador: sin match, Identidad queda Pendiente y el CTA se deshabilita.
+      jsonRoute(200, { ok: true, validaciones: [{ id: 1, documento: COMPRADOR.documento, estado: 'aprobado', score: 95 }] })(route));
     await page.route('**/api/tramites/77/documentos', (route) => jsonRoute(200, REQUIRED_DOCS)(route));
     await page.route('**/api/tramites/77', (route) => jsonRoute(200, tramitePaso5())(route));
 
