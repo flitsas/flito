@@ -36,3 +36,4 @@ Diseño detallado: `docs/features/flito-comparendos-ingesta-parametrizacion.md`.
 - **Migración:** SQL plana `0150_flito_comparendos_ingesta.sql` (no `drizzle-kit generate`). El número **0149** quedó tomado por `0149_siigo_corte_historico_sembrado.sql` en la rama Siigo.
 - **Supersedes:** ninguno (primer ADR del repo en `docs/adr/`).
 - **Corrección (2026-08-13):** migración renumerada 0149→0150; decisión de paralelismo acotado añadida tras review de implementación.
+- **Enmienda (2026-08-19):** el techo de extracción del módulo deja de ser únicamente el de la lectura paginada (50 filas × 60 peticiones/minuto, que vive en `COMPARENDOS_REGISTROS_LIMIT_MAX` y en el comentario de `registrosLimiter`, no en este ADR): el export a Excel de 17b (HU #11558) tiene su propia cota y su propia cuota. Ver ADR-0004, que **complementa** a este —no lo enmienda en sus siete decisiones ni lo supersede—.

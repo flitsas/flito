@@ -10,8 +10,8 @@
 // `flito-comparendos.gestion.service.ts` (RN-37..RN-41), en sus cabeceras.
 // Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
-// Lo que falta de la superficie del Feature —el export a Excel— es de la HU #11558 y se añadirá
-// sobre este mismo router. Toda respuesta que lleve datos personales deja rastro con
+// El export a Excel del consolidado (HU #11558) es `POST /registros/export`, con su propio limitador
+// y su propio tope de filas (ADR-0004). Toda respuesta que lleve datos personales deja rastro con
 // `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con `Cache-Control: no-store`,
 // incluida la del PATCH de gestión: escribe dos columnas y devuelve el registro entero.
 //
@@ -30,7 +30,11 @@ import {
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
-import { ComparendosError } from './flito-comparendos.errors.js';
+import { sendExcel } from '../../shared/utils/excel.js';
+import {
+  ComparendosError,
+  ComparendosExportDemasiadoGrandeError,
+} from './flito-comparendos.errors.js';
 import {
   actualizarCausal,
   actualizarMunicipio,
@@ -53,6 +57,11 @@ import {
   type FiltroRegistros,
 } from './flito-comparendos.registros.service.js';
 import { gestionarComparendo } from './flito-comparendos.gestion.service.js';
+import {
+  COLUMNAS_EXPORT,
+  construirFilasExport,
+  nombreArchivoExport,
+} from './flito-comparendos.export.service.js';
 import {
   CAMPOS_PII_OBSERVACION,
   CAMPOS_PII_REGISTRO,
@@ -176,6 +185,14 @@ const syncLimiter = rateLimit({
  * anota cada página con su usuario, su hora y sus filtros, y 3 000 filas por minuto son un rastro
  * imposible de confundir con una pantalla que pagina a mano. Bajar el tope de página de 200 a 50
  * dividió ese techo por cuatro sin quitarle nada al uso real (una tabla no muestra 200 filas).
+ *
+ * **Ese 3 000 es el techo de ESTA ruta, no el del módulo — y desde la HU #11558 la diferencia
+ * importa.** El export a Excel entrega hasta `COMPARENDOS_EXPORT_MAX_FILAS` filas por petición con
+ * su propia cuota (`exportLimiter`, 5/min), así que el techo del módulo es la SUMA de los dos y hoy
+ * lo domina el export (5 × 5 000 = 25 000 filas por minuto). Dejar escrito aquí «el techo del
+ * módulo» sería afirmar un número que dejó de ser cierto. Las dos cotas y por qué se aceptan juntas
+ * están en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`, que **complementa** a
+ * ADR-0001: no lo enmienda ni lo supersede.
  */
 const registrosLimiter = rateLimit({
   windowMs: 60_000,
@@ -185,6 +202,40 @@ const registrosLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-comparendos-registros'),
   message: { error: 'Demasiadas consultas de comparendos seguidas, espere 1 minuto' },
   store: makeStore('rl:flito-comparendos-registros:'),
+});
+
+/**
+ * Export a Excel: **5 peticiones por minuto y usuario** (HU #11558, ADR-0004 §3).
+ *
+ * El más estrecho de los limitadores de lectura, y con doce veces menos cuota que el del listado
+ * porque cada petición vale cien veces más: una página son 50 filas, un export hasta 5 000. Con
+ * estos dos números, 5/min es el multiplicador que deja el techo del export (25 000 filas/minuto) en
+ * el mismo orden de magnitud que el de la lectura paginada (3 000) en vez de tres órdenes por
+ * encima, que es lo que saldría con la cuota de 60.
+ *
+ * **Es una cuota SEPARADA de la de `/registros`, y a propósito** (AC5): con una compartida, gastar
+ * los 5 exports dejaría a la pantalla sin poder paginar —el usuario vería la tabla romperse por
+ * haber descargado— y, al revés, un visor abierto que pagina normalmente le comería la cuota al
+ * export sin que nada lo explicara. Dos gestos distintos, dos presupuestos.
+ *
+ * **Un 422 consume cuota igual que un 200, y no es un descuido**: `express-rate-limit` cuenta la
+ * petición al entrar, antes del handler. Si el export demasiado grande saliera gratis, sondear el
+ * tamaño de un filtro —«¿cuántos comparendos tiene este NIT?»— sería ilimitado, que es justo la
+ * pregunta que el 422 evita responder.
+ *
+ * Lo que este límite NO hace: acotar cuánto se lleva alguien AL DÍA. 5/min son 7 200 exports en 24
+ * horas; lo que hay contra eso no es esta ventana sino el rastro (`accion='export'` con su `filas`),
+ * y el tope diario quedó explícitamente sin resolver en ADR-0004 — es decisión de producto, no un
+ * olvido de esta ruta.
+ */
+const exportLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-export'),
+  message: { error: 'Demasiados exports seguidos, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-export:'),
 });
 
 const idSchema = z.string().uuid();
@@ -623,7 +674,7 @@ const booleanoDeQuery = z.enum(['true', 'false']).transform((v) => v === 'true')
  * vacíos se tomaban como ausentes. Dos reglas distintas para el mismo gesto —mandar el parámetro
  * sin valor— es justo el tipo de asimetría que un cliente descubre en producción.
  */
-const registrosQuerySchema = z.object({
+const registrosQueryCampos = z.object({
   estado: vacioEsAusente(z.enum(['activo', 'inactivo'])),
   // Mínimo 3 caracteres: `q=1` recorrería la tabla para devolver medio módulo.
   q: vacioEsAusente(z.string().trim().min(3, 'Busca por al menos 3 caracteres del número').max(60)),
@@ -645,15 +696,46 @@ const registrosQuerySchema = z.object({
       .default(COMPARENDOS_REGISTROS_LIMIT_MAX),
   ),
   cursor: vacioEsAusente(z.string().max(200)),
-}).strict()
-  // «Con esta causal» y «sin ninguna causal» son preguntas incompatibles, y su intersección está
-  // vacía SIEMPRE. Dejarlas pasar respondería 200 con una lista vacía, que en una pantalla de
-  // gestión se lee como «no hay comparendos así» y no como «pediste dos filtros que se anulan» — el
-  // operador ajustaría el resto de la búsqueda persiguiendo un resultado que no puede llegar.
-  .refine((q) => !(q.causalId !== undefined && q.sinCausal === true), {
-    message: 'No se puede filtrar por una causal y por la ausencia de causal a la vez',
-    path: ['sinCausal'],
-  });
+}).strict();
+
+/**
+ * «Con esta causal» y «sin ninguna causal» son preguntas incompatibles, y su intersección está vacía
+ * SIEMPRE. Dejarlas pasar respondería 200 con una lista vacía, que en una pantalla de gestión se lee
+ * como «no hay comparendos así» y no como «pediste dos filtros que se anulan» — el operador
+ * ajustaría el resto de la búsqueda persiguiendo un resultado que no puede llegar.
+ *
+ * Es una función suelta y no un `refine` escrito dos veces porque desde la HU #11558 hay dos
+ * esquemas que la necesitan (el del listado y el del export). Dos copias serían dos reglas que
+ * pueden separarse, y separarse aquí significa que el archivo sale vacío por un motivo que la
+ * pantalla ya sabía explicar.
+ */
+const sinCausalContradictoria = (q: { causalId?: string; sinCausal?: boolean }): boolean =>
+  !(q.causalId !== undefined && q.sinCausal === true);
+
+const MENSAJE_CAUSAL_CONTRADICTORIA = {
+  message: 'No se puede filtrar por una causal y por la ausencia de causal a la vez',
+  path: ['sinCausal'],
+};
+
+const registrosQuerySchema = registrosQueryCampos
+  .refine(sinCausalContradictoria, MENSAJE_CAUSAL_CONTRADICTORIA);
+
+/**
+ * Query del export (HU #11558): la misma del listado **menos `limit` y `cursor`**.
+ *
+ * La resta es el contrato, no una omisión: un export no pagina —entrega el conjunto entero o
+ * responde 422—, así que `?limit=200` o un `?cursor=` no son parámetros que se ignoren, son un 400.
+ * Aceptarlos en silencio dejaría creer que se descargó «la página 3» de algo.
+ *
+ * Se deriva del MISMO objeto que el listado (`registrosQueryCampos`) y no se vuelve a escribir: el
+ * filtro que el usuario tiene puesto en el visor y el que produce el archivo tienen que ser el mismo
+ * o el export deja de ser «lo que estoy viendo» (AC1). El `.strict()` se repite después del `omit`
+ * porque es lo que convierte `?nit=` en la query en el 400 que exige el AGENTS.md §14.
+ */
+const exportQuerySchema = registrosQueryCampos
+  .omit({ limit: true, cursor: true })
+  .strict()
+  .refine(sinCausalContradictoria, MENSAJE_CAUSAL_CONTRADICTORIA);
 
 /**
  * Cuerpo de `POST /registros/buscar`: los dos filtros que identifican a alguien.
@@ -751,6 +833,119 @@ router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Res
   try {
     await entregarPagina(req, res, { ...query.data, ...cuerpo.data });
   } catch (e) { fallo(res, e); }
+});
+
+/**
+ * `POST /registros/export` — el resultado del filtro, en un `.xlsx` (HU #11558, CF-07, ADR-0004).
+ *
+ * **Es un POST y no existe la variante GET, que es medio AC1.** No es purismo REST: un
+ * `<a download href="…?nit=900123456">` —la forma natural de descargar— escribiría el NIT en el
+ * access log del proxy, en el historial del navegador y en el `Referer`, los tres sitios que este
+ * módulo lleva dos Features sacando de en medio (AGENTS.md §14). Que no haya GET es también lo que
+ * obliga a la pantalla a descargar con `fetch` + `blob`, que es lo que se pidió en el ADR.
+ *
+ * **El orden de las cuatro operaciones es normativo (AC4) y está sostenido por algo más que este
+ * comentario.** Validar → consultar con tope+1 → registro de acceso → cabeceras y archivo. Lo que
+ * hace el orden difícil de invertir no es la secuencia escrita aquí sino que
+ * `construirFilasExport` **lanza** cuando el filtro se pasa del tope: no devuelve filas de más que
+ * alguien pudiera empezar a escribir «mientras comprueba». Sin filas no hay `sendExcel`, y sin
+ * `sendExcel` no hay `Content-Disposition`; el 422 sale como JSON limpio por el `catch`, que es todo
+ * el AC3. Un `res.set('Content-Disposition', …)` movido dos líneas más arriba produciría un `.xlsx`
+ * de 300 bytes con un JSON de error dentro, y el usuario no lo entendería: por eso las cabeceras son
+ * lo ÚLTIMO.
+ *
+ * **Qué pasa en el 422 con el rastro, porque el AC4 se puede leer al revés.** Lo que el AC prohíbe
+ * emitir cuando el export no procede es el registro de acceso DEL EXPORT —`accion='export'` con sus
+ * filas—, y eso se cumple: por ahí no pasa. Lo que sí queda es una línea distinta, `accion='search'`
+ * con `filas=0` y el marcador `resultado=export_demasiado_grande`, porque la consulta llegó a correr
+ * y porque sin ella el `pii_access_log` mentiría por omisión justo donde ADR-0004 promete leerlo
+ * para recalibrar el tope (el razonamiento entero está en el `catch`).
+ *
+ * El registro de acceso va con `filas` = las entregadas de verdad (no el tope, no lo pedido) y se
+ * espera con `await` antes de escribir el primer byte (AC6): esta petición vale hasta 5 000 NITs y
+ * placas, así que perder su rastro por un fallo a mitad del archivo no es aceptable. `campos` no
+ * incluye `CAMPOS_PII_PAYLOAD` porque los payloads no salen en el archivo (RN-42): declarar de más
+ * haría que `campos_accedidos` dejara de decir la verdad, que es lo único que ese log tiene que
+ * hacer.
+ */
+router.post('/registros/export', exportLimiter, async (req: Request, res: Response) => {
+  const query = exportQuerySchema.safeParse(req.query);
+  if (!query.success) { datosInvalidos(res, query.error); return; }
+  // Igual que en `/registros/buscar`: sin cuerpo es un export sin filtros de identidad, no un error.
+  const cuerpo = registrosBusquedaSchema.safeParse(req.body ?? {});
+  if (!cuerpo.success) { datosInvalidos(res, cuerpo.error); return; }
+  const filtro = { ...query.data, ...cuerpo.data };
+
+  // Mismo orden que en `entregarPagina` y por el mismo motivo: `motivo` es `varchar(200)` y se
+  // recorta por el final, así que delante va con qué identidad se buscó.
+  const filtrosDelRastro = {
+    estado: filtro.estado,
+    nit: filtro.nit,
+    placa: filtro.placa,
+    q: filtro.q,
+    municipio: filtro.municipio,
+    fuente: filtro.fuente,
+    causalId: filtro.causalId,
+    sinCausal: filtro.sinCausal,
+  };
+
+  // Las mismas columnas personales que declara el listado, porque el archivo lleva las mismas: NIT,
+  // placa y la observación que escribió una persona. Los payloads no (RN-42).
+  const camposDelRastro = [...CAMPOS_PII_REGISTRO, ...CAMPOS_PII_OBSERVACION];
+
+  try {
+    // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
+    const filas = await construirFilasExport(filtro);
+
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_REGISTROS,
+      accion: 'export',
+      campos: camposDelRastro,
+      filas: filas.length,
+      filtros: filtrosDelRastro,
+    });
+
+    // Un archivo con NIT, placa y observaciones dentro no se guarda en ningún intermedio.
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(res, nombreArchivoExport(), COLUMNAS_EXPORT, filas);
+  } catch (e) {
+    // Si el fallo llega con la respuesta ya empezada —el archivo se estaba escribiendo—, `fallo()`
+    // reventaría con ERR_HTTP_HEADERS_SENT y taparía la causa real. Se relanza al manejador global,
+    // que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+
+    // **El export que choca con el tope también deja rastro**, y no por simetría.
+    //
+    // La consulta ya CORRIÓ: `tope + 1` filas con su NIT y su placa entraron en el proceso; lo único
+    // que no ocurrió es la entrega. Un log que las omita deja dos agujeros, y el segundo es el que
+    // obliga:
+    //
+    //   · Trazabilidad: «pedí el histórico entero de este NIT» es un gesto que la Ley 1581 art. 17
+    //     puede tener que responder, y sin esta línea de él solo consta que alguien gastó cuota.
+    //   · **Sesgo en el dato con el que ADR-0004 promete recalibrar el tope.** El ADR dice revisar
+    //     el `pii_access_log` a los dos o tres meses para decidir si 5 000 sobra o falta. Si los
+    //     exports que superan el tope no se escriben, la muestra queda amputada JUSTO en la cola que
+    //     se quiere medir: concluiría que casi nadie se acerca al tope precisamente porque los que
+    //     lo pasan son invisibles.
+    //
+    // `accion: 'search'` y no `'export'`: no se exportó nada, y contarlo como export estropearía los
+    // agregados de `/api/privacy/pii-access/stats` y el recuento de filas realmente extraídas.
+    // `filas: 0` es literal —no se entregó ninguna—, y el conteo real ni se sabe ni se sabrá: el
+    // `tope + 1` existe para no calcularlo, así que esta fila tampoco revela cuántos comparendos
+    // tiene el filtro. El marcador va DELANTE de los filtros porque `motivo` se recorta por el
+    // final, y sin él esta línea sería indistinguible de una búsqueda cualquiera.
+    if (e instanceof ComparendosExportDemasiadoGrandeError) {
+      await registrarAccesoComparendos(req, {
+        recurso: RECURSO_REGISTROS,
+        accion: 'search',
+        campos: camposDelRastro,
+        filas: 0,
+        filtros: { resultado: e.codigo, ...filtrosDelRastro },
+      });
+    }
+
+    fallo(res, e);
+  }
 });
 
 /**

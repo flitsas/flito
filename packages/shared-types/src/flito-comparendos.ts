@@ -6,10 +6,10 @@
 // El PATCH de gestión —`ComparendosGestionPatch` y `COMPARENDOS_OBSERVACION_MAX`— es de 17b y se
 // publica desde la HU #11557, que es la que expone el endpoint que lo consume.
 //
-// Lo que este archivo sigue SIN declarar, y es deliberado: los contratos del export a Excel, que son
-// de la HU #11558. Publicar hoy el tipo de algo que ningún endpoint responde invita a que la
-// pantalla se escriba contra una forma que aún puede cambiar. (`PageSlug` del módulo no está aquí
-// por otro motivo: el catálogo de páginas vive en `permissions.ts`, y lo añadió la HU #11559.)
+// El export a Excel —`ComparendosExportRequest` y `COMPARENDOS_EXPORT_MAX_FILAS`— es de la HU
+// #11558 y está al final del archivo, publicado desde la HU que expone el endpoint que lo consume.
+// (`PageSlug` del módulo no está aquí por otro motivo: el catálogo de páginas vive en
+// `permissions.ts`, y lo añadió la HU #11559.)
 //
 // Las fechas viajan como cadena ISO-8601 y no como `Date`: este paquete lo comparten el servidor y
 // el navegador, y `JSON.parse` nunca devuelve un `Date`. Tiparlo como `Date` sería mentirle al
@@ -359,8 +359,15 @@ export const COMPARENDOS_OBSERVACION_MAX = 1000;
  *
  * Vive aquí y no solo en el router para que la pantalla no lo adivine ni pida 200 y reciba un 400.
  * El número sale de multiplicarlo por el limitador de la lectura (60 peticiones por minuto y
- * usuario): 50 filas × 60 = 3 000 NITs y placas por minuto, que es el techo de exfiltración que el
- * módulo acepta para un administrador con sesión válida.
+ * usuario): 50 filas × 60 = 3 000 NITs y placas por minuto, que es el techo de extracción de **la
+ * ruta interactiva**.
+ *
+ * **Desde la HU #11558 ese ya no es el techo del MÓDULO, y decirlo importa.** El export a Excel
+ * entrega en una sola petición hasta {@link COMPARENDOS_EXPORT_MAX_FILAS} filas con su propia cuota
+ * (5 por minuto y usuario), así que quien lea este número como «lo máximo que alguien se lleva de
+ * aquí por minuto» se equivocaría por 8,3×. Los dos techos —el de la lectura paginada y el del
+ * export— y por qué se aceptan están razonados juntos en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`,
+ * que **complementa** a ADR-0001: no lo enmienda ni lo supersede.
  */
 export const COMPARENDOS_REGISTROS_LIMIT_MAX = 50;
 
@@ -456,3 +463,42 @@ export interface ComparendosRegistrosPagina {
   items: ComparendoRegistro[];
   nextCursor: string | null;
 }
+
+// ─────────────────────── Export a Excel del consolidado (HU #11558, 17b) ─────────────────────────
+
+/**
+ * Tope duro de filas de un export, y la mitad del techo de extracción del módulo (ADR-0004 §2).
+ *
+ * Vive aquí por lo mismo que {@link COMPARENDOS_REGISTROS_LIMIT_MAX}: la pantalla necesita el número
+ * para explicar el 422 («tu filtro supera las 5 000 filas, acótalo») sin inventárselo ni descubrirlo
+ * probando. El servidor **no lo lee de aquí**: lo lee de `COMPARENDOS_EXPORT_MAX_FILAS` en el
+ * entorno, cuyo valor por defecto ES esta constante, para poder recalibrarlo con datos reales del
+ * `pii_access_log` sin desplegar código.
+ *
+ * De ahí el matiz que hay que tener presente al usarlo en la interfaz: es el tope **por defecto**,
+ * no una garantía del servidor. Un despliegue que lo baje a 2 000 hará que el 422 aparezca antes de
+ * lo que diga la pantalla; por eso el mensaje de error del API viene con su propio número dentro y
+ * es ese el que conviene mostrar cuando llega.
+ *
+ * Por qué 5 000 y no 2 000 ni «sin tope» está argumentado entero en el ADR-0004, junto con la
+ * contrapartida que se paga: el techo de extracción por minuto sube de 3 000 a 25 000 filas.
+ */
+export const COMPARENDOS_EXPORT_MAX_FILAS = 5000;
+
+/**
+ * El filtro completo de `POST /registros/export`: **el mismo del visor, sin paginación**.
+ *
+ * Es {@link ComparendosRegistrosFiltro} menos `limit` y `cursor`, y esa resta es el contrato: un
+ * export no pagina —entrega el conjunto entero o no entrega nada—, así que mandar cualquiera de los
+ * dos es un 400 y no un parámetro que se ignora. La pantalla puede pasar su estado de filtros tal
+ * cual, que es justo lo que hace que el archivo contenga lo que el usuario está viendo (AC1).
+ *
+ * **Se parte en dos al enviarlo, y no es un detalle de transporte:** lo que no identifica a nadie
+ * —`estado`, `q`, `municipio`, `fuente`, la causal— viaja en la query, y `nit` y `placa` van en el
+ * CUERPO del POST (AGENTS.md §14). No hay variante `GET` de este endpoint: un `<a download>` con
+ * `?nit=…` dejaría el NIT en el access log del proxy, en el historial y en el `Referer`, que son los
+ * tres sitios que el diseño de 17a sacó de en medio. La descarga se hace con `fetch` + `blob` +
+ * `createObjectURL`/`revokeObjectURL`.
+ */
+export interface ComparendosExportRequest
+  extends Omit<ComparendosRegistrosQuery, 'limit' | 'cursor'>, ComparendosRegistrosBusqueda {}
