@@ -26,7 +26,7 @@
 // `aria-label`, y no el `<select>` de causal: el detalle se abre para leer, y un `select` enfocado
 // en un modal recién abierto se cambia sin querer con la rueda del ratón.
 
-import { useState, type ReactNode, type RefObject } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 import type { ComparendoRegistro, ComparendoRegistroDetalle } from '@operaciones/shared-types';
 import FlitModal from '../../flit/FlitModal';
 import StatusChip from '../../flit/StatusChip';
@@ -113,7 +113,10 @@ export default function PanelDetalleComparendo(
   { fila, catalogos, onCerrar, onCerrarYRecargar, onGestionado, respaldoFocoRef }: Props,
 ) {
   const { detalle, cargando, error, recargar, reemplazar } = useComparendoDetalle(fila.id);
-  const [sucio, setSucio] = useState(false);
+  // La suciedad del formulario se consulta, no se recibe: ver el porqué en la prop `sucioRef` de
+  // `FormularioGestion`. Va en una `ref` para que `cerrar` lea el valor del INSTANTE de la tecla y
+  // no el que hubiera cuajado en el estado dos efectos pasivos antes.
+  const sucioRef = useRef(false);
 
   /**
    * Cerrar con una gestión a medio escribir pide confirmación.
@@ -123,7 +126,7 @@ export default function PanelDetalleComparendo(
    * una de las dos salidas se quede sin la pregunta.
    */
   const cerrar = () => {
-    if (sucio && !window.confirm('Tienes una gestión sin guardar. ¿Cerrar y perderla?')) return;
+    if (sucioRef.current && !window.confirm('Tienes una gestión sin guardar. ¿Cerrar y perderla?')) return;
     onCerrar();
   };
 
@@ -224,7 +227,7 @@ export default function PanelDetalleComparendo(
                 registro={detalle}
                 causales={catalogos.listaCausales}
                 onGuardado={guardado}
-                onSucio={setSucio}
+                sucioRef={sucioRef}
               />
             </Seccion>
 

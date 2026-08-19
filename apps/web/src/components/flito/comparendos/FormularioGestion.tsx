@@ -21,7 +21,7 @@
 //     rechaza»— tiene copy PROPIO gracias a eso: `causal_invalida` es un código estable y dice
 //     exactamente qué pasó sin repetir nada de lo que el servidor escribió.
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type MutableRefObject } from 'react';
 import {
   COMPARENDOS_OBSERVACION_MAX,
   type ComparendoRegistroDetalle,
@@ -73,11 +73,31 @@ interface Props {
   causales: ComparendosCausal[];
   /** El cuerpo del `PATCH`, que ya es el registro entero con su timeline. */
   onGuardado: (nuevo: ComparendoRegistroDetalle) => void;
-  /** Avisa al panel de si hay cambios sin guardar, para que Esc pida confirmación antes de cerrar. */
-  onSucio: (sucio: boolean) => void;
+  /**
+   * Buzón de «hay algo escrito sin guardar», que el panel lee cuando le piden cerrar.
+   *
+   * **Es una `ref` y no un `onSucio(boolean)` que suba a un `useState`, y el motivo es un fallo
+   * medido, no una preferencia** (gate de QA de la HU #11562, TC del AC8, rojo 4 de cada 20).
+   * Por el camino del estado, el aviso tenía que atravesar DOS efectos pasivos antes de llegar a
+   * quien atiende la tecla:
+   *
+   *   `FormularioGestion` → efecto pasivo → `setState` del panel → re-render → `FlitModal` →
+   *   efecto pasivo de `useEscape` → `handlerRef`
+   *
+   * Mientras ese viaje no terminaba, el manejador de Esc conservaba una clausura con
+   * `sucio === false` y **cerraba el panel sin preguntar, tirando la observación recién escrita** —
+   * justo la pérdida de datos que la confirmación existe para impedir. Un comentario anterior decía
+   * aquí que «el efecto corre antes de que a nadie le dé tiempo a pulsar una tecla»: era falso, y en
+   * una de cada cinco ejecuciones a la tecla le sobraba tiempo.
+   *
+   * Con una `ref` no hay viaje que esperar: se escribe en el mismo render que la calcula y se lee en
+   * el instante del evento. Que la clausura de `cerrar` sea vieja deja de importar, porque ya no
+   * captura el valor — lo consulta.
+   */
+  sucioRef: MutableRefObject<boolean>;
 }
 
-export default function FormularioGestion({ registro, causales, onGuardado, onSucio }: Props) {
+export default function FormularioGestion({ registro, causales, onGuardado, sucioRef }: Props) {
   const [causalId, setCausalId] = useState<string>(registro.causalId ?? SIN_CAUSAL);
   const [observacion, setObservacion] = useState<string>(registro.observacion ?? '');
   const [guardando, setGuardando] = useState(false);
@@ -122,18 +142,17 @@ export default function FormularioGestion({ registro, causales, onGuardado, onSu
   const observacionCambio = (observacionRecortada || null) !== registro.observacion;
   const sucio = causalCambio || observacionCambio;
 
-  // El panel necesita saberlo para que Esc no tire una observación a medio escribir. Va en un
-  // efecto y no en el cuerpo del render: llamar al `setState` del PADRE mientras se renderiza el
-  // HIJO es el aviso «Cannot update a component while rendering a different component» de React, y
-  // el commit de diferencia no se paga en ningún sitio — el efecto corre antes de que a nadie le dé
-  // tiempo a pulsar una tecla.
-  // El `return` no es adorno: si el formulario se desmonta —el panel cayó en error, o se recargó—
-  // el aviso se queda pegado en `true` y cerrar el panel pediría confirmación por un texto que ya
-  // no está en ninguna parte.
-  useEffect(() => {
-    onSucio(sucio);
-    return () => onSucio(false);
-  }, [sucio, onSucio]);
+  // Se publica AQUÍ, en el cuerpo del render, y no en un efecto: es el único punto que corre antes
+  // de que el usuario pueda pulsar nada con el valor ya calculado. Escribir una `ref` en render no
+  // es un `setState` —no dispara ningún re-render y no provoca el aviso «Cannot update a component
+  // while rendering a different component»—, y si React descartara este render, el siguiente vuelve
+  // a escribirla con el valor bueno.
+  sucioRef.current = sucio;
+
+  // Y se limpia al desmontar. No es adorno: si el formulario se va —el panel cayó en error, o se
+  // recargó— el aviso se quedaría pegado en `true` y cerrar el panel pediría confirmación por un
+  // texto que ya no está en ninguna parte.
+  useEffect(() => () => { sucioRef.current = false; }, [sucioRef]);
 
   const restablecer = () => {
     setCausalId(registro.causalId ?? SIN_CAUSAL);
