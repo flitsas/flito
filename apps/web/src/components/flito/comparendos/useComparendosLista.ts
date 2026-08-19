@@ -17,10 +17,11 @@
 //     del listado nuevo devuelve una página del listado viejo, con otros filtros, sin avisar. Aquí
 //     los criterios y la pila son un solo estado (`Consulta`), así que no se pueden desincronizar.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComparendoRegistro,
   ComparendosCausal,
+  ComparendosExportRequest,
   ComparendosMunicipio,
   ComparendosNit,
   ComparendosOrigenMerge,
@@ -31,7 +32,9 @@ import type {
 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 
-const RUTA = '/flito/comparendos';
+/** Base del módulo. La exporta para el export a Excel (HU #11561), que sale del mismo sitio. */
+export const RUTA_COMPARENDOS = '/flito/comparendos';
+const RUTA = RUTA_COMPARENDOS;
 
 /**
  * Lo que el operador ha pedido ver.
@@ -145,17 +148,43 @@ export function errorDeVista(e: unknown): ErrorVista {
 }
 
 /**
- * Pide una página. La ruta la decide la presencia de NIT o placa, no un flag del que acordarse.
+ * Lo que va en la URL: el contrato del export MENOS los dos filtros de identidad.
  *
- * `query` se declara con el tipo del contrato en vez de escribir las claves sueltas en un
- * `URLSearchParams`: así, el día que el API renombre un filtro, esto no compila — que es justo lo
- * que no pasa con una cadena.
+ * El tipo se deriva de `ComparendosExportRequest` a propósito y no se escribe a mano: es lo que hace
+ * que «la query lleva todo menos NIT y placa» sea una afirmación que el compilador sostiene. El día
+ * que el API añada un filtro al export, esta clave aparece aquí sola y `repartirCriterios` deja de
+ * compilar hasta que alguien decida de qué lado de la línea del §14 cae.
  */
-async function pedirPagina(
-  c: CriteriosComparendos,
-  cursor: string | null,
-): Promise<ComparendosRegistrosPagina> {
-  const query: ComparendosRegistrosQuery = {};
+export type QueryComparendos = Omit<ComparendosExportRequest, keyof ComparendosRegistrosBusqueda>;
+
+/**
+ * El reparto `CriteriosComparendos → (query, cuerpo)`. **Uno solo para la consulta y para el
+ * export**, y el cursor es lo único que los distingue.
+ *
+ * Que sea uno solo es el requisito, no una limpieza: el export existe para entregar LO QUE EL
+ * OPERADOR ESTÁ VIENDO, así que dos copias de esta función serían dos reglas que pueden separarse, y
+ * separarse aquí significa descargar un archivo distinto de la tabla sin que nada avise. Hay además
+ * tres formas de equivocarse que este reparto cierra de una vez para las dos rutas:
+ *
+ *   · **Mandarlo todo en el cuerpo → 400.** `registrosBusquedaSchema` es `.strict()` y solo admite
+ *     `nit` y `placa`.
+ *   · **Mandar `nit`/`placa` en la query → 400**, y antes de eso una fuga: es la línea del §14.
+ *   · **No mandar los filtros no-identitarios en ninguna parte → 200 con la tabla ENTERA.** Es el
+ *     peor de los tres porque no falla: entrega un archivo con NIT, placa y observaciones que nadie
+ *     pidió. Aquí no puede pasar, porque `query` y `cuerpo` salen del mismo objeto de criterios.
+ *
+ * `limit` y `cursor` no están y no pueden estar: `exportQuerySchema` los OMITE y es `.strict()`, así
+ * que un cursor colado en el export es un 400. Quien pagina lo añade fuera, en `pedirPagina`.
+ */
+export interface RepartoComparendos {
+  query: QueryComparendos;
+  cuerpo: ComparendosRegistrosBusqueda;
+  /** ¿Hay filtro de identidad? Es lo que decide `GET /registros` vs `POST /registros/buscar`. */
+  hayIdentidad: boolean;
+}
+
+export function repartirCriterios(c: CriteriosComparendos): RepartoComparendos {
+  const query: QueryComparendos = {};
   if (c.estado) query.estado = c.estado;
   const q = c.q.trim();
   if (q) query.q = q;
@@ -163,21 +192,43 @@ async function pedirPagina(
   if (c.fuente) query.fuente = c.fuente;
   if (c.causalId) query.causalId = c.causalId;
   if (c.sinCausal) query.sinCausal = true;
-  // El cursor va tal cual llegó. `URLSearchParams` lo codifica para la URL y el servidor lo
-  // decodifica: eso NO es reconstruirlo.
-  if (cursor) query.cursor = cursor;
 
-  const params = new URLSearchParams(
-    Object.entries(query).map(([clave, valor]) => [clave, String(valor)]),
-  );
-  const sufijo = params.toString() ? `?${params}` : '';
-
+  // El NIT se normaliza al MANDARLO, nunca al escribirlo (ver `normalizarNit`).
+  const cuerpo: ComparendosRegistrosBusqueda = {};
   const nit = normalizarNit(c.nit).trim();
   const placa = c.placa.trim();
-  if (nit || placa) {
-    const cuerpo: ComparendosRegistrosBusqueda = {};
-    if (nit) cuerpo.nit = nit;
-    if (placa) cuerpo.placa = placa;
+  if (nit) cuerpo.nit = nit;
+  if (placa) cuerpo.placa = placa;
+
+  return { query, cuerpo, hayIdentidad: Boolean(nit || placa) };
+}
+
+/** `?a=1&b=2` a partir del objeto tipado, o cadena vacía si no hay nada que mandar. */
+export function sufijoQuery(query: object): string {
+  const params = new URLSearchParams(
+    Object.entries(query)
+      .filter(([, valor]) => valor !== undefined && valor !== null)
+      .map(([clave, valor]) => [clave, String(valor)] as [string, string]),
+  );
+  return params.toString() ? `?${params}` : '';
+}
+
+/**
+ * Pide una página. La ruta la decide la presencia de NIT o placa, no un flag del que acordarse.
+ *
+ * Lo único que esta función añade al reparto compartido es el `cursor`, y va TAL CUAL llegó: opaco,
+ * sin construir y sin recortar (`URLSearchParams` lo codifica para la URL y el servidor lo
+ * decodifica; eso no es reconstruirlo).
+ */
+async function pedirPagina(
+  c: CriteriosComparendos,
+  cursor: string | null,
+): Promise<ComparendosRegistrosPagina> {
+  const { query, cuerpo, hayIdentidad } = repartirCriterios(c);
+  const conCursor: ComparendosRegistrosQuery = cursor ? { ...query, cursor } : query;
+  const sufijo = sufijoQuery(conCursor);
+
+  if (hayIdentidad) {
     return api.post<ComparendosRegistrosPagina>(`${RUTA}/registros/buscar${sufijo}`, cuerpo);
   }
   return api.get<ComparendosRegistrosPagina>(`${RUTA}/registros${sufijo}`);
@@ -335,13 +386,28 @@ export function useComparendosLista(): ListaComparendos {
 }
 
 /**
- * Catálogos de etiqueta: municipio, causal y alias del NIT.
+ * Catálogos de municipio, causal y alias del NIT. Dos oficios en el mismo sitio, y desde la
+ * HU #11561 el segundo manda más que el primero.
  *
- * Se piden una sola vez por montaje y **su fallo nunca bloquea la tabla**: son etiquetas, no datos.
- * Una pantalla que no muestra ni un comparendo porque no pudo traducir «ITAGUI» a «Itagüí» estaría
- * cambiando información por cosmética. Por eso cada `catch` deja el mapa vacío y la celda cae al
- * valor crudo, que sigue siendo cierto.
+ *   1. **Etiquetas de la tabla** (HU #11560): traducen «ITAGUI» a «Itagüí» y el id de una causal a
+ *      su nombre. Para eso su fallo NUNCA puede bloquear nada —una pantalla que no muestra ni un
+ *      comparendo porque no pudo traducir un código estaría cambiando información por cosmética—, y
+ *      por eso la celda cae al valor crudo, que sigue siendo cierto.
+ *   2. **Opciones de los selectores de filtro** (HU #11561, AC2). Aquí el fallo SÍ se nota: un
+ *      selector sin opciones no es un selector, es un control que miente. El AC pide que un catálogo
+ *      caído deshabilite **su** selector con **su** mensaje y sin tumbar la página.
+ *
+ * De ahí que el estado sea **por catálogo y no compartido**: con un único indicador, que fallara el
+ * de municipios dejaría también muerto el de causales, que había cargado bien. Un `Promise.all`
+ * tampoco vale para esto —aunque cada `catch` fuera propio— porque publica los tres a la vez y el
+ * selector de causales se quedaría en «cargando» esperando a un municipio que no va a llegar.
+ * Aquí cada catálogo es una petición, un estado y un reintento independientes.
  */
+export type EstadoCatalogo = 'cargando' | 'ok' | 'error';
+
+/** Los tres catálogos del módulo, cada uno con su estado. */
+export type ClaveCatalogo = 'municipios' | 'causales' | 'nits';
+
 export interface CatalogosComparendos {
   /** `codigoFuente` → nombre. */
   municipios: Record<string, string>;
@@ -359,35 +425,88 @@ export interface CatalogosComparendos {
    * separarse.
    */
   listaCausales: ComparendosCausal[];
+  /**
+   * El catálogo de municipios SIN aplanar (HU #11561), por el mismo motivo que el de causales: el
+   * selector de filtro necesita `activo` para no ofrecer fuentes dadas de baja, y `codigoFuente`
+   * —que es el valor que viaja al API— además del nombre que se enseña.
+   */
+  listaMunicipios: ComparendosMunicipio[];
+  /** `cargando | ok | error` de cada uno. Es lo que deshabilita UN selector y no los dos. */
+  estado: Record<ClaveCatalogo, EstadoCatalogo>;
+  /** Vuelve a pedir UN catálogo. Es el reintento del estado de error del AC2. */
+  recargar: (cual: ClaveCatalogo) => void;
 }
 
-const CATALOGOS_VACIOS: CatalogosComparendos = {
-  municipios: {}, causales: {}, alias: {}, listaCausales: [],
-};
-
-export function useCatalogosComparendos(): CatalogosComparendos {
-  const [catalogos, setCatalogos] = useState<CatalogosComparendos>(CATALOGOS_VACIOS);
+/**
+ * Un catálogo: su lista, su estado y su reintento.
+ *
+ * Se escribe una vez y se usa tres veces en lugar de repetir el bloque: tres copias del mismo
+ * `then`/`catch` son tres sitios donde el estado de error puede olvidarse en uno solo, que es
+ * exactamente el fallo que el AC2 describe.
+ */
+function useCatalogo<T>(ruta: string): { datos: T[]; estado: EstadoCatalogo; recargar: () => void } {
+  const [datos, setDatos] = useState<T[]>([]);
+  const [estado, setEstado] = useState<EstadoCatalogo>('cargando');
+  const [intento, setIntento] = useState(0);
 
   useEffect(() => {
     let vigente = true;
-    // Cada `catch` es propio: que falle el catálogo de municipios no puede dejar sin alias al NIT.
-    Promise.all([
-      api.get<ComparendosMunicipio[]>(`${RUTA}/municipios`).catch(() => [] as ComparendosMunicipio[]),
-      api.get<ComparendosCausal[]>(`${RUTA}/causales`).catch(() => [] as ComparendosCausal[]),
-      api.get<ComparendosNit[]>(`${RUTA}/nits`).catch(() => [] as ComparendosNit[]),
-    ]).then(([municipios, causales, nits]) => {
-      if (!vigente) return;
-      setCatalogos({
-        municipios: Object.fromEntries((municipios ?? []).map((m) => [m.codigoFuente, m.nombre])),
-        causales: Object.fromEntries((causales ?? []).map((c) => [c.id, c.nombre])),
-        listaCausales: causales ?? [],
-        alias: Object.fromEntries(
-          (nits ?? []).filter((n) => n.alias).map((n) => [n.nit, n.alias as string]),
-        ),
+    setEstado('cargando');
+    api.get<T[]>(ruta)
+      .then((lista) => {
+        if (!vigente) return;
+        // **`Array.isArray` y no `?? []`**: si el endpoint responde 200 con algo que no es una
+        // lista, guardarlo tal cual haría que el `.map()` de abajo reventara EN RENDER y, con él,
+        // la pantalla entera — que es justo lo contrario de lo que este hook promete («el fallo de
+        // un catálogo de etiquetas no bloquea la tabla»). Un cuerpo inesperado se trata como un
+        // catálogo vacío, que es lo que en la práctica es.
+        setDatos(Array.isArray(lista) ? lista : []);
+        setEstado('ok');
+      })
+      .catch(() => {
+        if (!vigente) return;
+        // La lista se VACÍA al fallar: dejar las opciones de un intento anterior junto a un mensaje
+        // de error sería ofrecer para elegir algo que no se pudo confirmar.
+        setDatos([]);
+        setEstado('error');
       });
-    });
     return () => { vigente = false; };
-  }, []);
+  }, [ruta, intento]);
 
-  return catalogos;
+  const recargar = useCallback(() => setIntento((i) => i + 1), []);
+  return { datos, estado, recargar };
+}
+
+export function useCatalogosComparendos(): CatalogosComparendos {
+  // Se desestructura en vez de guardar los tres objetos: `useCatalogo` devuelve un objeto nuevo en
+  // cada render, así que dependiendo de él las memos de abajo no memorizarían nada. Lo que sí es
+  // estable es cada `datos`, cada `estado` y cada `recargar`, y son los que van en las dependencias.
+  const {
+    datos: listaMunicipios, estado: estadoMunicipios, recargar: recargarMunicipios,
+  } = useCatalogo<ComparendosMunicipio>(`${RUTA}/municipios`);
+  const {
+    datos: listaCausales, estado: estadoCausales, recargar: recargarCausales,
+  } = useCatalogo<ComparendosCausal>(`${RUTA}/causales`);
+  const {
+    datos: listaNits, estado: estadoNits, recargar: recargarNits,
+  } = useCatalogo<ComparendosNit>(`${RUTA}/nits`);
+
+  const recargar = useCallback((cual: ClaveCatalogo) => {
+    if (cual === 'municipios') recargarMunicipios();
+    else if (cual === 'causales') recargarCausales();
+    else recargarNits();
+  }, [recargarMunicipios, recargarCausales, recargarNits]);
+
+  return useMemo(() => ({
+    municipios: Object.fromEntries(listaMunicipios.map((m) => [m.codigoFuente, m.nombre])),
+    causales: Object.fromEntries(listaCausales.map((c) => [c.id, c.nombre])),
+    alias: Object.fromEntries(
+      listaNits.filter((n) => n.alias).map((n) => [n.nit, n.alias as string]),
+    ),
+    listaCausales,
+    listaMunicipios,
+    estado: { municipios: estadoMunicipios, causales: estadoCausales, nits: estadoNits },
+    recargar,
+  }), [listaMunicipios, listaCausales, listaNits,
+    estadoMunicipios, estadoCausales, estadoNits, recargar]);
 }

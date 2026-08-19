@@ -268,3 +268,75 @@ test.describe('FLITO — Comparendos · panel de detalle: accesibilidad (HU #115
     soltar();
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// HU #11561 — las superficies NUEVAS: los selectores de filtro y la banda del export.
+//
+// Ninguna de las dos está en pantalla en el estado feliz que miden los bloques de arriba, y las dos
+// son justo las que rompen contraste: el mensaje de un catálogo caído es texto en tinta de error, y
+// un `<select disabled>` es el control apagado que el kit nunca había tenido. El estado OCUPADO del
+// export añade el tercero, un botón inhabilitado con `aria-busy`.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+const API_EXPORT_A11Y = '**/api/flito/comparendos/registros/export**';
+
+test.describe('FLITO — Comparendos · filtros y export: accesibilidad (HU #11561, AC7)', () => {
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  test.beforeEach(() => {
+    test.skip(
+      !AXE_PATH && !AXE_CDN,
+      'axe no disponible: exporta QA_AXE_PATH=/ruta/axe.min.js (determinista) o QA_AXE_CDN=1. '
+      + 'Se prefiere SALTAR antes que dar por certificado el contraste sin haberlo medido.',
+    );
+  });
+
+  test('AC7 — los selectores con su catálogo CAÍDO: inhabilitados, en tinta de error y con salida', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await page.route('**/api/flito/comparendos/municipios', (r) => r.fulfill({
+      status: 500, contentType: 'application/json', body: '{"error":"boom"}',
+    }));
+    for (const ruta of ['**/api/flito/comparendos/causales', '**/api/flito/comparendos/nits']) {
+      await page.route(ruta, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+    }
+    await page.route(API_REGISTROS, (r) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ items: [FILA], nextCursor: null }),
+    }));
+    await page.goto('/flito/comparendos');
+
+    await expect(page.getByLabel('Municipio', { exact: true })).toBeDisabled();
+    await expect(page.getByText(/No se pudo cargar el catálogo de municipios/)).toBeVisible();
+    await sinViolacionesGraves(page, 'filtros con el catálogo caído');
+  });
+
+  test('AC7 — la banda de ERROR del export: rojo sobre blanco, que es donde se pierde el 4,5:1', async ({ page }) => {
+    await pantalla(page, { items: [FILA], nextCursor: null });
+    await page.route(API_EXPORT_A11Y, (r) => r.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: 'El filtro aplicado supera las 5.000 filas que admite un export.',
+        codigo: 'export_demasiado_grande',
+      }),
+    }));
+
+    await page.getByRole('button', { name: 'Exportar a Excel', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('supera las 5.000 filas');
+    await sinViolacionesGraves(page, 'banda de error del export');
+  });
+
+  test('AC7 — el export OCUPADO: un botón inhabilitado también tiene que leerse', async ({ page }) => {
+    let soltar = () => {};
+    const retenido = new Promise<void>((r) => { soltar = r; });
+    await pantalla(page, { items: [FILA], nextCursor: null });
+    await page.route(API_EXPORT_A11Y, async (r) => {
+      await retenido;
+      return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    await page.getByRole('button', { name: 'Exportar a Excel', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Preparando el archivo…' })).toBeDisabled();
+    await sinViolacionesGraves(page, 'export ocupado');
+    soltar();
+  });
+});

@@ -46,38 +46,66 @@
 //     panel ya no está en el DOM al cerrarlo. Sin él, `.focus()` sobre ese nodo desmontado no hace
 //     nada y el foco se queda en `<body>` (nota QA #63).
 //
-// Lo que todavía NO cuelga de aquí, y por eso no se promete en pantalla con un control inhabilitado
-// ni con un «próximamente»:
+// La HU #11561 cierra el Feature colgando de aquí lo que faltaba —los cuatro filtros de la #11555 y
+// la descarga en Excel— y con ello dos decisiones de cableado:
 //
-//   · `ExportarComparendos` (HU #11558).
-//   · `BarraFiltrosComparendos` crece con municipio, fuente y causal en la HU #11561: el estado de
-//     búsqueda (`CriteriosComparendos`) ya los lleva opcionales y ya viajan en la query, así que esa
-//     HU es una barra nueva y no un rediseño de este cableado.
+//   · **El export lee `criterios`, que es lo APLICADO, no lo escrito en la barra.** Si hay un NIT a
+//     medio teclear sin `[Buscar]`, el archivo sale sin él: contiene lo que la tabla enseña, que es
+//     literalmente para lo que existe. El texto de ayuda junto al botón lo dice en voz alta, porque
+//     no es evidente.
+//   · **El botón y su banda de resultado van separados** (`BotonExportarComparendos` en el hueco de
+//     acciones, `AvisoExportComparendos` debajo): el mensaje del tope es una frase larga y dentro de
+//     la cabecera aplastaría el título en cuanto la ventana se estreche.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 
 import { useRef, useState } from 'react';
-import type { ComparendoRegistro, ComparendoRegistroDetalle } from '@operaciones/shared-types';
+import type {
+  ComparendoRegistro, ComparendoRegistroDetalle, ComparendosOrigenMerge,
+} from '@operaciones/shared-types';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 import BarraFiltrosComparendos from '../components/flito/comparendos/BarraFiltrosComparendos';
+import {
+  AvisoExportComparendos, BotonExportarComparendos, useExportComparendos,
+} from '../components/flito/comparendos/ExportarComparendos';
 import PaginacionCursor from '../components/flito/comparendos/PaginacionCursor';
 import PanelDetalleComparendo from '../components/flito/comparendos/PanelDetalleComparendo';
 import TablaComparendos, { TablaComparendosCargando } from '../components/flito/comparendos/TablaComparendos';
 import {
   hayCriterios, useCatalogosComparendos, useComparendosLista,
-  type CriteriosComparendos,
+  type CatalogosComparendos, type CriteriosComparendos,
 } from '../components/flito/comparendos/useComparendosLista';
 
-/** Resumen de lo que estaba puesto cuando no hubo resultados. Es lo que convierte «no hay nada» en
- *  «no hay nada DE ESTO», que es una conclusión muy distinta y la única accionable. */
-function resumenCriterios(c: CriteriosComparendos): string {
+/**
+ * Resumen de lo que estaba puesto cuando no hubo resultados. Es lo que convierte «no hay nada» en
+ * «no hay nada DE ESTO», que es una conclusión muy distinta y la única accionable.
+ *
+ * **Enumera los OCHO criterios, no cuatro.** Hasta la HU #11561 listaba solo estado, número, NIT y
+ * placa, que era todo lo que la barra sabía poner; con los cuatro filtros nuevos en pantalla, un
+ * vacío provocado por un municipio o una causal se anunciaba como «Filtros puestos:» seguido de
+ * nada, o —peor— repitiendo solo los otros, que es afirmar que se buscó algo distinto de lo que se
+ * buscó. `catalogos` entra para poder decir «Itagüí» donde el criterio guarda «ITAGUI»: el resumen
+ * lo lee un humano que eligió un nombre en un desplegable, no un código de fuente.
+ */
+function resumenCriterios(c: CriteriosComparendos, catalogos: CatalogosComparendos): string {
   const partes: string[] = [];
   if (c.estado) partes.push(`estado «${c.estado === 'activo' ? 'Activos' : 'Inactivos'}»`);
   if (c.q.trim()) partes.push(`n.º «${c.q.trim()}»`);
   if (c.nit.trim()) partes.push(`NIT «${c.nit.trim()}»`);
   if (c.placa.trim()) partes.push(`placa «${c.placa.trim()}»`);
+  if (c.municipio) partes.push(`municipio «${catalogos.municipios[c.municipio] ?? c.municipio}»`);
+  if (c.fuente) partes.push(`fuente «${ETIQUETA_FUENTE[c.fuente]}»`);
+  if (c.causalId) partes.push(`causal «${catalogos.causales[c.causalId] ?? 'aplicada'}»`);
+  if (c.sinCausal) partes.push('causal «sin asignar»');
   return partes.join(' · ');
 }
+
+/** Las mismas etiquetas del selector, y por el mismo motivo: «SIMIT» a secas no dice «solo SIMIT». */
+const ETIQUETA_FUENTE: Record<ComparendosOrigenMerge, string> = {
+  simit: 'Solo SIMIT',
+  municipal: 'Solo municipal',
+  ambos: 'Ambas fuentes',
+};
 
 export default function FlitoComparendos() {
   // Los criterios, la pila de cursores y la petición viven en el hook: la página no puede
@@ -88,6 +116,7 @@ export default function FlitoComparendos() {
     aplicar, limpiar, anterior, siguiente, recargar, volverAlPrincipio, parchearItem,
   } = useComparendosLista();
   const catalogos = useCatalogosComparendos();
+  const exportacion = useExportComparendos(criterios);
 
   // La fila abierta, no solo su id: el panel pinta el número en el título ANTES de que llegue
   // ninguna respuesta, y ese número ya se conoce porque está en la fila que se acaba de pulsar.
@@ -125,11 +154,34 @@ export default function FlitoComparendos() {
       <PageHeaderCard
         title="Comparendos monitoreados"
         subtitle="Lo que SIMIT y los municipios reportan de los NIT que se vigilan. Los datos vienen de la fuente y no se editan aquí: lo único que se registra es la causal y la observación de gestión."
+        actions={(
+          <div className="flex flex-col items-end gap-1">
+            <BotonExportarComparendos ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+            {/* El tope se anuncia ANTES de fallar, pero SIN cifra: el máximo de filas es
+                configurable por entorno y cualquier número escrito aquí puede ser falso en cualquier
+                despliegue. Cuando el tope se alcanza, el 422 trae el número de verdad. */}
+            <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              Se exporta el conjunto filtrado que estás viendo, no solo esta página.
+            </span>
+          </div>
+        )}
       />
 
       <p className="sr-only" aria-live="polite">{anuncio}</p>
 
-      <BarraFiltrosComparendos criterios={criterios} onAplicar={aplicar} onLimpiar={limpiar} />
+      <AvisoExportComparendos
+        ocupado={exportacion.ocupado}
+        aviso={exportacion.aviso}
+        onReintentar={exportacion.exportar}
+        onDescartar={exportacion.descartar}
+      />
+
+      <BarraFiltrosComparendos
+        criterios={criterios}
+        onAplicar={aplicar}
+        onLimpiar={limpiar}
+        catalogos={catalogos}
+      />
 
       <FlitCard>
         {/* Encabezado de la región de resultados y destino de respaldo del foco (AC8).
@@ -175,7 +227,7 @@ export default function FlitoComparendos() {
               // Vacío B: el filtro no arroja nada.
               <div className="space-y-3" style={{ color: 'var(--flit-text-secondary)' }}>
                 <p className="font-semibold">Ningún comparendo coincide con lo que buscaste.</p>
-                <p>Filtros puestos: {resumenCriterios(criterios)}</p>
+                <p>Filtros puestos: {resumenCriterios(criterios, catalogos)}</p>
                 {/* Solo con NIT o placa: con un filtro de estado o de número, esta frase sería ruido.
 
                     POLÍTICA DEL MÓDULO — este texto la aplica, y es la misma que deja los campos de
