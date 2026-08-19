@@ -94,7 +94,7 @@ Los tipos que cruzan con el backend viven en `packages/shared-types` (`@operacio
 - Endpoints, servicios, esquema o migraciones → **backend-agent**
 - Inventar contratos de API que no existen → escalo
 - Diseño con alternativas o ADR → **architecture-agent**
-- TCs formales, ejecución de suites, radicar bugs → **qa-agent**
+- TCs formales, ejecución de suites, gate post-Resolved → **qa-agent**. Fallos **in-scope** de la HU en curso → corregir aquí (o tras FAIL del gate B); **no** pedir modo C/Bug de esa HU. Bloqueo **fuera de alcance** → escalar al hilo; modo C solo si el QA lo pide explícitamente.
 - Escaneo de seguridad → **security-agent**
 - PR, `Custom.Commits`, merge a `develop`, deploy → **hilo principal** con `flit-integration-ado` (merge a `develop` solo con autorización + gates; `staging`/`release` siempre humano).
 

@@ -3,7 +3,7 @@ name: flit-gestion-hu
 description: |
   Ciclo Active → Resolved de una HU en Azure DevOps (FLIT - FLITO): activar Feature+HU, comentario de inicio, cierre Resolved y entrega a QA (HTML + mailto).
   INVOCACIÓN OBLIGATORIA: cargar esta Skill en CADA HU (Active y Resolved). PROHIBIDO imitarla con comentario «usando @flit-gestion-hu» + wit_* sin cargar la skill.
-  Tras Resolved: el hilo DEBE lanzar Agent qa-agent; el HTML de entrega NO certifica ni sustituye al agente.
+  Tras Resolved: el hilo DEBE lanzar Agent qa-agent (gate B); HTML no sustituye al agente. FAIL del gate → Active + corregir; modo C solo con pedido explícito del QA.
   Triggers — Active, Resolved, implementar HU, flit-gestion-hu, entrega QA, activar HU, cerrar HU, flit-modo-desarrollo-auto pasos 1 y 6.
 ---
 
@@ -82,16 +82,22 @@ HANDOFF → hilo: lanzar qa-agent modo A+B|B sobre HU #<id> (AC Gherkin/UI/BACKE
 ```
 
 3. **HANDOFF a `qa-agent` — obligatorio** (el hilo principal lo ejecuta con `Agent`/`Task`; esta skill no invoca subagentes):
-   - HU con AC Gherkin o FRONTEND → `qa-agent` modo A (TCs si faltan) + modo B (ejecución).
+   - El Agent post-`Resolved` es el **gate de calidad de desarrollo** (`desarrollo-gate`), no la
+     etapa formal de radicación de defectos en ambiente QA.
+   - HU con AC Gherkin o FRONTEND → `qa-agent` modo A (TCs si faltan) + modo B (ejecución del gate).
    - HU BACKEND-only → al menos modo B sobre tests del módulo; declarar si se omite E2E.
    - Sin entorno → **igual invocar** el agente; HANDOFF `SIN-ENTORNO` + comentario «QA pendiente de entorno»; no inventar evidencia.
+   - Si el gate B es **FAIL** → reactivar HU a `Active`, corregir (backend/frontend); **prohibido**
+     modo C / Bug / `QA_NOVEDAD` por ese FAIL. Modo C solo si el **QA lo pide explícitamente**.
    - **Prohibido** dar por cerrada la HU en el reporte del Feature sin ese HANDOFF.
    - **Prohibido** continuar el modo auto a la siguiente HU marcando «entregada a QA» si aún no
-     se lanzó el Agent (el comentario HTML solo no basta).
+     se lanzó el Agent (el comentario HTML solo no basta) o si el gate quedó en FAIL.
 
 ## Reglas
 
 - Todas las menciones `@` en ADO deben usar `<a href="mailto:...">`.
 - Prohibido `Resolved` si el build falla.
 - El registro del PR y los campos `Custom.Commits` / `Deploy *` los gestiona `flit-integration-ado`, **no** esta skill.
-- El comentario de entrega a QA **no sustituye** la ejecución de `qa-agent` — solo notifica; la auditoría formal la corre el agente/rol de QA (matriz de `AGENTS.md`).
+- El comentario de entrega a QA **notifica** al rol QA; el `qa-agent` modo B del Paso 3 es el
+  **gate de entrega** del ciclo de desarrollo. Hallazgos formales / Bugs → solo cuando el QA lo
+  pida (modo C), no por el FAIL del gate.

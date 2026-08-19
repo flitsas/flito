@@ -33,4 +33,4 @@ Pedido multi-fase / Feature completo → cargar `flit-modo-desarrollo-auto` y/o 
 
 ## QA (participación mínima)
 
-Tras **cada** HU en `Resolved` con AC Gherkin, UI o BACKEND-only aplicable → `qa-agent` modo B (A si faltan TCs). Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».
+Tras **cada** HU en `Resolved` con AC Gherkin, UI o BACKEND-only aplicable → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → HU a `Active` + corregir; **sin** Bug/modo C. Modo C solo con pedido explícito del QA. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».

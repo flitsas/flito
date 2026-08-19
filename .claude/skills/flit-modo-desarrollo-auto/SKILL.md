@@ -2,7 +2,7 @@
 name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
-  Por CADA HU: Skill flit-gestion-hu → architecture/ux si aplica → Agent backend/frontend (NUNCA codear HU en el hilo) → Skill flit-code-review ANTES del PR (+ security/db-review) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent (modo A temprano recomendado; B tras Resolved) → merge → Modo B → devops M1 al tip.
+  Por CADA HU: Skill flit-gestion-hu → architecture/ux si aplica → Agent backend/frontend (NUNCA codear HU en el hilo) → Skill flit-code-review ANTES del PR (+ security/db-review) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent (A temprano; B gate tras Resolved — FAIL=retrabajo sin Bug/modo C) → merge → Modo B → devops M1 al tip.
   Ledger obligatorio por HU. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, flit-modo-desarrollo-auto.
 ---
 
@@ -17,7 +17,7 @@ Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invo
 - `backend-agent` / `frontend-agent` — implementación (paso 3); el hilo principal no «codea de paso» una HU completa
 - `flit-code-review` — revisión del diff antes del PR (paso 4b) (**Skill en cada HU**)
 - `security-agent` / `db-review-agent` — gates pre-PR cuando el diff lo dispara (paso 4b)
-- `qa-agent` — TCs/ejecución tras `Resolved` (**Agent en cada HU que aplique**)
+- `qa-agent` — TCs (A) + gate B tras `Resolved` (**Agent en cada HU que aplique**); **prohibido** modo C por FAIL del gate
 - `flit-integration-ado` — Modo A al abrir PR y Modo B post-merge (**Skill; `Custom.Commits` obligatorio**)
 - `devops-agent` — M1 post-Deploy (paso 2b / fin de ráfaga) (**Agent; curl del hilo no cuenta**)
 
@@ -43,6 +43,7 @@ cargado la Skill en el turno **es imitación**, no cumplimiento. Igual: `wit_*` 
 | `wit_*` + comentario branded sin `Skill flit-gestion-hu` | `flit-gestion-hu` |
 | Discussion «PR registrado» sin `Custom.Commits` vía Skill | `flit-integration-ado` |
 | Comentario «listo para QA» / seguir a la siguiente HU sin `Agent qa-agent` | `qa-agent` |
+| Radicar Bug / modo C porque falló el gate B del Feature | `qa-agent` (FAIL = re-trabajo, no Bug) |
 | `curl /api/health` del hilo presentado como M1 | `devops-agent` |
 
 Si un paso no aplica, **declararlo en el cuerpo del PR / reporte** («architecture: no aplica — …»).
@@ -53,12 +54,13 @@ Omitir en silencio = fallo de proceso.
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-HU #<id> ledger: gestion=Skill✅|❌ · impl=Agent✅|❌ · code-review=Skill✅|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅|❌ · qa=HANDOFF✅|SIN-ENTORNO|❌ · merge · integration-B=Skill✅|N/A · M1=Agent✅|N/A
+HU #<id> ledger: gestion=Skill✅|❌ · impl=Agent✅|❌ · code-review=Skill✅|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B=Skill✅|N/A · M1=Agent✅|N/A
 ```
 
 **Sin `qa=HANDOFF✅` o `qa=SIN-ENTORNO` → no arrancar la siguiente HU** presentando la actual como
-«entregada a QA». En ráfaga, la invocación de `qa-agent` es el gate; el resultado puede ser
-`SIN-ENTORNO`, pero el Agent **debe** haberse lanzado.
+«entregada a QA». `qa=FAIL-retrabajo` = gate B rojo: HU a `Active`, corregir, **sin** Bug/modo C;
+no contar como entregada. En ráfaga, la invocación de `qa-agent` es el gate; `SIN-ENTORNO`
+(QA pendiente de entorno) no finge PASS, pero el Agent **debe** haberse lanzado.
 
 ## Entrada
 
@@ -274,7 +276,8 @@ operativa: HANDOFF en ≥90% de las HUs Resolved del Feature.
 `qa-agent` **modo A** en paralelo al paso 3 (TCs / Tasks hijas). No esperar al Resolved para
 descubrir que faltan TCs.
 
-**Tras `Resolved` (no negociable):** lanzar `qa-agent` (`Agent`/`Task`) **antes** de dar la HU por
+**Tras `Resolved` (no negociable):** lanzar `qa-agent` (`Agent`/`Task`) en **modo B** como
+**gate de calidad de desarrollo** (`Contexto: desarrollo-gate`) **antes** de dar la HU por
 «entregada a QA»:
 
 | Tipo HU | Modos mínimos | Precisión exigida en HANDOFF |
@@ -283,12 +286,18 @@ descubrir que faltan TCs.
 | BACKEND-only | **B** (Vitest del módulo; E2E declarado si se omite) | Comando + salida real; no reusar solo el test del `backend-agent` |
 | Entorno caído | Invocar igual | `SIN-ENTORNO` del **agente**, no del hilo |
 
+**FAIL del gate B:** reactivar la HU a `Active` y corregir vía `backend-agent` / `frontend-agent`.
+**Prohibido** encadenar **modo C** / crear Bug / `QA_NOVEDAD` porque falló el 6b — FAIL de
+desarrollo ≠ defecto formal. Modo C solo si el **QA lo pide explícitamente** (etapa formal).
+
 **Prohibido:** comentario HTML de entrega como sustituto; «QA pendiente» sin Agent; inventar
-`QA_PDN`; seguir a la siguiente HU sin fila `qa=` en el ledger.
+`QA_PDN`; seguir a la siguiente HU sin fila `qa=` en el ledger; tratar FAIL del gate como
+«novedad con Bug».
 
 En cadena apilada se puede arrancar la siguiente HU **solo si ya se invocó** `qa-agent` en la
-actual (aunque quede `SIN-ENTORNO`). Sin HANDOFF de `qa-agent` en las HUs del Feature → no declarar
-el Feature «listo para staging».
+actual **y** el resultado no es `FAIL` (aunque quede `SIN-ENTORNO`). Con `FAIL`: re-trabajo
+antes de presentar la HU como entregada. Sin HANDOFF de `qa-agent` en las HUs del Feature → no
+declarar el Feature «listo para staging».
 
 ### 7. Siguiente HU (sin esperar merge humano)
 
@@ -360,8 +369,8 @@ pendientes.
 - [ ] PR abierto contra `develop`
 - [ ] **Skill** `flit-integration-ado` Modo A → `Custom.Commits` (no solo Discussion / no imitación)
 - [ ] **Skill** `flit-gestion-hu` → `Resolved` + plantilla entrega QA
-- [ ] **Agent** `qa-agent` invocado con HANDOFF (`PASS`/`PASS-CON-OBSERVACIONES`/`FAIL`/`SIN-ENTORNO`)
-- [ ] Ledger de la HU pegado en el reporte del hilo
+- [ ] **Agent** `qa-agent` invocado con HANDOFF (`PASS`/`PASS-CON-OBSERVACIONES`/`FAIL`/`SIN-ENTORNO`); si `FAIL` → HU a `Active` + corregir; **sin** modo C
+- [ ] Ledger de la HU pegado en el reporte del hilo (`FAIL-retrabajo` si aplica)
 - [ ] Si hay autorización: merge a `develop` (MCP github) + **Skill** Modo B; si no, PR pendiente de merge humano
 - [ ] Tras Modo B / fin de ráfaga: **Agent** `devops-agent` M1 (o HANDOFF `SIN-ACCESO`)
-- [ ] Siguiente HU solo si `qa=` del ledger ≠ ❌
+- [ ] Siguiente HU solo si `qa=` del ledger es ✅ o `SIN-ENTORNO` (no con `FAIL-retrabajo` ni ❌)

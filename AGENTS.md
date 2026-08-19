@@ -124,7 +124,7 @@ Prohibido declarar una HU terminada sin la salida real pegada de los comandos an
 | Diseño UX/UI — flujos, wireframes, spec de interacción | `ux-agent` |
 | Código `apps/api` | `backend-agent` |
 | Código `apps/web` | `frontend-agent` |
-| TCs, ejecución, bugs, regresión | `qa-agent` |
+| TCs, gate post-Resolved, regresión; Bugs solo con pedido explícito del QA | `qa-agent` |
 | Auditoría SCA/secretos/PII | `security-agent` |
 | Auditoría del esquema de BD (normalización, FKs circulares, índices, drift de migraciones) | `db-review-agent` |
 | Post-deploy, salud de ambientes/crons, rollback | `devops-agent` |
@@ -163,7 +163,8 @@ el hilo principal es quien encadena.
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` | `db-review-agent` | Drift / FKs / índices |
 | Ciclo ADO Active→Resolved | Activar **o** cerrar **cada** HU (plantillas) | **Skill** `flit-gestion-hu` | Estados huérfanos / plantillas rotas |
 | HU `Active` con AC Gherkin (ideal, en paralelo al dev) | Generar TCs temprano | `qa-agent` **modo A** | TCs improvisados al cierre |
-| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Certificación — comentario HTML **no basta**; invocar aunque el entorno falle (`SIN-ENTORNO`) | `qa-agent` **modo B** (A si aún faltan TCs) | «Entregada a QA» sin HANDOFF |
+| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Gate de calidad de desarrollo — comentario HTML **no basta**; invocar aunque el entorno falle (`SIN-ENTORNO`). FAIL → HU a `Active` + corregir; **sin** Bug/modo C | `qa-agent` **modo B** (A si aún faltan TCs) | «Entregada a QA» sin HANDOFF |
+| Hallazgo formal / novedad (ambiente QA u otra etapa post-entrega) | Radicar Bug solo con **pedido explícito del QA** | `qa-agent` **modo C** | Bug inventado en el ciclo de desarrollo |
 | Al abrir PR / post-merge | PR↔ADO; Discussion **no** sustituye `Custom.Commits` | **Skill** `flit-integration-ado` A/B | Commits/Deploy vacíos |
 | Tras Modo B con `Deploy*=true` | Ambiente desplegado o **fin de ráfaga** (una M1 al tip; curl del hilo no cuenta) | `devops-agent` M1 | Deploy sin smoke formal |
 | Promoción staging/release | Pedido de promover | `flit-release` (+ qa D + devops post-merge) | Promoción sin gates |
@@ -181,9 +182,10 @@ el hilo principal es quien encadena.
 | Improvisar el ciclo del Feature sin `flit-modo-desarrollo-auto` | Skill `flit-modo-desarrollo-auto` | Alta |
 | Plan que diga «el hilo hace de paso» roles de la matriz | `orchestrator-agent` con invocaciones reales | Alta |
 | Comentario «listo para QA» y seguir / Vitest del backend como «QA» | `qa-agent` (HANDOFF real) | **Alta** |
+| Crear Bug hijo / modo C porque falló el gate B de la HU recién `Resolved` | Re-trabajo (`Active` + backend/frontend); modo C solo con pedido explícito del QA | **Alta** |
 | `curl /health` del hilo como «M1» | `devops-agent` M1 | Alta |
 
-**Ledger por HU (recomendado en modo auto):** al cerrar cada eslabón, listar en el reporte del hilo: `gestion ✅|❌ · impl-agent ✅|❌ · code-review ✅|❌ · security/db ✅|N/A · integration-A ✅|❌ · qa HANDOFF ✅|SIN-ENTORNO|❌ · merge · integration-B ✅|❌ · M1 tip ✅|N/A`. Sin fila `qa` en ✅/SIN-ENTORNO → la HU **no** está «entregada a QA».
+**Ledger por HU (recomendado en modo auto):** al cerrar cada eslabón, listar en el reporte del hilo: `gestion ✅|❌ · impl-agent ✅|❌ · code-review ✅|❌ · security/db ✅|N/A · integration-A ✅|❌ · qa HANDOFF ✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B ✅|❌ · M1 tip ✅|N/A`. Sin fila `qa` en ✅/SIN-ENTORNO → la HU **no** está «entregada a QA». `FAIL-retrabajo` = gate rojo sin Bug; corregir antes de seguir.
 
 **Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
 

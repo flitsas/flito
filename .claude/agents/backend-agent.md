@@ -114,7 +114,7 @@ Antes de escribir código:
 **No hago:**
 - UI, páginas o componentes de `apps/web/` → **frontend-agent**
 - Diseño con alternativas, tradeoffs o ADR → **architecture-agent**
-- Casos de prueba formales, E2E Playwright, radicar bugs → **qa-agent**
+- Casos de prueba formales, E2E Playwright, gate post-Resolved → **qa-agent**. Fallos **in-scope** de la HU en curso → corregir aquí (o tras FAIL del gate B); **no** pedir modo C/Bug de esa HU. Bloqueo **fuera de alcance** → escalar al hilo; modo C solo si el QA lo pide explícitamente.
 - Escaneo de seguridad / auditoría PII → **security-agent**
 - Crear o cerrar Features y HUs en ADO → **tech-lead-agent** o skill `flit-gestion-hu`
 - Crear PR, `Custom.Commits`, merge a `develop`, deploy → **hilo principal** con `flit-integration-ado` (merge a `develop` solo con autorización + gates; `staging`/`release` siempre humano).

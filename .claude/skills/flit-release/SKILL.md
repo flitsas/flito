@@ -38,7 +38,7 @@ Todo lo del Modo A, **más**:
 
 1. Las HUs llevan en `staging` el tiempo de maduración acordado por el equipo, sin bugs productivos abiertos contra los módulos del release.
 2. Autorización explícita del Líder Técnico para ejecutar contra producción — sin ella no se corre nada de lo siguiente.
-3. Post-merge: verificación **M1 del `devops-agent`** — health público + `npm run smoke:prod` y `npm run synthetic:check` (raíz) con salida real pegada. Si fallan → rollback con **M3 del `devops-agent`** y radicar bug Crítico vía `qa-agent` modo C.
+3. Post-merge: verificación **M1 del `devops-agent`** — health público + `npm run smoke:prod` y `npm run synthetic:check` (raíz) con salida real pegada. Si fallan → rollback con **M3 del `devops-agent`**. Radicar Bug Crítico vía `qa-agent` modo C **solo** si el QA o el Líder Técnico lo piden **explícitamente** tras el fallo (no encadenar modo C automáticamente).
 4. Comunicación: comentario en Discussion del Feature padre con versión desplegada, hora y resultado del smoke.
 
 ## Checklist de rollback (va en el cuerpo del PR de promoción)
