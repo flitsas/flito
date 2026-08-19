@@ -1514,13 +1514,18 @@ describe('registros — la lectura deja rastro (Ley 1581 art. 17)', () => {
     expect(motivo).toContain('estado=activo');
   });
 
-  it('el detalle registra un acceso `read` con el id del comparendo', async () => {
+  it('el detalle registra un acceso `read` con el id del comparendo **y con sus campos**', async () => {
     kdb.when.select(TABLA, [fila()]).select(EVENTOS, []);
 
     await request(await buildApp()).get(`${REGISTROS}/${ID_1}`).set('Authorization', await auth());
 
     expect(ultimoAcceso()).toMatchObject({ resourceTipo: 'flito_comparendos_registro', accion: 'read' });
     expect(String(ultimoAcceso().motivo)).toContain(ID_1);
+    // Los campos, y no solo el recurso y la acción: esta ruta es la ÚNICA de las tres que declaran
+    // PII cuya lista no vigilaba nadie —el listado y la búsqueda comparten sitio de llamada y sí lo
+    // tenían—, así que quitarle `observacion` dejaba las dos suites en verde y el rastro diciendo
+    // menos PII de la que la respuesta entrega. Lo cazó la inyección de defectos de la HU #11557.
+    expect(ultimoAcceso().camposAccedidos).toEqual(['nit_monitoreado', 'placa', 'observacion']);
   });
 
   it('**un 404 no registra acceso**: nadie miró los datos de nadie', async () => {
