@@ -108,7 +108,10 @@ export default function FlitoComparendos() {
             comprobó. Por el mismo motivo, bajo el error no se deja pintada una tabla anterior. */}
         {error && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm" style={{ color: 'var(--flit-danger)' }}>{error.texto}</p>
+            {/* `--flit-danger` es color de superficie: como texto de 14px sobre la tarjeta blanca
+                se queda en 4,19 (axe lo marca `serious`). La variante tinta del bug #11604 sube a
+                5,71 sin cambiar la lectura del mensaje: sigue siendo rojo de error. */}
+            <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error.texto}</p>
             {error.accion && (
               <button
                 type="button"
