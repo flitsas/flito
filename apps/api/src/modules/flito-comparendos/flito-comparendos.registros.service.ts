@@ -2,12 +2,18 @@
 // HU #11502, CF-09/CF-11), con los filtros de listado por municipio, fuente y causal que añadió la
 // HU #11555 (Feature #11495 17b, RN-36).
 //
-// Es el único archivo del módulo que LEE `flito_comparendos_registros` para devolvérselo a alguien.
-// El sync los escribe (`flito-comparendos.sync.service.ts`), la purga los borra
+// Es el archivo que LEE `flito_comparendos_registros` para devolvérselo a una PANTALLA. El sync los
+// escribe (`flito-comparendos.sync.service.ts`), la purga los borra
 // (`flito-comparendos-purga.cron.ts`), la gestión de 17b escribe sus dos únicas columnas editables
 // —causal y observación— desde `flito-comparendos.gestion.service.ts` (HU #11557), y aquí solo se
 // consultan: **no hay ni un INSERT, ni un UPDATE, ni un DELETE en este archivo**, y eso es el CF-09
 // en su forma más literal — los campos de fuente no se editan desde el API (RN-04).
+//
+// Desde la HU #11558 hay una segunda lectura de la tabla —el export a Excel, en
+// `flito-comparendos.export.service.ts`—, y no es una copia de esta: proyecta otras columnas (las
+// del archivo) y no pagina. Lo que SÍ comparten, y por eso vive aquí, es `condicionesDeFiltro`: qué
+// significa cada filtro se decide en un solo sitio, o el archivo acabaría conteniendo algo distinto
+// de lo que la pantalla enseña.
 //
 // ── Reglas de negocio ────────────────────────────────────────────────────────────────────────────
 //
@@ -288,13 +294,19 @@ function escaparLike(valor: string): string {
 }
 
 /**
- * Página de registros consolidados, del alta más reciente a la más antigua.
+ * Traduce el filtro ya validado a condiciones `WHERE`.
  *
- * Se piden `limit + 1` filas y la sobrante no se devuelve: es lo que permite saber si hay más
- * páginas sin un `count(*)` sobre el filtro —que en esta tabla es la consulta cara— y sin dejar al
- * cliente pidiendo una última página vacía para descubrir que se acabó.
+ * Está aparte de {@link listarRegistros} desde la HU #11558 porque el export a Excel consulta
+ * EXACTAMENTE el mismo conjunto —«lo que el visor está mostrando», sin paginar— y dos copias de este
+ * armado serían dos definiciones de qué significa cada filtro: el día que una cambie, el archivo
+ * dejaría de contener lo que la pantalla enseña y nadie lo notaría hasta que un cliente comparase.
+ * El export no manda `cursor` ni `limit`, así que la rama del cursor simplemente no entra.
+ *
+ * Devuelve `null` —y no una lista vacía de condiciones, que sería «sin filtros»— cuando el filtro no
+ * PUEDE casar con nada: una placa que al normalizar no deja ni un alfanumérico. La diferencia
+ * importa, porque confundirlas devolvería la tabla entera a quien pidió un vehículo concreto.
  */
-export async function listarRegistros(filtro: FiltroRegistros): Promise<ComparendosRegistrosPagina> {
+export function condicionesDeFiltro(filtro: ComparendosRegistrosFiltro): SQL[] | null {
   const condiciones: SQL[] = [];
 
   if (filtro.estado !== undefined) {
@@ -329,10 +341,9 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
   }
   if (filtro.placa !== undefined) {
     const placa = placaCanonica(filtro.placa);
-    // Una placa que al normalizar no deja ni un alfanumérico no puede coincidir con nada. Se
-    // responde una página vacía en vez de IGNORAR el filtro: ignorarlo devolvería la lista completa
-    // a quien pidió un vehículo concreto.
-    if (placa === null) return { items: [], nextCursor: null };
+    // Una placa que al normalizar no deja ni un alfanumérico no puede coincidir con nada: el filtro
+    // es imposible, no inexistente (ver la nota de `null` en la cabecera).
+    if (placa === null) return null;
     condiciones.push(eq(flitoComparendosRegistros.placa, placa));
   }
   if (filtro.q !== undefined) {
@@ -351,6 +362,20 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
   if (filtro.cursor !== undefined) {
     condiciones.push(despuesDelCursor(decodificarCursor(filtro.cursor)));
   }
+
+  return condiciones;
+}
+
+/**
+ * Página de registros consolidados, del alta más reciente a la más antigua.
+ *
+ * Se piden `limit + 1` filas y la sobrante no se devuelve: es lo que permite saber si hay más
+ * páginas sin un `count(*)` sobre el filtro —que en esta tabla es la consulta cara— y sin dejar al
+ * cliente pidiendo una última página vacía para descubrir que se acabó.
+ */
+export async function listarRegistros(filtro: FiltroRegistros): Promise<ComparendosRegistrosPagina> {
+  const condiciones = condicionesDeFiltro(filtro);
+  if (condiciones === null) return { items: [], nextCursor: null };
 
   const filas = await db.select(COLUMNAS_REGISTRO)
     .from(flitoComparendosRegistros)

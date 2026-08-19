@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { COMPARENDOS_EXPORT_MAX_FILAS } from '@operaciones/shared-types';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -177,6 +178,18 @@ const envSchema = z.object({
   // escala de un catálogo normal; súbelos si la operación real los roza.
   COMPARENDOS_INACTIVACION_MAX_FILAS: z.coerce.number().int().min(1).max(1_000_000).default(200),
   COMPARENDOS_INACTIVACION_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.5),
+  // Tope de filas de un export a Excel del consolidado (HU #11558, ADR-0004 §2). Un filtro que
+  // devuelva más responde 422 y no genera archivo. El default es la constante de
+  // `packages/shared-types` —una sola fuente para el número que la pantalla usa al explicar el 422—
+  // y esta variable existe para poder BAJARLO con datos reales del `pii_access_log` sin desplegar.
+  //
+  // El techo de 20 000 no es holgura: es el punto en el que el propio ADR dice que el debate deja de
+  // ser el tope y pasa a ser la arquitectura (export asíncrono), así que subirlo más allá exige un
+  // ADR sucesor y no una variable de entorno. Súbelo aquí y el boot falla, que es la conversación
+  // que se quiere tener. Ojo: esta perilla es una decisión de PRIVACIDAD disfrazada de configuración
+  // —multiplica por 5/min el techo de extracción del módulo— y ADR-0004 es dónde está escrito.
+  COMPARENDOS_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
+    .default(COMPARENDOS_EXPORT_MAX_FILAS),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),
