@@ -326,15 +326,27 @@ export const api = {
    *   · una respuesta de error con `content-type` de archivo **no se descarga**, se lanza;
    *   · el object URL se libera después de la descarga, no en la misma vuelta síncrona.
    *
+   * `aceptaNombre` deja que **el llamador** decida qué forma admite, porque solo él la conoce: aquí
+   * no se puede saber si un `.xlsx` de comparendos o un `.pdf` de expediente es lo esperado. Lo que
+   * este módulo garantiza es que el nombre no sea una ruta ni lleve caracteres de control
+   * (`saneaNombreDeArchivo`); lo que SIGNIFICA el nombre se valida donde se sabe. Si el predicado
+   * dice que no, se usa el respaldo: nunca se propaga un nombre que no encaja.
+   *
    * Devuelve el nombre con el que se guardó, que es lo que la pantalla necesita para poder decir
    * «Archivo descargado: …» sin volver a adivinarlo.
    */
-  downloadPostNamed: async (path: string, respaldo: string, body?: unknown): Promise<string> => {
+  downloadPostNamed: async (
+    path: string,
+    respaldo: string,
+    body?: unknown,
+    aceptaNombre?: (nombre: string) => boolean,
+  ): Promise<string> => {
     let nombre = respaldo;
     let respuesta = { ok: true, status: 200 };
     const blob = await request<Blob>('POST', path, body, undefined, (res) => {
       respuesta = { ok: res.ok, status: res.status };
-      nombre = nombreDeContentDisposition(res.headers.get('content-disposition')) ?? respaldo;
+      const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
+      nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
     });
     if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
     entregarArchivo(blob, nombre);

@@ -555,21 +555,35 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     paridadConElListado(exportado.peticiones[0].search, listado.busquedas.at(-1) ?? '');
   });
 
-  // El parser de `Content-Disposition` tiene cinco ramas y `apps/web` no tiene runner unitario: o se
-  // cubren aquí o no las prueba nadie. Solo cambia la cabecera del mock.
-  const NOMBRES: { caso: string; cabecera: Record<string, string>; esperado: string }[] = [
+  /**
+   * El parser de `Content-Disposition` y el guardia de FORMA, que `apps/web` no puede probar de
+   * otra manera: no hay runner unitario, así que o se cubren aquí o no los prueba nadie.
+   *
+   * `prohibido` es la mitad que importa de los dos últimos casos: no basta con que la descarga se
+   * llame de otra forma —hay que comprobar que la cadena rechazada **no quedó en ninguna parte**,
+   * ni en el disco ni en el «Archivo descargado: …» que la pantalla pinta.
+   */
+  const NOMBRES: {
+    caso: string;
+    cabecera: Record<string, string>;
+    esperado: string;
+    prohibido?: string;
+  }[] = [
     {
       caso: 'filename normal, con un sello que el reloj del cliente no puede producir',
       cabecera: { 'content-disposition': `attachment; filename="${NOMBRE_SERVIDOR}"` },
       esperado: NOMBRE_SERVIDOR,
     },
     {
-      caso: 'gana `filename*` sobre el `filename` de compatibilidad',
+      // El `filename` de compatibilidad lleva OTRO sello, así que el aserto distingue de verdad cuál
+      // de los dos ganó; y el guion del `filename*` va percent-encoded para recorrer el `decodeURIComponent`.
+      caso: 'gana `filename*` sobre el `filename` de compatibilidad, y se decodifica',
       cabecera: {
         'content-disposition':
-          "attachment; filename=\"comparendos_ascii.xlsx\"; filename*=UTF-8''comparendos_ita%C3%BCi.xlsx",
+          'attachment; filename="comparendos_00000000-0000.xlsx"; '
+          + "filename*=UTF-8''comparendos_19990102%2D0304.xlsx",
       },
-      esperado: 'comparendos_itaüi.xlsx',
+      esperado: NOMBRE_SERVIDOR,
     },
     {
       caso: 'sin cabecera: el respaldo del cliente, sin fecha inventada',
@@ -578,20 +592,43 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     },
     {
       caso: 'con separadores de ruta: se queda el último segmento y nada más',
-      cabecera: { 'content-disposition': 'attachment; filename="../../etc/comparendos.xlsx"' },
-      esperado: 'comparendos.xlsx',
+      cabecera: { 'content-disposition': `attachment; filename="../../etc/${NOMBRE_SERVIDOR}"` },
+      esperado: NOMBRE_SERVIDOR,
     },
     {
       // Con `\r\n` sería más fiel al ataque clásico, pero Chromium rechaza esa cabecera antes de
       // que llegue a la página y `route.fulfill` se queda colgado: el test mediría al navegador, no
       // al saneado. `\u0001` y `\u007F` recorren la MISMA rama del filtro y sí llegan.
       caso: 'con caracteres de control: no se escriben en la carpeta de descargas',
-      cabecera: { 'content-disposition': 'attachment; filename="a\u0001b\u007F.xlsx"' },
-      esperado: 'ab.xlsx',
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_1999\u00010102-0304\u007F.xlsx"' },
+      esperado: NOMBRE_SERVIDOR,
+    },
+    {
+      // **El nombre del archivo es la última superficie por la que podría salir PII.** El servidor
+      // promete no meter el filtro en el nombre (`nombreArchivoExport()`), pero una promesa del
+      // emisor no es una comprobación del receptor: sin el guardia de forma, este NIT acabaría en el
+      // disco del usuario —de donde el archivo se reenvía— y pintado en «Archivo descargado: …».
+      // Y es el caso que obligó a apretar el patrón: con «dígitos y guiones» —que es lo que parece
+      // suficiente— este nombre PASABA, porque un NIT es exactamente dígitos.
+      caso: 'un NIT dentro del nombre NO se usa: cae al respaldo',
+      // El NIT del nombre hostil es OTRO que el de la tabla a propósito: con el mismo, el aserto
+      // «no está en el documento» sería imposible de cumplir —el NIT monitoreado se pinta en su
+      // columna, y debe— y habría que rebajarlo a mirar solo la banda del export. Con uno que no
+      // sale por ningún otro camino, el barrido puede ser del documento ENTERO, que es la forma en
+      // la que este módulo comprueba las fugas desde la #11560.
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_830009988.xlsx"' },
+      esperado: 'comparendos.xlsx',
+      prohibido: '830009988',
+    },
+    {
+      caso: 'una extensión que no es la del contrato tampoco se usa',
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_19990102-0304.exe"' },
+      esperado: 'comparendos.xlsx',
+      prohibido: '.exe',
     },
   ];
 
-  for (const { caso, cabecera, esperado } of NOMBRES) {
+  for (const { caso, cabecera, esperado, prohibido } of NOMBRES) {
     test(`AC3 — el nombre lo pone el servidor: ${caso}`, async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       await mockCatalogos(page);
@@ -609,6 +646,13 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
       // DOS veces, y las dos cuentan: la banda visible y la región viva que lo anuncia a quien
       // navega con lector. Sin la segunda, el final de la descarga no se oye.
       await expect(page.getByText(`Archivo descargado: ${esperado}`)).toHaveCount(2);
+
+      if (prohibido) {
+        // Ni en el nombre del archivo que quedó en el disco ni en ninguna parte del documento: un
+        // nombre rechazado que aun así se pinte en pantalla no está rechazado.
+        expect(descarga.suggestedFilename()).not.toContain(prohibido);
+        expect(await page.content(), `«${prohibido}» sobrevivió en el DOM`).not.toContain(prohibido);
+      }
     });
   }
 

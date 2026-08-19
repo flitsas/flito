@@ -38,6 +38,42 @@ import {
 const NOMBRE_RESPALDO = 'comparendos.xlsx';
 
 /**
+ * La forma que tiene que tener el nombre del servidor: `comparendos_YYYYMMDD-HHmm.xlsx`.
+ *
+ * **El nombre de un archivo es una superficie más por la que podría salir un dato personal, y hasta
+ * aquí era la única del módulo sin llave.** El resto de la pantalla lleva dos Features cuidando que
+ * un NIT o una placa no lleguen a la URL, ni al historial, ni al `Referer`, ni al eco de un mensaje
+ * de error; un `Content-Disposition: attachment; filename="comparendos_900123456.xlsx"` los pondría
+ * en dos sitios peores todavía: **el disco del usuario** —de donde el archivo se reenvía por correo,
+ * con el NIT en el asunto y en la carpeta compartida— y el «Archivo descargado: …» que esta misma
+ * pantalla pinta.
+ *
+ * Hoy el servidor no puede mandar eso: `nombreArchivoExport()` compone el nombre con un sello de
+ * tiempo y su docstring dice expresamente que el filtro NO va en el nombre. Pero esa es una promesa
+ * del emisor, no una comprobación del receptor, y la distancia entre las dos es exactamente lo que
+ * esta constante cierra. Es el mismo motivo por el que `avisoDeError` lee `rawDetails.error` en vez
+ * de `ApiError.message`: del otro lado del cable se confía en lo que se ha verificado, no en lo que
+ * se ha prometido.
+ *
+ * **El sello se exige EXACTO —`\d{8}-\d{4}`— y no como «dígitos y guiones», y la diferencia no es
+ * de estilo: es la única versión que cumple lo que este guardia promete.** Un `[\d-]+` acepta
+ * `comparendos_900123456.xlsx` sin pestañear, porque un NIT es exactamente eso, dígitos; el guardia
+ * quedaría escrito, comentado y probado, y dejaría pasar el único caso para el que existe. Se
+ * descubrió porque el test del NIT salió en rojo con el patrón laxo — de ahí que ese test se quede
+ * clavado en el spec.
+ *
+ * Los cuatro tramos salen de `nombreArchivoExport()`: `FORMATO_INSTANTE` es `en-CA` con `year:
+ * 'numeric'`, mes, día, hora y minuto a `2-digit` y `hourCycle: 'h23'`, así que el sello es siempre
+ * ocho dígitos, un guion y cuatro dígitos. No hay segundos y no hay ninguna variante local.
+ *
+ * Si no encaja se cae al respaldo —nunca se propaga el nombre raro—, y eso vale también para el día
+ * en que el API cambie el formato a propósito: el archivo se seguirá descargando, con un nombre
+ * peor, y este `regex` será lo que haya que actualizar. Se prefiere esa molestia visible a una
+ * ventana silenciosa.
+ */
+const FORMA_DEL_NOMBRE = /^comparendos_\d{8}-\d{4}\.xlsx$/;
+
+/**
  * Lanza el export y devuelve el nombre con el que se guardó el archivo.
  *
  * El reparto se parte en dos justo aquí, y el corte ES la norma del §14: `query` a la URL, `cuerpo`
@@ -49,6 +85,7 @@ export async function exportarComparendos(c: CriteriosComparendos): Promise<stri
     `${RUTA_COMPARENDOS}/registros/export${sufijoQuery(query)}`,
     NOMBRE_RESPALDO,
     cuerpo,
+    (nombre) => FORMA_DEL_NOMBRE.test(nombre),
   );
 }
 
