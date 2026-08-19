@@ -119,6 +119,14 @@ export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reapar
 > se puso» leyéndola del evento — la causal actual se lee de la fila (`causalId`), que es lo que la
 > opción A ya especifica. Publicar la causal del evento sería ampliar esa lista blanca: decisión de
 > la HU de frontend que la necesite, no efecto colateral de que la columna sea JSONB.
+>
+> **Resuelto en la HU #11562 (2026-08-19): NO se amplía.** La HU de frontend que la habría
+> necesitado es esta, y decidió que la lista blanca se queda en `origen` y `motivo`. Dos razones y
+> ninguna es de esfuerzo: el `actorId` es el identificador de una persona identificable y el
+> timeline suelto está exento de `pii_access_log` y de `Cache-Control: no-store` **por no llevar
+> datos personales** —publicarlo obligaría a cambiar las dos cosas—; y la causal por evento no añade
+> nada que la pantalla no tenga ya, porque la asignada está en la fila y el cambio queda dicho por
+> la propia etiqueta del evento. El wireframe del historial, que las dibujaba, se corrigió.
 
 - **`COMPARENDOS_OBSERVACION_MAX` no es opcional para el diseño.** Sin él, el contador de caracteres
   del formulario de gestión sería un número inventado y el usuario descubriría el tope real en un 400
@@ -648,26 +656,42 @@ Se abre desde el número de comparendo. Es un `FlitModal wide` (ver «Decisiones
 ║  │ Causal        [ Notificado al cliente          ▾ ]                     │    ║
 ║  │ Observación   [ Se envió copia al cliente el 3 de julio.          ]     │    ║
 ║  │               [                                                  ]     │    ║
-║  │               132 / 500 caracteres                                     │    ║
+║  │               132 / 1000 caracteres                                    │    ║
 ║  │                                        [Cancelar]  [Guardar gestión]   │    ║
 ║  └────────────────────────────────────────────────────────────────────────┘    ║
 ║                                                                                ║
 ║  HISTORIAL                                                                     ║
 ║  ┌────────────────────────────────────────────────────────────────────────┐    ║
-║  │ ● Gestión registrada          14 ago 2026, 09:14 · María Ruiz          │    ║
-║  │   Causal: Notificado al cliente                                        │    ║
+║  │ ● Gestión registrada          14 ago 2026, 09:14                       │    ║
 ║  │                                                                        │    ║
-║  │ ● Reapareció en las fuentes   28 jun 2026, 03:20 · Sistema            │    ║
+║  │ ● Reapareció en las fuentes   28 jun 2026, 03:20                       │    ║
 ║  │   Origen: municipal                                                    │    ║
 ║  │                                                                        │    ║
-║  │ ● Dejó de reportarse          12 may 2026, 03:11 · Sistema            │    ║
+║  │ ● Dejó de reportarse          12 may 2026, 03:11                       │    ║
 ║  │   Motivo: ausente en todas las fuentes con cobertura completa          │    ║
 ║  │                                                                        │    ║
-║  │ ● Primera vez que se vio       2 jul 2026, 03:12 · Sistema            │    ║
+║  │ ● Primera vez que se vio       2 jul 2026, 03:12                       │    ║
 ║  │   Origen: simit                                                        │    ║
 ║  └────────────────────────────────────────────────────────────────────────┘    ║
 ╚════════════════════════════════════════════════════════════════════════════════╝
 ```
+
+> **Corrección de la HU #11562 (2026-08-19) — el wireframe de arriba dibujaba dos cosas que no se
+> pueden pintar, y ya no las dibuja.** Cada evento llevaba «· María Ruiz» y una línea «Causal:
+> Notificado al cliente». **Ninguna de las dos sale del contrato**: del `detalle` del evento el API
+> publica `origen` y `motivo` y nada más (RN-35), y `causalId` y `actorId` se guardan a propósito
+> SIN publicarse — hay un test del backend que congela justamente eso. Pintarlas exigiría ampliar
+> esa lista blanca con el nombre de una persona identificable, y **la decisión es que no**: es PII y
+> el evento ya vive dentro de una respuesta que solo ve quien puede ver el comparendo entero, pero
+> ampliarla lo metería también en el timeline suelto (`GET /registros/:id/eventos`), que hoy no deja
+> registro de acceso ni sale con `no-store` **precisamente porque no lleva ningún dato personal**.
+>
+> Lo que sí se pinta del evento de gestión es su `motivo`, que es la etiqueta: «Gestión registrada»
+> o «Gestión retirada». Y el **quién y cuándo de la última gestión** —que es lo que el AC5 pide— se
+> muestra en la cabecera de la sección GESTIÓN, leído de la FILA (`gestionActualizadaEn` y
+> `gestionActualizadaPor`, que desde la #11562 trae `{ id, nombre }`), no del timeline. El «·
+> Sistema» de los eventos de sync se retira por lo mismo: era un autor decorativo que el contrato no
+> da, y con la etiqueta puesta ya se sabe que ese evento lo escribió una corrida.
 
 **Orden de las tres secciones y por qué:** primero **qué es** (los datos, que es lo que se vino a
 mirar), después **qué hago** (la gestión, la única acción posible), y al final **qué le ha pasado**
@@ -689,7 +713,7 @@ añadir un tipo mañana **no compila** hasta que alguien le escriba su texto.
 | `primera_llegada` | Primera vez que se vio | «Origen: `detalle.origen`» | `active` |
 | `inactivacion` | Dejó de reportarse | «Motivo: `detalle.motivo`» | `draft` |
 | `reaparicion` | Reapareció en las fuentes | «Origen: `detalle.origen`» | `warning` |
-| `gestion` (HU #11556) | Gestión registrada | La causal que se puso | `success` |
+| `gestion` (HU #11556) | «Gestión registrada» o «Gestión retirada», según `detalle.motivo` | Nada más: el motivo YA es la etiqueta | `success` |
 
 - **`detalle` se pinta por lista blanca de `origen` y `motivo`, y de nada más.** El API ya lo proyecta
   así (RN-35), pero el componente no itera `Object.entries(detalle)`: si alguna vez entrara otra
@@ -734,6 +758,14 @@ Depende de la **HU #11557**. Mientras ese endpoint no exista, el bloque **no se 
 un formulario deshabilitado ni un «próximamente», que son dos formas de prometer algo que la pantalla
 no puede cumplir.
 
+> **Corrección de la HU #11562 (2026-08-19) — el contador dice 1000, no 500.** Los wireframes de
+> esta sección y el del panel enseñaban «0 / 500» porque se dibujaron antes de que la #11557
+> publicara `COMPARENDOS_OBSERVACION_MAX`. **La constante manda y vale 1000**, que es además el
+> número que importa el esquema `zod` del endpoint. Un `500` escrito en el formulario habría
+> bloqueado texto perfectamente válido quinientos caracteres antes que el servidor, que es peor que
+> no tener contador: el usuario no descubre un límite del producto, descubre un error de la
+> pantalla.
+
 ### Wireframe · los tres momentos
 
 ```
@@ -741,7 +773,7 @@ Reposo, sin cambios                          Con cambios sin guardar
 ┌────────────────────────────────────┐       ┌────────────────────────────────────┐
 │ Causal      [ Sin causal      ▾ ]  │       │ Causal      [ Notificado…     ▾ ]  │
 │ Observación [                   ]  │       │ Observación [ Copia enviada.    ]  │
-│             0 / 500                │       │             15 / 500               │
+│             0 / 1000               │       │             15 / 1000              │
 │         [Cancelar]  [Guardar]⊘     │       │         [Cancelar]  [Guardar]      │
 └────────────────────────────────────┘       └────────────────────────────────────┘
 
@@ -1093,6 +1125,17 @@ anteriores]` si existe.
 62. El botón del número de comparendo tiene `aria-label` con el número.
 63. Al cerrar el panel, el foco vuelve a la fila que lo abrió; si esa fila ya no existe, va al
     encabezado de la tabla y **no** a `<body>`.
+    > **Precisión de la HU #11562 (2026-08-19).** El respaldo es el **encabezado de la región de
+    > resultados** (`<h2>Lista de comparendos</h2>`, `sr-only focus:not-sr-only`, `tabIndex={-1}`) y
+    > no el `<caption>` de la tabla. El caso en que el respaldo hace falta —cerrar tras un 404, que
+    > además recarga la lista— es justo aquel en el que la tabla se desmonta: el foco aterrizaría en
+    > un `<caption>` que también desaparece. Ese encabezado existe en los cuatro estados de la vista.
+    > Dos cosas más que se descubrieron implementándolo y que conviene probar tal cual: **(a)** el
+    > disparador puede seguir montado en el instante en que el modal se cierra y desmontarse uno o
+    > dos fotogramas después (la recarga de la lista llega en su propio efecto), así que la
+    > comprobación se repite durante unos fotogramas; **(b)** el foco se hace **visible** al llegar
+    > ahí, porque un elemento enfocado que no se ve incumple «foco visible» para quien navega con
+    > teclado sin lector.
 64. Los errores se anuncian (`role="alert"`); el estado ocupado del export se anuncia por la región
     `aria-live`.
 65. Todo control interactivo es alcanzable con teclado y tiene foco visible (`flit-focus`).
@@ -1116,7 +1159,9 @@ un estado que nadie eligió— `GET /flito/comparendos/registros`, `POST …/reg
 | `components/comparendos/PaginacionCursor.tsx` | ≈ 45 | Anterior/Siguiente sobre cursor, contador sin total | Visor |
 | `components/comparendos/PanelDetalleComparendo.tsx` | ≈ 150 | `FlitModal`, `<dl>` de fuente, los 4 estados, foco | Detalle |
 | `components/comparendos/TimelineComparendo.tsx` | ≈ 75 | Los cuatro tipos, lista blanca de `detalle`, recorte a 8 | Detalle |
-| `components/comparendos/FormularioGestion.tsx` | ≈ 120 | Selector con la causal inactiva, contador, `PATCH`, errores | #11557 |
+| `components/comparendos/FormularioGestion.tsx` | ≈ 120 | Selector con la causal inactiva, contador, `PATCH`, errores | #11557, montado en #11562 |
+| `components/comparendos/useComparendoDetalle.ts` | ≈ 90 | El `GET` del panel, sus errores y el reemplazo con el cuerpo del `PATCH` | Detalle |
+| `components/comparendos/formato.ts` | ≈ 60 | Monto y fechas. Sale de `TablaComparendos.tsx` en la #11562 porque el panel pinta los mismos datos, y es donde se ve la distinción entre `fechaColombia` (día) y `fechaHoraColombia` (día y hora) | Detalle |
 | `components/comparendos/ExportarComparendos.tsx` | ≈ 70 | Botón, estado ocupado, 422/429, `downloadPost` | #11558 |
 | `packages/shared-types/src/permissions.ts` | +3 | El slug | Visor |
 | `packages/shared-types/src/flito-comparendos.ts` | +40 | Contratos de 17b y los mapas de copy | #11556/#11557/#11558 |
