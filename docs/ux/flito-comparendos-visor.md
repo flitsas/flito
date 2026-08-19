@@ -99,6 +99,27 @@ export const COMPARENDOS_OBSERVACION_MAX = /* el tope real de la columna */;
 export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reaparicion' | 'gestion';
 ```
 
+> **Nota de la HU [#11557](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11557)
+> (2026-08-19) — lo publicado, con sus nombres reales.** El PATCH de gestión ya existe y
+> `packages/shared-types` exporta **`ComparendosGestionPatch`** (no `ComparendosGestionRequest`: el
+> nombre del work item y del diseño del Feature es este) y **`COMPARENDOS_OBSERVACION_MAX = 1000`**.
+> El tope **no sale de la columna** —`observacion` es `TEXT` y no tiene ninguno—: es un límite de
+> producto, y esa constante es dónde vive. El esquema `zod` del endpoint la importa, así que el
+> contador del formulario y el servidor no pueden discrepar.
+>
+> Dos cosas que este documento da por hechas y conviene fijar por escrito: el cuerpo **no puede venir
+> vacío** (un `{}` es 400, no un 200 que dejaría un evento de un cambio que no ocurrió) y una
+> observación que al recortar queda en blanco se guarda como `NULL`, no como cadena vacía. La
+> respuesta es el **registro completo con su `eventos[]`** —la misma forma de `GET /registros/:id`—,
+> así que el panel se refresca sin una segunda petición, tal como pide «Al guardar bien».
+>
+> El evento `gestion` del timeline publica `detalle.motivo` (`gestion_registrada` o
+> `gestion_retirada`) y **nada más**: la lista blanca de RN-35 sigue siendo `origen` y `motivo`, así
+> que la columna «Detalle que se pinta» del cuadro de los cuatro tipos no puede decir «la causal que
+> se puso» leyéndola del evento — la causal actual se lee de la fila (`causalId`), que es lo que la
+> opción A ya especifica. Publicar la causal del evento sería ampliar esa lista blanca: decisión de
+> la HU de frontend que la necesite, no efecto colateral de que la columna sea JSONB.
+
 - **`COMPARENDOS_OBSERVACION_MAX` no es opcional para el diseño.** Sin él, el contador de caracteres
   del formulario de gestión sería un número inventado y el usuario descubriría el tope real en un 400
   después de escribir. Vale el mismo argumento que ya sostiene a `COMPARENDOS_REGISTROS_LIMIT_MAX`

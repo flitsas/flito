@@ -3,10 +3,13 @@
 // registro consolidado con su timeline (HU #11502). Los filtros de listado por municipio, fuente y
 // causal son de 17b (Feature #11495, HU #11555) y se añadieron sobre `ComparendosRegistrosQuery`.
 //
-// Lo que este archivo NO declara, y es deliberado: `PageSlug` del módulo y los contratos del export
-// a Excel son de 17b, y el PATCH de gestión (causal/observación) también. Publicar hoy el tipo de
-// algo que ningún endpoint responde invita a que la pantalla se escriba contra una forma que aún
-// puede cambiar.
+// El PATCH de gestión —`ComparendosGestionPatch` y `COMPARENDOS_OBSERVACION_MAX`— es de 17b y se
+// publica desde la HU #11557, que es la que expone el endpoint que lo consume.
+//
+// Lo que este archivo sigue SIN declarar, y es deliberado: los contratos del export a Excel, que son
+// de la HU #11558. Publicar hoy el tipo de algo que ningún endpoint responde invita a que la
+// pantalla se escriba contra una forma que aún puede cambiar. (`PageSlug` del módulo no está aquí
+// por otro motivo: el catálogo de páginas vive en `permissions.ts`, y lo añadió la HU #11559.)
 //
 // Las fechas viajan como cadena ISO-8601 y no como `Date`: este paquete lo comparten el servidor y
 // el navegador, y `JSON.parse` nunca devuelve un `Date`. Tiparlo como `Date` sería mentirle al
@@ -305,6 +308,51 @@ export interface ComparendoEvento {
 export interface ComparendoRegistroDetalle extends ComparendoRegistro {
   eventos: ComparendoEvento[];
 }
+
+// ─────────────────────── Gestión del comparendo (HU #11557, 17b) ─────────────────────────────────
+
+/**
+ * Cuerpo de `PATCH /registros/:id/gestion`: **lo ÚNICO editable de un comparendo**.
+ *
+ * Los dos campos son opcionales por separado y el cuerpo **no puede venir vacío**: se manda solo lo
+ * que cambió (`{ causalId }`, `{ observacion }` o los dos), que es lo que impide que dos personas
+ * trabajando el mismo comparendo se pisen el campo que la otra no tocó. Un cuerpo sin ninguna de
+ * las dos claves es un 400 y no un no-op silencioso: quien lo manda cree que cambió algo.
+ *
+ * `null` **no** significa «no lo mandes», significa «déjalo vacío»: `{ "causalId": null }` retira la
+ * causal y `{ "observacion": null }` borra la observación. La diferencia entre `null` y ausente es
+ * todo el contrato de este endpoint, así que la pantalla no puede serializar un campo que no tocó.
+ *
+ * **Nada más entra por aquí.** La placa, el monto, el organismo y el resto del canónico son dato de
+ * FUENTE y no se editan (RN-04, CF-09): el esquema del servidor es estricto y una clave que no sea
+ * una de estas dos es un 400, no un campo que se ignora en silencio.
+ *
+ * La respuesta del PATCH es un {@link ComparendoRegistroDetalle} —el registro entero con su
+ * timeline ya actualizado—, para que el panel del visor se refresque sin una segunda petición.
+ */
+export interface ComparendosGestionPatch {
+  /** Id de una causal del catálogo (CF-04), o `null` para dejar el comparendo sin causal. */
+  causalId?: string | null;
+  /** Texto libre de hasta {@link COMPARENDOS_OBSERVACION_MAX}, o `null` para borrarla. */
+  observacion?: string | null;
+}
+
+/**
+ * Tope de la observación de gestión, en caracteres.
+ *
+ * Vive aquí por lo mismo que {@link COMPARENDOS_REGISTROS_LIMIT_MAX}: es el número con el que el
+ * formulario pinta su contador, y sin él la pantalla lo inventaría y el usuario descubriría el tope
+ * real en un 400 después de haber escrito. El esquema `zod` del endpoint lo importa de aquí, así que
+ * hay una sola fuente y no dos que puedan separarse.
+ *
+ * **No sale de la columna: la columna es `TEXT` y no tiene tope** (migración 0150). El límite es de
+ * PRODUCTO y esta constante es dónde vive. 1 000 caracteres son unas quince líneas de prosa —de
+ * sobra para dejar dicho qué se decidió sobre una deuda y por qué— y acotan tres cosas que sin tope
+ * no tendrían ninguna: el tamaño de una página del listado (hasta 50 observaciones en la misma
+ * respuesta), lo que la purga por retención arrastra, y lo que alguien puede pegar en la única
+ * columna de texto libre que este módulo expone a escritura.
+ */
+export const COMPARENDOS_OBSERVACION_MAX = 1000;
 
 /**
  * Tamaño máximo —y por defecto— de una página de registros.
