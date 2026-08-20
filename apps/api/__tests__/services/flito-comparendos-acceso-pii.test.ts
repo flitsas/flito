@@ -18,6 +18,9 @@
 //      fuera (`GET /nits` y las dos de `/sync/runs`) dejan registro, salen con `no-store` y gastan
 //      cuota. Se prueban juntas a propósito: rastro sin `no-store` es saber quién miró una respuesta
 //      que igualmente quedó guardada en el disco del navegador.
+//   6. **Bug #11671 — dónde pasa la línea**: las dos escrituras de `/nits` salen con `no-store`, y
+//      solo el `PATCH` deja registro de acceso. Lo que decide no es el verbo HTTP sino si la
+//      respuesta entrega datos personales que el cliente NO aportó.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
@@ -332,6 +335,104 @@ describe('las tres respuestas con NIT salen con `Cache-Control: no-store` (Bug #
 
     expect(r.status).toBe(200);
     expect(r.headers['cache-control']).toBe('no-store');
+  });
+});
+
+// ─────────────────────────── Bug #11671 · las dos escrituras del catálogo ──────────────────────
+//
+// `POST /nits` y `PATCH /nits/:id` devuelven `nit` y `alias` en el cuerpo del 201 y del 200, y
+// salían sin `no-store` — contradiciendo la cabecera del propio módulo. El riesgo de la caché es
+// bajo (RFC 9111: un POST o un PATCH no se guardan por heurística) y aun así se cierra, porque lo
+// que hace daño a largo plazo es el supuesto falso escrito al lado del código: el siguiente que lea
+// la cabecera creerá que el criterio ya está puesto en todas partes.
+//
+// Y las dos NO se resuelven igual en la otra mitad, que es lo que estos tests fijan por escrito:
+//
+//   · El `POST` no registra acceso. Los dos campos personales del 201 son los que quien pide acaba
+//     de teclear, y `crearNit` rechaza el duplicado con un 409 en vez de devolver la fila ajena, así
+//     que el alta no le revela a nadie una identidad que no tuviera delante.
+//   · El `PATCH` sí. Ahí el cliente manda un UUID opaco y recibe el `nit` de la fila, que no tecleó;
+//     es el mismo caso que `PATCH /registros/:id/gestion`, que ya registraba desde la HU #11557. El
+//     criterio del módulo es «rastro para toda respuesta que ENTREGUE datos personales que el
+//     cliente no aportó», no «rastro para las lecturas y no para las escrituras».
+
+describe('las dos escrituras de /nits salen con `no-store` (Bug #11671)', () => {
+  it('POST /nits — el 201 devuelve el NIT recién creado', async () => {
+    kdb.when.select('flito_comparendos_nits', []).insert('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).post(`${BASE}/nits`)
+      .set('Authorization', await auth())
+      .send({ nit: '900123456', alias: 'Transportes ACME' });
+
+    expect(r.status).toBe(201);
+    expect(r.body.nit).toBe('900123456');
+    expect(r.headers['cache-control']).toBe('no-store');
+  });
+
+  it('PATCH /nits/:id — el 200 devuelve la fila entera, NIT incluido', async () => {
+    kdb.when.update('flito_comparendos_nits', [filaNit({ alias: 'Otro alias' })]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${NIT_ID}`)
+      .set('Authorization', await auth())
+      .send({ alias: 'Otro alias' });
+
+    expect(r.status).toBe(200);
+    expect(r.body.nit).toBe('900123456');
+    expect(r.headers['cache-control']).toBe('no-store');
+  });
+});
+
+describe('el registro de acceso distingue quién APORTÓ el dato (Bug #11671)', () => {
+  it('**`POST /nits` NO registra acceso: el dato entra, no se consulta**', async () => {
+    kdb.when.select('flito_comparendos_nits', []).insert('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).post(`${BASE}/nits`)
+      .set('Authorization', await auth())
+      .send({ nit: '900123456', alias: 'Transportes ACME' });
+
+    expect(r.status).toBe(201);
+    // `pii_access_log` responde «quién CONSULTÓ mis datos» (Ley 1581 art. 17). El 201 no le revela a
+    // quien lo pidió ninguna identidad que no acabara de teclear él mismo —y el duplicado se corta
+    // con un 409 antes de insertar, así que tampoco le devuelve el alias que puso otro—. Anotar
+    // aquí un acceso llenaría el log de escrituras hasta que dejara de leerse como un registro de
+    // lecturas. El rastro de esta ruta es `audit_logs`, no este.
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('**`PATCH /nits/:id` SÍ registra acceso: devuelve un NIT que el cliente no mandó**', async () => {
+    kdb.when.update('flito_comparendos_nits', [filaNit({ alias: 'Otro alias' })]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${NIT_ID}`)
+      .set('Authorization', await auth())
+      // Lo que viaja en el cuerpo es un alias. El `nit` no: sale en la respuesta, y quien pidió el
+      // cambio pudo no haberlo visto nunca — el `:id` es un UUID opaco.
+      .send({ alias: 'Otro alias' });
+
+    expect(r.status).toBe(200);
+    expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
+    const opts = ultimoAcceso();
+    expect(opts.resourceTipo).toBe(RECURSO_NIT);
+    // `read` y no una acción de escritura: el «quién cambió qué» lo cuenta `audit()`, y lo que esta
+    // tabla anota es que alguien VIO el NIT y el alias que la respuesta le entregó. Es la misma
+    // resolución que `PATCH /registros/:id/gestion`.
+    expect(opts.accion).toBe('read');
+    expect(opts.camposAccedidos).toEqual([...CAMPOS_PII_NIT]);
+    // Un recurso concreto: el UUID va dentro del motivo porque `resource_id` es `integer`.
+    expect(String(opts.motivo)).toContain(NIT_ID);
+    expect(String(opts.motivo)).toContain('filas=1');
+    // Y el NIT no se escribe en el rastro que existe para protegerlo.
+    expect(String(opts.motivo)).not.toContain('900123456');
+  });
+
+  it('un `PATCH` a un NIT inexistente no registra acceso: nadie miró los datos de nadie', async () => {
+    kdb.when.update('flito_comparendos_nits', []);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${NIT_ID}`)
+      .set('Authorization', await auth())
+      .send({ alias: 'Otro alias' });
+
+    expect(r.status).toBe(404);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
   });
 });
 

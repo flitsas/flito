@@ -239,6 +239,81 @@ describe('comparendos — NITs (AC1/CF-01)', () => {
     expect(kdb.update).not.toHaveBeenCalled();
   });
 
+  // Bug #11671 · el alta prohibía el salto de línea en el alias y el PATCH que lo edita después lo
+  // admitía, así que la validación del alta se rodeaba en dos pasos: crear el NIT con un alias
+  // limpio y editarlo acto seguido con el `\n` dentro. El valor acababa igual en
+  // `audit_logs.detail` —`audit()` concatena el alias literal y no lo escapa—, solo que entrando por
+  // la puerta del `update`. Los dos esquemas comparten ahora el mismo campo.
+  it('PATCH /nits/:id con un alias que trae saltos de línea → 400 (la misma regla que el alta)', async () => {
+    kdb.when.update('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${ID_NIT}`)
+      .set('Authorization', await auth())
+      .send({ alias: 'Transportes\nFALSO: usuario admin' });
+
+    expect(r.status).toBe(400);
+    // No basta con el 400: lo que importa es que el valor no llegue a la fila, porque de la fila
+    // sale el `detail` de la bitácora.
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /nits/:id con un alias con tabulación → 400', async () => {
+    kdb.when.update('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${ID_NIT}`)
+      .set('Authorization', await auth())
+      .send({ alias: 'Transportes\tACME' });
+
+    expect(r.status).toBe(400);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  // Bug #11671 (segunda ronda) · el byte cero no lo paraba nadie: `[^\r\n\t]` lo deja pasar, no cabe
+  // en un `varchar` de PostgreSQL y salía como un `22021` por el manejador global — un 500 en vez
+  // del 400 que es. Es el mismo defecto que `gestionSchema.observacion` ya había cerrado con un
+  // `refine`, y se cierra igual. Si el `refine` desaparece, estos dos tests se caen.
+  it('POST /nits con un alias que trae el byte cero → 400 y no un 500 de PostgreSQL', async () => {
+    kdb.when.select('flito_comparendos_nits', []).insert('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).post(`${BASE}/nits`)
+      .set('Authorization', await auth())
+      .set('Content-Type', 'application/json')
+      // El cuerpo va como TEXTO CRUDO y con el escape de JSON literal dentro: asi es como el
+      // byte cero llega de verdad. Un NUL sin escapar dentro de una cadena JSON lo rechaza el
+      // parser de `express.json()`, y entonces el 400 saldria de ahi y no del esquema: el test
+      // pasaria con o sin la validacion, que es justo lo que no sirve.
+      .send('{"nit":"900123456","alias":"Transportes\\u0000ACME"}');
+
+    expect(r.status).toBe(400);
+    expect(kdb.insert).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /nits/:id con un alias que trae el byte cero → 400', async () => {
+    kdb.when.update('flito_comparendos_nits', [filaNit()]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${ID_NIT}`)
+      .set('Authorization', await auth())
+      .set('Content-Type', 'application/json')
+      .send('{"alias":"Transportes\\u0000ACME"}');
+
+    expect(r.status).toBe(400);
+    expect(kdb.update).not.toHaveBeenCalled();
+  });
+
+  it('PATCH /nits/:id sigue aceptando un alias normal, y `null` para borrarlo', async () => {
+    // La regla veta caracteres de control, no el uso legítimo del campo: si este test se cayera,
+    // el arreglo habría roto la edición del alias en vez de acotarla.
+    kdb.when.update('flito_comparendos_nits', [filaNit({ alias: null })]);
+
+    const r = await request(await buildApp()).patch(`${BASE}/nits/${ID_NIT}`)
+      .set('Authorization', await auth())
+      .send({ alias: null });
+
+    expect(r.status).toBe(200);
+    expect(r.body.alias).toBeNull();
+  });
+
   it('PATCH /nits/:id inexistente → 404', async () => {
     kdb.when.update('flito_comparendos_nits', []);
 
