@@ -71,7 +71,12 @@ interface PropsBloque {
   /** Encabezado del bloque. Es también su nombre accesible (`role="region"`). */
   titulo: string;
   descripcion: ReactNode;
-  /** Acción principal del bloque. Va SIEMPRE en la cabecera; ver el comentario de `accion`. */
+  /**
+   * Acción principal del bloque. Va SIEMPRE en la cabecera; ver el comentario de `accion`.
+   *
+   * `null` para el bloque que no tiene ninguna: el token (HU #11634) se guarda con un botón que vive
+   * junto a su campo, y uno arriba, lejos del input, no tendría qué enviar.
+   */
   accion: ReactNode;
   estado: EstadoBloque;
   hayItems: boolean;
@@ -79,6 +84,12 @@ interface PropsBloque {
   textoError: string;
   /** `aria-label` del esqueleto: «Cargando NITs monitoreados». */
   etiquetaCarga: string;
+  /** Filas fantasma mientras carga. Se ajusta al alto de lo que viene; ver `EsqueletoBloque`. */
+  filasCarga?: number;
+  /**
+   * Copy del estado vacío. `null` en el bloque que no lo tiene: el token sin configurar es su estado
+   * LLENO sin secreto (HU #11634), no un `FlitEmpty`, y ahí el formulario es justo lo que hace falta.
+   */
   vacio: ReactNode;
   onReintentar: () => void;
   children: ReactNode;
@@ -98,7 +109,8 @@ interface PropsBloque {
  * justo encima.
  */
 export function BloqueConfig({
-  titulo, descripcion, accion, estado, hayItems, textoError, etiquetaCarga, vacio, onReintentar, children,
+  titulo, descripcion, accion, estado, hayItems, textoError, etiquetaCarga, filasCarga,
+  vacio, onReintentar, children,
 }: PropsBloque) {
   const idTitulo = `bloque-${titulo.toLowerCase().replace(/[^a-z]+/g, '-')}`;
   return (
@@ -116,7 +128,7 @@ export function BloqueConfig({
 
         {/* El orden importa y es el del visor: el ERROR va antes que el vacío. Si la consulta falló
             no se sabe si hay filas, y decir «todavía no hay» sería afirmar algo que nadie comprobó. */}
-        {estado === 'cargando' && <EsqueletoBloque etiqueta={etiquetaCarga} />}
+        {estado === 'cargando' && <EsqueletoBloque etiqueta={etiquetaCarga} filas={filasCarga} />}
 
         {estado === 'error' && (
           // `role="alert"` como en el visor: el bloque que falla tiene que anunciarse solo, porque
@@ -145,8 +157,12 @@ export function BloqueConfig({
  * `role="status"` + `aria-busy` + nombre: quien no ve la pantalla necesita que le digan que ESTE
  * bloque está cargando, y con cuatro bloques en la misma vista el nombre es lo único que distingue
  * cuál.
+ *
+ * `filas` existe porque no todos los bloques traen una tabla: el del token (HU #11634) son tres
+ * líneas de ficha, y cuatro barras encogiéndose a tres al llegar los datos es el salto de alto que
+ * el esqueleto está para evitar. Se ajusta a lo que viene, no al revés.
  */
-export function EsqueletoBloque({ etiqueta }: { etiqueta: string }) {
+export function EsqueletoBloque({ etiqueta, filas = 4 }: { etiqueta: string; filas?: number }) {
   return (
     <div
       role="status"
@@ -154,7 +170,7 @@ export function EsqueletoBloque({ etiqueta }: { etiqueta: string }) {
       aria-label={etiqueta}
       className="animate-pulse space-y-2 motion-reduce:animate-none"
     >
-      {Array.from({ length: 4 }, (_, fila) => (
+      {Array.from({ length: filas }, (_, fila) => (
         <div key={fila} className="h-9" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
       ))}
     </div>
@@ -166,11 +182,19 @@ export function EsqueletoBloque({ etiqueta }: { etiqueta: string }) {
  *
  * El punto de color es decorativo y `aria-hidden` en `StatusChip`: si el estado se distinguiera solo
  * por el color, la tabla dejaría fuera a quien no lo percibe (y a cualquiera que la imprima).
- * Masculino en los dos catálogos («Inactivo», no «Inactiva») porque el sujeto es «el NIT» y «el
- * municipio»; que coincida además simplifica la lectura de dos tablas seguidas.
+ *
+ * El género lo pide el SUJETO de cada tabla, y por eso es un parámetro y no una constante: «el NIT»
+ * y «el municipio» son masculinos —de ahí el defecto— y «la causal» femenina, tal y como la escribe
+ * la spec de UX en el bloque 3 («● Activa / ○ Inactiva»). Concordar es lo que hace que el chip se
+ * lea como parte de la frase de la fila y no como una etiqueta pegada encima.
  */
-export function ChipEstadoConfig({ activo }: { activo: boolean }) {
-  return <StatusChip tone={activo ? 'success' : 'neutral'}>{activo ? 'Activo' : 'Inactivo'}</StatusChip>;
+export function ChipEstadoConfig({ activo, genero = 'm' }: { activo: boolean; genero?: 'm' | 'f' }) {
+  const terminacion = genero === 'f' ? 'a' : 'o';
+  return (
+    <StatusChip tone={activo ? 'success' : 'neutral'}>
+      {activo ? `Activ${terminacion}` : `Inactiv${terminacion}`}
+    </StatusChip>
+  );
 }
 
 /**
