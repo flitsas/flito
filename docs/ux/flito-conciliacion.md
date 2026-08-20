@@ -112,7 +112,7 @@ letra: sin él, entrar por el enlace profundo del reporte de costos con un rol e
 | Listado de boletas | `GET /flito/conciliacion/boletas` | ADR §7.2 | Query: `companiaId`, `estado`, `desde`, `hasta`, `cursor`. **Ninguno es PII** → puede ir en la query |
 | Detalle + líneas | `GET /flito/conciliacion/boletas/:id` | ADR §7.2 | `BoletaDetalleDto`. `:id` es uuid opaco |
 | Cargar y cruzar | `POST /flito/conciliacion/boletas` | ADR §7.1 | `multipart`: `archivo` + `companiaId` + `fechaPago`. **No mueve dinero**. 201 con el cuadre ya resuelto |
-| Conciliar | `POST /flito/conciliacion/boletas/:id/conciliar` | ADR §7.3 | Cuerpo `{}`. Re-cruza dentro de la transacción; 422 `boleta_incompleta` con los resultados **ya actualizados** |
+| Conciliar | `POST /flito/conciliacion/boletas/:id/conciliar` | ADR §7.3 | Cuerpo `{}`. Re-cruza dentro de la transacción; 409 `boleta_incompleta` con los resultados **ya actualizados** |
 | Subir comprobante | `POST …/boletas/:id/comprobante` | ADR §7.4 | PDF/JPG/PNG, 15 MB, magic number. 409 `comprobante_ya_existe` |
 | Ver comprobante | `GET …/boletas/:id/comprobante` | ADR §7.4 | `{ url, nombreArchivo, contentType }` firmada y caducable |
 | Comprobante para el gestor | `GET /flito/soat/:id/comprobante-conciliacion` | ADR §7.5 | Fuera de esta pantalla. `admin \| financiera \| proveedor` |
@@ -219,7 +219,7 @@ flowchart TD
     O --> P["Confirmacion: esto descuenta<br/>de las bolsas y NO se puede deshacer"]
     P -- Cancelar --> I
     P -- Confirmar --> Q{"Sigue cuadrando<br/>dentro de la transaccion?"}
-    Q -- No --> R["422 boleta_incompleta<br/>la tabla se repinta con los motivos NUEVOS"]
+    Q -- No --> R["409 boleta_incompleta<br/>la tabla se repinta con los motivos NUEVOS"]
     R --> I
     Q -- Si --> S["PUNTO DE NO RETORNO<br/>sale el dinero de las dos bolsas"]
 
@@ -682,21 +682,37 @@ cuarto estado honesto de esta superficie: **«Ya no queda ninguna línea sin cua
 
 | Acción | Habilitada cuando | Validación en cliente | Qué hace el servidor |
 |---|---|---|---|
-| **Conciliar boleta** | `estado === 'cargada'` **y** cero líneas distintas de `ok` | Se cuenta sobre las líneas de la respuesta, no sobre un flag | **Vuelve a cruzar dentro de la transacción** y puede responder 422 aunque el botón estuviera habilitado (ADR §7.3). La pantalla tiene que saber pintar ese 422 |
+| **Conciliar boleta** | `estado === 'cargada'` **y** cero líneas distintas de `ok` | Se cuenta sobre las líneas de la respuesta, no sobre un flag | **Vuelve a cruzar dentro de la transacción** y puede responder 409 `boleta_incompleta` aunque el botón estuviera habilitado (ADR §7.3). La pantalla tiene que saber pintar ese 409 |
 | **Volver a cruzar** (R1) | `estado === 'cargada'`, siempre | — | Reescribe resultados. No mueve dinero |
 | **Descartar** (R2) | `estado === 'cargada'` | Confirmación en línea | `estado='descartada'`; libera el hash |
 | **Filtrar «solo las que no cuadran»** | siempre | — | Nada: es cliente |
 
-**El 422 después de confirmar** es el caso feo y hay que diseñarlo, porque va a pasar (entre la carga y
-el clic pueden pasar días):
+**El 409 `boleta_incompleta` después de confirmar** es el caso feo y hay que diseñarlo, porque va a
+pasar (entre la carga y el clic pueden pasar días):
 
 > **«La boleta cambió desde que la cargaste: ahora hay 2 líneas que no cuadran. No se descontó nada.
 > Revisa la tabla, que ya está actualizada.»**
 
 Se pinta como banner de advertencia sobre la tabla, con `role="alert"`, y **la tabla se repinta con las
-líneas que trae el 422** — no con las que había en pantalla. La frase «no se descontó nada» no es
+líneas que trae el 409** — no con las que había en pantalla. La frase «no se descontó nada» no es
 tranquilizadora de relleno: es la única pregunta que tiene quien acaba de pulsar un botón que mueve
 dinero.
+
+El cuerpo trae lo necesario para las dos cosas, el texto y el repintado:
+
+```ts
+{ error: string; codigo: 'boleta_incompleta'; boleta: BoletaDetalleDto; sinCuadrar: number }
+```
+
+`sinCuadrar` es el «2» de la frase y `boleta.lineas` es la tabla nueva. **Distinguir por `codigo` y no
+por el número**: los tres rechazos de negocio de este endpoint son 409 —`boleta_incompleta`,
+`boleta_ya_conciliada` y `boleta_descartada`— y los tres necesitan un copy distinto. Un `if (status
+=== 409)` que asuma «ya conciliada» pintaría el mensaje equivocado en el caso más caro de los tres.
+
+> **Nota de contrato, por si alguien recuerda otra cosa.** El borrador del ADR §7.3 proponía **422**
+> para este caso. El AC2 de la HU #11677 pide **409**, que es además lo semánticamente correcto —la
+> boleta existe y la petición está bien formada; lo que falla es el estado de sus líneas—, y es lo que
+> el backend implementó y probó. Este documento y el ADR ya dicen 409.
 
 ### El copy exacto — AC4 y AC5
 
@@ -734,8 +750,12 @@ Cuatro reglas de este bloque, y las cuatro importan:
 
 1. **La línea de tránsito solo aparece si hubo consumo de tránsito.** `registrarConsumoTransito`
    devuelve `null` cuando ninguna bolsa cubre el par (ADR H3), y anunciar «− $ 0 de la bolsa de
-   tránsito» sería informar de un movimiento que no existe. Si hay varios organismos, va **una línea
-   por organismo**.
+   tránsito» sería informar de un movimiento que no existe. Cuando hay varias, va **una línea por
+   BOLSA de tránsito** —una por cada elemento de `transito`—, **no una por organismo**: el saldo
+   pertenece a la bolsa, no a la secretaría, y una bolsa puede cubrir varias. Pintar una línea por
+   organismo repetiría el mismo `saldoResultante` en dos filas, que es enseñar el mismo dinero dos
+   veces en la pantalla donde menos se puede. El rótulo es el `nombre` de la bolsa, que es como la
+   llamó quien la creó («Bolsa de tránsito de Medellín») y por tanto ya se lee como un lugar.
 2. **Si hubo `adoptados`** (el SOAT ya se había descontado al liquidar; ADR §7.3), se añade:
    > «2 de esos SOAT ya se habían descontado al liquidar su trámite, así que no se volvieron a cobrar:
    > hoy salieron de la bolsa **$ 5.120.400**.»
@@ -770,7 +790,22 @@ primera petición. Dentro, sin diferencias entre los dos roles.
 ### Datos
 
 `GET /flito/conciliacion/boletas/:id` → `BoletaDetalleDto` (ADR §7.2), más los campos de R3.
-`POST …/:id/conciliar` → `{ boleta, saldoCliente, lineas, adoptados }` (ADR §7.3).
+`POST …/:id/conciliar` → **`ConciliacionRealizadaDto`** (ADR §7.3, corregido contra la
+implementación). Los campos que alimentan el aviso, uno a uno:
+
+| Campo | Qué pinta |
+|---|---|
+| `soatConciliados` · `totalConciliado` | «Se conciliaron **11 SOAT** por **$ 6.284.900**» |
+| `cliente.nombre` · `cliente.descontado` · `cliente.saldoResultante` | la línea de la bolsa del cliente |
+| `transito[]` (`nombre`, `descontado`, `saldoResultante`) | **una línea por bolsa**, ver la regla 1 |
+| `adoptados[]` | la frase del orden 2. `adoptados.length` es el «2 de esos SOAT»; el importe que sí salió hoy es `cliente.descontado` |
+| `boleta` | la boleta ya en `conciliada`, con `conciliadaEn`, `conciliadaPorNombre` y sus líneas selladas. **Las líneas van aquí**, no en la raíz |
+
+Ojo con dos que son fáciles de confundir y significan cosas distintas: **`totalConciliado` no es
+`cliente.descontado`**. El primero es lo que la boleta concilió; el segundo, lo que salió de la bolsa
+hoy. Son el mismo número solo cuando `adoptados` está vacío, y la cifra grande del aviso es el
+primero. Si la pantalla usa `totalConciliado` donde va `descontado`, anuncia un cobro que no ocurrió.
+
 `POST …/:id/recruzar` → **R1, no existe**. `POST …/:id/descartar` → **R2, no existe**.
 
 **PII:** la respuesta trae **placa y número de póliza**, y por eso los tres endpoints de lectura
@@ -923,7 +958,7 @@ tinta `--flit-*-ink`. Es literalmente el fallo que se corrigió en ese bug.
 - **Movimientos de foco explícitos**, los cuatro:
   1. Al llegar al detalle desde la carga → el `<h1>` del `PageHeaderCard` (`tabIndex={-1}` + `.focus()`).
   2. Al conciliar con éxito → el banner de éxito (`tabIndex={-1}`), que es donde están las cifras.
-  3. Al recibir el 422 → el banner de advertencia (`role="alert"`, `tabIndex={-1}`).
+  3. Al recibir el 409 `boleta_incompleta` → el banner de advertencia (`role="alert"`, `tabIndex={-1}`).
   4. Al cerrar el modal de confirmación → **el `FlitModal` ya lo hace** (`useFocusTrap` con
      `restoreFocusRef`), pero hay que pasarle `restoreFocusRef` apuntando al `<h1>`: tras conciliar, el
      botón que abrió el modal **ya no existe** y el foco se caería a `<body>` — es exactamente el caso
@@ -941,7 +976,7 @@ tinta `--flit-*-ink`. Es literalmente el fallo que se corrigió en ese bug.
 - **Contraste 4.5:1**: solo tokens del kit. Nada de HEX sueltos, nada de `--flit-success` como texto,
   nada de `rgba()` sobre superficie teñida (el chip ya usa fondos opacos por el #11604).
 - El skeleton respeta `motion-reduce` (ya lo hace `PageContentSkeleton`).
-- Los cuatro `role="status"` / `role="alert"` de la pantalla (contador, texto bloqueante, éxito, 422)
+- Los cuatro `role="status"` / `role="alert"` de la pantalla (contador, texto bloqueante, éxito, 409)
   **no se solapan**: solo uno está montado a la vez en cada estado, para que un lector no lea tres
   regiones vivas encima del otro.
 
@@ -976,7 +1011,7 @@ Con una boleta real cargada, póliza y placa a mano:
    del cuerpo de un `multipart` (el `.xlsx`) o de una **respuesta**. Si aparece un `GET
    ?poliza=`, el AC está roto: no existe ningún endpoint de búsqueda por póliza y no debe existir.
 3. **Consola, con «Preserve log» y recargando.** Filtrar por la póliza y por la placa: **cero
-   coincidencias**. Repetir provocando un 404, un 422 y un 500 — el caso típico es un `console.error(e)`
+   coincidencias**. Repetir provocando un 404, un 409 y un 500 — el caso típico es un `console.error(e)`
    en un `catch` que imprime el cuerpo entero de la respuesta.
 4. **Historial y título.** `document.title` y el `<h1>` llevan la **referencia** de la boleta
    (`BOL-000123`), nunca una placa ni una póliza. Comprobarlo también en el historial del navegador,
@@ -994,10 +1029,10 @@ Con una boleta real cargada, póliza y placa a mano:
 2. **Boleta de 1 línea.** Todos los textos en singular.
 3. **Conciliar dos veces** (doble clic, o dos pestañas). La segunda tiene que responder **409
    `boleta_ya_conciliada`** y la pantalla decirlo sin sugerir que se descontó dos veces.
-4. **Conciliar una boleta que dejó de cuadrar** entre la carga y el clic → **422 con los motivos
-   actualizados**, la tabla repintada y el mensaje «no se descontó nada». Si el 422 llega con los
-   motivos viejos, el commit del servidor está mal puesto (ADR §7.3) — es un fallo de backend que se
-   detecta desde esta pantalla.
+4. **Conciliar una boleta que dejó de cuadrar** entre la carga y el clic → **409 `boleta_incompleta`
+   con los motivos actualizados**, la tabla repintada y el mensaje «no se descontó nada». Si llega con
+   los motivos viejos, el commit del servidor está mal puesto (ADR §7.3) — es un fallo de backend que
+   se detecta desde esta pantalla.
 5. **SOAT `pagado` sin número de póliza.** El backfill de la `0157` solo alcanza lo que el OCR leyó, así
    que puede haberlos: su línea sale `no_encontrada` y **no hay forma de arreglarlo desde ninguna
    pantalla del alcance actual**. Si QA se topa con muchos, es la señal de que el riesgo abierto nº 4

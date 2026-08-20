@@ -693,7 +693,7 @@ sequenceDiagram
     S->>SO: RE-CRUCE dentro de la tx (el estado pudo cambiar)
     alt alguna línea dejó de cuadrar
         S->>S: reescribe resultados · boleta sigue 'cargada' · COMMIT
-        S-->>W: 422 boleta_incompleta + líneas (CF-02)
+        S-->>W: 409 boleta_incompleta + líneas (CF-02)
     else todas ok
         loop por línea, EN SERIE (el saldo se encadena)
             S->>BC: asentarMovimiento(tx, salida, origen='conciliacion',<br/>llave='salida:soat:ID', tramite_id=NULL)
@@ -754,7 +754,11 @@ Carga y cruce. **No mueve dinero.**
 | 400 | `{ error, codigo: 'fecha_invalida' }` | `fechaPago` futura o inexistente |
 | 404 | `{ error, codigo: 'compania_no_existe' }` | |
 | 409 | `{ error, codigo: 'boleta_duplicada', boletaId }` | mismo `archivo_hash` en una boleta viva. Devuelve el id: la pantalla lleva a la boleta que ya existe en vez de dejar al usuario adivinando |
-| 422 | `{ error, codigo: 'demasiadas_filas', maximo }` | tope duro configurable (sugerido 500, constante en `shared-types` con override por env, como `COMPARENDOS_EXPORT_MAX_FILAS`) |
+| 400 | `{ error, codigo: 'demasiadas_filas', maximo }` | tope duro configurable (`CONCILIACION_MAX_FILAS`, 500 por defecto, con override por env, como `COMPARENDOS_EXPORT_MAX_FILAS`) |
+| 400 | `{ error, codigo: 'archivo_demasiado_grande', bytes }` | el `.xlsx` cabe en 10 MB pero por dentro es enorme. Se mira el zip **antes** de abrir el libro: abrirlo para contar filas es lo que tumba el proceso |
+| 400 | `{ error, codigo: 'poliza_repetida' }` | la misma póliza en dos filas del **mismo** archivo. No confundir con el resultado `poliza_duplicada`, que es una póliza en dos SOAT distintos |
+
+> **Corregido contra la implementación (HU #11676).** El borrador daba **422** a `demasiadas_filas`; el código responde **400**, con el mismo `codigo` en el cuerpo. El AC7 de esa HU agrupa todos los rechazos del archivo en el mismo desenlace —«este archivo no sirve»— y deja que el `codigo` distinga el caso, que es lo que la pantalla lee de todas formas. Partirlos en dos números HTTP no le daba a nadie una decisión distinta. Las dos filas de abajo tampoco estaban en el borrador: salieron del guarda de zip y del cotejo de pólizas del propio archivo.
 
 #### 7.2 `GET /api/flito/conciliacion/boletas` y `GET …/boletas/:id`
 
@@ -764,13 +768,72 @@ Listado (query: `companiaId`, `estado`, `desde`, `hasta`, `cursor` — **ninguno
 
 #### 7.3 `POST /api/flito/conciliacion/boletas/:id/conciliar`
 
+> **Apartado corregido contra la implementación (HU #11677).** Se escribió antes de que el endpoint existiera y dos cosas no se sostuvieron al construirlo: el código HTTP de `boleta_incompleta` y la forma de la respuesta. Lo que sigue es lo que hace el código, no lo que se propuso. El resto del ADR —la llave compartida, la adopción, el `tramite_id NULL`— sí se sostuvo tal cual.
+
 Cuerpo vacío (`{}` con `.strict()`). El botón solo se habilita si todas las líneas están `ok`, pero **el servidor no se fía de eso y vuelve a cruzar dentro de la transacción**: entre la carga y el clic pueden haber pasado días, y un SOAT pudo salir de `pagado`, cambiar de valor o conciliarse en otra boleta.
 
-- **200** → `{ boleta, saldoCliente, lineas, adoptados }`. `adoptados` es la lista de líneas cuyo descuento ya lo había hecho la liquidación (orden 2), para que la pantalla lo diga en vez de anunciar un cobro que no ocurrió.
+- **200** → `ConciliacionRealizadaDto` (abajo).
+- **409** `boleta_incompleta` — alguna línea dejó de cuadrar en el re-cruce (CF-02). El cuerpo es `{ error, codigo, boleta: BoletaDetalleDto, sinCuadrar }`, con la boleta **ya re-cruzada**, para que la pantalla repinte la tabla con lo que hay hoy y no con lo que había cuando se cargó. **Ojo con el orden de operaciones:** el re-cruce se **persiste** y la transacción hace **commit** antes de responder — si se lanzara desde dentro de la transacción, el diagnóstico actualizado se perdería con el rollback y el usuario vería los resultados viejos.
 - **409** `boleta_ya_conciliada` | `boleta_descartada`.
-- **422** `boleta_incompleta` con la lista de líneas y su motivo (CF-02). **Ojo con el orden de operaciones:** el re-cruce se **persiste** y la transacción hace **commit** antes de responder 422 — si se lanzara desde dentro de la transacción, el diagnóstico actualizado se perdería con el rollback y el usuario vería los resultados viejos.
+- **403** `sin_actor` — no hay usuario identificado. Es un guarda de puerta, **antes** de abrir transacción: `flito_concil_boleta_sello_chk` no admite media firma, así que sin este rechazo sería un `23514` en mitad de la transacción que mueve el dinero. Con `authMiddleware` delante no debería alcanzarse nunca; existe porque el coste de que se alcance es un rollback de dinero en vuelo.
+
+**Por qué 409 y no el 422 que decía el borrador.** Lo fija el AC2 de la HU #11677, y además es lo semánticamente correcto: la boleta existe y la petición está bien formada; lo que falla es el **estado** de sus líneas, que es un conflicto y no una entidad no procesable. Los tres rechazos de negocio del endpoint son 409 y se distinguen por `codigo` —que es lo que la pantalla lee para elegir el copy—; el número HTTP solo dice «no se hizo».
 
 No lleva `Idempotency-Key`: la idempotencia del dinero ya la dan las llaves y el `FOR UPDATE` sobre la boleta, y un segundo POST responde `409 boleta_ya_conciliada`.
+
+##### La forma de la respuesta
+
+El borrador proponía `{ boleta, saldoCliente, lineas, adoptados }`, y **no alcanza**. Los dos motivos solo se ven mirando el aviso de éxito que esta respuesta tiene que alimentar (`docs/ux/flito-conciliacion.md`, «El copy exacto — AC4 y AC5»):
+
+1. **No puede expresar el desglose de tránsito.** El aviso pinta una línea por **bolsa de tránsito** tocada, con su importe y su saldo resultante, y las bolsas son N. Un `saldoCliente` escalar solo cubre uno de los dos libros; el otro se quedaría sin cifras o exigiría una segunda petición justo después de mover dinero.
+2. **No distingue lo conciliado de lo que salió hoy.** En el orden 2 hay SOAT que ya se habían descontado al liquidar (`adoptados`), así que **el total conciliado y el importe que salió de la bolsa no son el mismo número**. Sin esa distinción el aviso anuncia un cobro que no ocurrió, y la cifra grande no cuadra con el saldo que el usuario ve — que es la forma más rápida de perder la confianza en una pantalla de dinero.
+
+`lineas` tampoco se repite en la raíz: ya viaja dentro de `boleta`, y dos copias de la misma lista se desincronizan a la primera edición.
+
+```ts
+export interface ConciliacionRealizadaDto {
+  /** La boleta ya en `conciliada`, con sus líneas selladas. Incluye actor y fecha. */
+  boleta: BoletaDetalleDto;
+  soatConciliados: number;
+  /**
+   * Suma de `flito_soat.valor_pagado` de los SOAT conciliados — la cifra grande del aviso.
+   * NO es lo mismo que `cliente.descontado`: la diferencia entre las dos es exactamente lo que
+   * suman los `adoptados`.
+   */
+  totalConciliado: number;
+  cliente: BolsaClienteAfectadaDto;
+  /** Una entrada por BOLSA de tránsito tocada. Vacío si ningún organismo está cubierto. */
+  transito: BolsaTransitoAfectadaDto[];
+  adoptados: LineaAdoptadaDto[];
+}
+
+interface BolsaAfectadaDto {
+  /** Nombre para pintar: el del cliente, o el de la bolsa de tránsito. */
+  nombre: string | null;
+  /** Lo que salió de esta bolsa HOY. Puede ser CERO con líneas conciliadas: es el orden 2. */
+  descontado: number;
+  /** Saldo DESPUÉS de la conciliación. Se LEE de la bolsa, no se calcula sumando (ver abajo). */
+  saldoResultante: number;
+}
+interface BolsaClienteAfectadaDto extends BolsaAfectadaDto { companiaId: number; }
+interface BolsaTransitoAfectadaDto extends BolsaAfectadaDto { bolsaId: string; }
+
+/** Una línea cuyo descuento YA existía: el sellado se le adelantó a Financiera (orden 2). */
+interface LineaAdoptadaDto {
+  lineaId: string;
+  filaNumero: number;
+  soatId: string;
+  valor: number;
+  movimientoBolsaId: string;
+  /** `true` si estaba en `origen='automatico'` y esta conciliación lo pasó a `'conciliacion'`. */
+  adoptado: boolean;
+}
+```
+
+Dos decisiones dentro del DTO que conviene no deshacer:
+
+- **`transito` se agrupa por BOLSA y no por organismo**, aunque el copy hable de «la bolsa de tránsito de Medellín». El saldo pertenece a la bolsa: dos secretarías cubiertas por la misma bolsa comparten saldo, y pintar dos líneas con el mismo `saldoResultante` sería enseñar el mismo dinero dos veces.
+- **Los dos saldos se LEEN de la fila de la bolsa al final de la transacción**, no se deducen del último movimiento asentado. Cuando todas las líneas son adopciones no se asienta nada, y el `saldo_resultante` de un movimiento viejo es el saldo de otro día. Es la cifra que el usuario va a cotejar contra el extracto, así que sale de la misma fila que el extracto lee.
 
 #### 7.4 `POST` y `GET …/boletas/:id/comprobante`
 
@@ -965,7 +1028,7 @@ export interface BoletaDetalleDto { boleta: BoletaResumenDto; lineas: LineaBolet
 - **backend-agent** — Importa `redondear`, `hoyIso`, `periodoDeFecha` y `asentarMovimiento` de `flito-bolsas.service.ts`; no los recrees. Los asientos van **en serie** dentro de una sola transacción: `saldo_resultante` encadena, y en paralelo la última línea dejaría de coincidir con el saldo de la bolsa (es el mismo motivo por el que `registrarSalidasLiquidacion` lo hace así). `registrarConsumoTransito` devuelve `null` por **dos** motivos distintos (H3): si necesitas el id del movimiento de tránsito para `movimiento_transito_id`, reléelo por su llave (`consumo:soat:<id>`, índice único) en vez de cambiar la firma de una función que también usa `liquidar`.
 - **db-review-agent** — Tres cosas a mirar con lupa: (1) que la `0157` ensanche los **dos** `CHECK` de `origen`, incluido el que conserva el nombre viejo `flito_org_mov_origen_valido`; (2) que el `UPDATE` del backfill lleve su `numero_poliza IS NULL` (sin él deja de ser idempotente y pisa correcciones manuales); (3) que `idx_flito_concil_linea_soat_unica` exista — es la única barrera contra conciliar el mismo SOAT en dos boletas. Y anota como hallazgo aparte que `schema.ts` no declara los `CHECK` de valor de estas dos tablas.
 - **security-agent** — Póliza y placa nunca en path ni query; los tres endpoints de lectura declaran `logPiiAccess` con `['numero_poliza','placa']`; el `motivo` lleva la **referencia** de la boleta, no la póliza. El router de conciliación **no** admite `proveedor`; su lectura va por `/flito/soat/:id/comprobante-conciliacion` con `buscarConAcceso` (404, no 403). Hallazgo heredado y fuera de alcance, para tu lista: `pagarEnTx` escribe póliza y VIN en claro en `audit_logs.detail`.
-- **qa-agent** — Los dos órdenes son casos distintos y los dos hay que probarlos: concilio→liquido (el saldo no se mueve al sellar) y liquido→concilio (el saldo no se mueve al conciliar, y la respuesta lo dice en `adoptados`). Añade el reverso después de conciliar: el dinero **no** vuelve. Y el caso feo: conciliar una boleta cuya línea dejó de cuadrar entre la carga y el clic → 422 **con los resultados ya actualizados en la base** (si el 422 llega con los motivos viejos, el commit está mal puesto).
+- **qa-agent** — Los dos órdenes son casos distintos y los dos hay que probarlos: concilio→liquido (el saldo no se mueve al sellar) y liquido→concilio (el saldo no se mueve al conciliar, y la respuesta lo dice en `adoptados`). Añade el reverso después de conciliar: el dinero **no** vuelve. Y el caso feo: conciliar una boleta cuya línea dejó de cuadrar entre la carga y el clic → 409 `boleta_incompleta` **con los resultados ya actualizados en la base** (si llega con los motivos viejos, el commit está mal puesto).
 - **ux-agent** — La pantalla tiene que distinguir tres estados que se parecen y no son lo mismo: «descontado ahora», «ya estaba descontado por la liquidación» y «no cuadra, y por qué». Y si se aprueba la opción (a) del GMF, tiene que decir que el 4x1000 se cobra al liquidar.
 - **tech-lead-agent** — La consulta de duplicados de póliza (§1.2) se corre **antes** de estimar la HU-2: su resultado decide si hace falta una vía de corrección manual, que hoy no está en el Feature.
 
