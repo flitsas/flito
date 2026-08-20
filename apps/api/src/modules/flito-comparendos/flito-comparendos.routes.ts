@@ -63,9 +63,11 @@ import {
   nombreArchivoExport,
 } from './flito-comparendos.export.service.js';
 import {
+  CAMPOS_PII_NIT,
   CAMPOS_PII_OBSERVACION,
   CAMPOS_PII_REGISTRO,
   CAMPOS_PII_SYNC_RUN,
+  RECURSO_NIT,
   RECURSO_REGISTROS,
   RECURSO_SYNC_RUN,
   registrarAccesoComparendos,
@@ -193,6 +195,14 @@ const syncLimiter = rateLimit({
  * módulo» sería afirmar un número que dejó de ser cierto. Las dos cotas y por qué se aceptan juntas
  * están en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`, que **complementa** a
  * ADR-0001: no lo enmienda ni lo supersede.
+ *
+ * **Desde el Bug #11646 los sumandos son tres**, y hasta él este párrafo declaraba un techo falso:
+ * el catálogo de NITs y las corridas de sync también devuelven NITs y no tenían cuota ninguna, así
+ * que el «techo del módulo» dejaba fuera precisamente las rutas sin límite. El tercer sumando es
+ * `lecturasPiiLimiter`, y no mueve el orden de magnitud porque lo que entrega está acotado por el
+ * tamaño del catálogo y por el `limit` sin offset de las corridas —el razonamiento entero está en su
+ * docstring—: el export lo sigue dominando. Y sigue habiendo una respuesta con NITs fuera de esta
+ * cuenta, `POST /sync`; está anotada en el docstring de `GET /nits`.
  */
 const registrosLimiter = rateLimit({
   windowMs: 60_000,
@@ -236,6 +246,46 @@ const exportLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-comparendos-export'),
   message: { error: 'Demasiados exports seguidos, espere 1 minuto' },
   store: makeStore('rl:flito-comparendos-export:'),
+});
+
+/**
+ * Las OTRAS lecturas con datos personales —el catálogo de NITs y las corridas de sync—: 60 por
+ * minuto y usuario (Bug #11646).
+ *
+ * Existe porque el criterio del módulo no había llegado a estas tres rutas: devolvían NIT con el
+ * único freno del `apiLimiter` general (500/15 min y por IP, compartido con toda la API), que no es
+ * una cuota de este dato ni cuenta por usuario.
+ *
+ * **Bolsa propia y no la de `/registros`**, por el mismo motivo por el que el export tiene la suya
+ * (AC5 de la HU #11558): son gestos de pantallas distintas —la parametrización y la consola de
+ * sync—, y con una cuota compartida cargar la lista de NITs le comería el presupuesto a quien está
+ * paginando la tabla; el usuario vería romperse una pantalla por lo que hizo en otra.
+ *
+ * **60/min, el mismo número que el listado, pero acotando otra cosa.** Estas dos lecturas devuelven
+ * un conjunto de identidades acotado, y NO porque `scope_nits` sea un reflejo del catálogo: no lo
+ * es. `eliminarNit` borra en duro y las corridas conservan su alcance histórico, así que
+ * `/sync/runs` puede entregar NITs que ya no están en el catálogo — es un conjunto propio, no un
+ * subconjunto. Lo que lo acota son dos cotas reales: `runsQuerySchema` topa el `limit` en 100 y
+ * **no admite offset**, de modo que no hay manera de caminar el histórico hacia atrás, y lo que
+ * quedaría más allá de la retención ya lo ha borrado la purga (RN-26, migración 0152). El catálogo,
+ * por su parte, se entrega entero en la primera petición.
+ *
+ * Con esas dos cotas puestas, lo que compra la cuota no es un tope de filas sino ritmo y ruido: cada
+ * petición deja su fila de acceso, y un bucle contra estas rutas es un patrón visible en
+ * `pii_access_log` en vez de tráfico indistinguible del normal.
+ *
+ * Una sola bolsa para las tres y no una por ruta: ninguna es de alta frecuencia, y trocearlas más
+ * multiplicaría los sumandos del techo del módulo sin proteger un dato más. Cualquier lectura nueva
+ * del módulo que devuelva datos personales y no sea el consolidado va aquí.
+ */
+const lecturasPiiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-lecturas-pii'),
+  message: { error: 'Demasiadas consultas seguidas, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-lecturas-pii:'),
 });
 
 const idSchema = z.string().uuid();
@@ -284,8 +334,49 @@ const actualizarNitSchema = z.object({
   activo: z.boolean().optional(),
 }).refine((d) => d.alias !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
 
-router.get('/nits', async (_req: Request, res: Response) => {
-  res.json(await listarNits());
+/**
+ * El catálogo entero, y por eso es una lectura de datos personales de pleno derecho (Bug #11646).
+ *
+ * Hasta este arreglo no dejaba rastro, y lo que se perdía no era defensa en profundidad sino la
+ * respuesta al art. 17 de la Ley 1581: se podía listar QUIÉNES están monitoreados —el catálogo
+ * completo, sin paginar ni filtrar— sin que quedara constancia de quién lo consultó. Las demás
+ * LECTURAS del módulo sí lo anotaban.
+ *
+ * **La cuota que se le añade no protege la confidencialidad, y conviene no confundirse.**
+ * `listarNits` no lleva `LIMIT` ni filtro: la petición nº 1 ya entregó el catálogo entero y las 59
+ * que quedan de cuota no añaden un solo NIT. Aquí el «ritmo y ruido» de `lecturasPiiLimiter` es
+ * literal y **el único control real de esta ruta es el registro de acceso** — de ahí que sea lo que
+ * el Bug #11646 vino a poner. Con una salvedad que hay que saber: ese registro es hoy suprimible
+ * desde el cliente (Bug #11622 — un `X-Request-Id` que no sea UUID revienta el INSERT con un 22P02
+ * que el `catch` best-effort de `logPiiAccess` se traga en silencio), así que mientras aquello siga
+ * abierto la constancia que este arreglo promete no está garantizada. No se cierra aquí porque el
+ * agujero es del helper compartido, no de esta ruta.
+ *
+ * **La excepción que queda en el módulo, escrita a propósito: `POST /sync`.** Su respuesta es un
+ * `ComparendosSyncResultado` con `scopeNits` y el `nit` de cada paso dentro, y no deja registro de
+ * acceso ni sale con `no-store`. Es menos grave —no inocua— por dos motivos, y ninguno es «no es
+ * PII»: es un POST, que ningún navegador guarda por heurística de caché, y `audit()` sí anota el
+ * actor, el alcance y el `runId`, así que del GESTO queda constancia aunque no del hecho de haber
+ * leído esos NITs. Lo que falta por decidir es si la bitácora basta para el art. 17 cuando la
+ * lectura es el efecto de una escritura; es otra ruta y otro alcance, y este arreglo se cerró a las
+ * tres del Bug #11646.
+ *
+ * `accion: 'search'` y no `'read'` aunque no haya filtros: `read` es «un recurso concreto» en el
+ * vocabulario de `AccesoComparendos`, y esto entrega la lista entera. `filas` es lo que de verdad
+ * distingue esta línea del log de una consulta menor, porque aquí no hay ningún otro criterio que
+ * anotar: sin filtros ni `:id`, el tamaño ES la lectura.
+ */
+router.get('/nits', lecturasPiiLimiter, async (req: Request, res: Response) => {
+  const nits = await listarNits();
+  await registrarAccesoComparendos(req, {
+    recurso: RECURSO_NIT,
+    accion: 'search',
+    campos: [...CAMPOS_PII_NIT],
+    filas: nits.length,
+  });
+  // La lista de a quién se vigila no se queda en el disco del navegador después de cerrar sesión.
+  res.set('Cache-Control', 'no-store');
+  res.json(nits);
 });
 
 router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
@@ -575,11 +666,15 @@ const runsQuerySchema = z.object({
  * Las dos lecturas de corridas dejan registro de acceso (HU #11511, Ley 1581 art. 17).
  *
  * No es celo de más: `scope_nits` es la lista de NITs monitoreados y cada paso lleva el suyo, y un
- * NIT de persona natural es un documento de identidad —lo dice el COMMENT de la 0150—. Es la única
- * lectura de datos personales que este módulo expone hoy; `GET /registros` (HU #11502) usará el
- * mismo `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ * NIT de persona natural es un documento de identidad —lo dice el COMMENT de la 0150—. `GET
+ * /registros` (HU #11502) usa el mismo `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ *
+ * **Y por eso mismo las dos salen con `no-store` y con cuota desde el Bug #11646.** El rastro dice
+ * quién miró; no impide que la respuesta —hasta 100 corridas, cada una con su `scope_nits`— se
+ * quede escrita en la caché de disco del navegador y siga ahí cuando el usuario cierre sesión o
+ * preste el equipo. Son las dos mitades del mismo criterio y aquí solo estaba puesta una.
  */
-router.get('/sync/runs', async (req: Request, res: Response) => {
+router.get('/sync/runs', lecturasPiiLimiter, async (req: Request, res: Response) => {
   const parsed = runsQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   const runs = await listarSyncRuns(parsed.data.limit);
@@ -589,11 +684,12 @@ router.get('/sync/runs', async (req: Request, res: Response) => {
     campos: [...CAMPOS_PII_SYNC_RUN],
     filas: runs.length,
   });
+  res.set('Cache-Control', 'no-store');
   res.json(runs);
 });
 
 /** Detalle de una corrida con sus `steps[]`: qué fuente falló, con qué código y cuánto tardó (AC4). */
-router.get('/sync/runs/:id', async (req: Request, res: Response) => {
+router.get('/sync/runs/:id', lecturasPiiLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -607,6 +703,7 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
       filas: run.steps?.length ?? 0,
       referencia: run.runId,
     });
+    res.set('Cache-Control', 'no-store');
     res.json(run);
   } catch (e) { fallo(res, e); }
 });
