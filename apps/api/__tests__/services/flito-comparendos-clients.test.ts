@@ -57,7 +57,7 @@ vi.mock('../../src/shared/logger.js', () => ({
 
 const { consultarComparendosSimit } =
   await import('../../src/modules/flito-comparendos/clients/verifik-simit.client.js');
-const { consultarComparendosMunicipales } =
+const { consultarComparendosMunicipales, reiniciarAvisoTextoPlano } =
   await import('../../src/modules/flito-comparendos/clients/uts-municipal.client.js');
 const { env } = await import('../../src/config/env.js');
 
@@ -422,6 +422,81 @@ describe('errores tipados de las fuentes', () => {
     expect(r.httpStatus).toBe(200);
   });
 
+  // ── La forma REAL de las dos respuestas (capturadas el 2026-08-20) ─────────────────────────────
+  //
+  // Estas dos son la regresión crítica del módulo, no un caso más: en las dos fuentes la lista viva
+  // convive con OTRA lista vacía dentro del mismo cuerpo. Quedarse con la vacía —o no encontrar
+  // ninguna— devuelve cero comparendos para el NIT, y cero comparendos inactiva su histórico
+  // entero. Un fallo aquí no se ve como un error: se ve como «este NIT ya no debe nada».
+
+  it('SIMIT: `data.comparendos` vacío y `data.multas` con 5 → devuelve 5, nunca 0', async () => {
+    const multas = Array.from({ length: 5 }, (_, i) => ({
+      numeroComparendo: `7649700000005592081${i}`,
+      comparendo: true,
+      placa: 'LEW657',
+      fechaComparendo: '11/05/2026 14:20:00',
+      infracciones: [{ codigoInfraccion: 'D02', valorInfraccion: '1266222' }],
+      valorPagar: '1308422',
+    }));
+    // La raíz REAL de Verifik: `data` es un OBJETO, no un array — el barrido genérico de claves lo
+    // encontraba, veía que no era array y devolvía `fuente_respuesta_ilegible` (502).
+    httpsGetJsonMock.mockResolvedValue({
+      status: 200,
+      data: { data: { comparendos: [], multas, cursos: [], totalMultas: 5 }, signature: 'x', id: 'y' },
+    });
+
+    const r = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+
+    expect(r.items).toHaveLength(5);
+    expect(r.items[0]).toMatchObject({ numeroComparendo: '76497000000055920810' });
+  });
+
+  it('UTS: `informacionComparendoAdicional` vacío y ANTES que `informacionComparendo` → devuelve 1', async () => {
+    modoReal();
+    httpsGetJsonMock.mockResolvedValue({
+      status: 200,
+      data: {
+        idTipoIdentificacion: 3,
+        criterio: NIT,
+        response: null,
+        consultaMultaOComparendoOutDTO: {
+          estado: { codigoEstado: 1, descripcion: 'EXITOSO' },
+          informacionComparendoAdicional: [],
+          informacionComparendo: [{ numeroComparendo: 'D05001000000054652201', placa: 'PYT159' }],
+          informacionMulta: [],
+          tarifasComparendos: [],
+        },
+      },
+    });
+
+    const r = await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({ numeroComparendo: 'D05001000000054652201' });
+  });
+
+  it('UTS con `codigoEstado` distinto de 1 → error de fuente, NUNCA lista vacía', async () => {
+    modoReal();
+    httpsGetJsonMock.mockResolvedValue({
+      status: 200,
+      data: {
+        criterio: NIT,
+        consultaMultaOComparendoOutDTO: {
+          estado: { codigoEstado: 4, descripcion: 'SIN INFORMACION' },
+          informacionComparendo: [],
+        },
+      },
+    });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo).toMatchObject({ codigo: 'fuente_respuesta_ilegible', httpStatus: 200 });
+    expect(fallo.message).toContain('4');
+    expect(fallo.message).toContain('SIN INFORMACION');
+    // El `criterio` de la raíz ES el NIT: la pista viaja a `sync_steps.mensaje`, que se conserva.
+    expect(fallo.message).not.toContain(NIT);
+  });
+
   it('un cuerpo de texto plano no acaba en el mensaje del error', async () => {
     httpsGetJsonMock.mockResolvedValue({ status: 200, data: '<html>placa ABC123 cédula 1036640908</html>' });
 
@@ -491,22 +566,59 @@ describe('errores tipados de las fuentes', () => {
     expect(httpsGetJsonMock).not.toHaveBeenCalled();
   });
 
-  it('una base `http://` se RECHAZA: no sale la petición contra el 443 de ese host', async () => {
-    // El caso del UTS municipal, que hoy solo publica texto plano. `integraciones/http.ts` habla
-    // `https` incondicionalmente, así que sin esta comprobación una base `http://` no significaba
-    // «va sin cifrar»: la petición salía igual contra el 443 —con el NIT en la query, contra un
-    // endpoint que nadie revisó— o moría con un error opaco de TLS/DNS. Ahora es un fallo de
-    // provisión, explícito y con el nombre de la variable dentro.
-    modoReal('http://verifik.test', 'http://ec2-cualquiera.compute-1.amazonaws.com');
+  it('una base `http://` se RECHAZA en Verifik: en texto plano el Bearer se regala', async () => {
+    // Verifik sigue siendo https-only y no debe dejar de serlo: su petición lleva el token del
+    // módulo en la cabecera. La excepción de texto plano del 2026-08-20 es SOLO del UTS.
+    modoReal('http://verifik.test', 'https://uts.test');
 
     const simit = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
-    const uts = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
 
     expect(simit).toMatchObject({ codigo: 'fuente_no_configurada', status: 503, httpStatus: null });
-    expect(uts).toMatchObject({ codigo: 'fuente_no_configurada', status: 503, httpStatus: null });
-    expect(uts.message).toContain('UTS_MUNICIPAL_BASE_URL');
-    expect(uts.message).toContain('http');
+    expect(simit.message).toContain('VERIFIK_SIMIT_BASE_URL');
+    expect(simit.message).toContain('http');
     expect(httpsGetJsonMock).not.toHaveBeenCalled();
+  });
+
+  it('una base `http://` SÍ la acepta el UTS, y la petición sale por http de verdad', async () => {
+    // Decisión de David (2026-08-20): el proveedor del UTS no publica HTTPS y sin esto la fuente
+    // no es consultable. Lo que no puede pasar es que se acepte la base y la petición salga
+    // igualmente contra el 443 —el NIT remitido en silencio a un endpoint que nadie revisó—, así
+    // que el adapter tiene que pedirle la MISMA excepción al transporte.
+    modoReal('https://verifik.test', 'http://uts-inventado.test');
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [{ numero: 'M-1' }] } });
+
+    const r = await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    expect(r.items).toEqual([{ numero: 'M-1' }]);
+    const [url, , , opciones] = httpsGetJsonMock.mock.calls[0];
+    expect(url).toContain('http://uts-inventado.test/infraction/api/Infraccion/');
+    expect(opciones).toMatchObject({ permitirTextoPlano: true });
+  });
+
+  it('el UTS sobre http avisa en el log de que el NIT viaja sin cifrar, sin enseñar URL ni NIT', async () => {
+    reiniciarAvisoTextoPlano();
+    modoReal('https://verifik.test', 'http://uts-inventado.test');
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [] } });
+
+    await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    const texto = logueado();
+    expect(texto).toContain('sin cifrar');
+    // El aviso no puede ser la puerta por la que salgan el host ni el NIT.
+    expect(texto).not.toContain('uts-inventado.test');
+    expect(texto).not.toContain(NIT);
+  });
+
+  it('sobre https el UTS no pide texto plano ni avisa de nada', async () => {
+    reiniciarAvisoTextoPlano();
+    modoReal('https://verifik.test', 'https://uts.test');
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [] } });
+
+    await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    const [, , , opciones] = httpsGetJsonMock.mock.calls[0];
+    expect(opciones).toMatchObject({ permitirTextoPlano: false });
+    expect(logueado()).not.toContain('sin cifrar');
   });
 
   it('una base con query o fragmento se rechaza: es el único punto interpolado de la URL', async () => {

@@ -58,6 +58,22 @@ const RUTA_CONSULTA = '/v2/co/simit/consultar';
 /** Verifik discrimina el tipo de documento; este módulo monitorea empresas, siempre por NIT. */
 const TIPO_DOCUMENTO = 'NIT';
 
+/**
+ * Dónde cuelga Verifik la lista, en orden de prioridad. Las DOS ramas, y se concatenan.
+ *
+ * Capturado contra el proveedor el 2026-08-20: la raíz es `{ data, signature, id }`, `data` es un
+ * OBJETO (no un array) y dentro conviven `comparendos` —que llegó **vacío**— y `multas`, que traía
+ * los cinco comparendos del NIT. El barrido genérico de claves de primer nivel de `extraerLista`
+ * encontraba `data`, veía que no era un array y acababa en `fuente_respuesta_ilegible` (502): esa
+ * es la razón de que `COMPARENDOS_SIMIT_MODE=real` no funcionara contra esta fuente.
+ *
+ * `multas` va PRIMERO justo por eso. Quedarse con «la primera rama que exista» habría devuelto la
+ * lista vacía de `comparendos` y, con ella, la inactivación en falso del histórico del NIT; por eso
+ * `extraerLista` concatena en vez de elegir, y el orden de aquí solo decide quién gana el desempate
+ * del acumulador cuando un mismo número aparece en las dos.
+ */
+const RUTAS_LISTA = ['data.multas', 'data.comparendos'] as const;
+
 export interface OpcionesConsultaSimit {
   /**
    * Token ya descifrado, para que el sync lo lea UNA vez por corrida y no una vez por NIT.
@@ -139,7 +155,7 @@ export async function consultarComparendosSimit(
     }, limiteDeTiempoMs()), CTX);
 
     const httpStatus = exigirHttpOk(respuesta.status, CTX);
-    const items = extraerLista<ComparendoCrudoSimit>(respuesta.data, httpStatus, CTX);
+    const items = extraerLista<ComparendoCrudoSimit>(respuesta.data, httpStatus, CTX, RUTAS_LISTA);
 
     // Se registra la forma de lo que pasó, no lo que pasó: NIT enmascarado (Ley 1581), conteo y
     // código. Ni cabeceras, ni cuerpo, ni la lista.

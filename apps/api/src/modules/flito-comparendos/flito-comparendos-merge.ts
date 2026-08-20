@@ -59,6 +59,7 @@ import { asc } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoComparendosFieldMap } from '../../db/schema.js';
 import { ComparendosMapaHomologacionVacioError } from './flito-comparendos.errors.js';
+import { leerRuta } from './clients/fuente-http.js';
 import type { ComparendosOrigenFuente } from './clients/types.js';
 
 // ─────────────────────────────── El canónico ────────────────────────────────────────────────────
@@ -204,16 +205,26 @@ export function candidatosDe(mapa: MapaHomologacion, origen: ComparendosOrigenFu
 /**
  * Primer candidato con valor, en orden de prioridad.
  *
- * `hasOwnProperty` y no `item[ruta]` a secas (RN-14): un `sourcePath` como `constructor` o
- * `toString` leería del PROTOTIPO y devolvería una función como si fuera el dato del proveedor.
+ * La ruta puede ser ANIDADA (`infracciones.0.codigoInfraccion`,
+ * `estadoCuenta.secretaria.nombreAutoridadTransito`) y no solo una clave de primer nivel: los
+ * payloads reales del 2026-08-20 cuelgan de subobjetos la mitad de lo que el canónico necesita —el
+ * código y la descripción de la infracción en SIMIT, el organismo en el UTS— y sin esto el mapa v2
+ * no podía nombrarlos.
+ *
+ * Navega con `leerRuta`, la MISMA función que usan los adapters para sacar la lista del cuerpo, a
+ * propósito: si hubiera dos implementaciones de «ruta con puntos», un `source_path` querría decir
+ * una cosa al ingerir y otra al homologar. De ahí vienen también las dos garantías de RN-14: cada
+ * salto se comprueba con `hasOwnProperty` (un `source_path` como `constructor` o `toString` leería
+ * del PROTOTIPO y devolvería una función como si fuera el dato del proveedor) y los segmentos
+ * `__proto__`/`constructor`/`prototype` no se navegan nunca.
+ *
  * Vacío (`''`), `null` y `undefined` cuentan como ausencia: un campo en blanco no es un valor que
  * deba ganarle al siguiente candidato.
  */
 function primerValor(item: Record<string, unknown>, rutas: readonly string[] | undefined): unknown {
   if (!rutas) return undefined;
   for (const ruta of rutas) {
-    if (!Object.prototype.hasOwnProperty.call(item, ruta)) continue;
-    const valor = item[ruta];
+    const valor = leerRuta(item, ruta);
     if (valor === null || valor === undefined) continue;
     if (typeof valor === 'string' && valor.trim() === '') continue;
     return valor;
@@ -299,9 +310,15 @@ export function placaCanonica(valor: unknown): string | null {
  * devolvería el día anterior. Un comparendo con la fecha corrida un día es un dato mal registrado
  * que nadie ata a un problema de zona horaria.
  *
- * Se admiten las tres formas que aparecen en los portales de tránsito: ISO (con o sin hora),
- * `DD/MM/YYYY` y `DD-MM-YYYY`. Lo que no encaje se descarta — una fecha inventada es peor que
- * ninguna.
+ * Se admiten las tres formas que aparecen en los portales de tránsito: ISO, `DD/MM/YYYY` y
+ * `DD-MM-YYYY`, las tres **con hora detrás o sin ella**. Lo que no encaje se descarta — una fecha
+ * inventada es peor que ninguna.
+ *
+ * La hora en la rama local no es hipotética: Verifik manda `"11/05/2026 14:20:00"` (capturado el
+ * 2026-08-20) y el ancla `$` sin más la descartaba entera, así que los cinco comparendos reales del
+ * NIT se homologaban con `fechaComparendo: null`. Lo que sigue detrás del día se ignora a
+ * propósito: la hora no cabe en un `date` y, si se usara, arrastraría la zona horaria que el
+ * párrafo de arriba evita.
  */
 function fechaCanonica(valor: unknown): string | null {
   if (typeof valor !== 'string') return null;
@@ -310,7 +327,7 @@ function fechaCanonica(valor: unknown): string | null {
   const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(s);
   if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
-  const local = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s);
+  const local = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ].*)?$/.exec(s);
   if (local) return fechaValida(Number(local[3]), Number(local[2]), Number(local[1]));
 
   return null;
@@ -463,6 +480,20 @@ function esEscalarPersistible(valor: unknown): boolean {
  *     es una columna de texto: una fila con `__proto__` haría que la asignación normal invocara el
  *     setter heredado y cambiara el PROTOTIPO del objeto en vez de crear una propiedad.
  *     `defineProperty` siempre crea una propiedad propia.
+ *
+ * ── Rutas ANIDADAS: se reconstruye la HOJA, jamás el subárbol ────────────────────────────────────
+ *
+ * Desde el mapa v2 hay `source_path` con puntos, y ahí la poda tiene que ser más fina que «copiar
+ * la clave». `estadoCuenta.secretaria.nombreAutoridadTransito` autoriza UN string; el subárbol
+ * `estadoCuenta` del payload real del UTS lleva dentro `direccion` («Carrera 25 con Calle 9 A Sur»,
+ * dato de persona) y más cosas. Copiar el contenedor porque su hoja esté autorizada sería la fuga
+ * de RN-25 con otra ruta, así que lo que se hace es construir el esqueleto mínimo —`estadoCuenta`
+ * con solo `secretaria`, y `secretaria` con solo `nombreAutoridadTransito`— y poner ahí la hoja.
+ *
+ * El filtro de forma (`esEscalarPersistible`) se aplica a la HOJA: una ruta cuya hoja sea a su vez
+ * un objeto no se guarda, igual que antes. Y los contenedores intermedios imitan la forma del
+ * original (array si en el ítem era array) para que `infracciones.0.codigoInfraccion` siga leyendo
+ * igual al re-homologar.
  */
 export function podarPayload(
   item: Record<string, unknown>, permitidos: ReadonlySet<string>,
@@ -470,16 +501,55 @@ export function podarPayload(
   if (permitidos.size === 0) return null;
 
   const podado: Record<string, unknown> = {};
-  for (const clave of permitidos) {
-    if (CLAVES_NUNCA_PERSISTIDAS.has(clave)) continue;
-    if (!Object.prototype.hasOwnProperty.call(item, clave)) continue;
-    const valor = item[clave];
-    if (!esEscalarPersistible(valor)) continue;
-    Object.defineProperty(podado, clave, {
-      value: valor, enumerable: true, writable: true, configurable: true,
-    });
-  }
+  for (const ruta of permitidos) injertarHoja(item, podado, ruta);
   return podado;
+}
+
+/** Escritura segura: propiedad PROPIA siempre, nunca el setter heredado (RN-14). */
+function fijar(destino: object, clave: string, valor: unknown): void {
+  Object.defineProperty(destino, clave, {
+    value: valor, enumerable: true, writable: true, configurable: true,
+  });
+}
+
+/**
+ * Copia en `podado` la hoja de UNA ruta autorizada, creando por el camino solo los contenedores
+ * que esa hoja necesita.
+ *
+ * La lectura va por `leerRuta` —la misma que `primerValor`—, así que un segmento prohibido o una
+ * ruta que el ítem no tiene se resuelven en `undefined` y aquí no se escribe nada. La comprobación
+ * explícita de `CLAVES_NUNCA_PERSISTIDAS` se mantiene porque esto además ESCRIBE: una ruta como
+ * `datos.__proto__` no debe llegar viva al JSONB aunque su hoja fuese legible.
+ */
+function injertarHoja(
+  item: Record<string, unknown>, podado: Record<string, unknown>, ruta: string,
+): void {
+  const segmentos = ruta.split('.');
+  if (segmentos.some((s) => s === '' || CLAVES_NUNCA_PERSISTIDAS.has(s))) return;
+
+  const hoja = leerRuta(item, ruta);
+  if (hoja === undefined || !esEscalarPersistible(hoja)) return;
+
+  let origen: unknown = item;
+  let destino: object = podado;
+  for (let i = 0; i < segmentos.length - 1; i++) {
+    const segmento = segmentos[i]!;
+    origen = leerRuta(origen, segmento);
+    const yaCreado = Object.prototype.hasOwnProperty.call(destino, segmento)
+      ? (destino as Record<string, unknown>)[segmento]
+      : undefined;
+    let hijo: object;
+    if (yaCreado !== null && typeof yaCreado === 'object') {
+      // Otra ruta autorizada ya abrió este contenedor (`estadoCuenta.infraccion.0.codigoInfraccion`
+      // y `…0.descripcion` comparten los tres primeros saltos): se sigue dentro del mismo.
+      hijo = yaCreado;
+    } else {
+      hijo = Array.isArray(origen) ? [] : {};
+      fijar(destino, segmento, hijo);
+    }
+    destino = hijo;
+  }
+  fijar(destino, segmentos[segmentos.length - 1]!, hoja);
 }
 
 // ─────────────────────────────── Merge de las dos fuentes (RN-13) ───────────────────────────────

@@ -370,3 +370,88 @@ describe('acumular* — el payload entra YA podado al consolidado (AC1)', () => 
     expect(payload.valorAPagar).toBe('604100');
   });
 });
+
+// ────────────── Rutas ANIDADAS del mapa v2: se reconstruye la hoja, no el subárbol ──────────────
+//
+// El mapa v2 (migración 0158) nombra `source_path` con puntos porque los payloads reales del
+// 2026-08-20 cuelgan de subobjetos la mitad de lo que el canónico necesita. Eso reabre la fuga que
+// esta HU cerró, con otra ruta: si la poda copiara el CONTENEDOR cuya hoja está autorizada,
+// `estadoCuenta.secretaria.nombreAutoridadTransito` arrastraría todo `estadoCuenta` —con la
+// dirección del hecho dentro— y `infracciones.0.…` traería el ítem entero, `infractor` incluido.
+
+describe('podarPayload con rutas anidadas (mapa v2)', () => {
+  /** Ítem REAL de `data.multas[]` de Verifik, recortado. `infractor` es la PII. */
+  const ITEM_SIMIT_REAL = {
+    numeroComparendo: '76497000000055920811',
+    comparendo: true,
+    comparendoElectronico: true,
+    placa: 'LEW657',
+    fechaComparendo: '11/05/2026 14:20:00',
+    fechaNotificacion: '01/01/1900 00:00:00',
+    organismoTransito: 'Obando',
+    estadoComparendo: 'Pendiente',
+    infracciones: [{
+      codigoInfraccion: 'D02',
+      descripcionInfraccion: 'Conducir sin portar el SOAT',
+      valorInfraccion: '1266222',
+    }],
+    infractor: {
+      nombre: 'R** COLO**** S* C* ', numeroDocumento: '900977629',
+      tipoDocumento: 'Nit', apellido: null,
+    },
+    valorPagar: '1308422',
+  };
+
+  const MAPA_V2_SIMIT: FilaMapa[] = [
+    fila('simit', 'numeroComparendo', 'numeroComparendo', 1, 2),
+    fila('simit', 'placa', 'placa', 1, 2),
+    fila('simit', 'infracciones.0.codigoInfraccion', 'codigoInfraccion', 1, 2),
+    fila('simit', 'infracciones.0.descripcionInfraccion', 'descripcionInfraccion', 1, 2),
+    fila('simit', 'fechaComparendo', 'fechaComparendo', 1, 2),
+    fila('simit', 'organismoTransito', 'organismo', 1, 2),
+    fila('simit', 'valorPagar', 'monto', 1, 2),
+    fila('simit', 'estadoComparendo', 'estadoFuente', 1, 2),
+  ];
+
+  it('el ítem real de SIMIT podado NO contiene `infractor`, y sí las hojas autorizadas', async () => {
+    conMapa(MAPA_V2_SIMIT);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(ITEM_SIMIT_REAL, camposConservables(candidatosDe(mapa, 'simit')))!;
+
+    expect(Object.prototype.hasOwnProperty.call(podado, 'infractor')).toBe(false);
+    expect(JSON.stringify(podado)).not.toContain('900977629');
+    // La hoja anidada sí sobrevive, y sin arrastrar `valorInfraccion` ni el resto del ítem.
+    expect(podado.infracciones).toEqual([{
+      codigoInfraccion: 'D02', descripcionInfraccion: 'Conducir sin portar el SOAT',
+    }]);
+    expect(podado.valorPagar).toBe('1308422');
+  });
+
+  it('del `estadoCuenta` del UTS solo sale la hoja del organismo: la dirección se queda fuera', async () => {
+    conMapa([
+      fila('municipal', 'numeroComparendo', 'numeroComparendo', 1, 2),
+      fila('municipal', 'estadoCuenta.secretaria.nombreAutoridadTransito', 'organismo', 1, 2),
+    ]);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload({
+      numeroComparendo: 'D05001000000054652201',
+      identificador: '901789698',
+      nombres: 'T**** ****** ******** ***',
+      contraventores: [],
+      estadoCuenta: {
+        direccion: 'Carrera 25 con Calle 9 A Sur - COMUNA 14',
+        numeroComparendo: 'D05001000000054652201',
+        secretaria: { identificador: '17', nombreAutoridadTransito: 'STRIA DE TTOyTTE MEDELLIN' },
+      },
+    }, camposConservables(candidatosDe(mapa, 'municipal')))!;
+
+    expect(podado).toEqual({
+      numeroComparendo: 'D05001000000054652201',
+      estadoCuenta: { secretaria: { nombreAutoridadTransito: 'STRIA DE TTOyTTE MEDELLIN' } },
+    });
+    expect(JSON.stringify(podado)).not.toContain('Carrera 25');
+    expect(JSON.stringify(podado)).not.toContain('901789698');
+  });
+});
