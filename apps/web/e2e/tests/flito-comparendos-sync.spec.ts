@@ -1,28 +1,48 @@
-// FLITO — Comparendos: la consola de sincronización, disparo y seguimiento (HU #11635, Feature 17c).
+// FLITO — Comparendos · Sincronización: la consola (HU #11635) y el historial de corridas (#11636).
 //
-// Cubre la REGIÓN A de `docs/ux/flito-comparendos-config-sync.md` § «Vista Sincronización — consola
-// + historial»: el disparo, el estado en curso, el paso a seguimiento y el resultado terminal. El
-// historial de corridas y su modal (Región B) son la HU #11636 y NO se tocan aquí; lo único que este
-// archivo asume del historial es que `GET /sync/runs` se lee al montar, porque esa lectura es
-// también la que detecta una corrida ya en marcha (AC4).
+// Cubre las DOS regiones de `docs/ux/flito-comparendos-config-sync.md` § «Vista Sincronización —
+// consola + historial», y en este orden:
+//
+//   · REGIÓN A — la consola (HU #11635): disparo, estado en curso, paso a seguimiento y resultado
+//     terminal. TC37–TC64.
+//   · REGIÓN B — el historial de corridas y su modal de detalle (HU #11636): la lista, el detalle
+//     con pasos, los estados vacío/error, y las tres obligaciones que la enmienda de UX del 20 ago
+//     2026 (decisiones 13–16) le impone. TC65–TC85.
+//
+// Van en el MISMO archivo a propósito: las dos regiones viven en la misma vista, comparten la
+// región viva única y comparten el `GET /sync/runs`. Los TCs que más valen de la #11636 —el
+// refresco único al desenlace, la ausencia de sondeo propio, la región viva que sigue siendo una—
+// son afirmaciones sobre la vista ENTERA, y partirlas en dos archivos sería no poder escribirlas.
 //
 // Numeración: los TCs siguen la serie del Feature, que llega a TC36 en
-// `flito-comparendos-pills-config.spec.ts` (HUs #11633 y #11634). Aquí van TC37 a TC64. Ese archivo
-// NO se toca desde esta HU.
+// `flito-comparendos-pills-config.spec.ts` (HUs #11633 y #11634). Aquí van TC37 a TC85. Ese archivo
+// NO se toca desde estas HUs.
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-// GUARDIA DE COBERTURA — ESTE ARCHIVO ESTÁ DESPIERTO
+// GUARDIA DE COBERTURA — ESTE ARCHIVO ESTÁ DESPIERTO ENTERO
 //
-// Los 26 TCs originales se escribieron en modo A, antes que la pantalla, y el archivo vivió dormido
-// tras el modificador que salta un bloque entero. Despertarlo era el último paso de la
-// implementación; el gate B de la HU #11635 lo verificó, corrigió los fixtures que describían un
-// mundo imposible (ver `esperarConsolaEnReposo`), añadió el TC63 que faltaba y el TC64 que pidió la
-// auditoría de seguridad, y corrió los 28 en verde.
+// Los dos bloques nacieron dormidos, y los dos se despertaron en su gate. Conviene que quede
+// escrito, porque el modo A vuelve a repetirse en cada HU de este Feature:
 //
-// El check sigue siendo obligatorio en cada gate, porque un archivo dormido APARENTA cobertura: el
-// runner dice «28 skipped» y pinta verde igual. Se comprueba así, y lo correcto es CERO líneas:
+//   · **TC37–TC64 (consola, #11635).** Escritos antes que la pantalla. Su gate B los despertó,
+//     corrigió los fixtures que describían un mundo imposible (ver `esperarConsolaEnReposo`), añadió
+//     el TC63 que faltaba y el TC64 que pidió la auditoría de seguridad, y corrió los 28 en verde.
+//   · **TC65–TC85 (historial, #11636).** Escritos en modo A con la HU en `Active`, mientras el
+//     frontend implementaba en paralelo y sin que existieran todavía `HistorialSyncComparendos.tsx`
+//     ni `PanelDetalleSyncRun.tsx`. Su gate B los despertó, encontró la doble lectura del detalle
+//     —dos filas de `pii_access_log` por abrir un modal—, corrigió el fixture de TC76 (un servidor
+//     que no incluía la corrida recién lanzada) y añadió TC81, TC82 y TC83, que el modo A había
+//     dejado declarados como huecos. Después, la auditoría de seguridad corrigió el RADIO del
+//     barrido de PII (TC66/TC67: `outerHTML` y la región entera, no `innerHTML` de la tabla) y una
+//     carrera entre la carga del archivo y el desenlace añadió TC84 con su control TC85.
+//
+// Un bloque dormido APARENTA cobertura —el runner dice «skipped» y pinta verde igual—, así que el
+// check es obligatorio en cada gate, se hace así y lo correcto es **CERO líneas**:
 //
 //     grep -nE '\.(fixme|skip|only)\(' apps/web/e2e/tests/flito-comparendos-sync.spec.ts
+//
+// Cualquier línea que devuelva es un TC apagado, y un TC apagado en un archivo ya entregado no es
+// una espera: es una regresión de cobertura que hay que justificar antes de seguir.
 //
 // Ese patrón está escrito para no encontrarse a sí mismo: la cadena que busca —punto, la palabra, y
 // el paréntesis— no aparece en ninguna parte de este comentario. Si algún día hay que volver a
@@ -101,7 +121,7 @@
 // empresa real (Ley 1581). El NIT se ve en pantalla —es el eje del módulo y solo lo mira `admin`—
 // pero NUNCA viaja en la URL del SPA: TC38 lo afirma sobre el alcance con selección.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-import type { Page, Route } from '@playwright/test';
+import type { Locator, Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 
@@ -387,6 +407,49 @@ interface EstadoRuns {
   idsPedidos: string[];
   /** El `?limit=` de cada lectura del listado. */
   limites: string[];
+
+  // ─── Añadido por la HU #11636. Todo lo de aquí abajo está APAGADO por defecto: los 28 TCs de la
+  //     consola no cambian de comportamiento ni por un byte. ───
+
+  /** Status con el que falla el LISTADO. `null` = responder 200 con `lista`. */
+  fallaLista: number | null;
+  /** Status con el que falla el DETALLE, sea cual sea el id. `null` = responder según `detalle`. */
+  fallaDetalle: number | null;
+  /** Con `true`, cada lectura del listado se queda colgada hasta `soltarLista()`. */
+  congelado: boolean;
+  /**
+   * Congela el listado a partir de la PRIMERA lectura que sirva una corrida ya terminal (esa se
+   * sirve; las siguientes esperan). Es lo que hace decidible el TC79: el refresco del desenlace se
+   * queda en el aire, así que la primera fila solo puede estar bien si NO esperó a la red.
+   *
+   * Congelar por CONTENIDO y no por número de llamada es deliberado: contar llamadas obliga a
+   * adivinar cuántos sondeos había en vuelo al cambiar el fixture, y un sondeo que llegue medio
+   * segundo antes o después cambiaría a cuál le toca colgarse. Aquí no hay carrera posible.
+   */
+  congelarTrasElDesenlace: boolean;
+  /**
+   * Cuántas lecturas del listado están AHORA MISMO esperando a que las suelten.
+   *
+   * Es el instrumento del TC79 y no un contador de adorno: con el refresco del desenlace congelado,
+   * `0` significa que nadie pidió la lista nueva —el archivo se quedó viejo— y `2` o más, que
+   * detrás del desenlace hay un sondeo. `1` es la obligación de la enmienda, exactamente.
+   */
+  retenidas: number;
+  /**
+   * Plan POR LECTURA del listado, cuando `congelado` y `fallaLista` se quedan cortos.
+   *
+   * Recibe el `?limit=` y el número de lectura **con ese mismo límite** (1 = la primera), y decide:
+   * `'retener'` la deja colgada, un `{ status, body }` la responde así, y `null` es «lo de siempre».
+   * Distinguir por límite es lo que permite tratar distinto a las dos zonas que leen este endpoint:
+   * la consola hidrata con un límite corto y el historial pide sus páginas con el de la spec.
+   *
+   * Lo pide TC84: la carrera necesita que la PRIMERA página del historial no llegue nunca, que el
+   * refresco del desenlace —la segunda— falle, y que el reintento —la tercera— vaya bien, todo
+   * mientras la consola sigue sondeando con normalidad. Con un interruptor global no se puede.
+   */
+  planLista: ((limite: string, nEsima: number) => 'retener' | Respuesta | null) | null;
+  /** Suelta lo retenido y deja de congelar. Idempotente. */
+  soltarLista: () => void;
 }
 
 /**
@@ -403,8 +466,14 @@ interface EstadoRuns {
  */
 async function mockRuns(
   page: Page,
-  inicial: { lista?: unknown[]; detalle?: Record<string, unknown> } = {},
+  inicial: {
+    lista?: unknown[];
+    detalle?: Record<string, unknown>;
+    /** Arranca con el listado colgado: es el estado «cargando» del historial (TC77). */
+    congelado?: boolean;
+  } = {},
 ): Promise<EstadoRuns> {
+  const retenidas: (() => void)[] = [];
   const estado: EstadoRuns = {
     lista: inicial.lista ?? [],
     detalle: inicial.detalle ?? {},
@@ -412,14 +481,32 @@ async function mockRuns(
     llamadasDetalle: 0,
     idsPedidos: [],
     limites: [],
+    fallaLista: null,
+    fallaDetalle: null,
+    congelado: inicial.congelado ?? false,
+    congelarTrasElDesenlace: false,
+    retenidas: 0,
+    planLista: null,
+    soltarLista: () => {
+      estado.congelado = false;
+      estado.congelarTrasElDesenlace = false;
+      while (retenidas.length > 0) retenidas.pop()?.();
+    },
   };
-  await page.route(API_RUNS, (route: Route) => {
+  await page.route(API_RUNS, async (route: Route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const url = new URL(route.request().url());
     const id = url.pathname.split('/sync/runs/')[1] ?? '';
     if (id) {
       estado.llamadasDetalle += 1;
       estado.idsPedidos.push(id);
+      if (estado.fallaDetalle !== null) {
+        return route.fulfill({
+          status: estado.fallaDetalle,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'No se pudo leer la corrida', codigo: 'error_interno' }),
+        });
+      }
       const cuerpo = estado.detalle[id];
       return route.fulfill(cuerpo
         ? { status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) }
@@ -430,12 +517,60 @@ async function mockRuns(
         });
     }
     estado.llamadasLista += 1;
-    estado.limites.push(url.searchParams.get('limit') ?? '');
-    return route.fulfill({
-      status: 200, contentType: 'application/json', body: JSON.stringify(estado.lista),
-    });
+    const limite = url.searchParams.get('limit') ?? '';
+    estado.limites.push(limite);
+
+    // El plan por lectura manda sobre los interruptores globales: es más específico.
+    const nEsima = estado.limites.filter((l) => l === limite).length;
+    const plan = estado.planLista ? estado.planLista(limite, nEsima) : null;
+    if (plan === 'retener') {
+      estado.retenidas += 1;
+      // Se registra en la misma cola que el congelado para que `soltarLista()` la suelte al final
+      // del TC: una petición colgada en el cierre de la página no rompe nada, pero dejarla suelta
+      // a propósito cuando hay una forma de recogerla es ensuciar el teardown de los demás.
+      await new Promise<void>((resolve) => { retenidas.push(resolve); });
+      estado.retenidas -= 1;
+    } else if (plan !== null) {
+      return route.fulfill({
+        status: plan.status, contentType: 'application/json', body: JSON.stringify(plan.body),
+      }).catch(() => undefined);
+    }
+
+    // La cuenta sube ANTES de esperar: una lectura retenida ya ocurrió —el servidor la recibió— y
+    // el TC que mide «cuántas veces se preguntó» tiene que verla mientras sigue colgada.
+    if (estado.congelado) {
+      estado.retenidas += 1;
+      await new Promise<void>((resolve) => { retenidas.push(resolve); });
+      estado.retenidas -= 1;
+    }
+    if (estado.fallaLista !== null) {
+      return route.fulfill({
+        status: estado.fallaLista,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'No se pudo listar', codigo: 'error_interno' }),
+      });
+    }
+    const cuerpo = estado.lista;
+    if (estado.congelarTrasElDesenlace && primeraEsTerminal(cuerpo)) estado.congelado = true;
+    // `fulfill` puede rechazar si el TC ya cerró la página con lecturas retenidas dentro: eso no es
+    // un fallo del mock, es el final normal de un TC que congeló el listado a propósito.
+    return route
+      .fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cuerpo) })
+      .catch(() => undefined);
   });
   return estado;
+}
+
+/**
+ * ¿La corrida de arriba —la que se está siguiendo— ya tiene desenlace? Lo que arma el congelado.
+ *
+ * Se mira SOLO la primera y no «alguna»: el listado viene ordenado de la más reciente a la más
+ * vieja, así que en un historial normal SIEMPRE hay corridas terminales debajo, y preguntar por
+ * «alguna» congelaría el listado desde la primera lectura del montaje.
+ */
+function primeraEsTerminal(lista: unknown[]): boolean {
+  const estado = (lista[0] as { estado?: string } | null)?.estado;
+  return typeof estado === 'string' && estado !== 'running';
 }
 
 // ────────────────────────────────────────── Localizadores ───────────────────────────────────────
@@ -1434,6 +1569,1257 @@ test.describe('FLITO — Comparendos · consola de sincronización (HU #11635)',
       const trasSalir = await almacenamiento(page);
       expect(trasSalir, 'localStorage / sessionStorage tras abandonar la vista').not.toContain(NIT_A);
       expect(trasSalir, 'localStorage / sessionStorage tras abandonar la vista').not.toContain(NIT_B);
+    });
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// REGIÓN B — HISTORIAL DE CORRIDAS Y DETALLE DE PASOS (HU #11636)
+//
+// Todo lo que sigue —fixtures, localizadores y TC65–TC80— es de la #11636 y está DORMIDO hasta que
+// la pantalla exista. Ver la «Guardia de cobertura» de la cabecera.
+//
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// QUÉ PERSIGUE ESTE BLOQUE (y por qué el historial tampoco es «una tabla más»)
+//
+//   1. **Una regla de PII escondida en una frase de UI.** El AC1 dice «la fila no lista todos los
+//      NIT del alcance», y eso no es una preferencia de maquetación: el alcance de una corrida son
+//      NIT, y un NIT de persona natural es un documento de identidad (lo dice el COMMENT de la
+//      migración 0150 y lo repite AGENTS.md §14). Una tabla que los desgrana los pone en la
+//      pantalla, en las capturas de soporte y en cualquier exportación que se añada después. TC66 lo
+//      fija por el lado que se rompe solo: con una corrida de alcance amplio, la fila enseña el
+//      CONTEO y **ninguno** de los doce NIT, y se comprueba sobre el HTML de la fila —no sobre su
+//      texto visible—, porque el `title` de un tooltip «para que se vean al pasar el ratón» es
+//      exactamente la mejora bienintencionada que este TC existe para impedir.
+//   2. **Tres obligaciones de la enmienda de UX del 20 ago 2026 que no se ven mirando la pantalla.**
+//      · El historial **no sondea** (TC78): se refresca UNA vez cuando la consola publica el
+//        desenlace, y punto. Un sondeo propio duplicaría lo que la decisión 13 acaba de recortar:
+//        cuota del limitador —500 peticiones / 15 min por IP de oficina— y filas de
+//        `pii_access_log`, que es el registro que existe para poder auditar quién miró qué.
+//      · La primera fila es **superficie de desenlace** (TC79), no archivo: al descartarse el toast,
+//        es donde queda el resultado si el operador estaba mirando hacia abajo cuando terminó la
+//        corrida. Y tiene que traer el chip correcto EN ESE MOMENTO, no un estado viejo que se
+//        corrige cuando vuelva la red.
+//      · Ni la lista ni el modal montan **región viva propia** (TC80). Es la obligación que más
+//        fácil se incumple sin querer, y no por descuido sino por buen oficio: el esqueleto de carga
+//        canónico del módulo —`EsqueletoBloque`, en `bloqueConfigComparendos.tsx`— lleva
+//        `role="status"`, y reutilizarlo aquí (o copiar el patrón de `PanelDetalleComparendo`, que
+//        hace lo mismo) mete una segunda región viva en la vista sin que nadie escriba «aria-live».
+//   3. **«Sin inventar nombres» (AC2).** `iniciadoPor` es un id y se pinta «Usuario N» o guion. TC71
+//      lo fija Y comprueba que no se haya ido a buscar el nombre a `/api/users`: ese endpoint no es
+//      solo una petición de más, es traer datos de personas a una pantalla que no los necesitaba.
+//   4. **El aislamiento del AC3.** Un 500 del historial no puede llevarse por delante la consola de
+//      arriba (TC76). Es el mismo caso que el TC17 del visor —un 500 de municipios que no tumba la
+//      tabla de NITs— y salió valioso allí por la misma razón: las dos zonas comparten pantalla y
+//      no comparten destino.
+//
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// LO QUE ESTE BLOQUE DA POR NORMATIVO (marcado que el frontend tiene que respetar)
+//
+// Igual que en la Región A: los selectores son contrato, salen del copy literal de la spec de UX y
+// se afirman por rol y por texto visible. Lo específico del historial:
+//
+//   · Historial → `role="region"` con nombre «Historial de sincronizaciones» (el `<h2>` de la
+//     tarjeta), y DENTRO una `<table>` con su `<caption class="sr-only">`. La tabla se monta SIN el
+//     prop `label` de `FlitTable`: ese prop añade un `role="region"` propio al contenedor con scroll
+//     y dejaría dos landmarks con el mismo nombre a un palmo.
+//   · Botón por fila → nombre accesible que empiece por «Ver detalle» y que sea **distinto en cada
+//     fila** (TC74). Cuatro botones llamados «Ver» son cuatro controles indistinguibles para quien
+//     navega por lista de botones; el instante de la corrida es lo que los separa.
+//   · Modal → `FlitModal wide`, título «Corrida · <instante completo>», y `restoreFocusRef` al botón
+//     que lo abrió. El detalle se lee UNA vez al abrir.
+//   · Cargando → `aria-busy="true"` en la zona (la región del historial, o el diálogo), y **nada**
+//     con `role="status"`. Es la desviación deliberada respecto de `EsqueletoBloque`, y el motivo
+//     está arriba.
+//   · Error de carga → el copy del catálogo, visible dentro de la tarjeta, + botón «Reintentar».
+//     **Sin `role="alert"`**, al revés que `BloqueConfig` y que el visor: una alerta es una región
+//     viva assertive, y en esta vista la spec de a11y la reserva al error definitivo del disparo
+//     («es la única excepción»). Que no se pueda leer el archivo de ayer no justifica interrumpir a
+//     quien mira la corrida de ahora. Es la misma razón por la que el esqueleto no lleva
+//     `role="status"`: en esta vista, y solo en esta, el módulo se desvía de su propio patrón.
+//   · «Iniciada por» y su valor, LEGIBLES COMO PAREJA —da igual si en una ficha `<dl>` o en una
+//     línea corrida—: el guion de una corrida sin iniciador no puede quedar suelto en mitad de la
+//     ficha, que es el dato que hay que poder leer sin adivinar de qué es.
+//
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// DOS AMBIGÜEDADES DE COPY QUE ESTE BLOQUE RESUELVE (y que van al HANDOFF)
+//
+//   1. **«modo mock» del wireframe → «modo simulado».** La fila de ejemplo del wireframe escribe
+//      «modo mock · 0 upserts», pero el catálogo corto —índice canónico— dice «Modo simulado» y la
+//      regla de tono del documento prohíbe anglicismos en copy de usuario. Manda el catálogo. TC68
+//      lo afirma en las dos direcciones: que diga «simulado» y que NO diga «mock».
+//   2. **El copy del error del DETALLE no existe en la spec.** La spec da el de la lista («No se
+//      pudo cargar el historial de sincronizaciones.») y para el modal solo dice «error +
+//      reintentar». Se redacta aquí en paralelo —«No se pudo cargar el detalle de la corrida.»— y
+//      queda anotado como desviación menor: si UX prefiere otra, se cambia en `COPY_HIST` y TC73 lo
+//      delata.
+//
+// El «resumen rápido» de la fila se afirma por SEMÁNTICA y no palabra por palabra (número + la
+// palabra clave), al revés que el resto del copy de este archivo. Es deliberado: la spec lo dibuja
+// en un wireframe con abreviaturas («3 inact.», «2 err mun.») y no lo fija en el catálogo, así que
+// clavar una redacción sería inventar contrato. Lo que sí se afirma es que la celda no miente: que
+// no hay números donde no hubo resumen, y que el modo simulado se dice.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * El alcance amplio: doce NIT SINTÉTICOS, ninguno de una empresa real (Ley 1581).
+ *
+ * Doce y no dos porque el fallo que persigue TC66 solo se ve con una lista que a nadie se le
+ * ocurriría volcar en una celda... que es exactamente lo que pasa cuando el alcance son dos y
+ * alguien decide que «así se ve mejor». El TC tiene que fallar con la implementación descuidada
+ * ANTES de que el catálogo del cliente crezca, no después.
+ */
+const ALCANCE_AMPLIO = [
+  NIT_A, NIT_B, '900222333', '830115577', '900334455', '901009988',
+  '830447722', '900556677', '901112233', '830778899', '900889900', '901223344',
+];
+
+/** Ids sin año dentro: así «la fila no enseña el año» (TC65) se puede afirmar sobre el texto entero. */
+const H_COMPLETADA = 'run-hist-uno';
+const H_PARCIAL = 'run-hist-dos';
+const H_FALLIDA = 'run-hist-tres';
+const H_SIMULADA = 'run-hist-cuatro';
+const H_VIVA = 'run-hist-viva';
+
+const RESUMEN_HIST_PARCIAL = { ...RESUMEN_PARCIAL, upserts: 120 };
+const RESUMEN_HIST_SIMULADO = {
+  ...RESUMEN_COMPLETADA, modo: 'mock', upserts: 0, inactivados: 0, primeraLlegada: 0, reactivados: 0,
+};
+
+/**
+ * Las cuatro corridas del wireframe, con sus horas de Bogotá calculadas a mano:
+ *
+ *   20:02Z → 14 ago 15:02 · 08:07Z → 14 ago 03:07 · 23:40Z → 13 ago 18:40 · 08:05Z → 13 ago 03:05
+ *
+ * Dos son del mismo día y dos de días distintos a propósito: es lo que hace que la columna «Inicio»
+ * con fecha corta tenga sentido y lo que delataría un `timeZone` olvidado (en UTC, la tercera
+ * saltaría al día 14).
+ */
+const RUN_HIST_COMPLETADA = {
+  runId: H_COMPLETADA,
+  estado: 'completed',
+  iniciadoEn: '2026-08-14T20:02:00Z',
+  finalizadoEn: '2026-08-14T20:04:00Z',
+  scopeNits: ALCANCE_AMPLIO,
+  resumen: RESUMEN_COMPLETADA,
+  iniciadoPor: 7,
+};
+const RUN_HIST_PARCIAL = {
+  ...RUN_HIST_COMPLETADA,
+  runId: H_PARCIAL,
+  estado: 'partial',
+  iniciadoEn: '2026-08-14T08:07:00Z',
+  finalizadoEn: '2026-08-14T08:12:00Z',
+  resumen: RESUMEN_HIST_PARCIAL,
+};
+/**
+ * La fallida, y la más informativa de las cuatro: alcance de UN solo NIT (el singular de TC67),
+ * `resumen: null` —una corrida que murió sin escribir contadores— e `iniciadoPor: null`, que es el
+ * guion del AC2. Tres bordes en una sola fila porque los tres se dan juntos en la vida real: lo que
+ * se rompe pronto no llega a contar nada ni a decir de quién era.
+ */
+const RUN_HIST_FALLIDA = {
+  ...RUN_HIST_COMPLETADA,
+  runId: H_FALLIDA,
+  estado: 'failed',
+  iniciadoEn: '2026-08-13T23:40:00Z',
+  finalizadoEn: '2026-08-13T23:41:00Z',
+  scopeNits: [NIT_A],
+  resumen: null,
+  iniciadoPor: null,
+};
+const RUN_HIST_SIMULADA = {
+  ...RUN_HIST_COMPLETADA,
+  runId: H_SIMULADA,
+  estado: 'completed',
+  iniciadoEn: '2026-08-13T08:05:00Z',
+  finalizadoEn: '2026-08-13T08:06:00Z',
+  resumen: RESUMEN_HIST_SIMULADO,
+};
+
+const HISTORIAL = [RUN_HIST_COMPLETADA, RUN_HIST_PARCIAL, RUN_HIST_FALLIDA, RUN_HIST_SIMULADA];
+
+/** El detalle de cada una. La fallida va SIN pasos: es el «no hay vacío, hay copy» de TC72. */
+const DETALLE_HIST: Record<string, unknown> = {
+  [H_COMPLETADA]: { ...RUN_HIST_COMPLETADA, steps: STEPS },
+  [H_PARCIAL]: { ...RUN_HIST_PARCIAL, steps: [...STEPS, STEP_ERROR] },
+  [H_FALLIDA]: { ...RUN_HIST_FALLIDA, steps: [] },
+  [H_SIMULADA]: { ...RUN_HIST_SIMULADA, steps: STEPS },
+};
+
+/** La corrida viva de TC79: nace `running` y termina mientras el operador mira la pantalla. */
+const RUN_HIST_VIVA = {
+  ...RUN_HIST_COMPLETADA,
+  runId: H_VIVA,
+  estado: 'running',
+  iniciadoEn: INICIADO_EN,
+  finalizadoEn: null,
+  resumen: null,
+};
+const RUN_HIST_VIVA_TERMINADA = {
+  ...RUN_HIST_VIVA, estado: 'completed', finalizadoEn: FINALIZADO_EN, resumen: RESUMEN_COMPLETADA,
+};
+
+/**
+ * El guion de las ausencias, copiado de `formato.ts` (`SIN_DATO`) y no importado, por lo mismo que
+ * el resto del copy de este archivo: importarlo diría «el hueco se pinta con lo que diga el código».
+ * Y es la raya (U+2014), no un menos ni un guion corto: eso también es contrato de pantalla.
+ */
+const GUION = '\u2014';
+
+/**
+ * Una página de `n` corridas sintéticas, para el único TC que mueve el `?limit=`.
+ *
+ * Se generan en vez de escribirse a mano por lo evidente —cien filas— y con dos cuidados: `runId`
+ * distinto en cada una (la tabla las distingue por ahí) e instantes decrecientes de hora en hora,
+ * que es el orden en que el servidor las devuelve. El alcance se queda en un solo NIT: el sujeto
+ * del caso es el límite, y doce NIT por fila solo engordarían el JSON del mock.
+ */
+function corridasSinteticas(n: number) {
+  const base = Date.parse(INICIADO_EN);
+  return Array.from({ length: n }, (_, i) => ({
+    ...RUN_HIST_COMPLETADA,
+    runId: `run-pagina-${i}`,
+    iniciadoEn: new Date(base - i * 3_600_000).toISOString(),
+    finalizadoEn: new Date(base - i * 3_600_000 + 120_000).toISOString(),
+    scopeNits: [NIT_A],
+  }));
+}
+
+/**
+ * Los `?limit=` que pidió EL HISTORIAL, sin los de la consola.
+ *
+ * Las dos zonas leen el mismo endpoint y el mock no puede distinguirlas por otra cosa: la consola
+ * hidrata con un límite corto —solo quiere saber si hay algo corriendo— y el historial pide sus
+ * páginas. Filtrar por los tres valores de la spec deja fuera esa lectura ajena sin tener que
+ * afirmar nada sobre ella, que es de otra HU.
+ */
+function limitesDelHistorial(runs: EstadoRuns): string[] {
+  return runs.limites.filter((l) => l === '20' || l === '50' || l === '100');
+}
+
+/**
+ * Los NIT del alcance amplio que NO están en el catálogo de la consola.
+ *
+ * Existen para poder barrer la PÁGINA ENTERA y no solo la tarjeta del historial. `NIT_A` y `NIT_B`
+ * sí están en el catálogo, así que aparecen legítimamente en el selector «Solo estos NIT» de la
+ * consola —que vive en la misma vista— y un barrido global sobre ellos daría un rojo por algo
+ * correcto. Estos diez no salen de ningún catálogo: solo existen como alcance de corridas viejas,
+ * de modo que cualquier sitio del documento donde aparezcan es un sitio donde alguien los aparcó.
+ */
+const NITS_SOLO_DEL_ALCANCE = ALCANCE_AMPLIO.filter(
+  (nit) => !NITS.some((delCatalogo) => delCatalogo.nit === nit),
+);
+
+/** Copy literal de la Región B. Copiado de la spec de UX, no importado de la pantalla (ver `COPY`). */
+const COPY_HIST = {
+  titulo: 'Historial de sincronizaciones',
+  vacio: 'Todavía no hay sincronizaciones. Lanza la primera desde el panel de arriba.',
+  error: 'No se pudo cargar el historial de sincronizaciones.',
+  /** No está en la spec: se redacta aquí en paralelo al de la lista. Ver la nota de ambigüedades. */
+  errorDetalle: 'No se pudo cargar el detalle de la corrida.',
+  sinPasos: 'Esta corrida no registró pasos.',
+  /**
+   * Tampoco está en la spec, y es la que más se nota que falta: el 404 del detalle. Se redacta
+   * aquí junto al resto y va al HANDOFF con las otras dos. Lo que NO es discutible es que sea un
+   * texto distinto del error reintentable — de eso depende que el operador entienda por qué esta
+   * vez no hay botón (TC81).
+   */
+  sinCorrida: 'Esta corrida ya no está en el historial.',
+} as const;
+
+// ──────────────────────────────── Localizadores del historial ───────────────────────────────────
+
+const historial = (page: Page) => page.getByRole('region', { name: COPY_HIST.titulo });
+/**
+ * La tabla del historial, buscada DENTRO de su región y sin exigirle nombre.
+ *
+ * La región ya está nombrada por su `<h2>`, y dentro no hay más que una tabla: pedirle además un
+ * nombre concreto sería atarse a cómo esté redactado el `<caption>`, que la spec de UX no fija.
+ * (El resto del módulo redacta sus captions empezando por el título del bloque —«Detalle por
+ * fuente: …»—, y seguir esa costumbre aquí ayudaría a quien escriba el próximo localizador; queda
+ * como observación, no como contrato.)
+ */
+const tablaHistorial = (page: Page) => historial(page).getByRole('table');
+/** Solo las filas de datos: el `<tbody>` deja fuera la de cabeceras sin tener que restar uno. */
+const filasHistorial = (page: Page) => tablaHistorial(page).locator('tbody').getByRole('row');
+const botonesVerDetalle = (page: Page) =>
+  tablaHistorial(page).getByRole('button', { name: /Ver detalle/i });
+const verDetalle = (page: Page, fila: number) =>
+  filasHistorial(page).nth(fila).getByRole('button', { name: /Ver detalle/i });
+const modalCorrida = (page: Page) => page.getByRole('dialog');
+
+async function esperarHistorialCargado(page: Page) {
+  await expect(filasHistorial(page).first()).toBeVisible();
+}
+
+async function abrirDetalle(page: Page, fila: number) {
+  await verDetalle(page, fila).click();
+  await expect(modalCorrida(page)).toBeVisible();
+}
+
+/**
+ * ¿Esta zona se declara OCUPADA mientras carga?
+ *
+ * Se mira el atributo en el ámbito **o** en cualquier descendiente en vez de exigir dónde va
+ * exactamente: lo que el contrato pide es que la carga se anuncie sin montar una segunda región
+ * viva, y si `aria-busy` cuelga de la tarjeta o del contenedor de las filas fantasma da igual —para
+ * un lector de pantalla dice lo mismo—. Fijar el nodo exacto sería un rojo por maquetación.
+ */
+async function seDeclaraOcupada(zona: Locator): Promise<boolean> {
+  return zona.evaluate(
+    (el) => el.getAttribute('aria-busy') === 'true' || el.querySelector('[aria-busy="true"]') !== null,
+  );
+}
+
+/**
+ * El barrido de PII del historial, en sus dos radios. Se llama con el modal CERRADO.
+ *
+ * **`outerHTML` y no `innerHTML`.** Es la corrección que trajo la auditoría de seguridad, y el
+ * agujero era exactamente del tipo que hace que un guardián apruebe lo que existe para cazar:
+ * `innerHTML` serializa los hijos del nodo pero **no los atributos del nodo raíz**, así que un
+ * `title="900222333 · 830115577 …"` o un `data-nits` puestos en la propia `<table>` pasaban verdes.
+ * El tooltip del wireframe se escribe justo así.
+ *
+ * **La región entera y no solo la tabla.** Un NIT en el párrafo de la tarjeta, en la zona de
+ * «Cargar más» o en una futura línea de resumen quedaba fuera del radio anterior. La frontera que
+ * el AC1 dibuja es «la fila no los lista», y la forma honesta de vigilarla es que no estén en ningún
+ * sitio de la tarjeta, no que no estén en el sitio donde se nos ocurrió mirar.
+ *
+ * **Y el documento entero para los diez que no salen de ningún catálogo.** Cubre lo que ni la
+ * región ni la tabla ven: un `<template>`, un nodo oculto en otra parte del árbol, un input con
+ * `value` de atributo, una tarjeta plegada.
+ *
+ * ── LÍMITE DECLARADO DEL BARRIDO ───────────────────────────────────────────────────────────────
+ *
+ * Ni `outerHTML` ni `innerText` ven un valor que vive ÚNICAMENTE como propiedad del DOM (un
+ * `el.value` asignado por código, sin atributo) ni datos retenidos en props de React para un futuro
+ * handler de copiado o exportación: nada de eso llega a ser texto ni atributo. El barrido de página
+ * completa reduce ese hueco —cualquier aparcamiento que se materialice en el árbol sale— pero no lo
+ * cierra.
+ *
+ * Se considera y se descarta serializar `__reactProps$…` de cada nodo: es posible, y ataría la
+ * suite a un detalle interno de React cuyas claves cambian por build, para cazar un fallo que hoy no
+ * existe. Un guardián frágil se apaga al tercer rojo falso y entonces no guarda nada. Queda escrito
+ * aquí, que es donde lo va a leer quien añada ese handler de exportación.
+ */
+async function barridoSinAlcance(page: Page, cuando: string) {
+  const marcado = await historial(page).evaluate((el) => el.outerHTML);
+  for (const nit of ALCANCE_AMPLIO) {
+    expect(marcado, `${cuando}: el NIT ${nit} no puede estar en el marcado del historial`)
+      .not.toContain(nit);
+  }
+  const pagina = await page.evaluate(() => document.documentElement.outerHTML);
+  for (const nit of NITS_SOLO_DEL_ALCANCE) {
+    expect(pagina, `${cuando}: el NIT ${nit} no está en ningún catálogo y no puede estar en la página`)
+      .not.toContain(nit);
+  }
+}
+
+/**
+ * Ningún NIT en la URL, que es la superficie que se copia, se pega en un correo y se queda en el
+ * historial del navegador y en los logs del proxy.
+ *
+ * La regla ya estaba fijada para la consola (TC38) y el bloque del historial no la afirmaba en
+ * ninguna parte: abrir un detalle es justo el momento en que apetece llevar el estado a la query
+ * para poder enlazar una corrida. El `runId` ahí sería legítimo; el alcance, nunca.
+ */
+function sinNitEnLaUrl(page: Page, cuando: string) {
+  const url = page.url();
+  for (const nit of ALCANCE_AMPLIO) {
+    expect(url, `${cuando}: ningún NIT viaja en la URL`).not.toContain(nit);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('FLITO — Comparendos · historial de corridas (HU #11636)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLectura(page, API_REGISTROS, { status: 200, body: { items: [], nextCursor: null } });
+    await mockLectura(page, API_NITS, { status: 200, body: NITS });
+    await mockLectura(page, API_MUNICIPIOS, { status: 200, body: MUNICIPIOS });
+    await mockLectura(page, API_CAUSALES, { status: 200, body: CAUSALES });
+    await mockLectura(page, API_TOKEN, { status: 200, body: TOKEN_CONFIGURADO });
+    // Sin `mockRuns` por defecto: cada TC del historial monta el suyo, porque la lista ES el sujeto.
+    // Un `page.route` registrado dentro del TC gana sobre uno del `beforeEach`, pero dejar aquí una
+    // lista vacía haría que el TC que se olvide de montarla pase por «historial sin corridas» en vez
+    // de fallar, que es lo que tiene que hacer.
+  });
+
+  // ═════════════════════════════════ AC1 · La lista de corridas ══════════════════════════════════
+
+  test.describe('AC1 · lista de corridas', () => {
+    // TC65 — el camino feliz de la lista, y el TC que fija la FORMA de la tabla: las cuatro columnas
+    // del wireframe, el orden que manda el servidor, el chip con la palabra dentro y la fecha corta.
+    //
+    // Lo de la fecha no es cosmético y por eso se afirma en las dos direcciones. La enmienda 15 parte
+    // el formato en dos: instante completo en las frases sueltas —la consola y la cabecera del
+    // modal, donde una hora sin día puede ser de otro día sin que se note— y fecha corta en la
+    // tabla, donde la columna ordenada ya da el contexto y repetir «2026» cuatro veces engorda una
+    // tabla densa. Se comprueba que la fila trae día y hora, y que NO trae el año.
+    test('TC65: la tabla lista las corridas con inicio corto, estado, alcance y resumen rápido', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await expect(historial(page)).toBeVisible();
+
+      const filas = filasHistorial(page);
+      await expect(filas).toHaveCount(HISTORIAL.length);
+
+      // Las columnas del wireframe. La quinta («Detalle») lleva los botones y no se afirma por
+      // nombre: lo que importa de ella es el botón, y eso es TC74.
+      const cabeceras = tablaHistorial(page).getByRole('columnheader');
+      await expect(cabeceras.nth(0)).toHaveText(/inicio/i);
+      await expect(cabeceras.nth(1)).toHaveText(/estado/i);
+      await expect(cabeceras.nth(2)).toHaveText(/alcance/i);
+      await expect(cabeceras.nth(3)).toHaveText(/resumen/i);
+
+      // El orden es el del servidor —de la más reciente a la más vieja— y la pantalla no lo
+      // reordena por su cuenta. Un `sort` local por fecha parece inofensivo hasta que el backend
+      // cambia el criterio y las dos ordenaciones discrepan en silencio.
+      await expect(filas.nth(0)).toContainText(/14 .{0,7}ago.{0,4}15:02/);
+      await expect(filas.nth(1)).toContainText(/14 .{0,7}ago.{0,4}03:07/);
+      await expect(filas.nth(2)).toContainText(/13 .{0,7}ago.{0,4}18:40/);
+      await expect(filas.nth(3)).toContainText(/13 .{0,7}ago.{0,4}03:05/);
+
+      // Fecha CORTA: en la tabla no hay año. Los ids de las corridas del fixture tampoco lo llevan,
+      // así que un «2026» aquí solo puede venir del formato largo.
+      const textoTabla = await tablaHistorial(page).innerText();
+      expect(textoTabla, 'la tabla usa el formato corto, sin año (enmienda 15)').not.toContain('2026');
+
+      // El chip lleva la PALABRA: `partial` no puede distinguirse solo por el tono `warning`.
+      await expect(filas.nth(0)).toContainText('Completada');
+      await expect(filas.nth(1)).toContainText('Parcial');
+      await expect(filas.nth(2)).toContainText('Fallida');
+
+      // Resumen rápido: número y concepto. Se afirma la semántica, no la redacción (ver cabecera).
+      await expect(filas.nth(0)).toContainText('340');
+      await expect(filas.nth(0)).toContainText(/upserts/i);
+      // `/inact/i` y no `/inactivados/`: el wireframe abrevia («3 inact.») y abreviar en una tabla
+      // densa es legítimo. Exigir la palabra entera sería inventar copy donde el catálogo calla,
+      // que es justo lo que este bloque dijo que no iba a hacer. (La abreviatura sin `<abbr>` queda
+      // como observación de a11y en el HANDOFF, no como rojo.)
+      await expect(filas.nth(0)).toContainText(/inact/i);
+
+      // El listado se pide con el `limit` de la spec, y UNA sola vez. Dos lecturas idénticas al
+      // montar es el efecto que corre dos veces en `StrictMode`: dos filas de `pii_access_log` con
+      // los NIT de todas las corridas listadas, por abrir una pestaña.
+      expect(runs.limites, 'el historial pide limit=20 (spec Región B)').toContain('20');
+      expect(runs.limites.filter((l) => l === '20'), 'una sola lectura del listado del historial')
+        .toHaveLength(1);
+    });
+
+    // TC66 — EL caso de esta HU, y el que impide que alguien «mejore» la tabla.
+    //
+    // El AC1 lo pide en una frase que parece de maquetación —«la fila no lista todos los NIT del
+    // alcance»— y es una regla de tratamiento de datos personales. Tres cosas lo hacen decidible:
+    //
+    //   1. Se barre el **HTML** de la fila, no su texto visible. El wireframe sugiere un tooltip con
+    //      el conteo, y la forma natural de escribir un tooltip es `title="900123456 · 830009988 …"`:
+    //      invisible en la captura del navegador, perfectamente presente en el DOM, en el portapapeles
+    //      y en cualquier exportación de la tabla. Un TC que solo mirara `innerText` lo aprobaría.
+    //   2. Se barre la tabla ENTERA y no solo la primera fila: la fila de la corrida fallida tiene un
+    //      alcance de un único NIT, que es donde más tienta escribirlo «porque cabe».
+    //   3. Y se comprueba el contrapunto: dentro del modal SÍ están, porque el AC2 lo pide y porque
+    //      es lo que hace que la regla de la lista no sea una pérdida de información, sino un cambio
+    //      de sitio.
+    test('TC66: la fila resume el alcance en un conteo y no enseña ningún NIT; el modal sí los lista', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      // Lo que la fila SÍ dice: cuántos, no cuáles.
+      await expect(filasHistorial(page).nth(0)).toContainText(`${ALCANCE_AMPLIO.length} NIT`);
+
+      await barridoSinAlcance(page, 'con el historial cargado');
+      sinNitEnLaUrl(page, 'con el historial cargado');
+
+      // Y en el detalle sí: ahí el alcance es el dato, no el ruido. Es lo que hace que la regla de
+      // la lista no sea una pérdida de información, sino un cambio de sitio.
+      await abrirDetalle(page, 0);
+      await expect(modalCorrida(page)).toContainText(NIT_A);
+      await expect(modalCorrida(page)).toContainText(NIT_B);
+      await expect(modalCorrida(page)).toContainText(ALCANCE_AMPLIO[5]);
+      sinNitEnLaUrl(page, 'con el detalle abierto');
+
+      // Y AL CERRAR se van del DOM. Hoy es cierto porque el modal se monta y se desmonta, pero eso
+      // es una propiedad de `FlitModal`, no una decisión de esta pantalla: el día que ese modal pase
+      // a ocultarse con CSS —para conservar el scroll, o para animar la salida— los doce NIT se
+      // quedarían en el árbol de una vista que ya no los enseña, y sin esta comprobación no habría
+      // nada que lo dijera. El barrido de después es idéntico al de antes de abrir, a propósito.
+      await page.keyboard.press('Escape');
+      await expect(modalCorrida(page)).toHaveCount(0);
+      await barridoSinAlcance(page, 'tras cerrar el detalle');
+      sinNitEnLaUrl(page, 'tras cerrar el detalle');
+    });
+
+    // TC67 — BORDE del conteo: una corrida de un solo NIT. Dos cosas a la vez, y las dos se rompen
+    // por separado: que el número no arrastre una «s» de plural («1 NITs» es el bug de plantilla más
+    // barato del mundo) y que el alcance corto NO se desgrane. Lo segundo es lo que de verdad
+    // importa: la regla de PII no admite excepción por brevedad, y «con uno solo se puede enseñar»
+    // es exactamente el razonamiento que la rompe.
+    test('TC67: una corrida de un solo NIT dice «1 NIT» en singular y tampoco lo enseña', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      const fila = filasHistorial(page).nth(2);
+      const texto = await fila.innerText();
+      expect(texto, 'el alcance de una sola corrida se cuenta en singular').toMatch(/\b1 NIT\b/);
+      expect(texto, 'sin plural de plantilla').not.toMatch(/\b1 NITs\b/);
+
+      // `outerHTML` de la REGIÓN, por lo mismo que en TC66: con `innerHTML` de la fila, un `title`
+      // en el `<tr>` —el sitio más natural para un tooltip de fila— no se serializaba, y el
+      // guardián aprobaba justo el descuido que existe para cazar. Aquí el radio es la tarjeta
+      // entera: `NIT_A` sí está en el catálogo, así que aparece legítimamente en el selector de la
+      // consola, pero en el historial no tiene nada que hacer.
+      const marcado = await historial(page).evaluate((el) => el.outerHTML);
+      expect(marcado, 'ni con uno solo se lista el NIT en el historial').not.toContain(NIT_A);
+    });
+
+    // TC68 — el resumen rápido cuando NO hay resumen, y el modo simulado.
+    //
+    // Una corrida que murió sin escribir contadores (`resumen: null`) tiene que pintar el guion. Un
+    // «0 upserts» ahí sería una afirmación sobre un trabajo que nadie llegó a medir, que es el mismo
+    // error que el `itemsLeidos: null` de los pasos: el cero se lee como «no había nada» y el guion
+    // como «no se sabe». Son cosas distintas y en una tabla de auditoría la diferencia es todo.
+    //
+    // Y el modo simulado se dice con la palabra del catálogo: «simulado», no «mock». El wireframe
+    // escribe «modo mock» y pierde contra el catálogo corto y contra la regla de tono del documento
+    // (sin anglicismos en copy de usuario). Ver la nota de ambigüedades de la cabecera.
+    test('TC68: sin resumen la fila pinta guion y no ceros, y el modo simulado se dice en español', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      const sinResumen = await filasHistorial(page).nth(2).innerText();
+      expect(sinResumen, 'una corrida sin contadores no inventa upserts').not.toMatch(/upserts/i);
+      expect(sinResumen, 'el hueco se dice con guion').toContain(GUION);
+
+      const simulada = await filasHistorial(page).nth(3).innerText();
+      expect(simulada, 'el modo simulado se avisa en la propia fila').toMatch(/simulad/i);
+      expect(simulada, 'copy de usuario en español: «simulado», no «mock»').not.toMatch(/mock/i);
+    });
+
+    // TC83 — «Cargar más corridas», la única superficie que mueve el `?limit=`.
+    //
+    // La spec la deja como opcional de v1 y con una condición que es todo el caso: **la misma lista
+    // reemplazada, no scroll infinito**. Las dos formas se ven casi iguales en pantalla la primera
+    // vez y son distintas para todo lo demás:
+    //
+    //   · Acumular (20 + 50 = 70 filas) es pedir dos veces las mismas veinte corridas y anotar dos
+    //     veces su acceso en `pii_access_log`, además de dejar una tabla con filas duplicadas en
+    //     cuanto una corrida cambie de estado entre las dos lecturas.
+    //   · El scroll infinito, aquí, es un sondeo con otro nombre: dispara lecturas de datos
+    //     personales por mirar, sin que nadie haya pedido nada, y es justo lo que la decisión 13
+    //     acaba de recortar en la consola.
+    //
+    // Por eso se afirma el VALOR del `limit` pedido —20, luego 50, luego 100— y no solo que hubiera
+    // otra petición: una implementación que pidiera `?limit=20` tres veces también «hace otra
+    // petición», y no carga nada más. Y se afirma el conteo de filas después de cada paso, que es lo
+    // que separa reemplazar de acumular.
+    //
+    // El botón desaparece al llegar al tope: el servidor no acepta más de 100 (`limit` máx.), así
+    // que dejarlo visible sería ofrecer una acción que ya no puede hacer nada.
+    test('TC83: Cargar más pide 50 y luego 100, reemplaza la lista y desaparece en el tope', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: corridasSinteticas(20) });
+
+      await irASincronizacion(page);
+      await expect(filasHistorial(page)).toHaveCount(20);
+      expect(limitesDelHistorial(runs), 'la primera página es la de la spec').toEqual(['20']);
+
+      // Nada se mueve si nadie pulsa: el botón está, y hasta que se pulse no hay más lecturas.
+      const boton = historial(page).getByRole('button', { name: /Cargar más/i });
+      await expect(boton).toBeVisible();
+      const trasElMontaje = runs.llamadasLista;
+      await pausaMasLargaQueElSondeo(page);
+      expect(runs.llamadasLista, 'sin pulsar no se carga nada').toBe(trasElMontaje);
+
+      runs.lista = corridasSinteticas(50);
+      await boton.click();
+      await expect(filasHistorial(page)).toHaveCount(50);
+      expect(limitesDelHistorial(runs), 'la segunda página se pide con limit=50').toEqual(['20', '50']);
+
+      runs.lista = corridasSinteticas(100);
+      await boton.click();
+      await expect(filasHistorial(page)).toHaveCount(100);
+      expect(limitesDelHistorial(runs), 'y la tercera con limit=100').toEqual(['20', '50', '100']);
+
+      // Tope: no hay nada más que pedir y el control se retira.
+      await expect(historial(page).getByRole('button', { name: /Cargar más/i })).toHaveCount(0);
+    });
+  });
+
+  // ══════════════════════════════ AC2 · El detalle con sus pasos ═════════════════════════════════
+
+  test.describe('AC2 · detalle de la corrida', () => {
+    // TC69 — abrir el detalle: una lectura, la de esa corrida, y el instante COMPLETO en la cabecera.
+    //
+    // Las tres cosas que vigila:
+    //   · Se pide el detalle de la fila que se pulsó (y no, por ejemplo, el de la primera siempre:
+    //     el bug clásico de un `map` que se cierra sobre la variable equivocada).
+    //   · Se pide UNA vez. Cada lectura de `/sync/runs/:id` escribe su fila de `pii_access_log`, así
+    //     que un `useEffect` sin dependencias estables aquí no es una petición de más: es la
+    //     bitácora de accesos a datos personales llenándose de ruido.
+    //   · La cabecera lleva el instante entero —día, año y hora—, que es la otra mitad de la
+    //     enmienda 15: en una frase suelta, «15:02» a secas puede ser de cualquier día.
+    test('TC69: Ver detalle abre el modal de esa corrida con una sola lectura y su instante completo', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 0);
+
+      const modal = modalCorrida(page);
+      expect(runs.idsPedidos, 'se lee el detalle de la fila pulsada, y solo ese').toEqual([H_COMPLETADA]);
+      await expect(modal.getByText(/14 .{0,7}ago.{0,4}2026, 15:02/).first()).toBeVisible();
+
+      // Estado, modo, alcance, contadores y pasos: las cinco cosas que el AC2 pide ver.
+      await expect(modal).toContainText('Completada');
+      await expect(modal).toContainText(/modo:? real/i);
+      await expect(modal).toContainText(NIT_A);
+      await expect(modal).toContainText('Upserts 340');
+      await expect(modal.getByRole('table', { name: /Detalle por fuente/i })).toBeVisible();
+
+      // Y sigue siendo UNA lectura después de que el modal haya pintado: un re-render no vuelve a
+      // preguntar.
+      expect(runs.llamadasDetalle, 'el detalle se lee al abrir, no en cada render').toBe(1);
+    });
+
+    // TC70 — la tabla de pasos, que es la razón de ser del modal: qué fuente falló, con qué código y
+    // cuántos ítems trajo. Todo esto lo pinta `ResultadoSyncComparendos`, que la #11635 dejó en su
+    // propio archivo justamente para que el modal lo reutilizara; este TC es, por tanto, el guardián
+    // de esa reutilización: si alguien copia la tabla en vez de reusarla, el día que se arregle el
+    // guion en un sitio y no en el otro este TC lo dirá.
+    //
+    // «SIMIT» en mayúsculas es del AC2 palabra por palabra, y se afirma también en negativo: que el
+    // `simit` crudo del contrato no se escape a la pantalla.
+    test('TC70: los pasos etiquetan SIMIT, pintan el HTTP del proveedor y el guion donde no se leyó', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 1);
+
+      const tabla = modalCorrida(page).getByRole('table', { name: /Detalle por fuente/i });
+      await expect(tabla.getByRole('row')).toHaveCount([...STEPS, STEP_ERROR].length + 1);
+      await expect(tabla.getByRole('row').nth(1)).toContainText('SIMIT');
+      expect(await tabla.innerText(), 'la fuente nacional se llama SIMIT, no «simit»').not.toContain('simit');
+
+      // La fila que falló: la palabra «Error» (no solo el color), el HTTP del PROVEEDOR, el mensaje
+      // persistido y el guion de `itemsLeidos: null` —que significa «no se llegó a leer» y no cero—.
+      const filaError = tabla.getByRole('row').filter({ hasText: 'BELLO' });
+      await expect(filaError).toContainText('Error');
+      await expect(filaError).toContainText('504');
+      await expect(filaError).toContainText(STEP_ERROR.mensaje as string);
+      await expect(filaError).toContainText(GUION);
+    });
+
+    // TC71 — «sin inventar nombres», que es la frase del AC2 con más consecuencias.
+    //
+    // `iniciadoPor` es un id porque el contrato lo decidió así (decisión 11: no se pide un directorio
+    // de usuarios para este módulo). La tentación es evidente y bienintencionada —«Usuario 7» se ve
+    // pobre— y la forma de ceder es una llamada a `/api/users` «solo para resolver el nombre». Eso no
+    // es una petición de más: es traer datos de personas a una pantalla que no los necesitaba, y
+    // atarlos a un dato de auditoría que se guarda para siempre.
+    //
+    // Por eso el TC no se conforma con leer «Usuario 7» en pantalla: escucha TODAS las peticiones de
+    // la página y afirma que ninguna fue a un directorio. Y comprueba el otro atajo, el que no deja
+    // rastro en la red: pintar el nombre del usuario de la sesión cuando el id coincide con el suyo
+    // —`OPERACIONES_USER.id` es 7, el mismo de la corrida, así que ese atajo pasaría desapercibido—.
+    test('TC71: el iniciador se muestra como «Usuario N» o guion, sin ir a buscar el nombre a ninguna parte', async ({ page }) => {
+      const urls: string[] = [];
+      page.on('request', (peticion) => urls.push(peticion.url()));
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 0);
+
+      const modal = modalCorrida(page);
+      // La pareja etiqueta/valor se afirma sobre el texto renderizado y con el separador flojo
+      // (`:?\s*`) para no atarse al marcado: en una ficha `<dl>` el valor cae en la línea siguiente
+      // y en una línea corrida va tras dos puntos. Las dos formas dicen lo mismo y ninguna de las
+      // dos es asunto de un TC; lo que sí lo es —y esto no lo afloja— es que el id se lea JUNTO a
+      // su etiqueta y no como un número suelto en mitad de la ficha.
+      expect(await modal.innerText(), 'el iniciador se lee como «Usuario N», pegado a su etiqueta')
+        .toMatch(/Iniciada por:?\s*Usuario 7/);
+      expect(await modal.innerText(), 'no se pinta el nombre de nadie, ni el de la propia sesión')
+        .not.toContain(OPERACIONES_USER.name);
+
+      // La corrida sin iniciador conocido: guion, no «Usuario null» ni «Sistema» ni un hueco mudo.
+      await modal.getByRole('button', { name: 'Cerrar' }).click();
+      await expect(modalCorrida(page)).toHaveCount(0);
+      await abrirDetalle(page, 2);
+      expect(await modalCorrida(page).innerText(), 'sin iniciador conocido, guion: ni «Usuario null» ni un hueco')
+        .toMatch(/Iniciada por:?\s*—/);
+
+      const directorio = urls.filter((u) => /\/api\/(users|usuarios)\b/i.test(u));
+      expect(directorio, 'el módulo no consulta un directorio de usuarios (decisión 11)').toEqual([]);
+    });
+
+    // TC72 — BORDE del modal: una corrida sin pasos. La spec es explícita en que aquí NO hay estado
+    // vacío —un run sin `steps[]` es anómalo, no un caso normal— y en que se dice con una frase.
+    // Sin ella queda una tabla con cabeceras y nada debajo, que se lee como «cargando» o como un
+    // fallo de la pantalla, cuando lo que pasó es que la corrida murió antes de dar un solo paso.
+    test('TC72: una corrida sin pasos lo dice con su frase y no deja una tabla vacía', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 2);
+
+      const modal = modalCorrida(page);
+      await expect(modal.getByText(COPY_HIST.sinPasos)).toBeVisible();
+      await expect(modal.getByRole('table', { name: /Detalle por fuente/i })).toHaveCount(0);
+      // Y lo que sí se sabe de esa corrida se sigue viendo: el estado y el alcance no dependen de
+      // que hubiera pasos.
+      await expect(modal).toContainText('Fallida');
+      await expect(modal).toContainText(NIT_A);
+    });
+
+    // TC73 — el detalle falla. Dos exigencias, y la segunda es la que se olvida: que el error del
+    // modal sea REINTENTABLE de verdad (que el botón vuelva a pedir, no que solo cierre) y que la
+    // lista de abajo siga en pie. Un 500 leyendo una corrida no dice nada de las otras diecinueve.
+    test('TC73: si el detalle falla, el modal ofrece reintentar y el reintento vuelve a pedir', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+      runs.fallaDetalle = 500;
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 0);
+
+      const modal = modalCorrida(page);
+      // Se afirma el MENSAJE y no el rol: la spec de UX fija el copy de la lista y para el modal
+      // solo dice «error + reintentar», así que exigir `role="alert"` aquí sería contrato inventado
+      // —y además discutible, porque una alerta es una región viva y esta vista tiene una sola por
+      // decisión expresa—. Queda como pregunta abierta a UX en el HANDOFF.
+      await expect(modal.getByText(COPY_HIST.errorDetalle)).toBeVisible();
+      await expect(anuncio(page), 'el fallo del detalle no monta una región viva nueva').toHaveCount(1);
+      expect(runs.llamadasDetalle).toBe(1);
+
+      // La tabla de abajo no se entera: sigue con sus cuatro filas.
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length);
+
+      runs.fallaDetalle = null;
+      await modal.getByRole('button', { name: 'Reintentar' }).click();
+      await expect(modal).toContainText('Upserts 340');
+      expect(runs.llamadasDetalle, 'el reintento vuelve a preguntar').toBe(2);
+      await expect(modal.getByText(COPY_HIST.errorDetalle)).toHaveCount(0);
+    });
+
+    // TC74 — el modal por teclado, y los nombres de los botones que lo abren.
+    //
+    // Lo de los nombres no es un detalle de purista: cuatro botones «Ver» en una tabla son, para
+    // quien navega por la lista de controles de un lector de pantalla, cuatro veces la misma palabra
+    // sin nada que los distinga —y la fila, que es lo que los distingue en la pantalla, ahí no se
+    // oye—. Se afirma que son CUATRO nombres DISTINTOS y no una redacción concreta: cómo se
+    // desambigüen (el instante, el estado) es cosa de quien lo escriba.
+    //
+    // Y el foco vuelve al botón que abrió, que es el contrato de `FlitModal` vía `restoreFocusRef`:
+    // sin él, Escape deja el foco en el `<body>` y quien navega con teclado tiene que recorrer la
+    // página entera para volver a donde estaba.
+    test('TC74: los botones de detalle se distinguen entre sí y Escape devuelve el foco al que abrió', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      const botones = botonesVerDetalle(page);
+      await expect(botones).toHaveCount(HISTORIAL.length);
+      const nombres = await botones.evaluateAll(
+        (els) => els.map((e) => e.getAttribute('aria-label') ?? e.textContent?.trim() ?? ''),
+      );
+      expect(new Set(nombres).size, `cuatro nombres accesibles distintos, no cuatro «Ver»: ${nombres.join(' / ')}`)
+        .toBe(HISTORIAL.length);
+
+      const boton = verDetalle(page, 1);
+      await boton.click();
+      await expect(modalCorrida(page)).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(modalCorrida(page)).toHaveCount(0);
+      await expect(boton, 'el foco vuelve a la fila de la que se salió').toBeFocused();
+    });
+
+    // TC81 — el 404, que es el ÚNICO error del módulo que niega el reintento.
+    //
+    // Una corrida puede desaparecer entre que se lista y que se abre: purga por retención, o un
+    // historial cargado hace media hora en una pestaña que nadie tocó. Lo que hace especial a este
+    // error no es el copy, es la ausencia del botón: reintentar un 404 es volver a fallar, y un
+    // «Reintentar» que solo puede fallar otra vez es peor que no ofrecer nada —hace cargar al
+    // operador con la sospecha de que no insistió bastante—.
+    //
+    // Hoy las dos ramas están separadas por el `status`, y nada impide que alguien las «unifique»
+    // más adelante para simplificar el manejo de errores: son cuatro líneas y el resultado se ve
+    // igual de bien en pantalla. Por eso el TC afirma la AUSENCIA del control, que es lo que se
+    // pierde en esa refactorización, y no solo el mensaje.
+    //
+    // Y afirma el contador en uno: un reintento automático «para asegurarse» sería exactamente el
+    // reintento que esta rama descarta, solo que sin botón y sin que nadie lo vea. La fila de detrás
+    // sigue en la lista porque el 404 es del DETALLE: lo que no está es esa corrida, no el archivo.
+    test('TC81: una corrida que ya no está niega el reintento, deja cerrar y no vuelve a pedir sola', async ({ page }) => {
+      // El detalle de la parcial no está en el servidor: el listado la tiene, el detalle no. Es lo
+      // que pasa de verdad cuando la purga se lleva la corrida entre las dos lecturas.
+      const detalleSinLaParcial: Record<string, unknown> = { ...DETALLE_HIST };
+      delete detalleSinLaParcial[H_PARCIAL];
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: detalleSinLaParcial });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await abrirDetalle(page, 1);
+
+      const modal = modalCorrida(page);
+      await expect(modal.getByText(COPY_HIST.sinCorrida)).toBeVisible();
+      await expect(modal.getByRole('button', { name: 'Reintentar' }),
+        'un 404 no se reintenta: el botón solo podría volver a fallar').toHaveCount(0);
+      // Y no se cuela el copy del error reintentable, que es la otra mitad de la confusión.
+      await expect(modal.getByText(COPY_HIST.errorDetalle)).toHaveCount(0);
+
+      // Cerrar sí: es la única salida honesta, y tiene que estar DENTRO del cuerpo del diálogo, no
+      // solo en la «X» de la cabecera —quien acaba de leer el mensaje tiene la acción donde mira—.
+      const cerrar = modal.getByRole('button', { name: 'Cerrar' });
+      await expect(cerrar.last()).toBeVisible();
+
+      // Ni un reintento disfrazado: una petición, la que se pidió al abrir.
+      await pausaMasLargaQueElSondeo(page);
+      expect(runs.llamadasDetalle, 'un 404 no se reintenta solo').toBe(1);
+
+      await cerrar.last().click();
+      await expect(modalCorrida(page)).toHaveCount(0);
+      // El archivo no se ha movido: el 404 era de una corrida, no del historial.
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length);
+      await expect(historial(page).getByText(COPY_HIST.error)).toHaveCount(0);
+    });
+
+    // TC82 — reabrir la MISMA corrida vuelve a pedir el detalle, y eso es una decisión, no un olvido.
+    //
+    // Nace del arreglo de la doble lectura: la guardia que impide la segunda pasada de `StrictMode`
+    // recuerda `runId#intento`, y la tentación evidente —una vez que existe una guardia— es
+    // ascenderla a caché: «ya tengo el detalle de esta corrida, ¿para qué volver a pedirlo?». En
+    // cualquier otra pantalla sería una mejora. Aquí NO, y por una razón que no se ve en el código:
+    // cada apertura del modal es un acceso humano nuevo a datos personales —los NIT del alcance y
+    // los de cada paso— y tiene que quedar anotado en `pii_access_log`. Servir la segunda apertura
+    // desde memoria no ahorra una petición: borra de la bitácora una consulta que ocurrió de verdad.
+    // La bitácora existe para responder «quién miró qué y cuándo», y una que se salta las miradas
+    // repetidas responde mal a las dos.
+    //
+    // La segunda mitad del TC es la otra cara de la misma guardia: abrir una corrida DISTINTA tiene
+    // que pedir la suya. Con una bandera booleana —el atajo que este archivo pidió no usar— la
+    // segunda apertura se habría quedado sin petición y el modal enseñaría el detalle de la primera
+    // corrida bajo el título de la segunda, que es de los peores fallos posibles en una pantalla de
+    // auditoría: datos correctos atribuidos a la corrida equivocada.
+    test('TC82: cada apertura pide su detalle — la misma corrida otra vez, y la de al lado la suya', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      await abrirDetalle(page, 0);
+      await expect(modalCorrida(page)).toContainText('Upserts 340');
+      expect(runs.idsPedidos, 'una lectura por apertura, no dos').toEqual([H_COMPLETADA]);
+
+      await page.keyboard.press('Escape');
+      await expect(modalCorrida(page)).toHaveCount(0);
+
+      // La misma otra vez: se vuelve a preguntar. El acceso se repitió y la bitácora tiene que verlo.
+      await abrirDetalle(page, 0);
+      await expect(modalCorrida(page)).toContainText('Upserts 340');
+      expect(runs.idsPedidos, 'reabrir es un acceso nuevo, no un acierto de caché')
+        .toEqual([H_COMPLETADA, H_COMPLETADA]);
+
+      // Y la de al lado pide la suya, con el modal de la primera todavía abierto: es el momento en
+      // que una guardia demasiado lista se comería la petición.
+      await page.keyboard.press('Escape');
+      await expect(modalCorrida(page)).toHaveCount(0);
+      await abrirDetalle(page, 1);
+      expect(runs.idsPedidos[runs.idsPedidos.length - 1], 'cada corrida trae su propio detalle')
+        .toBe(H_PARCIAL);
+      // Y lo que se ve es lo suyo: el paso que falló está en la parcial, no en la completada.
+      await expect(modalCorrida(page).getByRole('table', { name: /Detalle por fuente/i }))
+        .toContainText('BELLO');
+    });
+  });
+
+  // ═══════════════════════════════ AC3 · Estados del historial ═══════════════════════════════════
+
+  test.describe('AC3 · vacío, error y carga', () => {
+    // TC75 — el vacío, que es el primer día del módulo en el cliente. No es un hueco: es la frase que
+    // invita a lanzar la primera sincronización, y por eso se afirma también que la consola de arriba
+    // está lista para hacerlo. Un vacío que dice «lanza la primera desde el panel de arriba» mientras
+    // el panel de arriba sigue inhabilitado es una instrucción imposible.
+    test('TC75: sin corridas, el historial invita a lanzar la primera y la consola está lista', async ({ page }) => {
+      await mockRuns(page, { lista: [] });
+
+      await irASincronizacion(page);
+      await expect(historial(page).getByText(COPY_HIST.vacio)).toBeVisible();
+      await expect(tablaHistorial(page)).toHaveCount(0);
+      await esperarConsolaEnReposo(page);
+    });
+
+    // TC76 — el AISLAMIENTO del AC3, y el TC de este bloque que más veces se va a agradecer.
+    //
+    // Es el mismo caso que el TC17 del visor (un 500 de municipios que no se lleva por delante la
+    // tabla de NITs) y aquí es peor si se incumple: el historial es lo ÚLTIMO de la vista y la
+    // consola es lo que el operador vino a usar. Que un fallo leyendo el archivo impida sincronizar
+    // sería cambiar un problema pequeño —no puedo mirar lo de ayer— por el problema grande.
+    //
+    // Se comprueba en las dos direcciones, que es lo que hace que «aislamiento» signifique algo:
+    // la consola sigue funcionando ENTERA con el historial roto (se dispara y se ve el resultado), y
+    // el historial sigue diciendo lo suyo después, sin que el éxito de arriba le borre el error.
+    test('TC76: un historial que no carga avisa con reintento y no tumba la consola de arriba', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+      runs.fallaLista = 500;
+      await mockDisparo(page, { tipo: 'responder', status: 200, body: RESULTADO_COMPLETADA });
+
+      await irASincronizacion(page);
+      await expect(historial(page).getByText(COPY_HIST.error)).toBeVisible();
+      // El aviso se ve, pero NO interrumpe: `role="alert"` es región viva assertive, y la spec de
+      // a11y lo reserva al error definitivo del DISPARO —«es la única excepción»—. Que no se pueda
+      // leer el archivo de ayer no es una urgencia que deba cortarle la frase a quien está mirando
+      // cómo va la corrida de ahora. Y la región viva de la vista sigue siendo una.
+      await expect(page.getByRole('alert'), 'el fallo del archivo no se anuncia como urgencia').toHaveCount(0);
+      await expect(anuncio(page), 'ni monta una segunda región viva').toHaveCount(1);
+
+      // La consola no se entera: hidrata igual (el hook trata su lectura fallida como «no hay nada
+      // corriendo», no como un error de pantalla) y dispara.
+      await esperarConsolaEnReposo(page);
+      await botonSincronizar(page).click();
+      await expect(resultado(page).getByText('Completada', { exact: true })).toBeVisible();
+      await expect(historial(page).getByText(COPY_HIST.error)).toBeVisible();
+
+      // Y el reintento es de verdad: con el servidor sano, la tabla aparece donde estaba el error.
+      //
+      // El servidor devuelve ahora CINCO corridas, con la recién lanzada arriba. El fixture tiene
+      // que decir eso y no las cuatro de antes: entre el error y el reintento se ha ejecutado una
+      // sincronización, así que un listado sin ella describiría un servidor imposible —y el TC
+      // acabaría acusando a la pantalla de pintar una fila de más cuando lo que hace es exactamente
+      // lo que la enmienda le pide, no perder de vista la corrida que el operador acaba de lanzar—.
+      runs.fallaLista = null;
+      runs.lista = [RUN_COMPLETADA, ...HISTORIAL];
+      await historial(page).getByRole('button', { name: 'Reintentar' }).click();
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length + 1);
+      await expect(historial(page).getByText(COPY_HIST.error)).toHaveCount(0);
+      // Y la de arriba es la que se acaba de lanzar, no la más vieja del archivo.
+      await expect(filasHistorial(page).first()).toContainText('Completada');
+    });
+
+    // TC77 — mientras carga, el hueco no miente Y no monta una segunda región viva.
+    //
+    // Lo primero: con el listado retenido no puede haber ni tabla, ni «todavía no hay
+    // sincronizaciones», ni error. Pintar el vacío mientras se carga es la variante de este bug que
+    // más engaña, porque es una frase afirmativa —«no hay corridas»— sobre algo que nadie ha
+    // comprobado todavía; el orden correcto (error, luego vacío, luego lleno) ya está resuelto en
+    // `BloqueConfig` y aquí se hereda.
+    //
+    // Lo segundo es la trampa fina de esta HU, y no se ve leyendo el JSX: el esqueleto canónico del
+    // módulo (`EsqueletoBloque`) lleva `role="status"` con nombre, porque en Configuración —cuatro
+    // bloques que cargan a la vez y NINGUNA región viva permanente— es exactamente lo correcto.
+    // Traído a esta vista, ese mismo acierto se convierte en la segunda región viva que la spec de
+    // a11y prohíbe. Aquí la carga se declara con `aria-busy` y quien anuncia sigue siendo la región
+    // única de la vista.
+    //
+    // No se afirma que las filas fantasma sean cinco: es cosmético, no se puede mirar por rol sin
+    // inventar un `data-testid` y no cambia nada para quien no ve la pantalla.
+    test('TC77: mientras el historial carga no pinta vacío ni error, y no añade una segunda región viva', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST, congelado: true });
+
+      await irASincronizacion(page);
+      const zona = historial(page);
+      await expect(zona).toBeVisible();
+
+      await expect.poll(() => seDeclaraOcupada(zona), { timeout: 5_000 })
+        .toBe(true);
+      await expect(zona.getByText(COPY_HIST.vacio)).toHaveCount(0);
+      await expect(zona.getByText(COPY_HIST.error)).toHaveCount(0);
+      await expect(tablaHistorial(page)).toHaveCount(0);
+      await expect(anuncio(page), 'cargar no puede montar una segunda región viva').toHaveCount(1);
+
+      runs.soltarLista();
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length);
+      expect(await seDeclaraOcupada(zona), 'al llegar los datos deja de estar ocupada').toBe(false);
+      await expect(anuncio(page)).toHaveCount(1);
+    });
+  });
+
+  // ═════════════════ La enmienda de UX del 20 ago 2026 · decisiones 13, 14 y 15 ══════════════════
+
+  test.describe('Enmienda · el historial no sondea y es superficie de desenlace', () => {
+    // TC78 — el historial NO sondea. Es la obligación 1 de la enmienda y solo se puede ver contando
+    // peticiones: en pantalla, un historial que se refresca solo y uno que no se refrescan igual de
+    // bien —y el que sondea se ve incluso «más vivo»—.
+    //
+    // El montaje se hace SIN corrida en curso a propósito: con una viva, la consola estaría sondeando
+    // y cualquier crecimiento del contador sería suyo, no del historial, y el TC no distinguiría
+    // quién preguntó. Sin corrida viva, la consola está quieta (TC61) y todo lo que se mueva aquí es
+    // del historial.
+    //
+    // Se mira también el detalle con el modal ABIERTO: un `setInterval` que refresque «para que se
+    // vea el progreso» dentro del modal escribiría una fila de `pii_access_log` por vuelta sobre una
+    // corrida que ya terminó y que no va a cambiar nunca más.
+    test('TC78: ni la lista ni el modal preguntan por su cuenta mientras nadie pulsa nada', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await esperarConsolaEnReposo(page);
+
+      const trasElMontaje = runs.llamadasLista;
+      await pausaMasLargaQueElSondeo(page);
+      expect(runs.llamadasLista, 'el historial no sondea (enmienda, obligación 1)').toBe(trasElMontaje);
+      expect(runs.llamadasDetalle, 'ni se adelanta a leer detalles que nadie pidió').toBe(0);
+
+      await abrirDetalle(page, 0);
+      expect(runs.llamadasDetalle).toBe(1);
+      await pausaMasLargaQueElSondeo(page);
+      expect(runs.llamadasDetalle, 'el detalle de una corrida terminada no se refresca solo').toBe(1);
+      expect(runs.llamadasLista, 'abrir el modal tampoco recarga la lista').toBe(trasElMontaje);
+    });
+
+    // TC79 — la primera fila como SUPERFICIE DE DESENLACE (obligación 2), que es la parte de la
+    // enmienda que más fácil se implementa «casi bien».
+    //
+    // Al descartarse el toast (decisión 14), esta fila es donde queda el resultado si el operador
+    // estaba mirando hacia abajo cuando la corrida terminó. La implementación natural —«cuando haya
+    // desenlace, recargo la lista»— deja una ventana en la que la tarjeta de arriba ya dice
+    // «Completada» y la fila de abajo todavía dice «En curso»: dos afirmaciones contradictorias
+    // sobre la misma corrida, en la misma pantalla, y la falsa es justamente la que mira quien no
+    // estaba mirando arriba. La spec lo cierra sin ambigüedad: el chip correcto **en el mismo
+    // momento** en que aparece la tarjeta.
+    //
+    // El TC lo vuelve decidible congelando el refresco: en cuanto el sondeo sirve la corrida ya
+    // terminal, TODA lectura posterior del listado se queda en el aire. Así, la única forma de que
+    // la fila esté bien es que la pantalla haya fundido el desenlace que ya tiene en la mano, sin
+    // esperar a la red. Y la fila se lee de UN SOLO DISPARO —`innerText()` en vez de un `expect` que
+    // reintenta— porque lo que se afirma es un instante: con reintentos, «se corrige medio segundo
+    // después» pasaría por bueno, que es exactamente el fallo.
+    //
+    // Después se comprueba el otro lado de la obligación 1: que ese refresco sea UNO. `retenidas`
+    // dice cuántas lecturas están esperando; si fuera 0, el archivo se habría quedado viejo (nadie
+    // pidió la lista nueva) y si fuera 2 o más, el historial estaría sondeando detrás del desenlace.
+    test('TC79: al terminar la corrida, la primera fila ya trae el chip correcto y el refresco es uno solo', async ({ page }) => {
+      const runs = await mockRuns(page, {
+        lista: [RUN_HIST_VIVA, ...HISTORIAL],
+        detalle: { [H_VIVA]: { ...RUN_HIST_VIVA_TERMINADA, steps: STEPS }, ...DETALLE_HIST },
+      });
+
+      await irASincronizacion(page);
+      // Al entrar hay trabajo en marcha: la consola engancha sola (AC4) y el historial lo refleja.
+      await expect(anuncio(page)).toContainText(COPY.enCurso);
+      await expect(filasHistorial(page).first()).toContainText('En curso');
+
+      runs.congelarTrasElDesenlace = true;
+      runs.lista = [RUN_HIST_VIVA_TERMINADA, ...HISTORIAL];
+
+      // El sondeo de la consola trae el desenlace y la tarjeta de resultado aparece arriba.
+      await expect(resultado(page).getByText('Completada', { exact: true })).toBeVisible();
+
+      const primeraFila = await filasHistorial(page).first().innerText();
+      expect(primeraFila, 'la fila trae el desenlace en el mismo momento que la tarjeta')
+        .toContain('Completada');
+      expect(primeraFila, 'y no el estado viejo que se corrige cuando vuelva la red')
+        .not.toContain('En curso');
+
+      // Un refresco. Ni ninguno —el archivo se quedaría con la corrida vieja— ni un sondeo detrás.
+      await expect.poll(() => runs.retenidas, { timeout: 5_000 }).toBe(1);
+      await pausaMasLargaQueElSondeo(page);
+      expect(runs.retenidas, 'un solo refresco al desenlace, no un sondeo').toBe(1);
+
+      runs.soltarLista();
+      await expect(filasHistorial(page).first()).toContainText('Completada');
+      await expect(anuncio(page)).toContainText(COPY.toastCompletada);
+    });
+
+    // TC80 — la región viva sigue siendo UNA con toda la vista desplegada (obligación 3).
+    //
+    // TC62 ya lo afirma para la consola sola; aquí se comprueba en los cuatro momentos en que la
+    // pantalla tiene más piezas encima, que es donde se rompe: historial cargado, tarjeta de
+    // resultado arriba, modal abierto CARGANDO y modal lleno. El tercero es el importante: es el
+    // momento en que el reflejo del módulo —`role="status"` en el esqueleto, como en
+    // `PanelDetalleComparendo`— añadiría la segunda región sin que se note en pantalla.
+    //
+    // De paso, dos afirmaciones que solo se pueden hacer con todo montado a la vez:
+    //   · Una sola tarjeta llamada «Resultado de la corrida». El modal reutiliza el mismo
+    //     componente, así que si lo monta con su `role="region"` y su `<h2>` intactos, la vista pasa
+    //     a tener dos landmarks homónimos y quien navegue por regiones no sabrá cuál es cuál. El
+    //     diálogo ya se nombra a sí mismo con el título de la corrida: dentro no hace falta repetirlo.
+    //   · Ninguna alerta. Nada ha fallado, y `role="alert"` está reservado para eso.
+    test('TC80: con historial, resultado y modal abiertos a la vez sigue habiendo una sola región viva', async ({ page }) => {
+      const runs = await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+      await mockDisparo(page, { tipo: 'responder', status: 200, body: RESULTADO_COMPLETADA });
+
+      // El detalle, retenido desde AQUÍ: una ruta registrada después gana sobre la de `mockRuns`, y
+      // el patrón termina en `/…/runs/*`, que no puede tragarse el listado (no lleva barra final).
+      const detalle = { soltar: null as (() => void) | null };
+      await page.route('**/api/flito/comparendos/sync/runs/*', async (route: Route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        runs.llamadasDetalle += 1;
+        await new Promise<void>((resolve) => { detalle.soltar = resolve; });
+        return route
+          .fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(DETALLE_HIST[H_COMPLETADA]),
+          })
+          .catch(() => undefined);
+      });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+      await expect(anuncio(page), 'con el historial cargado').toHaveCount(1);
+
+      await botonSincronizar(page).click();
+      await expect(resultado(page)).toBeVisible();
+      await expect(anuncio(page), 'con la tarjeta de resultado arriba').toHaveCount(1);
+
+      await verDetalle(page, 0).click();
+      const modal = modalCorrida(page);
+      await expect(modal).toBeVisible();
+      await expect.poll(() => seDeclaraOcupada(modal), { timeout: 5_000 }).toBe(true);
+      await expect(anuncio(page), 'con el modal cargando su detalle').toHaveCount(1);
+
+      detalle.soltar?.();
+      await expect(modal).toContainText('Upserts 340');
+      await expect(anuncio(page), 'con el modal lleno').toHaveCount(1);
+
+      await expect(page.getByRole('region', { name: 'Resultado de la corrida' }))
+        .toHaveCount(1);
+      await expect(page.getByRole('alert'), 'no ha fallado nada: no hay alertas').toHaveCount(0);
+    });
+  });
+
+  // ═══════════════ Carreras entre la carga del archivo y el desenlace de la corrida ═══════════════
+
+  test.describe('Carrera · el desenlace llega antes que la carga inicial', () => {
+    // TC84 — el esqueleto eterno, y el TC más traicionero de esta HU: no se ve mirando la pantalla,
+    // hay que provocar la carrera.
+    //
+    // Las dos zonas de la vista leen el MISMO endpoint y no van acompasadas. Se abre la pestaña con
+    // una corrida viva: la consola hidrata con su límite corto, engancha el seguimiento y empieza a
+    // sondear; el historial pide su primera página y esa lectura —la de veinte— se pierde. Con una
+    // red lenta o un proxy que se traga una petición, eso no es una hipótesis de laboratorio: es un
+    // martes. Entonces la corrida termina, la consola publica el desenlace, dispara el refresco…
+    // y el refresco falla.
+    //
+    // El estado que queda es el que nadie mira: el historial nunca tuvo una primera respuesta, así
+    // que sigue en «cargando», y la única señal de que ahí ya no va a aparecer nada es un
+    // `aria-busy` que se quedó en `"true"` para siempre. En pantalla son cinco filas fantasma
+    // pulsando con normalidad, indistinguibles de una carga que va lenta; para quien usa lector, un
+    // bloque anunciado como ocupado que no termina nunca. Y no hay ningún texto que lo delate, así
+    // que ningún TC que afirme sobre copy lo habría encontrado — por eso este afirma sobre el
+    // atributo.
+    //
+    // El desatasco tiene que ser HONESTO: se muestra el error del historial con su reintento, no se
+    // finge una tabla vacía («todavía no hay sincronizaciones» sería mentir sobre algo que nadie
+    // pudo comprobar) y no se cuela por la puerta de una alerta —que sería una segunda región viva
+    // gritando por un archivo que no cargó, mientras la corrida de arriba termina bien—.
+    //
+    // Su control es TC85, y sin él este caso no significaría nada: pasaría igual si alguien
+    // «arreglara» el cuelgue haciendo que cualquier refresco fallido tumbe la lista, que es el
+    // defecto contrario y peor.
+    test('TC84: si el desenlace llega antes que la carga inicial y su refresco falla, el historial no se queda colgado', async ({ page }) => {
+      const runs = await mockRuns(page, {
+        lista: [RUN_HIST_VIVA, ...HISTORIAL],
+        detalle: { [H_VIVA]: { ...RUN_HIST_VIVA_TERMINADA, steps: STEPS }, ...DETALLE_HIST },
+      });
+      // La primera página del historial no llega NUNCA; el refresco del desenlace falla; el
+      // reintento va bien. La consola, con su límite corto, sigue funcionando con normalidad: si
+      // también se le retuviera, no habría desenlace que publicar y no habría carrera que probar.
+      runs.planLista = (limite, nEsima) => {
+        if (limite !== '20') return null;
+        if (nEsima === 1) return 'retener';
+        if (nEsima === 2) return { status: 500, body: { error: 'No se pudo listar', codigo: 'error_interno' } };
+        return null;
+      };
+
+      await irASincronizacion(page);
+      // La consola sí arrancó: engancha la corrida viva ella sola (AC4).
+      await expect(anuncio(page)).toContainText(COPY.enCurso);
+      // Y el historial se quedó esperando su primera página.
+      const zona = historial(page);
+      await expect.poll(() => seDeclaraOcupada(zona), { timeout: 5_000 }).toBe(true);
+      await expect(tablaHistorial(page)).toHaveCount(0);
+
+      // La corrida termina en el servidor. El sondeo de la consola lo detecta, pinta el resultado y
+      // dispara el refresco del historial: esa segunda lectura es la que falla.
+      runs.lista = [RUN_HIST_VIVA_TERMINADA, ...HISTORIAL];
+      await expect(resultado(page).getByText('Completada', { exact: true })).toBeVisible();
+
+      // AQUÍ es donde el bloque se quedaba colgado. `aria-busy` es lo único que lo dice.
+      await expect.poll(() => seDeclaraOcupada(zona), { timeout: 10_000 }).toBe(false);
+      await expect(zona.getByText(COPY_HIST.error)).toBeVisible();
+      await expect(zona.getByRole('button', { name: 'Reintentar' })).toBeVisible();
+      // Y no se inventa un vacío: nadie ha comprobado que no haya corridas.
+      await expect(zona.getByText(COPY_HIST.vacio)).toHaveCount(0);
+
+      // El desatasco no se cuela por la puerta de una alerta, y la región viva sigue siendo una.
+      await expect(page.getByRole('alert'), 'un archivo que no carga no es una urgencia').toHaveCount(0);
+      await expect(anuncio(page)).toHaveCount(1);
+
+      // La consola de arriba, entera: su tarjeta, su chip y su anuncio de desenlace.
+      await expect(resultado(page).getByText('Completada', { exact: true })).toBeVisible();
+      await expect(anuncio(page)).toContainText(COPY.toastCompletada);
+
+      // Y el reintento —tercera lectura, ya sana— pinta el archivo con la corrida recién terminada
+      // arriba, que es la que el operador acaba de ver acabar.
+      await zona.getByRole('button', { name: 'Reintentar' }).click();
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length + 1);
+      await expect(filasHistorial(page).first()).toContainText('Completada');
+      expect(await seDeclaraOcupada(zona), 'con los datos delante ya no está ocupada').toBe(false);
+    });
+
+    // TC85 — EL CONTROL de TC84, y la razón de que TC84 signifique algo.
+    //
+    // Mismo 500 en el refresco del desenlace, pero con la primera página ya cargada. Aquí el fallo
+    // NO tiene que verse: lo que hay en pantalla se pidió, llegó y sigue siendo verdad; que no se
+    // haya podido refrescar no lo convierte en mentira. Pintar el error aquí sería cambiar una
+    // tabla correcta por una banda roja, y de paso perder de vista la corrida que el operador acaba
+    // de ver terminar —justo lo que la obligación 2 de la enmienda existe para conservar—.
+    //
+    // Sin este caso, TC84 se aprobaría con el defecto contrario: «si un refresco falla, tumbo la
+    // lista y enseño Reintentar» desatasca el cuelgue y rompe esto. Los dos juntos dicen lo único
+    // que hay que decir: el error se muestra cuando no hay NADA que enseñar, no cuando lo último
+    // que se pidió salió mal.
+    //
+    // La fila de arriba llega igualmente al desenlace porque la pantalla lo funde de lo que ya tiene
+    // en la mano (TC79), sin depender de esa lectura que falló.
+    test('TC85: con la lista ya cargada, un refresco que falla no la tumba ni pide reintentar', async ({ page }) => {
+      const runs = await mockRuns(page, {
+        lista: [RUN_HIST_VIVA, ...HISTORIAL],
+        detalle: { [H_VIVA]: { ...RUN_HIST_VIVA_TERMINADA, steps: STEPS }, ...DETALLE_HIST },
+      });
+      // Lo único que cambia respecto de TC84: la primera página SÍ llega.
+      runs.planLista = (limite, nEsima) => {
+        if (limite !== '20' || nEsima !== 2) return null;
+        return { status: 500, body: { error: 'No se pudo listar', codigo: 'error_interno' } };
+      };
+
+      await irASincronizacion(page);
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length + 1);
+      await expect(filasHistorial(page).first()).toContainText('En curso');
+
+      runs.lista = [RUN_HIST_VIVA_TERMINADA, ...HISTORIAL];
+      await expect(resultado(page).getByText('Completada', { exact: true })).toBeVisible();
+
+      // El refresco ya falló (segunda lectura de veinte) y se le da tiempo de sobra a la pantalla
+      // para reaccionar mal: afirmar una ausencia sin esperar es afirmar que aún no ha pasado.
+      await expect.poll(() => limitesDelHistorial(runs).length, { timeout: 10_000 }).toBe(2);
+      await pausaMasLargaQueElSondeo(page);
+
+      const zona = historial(page);
+      await expect(zona.getByText(COPY_HIST.error), 'lo cargado sigue siendo verdad').toHaveCount(0);
+      await expect(zona.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      expect(await seDeclaraOcupada(zona), 'ni se queda ocupada por un refresco fallido').toBe(false);
+
+      // La tabla intacta, y su primera fila con el desenlace fundido pese al refresco fallido.
+      await expect(filasHistorial(page)).toHaveCount(HISTORIAL.length + 1);
+      await expect(filasHistorial(page).first()).toContainText('Completada');
     });
   });
 });

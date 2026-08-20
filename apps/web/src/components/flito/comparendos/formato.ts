@@ -8,6 +8,7 @@
 //   · `fechaCorta` / `fechaLarga` — una fecha de CALENDARIO (`date`, sin hora).
 //   · `fechaColombia`             — un INSTANTE, del que solo se pinta el día.
 //   · `fechaHoraColombia`         — el mismo instante CON su hora.
+//   · `fechaHoraCortaColombia`    — ese instante con hora pero SIN año (HU #11636, tablas).
 //
 // El nombre `fechaHoraColombia` lo llevaba, hasta esta HU, la función que NO pinta hora: usaba
 // `toLocaleDateString` con `{day, month, year}`. La tabla no necesita la hora —trece columnas y una
@@ -160,4 +161,30 @@ const ETIQUETA_ORIGEN: Record<ComparendoRegistro['origenMerge'], string> = {
  */
 export function etiquetaOrigen(origen: ComparendoRegistro['origenMerge']): string {
   return (ETIQUETA_ORIGEN as Record<string, string | undefined>)[origen] ?? origen;
+}
+
+/**
+ * El mismo instante, **sin el año**: «14 de ago, 15:02». La de la TABLA del historial (HU #11636).
+ *
+ * Es la tercera forma de pintar un instante en este módulo y la enmienda de UX del 20 ago 2026
+ * (decisión 15) explica por qué hacían falta las tres: el instante completo
+ * ({@link fechaHoraColombia}) es para las FRASES SUELTAS —«Iniciada el 14 ago 2026, 15:02» en la
+ * consola, la cabecera del modal de detalle—, donde la corrida puede ser de otro día y quien lee no
+ * tiene de dónde deducirlo. En una tabla ordenada por «Inicio», en cambio, el año se repite idéntico
+ * en veinte filas y solo engorda una columna que ya compite con otras cuatro.
+ *
+ * Lo que **no** se recorta es la hora: dos corridas del mismo día son el caso normal —una nocturna y
+ * la que alguien lanzó a mano— y sin hora las dos filas se leerían iguales.
+ *
+ * Mismo `timeZone` explícito y mismo `hour12: false` que sus hermanas, y por los mismos motivos.
+ */
+export function fechaHoraCortaColombia(instante: string | null): string {
+  if (!instante) return SIN_DATO;
+  const t = new Date(instante);
+  if (Number.isNaN(t.getTime())) return SIN_DATO;
+  return t.toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
 }
