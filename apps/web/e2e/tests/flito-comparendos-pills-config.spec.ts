@@ -1,18 +1,22 @@
 // FLITO — Comparendos: pestañas (?vista=) y parametrización de NITs y municipios (HU #11633, 17c).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-// MODO A — ESTOS TCs SE ESCRIBIERON ANTES QUE LA PANTALLA
+// GUARDIA DE COBERTURA — ESTE ARCHIVO TIENE QUE ESTAR DESPIERTO
 //
-// La HU #11633 está en `Active` y el desarrollo corre en paralelo (`feat/flito-hu11633-...`). El
-// archivo entero está marcado `describe.fixme` para no tumbar el CI del branch mientras las
-// pestañas no existan. **Quitar el `.fixme` es el ÚLTIMO paso de la implementación**, y el gate QA
-// (modo B) debe verificarlo antes de certificar:
+// Los 20 TCs originales se escribieron en modo A, antes que la pantalla, y el archivo vivió dormido
+// tras el modificador de Playwright que salta un bloque entero. Despertarlo era el último paso de
+// la implementación; el gate B de la HU #11633 lo verificó y corrió los 20 en verde.
 //
-//     grep -n "describe.fixme" apps/web/e2e/tests/flito-comparendos-pills-config.spec.ts
+// El check sigue siendo obligatorio en cada gate, porque un archivo dormido APARENTA cobertura: el
+// runner dice «20 skipped» y pinta verde igual. Se comprueba así, y lo correcto es CERO líneas:
 //
-// Si esa línea sigue viva al llegar a `Resolved`, la cobertura de esta HU es CERO aunque el runner
-// diga «18 skipped» en verde. Un spec en fixme que nadie despierta es peor que no tenerlo: aparenta
-// cobertura.
+//     grep -nE '\.(fixme|skip|only)\(' apps/web/e2e/tests/flito-comparendos-pills-config.spec.ts
+//
+// Ese patrón está escrito para no encontrarse a sí mismo. La versión anterior de este comentario
+// citaba el modificador en prosa y el grep devolvía dos aciertos sobre su propia explicación: el
+// verde del check exigía abrir el archivo y leer para descubrir que los aciertos eran comentarios.
+// Un check que hay que interpretar no es un check. Si algún día hay que volver a dormir un bloque,
+// el modificador se pone en el código y no se nombra aquí arriba.
 //
 // Los selectores son **contrato**, no adivinanza: salen del copy exacto de
 // `docs/ux/flito-comparendos-config-sync.md` (§ pestañas, § bloque 1 NITs, § bloque 2 municipios) y
@@ -59,6 +63,28 @@ const MUNI_ACTIVO = { id: 'm1', codigoFuente: 'ITAGUI', nombre: 'Itagüí', acti
 const MUNI_INACTIVO = { id: 'm2', codigoFuente: 'ENVIGADO', nombre: 'Envigado', activo: false, ...SELLO };
 
 const NITS = [NIT_ACTIVO, NIT_INACTIVO, NIT_SIN_HISTORICO];
+
+/**
+ * El subtítulo de cada pestaña, palabra por palabra.
+ *
+ * Va copiado y no importado de `navegacionComparendos.tsx` a propósito: importando la constante, el
+ * TC diría «el subtítulo es el que diga el código», que es una tautología que pasa siempre. Copiado
+ * dice «el subtítulo es ESTE», que es lo que el AC1 pide y lo que falla cuando alguien lo cambia.
+ *
+ * El de `registros` es el de la HU #11560 sin tocar una coma: la #11633 trasladó el visor de sitio,
+ * y trasladar no es reescribir.
+ */
+const SUBTITULO = {
+  registros:
+    'Lo que SIMIT y los municipios reportan de los NIT que se vigilan. Los datos vienen de la fuente '
+    + 'y no se editan aquí: lo único que se registra es la causal y la observación de gestión.',
+  sincronizacion:
+    'Consulta SIMIT y los municipios activos sobre los NIT vigilados. No hay corrida automática: '
+    + 'cada sincronización la disparas tú.',
+  configuracion:
+    'NIT vigilados, municipios fuente, causales de gestión y el token SIMIT. Sin esto, la '
+    + 'sincronización no tiene qué consultar.',
+} as const;
 const MUNICIPIOS = [MUNI_ACTIVO, MUNI_INACTIVO];
 
 // ─────────────────────────────────── Mocks con traza ────────────────────────────────────────────
@@ -206,6 +232,47 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633)
       const enfocado = page.locator(':focus');
       await expect(enfocado).toHaveRole('heading');
       await expect(enfocado).toHaveAttribute('tabindex', '-1');
+    });
+
+    // TC21 — AC1, la parte que este spec no cubría: cada pestaña trae SU subtítulo.
+    //
+    // Es un hallazgo del gate B de esta misma HU. Los tres textos existían y eran correctos, pero
+    // la invariante «el de Registros es el del #11560 palabra por palabra» vivía solo en un
+    // comentario de `navegacionComparendos.tsx`, y un comentario no falla cuando alguien lo
+    // incumple. Con tres frases parecidas en tres pestañas, el fallo realista no es que
+    // desaparezcan —eso se ve—: es que dos se intercambien y nadie lo note hasta que un operador
+    // lea en Configuración que la pantalla «consulta SIMIT», y se vaya a buscar el botón.
+    test('TC21: cada pestaña trae su subtítulo, y el de Registros es el del visor palabra por palabra', async ({ page }) => {
+      await mockConfigFeliz(page);
+
+      const afirmarSubtitulo = async (vista: keyof typeof SUBTITULO) => {
+        // El título de la pantalla NO se mueve: el subtítulo es lo único que cambia con la pestaña,
+        // así que afirmarlo aquí es lo que convierte «hay un texto» en «hay ESTE texto y el resto
+        // de la cabecera sigue en su sitio».
+        await expect(page.getByRole('heading', { level: 1, name: 'Comparendos monitoreados' })).toBeVisible();
+        await expect(page.getByText(SUBTITULO[vista], { exact: true })).toBeVisible();
+        // Y los otros dos no están en pantalla. Sin esta mitad, un subtítulo repetido en las tres
+        // pestañas —o dos intercambiados— pasaría el TC: bastaría con que el esperado apareciese
+        // en alguna parte. `exact` porque las tres frases comparten vocabulario («SIMIT», «NIT»).
+        for (const [otra, texto] of Object.entries(SUBTITULO)) {
+          if (otra === vista) continue;
+          await expect(page.getByText(texto, { exact: true })).toHaveCount(0);
+        }
+      };
+
+      await page.goto('/flito/comparendos');
+      await afirmarSubtitulo('registros');
+
+      await page.getByRole('tab', { name: 'Sincronización' }).click();
+      await afirmarSubtitulo('sincronizacion');
+
+      await page.getByRole('tab', { name: 'Configuración' }).click();
+      await afirmarSubtitulo('configuracion');
+
+      // Y en frío, no solo navegando: quien llega por un enlace guardado tiene que leer el
+      // subtítulo de la sección a la que llegó, no el de la que abre por defecto.
+      await page.goto('/flito/comparendos?vista=configuracion');
+      await afirmarSubtitulo('configuracion');
     });
   });
 
@@ -370,11 +437,16 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633)
       const fila = bloqueNits(page).getByRole('row', { name: /900111222/ });
       await fila.getByRole('button', { name: 'Eliminar' }).click();
 
-      // Si el alta tuviera confirmación previa de borrado, se acepta aquí; el TC afirma el resultado.
-      const confirmar = page.getByRole('dialog').getByRole('button', { name: /Eliminar|Confirmar/ });
-      if (await confirmar.count()) await confirmar.first().click();
+      // El modal de borrado SIEMPRE se abre, y su botón primario es quien dispara el DELETE: no es
+      // un paso opcional. Antes se pulsaba tras un `if (await ...count())`, que es una foto del DOM
+      // en un instante: con el modal todavía sin montar, el TC se saltaba el clic EN SILENCIO y
+      // reventaba después, en la aserción del 409, culpando a la pantalla de algo que nunca se le
+      // llegó a pedir.
+      const modalEliminar = page.getByRole('dialog', { name: 'Eliminar NIT 900111222' });
+      await expect(modalEliminar).toBeVisible();
+      await modalEliminar.getByRole('button', { name: 'Eliminar', exact: true }).click();
 
-      await expect(page.getByRole('alert')).toContainText(
+      await expect(modalEliminar.getByRole('alert')).toContainText(
         'Este NIT ya tiene comparendos registrados y no se puede eliminar. Desactívalo para conservar el histórico.',
       );
       // La fila sigue: nada de optimismo antes de conocer la respuesta.
@@ -383,12 +455,21 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633)
       // Y la salida ofrecida funciona: [Desactivar] hace PATCH { activo: false }.
       escritura.respuesta = { status: 200, body: { ...NIT_SIN_HISTORICO, activo: false } };
       nits.respuesta = { status: 200, body: [NIT_ACTIVO, NIT_INACTIVO, { ...NIT_SIN_HISTORICO, activo: false }] };
-      await page.getByRole('button', { name: 'Desactivar' }).last().click();
-      const confirmarBaja = page.getByRole('dialog').getByRole('button', { name: /Desactivar|Confirmar/ });
-      if (await confirmarBaja.count()) await confirmarBaja.first().click();
+      // El [Desactivar] que ofrece el modal lo cierra en el acto y deja el PATCH en manos del
+      // bloque: NO encadena una segunda confirmación, porque ya se pidió eliminar, que es más. Se
+      // afirma que el modal se va, en vez de rebuscar a ciegas en un diálogo que se está
+      // desmontando mientras se le pregunta.
+      await modalEliminar.getByRole('button', { name: 'Desactivar' }).click();
+      await expect(modalEliminar).toBeHidden();
 
-      const patch = escritura.peticiones.find((p) => p.metodo === 'PATCH');
-      expect(patch?.cuerpo).toMatchObject({ activo: false });
+      // `expect.poll` y no lectura síncrona del array: el clic vuelve del navegador por un camino y
+      // la interceptación de `page.route` se registra por otro, en Node. Leer `peticiones` justo
+      // después del clic es apostar a cuál de los dos llega antes, y esa apuesta se pierde bajo
+      // carga —en CI, o en una corrida local larga— sin que nada haya cambiado en la pantalla.
+      await expect.poll(
+        () => escritura.peticiones.find((p) => p.metodo === 'PATCH')?.cuerpo,
+        { message: 'el [Desactivar] ofrecido tras el 409 tiene que mandar PATCH { activo: false }' },
+      ).toMatchObject({ activo: false });
       await expect(bloqueNits(page).getByRole('row', { name: /900111222/ }).getByText('Inactivo')).toBeVisible();
     });
 
@@ -437,7 +518,12 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633)
       // dígito de verificación se conserva»— así que buscar esas palabras en todo el diálogo
       // encuentra dos elementos y no distingue la ayuda del error. `role="alert"` es además lo que
       // hace que el fallo se anuncie a quien no ve la pantalla, que es lo que el TC persigue.
-      await expect(modal.getByRole('alert')).toContainText(/solo dígitos|dígito de verificación|NIT no es válido/i);
+      //
+      // Y el texto que se busca es el del ERROR, no vocabulario que la ayuda comparte: «solo
+      // dígitos» y «dígito de verificación» están en las dos frases. Hoy no colisionan porque la
+      // búsqueda va dentro de la alerta, pero el día que alguien meta la ayuda dentro de
+      // `ErrorFormulario` el TC pasaría en vacío, afirmando sobre un texto que está siempre.
+      await expect(modal.getByRole('alert')).toContainText('El NIT admite solo dígitos');
       expect(alta.peticiones).toHaveLength(0);
     });
   });
@@ -562,16 +648,40 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633)
       const escritura = await mockEscritura(page, API_MUNICIPIO_ID, { status: 200, body: { ...MUNI_ACTIVO, activo: false } });
 
       await irAConfiguracion(page);
-      await bloqueMunicipios(page).getByRole('row', { name: /ITAGUI/ }).getByRole('button', { name: 'Desactivar' }).click();
 
-      const confirmacion = page.getByRole('dialog');
-      if (await confirmacion.count()) {
-        await confirmacion.getByRole('button', { name: /Desactivar|Confirmar/ }).click();
-      }
+      // Primero se espera a ver la fila ACTIVA. `mockLectura` guarda un valor mutable y compartido,
+      // así que adelantar la mutación al GET inicial le sirve el municipio ya inactivo en el primer
+      // render, y entonces no hay ningún [Desactivar] que pulsar. No es teoría: mover la mutación
+      // arriba del todo dejó este TC en rojo con un timeout sobre el botón. Por eso TC13 muta
+      // después de ver el diálogo abierto y no antes; aquí el punto de sincronización es la fila.
+      const desactivar = bloqueMunicipios(page).getByRole('row', { name: /ITAGUI/ })
+        .getByRole('button', { name: 'Desactivar' });
+      await expect(desactivar).toBeVisible();
+
+      // Con el estado inicial ya pintado, la respuesta nueva del catálogo se arma ANTES del clic,
+      // igual que en TC13. Hoy el bloque parcha la fila con el cuerpo del PATCH y no vuelve a pedir
+      // la lista, así que este mock ni siquiera llega a servirse; el orden importa igual, porque el
+      // día que alguien encadene un `recargar()` detrás del PATCH, dejar la mutación después del
+      // clic haría que el refetch ganara la carrera y devolviera el municipio TODAVÍA ACTIVO. El TC
+      // caería entonces por algo que no tiene que ver con lo que prueba, que es la peor forma de
+      // fallar: el rojo señalaría a la pantalla y el defecto estaría en el andamio.
       municipios.respuesta = { status: 200, body: [{ ...MUNI_ACTIVO, activo: false }] };
 
-      expect(escritura.peticiones.map((p) => p.metodo)).toEqual(['PATCH']);
+      await desactivar.click();
+
+      // `expect.poll`: ver la nota de TC12. La lista de métodos se comprueba entera —y no «hay un
+      // PATCH»— porque parte de lo que el TC afirma es que NO sale ningún DELETE.
+      await expect.poll(
+        () => escritura.peticiones.map((p) => p.metodo),
+        { message: 'desactivar un municipio manda PATCH, y solo PATCH' },
+      ).toEqual(['PATCH']);
       expect(escritura.peticiones[0].cuerpo).toMatchObject({ activo: false });
+
+      // Y no pregunta antes: la baja de un municipio no abre confirmación —al revés que la del NIT,
+      // donde la pregunta de verdad es «¿eliminar o desactivar?»—. Esto era un `if` que no se
+      // cumplía nunca, es decir, prosa disfrazada de código: ahora es una aserción que se entera si
+      // alguien añade el diálogo sin decirlo.
+      await expect(page.getByRole('dialog')).toHaveCount(0);
       const fila = bloqueMunicipios(page).getByRole('row', { name: /ITAGUI/ });
       await expect(fila.getByText('Inactivo')).toBeVisible();
       await expect(fila.getByRole('button', { name: 'Activar' })).toBeVisible();
