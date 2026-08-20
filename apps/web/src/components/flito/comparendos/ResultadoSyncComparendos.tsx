@@ -23,6 +23,7 @@
 // servidor» del módulo: no es el mensaje de un error HTTP, es una columna persistida que los errores
 // del dominio construyen sin token, sin cabeceras y sin PII a propósito (`flito-comparendos.errors.ts`).
 
+import { useId } from 'react';
 import type {
   ComparendosSyncEstado, ComparendosSyncResultado, ComparendosSyncResumen, ComparendosSyncStep,
 } from '@operaciones/shared-types';
@@ -113,24 +114,38 @@ function etiquetaFuente(fuente: string): string {
   return fuente === 'simit' ? 'SIMIT' : fuente;
 }
 
-const ID_TITULO = 'resultado-corrida-sync';
-
 interface Props {
   resultado: ComparendosSyncResultado;
   /** La corrida la inició otra sesión: se dice, para que su desenlace no pase por propio. */
   ajena?: boolean;
+  /**
+   * Encabezado de la tarjeta, que es también el nombre accesible de su región.
+   *
+   * Lo cambia el modal del historial (HU #11636): allí la corrida puede ser de hace tres días —o
+   * seguir en curso—, y «Resultado de la corrida» prometería el desenlace de algo que se acaba de
+   * lanzar. De paso, deja ese nombre accesible existiendo UNA sola vez en la vista aunque el modal
+   * esté abierto encima de la tarjeta de la consola: dos regiones con el mismo nombre son, para
+   * quien navega por regiones, dos sitios indistinguibles.
+   */
+  titulo?: string;
 }
 
-export default function ResultadoSyncComparendos({ resultado, ajena = false }: Props) {
+export default function ResultadoSyncComparendos(
+  { resultado, ajena = false, titulo = 'Resultado de la corrida' }: Props,
+) {
   const { estado, resumen, steps, iniciadoEn, finalizadoEn } = resultado;
+  // Generado y no constante: con el modal del historial abierto hay DOS de estas tarjetas montadas a
+  // la vez, y dos `id` iguales dejan a los dos `aria-labelledby` apuntando al primero —el nombre de
+  // la región del modal sería el título de la tarjeta de debajo—.
+  const idTitulo = useId();
   const duracion = duracionDeCorrida(iniciadoEn, finalizadoEn);
   const avisos = resumen ? avisosDeResumen(estado, resumen) : [];
 
   return (
-    <section role="region" aria-labelledby={ID_TITULO}>
+    <section role="region" aria-labelledby={idTitulo}>
       <FlitCard>
-        <h2 id={ID_TITULO} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-          Resultado de la corrida
+        <h2 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          {titulo}
         </h2>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">

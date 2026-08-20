@@ -5,7 +5,7 @@
 // control que no puede funcionar todavía es peor que su ausencia. Aquí es donde el botón aparece,
 // ya con algo detrás.
 //
-// La vista tiene tres piezas y una de ellas es invisible:
+// La vista tiene cuatro piezas y una de ellas es invisible:
 //
 //   1. **La región viva, única para toda la vista.** Vive AQUÍ y no dentro de la consola porque la
 //      consola no es la única que anuncia: el desenlace de la corrida lo publica el resultado, que
@@ -17,15 +17,25 @@
 //      de que la sincronización terminó.
 //   2. **La consola** (Región A de la spec de UX): disparo, progreso y errores accionables.
 //   3. **El resultado**, en su propia tarjeta y solo cuando hay uno confirmado.
+//   4. **El historial** (Región B, HU #11636), debajo del resultado: las corridas anteriores y el
+//      modal de detalle, que reutiliza `ResultadoSyncComparendos` para los contadores y los pasos.
 //
-// El historial de corridas (Región B) es la HU #11636 y va debajo del resultado, reutilizando
-// `ResultadoSyncComparendos` dentro de su modal de detalle.
+// La consola y el historial se tocan en UN punto y en una sola dirección: `sync.resultado`. Cuando
+// la consola confirma el desenlace de una corrida, el historial se entera y se refresca UNA vez
+// —nunca sondea por su cuenta (enmienda de UX, decisión 13: sería duplicar las peticiones y las
+// filas de `pii_access_log` sobre el mismo dato)— y de paso funde esa corrida en su primera fila
+// para que el chip salga correcto en el mismo fotograma en que aparece la tarjeta de resultado.
+//
+// La señal va hacia ABAJO a propósito: `useComparendosSync` no sabe que existe un historial. Meter
+// la lista dentro de ese hook habría atado la paginación del archivo a la máquina de estados de la
+// corrida viva, y cada transición de fase habría recargado la tabla.
 //
 // El estado de la corrida vive en el hook y se pasa hacia abajo en vez de que cada tarjeta llame a
 // `useComparendosSync()`: dos llamadas serían dos máquinas de estados sondeando la misma corrida por
 // separado —dos veces las peticiones, dos veces las filas de `pii_access_log`— y podrían discrepar.
 
 import ConsolaSyncComparendos from './ConsolaSyncComparendos';
+import HistorialSyncComparendos from './HistorialSyncComparendos';
 import ResultadoSyncComparendos from './ResultadoSyncComparendos';
 import { MarcoComparendos, type NavComparendos } from './navegacionComparendos';
 import { useComparendosSync } from './useComparendosSync';
@@ -45,6 +55,8 @@ export default function VistaSyncComparendos({ nav }: { nav: NavComparendos }) {
       {sync.fase === 'resultado' && sync.resultado && (
         <ResultadoSyncComparendos resultado={sync.resultado} ajena={sync.ajena} />
       )}
+
+      <HistorialSyncComparendos desenlace={sync.resultado} />
     </MarcoComparendos>
   );
 }
