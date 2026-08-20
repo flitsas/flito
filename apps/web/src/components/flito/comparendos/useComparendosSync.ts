@@ -318,7 +318,7 @@ export function useComparendosSync(): SyncEnVivo {
   const cerrarConDetalle = useCallback(async (runId: string) => {
     const c = ctrl.current;
     try {
-      const detalle = await api.get<ComparendosSyncResultado>(`${RUTA_RUNS}/${runId}`);
+      const detalle = await api.get<ComparendosSyncResultado>(`${RUTA_RUNS}/${encodeURIComponent(runId)}`);
       if (!c.vigente) return;
       c.vistos.add(detalle.runId);
       parar();

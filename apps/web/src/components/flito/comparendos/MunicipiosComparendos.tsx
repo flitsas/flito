@@ -89,7 +89,7 @@ export default function MunicipiosComparendos() {
 
   const cambiarActivo = async (fila: ComparendosMunicipio, activo: boolean) => {
     try {
-      const actualizado = await api.patch<ComparendosMunicipio>(`${RUTA_MUNICIPIOS}/${fila.id}`, { activo });
+      const actualizado = await api.patch<ComparendosMunicipio>(`${RUTA_MUNICIPIOS}/${encodeURIComponent(fila.id)}`, { activo });
       reemplazar(actualizado);
       toast.success(activo ? 'Municipio activado.' : 'Municipio desactivado.');
     } catch {
@@ -298,7 +298,7 @@ function ModalNombreMunicipio(
     setError(null);
     setOcupado(true);
     try {
-      onGuardado(await api.patch<ComparendosMunicipio>(`${RUTA_MUNICIPIOS}/${fila.id}`, { nombre: nombre.trim() }));
+      onGuardado(await api.patch<ComparendosMunicipio>(`${RUTA_MUNICIPIOS}/${encodeURIComponent(fila.id)}`, { nombre: nombre.trim() }));
     } catch {
       setError('No se pudo guardar el nombre. Vuelve a intentarlo.');
       setOcupado(false);

@@ -103,7 +103,7 @@ export default function NitsComparendos() {
   /** `PATCH { activo }`. Es la baja REVERSIBLE, y la única que conserva el histórico. */
   const cambiarActivo = async (fila: ComparendosNit, activo: boolean) => {
     try {
-      const actualizado = await api.patch<ComparendosNit>(`${RUTA_NITS}/${fila.id}`, { activo });
+      const actualizado = await api.patch<ComparendosNit>(`${RUTA_NITS}/${encodeURIComponent(fila.id)}`, { activo });
       reemplazar(actualizado);
       toast.success(activo ? 'NIT activado.' : 'NIT desactivado.');
     } catch {
@@ -360,7 +360,7 @@ function ModalAlias(
       // Vacío significa BORRAR el alias, y eso se dice con `null`: mandar `''` guardaría una cadena
       // vacía, que en la tabla se vería igual que «sin alias» pero no lo sería.
       const nuevo = alias.trim() === '' ? null : alias.trim();
-      onGuardado(await api.patch<ComparendosNit>(`${RUTA_NITS}/${fila.id}`, { alias: nuevo }));
+      onGuardado(await api.patch<ComparendosNit>(`${RUTA_NITS}/${encodeURIComponent(fila.id)}`, { alias: nuevo }));
     } catch {
       setError('No se pudo guardar el alias. Vuelve a intentarlo.');
       setOcupado(false);
@@ -429,7 +429,7 @@ function ModalEliminarNit(
     setOcupado(true);
     setError(null);
     try {
-      await api.delete(`${RUTA_NITS}/${fila.id}`);
+      await api.delete(`${RUTA_NITS}/${encodeURIComponent(fila.id)}`);
       onEliminado(fila);
     } catch (e) {
       if (codigoDeError(e) === 'nit_en_uso') {

@@ -96,7 +96,7 @@ function useDetalleCorrida(runId: string) {
 
     setDetalle(null);
     setError(null);
-    api.get<ComparendosSyncResultado>(`${RUTA_RUNS}/${runId}`)
+    api.get<ComparendosSyncResultado>(`${RUTA_RUNS}/${encodeURIComponent(runId)}`)
       .then((r) => { if (c.vigente) setDetalle(r); })
       .catch((e: unknown) => {
         if (!c.vigente) return;

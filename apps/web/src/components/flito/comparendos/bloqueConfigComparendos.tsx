@@ -22,7 +22,24 @@ import { api } from '../../../lib/api';
 import StatusChip from '../../flit/StatusChip';
 import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
-/** Raíz del módulo en el API. Todo cuelga de aquí y nadie escribe la URL a mano. */
+/**
+ * Raíz del módulo en el API. Todo cuelga de aquí y nadie escribe la URL a mano.
+ *
+ * **Todo identificador que se interpole detrás va por `encodeURIComponent`** (HU #11652, AC3). Hoy
+ * los identificadores del módulo son UUID que emite el servidor, así que no hay nada explotable:
+ * la regla se sostiene porque el día que uno de esos segmentos deje de ser un UUID —un `codigoFuente`
+ * de municipio, un número de comparendo— un `/`, un `?` o un `#` sin codificar dejarían de ser parte
+ * del identificador para convertirse en otra ruta o en otra query, y eso no se ve al leer el código.
+ * Codificar cuesta una llamada; comprobar en cada sitio que el valor sigue siendo un UUID, no.
+ *
+ * **No es una garantía absoluta, y conviene no leerla como tal:** `encodeURIComponent` no codifica el
+ * punto, así que un segmento `..` sobrevive entero y `/api/a/b/..` normaliza a `/api/a/` (medido). El
+ * día que el segmento deje de ser un UUID, esta llamada acota los separadores pero NO el recorrido de
+ * la ruta: ahí hace falta además validar la forma del identificador.
+ *
+ * Lo que NO va por aquí, a propósito: las cadenas de consulta que ya construye `URLSearchParams`
+ * —`sufijoQuery` y compañía—, que salen codificadas de fábrica. Envolverlas destruiría sus `&` y `=`.
+ */
 export const RUTA_COMPARENDOS = '/flito/comparendos';
 
 /** Los cuatro estados se derivan de estos tres más el tamaño de la lista: `ok` + 0 ítems = vacío. */

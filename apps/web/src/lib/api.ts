@@ -5,6 +5,11 @@ const BASE = '/api';
 // colgada para siempre → el `finally` que apaga el spinner nunca corre.
 // 90s da margen al peor caso de RUNT (captcha + sub-peticiones) pero garantiza
 // que el cliente SIEMPRE resuelve o falla con un error legible.
+//
+// El tope cubre la petición ENTERA —cabeceras y cuerpo—, no solo el `fetch`. `fetch` resuelve en
+// cuanto llegan las cabeceras y el cuerpo se lee después (`res.json()`, `res.blob()`): apagar el
+// reloj ahí dejaría sin reloj justo la parte que puede estancarse durante minutos, que es lo que
+// pasa cuando el servidor responde 200 y luego se queda a medias. Ver `request`.
 const REQUEST_TIMEOUT_MS = 90_000;
 
 /**
@@ -139,6 +144,31 @@ function statusToMessage(status: number, backendMsg?: string): string {
  */
 type GanchoRespuesta = (res: Response) => void;
 
+/** AbortError = se cumplió el tope de tiempo (no es «sin conexión»), lo pare el `fetch` o el cuerpo. */
+function esCorteDelTope(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
+const errorDeTope = () => new ApiError(0, 'La consulta tardó demasiado. Intente de nuevo.');
+
+/**
+ * Lee el cuerpo BAJO el tope de tiempo.
+ *
+ * Cuando el tope se cumple mientras el cuerpo se está leyendo, quien rechaza es el stream y lo hace
+ * con un `AbortError`: se traduce al MISMO error que sale al agotarse esperando las cabeceras,
+ * porque para quien llama es el mismo suceso y no tiene por qué distinguirlos.
+ *
+ * Cualquier otro fallo sale tal cual. Un JSON malformado no es un corte de tiempo, y disfrazarlo de
+ * uno mandaría a reintentar contra un cuerpo que no va a parsear nunca.
+ */
+async function leerCuerpo<T>(leer: () => Promise<T>): Promise<T> {
+  try {
+    return await leer();
+  } catch (e) {
+    throw esCorteDelTope(e) ? errorDeTope() : e;
+  }
+}
+
 async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, alRecibir?: GanchoRespuesta, timeoutMs?: number): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -158,17 +188,28 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   opts.signal = controller.signal;
   const timeoutId = setTimeout(() => controller.abort(), topeDeTiempo(timeoutMs));
 
+  // `await` y no `return` a secas: el `finally` apaga el reloj, y devolver la promesa sin esperarla
+  // lo apagaría con el cuerpo todavía a medio leer — que es exactamente el agujero que se cerró.
+  try {
+    return await pedirYLeer<T>(path, opts, alRecibir);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * La petición y la lectura de su cuerpo, ambas dentro del tope que `request` mantiene armado.
+ *
+ * Está separada de `request` por eso: el reloj se apaga en el `finally` de allí, así que todo lo que
+ * toque el cuerpo tiene que quedar dentro de esta función y ser esperado.
+ */
+async function pedirYLeer<T>(path: string, opts: RequestInit, alRecibir?: GanchoRespuesta): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, opts);
   } catch (e) {
-    // AbortError = se cumplió el tope de tiempo (no es "sin conexión").
-    if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new ApiError(0, 'La consulta tardó demasiado. Intente de nuevo.');
-    }
+    if (esCorteDelTope(e)) throw errorDeTope();
     throw new ApiError(0, statusToMessage(0));
-  } finally {
-    clearTimeout(timeoutId);
   }
 
   // Antes del 401, del blob y del `!res.ok`: quien lo pasa quiere las cabeceras pase lo que pase
@@ -191,7 +232,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   // File downloads — pasar a través como blob.
   const ct = res.headers.get('content-type') || '';
   if (ct.includes('spreadsheet') || ct.includes('octet-stream') || ct.includes('zip') || ct.includes('pdf') || ct.includes('csv') || ct.includes('image/')) {
-    return res.blob() as unknown as T;
+    return leerCuerpo(() => res.blob() as unknown as Promise<T>);
   }
 
   if (!res.ok) {
@@ -209,7 +250,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
 
   // 204 No Content (típicamente DELETE) y respuestas vacías: no parsear JSON.
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as unknown as T;
-  return res.json();
+  return leerCuerpo<T>(() => res.json() as Promise<T>);
 }
 
 /**
@@ -256,18 +297,18 @@ function saneaNombreDeArchivo(valor: string | undefined): string | null {
  * Entrega el blob al navegador y **libera el object URL DESPUÉS de la descarga**, no en la misma
  * vuelta síncrona.
  *
- * `download` y `downloadPost` revocan justo después de `a.click()`. En Chromium eso funciona porque
- * la descarga queda registrada durante el despacho del clic, pero es una carrera que depende del
- * navegador: revocar la URL antes de que la descarga haya empezado a leer el blob la deja sin
- * origen. Aquí se cede el turno primero (`setTimeout`), que es lo que convierte «se libera después
- * de la descarga» en una afirmación cierta y no en una que suele cumplirse.
+ * Revocar en la misma vuelta del `a.click()` funciona en Chromium porque la descarga queda
+ * registrada durante el despacho del clic, pero es una carrera que depende del navegador: revocar
+ * la URL antes de que la descarga haya empezado a leer el blob la deja sin origen. Aquí se cede el
+ * turno primero (`setTimeout`), que es lo que convierte «se libera después de la descarga» en una
+ * afirmación cierta y no en una que suele cumplirse.
  *
  * El ancla se ADJUNTA al documento antes de pulsarla y se retira después: hay navegadores que
  * ignoran el clic sobre un ancla que no está en el árbol.
  *
- * No se migran `download` ni `downloadPost` a esta función: las consumen diez pantallas ajenas a
- * esta HU y cambiarles el momento de la liberación es una tarea de mantenimiento con su propia
- * verificación, no un efecto colateral de un export de comparendos.
+ * La usan las TRES formas de descargar de este módulo —`download`, `downloadPost` y
+ * `downloadPostNamed`—: `download` y `downloadPost` nacieron con la revocación síncrona y se
+ * migraron aquí en la HU #11652, que es cuando dejaron de estar sin test (AC2).
  */
 function entregarArchivo(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -341,22 +382,12 @@ export const api = {
   },
   download: async (path: string, filename: string) => {
     const blob = await request<Blob>('GET', path);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    entregarArchivo(blob, filename);
   },
   /** POST que devuelve un PDF/blob (p.ej. generación de documentos legales) y lo descarga. */
   downloadPost: async (path: string, filename: string, body?: unknown) => {
     const blob = await request<Blob>('POST', path, body);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    entregarArchivo(blob, filename);
   },
   /**
    * POST que descarga un archivo **con el nombre que decide el SERVIDOR** (HU #11561).

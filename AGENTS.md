@@ -98,7 +98,7 @@ npm run build -w packages/shared-types   # si se tocó shared-types (tsc -b)
 npm run test:shared-types                # idem
 npm run check:hooks                      # gate de Rules-of-Hooks (si aplica)
 npm run lint                             # ESLint: max-lines 800 + react-hooks (errores bloquean)
-npm run build:api                        # tsc -b && tsc-alias
+NODE_OPTIONS=--max-old-space-size=8192 npm run build:api   # tsc -b && tsc-alias — ver nota de heap
 npm test -w apps/api -- <paths>          # default filtrado
 npm run test -w apps/api                 # solo umbral transversal o pedido explícito
 npm run build:web                        # tsc --noEmit && vite build
@@ -107,6 +107,8 @@ npx playwright test e2e/tests/<spec>.spec.ts  # E2E filtrado
 npm run test:e2e:smoke -w apps/web       # shell/login o pedido explícito; entorno up
 npm run smoke:prod / synthetic:check     # producción — SOLO con autorización explícita
 ```
+
+**Heap de `build:api`.** El flag no es opcional ni una manía de una máquina: con el heap por defecto de Node (~2 GB en un equipo de 16 GB) `tsc -b` de `apps/api` muere con `FATAL ERROR: … JavaScript heap out of memory` y `npm` devuelve 134. El fallo NO es del código —con `--max-old-space-size=8192` el mismo árbol compila en ~30 s—, así que quien copie el gate sin el flag reporta un rojo que no existe. Verificado el 2026-08-20 (HU #11652, AC6): sin flag, OOM a los 56 s; con flag, verde. **Solo se reproduce con el árbol FRÍO:** `tsc -b` es incremental, y con los `.tsbuildinfo` calientes el comando sale en menos de un segundo con exit 0 y parece desmentir todo lo anterior. Para comprobarlo hay que borrarlos antes (`find apps packages -name '*.tsbuildinfo' -delete`). En CI y en la imagen (`apps/api/Dockerfile`, `NODE_OPTIONS=--max-old-space-size=4096`) el techo lo pone el entorno, no este comando.
 
 Migraciones contra la BD demo local: exportar `DATABASE_URL` (`set -a; source apps/api/.env; set +a`), aplicar la migración sola con `docker exec -i flito-postgres psql …` y **correrla dos veces** para comprobar idempotencia. Avisar al usuario de que se tocó su BD.
 
