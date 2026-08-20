@@ -23,7 +23,7 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  CodigoErrorConciliacion, CONCILIACION_MAX_BYTES, EstadoBoleta,
+  type BoletaDetalleDto, CodigoErrorConciliacion, CONCILIACION_MAX_BYTES, EstadoBoleta,
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
@@ -87,6 +87,26 @@ const cargaLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-conciliacion-carga'),
   store: makeStore('rl:flito-conciliacion-carga:'),
   message: { error: 'Vas muy rápido. Espera un minuto antes de cargar otra boleta.' },
+});
+
+/**
+ * La conciliación también lleva el suyo (AGENTS.md 18), y por un motivo distinto al de la carga: no
+ * es el tamaño de la entrada, es lo que la petición HACE. Abre una transacción con hasta 500 asientos
+ * EN SERIE y mantiene bloqueada la fila de la bolsa del cliente todo ese rato, así que una ráfaga
+ * —doble clic nervioso, un reintento automático, un script— no solo repite trabajo: serializa a todo
+ * el que quiera tocar esa bolsa, incluido el sellado de cualquier liquidación de ese cliente.
+ *
+ * Diez por minuto y por usuario, el mismo número que la carga: nadie concilia diez boletas a mano en
+ * un minuto, y las repeticiones sobre la MISMA boleta ya mueren en el 409 sin tocar un saldo.
+ */
+const conciliarLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-conciliacion-conciliar'),
+  store: makeStore('rl:flito-conciliacion-conciliar:'),
+  message: { error: 'Vas muy rápido. Espera un minuto antes de conciliar otra boleta.' },
 });
 
 /**
@@ -298,6 +318,29 @@ router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Res
   }
 });
 
+/**
+ * Deja rastro cuando el que entrega datos personales es un RECHAZO, no una respuesta feliz.
+ *
+ * El 409 `boleta_incompleta` devuelve el cuadre entero —hasta 500 pólizas y placas de terceros— para
+ * que la pantalla repinte la tabla con los motivos de hoy. Que sea un error no lo hace menos una
+ * lectura: la Ley 1581 pregunta «¿quién vio mis datos?», no «¿con qué código HTTP los vio?». Sin
+ * esto, el único camino del módulo que entrega el cuadre sin registrarlo sería justamente el que
+ * ocurre cuando algo va mal, que es cuando más se mira.
+ *
+ * Se decide por la FORMA del cuerpo y no por el código de error: cualquier `ConciliacionError` que
+ * lleve una boleta con líneas queda auditado, así que el próximo rechazo al que se le añada un
+ * detalle no se escapa por olvido. `logPiiAccess` es best-effort —atrapa su propio error— así que
+ * esperar aquí no puede convertir un 409 en un 500.
+ */
+async function registrarAccesoDelRechazo(req: Request, e: unknown): Promise<void> {
+  if (!(e instanceof ConciliacionError)) return;
+  const boleta = e.extra.boleta as BoletaDetalleDto | undefined;
+  if (!boleta || !Array.isArray(boleta.lineas)) return;
+  await registrarAccesoBoleta(req, {
+    accion: 'read', referencia: boleta.referencia, lineas: boleta.lineas.length,
+  });
+}
+
 // ── POST /boletas/:id/conciliar — AQUÍ SALE EL DINERO ───────────────────────
 //
 // La única ruta del módulo que mueve un peso (HU #11677, CF-03). Cuerpo vacío y `.strict()`: no
@@ -316,7 +359,7 @@ router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Res
 // el cuadre ya actualizado, para que la tabla se repinte con lo que hay hoy—, así que lo único que
 // cambia en la pantalla es el número que compara.
 
-router.post('/boletas/:id/conciliar', CONCILIACION, async (req: Request, res: Response) => {
+router.post('/boletas/:id/conciliar', CONCILIACION, conciliarLimiter, async (req: Request, res: Response) => {
   if (!cuerpoVacio(req, res)) return;
   try {
     const id = idDe(req);
@@ -339,6 +382,7 @@ router.post('/boletas/:id/conciliar', CONCILIACION, async (req: Request, res: Re
     });
     res.json(resultado);
   } catch (e) {
+    await registrarAccesoDelRechazo(req, e);
     fallo(res, e);
   }
 });

@@ -578,7 +578,8 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
     });
   });
 
-  it('AC2 · 409 boleta_incompleta con el cuadre actualizado, y ninguna bolsa se mueve', async () => {
+  /** El SOAT dejó de estar `pagado` entre la carga y el clic: el re-cruce lo detecta. */
+  function escenarioIncompleto(): void {
     kdb.when
       .select('flito_conciliacion_boletas', [filaBoleta()])
       .selectOnce('flito_conciliacion_lineas', [filaLinea()])
@@ -592,6 +593,10 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
       .select('flito_bolsa_movimientos', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
+  }
+
+  it('AC2 · 409 boleta_incompleta con el cuadre actualizado, y ninguna bolsa se mueve', async () => {
+    escenarioIncompleto();
 
     const app = await buildApp();
     const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
@@ -601,7 +606,69 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
     expect(res.body.codigo).toBe('boleta_incompleta');
     expect(res.body.boleta.lineas[0].resultado).toBe('no_pagado');
     expect(espia.insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    // No hubo CAMBIO que registrar: no se conciliró nada.
     expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('el 409 entrega el cuadre, así que TAMBIÉN deja registro de acceso a PII', async () => {
+    // Ley 1581: la pregunta es «¿quién vio mis datos?», no «¿con qué código HTTP los vio?». Este
+    // rechazo devuelve hasta 500 pólizas y placas de terceros para que la pantalla repinte la tabla,
+    // y era el único camino del módulo que las entregaba sin dejar rastro.
+    escenarioIncompleto();
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.boleta.lineas[0].numeroPolizaNorm).toBe('P1');
+    expect(res.body.boleta.lineas[0].placa).toBe('ABC123');
+
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    const opts = piiMock.mock.calls[0][1];
+    expect(opts).toMatchObject({
+      resourceTipo: 'flito_conciliacion_boleta', accion: 'read',
+      camposAccedidos: ['numero_poliza', 'placa'],
+    });
+    // El motivo lleva la referencia legible, nunca la póliza ni el uuid.
+    expect(opts.motivo).toContain('BOL-000123');
+    expect(opts.motivo).not.toContain('P1');
+    expect(opts.motivo).not.toContain(BOLETA_ID);
+  });
+
+  it('un rechazo que NO entrega cuadre no inventa un registro de acceso', async () => {
+    // El registro se decide por lo que el cuerpo LLEVA, no por el código: un 409 de boleta ya
+    // conciliada no enseña ninguna línea, así que anotarlo ensuciaría el log con un acceso que no
+    // ocurrió — y el log existe para poder responder quién vio qué.
+    kdb.when.select('flito_conciliacion_boletas',
+      [filaBoleta({ estado: 'conciliada', conciliadaEn: AHORA, conciliadaPorNombre: 'laura' })]);
+
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(piiMock).not.toHaveBeenCalled();
+  });
+
+  it('AGENTS.md 18 · la ruta que mueve dinero tiene su propio limitador', async () => {
+    // No es por el tamaño de la entrada: es porque abre una transacción con hasta 500 asientos en
+    // serie y mantiene bloqueada la fila de la bolsa todo ese rato. Una ráfaga serializa a todo el
+    // que quiera tocar esa bolsa, incluido el sellado de cualquier liquidación de ese cliente.
+    const app = await buildApp();
+    // Un usuario FIJO: el límite es por usuario, así que sin esto cada petición contaría aparte.
+    const token = `Bearer ${await testToken({ sub: 4242, username: 'financiera@flit.io', role: 'financiera' })}`;
+    const pedir = () => {
+      kdb.when.select('flito_conciliacion_boletas',
+        [filaBoleta({ estado: 'conciliada', conciliadaEn: AHORA, conciliadaPorNombre: 'laura' })]);
+      return request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+        .set('Authorization', token).send({});
+    };
+
+    const codigos: number[] = [];
+    for (let i = 0; i < 11; i += 1) codigos.push((await pedir()).status);
+
+    expect(codigos.slice(0, 10).every((c) => c === 409)).toBe(true);
+    expect(codigos[10]).toBe(429);
   });
 
   it('AC6 · 409 boleta_ya_conciliada al pedirlo dos veces', async () => {

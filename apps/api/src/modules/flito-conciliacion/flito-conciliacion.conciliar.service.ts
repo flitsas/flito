@@ -195,7 +195,7 @@ async function asentar(
     }, ctx);
 
     if (duplicado) {
-      adoptados.push(await adoptar(tx, linea, soat, movimiento, valor));
+      adoptados.push(await adoptar(tx, linea, soat, movimiento));
       // El aviso de la pantalla lee `adoptados`; este flag es el de la LÍNEA y ya no aplica: su
       // movimiento acaba de dejar de ser `automatico`. Se limpia para que la respuesta inmediata
       // diga exactamente lo mismo que dirá el detalle al recargar la página.
@@ -285,8 +285,7 @@ async function adoptar(
   tx: Tx,
   linea: FilaLinea,
   soat: SoatInfo,
-  movimiento: { id: string; origen: string },
-  valor: number,
+  movimiento: { id: string; origen: string; valor: number },
 ): Promise<LineaAdoptadaDto> {
   const adoptado = movimiento.origen === 'automatico';
   if (adoptado) {
@@ -298,7 +297,12 @@ async function adoptar(
     lineaId: linea.id,
     filaNumero: linea.filaNumero,
     soatId: soat.id,
-    valor,
+    // El valor del MOVIMIENTO, no el `valor_pagado` de hoy. Los dos coinciden casi siempre —el cruce
+    // exige que el Excel cuadre al peso con el SOAT—, pero solo casi: si el valor pagado se corrigió
+    // después del sellado y la boleta trae el importe corregido, el que salió de la bolsa en su día
+    // sigue siendo el del asiento. Este campo dice cuánto NO se volvió a cobrar, así que tiene que
+    // ser lo que de verdad se cobró entonces.
+    valor: movimiento.valor,
     movimientoBolsaId: movimiento.id,
     adoptado,
   };

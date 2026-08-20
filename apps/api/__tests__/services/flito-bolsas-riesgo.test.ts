@@ -275,4 +275,66 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     expect(espia.filtrosUsados()).toContain('automatico');
     expect(espia.filtrosUsados()).toContain('salida');
   });
+
+  // ── Feature #11623: adoptar un movimiento no puede apagarle la alerta ───────
+  //
+  // Cuando la conciliación de una boleta se encuentra con que el sellado ya había descontado ese
+  // SOAT, le reescribe el `origen` de `automatico` a `conciliacion` (ADR-0006 §2.4-ii). Ese
+  // movimiento YA estaba en este conteo —las salidas del sellado no llevan soporte—, así que sin
+  // ensanchar el predicado conciliar HARÍA BAJAR el contador sin que nadie hubiera subido nada.
+  //
+  // Se afirma sobre el SQL real y no sobre los parámetros: lo que hay que demostrar es la FORMA del
+  // predicado (un `or` con dos ramas, una de ellas con `tramite_id is not null`), y eso no viaja
+  // como valor enlazado.
+
+  it('el movimiento ADOPTADO por una conciliación sigue contando como sin soporte', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    let condicion: unknown = null;
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
+      return c;
+    });
+    kdb.when
+      .select('flito_derechos_pendientes', [{ n: 0 }])
+      .select('flito_bolsa_movimientos', [{ n: 0 }]);
+
+    await alertasDeConciliacion();
+
+    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    // Las dos ramas del `or`, y la que distingue lo adoptado de lo asentado por la conciliación.
+    expect(texto).toContain(' or ');
+    expect(texto).toContain('"tramite_id" is not null');
+    expect(texto).toContain('"soporte_id" is null');
+    expect(espia.filtrosUsados()).toContain('automatico');
+    expect(espia.filtrosUsados()).toContain('conciliacion');
+  });
+
+  it('lo que la conciliación asienta de cero (sin trámite) NO entra: sería incerrable', async () => {
+    // El comprobante PSE cuelga de la BOLETA, no de cada uno de sus N movimientos. Sin el
+    // `tramite_id is not null` de la rama, cada SOAT conciliado sería una alerta que nadie puede
+    // cerrar por más comprobantes que se suban. Es la otra mitad de la decisión.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    let condicion: unknown = null;
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
+      return c;
+    });
+    kdb.when
+      .select('flito_derechos_pendientes', [{ n: 0 }])
+      .select('flito_bolsa_movimientos', [{ n: 0 }]);
+
+    await alertasDeConciliacion();
+
+    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    // `conciliacion` NUNCA aparece sin su condición de trámite al lado: si alguien borrara el
+    // `isNotNull`, quedaría un `origen = 'conciliacion'` suelto y esto se pondría en rojo.
+    const rama = texto.slice(texto.indexOf(' or '));
+    expect(rama).toContain('"tramite_id" is not null');
+  });
 });

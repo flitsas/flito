@@ -756,6 +756,29 @@ describe('AC5 · orden 2: liquido y DESPUÉS concilio', () => {
     expect(bd.boleta.estado).toBe('conciliada');
   });
 
+  it('lo adoptado se reporta por el valor del MOVIMIENTO, no por el valor pagado de hoy', async () => {
+    // Caso estrecho pero alcanzable: el `valor_pagado` del SOAT se corrigió DESPUÉS del sellado y la
+    // boleta del portal ya trae el importe corregido —así que el cruce cuadra al peso—. Lo que no se
+    // volvió a cobrar es lo que se cobró entonces, que es lo que dice el asiento, no la fila de hoy.
+    bd.libroCliente.push({
+      id: 'mov-viejo', companiaId: COMPANIA, tipo: 'salida', origen: 'automatico',
+      concepto: 'soat', organismoCodigo: ORG_CUBIERTO, tramiteId: TRAMITE,
+      valor: '400000', saldoResultante: '9600000', periodo: '2026-07', fecha: '2026-07-01',
+      observacion: null, soporteId: null, registradoPorNombre: 'sistema', createdAt: AHORA,
+      llaveIdempotencia: `salida:soat:${SOAT_A}`,
+    });
+    escenarioConciliacion();
+
+    const r = await conciliarBoleta(BOLETA, CTX);
+
+    expect(r.adoptados).toHaveLength(1);
+    expect(r.adoptados[0].valor).toBe(400_000);
+    // Y las otras dos cifras no se contagian: lo conciliado se mide por el SOAT, y lo que salió hoy
+    // es solo la línea que sí se asentó.
+    expect(r.totalConciliado).toBe(VALOR_A + VALOR_B);
+    expect(r.cliente.descontado).toBe(VALOR_B);
+  });
+
   it('la línea adoptada deja de anunciarse como «ya descontado al liquidar»', async () => {
     // El aviso lo cuenta con `adoptados`. Si además el flag de la línea siguiera en `true`, la
     // pantalla diría dos veces lo mismo y —peor— al recargar diría otra cosa, porque el movimiento

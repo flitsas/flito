@@ -363,7 +363,12 @@ export interface LineaAdoptadaDto {
   /** Fila del Excel, que es como el usuario nombra la línea en pantalla. */
   filaNumero: number;
   soatId: string;
-  /** Lo que en su día salió de la bolsa del cliente por este SOAT. */
+  /**
+   * Lo que en su día salió de la bolsa del cliente por este SOAT — el valor del MOVIMIENTO.
+   *
+   * No es necesariamente el `valor_pagado` de hoy: si se corrigió después del sellado y la boleta
+   * trae ya el importe corregido, lo que no se volvió a cobrar es lo que se cobró entonces.
+   */
   valor: number;
   /** Movimiento existente al que la línea quedó amarrada. */
   movimientoBolsaId: string;
