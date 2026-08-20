@@ -7,6 +7,32 @@ const BASE = '/api';
 // que el cliente SIEMPRE resuelve o falla con un error legible.
 const REQUEST_TIMEOUT_MS = 90_000;
 
+/**
+ * Techo duro para el tope POR PETICIÓN (`postConTimeout`). No sube el de arriba: son cosas distintas.
+ *
+ * `REQUEST_TIMEOUT_MS` lo comparten ~500 llamadas de toda la app y su valor está justificado por el
+ * peor caso de RUNT; subirlo para que una pantalla pueda esperar más cambiaría el comportamiento de
+ * todas las demás. Lo que se añade es la posibilidad de que UNA llamada pida más tiempo, y este
+ * techo es lo que impide que ese permiso se convierta en «el que llama decide sin límite».
+ *
+ * 115 s está por DEBAJO del corte del proxy (~120 s): pasado ese punto, quien corta es nginx y el
+ * cliente recibe un 502/504 en vez de su propio abort — es decir, el llamador perdería la
+ * distinción entre «se me acabó el tiempo a mí» y «el servidor falló», que es justo la que la
+ * consola de sincronización necesita para no pintar un fallo rojo definitivo (HU #11635).
+ */
+const TIMEOUT_MAX_MS = 115_000;
+
+/**
+ * Tope efectivo de una petición: el pedido, acotado al techo, o el de siempre si no se pide nada.
+ *
+ * Un valor no finito o ≤ 0 cae al de siempre en vez de abortar al instante: un `NaN` colado en un
+ * cálculo del llamador dejaría la petición muerta antes de salir, y eso se diagnostica fatal.
+ */
+function topeDeTiempo(pedido?: number): number {
+  if (pedido === undefined || !Number.isFinite(pedido) || pedido <= 0) return REQUEST_TIMEOUT_MS;
+  return Math.min(pedido, TIMEOUT_MAX_MS);
+}
+
 function getToken(): string | null {
   return localStorage.getItem('token');
 }
@@ -113,7 +139,7 @@ function statusToMessage(status: number, backendMsg?: string): string {
  */
 type GanchoRespuesta = (res: Response) => void;
 
-async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, alRecibir?: GanchoRespuesta): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, alRecibir?: GanchoRespuesta, timeoutMs?: number): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -130,7 +156,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
 
   const controller = new AbortController();
   opts.signal = controller.signal;
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), topeDeTiempo(timeoutMs));
 
   let res: Response;
   try {
@@ -281,6 +307,22 @@ async function errorVestidoDeArchivo(status: number, blob: Blob): Promise<ApiErr
 export const api = {
   get: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('GET', path, undefined, extraHeaders),
   post: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('POST', path, body, extraHeaders),
+  /**
+   * POST que puede esperar MÁS (o menos) que el tope compartido, acotado por `TIMEOUT_MAX_MS`.
+   *
+   * Se añade en vez de meter un parámetro en `post` —mismo criterio que `downloadPostNamed`— porque
+   * `post` lo llaman cientos de sitios y su firma no se mueve por una pantalla. Lo pide el disparo
+   * de la sincronización de comparendos (HU #11635), que es síncrono en el servidor y tarda minutos.
+   *
+   * **Cuánto tiempo se pide lo decide el llamador, no este archivo**: aquí no se sabe qué rutas hay
+   * ni cuánto tarda cada una. Lo único que este módulo garantiza es el techo.
+   *
+   * Al agotarse sale un `ApiError` con `status === 0` —el mismo que un fallo de red— y eso es
+   * deliberado: el cliente no puede distinguir «no me respondió a tiempo» de «no llegué a
+   * preguntar», y quien lo consume trata ambos igual.
+   */
+  postConTimeout: <T>(path: string, body: unknown, timeoutMs: number, extraHeaders?: Record<string, string>) =>
+    request<T>('POST', path, body, extraHeaders, undefined, timeoutMs),
   patch: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PATCH', path, body, extraHeaders),
   put: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PUT', path, body, extraHeaders),
   delete: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('DELETE', path, undefined, extraHeaders),

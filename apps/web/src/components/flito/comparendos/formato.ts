@@ -104,6 +104,40 @@ export function fechaHoraColombia(instante: string | null): string {
   });
 }
 
+/**
+ * Cuánto tardó algo, en la unidad que se lee de un vistazo: «840 ms», «1,2 s», «2 min 5 s».
+ *
+ * La usa el detalle por fuente de una corrida (HU #11635): cada paso trae su `duracionMs` y la
+ * columna existe para responder «¿cuál de las fuentes nos está frenando?». Con milisegundos crudos
+ * —«8004»— esa pregunta obliga a contar cifras en cada fila.
+ *
+ * **Tres tramos y no uno**, porque el número útil cambia con la escala: por debajo del segundo lo
+ * que importa es que fue inmediato; entre uno y sesenta, un decimal distingue una fuente ágil de
+ * una lenta sin fingir precisión de milisegundo; por encima del minuto, los segundos sueltos ya no
+ * dicen nada y lo que se busca es «esto tardó minutos».
+ *
+ * `null` es un dato (el modo simulado no cronometra, y un paso que no llegó a responder tampoco):
+ * sale como {@link SIN_DATO}, igual que el resto de ausencias del módulo. Un negativo también, que
+ * es lo que daría restar dos instantes con el reloj del servidor corrido: mejor un guion que un
+ * «−3,0 s» que nadie sabe interpretar.
+ */
+export function duracionCorta(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return SIN_DATO;
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const segundos = ms / 1000;
+  // El decimal va SIEMPRE, también cuando es cero: «8,0 s» y «1,2 s» alinean en la columna y se
+  // comparan de un vistazo; «8 s» junto a «1,2 s» obliga a leer cada celda entera.
+  if (segundos < 60) {
+    return `${segundos.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+  }
+  const minutos = Math.floor(segundos / 60);
+  const resto = Math.round(segundos - minutos * 60);
+  // 119,7 s redondea a «1 min 60 s», que no es una duración. Se sube el minuto. Y los minutos
+  // justos se dicen sin el «0 s» que solo añade ruido.
+  if (resto === 60) return `${minutos + 1} min`;
+  return resto === 0 ? `${minutos} min` : `${minutos} min ${resto} s`;
+}
+
 /** Qué fuentes han visto el comparendo. Lo calcula el merge, no el proveedor (CF-08). */
 const ETIQUETA_ORIGEN: Record<ComparendoRegistro['origenMerge'], string> = {
   simit: 'SIMIT',
