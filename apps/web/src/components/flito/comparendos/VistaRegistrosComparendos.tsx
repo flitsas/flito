@@ -69,7 +69,7 @@
 //     larga y dentro de la cabecera aplastaría el título en cuanto la ventana se estreche.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type {
   ComparendoRegistro, ComparendoRegistroDetalle, ComparendosOrigenMerge,
 } from '@operaciones/shared-types';
@@ -165,6 +165,31 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
   const catalogos = useCatalogosComparendos();
   const exportacion = useExportComparendos(criterios);
 
+  /**
+   * «Quitar los filtros» del vacío por búsqueda (Bug #11648).
+   *
+   * No basta con vaciar los criterios. Los borradores de la barra son estado SUYO: se inicializan
+   * desde `criterios` al montarse y no se resincronizan después. Llamando solo a `limpiar`, el
+   * número tecleado sobrevive en el campo y el efecto del debounce de la barra —que depende del
+   * valor APLICADO— lo vuelve a aplicar en cuanto ese valor se vacía. El vacío por filtros regresa
+   * a los 450 ms y el botón parece no hacer nada.
+   *
+   * Se remonta la barra en el MISMO evento en que se vacían los criterios, y no desde un efecto,
+   * porque un efecto correría en el mismo commit que el del debounce: ese ya habría leído el
+   * borrador viejo y reaplicado el número antes de que el nuestro lo borrara. Al remontar, la barra
+   * relee `criterios` —ya vacíos— y su debounce arranca en `''`, así que su efecto sale por la
+   * guarda `numeroDiferido === aplicado` sin lanzar ni una consulta de más.
+   *
+   * El `[Limpiar]` de la barra NO pasa por aquí y no cambia: vacía sus borradores y avisa en el
+   * mismo evento, que es exactamente por lo que a él sí le funcionaba. Remontarla desde ahí le
+   * robaría el foco al botón recién pulsado.
+   */
+  const [generacionBarra, setGeneracionBarra] = useState(0);
+  const quitarLosFiltros = useCallback(() => {
+    limpiar();
+    setGeneracionBarra((g) => g + 1);
+  }, [limpiar]);
+
   // La fila abierta, no solo su id: el panel pinta el número en el título ANTES de que llegue
   // ninguna respuesta, y ese número ya se conoce porque está en la fila que se acaba de pulsar.
   const [abierto, setAbierto] = useState<ComparendoRegistro | null>(null);
@@ -224,6 +249,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
       />
 
       <BarraFiltrosComparendos
+        key={generacionBarra}
         criterios={criterios}
         onAplicar={aplicar}
         onLimpiar={limpiar}
@@ -305,7 +331,7 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
                   type="button"
                   className={flitBtnSecondary}
                   style={flitBtnSecondaryStyle}
-                  onClick={limpiar}
+                  onClick={quitarLosFiltros}
                 >
                   Quitar los filtros
                 </button>
