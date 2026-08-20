@@ -9,7 +9,12 @@
 // Este archivo cierra ese hueco a medias, que es lo honesto mientras la dependencia no exista:
 //   · `QA_AXE_PATH` apuntando a un `axe.min.js` en disco → inyección DETERMINISTA, sin red;
 //   · si no, `QA_AXE_CDN=1` → se baja del CDN (reproducible solo con red);
-//   · si no hay ninguna de las dos, el test se marca **`skip`** con su motivo. NUNCA verde falso.
+//   · si no hay ninguna de las dos, estos tests **FALLAN** con un mensaje de fallo de ENTORNO.
+//
+// HU #11650 — lo tercero era un `test.skip()`, y esa era la peor de las tres salidas: la corrida
+// salía en verde sin haber medido nada. Así pudo certificarse la HU #11560 con siete specs de
+// accesibilidad que jamás se ejecutaron. La carga de axe vive ahora en `../helpers/axe`, que lanza
+// cuando no puede cargarlo; el mensaje distingue «no pude cargar axe» de «esta regla se incumple».
 //
 // Lo que sí es determinista y no depende de nada de esto —etiquetas, recorrido de teclado, foco
 // visible, `role="alert"`, `aria-live`— vive en los otros dos specs del módulo.
@@ -23,11 +28,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
-
-const AXE_PATH = process.env.QA_AXE_PATH;
-const AXE_CDN = process.env.QA_AXE_CDN === '1'
-  ? 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js'
-  : null;
+import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
 const API_REGISTROS = '**/api/flito/comparendos/registros**';
 const CATALOGOS = [
@@ -67,22 +68,6 @@ const FILA = {
   actualizadoEn: '2026-08-18T08:07:00Z',
 };
 
-interface Violacion { id: string; impact: string; nodes: number; help: string }
-
-async function correrAxe(page: Page): Promise<Violacion[]> {
-  if (AXE_PATH) await page.addScriptTag({ path: AXE_PATH });
-  else if (AXE_CDN) await page.addScriptTag({ url: AXE_CDN });
-  return page.evaluate(async () => {
-    // @ts-expect-error axe se inyecta en tiempo de ejecución
-    const r = await window.axe.run(document, {
-      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
-    });
-    return r.violations.map((v: { id: string; impact: string; nodes: unknown[]; help: string }) => ({
-      id: v.id, impact: v.impact, nodes: v.nodes.length, help: v.help,
-    }));
-  });
-}
-
 async function pantalla(page: Page, body: unknown) {
   await loginAs(page, OPERACIONES_USER);
   for (const ruta of CATALOGOS) {
@@ -109,25 +94,22 @@ const DETALLE = {
   eventos: EVENTOS,
 };
 
-/** Comprueba y deja constancia. Se imprimen TODAS las violaciones, también las leves. */
+/**
+ * Comprueba y deja constancia. Se imprimen TODAS las violaciones, también las leves.
+ *
+ * Si axe no está disponible, `correrAxe` LANZA y el test falla con un mensaje de entorno: nunca se
+ * llega a esta línea con una lista vacía que se pueda confundir con «no hay violaciones».
+ */
 async function sinViolacionesGraves(page: Page, etiqueta: string) {
   const violaciones = await correrAxe(page);
-  const graves = violaciones.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-  console.log(`[QA a11y · ${etiqueta}] ${violaciones.length} violaciones: ${JSON.stringify(violaciones)}`);
-  expect(graves, `violaciones serias/críticas en «${etiqueta}»: ${JSON.stringify(graves)}`).toEqual([]);
+  esperarSinViolacionesGraves(violaciones, etiqueta);
+  // El contraste se afirma aparte: es el que el AC7 nombra y el que un `impact` moderado podría
+  // dejar pasar sin que nadie lo lea.
   expect(violaciones.filter((v) => v.id === 'color-contrast'), `contraste en «${etiqueta}»`).toEqual([]);
 }
 
 test.describe('FLITO — Comparendos · AC7 accesibilidad (HU #11560)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
-
-  test.beforeEach(() => {
-    test.skip(
-      !AXE_PATH && !AXE_CDN,
-      'axe no disponible: exporta QA_AXE_PATH=/ruta/axe.min.js (determinista) o QA_AXE_CDN=1. '
-      + 'Se prefiere SALTAR antes que dar por certificado el contraste sin haberlo medido.',
-    );
-  });
 
   // Tres estados y no solo el feliz: el contraste que se rompe casi siempre es el del texto de
   // error (rojo sobre fondo claro) o el del control inhabilitado, y ninguno de los dos está en
@@ -143,17 +125,7 @@ test.describe('FLITO — Comparendos · AC7 accesibilidad (HU #11560)', () => {
       await expect(page.getByRole('button', { name: 'Buscar', exact: true })).toBeVisible();
       await estado.preparar?.(page);
 
-      const violaciones = await correrAxe(page);
-      const graves = violaciones.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-      // Se imprimen TODAS —también las moderadas y menores— para que queden en la evidencia y no
-      // se conviertan en deuda invisible.
-      console.log(`[QA a11y · ${estado.nombre}] ${violaciones.length} violaciones: `
-        + JSON.stringify(violaciones));
-      expect(graves, `violaciones serias/críticas en «${estado.nombre}»: ${JSON.stringify(graves)}`)
-        .toEqual([]);
-      // El contraste se afirma aparte: es el que el AC7 nombra y el que un `impact` moderado
-      // podría dejar pasar sin que nadie lo lea.
-      expect(violaciones.filter((v) => v.id === 'color-contrast'), 'contraste del AC7').toEqual([]);
+      await sinViolacionesGraves(page, estado.nombre);
     });
   }
 
@@ -168,11 +140,7 @@ test.describe('FLITO — Comparendos · AC7 accesibilidad (HU #11560)', () => {
     await page.goto('/flito/comparendos');
     await expect(page.getByRole('alert')).toBeVisible();
 
-    const violaciones = await correrAxe(page);
-    const graves = violaciones.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-    console.log(`[QA a11y · error] ${violaciones.length} violaciones: ${JSON.stringify(violaciones)}`);
-    expect(graves, `violaciones serias/críticas en el estado de error: ${JSON.stringify(graves)}`).toEqual([]);
-    expect(violaciones.filter((v) => v.id === 'color-contrast'), 'contraste del texto de error').toEqual([]);
+    await sinViolacionesGraves(page, 'estado de error');
   });
 });
 
@@ -198,14 +166,6 @@ async function conLista(page: Page) {
 
 test.describe('FLITO — Comparendos · panel de detalle: accesibilidad (HU #11562, AC8)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
-
-  test.beforeEach(() => {
-    test.skip(
-      !AXE_PATH && !AXE_CDN,
-      'axe no disponible: exporta QA_AXE_PATH=/ruta/axe.min.js (determinista) o QA_AXE_CDN=1. '
-      + 'Se prefiere SALTAR antes que dar por certificado el contraste sin haberlo medido.',
-    );
-  });
 
   test('AC8/TC — panel CARGANDO: el esqueleto se anuncia y no rompe contraste', async ({ page }) => {
     let soltar = () => {};
@@ -282,14 +242,6 @@ const API_EXPORT_A11Y = '**/api/flito/comparendos/registros/export**';
 
 test.describe('FLITO — Comparendos · filtros y export: accesibilidad (HU #11561, AC7)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
-
-  test.beforeEach(() => {
-    test.skip(
-      !AXE_PATH && !AXE_CDN,
-      'axe no disponible: exporta QA_AXE_PATH=/ruta/axe.min.js (determinista) o QA_AXE_CDN=1. '
-      + 'Se prefiere SALTAR antes que dar por certificado el contraste sin haberlo medido.',
-    );
-  });
 
   test('AC7 — los selectores con su catálogo CAÍDO: inhabilitados, en tinta de error y con salida', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
