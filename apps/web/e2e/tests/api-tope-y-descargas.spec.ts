@@ -21,6 +21,22 @@
 // de producción. Y se comprueba que la aceleración ocurrió, para que un día en que deje de casar el
 // test falle diciéndolo en vez de agotarse en silencio.
 //
+// ── Por qué se espera el `response` antes de afirmar el mensaje ────────────────────────────────
+//
+// Un abort esperando CABECERAS y un abort leyendo el CUERPO producen el mismo `ApiError(0, …)` y el
+// mismo copy en pantalla: el mensaje solo NO basta para saber cuál de los dos ocurrió. Sin más, la
+// capacidad de discriminación del test se apoyaría en un supuesto de tiempo —que 700 ms sea mucho
+// más que el ida y vuelta de cabeceras contra `127.0.0.1`—, y en un runner cargado ese supuesto se
+// rompe: el corte caería en la fase del `fetch`, el código SIN el arreglo daría exactamente el mismo
+// mensaje y el test se pondría verde sin haber ejercido nunca el reloj sobre el cuerpo. Con
+// `retries: 2` en CI, un rojo por esa vía se reintenta hasta parecer sano.
+//
+// Por eso se espera el `response` del recurso estancado ANTES de afirmar el mensaje del tope
+// (`cabecerasDelEstancado`). Playwright emite ese evento con el estado y las cabeceras, sin esperar
+// al cuerpo — comprobado contra este mismo servidor, que nunca llama a `end()`. Si el evento llegó y
+// solo DESPUÉS apareció el error, el corte fue en el cuerpo POR CONSTRUCCIÓN, en cualquier máquina y
+// con cualquier reloj.
+//
 // ── AC2 · liberar el object URL DESPUÉS de la descarga ─────────────────────────────────────────
 //
 // `download` y `downloadPost` revocaban en la misma vuelta síncrona del `a.click()`. En Chromium
@@ -71,10 +87,25 @@ test.afterAll(async () => {
   await new Promise((cerrado) => { servidor.close(cerrado); });
 });
 
+/** La URL a la que se desvía cada clase de cuerpo. Es la que Playwright reporta en el `response`. */
+const urlEstancada = (clase: 'json' | 'archivo') => `http://127.0.0.1:${puerto}/${clase}`;
+
 /** Desvía lo que case con `glob` al servidor estancado. La petición es real; el cuerpo no termina. */
 const estancar = (page: Page, glob: string, clase: 'json' | 'archivo') => page.route(
   glob,
-  (route) => route.continue({ url: `http://127.0.0.1:${puerto}/${clase}` }),
+  (route) => route.continue({ url: urlEstancada(clase) }),
+);
+
+/**
+ * Resuelve cuando llegan las CABECERAS del recurso estancado — no cuando termina su cuerpo, que en
+ * este servidor no termina nunca.
+ *
+ * Se compara la URL COMPLETA del desvío y no un fragmento del endpoint original: `…/tramites` es
+ * prefijo de `…/tramites/facetas`, que sí se sirve entera, y un predicado laxo daría por cumplida la
+ * espera con una respuesta que no es la estancada.
+ */
+const cabecerasDelEstancado = (page: Page, clase: 'json' | 'archivo') => page.waitForResponse(
+  (res) => res.url() === urlEstancada(clase),
 );
 
 /**
@@ -167,12 +198,19 @@ test.describe('api.ts — el tope de tiempo cubre el CUERPO de la respuesta (HU 
     // que esta gana y es la que se estanca.
     await estancar(page, /\/api\/flito\/tramites\?/, 'json');
 
-    await page.goto('/flito/tramites');
+    // Las cabeceras del listado estancado tienen que haber llegado ANTES de mirar la pantalla: es lo
+    // que fija que el corte que se afirma abajo ocurrió leyendo el CUERPO y no esperando el 200.
+    await Promise.all([
+      cabecerasDelEstancado(page, 'json'),
+      page.goto('/flito/tramites'),
+    ]);
 
+    // El guardián va ANTES de la aserción de visibilidad: si el tope de `api.ts` deja de casar con el
+    // acelerador, el test tiene que fallar diciendo eso y no con un «waiting for getByText».
+    expect(await topesAcelerados(page), 'el tope de api.ts dejó de casar con el acelerador').toBeGreaterThan(0);
     // Con el `clearTimeout` en el `finally` del `fetch`, este texto no llega NUNCA: el 200 ya se
     // recibió, el reloj ya se apagó y `res.json()` espera un cuerpo que no va a terminar.
     await expect(page.getByText(MENSAJE_TOPE)).toBeVisible();
-    expect(await topesAcelerados(page), 'el tope de api.ts dejó de casar con el acelerador').toBeGreaterThan(0);
   });
 
   test('AC1 — un cuerpo de ARCHIVO que se estanca también corta, y lo dice en la pantalla', async ({ page }) => {
@@ -183,12 +221,16 @@ test.describe('api.ts — el tope de tiempo cubre el CUERPO de la respuesta (HU 
 
     await page.goto('/flito/tramites');
     await page.getByLabel('Seleccionar XYZ789').check();
-    await page.getByRole('button', { name: 'Descargar facturas (zip)', exact: true }).click();
+    await Promise.all([
+      cabecerasDelEstancado(page, 'archivo'),
+      page.getByRole('button', { name: 'Descargar facturas (zip)', exact: true }).click(),
+    ]);
 
-    // La rama del blob es la MÁS expuesta: un export puede tardar minutos en el servidor, así que es
-    // donde más probable es que las cabeceras salgan mucho antes que el último byte.
-    await expect(page.getByText(MENSAJE_TOPE)).toBeVisible();
     expect(await topesAcelerados(page), 'el tope de api.ts dejó de casar con el acelerador').toBeGreaterThan(0);
+    // La rama del blob es la MÁS expuesta: un export puede tardar minutos en el servidor, así que es
+    // donde más probable es que las cabeceras salgan mucho antes que el último byte. Y aquí ya se
+    // sabe que salieron: el `response` de arriba llegó con el zip a medio escribir.
+    await expect(page.getByText(MENSAJE_TOPE)).toBeVisible();
   });
 });
 

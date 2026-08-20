@@ -17,6 +17,12 @@
 // `setTimeout(…, 0)` programado DESDE el clic, así que corre antes que cualquier otro `setTimeout(…,
 // 0)` que registre quien lo pulsó. Revocar cediendo el turno → 0; revocar en la vuelta síncrona,
 // dentro o fuera del despacho → ≥ 1.
+//
+// Límite conocido de la medida: el cierre del turno es un macrotask, así que una revocación puesta en
+// una MICROTAREA (`Promise.resolve().then(revocar)`, `queueMicrotask`) correría antes de él y se
+// contaría como «cedió el turno» sin haberlo hecho de verdad. No se cierra a propósito: hoy nadie
+// escribe eso —las tres descargas de `lib/api.ts` pasan por `entregarArchivo`, que cede con
+// `setTimeout`— y el guardián sí caza la forma que el defecto tuvo. Queda anotado, no resuelto.
 import type { Page } from '@playwright/test';
 
 export interface ObjectUrls {
