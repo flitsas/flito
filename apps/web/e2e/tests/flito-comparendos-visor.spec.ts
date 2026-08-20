@@ -297,6 +297,42 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     expect(traza.peticiones[traza.peticiones.length - 1]).toBe('GET /api/flito/comparendos/registros');
   });
 
+  /**
+   * Bug #11648 — el mismo botón del test de arriba, pero llegando al vacío por el ÚNICO camino que
+   * lo rompía.
+   *
+   * El hermano filtra por **placa**, que se aplica con `[Buscar]` y no tiene debounce, y por eso
+   * pasaba en verde con el defecto delante. Con el **número** —el único campo diferido— el borrador
+   * sobrevivía al vaciado de criterios y el efecto del debounce lo reaplicaba: el vacío por filtros
+   * volvía a los 450 ms y el botón parecía no hacer nada.
+   *
+   * La espera de después del clic es la mitad del test: sin ella pasa igual con el fallo puesto,
+   * porque el vacío A llega a pintarse antes de que el número regrese.
+   */
+  test('AC2 — vacío B por NÚMERO: quitar los filtros los quita, y el debounce no los devuelve', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    const traza = await mockListado(page, { status: 200, body: { items: [], nextCursor: null } });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(/Todavía no hay comparendos registrados/)).toBeVisible();
+
+    await campoNumero(page).fill('11001000999999');
+    await expect(page.getByText(/Filtros puestos:.*n\.º «11001000999999»/)).toBeVisible();
+
+    await boton(page, 'Quitar los filtros').click();
+    await expect(page.getByText(/Todavía no hay comparendos registrados/)).toBeVisible();
+
+    // Pasada la ventana del debounce, el vacío A SIGUE ahí: el número no ha vuelto solo.
+    await page.waitForTimeout(900);
+    await expect(page.getByText(/Todavía no hay comparendos registrados/)).toBeVisible();
+    await expect(boton(page, 'Quitar los filtros')).toHaveCount(0);
+    // Y el campo quedó vacío, que es la causa de que no haya nada que reaplicar.
+    await expect(campoNumero(page)).toHaveValue('');
+    // Segundo camino, independiente del DOM: la última consulta es la del listado sin filtros.
+    expect(traza.peticiones[traza.peticiones.length - 1]).toBe('GET /api/flito/comparendos/registros');
+  });
+
   test('AC2 — error con reintento: la tabla anterior se borra y el reintento repite la consulta', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCatalogos(page);
