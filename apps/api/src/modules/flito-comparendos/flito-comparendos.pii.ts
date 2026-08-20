@@ -107,10 +107,11 @@ export const CAMPOS_PII_SYNC_RUN = ['scope_nits', 'nit'] as const;
  * `alias` va con él, y no se omite por parecer un rótulo administrativo. Es el otro campo del módulo
  * que redacta una PERSONA —el mismo criterio que {@link CAMPOS_PII_OBSERVACION}—, lo escribe quien
  * da de alta el NIT mirando de quién es, y el rótulo natural de un NIT de persona natural es su
- * nombre. Ninguna validación de forma puede impedirlo, ni la hay uniforme: el alta acota longitud y
- * prohíbe saltos de línea, y el PATCH que lo edita después ni siquiera eso —solo la longitud—. Que
- * el techo de la validación sea ese no es un descuido de las rutas, es lo máximo que se le puede
- * pedir a un campo de texto libre sin volverlo inútil; por eso declararlo es lo único que hace que
+ * nombre. Ninguna validación de forma puede impedirlo. Desde el Bug #11671 la que hay al menos es
+ * UNIFORME —el alta y la edición comparten `aliasNitSchema`, que acota la longitud y veta el salto
+ * de línea, la tabulación y el byte cero; antes el PATCH solo miraba la longitud, y por ahí se
+ * rodeaba la regla del alta en dos pasos—. Ese techo sigue siendo lo máximo que se le puede pedir a
+ * un campo de texto libre sin volverlo inútil; por eso declararlo es lo único que hace que
  * `campos_accedidos` diga la verdad sobre lo que la respuesta entregó.
  *
  * Se nombran las columnas de `flito_comparendos_nits`, no las claves del DTO: el log tiene que poder

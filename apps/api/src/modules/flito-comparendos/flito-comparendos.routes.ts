@@ -11,9 +11,33 @@
 // Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
 // El export a Excel del consolidado (HU #11558) es `POST /registros/export`, con su propio limitador
-// y su propio tope de filas (ADR-0004). Toda respuesta que lleve datos personales deja rastro con
-// `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con `Cache-Control: no-store`,
-// incluida la del PATCH de gestión: escribe dos columnas y devuelve el registro entero.
+// y su propio tope de filas (ADR-0004).
+//
+// ── Los dos rastros, y a qué respuestas se aplican ────────────────────────────────────────
+//
+// Toda respuesta que lleve datos personales **de los titulares que este módulo vigila** —NIT
+// monitoreado, alias, placa, observación de gestión— sale con `Cache-Control: no-store`, incluidas
+// las tres escrituras que devuelven la fila entera: el PATCH de gestión y las dos de `/nits`
+// (Bug #11671).
+//
+// Y toda respuesta que ENTREGUE datos personales **que el cliente no aportó** deja además rastro con
+// `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17). El criterio no es «rastro para las
+// lecturas y no para las escrituras»: `PATCH /registros/:id/gestion` y `PATCH /nits/:id` son
+// escrituras y las dos registran, porque a quien manda un UUID le devuelven identidades que no
+// tecleó. La única que se queda fuera POR DECISIÓN —y no por hueco de los de abajo— es `POST /nits`,
+// y por lo contrario: el 201 le devuelve el NIT y el alias que acaba de escribir él mismo —el razonamiento
+// entero está en su docstring—.
+//
+// ── Los dos huecos conocidos, escritos para que no se lean como criterio ──────────────────────
+//
+//   · `POST /sync`: su respuesta lleva NITs que el cliente no mandó y hoy no deja rastro ni sale con
+//     `no-store`. No se cierra por omisión sino por decisión de negocio pendiente (punto 1 del Bug
+//     #11671, anotado en el docstring de `GET /nits`).
+//   · `GET /config/token-simit`: devuelve `actualizadoPor: { id, nombre }`, y el nombre de una
+//     persona natural es dato personal por el art. 3 de la Ley 1581 aunque sea un empleado y no un
+//     titular de los que este módulo vigila. Sale sin `no-store` y sin registro de acceso. Queda
+//     fuera del alcance del Bug #11671 y se nombra aquí para que la regla de arriba no se lea como
+//     si ya cubriera el archivo entero.
 //
 // **Los filtros de identidad no viajan en la URL** (AGENTS.md §14): buscar por NIT o por placa es
 // `POST /registros/buscar` con esos dos valores en el CUERPO. La query solo lleva lo que no
@@ -319,18 +343,52 @@ const nitSchema = z.string()
     // spike #11501.
     .regex(/^\d+(-\d)?$/, 'El NIT admite solo dígitos, con guion opcional para el dígito de verificación'));
 
+/**
+ * El alias del NIT, **un solo campo para el alta y para la edición** (Bug #11671).
+ *
+ * Veta el salto de línea, el retorno de carro y la tabulación: el alias se concatena literal al
+ * `detail` de la bitácora —`audit()` lo inserta tal cual, no lo escapa— y un `\n` parte visualmente
+ * una entrada de auditoría en dos para quien la lea. El `textoOpcional` del servicio hace `trim()`,
+ * así que un salto al principio o al final se cae solo; el que sobrevive hasta `audit_logs.detail`
+ * es el de EN MEDIO, que es justamente el que sirve para fabricar una línea falsa debajo de una
+ * verdadera.
+ *
+ * **No dice «sin caracteres de control», porque no lo es** y decirlo sería la misma clase de
+ * afirmación falsa junto al código que este Bug vino a quitar: `\v`, `\f`, `U+2028` y `U+2029`
+ * pasan, y los dos últimos pueden partir la línea en un visor que los interprete como separadores.
+ * Cerrar eso sería ensanchar la regla y no arreglar lo que hay; queda anotado aquí, no implementado.
+ *
+ * El byte cero sí se cierra, con el mismo `refine` y por el mismo motivo que
+ * `gestionSchema.observacion`: un JSON puede llevarlo (`\u0000`), no cabe en un `varchar` de
+ * PostgreSQL y llegaría hasta el driver para salir como un `22021` por el manejador global —un 500—
+ * en vez de como el 400 que es. Va en un `refine` y no dentro del `regex` porque un carácter de
+ * control dentro de una expresión regular es un aviso de ESLint (`no-control-regex`) que aquí sería
+ * ruido: la comprobación es «no lo contiene», que se dice mejor sin regex.
+ *
+ * **Es compartido porque las dos copias habían divergido**: la regla vivía solo en el alta y
+ * `actualizarNitSchema` era un `z.string().max(120)` pelado, de modo que la validación del alta se
+ * rodeaba en dos pasos —crear el NIT con un alias limpio y editarlo después con el salto dentro— y
+ * el mismo valor acababa igual en la bitácora, solo que por el `detail` del `update`. Un campo y no
+ * dos declaraciones equivalentes, porque dos declaraciones equivalentes es exactamente como se
+ * separaron la primera vez.
+ */
+const aliasNitSchema = z.string()
+  .max(120)
+  .regex(/^[^\r\n\t]*$/, 'El alias no admite saltos de línea ni tabulaciones')
+  .refine((v) => !v.includes('\u0000'), 'El alias no admite caracteres nulos')
+  .nullable()
+  .optional();
+
 const crearNitSchema = z.object({
   nit: nitSchema,
-  // Sin caracteres de control: el alias se concatena literal al `detail` de la bitácora, y un `\n`
-  // parte visualmente una entrada de auditoría en dos para quien la lea.
-  alias: z.string().max(120).regex(/^[^\r\n\t]*$/, 'El alias no admite saltos de línea ni tabulaciones').nullable().optional(),
+  alias: aliasNitSchema,
   activo: z.boolean().optional(),
 });
 
 // Sin `nit`: no se edita (RN-02). Un cuerpo vacío es un 400 y no un no-op silencioso — quien lo
 // manda cree que cambió algo, y responderle 200 lo confirmaría en falso.
 const actualizarNitSchema = z.object({
-  alias: z.string().max(120).nullable().optional(),
+  alias: aliasNitSchema,
   activo: z.boolean().optional(),
 }).refine((d) => d.alias !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
 
@@ -379,6 +437,34 @@ router.get('/nits', lecturasPiiLimiter, async (req: Request, res: Response) => {
   res.json(nits);
 });
 
+/**
+ * Alta de un NIT. Devuelve el recurso creado —`nit` y `alias` dentro— y por eso sale con
+ * `no-store` desde el Bug #11671.
+ *
+ * **Solo la cabecera, y no `registrarAccesoComparendos`.** La distinción no es de comodidad: el
+ * registro del art. 17 de la Ley 1581 responde a «quién CONSULTÓ mis datos», y aquí el dato no se
+ * consulta, ENTRA — los dos campos personales del 201 (`nit` y `alias`) son los que acaba de
+ * teclear quien hizo la petición, que ya los tenía delante. Y no hay camino por el que este 201
+ * devuelva otra cosa: `crearNit` comprueba el duplicado antes de insertar y responde un 409 en vez
+ * de devolver la fila existente, así que el alta nunca revela el alias que otro puso. Del gesto sí
+ * queda constancia, y en el registro que le toca: `audit()` anota actor, acción y el NIT completo
+ * en `audit_logs`. Meter esta ruta en `pii_access_log` no añadiría un hecho nuevo; llenaría el log
+ * de accesos de escrituras y dejaría de poder leerse como «estas son las veces que alguien miró
+ * datos ajenos».
+ *
+ * **El `PATCH` de al lado NO es este caso, y por eso sí registra.** Ahí el cliente manda un UUID
+ * opaco y `{alias}` o `{activo}`, y la respuesta le devuelve el `nit` de la fila —que no tecleó y
+ * que pudo no haber visto nunca—, más el `alias` guardado si solo cambió `activo`. Es una lectura
+ * dentro de una escritura, exactamente lo mismo que `PATCH /registros/:id/gestion`, y las dos se
+ * resuelven igual. El criterio del módulo no es «rastro para las lecturas y no para las
+ * escrituras», sino rastro para toda respuesta que entregue datos personales que el cliente no
+ * aportó; este alta es la única que cae del otro lado.
+ *
+ * **`POST /sync` cae del mismo lado que el `PATCH` y sigue abierto**: su respuesta lleva NITs que
+ * el cliente NO mandó —el catálogo entero cuando la corrida es global—, así que también es una
+ * lectura escondida dentro de una escritura. No se cierra aquí porque su punto (el 1 del Bug
+ * #11671) está esperando decisión de negocio, no porque el criterio sea distinto.
+ */
 router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
   const parsed = crearNitSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
@@ -392,10 +478,38 @@ router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
       action: 'create', resource: 'flito_comparendos_nit', resourceId: creado.id,
       detail: `NIT monitoreado ${creado.nit}${creado.alias ? ` (${creado.alias})` : ''}`,
     });
+    // El NIT recién dado de alta no se queda en el disco del navegador, igual que no se queda la
+    // lista que lo contiene (`GET /nits`).
+    res.set('Cache-Control', 'no-store');
     res.status(201).json(creado);
   } catch (e) { fallo(res, e); }
 });
 
+/**
+ * Edita `alias` y `activo` (RN-02) y devuelve la fila entera, NIT incluido.
+ *
+ * Deja rastro en los DOS registros, igual que `PATCH /registros/:id/gestion` y por el mismo motivo:
+ * `audit()` responde «quién CAMBIÓ qué» y `registrarAccesoComparendos` responde «quién MIRÓ datos
+ * personales». Aquí hace falta el segundo porque **la respuesta entrega un NIT que el cliente no
+ * aportó**: lo que manda es un UUID opaco y `{alias}` o `{activo}`, y lo que recibe es la fila
+ * completa —el `nit`, y también el `alias` guardado cuando solo cambió `activo`—. Que la petición
+ * sea una escritura no quita que la respuesta sea una lectura; el alta de al lado no registra
+ * justamente porque allí los dos campos personales del cuerpo son los que el cliente acaba de
+ * teclear (su docstring lo argumenta).
+ *
+ * `accion: 'read'` y no un valor de escritura, por lo mismo que en el PATCH de gestión: lo que se
+ * anota es que alguien VIO esta fila, y el «quién la cambió» ya lo cuenta `audit()`. `filas: 1` y
+ * `referencia: id` porque es un recurso concreto y no un listado.
+ *
+ * Los dos rastros son best-effort en el mismo sentido —`logPiiAccess` y `audit()` atrapan su propio
+ * error y lo dejan en el log de aplicación—, así que ninguno de los dos tumba la edición; se hacen
+ * con `await` para que estén escritos antes de que salga la respuesta.
+ *
+ * **El limitador que le falta está anotado, no puesto**: esta ruta no tiene bolsa propia y, por lo
+ * que acaba de decirse, es también un limitador de lectura disfrazado de escritura —quien quisiera
+ * leer NITs de uno en uno podría pedirlos por aquí sin gastar la cuota de `lecturasPiiLimiter`—. Es
+ * preexistente y no es del Bug #11671.
+ */
 router.patch('/nits/:id', async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
@@ -407,6 +521,16 @@ router.patch('/nits/:id', async (req: Request, res: Response) => {
       action: 'update', resource: 'flito_comparendos_nit', resourceId: id,
       detail: `NIT ${actualizado.nit}: activo=${actualizado.activo}, alias=${actualizado.alias ?? '—'}`,
     });
+    // La otra mitad: la respuesta le entrega el NIT y el alias de la fila a quien solo mandó su
+    // UUID. Ver el docstring — es el mismo caso que el PATCH de gestión, no el del alta.
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_NIT,
+      accion: 'read',
+      campos: [...CAMPOS_PII_NIT],
+      filas: 1,
+      referencia: id,
+    });
+    res.set('Cache-Control', 'no-store');
     res.json(actualizado);
   } catch (e) { fallo(res, e); }
 });
