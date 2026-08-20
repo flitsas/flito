@@ -5,6 +5,17 @@
 > permiso, **sin** página ni slug nuevos.
 >
 > El servidor MCP `user-stitch` no está disponible: **los wireframes ASCII son la entrega**.
+>
+> **Enmendado el 20 ago 2026**, después de certificar las HU #11633, #11634 y #11635. Cuatro puntos
+> cambian y el resto del documento sigue vigente:
+> **(a)** la cadencia del sondeo pasa a **escalonada** (§ «Lógica de polling», decisión 13);
+> **(b)** los **toasts de desenlace de sync quedan descartados** — ese copy vive en la región viva
+> única (§ «Copy», decisión 14);
+> **(c)** la ayuda del estado `partial` tiene **una sola redacción**, la del catálogo corto;
+> **(d)** dos copys se ratifican tal como se implementaron («Ir al token en Configuración», instante
+> completo en «Iniciada el …») — decisión 15.
+> Lo que esto implica para las HU que faltan (#11636 y #11637) está en
+> § «Qué cambia para las HU pendientes».
 
 ---
 
@@ -105,7 +116,7 @@ Todos bajo `/api/flito/comparendos`, todos con `authMiddleware` + `requireRole('
 
 | # | Qué | Para quién |
 |---|---|---|
-| **R1** | Timeout **por petición** en `apps/web/src/lib/api.ts` (o helper dedicado) para `POST /sync` ≈ 110 s | frontend-agent · cambio menor en cliente HTTP |
+| **R1** | Timeout **por petición** en `apps/web/src/lib/api.ts` (o helper dedicado) para `POST /sync` ≈ 110 s | frontend-agent · cambio menor en cliente HTTP. **Hecho en la #11635**: `api.postConTimeout(...)`, con techo duro de 115 s por debajo del corte del proxy |
 | — | Resto de endpoints y contratos | **Ya existen** en `packages/shared-types/src/flito-comparendos.ts` |
 
 Ningún endpoint nuevo de backend. Ningún `PageSlug` nuevo.
@@ -286,6 +297,10 @@ Modal alta / editar alias:
 
 Toast éxito: «NIT agregado.» / «NIT actualizado.» / «NIT desactivado.» / «NIT eliminado.»
 
+> Los toasts de **Configuración se mantienen**: confirman una acción puntual del usuario sobre una
+> fila y no compiten con ninguna región viva permanente. Lo que se descarta (decisión 14) son los
+> toasts de **desenlace de sincronización**, que sí duplicarían la región viva de esa vista.
+
 **PII:** el NIT se muestra completo (es el eje del módulo; solo `admin`). **Nunca** en la URL del
 SPA ni en `console.log`.
 
@@ -408,6 +423,11 @@ Dos regiones en la misma vista, en este orden:
 1. **Consola** (disparo + progreso / resultado de la corrida actual)  
 2. **Historial** (lista de corridas + detalle en modal)
 
+**Una sola región viva para toda la vista** (`role="status"`, polite, `sr-only`, **siempre montada**,
+también vacía). No la monta la consola: el desenlace lo publica la tarjeta de resultado, que es otra
+tarjeta, y dos regiones vivas anunciarían el mismo cambio dos veces o solo una, según el orden del
+DOM. Esta regla es normativa y de ella se deriva la decisión 14 (sin toasts de desenlace).
+
 ### Región A — Consola de disparo
 
 #### Wireframe · reposo
@@ -440,7 +460,7 @@ Si se ofrece texto libre, normalizar igual que el alta (quitar puntos) antes de 
 ```
 ┌─ FlitCard · Sincronizar ahora ─────────────────────────────────────────────────────────┐
 │  ● Sincronización en curso                                              aria-live      │
-│  Iniciada a las 15:02 · alcance: 3 NIT                                                 │
+│  Iniciada el 14 ago 2026, 15:02 · alcance: 3 NIT                                       │
 │  [████████░░░░░░░░]  consultando fuentes…                                              │
 │                                                                                        │
 │  El botón queda inhabilitado. No hay «Cancelar» en v1 (el API no lo expone).           │
@@ -450,6 +470,11 @@ Si se ofrece texto libre, normalizar igual que el alta (quitar puntos) antes de 
 
 Barra indeterminada (`animate-pulse`) mientras `estado === 'running'` o el POST no ha respondido.
 No inventar porcentaje: el API no lo da.
+
+**Instante completo, no solo la hora** (decisión 15): la corrida que se está siguiendo puede ser de
+otra sesión o de otro día —al entrar a la vista se reengancha lo que haya vivo—, y «Iniciada a las
+15:02» deja al operador sin saber si son las 15:02 de hoy. Formato `d MMM yyyy, HH:mm`, hora de
+Colombia.
 
 #### Wireframe · resultado terminal
 
@@ -482,12 +507,12 @@ No inventar porcentaje: el API no lo da.
 | Estado | Qué |
 |---|---|
 | **1 · Reposo** | Formulario habilitado; historial debajo puede cargar aparte |
-| **2 · En curso** | POST pendiente **o** polling con run `running`. Botón `aria-busy`. Región `aria-live="polite"`: «Sincronización en curso.» |
+| **2 · En curso** | POST pendiente **o** polling con run `running`. Botón `aria-busy`. Región viva: «Sincronización en curso.» |
 | **3 · Error definitivo** | Solo 400/503/429/5xx **que no** sean timeout de red ni `sync_en_curso`. Banda `role="alert"` + acción |
-| **4 · Lleno (resultado)** | Resumen + tabla de `steps[]` |
+| **4 · Lleno (resultado)** | Resumen + tabla de `steps[]`; el desenlace se anuncia en la región viva **sin toast** (decisión 14) |
 
 **Transición especial (no es estado 3):** timeout / red / 409 `sync_en_curso` → estado **2**
-(polling). Copy en `aria-live`: «La respuesta tardó; seguimos el progreso de la corrida.»
+(polling). Copy en la región viva: «La respuesta tardó; seguimos el progreso de la corrida.»
 
 #### Copy de errores definitivos
 
@@ -495,7 +520,7 @@ No inventar porcentaje: el API no lo da.
 |---|---|---|
 | `sin_nits_activos` | «No hay NIT activos para sincronizar. Agrégalos o actívalos en Configuración.» | `[Ir a Configuración]` → `vista=configuracion` |
 | `nits_filtro_invalido` | «Estos NIT no están activos en el catálogo: …» (lista del mensaje o de `rawDetails` si el contrato la trae estructurada; si solo viene en texto, **no** eco genérico del backend — parsear `codigo` y mostrar los NIT que el usuario mismo acaba de elegir) | Corregir selección |
-| `token_no_configurado` | «Falta el token SIMIT. Configúralo antes de sincronizar.» | `[Ir al token]` → config + scroll al bloque 4 |
+| `token_no_configurado` | «Falta el token SIMIT. Configúralo antes de sincronizar.» | **`[Ir al token en Configuración]`** → config + scroll al bloque 4. El botón nombra la pestaña de destino porque el salto es entre pestañas: `[Ir al token]` sugería un ancla en la misma pantalla (decisión 15) |
 | `modo_simulado_en_produccion` | «La sincronización está en modo simulado en un ambiente de producción y se abortó para no escribir datos inventados. Avisa a quien administra el ambiente.» | Sin reintento ciego |
 | `mapa_homologacion_vacio` / `llave_maestra` | «No se puede sincronizar por un problema de configuración del servidor. Avisa a soporte.» | — |
 | 429 sync | «Ya se lanzaron varias sincronizaciones en el último minuto. Espera un minuto.» | `[Reintentar]` |
@@ -507,18 +532,55 @@ No inventar porcentaje: el API no lo da.
 |---|---|---|
 | `running` | En curso | `warning` |
 | `completed` | Completada | `success` / `active` |
-| `partial` | Parcial | `warning` — copy ayuda: «Hubo datos, pero no de todas las fuentes. Con cobertura incompleta hay NIT a los que no se les inactivó nada aunque parezcan ausentes.» |
+| `partial` | Parcial | `warning` — la ayuda que acompaña al chip es **«Ayuda `partial`»** del § «Copy — catálogo corto», que es su única redacción; no se reescribe aquí |
 | `failed` | Fallida | `danger` |
 
 #### Lógica de polling (normativa)
 
-1. Intervalo **2,5 s** (rango aceptable 2–3 s). `motion-reduce`: mismo intervalo, sin animación de barra.
-2. Mientras `document.visibilityState === 'hidden'`, **pausar** el interval (ahorro); al volver, pedir al instante.
-3. Tope de espera en UI: **10 minutos**. Si sigue `running`, copy: «La corrida sigue en el servidor. Revisa el historial en unos minutos.» y dejar de pollar (el usuario puede abrir el detalle a mano).
-4. Al detectar transición a terminal: una sola lectura de `GET /sync/runs/:id` para `steps[]`, anuncio `aria-live`, refrescar historial.
-5. Al montar la vista Sincronización: `GET /sync/runs?limit=20`; si el primero está `running`, entrar a polling **sin** que el usuario pulse.
+1. **Cadencia escalonada** según lo que lleve corriendo **el seguimiento en esta pestaña** (no el
+   `iniciadoEn` de la corrida: comparar el reloj del servidor con el del portátil se rompe en
+   silencio con cualquier desfase de husos):
 
-**Timeout del POST:** usar R1 (~110 s). Si el AbortError llega y al pollar no hay `running`, mirar la corrida más reciente del mismo alcance en los últimos ~2 min; si está terminal, mostrar ese resultado (el POST terminó después del abort del cliente).
+   | Tiempo de seguimiento | Intervalo |
+   |---|---|
+   | 0 – 1 min | **2,5 s** |
+   | 1 – 5 min | **5 s** |
+   | 5 min – tope | **10 s** |
+
+   Cadena de `setTimeout` reprogramada **cuando vuelve** cada respuesta, nunca `setInterval`: con un
+   `GET` lento las peticiones se apilan y cada una escribe su propia fila de auditoría.
+   `motion-reduce`: mismos intervalos, sin animación de barra.
+
+   **Por qué escalonada y no 2,5 s fijos** (decisión 13; medido por architecture-agent, confirmado en
+   el gate de la #11635). Los 2,5 s fijos hasta el tope de 10 min son **240 peticiones por corrida**,
+   contra un limitador global de **500 peticiones / 15 min por IP**. La IP es la de la oficina entera
+   detrás del NAT, así que una sola corrida larga se come casi la mitad del presupuesto de toda la
+   aplicación y el 429 no sale en esta pantalla: sale en la de quien está facturando al lado. Y cada
+   sondeo de `/sync/runs` escribe una fila en `pii_access_log` (el `scope_nits` de las corridas es
+   PII): 240 filas por corrida ahogan el rastro que ese registro existe para hacer legible — auditar
+   quién miró qué deja de ser posible cuando el grueso del log es polling.
+   El escalonado baja a **~102 peticiones** en el peor caso (~24 el primer minuto, ~48 hasta el
+   quinto, ~30 hasta el décimo) y **conserva los 2,5 s exactos durante el primer minuto**, que es
+   cuando hay una persona mirando la barra. Pasado ese minuto nadie está pendiente de que el número
+   cambie al segundo, y el precio de esperar hasta 10 s de más para enterarse del final es
+   despreciable frente a dejar sin cuota —y sin bitácora legible— al resto de la oficina.
+
+2. Mientras `document.visibilityState === 'hidden'`, **pausar** el sondeo (ahorro); al volver, pedir
+   al instante. El reloj del tope **no** se pausa: la corrida sigue en el servidor.
+3. Tope de espera en UI: **10 minutos**. Si sigue `running`, copy: «La corrida sigue en el servidor.
+   Revisa el historial en unos minutos.» y dejar de sondear — **sin pintarlo como error**: que no se
+   pueda confirmar el desenlace no autoriza a afirmar que falló. Ofrecer `[Volver a consultar]`.
+4. Al detectar transición a terminal: **una sola** lectura de `GET /sync/runs/:id` para `steps[]`,
+   anuncio en la región viva y refresco del historial. Ese refresco es **una** petición, no un
+   segundo sondeo: el historial nunca sondea por su cuenta (ver § «Qué cambia para las HU
+   pendientes»).
+5. Al montar la vista Sincronización: `GET /sync/runs?limit=` acotado; si el primero está `running`,
+   entrar a polling **sin** que el usuario pulse.
+
+**Timeout del POST:** usar R1 (~110 s). Si el AbortError llega y al sondear no hay `running`, buscar
+la primera corrida **propia** (`iniciadoPor === user.id`) cuyo `runId` no estuviera entre los
+conocidos **antes** del POST; si está terminal, mostrar ese resultado (el POST terminó después del
+abort del cliente). La identificación es por `runId` y autoría, **nunca** por comparación de relojes.
 
 ---
 
@@ -543,6 +605,11 @@ No inventar porcentaje: el API no lo da.
 
 *Global:* si se quiere distinguir «todos los activos» vs filtro, usar
 `scopeNits.length` + tooltip «NIT del alcance de esa corrida» sin volcar la lista en la celda.
+
+**Fecha en la tabla:** formato corto `14 ago 15:02`. La columna «Inicio» ordenada da el contexto de
+día que en una frase suelta falta, y repetir el año en cada fila engorda una tabla ya densa. El
+instante completo (`14 ago 2026, 15:02`) se usa en las **frases sueltas**: la consola en curso y la
+cabecera del modal de detalle (decisión 15).
 
 #### Estados (4) del historial
 
@@ -578,6 +645,9 @@ steps es anómalo; copy «Esta corrida no registró pasos.» si `steps.length ==
 `iniciadoPor`: mostrar «Usuario {id}» o «—». **No** inventar nombres. (El token sí trae
 `{ id, nombre }` en `actualizadoPor`; el sync run deliberadamente no.)
 
+**El modal no monta región viva propia.** La vista ya tiene la suya (§ «Vista Sincronización»); el
+foco atrapado de `FlitModal` es lo que sitúa a quien usa lector.
+
 ---
 
 ## Permiso y comportamiento por rol
@@ -610,8 +680,14 @@ Slug: `flito_comparendos`. Ruta: `/flito/comparendos`. **Sin permiso nuevo.**
 **Sync en curso**
 
 - Botón primario con texto visible «Sincronizando…» **y** `aria-busy="true"`.
-- Región `aria-live="polite"` para inicio, paso a polling, y resultado terminal.
-- Errores definitivos: `role="alert"`.
+- **Exactamente una** región viva en la vista Sincronización: `role="status"` (implica
+  `aria-live="polite"` y `aria-atomic="true"`), `sr-only`, montada siempre —también vacía, porque una
+  región que aparece ya con texto dentro no se anuncia—. Recibe inicio, paso a seguimiento,
+  desenlace, corrida sin confirmar y fallo del disparo.
+- **Prohibido añadir una segunda superficie que anuncie lo mismo** (toast, banner con `aria-live`,
+  `role="alert"` duplicado). Ver decisión 14.
+- Errores definitivos del disparo: `role="alert"` en la banda — es la única excepción, y es un
+  mensaje distinto del que publica la región viva, no el mismo repetido.
 
 **Tablas**
 
@@ -623,6 +699,9 @@ Slug: `flito_comparendos`. Ruta: `/flito/comparendos`. **Sin permiso nuevo.**
 - Al cambiar de pestaña: foco al `h2` del panel (`tabIndex={-1}`).
 - Modal de detalle de corrida: `FlitModal` + focus trap existente.
 - Tras «Ir a la sincronización» desde vacío A: foco al título «Sincronizar ahora».
+- **El desenlace de la corrida NO mueve el foco.** Llega solo, sin que el usuario pulse nada, y
+  robarle el foco a quien está leyendo el historial o escribiendo en otro sitio es peor que un
+  anuncio que se oye desde donde se esté.
 
 **Contraste**
 
@@ -641,20 +720,66 @@ Slug: `flito_comparendos`. Ruta: `/flito/comparendos`. **Sin permiso nuevo.**
 
 ## Copy — catálogo corto (además de tablas anteriores)
 
+**Este catálogo es el índice canónico.** Donde una tabla anterior necesite el mismo texto, lo
+referencia; no lo reescribe con otras palabras.
+
 | Dónde | Texto |
 |---|---|
 | Pill | Registros · Sincronización · Configuración |
 | CTA vacío A | Ir a la sincronización |
 | Toast token | Token SIMIT guardado. |
-| Toast sync ok completed | Sincronización completada. |
-| Toast sync partial | Sincronización parcial: revisa las fuentes con error. |
-| Toast sync failed | La sincronización falló. Revisa el detalle de la corrida. |
-| Ayuda partial | Con cobertura incompleta no se inactivan comparendos de esos NIT aunque «falten» en una fuente. |
+| Botón error `token_no_configurado` | Ir al token en Configuración |
+| **Ayuda `partial`** (redacción única) | Con cobertura incompleta no se inactivan comparendos de esos NIT aunque «falten» en una fuente. |
+| Ayuda `nitsSinInactivacion` > 0 | N NIT sin inactivación por cobertura incompleta. |
 | Ayuda abortadaPorTiempo | La corrida se cortó por tiempo: lo no consultado no significa ausencia. |
 | Ayuda inactivacionOmitida umbral | No se inactivó nada: el volumen a apagar superaba el tope de seguridad. |
 | Modo mock en resumen | Modo simulado — los datos no vinieron del proveedor real. |
 
+### Región viva — catálogo de anuncios (vista Sincronización)
+
+Estos textos **no son toasts** (decisión 14): se publican en la región `role="status"` única de la
+vista, y lo mismo que dicen se ve en pantalla escrito de otra forma —el chip de la tarjeta de
+resultado y, cuando exista, la primera fila del historial—.
+
+| Momento | Texto |
+|---|---|
+| Corrida en curso (disparo propio o corrida encontrada al entrar) | Sincronización en curso. |
+| Corte de tiempo del cliente o 409 `sync_en_curso` | La respuesta tardó; seguimos el progreso de la corrida. |
+| 409 cuya corrida ya había terminado | La sincronización que estaba en curso ya terminó. Puedes lanzar la tuya. |
+| Desenlace `completed` | Sincronización completada. |
+| Desenlace `partial` | Sincronización parcial: revisa las fuentes con error. |
+| Desenlace `failed` | La sincronización falló. Revisa el detalle de la corrida. |
+| Desenlace de una corrida de **otra sesión** | «La sincronización iniciada desde otra sesión terminó. » + el texto del desenlace, entero |
+| El disparo no ocurrió (error definitivo) | No se pudo iniciar la sincronización. |
+| Tope agotado / sin poder confirmar | La corrida sigue en el servidor. Revisa el historial en unos minutos. |
+
+El anuncio cambia **una vez por transición**, nunca en cada sondeo: repetir el mismo texto vuelve a
+dispararlo en algunos lectores y convierte la barra de progreso en un goteo de voz.
+
 Tono: español colombiano, tuteo, sin anglicismos («sincronización», no «sync» en copy de usuario; «sync» solo en nombres técnicos de ruta si hace falta).
+
+---
+
+## Qué cambia para las HU pendientes
+
+**HU #11636 — historial de corridas y su modal (Región B).** Tres consecuencias directas de estas
+enmiendas:
+
+1. **El historial no sondea.** Se refresca **una vez** cuando la consola detecta el desenlace
+   (§ polling, punto 4) y cuando el usuario pulsa `[Reintentar]` o `[Cargar más]`. Un sondeo propio
+   volvería a inflar justo lo que la decisión 13 acaba de recortar: cuota del limitador y filas de
+   `pii_access_log`.
+2. **La primera fila del historial es ahora superficie de desenlace**, no solo archivo: al descartar
+   el toast, es donde queda visible el resultado si el operador estaba mirando hacia abajo cuando
+   terminó la corrida. Debe refrescarse con el chip del estado ya correcto en el mismo momento en que
+   la tarjeta de resultado aparece arriba.
+3. **Ni el historial ni el modal montan región viva propia** (§ Accesibilidad). El modal se apoya en
+   el focus trap de `FlitModal`. Fecha corta en la tabla, instante completo en la cabecera del modal
+   (decisión 15).
+
+**HU #11637 — enlace desde el vacío del visor.** **No le afecta ninguna de las cuatro enmiendas.**
+El copy del botón sigue siendo «Ir a la sincronización» y el foco sigue yendo al título «Sincronizar
+ahora» al aterrizar.
 
 ---
 
@@ -684,22 +809,36 @@ Tono: español colombiano, tuteo, sin anglicismos («sincronización», no «syn
 15. Simular AbortError a los 110 s → UI pasa a «seguimos el progreso» **sin** alert de fallo; aparece polling.
 16. 409 `sync_en_curso` → mismo camino de polling, no error rojo definitivo.
 17. `sin_nits_activos` → CTA a Configuración.
-18. `token_no_configurado` → CTA al bloque token.
-19. Resultado `partial` muestra ayuda de cobertura / `nitsSinInactivacion` si > 0.
+18. `token_no_configurado` → CTA «Ir al token en Configuración».
+19. Resultado `partial` muestra ayuda de cobertura / `nitsSinInactivacion` si > 0, con la redacción
+    del catálogo corto **palabra por palabra**.
 20. `abortadaPorTiempo: true` muestra el aviso de corte por tiempo.
 21. Al entrar a la vista con un run `running`, empieza polling solo.
 
+**Sync — cadencia del sondeo (enmienda 13)**
+22. Con reloj falso: entre el segundo 0 y el 60 de seguimiento el intervalo es de 2,5 s.
+23. Pasado el minuto 1 el intervalo es de 5 s; pasado el minuto 5, de 10 s. **Afirmar el número de
+    peticiones**, no solo que «hubo sondeos»: en 10 min de `running` el total queda muy por debajo de
+    240 (≈102).
+24. Con la pestaña oculta no se sondea; al volver se sondea de inmediato. El tope de 10 min corre
+    igual mientras estuvo oculta.
+25. Agotado el tope, la UI dice «La corrida sigue en el servidor…» y **no** pinta error.
+
 **Historial**
-22. Lista no vuelca la lista completa de NIT en la fila.
-23. Modal sí lista `scopeNits` y `steps[]`.
-24. `fuente: 'simit'` se etiqueta «SIMIT».
-25. `iniciadoPor: null` → «—»; numérico → «Usuario N» sin inventar nombre.
+26. Lista no vuelca la lista completa de NIT en la fila.
+27. Modal sí lista `scopeNits` y `steps[]`.
+28. `fuente: 'simit'` se etiqueta «SIMIT».
+29. `iniciadoPor: null` → «—»; numérico → «Usuario N» sin inventar nombre.
+30. El historial no lanza peticiones por su cuenta mientras hay una corrida en curso.
 
 **A11y**
-26. Tabs con `aria-selected`.
-27. `aria-live` anuncia inicio y fin de sync.
-28. Campos de config con label asociado.
-29. Foco al `h2` del panel al cambiar de pill.
+31. Tabs con `aria-selected`.
+32. La región viva anuncia inicio, paso a seguimiento y desenlace.
+33. **No hay toast al terminar la sincronización**, y en toda la vista Sincronización existe
+    **exactamente una** región viva (contar nodos con `role="status"` / `aria-live`).
+34. El desenlace no roba el foco.
+35. Campos de config con label asociado.
+36. Foco al `h2` del panel al cambiar de pill.
 
 **Mocks mínimos:** `GET/POST/PATCH/DELETE /nits`, `GET/POST/PATCH /municipios`,
 `GET/POST/PATCH /causales`, `GET/PUT /config/token-simit`, `POST /sync`, `GET /sync/runs`,
@@ -745,6 +884,62 @@ NIT del filtro inválido que el usuario acaba de enviar. Misma postura que #1155
 
 ---
 
+### Enmiendas del 20 ago 2026 (posteriores a las HU #11633, #11634 y #11635)
+
+**13. La cadencia del sondeo es escalonada, no fija.** Sustituye a «intervalo 2,5 s (rango 2–3 s)».
+El motivo está desarrollado en § «Lógica de polling», punto 1, y se resume así: los 2,5 s fijos hasta
+el tope son 240 peticiones por corrida contra una cuota de 500 / 15 min **por IP compartida**, y 240
+filas de `pii_access_log` por corrida vuelven ilegible el registro de accesos a datos personales. El
+escalonado (~102 peticiones) **no toca el primer minuto**, que es el único tramo en que alguien está
+mirando la barra. Se decide como cambio de producto —no como ajuste técnico— porque el precio lo paga
+el usuario: enterarse del final hasta 10 s más tarde en corridas de más de cinco minutos. A cambio,
+el resto de la oficina no recibe 429 en pantallas ajenas y la auditoría sigue sirviendo para lo que
+existe.
+*Descartadas:* (a) mantener 2,5 s y subir la cuota del limitador — mover el techo de toda la
+aplicación para que una pantalla sondee más es empezar la casa por el tejado; (b) sondear cada 10 s
+desde el principio — barato pero mezquino justo cuando hay alguien esperando; (c) no registrar los
+sondeos en `pii_access_log` — el `scope_nits` es PII y la lectura ocurrió; dejar de anotarla es
+falsear la bitácora, no adelgazarla.
+
+**14. Descartados los toasts de desenlace de sincronización.** El catálogo listaba tres
+(«completed / partial / failed»). Se eliminan como toast y ese copy, **idéntico**, vive en la región
+viva única de la vista (§ «Región viva — catálogo de anuncios»), acompañado del chip visible en la
+tarjeta de resultado.
+Confirmo el descarte con el argumento de implementación y añado el mío: un toast aquí es **una
+segunda región viva** —el `Toaster` de la app anuncia en `polite`—, de modo que quien usa lector
+oiría dos veces la misma frase, y el propio criterio de accesibilidad de esta spec exige una sola
+región por vista. Además el toast se va solo a los pocos segundos: es la superficie **menos** fiable
+para un desenlace que puede llegar diez minutos después del clic, cuando lo probable es que la
+persona no esté mirando.
+Antes de ratificar me pregunté qué aporta el toast que la región viva no da, y hay una cosa: avisar
+cuando el ojo está en otra parte de una página larga. **Esa necesidad se cubre sin un segundo
+anuncio**: la tarjeta de resultado aparece arriba y el historial refresca su primera fila con el chip
+del desenlace (decisión 14b → obligación 2 para la #11636). Si en uso real apareciera el caso de un
+operador que se pierde el final estando en la misma pestaña, la respuesta correcta **no** sería el
+toast: sería un indicador **persistente** en la propia consola —no uno que se desvanece—, y volvería
+a esta spec como enmienda.
+*Se mantienen* los toasts de **Configuración** (NIT, municipios, causales, token): confirman una
+acción puntual que el usuario acaba de ejecutar, en una vista sin región viva permanente, y ahí el
+toast es exactamente la herramienta correcta.
+
+**15. Ratificadas dos desviaciones de copy, ambas a mejor.**
+· **«Ir al token en Configuración»** en lugar de `[Ir al token]`: el destino es otra pestaña y el
+botón corto insinuaba un ancla dentro de la misma pantalla. Un botón que promete menos salto del que
+da es una pequeña mentira de navegación.
+· **«Iniciada el 14 ago 2026, 15:02»** en lugar de «Iniciada a las 15:02»: la vista reengancha
+corridas ajenas o de otra sesión al entrar, así que la hora suelta puede ser de otro día y el
+operador no tiene cómo saberlo. **Con matiz:** el instante completo es para **frases sueltas**
+(consola en curso, cabecera del modal); en la **tabla del historial** se queda el formato corto
+`14 ago 15:02`, porque ahí la columna ordenada ya da el contexto y repetir el año en cada fila engorda
+una tabla densa.
+
+**16. Ayuda del estado `partial`: una sola redacción.** Estaba escrita de dos formas (tabla de tonos
+y catálogo corto). Gana la del **catálogo corto**, que es el índice canónico y la que usan
+implementación y pruebas; la tabla de tonos ahora la referencia en vez de reescribirla. La regla
+general queda establecida arriba: **el catálogo corto es la fuente; las tablas citan**.
+
+---
+
 ## Reparto sugerido de archivos (orientativo para frontend-agent)
 
 | Archivo | Contenido |
@@ -752,8 +947,8 @@ NIT del filtro inválido que el usuario acaba de enviar. Misma postura que #1155
 | `pages/FlitoComparendos.tsx` | Pills + `?vista=` + montaje de las tres vistas |
 | `components/flito/comparendos/VistaConfigComparendos.tsx` | Los cuatro bloques |
 | `…/NitsComparendos.tsx` / `MunicipiosComparendos.tsx` / `CausalesComparendos.tsx` / `TokenSimitComparendos.tsx` | Un bloque cada uno |
-| `…/VistaSyncComparendos.tsx` | Consola + historial |
-| `…/useComparendosSync.ts` | POST, timeout, polling, estados |
+| `…/VistaSyncComparendos.tsx` | Región viva única + consola + resultado + historial |
+| `…/useComparendosSync.ts` | POST, timeout, cadencia escalonada, fases del seguimiento |
 | `…/PanelDetalleSyncRun.tsx` | Modal de corrida |
 | `lib/api.ts` | R1: timeout opcional por llamada |
 
@@ -776,4 +971,22 @@ HANDOFF
     · Datos: endpoints 17a reales; único requerimiento nuevo = timeout por petición en cliente
   Siguiente: tech-lead Mode B
   Pendiente humano: ninguno
+```
+
+```
+HANDOFF · enmienda 20 ago 2026 (slim)
+  Modo: slim — enmienda documental, sin pantalla nueva
+  Entrega: docs/ux/flito-comparendos-config-sync.md (mismo archivo, enmendado)
+  Cambios normativos:
+    · Decisión 13 — cadencia de sondeo ESCALONADA (2,5 s / 5 s / 10 s). Sustituye los 2,5 s fijos
+    · Decisión 14 — toasts de desenlace de sync DESCARTADOS; copy en la región viva única + chip
+    · Decisión 15 — ratificados «Ir al token en Configuración» e instante completo en la consola
+      (con matiz: fecha corta en la tabla del historial)
+    · Decisión 16 — ayuda `partial` unificada en el catálogo corto; la tabla de tonos la referencia
+  Efecto en HU pendientes:
+    · #11636 — el historial NO sondea; su primera fila es superficie de desenlace; sin región viva
+      propia en lista ni modal; fecha corta en tabla / completa en cabecera del modal
+    · #11637 — sin efecto
+  Requerimientos nuevos de datos: ninguno
+  Siguiente: frontend-agent (#11636 con las tres obligaciones de arriba)
 ```
