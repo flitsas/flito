@@ -485,8 +485,8 @@ function esEscalarPersistible(valor: unknown): boolean {
  *
  * Desde el mapa v2 hay `source_path` con puntos, y ahí la poda tiene que ser más fina que «copiar
  * la clave». `estadoCuenta.secretaria.nombreAutoridadTransito` autoriza UN string; el subárbol
- * `estadoCuenta` del payload real del UTS lleva dentro `direccion` («Carrera 25 con Calle 9 A Sur»,
- * dato de persona) y más cosas. Copiar el contenedor porque su hoja esté autorizada sería la fuga
+ * `estadoCuenta` del payload real del UTS lleva dentro una `direccion` de la vía pública donde se
+ * impuso el comparendo (dato de persona) y más cosas. Copiar el contenedor porque su hoja esté autorizada sería la fuga
  * de RN-25 con otra ruta, así que lo que se hace es construir el esqueleto mínimo —`estadoCuenta`
  * con solo `secretaria`, y `secretaria` con solo `nombreAutoridadTransito`— y poner ahí la hoja.
  *

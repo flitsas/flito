@@ -30,6 +30,15 @@
 --   · `infractor.*` (nombre y documento del infractor) NO se mapea y no puede mapearse: es dato de
 --     persona (Ley 1581) y la lista blanca de la poda RN-25 se DERIVA de esta tabla — lo que se
 --     nombre aquí es exactamente lo que se persiste en `payload_simit`.
+--   · `fechaImposicion` SÍ se conserva, en prioridad 2. No aparece en la captura, pero `types.ts`
+--     lo declara y la v1 lo tenía: soltarlo habría sido dejar sin fecha a una variante del
+--     proveedor que hoy nadie ha observado, a cambio de nada.
+--
+-- Regla general de esta v2, para que no haya que deducirla fila a fila: **todo nombre de la v1 que
+-- no se contradiga con el payload real se conserva como respaldo de última prioridad**. Un respaldo
+-- inerte no cuesta nada (`primerValor` solo lo mira si los de delante faltan); soltarlo, en cambio,
+-- rompe en silencio a quien emitía ese nombre. La ÚNICA excepción es `comparendo` en SIMIT, y es
+-- por lo dicho arriba: no está ausente, está ocupado por un booleano que sombrea a los demás.
 --
 -- UTS municipal. La raíz es el eco de la consulta y lo bueno está en
 -- `consultaMultaOComparendoOutDTO.informacionComparendo`. Cada ítem trae:
@@ -55,6 +64,22 @@
 -- Ojo también con `proyeccionMultaDTO.valorConDescuento50` del UTS: es una proyección condicionada
 -- a pagar dentro del plazo, no la deuda. No se mapea a `monto` a propósito.
 
+-- ── Cómo se REVIERTE esto ──────────────────────────────────────────────────────────────────────
+--
+-- No borrando la v2: `operaciones_app` tiene `SELECT, INSERT, UPDATE` sobre esta tabla y NO tiene
+-- `DELETE` (0150), y el proyecto no lleva scripts `down`. La reversa es **sembrar una v3 que copie
+-- las filas de la v1**, que sigue íntegra en la tabla —el merge lee la versión MÁXIMA, así que la
+-- v3 pasa a mandar sin tocar nada de lo anterior—:
+--
+--   INSERT INTO flito_comparendos_field_map (version, origen, source_path, target_field, prioridad,
+--                                            provisional, notas)
+--   SELECT 3, origen, source_path, target_field, prioridad, provisional, 'Reversa de la v2 a la v1'
+--     FROM flito_comparendos_field_map WHERE version = 1
+--   ON CONFLICT (version, origen, source_path) DO NOTHING;
+--
+-- No hay pérdida de datos en ningún sentido: las versiones conviven y el histórico es el registro
+-- de lo que se creyó en cada momento.
+
 INSERT INTO flito_comparendos_field_map (version, origen, source_path, target_field, prioridad, provisional, notas) VALUES
   -- ── SIMIT (Verifik) — payload real de data.multas[] del 2026-08-20 ────────────────────────────
   (2, 'simit', 'numeroComparendo',                    'numeroComparendo',      1, false, 'Clave de negocio (CF-07). 20 digitos en la captura real.'),
@@ -65,6 +90,7 @@ INSERT INTO flito_comparendos_field_map (version, origen, source_path, target_fi
   (2, 'simit', 'infracciones.0.descripcionInfraccion','descripcionInfraccion', 1, false, NULL),
   (2, 'simit', 'descripcionInfraccion',               'descripcionInfraccion', 2, false, 'Respaldo plano.'),
   (2, 'simit', 'fechaComparendo',                     'fechaComparendo',       1, false, 'Formato DD/MM/YYYY HH:MM:SS. fechaNotificacion NO se mapea: trae centinelas 01/01/1900.'),
+  (2, 'simit', 'fechaImposicion',                     'fechaComparendo',       2, false, 'Respaldo: nombre que usaba la v1. No aparece en la captura; inerte mientras fechaComparendo llegue.'),
   (2, 'simit', 'organismoTransito',                   'organismo',             1, false, NULL),
   (2, 'simit', 'secretariaNombre',                    'organismo',             2, false, 'Respaldo: nombre que usaba la v1.'),
   (2, 'simit', 'valorPagar',                          'monto',                 1, false, 'Deuda total: incluye valorGestion. Ver la nota de decision de negocio en la cabecera.'),
@@ -88,6 +114,9 @@ INSERT INTO flito_comparendos_field_map (version, origen, source_path, target_fi
   (2, 'municipal', 'valor',                                         'monto',                 1, false, 'Numero JSON. proyeccionMultaDTO.valorConDescuento50 NO se mapea: es proyeccion condicionada.'),
   (2, 'municipal', 'monto',                                         'monto',                 2, false, 'Respaldo.'),
   (2, 'municipal', 'descripcionEstado',                             'estadoFuente',          1, false, 'Texto crudo del proveedor («Se adeuda»); no se normaliza.'),
+  (2, 'municipal', 'codigo',                                        'codigoInfraccion',      3, false, 'Respaldo: nombre de la v1, que es el que emite el mock del UTS. Sin esta fila el modo mock (el DEFECTO) homologa codigoInfraccion a NULL.'),
+  (2, 'municipal', 'descripcion',                                   'descripcionInfraccion', 3, false, 'Respaldo: nombre de la v1 y del mock. Sin esta fila se cae el escenario CF-08 del mock.'),
+  (2, 'municipal', 'fecha',                                         'fechaComparendo',       2, false, 'Respaldo: nombre de la v1 y del mock.'),
   (2, 'municipal', 'estado',                                        'estadoFuente',          2, false, 'Respaldo: nombre que usaba la v1.')
 ON CONFLICT (version, origen, source_path) DO NOTHING;
 

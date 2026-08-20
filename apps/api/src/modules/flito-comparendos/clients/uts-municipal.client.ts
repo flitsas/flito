@@ -31,8 +31,9 @@
 //
 // Lo que se acepta, dicho en voz alta: el NIT monitoreado —dato de empresa, transferencia a tercero
 // bajo Ley 1581— viaja SIN CIFRAR en la query de un GET. Queda registrado en
-// `docs/privacy/registro-terceros-destinatarios.md` y este adapter emite un `log.warn` una vez por
-// corrida para que no se convierta en el estado normal por olvido.
+// `docs/privacy/registro-terceros-destinatarios.md` y este adapter emite un `log.warn` la primera
+// vez que usa esa base en un proceso, para que no se convierta en el estado normal por olvido
+// (ver `avisarTextoPlano`: hoy es por proceso, no por corrida).
 
 import { httpsGetJson } from '../../integraciones/http.js';
 import { env } from '../../../config/env.js';
@@ -104,10 +105,13 @@ const CODIGO_ESTADO_OK = 1;
  * Si el envelope no trae `estado` no se inventa nada: se sigue adelante y decide `extraerLista`. Un
  * proveedor que cambie el nombre del campo no puede convertirse en un error duro por sorpresa.
  *
- * La pista lleva el código y la descripción del estado —contrato del proveedor, no dato del NIT— y
- * NADA más: el `criterio` de la raíz ES el NIT consultado y no puede salir de aquí, porque esta
- * pista viaja al cuerpo de la respuesta HTTP y a `flito_comparendos_sync_steps.mensaje`, que se
- * conserva.
+ * La pista lleva SOLO el `codigoEstado`, que es el diagnóstico útil y un valor del contrato. La
+ * `descripcion` que acompaña al código NO se copia, aunque sea tentador: esta pista viaja al cuerpo
+ * de la respuesta HTTP y a `flito_comparendos_sync_steps.mensaje`, que se conserva y se sirve, y la
+ * rama `codigoEstado ≠ 1` no se ha observado nunca — nadie puede prometer qué escribe el proveedor
+ * ahí. Un `"SIN INFORMACION PARA EL NIT 900…"` cabría de sobra en el recorte que había aquí, y el
+ * contrato de esta clase de error es que la pista describe la FORMA, nunca el contenido. Por el
+ * mismo motivo no sale el `criterio` de la raíz, que ES el NIT consultado.
  */
 function exigirEnvelopeUtsOk(cuerpo: unknown, httpStatus: number, ctx: ContextoFuente): void {
   const estado = leerRuta(cuerpo, RUTA_ESTADO);
@@ -117,15 +121,9 @@ function exigirEnvelopeUtsOk(cuerpo: unknown, httpStatus: number, ctx: ContextoF
   if (codigo === undefined || codigo === null) return;
   if (Number(codigo) === CODIGO_ESTADO_OK) return;
 
-  // La descripción es un literal del catálogo del proveedor («EXITOSO», «SIN INFORMACION»…), pero
-  // se acota y se limpia igualmente: es texto de un tercero y acaba persistido.
-  const descripcion = (estado as Record<string, unknown>).descripcion;
-  const detalle = typeof descripcion === 'string' && descripcion.trim() !== ''
-    ? `: ${descripcion.trim().slice(0, 60).replace(/[\r\n]+/g, ' ')}`
-    : '';
   throw new ComparendosFuenteRespuestaIlegibleError(
     ctx.origen, ctx.fuente, httpStatus,
-    `el UTS respondió codigoEstado ${String(codigo).slice(0, 12)}${detalle}`,
+    `el UTS respondió codigoEstado ${String(codigo).slice(0, 12)}`,
   );
 }
 

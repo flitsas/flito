@@ -422,7 +422,10 @@ describe('errores tipados de las fuentes', () => {
     expect(r.httpStatus).toBe(200);
   });
 
-  // ── La forma REAL de las dos respuestas (capturadas el 2026-08-20) ─────────────────────────────
+  // ── La FORMA de las dos respuestas reales (capturadas el 2026-08-20) ──────────────────────────
+  //
+  // La forma es la de la captura; los valores son FABRICADOS. Lo que estos casos ejercen es el
+  // ANIDAMIENTO y la convivencia de listas, no los datos de la empresa que se consultó.
   //
   // Estas dos son la regresión crítica del módulo, no un caso más: en las dos fuentes la lista viva
   // convive con OTRA lista vacía dentro del mismo cuerpo. Quedarse con la vacía —o no encontrar
@@ -431,14 +434,14 @@ describe('errores tipados de las fuentes', () => {
 
   it('SIMIT: `data.comparendos` vacío y `data.multas` con 5 → devuelve 5, nunca 0', async () => {
     const multas = Array.from({ length: 5 }, (_, i) => ({
-      numeroComparendo: `7649700000005592081${i}`,
+      numeroComparendo: `9999900000001234567${i}`,
       comparendo: true,
-      placa: 'LEW657',
+      placa: 'QWE321',
       fechaComparendo: '11/05/2026 14:20:00',
       infracciones: [{ codigoInfraccion: 'D02', valorInfraccion: '1266222' }],
       valorPagar: '1308422',
     }));
-    // La raíz REAL de Verifik: `data` es un OBJETO, no un array — el barrido genérico de claves lo
+    // La raíz de Verifik: `data` es un OBJETO, no un array — el barrido genérico de claves lo
     // encontraba, veía que no era array y devolvía `fuente_respuesta_ilegible` (502).
     httpsGetJsonMock.mockResolvedValue({
       status: 200,
@@ -448,7 +451,7 @@ describe('errores tipados de las fuentes', () => {
     const r = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
     expect(r.items).toHaveLength(5);
-    expect(r.items[0]).toMatchObject({ numeroComparendo: '76497000000055920810' });
+    expect(r.items[0]).toMatchObject({ numeroComparendo: '99999000000012345670' });
   });
 
   it('UTS: `informacionComparendoAdicional` vacío y ANTES que `informacionComparendo` → devuelve 1', async () => {
@@ -462,7 +465,7 @@ describe('errores tipados de las fuentes', () => {
         consultaMultaOComparendoOutDTO: {
           estado: { codigoEstado: 1, descripcion: 'EXITOSO' },
           informacionComparendoAdicional: [],
-          informacionComparendo: [{ numeroComparendo: 'D05001000000054652201', placa: 'PYT159' }],
+          informacionComparendo: [{ numeroComparendo: 'D99999000000099999901', placa: 'ZYX654' }],
           informacionMulta: [],
           tarifasComparendos: [],
         },
@@ -472,7 +475,7 @@ describe('errores tipados de las fuentes', () => {
     const r = await consultarComparendosMunicipales(NIT, 'BELLO');
 
     expect(r.items).toHaveLength(1);
-    expect(r.items[0]).toMatchObject({ numeroComparendo: 'D05001000000054652201' });
+    expect(r.items[0]).toMatchObject({ numeroComparendo: 'D99999000000099999901' });
   });
 
   it('UTS con `codigoEstado` distinto de 1 → error de fuente, NUNCA lista vacía', async () => {
@@ -491,10 +494,12 @@ describe('errores tipados de las fuentes', () => {
     const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
 
     expect(fallo).toMatchObject({ codigo: 'fuente_respuesta_ilegible', httpStatus: 200 });
-    expect(fallo.message).toContain('4');
-    expect(fallo.message).toContain('SIN INFORMACION');
-    // El `criterio` de la raíz ES el NIT: la pista viaja a `sync_steps.mensaje`, que se conserva.
+    expect(fallo.message).toContain('codigoEstado 4');
+    // Ni el `criterio` de la raíz (que ES el NIT) ni la `descripcion` del proveedor: la pista viaja
+    // a `sync_steps.mensaje`, que se conserva y se sirve, y nadie puede prometer qué escribe un
+    // tercero en un campo de texto libre que además no se ha observado nunca.
     expect(fallo.message).not.toContain(NIT);
+    expect(fallo.message).not.toContain('SIN INFORMACION');
   });
 
   it('un cuerpo de texto plano no acaba en el mensaje del error', async () => {

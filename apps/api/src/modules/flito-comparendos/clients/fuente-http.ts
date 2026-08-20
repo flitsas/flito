@@ -97,7 +97,7 @@ export interface OpcionesBaseUrl {
  * Lo que se acepta al encenderlo, dicho en voz alta: el NIT monitoreado viaja SIN CIFRAR en la
  * query de un GET a un tercero. Es un dato de empresa (Ley 1581, transferencia a tercero) y queda
  * legible para cualquier intermediario de la ruta. `uts-municipal.client.ts` lo registra con un
- * `log.warn` en cada corrida para que no se convierta en el estado normal por olvido.
+ * `log.warn` (una vez por proceso, hoy) para que no se convierta en el estado normal por olvido.
  */
 export function baseUrlExigida(
   valor: string | undefined, variable: string, ctx: ContextoFuente,
