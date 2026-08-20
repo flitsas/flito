@@ -100,7 +100,20 @@ function statusToMessage(status: number, backendMsg?: string): string {
   return `Error ${status}`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+/**
+ * Gancho de SOLO LECTURA sobre la respuesta cruda, antes de que `request` consuma el cuerpo.
+ *
+ * Existe por una pérdida concreta: `request` devuelve `res.json()` o `res.blob()` y con ello se va
+ * el objeto `Response` entero, incluidas sus cabeceras. El nombre de un archivo lo decide el
+ * SERVIDOR en `Content-Disposition` —en comparendos, con la hora de Colombia— y sin este gancho el
+ * llamador no tiene forma de leerlo: se lo tiene que inventar.
+ *
+ * No puede alterar nada: no devuelve valor y se llama antes de tocar el cuerpo, así que no compite
+ * con quien lo lee después.
+ */
+type GanchoRespuesta = (res: Response) => void;
+
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, alRecibir?: GanchoRespuesta): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -131,6 +144,10 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   } finally {
     clearTimeout(timeoutId);
   }
+
+  // Antes del 401, del blob y del `!res.ok`: quien lo pasa quiere las cabeceras pase lo que pase
+  // después, incluidas las de una respuesta de error.
+  alRecibir?.(res);
 
   // 401 global → fin de sesión vía evento (navegación SPA), no recarga dura.
   // EXCEPCIÓN: el propio /auth/login devuelve 401 para credenciales inválidas.
@@ -167,6 +184,98 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   // 204 No Content (típicamente DELETE) y respuestas vacías: no parsear JSON.
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as unknown as T;
   return res.json();
+}
+
+/**
+ * El nombre del archivo tal y como lo declara el servidor en `Content-Disposition`.
+ *
+ * Se prefiere el del servidor al que pueda componer la pantalla porque el sello de tiempo del
+ * archivo es SUYO: en comparendos, `nombreArchivoExport()` lo calcula en hora de Colombia, y un
+ * nombre fabricado en el cliente llevaría la hora del sistema operativo de quien descarga —que en
+ * un equipo con otra zona horaria nombraría el mismo archivo con otro día—.
+ *
+ * Se admiten las dos formas del RFC 6266 y gana `filename*`, que es la que declara su codificación.
+ * Devuelve `null` cuando no hay cabecera, cuando no es interpretable o cuando lo que queda tras
+ * sanear está vacío: el llamador siempre tiene que traer un nombre de respaldo.
+ */
+export function nombreDeContentDisposition(cabecera: string | null): string | null {
+  if (!cabecera) return null;
+  const extendido = /filename\*\s*=\s*([^;]+)/i.exec(cabecera);
+  if (extendido) {
+    const valor = extendido[1].trim();
+    // `UTF-8''nombre.xlsx` → se descarta el juego de caracteres y el idioma y se decodifica el resto.
+    const partes = valor.split("''");
+    const texto = partes.length > 1 ? partes.slice(1).join("''") : valor;
+    try { return saneaNombreDeArchivo(decodeURIComponent(texto)); } catch { return saneaNombreDeArchivo(texto); }
+  }
+  const simple = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(cabecera);
+  return simple ? saneaNombreDeArchivo(simple[1] ?? simple[2]) : null;
+}
+
+/**
+ * El nombre viene de la red, así que se trata como tal aunque lo haya escrito nuestro propio API.
+ *
+ * Se queda con el último segmento —un `filename` con separadores no puede proponer una ruta— y
+ * quita comillas y caracteres de control, que es lo que un nombre con `\r\n` usaría para escribirse
+ * de más en la carpeta de descargas.
+ */
+function saneaNombreDeArchivo(valor: string | undefined): string | null {
+  const base = (valor ?? '').split(/[\\/]/).pop() ?? '';
+  // eslint-disable-next-line no-control-regex -- es justo lo que hay que quitar.
+  const limpio = base.replace(/[\u0000-\u001F\u007F"]/g, '').trim();
+  return limpio && limpio !== '.' && limpio !== '..' ? limpio : null;
+}
+
+/**
+ * Entrega el blob al navegador y **libera el object URL DESPUÉS de la descarga**, no en la misma
+ * vuelta síncrona.
+ *
+ * `download` y `downloadPost` revocan justo después de `a.click()`. En Chromium eso funciona porque
+ * la descarga queda registrada durante el despacho del clic, pero es una carrera que depende del
+ * navegador: revocar la URL antes de que la descarga haya empezado a leer el blob la deja sin
+ * origen. Aquí se cede el turno primero (`setTimeout`), que es lo que convierte «se libera después
+ * de la descarga» en una afirmación cierta y no en una que suele cumplirse.
+ *
+ * El ancla se ADJUNTA al documento antes de pulsarla y se retira después: hay navegadores que
+ * ignoran el clic sobre un ancla que no está en el árbol.
+ *
+ * No se migran `download` ni `downloadPost` a esta función: las consumen diez pantallas ajenas a
+ * esta HU y cambiarles el momento de la liberación es una tarea de mantenimiento con su propia
+ * verificación, no un efecto colateral de un export de comparendos.
+ */
+function entregarArchivo(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * Un error que llegó VESTIDO de archivo.
+ *
+ * `request` mira el `content-type` ANTES que `res.ok`, así que una respuesta de error con
+ * `content-type` de xlsx no entra por la rama de error: sale como blob y acaba en la carpeta de
+ * descargas del usuario, con extensión `.xlsx` y un JSON dentro. El caso normal no ocurre —el 422
+ * del tope y el 429 del limitador responden JSON y sí lanzan `ApiError`—, pero el que ocurra
+ * depende de una cabecera que pone el servidor, y eso no es una garantía del cliente.
+ *
+ * Se reconstruye aquí el mismo `ApiError` que habría salido por la rama buena, leyendo el cuerpo
+ * que ya se consumió como blob.
+ */
+async function errorVestidoDeArchivo(status: number, blob: Blob): Promise<ApiError> {
+  let cuerpo: Record<string, unknown> = {};
+  try { cuerpo = JSON.parse(await blob.text()) as Record<string, unknown>; } catch { /* no era JSON */ }
+  const backendMsg = typeof cuerpo.error === 'string'
+    ? cuerpo.error
+    : typeof cuerpo.message === 'string' ? cuerpo.message : undefined;
+  const details = (cuerpo.details ?? null) as { fieldErrors?: Record<string, string[]> } | null;
+  return new ApiError(status, statusToMessage(status, backendMsg), details?.fieldErrors, cuerpo);
 }
 
 export const api = {
@@ -206,6 +315,42 @@ export const api = {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  },
+  /**
+   * POST que descarga un archivo **con el nombre que decide el SERVIDOR** (HU #11561).
+   *
+   * Se añade en vez de tocar `downloadPost` porque aquel obliga al llamador a inventarse el nombre
+   * y lo consumen ya varias pantallas; su firma no se mueve. Las tres diferencias son:
+   *
+   *   · el nombre sale de `Content-Disposition` y `respaldo` solo se usa si no viene;
+   *   · una respuesta de error con `content-type` de archivo **no se descarga**, se lanza;
+   *   · el object URL se libera después de la descarga, no en la misma vuelta síncrona.
+   *
+   * `aceptaNombre` deja que **el llamador** decida qué forma admite, porque solo él la conoce: aquí
+   * no se puede saber si un `.xlsx` de comparendos o un `.pdf` de expediente es lo esperado. Lo que
+   * este módulo garantiza es que el nombre no sea una ruta ni lleve caracteres de control
+   * (`saneaNombreDeArchivo`); lo que SIGNIFICA el nombre se valida donde se sabe. Si el predicado
+   * dice que no, se usa el respaldo: nunca se propaga un nombre que no encaja.
+   *
+   * Devuelve el nombre con el que se guardó, que es lo que la pantalla necesita para poder decir
+   * «Archivo descargado: …» sin volver a adivinarlo.
+   */
+  downloadPostNamed: async (
+    path: string,
+    respaldo: string,
+    body?: unknown,
+    aceptaNombre?: (nombre: string) => boolean,
+  ): Promise<string> => {
+    let nombre = respaldo;
+    let respuesta = { ok: true, status: 200 };
+    const blob = await request<Blob>('POST', path, body, undefined, (res) => {
+      respuesta = { ok: res.ok, status: res.status };
+      const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
+      nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
+    });
+    if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
+    entregarArchivo(blob, nombre);
+    return nombre;
   },
 };
 
