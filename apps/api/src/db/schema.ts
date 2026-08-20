@@ -2798,6 +2798,20 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Calcado del anterior, por el mismo motivo: un solo comprobante VIVO de cada tipo por boleta.
   boletaTipoUq: uniqueIndex('idx_flito_soportes_boleta_tipo').on(t.conciliacionBoletaId, t.tipo)
     .where(sql`${t.conciliacionBoletaId} IS NOT NULL AND ${t.descartado} = false`),
+  // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
+  // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
+  // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales
+  // de arriba y —las dos FK son CASCADE— desaparecer con la factura llevándose el comprobante PSE
+  // de una boleta ya conciliada.
+  //
+  // Las tres FK viejas (soat/impuesto/derecho) siguen SIN excluirse entre sí, igual que las dejó la
+  // 0139: es una regla vigente desde mucho antes y cambiarla no es alcance de este Feature.
+  excluyenteChk: check('flito_soportes_factura_excluyente_chk',
+    sql`(${t.siigoFacturaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL
+              AND ${t.conciliacionBoletaId} IS NULL))
+     AND (${t.conciliacionBoletaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL))`),
 }));
 
 // Cola de revisión OCR (CA-06/CA-07). Los gestores no la resuelven (RN-04/RN-05).
@@ -3439,6 +3453,24 @@ export const flitoConciliacionBoletas = pgTable('flito_conciliacion_boletas', {
   // mal cargada no exija renombrar el .xlsx.
   hashUq: uniqueIndex('idx_flito_concil_boleta_hash').on(t.archivoHash)
     .where(sql`${t.estado} <> 'descartada'`),
+  // Los CHECK van AQUÍ y no solo en el `.sql`, siguiendo el precedente de
+  // `flito_comparendos_gestion_auditoria_chk` (0156, más arriba en este archivo). No es simetría
+  // estética: en la 0157 estos CHECK son INLINE dentro de un `CREATE TABLE IF NOT EXISTS`, así que
+  // NO se auto-reparan — si la tabla naciera por cualquier otra vía sin ellos, la migración se
+  // saltaría el CREATE y la tabla se quedaría permanentemente sin restricciones y en silencio.
+  // El test de paridad de la 0157 compara estas expresiones con las del archivo, una a una.
+  conceptoChk: check('flito_concil_boleta_concepto_chk', sql`${t.concepto} IN ('soat')`),
+  estadoChk: check('flito_concil_boleta_estado_chk',
+    sql`${t.estado} IN ('cargada','conciliada','descartada')`),
+  filasChk: check('flito_concil_boleta_filas_chk', sql`${t.filas} > 0`),
+  totalChk: check('flito_concil_boleta_total_chk', sql`${t.totalDeclarado} > 0`),
+  // El sello de la conciliación es una sola cosa: o están los tres campos o no está ninguno.
+  selloChk: check('flito_concil_boleta_sello_chk',
+    sql`(${t.conciliadaEn} IS NULL) = (${t.conciliadaPorId} IS NULL)
+       AND (${t.conciliadaEn} IS NULL) = (${t.conciliadaPorNombre} IS NULL)`),
+  // Y el estado no puede mentir sobre el sello.
+  estadoSelloChk: check('flito_concil_boleta_estado_sello_chk',
+    sql`${t.estado} <> 'conciliada' OR ${t.conciliadaEn} IS NOT NULL`),
 }));
 
 /** Una fila del Excel del portal, con el SOAT que le encontró el cruce (o el motivo de que no). */
@@ -3486,6 +3518,25 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
   // heredados: al crearse, la tabla está vacía.
   soatUnicaIdx: uniqueIndex('idx_flito_concil_linea_soat_unica').on(t.soatId)
     .where(sql`${t.soatId} IS NOT NULL AND ${t.conciliadaEn} IS NOT NULL`),
+  // Mismos CHECK que el `.sql`, por el motivo de arriba: son inline en un `CREATE TABLE IF NOT
+  // EXISTS` que no los repara si la tabla ya existe.
+  resultadoChk: check('flito_concil_linea_resultado_chk',
+    sql`${t.resultado} IN ('ok','no_encontrada','no_pagado','valor_distinto','poliza_duplicada','otra_compania','ya_conciliada')`),
+  // La póliza se guarda YA normalizada: escribir el valor crudo es un 23514 inmediato en vez de una
+  // fila que no cruzará nunca con nada.
+  polizaNormChk: check('flito_concil_linea_poliza_norm_chk',
+    sql`${t.numeroPolizaNorm} ~ '^[A-Z0-9]{1,60}$'`),
+  // Solo una línea que cruzó puede quedar conciliada.
+  selloChk: check('flito_concil_linea_sello_chk',
+    sql`${t.conciliadaEn} IS NULL OR (${t.soatId} IS NOT NULL AND ${t.resultado} = 'ok')`),
+  // Y solo una conciliada puede tener movimiento — LOS DOS movimientos, no solo el del libro del
+  // cliente. Con el de tránsito fuera del CHECK, una línea con su salida de tránsito asentada y
+  // `conciliada_en` en NULL sería un estado legal; des-sellarla así la saca del índice parcial
+  // `idx_flito_concil_linea_soat_unica` y libera el SOAT para conciliarse otra vez en otra boleta,
+  // con el dinero de tránsito ya descontado y sin contramovimiento (doble descuento, CF-04).
+  movChk: check('flito_concil_linea_mov_chk',
+    sql`(${t.movimientoBolsaId} IS NULL AND ${t.movimientoTransitoId} IS NULL)
+           OR ${t.conciliadaEn} IS NOT NULL`),
 }));
 
 // ============================================================================

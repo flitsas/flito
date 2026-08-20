@@ -6,7 +6,7 @@
 
 Requiere además gate de `security-agent` antes del PR de la HU que exponga las rutas: hay rutas nuevas sobre número de póliza y placa (AGENTS.md, tabla de gates).
 
-**Sobre la ubicación del archivo.** Este documento se pidió en `docs/arquitectura/`, que se crea con él, pero sigue el nombre y la estructura de los ADR de `docs/adr/` y **reserva el número 0006 de esa secuencia**. Que la numeración viva partida en dos carpetas es una trampa: el próximo ADR de `docs/adr/` se llamará `ADR-0006-…` si nadie mira aquí. Decisión pendiente del Líder Técnico: mover este archivo a `docs/adr/` (recomendado) o dejar `docs/arquitectura/` para diseños largos y renumerar este como diseño sin número. Mientras tanto, el número está tomado.
+**Sobre la ubicación del archivo.** Este documento se pidió en `docs/arquitectura/` y se entregó en **`docs/adr/`**, que es la opción que el propio ADR recomendaba: sigue el nombre y la estructura de esa secuencia y **ocupa el número 0006**. La alternativa —una carpeta aparte para diseños largos— dejaba la numeración partida en dos sitios, con el riesgo de que el siguiente ADR se llamara igual porque nadie mirara aquí. No se crea `docs/arquitectura/`.
 
 ## Contexto
 
@@ -73,7 +73,10 @@ export const flitoConciliacionBoletas = pgTable('flito_conciliacion_boletas', {
   // Referencia legible ('BOL-000123'). Existe para dos cosas concretas: la trazabilidad que pide el
   // CF-05 en el reporte de costos, y la observación del movimiento de bolsa — que necesita decir de
   // qué boleta salió SIN escribir la placa ni la póliza en texto libre (ver §4.2).
-  referencia: varchar('referencia', { length: 20 }).notNull().unique(),
+  // El DEFAULT va en la columna y no en el servicio: la referencia se asigna en el mismo INSERT que
+  // crea la boleta, sin un segundo viaje ni una carrera entre dos cargas simultáneas.
+  referencia: varchar('referencia', { length: 20 }).notNull().unique()
+    .default(sql`('BOL-' || lpad(nextval('flito_conciliacion_boleta_seq')::text, 6, '0'))`),
   // RESTRICT y no CASCADE: es un documento contable. Mismo criterio que `flito_bolsas.compania_id`.
   companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
   /** 'soat'. Acotado por CHECK en la base: ensancharlo el día de impuestos es un ALTER de una línea. */
@@ -121,8 +124,13 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
   /** Póliza YA NORMALIZADA (solo A-Z0-9, mayúsculas). Cuasi-PII: no viaja nunca en path ni query. */
   numeroPolizaNorm: varchar('numero_poliza_norm', { length: 60 }).notNull(),
   valorDeclarado: numeric('valor_declarado', { precision: 14, scale: 2 }).notNull(),
-  // RESTRICT: la línea es la prueba de por qué salió ese dinero. Un SOAT conciliado no se borra.
-  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'restrict' }),
+  // **`set null`, corregido respecto del borrador de este ADR, que decía `restrict`.** El objetivo
+  // —que un SOAT ya conciliado no se pueda borrar— lo cumple igual `flito_concil_linea_sello_chk`,
+  // que exige `soat_id IS NOT NULL` en cuanto hay `conciliada_en`: el DELETE falla con un 23514 en
+  // vez de con un 23503. Lo que `restrict` añadía por encima de eso era impedir borrar un SOAT que
+  // aparece en una línea que NUNCA movió un peso —una fila `no_pagado` de una boleta descartada—, y
+  // eso no es proteger una prueba, es dejar basura inmortal. Es además lo que dice el AC de la HU.
+  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'set null' }),
   /** 'ok' | 'no_encontrada' | 'no_pagado' | 'valor_distinto' | 'poliza_duplicada' | 'otra_compania' | 'ya_conciliada'. */
   resultado: varchar('resultado', { length: 24 }).notNull(),
   /** Motivo legible. SIN placa ni póliza en claro: el dato ya está en sus columnas (§7.4). */
@@ -137,6 +145,10 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
 }, (t) => ({
   // Único y no simple: además de ordenar el detalle, impide que un reprocesamiento duplique filas.
   filaUq: uniqueIndex('idx_flito_concil_linea_fila').on(t.boletaId, t.filaNumero),
+  // Una póliza no se repite DENTRO de una boleta: dos filas con la misma póliza son el mismo pago
+  // contado dos veces, y cada una intentaría su propia salida de bolsa por el mismo SOAT. La carga
+  // lo detecta al leer el Excel; esto es la red de abajo.
+  polizaUq: uniqueIndex('idx_flito_concil_linea_poliza').on(t.boletaId, t.numeroPolizaNorm),
   soatIdx: index('idx_flito_concil_linea_soat').on(t.soatId).where(sql`${t.soatId} IS NOT NULL`),
   // LA restricción que protege el dinero: un SOAT se concilia como MUCHO una vez, en toda la base.
   // Va sobre un uuid, así que —a diferencia de un UNIQUE sobre la póliza— no puede fallar por datos
@@ -174,7 +186,11 @@ Y las dos columnas en tablas existentes:
     .where(sql`${t.conciliacionBoletaId} IS NOT NULL AND ${t.descartado} = false`),
 ```
 
-Coste en el gate: unas 60 líneas contables en `schema.ts` (3125 → ~3185 de un techo de 3400). Los comentarios no cuentan.
+**Los `CHECK` de las dos tablas nuevas se declaran también en `schema.ts`, con `check()` de Drizzle** —el precedente es `flito_comparendos_gestion_auditoria_chk` (`0156`), y lo mismo se hace con el `flito_soportes_factura_excluyente_chk` que esta migración ensancha—. No es simetría estética: en la `0157` esos `CHECK` van **inline dentro de un `CREATE TABLE IF NOT EXISTS`**, así que —a diferencia de los `ADD CONSTRAINT` del archivo— **no se auto-reparan**: si la tabla naciera por cualquier otra vía sin ellos, la migración se saltaría el `CREATE` entero y la tabla se quedaría permanentemente sin restricciones y en silencio. El test de paridad de la HU-1 compara las expresiones de los dos lados una a una, que es lo que impide que vuelvan a separarse.
+
+Los `CHECK` de `origen` de los dos libros de bolsa (H6) **siguen sin declararse** en `schema.ts`: son de tablas que esta migración no crea, y declararlos sin ensanchar antes el resto del esquema sería empezar una convención a medias. Lo que los vigila es el test de paridad, que compara sus valores contra `OrigenMovimientoBolsa` / `OrigenMovimientoTransito`.
+
+Coste en el gate: **3206 líneas contables de un techo de 3400** en `schema.ts` (medido con `npx eslint --rule max-lines` tras la HU-1; el borrador estimaba ~3185 sin contar los `check()`). Los comentarios no cuentan.
 
 #### 1.2 Migración `0157_flito_conciliacion_boletas.sql`
 
@@ -182,9 +198,9 @@ Sin `BEGIN`/`COMMIT` propios (el runner envuelve cada archivo). Idempotente ente
 
 ```sql
 -- 0157_flito_conciliacion_boletas.sql
--- Feature #11623 — Conciliación de boletas SOAT con bolsas. HU-1 (esquema, póliza y origen).
+-- Feature #11623 — Conciliación de boletas SOAT con bolsas. HU #11673 (esquema, póliza y origen).
 -- Autor: equipo FLITO. Motivo: el descuento de bolsa deja de ocurrir SOLO al sellar la liquidación.
--- Diseño y tradeoffs: docs/arquitectura/ADR-0006-flito-conciliacion-boletas-soat.md
+-- Diseño y tradeoffs: docs/adr/ADR-0006-flito-conciliacion-boletas-soat.md
 --
 -- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner ya envuelve cada archivo).
 -- Idempotente: se puede re-aplicar entera sin efecto adicional y sin cambiar una sola fila.
@@ -241,7 +257,10 @@ CREATE TABLE IF NOT EXISTS flito_conciliacion_lineas (
   fila_numero            integer NOT NULL,
   numero_poliza_norm     varchar(60) NOT NULL,
   valor_declarado        numeric(14,2) NOT NULL,
-  soat_id                uuid REFERENCES flito_soat(id) ON DELETE RESTRICT,
+  -- SET NULL y no RESTRICT (corregido respecto del borrador; ver §1.1): el sello de abajo ya impide
+  -- borrar un SOAT conciliado, y lo único que RESTRICT añadía era impedir borrar uno que aparece en
+  -- una línea que nunca movió un peso.
+  soat_id                uuid REFERENCES flito_soat(id) ON DELETE SET NULL,
   resultado              varchar(24) NOT NULL,
   detalle                text,
   movimiento_bolsa_id    uuid REFERENCES flito_bolsa_movimientos(id) ON DELETE RESTRICT,
@@ -256,12 +275,21 @@ CREATE TABLE IF NOT EXISTS flito_conciliacion_lineas (
   -- Solo una línea que cruzó puede quedar conciliada, y solo una conciliada puede tener movimiento.
   CONSTRAINT flito_concil_linea_sello_chk
     CHECK (conciliada_en IS NULL OR (soat_id IS NOT NULL AND resultado = 'ok')),
+  -- LOS DOS movimientos. Con `movimiento_transito_id` fuera del CHECK, una línea con el asiento de
+  -- tránsito puesto y `conciliada_en` en NULL sería un estado LEGAL; des-sellarla así la saca del
+  -- índice PARCIAL `idx_flito_concil_linea_soat_unica` y libera el SOAT para conciliarse otra vez en
+  -- otra boleta, con el dinero de tránsito ya descontado y sin contramovimiento (viola el CF-04).
   CONSTRAINT flito_concil_linea_mov_chk
-    CHECK (movimiento_bolsa_id IS NULL OR conciliada_en IS NOT NULL)
+    CHECK ((movimiento_bolsa_id IS NULL AND movimiento_transito_id IS NULL)
+           OR conciliada_en IS NOT NULL)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_concil_linea_fila
   ON flito_conciliacion_lineas (boleta_id, fila_numero);
+-- Una póliza no se repite DENTRO de una boleta: dos filas iguales son el mismo pago contado dos
+-- veces, y cada una intentaría su propia salida de bolsa por el mismo SOAT.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_concil_linea_poliza
+  ON flito_conciliacion_lineas (boleta_id, numero_poliza_norm);
 CREATE INDEX IF NOT EXISTS idx_flito_concil_linea_soat
   ON flito_conciliacion_lineas (soat_id) WHERE soat_id IS NOT NULL;
 -- UN SOAT SE CONCILIA UNA VEZ. Es la única barrera de la base contra el doble descuento por la vía
@@ -279,6 +307,20 @@ ALTER TABLE flito_soportes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_soportes_boleta_tipo
   ON flito_soportes (conciliacion_boleta_id, tipo)
   WHERE conciliacion_boleta_id IS NOT NULL AND descartado = false;
+
+-- Y el «uno y solo uno» de la 0139 se ensancha a la columna nueva. Sin esto, un soporte podía
+-- colgar de una factura Y de una boleta a la vez: contaría como comprobante vivo en los DOS índices
+-- parciales y —las dos FK son CASCADE— borrar la factura se llevaría por delante el comprobante PSE
+-- de una boleta conciliada. Se valida sin coste real por el mismo argumento que escribió la 0139:
+-- hoy todas las filas tienen conciliacion_boleta_id NULL. Las tres FK viejas siguen sin excluirse
+-- entre sí, también como las dejó la 0139.
+ALTER TABLE flito_soportes DROP CONSTRAINT IF EXISTS flito_soportes_factura_excluyente_chk;
+ALTER TABLE flito_soportes ADD CONSTRAINT flito_soportes_factura_excluyente_chk
+  CHECK ((siigo_factura_id IS NULL
+          OR (soat_id IS NULL AND impuesto_id IS NULL AND derecho_id IS NULL
+              AND conciliacion_boleta_id IS NULL))
+     AND (conciliacion_boleta_id IS NULL
+          OR (soat_id IS NULL AND impuesto_id IS NULL AND derecho_id IS NULL)));
 
 -- ── 5. El número de póliza, promovido a columna ──────────────────────────────
 ALTER TABLE flito_soat ADD COLUMN IF NOT EXISTS numero_poliza varchar(60);
@@ -927,6 +969,29 @@ export interface BoletaDetalleDto { boleta: BoletaResumenDto; lineas: LineaBolet
 - **ux-agent** — La pantalla tiene que distinguir tres estados que se parecen y no son lo mismo: «descontado ahora», «ya estaba descontado por la liquidación» y «no cuadra, y por qué». Y si se aprueba la opción (a) del GMF, tiene que decir que el 4x1000 se cobra al liquidar.
 - **tech-lead-agent** — La consulta de duplicados de póliza (§1.2) se corre **antes** de estimar la HU-2: su resultado decide si hace falta una vía de corrección manual, que hoy no está en el Feature.
 
+## Retención de datos personales (regla 16 de AGENTS.md)
+
+`flito_conciliacion_boletas` y `flito_conciliacion_lineas` persisten `numero_poliza_norm`, que el
+Feature clasifica como cuasi-PII junto con la placa. La regla 16 exige que toda tabla que guarde
+datos personales declare su retención, así que aquí queda:
+
+**Retención: indefinida, por obligación contable.** Una boleta es el respaldo de un pago real a un
+gestor y de un movimiento de bolsa que no se revierte (CF-07). Borrarla dejaría un asiento de dinero
+sin su documento soporte, que es justo lo que el libro append-only existe para evitar. El plazo se
+alinea con el de la información contable y tributaria, no con el de un dato operativo.
+
+Lo que sí acota el riesgo, y ya está en el diseño:
+
+- La póliza se guarda **normalizada**, nunca el resto de la fila del Excel. En particular, la columna
+  `Nombre` del portal —nombres completos de personas naturales— **no se persiste en ninguna tabla**.
+- La póliza no es una clase de dato nueva: ya vivía en claro dentro de `flito_soat.extraccion`, bajo
+  los mismos roles y la misma frontera 404-no-403.
+- El acceso de lectura al detalle de una boleta queda auditado con `logPiiAccess`, y ni póliza ni
+  placa viajan por path o query.
+
+Si alguna vez se decide cifrar la póliza en reposo, la decisión abarca `extraccion` entera y merece
+su propio ADR: cifrar solo esta columna rompería el índice del que depende el cruce.
+
 ## Riesgos abiertos y qué decide una persona
 
 1. **GMF (§5).** Tres opciones sobre la mesa; recomendada la (a). Decide el Líder Técnico **con Financiera**, porque (b) y (c) tocan el total que se factura electrónicamente.
@@ -940,14 +1005,14 @@ export interface BoletaDetalleDto { boleta: BoletaResumenDto; lineas: LineaBolet
 
 | HU | Alcance | Secciones de este ADR |
 |---|---|---|
-| **HU-1 — esquema, póliza y origen** | Migración `0157` completa (tablas, columnas, backfill, los dos `CHECK` ensanchados, grants, comentarios); `schema.ts`; `OrigenMovimientoBolsa` y `OrigenMovimientoTransito`; `normalizarPoliza()` + su test de paridad con el SQL; `pagarEnTx` escribe `numero_poliza`; `BolsaMovimientos.tsx` (obligatorio, rompe el build) y `BolsaTransito.tsx` (recomendado); `PAGES` + permisos | §1, §3, §8 |
+| **HU-1 (#11673) — esquema, póliza y origen** | Migración `0157` completa (tablas, columnas, backfill, los dos `CHECK` de `origen` **y** el excluyente de `flito_soportes` ensanchados, grants, comentarios); `schema.ts` **con los `CHECK` declarados**; `OrigenMovimientoBolsa` y `OrigenMovimientoTransito`; `normalizarPoliza()` + su test de paridad con el SQL; `pagarEnTx` escribe `numero_poliza`; `BolsaMovimientos.tsx` (obligatorio, rompe el build) y `BolsaTransito.tsx` (recomendado); `PAGES` + permisos | §1, §3, §8 |
 | **HU-2 — carga y cruce** | Módulo `flito-conciliacion` (routes/service/excel/pii); `POST /boletas`, `GET /boletas`, `GET /boletas/:id`; los siete resultados de cruce; multer + magic number + limitador; `logPiiAccess`; montaje en `app.ts`; pantalla de carga y cuadre | §1.1 (líneas), §7.1–7.2, §7.5, §8 |
 | **HU-3 — conciliar y mover bolsas** | `POST /boletas/:id/conciliar` con re-cruce dentro de la transacción; asiento en los dos libros con `origen='conciliacion'`, llave `salida:soat:<id>` / `consumo:soat:<id>` y `tramite_id NULL`; adopción del orden 2; `DatosConsumoTransito.tramiteId` nullable; `leftJoin` en `proyeccionCalculo`; «Conciliado · bolsa» en el reporte de costos; test de que el reverso no lo alcanza | §2, §3.3, §4, §6, §7.3 |
 | **HU-4 — comprobante PSE** | `flito_soportes.conciliacion_boleta_id` en uso; `POST`/`GET …/boletas/:id/comprobante`; `GET /flito/soat/:id/comprobante-conciliacion` para el gestor; visibilidad por rol | §1.1 (soportes), §7.4, §7.5 |
 
 ## Relación con otros ADR
 
-- **ADR-0005** (`ON DELETE` de las FK hacia `users`) — se aplica: `cargada_por_id` y `conciliada_por_id` son **auditoría** → `RESTRICT` explícito, con su comentario.
+- **ADR-0005** (`ON DELETE` de las FK hacia `users`) — se aplica: `cargada_por_id` y `conciliada_por_id` son **auditoría** → `RESTRICT` explícito, con su comentario. No alcanza a `flito_conciliacion_lineas.soat_id`, que no apunta a `users` y que quedó en `SET NULL` (§1.1).
 - **ADR-DB-001** (el runner envuelve cada migración) — se respeta: la `0157` no abre transacción propia, y ningún comentario del archivo escribe el par de dólares.
 - **ADR-0001 a ADR-0004** — módulo de comparendos. Sin relación, salvo que **ADR-0004** aporta el patrón de `logPiiAccess` y de tope duro que aquí se reutiliza.
 - Este ADR **no supersede** a ninguno. Tampoco contradice el diseño de bolsas (Feature #11120): lo extiende añadiendo un cuarto origen y un segundo momento en que el dinero puede salir.

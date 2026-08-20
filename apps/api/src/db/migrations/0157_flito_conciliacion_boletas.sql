@@ -107,8 +107,17 @@ CREATE TABLE IF NOT EXISTS flito_conciliacion_lineas (
   -- Solo una línea que cruzó puede quedar conciliada, y solo una conciliada puede tener movimiento.
   CONSTRAINT flito_concil_linea_sello_chk
     CHECK (conciliada_en IS NULL OR (soat_id IS NOT NULL AND resultado = 'ok')),
+  -- LOS DOS movimientos, no solo el del libro del cliente. Con `movimiento_transito_id` fuera del
+  -- CHECK, una línea con el asiento de tránsito puesto y `conciliada_en` en NULL era un estado
+  -- LEGAL, y ese UPDATE lo puede hacer `operaciones_app` (tiene UPDATE sobre la tabla). Des-sellar
+  -- así una línea la saca de `idx_flito_concil_linea_soat_unica` —que es PARCIAL sobre
+  -- `conciliada_en IS NOT NULL`— y libera el SOAT para conciliarse otra vez en otra boleta, con su
+  -- salida de tránsito ya asentada y sin contramovimiento: doble descuento, que es justo lo que
+  -- el CF-04 prohíbe. El CHECK es la única barrera; la FK es RESTRICT, pero RESTRICT protege al
+  -- movimiento de que lo borren, no a la línea de que la des-sellen.
   CONSTRAINT flito_concil_linea_mov_chk
-    CHECK (movimiento_bolsa_id IS NULL OR conciliada_en IS NOT NULL)
+    CHECK ((movimiento_bolsa_id IS NULL AND movimiento_transito_id IS NULL)
+           OR conciliada_en IS NOT NULL)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_concil_linea_fila
@@ -137,6 +146,26 @@ ALTER TABLE flito_soportes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flito_soportes_boleta_tipo
   ON flito_soportes (conciliacion_boleta_id, tipo)
   WHERE conciliacion_boleta_id IS NOT NULL AND descartado = false;
+
+-- Y el «uno y solo uno» se ensancha a la columna nueva. La 0139 escribió
+-- `flito_soportes_factura_excluyente_chk` para su propia FK y no volvió a mirarse: añadir la quinta
+-- sin tocarlo dejaba legal un soporte con `conciliacion_boleta_id` Y `siigo_factura_id` a la vez,
+-- que contaría como comprobante vivo en los DOS índices parciales y —las dos FK son CASCADE— haría
+-- que borrar la factura se llevara por delante el comprobante PSE de una boleta conciliada.
+--
+-- Se valida al vuelo sin escanear la tabla, por el mismo argumento que escribió la 0139: hoy TODAS
+-- las filas tienen `conciliacion_boleta_id` NULL, así que satisfacen el predicado trivialmente, y
+-- toda fila que pasaba el CHECK viejo pasa este.
+--
+-- Las tres FK viejas siguen SIN excluirse entre sí, también como en la 0139: eso es una regla
+-- vigente desde mucho antes y cambiarla no es alcance de esta migración.
+ALTER TABLE flito_soportes DROP CONSTRAINT IF EXISTS flito_soportes_factura_excluyente_chk;
+ALTER TABLE flito_soportes ADD CONSTRAINT flito_soportes_factura_excluyente_chk
+  CHECK ((siigo_factura_id IS NULL
+          OR (soat_id IS NULL AND impuesto_id IS NULL AND derecho_id IS NULL
+              AND conciliacion_boleta_id IS NULL))
+     AND (conciliacion_boleta_id IS NULL
+          OR (soat_id IS NULL AND impuesto_id IS NULL AND derecho_id IS NULL)));
 
 -- ── 5. El número de póliza, promovido a columna ──────────────────────────────
 ALTER TABLE flito_soat ADD COLUMN IF NOT EXISTS numero_poliza varchar(60);

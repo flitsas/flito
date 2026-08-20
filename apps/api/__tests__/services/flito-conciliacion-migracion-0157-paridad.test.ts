@@ -40,7 +40,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getTableConfig } from 'drizzle-orm/pg-core';
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import {
   ConceptoBoleta,
@@ -273,6 +273,93 @@ function checkDe(nombre: string): string {
 /** Los literales de una lista `IN ('a','b',…)` de un CHECK, en su orden. */
 function valoresDelCheck(nombre: string): string[] {
   return [...checkDe(nombre).matchAll(/'([a-z0-9_]+)'/gi)].map((m) => m[1]);
+}
+
+/** La EXPRESIÓN de un CHECK: lo que hay entre los paréntesis de `CHECK (…)`, sin el envoltorio. */
+function cuerpoDelCheck(nombre: string): string {
+  const def = checkDe(nombre);
+  const i = def.search(/\bCHECK\s*\(/i);
+  expect(i, `el CHECK ${nombre} no tiene cuerpo`).toBeGreaterThanOrEqual(0);
+  const abre = def.indexOf('(', i);
+  let profundidad = 0;
+  let enCadena = false;
+  let fin = -1;
+  for (let j = abre; j < def.length; j++) {
+    const c = def[j];
+    if (c === "'") { enCadena = !enCadena; continue; }
+    if (enCadena) continue;
+    if (c === '(') profundidad++;
+    else if (c === ')') { profundidad--; if (profundidad === 0) { fin = j; break; } }
+  }
+  expect(fin, `paréntesis sin cerrar en el CHECK ${nombre}`).toBeGreaterThan(abre);
+  return def.slice(abre + 1, fin).trim();
+}
+
+/**
+ * Deja dos expresiones comparables sin volverlas comparables de más.
+ *
+ * Quita el calificador de tabla y las comillas dobles que pone drizzle (`"t"."col"` → `col`),
+ * normaliza espacios y baja a minúsculas **solo fuera de los literales**: pasar el literal entero a
+ * minúsculas haría que `'^[A-Z0-9]{1,60}$'` y `'^[a-z0-9]{1,60}$'` —que NO son el mismo CHECK—
+ * compararan iguales, que es justo el tipo de diferencia que este archivo existe para cazar.
+ */
+function normalizarExpr(expr: string): string {
+  return expr
+    .split(/('(?:[^']|'')*')/)
+    .map((parte, i) => (i % 2 === 1 ? parte : parte
+      .replace(/"[a-z0-9_]+"\."([a-z0-9_]+)"/gi, '$1')
+      .replace(/"/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .replace(/\s*([(),])\s*/g, '$1')))
+    .join('')
+    .trim();
+}
+
+/**
+ * Evalúa una expresión de NULABILIDAD (`col IS [NOT] NULL`, `AND`, `OR`, paréntesis) sobre una
+ * valuación `columna → está en NULL`. Es lo que permite afirmar lo que un CHECK **hace** —qué
+ * filas admite y cuáles rechaza— en vez de cómo está escrito: una reformulación equivalente pasa,
+ * y un ensanche que abra un estado ilegal falla aunque el texto siga pareciéndose.
+ */
+function evaluarNulabilidad(expr: string, esNulo: Record<string, boolean>): boolean {
+  const js = expr
+    // Drizzle renderiza `"tabla"."columna"`; el `.sql` escribe `columna`. Se igualan antes de nada
+    // para que este evaluador sirva sobre los dos lados sin traducir en cada llamada.
+    .replace(/"[a-z0-9_]+"\."([a-z0-9_]+)"/gi, '$1')
+    .replace(/"/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\b([a-z_][a-z0-9_]*) IS NOT NULL\b/gi, '(!N["$1"])')
+    .replace(/\b([a-z_][a-z0-9_]*) IS NULL\b/gi, '(N["$1"])');
+  const soloSintaxis = js
+    .replace(/N\["[a-z0-9_]+"\]/g, '')
+    .replace(/\bAND\b/gi, '&')
+    .replace(/\bOR\b/gi, '|');
+  // Guardarraíl: si queda cualquier cosa que no sea sintaxis conocida, el CHECK dejó de ser una
+  // expresión de nulabilidad pura y este evaluador ya no lo estaría evaluando — fallar es lo
+  // correcto, seguir devolviendo `true` sería dar verde sobre un eje que ya no se mira.
+  expect(soloSintaxis, `expresión no traducible a nulabilidad: '${expr}'`).toMatch(/^[\s()!&|]*$/);
+  const cuerpo = js.replace(/\bAND\b/gi, '&&').replace(/\bOR\b/gi, '||');
+  return new Function('N', `return (${cuerpo});`)(esNulo) as boolean;
+}
+
+/** Los CHECK con nombre que el `.sql` declara DENTRO del `CREATE TABLE` de una tabla. */
+function checksDelSql(tabla: string): Map<string, string> {
+  const encontrados = new Map<string, string>();
+  for (const d of definicionesDe(tabla)) {
+    const m = /^CONSTRAINT ([a-z0-9_]+) CHECK\b/i.exec(d);
+    if (!m) continue;
+    encontrados.set(m[1].toLowerCase(), cuerpoDelCheck(m[1]));
+  }
+  return encontrados;
+}
+
+const DIALECTO = new PgDialect();
+
+/** Los CHECK que `schema.ts` declara con `check()`, renderizados a SQL por el propio drizzle. */
+function checksDelSchema(tabla: PgTable): Map<string, string> {
+  return new Map(getTableConfig(tabla).checks
+    .map((c) => [c.name.toLowerCase(), DIALECTO.sqlToQuery(c.value).sql]));
 }
 
 // ─────────────────────────── Lectura de `schema.ts` (objetos, no texto) ─────────────────────────
@@ -568,13 +655,12 @@ describe('las restricciones de las que depende que no se descuente dos veces', (
     expect(i!.columnas).toEqual(['boleta_id', 'numero_poliza_norm']);
   });
 
-  it('el sello de la línea exige SOAT y resultado ok; el movimiento exige sello', () => {
+  it('el sello de la línea exige SOAT y resultado ok', () => {
     // Es lo que hace que borrar un SOAT ya conciliado falle (el `SET NULL` de la FK chocaría con
     // este CHECK) en vez de dejar una línea que dice «se descontó por un SOAT que ya no está».
+    // Lo que el MOVIMIENTO exige tiene bloque propio más abajo, evaluado caso a caso.
     expect(checkDe('flito_concil_linea_sello_chk'))
       .toMatch(/conciliada_en IS NULL OR \(soat_id IS NOT NULL AND resultado = 'ok'\)/i);
-    expect(checkDe('flito_concil_linea_mov_chk'))
-      .toMatch(/movimiento_bolsa_id IS NULL OR conciliada_en IS NOT NULL/i);
   });
 
   it('el sello de la BOLETA es una sola cosa: o los tres campos o ninguno', () => {
@@ -597,6 +683,142 @@ describe('las restricciones de las que depende que no se descuente dos veces', (
   });
 });
 
+// ─────────────── `flito_concil_linea_mov_chk`: qué ADMITE, no cómo está escrito ────────────────
+
+/**
+ * Las ocho combinaciones de «tiene valor / está en NULL» de las tres columnas que el CHECK mira.
+ *
+ * `true` = la columna LLEVA valor. La regla del dominio, dicha sin mirar el texto del CHECK: **una
+ * línea que ya movió dinero en cualquiera de los dos libros tiene que estar sellada**. El sello sin
+ * movimientos sí es legal: los tres campos se escriben en la misma transacción y el orden dentro de
+ * ella no es asunto de la base.
+ */
+const CASOS_MOV: Array<{ bolsa: boolean; transito: boolean; sellada: boolean; admitida: boolean; que: string }> = [
+  { bolsa: false, transito: false, sellada: false, admitida: true, que: 'línea cargada, sin conciliar' },
+  { bolsa: false, transito: false, sellada: true, admitida: true, que: 'sellada, los asientos vienen en la misma tx' },
+  { bolsa: true, transito: true, sellada: true, admitida: true, que: 'conciliada con sus dos asientos' },
+  { bolsa: true, transito: false, sellada: true, admitida: true, que: 'conciliada; ninguna bolsa de tránsito cubría el par' },
+  { bolsa: false, transito: true, sellada: true, admitida: true, que: 'conciliada; el asiento del cliente fue duplicado' },
+  { bolsa: true, transito: false, sellada: false, admitida: false, que: 'salida del libro del cliente SIN sello' },
+  // ESTE es el que la formulación original dejaba pasar, y es una vía de doble cobro:
+  // `operaciones_app` tiene UPDATE sobre la tabla, así que un `SET conciliada_en = NULL` sobre una
+  // línea ya conciliada era un estado legal mientras el movimiento del cliente estuviera en NULL.
+  // Des-sellada, la línea sale del índice PARCIAL `idx_flito_concil_linea_soat_unica` y el mismo
+  // SOAT vuelve a poder conciliarse en otra boleta — con el dinero de tránsito ya descontado y sin
+  // contramovimiento que lo devuelva.
+  { bolsa: false, transito: true, sellada: false, admitida: false, que: 'salida de TRÁNSITO sin sello (CF-04)' },
+  { bolsa: true, transito: true, sellada: false, admitida: false, que: 'los dos asientos sin sello' },
+];
+
+const valuacionMov = (c: { bolsa: boolean; transito: boolean; sellada: boolean }) => ({
+  movimiento_bolsa_id: !c.bolsa,
+  movimiento_transito_id: !c.transito,
+  conciliada_en: !c.sellada,
+});
+
+describe('flito_concil_linea_mov_chk — el CHECK evaluado, no leído', () => {
+  const delSql = cuerpoDelCheck('flito_concil_linea_mov_chk');
+  const delSchema = checksDelSchema(flitoConciliacionLineas as PgTable).get('flito_concil_linea_mov_chk');
+
+  it('`schema.ts` también lo declara (si no, esto mediría un solo lado)', () => {
+    expect(delSchema, 'flito_concil_linea_mov_chk falta en schema.ts').toBeDefined();
+  });
+
+  it.each(CASOS_MOV)('$que → admitida=$admitida, en los dos lados', (caso) => {
+    const v = valuacionMov(caso);
+    expect(evaluarNulabilidad(delSql, v), `${ARCHIVO}: ${caso.que}`).toBe(caso.admitida);
+    expect(evaluarNulabilidad(delSchema!, v), `schema.ts: ${caso.que}`).toBe(caso.admitida);
+  });
+
+  it('la formulación ANTERIOR admitía el estado que abre el doble cobro — por eso se cambió', () => {
+    // Se deja escrita para que el día que alguien «simplifique» el CHECK a esto sepa qué está
+    // reabriendo. No es un test del archivo: es la contraprueba del caso de arriba.
+    const anterior = 'movimiento_bolsa_id IS NULL OR conciliada_en IS NOT NULL';
+    const desSellada = valuacionMov({ bolsa: false, transito: true, sellada: false });
+    expect(evaluarNulabilidad(anterior, desSellada)).toBe(true);
+    expect(evaluarNulabilidad(delSql, desSellada)).toBe(false);
+  });
+});
+
+// ───────────────── «Uno y solo uno» en flito_soportes, ensanchado a la quinta FK ────────────────
+
+describe('flito_soportes_factura_excluyente_chk — la 0157 lo ensancha a la columna nueva', () => {
+  const COLUMNAS = ['soat_id', 'impuesto_id', 'derecho_id', 'siigo_factura_id', 'conciliacion_boleta_id'] as const;
+  const delSql = cuerpoDelCheck('flito_soportes_factura_excluyente_chk');
+  const delSchema = checksDelSchema(flitoSoportes as PgTable).get('flito_soportes_factura_excluyente_chk');
+
+  it('se re-declara con la pareja DROP + ADD, y DESPUÉS del ADD COLUMN', () => {
+    // PostgreSQL no admite modificar un CHECK en sitio ni un `ADD CONSTRAINT IF NOT EXISTS`: la
+    // idempotencia es por composición. Y un CHECK no puede nombrar una columna que aún no existe.
+    const alter = SENTENCIAS.filter((s) => /flito_soportes_factura_excluyente_chk/i.test(s));
+    expect(alter).toHaveLength(2);
+    expect(alter[0]).toMatch(/^ALTER TABLE flito_soportes DROP CONSTRAINT IF EXISTS\b/i);
+    expect(alter[1]).toMatch(/^ALTER TABLE flito_soportes ADD CONSTRAINT\b/i);
+    const iColumna = SENTENCIAS.findIndex((s) => /^ALTER TABLE flito_soportes ADD COLUMN/i.test(s));
+    expect(iColumna).toBeGreaterThanOrEqual(0);
+    expect(SENTENCIAS.indexOf(alter[1])).toBeGreaterThan(iColumna);
+  });
+
+  it('`schema.ts` lo declara igual que el `.sql`', () => {
+    expect(delSchema, 'falta en schema.ts').toBeDefined();
+    expect(normalizarExpr(delSchema!)).toBe(normalizarExpr(delSql));
+  });
+
+  // Las 32 combinaciones de las cinco FK. La regla se escribe aquí en su forma de dominio, sin
+  // mirar el texto del CHECK: la factura y la boleta se excluyen de TODO lo demás (y entre sí); las
+  // tres viejas siguen sin excluirse entre ellas, que es como las dejó la 0139 y que esta migración
+  // no viene a cambiar.
+  const combinaciones = [...Array(2 ** COLUMNAS.length).keys()].map((n) => Object.fromEntries(
+    COLUMNAS.map((c, i) => [c, ((n >> i) & 1) === 1]),
+  ) as Record<(typeof COLUMNAS)[number], boolean>);
+
+  it.each(combinaciones.map((c) => [COLUMNAS.filter((k) => c[k]).join(' + ') || '(ninguna)', c] as const))(
+    'con %s puesta(s), el CHECK dice lo que dice la regla',
+    (_nombre, tiene) => {
+      const conFactura = tiene.siigo_factura_id;
+      const conBoleta = tiene.conciliacion_boleta_id;
+      const conViejas = tiene.soat_id || tiene.impuesto_id || tiene.derecho_id;
+      const esperado = !((conBoleta && (conFactura || conViejas)) || (conFactura && conViejas));
+
+      const esNulo = Object.fromEntries(COLUMNAS.map((c) => [c, !tiene[c]]));
+      expect(evaluarNulabilidad(delSql, esNulo), ARCHIVO).toBe(esperado);
+      expect(evaluarNulabilidad(delSchema!, esNulo), 'schema.ts').toBe(esperado);
+    },
+  );
+
+  it('el estado concreto que este ensanche cierra: factura Y boleta a la vez', () => {
+    // Con las dos puestas, el soporte contaba como comprobante vivo en los DOS índices parciales y
+    // —las dos FK son CASCADE— borrar la factura se llevaba por delante el comprobante PSE de una
+    // boleta ya conciliada. Lo cerrado es eso, no una simetría de estilo.
+    const ambas = Object.fromEntries(COLUMNAS.map((c) => [
+      c, c !== 'siigo_factura_id' && c !== 'conciliacion_boleta_id',
+    ]));
+    expect(evaluarNulabilidad(delSql, ambas)).toBe(false);
+  });
+});
+
+// ─────────────────── Paridad de los CHECK: el `.sql` y `schema.ts`, uno a uno ───────────────────
+
+// Los CHECK de las dos tablas nuevas son INLINE dentro de un `CREATE TABLE IF NOT EXISTS`, así que
+// —a diferencia de los `ADD CONSTRAINT` del archivo— NO se auto-reparan: si la tabla ya existiera
+// sin ellos, la migración se saltaría el CREATE entero y la tabla se quedaría permanentemente sin
+// restricciones, en silencio. Declararlos también en `schema.ts` (precedente:
+// `flito_comparendos_gestion_auditoria_chk`, 0156) es lo que hace que se vean; ESTE bloque es lo que
+// impide que los dos sitios vuelvan a separarse.
+describe.each(TABLAS)('$sql — los mismos CHECK en el .sql y en schema.ts', ({ sql, drizzle }) => {
+  const delSql = checksDelSql(sql);
+  const delSchema = checksDelSchema(drizzle);
+
+  it('los mismos nombres, sin sobras por ningún lado', () => {
+    expect(delSql.size, `el extractor no leyó ningún CHECK de ${sql}`).toBeGreaterThan(0);
+    expect([...delSchema.keys()].sort()).toEqual([...delSql.keys()].sort());
+  });
+
+  it.each([...checksDelSql(sql).keys()])('%s — la misma expresión', (nombre) => {
+    expect(delSchema.get(nombre), `${nombre} falta en schema.ts`).toBeDefined();
+    expect(normalizarExpr(delSchema.get(nombre)!)).toBe(normalizarExpr(delSql.get(nombre)!));
+  });
+});
 // ─────────────────────────── Invariantes del archivo (ADR-DB-001) ───────────────────────────────
 
 describe('la 0157 como archivo: lo que puede y lo que no puede contener', () => {
