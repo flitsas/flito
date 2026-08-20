@@ -1,5 +1,11 @@
 // FLITO — Comparendos: pestañas (?vista=) y los cuatro bloques de parametrización — NITs y
-// municipios (HU #11633), causales de gestión y token SIMIT (HU #11634), Feature 17c.
+// municipios (HU #11633), causales de gestión y token SIMIT (HU #11634), y el enlace desde el vacío
+// del visor con el smoke del módulo (HU #11637), Feature 17c.
+//
+// NUMERACIÓN: la serie del Feature llega a TC85 en `flito-comparendos-sync.spec.ts` (HUs #11635 y
+// #11636). Los TCs de la #11637 son TC86–TC90; el bloque de la #11633/#11634 conserva TC01–TC36 y
+// no se toca. El enunciado de la HU decía «vas por TC85» y ese número ya estaba ocupado por el
+// control del refresco del historial: se sigue por TC86 para que ningún id nombre a dos casos.
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // GUARDIA DE COBERTURA — ESTE ARCHIVO TIENE QUE ESTAR DESPIERTO
@@ -49,6 +55,18 @@
 //      nombre —o mete la causal nueva al final en vez de en su sitio— nadie lo nota mirando la
 //      tabla, porque una lista ordenada parece ordenada de todas formas. TC22 y TC23 usan un
 //      fixture donde las dos ordenaciones se contradicen a propósito.
+//   6. **La ausencia que se aprueba sola** (HU #11637). El AC2 pide que el vacío POR FILTROS no
+//      ofrezca «Ir a la sincronización», y una aserción negativa es la más fácil de pasar por
+//      accidente: `toHaveCount(0)` sale verde si el vacío de búsqueda no se pintó nunca, si la
+//      pantalla se quedó en blanco, o si el nombre del botón está mal escrito en el propio TC. Por
+//      eso TC88 nunca afirma solo la ausencia: en el MISMO caso comprueba que el vacío de búsqueda
+//      está ahí con su copy y su acción propia (el positivo que da sentido al negativo) y termina
+//      quitando los filtros para ver aparecer el botón sobre la misma pantalla y la misma respuesta
+//      vacía (el espejo que demuestra que el selector encuentra lo que busca cuando existe).
+//   7. **«Sin recargar toda la aplicación» no se ve en la pantalla** (HU #11637, AC1). Una
+//      navegación dura terminaría igual de bien: misma pestaña activa, misma URL, mismo contenido.
+//      Lo único que distingue una cosa de la otra es que el DOCUMENTO sobreviva, y eso se mide
+//      —`performance.timeOrigin` y una marca puesta en `window`—, no se mira.
 //
 // PII y secretos: todos los NITs, códigos, nombres y tokens son SINTÉTICOS («900123456»,
 // «830009988», «ITAGUI», «tok-simit-DEMO-…»). Ni un dato real entra en un spec ni en un fixture
@@ -267,9 +285,168 @@ async function irAConfiguracion(page: Page) {
   await page.goto('/flito/comparendos?vista=configuracion');
 }
 
+// ── Vacío del visor y CTA a sincronización (HU #11637) ─────────────────────────────────────────
+
+const API_SYNC = '**/api/flito/comparendos/sync';
+const API_RUNS = '**/api/flito/comparendos/sync/runs**';
+
+/**
+ * El copy del botón, palabra por palabra, del catálogo de copy de la spec de UX
+ * (`docs/ux/flito-comparendos-config-sync.md`, § «Copy — catálogo corto» y § «Enlace desde el vacío
+ * A»). Copiado y no importado, por el mismo motivo que los subtítulos: importar la constante de la
+ * pantalla convierte el TC en una tautología que pasa siempre.
+ *
+ * **El rol es contrato, no adivinanza.** Es un `button` y no un `link` porque no navega a otra
+ * dirección: cambia la pill de la misma página (`setSearchParams`, spec de UX). Un `<a href>` que
+ * llevara al mismo sitio abriría una pestaña nueva con Ctrl+clic y recargaría la aplicación entera,
+ * que es justo lo que el AC1 prohíbe. Si algún día se implementa como enlace, este TC tiene que
+ * fallar y la discusión tiene que volver a UX.
+ */
+const CTA_SINCRONIZACION = 'Ir a la sincronización';
+
+/** El vacío A y el vacío B del visor, por su primera frase (la que los distingue). */
+const VACIO_SIN_DATOS = /Todavía no hay comparendos registrados/;
+const VACIO_SIN_COINCIDENCIAS = 'Ningún comparendo coincide con lo que buscaste.';
+
+const cta = (page: Page) => page.getByRole('button', { name: CTA_SINCRONIZACION, exact: true });
+const campoNumero = (page: Page) => page.getByLabel('N.º de comparendo');
+const consolaSync = (page: Page) => page.getByRole('region', { name: 'Sincronizar ahora' });
+
+/**
+ * Una fila del listado, SINTÉTICA, para el único caso que necesita datos: el control «con filas no
+ * hay CTA» de TC89. Mismo fixture que `flito-comparendos-visor.spec.ts`, recortado a lo que la
+ * tabla lee. Ni el NIT ni la placa son de nadie (Ley 1581): son los mismos valores de laboratorio
+ * que ya usa este archivo.
+ */
+const COMPARENDO = {
+  id: '11111111-1111-4111-8111-111111111111',
+  numeroComparendo: '11001000123456',
+  nitMonitoreado: '900123456',
+  placa: 'ABC123',
+  codigoInfraccion: 'C29',
+  descripcionInfraccion: 'Estacionar en zona prohibida',
+  fechaComparendo: '2026-07-12',
+  organismo: 'Secretaría de Movilidad de Medellín',
+  municipioFuente: 'ITAGUI',
+  monto: '604100.00',
+  estadoFuente: 'EN COBRO COACTIVO',
+  origenMerge: 'ambos',
+  vistoEnSimit: true,
+  vistoEnMunicipal: true,
+  estado: 'activo',
+  primeraVistoEn: SELLO.creadoEn,
+  ultimoVistoEn: SELLO.actualizadoEn,
+  inactivadoEn: null,
+  ultimoSyncRunId: null,
+  causalId: null,
+  observacion: null,
+  gestionActualizadaEn: null,
+  gestionActualizadaPor: null,
+  ...SELLO,
+};
+
+/** La corrida que devuelve el disparo del smoke. Recortada de `flito-comparendos-sync.spec.ts`. */
+const RUN_SMOKE = {
+  runId: 'run-2026-08-19-0001',
+  estado: 'completed',
+  iniciadoEn: '2026-08-14T20:02:00Z',
+  finalizadoEn: '2026-08-14T20:04:00Z',
+  // `string[]`, NUNCA `null`: así lo declara el contrato (`ComparendosSyncRun`) y así lo normaliza
+  // el servidor (`Array.isArray(fila.scopeNits) ? … : []`). Con `null` el historial revienta al
+  // pintar `run.scopeNits.length` y la vista entera cae en el error boundary. Lo encontró la
+  // primera ejecución de TC90: era un fallo de ESTE fixture, no de la pantalla, y queda escrito
+  // para que la próxima corrida sintética no lo repita. Son los dos NIT activos del archivo.
+  scopeNits: [NIT_ACTIVO.nit, NIT_SIN_HISTORICO.nit],
+  iniciadoPor: 7,
+  resumen: {
+    modo: 'real',
+    nitsProcesados: 12,
+    llamadasSimitOk: 12,
+    llamadasSimitError: 0,
+    llamadasMunicipalOk: 40,
+    llamadasMunicipalError: 0,
+    upserts: 340,
+    inactivados: 3,
+    reactivados: 1,
+    primeraLlegada: 12,
+    itemsIgnorados: 0,
+    nitsSinInactivacion: 0,
+    abortadaPorTiempo: false,
+    inactivacionOmitida: null,
+  },
+};
+const RESULTADO_SMOKE = {
+  ...RUN_SMOKE,
+  steps: [
+    { nit: '900123456', fuente: 'simit', ok: true, httpStatus: 200, errorCode: null, mensaje: null, itemsLeidos: 14, duracionMs: 1_200 },
+  ],
+};
+
+/**
+ * El mínimo de sincronización que el smoke necesita: el historial responde y el disparo devuelve una
+ * corrida cerrada.
+ *
+ * Es a propósito MUCHO más pobre que el `mockRuns` de `flito-comparendos-sync.spec.ts`: aquí no se
+ * prueban ni el sondeo, ni el corte de tiempo, ni los estados de la consola —eso son TC37–TC85 y
+ * repetirlos sería inflar el smoke hasta que nadie lo corra—. Lo único que este mock tiene que
+ * sostener es que el disparo llegue a un desenlace visible.
+ *
+ * La corrida aparece en el historial DESPUÉS del POST y no antes: montar la vista con una corrida ya
+ * existente cambia el estado inicial de la consola (entra a seguir la corrida y no ofrece el botón),
+ * que es el error de fixture que el gate de la #11635 tuvo que corregir en seis TCs.
+ */
+async function mockSyncMinimo(page: Page) {
+  const estado = { lista: [] as unknown[], disparos: 0 };
+  await page.route(API_RUNS, (route: Route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const id = new URL(route.request().url()).pathname.split('/sync/runs/')[1] ?? '';
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(id ? RESULTADO_SMOKE : estado.lista),
+    });
+  });
+  await page.route(API_SYNC, (route: Route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    estado.disparos += 1;
+    estado.lista = [RUN_SMOKE];
+    return route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify(RESULTADO_SMOKE),
+    });
+  });
+  return estado;
+}
+
+/**
+ * Marca el documento actual y devuelve su instante de creación.
+ *
+ * Las dos mitades miden lo mismo por caminos distintos, y por eso van juntas: la marca en `window`
+ * es la que ya usa TC02 y se pierde con cualquier recarga; `performance.timeOrigin` es el instante
+ * en que el navegador CREÓ el documento y cambia aunque alguien, con la mejor intención, se dedicara
+ * a repoblar `window` al arrancar la aplicación. Ninguna de las dos se puede satisfacer «pintando»
+ * la pantalla correcta, que es lo que hace falta aquí: una navegación dura acabaría en la misma
+ * pestaña, con la misma URL y el mismo contenido, y a ojo no se distingue de la buena.
+ */
+async function marcarDocumento(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    (window as unknown as { __sinRecargaDura?: boolean }).__sinRecargaDura = true;
+    return performance.timeOrigin;
+  });
+}
+
+/** ¿Seguimos en el mismo documento que `marcarDocumento` selló? `cuando` sale en el fallo. */
+async function mismoDocumento(page: Page, origen: number, cuando: string) {
+  const marca = await page.evaluate(
+    () => (window as unknown as { __sinRecargaDura?: boolean }).__sinRecargaDura === true,
+  );
+  expect(marca, `la marca del documento sobrevive (${cuando})`).toBe(true);
+  expect(await page.evaluate(() => performance.timeOrigin), `el documento no se recreó (${cuando})`)
+    .toBe(origen);
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 · #11634)', () => {
+test.describe('FLITO — Comparendos · pestañas, parametrización y vacío del visor (HU #11633 · #11634 · #11637)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test.beforeEach(async ({ page }) => {
@@ -1343,6 +1520,241 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
       await expect(campo).toHaveValue('');
       await expect(bloque.getByRole('button', { name: 'Guardar token' })).toBeEnabled();
       expect(puts).toHaveLength(1);
+    });
+  });
+
+  // ────────────────── Vacío del visor · «Ir a la sincronización» (HU #11637) ────────────────────
+  //
+  // El último eslabón del Feature 17c: el visor lleva desde la #11560 con un vacío que dice «esto se
+  // llena sincronizando» y sin ninguna forma de llegar allí. Ahora la pestaña existe.
+  //
+  // CÓMO SE CORRE EL SMOKE DEL AC3, literalmente (no hay `npm run test:e2e:smoke` que lo incluya:
+  // ese script es una lista fija de seis archivos de otros módulos y no tiene selección por etiqueta):
+  //
+  //     npx playwright test e2e/tests/flito-comparendos-pills-config.spec.ts --grep TC90 -w apps/web
+  //
+  // Los cinco TCs de este bloque están DESPIERTOS y se corrieron en el gate (ver la guardia de
+  // cobertura de la cabecera): el `frontend-agent` implementaba en paralelo y el botón ya estaba en
+  // `VistaRegistrosComparendos.tsx` cuando se escribieron, así que no hubo que dejarlos dormidos ni
+  // un minuto. Si alguna vez hay que apagar uno, el modificador se pone en el código y NO se nombra
+  // en los comentarios, para que el grep de la cabecera siga sin encontrarse a sí mismo.
+
+  test.describe('Vacío del visor · CTA a sincronización (HU #11637)', () => {
+    // TC86 — AC1, el camino entero: el botón está, se llama como dice UX, y lleva a la pestaña de
+    // sincronización SIN recargar la aplicación.
+    //
+    // La última mitad es la que no se ve mirando: una navegación dura —un `<a href>`, un
+    // `location.assign`— acabaría en la misma pestaña, con la misma URL y la misma consola delante,
+    // y el TC pasaría igual afirmando sobre la pantalla. Lo que la distingue es que el DOCUMENTO
+    // sobreviva, y eso se mide (`mismoDocumento`). No es purismo: con recarga dura se pierde la
+    // sesión de trabajo del visor —los filtros, la pila de cursores, el panel abierto—, se vuelve a
+    // descargar el bundle y se repiten todas las peticiones de arranque, en una pantalla cuyo motivo
+    // de existir es no tener que salir de ella.
+    test('TC86: el vacío sin filtros ofrece el botón de UX y lleva a Sincronización sin recargar la aplicación', async ({ page }) => {
+      await mockConfigFeliz(page);
+      await mockSyncMinimo(page);
+
+      await page.goto('/flito/comparendos');
+
+      // El positivo primero: es el vacío A —no hay datos— y no otro estado de la pantalla.
+      await expect(page.getByText(VACIO_SIN_DATOS)).toBeVisible();
+      await expect(cta(page), 'uno, y solo uno').toHaveCount(1);
+      await expect(cta(page)).toBeVisible();
+
+      const origen = await marcarDocumento(page);
+      await cta(page).click();
+
+      await expect(page).toHaveURL(/[?&]vista=sincronizacion\b/);
+      await expect(page.getByRole('tab', { name: 'Sincronización' })).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByRole('tab', { name: 'Registros' })).toHaveAttribute('aria-selected', 'false');
+      // Y se llegó a la consola de verdad, no a una pestaña vacía con el nombre correcto.
+      await expect(consolaSync(page)).toBeVisible();
+      await mismoDocumento(page, origen, 'tras pulsar el CTA del vacío');
+    });
+
+    // TC87 — AC1, el foco, que es la parte que se pierde sola.
+    //
+    // El marco entero se desmonta y se vuelve a montar al cambiar de pestaña (ver
+    // `navegacionComparendos.tsx`), así que sin alguien que lo coloque el foco cae a `<body>`: quien
+    // navega con teclado pulsa el botón y aparece al principio del navbar, a doce tabulaciones del
+    // sitio al que acaba de pedir ir. El AC pide un destino CONCRETO —«Sincronizar ahora»— y no «el
+    // panel», que es lo que el marco hace por defecto (`nav.cambiar(..., 'panel')` enfoca el `h2`
+    // «Sincronización»). Por eso el TC no se conforma con «hay algo enfocado»: nombra el destino y
+    // además descarta el destino por defecto, que es el fallo realista y el que pasaría inadvertido.
+    //
+    // La segunda mitad —volver a mirar después de una pausa— persigue la carrera propia de este
+    // caso: el destino NO existe cuando se pulsa el botón (lo monta la otra vista), así que quien lo
+    // implemente tiene que colocar el foco después del montaje, y cualquier reintento tardío o un
+    // `.focus()` del marco llegando más tarde se lo llevaría a otro sitio. Un foco correcto durante
+    // 100 ms es un foco perdido.
+    test('TC87: tras pulsar, el foco queda en el título «Sincronizar ahora» y se queda ahí', async ({ page }) => {
+      await mockConfigFeliz(page);
+      await mockSyncMinimo(page);
+
+      await page.goto('/flito/comparendos');
+      await cta(page).click();
+
+      const titulo = page.getByRole('heading', { name: 'Sincronizar ahora', exact: true });
+      await expect(titulo).toBeFocused();
+      // Y NO en el encabezado del panel, que es a donde va el foco al pulsar una pill (TC05).
+      await expect(page.getByRole('heading', { name: 'Sincronización', exact: true })).not.toBeFocused();
+
+      // Nadie se lo quita después. 400 ms cubre de sobra cualquier reintento diferido.
+      await page.waitForTimeout(400);
+      await expect(titulo, 'el foco sigue ahí pasada la carrera del montaje').toBeFocused();
+    });
+
+    // TC88 — AC2, y el TC con más valor del bloque: la ausencia del botón en el vacío POR FILTROS.
+    //
+    // «No aparece» es la aserción más fácil de aprobar por accidente que hay: `toHaveCount(0)` sale
+    // verde si el vacío de búsqueda no se pintó, si la pantalla se quedó en blanco, o si el nombre
+    // del botón está mal escrito en este mismo archivo. Así que la ausencia va acompañada de dos
+    // cosas que la hacen significar algo:
+    //
+    //   · **El positivo del mismo caso.** El vacío de búsqueda SÍ está, con su copy, con el resumen
+    //     de lo que se buscó y con la acción que sí le corresponde —quitar los filtros—. Sin esto, el
+    //     TC no distinguiría «no ofrece el CTA» de «no hay nada en pantalla».
+    //   · **El espejo, al final.** Se quitan los filtros y, sobre la MISMA pantalla y la MISMA
+    //     respuesta vacía del servidor, el botón aparece. Es lo que demuestra que el selector
+    //     encuentra el botón cuando existe, y por tanto que su ausencia de tres líneas más arriba era
+    //     una ausencia de verdad.
+    //
+    // El motivo de producto está en el propio código: con filtros puestos SÍ hay comparendos en el
+    // módulo —lo que no hay es coincidencias—, así que ofrecer una corrida de dos minutos para
+    // arreglar un filtro mal escrito es mandar al operador por el camino más largo.
+    //
+    // Se filtra por NÚMERO y no por placa o NIT a propósito: el número no identifica a nadie y viaja
+    // por `GET`, así que el caso no mete ni una forma de dato personal en el DOM ni necesita el
+    // `POST /registros/buscar`.
+    test('TC88: el vacío por filtros no ofrece el CTA, y sin filtros el mismo vacío sí lo ofrece', async ({ page }) => {
+      await mockConfigFeliz(page);
+
+      await page.goto('/flito/comparendos');
+      // Punto de partida: sin filtros hay CTA. Es el control del espejo del final.
+      await expect(cta(page)).toBeVisible();
+
+      await campoNumero(page).fill('1100');
+
+      // El positivo: es el vacío B, con su copy y con lo que se buscó escrito.
+      await expect(page.getByText(VACIO_SIN_COINCIDENCIAS).first()).toBeVisible();
+      await expect(page.getByText(/Filtros puestos:.*n\.º «1100»/)).toBeVisible();
+      // La acción que este vacío SÍ ofrece. Sin ella, «no hay CTA» podría ser «no hay nada».
+      await expect(page.getByRole('button', { name: 'Quitar los filtros', exact: true })).toBeVisible();
+
+      // Y el negativo del AC2, ya con sentido: en NINGUNA parte de la página, no solo dentro del
+      // vacío —el fallo que se persigue incluye colocarlo en la barra o en la cabecera «ya que
+      // estamos», y eso también sería ofrecerlo como salida de este vacío—.
+      await expect(cta(page), 'el vacío por filtros no manda a sincronizar').toHaveCount(0);
+
+      // El espejo: misma pantalla, misma respuesta vacía, sin filtros → el botón vuelve.
+      //
+      // Se vacía el CAMPO en vez de pulsar `[Quitar los filtros]`, y no es indiferente: pulsando ese
+      // botón el vacío por filtros NO se va. Es un defecto real, comprobado en este gate y AJENO a
+      // la HU #11637 —vive en la barra del visor (#11560/#11561)—: el botón del vacío llama a
+      // `limpiar()` del hook, que borra los criterios pero no los BORRADORES de la barra; el número
+      // sigue escrito en su campo y el efecto del debounce lo vuelve a aplicar antes de medio
+      // segundo. `[Limpiar]` de la barra sí funciona porque además hace `setNumero('')`. Queda
+      // reportado en el HANDOFF; radicarlo o no es decisión del QA, y encadenar aquí un TC rojo por
+      // algo que esta HU no tocó solo escondería lo que esta HU sí tiene que demostrar.
+      await campoNumero(page).fill('');
+      await expect(page.getByText(VACIO_SIN_DATOS)).toBeVisible();
+      await expect(cta(page), 'el mismo selector lo encuentra cuando toca').toBeVisible();
+    });
+
+    // TC89 — BORDE y ERROR: los otros dos estados en los que la tabla no enseña filas, y en los que
+    // el botón tampoco debe estar.
+    //
+    //   · **Error.** Si la consulta falló no se sabe si hay comparendos, así que ni se pinta el
+    //     vacío ni se ofrece sincronizar: mandar a una corrida de dos minutos porque el servidor
+    //     devolvió un 500 es hacerle perder el tiempo al operador para arreglar algo que no está
+    //     roto ahí. El orden «error antes que vacío» ya es una decisión del visor (#11560); esto lo
+    //     clava desde el lado del CTA.
+    //   · **Lleno.** Con filas el vacío no existe, y el botón tampoco. Parece obvio hasta que
+    //     alguien saca el botón del vacío para «tenerlo siempre a mano» y aparece en una pantalla con
+    //     mil comparendos delante.
+    //
+    // Los dos medios llevan su positivo —la banda de error, la fila— por lo mismo que TC88: una
+    // ausencia sobre una pantalla que no cargó no prueba nada.
+    test('TC89: ni con la lista en error ni con filas se ofrece ir a la sincronización', async ({ page }) => {
+      await mockConfigFeliz(page);
+      const listado = await mockLectura(page, API_REGISTROS, {
+        status: 500, body: { error: 'No se pudo leer el listado', codigo: 'error_interno' },
+      });
+
+      await page.goto('/flito/comparendos');
+
+      // Positivo: la pantalla está en error, no en blanco.
+      await expect(page.getByRole('alert')).toBeVisible();
+      await expect(page.getByText(VACIO_SIN_DATOS), 'bajo un error no se afirma que no hay datos').toHaveCount(0);
+      await expect(cta(page), 'con la consulta rota no se sabe si hay comparendos').toHaveCount(0);
+
+      listado.respuesta = { status: 200, body: { items: [COMPARENDO], nextCursor: null } };
+      await page.reload();
+
+      // Positivo: hay filas de verdad.
+      await expect(page.getByText(COMPARENDO.numeroComparendo)).toBeVisible();
+      await expect(cta(page), 'con filas delante no hay nada que ir a sincronizar').toHaveCount(0);
+    });
+
+    // TC90 — AC3, el SMOKE del módulo config/sync, y el único TC del Feature que recorre la pantalla
+    // entera de punta a punta.
+    //
+    // Con 89 casos escritos entre los dos archivos, un smoke que repitiera aserciones no aportaría
+    // nada: lo que aquí NO se comprueba —el sondeo, el corte de tiempo, los cuatro estados de cada
+    // bloque, el orden de las causales, la fuga del token— está cubierto y sería inflar el caso hasta
+    // que nadie lo corra. Lo que este smoke añade es el RECORRIDO, y hay exactamente una cosa que
+    // ningún otro TC hace: llegar a la sincronización NAVEGANDO desde Registros. Los 49 TCs de la
+    // consola y del historial entran por `page.goto('?vista=sincronizacion')`, es decir, con un
+    // montaje en frío; ninguno monta esa vista sobre una aplicación que ya venía andando. Y ese es un
+    // estado distinto de verdad: la vista se monta con el hook del visor ya corrido, con el foco
+    // pedido desde fuera y sin que el navegador vuelva a arrancar nada. El módulo puede estar entero
+    // en verde y este camino roto.
+    //
+    // Recorrido mínimo, y por qué cada tramo:
+    //   1. Registros vacío → el CTA (es el eslabón nuevo y la puerta de entrada del AC3).
+    //   2. Consola → disparo mockeado → resultado (el AC3 pide «un disparo mockeado O el CTA»; se
+    //      cubren los dos, que es lo que hace de esto un smoke del módulo y no del botón).
+    //   3. Configuración por su pill → los cuatro bloques (el AC3 nombra «abrir Configuración y
+    //      Sincronización por pestañas»).
+    //   4. Vuelta a Registros → el vacío sigue ahí (el recorrido no deja la pantalla rota detrás).
+    // Y todo dentro del MISMO documento: es una aplicación, no cuatro páginas.
+    test('TC90: smoke del módulo — vacío → CTA → disparo → Configuración → vuelta, sin recargar', async ({ page }) => {
+      await mockConfigFeliz(page);
+      const sync = await mockSyncMinimo(page);
+
+      await page.goto('/flito/comparendos');
+      const origen = await marcarDocumento(page);
+
+      // 1 · Registros vacío, con la salida que la HU añade.
+      await expect(page.getByText(VACIO_SIN_DATOS)).toBeVisible();
+      await cta(page).click();
+
+      // 2 · La consola, y un disparo de verdad hasta su desenlace.
+      await expect(consolaSync(page)).toBeVisible();
+      const sincronizar = page.getByRole('button', { name: 'Sincronizar', exact: true });
+      await expect(sincronizar, 'la consola hidrata y queda en reposo').toBeEnabled();
+      await sincronizar.click();
+
+      const resultado = page.getByRole('region', { name: 'Resultado de la corrida' });
+      await expect(resultado).toBeVisible();
+      await expect(resultado).toContainText('Upserts 340');
+      expect(sync.disparos, 'un disparo, no dos').toBe(1);
+
+      // 3 · Configuración por su pestaña, con los cuatro bloques montados.
+      await page.getByRole('tab', { name: 'Configuración' }).click();
+      await expect(page).toHaveURL(/[?&]vista=configuracion\b/);
+      await expect(bloqueNits(page)).toBeVisible();
+      await expect(bloqueMunicipios(page)).toBeVisible();
+      await expect(bloqueCausales(page)).toBeVisible();
+      await expect(bloqueToken(page)).toBeVisible();
+
+      // 4 · Y de vuelta al principio, que sigue siendo lo que era.
+      await page.getByRole('tab', { name: 'Registros' }).click();
+      await expect(page).toHaveURL(/\/flito\/comparendos$/);
+      await expect(page.getByText(VACIO_SIN_DATOS)).toBeVisible();
+      await expect(cta(page)).toBeVisible();
+
+      await mismoDocumento(page, origen, 'tras el recorrido completo');
     });
   });
 });

@@ -7,9 +7,10 @@
 // la página pasa a ser el orquestador de `?vista=` y no puede además llevar el cableado del visor
 // sin acercarse al techo de 800 líneas útiles con tres vistas dentro.
 //
-// Lo que este archivo NO hace, y es de la HU #11637: el vacío A —«todavía no hay comparendos»— no
-// ofrece todavía «Ir a la sincronización». Ahora que esa pestaña existe, el botón es un
-// `nav.cambiar('sincronizacion')`; se deja escrito aquí y en el propio vacío para que no se busque.
+// La HU #11637 cerró lo que aquí faltaba: el vacío A —«todavía no hay comparendos»— ya ofrece «Ir a
+// la sincronización», que es un cambio de pestaña dentro de la misma página (`irASincronizacion`,
+// más abajo). El botón vive SOLO en ese vacío y nunca en el de búsqueda: ver `irASincronizacion` y
+// el comentario del vacío B.
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // LO QUE ESTE ARCHIVO CABLEA — y por qué (heredado de la página del visor)
@@ -72,9 +73,12 @@ import { useRef, useState } from 'react';
 import type {
   ComparendoRegistro, ComparendoRegistroDetalle, ComparendosOrigenMerge,
 } from '@operaciones/shared-types';
-import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import {
+  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+} from '../../flit/flitPageKit';
 import { MarcoComparendos, type NavComparendos } from './navegacionComparendos';
 import BarraFiltrosComparendos from './BarraFiltrosComparendos';
+import { ID_TITULO_CONSOLA_SYNC } from './ConsolaSyncComparendos';
 import {
   AvisoExportComparendos, BotonExportarComparendos, useExportComparendos,
 } from './ExportarComparendos';
@@ -108,6 +112,38 @@ function resumenCriterios(c: CriteriosComparendos, catalogos: CatalogosComparend
   if (c.causalId) partes.push(`causal «${catalogos.causales[c.causalId] ?? 'aplicada'}»`);
   if (c.sinCausal) partes.push('causal «sin asignar»');
   return partes.join(' · ');
+}
+
+/**
+ * «Ir a la sincronización» (HU #11637): cambia de pestaña y deja el foco en «Sincronizar ahora».
+ *
+ * Dos cosas que no se ven en el JSX:
+ *
+ *   · **`'ninguno'` en vez del `'panel'` por defecto.** `nav.cambiar` manda el foco al encabezado
+ *     del panel —«Sincronización»— en el próximo montaje del marco, y el AC1 pide otro sitio: el
+ *     título de la consola, que es donde está la acción a la que se viene. Pedir 'ninguno' apaga el
+ *     destino del marco para que no haya dos `.focus()` compitiendo en el mismo fotograma.
+ *   · **El destino no existe cuando se pulsa.** Cambiar de pestaña desmonta esta vista y monta la
+ *     de sincronización, así que se busca el nodo por `id` después del render. Se intenta dos veces
+ *     por si el primer intento llega antes del montaje, y la segunda se ANULA si la primera colocó
+ *     el foco: repetir un `scrollIntoView` es inocuo (así lo hace `irAConfiguracion` en la consola),
+ *     pero repetir un `.focus()` le robaría el cursor a quien ya se movió a otro control.
+ *
+ * Si el `id` dejara de encajar no se rompe la navegación —solo el aterrizaje del foco—, que es el
+ * mismo trato que el ancla del token en la consola.
+ */
+function irASincronizacion(nav: NavComparendos) {
+  nav.cambiar('sincronizacion', 'ninguno');
+  let colocado = false;
+  for (const espera of [0, 120]) {
+    setTimeout(() => {
+      if (colocado) return;
+      const titulo = document.getElementById(ID_TITULO_CONSOLA_SYNC);
+      if (!titulo) return;
+      titulo.focus();
+      colocado = true;
+    }, espera);
+  }
 }
 
 /** Las mismas etiquetas del selector, y por el mismo motivo: «SIMIT» a secas no dice «solo SIMIT». */
@@ -234,7 +270,10 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
         {!error && items?.length === 0 && (
           <FlitEmpty>
             {filtrado ? (
-              // Vacío B: el filtro no arroja nada.
+              // Vacío B: el filtro no arroja nada. **Sin «Ir a la sincronización»** (AC2 de la HU
+              // #11637): aquí sí hay comparendos en el módulo, lo que no hay es coincidencias, y
+              // mandar a sincronizar sería proponer una corrida de dos minutos para arreglar un
+              // filtro. La acción de este vacío es quitarlo.
               <div className="space-y-3" style={{ color: 'var(--flit-text-secondary)' }}>
                 <p className="font-semibold">Ningún comparendo coincide con lo que buscaste.</p>
                 <p>Filtros puestos: {resumenCriterios(criterios, catalogos)}</p>
@@ -271,16 +310,26 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
                 </button>
               </div>
             ) : (
-              // Vacío A: todavía no hay datos. Sigue SIN botón de acción, pero ya no por el motivo
-              // de antes: la pestaña de sincronización existe desde la HU #11633, así que «Ir a la
-              // sincronización» ya tendría a dónde llevar (`nav.cambiar('sincronizacion')`). Quien
-              // lo añade —con su copy, su foco de destino y su prueba— es la HU #11637; meterlo
-              // aquí de paso sería implementar otra historia sin sus criterios.
-              <span style={{ color: 'var(--flit-text-secondary)' }}>
-                Todavía no hay comparendos registrados. Aparecen aquí después de una sincronización
-                con SIMIT y con los municipios configurados; si acabas de dar de alta los NIT que se
-                vigilan, todavía no se ha consultado a ninguna fuente.
-              </span>
+              // Vacío A: no hay datos en el módulo, no es que la búsqueda no encuentre nada. Aquí
+              // —y solo aquí— el CTA tiene sentido: lo que falta es una corrida, y la pestaña que la
+              // dispara existe desde la HU #11633. Va en PRIMARIO porque es la única acción posible
+              // en esta pantalla mientras no haya datos (el vacío B tiene la suya, «Quitar los
+              // filtros», y son excluyentes porque lo son las dos ramas de este ternario).
+              <div className="space-y-3" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p>
+                  Todavía no hay comparendos registrados. Aparecen aquí después de una sincronización
+                  con SIMIT y con los municipios configurados; si acabas de dar de alta los NIT que se
+                  vigilan, todavía no se ha consultado a ninguna fuente.
+                </p>
+                <button
+                  type="button"
+                  className={flitBtnPrimary}
+                  style={flitBtnPrimaryStyle}
+                  onClick={() => irASincronizacion(nav)}
+                >
+                  Ir a la sincronización
+                </button>
+              </div>
             )}
           </FlitEmpty>
         )}
