@@ -13,7 +13,7 @@ import {
   CONCEPTO_BOLSA_TRANSITO_LABEL, getOrganismoByCodigo, NIVEL_BOLSA_TRANSITO_LABEL,
   NivelBolsaTransito,
   type BolsaTransitoConNivel, type ConceptoBolsaTransito, type CoberturaBolsaTransito,
-  type MovimientoTransitoDto,
+  type MovimientoTransitoDto, type OrigenMovimientoTransito,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import { abrirSoporteBolsa, fechaDia, fechaHora, hoyColombia, pesos } from '../../lib/bolsas';
@@ -216,9 +216,25 @@ export function TarjetaBolsaTransito({ bolsa, onVer }: {
 
 // ─────────────────────────── Detalle ─────────────────────────────────────────
 
+/**
+ * Cómo se nombra una ENTRADA del libro según quién la produjo.
+ *
+ * `Record` y no el ternario que había aquí (`origen === 'carga' ? 'Carga' : 'Devolución'`): el
+ * ternario compilaba igual con un origen nuevo y lo rotulaba «Devolución», que es la clase de error
+ * que nadie ve. Con el mapa exhaustivo, el próximo valor de `OrigenMovimientoTransito` es un error
+ * de compilación aquí en vez de una etiqueta equivocada en pantalla (Feature #11623).
+ */
+const ENTRADA_POR_ORIGEN: Record<OrigenMovimientoTransito, string> = {
+  carga: 'Carga',
+  automatico: 'Devolución',
+  // Una conciliación es siempre una SALIDA, así que esta entrada no debería usarse nunca. Está para
+  // que el mapa sea exhaustivo, y si algún día aparece, que diga la verdad y no «Devolución».
+  conciliacion: 'Conciliación',
+};
+
 /** Cómo se nombra una línea del libro. Un consumo dice de qué cobro salió. */
 function tipoMovimiento(m: MovimientoTransitoDto): string {
-  if (m.tipo === 'entrada') return m.origen === 'carga' ? 'Carga' : 'Devolución';
+  if (m.tipo === 'entrada') return ENTRADA_POR_ORIGEN[m.origen];
   return m.concepto ? `Pago de ${CONCEPTO_BOLSA_TRANSITO_LABEL[m.concepto].toLowerCase()}` : 'Consumo';
 }
 

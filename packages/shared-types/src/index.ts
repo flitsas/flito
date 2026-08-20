@@ -94,3 +94,6 @@ export * from './siigo-archivo.js';
 export * from './siigo-cola.js';
 // Monitoreo de comparendos: catálogos, token, sync y lectura del consolidado (Feature #11492).
 export * from './flito-comparendos.js';
+// Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
+// normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
+export * from './flito-conciliacion.js';

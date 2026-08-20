@@ -28,6 +28,11 @@ const ORIGEN: Record<OrigenMovimientoBolsa, { label: string; tono: ChipTone }> =
   recarga: { label: 'Recarga', tono: 'success' },
   automatico: { label: 'Automático', tono: 'neutral' },
   manual: { label: 'Manual', tono: 'warning' },
+  // Feature #11623: salida asentada al conciliar una boleta de pago externo. Tono propio a
+  // propósito — no es «automático»: no cuelga de ningún trámite (la columna Trámite sale con «—») y
+  // el reverso de la liquidación no lo devuelve. Este mismo mapa alimenta el filtro de origen y la
+  // exportación, así que con esta entrada quedan los tres.
+  conciliacion: { label: 'Conciliación', tono: 'active' },
 };
 
 interface Filtros {

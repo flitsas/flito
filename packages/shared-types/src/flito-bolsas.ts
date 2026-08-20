@@ -14,14 +14,25 @@ export type TipoMovimientoBolsa = (typeof TipoMovimientoBolsa)[keyof typeof Tipo
 /**
  * Quién produjo el movimiento.
  *
- *   recarga     — dinero que precarga FLIT en la bolsa del cliente (HU #11121)
- *   automatico  — salida generada al sellar la liquidación del trámite (HU #11122)
- *   manual      — contingencia registrada por Financiera con motivo y evidencia (HU #11123)
+ *   recarga      — dinero que precarga FLIT en la bolsa del cliente (HU #11121)
+ *   automatico   — salida generada al sellar la liquidación del trámite (HU #11122)
+ *   manual       — contingencia registrada por Financiera con motivo y evidencia (HU #11123)
+ *   conciliacion — descuento asentado al conciliar una boleta de pago externo (Feature #11623).
+ *                  **NO reversible por el ciclo de la liquidación**: el barrido de
+ *                  `reversarSalidasLiquidacion` filtra por `origen = 'automatico'`, así que un
+ *                  movimiento de conciliación queda fuera y su dinero NO vuelve cuando el trámite
+ *                  retrocede (CF-07). Es el único origen que significa «esto ya se pagó de verdad
+ *                  en un portal externo, y el ciclo del trámite no lo deshace».
+ *
+ * Añadir un valor aquí NO basta: `flito_bolsa_movimientos.origen` lleva un CHECK en la base
+ * (`flito_bolsa_mov_origen_valido`) que `schema.ts` no declara, y sin ensancharlo el INSERT muere
+ * con 23514. Lo ensancha la migración 0157.
  */
 export const OrigenMovimientoBolsa = {
   RECARGA: 'recarga',
   AUTOMATICO: 'automatico',
   MANUAL: 'manual',
+  CONCILIACION: 'conciliacion',
 } as const;
 
 export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof OrigenMovimientoBolsa];
