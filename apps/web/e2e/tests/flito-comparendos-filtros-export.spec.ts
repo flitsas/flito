@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises';
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
+import { instrumentarObjectUrls, leerUrls } from '../helpers/object-urls';
 
 const API_REGISTROS = '**/api/flito/comparendos/registros**';
 const API_EXPORT = '**/api/flito/comparendos/registros/export**';
@@ -182,43 +183,6 @@ async function mockCatalogos(page: Page, opciones: OpcionesCatalogos = {}) {
   await page.route(API_NITS, (r) => servir(r, undefined, NITS));
   return { soltar };
 }
-
-/**
- * Instrumenta `URL.createObjectURL` / `revokeObjectURL` ANTES de que cargue la app.
- *
- * Cuenta cuántos se crean y cuántos se revocan, y —lo que de verdad importa— si alguno se revocó
- * dentro del mismo despacho del clic que lo creó, que es la carrera que el AC3 pide cerrar.
- */
-async function instrumentarObjectUrls(page: Page) {
-  await page.addInitScript(() => {
-    const w = window as unknown as {
-      __urls: { creados: string[]; revocados: string[]; revocadosEnElClic: number };
-    };
-    w.__urls = { creados: [], revocados: [], revocadosEnElClic: 0 };
-    const crear = URL.createObjectURL.bind(URL);
-    const revocar = URL.revokeObjectURL.bind(URL);
-    let dentroDelClic = false;
-    URL.createObjectURL = (blob: Blob) => {
-      const url = crear(blob);
-      w.__urls.creados.push(url);
-      return url;
-    };
-    URL.revokeObjectURL = (url: string) => {
-      w.__urls.revocados.push(url);
-      if (dentroDelClic) w.__urls.revocadosEnElClic += 1;
-      revocar(url);
-    };
-    const clicOriginal = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function marcado(this: HTMLAnchorElement) {
-      dentroDelClic = true;
-      try { clicOriginal.call(this); } finally { dentroDelClic = false; }
-    };
-  });
-}
-
-const leerUrls = (page: Page) => page.evaluate(
-  () => (window as unknown as { __urls: { creados: string[]; revocados: string[]; revocadosEnElClic: number } }).__urls,
-);
 
 // ───────────────────────────────────── Localizadores ────────────────────────────────────────────
 
@@ -753,6 +717,7 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     expect(urls.creados).toHaveLength(3);
     expect(urls.revocados.sort()).toEqual(urls.creados.sort());
     expect(urls.revocadosEnElClic, 'se revocó en el mismo despacho del clic').toBe(0);
+    expect(urls.revocadosEnElMismoTurno, 'se revocó en la misma vuelta síncrona del clic').toBe(0);
   });
 
   test('AC4 — el segundo clic NO sale a la red, aunque se salte el `disabled`', async ({ page }) => {
