@@ -30,7 +30,10 @@ Un plan **aprobable** cumple todo esto. Si falta alguno, el plan está incomplet
 5. **Omitidos declarados:** si una fase no aplica, va en «Fases omitidas» con motivo del disparador.
 6. **Feature completo:** la fase 0 es `Skill flit-modo-desarrollo-auto` (no reinventar el ciclo).
 7. **QA no opcional:** toda HU con AC/UI/BACKEND aplicable tiene fase `Agent qa-agent`; prohibido «dejar QA para el final del Feature» sin invocación por HU.
-8. **Invocaciones listas:** bloque copiable con prompts concretos (IDs, modos, rutas).
+8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye monitoreo CI → merge (si auth) y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento).
+9. **Invocaciones listas:** bloque copiable con prompts **densos** (IDs, AC pegados, paths, modos `slim|full`, alcance verificación filtrado).
+10. **Redacción de backlog:** si el plan incluye tech-lead A/B, recordar **funcional arriba / técnico abajo** (audiencia PO + TL + dev).
+11. **Proporcionalidad:** elegir `architecture slim|full|omit`, `ux slim|full|omit`, verificación filtrada y QA B acotado al AC. **Prohibido** planear suite monorepo local completa en cada HU «por costumbre». Si security y db-review aplican, planearlos **en paralelo**.
 
 ---
 
@@ -40,8 +43,8 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 
 | Necesidad | Ejecutor | Tipo |
 |---|---|---|
-| Diseño con alternativas, ADR, contrato de endpoints, modelo Drizzle | `architecture-agent` | subagente |
-| Diseño UX/UI — flujos de usuario, wireframes, spec de interacción (4 estados, permisos, a11y) | `ux-agent` | subagente |
+| Diseño técnico slim\|full (ADR en full) | `architecture-agent` | subagente |
+| Diseño UX/UI slim\|full (omit si extensión trivial) | `ux-agent` | subagente |
 | Feature, descomposición en HUs, DoR/DoD, deuda técnica | `tech-lead-agent` | subagente |
 | Código en `apps/api` — rutas, servicios, esquema, migraciones, tests Vitest | `backend-agent` | subagente |
 | Código en `apps/web` — páginas, componentes, router, specs Playwright | `frontend-agent` | subagente |
@@ -73,6 +76,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 8. NUNCA planees filtros con PII en query GET ni roles fuera de `USER_ROLES` (`operaciones` no existe — fusionado en `admin`).
 9. NUNCA propongas que el hilo «imite» una Skill (comentario branded + `wit_*`) ni que «haga de paso» `backend-agent` / `qa-agent` / `flit-code-review`.
 10. NUNCA dejes `qa-agent` como «opcional» o «al final del Feature» sin fase por HU.
+11. NUNCA planees suite monorepo local completa en cada HU por costumbre; usa el mínimo filtrado de `AGENTS.md` y CI como gate de suite completa.
 
 ---
 
@@ -100,10 +104,12 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Activar una HU en ADO | antes de empezar a implementarla (`Skill flit-gestion-hu`) |
 | Crear rama, commit o push | antes de tocar git |
 | Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request`, luego `Skill flit-integration-ado` Modo A |
-| **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal puede mergear vía MCP github; sin autorización, lo mergea el humano |
+| **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal mergea vía MCP github **sin re-preguntar**; sin autorización, lo mergea el humano. **No** es gate pedir «continúa» mientras CI está en curso |
 | **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |
 | Instalar herramientas o desplegar | antes de ejecutar |
+
+**No es gate humano:** “el PR ya está abierto / el CI está corriendo”. Eso se monitorea y se continúa (siguiente HU o merge al verde) según `flit-modo-desarrollo-auto`.
 
 Si el usuario dice "hazlo igual" sobre un gate, no lo saltes: explica que es regla de proceso.
 
@@ -139,13 +145,15 @@ Ledger por HU (el hilo rellena al cerrar):
 
 Invocaciones listas para el hilo:
   1. Skill flit-gestion-hu — Active HU #<id>
-  2. Agent backend-agent — implementar HU #<id> …
-  3. Skill flit-code-review — diff origin/develop...HEAD (ANTES del PR)
-  4. … create_pull_request …
-  5. Skill flit-integration-ado Modo A — PR #N / HU #<id>
-  6. Skill flit-gestion-hu — Resolved HU #<id>
-  7. Agent qa-agent modo B — HU #<id> (A si faltan TCs)
-  8. … merge … Skill flit-integration-ado Modo B … Agent devops-agent M1 …
+  2. Agent architecture-agent (slim|full) — … | o «architecture: no aplica — …»
+  3. Agent backend-agent / frontend-agent — prompt denso (AC + paths)
+  4. Skill flit-code-review — diff origin/develop...HEAD (ANTES del PR)
+  5. Agent security-agent (diff-scoped) ∥ Agent db-review-agent — si aplican
+  6. … create_pull_request …
+  7. Skill flit-integration-ado Modo A — PR #N / HU #<id>
+  8. Skill flit-gestion-hu — Resolved HU #<id>
+  9. Agent qa-agent modo B (alcance AC) — HU #<id> (A si faltan TCs)
+  10. … merge … Skill flit-integration-ado Modo B … Agent devops-agent M1 …
 
 Riesgos: <qué puede descarrilar; incluir riesgo de imitar skills o saltar QA>
 ```
