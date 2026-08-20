@@ -9,11 +9,12 @@
 //
 // Todas las URLs son enlaces firmados y con caducidad (`/api/files?...`): el storage no se expone.
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
+import { TipoSoporte } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas, flitoLogisticaDocumentos,
-  flitoSoat, flitoSoportes, flitoTramites, siigoFacturaTramites,
+  flitoConciliacionLineas, flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas,
+  flitoLogisticaDocumentos, flitoSoat, flitoSoportes, flitoTramites, siigoFacturaTramites,
 } from '../../db/schema.js';
 import { firmarDescargaEntidad } from '../../services/storage.js';
 
@@ -55,9 +56,61 @@ async function porRegistro(
   }));
 }
 
-/** Comprobantes del SOAT (la factura de la aseguradora). El SOAT se ancla al VIN, no al trámite. */
+/**
+ * Comprobante del pago PSE de la boleta en la que este SOAT se concilió (HU #11678, AC3).
+ *
+ * El puente son tres saltos —`flito_conciliacion_lineas.soat_id` → `boleta_id` →
+ * `flito_soportes.conciliacion_boleta_id`— porque el comprobante cuelga de la BOLETA: la financiera
+ * paga una boleta que agrupa N SOAT y el portal emite un solo archivo. Es exactamente el mismo caso
+ * que la factura electrónica, que tampoco cuelga del trámite sino de la factura, y se resuelve igual.
+ *
+ * `conciliada_en IS NOT NULL` no es decoración: una línea sin sellar es una fila de un cuadre que
+ * todavía no movió un peso, y su boleta puede acabar descartada. Solo el pago consumado tiene
+ * comprobante que enseñar.
+ *
+ * **Quién puede llamar a esto NO se decide aquí.** Lo decide la ruta, y en el caso del gestor lo
+ * decide `detalle()` de SOAT, que aplica la frontera 404-no-403 antes de llegar a esta función
+ * (AC4). Este archivo arma listas; no es una superficie de autorización.
+ */
+async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]> {
+  const filas = await db.select({
+    id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo,
+    storageKey: flitoSoportes.storageKey, subidoEn: flitoSoportes.subidoEn,
+  }).from(flitoConciliacionLineas)
+    .innerJoin(
+      flitoSoportes,
+      eq(flitoSoportes.conciliacionBoletaId, flitoConciliacionLineas.boletaId),
+    )
+    .where(and(
+      eq(flitoConciliacionLineas.soatId, soatId),
+      isNotNull(flitoConciliacionLineas.conciliadaEn),
+      eq(flitoSoportes.tipo, TipoSoporte.COMPROBANTE_PSE),
+      eq(flitoSoportes.descartado, false),
+    ));
+  return filas.map((f) => ({
+    id: f.id, origen: 'conciliacion', tipo: f.tipo, nombreArchivo: f.nombreArchivo,
+    url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
+  }));
+}
+
+/**
+ * Comprobantes del SOAT (la factura de la aseguradora). El SOAT se ancla al VIN, no al trámite.
+ *
+ * Desde la HU #11678 la lista trae además el comprobante del pago PSE de la boleta que lo concilió,
+ * con `origen: 'conciliacion'`. Se AÑADE, no sustituye: la factura de la aseguradora que el gestor
+ * ya veía sigue en la lista y sigue con `origen: 'soat'`, que es lo que el AC3 exige literalmente.
+ *
+ * Sale por aquí y no por una ruta nueva (que es lo que proponía el ADR-0006 §7.5) porque el AC3 pide
+ * este endpoint por su nombre, y porque la ruta que lo sirve ya resuelve el permiso: pasa por
+ * `detalle()`, o sea por la frontera del gestor, y devuelve enlaces firmados. Una ruta más habría
+ * sido una superficie más que proteger para enseñar lo mismo.
+ */
 export async function soportesDeSoat(soatId: string): Promise<SoporteVista[]> {
-  return ordenar(await porRegistro(flitoSoportes.soatId, soatId, 'soat'));
+  const [propios, conciliacion] = await Promise.all([
+    porRegistro(flitoSoportes.soatId, soatId, 'soat'),
+    comprobanteDeConciliacion(soatId),
+  ]);
+  return ordenar([...propios, ...conciliacion]);
 }
 
 /** Comprobantes del impuesto (el recibo del organismo). */

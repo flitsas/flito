@@ -5,11 +5,11 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, isNotNull, isNull, like, lt, notExists, or, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
-  flitoSoportes, flitoTramites,
+  clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoBolsaTransitoMovimientos,
+  flitoConciliacionBoletas, flitoDerechosPendientes, flitoSoportes, flitoTramites,
 } from '../../db/schema.js';
 import { aIso, parseFechaQuery, TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import {
@@ -20,6 +20,7 @@ import {
   type CierreDto,
   CLAVE_AGRUPACION_SIN_ASIGNAR,
   type ConceptoBolsa,
+  EstadoBoleta,
   type ExtractoCliente,
   type LineaAgrupada,
   type MovimientoBolsaDto,
@@ -31,6 +32,7 @@ import {
   porcentajeSaldo,
   type SaldoConsolidado,
   type TipoMovimientoBolsa,
+  TipoSoporte,
 } from '@operaciones/shared-types';
 
 // Las formas que devuelve este servicio viven en shared-types: la web las pinta tal cual y
@@ -1183,11 +1185,89 @@ export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
       isNull(flitoBolsaMovimientos.soporteId),
     ));
 
+  // AC6 de la HU #11678 — la otra mitad, la que el comentario de arriba dejaba anotada como hueco.
+  //
+  // El predicado es A NIVEL DE BOLETA y no de movimiento, y esa es toda la decisión: el comprobante
+  // PSE cuelga de la boleta (`flito_soportes.conciliacion_boleta_id`), así que una boleta de 40 SOAT
+  // a la que le falta el archivo es UNA cosa que hacer, no cuarenta. Contarla por movimiento daría
+  // 40 alertas que ni siquiera se apagarían a la vez.
+  //
+  // `NOT EXISTS` y no un `leftJoin … IS NULL`: la pregunta es «¿hay algún comprobante vivo?», y las
+  // tres condiciones del subselect son las mismas del índice único parcial que garantiza que como
+  // mucho haya uno. Sin `descartado = false`, un comprobante reemplazado seguiría apagando la alerta.
+  const [sinComprobante] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(flitoConciliacionBoletas)
+    .where(and(
+      eq(flitoConciliacionBoletas.estado, EstadoBoleta.CONCILIADA),
+      notExists(
+        db.select({ uno: sql`1` }).from(flitoSoportes).where(and(
+          eq(flitoSoportes.conciliacionBoletaId, flitoConciliacionBoletas.id),
+          eq(flitoSoportes.tipo, TipoSoporte.COMPROBANTE_PSE),
+          eq(flitoSoportes.descartado, false),
+        )),
+      ),
+    ));
+
   return {
     soportesSinTramite: pendientes?.n ?? 0,
     movimientosSinSoporte: sinSoporte?.n ?? 0,
+    boletasSinComprobante: sinComprobante?.n ?? 0,
   };
 }
+
+/**
+ * Storage key de un soporte **que de verdad pertenece a alguno de los dos libros de bolsa**.
+ *
+ * Sustituye a `storageKeySoporte` en `GET /flito/bolsas/soportes/:soporteId` (HU #11678, AC7).
+ * Aquella resolvía **cualquier** fila de `flito_soportes` por su id: la factura de un SOAT, el
+ * recibo de un impuesto, el PDF de una factura electrónica… y bastaba tener el rol de bolsas —que
+ * no es el rol de ninguno de esos módulos— y un id. Con un uuid opaco eso era difícil de explotar
+ * pero era una frontera que no existía; en cuanto un COMPROBANTE DE PAGO cuelga de esa misma tabla
+ * (esta HU), deja de ser teórico: cualquiera con acceso a bolsas podría descargar el comprobante de
+ * una boleta sin pasar por el módulo que decide quién ve esa boleta.
+ *
+ * La corrección es la barata y la correcta: el `EXISTS` sobre los dos libros afirma la PERTENENCIA,
+ * no el permiso genérico del rol. Un soporte que no es el comprobante de ninguna recarga ni de
+ * ninguna carga de tránsito devuelve `null` → 404, exactamente igual que uno inexistente. Y el
+ * comprobante PSE de una boleta, que no está referenciado por ningún movimiento, queda fuera por
+ * construcción: se sirve por `…/boletas/:id/comprobante` y por `GET /flito/soat/:id/soportes`, dos
+ * rutas donde el dueño es parte de la dirección.
+ */
+export async function storageKeySoporteDeBolsa(
+  soporteId: string,
+): Promise<{ storageKey: string; nombreArchivo: string; contentType: string } | null> {
+  // El id llega del path: si no es un uuid, la comparación explotaría con un 22P02 (500) en vez de
+  // devolver el 404 que corresponde a «eso no existe».
+  if (!UUID_RE.test(soporteId)) return null;
+
+  const [s] = await db.select({
+    storageKey: flitoSoportes.storageKey,
+    nombreArchivo: flitoSoportes.nombreArchivo,
+    contentType: flitoSoportes.contentType,
+  }).from(flitoSoportes)
+    .where(and(
+      eq(flitoSoportes.id, soporteId),
+      or(
+        exists(db.select({ uno: sql`1` }).from(flitoBolsaMovimientos)
+          .where(eq(flitoBolsaMovimientos.soporteId, flitoSoportes.id))),
+        exists(db.select({ uno: sql`1` }).from(flitoBolsaTransitoMovimientos)
+          .where(eq(flitoBolsaTransitoMovimientos.soporteId, flitoSoportes.id))),
+      ),
+    ))
+    .limit(1);
+  return s ?? null;
+}
+
+/**
+ * Forma de un uuid, sin exigir versión ni variante.
+ *
+ * Solo está para que un id que no es un uuid salga por 404 en vez de por el `22P02` (→ 500) que
+ * lanzaría Postgres al comparar texto con una columna `uuid`. Comprobar además versión y variante
+ * rechazaría identificadores perfectamente válidos que no nacieron de `gen_random_uuid()`, y este
+ * guarda no es una validación de negocio: es una traducción de error.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Saldo total prepago de todos los clientes. Lo consume el tablero de la HU #11127. */
 export async function saldoConsolidado(): Promise<{ clientes: number; saldoTotal: number }> {

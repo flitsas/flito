@@ -217,6 +217,16 @@ export interface AlertasConciliacion {
   soportesSinTramite: number;
   /** Movimientos automáticos asentados sin soporte del organismo detrás. */
   movimientosSinSoporte: number;
+  /**
+   * Boletas ya conciliadas a las que todavía les falta el comprobante del pago PSE (HU #11678, AC6).
+   *
+   * Va como contador PROPIO y no sumado a `movimientosSinSoporte` por lo mismo que explica la
+   * cabecera de `alertasDeConciliacion`: el comprobante cuelga de la BOLETA y no de cada uno de los
+   * N movimientos que asentó, así que contarlo movimiento a movimiento daría N alertas para un solo
+   * archivo que falta — y ninguna de ellas se cerraría al subirlo. Una boleta, una alerta, y se
+   * apaga en cuanto el comprobante existe.
+   */
+  boletasSinComprobante: number;
 }
 
 /** Respuesta de `GET /flito/bolsas/alertas`. */

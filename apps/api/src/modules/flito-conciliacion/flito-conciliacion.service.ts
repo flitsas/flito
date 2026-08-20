@@ -53,24 +53,15 @@ import {
 } from '../../db/schema.js';
 import { hoyIso, num, redondear, type CtxUsuario, type Tx } from '../flito-bolsas/flito-bolsas.service.js';
 import { parsearBoleta, type FilaBoleta } from './flito-conciliacion.excel.js';
+import { comprobanteDeBoleta } from './flito-conciliacion.comprobante.service.js';
+import { ConciliacionError } from './flito-conciliacion.errores.js';
 
 type DbOrTx = typeof db | Tx;
 
-/**
- * Fallo de negocio del módulo. Lleva su HTTP y su `codigo`: la pantalla decide el texto por el
- * código (docs/ux), y `message` es el respaldo legible para quien mire la respuesta a pelo.
- */
-export class ConciliacionError extends Error {
-  constructor(
-    readonly estado: number,
-    readonly codigo: string,
-    message: string,
-    readonly extra: Record<string, unknown> = {},
-  ) {
-    super(message);
-    this.name = 'ConciliacionError';
-  }
-}
+// El error de dominio vive en su propio archivo para no cerrar un ciclo de importación con el
+// servicio del comprobante, que también lo lanza (ver su cabecera). Se re-exporta para que ningún
+// importador tenga que enterarse.
+export { ConciliacionError };
 
 /** Prefijo de la llave con la que la liquidación reserva la salida de un SOAT (`salidasDe`). */
 const LLAVE_SALIDA_SOAT = 'salida:soat:';
@@ -530,6 +521,9 @@ async function lineasDe(dbx: DbOrTx, boletaId: string): Promise<FilaLinea[]> {
 export async function detalleBoleta(id: string): Promise<BoletaDetalleDto> {
   const { boleta, companiaNombre } = await boletaPorId(db, id);
   const lineas = await lineasDe(db, id);
+  // AC2 de la HU #11678: quien mira la boleta ve su comprobante con un enlace FIRMADO y caducable,
+  // nunca la clave del almacenamiento. Quién decide cuál es el comprobante vivo vive en su archivo.
+  const comprobante = await comprobanteDeBoleta(db, id);
   const ctx = await contextoDe(db, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id);
   await completarPorSoatId(
     db, ctx, lineas.map((l) => l.soatId).filter((s): s is string => s !== null),
@@ -538,6 +532,7 @@ export async function detalleBoleta(id: string): Promise<BoletaDetalleDto> {
     ...resumenDto(boleta, companiaNombre, conteoDe(lineas.map((l) => l.resultado))),
     lineas: lineas.map((l) => lineaDto(l, ctx)),
     filasOmitidas: 0,
+    comprobante,
   };
 }
 
@@ -742,6 +737,10 @@ export async function cargarBoleta(
       ),
       lineas,
       filasOmitidas: parseada.filasOmitidas,
+      // Una boleta recién cargada está en `cargada`, y el comprobante solo se admite sobre una
+      // conciliada (HU #11678): aquí nunca puede haber uno, y consultarlo sería un SELECT que
+      // siempre devuelve vacío dentro de la transacción que acaba de escribir 500 líneas.
+      comprobante: null,
     };
   });
 }
@@ -918,6 +917,11 @@ export function detalleDesde(r: Omit<RecruceEnTx, 'cambiadas'>): BoletaDetalleDt
     ),
     lineas: r.lineas.map((l) => lineaDto(l, r.ctx)),
     filasOmitidas: 0,
+    // `null` y no una consulta: los tres llamadores parten de una boleta en `cargada` —el re-cruce
+    // lo exige, y la que se acaba de conciliar lo estaba un instante antes—, y el comprobante solo
+    // existe sobre una boleta ya conciliada (HU #11678). Cuando la ficha necesita el comprobante
+    // pide el detalle, que sí lo trae.
+    comprobante: null,
   };
 }
 

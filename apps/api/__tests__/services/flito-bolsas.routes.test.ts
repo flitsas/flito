@@ -895,6 +895,50 @@ describe('GET /soportes/:soporteId — abrir el comprobante de un movimiento', (
     expect(r.status).toBe(404);
     expect(r.body.error).toBe('El soporte no existe');
   });
+
+  // ── HU #11678, AC7: pertenencia, no solo rol ───────────────────────────────
+
+  it('un id que no es un uuid → 404, no un 500 de Postgres', async () => {
+    // Sin el guarda de forma, la comparación de `no-soy-un-uuid` contra una columna `uuid` sale por
+    // 22P02 → 500. Un id mal formado es «eso no existe», no «el servidor se rompió».
+    const r = await request(await buildApp()).get('/api/flito/bolsas/soportes/no-soy-un-uuid')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(404);
+    expect(r.body.error).toBe('El soporte no existe');
+  });
+
+  it('la consulta exige que el soporte PERTENEZCA a uno de los dos libros', async () => {
+    // Antes bastaba el rol de bolsas y un uuid para resolver CUALQUIER fila de `flito_soportes`
+    // —la factura de un SOAT, el PDF de una factura electrónica—. El mock no evalúa el `where`, así
+    // que lo que se afirma es que la condición de pertenencia está en la consulta: si alguien la
+    // quitara, esto se pone en rojo antes de que un comprobante de pago salga por aquí.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const condiciones: unknown[] = [];
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condiciones.push(cond); return original(cond); };
+      return c;
+    });
+    kdb.when.select('flito_soportes', [{
+      storageKey: 'k', nombreArchivo: 'comprobante.pdf', contentType: 'application/pdf',
+    }]);
+
+    await request(await buildApp()).get(`/api/flito/bolsas/soportes/${SOPORTE_ID}`)
+      .set('Authorization', await auth('financiera'));
+
+    const dialecto = new PgDialect();
+    const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);
+    // Dos ramas de `exists`, una por libro, unidas por `or`: la recarga del cliente y la carga de
+    // tránsito. Un soporte que no está en ninguno de los dos no es un soporte de bolsas.
+    const fuera = textos.find((t) => t.includes('exists')) ?? '';
+    expect(fuera).toContain('exists');
+    expect(fuera).toContain(' or ');
+    // Y las subconsultas preguntan por `soporte_id` en cada uno de los dos libros.
+    expect(textos.filter((t) => t.includes('"soporte_id"'))).toHaveLength(2);
+  });
 });
 
 // ─────────────── Nivel de riesgo y alertas (HU #11125) ───────────────────────
@@ -956,12 +1000,15 @@ describe('bolsa con nivel de riesgo', () => {
     kdb.when
       .select('flito_bolsas', [{ id: 'b1', companiaId: 1, companiaNombre: 'ACME', saldo: '0', ultimaRecargaValor: '800000', ultimaRecargaEn: AHORA }])
       .select('flito_derechos_pendientes', [{ n: 2 }])
-      .select('flito_bolsa_movimientos', [{ n: 1 }]);
+      .select('flito_bolsa_movimientos', [{ n: 1 }])
+      .select('flito_conciliacion_boletas', [{ n: 3 }]);
     const r = await request(await buildApp()).get('/api/flito/bolsas/alertas').set('Authorization', await auth('admin'));
 
     expect(r.status).toBe(200);
     expect(r.body.saldo).toHaveLength(1);
-    expect(r.body.conciliacion).toEqual({ soportesSinTramite: 2, movimientosSinSoporte: 1 });
+    expect(r.body.conciliacion).toEqual({
+      soportesSinTramite: 2, movimientosSinSoporte: 1, boletasSinComprobante: 3,
+    });
   });
 });
 

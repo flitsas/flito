@@ -19,11 +19,13 @@
 //     hace más difícil responder la pregunta que el log existe para responder.
 //   · La columna «Nombre» del Excel no se lee, no se guarda y no se devuelve (AC11).
 
+import { createHash } from 'crypto';
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import {
-  type BoletaDetalleDto, CodigoErrorConciliacion, CONCILIACION_MAX_BYTES, EstadoBoleta,
+  type BoletaDetalleDto, CodigoErrorConciliacion, COMPROBANTE_MAX_BYTES, COMPROBANTE_MIMES,
+  CONCILIACION_MAX_BYTES, EstadoBoleta,
 } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
@@ -31,9 +33,13 @@ import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import rateLimit from 'express-rate-limit';
 import { checkMagicNumber } from '../pesv/magic-number.js';
+import { deleteEntityDocument, uploadEntityDocument } from '../../services/storage.js';
 import { ExcelBoletaError } from './flito-conciliacion.excel.js';
 import { registrarAccesoBoleta } from './flito-conciliacion.pii.js';
 import { conciliarBoleta } from './flito-conciliacion.conciliar.service.js';
+import {
+  descargaComprobante, destinoComprobante, registrarComprobante,
+} from './flito-conciliacion.comprobante.service.js';
 import {
   cargarBoleta, ConciliacionError, descartarBoleta, detalleBoleta, listarBoletas, recruzarBoleta,
 } from './flito-conciliacion.service.js';
@@ -164,6 +170,19 @@ function fallo(res: Response, e: unknown): void {
   throw e;
 }
 
+/**
+ * Un solo desenlace para todos los `catch` del router: primero el rastro de PII, luego el HTTP.
+ *
+ * El orden importa. `fallo` puede volver a lanzar —lo hace con todo lo que no es un error de
+ * dominio— y en ese caso el error sube al handler de Express; si el registro fuera después, un fallo
+ * de base que arrastrara datos personales saldría sin rastro. Registrar primero cuesta, en el camino
+ * normal, una comprobación de tipo que devuelve enseguida.
+ */
+async function falloConRastro(req: Request, res: Response, e: unknown): Promise<void> {
+  await registrarAccesoDelRechazo(req, e);
+  fallo(res, e);
+}
+
 function ctxDe(req: Request): { userId: number | null; nombre: string } {
   return { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'desconocido' };
 }
@@ -237,7 +256,7 @@ router.post('/boletas', CONCILIACION, cargaLimiter, recibirExcel, async (req: Re
     });
     res.status(201).json(boleta);
   } catch (e) {
-    fallo(res, e);
+    await falloConRastro(req, res, e);
   }
 });
 
@@ -264,7 +283,7 @@ router.get('/boletas', CONCILIACION, async (req: Request, res: Response) => {
   try {
     res.json(await listarBoletas(filtro.data));
   } catch (e) {
-    fallo(res, e);
+    await falloConRastro(req, res, e);
   }
 });
 
@@ -278,7 +297,7 @@ router.get('/boletas/:id', CONCILIACION, async (req: Request, res: Response) => 
     });
     res.json(boleta);
   } catch (e) {
-    fallo(res, e);
+    await falloConRastro(req, res, e);
   }
 });
 
@@ -314,7 +333,7 @@ router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Res
     });
     res.json(detalle);
   } catch (e) {
-    fallo(res, e);
+    await falloConRastro(req, res, e);
   }
 });
 
@@ -331,6 +350,12 @@ router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Res
  * lleve una boleta con líneas queda auditado, así que el próximo rechazo al que se le añada un
  * detalle no se escapa por olvido. `logPiiAccess` es best-effort —atrapa su propio error— así que
  * esperar aquí no puede convertir un 409 en un 500.
+ *
+ * **Se llama desde TODOS los `catch` del router y no solo desde el de `conciliar`** (observación del
+ * gate de la HU #11677, resuelta en la #11678). Hoy `boleta_incompleta` es el único rechazo que
+ * devuelve el cuadre, así que en los demás caminos es un `return` inmediato que no cuesta nada; el
+ * punto es que la garantía deje de depender de acordarse. La forma correcta de añadir mañana un
+ * rechazo con detalle es no tener que tocar nada aquí.
  */
 async function registrarAccesoDelRechazo(req: Request, e: unknown): Promise<void> {
   if (!(e instanceof ConciliacionError)) return;
@@ -382,8 +407,7 @@ router.post('/boletas/:id/conciliar', CONCILIACION, conciliarLimiter, async (req
     });
     res.json(resultado);
   } catch (e) {
-    await registrarAccesoDelRechazo(req, e);
-    fallo(res, e);
+    await falloConRastro(req, res, e);
   }
 });
 
@@ -406,7 +430,163 @@ router.post('/boletas/:id/descartar', CONCILIACION, async (req: Request, res: Re
     });
     res.json(boleta);
   } catch (e) {
-    fallo(res, e);
+    await falloConRastro(req, res, e);
+  }
+});
+
+// ── El comprobante del pago PSE ─────────────────────────────────────────────
+//
+// HU #11678, CF-06. Tres rutas sobre el MISMO recurso —el comprobante de ESTA boleta—, y por eso el
+// path lo nombra: `…/boletas/:id/comprobante`. Es la respuesta a la pregunta del AC7: el archivo no
+// se sirve por ninguna ruta que resuelva «un soporte cualquiera por su id», sino por una en la que
+// el dueño es parte de la dirección y el rol del router ya decidió quién puede mirar esa boleta.
+//
+//   POST   → sube el primero.       201. 409 `comprobante_ya_existe` si ya hay uno vivo.
+//   PUT    → reemplaza.             200. El anterior queda `descartado = true`, no se borra.
+//   GET    → firma fresca.          200 `{ url, nombreArchivo, contentType }`. 404 si no hay.
+//
+// Ninguna de las tres devuelve póliza ni placa —el comprobante es un PDF del banco, y su metadato es
+// nombre, tipo, tamaño y fecha—, así que ninguna registra acceso a PII. La que sí lo hace es el
+// DETALLE de la boleta, que ya lo hacía y ahora además trae el comprobante (AC2).
+
+/** El comprobante del banco: un PDF o la foto/escaneo del pago. Misma lista que los hermanos. */
+const MIMES_COMPROBANTE: readonly string[] = COMPROBANTE_MIMES;
+
+const subidaComprobante = multer({
+  storage: multer.memoryStorage(),
+  // Un solo archivo y un formulario mínimo: esta petición no lleva campos de texto. Acotar `fields`
+  // y `parts` evita que busboy parsee un multipart con miles de campos antes de que nadie lo mire.
+  limits: {
+    fileSize: COMPROBANTE_MAX_BYTES, files: 1, fields: 2, parts: 4, fieldSize: 1024, fieldNameSize: 64,
+  },
+  fileFilter: (_req, file, cb) => {
+    if (MIMES_COMPROBANTE.includes(file.mimetype)) cb(null, true);
+    // El MIME rechazado no se devuelve: es una cadena que escribe el cliente (misma razón que arriba).
+    else cb(new TipoNoPermitidoError('tipo no permitido'));
+  },
+});
+
+const MOTIVO_TIPO_COMPROBANTE = 'El comprobante tiene que ser PDF, JPG o PNG.';
+
+const MOTIVO_MULTER_COMPROBANTE: Record<string, string> = {
+  ...MOTIVO_MULTER,
+  LIMIT_FILE_SIZE: `El archivo pesa más de ${Math.round(COMPROBANTE_MAX_BYTES / (1024 * 1024))} MB.`,
+};
+
+/** Mismo envoltorio que `recibirExcel`: los rechazos de multer salen 400 con motivo, no 500. */
+function recibirComprobante(req: Request, res: Response, next: (e?: unknown) => void): void {
+  subidaComprobante.single('archivo')(req, res, (err: unknown) => {
+    if (err) {
+      let error = 'Archivo inválido';
+      if (err instanceof TipoNoPermitidoError) error = MOTIVO_TIPO_COMPROBANTE;
+      else if (err instanceof multer.MulterError) error = MOTIVO_MULTER_COMPROBANTE[err.code] ?? error;
+      res.status(400).json({ error, codigo: CodigoErrorConciliacion.ARCHIVO_INVALIDO });
+      return;
+    }
+    next();
+  });
+}
+
+/**
+ * Una subida de 15 MB por petición merece su propio límite (AGENTS.md 18). Veinte por minuto: el
+ * caso real es «me equivoqué de archivo, subo el bueno», no una ráfaga.
+ */
+const comprobanteLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-conciliacion-comprobante'),
+  store: makeStore('rl:flito-conciliacion-comprobante:'),
+  message: { error: 'Vas muy rápido. Espera un minuto antes de subir otro comprobante.' },
+});
+
+/**
+ * Sube el comprobante y lo registra, sin dejar objetos huérfanos (AC1).
+ *
+ * El orden es el de `flito-bolsas.routes.ts` L194-250, y las tres etapas están donde están por algo:
+ *
+ *   1. `checkMagicNumber` mira los BYTES antes de tocar el almacenamiento. El `fileFilter` de multer
+ *      solo vio el content-type que declara el cliente, que no prueba nada: un `.exe` renombrado
+ *      llega hasta aquí con el MIME correcto y muere en esta línea **sin haber subido nada**.
+ *   2. `destinoComprobante` rechaza la boleta que no admite comprobante y la que ya tiene uno,
+ *      también antes de subir.
+ *   3. Y si aun así el registro falla —una carrera, un 23505, la boleta descartada entre medias—,
+ *      el objeto recién subido se borra en el `catch`. Esa es la red que hace que un 400 o un 409
+ *      no dejen un archivo de 15 MB colgando en el bucket.
+ *
+ * Al REEMPLAZAR no se borra el objeto del comprobante anterior: su fila queda `descartado = true` y
+ * el archivo sigue siendo la prueba de lo que se adjuntó antes. Borrarlo convertiría un reemplazo en
+ * una destrucción de evidencia.
+ */
+async function subirComprobante(req: Request, res: Response, reemplazar: boolean): Promise<void> {
+  const archivo = req.file;
+  if (!archivo) {
+    res.status(400).json({
+      error: 'Falta el archivo del comprobante.', codigo: CodigoErrorConciliacion.ARCHIVO_INVALIDO,
+    });
+    return;
+  }
+
+  const motivo = await checkMagicNumber(archivo.buffer, archivo.mimetype, MIMES_COMPROBANTE);
+  if (motivo) {
+    res.status(400).json({ error: motivo, codigo: CodigoErrorConciliacion.ARCHIVO_INVALIDO });
+    return;
+  }
+
+  let storageKey: string | null = null;
+  try {
+    const id = idDe(req);
+    const { prefijo } = await destinoComprobante(id, reemplazar);
+    storageKey = await uploadEntityDocument(
+      prefijo, id, archivo.originalname, archivo.buffer, archivo.mimetype,
+    );
+    const comprobante = await registrarComprobante(
+      id,
+      {
+        nombreArchivo: archivo.originalname,
+        contentType: archivo.mimetype,
+        storageKey,
+        hash: createHash('sha256').update(archivo.buffer).digest('hex'),
+        tamanoBytes: archivo.size,
+      },
+      ctxDe(req),
+      { reemplazar },
+    );
+    // AC5: la subida autorizada queda auditada. El detalle NO repite el nombre del archivo, que lo
+    // escribe el cliente y puede traer una placa dentro («comprobante-ABC123.pdf»); el nombre ya
+    // vive en `flito_soportes` y desde `resourceId` se llega a él con control de acceso.
+    await audit(req, {
+      action: reemplazar ? 'update' : 'create',
+      resource: 'flito_conciliacion_boleta',
+      resourceId: id,
+      detail: `Comprobante PSE ${reemplazar ? 'reemplazado' : 'adjuntado'} · soporte `
+        + `${comprobante.id} · ${comprobante.contentType} · ${comprobante.tamanoBytes} bytes`,
+    });
+    res.status(reemplazar ? 200 : 201).json(comprobante);
+  } catch (e) {
+    if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
+    await falloConRastro(req, res, e);
+  }
+}
+
+router.post(
+  '/boletas/:id/comprobante', CONCILIACION, comprobanteLimiter, recibirComprobante,
+  async (req: Request, res: Response) => { await subirComprobante(req, res, false); },
+);
+
+router.put(
+  '/boletas/:id/comprobante', CONCILIACION, comprobanteLimiter, recibirComprobante,
+  async (req: Request, res: Response) => { await subirComprobante(req, res, true); },
+);
+
+// GET — firma FRESCA para abrir el archivo. El detalle ya trae una, pero caduca a los cinco
+// minutos: pintarla como href estático deja un enlace muerto en pantalla (docs/ux, «Descargar»).
+router.get('/boletas/:id/comprobante', CONCILIACION, async (req: Request, res: Response) => {
+  try {
+    res.json(await descargaComprobante(idDe(req)));
+  } catch (e) {
+    await falloConRastro(req, res, e);
   }
 });
 

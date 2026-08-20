@@ -244,6 +244,10 @@ export const TipoSoporte = {
   // de ellos (extensión, content-type, endpoint de Siigo) está en `siigo-archivo.ts`.
   FACTURA_ELECTRONICA_PDF: 'factura_electronica_pdf',
   FACTURA_ELECTRONICA_XML: 'factura_electronica_xml',
+  // Feature #11623, HU #11678 — el comprobante del pago PSE de una boleta conciliada. Cuelga de la
+  // BOLETA (`flito_soportes.conciliacion_boleta_id`), no de un SOAT ni de un trámite: la financiera
+  // paga una boleta que agrupa N SOAT y el portal emite UN solo comprobante por ese pago.
+  COMPROBANTE_PSE: 'comprobante_pse',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];

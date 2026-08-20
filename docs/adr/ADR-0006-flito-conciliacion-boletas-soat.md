@@ -714,7 +714,7 @@ sequenceDiagram
     Note over F,L: COMPROBANTE (HU-4, CF-06)
     F->>R: POST /boletas/:id/comprobante (PDF/JPG/PNG)
     R->>S: flito_soportes(tipo='comprobante_pse', conciliacion_boleta_id=:id)
-    Note right of S: el gestor lo ve por GET /flito/soat/:id/comprobante-conciliacion,<br/>NO por el router de conciliación
+    Note right of S: el gestor lo ve por GET /flito/soat/:id/soportes,<br/>NO por el router de conciliación
     end
 
     rect rgb(255,240,240)
@@ -835,11 +835,19 @@ Dos decisiones dentro del DTO que conviene no deshacer:
 - **`transito` se agrupa por BOLSA y no por organismo**, aunque el copy hable de «la bolsa de tránsito de Medellín». El saldo pertenece a la bolsa: dos secretarías cubiertas por la misma bolsa comparten saldo, y pintar dos líneas con el mismo `saldoResultante` sería enseñar el mismo dinero dos veces.
 - **Los dos saldos se LEEN de la fila de la bolsa al final de la transacción**, no se deducen del último movimiento asentado. Cuando todas las líneas son adopciones no se asienta nada, y el `saldo_resultante` de un movimiento viejo es el saldo de otro día. Es la cifra que el usuario va a cotejar contra el extracto, así que sale de la misma fila que el extracto lee.
 
-#### 7.4 `POST` y `GET …/boletas/:id/comprobante`
+#### 7.4 `POST`, `PUT` y `GET …/boletas/:id/comprobante`
 
-`POST`: `multipart` con `archivo`, MIME en `['application/pdf','image/jpeg','image/png']` (la misma lista blanca que los módulos hermanos), `limits.fileSize` 15 MB, `checkMagicNumber`, `storageKeySoporte` + `uploadEntityDocument`. Inserta en `flito_soportes` con `tipo='comprobante_pse'` y `conciliacion_boleta_id`. **201**. **409** `comprobante_ya_existe` (el índice parcial único); reemplazar es `descartado = true` sobre el anterior y subir el nuevo, como ya hace el módulo de revisiones.
+> **Apartado corregido contra la implementación (HU #11678).** Tres cosas no se sostuvieron al construirlo: el reemplazo necesitaba verbo propio, la subida necesitaba un estado previo que el borrador no exigía, y `storageKeySoporte` resultó ser justo lo que **no** hay que usar aquí (§7.5).
 
-`GET`: **200** `{ url, nombreArchivo, contentType }` con `firmarDescargaEntidad`. Ruta **propia** y no reutilizada de `/flito/derechos/soporte/:id`, por el mismo motivo escrito en `flito-bolsas.routes.ts:269-272`: compartirla obligaría a ensanchar sus roles.
+`POST`: `multipart` con `archivo`, MIME en `['application/pdf','image/jpeg','image/png']` (la misma lista blanca que los módulos hermanos), `limits.fileSize` 15 MB, `checkMagicNumber` sobre los bytes, `carpetaDe(cliente, 'conciliacion-comprobantes')` + `uploadEntityDocument`. Inserta en `flito_soportes` con `tipo='comprobante_pse'` y `conciliacion_boleta_id`. **201** `ComprobanteBoletaDto`.
+
+`PUT`: reemplaza. **200**. El anterior queda `descartado = true` —no se borra, ni la fila ni el objeto: es la prueba de lo que se adjuntó antes— y el nuevo entra en la misma transacción. Existe como verbo aparte del `POST` porque los dos actos son distintos para quien audita («adjuntó» / «reemplazó») y porque el `POST` tiene que poder decir **409 `comprobante_ya_existe`**, que es el copy que la pantalla necesita para ofrecer «Reemplazar».
+
+`GET`: **200** `{ url, nombreArchivo, contentType }` con `firmarDescargaEntidad`, firma **fresca** en cada llamada. El detalle de la boleta ya trae una en `BoletaDetalleDto.comprobante`, pero caduca a los cinco minutos: sirve para saber que el comprobante existe, no para pulsarlo media hora después.
+
+**Solo con la boleta `conciliada`** → **409 `boleta_no_conciliada`** en `cargada` y **409 `boleta_descartada`** en la otra. No estaba en el borrador y lo pide el propio diseño: antes de conciliar no existe el pago que el archivo documentaría, y «boleta cargada con comprobante» sería un estado que la alerta del §7.6 no sabe leer —ni pendiente ni resuelta—.
+
+**Sin objeto huérfano.** Orden: `checkMagicNumber` (bytes) → validar boleta y comprobante previo → `uploadEntityDocument` → registrar en transacción → y si algo falla, `deleteEntityDocument` de lo recién subido. Los dos rechazos frecuentes —tipo no permitido y comprobante ya presente— ocurren **antes** de subir, así que el caso normal ni siquiera crea el objeto que habría que borrar.
 
 #### 7.5 Dónde viaja la PII
 
@@ -866,10 +874,23 @@ Nota de implementación: `PiiAuditOpts.resourceId` es `number | null` y estas en
 **El gestor SOAT (CF-06).** `proveedor` **no** entra en `/api/flito/conciliacion`: darle acceso a la boleta sería darle las pólizas y los valores de vehículos de otros clientes. Su lectura del comprobante va por una ruta suya, en el router que ya sabe filtrarlo:
 
 ```
-GET /api/flito/soat/:id/comprobante-conciliacion   → admin | financiera | proveedor
+GET /api/flito/soat/:id/soportes    ← la ruta que YA existe; el comprobante se AÑADE a su lista
 ```
 
-Resuelve el soporte por `soat → línea conciliada → boleta → flito_soportes` y reutiliza `buscarConAcceso` (`flito-soat.service.ts:412`), que ya impone la frontera del gestor devolviendo **404 y no 403** —no confirmar la existencia de un SOAT ajeno es parte del control—. Es una ruta más, pero es la única forma de cumplir el CF-06 sin ensanchar el alcance de nadie.
+> **Corregido contra la implementación (HU #11678).** El borrador proponía una ruta nueva, `GET /api/flito/soat/:id/comprobante-conciliacion`. El AC3 de la HU pide el endpoint que ya existe, y tiene razón: aquella ruta habría sido una superficie más que proteger para entregar lo mismo. `soportesDeSoat` gana el puente `flito_conciliacion_lineas.soat_id → boleta_id → flito_soportes.conciliacion_boleta_id` (con `conciliada_en IS NOT NULL`: una línea sin sellar es un cuadre que aún no movió un peso) y devuelve el comprobante con `origen: 'conciliacion'`, junto a la factura del SOAT que el gestor ya veía.
+
+La frontera la sigue poniendo el mismo sitio que antes: la ruta pasa por `detalle()` → `buscarConAcceso` (`flito-soat.service.ts:413`) **antes** de leer un solo soporte, así que un SOAT ajeno, uno de un cliente autogestionado y uno en estado no visible siguen siendo **404 y no 403**. Añadir el join no toca esa decisión: `soportes-consulta.ts` arma listas y no es una superficie de autorización.
+
+**Y la otra mitad del §7.5, que el borrador no planteaba: por dónde NO se sirve.** `GET /flito/bolsas/soportes/:soporteId` resolvía **cualquier** fila de `flito_soportes` por su id, protegida solo por el rol de bolsas; y `storageKeySoporte` (`flito-revisiones.service.ts`) hace lo mismo para las dos rutas genéricas de revisiones y derechos, abiertas a `admin` y `auditor` —a quien el AC5 de la #11678 le niega expresamente el comprobante—. Las dos se cierran, y por pertenencia, no por lista de tipos:
+
+- `GET /flito/bolsas/soportes/:soporteId` pasa a `storageKeySoporteDeBolsa`, que exige que el soporte esté referenciado por un movimiento de alguno de los dos libros. Lo que no lo esté sale por 404, igual que un id inexistente.
+- `storageKeySoporte` excluye los soportes con `conciliacion_boleta_id`. No cambia el comportamiento de ninguna fila existente —hoy todas la tienen en `NULL`— y deja el comprobante accesible solo por las dos rutas donde el dueño es parte de la dirección.
+
+#### 7.6 La alerta del tablero de bolsas
+
+`alertasDeConciliacion` (`flito-bolsas.service.ts`) gana un tercer contador, `boletasSinComprobante`: boletas en `conciliada` sin soporte vivo con `conciliacion_boleta_id`. Es el cierre del hueco que la HU #11677 dejó anotado.
+
+**Va por BOLETA y no por movimiento, y esa es toda la decisión.** El comprobante cuelga de la boleta, así que una boleta de 40 SOAT a la que le falta el archivo es *una* cosa que hacer. Contarla movimiento a movimiento daría 40 alertas que ni siquiera se apagarían a la vez, que es exactamente el fallo que la #11677 evitó dejando los movimientos `origen='conciliacion' AND tramite_id IS NULL` fuera de `movimientosSinSoporte`. Los dos contadores conviven sin solaparse: aquel cuenta lo que el sellado asentó sin soporte (incluido lo que la conciliación **adoptó**, que conserva su `tramite_id`), este cuenta boletas.
 
 ---
 
@@ -919,7 +940,7 @@ La propuesta del `tech-lead-agent` se **confirma**, y el argumento que la sostie
 | **Contras** | El módulo es del **gestor** (rol `proveedor`), y esto es de **Financiera**: mezclar los dos en un router obliga a repartir roles endpoint por endpoint, que es como se cuela un 200 donde debía haber un 404. Además el día de impuestos habría que sacarlo de ahí. `flito-soat.service.ts` también tiene techo congelado. |
 | **Esfuerzo** | M, con el peor reparto de permisos |
 
-De la Opción 3 **sí se conserva una pieza**: el `GET /flito/soat/:id/comprobante-conciliacion` vive en `flito-soat.routes.ts`, porque es la única ruta cuyo consumidor es el gestor y cuyo control de acceso ya existe allí (§7.5).
+De la Opción 3 **sí se conserva una pieza**: la lectura del gestor vive en `flito-soat.routes.ts`, porque es la única superficie cuyo consumidor es el gestor y cuyo control de acceso ya existe allí (§7.5). La HU #11678 la resolvió sin ruta nueva: el comprobante se añade a la lista de `GET /:id/soportes`.
 
 ---
 
@@ -981,7 +1002,7 @@ De la Opción 3 **sí se conserva una pieza**: el `GET /flito/soat/:id/comproban
 | `apps/api/src/modules/flito-liquidacion/flito-liquidacion.service.ts` | `leftJoin` a las líneas conciliadas en `proyeccionCalculo` para exponer el estado (**no** para decidir el descuento) | 3 |
 | `apps/api/src/modules/finanzas/finanzas.service.ts` | `soatConciliado` en `SELECT_FILA` y en `FilaReporte` → «Conciliado · bolsa» (CF-05) | 3 |
 | `apps/web/src/pages/…ReporteCostos…` | la etiqueta y su enlace a la boleta | 3 |
-| `apps/api/src/modules/flito-soat/flito-soat.routes.ts` | `GET /:id/comprobante-conciliacion` (§7.5) | 4 |
+| `apps/api/src/shared/soportes/soportes-consulta.ts` | `soportesDeSoat` añade el comprobante con `origen: conciliacion` (§7.5). **No** hay ruta nueva en `flito-soat.routes.ts` | 4 |
 | `apps/web/src/App.tsx` / navegación | ruta de la pantalla nueva | 2 |
 
 **No se modifican, y es deliberado:** `flito-bolsas.service.ts` (§2.4 pone la adopción en el módulo nuevo), `reversarSalidasLiquidacion`, `alertasDeConciliacion`, `corregirMovimiento`, `flito-backfill-bolsas.ts`.
@@ -1027,7 +1048,7 @@ export interface BoletaDetalleDto { boleta: BoletaResumenDto; lineas: LineaBolet
 
 - **backend-agent** — Importa `redondear`, `hoyIso`, `periodoDeFecha` y `asentarMovimiento` de `flito-bolsas.service.ts`; no los recrees. Los asientos van **en serie** dentro de una sola transacción: `saldo_resultante` encadena, y en paralelo la última línea dejaría de coincidir con el saldo de la bolsa (es el mismo motivo por el que `registrarSalidasLiquidacion` lo hace así). `registrarConsumoTransito` devuelve `null` por **dos** motivos distintos (H3): si necesitas el id del movimiento de tránsito para `movimiento_transito_id`, reléelo por su llave (`consumo:soat:<id>`, índice único) en vez de cambiar la firma de una función que también usa `liquidar`.
 - **db-review-agent** — Tres cosas a mirar con lupa: (1) que la `0157` ensanche los **dos** `CHECK` de `origen`, incluido el que conserva el nombre viejo `flito_org_mov_origen_valido`; (2) que el `UPDATE` del backfill lleve su `numero_poliza IS NULL` (sin él deja de ser idempotente y pisa correcciones manuales); (3) que `idx_flito_concil_linea_soat_unica` exista — es la única barrera contra conciliar el mismo SOAT en dos boletas. Y anota como hallazgo aparte que `schema.ts` no declara los `CHECK` de valor de estas dos tablas.
-- **security-agent** — Póliza y placa nunca en path ni query; los tres endpoints de lectura declaran `logPiiAccess` con `['numero_poliza','placa']`; el `motivo` lleva la **referencia** de la boleta, no la póliza. El router de conciliación **no** admite `proveedor`; su lectura va por `/flito/soat/:id/comprobante-conciliacion` con `buscarConAcceso` (404, no 403). Hallazgo heredado y fuera de alcance, para tu lista: `pagarEnTx` escribe póliza y VIN en claro en `audit_logs.detail`.
+- **security-agent** — Póliza y placa nunca en path ni query; los tres endpoints de lectura declaran `logPiiAccess` con `['numero_poliza','placa']`; el `motivo` lleva la **referencia** de la boleta, no la póliza. El router de conciliación **no** admite `proveedor`; su lectura va por `/flito/soat/:id/soportes`, que pasa por `buscarConAcceso` (404, no 403). Hallazgo heredado y fuera de alcance, para tu lista: `pagarEnTx` escribe póliza y VIN en claro en `audit_logs.detail`.
 - **qa-agent** — Los dos órdenes son casos distintos y los dos hay que probarlos: concilio→liquido (el saldo no se mueve al sellar) y liquido→concilio (el saldo no se mueve al conciliar, y la respuesta lo dice en `adoptados`). Añade el reverso después de conciliar: el dinero **no** vuelve. Y el caso feo: conciliar una boleta cuya línea dejó de cuadrar entre la carga y el clic → 409 `boleta_incompleta` **con los resultados ya actualizados en la base** (si llega con los motivos viejos, el commit está mal puesto).
 - **ux-agent** — La pantalla tiene que distinguir tres estados que se parecen y no son lo mismo: «descontado ahora», «ya estaba descontado por la liquidación» y «no cuadra, y por qué». Y si se aprueba la opción (a) del GMF, tiene que decir que el 4x1000 se cobra al liquidar.
 - **tech-lead-agent** — La consulta de duplicados de póliza (§1.2) se corre **antes** de estimar la HU-2: su resultado decide si hace falta una vía de corrección manual, que hoy no está en el Feature.
@@ -1071,7 +1092,7 @@ su propio ADR: cifrar solo esta columna rompería el índice del que depende el 
 | **HU-1 (#11673) — esquema, póliza y origen** | Migración `0157` completa (tablas, columnas, backfill, los dos `CHECK` de `origen` **y** el excluyente de `flito_soportes` ensanchados, grants, comentarios); `schema.ts` **con los `CHECK` declarados**; `OrigenMovimientoBolsa` y `OrigenMovimientoTransito`; `normalizarPoliza()` + su test de paridad con el SQL; `pagarEnTx` escribe `numero_poliza`; `BolsaMovimientos.tsx` (obligatorio, rompe el build) y `BolsaTransito.tsx` (recomendado); `PAGES` + permisos | §1, §3, §8 |
 | **HU-2 — carga y cruce** | Módulo `flito-conciliacion` (routes/service/excel/pii); `POST /boletas`, `GET /boletas`, `GET /boletas/:id`; los siete resultados de cruce; multer + magic number + limitador; `logPiiAccess`; montaje en `app.ts`; pantalla de carga y cuadre | §1.1 (líneas), §7.1–7.2, §7.5, §8 |
 | **HU-3 — conciliar y mover bolsas** | `POST /boletas/:id/conciliar` con re-cruce dentro de la transacción; asiento en los dos libros con `origen='conciliacion'`, llave `salida:soat:<id>` / `consumo:soat:<id>` y `tramite_id NULL`; adopción del orden 2; `DatosConsumoTransito.tramiteId` nullable; `leftJoin` en `proyeccionCalculo`; «Conciliado · bolsa» en el reporte de costos; test de que el reverso no lo alcanza | §2, §3.3, §4, §6, §7.3 |
-| **HU-4 — comprobante PSE** | `flito_soportes.conciliacion_boleta_id` en uso; `POST`/`GET …/boletas/:id/comprobante`; `GET /flito/soat/:id/comprobante-conciliacion` para el gestor; visibilidad por rol | §1.1 (soportes), §7.4, §7.5 |
+| **HU-4 — comprobante PSE** | `flito_soportes.conciliacion_boleta_id` en uso; `POST`/`GET …/boletas/:id/comprobante`; `PUT` para reemplazar; el comprobante en `GET /flito/soat/:id/soportes` para el gestor; `boletasSinComprobante` en el tablero; pertenencia en las rutas genéricas de soportes | §1.1 (soportes), §7.4, §7.5, §7.6 |
 
 ## Relación con otros ADR
 
