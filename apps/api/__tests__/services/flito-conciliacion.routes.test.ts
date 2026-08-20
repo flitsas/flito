@@ -248,7 +248,10 @@ describe('flito-conciliacion · AC7 · lo que se rechaza en el borde', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.codigo).toBe('archivo_invalido');
-    expect(res.body.error).toContain('application/pdf');
+    // El motivo lo escribimos nosotros: el content-type que mandó el cliente NO vuelve en la
+    // respuesta. Devolverlo era hacerle de eco a una cadena ajena en un cuerpo que alguien pinta.
+    expect(res.body.error).toBe('El archivo tiene que ser el .xlsx que descargas del portal.');
+    expect(JSON.stringify(res.body)).not.toContain('application/pdf');
     expect(espia.inserts).toHaveLength(0);
   });
 
@@ -260,6 +263,24 @@ describe('flito-conciliacion · AC7 · lo que se rechaza en el borde', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.codigo).toBe('archivo_invalido');
+    expect(espia.inserts).toHaveLength(0);
+  });
+
+  it('400 si el multipart trae una avalancha de campos: lo corta multer, no el schema', async () => {
+    // Sin `limits.fields`/`parts`, busboy parsea los sesenta campos ENTEROS y los deja en
+    // `req.body` antes de que `cargaSchema.strict()` diga que sobran. El tope los corta al vuelo.
+    escenarioCargaOk();
+    const app = await buildApp();
+    const req = request(app).post('/api/flito/conciliacion/boletas')
+      .set('Authorization', await auth('financiera'))
+      .field('companiaId', String(COMPANIA))
+      .field('fechaPago', '2026-08-13');
+    for (let i = 0; i < 60; i += 1) req.field(`relleno${i}`, 'x');
+    const res = await req.attach('archivo', await excelReal(), { filename: 'b.xlsx', contentType: MIME_XLSX });
+
+    expect(res.status).toBe(400);
+    expect(res.body.codigo).toBe('archivo_invalido');
+    expect(res.body.error).toMatch(/demasiad/i);
     expect(espia.inserts).toHaveLength(0);
   });
 

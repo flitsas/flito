@@ -163,6 +163,11 @@ export const CONCILIACION_COLUMNA_TOTAL = 'Total a Pagar';
  *
  *   archivo_invalido   — no es un xlsx legible, falta la hoja, falta una columna, o una fila trae un
  *                        número de póliza o un valor que no se pueden leer
+ *   archivo_demasiado_grande — el `.xlsx` cabe en 10 MB pero POR DENTRO es enorme (un zip comprime
+ *                        20:1 sin esfuerzo). Se rechaza mirando el zip, ANTES de abrir el libro:
+ *                        abrirlo para contar las filas es lo que tumba el proceso. Como todavía no
+ *                        se han leído filas, este código NO puede traer un conteo de líneas —por eso
+ *                        no es `demasiadas_filas`—, trae bytes
  *   sin_filas          — el archivo solo tiene encabezados
  *   demasiadas_filas   — por encima de `CONCILIACION_MAX_FILAS`
  *   poliza_repetida    — la MISMA póliza en dos filas del MISMO archivo. No confundir con el
@@ -173,6 +178,7 @@ export const CONCILIACION_COLUMNA_TOTAL = 'Total a Pagar';
  */
 export const CodigoErrorConciliacion = {
   ARCHIVO_INVALIDO: 'archivo_invalido',
+  ARCHIVO_DEMASIADO_GRANDE: 'archivo_demasiado_grande',
   SIN_FILAS: 'sin_filas',
   DEMASIADAS_FILAS: 'demasiadas_filas',
   POLIZA_REPETIDA: 'poliza_repetida',

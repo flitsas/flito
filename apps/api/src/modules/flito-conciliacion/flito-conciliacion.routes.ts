@@ -46,15 +46,31 @@ const CONCILIACION = requireRole('admin', 'financiera');
 /** El .xlsx del portal. Un xlsx es un zip, así que el MIME declarado no prueba nada por sí solo. */
 const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/** El rechazo del `fileFilter`, con su propio tipo para no tener que mirarle el texto al error. */
+class TipoNoPermitidoError extends Error {}
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: CONCILIACION_MAX_BYTES, files: 1 },
+  // `fileSize` acota el archivo; el resto acota el FORMULARIO. Sin `fields`/`parts`, un multipart
+  // con decenas de miles de campos de texto lo parsea busboy ENTERO —y lo guarda en `req.body`—
+  // antes de que `cargaSchema.strict()` llegue a decir que sobran. La carga manda tres partes:
+  // el archivo, `companiaId` y `fechaPago`. Ocho campos y diez partes son margen de sobra.
+  limits: {
+    fileSize: CONCILIACION_MAX_BYTES,
+    files: 1,
+    fields: 8,
+    parts: 10,
+    fieldSize: 1024,
+    fieldNameSize: 64,
+  },
   // Sin este filtro, el content-type que declara el cliente viaja intacto hasta el parser. El
   // olfateo real de los bytes va después, en el handler: multer no puede hacerlo porque necesita el
   // buffer completo (AGENTS.md 17).
   fileFilter: (_req, file, cb) => {
     if (file.mimetype === MIME_XLSX) cb(null, true);
-    else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
+    // El MIME rechazado NO se devuelve: es una cadena que escribe el cliente, y devolverla es
+    // hacerle de eco a un dato ajeno en una respuesta que otro puede acabar pintando.
+    else cb(new TipoNoPermitidoError('tipo no permitido'));
   },
 });
 
@@ -73,17 +89,35 @@ const cargaLimiter = rateLimit({
 });
 
 /**
- * Envuelve a multer para que sus rechazos —tipo no permitido, archivo por encima de 10 MB— salgan
- * como 400 con su motivo y no como el 500 genérico del error handler (AC7). Mismo envoltorio que
- * `flito-bolsas.routes.ts`.
+ * Los motivos de multer, en castellano y escritos por NOSOTROS.
+ *
+ * El cuerpo de la respuesta no repite nada que venga del cliente —ni el MIME, ni el nombre del
+ * archivo, ni el del campo—: lo que sale es este diccionario, indexado por el código de multer.
+ */
+const MOTIVO_MULTER: Record<string, string> = {
+  LIMIT_FILE_SIZE: `El archivo pesa más de ${Math.round(CONCILIACION_MAX_BYTES / (1024 * 1024))} MB.`,
+  LIMIT_FILE_COUNT: 'Sube un solo archivo.',
+  LIMIT_UNEXPECTED_FILE: 'El archivo tiene que venir en el campo «archivo».',
+  LIMIT_FIELD_COUNT: 'El formulario trae demasiados campos.',
+  LIMIT_PART_COUNT: 'El formulario trae demasiadas partes.',
+  LIMIT_FIELD_KEY: 'El formulario trae un campo con un nombre demasiado largo.',
+  LIMIT_FIELD_VALUE: 'El formulario trae un campo demasiado largo.',
+};
+
+const MOTIVO_TIPO = 'El archivo tiene que ser el .xlsx que descargas del portal.';
+
+/**
+ * Envuelve a multer para que sus rechazos —tipo no permitido, archivo por encima de 10 MB, un
+ * formulario con más partes de las que la carga acepta— salgan como 400 con su motivo y no como el
+ * 500 genérico del error handler (AC7). Mismo envoltorio que `flito-bolsas.routes.ts`.
  */
 function recibirExcel(req: Request, res: Response, next: (e?: unknown) => void): void {
   upload.single('archivo')(req, res, (err: unknown) => {
     if (err) {
-      res.status(400).json({
-        error: err instanceof Error ? err.message : 'Archivo inválido',
-        codigo: CodigoErrorConciliacion.ARCHIVO_INVALIDO,
-      });
+      let error = 'Archivo inválido';
+      if (err instanceof TipoNoPermitidoError) error = MOTIVO_TIPO;
+      else if (err instanceof multer.MulterError) error = MOTIVO_MULTER[err.code] ?? error;
+      res.status(400).json({ error, codigo: CodigoErrorConciliacion.ARCHIVO_INVALIDO });
       return;
     }
     next();

@@ -30,6 +30,7 @@ import {
   CONCILIACION_COLUMNA_POLIZA, CONCILIACION_COLUMNA_TOTAL, CONCILIACION_HOJA,
   CodigoErrorConciliacion, normalizarPoliza, POLIZA_MAX_LONGITUD,
 } from '@operaciones/shared-types';
+import { medirXlsx, type LimitesZip } from './flito-conciliacion.zip.js';
 
 /** Una fila de datos ya leída y normalizada. Es todo lo que el cruce necesita del archivo. */
 export interface FilaBoleta {
@@ -195,12 +196,109 @@ function columnasDe(hoja: ExcelJS.Worksheet): { poliza: number; total: number } 
 }
 
 /**
+ * Techo de lo que el libro puede ocupar DESCOMPRIMIDO, sumadas todas sus partes.
+ *
+ * Los 10 MB de `CONCILIACION_MAX_BYTES` acotan lo que viaja por la red, no lo que ocupa en el heap:
+ * un zip comprime XML 20:1 sin despeinarse, así que un archivo que pasa el tope de multer y el
+ * magic number puede traer 105 MB de `sheet1.xml` dentro. Ese es el archivo real con el que se
+ * reprodujo el fallo, y `load` se comía 1215 MB de heap antes de dejar contar sus filas.
+ *
+ * Por qué 16 MB y no un número redondo más grande:
+ *
+ *   · El reporte REAL del portal ocupa 25 KB descomprimidos con 11 filas (7,6 KB de hoja, ~700 B
+ *     por fila). Un reporte de las 500 filas del tope ronda los 350 KB, y uno guardado a mano por
+ *     Excel —con estilos por celda— no llega al mega. 16 MB son cuarenta veces eso: nadie legítimo
+ *     lo va a rozar.
+ *   · Al abrirlo, ExcelJS multiplica: 105 MB de XML se convirtieron en +1215 MB de heap, o sea ~11×.
+ *     Con 16 MB el pico por carga queda en unos 190 MB, que el contenedor de 4 GB
+ *     (`apps/api/Dockerfile`) aguanta aunque entren varias cargas a la vez. Con 50 MB serían 575 MB
+ *     por carga y tres simultáneas volverían a poner el proceso en el filo.
+ *
+ * Con el pico acotado NO se añade además un semáforo de «una carga a la vez». Serializar pondría a
+ * hacer cola peticiones que ya tienen retenido su buffer de hasta 10 MB en multer: la memoria no se
+ * ahorraría, se movería a la cola —y esa sí crece sin techo—, a cambio de volver secuencial una
+ * pantalla que Financiera usa a diario. Limitar concurrencia, si alguna vez hace falta, es cosa del
+ * proceso o del proxy, no de este parser.
+ *
+ * Se puede bajar en una prueba pasando `opts.maxDescomprimido`; no hay variable de entorno porque
+ * esto no es una política de negocio que Operaciones vaya a recalibrar, es un cinturón de memoria.
+ */
+export const CONCILIACION_MAX_DESCOMPRIMIDO = 16 * 1024 * 1024;
+
+/** El reporte del portal trae UNA hoja y diez entradas. Se deja margen, no una barra libre. */
+export const CONCILIACION_MAX_HOJAS = 8;
+export const CONCILIACION_MAX_ENTRADAS = 64;
+
+/** Ajustes de la revisión previa del zip. Existen para poder apretarlos en las pruebas. */
+export interface OpcionesBoleta {
+  maxDescomprimido?: number;
+  maxHojas?: number;
+  maxEntradas?: number;
+}
+
+function mb(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',');
+}
+
+/**
+ * El portero: mira el zip por fuera y decide si se puede abrir. Lanza si no.
+ *
+ * Todo el porqué está en `flito-conciliacion.zip.ts`. Lo que importa aquí es el ORDEN: esto corre
+ * ANTES de `wb.xlsx.load`, que es la línea que descomprime y materializa el libro entero.
+ */
+async function revisarZip(buffer: Buffer, limites: LimitesZip, maxFilas: number): Promise<void> {
+  const medida = await medirXlsx(buffer, limites);
+  if (medida.estado === 'ok') return;
+
+  if (medida.estado === 'excede') {
+    throw new ExcelBoletaError(
+      CodigoErrorConciliacion.ARCHIVO_DEMASIADO_GRANDE,
+      `El archivo ocupa ${mb(medida.bytes)} MB por dentro y el máximo son `
+      + `${mb(limites.maxBytes)} MB: no es el reporte de una boleta de hasta ${maxFilas} líneas. `
+      + 'Descárgalo otra vez del portal, tal cual, sin abrirlo ni volverlo a guardar.',
+      { bytes: medida.bytes, maximo: limites.maxBytes },
+    );
+  }
+  if (medida.estado === 'estructura') {
+    throw new ExcelBoletaError(
+      CodigoErrorConciliacion.ARCHIVO_DEMASIADO_GRANDE,
+      `El archivo trae ${medida.hojas} hojas y ${medida.entradas} componentes: no es el reporte que `
+      + 'descargas del portal.',
+      { hojas: medida.hojas, entradas: medida.entradas },
+    );
+  }
+  // ilegible: ni siquiera es un zip que se deje recorrer. Mismo desenlace que un `load` fallido, y
+  // a propósito el mismo texto: al que sube el archivo le da igual en qué byte se rompió.
+  throw new ExcelBoletaError(
+    CodigoErrorConciliacion.ARCHIVO_INVALIDO,
+    'No pudimos leer el archivo. Tiene que ser el Excel que descargas del portal.',
+  );
+}
+
+/**
  * Lee el `.xlsx` del portal.
  *
- * @param maxFilas Tope de filas de datos (`env.CONCILIACION_MAX_FILAS`). Se comprueba ANTES de
- *   recorrer la hoja: un archivo con un millón de filas no se lee entero para luego rechazarlo.
+ * El tamaño se comprueba DOS veces y por motivos distintos, y el orden no es negociable:
+ *
+ *   1. `revisarZip`, ANTES de abrir nada, acota lo que el libro puede ocupar en el heap mirando el
+ *      zip por fuera. Sin esto, `load` materializa el libro entero —13,7 s de event loop bloqueado
+ *      y 1,2 GB de heap con un archivo de 9 MB— y cualquier tope posterior llega tarde: con el heap
+ *      de producción, dos cargas así se llevan por delante el proceso, no la petición.
+ *   2. El tope de FILAS, que es una regla de negocio (`CONCILIACION_MAX_FILAS`) y no una defensa,
+ *      se comprueba con el libro ya abierto, antes de recorrer la hoja.
+ *
+ * @param maxFilas Tope de filas de datos (`env.CONCILIACION_MAX_FILAS`).
+ * @param opts Cinturones de memoria; por defecto los de este módulo. Se aprietan en las pruebas.
  */
-export async function parsearBoleta(buffer: Buffer, maxFilas: number): Promise<BoletaParseada> {
+export async function parsearBoleta(
+  buffer: Buffer, maxFilas: number, opts: OpcionesBoleta = {},
+): Promise<BoletaParseada> {
+  await revisarZip(buffer, {
+    maxBytes: opts.maxDescomprimido ?? CONCILIACION_MAX_DESCOMPRIMIDO,
+    maxHojas: opts.maxHojas ?? CONCILIACION_MAX_HOJAS,
+    maxEntradas: opts.maxEntradas ?? CONCILIACION_MAX_ENTRADAS,
+  }, maxFilas);
+
   const wb = new ExcelJS.Workbook();
   try {
     await wb.xlsx.load(buffer as unknown as ArrayBuffer);
