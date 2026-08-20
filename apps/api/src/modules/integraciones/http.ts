@@ -1,5 +1,6 @@
 // HTTP helpers para integraciones directas (SIMIT, Fasecolda, ML, RUNT).
 
+import http from 'http';
 import https from 'https';
 
 export interface HttpResponse { status: number | undefined; data: any; headers?: Record<string, string | string[] | undefined> }
@@ -25,11 +26,39 @@ export function httpsJson(method: string, url: string, body: unknown, hdrs?: Rec
   });
 }
 
-export function httpsGetJson(url: string, hdrs?: Record<string, string>, timeoutMs = 15_000): Promise<HttpResponse> {
+/** Excepciones que un llamador concreto puede pedirle a `httpsGetJson`. */
+export interface OpcionesGetJson {
+  /**
+   * Habla `http://` EN CLARO cuando la URL lo dice, en vez de forzar `https` igualmente.
+   *
+   * Apagado por defecto y a propósito: el comportamiento histórico de este helper —compartido con
+   * traspaso, RUNT, Fasecolda y Mercado Libre— es hablar `https` pase lo que pase, y ninguno de
+   * esos llamadores debe cambiar por esto. Lo enciende UNA fuente, el UTS municipal de
+   * comparendos, cuyo proveedor no publica HTTPS (decisión de David, 2026-08-20); su adapter pide
+   * la misma excepción arriba, en `baseUrlExigida`, para que la decisión quede en un solo sitio.
+   *
+   * Que sea un parámetro por llamada, y no una variable de entorno, es lo que impide que abrirlo
+   * para el UTS lo abra también para una petición que lleve credencial en la cabecera.
+   */
+  permitirTextoPlano?: boolean;
+}
+
+export function httpsGetJson(
+  url: string, hdrs?: Record<string, string>, timeoutMs = 15_000, opciones: OpcionesGetJson = {},
+): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
-    const rq = https.request({
-      method: 'GET', hostname: u.hostname, path: u.pathname + u.search,
+    // Con la excepción apagada (el default) se sigue usando `https` aunque la URL diga `http:`,
+    // que es lo que este helper ha hecho siempre.
+    const enClaro = u.protocol === 'http:' && opciones.permitirTextoPlano === true;
+    const transporte = enClaro ? http : https;
+    const rq = transporte.request({
+      method: 'GET', hostname: u.hostname,
+      // El puerto de la URL se DESCARTABA: un `…:8080` salía en silencio contra el 443 del host,
+      // que es un fallo mudo —la petición sale, pero no a donde dice la variable de entorno—.
+      // `u.port` es `''` cuando la URL no lo trae, y ahí `undefined` deja el default del módulo.
+      port: u.port || undefined,
+      path: u.pathname + u.search,
       headers: { Accept: 'application/json', 'User-Agent': 'Kyverum-Operaciones/1.0', ...hdrs },
       timeout: timeoutMs,
     }, (r2) => {

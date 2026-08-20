@@ -28,6 +28,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { FABRICADO, itemMunicipal, itemSimit } from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -368,5 +369,61 @@ describe('acumular* — el payload entra YA podado al consolidado (AC1)', () => 
     const payload = acumulador.get('C-0001')!.payloadSimit as Record<string, unknown>;
     expect(Object.prototype.hasOwnProperty.call(payload, 'documentoInfractor')).toBe(false);
     expect(payload.valorAPagar).toBe('604100');
+  });
+});
+
+// ────────────── Rutas ANIDADAS del mapa v2: se reconstruye la hoja, no el subárbol ──────────────
+//
+// El mapa v2 (migración 0158) nombra `source_path` con puntos porque los payloads reales del
+// 2026-08-20 cuelgan de subobjetos la mitad de lo que el canónico necesita. Eso reabre la fuga que
+// esta HU cerró, con otra ruta: si la poda copiara el CONTENEDOR cuya hoja está autorizada,
+// `estadoCuenta.secretaria.nombreAutoridadTransito` arrastraría todo `estadoCuenta` —con la
+// dirección del hecho dentro— y `infracciones.0.…` traería el ítem entero, `infractor` incluido.
+
+describe('podarPayload con rutas anidadas (mapa v2)', () => {
+  const MAPA_V2_SIMIT: FilaMapa[] = [
+    fila('simit', 'numeroComparendo', 'numeroComparendo', 1, 2),
+    fila('simit', 'placa', 'placa', 1, 2),
+    fila('simit', 'infracciones.0.codigoInfraccion', 'codigoInfraccion', 1, 2),
+    fila('simit', 'infracciones.0.descripcionInfraccion', 'descripcionInfraccion', 1, 2),
+    fila('simit', 'fechaComparendo', 'fechaComparendo', 1, 2),
+    fila('simit', 'organismoTransito', 'organismo', 1, 2),
+    fila('simit', 'valorPagar', 'monto', 1, 2),
+    fila('simit', 'estadoComparendo', 'estadoFuente', 1, 2),
+  ];
+
+  it('el ítem de SIMIT con la forma real NO conserva `infractor`, y sí las hojas autorizadas', async () => {
+    conMapa(MAPA_V2_SIMIT);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(itemSimit(), camposConservables(candidatosDe(mapa, 'simit')))!;
+
+    expect(Object.prototype.hasOwnProperty.call(podado, 'infractor')).toBe(false);
+    expect(JSON.stringify(podado)).not.toContain(FABRICADO.documentoInfractor);
+    // La hoja anidada sí sobrevive, y sin arrastrar `valorInfraccion` ni el resto del ítem.
+    expect(podado.infracciones).toEqual([{
+      codigoInfraccion: 'D02', descripcionInfraccion: 'Conducir sin portar el SOAT',
+    }]);
+    expect(podado.valorPagar).toBe('1308422');
+  });
+
+  it('del `estadoCuenta` del UTS solo sale la hoja del organismo: la dirección se queda fuera', async () => {
+    conMapa([
+      fila('municipal', 'numeroComparendo', 'numeroComparendo', 1, 2),
+      fila('municipal', 'estadoCuenta.secretaria.nombreAutoridadTransito', 'organismo', 1, 2),
+    ]);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(itemMunicipal(), camposConservables(candidatosDe(mapa, 'municipal')))!;
+
+    expect(podado).toEqual({
+      numeroComparendo: FABRICADO.numeroMunicipal,
+      estadoCuenta: { secretaria: { nombreAutoridadTransito: FABRICADO.organismoMunicipal } },
+    });
+    // Ni la dirección del hecho, ni el NIT consultado, ni el nombre del contraventor.
+    const json = JSON.stringify(podado);
+    expect(json).not.toContain(FABRICADO.direccionMunicipal);
+    expect(json).not.toContain(FABRICADO.nitMunicipal);
+    expect(json).not.toContain('T****');
   });
 });

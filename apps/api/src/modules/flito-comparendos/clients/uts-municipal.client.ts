@@ -10,35 +10,43 @@
 // nada que hacer en esta petición — mandarlo «por si acaso» sería regalarle la credencial a un
 // tercero.
 //
-// ── Limitación conocida: el proveedor publica el endpoint sobre `http://` ────────────────────────
+// ── El proveedor solo publica `http://`, y esta fuente lo acepta ─────────────────────────────────
 //
-// El host que dio el proveedor va sobre `http://` (texto plano) y el transporte que usa este
-// adapter —`integraciones/http.ts`— habla `https` incondicionalmente. Por tanto **el modo `real`
-// contra el UTS municipal no puede funcionar todavía**: `mock` sigue siendo el único modo
-// ejercitable de esta fuente.
+// El host que dio el proveedor va sobre `http://` (texto plano) y no publica HTTPS. Hasta el
+// 2026-08-20 este adapter lo RECHAZABA —`fuente_no_configurada`, 503— y con ello el modo `real`
+// contra el UTS no era ejercitable. David decidió ese día abrirlo, sustituyendo a la decisión de
+// «preguntar antes al proveedor» del Feature 17a §594.
 //
-// Y no se deja a la suerte: `baseUrlExigida` **rechaza** una base que no sea `https:` con
-// `fuente_no_configurada` (503). Sin esa comprobación, una base `http://` no habría significado
-// «va en texto plano» sino «sale igual contra el 443 de ese host» —y si ese 443 está abierto, el
-// NIT se remite a un endpoint que nadie revisó; y si no lo está, el operador recibe un error opaco
-// de TLS o de DNS en lugar del error de provisión que este módulo diseñó justo para esto.
+// La excepción se pide en los DOS sitios y a mano, que es lo que la mantiene acotada:
 //
-// Es deliberado y no un descuido: abrir el helper a texto plano mandaría el NIT monitoreado por la
-// red sin cifrar y afectaría de paso a traspaso, RUNT y Fasecolda, que comparten ese helper. La
-// decisión del Líder Técnico es preguntar antes al proveedor si expone HTTPS; solo si la respuesta
-// es que no, se evaluará un transporte http acotado a esta fuente. Hasta entonces, lo que hay aquí
-// es el verbo y la ruta correctos, no una integración operativa.
+//   1. `baseUrlExigida(..., { permitirTextoPlano: true })` — deja pasar la base `http://`.
+//   2. `httpsGetJson(..., { permitirTextoPlano: true })` — hace que la petición SALGA por el
+//      módulo `http`. Sin esto, el helper compartido habría hablado `https` igualmente contra el
+//      host de la base y el NIT se habría remitido en silencio a un endpoint que nadie revisó (o
+//      el operador habría recibido un error opaco de TLS en lugar de una respuesta).
+//
+// Verifik NO la pide y no debe pedirla: su petición lleva el Bearer del módulo, y en texto plano
+// eso es regalar la credencial. Traspaso, RUNT, Fasecolda y Mercado Libre tampoco se ven afectados:
+// la opción del helper está apagada por defecto.
+//
+// Lo que se acepta, dicho en voz alta: el NIT monitoreado —dato de empresa, transferencia a tercero
+// bajo Ley 1581— viaja SIN CIFRAR en la query de un GET. Queda registrado en
+// `docs/privacy/registro-terceros-destinatarios.md` y este adapter emite un `log.warn` la primera
+// vez que usa esa base en un proceso, para que no se convierta en el estado normal por olvido
+// (ver `avisarTextoPlano`: hoy es por proceso, no por corrida).
 
 import { httpsGetJson } from '../../integraciones/http.js';
 import { env } from '../../../config/env.js';
 import { loggerFor } from '../../../shared/logger.js';
 import { maskDocument } from '../../../shared/utils/pii.js';
+import { ComparendosFuenteRespuestaIlegibleError } from '../flito-comparendos.errors.js';
 import {
   baseUrlExigida,
   comoErrorDeFuente,
   conLimiteDeTiempo,
   exigirHttpOk,
   extraerLista,
+  leerRuta,
   limiteDeTiempoMs,
   type ContextoFuente,
 } from './fuente-http.js';
@@ -53,13 +61,105 @@ const log = loggerFor('flito-comparendos');
  * `/infraction/api/Infraccion` es parte del contrato del proveedor y vive aquí, no en la variable.
  * Si alguien provisiona la base ya con ese prefijo, la ruta saldría duplicada.
  *
- * Sin puerto: `integraciones/http.ts` arma la petición con `{ hostname, path }` y **descarta el
- * `port` de la URL**, así que un `…:8080` saldría en silencio contra el 443 de ese host. Añadir
- * `port` al helper es cambio de un helper compartido (traspaso, RUNT, Fasecolda) y va en su propio
- * PR; mientras tanto la variable no admite puerto, y el que hoy publica el proveedor va sobre
- * `http://`, que este adapter rechaza (ver la cabecera del archivo).
+ * Con puerto: la base **sí** admite `…:8080`. `integraciones/http.ts` descartaba el `port` de la
+ * URL y armaba la petición solo con `{ hostname, path }`, de modo que un puerto explícito salía en
+ * silencio contra el 443; desde el 2026-08-20 el helper lo respeta.
  */
 const RUTA_CONSULTA = '/infraction/api/Infraccion/ConsultarInfraccionFuente';
+
+/**
+ * Dónde cuelga el UTS su lista, en orden de prioridad. Las dos ramas, y se concatenan.
+ *
+ * Capturado contra el proveedor el 2026-08-20: la raíz es el eco de la consulta
+ * (`{ idTipoIdentificacion, criterio, response, consultaMultaOComparendoOutDTO, … }`) y lo bueno
+ * está dos niveles adentro. `informacionComparendo` va primero porque es donde llegaron los
+ * comparendos reales; `informacionComparendoAdicional` aparece ANTES en el cuerpo y llegó VACÍO,
+ * así que «la primera rama que exista» habría devuelto cero y apagado el histórico del NIT.
+ *
+ * Las que NO están, y por qué: `informacionMulta` es otro concepto de negocio (multas, no
+ * comparendos) y `tarifasComparendos` es un catálogo de tarifas —sus ítems no son comparendos y
+ * concatenarlos metería basura en el merge—. Si algún día hay que ingerir multas, es otra decisión
+ * de negocio y otra rama, no un añadido silencioso aquí.
+ */
+const RUTAS_LISTA = [
+  'consultaMultaOComparendoOutDTO.informacionComparendo',
+  'consultaMultaOComparendoOutDTO.informacionComparendoAdicional',
+] as const;
+
+/** Dónde dice el UTS si la consulta le salió bien. Ver `exigirEnvelopeUtsOk`. */
+const RUTA_ESTADO = 'consultaMultaOComparendoOutDTO.estado';
+
+/** Único `codigoEstado` que el proveedor considera consulta resuelta («EXITOSO»). */
+const CODIGO_ESTADO_OK = 1;
+
+/**
+ * El UTS contesta 200 aunque le haya ido mal: el veredicto va en el cuerpo.
+ *
+ * `consultaMultaOComparendoOutDTO.estado` trae `{ codigoEstado: 1, descripcion: "EXITOSO" }` en el
+ * camino bueno. Si el código existe y NO es 1, la consulta no se resolvió, y entonces las listas
+ * que vengan (vacías, típicamente) no significan «este NIT no debe nada»: significan «no se sabe».
+ * Dejarlas pasar sería devolver `ok:true` con lista vacía y, con ella, la inactivación en falso del
+ * histórico del NIT — el fallo que todo este módulo está construido para no cometer. Por eso sale
+ * como `ComparendosFuenteRespuestaIlegibleError` (502) y no como una lista vacía.
+ *
+ * Si el envelope no trae `estado` no se inventa nada: se sigue adelante y decide `extraerLista`. Un
+ * proveedor que cambie el nombre del campo no puede convertirse en un error duro por sorpresa.
+ *
+ * La pista lleva SOLO el `codigoEstado`, que es el diagnóstico útil y un valor del contrato. La
+ * `descripcion` que acompaña al código NO se copia, aunque sea tentador: esta pista viaja al cuerpo
+ * de la respuesta HTTP y a `flito_comparendos_sync_steps.mensaje`, que se conserva y se sirve, y la
+ * rama `codigoEstado ≠ 1` no se ha observado nunca — nadie puede prometer qué escribe el proveedor
+ * ahí. Un `"SIN INFORMACION PARA EL NIT 900…"` cabría de sobra en el recorte que había aquí, y el
+ * contrato de esta clase de error es que la pista describe la FORMA, nunca el contenido. Por el
+ * mismo motivo no sale el `criterio` de la raíz, que ES el NIT consultado.
+ */
+function exigirEnvelopeUtsOk(cuerpo: unknown, httpStatus: number, ctx: ContextoFuente): void {
+  const estado = leerRuta(cuerpo, RUTA_ESTADO);
+  if (estado === null || typeof estado !== 'object') return;
+
+  const codigo = (estado as Record<string, unknown>).codigoEstado;
+  if (codigo === undefined || codigo === null) return;
+  if (Number(codigo) === CODIGO_ESTADO_OK) return;
+
+  throw new ComparendosFuenteRespuestaIlegibleError(
+    ctx.origen, ctx.fuente, httpStatus,
+    `el UTS respondió codigoEstado ${String(codigo).slice(0, 12)}`,
+  );
+}
+
+/**
+ * ¿Ya se avisó de que esta fuente va en texto plano?
+ *
+ * El adapter se llama una vez por par (NIT, municipio): sin esto, una corrida de 8 municipios × N
+ * NITs llenaría el log del mismo aviso y dejaría de leerse. Se recuerda la base avisada para que un
+ * cambio de provisión vuelva a avisar.
+ *
+ * DEUDA: no hay gancho desde el sync, así que dentro de un mismo proceso el aviso sale una vez y no
+ * una por corrida. `reiniciarAvisoTextoPlano()` existe para cuando se quiera enganchar (y para que
+ * los tests no dependan del orden).
+ */
+let baseAvisadaEnClaro: string | null = null;
+
+/** Olvida el aviso de texto plano. Para los tests y para el arranque de una corrida del sync. */
+export function reiniciarAvisoTextoPlano(): void {
+  baseAvisadaEnClaro = null;
+}
+
+/**
+ * Deja constancia de que el NIT sale sin cifrar, sin enseñar ni la URL ni el NIT.
+ *
+ * `maskDocument` para el NIT (Ley 1581) y del host solo el ESQUEMA: la base es provisión, no dato
+ * personal, pero esta línea acaba en el log central y la URL completa de esta fuente lleva el NIT
+ * en la query — no se registra ninguna URL de este módulo, y la regla no se rompe por un aviso.
+ */
+function avisarTextoPlano(base: string, nit: string, ctx: ContextoFuente): void {
+  if (baseAvisadaEnClaro === base) return;
+  baseAvisadaEnClaro = base;
+  log.warn(
+    { fuente: ctx.fuente, nit: maskDocument(nit), esquema: 'http' },
+    'UTS municipal sobre http: el NIT viaja sin cifrar hacia el proveedor (decisión 2026-08-20)',
+  );
+}
 
 /**
  * Infracciones que el UTS de un municipio tiene para un NIT.
@@ -78,7 +178,13 @@ export async function consultarComparendosMunicipales(
 
   if (env.COMPARENDOS_SIMIT_MODE === 'mock') return respuestaSimulada(nit, ctx);
 
-  const base = baseUrlExigida(env.UTS_MUNICIPAL_BASE_URL, 'UTS_MUNICIPAL_BASE_URL', ctx);
+  // `permitirTextoPlano` SOLO aquí (ver la cabecera del archivo): el proveedor no publica HTTPS y
+  // esta petición no lleva credencial. Verifik no la pide y no debe pedirla.
+  const base = baseUrlExigida(
+    env.UTS_MUNICIPAL_BASE_URL, 'UTS_MUNICIPAL_BASE_URL', ctx, { permitirTextoPlano: true },
+  );
+  const enClaro = base.toLowerCase().startsWith('http://');
+  if (enClaro) avisarTextoPlano(base, nit, ctx);
 
   // `URLSearchParams` y no interpolación. El Zod de la HU #11497 ya restringe el alfabeto de las
   // dos cosas que entran aquí —el NIT a dígitos y el código de fuente a letras, dígitos, espacio,
@@ -105,12 +211,16 @@ export async function consultarComparendosMunicipales(
         // RFC 9111 al caché compartido de respuestas autenticadas no aplica y este encabezado es
         // lo único que le quita a un proxy intermedio la discreción de almacenarla.
         'Cache-Control': 'no-store',
-      }, limiteDeTiempoMs()),
+        // La misma excepción que arriba, y en el mismo sitio donde se decide: sin esto el helper
+        // hablaría `https` contra un host que solo escucha en claro.
+      }, limiteDeTiempoMs(), { permitirTextoPlano: enClaro }),
       ctx,
     );
 
     const httpStatus = exigirHttpOk(respuesta.status, ctx);
-    const items = extraerLista<ComparendoCrudoMunicipal>(respuesta.data, httpStatus, ctx);
+    // El 200 no basta: el UTS pone el veredicto de la consulta DENTRO del cuerpo.
+    exigirEnvelopeUtsOk(respuesta.data, httpStatus, ctx);
+    const items = extraerLista<ComparendoCrudoMunicipal>(respuesta.data, httpStatus, ctx, RUTAS_LISTA);
 
     log.debug({ fuente: ctx.fuente, nit: maskDocument(nit), httpStatus, items: items.length },
       'consulta a UTS municipal resuelta');
