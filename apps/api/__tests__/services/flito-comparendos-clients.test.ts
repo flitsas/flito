@@ -22,6 +22,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Redacted } from '../../src/shared/utils/crypto.js';
+import {
+  FABRICADO, numeroSimit, payloadSimit, payloadUts,
+} from '../fixtures/comparendos/payloads-fuente.js';
 
 // Cadena con una pinta imposible de confundir: cualquier aparición suya en un log o en un mensaje
 // de error es, por construcción, una filtración de la credencial.
@@ -433,62 +436,33 @@ describe('errores tipados de las fuentes', () => {
   // entero. Un fallo aquí no se ve como un error: se ve como «este NIT ya no debe nada».
 
   it('SIMIT: `data.comparendos` vacío y `data.multas` con 5 → devuelve 5, nunca 0', async () => {
-    const multas = Array.from({ length: 5 }, (_, i) => ({
-      numeroComparendo: `9999900000001234567${i}`,
-      comparendo: true,
-      placa: 'QWE321',
-      fechaComparendo: '11/05/2026 14:20:00',
-      infracciones: [{ codigoInfraccion: 'D02', valorInfraccion: '1266222' }],
-      valorPagar: '1308422',
-    }));
-    // La raíz de Verifik: `data` es un OBJETO, no un array — el barrido genérico de claves lo
-    // encontraba, veía que no era array y devolvía `fuente_respuesta_ilegible` (502).
-    httpsGetJsonMock.mockResolvedValue({
-      status: 200,
-      data: { data: { comparendos: [], multas, cursos: [], totalMultas: 5 }, signature: 'x', id: 'y' },
-    });
+    // `data` es un OBJETO, no un array: el barrido genérico de claves lo encontraba, veía que no
+    // era array y devolvía `fuente_respuesta_ilegible` (502).
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: payloadSimit(5) });
 
     const r = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
 
     expect(r.items).toHaveLength(5);
-    expect(r.items[0]).toMatchObject({ numeroComparendo: '99999000000012345670' });
+    expect(r.items[0]).toMatchObject({ numeroComparendo: numeroSimit(0) });
   });
 
   it('UTS: `informacionComparendoAdicional` vacío y ANTES que `informacionComparendo` → devuelve 1', async () => {
     modoReal();
-    httpsGetJsonMock.mockResolvedValue({
-      status: 200,
-      data: {
-        idTipoIdentificacion: 3,
-        criterio: NIT,
-        response: null,
-        consultaMultaOComparendoOutDTO: {
-          estado: { codigoEstado: 1, descripcion: 'EXITOSO' },
-          informacionComparendoAdicional: [],
-          informacionComparendo: [{ numeroComparendo: 'D99999000000099999901', placa: 'ZYX654' }],
-          informacionMulta: [],
-          tarifasComparendos: [],
-        },
-      },
-    });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: payloadUts({ nit: NIT }) });
 
     const r = await consultarComparendosMunicipales(NIT, 'BELLO');
 
     expect(r.items).toHaveLength(1);
-    expect(r.items[0]).toMatchObject({ numeroComparendo: 'D99999000000099999901' });
+    expect(r.items[0]).toMatchObject({ numeroComparendo: FABRICADO.numeroMunicipal });
   });
 
   it('UTS con `codigoEstado` distinto de 1 → error de fuente, NUNCA lista vacía', async () => {
     modoReal();
     httpsGetJsonMock.mockResolvedValue({
       status: 200,
-      data: {
-        criterio: NIT,
-        consultaMultaOComparendoOutDTO: {
-          estado: { codigoEstado: 4, descripcion: 'SIN INFORMACION' },
-          informacionComparendo: [],
-        },
-      },
+      data: payloadUts({
+        nit: NIT, comparendos: [], estado: { codigoEstado: 4, descripcion: 'SIN INFORMACION' },
+      }),
     });
 
     const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);

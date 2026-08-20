@@ -28,6 +28,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { FABRICADO, itemMunicipal, itemSimit } from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -380,32 +381,6 @@ describe('acumular* — el payload entra YA podado al consolidado (AC1)', () => 
 // dirección del hecho dentro— y `infracciones.0.…` traería el ítem entero, `infractor` incluido.
 
 describe('podarPayload con rutas anidadas (mapa v2)', () => {
-  /**
-   * Ítem de `data.multas[]` de Verifik con la FORMA de la captura del 2026-08-20 y valores
-   * FABRICADOS: la longitud del número, el formato de placa, la fecha con hora y el subobjeto
-   * `infractor` son lo que las aserciones ejercen; los datos de la empresa real no se versionan.
-   */
-  const ITEM_SIMIT_FORMA_REAL = {
-    numeroComparendo: '10203040506070809011',
-    comparendo: true,
-    comparendoElectronico: true,
-    placa: 'QWE321',
-    fechaComparendo: '11/05/2026 14:20:00',
-    fechaNotificacion: '01/01/1900 00:00:00',
-    organismoTransito: 'Villademo',
-    estadoComparendo: 'Pendiente',
-    infracciones: [{
-      codigoInfraccion: 'D02',
-      descripcionInfraccion: 'Conducir sin portar el SOAT',
-      valorInfraccion: '1266222',
-    }],
-    infractor: {
-      nombre: 'D** DEMO**** S* A* ', numeroDocumento: '800111222',
-      tipoDocumento: 'Nit', apellido: null,
-    },
-    valorPagar: '1308422',
-  };
-
   const MAPA_V2_SIMIT: FilaMapa[] = [
     fila('simit', 'numeroComparendo', 'numeroComparendo', 1, 2),
     fila('simit', 'placa', 'placa', 1, 2),
@@ -421,10 +396,10 @@ describe('podarPayload con rutas anidadas (mapa v2)', () => {
     conMapa(MAPA_V2_SIMIT);
     const mapa = await cargarMapaHomologacion();
 
-    const podado = podarPayload(ITEM_SIMIT_FORMA_REAL, camposConservables(candidatosDe(mapa, 'simit')))!;
+    const podado = podarPayload(itemSimit(), camposConservables(candidatosDe(mapa, 'simit')))!;
 
     expect(Object.prototype.hasOwnProperty.call(podado, 'infractor')).toBe(false);
-    expect(JSON.stringify(podado)).not.toContain('800111222');
+    expect(JSON.stringify(podado)).not.toContain(FABRICADO.documentoInfractor);
     // La hoja anidada sí sobrevive, y sin arrastrar `valorInfraccion` ni el resto del ítem.
     expect(podado.infracciones).toEqual([{
       codigoInfraccion: 'D02', descripcionInfraccion: 'Conducir sin portar el SOAT',
@@ -439,23 +414,16 @@ describe('podarPayload con rutas anidadas (mapa v2)', () => {
     ]);
     const mapa = await cargarMapaHomologacion();
 
-    const podado = podarPayload({
-      numeroComparendo: 'D99999000000099999901',
-      identificador: '800999888',
-      nombres: 'T**** ****** ******** ***',
-      contraventores: [],
-      estadoCuenta: {
-        direccion: 'Calle 99 con Carrera 88 Sur - COMUNA 99',
-        numeroComparendo: 'D99999000000099999901',
-        secretaria: { identificador: '99', nombreAutoridadTransito: 'STRIA DE TTOyTTE VILLADEMO' },
-      },
-    }, camposConservables(candidatosDe(mapa, 'municipal')))!;
+    const podado = podarPayload(itemMunicipal(), camposConservables(candidatosDe(mapa, 'municipal')))!;
 
     expect(podado).toEqual({
-      numeroComparendo: 'D99999000000099999901',
-      estadoCuenta: { secretaria: { nombreAutoridadTransito: 'STRIA DE TTOyTTE VILLADEMO' } },
+      numeroComparendo: FABRICADO.numeroMunicipal,
+      estadoCuenta: { secretaria: { nombreAutoridadTransito: FABRICADO.organismoMunicipal } },
     });
-    expect(JSON.stringify(podado)).not.toContain('Calle 99');
-    expect(JSON.stringify(podado)).not.toContain('800999888');
+    // Ni la dirección del hecho, ni el NIT consultado, ni el nombre del contraventor.
+    const json = JSON.stringify(podado);
+    expect(json).not.toContain(FABRICADO.direccionMunicipal);
+    expect(json).not.toContain(FABRICADO.nitMunicipal);
+    expect(json).not.toContain('T****');
   });
 });
