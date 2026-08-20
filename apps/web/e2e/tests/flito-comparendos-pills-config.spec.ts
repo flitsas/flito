@@ -222,6 +222,47 @@ async function almacenamiento(page: Page): Promise<string> {
   return page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }));
 }
 
+/**
+ * El barrido anti-fuga del token, entero y en un solo sitio.
+ *
+ * Los SEIS canales por los que un secreto se escapa de una pantalla que «no lo muestra», y por qué
+ * ninguno sobra:
+ *
+ *   · **La URL** — un `<form>` cuyo `onSubmit` no llame a `preventDefault()` se envía por GET y deja
+ *     el valor en la barra de direcciones, en el historial y en el `Referer` de la siguiente
+ *     petición. Un descuido de una línea que dura meses.
+ *   · **La consola** — el `console.log` de depuración que se quedó puesto. No se ve en la pantalla,
+ *     lo lee cualquiera con la pestaña de herramientas abierta.
+ *   · **`localStorage` y `sessionStorage`** — sobreviven a la recarga. Se serializan ENTEROS en vez
+ *     de mirar una clave concreta: el fallo no es «lo guardó en la clave `token`», es «acabó en
+ *     algún sitio persistente», y buscar por clave solo encuentra el descuido que ya se sospechaba.
+ *   · **El texto visible** (`innerText`) — la mitad fácil, la que cualquiera comprueba a ojo.
+ *   · **El DOM SERIALIZADO** (`page.content()`) — que NO es lo mismo que el texto visible:
+ *     `innerText` no ve el valor de un `<input>`. Es el canal por el que un input CONTROLADO filtra
+ *     el secreto, porque React refleja el valor al ATRIBUTO `value` y el atributo se serializa (la
+ *     propiedad del nodo no). Es lo que copia un «Guardar como…», lo que se lleva un informe de
+ *     error automático y lo que lee cualquier extensión con permiso sobre la página.
+ *   · **Las cookies** — el otro canal que sobrevive a la recarga. No hay motivo para que el token
+ *     esté ahí; por eso justo se comprueba.
+ *
+ * La aguja es un PREFIJO del valor y no el valor entero: lo que la HU prohíbe no es solo el token
+ * completo, también cualquier fragmento suyo.
+ *
+ * Vive aquí, y no copiado dentro de cada TC, porque el barrido tiene que ser el MISMO en los tres
+ * estados en que el valor existe —guardado (TC28), retenido tras un 429 (TC30) y tras un 503
+ * (TC31)—. Copiado, cada copia se quedaba corta por su lado: la de TC30 y la de TC31 no miraban el
+ * almacenamiento ni el texto, que es donde caería un «guardo el borrador para que no lo reescriba»
+ * puesto con la mejor intención justo en el caso que conserva el valor a propósito.
+ */
+async function sinRastroDelToken(page: Page, consola: string[], aguja = TOKEN_ESCRITO.slice(0, 8)) {
+  expect(page.url(), 'la URL del SPA').not.toContain(aguja);
+  expect(consola.join('\n'), 'la consola del navegador').not.toContain(aguja);
+  expect(await almacenamiento(page), 'localStorage / sessionStorage').not.toContain(aguja);
+  expect(await page.locator('body').innerText(), 'el texto visible de la página').not.toContain(aguja);
+  expect(await page.content(), 'el DOM serializado').not.toContain(aguja);
+  expect(JSON.stringify(await page.context().cookies()), 'las cookies').not.toContain(aguja);
+}
+
 async function irAConfiguracion(page: Page) {
   await page.goto('/flito/comparendos?vista=configuracion');
 }
@@ -841,6 +882,11 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
 
     // TC24 — AC1 (segunda mitad): «puedo desactivarla y sigue visible como inactiva».
     test('TC24: desactivar una causal manda PATCH { activo: false } y la deja visible y reactivable', async ({ page }) => {
+      // Los cuatro bloques en verde y DESPUÉS la causal única: el `page.route` registrado al final
+      // gana. Sin la primera línea, NITs y municipios caían en el catch-all de los fixtures y cada
+      // corrida escupía cuatro avisos de «endpoint no mockeado» que no son de este TC — ruido que
+      // acaba tapando el aviso que sí importa.
+      await mockConfigFeliz(page);
       const causales = await mockLectura(page, API_CAUSALES, { status: 200, body: [CAUSAL_NOTIFICADO] });
       const escritura = await mockEscritura(page, API_CAUSAL_ID, {
         status: 200, body: { ...CAUSAL_NOTIFICADO, activo: false },
@@ -967,6 +1013,58 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
       await expect(bloqueCausales(page).getByRole('button', { name: 'Agregar causal' })).toBeVisible();
       await expect(bloqueCausales(page).getByRole('alert')).toHaveCount(0);
     });
+
+    // TC36 — AC1, la EDICIÓN: el hueco que dejaba este bloque en el gate de la HU #11634.
+    //
+    // La fila trae un [Editar] que manda `PATCH { nombre, orden }` y ningún TC lo tocaba: se probaba
+    // el alta (TC23), la baja (TC24) y la validación (TC26), y el único camino que puede REORDENAR
+    // una lista que el operador ya tiene delante se quedaba fuera. Es la mitad de «aparece en la
+    // posición que dice su orden» que nadie estaba mirando.
+    //
+    // Dos fallos realistas, los dos aquí:
+    //   · El modal abre en blanco en vez de con lo que hay, y guardar «solo el orden» borra el
+    //     nombre de camino — el formulario manda los dos campos SIEMPRE.
+    //   · La fila editada se queda donde estaba. Al alta le pusieron su `.sort()` porque la fila
+    //     nueva aparecía a la vista; en la edición el salto es menos evidente y se olvida.
+    //     Se baja el 30 a 5, que la manda de la última posición a la PRIMERA: si la fila no se
+    //     mueve, no hay forma de que este TC pase.
+    test('TC36: editar el orden de una causal la mueve de sitio y conserva el nombre', async ({ page }) => {
+      await mockConfigFeliz(page);
+      const edicion = await mockEscritura(page, API_CAUSAL_ID, {
+        status: 200, body: { ...CAUSAL_JURIDICA, orden: 5 },
+      });
+
+      await irAConfiguracion(page);
+      await bloqueCausales(page).getByRole('row', { name: /En gestión jurídica/ })
+        .getByRole('button', { name: 'Editar' }).click();
+
+      // Abre con lo que la fila tiene, no en blanco: se edita sobre lo escrito, no se reescribe.
+      const modal = page.getByRole('dialog', { name: /Editar causal · En gestión jurídica/ });
+      await expect(modal.getByLabel(/^Nombre/)).toHaveValue('En gestión jurídica');
+      await expect(modal.getByLabel(/^Orden/)).toHaveValue('30');
+
+      await modal.getByLabel(/^Orden/).fill('5');
+      await modal.getByRole('button', { name: 'Guardar' }).click();
+
+      await expect(modal).toHaveCount(0);
+      await expect(page.getByText('Causal actualizada.')).toBeVisible();
+      expect(edicion.peticiones).toHaveLength(1);
+      expect(edicion.peticiones[0].metodo).toBe('PATCH');
+      // El cuerpo lleva los DOS campos aunque solo se tocara uno, y `orden` como número: es el
+      // contrato del `PATCH` de la pantalla, y mandar `{ orden: 5 }` a secas dejaría el nombre a
+      // merced de lo que el servidor decida hacer con su ausencia.
+      expect(edicion.peticiones[0].cuerpo).toEqual({ nombre: 'En gestión jurídica', orden: 5 });
+
+      // De la última a la primera, y el resto sin moverse. Y sigue Inactiva: editar no reactiva.
+      await expect(bloqueCausales(page).getByRole('row')).toContainText([
+        /Orden/,
+        /5.*En gestión jurídica/,
+        /10.*Notificado al cliente/,
+        /20.*Pagado/,
+      ]);
+      await expect(bloqueCausales(page).getByRole('row', { name: /En gestión jurídica/ })
+        .getByText('Inactiva')).toBeVisible();
+    });
   });
 
   // ─────────────────────────── Bloque 4 — Token SIMIT (HU #11634) ───────────────────────────────
@@ -1062,23 +1160,8 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
       // Ni siquiera en la URL de la propia petición (un `?token=` en un PUT es igual de público).
       expect(guardado.peticiones[0].url).not.toContain('tok-simit');
 
-      // La aguja se busca por un PREFIJO del valor, no por el valor entero: lo que la HU prohíbe no
-      // es solo el token completo, es también cualquier fragmento suyo.
-      const aguja = TOKEN_ESCRITO.slice(0, 8);
-      expect(page.url()).not.toContain(aguja);
-      expect(consola.join('\n')).not.toContain(aguja);
-      expect(await almacenamiento(page)).not.toContain(aguja);
-      expect(await page.locator('body').innerText()).not.toContain(aguja);
-      // El DOM SERIALIZADO, que no es lo mismo que el texto visible: `innerText` no ve el valor de
-      // un `<input>`, así que sin esta línea el TC diría «no filtra a ninguna parte» sin haber
-      // mirado el sitio donde un input controlado podría estar reflejando el valor al ATRIBUTO
-      // `value` (el atributo viaja en `outerHTML`; la propiedad no). Es lo que copia un «Guardar
-      // como…» del navegador, lo que se lleva un informe de error automático y lo que lee cualquier
-      // extensión con permiso sobre la página.
-      expect(await page.content()).not.toContain(aguja);
-      // Y las cookies: es el otro canal que sobrevive a la recarga y que ningún `expect` anterior
-      // tocaba. No hay motivo para que el token esté ahí — precisamente por eso se comprueba.
-      expect(JSON.stringify(await page.context().cookies())).not.toContain(aguja);
+      // Los seis canales de fuga, con el campo YA vacío (ver `sinRastroDelToken`).
+      await sinRastroDelToken(page, consola);
     });
 
     // TC29 — AC3, el borde del autor: un token sembrado por operación no tiene `updated_by`, y la
@@ -1121,13 +1204,14 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
       // obligarle a reescribir a mano un token de mil caracteres sería cobrárselo a quien no lo
       // causó. Que se conserve en el campo no lo expone: sigue siendo un `type="password"`.
       await expect(campo).toHaveValue(TOKEN_ESCRITO);
-      expect(page.url()).not.toContain('tok-simit');
-      expect(consola.join('\n')).not.toContain('tok-simit');
-      // Este es EL estado en el que el valor sigue escrito —y puede quedarse minutos, esperando a
-      // que pase el minuto del limitador—, así que es donde más importa que el DOM serializado y
-      // las cookies estén limpios. En TC28 el campo ya se vació; aquí no.
-      expect(await page.content()).not.toContain('tok-simit');
-      expect(JSON.stringify(await page.context().cookies())).not.toContain('tok-simit');
+
+      // Y el barrido ENTERO, el mismo de TC28, sobre el estado que más lo pide: aquí el valor sigue
+      // escrito y puede quedarse minutos, esperando a que pase el minuto del limitador. Este es el
+      // TC que se midió ROJO con el campo controlado —el token aparecía en `page.content()`— y el
+      // que se quedaba corto si el barrido se copiaba a mano: no miraba ni el almacenamiento ni el
+      // texto visible, que es justo donde caería un «me guardo el borrador para que no lo tenga que
+      // reescribir» puesto con la mejor intención.
+      await sinRastroDelToken(page, consola);
     });
 
     // TC31 — AC4, falta la llave de cifrado. Se ramifica por `codigo` (`llave_maestra`) porque un
@@ -1155,8 +1239,10 @@ test.describe('FLITO — Comparendos · pestañas y parametrización (HU #11633 
       );
       // Ni el nombre de la variable de entorno en pantalla: el copy del servidor no se pinta.
       await expect(page.getByText(/COMPARENDOS_ENC_KEY/)).toHaveCount(0);
-      expect(page.url()).not.toContain('tok-simit');
-      expect(consola.join('\n')).not.toContain('tok-simit');
+      // El 503 tampoco es culpa del operador: lo escrito se conserva igual que en el 429, y el
+      // barrido de fuga es el mismo — un valor retenido es un valor que puede escaparse.
+      await expect(bloque.getByLabel('Nuevo token')).toHaveValue(TOKEN_ESCRITO);
+      await sinRastroDelToken(page, consola);
     });
 
     // TC32 — AISLAMIENTO con los bloques nuevos (el fallo #2 del encabezado, ahora a cuatro
