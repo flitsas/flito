@@ -127,7 +127,7 @@ test.describe('FLITO — Comparendos · cascarón (AC5)', () => {
     await expect(contador).not.toContainText(/\bde \d/);
   });
 
-  test('vacío: explica por qué no hay nada todavía y no ofrece una acción que no existe', async ({ page }) => {
+  test('vacío: explica por qué no hay nada todavía y ofrece la salida hacia la sincronización', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockRegistros(page, { status: 200, body: { items: [], nextCursor: null } });
 
@@ -136,9 +136,16 @@ test.describe('FLITO — Comparendos · cascarón (AC5)', () => {
     await expect(page.getByText(/Todavía no hay comparendos registrados/)).toBeVisible();
     await expect(page.getByText(/sincronización con SIMIT/)).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
-    // Sin botón: la pantalla de sincronización todavía no existe en apps/web y un enlace a ninguna
-    // parte es peor que ninguno.
-    await expect(page.getByRole('button', { name: /sincroniz/i })).toHaveCount(0);
+    // Con botón, y es un cambio de contrato de este mismo vacío. La premisa que aquí sostenía un
+    // `toHaveCount(0)` —«la pantalla de sincronización todavía no existe en apps/web, y un enlace a
+    // ninguna parte es peor que ninguno»— caducó en la HU #11633, que trajo la pestaña. La HU #11637
+    // la convierte en la salida de este vacío (AC1): lo que falta cuando el módulo no tiene ni un
+    // registro es una corrida, y dejar al operador sin cómo llegar a ella era el hueco. El vacío del
+    // filtro sin resultados NO ofrece este botón (AC2) —ahí sobra un filtro, no falta una corrida—,
+    // pero ese caso vive en el visor y no en el cascarón, que no pinta barra de filtros.
+    const irASincronizacion = page.getByRole('button', { name: /sincroniz/i });
+    await expect(irASincronizacion).toHaveCount(1);
+    await expect(irASincronizacion).toHaveAccessibleName('Ir a la sincronización');
   });
 
   test('error 500: banda con reintento, y el reintento vuelve a consultar', async ({ page }) => {

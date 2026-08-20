@@ -33,7 +33,7 @@ import {
 import { RUTA_COMPARENDOS, useCatalogoConfig } from './bloqueConfigComparendos';
 import { ETIQUETA_ACCION, type AccionSync } from './erroresSync';
 import { fechaHoraColombia } from './formato';
-import type { NavComparendos } from './navegacionComparendos';
+import { ID_TITULO_CONSOLA_SYNC, type NavComparendos } from './navegacionComparendos';
 import type { SyncEnVivo } from './useComparendosSync';
 
 const RUTA_NITS = `${RUTA_COMPARENDOS}/nits`;
@@ -43,13 +43,6 @@ const ANCLA_TOKEN = 'bloque-token-simit';
 
 /** Tope del servidor (`syncSchema`). Se comprueba aquí para no gastar un intento del limitador. */
 const MAX_NITS_POR_CORRIDA = 200;
-
-/**
- * El `id` del título de la consola. Se EXPORTA porque es el destino del foco cuando se llega aquí
- * desde el vacío del visor (HU #11637): el AC pide aterrizar en «Sincronizar ahora», no en el
- * encabezado del panel, y quien navega —`VistaRegistrosComparendos`— necesita nombrar ese nodo.
- */
-export const ID_TITULO_CONSOLA_SYNC = 'consola-sync-comparendos';
 
 interface Props {
   nav: NavComparendos;

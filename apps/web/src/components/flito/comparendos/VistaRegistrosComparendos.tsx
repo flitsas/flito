@@ -76,9 +76,10 @@ import type {
 import {
   FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
-import { MarcoComparendos, type NavComparendos } from './navegacionComparendos';
+import {
+  ID_TITULO_CONSOLA_SYNC, MarcoComparendos, type NavComparendos,
+} from './navegacionComparendos';
 import BarraFiltrosComparendos from './BarraFiltrosComparendos';
-import { ID_TITULO_CONSOLA_SYNC } from './ConsolaSyncComparendos';
 import {
   AvisoExportComparendos, BotonExportarComparendos, useExportComparendos,
 } from './ExportarComparendos';
