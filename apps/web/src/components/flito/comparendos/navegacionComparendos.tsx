@@ -55,6 +55,19 @@ export const VISTAS: { valor: VistaComparendos; etiqueta: string }[] = [
 
 export const PARAM_VISTA = 'vista';
 
+/**
+ * El `id` del `<h2>` «Sincronizar ahora» de la consola, y por tanto el destino del foco de quien
+ * llega a esa pestaña desde otra: el vacío del visor ofrece «Ir a la sincronización» (HU #11637) y
+ * el AC1 pide aterrizar en la acción, no en el encabezado del panel al que apunta el `foco: 'panel'`
+ * de aquí abajo.
+ *
+ * Vive en este archivo —y no en `ConsolaSyncComparendos.tsx`, que es quien lo pinta— porque lo leen
+ * dos vistas hermanas y este es el sitio que las tres ya comparten. Tenerlo en la consola ataba el
+ * módulo de Registros al de la consola por una constante: un `import` que arrastraba el archivo
+ * entero para copiar ocho palabras.
+ */
+export const ID_TITULO_CONSOLA_SYNC = 'consola-sync-comparendos';
+
 const TITULO = 'Comparendos monitoreados';
 
 /**

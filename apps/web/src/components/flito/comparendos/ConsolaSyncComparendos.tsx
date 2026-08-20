@@ -33,7 +33,7 @@ import {
 import { RUTA_COMPARENDOS, useCatalogoConfig } from './bloqueConfigComparendos';
 import { ETIQUETA_ACCION, type AccionSync } from './erroresSync';
 import { fechaHoraColombia } from './formato';
-import type { NavComparendos } from './navegacionComparendos';
+import { ID_TITULO_CONSOLA_SYNC, type NavComparendos } from './navegacionComparendos';
 import type { SyncEnVivo } from './useComparendosSync';
 
 const RUTA_NITS = `${RUTA_COMPARENDOS}/nits`;
@@ -43,8 +43,6 @@ const ANCLA_TOKEN = 'bloque-token-simit';
 
 /** Tope del servidor (`syncSchema`). Se comprueba aquí para no gastar un intento del limitador. */
 const MAX_NITS_POR_CORRIDA = 200;
-
-const ID_TITULO = 'consola-sync-comparendos';
 
 interface Props {
   nav: NavComparendos;
@@ -104,9 +102,19 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
   const lanzar = () => sync.lanzar(alcance);
 
   return (
-    <section role="region" aria-labelledby={ID_TITULO}>
+    <section role="region" aria-labelledby={ID_TITULO_CONSOLA_SYNC}>
       <FlitCard>
-        <h2 id={ID_TITULO} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        {/* `tabIndex={-1}` es lo único que este archivo pone para la HU #11637: sin él, el `.focus()`
+            que llega desde el vacío del visor no hace nada y el foco se queda en `<body>` tras el
+            cambio de pestaña. El título ya se ve, así que no necesita el `sr-only focus:not-sr-only`
+            de los encabezados del marco; sí lleva `flit-focus` para que el anillo sea el del sistema
+            y no el del navegador. */}
+        <h2
+          id={ID_TITULO_CONSOLA_SYNC}
+          tabIndex={-1}
+          className="flit-focus rounded text-sm font-semibold"
+          style={{ color: 'var(--flit-text-primary)' }}
+        >
           Sincronizar ahora
         </h2>
         <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
