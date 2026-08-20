@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
+import { esUuid } from './shared/utils/uuid.js';
 import { registry } from './shared/metrics.js';
 import { apiLimiter, authLimiter } from './shared/middleware/rateLimiter.js';
 import authRoutes from './modules/auth/auth.routes.js';
@@ -173,8 +174,28 @@ export function createApp() {
   app.use(express.json({ limit: '5mb' }));
 
   // Request ID for traceability (ISO 27001 A.8.15)
+  //
+  // Bug #11622 — la cabecera se VALIDA, no solo se rellena. Con `|| randomUUID()` bastaba con que
+  // el cliente mandara `X-Request-Id: x` (truthy) para que ese valor llegara intacto al INSERT de
+  // `pii_access_log`, cuya columna `request_id` es `uuid`: PostgreSQL respondía 22P02, el `catch`
+  // best-effort de `logPiiAccess` se lo tragaba y el acceso a datos personales quedaba entregado
+  // SIN la fila que exige el art. 17 de la Ley 1581. Es decir: un usuario autenticado podía
+  // suprimir su propio rastro desde una cabecera, en los 15 puntos de llamada del helper.
+  //
+  // Esta validación es la mitad del arreglo y no vale sola: `logPiiAccess` sanea otra vez antes de
+  // insertar, y ahí se cierra además la MISMA cadena por `X-Forwarded-For` (22001 sobre un
+  // `varchar(45)`), que este middleware no toca. Quien venga a evaluar si el helper debe seguir
+  // fallando abierto tiene el inventario completo —lo cerrado y lo no auditado— en el `catch` de
+  // `shared/pii-audit.ts`, no aquí.
+  //
+  // Se DESCARTA el valor no-UUID en vez de conservarlo aparte (p. ej. en `req.clientRequestId`):
+  // hoy nadie hace eco de esta cabecera al cliente —`errorHandler` solo la escribe en el log del
+  // servidor y ninguna respuesta la devuelve como header—, así que sobrescribir no rompe ninguna
+  // correlación existente. Guardar el valor crudo del cliente para loguearlo sería meter texto
+  // arbitrario y no acotado en la traza, que es justo lo contrario de lo que este id sirve.
   app.use((req, _res, next) => {
-    req.headers['x-request-id'] = req.headers['x-request-id'] || crypto.randomUUID();
+    const entrante = req.headers['x-request-id'];
+    req.headers['x-request-id'] = esUuid(entrante) ? entrante : crypto.randomUUID();
     next();
   });
 
