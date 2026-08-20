@@ -125,13 +125,38 @@ export function FlitCard({ children, className = '' }: { children: ReactNode; cl
   );
 }
 
-export function FlitPillGroup({ children }: { children: ReactNode }) {
+/**
+ * El grupo de pills. `role` y `label` existen para el caso en el que las pills no son un filtro
+ * sino una NAVEGACIÓN por pestañas (`role="tablist"`, HU #11633): el patrón ARIA exige que el
+ * contenedor lleve el rol y un nombre, y sin estas dos props el llamador tendría que envolver el
+ * grupo en otro `div` —perdiendo el `flex` que separa las pills— o duplicar la caja entera.
+ * Omitidas, se comporta exactamente igual que antes.
+ */
+export function FlitPillGroup(
+  { children, role, label }: { children: ReactNode; role?: 'tablist'; label?: string },
+) {
   return (
-    <div className="inline-flex w-fit flex-wrap gap-1 rounded-[999px] p-1" style={flitPillWrap}>
+    <div
+      className="inline-flex w-fit flex-wrap gap-1 rounded-[999px] p-1"
+      style={flitPillWrap}
+      role={role}
+      aria-label={label}
+    >
       {children}
     </div>
   );
 }
+
+/**
+ * La clase de una pill, aparte del componente.
+ *
+ * Se exporta porque una pill que además es una PESTAÑA (`role="tab"`, `aria-selected`, `tabIndex`
+ * itinerante y flechas del teclado) no cabe como props de `FlitPillButton` sin convertirlo en un
+ * `<button>` genérico; y si esa pestaña copiara la clase a mano, el día que esta cambie habría dos
+ * pills distintas en el producto. Compartir la clase es lo que garantiza que no haya deriva visual.
+ */
+export const flitPillBtnClase =
+  'flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors';
 
 export function FlitPillButton(
   { active, onClick, children, pressed }:
@@ -144,7 +169,7 @@ export function FlitPillButton(
       type="button"
       aria-pressed={pressed}
       onClick={onClick}
-      className="flit-focus inline-flex items-center gap-1.5 rounded-[999px] px-4 py-2 text-xs font-semibold capitalize transition-colors"
+      className={flitPillBtnClase}
       style={flitPillBtn(active)}
     >
       {children}
