@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import { COMPARENDOS_EXPORT_MAX_FILAS } from '@operaciones/shared-types';
+import { COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS } from '@operaciones/shared-types';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -190,6 +190,14 @@ const envSchema = z.object({
   // —multiplica por 5/min el techo de extracción del módulo— y ADR-0004 es dónde está escrito.
   COMPARENDOS_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
     .default(COMPARENDOS_EXPORT_MAX_FILAS),
+  // Feature #11623 — tope de líneas de una boleta de conciliación. Perilla y no constante porque el
+  // coste real no es leer el Excel: es que la HU siguiente asienta UNA salida de bolsa por línea, en
+  // serie y dentro de una sola transacción, porque el saldo se encadena. El techo de 2 000 es el
+  // punto en el que esa transacción deja de ser reintentable a mano: pasarlo pide otro diseño (lote
+  // asíncrono), no otra variable. El valor por defecto es CONCILIACION_MAX_FILAS de shared-types,
+  // que es el número que la pantalla anuncia antes de subir el archivo.
+  CONCILIACION_MAX_FILAS: z.coerce.number().int().min(1).max(2_000)
+    .default(CONCILIACION_MAX_FILAS),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),

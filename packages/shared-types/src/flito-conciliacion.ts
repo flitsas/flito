@@ -119,3 +119,173 @@ export function polizaParaColumna(valor: string | null | undefined): string | nu
   if (norm.length < 1 || norm.length > POLIZA_MAX_LONGITUD) return null;
   return norm;
 }
+
+// ─────────────────── Carga y cruce del Excel del portal (HU #11676) ──────────────────────────────
+
+/**
+ * Tope duro de líneas de una boleta.
+ *
+ * Vive aquí —y no solo en el backend— porque la pantalla de carga lo anuncia ANTES de subir el
+ * archivo («Máximo 500 líneas por boleta y 10 MB») y porque el copy del rechazo lo nombra. Mismo
+ * compromiso que {@link COMPARENDOS_EXPORT_MAX_FILAS}: el servidor lo lee del entorno
+ * (`CONCILIACION_MAX_FILAS`), cuyo valor por defecto ES esta constante, para poder recalibrarlo sin
+ * desplegar código. Por eso el 400 del API trae su propio `maximo` dentro: **ese** es el que hay que
+ * mostrar cuando llega, no este.
+ *
+ * Por qué 500 y no «sin tope»: cada fila del cruce cuesta un `IN (…)` y —en la HU siguiente— una
+ * salida de bolsa EN SERIE dentro de una sola transacción, porque el saldo se encadena. 500 asientos
+ * en serie son segundos; 50 000 son una transacción que nadie puede reintentar con seguridad.
+ */
+export const CONCILIACION_MAX_FILAS = 500;
+
+/** Tope del `.xlsx` que sube Financiera. Es el `limits.fileSize` de multer y el copy del modal. */
+export const CONCILIACION_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Nombre de la hoja del reporte del portal, y de las DOS columnas que el cruce necesita.
+ *
+ * Verificado contra el archivo real (`REPORTE SOAT DAVVID.xlsx`): hoja «Export», encabezado en la
+ * fila 1, 18 columnas. El parser solo lee estas dos y **ninguna otra**: la columna «Nombre» del
+ * portal trae nombres completos de personas naturales y no se persiste, no se devuelve y no se
+ * loguea (Ley 1581; AGENTS.md 14).
+ *
+ * El cotejo de encabezados es tolerante a mayúsculas, tildes y espacios repetidos —el portal ha
+ * cambiado la caja de sus títulos más de una vez— pero NO a que la columna no esté: eso es un 400
+ * que nombra la que falta.
+ */
+export const CONCILIACION_HOJA = 'Export';
+export const CONCILIACION_COLUMNA_POLIZA = 'Número de Póliza';
+export const CONCILIACION_COLUMNA_TOTAL = 'Total a Pagar';
+
+/**
+ * Códigos de rechazo de la carga. La pantalla enseña su propio texto por código (docs/ux), así que
+ * el `error` del cuerpo es el respaldo legible, no la fuente del copy.
+ *
+ *   archivo_invalido   — no es un xlsx legible, falta la hoja, falta una columna, o una fila trae un
+ *                        número de póliza o un valor que no se pueden leer
+ *   sin_filas          — el archivo solo tiene encabezados
+ *   demasiadas_filas   — por encima de `CONCILIACION_MAX_FILAS`
+ *   poliza_repetida    — la MISMA póliza en dos filas del MISMO archivo. No confundir con el
+ *                        resultado `poliza_duplicada`, que es una póliza en dos SOAT distintos
+ *   fecha_invalida     — `fechaPago` futura o mal formada
+ *   compania_no_existe — el cliente elegido ya no está
+ *   boleta_duplicada   — el mismo `archivo_hash` en una boleta viva (trae `boletaId` y `referencia`)
+ */
+export const CodigoErrorConciliacion = {
+  ARCHIVO_INVALIDO: 'archivo_invalido',
+  SIN_FILAS: 'sin_filas',
+  DEMASIADAS_FILAS: 'demasiadas_filas',
+  POLIZA_REPETIDA: 'poliza_repetida',
+  FECHA_INVALIDA: 'fecha_invalida',
+  COMPANIA_NO_EXISTE: 'compania_no_existe',
+  BOLETA_DUPLICADA: 'boleta_duplicada',
+  BOLETA_NO_EXISTE: 'boleta_no_existe',
+  BOLETA_YA_CONCILIADA: 'boleta_ya_conciliada',
+  BOLETA_DESCARTADA: 'boleta_descartada',
+} as const;
+
+export type CodigoErrorConciliacion =
+  (typeof CodigoErrorConciliacion)[keyof typeof CodigoErrorConciliacion];
+
+/**
+ * Una línea del cuadre, tal como la pinta la pantalla.
+ *
+ * **Los motivos NO viajan redactados desde el servidor.** `detalle` es el respaldo persistido —el
+ * rastro de por qué esta línea quedó así el día que se cruzó—, y lo que se pinta lo compone la web
+ * con estos campos estructurados (docs/ux/flito-conciliacion.md, «Los siete motivos»). La razón es
+ * concreta: si el texto viniera de `detalle`, cambiar una palabra del motivo exigiría una migración
+ * de datos, y los importes se formatearían con lo que trajera la cadena en vez de con `pesos()`.
+ *
+ * Qué campo hace falta para qué resultado:
+ *   valor_distinto   → `valorDeclarado` + `valorSoat` (la diferencia la calcula la pantalla)
+ *   poliza_duplicada → `candidatos`
+ *   no_pagado        → `soatEstado`
+ *   otra_compania    → `companiaSoatNombre`
+ *   ya_conciliada    → `boletaAnteriorRef` + `boletaAnteriorFecha`
+ */
+export interface LineaBoletaDto {
+  id: string;
+  /** Fila del Excel tal como la ve el usuario: 1 = primera fila de datos, no la del encabezado. */
+  filaNumero: number;
+  /** Póliza normalizada. Cuasi-PII: viaja en el CUERPO de la respuesta, nunca en una URL. */
+  numeroPolizaNorm: string;
+  /** Lo que el portal cobró por esta línea («Total a Pagar»). */
+  valorDeclarado: number;
+  resultado: ResultadoCruce;
+  /** Motivo persistido, sin póliza ni placa en claro. No es el texto que se pinta. */
+  detalle: string | null;
+  soatId: string | null;
+  /** Del SOAT que cruzó. `null` en `no_encontrada` y en `poliza_duplicada` (hay varios). */
+  placa: string | null;
+  /** `flito_soat.valor_pagado`: lo que FLITO cree que costó. NUNCA la columna del Excel. */
+  valorSoat: number | null;
+  soatEstado: string | null;
+  companiaSoatNombre: string | null;
+  /** Cuántos SOAT tienen esta póliza. Solo se llena cuando son más de uno. */
+  candidatos: number | null;
+  boletaAnteriorRef: string | null;
+  /** ISO 'YYYY-MM-DD' del pago de la boleta que ya concilió este SOAT. */
+  boletaAnteriorFecha: string | null;
+  /**
+   * El SOAT ya salió de la bolsa al sellar la liquidación de su trámite: conciliar no volverá a
+   * cobrarlo. No bloquea —la línea cuadra— pero evita que el aviso de éxito anuncie un descuento
+   * que no ocurrió.
+   */
+  yaDescontadoEnLiquidacion: boolean;
+  conciliadaEn: string | null;
+}
+
+/** Cuántas líneas quedaron en cada desenlace. Todas las claves vienen, aunque valgan 0. */
+export type ConteoResultados = Record<ResultadoCruce, number>;
+
+/** La boleta sin sus líneas: lo que necesita la bandeja. */
+export interface BoletaResumenDto {
+  id: string;
+  referencia: string;
+  companiaId: number;
+  companiaNombre: string | null;
+  concepto: ConceptoBoleta;
+  estado: EstadoBoleta;
+  archivoNombre: string;
+  filas: number;
+  totalDeclarado: number;
+  totalCruzado: number | null;
+  fechaPago: string;
+  cargadaPorNombre: string;
+  conciliadaEn: string | null;
+  conciliadaPorNombre: string | null;
+  createdAt: string;
+  /** Conteo por resultado y total, para que la bandeja no tenga que pedir las líneas. */
+  conteo: ConteoResultados;
+  /** Cuántas líneas NO están en `ok`. Es lo que decide si la boleta se puede conciliar (CF-02). */
+  sinCuadrar: number;
+}
+
+/** La boleta con su cuadre. Lo que devuelven la carga, el detalle y el re-cruce. */
+export interface BoletaDetalleDto extends BoletaResumenDto {
+  lineas: LineaBoletaDto[];
+  /**
+   * Filas del Excel que se ignoraron por no traer número de póliza —típicamente la fila de totales
+   * que algunas descargas del portal añaden al final—. Se informa en vez de callarse: una fila
+   * ignorada que SÍ era un pago cambia el total declarado, y quien carga tiene que poder verlo.
+   */
+  filasOmitidas: number;
+}
+
+/**
+ * La bandeja: una página de boletas y el cursor de la siguiente.
+ *
+ * Es un SOBRE y no un array pelado —que es lo que insinuaba el ADR-0006 §7.2— porque el propio ADR
+ * pide `cursor` entre los filtros: un array sin sitio donde devolver el cursor obliga a la pantalla
+ * a deducirlo del último elemento, y eso deja de funcionar en cuanto la última página viene llena.
+ *
+ * `conteo` viene DENTRO de cada boleta y no agregado aparte: los KPI de la bandeja se calculan sobre
+ * la misma respuesta, que es lo que impide enseñar dos cifras distintas del mismo dinero. Un total
+ * global sobre TODAS las páginas —no solo la actual— es una decisión de producto que hoy no está
+ * pedida en ningún AC; cuando se pida, cabe en este sobre sin romper a nadie.
+ */
+export interface BoletaListadoDto {
+  items: BoletaResumenDto[];
+  /** `createdAt` de la última boleta entregada, o `null` si ya no hay más páginas. */
+  siguienteCursor: string | null;
+}
