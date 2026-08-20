@@ -64,12 +64,21 @@ export type TipoMovimientoTransito =
 /**
  * Quién produjo el movimiento.
  *
- *   carga       — dinero que FLIT precarga en la bolsa (entrada)
- *   automatico  — consumo al sellar la liquidación, y su devolución al reversarla
+ *   carga        — dinero que FLIT precarga en la bolsa (entrada)
+ *   automatico   — consumo al sellar la liquidación, y su devolución al reversarla
+ *   conciliacion — consumo asentado al conciliar una boleta de pago externo (Feature #11623).
+ *                  **NO reversible por el ciclo de la liquidación**: el barrido del reverso de
+ *                  tránsito filtra por `origen = 'automatico'`, así que este consumo no se devuelve
+ *                  cuando el trámite retrocede (CF-07).
+ *
+ * Como en la bolsa del cliente, el valor tiene además un CHECK en la base
+ * (`flito_org_mov_origen_valido`, con el nombre que le dejó la 0120) que `schema.ts` no declara y
+ * que ensancha la migración 0157.
  */
 export const OrigenMovimientoTransito = {
   CARGA: 'carga',
   AUTOMATICO: 'automatico',
+  CONCILIACION: 'conciliacion',
 } as const;
 
 export type OrigenMovimientoTransito =

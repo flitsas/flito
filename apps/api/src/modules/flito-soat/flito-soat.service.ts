@@ -35,6 +35,7 @@ import { ANS_OPERATIVO,
   EstadoSoat,
   FlujoRevision,
   MotivoRevision,
+  polizaParaColumna,
   TipoPropiedad,
   type ExtraccionSoat,
 } from '@operaciones/shared-types';
@@ -827,10 +828,21 @@ async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: Es
   if (Number(n) === 0) throw new SoatError(400, 'No se puede marcar pagado un SOAT sin factura cargada');
 
   const valorTotal = extraccion[CampoSoat.VALOR_TOTAL]?.valor ?? null;
+  // La póliza sube de `extraccion` a su columna en el mismo `set()` que el estado (Feature #11623):
+  // son el mismo hecho, y separarlos dejaría SOAT pagados sin la llave con la que se concilian.
+  // `polizaParaColumna` es la misma normalización que el backfill de la 0157, para que un SOAT
+  // pagado hoy y uno migrado ayer se puedan comparar entre sí.
+  //
+  // Cuando no hay póliza legible NO se escribe nada: la columna se deja como esté. Poner `null`
+  // aquí borraría una corrección hecha a mano —el OCR no es la única fuente que puede tener razón—
+  // y esta transición no es el sitio para decidir eso. En la práctica el caso es raro: la póliza es
+  // un campo requerido para llegar a `pagado` (CAMPOS_REQUERIDOS_SOAT).
+  const numeroPoliza = polizaParaColumna(extraccion[CampoSoat.NUMERO_POLIZA]?.valor);
   await tx.update(flitoSoat).set({
     estado: EstadoSoat.PAGADO,
     extraccion,
     valorPagado: valorTotal, // numeric acepta el string ya normalizado a pesos enteros
+    ...(numeroPoliza ? { numeroPoliza } : {}),
     pagadoEn: new Date(),
     motivoRechazo: null,
     updatedAt: new Date(),
