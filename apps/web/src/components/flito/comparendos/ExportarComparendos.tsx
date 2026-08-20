@@ -55,23 +55,69 @@ const NOMBRE_RESPALDO = 'comparendos.xlsx';
  * de `ApiError.message`: del otro lado del cable se confía en lo que se ha verificado, no en lo que
  * se ha prometido.
  *
- * **El sello se exige EXACTO —`\d{8}-\d{4}`— y no como «dígitos y guiones», y la diferencia no es
- * de estilo: es la única versión que cumple lo que este guardia promete.** Un `[\d-]+` acepta
- * `comparendos_900123456.xlsx` sin pestañear, porque un NIT es exactamente eso, dígitos; el guardia
- * quedaría escrito, comentado y probado, y dejaría pasar el único caso para el que existe. Se
- * descubrió porque el test del NIT salió en rojo con el patrón laxo — de ahí que ese test se quede
- * clavado en el spec.
+ * **El sello se exige EXACTO y además se comprueba que sea un INSTANTE, no doce dígitos.** Las dos
+ * mitades se ganaron con una sonda cada una:
  *
- * Los cuatro tramos salen de `nombreArchivoExport()`: `FORMATO_INSTANTE` es `en-CA` con `year:
- * 'numeric'`, mes, día, hora y minuto a `2-digit` y `hourCycle: 'h23'`, así que el sello es siempre
- * ocho dígitos, un guion y cuatro dígitos. No hay segundos y no hay ninguna variante local.
+ *   · `[\d-]+` —«dígitos y guiones», que es lo que parece suficiente— acepta
+ *     `comparendos_900123456.xlsx` sin pestañear, porque un NIT es exactamente eso: dígitos.
+ *   · `\d{8}-\d{4}` tampoco basta: `comparendos_19345678-0304.xlsx` lo atraviesa, y esos ocho
+ *     dígitos son una cédula colombiana con forma de nada. Un guardia que existe **porque no damos
+ *     por bueno al emisor** no puede dejar abierto justo el hueco con forma de dato personal.
+ *
+ * Validando los componentes, `19345678` muere solo: mes 56 y día 78 no existen. Es la comprobación
+ * que hace que «esto es una marca de tiempo» sea verdad y no una coincidencia de longitud.
+ *
+ * Los cinco tramos salen de `nombreArchivoExport()`: `FORMATO_INSTANTE` es `en-CA` con
+ * `year: 'numeric'`, mes, día, hora y minuto a `2-digit` y `hourCycle: 'h23'`, así que el sello es
+ * siempre `AAAAMMDD-HHmm`. No hay segundos y no hay ninguna variante local.
+ *
+ * **Lo que a propósito NO se comprueba es la cercanía a `Date.now()`**, aunque sea la validación que
+ * primero se ocurre. El sello es hora de COLOMBIA y el reloj de quien descarga puede estar en
+ * cualquier huso —o simplemente mal—: una ventana de proximidad convertiría un portátil con la zona
+ * horaria de Madrid en rechazos falsos, es decir, en exports que llegan con el nombre de respaldo
+ * sin que nada esté roto. La validación por componentes es determinista y no depende de ningún
+ * reloj, ni del del cliente ni del del servidor.
+ *
+ * Tampoco se valida el día CONTRA el mes (un 31 de febrero pasa). Sería más estricto y también más
+ * frágil —obligaría a construir un `Date` y a decidir en qué zona—, y no aporta: lo que este guardia
+ * tiene que impedir es que un nombre transporte PII, y para eso el rango de cada componente ya
+ * cierra el hueco.
  *
  * Si no encaja se cae al respaldo —nunca se propaga el nombre raro—, y eso vale también para el día
  * en que el API cambie el formato a propósito: el archivo se seguirá descargando, con un nombre
- * peor, y este `regex` será lo que haya que actualizar. Se prefiere esa molestia visible a una
- * ventana silenciosa.
+ * peor, y esto será lo que haya que actualizar. Se prefiere esa molestia visible a una ventana
+ * silenciosa.
  */
-const FORMA_DEL_NOMBRE = /^comparendos_\d{8}-\d{4}\.xlsx$/;
+const FORMA_DEL_NOMBRE = /^comparendos_(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\.xlsx$/;
+
+/**
+ * Rango del año. No es «cualquier cosa de cuatro cifras»: acota el sello a instantes que este
+ * producto puede haber generado —el módulo es de 2026— dejando holgura para un servidor con el
+ * reloj corrido y para los años que le queden al sistema por delante.
+ *
+ * Comprobado en las dos direcciones antes de darlo por bueno, replicando el emisor real
+ * (`nombreArchivoExport()` con su `Intl.DateTimeFormat` de `America/Bogota`) y barriendo un instante
+ * cada siete minutos entre 2020-01-01 00:00 y 2100-12-31 23:59 **hora de Colombia**: 6 086 058
+ * nombres, **0 rechazos falsos**. En la otra dirección, diez nombres hostiles —dos NIT, una cédula
+ * con forma de sello, mes 13, día 32, hora 24, minuto 60 y una extensión ajena—: **0 aceptados**.
+ *
+ * El límite inferior es real y conviene saberlo: un sello de 2019 en hora de Colombia se rechaza y
+ * el archivo cae al nombre de respaldo. Es la conducta buscada —un export de este módulo no puede
+ * ser de 2019— y no un efecto colateral.
+ */
+const ANIO_MIN = 2020;
+const ANIO_MAX = 2100;
+
+function esNombreDeExport(nombre: string): boolean {
+  const partes = FORMA_DEL_NOMBRE.exec(nombre);
+  if (!partes) return false;
+  const [anio, mes, dia, hora, minuto] = partes.slice(1).map(Number);
+  return anio >= ANIO_MIN && anio <= ANIO_MAX
+    && mes >= 1 && mes <= 12
+    && dia >= 1 && dia <= 31
+    && hora >= 0 && hora <= 23
+    && minuto >= 0 && minuto <= 59;
+}
 
 /**
  * Lanza el export y devuelve el nombre con el que se guardó el archivo.
@@ -85,7 +131,7 @@ export async function exportarComparendos(c: CriteriosComparendos): Promise<stri
     `${RUTA_COMPARENDOS}/registros/export${sufijoQuery(query)}`,
     NOMBRE_RESPALDO,
     cuerpo,
-    (nombre) => FORMA_DEL_NOMBRE.test(nombre),
+    esNombreDeExport,
   );
 }
 

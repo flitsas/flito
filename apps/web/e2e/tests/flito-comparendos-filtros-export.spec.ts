@@ -43,10 +43,15 @@ const CUERPO_XLSX = 'PKFLITO-E2E';
  * producir**.
  *
  * Si el mock devolviera «hoy», un nombre inventado en el cliente pasaría el test sin que nadie lo
- * notara — que es exactamente el defecto que el AC3 quiere cerrar. 1999 no lo produce ningún
- * `new Date()` de esta máquina.
+ * notara — que es exactamente el defecto que el AC3 quiere cerrar.
+ *
+ * Es una fecha FUTURA y no una pasada, y el matiz lo puso el guardia de forma: el sello se valida
+ * como instante real y su año tiene que caer en un rango sensato (2020–2100), así que el
+ * `19990102-0304` que llevaba este fixture pasó a ser —con razón— un nombre rechazado. 2099 cumple
+ * las dos condiciones a la vez: ningún `new Date()` de esta máquina lo produce y sigue siendo un
+ * instante que el guardia acepta.
  */
-const NOMBRE_SERVIDOR = 'comparendos_19990102-0304.xlsx';
+const NOMBRE_SERVIDOR = 'comparendos_20991231-2359.xlsx';
 
 const FILA = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -416,6 +421,51 @@ test.describe('FLITO — Comparendos · filtros del visor (HU #11561, AC1 y AC2)
     await expect(boton(page, 'Limpiar')).toBeDisabled();
   });
 
+  /**
+   * Quitar un filtro es quitar ESE filtro, y hasta ahora nada lo protegía.
+   *
+   * El hueco lo destapó el gate de QA: cableando el selector de municipio a `limpiar()` —un mutante
+   * destructivo y perfectamente observable— los 103 tests del módulo seguían en verde. Ninguno
+   * comprobaba qué queda puesto DESPUÉS de retirar uno; todos miraban el filtro que se acababa de
+   * poner.
+   *
+   * Y es el modo de fallo que esta HU existe para cerrar, con su nombre y todo: quien acota por
+   * municipio, causal y estado, quita el municipio y exporta, se llevaría un archivo con TODOS los
+   * estados y TODAS las causales creyendo que solo ensanchó una dimensión. Nada falla, nada avisa;
+   * solo hay más NITs, más placas y más observaciones dentro. Por eso el test no acaba en la
+   * consulta: sigue hasta el export, que es donde el error se materializa en un archivo.
+   */
+  test('AC1 — quitar UN filtro conserva los demás, y el export sigue siendo el de la tabla', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    const listado = await mockListado(page);
+    const exportado = await mockExport(page);
+    await abrirVisor(page);
+
+    await boton(page, 'Activos').click();
+    await selMunicipio(page).selectOption({ label: 'Itagüí' });
+    await selCausal(page).selectOption({ label: 'Registrado' });
+    await expect.poll(() => pares(listado.busquedas.at(-1) ?? '')).toEqual(
+      [`causalId=${CAUSAL_ID}`, 'estado=activo', 'municipio=ITAGUI'].sort(),
+    );
+    const consultas = listado.busquedas.length;
+
+    // Se retira SOLO el municipio, por el camino por el que lo retira un operador: volviendo el
+    // selector a «Todos los municipios».
+    await selMunicipio(page).selectOption({ label: 'Todos los municipios' });
+
+    await expect.poll(() => listado.busquedas.length).toBeGreaterThan(consultas);
+    expect(pares(listado.busquedas.at(-1) ?? ''), 'quitar el municipio se llevó por delante el resto')
+      .toEqual([`causalId=${CAUSAL_ID}`, 'estado=activo'].sort());
+    // Y la pantalla lo cuenta igual que la consulta: los otros dos controles siguen puestos.
+    await expect(selCausal(page)).toHaveValue(CAUSAL_ID);
+    await expect(selMunicipio(page)).toHaveValue('');
+    await expect(boton(page, 'Activos')).toHaveAttribute('aria-pressed', 'true');
+
+    await Promise.all([page.waitForEvent('download'), botonExportar(page).click()]);
+    paridadConElListado(exportado.peticiones[0].search, listado.busquedas.at(-1) ?? '');
+  });
+
   test('AC1 — el vacío nombra los filtros NUEVOS, no solo los viejos', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCatalogos(page);
@@ -481,15 +531,24 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     const peticion = exportado.peticiones[0];
     expect(peticion.metodo, 'no hay variante GET de este endpoint').toBe('POST');
 
-    // 1 · Lo que NO identifica a nadie va en la query… y va TODO: si faltara, el servidor
-    //     respondería 200 con un archivo más ancho del que se pidió, sin decir nada.
+    // 1 · La identidad NO está en la URL. **Va primero, y el orden es el test.**
+    //
+    //     Debajo hay una enumeración posicional de la query, y esa afirmación es más fuerte: si el
+    //     NIT se colara en la URL, el `toEqual` reventaría por «sobra un par» antes de que este
+    //     guardia llegara a mirar. El §14 quedaría cubierto por accidente, por un aserto que habla
+    //     de otra cosa, y el día que alguien relaje la enumeración —añadir un filtro es relajarla—
+    //     la fuga pasaría sin que nada la nombre. Poniéndolo delante, lo que mata al mutante de
+    //     `?nit=` es la regla que dice «ni el NIT ni la placa tocan la URL».
+    sinIdentidadEnLaUrl(peticion.search);
+
+    // 2 · Y lo que no identifica a nadie va TODO en la query: si faltara, el servidor respondería
+    //     200 con un archivo más ancho del que se pidió, sin decir nada.
     paridadConElListado(peticion.search, listado.busquedas.at(-1) ?? '');
     expect(pares(peticion.search)).toEqual(
       ['estado=activo', 'municipio=ITAGUI', 'q=110010'].sort(),
     );
 
-    // 2 · La identidad va en el cuerpo y SOLO en el cuerpo, normalizada al mandarla.
-    sinIdentidadEnLaUrl(peticion.search);
+    // 3 · La identidad viaja en el cuerpo, normalizada al mandarla y no al escribirla.
     expect(JSON.parse(peticion.cuerpo)).toEqual({ nit: '900123456', placa: 'ABC123' });
 
     expect(descarga.suggestedFilename()).toBe(NOMBRE_SERVIDOR);
@@ -581,7 +640,7 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
       cabecera: {
         'content-disposition':
           'attachment; filename="comparendos_00000000-0000.xlsx"; '
-          + "filename*=UTF-8''comparendos_19990102%2D0304.xlsx",
+          + "filename*=UTF-8''comparendos_20991231%2D2359.xlsx",
       },
       esperado: NOMBRE_SERVIDOR,
     },
@@ -600,7 +659,7 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
       // que llegue a la página y `route.fulfill` se queda colgado: el test mediría al navegador, no
       // al saneado. `\u0001` y `\u007F` recorren la MISMA rama del filtro y sí llegan.
       caso: 'con caracteres de control: no se escriben en la carpeta de descargas',
-      cabecera: { 'content-disposition': 'attachment; filename="comparendos_1999\u00010102-0304\u007F.xlsx"' },
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_2099\u00011231-2359\u007F.xlsx"' },
       esperado: NOMBRE_SERVIDOR,
     },
     {
@@ -621,8 +680,18 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
       prohibido: '830009988',
     },
     {
+      // La segunda sonda del guardia, y la que obligó a validar el sello por COMPONENTES: estos
+      // ocho dígitos encajan en `\d{8}` y son una cédula colombiana. Con el patrón que solo contaba
+      // dígitos, este nombre atravesaba el guardia, quedaba en el disco y se pintaba en el DOM.
+      // Mes 56 y día 78 no existen, así que ahora muere solo.
+      caso: 'doce dígitos que NO son un instante (una cédula) caen al respaldo',
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_19345678-0304.xlsx"' },
+      esperado: 'comparendos.xlsx',
+      prohibido: '19345678',
+    },
+    {
       caso: 'una extensión que no es la del contrato tampoco se usa',
-      cabecera: { 'content-disposition': 'attachment; filename="comparendos_19990102-0304.exe"' },
+      cabecera: { 'content-disposition': 'attachment; filename="comparendos_20991231-2359.exe"' },
       esperado: 'comparendos.xlsx',
       prohibido: '.exe',
     },
@@ -693,24 +762,38 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     const exportado = await mockExport(page);
     let soltar = () => {};
     const retenido = new Promise<void>((r) => { soltar = r; });
+    // Contador propio, incrementado ANTES de retener. `traza.peticiones` no sirve para este test: su
+    // `push` vive en el mock de abajo, al que solo se llega tras `soltar()`, así que mientras la
+    // petición está en vuelo —que es justo cuando hay que contar— la traza está vacía.
+    let salidas = 0;
     await page.route(API_EXPORT, async (route) => {
+      salidas += 1;
       await retenido;
       return route.fallback();
     });
     await abrirVisor(page);
 
-    // `click()` desde el DOM y no `locator.click()`: Playwright espera a que el botón esté
-    // habilitado, así que un doble clic normal no prueba nada. Lo que el AC4 exige es que la SEGUNDA
-    // PETICIÓN no salga, no que el botón se pinte gris — y `disabled` lo escribe React en el commit
-    // siguiente al clic, así que entre los dos clics hay una ventana real.
-    const disparar = () => page.evaluate(() => {
+    /**
+     * **Los tres clics van en UNA sola evaluación, y ahí está todo el test.**
+     *
+     * `locator.click()` no sirve —Playwright espera a que el botón esté habilitado—, pero tampoco
+     * sirve llamar tres veces a `page.evaluate()`: cada `await` es un viaje de ida y vuelta al
+     * navegador, y en ese hueco React ya hizo el commit que escribe `disabled`. El segundo clic ni
+     * siquiera se despacha, así que lo que mediría el test es el atributo del botón — justo lo que
+     * el AC4 dice que NO basta. El TC quedaba vacuo: verde con el candado y verde sin él.
+     *
+     * Con los tres en el mismo despacho síncrono, ninguno ve el `disabled` del anterior y lo único
+     * que puede detener al segundo y al tercero es la `ref`. Medido en las dos direcciones: con el
+     * candado, 1 POST; sin él, 3.
+     */
+    await page.evaluate(() => {
       const b = [...document.querySelectorAll('button')]
         .find((x) => x.textContent?.includes('Exportar a Excel') || x.textContent?.includes('Preparando'));
-      (b as HTMLButtonElement).click();
+      const boton = b as HTMLButtonElement;
+      boton.click();
+      boton.click();
+      boton.click();
     });
-    await disparar();
-    await disparar();
-    await disparar();
 
     await expect(botonExportar(page)).toHaveCount(0);
     await expect(boton(page, 'Preparando el archivo…')).toBeVisible();
@@ -719,9 +802,18 @@ test.describe('FLITO — Comparendos · export a Excel (HU #11561, AC3..AC6)', (
     // se anuncia solo.
     await expect(page.getByText('Preparando el archivo de comparendos.')).toBeAttached();
 
+    // **La afirmación del AC4, y va AQUÍ: antes de soltar y antes de mirar la descarga.**
+    //
+    // Los tres clics salieron del mismo despacho síncrono, así que las peticiones que fueran a salir
+    // ya salieron cuando el botón se pintó ocupado. Puesta después de la descarga, esta línea es
+    // inalcanzable en el caso que importa: sin candado salen tres peticiones, y una tormenta de tres
+    // respuestas concurrentes rompe antes el aserto del NOMBRE — el mutante moriría, sí, pero por un
+    // aserto que habla de otra cosa, y el día que ese otro cambie el AC4 se queda sin red.
+    expect(salidas, 'el candado dejó pasar un segundo POST').toBe(1);
+
     const [descarga] = await Promise.all([page.waitForEvent('download'), soltar()]);
+    expect(exportado.peticiones).toHaveLength(1);
     expect(descarga.suggestedFilename()).toBe(NOMBRE_SERVIDOR);
-    expect(exportado.peticiones, 'el candado dejó pasar un segundo POST').toHaveLength(1);
     // Y al terminar vuelve a reposo: el candado se suelta, no se queda puesto.
     await expect(botonExportar(page)).toBeEnabled();
   });
