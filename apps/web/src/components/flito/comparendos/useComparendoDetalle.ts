@@ -113,7 +113,7 @@ export function useComparendoDetalle(id: string | null): DetalleComparendo {
     setDetalle(null);
     setError(null);
     if (id === null) return;
-    api.get<ComparendoRegistroDetalle>(`${RUTA}/registros/${id}`)
+    api.get<ComparendoRegistroDetalle>(`${RUTA}/registros/${encodeURIComponent(id)}`)
       .then((d) => { if (turno === vuelo.current) setDetalle(d); })
       .catch((e) => { if (turno === vuelo.current) setError(errorDePanel(e)); });
   }, [id, nonce]);
@@ -142,5 +142,5 @@ export function guardarGestion(
   id: string,
   cambios: ComparendosGestionPatch,
 ): Promise<ComparendoRegistroDetalle> {
-  return api.patch<ComparendoRegistroDetalle>(`${RUTA}/registros/${id}/gestion`, cambios);
+  return api.patch<ComparendoRegistroDetalle>(`${RUTA}/registros/${encodeURIComponent(id)}/gestion`, cambios);
 }

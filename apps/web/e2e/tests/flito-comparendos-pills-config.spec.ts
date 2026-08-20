@@ -831,6 +831,37 @@ test.describe('FLITO — Comparendos · pestañas, parametrización y vacío del
       await expect(modal.getByRole('alert')).toContainText('El NIT admite solo dígitos');
       expect(alta.peticiones).toHaveLength(0);
     });
+
+    // TC91 — AC3 de la HU #11652. El `id` de la fila se interpola en la ruta y hasta esa HU viajaba
+    // SIN codificar. Hoy los ids del módulo son UUID que emite el servidor, así que no hay nada
+    // explotable; el fixture usa a propósito un identificador que NO es un UUID, porque una
+    // corrección preventiva sin un caso donde el defecto se vea no tiene forma de tener red.
+    //
+    // Lo que se afirma es la FORMA de la URL —un solo segmento tras `nits`, sin query—: sin
+    // codificar, el `/` abre un segmento más y el `?` convierte el resto del identificador en una
+    // query, y ninguna de las dos cosas se ve en la pantalla.
+    test('TC91: el id de la fila viaja CODIFICADO en la ruta, sin partirla ni abrir query', async ({ page }) => {
+      const ID_RARO = 'n1/otro?x=1';
+      const NIT_RARO = { ...NIT_ACTIVO, id: ID_RARO };
+      await mockLectura(page, API_NITS, { status: 200, body: [NIT_RARO] });
+      await mockLectura(page, API_MUNICIPIOS, { status: 200, body: MUNICIPIOS });
+      // El glob es `nits/**` y no `nits/*` (`API_NIT_ID`): con el id sin codificar la barra abre un
+      // segundo segmento y `nits/*` dejaría de casar, así que el mock ni se enteraría y el TC
+      // fallaría por «no hubo petición» en vez de por lo que de verdad pasó.
+      const escritura = await mockEscritura(page, '**/api/flito/comparendos/nits/**', {
+        status: 200, body: { ...NIT_RARO, activo: false },
+      });
+
+      await irAConfiguracion(page);
+      await bloqueNits(page).getByRole('row', { name: /900123456/ }).getByRole('button', { name: 'Desactivar' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: /Desactivar|Confirmar/ }).click();
+
+      await expect(page.getByText('NIT desactivado.')).toBeVisible();
+      expect(escritura.peticiones.map((p) => p.metodo)).toEqual(['PATCH']);
+      const url = new URL(escritura.peticiones[0].url);
+      expect(url.pathname).toBe(`/api/flito/comparendos/nits/${encodeURIComponent(ID_RARO)}`);
+      expect(url.search, 'el identificador abrió una query que nadie pidió').toBe('');
+    });
   });
 
   // ─────────────────────────── Bloque 2 — Municipios fuente ─────────────────────────────────────
@@ -1152,6 +1183,44 @@ test.describe('FLITO — Comparendos · pestañas, parametrización y vacío del
 
       await expect(modal.getByRole('alert')).toContainText('Escribe el nombre de la causal.');
       expect(alta.peticiones).toHaveLength(0);
+    });
+
+    // TC92 — AC4 de la HU #11652, y el hermano silencioso de TC26.
+    //
+    // «10,5» se rechaza y se ve que se rechaza. Lo que no se veía es lo contrario: literales que
+    // JavaScript sabe leer como número pero que el operador no escribió como tal —hexadecimal,
+    // octal, binario, exponencial— pasaban `Number.isInteger` y el rango, y se guardaban CALLANDO
+    // con un valor distinto del que hay en el campo. Un `0x10` guardado como 16 no se nota mirando
+    // la tabla: 16 es un orden perfectamente plausible.
+    //
+    // Por eso el TC no comprueba solo el rechazo: comprueba que NO salió petición. Si alguno colara,
+    // la fila aparecería en su sitio y todo parecería correcto.
+    test('TC92: un orden en hexadecimal, octal, binario o exponencial no se guarda como el número que JS lee', async ({ page }) => {
+      await mockConfigFeliz(page);
+      const alta = await mockEscritura(page, API_CAUSALES, { status: 201, body: CAUSAL_PAGADO });
+
+      await irAConfiguracion(page);
+      await bloqueCausales(page).getByRole('button', { name: 'Agregar causal' }).click();
+
+      const modal = page.getByRole('dialog', { name: 'Agregar causal' });
+      await modal.getByLabel(/^Nombre/).fill('Acuerdo de pago');
+
+      // Cada uno es un entero dentro de 0..32767 para `Number`: 16, 15, 3, 1000 y 10.
+      for (const escrito of ['0x10', '0o17', '0b11', '1e3', '10.0']) {
+        await modal.getByLabel(/^Orden/).fill(escrito);
+        await modal.getByRole('button', { name: 'Guardar' }).click();
+        await expect(modal.getByRole('alert'), `«${escrito}» no se rechazó`)
+          .toContainText('El orden debe ser un número entero entre 0 y 32767.');
+        expect(alta.peticiones, `«${escrito}» llegó a viajar al API`).toHaveLength(0);
+      }
+
+      // El espejo: el mismo formulario con un orden escrito en decimal SÍ guarda. Sin esto, el TC
+      // pasaría igual si el campo se hubiera roto y ya no guardara nada.
+      await modal.getByLabel(/^Orden/).fill('16');
+      await modal.getByRole('button', { name: 'Guardar' }).click();
+      await expect(page.getByText('Causal agregada.')).toBeVisible();
+      expect(alta.peticiones).toHaveLength(1);
+      expect(alta.peticiones[0].cuerpo).toMatchObject({ orden: 16 });
     });
 
     // TC33 — CARGANDO y VACÍO del bloque, con su copy propio. Va al final del bloque y no en su

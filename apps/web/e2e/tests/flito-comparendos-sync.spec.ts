@@ -2107,6 +2107,44 @@ test.describe('FLITO — Comparendos · historial de corridas (HU #11636)', () =
       expect(simulada, 'copy de usuario en español: «simulado», no «mock»').not.toMatch(/mock/i);
     });
 
+    // TC93 — AC5 de la HU #11652: la observación de a11y que TC65 dejó anotada, saldada.
+    //
+    // Abreviar en una tabla densa sigue siendo legítimo PARA QUIEN MIRA, y por eso lo visible no
+    // cambia: «3 inact. · 2 err mun.» se entiende de un vistazo y cabe en la celda. Lo que faltaba
+    // era la otra mitad — un lector de pantalla anuncia «tres inact punto», que no es información —,
+    // así que la celda lleva las dos formas: la corta con `aria-hidden` y la completa en `sr-only`.
+    //
+    // Se afirma sobre el NOMBRE ACCESIBLE de la celda y no sobre su texto, porque es la única
+    // medición que distingue las dos: el nombre accesible excluye lo marcado `aria-hidden`, así que
+    // este TC muere tanto si desaparece el texto completo como si el abreviado deja de esconderse y
+    // el lector acaba oyendo las dos versiones seguidas.
+    test('TC93: el resumen se ve abreviado y se escucha completo, sin anunciar las dos formas', async ({ page }) => {
+      await mockRuns(page, { lista: HISTORIAL, detalle: DETALLE_HIST });
+
+      await irASincronizacion(page);
+      await esperarHistorialCargado(page);
+
+      const completada = filasHistorial(page).nth(0);
+      const parcial = filasHistorial(page).nth(1);
+      const fallida = filasHistorial(page).nth(2);
+
+      // Lo que se VE sigue siendo lo abreviado del wireframe.
+      await expect(completada).toContainText('3 inact.');
+      await expect(parcial).toContainText('2 err mun.');
+
+      // Lo que se ESCUCHA es el término entero, y con la concordancia de número correcta.
+      await expect(completada.getByRole('cell', { name: '340 upserts, 3 inactivados', exact: true })).toHaveCount(1);
+      await expect(parcial.getByRole('cell', { name: '120 upserts, 2 errores municipales', exact: true })).toHaveCount(1);
+      // El guion tampoco se puede escuchar: la corrida sin contadores dice por qué está vacía. El
+      // nombre de la celda lleva la raya delante —el guion NO va `aria-hidden`, igual que en el
+      // resto de huecos del módulo (`PanelDetalleComparendo`)—, así que se busca por contenido.
+      await expect(fallida.getByRole('cell', { name: /Sin resumen/ })).toHaveCount(1);
+
+      // Y NINGUNA abreviatura llega al árbol de accesibilidad: si el `aria-hidden` faltara, el
+      // nombre de la celda llevaría las dos versiones pegadas.
+      await expect(historial(page).getByRole('cell', { name: /inact\.|err SIMIT|err mun\./ })).toHaveCount(0);
+    });
+
     // TC83 — «Cargar más corridas», la única superficie que mueve el `?limit=`.
     //
     // La spec la deja como opcional de v1 y con una condición que es todo el caso: **la misma lista

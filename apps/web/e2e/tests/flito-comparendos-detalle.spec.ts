@@ -205,6 +205,27 @@ test.describe('FLITO — Comparendos · detalle y gestión (HU #11562)', () => {
     expect(veces(traza, `GET /registros/${REGISTRO_ID}`)).toBeLessThanOrEqual(2);
   });
 
+  // El `id` de la fila se interpola en la ruta del detalle, y hasta la HU #11652 (AC3) lo hacía sin
+  // codificar. Hoy es un UUID del servidor y no hay nada explotable; el fixture usa a propósito un
+  // identificador que NO lo es, porque si no el defecto no se puede ver desde ningún test.
+  test('AC1 — el id del registro viaja CODIFICADO: no abre un segmento ni una query de más (HU #11652)', async ({ page }) => {
+    const ID_RARO = 'reg/uno?x=1';
+    await loginAs(page, OPERACIONES_USER);
+    const traza = await mockModulo(page);
+    traza.lista = { status: 200, body: { items: [{ ...FILA, id: ID_RARO }], nextCursor: null } };
+
+    await page.goto('/flito/comparendos');
+    await boton(page, `Ver el comparendo ${FILA.numeroComparendo}`).click();
+
+    // Se espera a que el detalle se pida y se mira CÓMO se pidió. Sin codificar, la traza dice
+    // `GET /registros/reg/uno`: otra ruta, y el resto del identificador convertido en query. El
+    // `Set` es por `StrictMode`, que en desarrollo monta el efecto dos veces (ver el TC de arriba).
+    await expect.poll(() => [...new Set(traza.peticiones.filter((p) => p.startsWith('GET /registros/')))])
+      .toEqual([`GET /registros/${encodeURIComponent(ID_RARO)}`]);
+    // El espejo: con la ruta bien formada el panel recibe SU detalle y no la página del listado.
+    await expect(panel(page)).toContainText('EN COBRO COACTIVO');
+  });
+
   test('AC1 — el panel abre en esqueleto y no espera a la respuesta para existir', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const traza = await mockModulo(page);

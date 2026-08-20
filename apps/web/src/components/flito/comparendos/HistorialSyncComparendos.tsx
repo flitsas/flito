@@ -39,6 +39,9 @@ import { useHistorialSync } from './useHistorialSync';
 
 const ID_TITULO = 'historial-sync-comparendos';
 
+/** Una pieza del resumen en sus dos formas: la que se ve —abreviada— y la que se escucha. */
+interface PiezaResumen { corta: string; completa: string }
+
 /**
  * Los tres o cuatro números que dicen si esa corrida hizo algo. **No es el resumen entero**: el
  * bloque completo de contadores está en el detalle, y meterlo en una celda obligaría a leer nueve
@@ -48,19 +51,60 @@ const ID_TITULO = 'historial-sync-comparendos';
  * resto solo cuando hay algo que contar. El modo simulado se nombra el PRIMERO porque cambia cómo se
  * leen todos los números que vienen detrás: no salieron del proveedor real.
  *
- * Sin `resumen` se pinta un guion, nunca ceros: una corrida que murió sin escribir sus contadores no
- * es una corrida que no hizo nada, y esa diferencia es la que el guion conserva.
+ * **Cada pieza se devuelve abreviada Y completa** (HU #11652, AC5). Abreviar en una tabla densa es
+ * legítimo para quien mira —«3 inact. · 2 err SIMIT» cabe en la celda y se entiende de un vistazo—,
+ * pero leído en voz alta es «tres inact punto, dos err SIMIT», que no es información. Las dos formas
+ * dicen lo mismo; la celda decide cuál enseña a quién.
+ *
+ * `upserts` y «modo simulado» no se tocan: no son abreviaturas, y son el vocabulario con el que el
+ * detalle de la corrida nombra esos mismos contadores.
  */
-function resumenRapido(run: ComparendosSyncRun): string {
+function piezasDelResumen(run: ComparendosSyncRun): PiezaResumen[] | null {
   const r = run.resumen;
-  if (!r) return SIN_DATO;
+  if (!r) return null;
+  const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
   return [
-    r.modo === 'mock' ? 'modo simulado' : null,
-    `${r.upserts} upserts`,
-    r.inactivados > 0 ? `${r.inactivados} inact.` : null,
-    r.llamadasSimitError > 0 ? `${r.llamadasSimitError} err SIMIT` : null,
-    r.llamadasMunicipalError > 0 ? `${r.llamadasMunicipalError} err mun.` : null,
-  ].filter((parte): parte is string => parte !== null).join(' · ');
+    r.modo === 'mock' ? { corta: 'modo simulado', completa: 'modo simulado' } : null,
+    { corta: `${r.upserts} upserts`, completa: `${r.upserts} upserts` },
+    r.inactivados > 0
+      ? { corta: `${r.inactivados} inact.`, completa: plural(r.inactivados, 'inactivado', 'inactivados') }
+      : null,
+    r.llamadasSimitError > 0
+      ? {
+        corta: `${r.llamadasSimitError} err SIMIT`,
+        completa: plural(r.llamadasSimitError, 'error de SIMIT', 'errores de SIMIT'),
+      }
+      : null,
+    r.llamadasMunicipalError > 0
+      ? {
+        corta: `${r.llamadasMunicipalError} err mun.`,
+        completa: plural(r.llamadasMunicipalError, 'error municipal', 'errores municipales'),
+      }
+      : null,
+  ].filter((pieza): pieza is PiezaResumen => pieza !== null);
+}
+
+/**
+ * La celda del resumen: lo abreviado a la vista, lo completo al oído.
+ *
+ * El `aria-hidden` sobre lo visible y el `sr-only` con el texto entero son el par que ya usa el
+ * módulo (`PanelDetalleComparendo`, el «Ver detalle de la corrida del …» de aquí abajo): ni se
+ * duplica el anuncio ni se sustituye lo que el operador lee en pantalla.
+ *
+ * Sin `resumen` se pinta un guion, nunca ceros: una corrida que murió sin escribir sus contadores no
+ * es una corrida que no hizo nada, y esa diferencia es la que el guion conserva. El guion suelto
+ * tampoco se puede escuchar, así que lleva su `sr-only` detrás igual que los demás huecos del módulo.
+ */
+function CeldaResumen({ run }: { run: ComparendosSyncRun }) {
+  const piezas = piezasDelResumen(run);
+  if (!piezas) return <>{SIN_DATO}<span className="sr-only">Sin resumen</span></>;
+  return (
+    <>
+      <span aria-hidden="true">{piezas.map((p) => p.corta).join(' · ')}</span>
+      {/* Con comas y no con el punto medio: el separador de la vista no es una pausa al oído. */}
+      <span className="sr-only">{piezas.map((p) => p.completa).join(', ')}</span>
+    </>
+  );
 }
 
 interface Props {
@@ -200,7 +244,7 @@ function FilaCorrida({ run, onVerDetalle }: { run: ComparendosSyncRun; onVerDeta
       <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>
         {run.scopeNits.length > 0 ? `${run.scopeNits.length} NIT` : SIN_DATO}
       </td>
-      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{resumenRapido(run)}</td>
+      <td className={celda} style={{ color: 'var(--flit-text-primary)' }}><CeldaResumen run={run} /></td>
       <td className={`${celda} text-right`}>
         <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={onVerDetalle}>
           Ver detalle<span className="sr-only">{` de la corrida del ${inicio}`}</span>

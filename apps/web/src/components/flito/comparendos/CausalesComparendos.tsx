@@ -66,9 +66,21 @@ function validarNombre(nombre: string): string | null {
 function leerOrden(escrito: string): number | null | undefined {
   const limpio = escrito.trim();
   if (!limpio) return null;
-  // `Number` y no `parseInt`: `parseInt('10abc')` devuelve 10 y guardaría un orden que nadie pidió.
+  // Se comprueba la FORMA de lo escrito antes de convertir, y ni `parseInt` ni `Number` bastan:
+  //
+  //   · `parseInt('10abc')` devuelve 10 y guardaría un orden que nadie pidió.
+  //   · `Number` no arregla eso del todo. Acepta otras formas de escribir un número que un campo de
+  //     orden no admite —`0x10` es 16, `0o17` es 15, `0b11` es 3, `1e3` es 1000, `10.0` es 10— y las
+  //     cinco dan un entero dentro del rango, así que pasaban `Number.isInteger` y el tope sin que
+  //     nada avisara: el operador escribía una cosa y se guardaba otra (HU #11652, AC4). También
+  //     convierte dígitos de otras escrituras (`'١٠'` → 10), que es lo mismo por otro camino.
+  //
+  // `^\d+$` deja pasar exactamente lo que el campo dice admitir: dígitos decimales y nada más. El
+  // signo tampoco entra, y no hace falta: el rango empieza en 0 y un `-1` no es un orden.
+  if (!/^\d+$/.test(limpio)) return undefined;
   const valor = Number(limpio);
-  if (!Number.isInteger(valor) || valor < 0 || valor > ORDEN_MAX) return undefined;
+  // Solo el techo: la forma ya garantiza entero y no negativo.
+  if (valor > ORDEN_MAX) return undefined;
   return valor;
 }
 
@@ -119,7 +131,7 @@ export default function CausalesComparendos() {
 
   const cambiarActivo = async (fila: ComparendosCausal, activo: boolean) => {
     try {
-      const actualizada = await api.patch<ComparendosCausal>(`${RUTA_CAUSALES}/${fila.id}`, { activo });
+      const actualizada = await api.patch<ComparendosCausal>(`${RUTA_CAUSALES}/${encodeURIComponent(fila.id)}`, { activo });
       reemplazar(actualizada);
       toast.success(activo ? 'Causal activada.' : 'Causal desactivada.');
     } catch {
@@ -356,7 +368,7 @@ function ModalEditarCausal(
     setOcupado(true);
     try {
       onGuardada(await api.patch<ComparendosCausal>(
-        `${RUTA_CAUSALES}/${fila.id}`, { nombre: limpio, orden: posicion },
+        `${RUTA_CAUSALES}/${encodeURIComponent(fila.id)}`, { nombre: limpio, orden: posicion },
       ));
     } catch (err) {
       setError(mensajeDeEscritura(err, 'guardar'));
