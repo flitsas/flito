@@ -82,6 +82,15 @@ function escenarioGestorConAcceso(): void {
     .select('flito_compradores', []);
 }
 
+/** Igual que el anterior pero sin la lectura de `users`: admin y auditor no tienen proveedor. */
+function escenarioAdminConAcceso(): void {
+  kdb.when
+    .selectOnce('flito_soat', [conAcceso()])
+    .selectOnce('flito_soat', [FILA_DETALLE])
+    .select('flito_tramites', [])
+    .select('flito_compradores', []);
+}
+
 beforeEach(() => { kdb.reset(); });
 
 // ─────────────────── AC4: la frontera no se abre ────────────────────────────
@@ -194,11 +203,9 @@ describe('AC3 — el comprobante PSE en GET /flito/soat/:id/soportes', () => {
     expect(r.body[0].origen).toBe('soat');
   });
 
-  it('admin y auditoría ven la misma lista: el comprobante no es exclusivo del gestor', async () => {
+  it('admin también lo ve: el comprobante no es exclusivo del gestor', async () => {
+    escenarioAdminConAcceso();
     kdb.when
-      .selectOnce('flito_soat', [conAcceso()])
-      .selectOnce('flito_soat', [FILA_DETALLE])
-      .select('flito_tramites', [])
       .select('flito_soportes', [])
       .select('flito_conciliacion_lineas', [
         soporte('sop-pse', 'comprobante-pse.pdf', '2026-08-20T15:00:00Z', 'comprobante_pse'),
@@ -209,6 +216,89 @@ describe('AC3 — el comprobante PSE en GET /flito/soat/:id/soportes', () => {
 
     expect(r.status).toBe(200);
     expect(r.body[0].origen).toBe('conciliacion');
+  });
+});
+
+// ─────────────────── AC5: el auditor NO ve el comprobante ───────────────────
+//
+// El bloqueante que el gate encontró sobre `3f1e124`, y su regresión.
+//
+// `GET /:id/soportes` está abierta a `admin`, `proveedor` y `auditor`, y `buscarConAcceso` solo
+// aplica frontera de pertenencia cuando el rol es `proveedor` (`esGestor`). Para `auditor` no filtra
+// nada. Así que colgar el comprobante de esta lista sin mirar el rol le daba a auditoría el
+// comprobante de CUALQUIER boleta conciliada con solo tener el id de uno de sus SOAT —y con la URL
+// ya firmada—: más fácil que la puerta de atrás que esta misma HU cerró en bolsas y revisiones.
+//
+// Manda el AC5, la matriz de docs/ux (`auditor → No` en «Ver comprobante») y el ADR-0006 §7.5.
+
+describe('AC5 — auditoría ve el SOAT entero MENOS el comprobante del pago', () => {
+  it('el auditor NO recibe el bloque `conciliacion`, ni su url firmada', async () => {
+    escenarioAdminConAcceso();
+    kdb.when
+      .select('flito_soportes', [soporte('sop-soat', 'factura-soat.pdf', '2026-07-01T00:00:00Z', 'factura_soat')])
+      // Aunque la consulta devolviera algo, no debe llegar a pedirse. La fila está aquí a propósito:
+      // si la condición de rol desapareciera, este test se pondría en rojo en vez de pasar por
+      // casualidad porque el mock devolvía vacío.
+      .select('flito_conciliacion_lineas', [
+        soporte('sop-pse', 'comprobante-pse.pdf', '2026-08-20T15:00:00Z', 'comprobante_pse'),
+      ]);
+
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
+      .set('Authorization', await auth('auditor'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.map((x: { origen: string }) => x.origen)).toEqual(['soat']);
+    // Ni el archivo, ni el tipo, ni —sobre todo— un enlace firmado que lo abra.
+    const cuerpo = JSON.stringify(r.body);
+    expect(cuerpo).not.toContain('comprobante_pse');
+    expect(cuerpo).not.toContain('comprobante-pse.pdf');
+    expect(cuerpo).not.toContain('sop-pse');
+  });
+
+  it('y el auditor sigue viendo lo suyo: la factura del SOAT no se le quita', async () => {
+    // La corrección tenía que ser quirúrgica. Quitarle a auditoría toda la lista habría sido una
+    // regresión de una superficie que lleva funcionando desde la HU de soportes.
+    escenarioAdminConAcceso();
+    kdb.when
+      .select('flito_soportes', [soporte('sop-soat', 'factura-soat.pdf', '2026-07-01T00:00:00Z', 'factura_soat')])
+      .select('flito_conciliacion_lineas', []);
+
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
+      .set('Authorization', await auth('auditor'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(1);
+    expect(r.body[0]).toMatchObject({ origen: 'soat', nombreArchivo: 'factura-soat.pdf' });
+  });
+
+  it('la consulta del comprobante ni se EMITE para el auditor: no se lee lo que no se devuelve', async () => {
+    const { getTableName } = await import('drizzle-orm');
+    const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
+    const tablas: string[] = [];
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const from = c.from as (t: unknown) => unknown;
+      c.from = (tbl: unknown) => {
+        try { tablas.push(getTableName(tbl as never)); } catch { /* no es una tabla */ }
+        return from(tbl);
+      };
+      return c;
+    });
+
+    await soportesDeSoat(SOAT_ID, { rol: 'auditor' });
+    expect(tablas).not.toContain('flito_conciliacion_lineas');
+
+    tablas.length = 0;
+    await soportesDeSoat(SOAT_ID, { rol: 'admin' });
+    expect(tablas).toContain('flito_conciliacion_lineas');
+  });
+
+  it('el rol tiene que venir: la firma no admite olvidarse de decir a quién se sirve', async () => {
+    // Un `actor` opcional habría dejado que el bloque más sensible se colara por defecto en el
+    // próximo llamador, que es exactamente cómo nació el bloqueante. Esto lo fija en el tipo.
+    const modulo = await import('../../src/shared/soportes/soportes-consulta.js');
+    expect(modulo.soportesDeSoat.length).toBe(2);
   });
 });
 
@@ -227,7 +317,7 @@ describe('el puente soporte → boleta → línea → SOAT, en el where', () => 
     });
 
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    await soportesDeSoat(SOAT_ID);
+    await soportesDeSoat(SOAT_ID, { rol: 'admin' });
 
     const dialecto = new PgDialect();
     const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);

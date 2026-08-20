@@ -38,7 +38,7 @@ import { ExcelBoletaError } from './flito-conciliacion.excel.js';
 import { registrarAccesoBoleta } from './flito-conciliacion.pii.js';
 import { conciliarBoleta } from './flito-conciliacion.conciliar.service.js';
 import {
-  descargaComprobante, destinoComprobante, registrarComprobante,
+  descargaComprobante, destinoComprobante, nombreEnAlmacen, registrarComprobante,
 } from './flito-conciliacion.comprobante.service.js';
 import {
   cargarBoleta, ConciliacionError, descartarBoleta, detalleBoleta, listarBoletas, recruzarBoleta,
@@ -538,8 +538,11 @@ async function subirComprobante(req: Request, res: Response, reemplazar: boolean
   try {
     const id = idDe(req);
     const { prefijo } = await destinoComprobante(id, reemplazar);
+    // El nombre del OBJETO se normaliza: el que subió el usuario puede traer una placa dentro y esa
+    // clave acaba en el query string del enlace firmado (y de ahí a los logs). El original se
+    // conserva íntegro en `flito_soportes.nombre_archivo`, dos líneas más abajo.
     storageKey = await uploadEntityDocument(
-      prefijo, id, archivo.originalname, archivo.buffer, archivo.mimetype,
+      prefijo, id, nombreEnAlmacen(archivo.mimetype), archivo.buffer, archivo.mimetype,
     );
     const comprobante = await registrarComprobante(
       id,

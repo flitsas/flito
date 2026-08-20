@@ -68,9 +68,9 @@ async function porRegistro(
  * todavía no movió un peso, y su boleta puede acabar descartada. Solo el pago consumado tiene
  * comprobante que enseñar.
  *
- * **Quién puede llamar a esto NO se decide aquí.** Lo decide la ruta, y en el caso del gestor lo
- * decide `detalle()` de SOAT, que aplica la frontera 404-no-403 antes de llegar a esta función
- * (AC4). Este archivo arma listas; no es una superficie de autorización.
+ * **La frontera del GESTOR no se decide aquí.** La aplica `detalle()` de SOAT antes de llegar a esta
+ * función, devolviendo 404 y no 403 (AC4). Lo que sí se decide aquí es **qué rol tiene derecho a ver
+ * este bloque**, que es otra pregunta y se resuelve en `soportesDeSoat`.
  */
 async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]> {
   const filas = await db.select({
@@ -94,6 +94,30 @@ async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]
 }
 
 /**
+ * Quién puede ver el comprobante del pago PSE dentro de la lista de un SOAT (HU #11678, AC5).
+ *
+ * `auditor` **no está**, y esa ausencia es el arreglo de un bloqueante. `GET /flito/soat/:id/soportes`
+ * está abierta a `admin`, `proveedor` y `auditor`, y `buscarConAcceso` solo aplica frontera de
+ * pertenencia cuando el rol es `proveedor`: para auditoría no filtra nada. Sin esta lista, colgar el
+ * comprobante de esa respuesta le daba a `auditor` el comprobante de CUALQUIER boleta conciliada con
+ * solo conocer el id de uno de sus SOAT —y con la URL ya firmada—, que es más fácil que la puerta de
+ * atrás que esta misma HU cerró en `flito-bolsas` y `flito-revisiones`.
+ *
+ * Manda el AC5 («proveedor y auditor → 403»), la matriz de `docs/ux/flito-conciliacion.md` y el
+ * ADR-0006 §7.5: el comprobante es de Administración, Financiera y —solo el suyo— el gestor.
+ * Auditoría sigue viendo todo lo demás del SOAT exactamente como antes.
+ *
+ * `financiera` figura aquí por coherencia con la matriz aunque hoy el router de SOAT no la admita:
+ * la lista describe QUIÉN tiene derecho al dato, no por qué puerta entra.
+ */
+const ROLES_COMPROBANTE_PSE: readonly string[] = ['admin', 'financiera', 'proveedor'];
+
+/** Lo que la ruta sabe del actor y esta consulta necesita para decidir qué bloques devuelve. */
+export interface ActorSoporte {
+  rol: string;
+}
+
+/**
  * Comprobantes del SOAT (la factura de la aseguradora). El SOAT se ancla al VIN, no al trámite.
  *
  * Desde la HU #11678 la lista trae además el comprobante del pago PSE de la boleta que lo concilió,
@@ -101,14 +125,20 @@ async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]
  * ya veía sigue en la lista y sigue con `origen: 'soat'`, que es lo que el AC3 exige literalmente.
  *
  * Sale por aquí y no por una ruta nueva (que es lo que proponía el ADR-0006 §7.5) porque el AC3 pide
- * este endpoint por su nombre, y porque la ruta que lo sirve ya resuelve el permiso: pasa por
- * `detalle()`, o sea por la frontera del gestor, y devuelve enlaces firmados. Una ruta más habría
- * sido una superficie más que proteger para enseñar lo mismo.
+ * este endpoint por su nombre, y porque la ruta que lo sirve ya resuelve la PERTENENCIA: pasa por
+ * `detalle()`, o sea por la frontera del gestor, y devuelve enlaces firmados.
+ *
+ * **`actor` es obligatorio y no tiene valor por defecto.** Un opcional habría hecho que el bloque
+ * más sensible de la lista se incluyera por olvido —que es exactamente cómo se coló el bloqueante—;
+ * exigirlo obliga a cada llamador nuevo a decidir a quién está sirviendo. Y la consulta ni se emite
+ * cuando el rol no tiene derecho: no se lee lo que no se va a devolver.
  */
-export async function soportesDeSoat(soatId: string): Promise<SoporteVista[]> {
+export async function soportesDeSoat(
+  soatId: string, actor: ActorSoporte,
+): Promise<SoporteVista[]> {
   const [propios, conciliacion] = await Promise.all([
     porRegistro(flitoSoportes.soatId, soatId, 'soat'),
-    comprobanteDeConciliacion(soatId),
+    ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
   return ordenar([...propios, ...conciliacion]);
 }

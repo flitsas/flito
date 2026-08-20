@@ -34,6 +34,7 @@
 // Diseño: docs/adr/ADR-0006-flito-conciliacion-boletas-soat.md §7.4 y §7.5
 // Copy y estados de la ficha: docs/ux/flito-conciliacion.md, «Pantalla 4 — Comprobante del pago PSE»
 
+import { randomUUID } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import {
   CodigoErrorConciliacion, EstadoBoleta, TipoSoporte,
@@ -50,6 +51,33 @@ type DbOrTx = typeof db | Tx;
 
 /** Subcarpeta del almacenamiento, bajo la carpeta configurada del cliente. */
 const SUBCARPETA = 'conciliacion-comprobantes';
+
+/** Extensión por tipo real del archivo. La lista es la misma lista blanca del router. */
+const EXTENSION: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+};
+
+/**
+ * Nombre con el que el comprobante se guarda en el ALMACENAMIENTO — nunca el que subió el usuario.
+ *
+ * `uploadEntityDocument` mete el nombre saneado dentro de la clave, y `firmarDescargaEntidad` mete
+ * esa clave en el query string del enlace. Un archivo llamado `comprobante-ABC123.pdf` acabaría con
+ * una **placa en la URL**: en los logs de nginx, en el historial del navegador y en la cabecera
+ * `Referer` de cualquier recurso que se cargue después. Es el mismo riesgo por el que el `detail` de
+ * la bitácora tampoco copia `originalname`, y quedaba abierto por el otro lado.
+ *
+ * El nombre original **no se pierde**: vive en `flito_soportes.nombre_archivo`, que es lo que la
+ * ficha pinta y lo que la descarga devuelve. Lo que cambia es solo la clave del objeto.
+ *
+ * Se normaliza SOLO aquí y no en `uploadEntityDocument`: aquel helper lo comparten bolsas, SOAT,
+ * derechos e impuestos, y cambiarlo sería un cambio transversal que no pertenece a este Feature.
+ * La deuda queda registrada aparte.
+ */
+export function nombreEnAlmacen(contentType: string): string {
+  return `comprobante-${randomUUID()}.${EXTENSION[contentType] ?? 'bin'}`;
+}
 
 /** El archivo ya subido, listo para registrarse. Misma forma que `SoporteRecarga` de bolsas. */
 export interface ArchivoComprobante {
@@ -100,7 +128,14 @@ async function soporteVivo(dbx: DbOrTx, boletaId: string): Promise<FilaSoporte |
   return s ?? null;
 }
 
-/** La fila de la base, ya con su enlace firmado. La clave del almacenamiento no sale de aquí. */
+/**
+ * La fila de la base, ya con su enlace firmado.
+ *
+ * El DTO **no lleva `storageKey`**, pero conviene ser exacto: `url` sí contiene la clave, como
+ * `?key=…` dentro del enlace firmado —así funciona `firmarDescargaEntidad` en todo el monorepo—.
+ * Lo que no sale es una ruta de almacenamiento CRUDA y utilizable sin la firma HMAC ni su caducidad.
+ * Por eso importa lo otro: que esa clave no lleve datos personales dentro (ver `nombreEnAlmacen`).
+ */
 function comprobanteDto(s: FilaSoporte): ComprobanteBoletaDto {
   return {
     id: s.id,

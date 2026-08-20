@@ -125,9 +125,24 @@ describe('soportesDeSoat', () => {
   it('marca el origen para que el visor sepa agruparlo', async () => {
     kdb.when.select('flito_soportes', [soporte('sop-1', 'factura-soat.pdf', '2026-07-01T00:00:00Z')]);
 
-    const salida = await soportesDeSoat('s1');
+    const salida = await soportesDeSoat('s1', { rol: 'admin' });
 
     expect(salida).toHaveLength(1);
     expect(salida[0]).toMatchObject({ origen: 'soat', nombreArchivo: 'factura-soat.pdf' });
+  });
+
+  it('el comprobante del pago PSE solo entra para quien tiene derecho a verlo (HU #11678, AC5)', async () => {
+    // El bloque de `conciliacion` es el único de esta lista que depende del ROL y no solo de la
+    // pertenencia: `auditor` llega a esta ruta sin que `buscarConAcceso` le filtre nada. Los casos
+    // por ruta están en `flito-soat-comprobante-conciliacion.test.ts`; aquí se fija el armado.
+    kdb.when
+      .select('flito_soportes', [soporte('sop-1', 'factura-soat.pdf', '2026-07-01T00:00:00Z')])
+      .select('flito_conciliacion_lineas', [soporte('sop-pse', 'pse.pdf', '2026-08-20T00:00:00Z')]);
+
+    const conDerecho = await soportesDeSoat('s1', { rol: 'proveedor' });
+    const auditoria = await soportesDeSoat('s1', { rol: 'auditor' });
+
+    expect(conDerecho.map((x) => x.origen).sort()).toEqual(['conciliacion', 'soat']);
+    expect(auditoria.map((x) => x.origen)).toEqual(['soat']);
   });
 });

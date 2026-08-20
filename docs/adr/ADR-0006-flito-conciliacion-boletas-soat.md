@@ -879,7 +879,20 @@ GET /api/flito/soat/:id/soportes    ← la ruta que YA existe; el comprobante se
 
 > **Corregido contra la implementación (HU #11678).** El borrador proponía una ruta nueva, `GET /api/flito/soat/:id/comprobante-conciliacion`. El AC3 de la HU pide el endpoint que ya existe, y tiene razón: aquella ruta habría sido una superficie más que proteger para entregar lo mismo. `soportesDeSoat` gana el puente `flito_conciliacion_lineas.soat_id → boleta_id → flito_soportes.conciliacion_boleta_id` (con `conciliada_en IS NOT NULL`: una línea sin sellar es un cuadre que aún no movió un peso) y devuelve el comprobante con `origen: 'conciliacion'`, junto a la factura del SOAT que el gestor ya veía.
 
-La frontera la sigue poniendo el mismo sitio que antes: la ruta pasa por `detalle()` → `buscarConAcceso` (`flito-soat.service.ts:413`) **antes** de leer un solo soporte, así que un SOAT ajeno, uno de un cliente autogestionado y uno en estado no visible siguen siendo **404 y no 403**. Añadir el join no toca esa decisión: `soportes-consulta.ts` arma listas y no es una superficie de autorización.
+La frontera de **pertenencia** la sigue poniendo el mismo sitio que antes: la ruta pasa por `detalle()` → `buscarConAcceso` (`flito-soat.service.ts:413`) **antes** de leer un solo soporte, así que un SOAT ajeno, uno de un cliente autogestionado y uno en estado no visible siguen siendo **404 y no 403**.
+
+**Pero la pertenencia no alcanza, y eso costó un bloqueante en el gate de seguridad de la HU #11678.** `GET /:id/soportes` está abierta a `admin`, `proveedor` **y `auditor`**, y `buscarConAcceso` solo aplica frontera cuando `esGestor(ctx)` —o sea, cuando el rol es `proveedor`—: para auditoría no filtra nada. Colgar el comprobante de esa lista sin mirar el rol le daba a `auditor` el comprobante de **cualquier** boleta conciliada con solo tener el id de uno de sus SOAT, con la URL ya firmada: una puerta de delante más ancha que las de atrás que esta misma HU cerró.
+
+Son **dos preguntas distintas** y hay que responder las dos:
+
+| Pregunta | Quién la responde |
+|---|---|
+| ¿Es tuyo este SOAT? | `detalle()` → `buscarConAcceso` (404-no-403, solo para el gestor) |
+| ¿Tienes derecho a ESTE bloque de la lista? | `soportesDeSoat(soatId, { rol })` contra `ROLES_COMPROBANTE_PSE` = `admin` · `financiera` · `proveedor` |
+
+`auditor` queda fuera —lo mandan el AC5, la matriz de `docs/ux/flito-conciliacion.md` y este ADR— y **sigue viendo todo lo demás del SOAT** exactamente como antes: la exclusión es del bloque `conciliacion`, no de la lista. El parámetro `actor` es **obligatorio y sin valor por defecto** a propósito: un opcional habría hecho que el bloque más sensible se incluyera por olvido en el próximo llamador, que es justo como nació el fallo.
+
+**Y la clave del objeto tampoco puede llevar PII.** `uploadEntityDocument` mete el nombre del archivo saneado dentro de la clave, y `firmarDescargaEntidad` mete esa clave en el query string: un `comprobante-ABC123.pdf` deja la **placa en la URL**, y de ahí a los logs de nginx, al historial del navegador y a la cabecera `Referer`. El comprobante se guarda como `comprobante-<uuid>.<ext>`, con la extensión derivada del tipo **real**; el nombre original se conserva íntegro en `flito_soportes.nombre_archivo`, que es lo que la ficha pinta. Se normaliza **solo aquí** y no en `uploadEntityDocument`: aquel helper lo comparten bolsas, SOAT, derechos e impuestos, y arreglarlo allí es un cambio transversal que no pertenece a este Feature —queda como deuda registrada aparte—.
 
 **Y la otra mitad del §7.5, que el borrador no planteaba: por dónde NO se sirve.** `GET /flito/bolsas/soportes/:soporteId` resolvía **cualquier** fila de `flito_soportes` por su id, protegida solo por el rol de bolsas; y `storageKeySoporte` (`flito-revisiones.service.ts`) hace lo mismo para las dos rutas genéricas de revisiones y derechos, abiertas a `admin` y `auditor` —a quien el AC5 de la #11678 le niega expresamente el comprobante—. Las dos se cierran, y por pertenencia, no por lista de tipos:
 

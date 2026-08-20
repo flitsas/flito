@@ -279,6 +279,9 @@ export async function descartar(id: string, motivo: string, ctx: RevisionCtx): P
   });
 }
 
+/** Forma de un uuid, sin exigir versión ni variante: traduce un 22P02 en un 404. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Storage key del soporte para servir su archivo (visor PDF de la cola). null si no existe.
  *
@@ -297,6 +300,11 @@ export async function descartar(id: string, motivo: string, ctx: RevisionCtx): P
  * `…/conciliacion/boletas/:id/comprobante` y `GET /flito/soat/:id/soportes`.
  */
 export async function storageKeySoporte(soporteId: string): Promise<{ storageKey: string; nombreArchivo: string; contentType: string } | null> {
+  // Un id que no tiene forma de uuid no es «no existe»: comparado contra una columna `uuid` es un
+  // 22P02, o sea un 500. Mismo guarda que `storageKeySoporteDeBolsa`, su gemela: endurecer una sola
+  // de las dos deja la otra devolviendo errores de servidor por una entrada mal formada.
+  if (!UUID_RE.test(soporteId)) return null;
+
   const [s] = await db.select({
     storageKey: flitoSoportes.storageKey, nombreArchivo: flitoSoportes.nombreArchivo, contentType: flitoSoportes.contentType,
   }).from(flitoSoportes)

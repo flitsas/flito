@@ -108,7 +108,12 @@ beforeEach(() => {
 
 // ─────────────────── AC5: quién puede subirlo y reemplazarlo ─────────────────
 
-describe('AC5 — proveedor y auditor no tocan el comprobante', () => {
+// El AC5 tiene DOS mitades y este archivo solo cubre una: quién puede subirlo y reemplazarlo, en el
+// router de conciliación. La otra —que `auditor` tampoco lo VEA por `GET /flito/soat/:id/soportes`,
+// que es por donde se escapaba— está en `flito-soat-comprobante-conciliacion.test.ts`, porque es esa
+// ruta la que hay que ejercitar. Se dice aquí para que nadie lea este describe como el AC5 entero.
+
+describe('AC5 (subida) — proveedor y auditor no suben ni reemplazan el comprobante', () => {
   const prohibidos: TestRole[] = ['proveedor', 'auditor', 'transito', 'gestor_impuestos', 'conductor'];
 
   for (const rol of prohibidos) {
@@ -174,11 +179,60 @@ describe('AC1 — POST /boletas/:id/comprobante', () => {
       .attach('archivo', PDF_REAL, { filename: 'c.pdf', contentType: 'application/pdf' });
 
     expect(subirMock).toHaveBeenCalledWith(
-      'clientes/acme/conciliacion-comprobantes', BOLETA_ID, 'c.pdf', expect.anything(), 'application/pdf',
+      'clientes/acme/conciliacion-comprobantes', BOLETA_ID,
+      // El nombre del objeto va normalizado (ver el test de la placa en la URL).
+      expect.stringMatching(/^comprobante-[0-9a-f-]{36}\.pdf$/), expect.anything(), 'application/pdf',
     );
   });
 
-  it('la respuesta trae el enlace firmado, nunca la clave del almacenamiento', async () => {
+  it('la clave del objeto NO lleva el nombre del usuario: la placa no acaba en la URL', async () => {
+    // `uploadEntityDocument` mete el nombre en la clave y `firmarDescargaEntidad` mete la clave en el
+    // query string: un `comprobante-ABC123.pdf` dejaría la placa en los logs de nginx, en el
+    // historial del navegador y en la cabecera `Referer`. Mismo riesgo que el `detail` de la
+    // bitácora, que ya lo evitaba; este era el otro lado.
+    escenarioSubidaOk();
+
+    const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth('financiera'))
+      .attach('archivo', PDF_REAL, { filename: 'comprobante-ABC123.pdf', contentType: 'application/pdf' });
+
+    expect(r.status).toBe(201);
+    const nombreEnAlmacen = subirMock.mock.calls[0][2] as string;
+    expect(nombreEnAlmacen).not.toContain('ABC123');
+    expect(nombreEnAlmacen).toMatch(
+      /^comprobante-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.pdf$/,
+    );
+    // Y el nombre original NO se pierde: es lo que la ficha pinta y lo que la descarga devuelve.
+    expect(espia.ultimoInsertEn('flito_soportes').nombreArchivo).toBe('comprobante-ABC123.pdf');
+  });
+
+  it('la extensión de la clave sale del tipo REAL, no de lo que diga el nombre', async () => {
+    // Un PNG subido como `factura.pdf.png.exe` se guarda como `.png`, que es lo que sus bytes dicen.
+    escenarioSubidaOk();
+    const PNG_REAL = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from([0, 0, 0, 13]), Buffer.from('IHDR'), Buffer.alloc(64, 0),
+    ]);
+
+    await request(await buildApp()).post(RUTA).set('Authorization', await auth('financiera'))
+      .attach('archivo', PNG_REAL, { filename: 'ABC123.png', contentType: 'image/png' });
+
+    expect(subirMock.mock.calls[0][2]).toMatch(/^comprobante-[0-9a-f-]{36}\.png$/);
+  });
+
+  it('dos subidas del MISMO archivo generan nombres distintos: no se pisan ni se adivinan', async () => {
+    escenarioSubidaOk();
+    const app = await buildApp();
+    const subir = async () => request(app).post(RUTA).set('Authorization', await auth('financiera'))
+      .attach('archivo', PDF_REAL, { filename: 'c.pdf', contentType: 'application/pdf' });
+
+    await subir();
+    await subir();
+
+    expect(subirMock).toHaveBeenCalledTimes(2);
+    expect(subirMock.mock.calls[0][2]).not.toBe(subirMock.mock.calls[1][2]);
+  });
+
+  it('la respuesta trae el enlace firmado, nunca una ruta cruda del almacenamiento', async () => {
     escenarioSubidaOk();
     const r = await request(await buildApp()).post(RUTA).set('Authorization', await auth('financiera'))
       .attach('archivo', PDF_REAL, { filename: 'c.pdf', contentType: 'application/pdf' });
