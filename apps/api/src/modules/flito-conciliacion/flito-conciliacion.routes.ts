@@ -33,6 +33,7 @@ import rateLimit from 'express-rate-limit';
 import { checkMagicNumber } from '../pesv/magic-number.js';
 import { ExcelBoletaError } from './flito-conciliacion.excel.js';
 import { registrarAccesoBoleta } from './flito-conciliacion.pii.js';
+import { conciliarBoleta } from './flito-conciliacion.conciliar.service.js';
 import {
   cargarBoleta, ConciliacionError, descartarBoleta, detalleBoleta, listarBoletas, recruzarBoleta,
 } from './flito-conciliacion.service.js';
@@ -292,6 +293,51 @@ router.post('/boletas/:id/recruzar', CONCILIACION, async (req: Request, res: Res
         + `${detalle.sinCuadrar} sin cuadrar`,
     });
     res.json(detalle);
+  } catch (e) {
+    fallo(res, e);
+  }
+});
+
+// ── POST /boletas/:id/conciliar — AQUÍ SALE EL DINERO ───────────────────────
+//
+// La única ruta del módulo que mueve un peso (HU #11677, CF-03). Cuerpo vacío y `.strict()`: no
+// recibe importes ni ids — todo lo que decide cuánto sale viene de la base, dentro de la transacción.
+//
+// **No lleva `Idempotency-Key`** y no le hace falta. La idempotencia del dinero la dan las llaves de
+// los dos libros (`salida:soat:<id>` y `consumo:soat:<id>`, con sus índices únicos) y el `FOR UPDATE`
+// sobre la boleta; un segundo POST responde 409 `boleta_ya_conciliada` sin tocar ningún saldo (AC6).
+//
+// Los tres desenlaces de negocio son 409 y se distinguen por `codigo`, que es lo que la pantalla
+// lee: `boleta_incompleta` (alguna línea dejó de cuadrar, AC2), `boleta_ya_conciliada` (AC6) y
+// `boleta_descartada`.
+//
+// **Nota de contrato:** el ADR-0006 §7.3 y docs/ux proponían **422** para `boleta_incompleta`. El AC2
+// de la HU pide **409**, y es el AC el que manda. Los dos cuerpos son idénticos —traen la boleta con
+// el cuadre ya actualizado, para que la tabla se repinte con lo que hay hoy—, así que lo único que
+// cambia en la pantalla es el número que compara.
+
+router.post('/boletas/:id/conciliar', CONCILIACION, async (req: Request, res: Response) => {
+  if (!cuerpoVacio(req, res)) return;
+  try {
+    const id = idDe(req);
+    const resultado = await conciliarBoleta(id, ctxDe(req));
+    // La respuesta lleva las líneas con placa y póliza: mismo rastro que las demás lecturas.
+    await registrarAccesoBoleta(req, {
+      accion: 'read',
+      referencia: resultado.boleta.referencia,
+      lineas: resultado.boleta.lineas.length,
+    });
+    // AC8: quién concilió, qué boleta y por cuánto. Sin póliza ni placa — el total y el conteo no
+    // identifican a nadie, y desde `resourceId` se llega a todo lo demás con control de acceso.
+    await audit(req, {
+      action: 'update',
+      resource: 'flito_conciliacion_boleta',
+      resourceId: id,
+      detail: `Boleta ${resultado.boleta.referencia} conciliada · ${resultado.soatConciliados} SOAT `
+        + `· total ${resultado.totalConciliado} · salió de la bolsa del cliente `
+        + `${resultado.cliente.descontado} · ${resultado.adoptados.length} ya descontados al liquidar`,
+    });
+    res.json(resultado);
   } catch (e) {
     fallo(res, e);
   }

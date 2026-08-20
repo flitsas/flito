@@ -85,7 +85,7 @@ const RESULTADOS = Object.values(ResultadoCruce);
 // ───────────────────────────── Contexto del cruce ────────────────────────────
 
 /** Un SOAT candidato, con lo que el cuadre necesita enseñar de él. */
-interface SoatInfo {
+export interface SoatInfo {
   id: string;
   numeroPoliza: string | null;
   estado: string;
@@ -93,6 +93,15 @@ interface SoatInfo {
   companiaId: number;
   companiaNombre: string | null;
   placa: string | null;
+  /**
+   * Organismo al que se imputa la salida, congelado en el propio SOAT.
+   *
+   * No lo usa el cruce: lo usa el asiento de la HU #11677, y sale de aquí porque es EXACTAMENTE la
+   * misma fuente que `salidasDe` de la liquidación (`ids.soatOrganismo`). Si los dos caminos
+   * tomaran el organismo de sitios distintos —uno del SOAT y otro del trámite, que se reescribe en
+   * cada sincronización—, el mismo pago acabaría imputado a dos secretarías según quién lo asentara.
+   */
+  organismoCodigo: string;
 }
 
 interface BoletaPrevia {
@@ -120,6 +129,7 @@ export interface ContextoCruce {
 function infoDeFila(f: {
   id: string; numeroPoliza: string | null; estado: string; valorPagado: string | null;
   companiaId: number; companiaNombre: string | null; placa: string | null;
+  organismoCodigo: string;
 }): SoatInfo {
   return {
     id: f.id,
@@ -129,10 +139,11 @@ function infoDeFila(f: {
     companiaId: f.companiaId,
     companiaNombre: f.companiaNombre,
     placa: f.placa,
+    organismoCodigo: f.organismoCodigo,
   };
 }
 
-/** La proyección de un SOAT candidato: id, póliza, estado, valor, cliente y placa. */
+/** La proyección de un SOAT candidato: id, póliza, estado, valor, cliente, placa y organismo. */
 function seleccionSoat() {
   return {
     id: flitoSoat.id,
@@ -142,6 +153,7 @@ function seleccionSoat() {
     companiaId: flitoSoat.companiaId,
     companiaNombre: clients.name,
     placa: vehicles.plate,
+    organismoCodigo: flitoSoat.organismoCodigo,
   };
 }
 
@@ -209,13 +221,21 @@ async function contextoDe(
     if (c.soatId) previas.set(c.soatId, { referencia: c.referencia, fechaPago: c.fechaPago });
   }
 
-  // 3. ¿La liquidación ya reservó la salida de alguno? No bloquea —la línea cuadra igual— pero es lo
-  //    que evita que el aviso de éxito de la HU siguiente anuncie un descuento que no ocurrirá.
+  // 3. ¿La LIQUIDACIÓN ya reservó la salida de alguno? No bloquea —la línea cuadra igual— pero es lo
+  //    que evita que el aviso de éxito anuncie un descuento que no ocurrirá.
+  //
+  //    El filtro por `origen='automatico'` no es decoración: la conciliación asienta con ESTA MISMA
+  //    llave (ADR-0006 §2.2, opción A). Sin él, en cuanto la boleta se concilia sus propias líneas
+  //    empezarían a decir «este SOAT ya se descontó al liquidar su trámite» —un trámite que puede no
+  //    existir— y la pantalla pintaría esa frase al recargar el detalle de una boleta conciliada.
   const movimientos = await dbx.select({ llave: flitoBolsaMovimientos.llaveIdempotencia })
     .from(flitoBolsaMovimientos)
-    .where(inArray(
-      flitoBolsaMovimientos.llaveIdempotencia,
-      soatIds.map((id) => `${LLAVE_SALIDA_SOAT}${id}`),
+    .where(and(
+      inArray(
+        flitoBolsaMovimientos.llaveIdempotencia,
+        soatIds.map((id) => `${LLAVE_SALIDA_SOAT}${id}`),
+      ),
+      eq(flitoBolsaMovimientos.origen, 'automatico'),
     ));
 
   for (const m of movimientos) {
@@ -341,7 +361,7 @@ export function evaluarFila(
 // ───────────────────────────── Los DTO ───────────────────────────────────────
 
 /** Fila de `flito_conciliacion_lineas` tal como sale de la base. */
-interface FilaLinea {
+export interface FilaLinea {
   id: string;
   filaNumero: number;
   numeroPolizaNorm: string;
@@ -402,7 +422,7 @@ function conteoDe(resultados: string[]): ConteoResultados {
 }
 
 /** Fila de `flito_conciliacion_boletas` con el nombre del cliente. */
-interface FilaBoletaDb {
+export interface FilaBoletaDb {
   id: string;
   referencia: string;
   companiaId: number;
@@ -806,56 +826,99 @@ export async function recruzarBoleta(
   id: string,
 ): Promise<{ detalle: BoletaDetalleDto; cambiadas: number }> {
   return await db.transaction(async (tx) => {
-    const boleta = await boletaEditable(tx, id);
-    exigirCargada(boleta);
-
-    const lineas = await lineasDe(tx, id);
-    const ctx = await contextoDe(tx, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id);
-    await completarPorSoatId(
-      tx, ctx, lineas.map((l) => l.soatId).filter((s): s is string => s !== null),
-    );
-
-    const actualizadas: FilaLinea[] = [];
-    let cambiadas = 0;
-    for (const linea of lineas) {
-      const ev = evaluarFila(
-        { numeroPolizaNorm: linea.numeroPolizaNorm, valorDeclarado: num(linea.valorDeclarado) },
-        ctx,
-        boleta.companiaId,
-      );
-      const cambio = ev.resultado !== linea.resultado
-        || ev.soatId !== linea.soatId
-        || ev.detalle !== linea.detalle;
-      if (cambio) {
-        cambiadas += 1;
-        await tx.update(flitoConciliacionLineas)
-          .set({ resultado: ev.resultado, detalle: ev.detalle, soatId: ev.soatId })
-          .where(eq(flitoConciliacionLineas.id, linea.id));
-      }
-      actualizadas.push({ ...linea, resultado: ev.resultado, detalle: ev.detalle, soatId: ev.soatId });
-    }
-
-    const totalCruzado = totalCruzadoDe(actualizadas, ctx);
-    await tx.update(flitoConciliacionBoletas)
-      .set({ totalCruzado: totalCruzado.toFixed(2), updatedAt: new Date() })
-      .where(eq(flitoConciliacionBoletas.id, id));
-
-    const [conCliente] = await tx.select({ nombre: clients.name })
-      .from(clients).where(eq(clients.id, boleta.companiaId)).limit(1);
-
-    return {
-      detalle: {
-        ...resumenDto(
-          { ...boleta, totalCruzado: totalCruzado.toFixed(2) },
-          conCliente?.nombre ?? null,
-          conteoDe(actualizadas.map((l) => l.resultado)),
-        ),
-        lineas: actualizadas.map((l) => lineaDto(l, ctx)),
-        filasOmitidas: 0,
-      },
-      cambiadas,
-    };
+    const recruce = await recruzarEnTx(tx, id);
+    return { detalle: detalleDesde(recruce), cambiadas: recruce.cambiadas };
   });
+}
+
+/**
+ * El re-cruce, sobre una transacción YA ABIERTA y con la boleta bloqueada.
+ *
+ * Existe separado de `recruzarBoleta` porque `conciliar()` (HU #11677) tiene que volver a cruzar
+ * DENTRO de la misma transacción en la que mueve el dinero: entre la carga y el clic pueden haber
+ * pasado días, y un SOAT pudo salir de `pagado`, cambiar de valor o conciliarse en otra boleta. Un
+ * re-cruce en su propia transacción no daría esa garantía —la ventana entre las dos es exactamente
+ * donde cabe el cambio que el re-cruce venía a detectar—.
+ *
+ * Devuelve el estado en memoria además del DTO para que quien concilia no tenga que releer de la
+ * base lo que acaba de resolver: `ctx.porSoatId` ya trae el valor pagado y el organismo de cada SOAT,
+ * que es lo que el asiento necesita.
+ */
+export interface RecruceEnTx {
+  boleta: FilaBoletaDb;
+  companiaNombre: string | null;
+  /** Líneas con el resultado de HOY, ya persistido. */
+  lineas: FilaLinea[];
+  ctx: ContextoCruce;
+  totalCruzado: number;
+  /** Cuántas líneas cambiaron de veredicto respecto del cruce anterior. */
+  cambiadas: number;
+}
+
+export async function recruzarEnTx(tx: Tx, id: string): Promise<RecruceEnTx> {
+  const boleta = await boletaEditable(tx, id);
+  exigirCargada(boleta);
+
+  const lineas = await lineasDe(tx, id);
+  const ctx = await contextoDe(tx, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id);
+  await completarPorSoatId(
+    tx, ctx, lineas.map((l) => l.soatId).filter((s): s is string => s !== null),
+  );
+
+  const actualizadas: FilaLinea[] = [];
+  let cambiadas = 0;
+  for (const linea of lineas) {
+    const ev = evaluarFila(
+      { numeroPolizaNorm: linea.numeroPolizaNorm, valorDeclarado: num(linea.valorDeclarado) },
+      ctx,
+      boleta.companiaId,
+    );
+    const cambio = ev.resultado !== linea.resultado
+      || ev.soatId !== linea.soatId
+      || ev.detalle !== linea.detalle;
+    if (cambio) {
+      cambiadas += 1;
+      await tx.update(flitoConciliacionLineas)
+        .set({ resultado: ev.resultado, detalle: ev.detalle, soatId: ev.soatId })
+        .where(eq(flitoConciliacionLineas.id, linea.id));
+    }
+    actualizadas.push({ ...linea, resultado: ev.resultado, detalle: ev.detalle, soatId: ev.soatId });
+  }
+
+  const totalCruzado = totalCruzadoDe(actualizadas, ctx);
+  await tx.update(flitoConciliacionBoletas)
+    .set({ totalCruzado: totalCruzado.toFixed(2), updatedAt: new Date() })
+    .where(eq(flitoConciliacionBoletas.id, id));
+
+  const [conCliente] = await tx.select({ nombre: clients.name })
+    .from(clients).where(eq(clients.id, boleta.companiaId)).limit(1);
+
+  return {
+    boleta,
+    companiaNombre: conCliente?.nombre ?? null,
+    lineas: actualizadas,
+    ctx,
+    totalCruzado,
+    cambiadas,
+  };
+}
+
+/**
+ * Compone el detalle a partir de un estado ya resuelto en memoria, sin volver a consultar.
+ *
+ * `filasOmitidas` sale como 0 por el mismo motivo que en `detalleBoleta`: solo se conoce al leer el
+ * Excel y no hay columna que lo guarde.
+ */
+export function detalleDesde(r: Omit<RecruceEnTx, 'cambiadas'>): BoletaDetalleDto {
+  return {
+    ...resumenDto(
+      { ...r.boleta, totalCruzado: r.totalCruzado.toFixed(2) },
+      r.companiaNombre,
+      conteoDe(r.lineas.map((l) => l.resultado)),
+    ),
+    lineas: r.lineas.map((l) => lineaDto(l, r.ctx)),
+    filasOmitidas: 0,
+  };
 }
 
 /** Los dos estados que no admiten ni re-cruce ni descarte, con su código propio. */

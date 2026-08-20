@@ -154,10 +154,14 @@ const bolsaVigente: Resolver = () => (bolsaExiste ? [{ id: BOLSA_ID, saldo: Stri
  */
 const consultaLibroBolsa: Resolver = () => {
   const filtros = ultimosFiltros;
+  // El origen y el tipo salen de los PARÁMETROS REALES del barrido, no escritos a mano: si alguien
+  // quitara del código la condición `origen = 'automatico'` —la que deja fuera del reverso los
+  // consumos de conciliación (Feature #11623, CF-07)—, la simulación dejaría de filtrar por ella y
+  // los tests se pondrían en rojo, en vez de seguir verdes afirmando una condición ya inexistente.
   if (filtros.length > 1) {
-    const tramite = filtros[0];
+    const [tramite, origen, tipo] = filtros;
     return libroBolsa.filter((f) =>
-      f.tramiteId === tramite && f.origen === 'automatico' && f.tipo === 'salida'
+      f.tramiteId === tramite && f.origen === origen && f.tipo === tipo
       && String(f.llaveIdempotencia).startsWith('consumo:'));
   }
   const fila = libroBolsa.find((f) => f.llaveIdempotencia === filtros[0]);
@@ -502,6 +506,70 @@ describe('reversar — AC9: la bolsa recupera lo consumido', () => {
     expect(saldoBolsa).toBe(9_900_000);
     // Tres líneas en el libro: consumo, devolución y consumo nuevo. Nada se borró.
     expect(libroBolsa).toHaveLength(3);
+  });
+});
+
+// ───────── CF-07 del Feature #11623: lo conciliado no lo alcanza el reverso ──────────
+
+describe('reversarConsumoTransito — un consumo de conciliación queda fuera del barrido', () => {
+  /**
+   * Consumo asentado al CONCILIAR una boleta de pago externo (HU #11677): la MISMA llave que usaría
+   * el sellado, pero `origen = 'conciliacion'`.
+   *
+   * Lleva `tramiteId: TRAMITE` **a propósito**, que es justo lo que la conciliación NO hace. Sin eso
+   * el test pasaría por la condición equivocada —quedar fuera por no tener trámite— y el día que
+   * alguien poblara `tramite_id` la protección habría desaparecido en silencio (ADR-0006 §3.3).
+   */
+  function consumoConciliado(): Fila {
+    return {
+      id: 'org-conciliado', bolsaId: BOLSA_ID, organismoCodigo: ORG_DERECHO, concepto: 'soat',
+      tipo: 'salida', origen: 'conciliacion', tramiteId: TRAMITE,
+      valor: '450000', saldoResultante: '9550000', periodo: '2026-07', fecha: '2026-07-30',
+      observacion: 'Conciliación de la boleta BOL-000123', soporteId: null,
+      registradoPorNombre: 'laura.restrepo', createdAt: AHORA,
+      llaveIdempotencia: `consumo:soat:${SOAT_ID}`,
+    };
+  }
+
+  it('no produce devolución ni le reescribe la llave', async () => {
+    const { reversarConsumoTransito } =
+      await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
+    libroBolsa.push(consumoConciliado());
+    saldoBolsa = 9_550_000;
+    kdb.when
+      .select('flito_bolsas_transito', bolsaVigente)
+      .select('flito_bolsa_transito_movimientos', consultaLibroBolsa);
+
+    const contras = await reversarConsumoTransito(kdb.db as never, TRAMITE, CTX);
+
+    expect(contras).toEqual([]);
+    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    // El pago ante la secretaría ocurrió de verdad: el saldo no se recompone (CF-07).
+    expect(saldoBolsa).toBe(9_550_000);
+    expect(libroBolsa[0].llaveIdempotencia).toBe(`consumo:soat:${SOAT_ID}`);
+  });
+
+  it('la consulta del barrido nombra de verdad la columna `origen` en su WHERE', async () => {
+    const { reversarConsumoTransito } =
+      await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    let condicion: unknown = null;
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
+      return c;
+    });
+    kdb.when.select('flito_bolsa_transito_movimientos', []);
+
+    await reversarConsumoTransito(kdb.db as never, TRAMITE, CTX);
+
+    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    expect(texto).toContain('"origen"');
+    expect(texto).toContain('"tramite_id"');
+    expect(texto).toContain('like');
   });
 });
 

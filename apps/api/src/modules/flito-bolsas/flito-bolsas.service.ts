@@ -1080,6 +1080,19 @@ export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
  *
  * Los soportes sin trámite ya los recoge la bandeja `flito_derechos_pendientes`, que existe desde el
  * módulo de derechos y sirve a los tres conceptos; no se reimplementa ese cruce aquí.
+ *
+ * ── `origen='conciliacion'` queda FUERA de este conteo, y es deliberado (Feature #11623) ─────────
+ *
+ * Los movimientos que asienta la conciliación de una boleta (HU #11677) NO se cuentan aquí y **no
+ * hay que añadirlos**: su comprobante —el soporte del pago PSE— cuelga de la BOLETA y no de cada uno
+ * de sus N movimientos, así que incluirlos convertiría cada SOAT conciliado en una alerta permanente
+ * que nadie podría cerrar, por más comprobantes que se subieran.
+ *
+ * Eso deja un hueco real y conocido: una boleta conciliada sin comprobante que este tablero no ve.
+ * El predicado que lo cierra es otro y va sobre las tablas nuevas —boleta en `conciliada` sin
+ * soporte vivo con `conciliacion_boleta_id`—, y entra con la **HU #11678**, que es la que crea la
+ * vía para subir ese comprobante. Añadirlo antes reproduciría el mismo fallo a otra escala: toda
+ * boleta conciliada sería una alerta incerrable hasta que existiera el botón para cerrarla.
  */
 export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
   const [pendientes] = await db

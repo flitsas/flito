@@ -48,7 +48,7 @@ export type { BolsaTransitoConNivel, BolsaTransitoDto, MovimientoTransitoDto };
 const TIPO_SOPORTE_CARGA = 'carga_organismo';
 
 /** Prefijo de familia de las llaves. El índice único es uno solo para toda la tabla. */
-const PREFIJO_CONSUMO = 'consumo:';
+export const PREFIJO_CONSUMO = 'consumo:';
 /**
  * Prefijo que libera la llave de un consumo cuando su liquidación se reversa, para que volver a
  * liquidar vuelva a consumir. Mismo mecanismo que el `rev:` de la bolsa del cliente: es lo único que
@@ -584,12 +584,28 @@ export async function registrarCargaTransito(
 export interface DatosConsumoTransito {
   organismoCodigo: string;
   concepto: ConceptoBolsaTransito;
-  tramiteId: string;
+  /**
+   * Trámite cuyo pago originó el consumo.
+   *
+   * **Nullable**, y la columna lo era desde la 0120: lo que estaba de más era este tipo. Un consumo
+   * de CONCILIACIÓN (Feature #11623) no cuelga de ningún trámite —un SOAT tiene N trámites y no hay
+   * uno «correcto» que poner, ADR-0006 §4.1—, y elegir uno haría que el reverso *de ese* trámite
+   * pareciera pertinente cuando no lo es.
+   */
+  tramiteId: string | null;
   /** Valor SIN GMF: el gravamen ya viene incluido en el comprobante del organismo (AC4). */
   valor: number;
   fecha: string;
   /** Llave sin prefijo de familia; la pone quien conoce la naturaleza del consumo. */
   llave: string;
+  /**
+   * Quién produce el consumo. Por defecto `automatico`, que es el sellado de la liquidación.
+   *
+   * La conciliación asienta con `conciliacion`, y eso NO es una etiqueta: es lo que deja el
+   * movimiento fuera del barrido de `reversarConsumoTransito` —que filtra por `origen='automatico'`—
+   * y hace que un cambio de estado del trámite no devuelva un dinero que sí se pagó (CF-07).
+   */
+  origen?: OrigenMovimientoTransito;
 }
 
 /**
@@ -598,6 +614,10 @@ export interface DatosConsumoTransito {
  * No hace nada si ninguna bolsa cubre ese par: sellar un trámite de una secretaría que nadie metió
  * en una bolsa tiene que seguir funcionando igual (AC1). Se comprueba ANTES de entrar al asiento
  * para no tocar ninguna bolsa por accidente.
+ *
+ * Devuelve `null` por DOS motivos distintos que colapsan en el mismo valor —ninguna bolsa cubre, o
+ * la llave ya estaba ocupada—. Quien necesite distinguirlos (la conciliación lo necesita, para saber
+ * si hay un movimiento previo que adoptar) tiene que releer por la llave, que es única.
  */
 export async function registrarConsumoTransito(
   tx: Tx,
@@ -609,7 +629,7 @@ export async function registrarConsumoTransito(
 
   const { movimiento, duplicado } = await asentar(tx, bolsa.id, {
     tipo: 'salida',
-    origen: 'automatico',
+    origen: datos.origen ?? 'automatico',
     valor: datos.valor,
     fecha: datos.fecha,
     organismoCodigo: datos.organismoCodigo,
