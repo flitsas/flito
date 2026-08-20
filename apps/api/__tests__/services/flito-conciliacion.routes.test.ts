@@ -136,7 +136,7 @@ describe('flito-conciliacion · AC9 · solo admin y financiera', () => {
   const prohibidos: TestRole[] = ['proveedor', 'transito', 'auditor', 'gestor_impuestos', 'conductor'];
 
   for (const rol of prohibidos) {
-    it(`403 para ${rol} en las cinco rutas`, async () => {
+    it(`403 para ${rol} en las seis rutas`, async () => {
       const app = await buildApp();
       const token = await auth(rol);
       const rutas: [string, string][] = [
@@ -144,6 +144,8 @@ describe('flito-conciliacion · AC9 · solo admin y financiera', () => {
         ['get', `/api/flito/conciliacion/boletas/${BOLETA_ID}`],
         ['post', `/api/flito/conciliacion/boletas/${BOLETA_ID}/recruzar`],
         ['post', `/api/flito/conciliacion/boletas/${BOLETA_ID}/descartar`],
+        // HU #11677 AC8: la ruta que mueve el dinero, tras el mismo muro que las demás.
+        ['post', `/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`],
       ];
       for (const [metodo, ruta] of rutas) {
         const res = await (request(app) as never as Record<string, (r: string) => request.Test>)[metodo](ruta)
@@ -153,8 +155,9 @@ describe('flito-conciliacion · AC9 · solo admin y financiera', () => {
       const carga = await postCarga(app, token, await excelReal())
         .attach('archivo', await excelReal(), { filename: 'b.xlsx', contentType: MIME_XLSX });
       expect(carga.status).toBe(403);
-      // Y nada llegó a la base.
+      // Y nada llegó a la base: ni un INSERT ni un UPDATE. Ninguna bolsa se movió.
       expect(espia.inserts).toHaveLength(0);
+      expect(espia.updates).toHaveLength(0);
     });
   }
 
@@ -490,5 +493,211 @@ describe('flito-conciliacion · AC5 y AC6 · re-cruce y descarte por HTTP', () =
     const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/descartar`)
       .set('Authorization', await auth('admin')).send({ motivo: 'me equivoqué' });
     expect(res.status).toBe(400);
+  });
+});
+
+// ─────────────────── HU #11677 · la ruta que mueve el dinero ─────────────────
+//
+// El asiento en sí se prueba en `flito-conciliacion-conciliar.test.ts`, con los dos libros
+// simulados. Aquí solo se afirma la FRONTERA: quién entra, qué código sale y qué rastro queda.
+
+describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () => {
+  const MOVIMIENTO_ID = 'aaaa1111-0000-4000-8000-000000000001';
+
+  /** Escenario feliz: una boleta cargada con su única línea en `ok` y bolsa de cliente con saldo. */
+  function escenarioConciliarOk(): void {
+    kdb.when
+      .select('flito_conciliacion_boletas', [filaBoleta()])
+      // `selectOnce` para las líneas de ESTA boleta; el fallback vacío es la consulta de
+      // `ya_conciliada`, que busca líneas de OTRAS boletas y aquí no hay ninguna.
+      .selectOnce('flito_conciliacion_lineas', [filaLinea()])
+      .select('flito_conciliacion_lineas', [])
+      .select('flito_soat', [{
+        id: SOAT_ID, numeroPoliza: 'P1', estado: 'pagado', valorPagado: '740800.00',
+        companiaId: COMPANIA, companiaNombre: 'ACME S.A.S.', placa: 'ABC123',
+        organismoCodigo: '05001',
+      }])
+      .select('clients', [{ nombre: 'ACME S.A.S.' }])
+      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '5000000' }])
+      .select('flito_bolsa_cierres', [])
+      // Ninguna bolsa de tránsito cubre este par: la línea descuenta solo la del cliente.
+      .select('flito_bolsa_transito_cobertura', [])
+      .insert('flito_bolsa_movimientos', [{
+        id: MOVIMIENTO_ID, companiaId: COMPANIA, tipo: 'salida', origen: 'conciliacion',
+        concepto: 'soat', organismoCodigo: '05001', tramiteId: null, valor: '740800.00',
+        saldoResultante: '4259200.00', periodo: '2026-07', fecha: '2026-08-13',
+        observacion: 'Conciliación de la boleta BOL-000123', soporteId: null,
+        registradoPorNombre: 'financiera@flit.io', createdAt: AHORA,
+        llaveIdempotencia: `salida:soat:${SOAT_ID}`,
+      }])
+      .update('flito_bolsas', [])
+      .update('flito_conciliacion_lineas', [])
+      .update('flito_conciliacion_boletas', []);
+  }
+
+  it('200 con el resumen que necesita el aviso de éxito', async () => {
+    escenarioConciliarOk();
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ soatConciliados: 1, totalConciliado: 740800, adoptados: [] });
+    expect(res.body.cliente).toMatchObject({ companiaId: COMPANIA, descontado: 740800 });
+    expect(res.body.boleta).toMatchObject({ estado: 'conciliada', referencia: 'BOL-000123' });
+  });
+
+  it('AC8 · deja bitácora con actor, boleta y total, sin póliza ni placa', async () => {
+    escenarioConciliarOk();
+    const app = await buildApp();
+    await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('admin')).send({});
+
+    expect(auditMock).toHaveBeenCalledTimes(1);
+    const entrada = auditMock.mock.calls[0][1];
+    expect(entrada).toMatchObject({
+      action: 'update', resource: 'flito_conciliacion_boleta', resourceId: BOLETA_ID,
+    });
+    expect(entrada.detail).toContain('BOL-000123');
+    expect(entrada.detail).toContain('740800');
+    expect(entrada.detail).not.toContain('ABC123');
+    expect(entrada.detail).not.toContain('P1');
+  });
+
+  it('registra el acceso a PII: la respuesta lleva las líneas con póliza y placa', async () => {
+    escenarioConciliarOk();
+    const app = await buildApp();
+    await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    expect(piiMock.mock.calls[0][1]).toMatchObject({
+      resourceTipo: 'flito_conciliacion_boleta', accion: 'read',
+      camposAccedidos: ['numero_poliza', 'placa'],
+    });
+  });
+
+  /** El SOAT dejó de estar `pagado` entre la carga y el clic: el re-cruce lo detecta. */
+  function escenarioIncompleto(): void {
+    kdb.when
+      .select('flito_conciliacion_boletas', [filaBoleta()])
+      .selectOnce('flito_conciliacion_lineas', [filaLinea()])
+      .select('flito_conciliacion_lineas', [])
+      .select('flito_soat', [{
+        id: SOAT_ID, numeroPoliza: 'P1', estado: 'pendiente', valorPagado: '740800.00',
+        companiaId: COMPANIA, companiaNombre: 'ACME S.A.S.', placa: 'ABC123',
+        organismoCodigo: '05001',
+      }])
+      .select('clients', [{ nombre: 'ACME S.A.S.' }])
+      .select('flito_bolsa_movimientos', [])
+      .update('flito_conciliacion_lineas', [])
+      .update('flito_conciliacion_boletas', []);
+  }
+
+  it('AC2 · 409 boleta_incompleta con el cuadre actualizado, y ninguna bolsa se mueve', async () => {
+    escenarioIncompleto();
+
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.codigo).toBe('boleta_incompleta');
+    expect(res.body.boleta.lineas[0].resultado).toBe('no_pagado');
+    expect(espia.insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    // No hubo CAMBIO que registrar: no se conciliró nada.
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+
+  it('el 409 entrega el cuadre, así que TAMBIÉN deja registro de acceso a PII', async () => {
+    // Ley 1581: la pregunta es «¿quién vio mis datos?», no «¿con qué código HTTP los vio?». Este
+    // rechazo devuelve hasta 500 pólizas y placas de terceros para que la pantalla repinte la tabla,
+    // y era el único camino del módulo que las entregaba sin dejar rastro.
+    escenarioIncompleto();
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.boleta.lineas[0].numeroPolizaNorm).toBe('P1');
+    expect(res.body.boleta.lineas[0].placa).toBe('ABC123');
+
+    expect(piiMock).toHaveBeenCalledTimes(1);
+    const opts = piiMock.mock.calls[0][1];
+    expect(opts).toMatchObject({
+      resourceTipo: 'flito_conciliacion_boleta', accion: 'read',
+      camposAccedidos: ['numero_poliza', 'placa'],
+    });
+    // El motivo lleva la referencia legible, nunca la póliza ni el uuid.
+    expect(opts.motivo).toContain('BOL-000123');
+    expect(opts.motivo).not.toContain('P1');
+    expect(opts.motivo).not.toContain(BOLETA_ID);
+  });
+
+  it('un rechazo que NO entrega cuadre no inventa un registro de acceso', async () => {
+    // El registro se decide por lo que el cuerpo LLEVA, no por el código: un 409 de boleta ya
+    // conciliada no enseña ninguna línea, así que anotarlo ensuciaría el log con un acceso que no
+    // ocurrió — y el log existe para poder responder quién vio qué.
+    kdb.when.select('flito_conciliacion_boletas',
+      [filaBoleta({ estado: 'conciliada', conciliadaEn: AHORA, conciliadaPorNombre: 'laura' })]);
+
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(piiMock).not.toHaveBeenCalled();
+  });
+
+  it('AGENTS.md 18 · la ruta que mueve dinero tiene su propio limitador', async () => {
+    // No es por el tamaño de la entrada: es porque abre una transacción con hasta 500 asientos en
+    // serie y mantiene bloqueada la fila de la bolsa todo ese rato. Una ráfaga serializa a todo el
+    // que quiera tocar esa bolsa, incluido el sellado de cualquier liquidación de ese cliente.
+    const app = await buildApp();
+    // Un usuario FIJO: el límite es por usuario, así que sin esto cada petición contaría aparte.
+    const token = `Bearer ${await testToken({ sub: 4242, username: 'financiera@flit.io', role: 'financiera' })}`;
+    const pedir = () => {
+      kdb.when.select('flito_conciliacion_boletas',
+        [filaBoleta({ estado: 'conciliada', conciliadaEn: AHORA, conciliadaPorNombre: 'laura' })]);
+      return request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+        .set('Authorization', token).send({});
+    };
+
+    const codigos: number[] = [];
+    for (let i = 0; i < 11; i += 1) codigos.push((await pedir()).status);
+
+    expect(codigos.slice(0, 10).every((c) => c === 409)).toBe(true);
+    expect(codigos[10]).toBe(429);
+  });
+
+  it('AC6 · 409 boleta_ya_conciliada al pedirlo dos veces', async () => {
+    kdb.when.select('flito_conciliacion_boletas',
+      [filaBoleta({ estado: 'conciliada', conciliadaEn: AHORA, conciliadaPorNombre: 'laura' })]);
+
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('financiera')).send({});
+
+    expect(res.status).toBe(409);
+    expect(res.body.codigo).toBe('boleta_ya_conciliada');
+    expect(espia.inserts).toHaveLength(0);
+    expect(espia.updates).toHaveLength(0);
+  });
+
+  it('404 si el id del path no es un uuid: no se filtra si la boleta existe o no', async () => {
+    const app = await buildApp();
+    const res = await request(app).post('/api/flito/conciliacion/boletas/no-es-uuid/conciliar')
+      .set('Authorization', await auth('financiera')).send({});
+    expect(res.status).toBe(404);
+    expect(res.body.codigo).toBe('boleta_no_existe');
+  });
+
+  it('400 si alguien manda datos en el cuerpo: conciliar no recibe importes', async () => {
+    const app = await buildApp();
+    const res = await request(app).post(`/api/flito/conciliacion/boletas/${BOLETA_ID}/conciliar`)
+      .set('Authorization', await auth('admin')).send({ valor: 1 });
+    expect(res.status).toBe(400);
+    expect(espia.inserts).toHaveLength(0);
   });
 });

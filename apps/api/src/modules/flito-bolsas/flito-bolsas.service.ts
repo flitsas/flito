@@ -5,7 +5,7 @@
 // `registrarMovimiento` ya recibe concepto, organismo, trámite y llave de idempotencia aunque una
 // recarga no use ninguno.
 
-import { and, desc, eq, isNull, like, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsaCierres, flitoBolsaMovimientos, flitoBolsas, flitoDerechosPendientes,
@@ -348,6 +348,36 @@ function validarMovimiento(datos: DatosMovimiento): { valor: number; fecha: stri
 }
 
 /**
+ * Traduce un `23505` de la llave en el movimiento que sí quedó asentado, o `null` si no procede.
+ *
+ * Es la red de DEBAJO de la relectura bajo el lock, no su sustituta: cuando las dos transacciones
+ * compiten por la misma bolsa, el `FOR UPDATE` las serializa y aquí no se llega nunca. Se llega solo
+ * si la llave colisiona entre bolsas DISTINTAS —el índice único es uno para toda la tabla— o si otra
+ * familia de llaves choca por un error de construcción.
+ *
+ * **La relectura va en su propio `try`, y esto conviene entenderlo antes de «simplificarlo».** Un
+ * `23505` aborta la transacción en PostgreSQL: sin un `SAVEPOINT` alrededor del `INSERT`, cualquier
+ * consulta posterior muere con `25P02`. Si eso pasa se devuelve `null` para que suba el error
+ * ORIGINAL —el `23505`, que dice la verdad— en lugar de un `25P02` que solo despista a quien lea el
+ * log. La mejora de verdad sería envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y
+ * está sin hacer a propósito: tocar la anidación de la transacción del dinero por un caso residual
+ * pide su propia HU y su propia prueba. El mismo comentario vale para `asentar` en el libro de
+ * tránsito, que tiene este patrón desde antes y con la misma limitación.
+ */
+async function reintentoPorLlave(
+  tx: Tx,
+  e: unknown,
+  llave: string | null | undefined,
+): Promise<MovimientoBolsaDto | null> {
+  if (!esLlaveDuplicada(e) || !llave) return null;
+  try {
+    return (await movimientoPorLlave(tx, llave)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * El cuerpo del asiento, sobre una transacción YA abierta.
  *
  * Existe separado de `registrarMovimiento` porque las salidas automáticas (HU #11122) tienen que
@@ -371,6 +401,24 @@ export async function asentarMovimiento(
 
   const bolsa = await bolsaBloqueada(tx, companiaId);
 
+  // SEGUNDA lectura de la llave, ya DENTRO del lock, y es la que de verdad cierra la carrera.
+  //
+  // Desde el Feature #11623 la familia `salida:soat:*` tiene DOS escritores: el sellado de la
+  // liquidación y la conciliación de una boleta. Pulsados a la vez sobre el mismo SOAT, los dos
+  // pasan el chequeo de arriba —ninguno tiene el lock todavía— y el segundo llegaría al INSERT con
+  // la llave ya ocupada: `23505`, un 500, y si quien pierde es el sellado, un trámite que no se
+  // liquida. El dinero nunca corrió peligro (el índice único falla cerrado), pero el desenlace era
+  // un error de servidor donde debía haber un «esto ya estaba hecho».
+  //
+  // `bolsaBloqueada` toma `FOR UPDATE` sobre la fila de la bolsa, así que las dos transacciones se
+  // serializan aquí; y bajo READ COMMITTED —el nivel por defecto— este SELECT ve un snapshot nuevo,
+  // ya con lo que la otra acaba de confirmar. Cuesta una consulta solo cuando el atajo de arriba
+  // falla, que es el caso raro.
+  if (datos.llaveIdempotencia) {
+    const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
+    if (previo) return { movimiento: previo, duplicado: true };
+  }
+
   // Periodo al que se IMPUTA el movimiento, que no siempre es el de su fecha. Un soporte del
   // organismo con fecha de julio que llega en agosto, con julio ya cerrado, se imputa a agosto: el
   // reporte de cierre de julio ya se firmó y no puede cambiar (HU #11126, AC3). La fecha real se
@@ -384,28 +432,37 @@ export async function asentarMovimiento(
   // puede quedar una fila de soporte apuntando a una recarga que nunca ocurrió.
   const soporteId = datos.soporte ? await insertarSoporte(tx, datos.soporte, ctx) : null;
 
-  const [fila] = await tx
-    .insert(flitoBolsaMovimientos)
-    .values({
-      bolsaId: bolsa.id,
-      companiaId,
-      tipo: datos.tipo,
-      origen: datos.origen,
-      concepto: datos.concepto ?? null,
-      organismoCodigo: datos.organismoCodigo ?? null,
-      tramiteId: datos.tramiteId ?? null,
-      valor: String(valor),
-      saldoResultante: String(saldoResultante),
-      periodo,
-      fecha,
-      observacion: datos.observacion ?? null,
-      soporteId,
-      registradoPorId: ctx.userId,
-      registradoPorNombre: ctx.nombre,
-      llaveIdempotencia: datos.llaveIdempotencia ?? null,
-      corrigeMovimientoId: datos.corrigeMovimientoId ?? null,
-    })
-    .returning();
+  let fila: typeof flitoBolsaMovimientos.$inferSelect;
+  try {
+    [fila] = await tx
+      .insert(flitoBolsaMovimientos)
+      .values({
+        bolsaId: bolsa.id,
+        companiaId,
+        tipo: datos.tipo,
+        origen: datos.origen,
+        concepto: datos.concepto ?? null,
+        organismoCodigo: datos.organismoCodigo ?? null,
+        tramiteId: datos.tramiteId ?? null,
+        valor: String(valor),
+        saldoResultante: String(saldoResultante),
+        periodo,
+        fecha,
+        observacion: datos.observacion ?? null,
+        soporteId,
+        registradoPorId: ctx.userId,
+        registradoPorNombre: ctx.nombre,
+        llaveIdempotencia: datos.llaveIdempotencia ?? null,
+        corrigeMovimientoId: datos.corrigeMovimientoId ?? null,
+      })
+      .returning();
+  } catch (e) {
+    // Última red, la misma que el libro de tránsito lleva desde la HU #11161: si lo que falló fue el
+    // índice único de la llave, el movimiento de la otra transacción ES el bueno.
+    const previo = await reintentoPorLlave(tx, e, datos.llaveIdempotencia);
+    if (!previo) throw e;
+    return { movimiento: previo, duplicado: true };
+  }
 
   // La última recarga solo la mueven las entradas de tipo recarga: es la base del nivel de riesgo
   // (HU #11125) y un ajuste manual no debería redefinirla.
@@ -1080,6 +1137,29 @@ export async function alertasDeSaldo(): Promise<AlertaBolsa[]> {
  *
  * Los soportes sin trámite ya los recoge la bandeja `flito_derechos_pendientes`, que existe desde el
  * módulo de derechos y sirve a los tres conceptos; no se reimplementa ese cruce aquí.
+ *
+ * ── El origen `conciliacion` y este conteo: DOS direcciones, y las dos importan (Feature #11623) ─
+ *
+ * **1. Lo que NO se añade.** Los movimientos que la conciliación de una boleta ASIENTA de cero
+ * (HU #11677) no se cuentan aquí, y no hay que añadirlos: su comprobante —el soporte del pago PSE—
+ * cuelga de la BOLETA y no de cada uno de sus N movimientos, así que incluirlos convertiría cada
+ * SOAT conciliado en una alerta permanente que nadie podría cerrar, por más comprobantes que se
+ * subieran. Eso deja un hueco conocido —una boleta conciliada sin comprobante que este tablero no
+ * ve— cuyo predicado va sobre las tablas nuevas (boleta en `conciliada` sin soporte vivo con
+ * `conciliacion_boleta_id`) y entra con la **HU #11678**, que es la que crea la vía para subirlo.
+ *
+ * **2. Lo que NO se puede dejar salir, y es la razón del `OR` de abajo.** La conciliación también
+ * ADOPTA movimientos que ya existían: cuando el sellado se le adelantó, reescribe su `origen` de
+ * `automatico` a `conciliacion` (ADR-0006 §2.4-ii). Ese movimiento **ya estaba dentro de este
+ * conteo** —las salidas de liquidación no llevan soporte—, así que sin ensanchar el predicado
+ * conciliar una boleta HARÍA BAJAR el contador de «movimientos sin soporte» sin que nadie hubiera
+ * subido nada: la señal contraria a la realidad, y una regresión de una alerta que hoy funciona.
+ *
+ * Los dos conjuntos se distinguen sin ambigüedad y sin columna nueva: lo que asienta la conciliación
+ * va con `tramite_id NULL` (no hay un trámite «correcto» que poner, ADR §4.1) y lo adoptado
+ * CONSERVA el `tramite_id` de su liquidación. De ahí `origen = 'conciliacion' AND tramite_id IS NOT
+ * NULL` = «esto lo asentó el sellado y sigue sin comprobante». Conserva la alerta preexistente sin
+ * crear ninguna incerrable.
  */
 export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
   const [pendientes] = await db
@@ -1091,7 +1171,14 @@ export async function alertasDeConciliacion(): Promise<AlertasConciliacion> {
     .select({ n: sql<number>`count(*)::int` })
     .from(flitoBolsaMovimientos)
     .where(and(
-      eq(flitoBolsaMovimientos.origen, 'automatico'),
+      or(
+        eq(flitoBolsaMovimientos.origen, 'automatico'),
+        // Adoptado por una conciliación: lo asentó el sellado y sigue sin soporte. Ver la cabecera.
+        and(
+          eq(flitoBolsaMovimientos.origen, 'conciliacion'),
+          isNotNull(flitoBolsaMovimientos.tramiteId),
+        ),
+      ),
       eq(flitoBolsaMovimientos.tipo, 'salida'),
       isNull(flitoBolsaMovimientos.soporteId),
     ));

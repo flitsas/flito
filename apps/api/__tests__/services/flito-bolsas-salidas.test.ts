@@ -139,13 +139,6 @@ function aplicarEnSimulacion(tabla: string, datos: Record<string, unknown>): voi
 /** La bolsa que devuelve el SELECT ... FOR UPDATE, con el saldo vigente de la simulación. */
 const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa) }];
 
-/** Salidas del trámite que aún conservan su llave: lo que el reverso considera «vivo». */
-function salidasVivas(): Fila[] {
-  return libro.filter((f) =>
-    f.tramiteId === TRAMITE && f.origen === 'automatico' && f.tipo === 'salida'
-    && String(f.llaveIdempotencia).startsWith('salida:'));
-}
-
 /**
  * Resuelve las consultas a `flito_bolsa_movimientos` contra el libro simulado, mirando por qué se
  * está filtrando. Son dos:
@@ -158,10 +151,16 @@ const consultaMovimientos: Resolver = () => {
   // El barrido del reverso filtra por trámite + origen + tipo (varios parámetros); el pre-chequeo
   // filtra por una sola llave. El patrón del `like` no viaja como parámetro, así que la condición
   // «llave viva» la aplica esta simulación: es lo que hace que reversar dos veces no encuentre nada.
+  //
+  // El origen y el tipo se toman de los PARÁMETROS REALES de la consulta y no se escriben aquí a
+  // mano: así, si alguien quitara del código la condición `origen = 'automatico'` —que es lo único
+  // que deja fuera del reverso los movimientos de conciliación (Feature #11623, CF-07)—, esta
+  // simulación dejaría de filtrar por él y los tests se pondrían en rojo en vez de seguir verdes
+  // afirmando una condición que ya no existe.
   if (filtros.length > 1) {
-    const tramite = filtros[0];
+    const [tramite, origen, tipo] = filtros;
     return libro.filter((f) =>
-      f.tramiteId === tramite && f.origen === 'automatico' && f.tipo === 'salida'
+      f.tramiteId === tramite && f.origen === origen && f.tipo === tipo
       && String(f.llaveIdempotencia).startsWith('salida:'));
   }
   const fila = libro.find((f) => f.llaveIdempotencia === filtros[0]);
@@ -707,6 +706,84 @@ describe('reversar — AC5: el reverso devuelve el dinero con contramovimientos'
 
     expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
     expect(saldoBolsa).toBe(1_000_000);
+  });
+});
+
+// ───────── CF-07 del Feature #11623: lo conciliado no lo alcanza el reverso ──────────
+
+describe('reversarSalidasLiquidacion — un movimiento de conciliación queda fuera del barrido', () => {
+  /**
+   * Un movimiento asentado al CONCILIAR una boleta de pago externo (HU #11677): misma llave que la
+   * salida del sellado —esa es la decisión del ADR-0006 §2.2— pero `origen = 'conciliacion'`.
+   *
+   * **Se le pone `tramiteId: TRAMITE` a propósito**, que es justo lo que la conciliación NO hace.
+   * Sin eso, el test pasaría por la condición equivocada: quedaría fuera del barrido por no tener
+   * trámite y no por su origen, y el día que alguien decidiera poblar `tramite_id` la protección
+   * habría desaparecido sin que nada avisara (ADR §3.3, «el aunque su tramite_id sea T es lo
+   * importante»).
+   */
+  function movimientoConciliado(): Fila {
+    return {
+      id: 'mov-conciliado', tramiteId: TRAMITE, tipo: 'salida', origen: 'conciliacion',
+      concepto: 'soat', organismoCodigo: '05001', valor: '450000', saldoResultante: '550000',
+      periodo: '2026-07', fecha: '2026-07-30', observacion: 'Conciliación de la boleta BOL-000123',
+      soporteId: null, companiaId: COMPANIA, registradoPorNombre: 'laura.restrepo', createdAt: AHORA,
+      llaveIdempotencia: `salida:soat:${SOAT_ID}`,
+    };
+  }
+
+  it('no produce contramovimiento ni le reescribe la llave', async () => {
+    libro.push(movimientoConciliado());
+    saldoBolsa = 550000;
+    kdb.when
+      .select('flito_bolsa_movimientos', consultaMovimientos)
+      .select('flito_bolsas', bolsaVigente);
+
+    const contras = await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
+
+    expect(contras).toEqual([]);
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    // El dinero de ese SOAT se pagó de verdad en un portal externo: no vuelve (CF-07).
+    expect(saldoBolsa).toBe(550000);
+    expect(libro[0].llaveIdempotencia).toBe(`salida:soat:${SOAT_ID}`);
+  });
+
+  it('sí devuelve las salidas del sellado que conviven con él en el mismo trámite', async () => {
+    // El reverso no se rompe ni se salta nada: barre lo suyo y deja lo ajeno.
+    libro.push(movimientoConciliado());
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    escenarioReverso();
+
+    const contras = await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
+
+    // Cinco: el sellado no asentó el SOAT porque su llave ya estaba ocupada por la conciliación.
+    expect(contras.map((c) => c.concepto))
+      .toEqual(['impuesto', 'derecho', 'tramite_digital', 'logistica', 'gmf']);
+    expect(contras.some((c) => c.concepto === 'soat')).toBe(false);
+  });
+
+  it('la consulta del barrido nombra de verdad la columna `origen` en su WHERE', async () => {
+    // La simulación filtra por los parámetros REALES, así que ya detectaría que la condición
+    // desapareciera; esto lo afirma además sobre el SQL, que es donde vive la garantía.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    let condicion: unknown = null;
+    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+    kdb.select.mockImplementation((...args: unknown[]) => {
+      const c = selectBase(...args);
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
+      return c;
+    });
+    kdb.when.select('flito_bolsa_movimientos', []).select('flito_bolsas', bolsaVigente);
+
+    await reversarSalidasLiquidacion(kdb.db as never, TRAMITE, CTX);
+
+    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    expect(texto).toContain('"origen"');
+    expect(texto).toContain('"tramite_id"');
+    expect(texto).toContain('like');
   });
 });
 

@@ -175,6 +175,17 @@ export const CONCILIACION_COLUMNA_TOTAL = 'Total a Pagar';
  *   fecha_invalida     — `fechaPago` futura o mal formada
  *   compania_no_existe — el cliente elegido ya no está
  *   boleta_duplicada   — el mismo `archivo_hash` en una boleta viva (trae `boletaId` y `referencia`)
+ *   boleta_incompleta  — se pidió conciliar y al menos una línea NO está en `ok` tras el re-cruce
+ *                        dentro de la transacción. Trae la `boleta` con el cuadre YA ACTUALIZADO
+ *                        para que la pantalla repinte la tabla con lo que hay hoy, no con lo que
+ *                        había cuando se cargó. **No salió un peso de ninguna bolsa** (HU #11677 AC2)
+ *   sin_valor_pagado   — una línea `ok` cuyo SOAT perdió `valor_pagado` entre el cruce y el asiento.
+ *                        Es una salvaguarda, no un caso esperado: `evaluarFila` marca ese SOAT como
+ *                        `valor_distinto`, así que llegar aquí significa que la fila cambió DENTRO
+ *                        de la transacción. Se prefiere abortar a descontar cero
+ *   sin_actor          — se pidió conciliar sin un usuario identificado. El sello de la boleta exige
+ *                        actor y fecha juntos (`flito_concil_boleta_sello_chk`), y un acto que mueve
+ *                        dinero de terceros sin firma no es admisible ni aunque el CHECK lo dejara
  */
 export const CodigoErrorConciliacion = {
   ARCHIVO_INVALIDO: 'archivo_invalido',
@@ -188,6 +199,9 @@ export const CodigoErrorConciliacion = {
   BOLETA_NO_EXISTE: 'boleta_no_existe',
   BOLETA_YA_CONCILIADA: 'boleta_ya_conciliada',
   BOLETA_DESCARTADA: 'boleta_descartada',
+  BOLETA_INCOMPLETA: 'boleta_incompleta',
+  SIN_VALOR_PAGADO: 'sin_valor_pagado',
+  SIN_ACTOR: 'sin_actor',
 } as const;
 
 export type CodigoErrorConciliacion =
@@ -294,4 +308,89 @@ export interface BoletaListadoDto {
   items: BoletaResumenDto[];
   /** `createdAt` de la última boleta entregada, o `null` si ya no hay más páginas. */
   siguienteCursor: string | null;
+}
+
+// ─────────────────── El asiento del dinero (HU #11677) ───────────────────────────────────────────
+//
+// Lo que devuelve `POST /boletas/:id/conciliar`. Es la única respuesta del módulo que describe un
+// movimiento de dinero, y su forma la fija el AVISO DE ÉXITO de docs/ux/flito-conciliacion.md, que
+// tiene que poder decir, sin una segunda petición y sin calcular nada:
+//
+//   «Se conciliaron 11 SOAT por $ 6.284.900.
+//    · Bolsa de Transportes Andinos: − $ 6.284.900 → saldo $ 12.450.300
+//    · Bolsa de tránsito de Medellín: − $ 4.180.000 → saldo $ 9.310.500
+//    2 de esos SOAT ya se habían descontado al liquidar su trámite, así que no se volvieron a
+//    cobrar: hoy salieron de la bolsa $ 5.120.400.»
+//
+// **Se aparta del ADR-0006 §7.3, que proponía `{ boleta, saldoCliente, lineas, adoptados }`.** Esa
+// forma no puede expresar el desglose por bolsa de tránsito —son N bolsas, cada una con su importe y
+// su saldo— ni distinguir «lo conciliado» de «lo que salió hoy», que es justo la distinción sin la
+// cual el aviso anuncia un cobro que no ocurrió. `lineas` no se repite en la raíz porque ya viaja
+// dentro de `boleta`, y dos copias de la misma lista se desincronizan a la primera edición.
+
+/** Una bolsa que participó en la conciliación, con lo que el aviso necesita decir de ella. */
+export interface BolsaAfectadaDto {
+  /** Nombre para pintar: el del cliente, o el de la bolsa de tránsito. */
+  nombre: string | null;
+  /**
+   * Lo que salió de esta bolsa HOY, con esta conciliación.
+   *
+   * Puede ser CERO con líneas conciliadas: es el «orden 2» del ADR §2.3, en el que el sellado de la
+   * liquidación ya había descontado ese SOAT y conciliar no vuelve a moverlo (CF-04).
+   */
+  descontado: number;
+  /** Saldo de la bolsa DESPUÉS de la conciliación. Se lee de la bolsa, no se calcula sumando. */
+  saldoResultante: number;
+}
+
+export interface BolsaClienteAfectadaDto extends BolsaAfectadaDto {
+  companiaId: number;
+}
+
+export interface BolsaTransitoAfectadaDto extends BolsaAfectadaDto {
+  bolsaId: string;
+}
+
+/**
+ * Una línea cuyo descuento YA existía: el sellado de la liquidación se le adelantó a Financiera.
+ *
+ * El movimiento no se duplica —la llave `salida:soat:<id>` ya estaba ocupada— y además se ADOPTA:
+ * pasa a `origen = 'conciliacion'`, que es lo que lo saca del barrido del reverso de la liquidación
+ * y hace que el CF-07 se cumpla también en este orden (ADR §2.4-ii).
+ */
+export interface LineaAdoptadaDto {
+  lineaId: string;
+  /** Fila del Excel, que es como el usuario nombra la línea en pantalla. */
+  filaNumero: number;
+  soatId: string;
+  /**
+   * Lo que en su día salió de la bolsa del cliente por este SOAT — el valor del MOVIMIENTO.
+   *
+   * No es necesariamente el `valor_pagado` de hoy: si se corrigió después del sellado y la boleta
+   * trae ya el importe corregido, lo que no se volvió a cobrar es lo que se cobró entonces.
+   */
+  valor: number;
+  /** Movimiento existente al que la línea quedó amarrada. */
+  movimientoBolsaId: string;
+  /** `true` si estaba en `origen='automatico'` y esta conciliación lo pasó a `'conciliacion'`. */
+  adoptado: boolean;
+}
+
+/** Respuesta de `POST /api/flito/conciliacion/boletas/:id/conciliar`. */
+export interface ConciliacionRealizadaDto {
+  /** La boleta ya en `conciliada`, con sus líneas selladas. Incluye actor y fecha. */
+  boleta: BoletaDetalleDto;
+  /** Cuántos SOAT quedaron conciliados. Es `boleta.filas` cuando todo cuadró, y siempre lo hace. */
+  soatConciliados: number;
+  /**
+   * Suma de `flito_soat.valor_pagado` de los SOAT conciliados — la cifra grande del aviso.
+   *
+   * NO es lo mismo que `cliente.descontado`: incluye también los que ya se habían descontado al
+   * liquidar. La diferencia entre las dos cifras es exactamente lo que suman los `adoptados`.
+   */
+  totalConciliado: number;
+  cliente: BolsaClienteAfectadaDto;
+  /** Una entrada por bolsa de tránsito tocada. Vacío si ningún organismo está cubierto. */
+  transito: BolsaTransitoAfectadaDto[];
+  adoptados: LineaAdoptadaDto[];
 }
