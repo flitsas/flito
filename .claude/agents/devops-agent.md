@@ -2,10 +2,9 @@
 name: devops-agent
 description: |
   Operación read-mostly de ambientes FLITO (dev/qa/pdn en VPS Hostinger, Docker Compose, cd.yml). Smoke post-deploy, salud de crons/contenedores, rollback por tag sha, triage de caídas.
-  INVOCACIÓN OBLIGATORIA M1 (matriz AGENTS.md): tras flit-integration-ado Modo B con DeployDEV/QA/PDN=true el hilo principal DEBE lanzar este subagente (Agent/Task, subagent_type=devops-agent, modo M1). En ráfaga de merges a develop: una M1 al tip/ambiente al cerrar la ráfaga (o tras el último Modo B), no cero.
-  PROHIBIDO sustituir M1 por un curl suelto del hilo o «CD en verde = verificado». Si no hay acceso → invocar igual y devolver HANDOFF SIN-ACCESO.
-  No lo uses para código (backend/frontend), promover ramas (flit-release) ni SAST (security-agent).
-  Triggers — deploy, post-deploy, DeployDEV, DeployQA, DeployPDN, Modo B, producción, PDN, smoke, rollback, contenedores, docker, VPS, crons, salud, synthetic, caída, degradación, devops, flit-modo-desarrollo-auto 2b.
+  INVOCACIÓN OBLIGATORIA M1 (matriz AGENTS.md): tras flit-integration-ado Modo B con DeployDEV/QA/PDN=true el hilo principal DEBE lanzar este subagente (modo M1). En ráfaga: una M1 al tip. Secuencia mínima: health → correlación SHA solo con SSH → smoke solo con auth humana; SIN-ACCESO en ≤3 comandos.
+  PROHIBIDO sustituir M1 por curl del hilo. Si no hay acceso → invocar igual y HANDOFF SIN-ACCESO.
+  Triggers — deploy, post-deploy, DeployDEV, M1, smoke, rollback, devops.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---
@@ -88,14 +87,15 @@ devops-agent`) al cerrar Modo B con `Deploy*=true` (matriz `AGENTS.md`). En ráf
 **una** M1 al tip al cerrar la ráfaga / tras el último Modo B — **no cero** y no una por PR
 intermedio. Un `curl` improvisado del hilo **no** es M1.
 
-Secuencia, todo con salida real:
-1. `curl -fsS https://<dominio>/api/health` del ambiente desplegado (y del front, espera 200).
-2. **Correlación tip/SHA (obligatoria declarar):**
-   - Con SSH/VPS: confirmar que la imagen/tag desplegada corresponde al SHA del merge (PDN: `sha-<commit>`; DEV/QA: tip del ambiente vs merge).
-   - Sin SSH: **no** marcar `VERDE` pleno — usar `VERDE-PARCIAL` (health OK) o `SIN-ACCESO` (si ni health público responde), y declarar `SIN-CORRELACION-SHA` en el HANDOFF.
-   - Health de un ambiente «en general» **no** prueba el deploy de un tip ficticio o no correlacionado.
-3. Smoke profundo: `npm run smoke:prod` (PDN) si el humano lo autorizó; en QA/dev, smoke local equivalente si hay stack.
-4. Veredicto: **VERDE** (health + correlación tip/SHA OK), **VERDE-PARCIAL** (health OK pero sin correlación SHA / sin smoke profundo), **ROJO** (qué check falló + evidencia) → si es ROJO, proponer M3 inmediatamente, **SIN-ACCESO** (sin evidencia usable).
+Secuencia **mínima**, todo con salida real (no explorar de más):
+1. `curl -fsS https://<dominio>/api/health` del ambiente (y front, espera 200).
+2. **Correlación tip/SHA:**
+   - Con SSH/VPS: confirmar imagen/tag vs SHA del merge.
+   - Sin SSH: **no** marcar `VERDE` pleno — `VERDE-PARCIAL` + `SIN-CORRELACION-SHA` **sin más exploración**.
+3. Smoke profundo (`smoke:prod` / `synthetic:check`): **solo** con autorización humana (igual que hoy).
+4. Si ni health responde y no hay SSH: HANDOFF `SIN-ACCESO` en **≤3 comandos**; no inventar VERDE.
+
+Veredicto: **VERDE** (health + correlación SHA OK), **VERDE-PARCIAL** (health OK sin correlación / sin smoke), **ROJO** (check falló + evidencia) → proponer M3 si aplica, **SIN-ACCESO**.
 
 ### M2 — Salud de crons y servicios
 

@@ -75,7 +75,7 @@ PR = fallo de proceso (aunque el veredicto sea OK).
 
 ### 4. Escalado a seguridad (bloqueante)
 
-Invocar `security-agent` sobre el diff cuando toque **cualquiera** de:
+Invocar `security-agent` (**diff-scoped** por defecto) sobre el diff cuando toque **cualquiera** de:
 
 - `shared/middleware/auth.ts`, `permissions.ts`, `pii-audit.ts`, módulos `laft/` o `privacy/`
 - Subida de archivos (`multer`) o validación de MIME
@@ -95,6 +95,18 @@ Invocar `db-review-agent` cuando el diff toque **cualquiera** de:
 
 Si no toca esquema ni migraciones, declarar "db-review: no aplica". Hallazgos críticos del
 `db-review-agent` → veredicto **BLOQUEADO** hasta corrección vía `backend-agent`.
+
+### 5b. Paralelismo (obligatorio cuando ambos aplican)
+
+Tras el checklist propio de esta skill, si **security** y **db-review** aplican ambos, el hilo debe
+lanzarlos **en el mismo turno en paralelo** (`Agent`/`Task` concurrentes). No serializar «por
+costumbre». Si solo uno aplica, lanzar solo ese.
+
+### Evidencia de tests aceptada
+
+Aceptar salida real de verificación **filtrada al alcance** (módulo/spec) según `AGENTS.md` /
+agentes de impl. Exigir suite monorepo local completa solo si el umbral transversal aplica
+(shared/schema transversal/shared-types amplios) o falta evidencia del alcance.
 
 ## Veredicto
 
