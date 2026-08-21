@@ -28,7 +28,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { FABRICADO, itemMunicipal, itemSimit } from '../fixtures/comparendos/payloads-fuente.js';
+import { FABRICADO, itemMunicipal, itemMunicipalMulta, itemSimit, itemSimitMulta }
+  from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -425,5 +426,98 @@ describe('podarPayload con rutas anidadas (mapa v2)', () => {
     expect(json).not.toContain(FABRICADO.direccionMunicipal);
     expect(json).not.toContain(FABRICADO.nitMunicipal);
     expect(json).not.toContain('T****');
+  });
+});
+
+// ─────────── Lo que la resolución añade a la lista blanca, y lo que NO (RN-25, HU #11712) ───────
+//
+// La lista blanca se DERIVA del `field_map`, así que las cuatro filas que siembra la v3 cambian lo
+// que sobrevive en el JSONB. Este bloque es el análisis de ese cambio, comprobado en vez de
+// prometido:
+//
+//   · Un número de resolución **no añade vinculabilidad sobre lo que la fila ya publica**:
+//     `numero_comparendo` es la misma clase de llave hacia el mismo registro del organismo y ya
+//     viaja en el listado y en el Excel, así que la resolución no abre una puerta nueva, abre la
+//     misma. No es dato sensible (art. 5, Ley 1581) y tiene finalidad declarada: distinguir
+//     comparendo de multa.
+//   · Las rutas nuevas son ESCALARES DE PRIMER NIVEL: no abren ningún contenedor, así que
+//     `injertarHoja` no gana superficie y el subárbol `estadoCuenta` sigue saliendo igual de podado.
+//   · Y si un municipio emitiera la resolución como objeto, `esEscalarPersistible` la descarta de la
+//     PODA: no hay clave autorizada nueva por la que meter un subárbol. Que ese mismo objeto tampoco
+//     rompa la HOMOLOGACIÓN es otro mecanismo y otro archivo —`primerValor` lo salta y sigue al
+//     candidato siguiente (`esValorHomologable`, AC6)—, y confundir los dos fue lo que dejó vivo el
+//     sombreado hasta el gate de QA. Aquí solo se responde por lo que se GUARDA.
+
+describe('la resolución en la lista blanca no ensancha la superficie de PII (HU #11712)', () => {
+  const MAPA_V3_SIMIT: FilaMapa[] = [
+    fila('simit', 'numeroComparendo', 'numeroComparendo', 1, 3),
+    fila('simit', 'placa', 'placa', 1, 3),
+    fila('simit', 'numeroResolucion', 'numeroResolucion', 1, 3),
+    fila('simit', 'idResolucion', 'idResolucion', 1, 3),
+    fila('simit', 'estadoPago', 'estadoFuente', 3, 3),
+  ];
+
+  it('la resolución sobrevive y el infractor sigue sin sobrevivir', async () => {
+    conMapa(MAPA_V3_SIMIT);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(itemSimitMulta(), camposConservables(candidatosDe(mapa, 'simit')))!;
+
+    expect(podado.numeroResolucion).toBe(FABRICADO.numeroResolucionSimit);
+    expect(podado.idResolucion).toBe(FABRICADO.idResolucionSimit);
+    expect(podado.estadoPago).toBe('En cobro coactivo');
+    // Lo de siempre, que las filas nuevas no pueden aflojar.
+    expect(Object.prototype.hasOwnProperty.call(podado, 'infractor')).toBe(false);
+    expect(JSON.stringify(podado)).not.toContain(FABRICADO.documentoInfractor);
+  });
+
+  it('**una resolución que llegue como OBJETO no se persiste**: la clave autorizada no abre puerta', async () => {
+    conMapa(MAPA_V3_SIMIT);
+    const mapa = await cargarMapaHomologacion();
+    const item = {
+      ...itemSimit(),
+      // La forma con la que un proveedor colaría PII por una clave permitida: el escalar que el
+      // mapa autoriza convertido en subárbol con una persona dentro.
+      numeroResolucion: { numero: 'R-1', firmante: { nombre: 'ANA GOMEZ', cedula: '43123456' } },
+    };
+
+    const podado = podarPayload(item, camposConservables(candidatosDe(mapa, 'simit')))!;
+
+    expect(Object.prototype.hasOwnProperty.call(podado, 'numeroResolucion')).toBe(false);
+    expect(JSON.stringify(podado)).not.toContain('43123456');
+  });
+
+  it('en el municipal, `nroResolucion` no abre contenedor: `estadoCuenta` sale igual de podado', async () => {
+    conMapa([
+      fila('municipal', 'numeroComparendo', 'numeroComparendo', 1, 3),
+      fila('municipal', 'estadoCuenta.secretaria.nombreAutoridadTransito', 'organismo', 1, 3),
+      fila('municipal', 'nroResolucion', 'numeroResolucion', 1, 3),
+    ]);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(itemMunicipalMulta(), camposConservables(candidatosDe(mapa, 'municipal')))!;
+
+    // Aserción EXHAUSTIVA: la comparación por igualdad es la que demuestra que no entró nada más.
+    expect(podado).toEqual({
+      numeroComparendo: FABRICADO.numeroMunicipal,
+      nroResolucion: FABRICADO.numeroResolucionMunicipal,
+      estadoCuenta: { secretaria: { nombreAutoridadTransito: FABRICADO.organismoMunicipal } },
+    });
+    const json = JSON.stringify(podado);
+    expect(json).not.toContain(FABRICADO.direccionMunicipal);
+    expect(json).not.toContain(FABRICADO.nitMunicipal);
+  });
+
+  it('`fechaResolucion` no está en el mapa, así que tampoco se persiste', async () => {
+    // Doble efecto de no mapearla: ni fabrica multas ni engorda el JSONB.
+    conMapa([
+      fila('municipal', 'numeroComparendo', 'numeroComparendo', 1, 3),
+      fila('municipal', 'nroResolucion', 'numeroResolucion', 1, 3),
+    ]);
+    const mapa = await cargarMapaHomologacion();
+
+    const podado = podarPayload(itemMunicipal(), camposConservables(candidatosDe(mapa, 'municipal')))!;
+
+    expect(Object.prototype.hasOwnProperty.call(podado, 'fechaResolucion')).toBe(false);
   });
 });

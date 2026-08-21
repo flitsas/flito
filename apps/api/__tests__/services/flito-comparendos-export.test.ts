@@ -144,6 +144,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   monto: '604100.00',
   estado: 'activo',
   estadoFuente: 'PENDIENTE',
+  // HU #11712. La fixture base es una MULTA (tipo y resolución puestos) para que el caso del `null`
+  // —el histórico— tenga que pedirse explícitamente y no se cuele por descuido de la fixture.
+  tipoRegistro: 'multa',
+  numeroResolucion: 'RES-2026-4471',
   origenMerge: 'ambos',
   causalNombre: CAUSAL_NOMBRE,
   observacion: OBSERVACION,
@@ -384,6 +388,35 @@ describe('AC2 — una fila por registro, las columnas del visor, sin payloads', 
     const texto = textoDe(hoja);
     expect(texto).toContain('05001000000012345670');
     expect(texto).toContain('05001000000012345671');
+  });
+
+  it('trae «Tipo» y «N.º resolución», y el tipo sale traducido (HU #11712)', async () => {
+    kdb.when.select(TABLA, filas(1));
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'tipoRegistro')).toBe('Multa');
+    expect(celda(hoja, 2, 'numeroResolucion')).toBe('RES-2026-4471');
+  });
+
+  it('**un tipo NULO deja la celda VACÍA, nunca «Comparendo»** (HU #11712)', async () => {
+    // El mutante de la HU: rellenar el hueco con la palabra convertiría todo el histórico anterior a
+    // la 0160 en un dato verificado, dentro de un archivo que sale del perímetro y que alguien va a
+    // conciliar. `null` es «no se sabe», y de las filas `inactivo` nadie va a volver a saberlo.
+    kdb.when.select(TABLA, [fila({ tipoRegistro: null, numeroResolucion: null })]);
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'tipoRegistro') ?? null).toBeNull();
+    expect(textoDe(hoja)).not.toContain('Comparendo');
+    // Y la fila sí está: el test no pasa por no haber traído nada.
+    expect(celda(hoja, 2, 'numeroComparendo')).toBe('05001000000012345678');
+  });
+
+  it('el `id_resolucion` no existe como columna del archivo', async () => {
+    // Es un identificador de sistema del proveedor: no se publica en el API y tampoco aquí.
+    expect(COLUMNAS.map((c) => c.key)).not.toContain('idResolucion');
+    expect(COLUMNAS.map((c) => c.header.toLowerCase())).not.toContain('id resolución');
   });
 
   it('la causal sale por NOMBRE y la última gestión en hora de Colombia', async () => {

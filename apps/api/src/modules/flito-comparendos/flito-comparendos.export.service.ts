@@ -64,6 +64,11 @@ import { condicionesDeFiltro } from './flito-comparendos.registros.service.js';
  */
 export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'N.º comparendo', key: 'numeroComparendo', width: 24 },
+  // Las dos de la HU #11712, pegadas al número porque son parte de la IDENTIDAD de la fila: dicen
+  // qué es y con qué acto administrativo se convirtió en eso. `id_resolucion` no sale al archivo,
+  // igual que no sale al API: es un identificador de sistema del proveedor.
+  { header: 'Tipo', key: 'tipoRegistro', width: 12 },
+  { header: 'N.º resolución', key: 'numeroResolucion', width: 20 },
   { header: 'Placa', key: 'placa', width: 12 },
   { header: 'NIT monitoreado', key: 'nitMonitoreado', width: 16 },
   { header: 'Fecha del comparendo', key: 'fechaComparendo', width: 18 },
@@ -90,6 +95,8 @@ export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] =
  */
 const COLUMNAS_CONSULTA = {
   numeroComparendo: flitoComparendosRegistros.numeroComparendo,
+  tipoRegistro: flitoComparendosRegistros.tipoRegistro,
+  numeroResolucion: flitoComparendosRegistros.numeroResolucion,
   placa: flitoComparendosRegistros.placa,
   nitMonitoreado: flitoComparendosRegistros.nitMonitoreado,
   fechaComparendo: flitoComparendosRegistros.fechaComparendo,
@@ -115,6 +122,18 @@ const ETIQUETA_ORIGEN: Record<string, string> = {
   simit: 'SIMIT',
   municipal: 'Municipal',
   ambos: 'Ambos',
+};
+
+/**
+ * Y las de `tipo_registro` (HU #11712). **No lleva entrada para `null`**: una fila sin tipo deja la
+ * celda VACÍA y nunca dice «Comparendo». `null` es «no se sabe» —el histórico anterior a la 0160, y
+ * de las filas `inactivo` nadie va a volver a saberlo (CF-10)—, así que escribir ahí la palabra
+ * convertiría una laguna en un dato verificado dentro de un archivo que sale del perímetro y que
+ * alguien va a conciliar. Vacío es además lo que Excel sabe filtrar.
+ */
+const ETIQUETA_TIPO_REGISTRO: Record<string, string> = {
+  comparendo: 'Comparendo',
+  multa: 'Multa',
 };
 
 /** Y las de `estado`, que en la pantalla son un chip y aquí tienen que ser una palabra. */
@@ -213,6 +232,11 @@ export async function construirFilasExport(filtro: ComparendosExportRequest): Pr
 
   return filas.map((f) => ({
     numeroComparendo: f.numeroComparendo,
+    // El `null` se comprueba ANTES de buscar etiqueta, y por eso no basta con `?? f.tipoRegistro`:
+    // sin tipo la celda va vacía (ver `ETIQUETA_TIPO_REGISTRO`). El `??` de la derecha es otra cosa
+    // —un valor del enum que algún día no tenga etiqueta se pinta crudo en vez de desaparecer—.
+    tipoRegistro: f.tipoRegistro === null ? null : ETIQUETA_TIPO_REGISTRO[f.tipoRegistro] ?? f.tipoRegistro,
+    numeroResolucion: f.numeroResolucion,
     placa: f.placa,
     nitMonitoreado: f.nitMonitoreado,
     fechaComparendo: f.fechaComparendo,

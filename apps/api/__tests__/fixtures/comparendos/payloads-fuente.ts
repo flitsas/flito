@@ -19,6 +19,12 @@ export const FABRICADO = {
   nitMunicipal: '800999888',
   direccionMunicipal: 'Calle 99 con Carrera 88 Sur - COMUNA 99',
   organismoMunicipal: 'STRIA DE TTOyTTE VILLADEMO',
+  /** Número legible de resolución de una multa de SIMIT (HU #11712). Fabricado, con su formato. */
+  numeroResolucionSimit: '3000000123',
+  /** Identificador de SISTEMA de la resolución. La FORMA (dígitos, sin guiones) es la real. */
+  idResolucionSimit: '115697134',
+  /** Y el del UTS, que numera de otra manera. */
+  numeroResolucionMunicipal: 'RES-2026-4471',
 } as const;
 
 /** Número de comparendo de SIMIT: 20 dígitos, como el del proveedor. */
@@ -53,6 +59,30 @@ export function itemSimit(i = 0): Record<string, unknown> {
       tipoDocumento: 'Nit', apellido: null,
     },
     valorPagar: '1308422',
+    // HU #11712. Los dos campos de la resolución llegan EXPLÍCITAMENTE en `null` mientras el
+    // registro sigue siendo un comparendo: la clave está, el valor no. Es lo que hace que su
+    // ausencia sea información y no un hueco del proveedor. `estadoPago` es el candidato que la v3
+    // suma a la cadena de `estadoFuente`.
+    numeroResolucion: null,
+    idResolucion: null,
+    estadoPago: 'No pagado',
+  };
+}
+
+/**
+ * El mismo ítem de SIMIT cuando el comparendo YA se convirtió en multa (HU #11712): los dos campos
+ * de resolución con valor.
+ *
+ * Va aparte y no como bandera de `itemSimit` para que los tests que no hablan del tipo sigan
+ * leyéndose igual, y porque el par «mismo ítem, un campo distinto» es exactamente la comparación que
+ * un test de promoción necesita hacer.
+ */
+export function itemSimitMulta(i = 0): Record<string, unknown> {
+  return {
+    ...itemSimit(i),
+    numeroResolucion: FABRICADO.numeroResolucionSimit,
+    idResolucion: FABRICADO.idResolucionSimit,
+    estadoPago: 'En cobro coactivo',
   };
 }
 
@@ -102,7 +132,18 @@ export function itemMunicipal(): Record<string, unknown> {
       infraccion: [{ codigoInfraccion: 'C29', descripcion: 'Conducir un vehículo a velocidad superior' }],
       secretaria: { identificador: '99', nombreAutoridadTransito: FABRICADO.organismoMunicipal },
     },
+    // HU #11712, y esta pareja es una TRAMPA del proveedor real, no un adorno: el ítem de Medellín
+    // trae `fechaResolucion` CON valor y `nroResolucion` en `null` a la vez. Quien tome la fecha
+    // como señal de que hay resolución fabrica multas que no existen; por eso `fechaResolucion` no
+    // se mapea a nada en la v3 y esta fixture es la que lo demuestra.
+    nroResolucion: null,
+    fechaResolucion: '2026-09-22',
   };
+}
+
+/** El mismo ítem del UTS cuando ya es multa: `nroResolucion` con valor (HU #11712). */
+export function itemMunicipalMulta(): Record<string, unknown> {
+  return { ...itemMunicipal(), nroResolucion: FABRICADO.numeroResolucionMunicipal };
 }
 
 /**

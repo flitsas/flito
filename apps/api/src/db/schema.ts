@@ -4240,6 +4240,14 @@ export const flitoComparendosEventoTipoEnum = pgEnum('flito_comparendos_evento_t
 export const flitoComparendosOrigenMergeEnum = pgEnum('flito_comparendos_origen_merge', [
   'simit', 'municipal', 'ambos',
 ]);
+// Comparendo o multa (HU #11712, migración 0160). Los dos endpoints devuelven las dos cosas en la
+// misma lista y lo que las distingue es la resolución: sin resolución sigue siendo comparendo, con
+// resolución ya es multa. Es un enum y no un booleano porque un booleano no sabe decir «no se
+// sabe», que es exactamente lo que hay que decir del histórico anterior a la 0160 —y no es un
+// `varchar` con CHECK porque cuesta lo mismo y pierde la unión tipada en TypeScript.
+export const flitoComparendosTipoRegistroEnum = pgEnum('flito_comparendos_tipo_registro', [
+  'comparendo', 'multa',
+]);
 
 /**
  * NITs a monitorear (CF-01). Catálogo propio y no una vista de `clients`: se monitorean empresas
@@ -4358,6 +4366,25 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   municipioFuente: varchar('municipio_fuente', { length: 40 }),
   monto: numeric('monto', { precision: 14, scale: 2 }),
   estadoFuente: varchar('estado_fuente', { length: 80 }),
+  // Comparendo o multa, y la resolución que lo convirtió (HU #11712, migración 0160). Las tres son
+  // nullable y SIN default, y eso es la afirmación principal de la HU: `null` significa «no se
+  // sabe», que es todo lo que sabemos del histórico anterior a la 0160 —sus payloads ya fueron
+  // podados y ninguna versión del mapa nombraba la resolución, así que el dato no está en ninguna
+  // parte—. Un `default 'comparendo'` no sería optimismo transitorio: las filas `inactivo` ya no
+  // las visita ningún sync (CF-10), así que nadie volvería a corregirlo nunca.
+  //
+  // `tipoRegistro` lo DERIVA `resolverCampos` de las otras dos, y NO es un campo del `field_map`:
+  // si lo fuera, una fila de una tabla de texto elegiría el valor de una columna `enum` y el INSERT
+  // reventaría con un `22P02` a mitad de corrida, matando el NIT entero.
+  //
+  // `idResolucion` es columna propia y no un candidato más de `numeroResolucion` porque es un
+  // identificador de SISTEMA del proveedor (`115697134`) y no un número legible: como respaldo del
+  // número acabaría pintado en la columna «N.º resolución». Se guarda porque viene nulo mientras es
+  // comparendo y con valor cuando ya es multa, así que es la otra mitad de la señal del tipo. No se
+  // publica en el API.
+  tipoRegistro: flitoComparendosTipoRegistroEnum('tipo_registro'),
+  numeroResolucion: varchar('numero_resolucion', { length: 60 }),
+  idResolucion: varchar('id_resolucion', { length: 60 }),
   origenMerge: flitoComparendosOrigenMergeEnum('origen_merge').notNull(),
   vistoEnSimit: boolean('visto_en_simit').notNull().default(false),
   vistoEnMunicipal: boolean('visto_en_municipal').notNull().default(false),
@@ -4429,6 +4456,23 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   gestionAuditoriaChk: check(
     'flito_comparendos_gestion_auditoria_chk',
     sql`(${t.gestionActualizadaEn} is null) = (${t.gestionActualizadaPor} is null)`,
+  ),
+  // El tipo y la resolución no pueden contradecirse (HU #11712, migración 0160): o la fila no dice
+  // nada de las tres (el histórico), o dice el tipo y ese tipo es `multa` exactamente cuando hay
+  // alguna de las dos resoluciones. El merge lo cumple por construcción —deriva el tipo del valor
+  // que acaba de resolver—, y esto es lo que lo sostiene desde la base para el día que haya un
+  // segundo camino de escritura.
+  //
+  // Las dos piezas que parecen adorno hacen trabajos DISTINTOS, y confundirlas es fácil (verificado
+  // contra PostgreSQL 16): la PRIMERA rama está para **admitir el histórico**, no para cerrar un
+  // hueco —sin ella, `tipo_registro IS NOT NULL` da FALSE y el CHECK rechaza toda fila sin tipo, que
+  // al aplicar la 0160 son TODAS: el `ADD CONSTRAINT` moriría al validar—. Lo que cierra el hueco de
+  // la evaluación a NULL es la guarda `is not null` de la SEGUNDA rama: la comparación desnuda
+  // `(NULL = 'multa') = (…)` evalúa a NULL y un CHECK que evalúa a NULL PASA, así que sin ella se
+  // colaría la fila peor —sin tipo y con número de resolución—; con ella, `FALSE AND NULL` es FALSE.
+  tipoResolucionChk: check(
+    'flito_comparendos_tipo_resolucion_chk',
+    sql`(${t.tipoRegistro} is null and ${t.numeroResolucion} is null and ${t.idResolucion} is null) or (${t.tipoRegistro} is not null and (${t.tipoRegistro} = 'multa') = (${t.numeroResolucion} is not null or ${t.idResolucion} is not null))`,
   ),
 }));
 

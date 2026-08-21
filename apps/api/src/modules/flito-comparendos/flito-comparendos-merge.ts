@@ -24,6 +24,11 @@
 //        Un campo que el proveedor deja de mandar es un campo del que no sabemos nada nuevo, no un
 //        campo que pasó a estar vacío.
 //
+//        Corolario que la HU #11712 aprovecha sin añadir regla: esos tres escalones ya son la
+//        promoción MONÓTONA de comparendo a multa. Cualquier fuente que presente resolución gana el
+//        `??` (así que basta con que UNA hable), y el tercer escalón impide la vuelta atrás por
+//        silencio del proveedor (una fila que ya fue multa conserva su resolución).
+//
 // RN-14  Los ítems crudos vienen de `JSON.parse` y `types.ts` los declara con firma de índice: un
 //        `__proto__` PROPIO en la respuesta del proveedor es un vector de contaminación de
 //        prototipo. Por eso aquí no hay ni un `Object.assign` sobre ellos, la lectura de campos se
@@ -56,6 +61,7 @@
 //        (re-consulta) por una fuga de datos personales que no lo es.
 
 import { asc } from 'drizzle-orm';
+import type { ComparendosTipoRegistro } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoComparendosFieldMap } from '../../db/schema.js';
 import { ComparendosMapaHomologacionVacioError } from './flito-comparendos.errors.js';
@@ -81,6 +87,14 @@ export const CAMPOS_CANONICOS = [
   'organismo',
   'monto',
   'estadoFuente',
+  // HU #11712. `numeroResolucion` e `idResolucion` SÍ los dice el proveedor, así que son campos del
+  // mapa como los demás. `tipoRegistro` NO está aquí a propósito: no lo dice nadie, se deduce (ver
+  // `tipoDeRegistro`). Si fuera `target_field`, una fila de una tabla de TEXTO podría apuntar
+  // cualquier cosa a una columna `enum` y el INSERT reventaría con un `22P02` a mitad de corrida,
+  // matando el NIT entero — la misma clase de fallo que el sombreado del `comparendo: true` de la
+  // 0158, con peor consecuencia.
+  'numeroResolucion',
+  'idResolucion',
 ] as const;
 
 export type CampoCanonico = typeof CAMPOS_CANONICOS[number];
@@ -109,6 +123,17 @@ export interface ComparendoCanonico {
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
+  /** Número legible de la resolución (HU #11712). `null` mientras el registro sigue siendo comparendo. */
+  numeroResolucion: string | null;
+  /**
+   * Identificador de SISTEMA de la resolución en el proveedor (`115697134`), que no es el número
+   * legible y por eso es campo propio y no un respaldo del anterior: como candidato de
+   * `numeroResolucion` acabaría pintado en la columna «N.º resolución» de la pantalla.
+   *
+   * Vale igual que el número como señal del TIPO —los dos vienen nulos mientras es comparendo y con
+   * valor cuando ya es multa—, y de ahí que `tipoDeRegistro` acepte cualquiera de los dos.
+   */
+  idResolucion: string | null;
 }
 
 /**
@@ -125,6 +150,13 @@ const ANCHO = {
   codigoInfraccion: 20,
   organismo: 120,
   estadoFuente: 80,
+  // Los dos de la resolución SÍ se recortan, al revés que el número de comparendo, y el motivo es el
+  // que da el párrafo de arriba para NO recortar aquel: recortar la LLAVE inventaría un comparendo
+  // que no existe y podría fundir dos deudas. La resolución no es llave de nada —nadie hace join ni
+  // unicidad por ella—, así que recortarla degrada un dato de pantalla en vez de fundir dos filas, y
+  // eso es preferible a un `22001` que tumba el NIT entero (HU #11712).
+  numeroResolucion: 60,
+  idResolucion: 60,
 } as const;
 
 /** Tope de `numeric(14,2)`: 12 dígitos enteros. Por encima, el INSERT reventaría. */
@@ -218,18 +250,65 @@ export function candidatosDe(mapa: MapaHomologacion, origen: ComparendosOrigenFu
  * del PROTOTIPO y devolvería una función como si fuera el dato del proveedor) y los segmentos
  * `__proto__`/`constructor`/`prototype` no se navegan nunca.
  *
- * Vacío (`''`), `null` y `undefined` cuentan como ausencia: un campo en blanco no es un valor que
- * deba ganarle al siguiente candidato.
+ * ── Qué cuenta como ausencia, y por qué importa tanto ────────────────────────────────────────────
+ *
+ * Cuentan como ausencia —y por tanto se SALTAN, dejando hablar al candidato siguiente— cuatro cosas:
+ * `undefined`, `null`, la cadena en blanco y **todo lo que no sea un escalar legible**
+ * (`esValorHomologable`). Las tres primeras son obvias; la cuarta es la que costó una HU.
+ *
+ * Un no-escalar en la posición de un candidato **no es un valor: es ruido con forma de valor**. La
+ * versión anterior lo devolvía, la normalización de abajo (`texto`, `montoCanonico`, …) lo convertía
+ * en `null` —correctamente, de un objeto no se saca un campo— y el candidato de prioridad 2 **nunca
+ * llegaba a leerse**. El campo salía vacío teniendo el dato bueno una fila más abajo del mapa.
+ *
+ * Es exactamente el fallo del `comparendo: true` de SIMIT que documenta la migración 0158, y aquello
+ * se ESQUIVÓ sacando esa fila del mapa, no se corrigió aquí. Mientras cada campo tuvo un solo
+ * candidato de verdad, esquivarlo bastaba; desde la v3 (HU #11712) hay cadenas de tres y cuatro
+ * —`estadoFuente` en los dos orígenes— y un respaldo real detrás del candidato principal
+ * (`nroResolucion` p1 / `numeroResolucion` p2 en el municipal), así que el sombreado ya no es una
+ * curiosidad: una multa real se quedaría marcada como comparendo porque el proveedor mandó un
+ * objeto donde antes mandaba un número.
+ *
+ * Saltarlo no pierde nada: lo que se salta es justo lo que la normalización iba a tirar de todas
+ * formas. Si NO hay candidato siguiente, el resultado es el mismo `null` de antes.
  */
 function primerValor(item: Record<string, unknown>, rutas: readonly string[] | undefined): unknown {
   if (!rutas) return undefined;
   for (const ruta of rutas) {
     const valor = leerRuta(item, ruta);
-    if (valor === null || valor === undefined) continue;
-    if (typeof valor === 'string' && valor.trim() === '') continue;
+    if (!esValorHomologable(valor)) continue;
     return valor;
   }
   return undefined;
+}
+
+/**
+ * ¿Este valor crudo es algo de lo que la normalización pueda sacar un canónico?
+ *
+ * Solo `string` y `number` — la cadena en blanco aparte, que es ausencia con otra forma. Es lo que
+ * aceptan `texto`, `numeroCanonico`, `placaCanonica` y `montoCanonico`.
+ *
+ * **`fechaCanonica` NO: rechaza los números** (`if (typeof valor !== 'string') return null`), así que
+ * en `fechaComparendo` este filtro es más laxo que su normalizadora y queda sombreado residual — una
+ * fecha que llegue como `20260719` en prioridad 1 anula el respaldo de prioridad 2 aunque traiga la
+ * fecha buena. Medido por el gate de QA de la HU #11712, no deducido. NO está cubierto por el AC6,
+ * que habla de «booleano, objeto, array»: esto es un escalar legítimo cuya normalizadora lo rechaza,
+ * que es otra clase de caso. Cerrarlo del todo pide un filtro POR CAMPO, no una lista común; queda
+ * anotado y sin hacer, que es distinto de estar resuelto.
+ * Los proveedores mandan el mismo campo como `"C29"` y como `29` según el endpoint (cabecera de
+ * `types.ts`), y **el número tiene que pasar**: el `valor: 633232.0` del UTS es un `number` y es el
+ * monto de verdad.
+ *
+ * **No es `esEscalarPersistible` y no debe fundirse con él**, aunque se parezcan. Aquella responde
+ * «¿esto vale la pena guardarlo en el payload podado?» y por eso admite `boolean` y `null`: no
+ * llevan PII dentro y son formas legítimas de un campo del proveedor. Esta responde «¿de esto sale
+ * un canónico?», y un `boolean` no: `true` no es un número de comparendo ni un estado, es
+ * precisamente el valor que sombreaba a los demás. Dos preguntas distintas sobre el mismo dato, en
+ * dos sitios distintos del flujo (`homologar` contra `podarPayload`).
+ */
+function esValorHomologable(valor: unknown): valor is string | number {
+  if (typeof valor === 'number') return true;
+  return typeof valor === 'string' && valor.trim() !== '';
 }
 
 /**
@@ -250,6 +329,11 @@ export function homologar(item: Record<string, unknown>, candidatos: CandidatosP
     organismo: texto(primerValor(item, candidatos.get('organismo')), ANCHO.organismo, false),
     monto: montoCanonico(primerValor(item, candidatos.get('monto'))),
     estadoFuente: texto(primerValor(item, candidatos.get('estadoFuente')), ANCHO.estadoFuente, false),
+    // Se homologan los DOS campos de la resolución y NO se deriva aquí el tipo (HU #11712): a esta
+    // altura solo se sabe lo que dijo UNA fuente, y el tipo tiene que salir del valor ya resuelto
+    // entre las dos y el histórico. Ver `resolverCampos`.
+    numeroResolucion: texto(primerValor(item, candidatos.get('numeroResolucion')), ANCHO.numeroResolucion, true),
+    idResolucion: texto(primerValor(item, candidatos.get('idResolucion')), ANCHO.idResolucion, true),
   };
 }
 
@@ -663,8 +747,66 @@ export function acumularMunicipal(
 /** Lo que ya había guardado, para no perder campos que esta corrida no trajo (RN-13). */
 export type CanonicoExistente = Partial<Record<Exclude<CampoCanonico, 'numeroComparendo'>, string | null>>;
 
-/** El canónico que se va a escribir, sin el número (que es la llave y no cambia). */
-export type CamposResueltos = Record<Exclude<CampoCanonico, 'numeroComparendo'>, string | null>;
+/**
+ * El canónico que se va a escribir, sin el número (que es la llave y no cambia).
+ *
+ * Escrito como interfaz y no como `Record<Exclude<CampoCanonico, 'numeroComparendo'>, string|null>`
+ * desde la HU #11712: `tipoRegistro` sale de aquí y NO es un `CampoCanonico` (no lo alimenta el
+ * mapa) ni es `string | null` (es la unión de dos literales). El mapeado automático no podía
+ * expresar ninguna de las dos cosas.
+ */
+export interface CamposResueltos {
+  placa: string | null;
+  codigoInfraccion: string | null;
+  descripcionInfraccion: string | null;
+  fechaComparendo: string | null;
+  organismo: string | null;
+  monto: string | null;
+  estadoFuente: string | null;
+  numeroResolucion: string | null;
+  idResolucion: string | null;
+  /** Derivado de las dos líneas de arriba, nunca homologado ni elegido. Ver `tipoDeRegistro`. */
+  tipoRegistro: ComparendosTipoRegistro;
+}
+
+/**
+ * Comparendo o multa, a partir de la resolución YA RESUELTA (HU #11712).
+ *
+ * La regla de negocio es de una línea —sin resolución sigue siendo un comparendo; con resolución ya
+ * es una multa— y la disyunción está en que el proveedor manda DOS campos que se comportan igual: el
+ * número legible y el identificador de sistema. Cualquiera de los dos con valor es una resolución.
+ *
+ * Lo interesante es dónde se llama, y es en `resolverCampos`: sobre el valor que ya pasó por
+ * `simit ?? municipal ?? previo`. De ahí salen tres propiedades que NO habría si el tipo se
+ * homologara por origen y se eligiera después como un campo más:
+ *
+ *   1. **Coherencia por construcción.** `elegir('tipoRegistro')` y `elegir('numeroResolucion')`
+ *      podrían salir de fuentes distintas en la misma fila —SIMIT sin resolución gana el tipo por
+ *      RN-13, el municipal aporta el número por el segundo escalón— y dejar un `comparendo` CON
+ *      número de resolución. Derivando del valor resuelto, el CHECK de la base no puede fallar por
+ *      un camino que este módulo escriba.
+ *   2. **Promoción MONÓTONA.** Que una fuente calle no es la afirmación «no hay resolución»: es
+ *      indistinguible de que no publique el campo. Como cualquier fuente que presente resolución
+ *      gana el `??`, cualquiera de las dos promueve la fila a multa, sin regla nueva.
+ *   3. **Sin regresión por silencio.** El tercer escalón (`previo`) conserva la resolución ya
+ *      guardada, así que una fila que ya fue multa no vuelve a comparendo porque el proveedor deje
+ *      de mandar el campo.
+ *
+ * **Riesgo abierto y declarado, no deuda escondida:** no hay regreso multa → comparendo. Una
+ * resolución revocada existe en la realidad, pero registrarla exigiría una señal POSITIVA del
+ * proveedor y hoy ninguna de las dos fuentes la publica. `estadoFuente` no sirve: es texto crudo sin
+ * normalizar. Si algún día una fuente la publique, entra aquí y no en el visor.
+ *
+ * Y una premisa que conviene tener escrita: devolver `comparendo` cuando no hay resolución es una
+ * afirmación, y se apoya en que el mapa vigente NOMBRE los campos de resolución. Se sostiene porque
+ * las columnas y la v3 del mapa nacen en la MISMA migración (0160): una base capaz de guardar
+ * `tipo_registro` es una base cuyo mapa máximo pregunta por la resolución.
+ */
+export function tipoDeRegistro(
+  numeroResolucion: string | null, idResolucion: string | null,
+): ComparendosTipoRegistro {
+  return numeroResolucion !== null || idResolucion !== null ? 'multa' : 'comparendo';
+}
 
 /**
  * Decide el valor final de cada campo: **SIMIT → municipal → lo que ya había** (RN-13, CF-08).
@@ -690,6 +832,10 @@ export function resolverCampos(
   const elegir = (campo: Exclude<CampoCanonico, 'numeroComparendo'>): string | null =>
     simit?.[campo] ?? municipal?.[campo] ?? previo[campo] ?? null;
 
+  // Los dos de la resolución se resuelven ANTES para poder derivar el tipo de ellos (HU #11712).
+  const numeroResolucion = elegir('numeroResolucion');
+  const idResolucion = elegir('idResolucion');
+
   return {
     placa: elegir('placa'),
     codigoInfraccion: elegir('codigoInfraccion'),
@@ -698,6 +844,10 @@ export function resolverCampos(
     organismo: elegir('organismo'),
     monto: elegir('monto'),
     estadoFuente: elegir('estadoFuente'),
+    numeroResolucion,
+    idResolucion,
+    // Derivado, nunca elegido: es lo que hace que el CHECK de la 0160 se cumpla por construcción.
+    tipoRegistro: tipoDeRegistro(numeroResolucion, idResolucion),
   };
 }
 

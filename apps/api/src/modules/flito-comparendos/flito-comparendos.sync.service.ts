@@ -701,6 +701,15 @@ type FilaExistente = {
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
+  // Los dos de la resolución (HU #11712). Se leen para que el tercer escalón de RN-13 los conserve:
+  // sin ellos, una corrida en la que el proveedor no mandara la resolución los resolvería a `null` y
+  // `tipoDeRegistro` degradaría la fila de multa a comparendo — la regresión por silencio que la
+  // regla monótona existe para impedir.
+  //
+  // `tipo_registro` NO se lee, y es deliberado: se deriva de estos dos, así que leerlo abriría la
+  // puerta a que el valor viejo pesara sobre el valor nuevo y las dos columnas se contradijeran.
+  numeroResolucion: string | null;
+  idResolucion: string | null;
 };
 
 /**
@@ -740,6 +749,8 @@ async function escribirRegistros(
         organismo: flitoComparendosRegistros.organismo,
         monto: flitoComparendosRegistros.monto,
         estadoFuente: flitoComparendosRegistros.estadoFuente,
+        numeroResolucion: flitoComparendosRegistros.numeroResolucion,
+        idResolucion: flitoComparendosRegistros.idResolucion,
       })
         .from(flitoComparendosRegistros)
         .where(inArray(flitoComparendosRegistros.numeroComparendo, lote));
