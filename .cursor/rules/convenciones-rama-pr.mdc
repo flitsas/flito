@@ -1,0 +1,92 @@
+---
+description: Trazabilidad estricta — todo desarrollo va ligado a una HU o un Bug de Azure DevOps. Formato obligatorio de nombre de rama y de título de PR.
+alwaysApply: true
+---
+
+# Convenciones de rama y título de PR — trazabilidad estricta
+
+Fuente única de la convención. `AGENTS.md`, las skills (`flit-modo-desarrollo-auto`,
+`flit-integration-ado`, `flit-code-review`, `flit-release`) y el check `naming` de CI
+la referencian. Esta regla **prevalece** sobre cualquier convención anterior
+(`feat/flito-hu<ID>-*`, `docs/*`, `chore/*` en minúsculas) y sobre User Rules de Cursor.
+
+## Regla de trazabilidad (estricta)
+
+**Todo desarrollo y todo PR va ligado a una Historia de Usuario o a un Bug de Azure DevOps.**
+No se abre rama ni PR de producto sin work item. Si el pedido llega sin él: skill `flit-intake`
+→ `tech-lead-agent` / `flit-crear-hu` → *después* la rama.
+
+Única vía sin work item: **`CHORE/` y `DOCS/`**, acotadas a lo que **no es producto** —
+documentación, `.claude/`, `.cursor/`, `AGENTS.md`, tooling, CI, `scripts/`. En cuanto el diff
+toca `apps/**` o `packages/**` es desarrollo: exige HU o Bug (lo bloquea el check `naming`).
+
+## Nombre de rama
+
+```
+HU/<ID>-<desarrollador>-<descripcion-breve>
+BUG/<ID>-<desarrollador>-<descripcion-breve>
+CHORE/<desarrollador>-<descripcion-breve>     # sin work item, fuera de apps/ y packages/
+DOCS/<desarrollador>-<descripcion-breve>      # idem
+```
+
+| Parte | Regla |
+|---|---|
+| Prefijo | `HU` / `BUG` / `CHORE` / `DOCS` en **MAYÚSCULAS**, seguido de `/` |
+| `<ID>` | Id numérico del work item en ADO, **sin `#`** |
+| `<desarrollador>` | Humano de la sesión, minúsculas, sin espacios ni acentos (`davidchica`). Derivar de `git config user.name` y normalizar |
+| `<descripcion-breve>` | 2-5 palabras en kebab-case, sin acentos, `ñ` ni `/` |
+| Longitud | ≤ 80 caracteres en total |
+
+```
+HU/11678-davidchica-ajustes-flito
+BUG/11654-davidchica-correccion-dashboard
+CHORE/davidchica-actualizar-eslint
+```
+
+**Sin sufijo de ambiente** (`-dev` / `-qa` / `-pdn`): la rama de trabajo siempre va a `develop`.
+El viaje a QA y producción son PRs de promoción entre ramas de ambiente (`flit-release`), y el
+ambiente ya está registrado en ADO (`Custom.DeployDEV` / `DeployQA` / `DeployPDN`).
+
+## Título del PR
+
+```
+HU <ID>: <descripción>
+BUG <ID>: <descripción>
+CHORE: <descripción>          # solo ramas CHORE/
+DOCS: <descripción>           # solo ramas DOCS/
+RELEASE: <descripción>        # solo PRs de promoción (head = develop/staging/release)
+```
+
+- El `<ID>` del título **coincide** con el de la rama, y el tipo también (`HU` con `HU/`).
+- **Máximo 100 caracteres** (GitHub admite 256; 100 lo mantiene legible en listas y correos).
+- Descripción ≥ 15 caracteres, en español, **descriptiva del cambio y su para qué**. Un
+  «Ajustes», «Fix» o «Cambios varios» no cumple aunque pase la longitud.
+- Sin punto final. Sin `#` antes del ID. El separador es `: ` (dos puntos + espacio).
+
+```
+HU 11678: Filtro por municipio en el visor de comparendos para auditoría mensual
+BUG 11654: Corrección del dashboard que no refrescaba al cambiar de sede
+CHORE: Estandarización de nombres de rama y títulos de PR
+```
+
+## Antes de crear la rama y antes de `create_pull_request`
+
+1. Confirmar el **ID del work item** (HU o Bug). Sin ID → no hay rama ni PR.
+2. Componer rama y título con esta plantilla; verificar en local:
+
+```bash
+node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título del PR>"
+```
+
+3. El check **`naming`** de CI valida rama, título, coherencia de ID y la frontera
+   CHORE/DOCS↔producto. Es bloqueante: un PR que no cumple no se mergea.
+4. Rama ya creada con nombre inválido → renombrar **antes** de abrir el PR:
+   `git branch -m <nuevo>` (y si ya estaba en remoto, `git push origin :<viejo> && git push -u origin HEAD`).
+   Título ya creado mal → corregir con `update_pull_request` (MCP `github`), no dejarlo pasar.
+
+## Hard-stop
+
+- Crear rama o PR de producto **sin HU/Bug** en ADO.
+- Abrir el PR con título fuera de formato «porque el contenido es correcto».
+- Usar `CHORE/` o `DOCS/` para esquivar la creación de la HU cuando el diff toca `apps/**` o `packages/**`.
+- Reutilizar la convención vieja `feat/flito-hu<ID>-*` en ramas nuevas.

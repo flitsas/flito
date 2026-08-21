@@ -23,6 +23,7 @@ Orden fijo:
 
 | ¿Aplica? | Ejecutor | Criterio |
 |----------|----------|----------|
+| **Siempre** | trazabilidad y convenciones (`.cursor/rules/convenciones-rama-pr.mdc`) | HU/Bug de ADO identificado (sin work item no hay PR de producto); rama `HU/<ID>-<dev>-<desc>` y título `HU <ID>: <descripción>`. Verificar con `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título>"` **antes** de `create_pull_request` |
 | **Siempre** | skill `flit-code-review` (herramienta `Skill` / leer y seguir `.claude/skills/flit-code-review/SKILL.md` hasta el veredicto canónico) | **Antes** de **cada** PR — nunca después; también en cadena apilada; `security-agent` **no** lo sustituye |
 | Si el diff toca auth, PII, multer, rutas nuevas, `package*.json`, laft/, privacy | `security-agent` | Matriz `AGENTS.md` (complementa el code-review) |
 | Si el diff toca `apps/api/src/db/schema.ts` o `src/db/migrations/` | `db-review-agent` | Matriz `AGENTS.md` |
@@ -33,6 +34,7 @@ Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo d
 
 ## Hard-stop
 
+- **Sin HU o Bug en ADO** → no hay rama ni PR de producto: primero `flit-intake` / `flit-crear-hu`. Rama o título fuera del formato de `convenciones-rama-pr.mdc` → corregir (`git branch -m`, `update_pull_request`) antes de seguir; el check CI `naming` lo bloquea igual.
 - Veredicto `flit-code-review` = **BLOQUEADO**, o `security-agent` = **FAIL**, o `db-review-agent` con hallazgos críticos → **no** llamar `create_pull_request`. Corregir (o pedir corrección) y re-ejecutar el gate.
 - Prohibido inventar «ya revisado» / «gates cerrados» sin haber ejecutado la skill o invocado el subagente **en este hilo sobre este diff/HEAD** (o citar HANDOFF/veredicto reciente del mismo SHA).
 - **Veredicto vencido:** si la rama recibió commits tras el veredicto (fixes post-review, retrabajo de QA), el gate quedó vencido — re-ejecutar `flit-code-review` sobre el nuevo HEAD antes de abrir el PR o de mergear. Abrir PR o mergear sobre un HEAD sin veredicto vigente = gate no ejecutado.
