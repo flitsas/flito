@@ -346,6 +346,57 @@ describe('acumular — una entrada por número de comparendo', () => {
     expect(acumulador.get('C-1')!.simit?.estadoFuente).toBe('Primero');
   });
 
+  // ── Normalización del número (ADR-0003 decisión 6, cerrada por el spike #11501) ──────────────
+  //
+  // `numeroCanonico` no se exporta, así que se prueba por donde de verdad importa: la LLAVE del
+  // acumulador. Es lo que decide si dos avisos son una deuda o dos, y hasta este bloque ningún test
+  // del repo lo cubría — los casos de arriba usan `'C-1'` idéntico en las dos fuentes, que pasaría
+  // igual con la normalización desactivada.
+
+  it('**el mismo comparendo con espacios y minúsculas es UNA sola entrada**, no dos deudas', () => {
+    const acumulador = new Map();
+
+    // Lo que cambia entre las dos fuentes es solo la forma de escribirlo. Si la normalización se
+    // relajara a un `trim` —la regla PROVISIONAL que el ADR describía antes del spike—, los espacios
+    // INTERNOS de `'C - 1'` sobrevivirían, la llave sería otra y el mismo comparendo se cobraría dos
+    // veces. Ojo al límite real: se quitan los espacios, no los separadores. `'C 1'` NO es `'C-1'`
+    // (normaliza a `'C1'`), y así debe ser: fundirlos exigiría adivinar qué separador quiso el
+    // proveedor.
+    acumularSimit(acumulador, [{ numeroComparendo: '  c-1  ', valorAPagar: '100' }], simit);
+    acumularMunicipal(acumulador, [{ numero: 'C - 1', descripcion: 'Del municipio' }], municipal, 'BELLO');
+
+    expect(acumulador.size).toBe(1);
+    const entrada = acumulador.get('C-1')!;
+    expect(entrada.simit?.monto).toBe('100.00');
+    expect(entrada.municipal?.descripcionInfraccion).toBe('Del municipio');
+  });
+
+  it('la llave guardada es la NORMALIZADA, no la que mandó el primero en llegar', () => {
+    const acumulador = new Map();
+
+    // Guardar `' c-1 '` tal cual dejaría el filtro por número de `GET /registros` sin encontrar una
+    // fila que existe: ese filtro busca con `like` contra el valor ya normalizado (ADR-0003 dec. 6).
+    acumularSimit(acumulador, [{ numeroComparendo: ' c-1 ' }], simit);
+
+    expect([...acumulador.keys()]).toEqual(['C-1']);
+    expect(acumulador.get('C-1')!.simit?.numeroComparendo).toBe('C-1');
+  });
+
+  it('**un número que no cabe en varchar(60) se descarta entero; NO se recorta**', () => {
+    const acumulador = new Map();
+
+    // Recortar la llave inventaría un comparendo que no existe y, peor, dos números largos que
+    // compartan los primeros 60 caracteres se fundirían en una sola fila — dos deudas distintas
+    // convertidas en una. Por eso el ítem se ignora y el descarte se CUENTA.
+    const ignorados = acumularSimit(acumulador, [
+      { numeroComparendo: 'X'.repeat(61) },
+      { numeroComparendo: 'Y'.repeat(60) },
+    ], simit);
+
+    expect(ignorados).toBe(1);
+    expect([...acumulador.keys()]).toEqual(['Y'.repeat(60)]);
+  });
+
   it('si dos municipios traen el mismo comparendo, se conserva el primero', () => {
     const acumulador = new Map();
 
