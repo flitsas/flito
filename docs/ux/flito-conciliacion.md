@@ -41,7 +41,7 @@ fusionó en `admin`. El rol que la HU llama «gestor-proveedor» es **`proveedor
 |---|---|---|---|---|---|
 | `admin` | **Sí** | **Sí** | **Sí** | **Sí** | Sí, en la pantalla |
 | `financiera` | **Sí** | **Sí** | **Sí** | **Sí** | Sí, en la pantalla |
-| `proveedor` (gestor SOAT) | **No** | No | No | No | **Sí, pero en el detalle de SU SOAT** — `GET /flito/soat/:id/comprobante-conciliacion` (ADR §7.5). Nunca entra a `/api/flito/conciliacion` |
+| `proveedor` (gestor SOAT) | **No** | No | No | No | **Sí, pero en el detalle de SU SOAT** — sale en `GET /flito/soat/:id/soportes` con `origen: 'conciliacion'` (ADR §7.5, corregido en la HU #11678). Nunca entra a `/api/flito/conciliacion` |
 | `auditor` | **No** | No | No | No | No |
 | resto (`transito`, `compliance`, `lider_pesv`, `supervisor_flota`, `conductor`, `gestor_impuestos`, `mensajero`) | No | — | — | — | — |
 
@@ -113,9 +113,10 @@ letra: sin él, entrar por el enlace profundo del reporte de costos con un rol e
 | Detalle + líneas | `GET /flito/conciliacion/boletas/:id` | ADR §7.2 | `BoletaDetalleDto`. `:id` es uuid opaco |
 | Cargar y cruzar | `POST /flito/conciliacion/boletas` | ADR §7.1 | `multipart`: `archivo` + `companiaId` + `fechaPago`. **No mueve dinero**. 201 con el cuadre ya resuelto |
 | Conciliar | `POST /flito/conciliacion/boletas/:id/conciliar` | ADR §7.3 | Cuerpo `{}`. Re-cruza dentro de la transacción; 409 `boleta_incompleta` con los resultados **ya actualizados** |
-| Subir comprobante | `POST …/boletas/:id/comprobante` | ADR §7.4 | PDF/JPG/PNG, 15 MB, magic number. 409 `comprobante_ya_existe` |
-| Ver comprobante | `GET …/boletas/:id/comprobante` | ADR §7.4 | `{ url, nombreArchivo, contentType }` firmada y caducable |
-| Comprobante para el gestor | `GET /flito/soat/:id/comprobante-conciliacion` | ADR §7.5 | Fuera de esta pantalla. `admin \| financiera \| proveedor` |
+| Subir comprobante | `POST …/boletas/:id/comprobante` | **Existe** (HU #11678) | PDF/JPG/PNG, 15 MB, magic number. 409 `comprobante_ya_existe`. 409 `boleta_no_conciliada` si aún no se concilió |
+| Reemplazar comprobante | `PUT …/boletas/:id/comprobante` | **Existe** (HU #11678) | 200. El anterior queda `descartado`; su archivo NO se borra |
+| Ver comprobante | `GET …/boletas/:id/comprobante` | **Existe** (HU #11678) | `{ url, nombreArchivo, contentType }` firmada y caducable. El detalle ya trae `comprobante` con su firma; esta es la fresca del clic |
+| Comprobante para el gestor | `GET /flito/soat/:id/soportes` | **Existe** (HU #11678) | Fuera de esta pantalla. Sale en la lista que esa ruta ya devuelve, con `origen: 'conciliacion'`. **No** hay ruta `comprobante-conciliacion`: el AC3 pidió reusar esta y el ADR §7.5 quedó corregido |
 | Clientes | `GET /clients` | Existe | Alimenta el selector de cliente. Mismo uso que `FlitoBolsas.tsx:57` |
 
 ### Requerimientos nuevos — para `architecture-agent` / `backend-agent`
@@ -253,7 +254,7 @@ flowchart TD
     B --> C{"Ese SOAT esta<br/>en una boleta conciliada?"}
     C -- No --> D["Nada nuevo en su vista"]
     C -- Si --> E["Bloque 'Pago de la financiera'<br/>+ enlace de descarga del comprobante PSE"]
-    E --> F["GET /flito/soat/:id/comprobante-conciliacion<br/>buscarConAcceso: 404 y no 403 si el SOAT no es suyo"]
+    E --> F["GET /flito/soat/:id/soportes<br/>buscarConAcceso: 404 y no 403 si el SOAT no es suyo"]
 ```
 
 El gestor **no ve la boleta**: eso le daría las pólizas y los valores de vehículos de otros clientes

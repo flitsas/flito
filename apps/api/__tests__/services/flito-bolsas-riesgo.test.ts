@@ -244,22 +244,59 @@ describe('alertasDeSaldo — AC2: solo lo que hay que mirar hoy', () => {
 
 // ─────────────────────────── AC4: alertas de conciliación ────────────────────
 
+/**
+ * SQL del `where` que contiene `fragmento`, entre todos los que ejecuta la llamada.
+ *
+ * Antes se capturaba el ÚLTIMO `where` a secas. Dejó de servir en cuanto `alertasDeConciliacion`
+ * pasó a emitir tres consultas (HU #11678 añade la de boletas sin comprobante): el último pasó a
+ * ser el de otra tabla y las afirmaciones sobre el predicado de los movimientos se volvían verdes o
+ * rojas por el orden de las consultas, no por lo que dicen. Elegir por contenido las ancla a la
+ * consulta que de verdad se quiere describir.
+ */
+async function sqlDelWhere(fragmento: string): Promise<string> {
+  const { PgDialect } = await import('drizzle-orm/pg-core');
+  const dialecto = new PgDialect();
+  const condiciones: unknown[] = [];
+  const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+  kdb.select.mockImplementation((...args: unknown[]) => {
+    const c = selectBase(...args);
+    const original = c.where as (v: unknown) => unknown;
+    c.where = (cond: unknown) => { condiciones.push(cond); return original(cond); };
+    return c;
+  });
+
+  await alertasDeConciliacion();
+
+  const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);
+  const encontrado = textos.find((t) => t.includes(fragmento));
+  if (encontrado === undefined) {
+    throw new Error(`Ningún where contiene ${fragmento}. Where ejecutados: ${textos.join(' | ')}`);
+  }
+  return encontrado;
+}
+
 describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () => {
   it('cuenta los soportes sin trámite y las salidas automáticas sin soporte', async () => {
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 3 }])
-      .select('flito_bolsa_movimientos', [{ n: 5 }]);
+      .select('flito_bolsa_movimientos', [{ n: 5 }])
+      .select('flito_conciliacion_boletas', [{ n: 2 }]);
 
-    expect(await alertasDeConciliacion()).toEqual({ soportesSinTramite: 3, movimientosSinSoporte: 5 });
+    expect(await alertasDeConciliacion()).toEqual({
+      soportesSinTramite: 3, movimientosSinSoporte: 5, boletasSinComprobante: 2,
+    });
   });
 
-  it('sin nada pendiente → dos ceros, no undefined', async () => {
+  it('sin nada pendiente → tres ceros, no undefined', async () => {
     // El tablero pinta estos números tal cual; un undefined saldría como «NaN» en pantalla.
     kdb.when
       .select('flito_derechos_pendientes', [])
-      .select('flito_bolsa_movimientos', []);
+      .select('flito_bolsa_movimientos', [])
+      .select('flito_conciliacion_boletas', []);
 
-    expect(await alertasDeConciliacion()).toEqual({ soportesSinTramite: 0, movimientosSinSoporte: 0 });
+    expect(await alertasDeConciliacion()).toEqual({
+      soportesSinTramite: 0, movimientosSinSoporte: 0, boletasSinComprobante: 0,
+    });
   });
 
   it('solo cuenta los pendientes sin resolver y las salidas automáticas sin soporte', async () => {
@@ -288,22 +325,12 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
   // como valor enlazado.
 
   it('el movimiento ADOPTADO por una conciliación sigue contando como sin soporte', async () => {
-    const { PgDialect } = await import('drizzle-orm/pg-core');
-    let condicion: unknown = null;
-    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
-    kdb.select.mockImplementation((...args: unknown[]) => {
-      const c = selectBase(...args);
-      const original = c.where as (v: unknown) => unknown;
-      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
-      return c;
-    });
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }]);
+      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
-    await alertasDeConciliacion();
-
-    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    const texto = await sqlDelWhere('"origen"');
     // Las dos ramas del `or`, y la que distingue lo adoptado de lo asentado por la conciliación.
     expect(texto).toContain(' or ');
     expect(texto).toContain('"tramite_id" is not null');
@@ -316,25 +343,72 @@ describe('alertasDeConciliacion — AC4: los dos extremos que no cuadran', () =>
     // El comprobante PSE cuelga de la BOLETA, no de cada uno de sus N movimientos. Sin el
     // `tramite_id is not null` de la rama, cada SOAT conciliado sería una alerta que nadie puede
     // cerrar por más comprobantes que se suban. Es la otra mitad de la decisión.
-    const { PgDialect } = await import('drizzle-orm/pg-core');
-    let condicion: unknown = null;
-    const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
-    kdb.select.mockImplementation((...args: unknown[]) => {
-      const c = selectBase(...args);
-      const original = c.where as (v: unknown) => unknown;
-      c.where = (cond: unknown) => { condicion = cond; return original(cond); };
-      return c;
-    });
     kdb.when
       .select('flito_derechos_pendientes', [{ n: 0 }])
-      .select('flito_bolsa_movimientos', [{ n: 0 }]);
+      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_conciliacion_boletas', [{ n: 0 }]);
 
-    await alertasDeConciliacion();
-
-    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    const texto = await sqlDelWhere('"origen"');
     // `conciliacion` NUNCA aparece sin su condición de trámite al lado: si alguien borrara el
     // `isNotNull`, quedaría un `origen = 'conciliacion'` suelto y esto se pondría en rojo.
     const rama = texto.slice(texto.indexOf(' or '));
     expect(rama).toContain('"tramite_id" is not null');
+  });
+
+  // ── HU #11678, AC6: la boleta conciliada sin comprobante ───────────────────
+  //
+  // La otra mitad del hueco que la #11677 dejó anotada. Se cuenta por BOLETA y no por movimiento
+  // porque el comprobante cuelga de la boleta: una boleta de 40 SOAT sin comprobante es UNA cosa
+  // que hacer, y subirlo la cierra entera.
+
+  it('la boleta conciliada sin comprobante APARECE como pendiente', async () => {
+    kdb.when
+      .select('flito_derechos_pendientes', [{ n: 0 }])
+      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_conciliacion_boletas', [{ n: 1 }]);
+
+    const alertas = await alertasDeConciliacion();
+
+    expect(alertas.boletasSinComprobante).toBe(1);
+    // Y no se la come `movimientosSinSoporte`: son dos pendientes distintas y se cierran distinto.
+    expect(alertas.movimientosSinSoporte).toBe(0);
+  });
+
+  it('la alerta SE CIERRA al subir el comprobante: con soporte vivo, el conteo baja a cero', async () => {
+    // El mock no evalúa el `where`, así que lo que se simula es el desenlace de la consulta con el
+    // comprobante ya subido: la boleta deja de estar en el `NOT EXISTS` y no la devuelve nadie.
+    // La forma del predicado que hace eso posible la fija el test siguiente.
+    kdb.when
+      .select('flito_derechos_pendientes', [{ n: 0 }])
+      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_conciliacion_boletas', [{ n: 0 }]);
+
+    expect((await alertasDeConciliacion()).boletasSinComprobante).toBe(0);
+  });
+
+  it('cuenta boletas CONCILIADAS sin comprobante VIVO — las cuatro condiciones, en el SQL real', async () => {
+    kdb.when
+      .select('flito_derechos_pendientes', [{ n: 0 }])
+      .select('flito_bolsa_movimientos', [{ n: 0 }])
+      .select('flito_conciliacion_boletas', [{ n: 0 }]);
+
+    // El `where` de FUERA: la boleta conciliada a la que le falta algo.
+    const fuera = await sqlDelWhere('not exists');
+    // 1. Solo las conciliadas: una boleta `cargada` todavía no pagó nada que documentar.
+    expect(fuera).toContain('"flito_conciliacion_boletas"."estado"');
+    // 2. Es una NEGACIÓN de existencia y no un `leftJoin … is null`, que sobre una tabla con más de
+    //    un soporte por boleta multiplicaría filas y contaría de más.
+    expect(fuera).toContain('not exists');
+
+    // El `where` de DENTRO: qué cuenta como «ya tiene comprobante». Va aparte porque el mock de
+    // drizzle sustituye `db.select`, así que la subconsulta no se serializa dentro del SQL de fuera
+    // —sale como un parámetro— y sus condiciones solo se pueden mirar en su propio `where`.
+    const dentro = await sqlDelWhere('"conciliacion_boleta_id"');
+    // 3. El puente es la columna de la BOLETA en `flito_soportes`, no el SOAT ni el movimiento.
+    expect(dentro).toContain('"conciliacion_boleta_id"');
+    // 4. Y solo cuenta el comprobante VIVO: sin esto, uno reemplazado seguiría apagando la alerta.
+    expect(dentro).toContain('"descartado"');
+    expect(espia.filtrosUsados()).toContain('conciliada');
+    expect(espia.filtrosUsados()).toContain('comprobante_pse');
   });
 });

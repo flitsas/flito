@@ -130,6 +130,12 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * Pasa por `detalle()` antes de leer los soportes, por lo mismo que el historial: es ese paso el
  * que aplica la frontera del gestor, y sin él un proveedor podría leer los documentos de un SOAT
  * ajeno consultando su id.
+ *
+ * **El rol viaja a la consulta, y no es decoración (HU #11678, AC5).** `detalle()` resuelve la
+ * PERTENENCIA —de quién es este SOAT— pero solo para el gestor: `buscarConAcceso` no filtra nada
+ * cuando el rol es `auditor`. Desde que esta lista incluye el comprobante del pago PSE de la boleta,
+ * eso son dos preguntas distintas: «¿es tuyo este SOAT?» la responde `detalle()`, y «¿tienes derecho
+ * a ESTE bloque?» la responde `soportesDeSoat` con el rol. Auditoría sigue viendo todo lo demás.
  */
 router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
@@ -137,7 +143,7 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(await soportesDeSoat(req.params.id));
+  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role }));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.

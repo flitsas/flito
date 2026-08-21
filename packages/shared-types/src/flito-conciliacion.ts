@@ -142,6 +142,16 @@ export const CONCILIACION_MAX_FILAS = 500;
 export const CONCILIACION_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
+ * Tope del comprobante del pago PSE (HU #11678). Quince y no diez: es el mismo número que los demás
+ * módulos que suben soportes escaneados (bolsas, SOAT, derechos), y un comprobante fotografiado con
+ * un móvil pesa más que un `.xlsx` de 500 filas.
+ */
+export const COMPROBANTE_MAX_BYTES = 15 * 1024 * 1024;
+
+/** Lista blanca del comprobante. Se valida por los BYTES, no por el MIME que declara el cliente. */
+export const COMPROBANTE_MIMES = ['application/pdf', 'image/jpeg', 'image/png'] as const;
+
+/**
  * Nombre de la hoja del reporte del portal, y de las DOS columnas que el cruce necesita.
  *
  * Verificado contra el archivo real (`REPORTE SOAT DAVVID.xlsx`): hoja «Export», encabezado en la
@@ -202,6 +212,17 @@ export const CodigoErrorConciliacion = {
   BOLETA_INCOMPLETA: 'boleta_incompleta',
   SIN_VALOR_PAGADO: 'sin_valor_pagado',
   SIN_ACTOR: 'sin_actor',
+  // ── El comprobante del pago PSE (HU #11678) ────────────────────────────────────────────────────
+  /** Ya hay un comprobante vivo en esta boleta. Se reemplaza con PUT, no se sube otro con POST. */
+  COMPROBANTE_YA_EXISTE: 'comprobante_ya_existe',
+  /** La boleta no tiene comprobante: no hay nada que descargar. */
+  COMPROBANTE_NO_EXISTE: 'comprobante_no_existe',
+  /**
+   * El comprobante se adjunta DESPUÉS de conciliar. Antes no existe el pago que documentaría, y
+   * dejarlo subir abriría un estado que la alerta del tablero no sabe leer: «boleta cargada con
+   * comprobante» no es ni pendiente ni resuelta.
+   */
+  BOLETA_NO_CONCILIADA: 'boleta_no_conciliada',
 } as const;
 
 export type CodigoErrorConciliacion =
@@ -281,9 +302,44 @@ export interface BoletaResumenDto {
   sinCuadrar: number;
 }
 
+/**
+ * El comprobante del pago PSE de una boleta conciliada (HU #11678, CF-06).
+ *
+ * `url` viene **firmada y con caducidad** (`/api/files?key=…&exp=…&sig=…`, 5 minutos): la ruta del
+ * objeto en el almacenamiento no sale nunca de la API. Por eso mismo **no se pinta como `href`
+ * estático**: para el clic hay que pedir una firma fresca a `GET …/boletas/:id/comprobante`, que es
+ * lo único que garantiza que el enlace no esté ya muerto cuando el usuario lo pulse.
+ */
+export interface ComprobanteBoletaDto {
+  id: string;
+  nombreArchivo: string;
+  contentType: string;
+  tamanoBytes: number;
+  /** ISO. Es la fecha que la ficha pinta («subido el 20/08/2026, 3:45 p. m.»). */
+  subidoEn: string;
+  subidoPorNombre: string;
+  /** Enlace firmado y caducable. Nunca la clave del almacenamiento. */
+  url: string;
+}
+
+/** Lo que devuelve `GET …/boletas/:id/comprobante`: una firma fresca para abrir el archivo. */
+export interface ComprobanteDescargaDto {
+  url: string;
+  nombreArchivo: string;
+  contentType: string;
+}
+
 /** La boleta con su cuadre. Lo que devuelven la carga, el detalle y el re-cruce. */
 export interface BoletaDetalleDto extends BoletaResumenDto {
   lineas: LineaBoletaDto[];
+  /**
+   * El comprobante del pago PSE, o `null` si todavía no se ha adjuntado (HU #11678, AC2).
+   *
+   * Viaja en el detalle y no en una petición aparte para que la ficha pueda pintar los tres momentos
+   * —antes de conciliar, conciliada sin comprobante, con comprobante— sin una segunda ida y vuelta
+   * que decidiría cuál de los tres es con un `undefined`.
+   */
+  comprobante: ComprobanteBoletaDto | null;
   /**
    * Filas del Excel que se ignoraron por no traer número de póliza —típicamente la fila de totales
    * que algunas descargas del portal añaden al final—. Se informa en vez de callarse: una fila
