@@ -59,7 +59,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
     - **API autenticada — default de diseño:** filtros con PII o cuasi-PII (cédula, NIT de persona/empresa monitoreada, placa, nombre) van en **body** (`POST …/buscar` o equivalente), no en query. IDs opacos (`uuid`) sí pueden ir en path.
     - **Excepción GET+query** solo si un ADR lo declara y `security-agent` lo acepta, con mitigaciones obligatorias: auth + `requireRole`, `logPiiAccess` en la lectura, DTO sin payloads crudos, y sin registrar la query en claro en access logs/logger.
     - Roles canónicos: solo los de `USER_ROLES` en `packages/shared-types/src/permissions.ts`. El rol `operaciones` **ya no existe** (fusionado en `admin`, CF-12): no diseñarlo ni usarlo en `requireRole` / matrices UX.
-15. Nunca commitear secretos ni `.env*`. Un secreto real en el diff es **bloqueante absoluto**: se rota y no se mergea.
+15. Nunca commitear secretos ni `.env*`. Un secreto real en el diff es **bloqueante absoluto**: se rota y no se mergea. Si un secreto real se **pega en el chat**, advertir de inmediato que quedó comprometido (los transcripts quedan en disco), recomendar rotación si se usa fuera de DEV, y nunca escribirlo a archivos del repo.
 16. El producto maneja datos de conductores y propietarios: cifrado en reposo cuando aplica, registro en la auditoría PII (`apps/api/src/shared/pii-audit.ts`), política de retención declarada. Anclas: módulos `laft/` y `privacy/`.
 17. `multer` siempre con `fileFilter` y `limits`; validación de MIME real, no solo por extensión.
 18. Endpoints sensibles (auth, OCR, cargas masivas) con `rateLimiter`.
@@ -74,7 +74,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 - Una rama por HU, **siempre desde `develop` actualizado**: `feat/flito-hu<ID>-<slug-corto>` (lo exige la precondición de merge de `flit-integration-ado`). Ramas `docs/*` / `chore/*` sin HU: merge a `develop` con «sí» humano y CI verde; **sin** Modo A/B en ADO.
 - **Nunca `git add -A` ni `git add .`**: el working tree puede tener parches de demo. Archivos explícitos + `git status --short` antes de commitear.
 - `.claude/` **sí está versionado** (es el equipo de agentes/skills del repo): sus cambios se commitean como cualquier archivo. Lo que no se commitea: parches locales de demo (stubs de OCR, MinIO local).
-- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos; HU → rama `feat/flito-*`). Estrategia: merge commit. Tras merge de HU → `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
+- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos; HU → rama `feat/flito-*`; **HEAD a mergear = `SHA revisado` del veredicto vigente de `flit-code-review`** — commits post-veredicto exigen re-review; **gate `qa-agent` B invocado** tras `Resolved` — nunca mergear con QA pendiente o FAIL sin retrabajo). Estrategia: merge commit. Tras merge de HU → `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
 - **Merge a `staging` / `release`:** siempre humano (`flit-release`). Ningún agente mergea promociones.
 - Cerrar un Feature es exclusivo del Product Owner.
 - **GitHub:** MCP `github` es la vía canónica (PR, checks, merge). En esta máquina **`gh` no es el CLI de GitHub** (visor de ayuda): comprobar con `gh --version` antes de asumir; si no es el CLI real, no usarlo.
@@ -115,6 +115,8 @@ Migraciones contra la BD demo local: exportar `DATABASE_URL` (`set -a; source ap
 En CI (`.github/workflows/ci.yml`) existen tres checks de gate: **`build + test`**, **`dependency-audit`** y **`secret-scan`** — los tres deben estar en verde para mergear (precondiciones de `flit-integration-ado`). La suite completa de tests en CI **no** se sustituye por el mínimo filtrado local.
 
 Prohibido declarar una HU terminada sin la salida real pegada de los comandos del **mínimo aplicable**. Prohibido inventar tablas de resultados. Si el entorno no está levantado, se dice y se para (`SIN-ENTORNO` vía `qa-agent` cuando aplique).
+
+Prohibido **atribuir al humano** instrucciones, decisiones o autorizaciones que no constan en la sesión (fabricación). Si una omisión o desviación fue decisión del agente, se declara como tal — nunca se justifica con un «el supervisor/humano lo pidió» inventado.
 
 ## Gestión del trabajo (Azure DevOps + GitHub)
 
@@ -161,6 +163,7 @@ el hilo principal es quien encadena.
 **Qué cuenta como invocación (prueba mínima):**
 - **Skill:** herramienta `Skill` con el nombre exacto **o** `Read` de su `SKILL.md` en el mismo turno **y** ejecución de sus pasos/plantillas/veredicto canónico (no solo citar el nombre).
 - **Agent:** herramienta `Agent`/`Task` con `subagent_type` exacto **y** bloque `HANDOFF` en la salida del subagente.
+- **Vigencia de la carga de Skill:** **una operación** (una activación/cierre de HU, un code-review, un Modo A, un Modo B). En cadena apilada cada eslabón recarga la skill en su turno; una carga de la HU anterior o de hace horas en la misma sesión no cuenta (detalle: `.cursor/rules/skill-no-imitation.mdc`).
 
 **Qué no cuenta (imitación — prohibida):** checklist improvisado en el chat; comentario ADO «usando @flit-…» / branded **sin** haber cargado la skill; `wit_*` / `curl` sueltos; «gates cerrados» en prosa; reutilizar el veredicto de otra HU; abrir PR y «revisar después»; tests del `backend-agent` presentados como certificación QA; plan del hilo que diga «el hilo hace de paso» un rol de la matriz.
 

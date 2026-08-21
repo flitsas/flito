@@ -35,6 +35,7 @@ Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo d
 
 - Veredicto `flit-code-review` = **BLOQUEADO**, o `security-agent` = **FAIL**, o `db-review-agent` con hallazgos críticos → **no** llamar `create_pull_request`. Corregir (o pedir corrección) y re-ejecutar el gate.
 - Prohibido inventar «ya revisado» / «gates cerrados» sin haber ejecutado la skill o invocado el subagente **en este hilo sobre este diff/HEAD** (o citar HANDOFF/veredicto reciente del mismo SHA).
+- **Veredicto vencido:** si la rama recibió commits tras el veredicto (fixes post-review, retrabajo de QA), el gate quedó vencido — re-ejecutar `flit-code-review` sobre el nuevo HEAD antes de abrir el PR o de mergear. Abrir PR o mergear sobre un HEAD sin veredicto vigente = gate no ejecutado.
 - Prohibido imitar `flit-integration-ado` con solo Discussion.
 
 ## Tras gates en verde

@@ -1,6 +1,6 @@
 ---
 name: flit-release
-description: Gobierna la promoción entre ambientes del monorepo FLITO — develop → staging (QA) → release (PDN). Verifica CI verde y QA_PDN de las HUs, coordina la regresión con qa-agent modo D, crea el PR de promoción con checklist de rollback y valida post-merge con smoke de producción. El merge de promoción es siempre humano; no toca Custom.Commits ni Deploy * (eso es flit-integration-ado Modo B). Triggers promover a QA, promover a staging, subir a producción, release, PDN, rollback, flit-release.
+description: Gobierna la promoción entre ambientes del monorepo FLITO — develop → staging (QA) → release (PDN). Verifica CI verde y la certificación QA de las HUs (tag QA_PDN SUSPENDIDO por permisos desde 2026-08-21; vale el comentario de certificación del gate en Discussion), coordina la regresión con qa-agent modo D, crea el PR de promoción con checklist de rollback y valida post-merge con smoke de producción. El merge de promoción es siempre humano; no toca Custom.Commits ni Deploy * (eso es flit-integration-ado Modo B). Triggers promover a QA, promover a staging, subir a producción, release, PDN, rollback, flit-release.
 ---
 
 # flit-release — promoción develop → staging → release
@@ -22,7 +22,7 @@ La promoción siempre es un PR de la rama inferior a la superior: `develop → s
 ### Pre-condiciones (todas, verificadas con salida real)
 
 1. CI en verde sobre el último commit de `develop`: checks `build + test`, `dependency-audit` y `secret-scan` en `success` (MCP `github` → `pull_request_read` / check-runs del commit).
-2. Todas las HUs incluidas en el diff `staging...develop` están en `Resolved` con tag `QA_PDN` — listar las HUs vía WIQL y su estado. Si alguna tiene `QA_NOVEDAD` abierta o bugs Crítico/Alto sin resolver → **no-go**.
+2. Todas las HUs incluidas en el diff `staging...develop` están en `Resolved` **con certificación QA del gate registrada en Discussion** (matriz AC→TC + salida real del `qa-agent`). El tag `QA_PDN` está **SUSPENDIDO** (2026-08-21, sin permisos de tags en ADO) — no exigirlo ni escribirlo; el comentario de certificación es el registro vigente. Si alguna tiene `QA_NOVEDAD` abierta o bugs Crítico/Alto sin resolver → **no-go**.
 3. Regresión ejecutada: `qa-agent` modo D sobre los módulos afectados (mínimo `npm run test:e2e:smoke -w apps/web` con entorno levantado). Veredicto **go** requerido.
 
 ### Ejecución
@@ -57,7 +57,7 @@ Todo lo del Modo A, **más**:
 2. NUNCA ejecutar el merge del PR de promoción — es del Líder Técnico.
 3. NUNCA activar `DeployQA`/`DeployPDN` desde esta skill — eso es `flit-integration-ado` Modo B, tras el merge humano.
 4. NUNCA promover a PDN sin autorización explícita y sin plan de rollback en el PR.
-5. NUNCA promover una HU sin `QA_PDN`. Un "ya casi pasa QA" es un no-go.
+5. NUNCA promover una HU sin certificación QA registrada en ADO (mientras dure la suspensión del tag `QA_PDN`: el comentario de certificación del gate en Discussion). Un "ya casi pasa QA" es un no-go.
 6. NUNCA inventar salidas de smoke ni de CI: si el entorno o el check no se puede verificar, se reporta y se detiene.
 
 ## Formato de salida

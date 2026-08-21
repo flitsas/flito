@@ -112,6 +112,7 @@ agentes de impl. Exigir suite monorepo local completa solo si el umbral transver
 
 ```
 CODE REVIEW — <rama o alcance>
+SHA revisado: <HEAD corto al momento de revisar>
 Alcance: <archivos y workspaces> | Diff: <+/- líneas>
 
 Bloqueantes
@@ -137,3 +138,5 @@ Veredicto: OK | OK-CON-OBSERVACIONES | BLOQUEADO
 2. NUNCA corrijas el código tú mismo: reporta y devuelve.
 3. NUNCA trates observaciones como bloqueantes ni al revés — cita la regla de `AGENTS.md` que sustenta cada bloqueante.
 4. NUNCA revises más allá del diff: deuda preexistente se reporta como observación, no como bloqueante de este PR.
+5. El veredicto **amarra el SHA revisado** (línea `SHA revisado:` del bloque). Si la rama recibe commits nuevos tras el veredicto (fixes post-review, retrabajo de QA, huecos cerrados), el gate queda **vencido**: re-ejecutar esta skill sobre el nuevo HEAD antes de abrir el PR — y antes del merge si los commits llegaron con el PR ya abierto. Mergear o abrir PR sobre un HEAD sin veredicto vigente = gate no ejecutado.
+6. Los hallazgos se **reportan**; NUNCA crear work items por ellos por iniciativa propia. Toda alta en ADO (Bug/HU/Task) exige «sí» explícito del humano, y un Bug además solo nace vía `qa-agent` modo C con pedido explícito del QA. Si el hallazgo es deuda fuera de alcance, proponerla al humano como observación — no radicarla.

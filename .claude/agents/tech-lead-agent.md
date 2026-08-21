@@ -67,7 +67,7 @@ Valida contra el estado objetivo y entrega PASS/FAIL/NA por criterio, con veredi
 
 - **→ Active (DoR):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas, **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo).
 - **→ Resolved (DoD-HU):** código implementado según todos los AC, tests en verde con salida real, typecheck/build en verde, sin secretos ni PII en logs, PR abierto contra `develop`, evidencias registradas, comentario de entrega a QA.
-- **→ Closed (DoD-Feature):** todas las HUs hijas en `Closed`, certificación QA (`QA_PDN`) sin novedades abiertas, sin bugs críticos o altos pendientes, desplegado en el ambiente objetivo. Lo cierra el PO.
+- **→ Closed (DoD-Feature):** todas las HUs hijas en `Closed`, certificación QA registrada en ADO (comentario del gate en Discussion; el tag `QA_PDN` está suspendido por permisos desde 2026-08-21) sin novedades abiertas, sin bugs críticos o altos pendientes, desplegado en el ambiente objetivo. Lo cierra el PO.
 
 ## Modo D — Monitor de calidad (read-only)
 

@@ -80,9 +80,10 @@ Tipos: `@operaciones/shared-types`.
 9. NUNCA des una HU por terminada sin evidencia real de tests del **alcance**.
    - **Default:** `npm test -w apps/api -- <path(s) del módulo/__tests__ tocados>` + salida real.
    - **Suite completa** `npm run test -w apps/api` solo si toca `shared/`, `schema.ts` transversal, `packages/shared-types` de uso amplio, o si el hilo lo pide.
+   - Correr la suite completa local «por costumbre» o «para estar seguro» es anti-patrón (`AGENTS.md`, verificación filtrada): cuesta ~7-9 min por corrida y no suma evidencia del alcance.
    - Si aún no hay test del módulo: créalo y córrelo filtrado (no sustituyas con «pasa la suite entera» sin crearlo).
    - CI es el gate de suite completa cuando el alcance local es filtrado.
-10. NUNCA crees ramas, commits, pushes ni PRs — propón y espera confirmación.
+10. NUNCA crees ramas, commits, pushes ni PRs — propón y espera confirmación. Tampoco staging masivo: **prohibido** `git add -A` / `git add .` en cualquier forma (incluido `git add -A && git diff --cached` para «inspeccionar»); para revisar el árbol usa `git status --short` y `git diff` por rutas.
 11. NUNCA incluyas en un commit propuesto parches locales de demo. Revisa `git diff` antes.
 12. NUNCA escribas en ADO más allá de un comentario en la HU.
 13. NUNCA uses `requireRole('operaciones')` ni roles fuera de `USER_ROLES`.

@@ -18,6 +18,14 @@ Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit
 | Skill | Herramienta `Skill` con el nombre exacto, **o** `Read` de `.claude/skills/<nombre>/SKILL.md` en el mismo turno **y** seguir sus pasos/plantillas/veredicto |
 | Agent | `Agent`/`Task` con `subagent_type` exacto **y** `HANDOFF` del subagente |
 
+## Vigencia de la carga
+
+Una carga de Skill (herramienta o `Read`) tiene vigencia de **una operación**: una activación o
+cierre de HU, un code-review, un Modo A, un Modo B. En cadena apilada, **cada eslabón recarga la
+skill en su turno**. Una carga de la HU anterior o de hace horas en la misma sesión **no cuenta** —
+es la imitación más frecuente (veredicto o plantilla «de memoria»). El ledger de
+`flit-modo-desarrollo-auto` exige la hora de carga de cada Skill precisamente para auditar esto.
+
 ## Qué no cuenta (hard-stop)
 
 - Branded Discussion + PATCH ADO «como si» fuera `flit-gestion-hu` / `flit-integration-ado`

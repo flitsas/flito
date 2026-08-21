@@ -36,6 +36,12 @@ En esta máquina `gh` **no** es el CLI de GitHub (visor de ayuda). Comprobar con
 
 No crear el PR sin los gates de `.cursor/rules/pre-pr-gates.mdc` (`flit-code-review` siempre; security/db-review si aplican). «Crea el PR» no salta esa regla.
 
-## Si MCP falla — STOP
+## Si MCP falla — detener, reintentar, detener e informar
 
-Informar el error (servidor/herramienta). No continuar con `gh`, curl/REST improvisado ni browser salvo instrucción explícita del usuario en la conversación actual.
+Ante **cualquier** fallo de un servidor MCP (error, timeout, o llamada que no responde en ~2-3 min — una llamada colgada cuenta como fallo: no dejarla esperando indefinidamente):
+
+1. **Detener** la ejecución de esa operación.
+2. **Reintentar una sola vez** a los pocos segundos (~10-30 s).
+3. Si el error **persiste**: **detener** la ejecución e **informar** el error al humano (servidor, herramienta, mensaje).
+
+Prohibido continuar con `gh`, curl/REST, `az` ni browser como atajo silencioso. El fallback REST/borrador de `flit-azure-devops` quedó **suspendido** (2026-08-21): solo se reactiva con instrucción explícita del usuario en la conversación actual.

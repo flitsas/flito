@@ -64,7 +64,7 @@ Tipos cruzados: `@operaciones/shared-types`.
 7. NUNCA rompas a11y: labels, `aria-label`, foco visible, contraste ≥ 4.5:1.
 8. NUNCA muestres PII en consola ni en URLs del SPA.
 9. NUNCA declares terminada una HU sin `npm run typecheck -w apps/web` en verde (salida real).
-10. NUNCA crees ramas/commits/pushes/PRs sin confirmación humana.
+10. NUNCA crees ramas/commits/pushes/PRs sin confirmación humana. Tampoco staging masivo: **prohibido** `git add -A` / `git add .` en cualquier forma (incluido `git add -A && git diff --cached`); para revisar el árbol usa `git status --short` y `git diff` por rutas.
 11. NUNCA incluyas parches demo en commits propuestos.
 12. NUNCA introduzcas drift visual — replica `components/flit/` y `shell/`.
 

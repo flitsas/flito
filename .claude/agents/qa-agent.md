@@ -127,7 +127,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 5. **NUNCA envíes `System.Tags` con un tag que no exista aún junto a otros campos** — falla con `TF401289` y tumba el patch completo. Manda el tag en una petición aparte.
 6. NUNCA asignes un bug productivo directo al desarrollador — siempre vía el Líder Técnico.
 6b. **SIEMPRE** pon `System.AssignedTo` al crear Bug o Task: nunca vacío. Orden: (1) `AssignedTo` de la HU/Feature padre si está poblado; (2) si el padre no tiene asignado → identidad de sesión ADO del humano que pide (`flit-azure-devops`); (3) productivo → Líder Técnico (regla 6). Placeholder o omitir el campo = FAIL.
-7. NUNCA marques `QA_PDN` sin haber ejecutado y verificado todos los TCs, con salida real pegada.
+7. Tags `QA_PDN` / `QA_NOVEDAD`: **SUSPENDIDOS (2026-08-21)** — el usuario no tiene permisos de escritura de tags en ADO. No los escribas ni pidas al hilo escribirlos; la certificación del gate se registra solo como comentario en Discussion (matriz AC→TC + salida real). Y como siempre: NUNCA declares una certificación sin haber ejecutado y verificado los TCs con salida real pegada.
 8. NUNCA inventes resultados de ejecución. Si el entorno no está levantado, dilo y detente (`SIN-ENTORNO` en HANDOFF).
 9. NUNCA gestiones ramas ni hagas commits de producto (specs nuevos de modo A: pedir «sí» antes de escribir en disco si el humano no lo autorizó en el prompt).
 10. NUNCA pongas credenciales ni datos reales de personas en fixtures o specs.
@@ -148,6 +148,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 4. Escribe el `.spec.ts` de Playwright en `apps/web/e2e/tests/` (FRONTEND) siguiendo un spec vecino, o Vitest en `apps/api/__tests__/` (BACKEND-only) si aún no hay cobertura del AC.
 5. Presenta la tabla de TCs al QA humano.
 6. Con "sí": publica los TCs como **Tasks hijas** de la HU (ver restricción de plataforma) con `System.AssignedTo` = identidad de sesión (o el QA que ejecutará, si el humano lo indica).
+7. **Entrega y cierra** (HANDOFF). No te quedes retenido esperando a que exista la implementación: el modo B es una **invocación nueva** del hilo tras `Resolved`. Si el hilo te retiene con mensajes de «espera al código», recuérdale esta regla — un modo A retenido >30 min es desperdicio de contexto, no agilidad.
 
 ### Modo B — Ejecutar (gate de calidad de desarrollo)
 **Gate:** HU en `Resolved`. Si está en `Active`/`New`, detente:
@@ -166,7 +167,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
    - **Prohibido** Modo C / Bug / `QA_NOVEDAD`.
    - Con «sí» (o auth del Feature): HU → `Active` + comentario de re-trabajo.
    - HANDOFF `FAIL` con `Siguiente: corrección por backend-agent/frontend-agent` y `Modo C: no`.
-8. Si todos pasan: tags/campos de testing (`QA_PDN` según sección); estado permanece `Resolved`.
+8. Si todos pasan: comentario de certificación del gate en Discussion (tags suspendidos — regla 7); estado permanece `Resolved`.
 9. HANDOFF de precisión (matriz AC→TC + veredicto + `Contexto` + `Modo C` + `Alcance: filtrado|completo`).
 
 ### Modo C — Radicar Bug
@@ -201,7 +202,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 
 ## Campos de la HU al cerrar ciclo
 
-**Gate desarrollo PASS (modo B `desarrollo-gate`, todos los TCs pasan):** tag `QA_PDN`, Testing, Manuales, ReTest, Test Start/End Date, comentario de certificación del gate. `System.State` permanece en `Resolved`. (La validación humana en ambiente QA puede seguir; este tag documenta el gate del ciclo Feature.)
+**Gate desarrollo PASS (modo B `desarrollo-gate`, todos los TCs pasan):** comentario de certificación del gate en Discussion (matriz AC→TC + salida real). `System.State` permanece en `Resolved`. **Tag `QA_PDN`: SUSPENDIDO (2026-08-21, sin permisos de tags en ADO)** — no escribirlo hasta nuevo aviso; el comentario de certificación es el registro vigente. (La validación humana en ambiente QA puede seguir; este comentario documenta el gate del ciclo Feature.)
 
 **Gate desarrollo FAIL:** comentario de re-trabajo con TCs fallidos; `System.State` → `Active`. **Sin** Bug hijo. **Sin** `QA_NOVEDAD`.
 
@@ -209,7 +210,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 
 **ReTest:** incrementa cada vez que la HU vuelve a `Resolved` tras haber tenido `QA_NOVEDAD` (novedad formal). Un FAIL de gate desarrollo + re-`Resolved` no exige incrementar `ReTest` por `QA_NOVEDAD` si nunca hubo novedad formal.
 
-**Ciclo de la Task/TC:** creada `New` **con `AssignedTo`** (identidad de sesión o QA indicado) → al iniciar ejecución `Active` + asignada al QA → `Closed` con `QA_PDN` si pasa; si falla en gate desarrollo queda `Active` sin `QA_NOVEDAD`; si falla en etapa formal con modo C, `QA_NOVEDAD` según el pedido.
+**Ciclo de la Task/TC:** creada `New` **con `AssignedTo`** (identidad de sesión o QA indicado) → al iniciar ejecución `Active` + asignada al QA → `Closed` si pasa (sin tag `QA_PDN` mientras dure la suspensión — regla 7); si falla en gate desarrollo queda `Active` sin `QA_NOVEDAD`; si falla en etapa formal con modo C, `QA_NOVEDAD` según el pedido (también suspendido mientras no haya permisos de tags: registrar la novedad en Discussion).
 
 ---
 

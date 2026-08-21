@@ -54,8 +54,14 @@ Omitir en silencio = fallo de proceso.
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-HU #<id> ledger: gestion=Skill✅|❌ · impl=Agent✅|❌ · code-review=Skill✅|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B=Skill✅|N/A · M1=Agent✅|N/A
+HU #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
 ```
+
+Cada ✅ de Skill lleva la **hora de su carga en el turno de esa operación**. Una carga tiene
+vigencia de **una operación** (una activación/cierre de HU, un code-review, un Modo A, un Modo B):
+en cadena apilada cada eslabón **recarga** la skill en su turno. Una carga de la HU anterior o de
+hace horas en la misma sesión **no cuenta** — es la imitación más frecuente (veredicto «de
+memoria»). Ver `.cursor/rules/skill-no-imitation.mdc`.
 
 **Sin `qa=HANDOFF✅` o `qa=SIN-ENTORNO` → no arrancar la siguiente HU** presentando la actual como
 «entregada a QA». `qa=FAIL-retrabajo` = gate B rojo: HU a `Active`, corregir, **sin** Bug/modo C;
@@ -105,6 +111,14 @@ Abrir el PR **no** es un gate humano de “espera a que te digan sigue”. Tras 
 2. Bloquear toda la ráfaga esperando CI en un bucle vacío sin avanzar la pista B (siguiente HU apilada).
 3. Re-preguntar autorización de merge si **ya** se otorgó a nivel Feature en la sesión.
 4. Tratar “PR creado” como fin del trabajo de la HU cuando aún faltan monitor CI, merge (si auth) o la siguiente HU del Feature.
+5. Quedar idle tras un merge con la **cola post-merge pendiente** (Modo B, `devops-agent` M1, QA retro de la ráfaga): esa cola se ejecuta **en el mismo ciclo**, no es trabajo diferible.
+6. Mantener subagentes vivos con mensajes de «espera» (p. ej. qa-agent modo A retenido esperando la implementación): cada modo es una invocación acotada que cierra con HANDOFF.
+
+**Espera legítima (NO es estancamiento ni ineficiencia):** detenerse a esperar al humano ante una
+decisión de negocio, un gate humano (merge sin autorización de Feature, promoción, despliegue), un
+AC ambiguo o un permiso faltante es **obligatorio** — las decisiones importantes las toma el
+humano, no los agentes. El anti-estancamiento aplica solo a trabajo **ya autorizado y ejecutable**
+(CI verde sin merge hecho, Modo B/M1 pendientes, siguiente HU lista).
 
 **Cómo monitorear CI sin congelar el hilo:**
 
@@ -136,6 +150,10 @@ Feature, el agente mergea tras CI verde antes de arrancar la siguiente. **Aun as
 
 **Siempre** una rama por HU. Convención de nombre: `feat/flito-*` (lo exige la precondición 2 de
 `flit-integration-ado`).
+
+**Worktree aislado** (cuando el checkout principal está ocupado): tras crearlo, correr
+`npm install` en la raíz del worktree **antes** de lanzar agentes (sin `node_modules`, el
+typecheck y los tests mueren y cada subagente lo redescribe por su cuenta).
 
 **Primera HU del Feature** (o modo secuencial):
 
@@ -209,7 +227,9 @@ Invocar **`backend-agent`** y/o **`frontend-agent`** (`Agent`/`Task`) según el 
 **Prohibido** implementar una HU completa «de paso» en el hilo principal — también la primera HU
 del Feature y las de «solo esquema/migración/seeds». Excepción única: fix ≤~20 líneas en un
 archivo tras HANDOFF, o pedido explícito del humano. Cumplir los AC uno a uno (`AGENTS.md`).
-No ampliar el alcance a otras HU. Pasar prompt denso (AC + paths + decisión de diseño).
+No ampliar el alcance a otras HU. Pasar prompt denso (AC + paths + decisión de diseño +
+prohibiciones operativas: **no** `git add -A`/`.` ni staging masivo, **no** commits, verificación
+filtrada por defecto — no suite completa local salvo umbral transversal).
 
 ### 4. Tests y pipelines
 
@@ -300,7 +320,10 @@ operativa: HANDOFF en ≥90% de las HUs Resolved del Feature.
 
 **Temprano (recomendado, sube participación):** con la HU en `Active` y AC Gherkin listos, lanzar
 `qa-agent` **modo A** en paralelo al paso 3 (TCs / Tasks hijas). No esperar al Resolved para
-descubrir que faltan TCs.
+descubrir que faltan TCs. El modo A **cierra con HANDOFF al entregar los TCs**: **prohibido**
+retener el subagente vivo con mensajes de «espera a la implementación» para reusarlo como modo B —
+el modo B es una **invocación nueva** tras `Resolved`. Un qa-agent retenido >30 min esperando
+código es desperdicio de contexto/wall-time, no paralelismo.
 
 **Tras `Resolved` (no negociable):** lanzar `qa-agent` (`Agent`/`Task`) en **modo B** como
 **gate de calidad de desarrollo** (`Contexto: desarrollo-gate`) **antes** de dar la HU por
@@ -400,7 +423,8 @@ pendientes.
 - [ ] (Recomendado) **Agent** `qa-agent` modo A en paralelo con AC listos
 - [ ] Todos los AC cubiertos
 - [ ] Mínimo local del alcance en verde (filtrado); CI = gate de suite completa
-- [ ] **Skill** `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES **antes** del PR
+- [ ] **Skill** `flit-code-review` con veredicto OK u OK-CON-OBSERVACIONES **antes** del PR, cargada **en este turno** (no reusada de HUs previas) y amarrada al `SHA revisado`
+- [ ] Sin commits post-veredicto sin re-review: el HEAD del PR/merge == `SHA revisado` del veredicto vigente
 - [ ] `security-agent` (diff-scoped) si superficie sensible (o "no aplica"); ∥ `db-review` si ambos aplican
 - [ ] `db-review-agent` si esquema/migraciones (o "no aplica")
 - [ ] Commit sin archivos colados (`git status --short` limpio)
@@ -408,7 +432,7 @@ pendientes.
 - [ ] **Skill** `flit-integration-ado` Modo A → `Custom.Commits` (no solo Discussion / no imitación)
 - [ ] **Skill** `flit-gestion-hu` → `Resolved` + plantilla entrega QA (local verde; CI pending OK con monitor activo)
 - [ ] **Agent** `qa-agent` invocado con HANDOFF (`PASS`/`PASS-CON-OBSERVACIONES`/`FAIL`/`SIN-ENTORNO`); si `FAIL` → HU a `Active` + corregir; **sin** modo C
-- [ ] Ledger de la HU pegado en el reporte del hilo (`FAIL-retrabajo` si aplica)
+- [ ] Ledger de la HU pegado en el reporte del hilo, con hora de carga de cada Skill (`FAIL-retrabajo` si aplica)
 - [ ] Pista A activa: CI monitoreado; con auth → merge al verde **sin** re-preguntar; **Skill** Modo B
 - [ ] Pista B: siguiente HU arrancada si aplica (no idle «esperando continúa»)
 - [ ] Tras Modo B / fin de ráfaga: **Agent** `devops-agent` M1 (o HANDOFF `SIN-ACCESO`)

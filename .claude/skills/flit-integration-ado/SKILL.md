@@ -9,7 +9,7 @@ description: |
 
 # flit-integration-ado — GitHub (código) + Azure DevOps (gestión)
 
-**Contrato ADO:** `flit-azure-devops` (MCP servidor **`ado`** primero; REST con UTF-8 como fallback).
+**Contrato ADO:** `flit-azure-devops` (MCP servidor **`ado`**; ante fallo de MCP: detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar — el fallback REST/`az` está **suspendido** desde 2026-08-21 salvo pedido explícito del humano).
 
 **Repositorio de código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards (proyecto `FLIT - FLITO`).
 
@@ -248,8 +248,10 @@ MCP `github` (`merge_pull_request`, merge commit).
 | 7 | Sin conflictos | mergeable / no conflict |
 | 8 | HU en ADO (solo flujo HU) | `Custom.Refinement=true`, Story Points — `GET workitem`. Omitir en docs/chore |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
+| 10 | HEAD con veredicto vigente | El HEAD a mergear == `SHA revisado` del veredicto de `flit-code-review`; commits post-veredicto (fixes, retrabajo QA) exigen re-review de la skill sobre el nuevo HEAD |
+| 11 | Gate QA invocado (flujo HU/Bug con AC) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; nunca mergear con qa ❌ ni con FAIL sin retrabajo |
 
-Si falla 1–7 → reportar número y **no** mergear. Tras merge a `develop` de una HU → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
+Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop` de una HU → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
 
 ---
 
