@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, setToken, clearToken, SESSION_ENDED_EVENT } from './api';
+import { limpiarAvisos } from './conciliacionAviso';
 import type { UserRole } from './permissions';
 
 interface User {
@@ -39,9 +40,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // F-2: fin de sesión emitido por api.ts (401) → logout SPA. Al poner user=null,
   // ProtectedRoute redirige a /login sin recargar la página. El motivo y la ruta
   // previa quedan en sessionStorage para que Login los muestre/restaure.
+  //
+  // Y por eso mismo hay que BARRER lo que dejó la sesión anterior: como no se recarga, el
+  // `sessionStorage` de la pestaña sobrevive intacto al cambio de usuario. `limpiarAvisos()` quita
+  // los avisos de conciliación —importes y saldos de bolsa— tanto aquí como en `logout`: una sesión
+  // que expira sola deja exactamente el mismo rastro que una que se cierra a mano.
   useEffect(() => {
     const onSessionEnded = () => {
       clearToken();
+      limpiarAvisos();
       setUser(null);
     };
     window.addEventListener(SESSION_ENDED_EVENT, onSessionEnded);
@@ -56,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     clearToken();
+    limpiarAvisos();
     setUser(null);
   };
 

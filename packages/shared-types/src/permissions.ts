@@ -108,6 +108,12 @@ export const PAGES = {
   // los organismos. Es dinero, así que solo la ven Administración y Financiera — ni siquiera
   // auditoría, a diferencia del resto de vistas FLITO.
   flito_bolsas: 'FLITO — Bolsas prepago',
+  // Conciliación de recaudo SOAT (Feature #11623): la carga del .xlsx del portal, el cuadre contra
+  // lo emitido y el cierre con su comprobante. Es dinero de terceros, así que sigue el reparto de
+  // `flito_bolsas` y NO el del resto de FLITO: solo Administración y Financiera. `auditor` queda
+  // fuera a propósito —el router de `/flito/conciliacion` exige `admin`/`financiera` entero, y su
+  // lectura del comprobante ya va por la ruta suya de `/flito/soat` (HU #11678)—.
+  flito_conciliacion: 'FLITO — Conciliación',
   // Finanzas — reporte de costos por trámite (contabilidad / facturación / cobros).
   finanzas_reporte_costos: 'Finanzas — Reporte de costos',
   // Facturación electrónica (Feature #11240): parametrización de la integración con Siigo —
@@ -135,7 +141,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos'] },
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
   { label: 'Administración', pages: ['users', 'privacy'] },
 ];
@@ -190,7 +196,10 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // La operación de facturación electrónica también es suya: `financiera` es quien emite, reintenta
   // y corrige el día a día (valor conservador de hoy en `siigo.permisos.ts`: escritura para `admin`
   // y `financiera`). Si mañana se decide que solo emite `admin`, se edita esa tabla y esta línea.
-  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'siigo_parametrizacion', 'siigo_operacion'],
+  // La conciliación del recaudo SOAT es suya por el mismo motivo que las bolsas: es plata del
+  // cliente que Financiera cuadra y cierra. El router de `/flito/conciliacion` solo admite
+  // `admin` y `financiera` (CF-08), así que la página va aquí y NO en `auditor`.
+  financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

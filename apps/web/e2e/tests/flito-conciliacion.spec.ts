@@ -1,0 +1,754 @@
+// FLITO — Conciliación de boletas SOAT (Feature #11623, HU #11680). Backend mockeado.
+//
+// Cubre los ocho AC de la pantalla. Tres decisiones de montaje que hacen que los asertos midan algo:
+//
+//   · **El AC1 se comprueba sobre la PETICIÓN, no sobre la pantalla.** El fixture base responde
+//     `200 []` a todo `/api/**` no mockeado, así que una llamada fugada con el rol equivocado no
+//     deja ninguna huella visible: solo el espía la ve. Y el gemelo positivo vive en este mismo
+//     archivo, con el mismo glob, para que un glob mal escrito ponga rojo el positivo en vez de dar
+//     por bueno un negativo vacío.
+//   · **El AC4 mide `aria-disabled` y el foco**, no la opacidad. Un `<button disabled>` no recibe
+//     foco y su nombre accesible no lo oye nadie: el test enfoca el botón, lee su nombre y comprueba
+//     que pulsarlo no dispara ninguna petición.
+//   · **El AC5 recarga la página de verdad.** «Sobrevive a una recarga» no se puede afirmar mirando
+//     el estado de React.
+
+import type { Page } from '@playwright/test';
+import { test, expect } from '../helpers/fixtures';
+import {
+  loginAs, FINANCIERA_USER, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER,
+  GESTOR_IMPUESTOS_USER, CONDUCTOR_USER,
+} from '../helpers/auth';
+
+const BOLETA_ID = 'bbbb0000-0000-0000-0000-000000000001';
+const API_MODULO = '**/api/flito/conciliacion/**';
+const CANARIO = '/api/__qa_canary';
+
+const RE_LISTA = /\/api\/flito\/conciliacion\/boletas\?/;
+const RE_DETALLE = /\/api\/flito\/conciliacion\/boletas\/[0-9a-f-]{36}$/;
+const RE_CARGA = /\/api\/flito\/conciliacion\/boletas$/;
+const RE_RECRUZAR = /\/api\/flito\/conciliacion\/boletas\/[0-9a-f-]{36}\/recruzar$/;
+const RE_CONCILIAR = /\/api\/flito\/conciliacion\/boletas\/[0-9a-f-]{36}\/conciliar$/;
+const RE_COMPROBANTE = /\/api\/flito\/conciliacion\/boletas\/[0-9a-f-]{36}\/comprobante$/;
+
+// La póliza y la placa de la primera línea: los dos datos que el AC7 persigue por la URL y por la
+// consola. Se declaran aquí para que el test los busque por el mismo literal que pinta la tabla.
+const POLIZA_1 = '3903400012345671';
+const PLACA_1 = 'ABC121';
+
+type Linea = Record<string, unknown>;
+
+function linea(n: number, over: Linea = {}): Linea {
+  return {
+    id: `linea-${n}`,
+    filaNumero: n,
+    numeroPolizaNorm: `390340001234567${n}`,
+    valorDeclarado: 561900,
+    resultado: 'ok',
+    detalle: null,
+    soatId: `soat-${n}`,
+    placa: `ABC12${n}`,
+    valorSoat: 561900,
+    soatEstado: 'pagado',
+    companiaSoatNombre: 'Transportes Andinos S.A.S.',
+    candidatos: null,
+    boletaAnteriorRef: null,
+    boletaAnteriorFecha: null,
+    yaDescontadoEnLiquidacion: false,
+    conciliadaEn: null,
+    ...over,
+  };
+}
+
+/** Una línea de cada uno de los SIETE desenlaces: es lo que el AC3 pide comprobar de una vez. */
+const LINEAS = [
+  linea(1),
+  linea(2, { resultado: 'no_encontrada', soatId: null, placa: null, valorSoat: null, soatEstado: null, companiaSoatNombre: null }),
+  linea(3, { resultado: 'no_pagado', soatEstado: 'solicitado' }),
+  linea(4, { resultado: 'valor_distinto', valorDeclarado: 587400, valorSoat: 561900 }),
+  linea(5, { resultado: 'poliza_duplicada', soatId: null, placa: null, valorSoat: null, candidatos: 2 }),
+  linea(6, { resultado: 'otra_compania', companiaSoatNombre: 'Logística del Café S.A.S.' }),
+  linea(7, { resultado: 'ya_conciliada', boletaAnteriorRef: 'BOL-000099', boletaAnteriorFecha: '2026-06-15' }),
+];
+
+const CONTEO_TODOS = {
+  ok: 1, no_encontrada: 1, no_pagado: 1, valor_distinto: 1, poliza_duplicada: 1,
+  otra_compania: 1, ya_conciliada: 1,
+};
+
+const RESUMEN = {
+  id: BOLETA_ID,
+  referencia: 'BOL-000123',
+  companiaId: 5,
+  companiaNombre: 'Transportes Andinos S.A.S.',
+  concepto: 'soat',
+  estado: 'cargada',
+  archivoNombre: 'reporte-soat.xlsx',
+  filas: 7,
+  totalDeclarado: 3958800,
+  totalCruzado: 2247600,
+  fechaPago: '2026-07-30',
+  cargadaPorNombre: 'Laura Restrepo',
+  conciliadaEn: null,
+  conciliadaPorNombre: null,
+  createdAt: '2026-08-20T15:00:00.000Z',
+  conteo: CONTEO_TODOS,
+  sinCuadrar: 6,
+};
+
+const DETALLE = { ...RESUMEN, lineas: LINEAS, comprobante: null, filasOmitidas: 0 };
+
+/** La misma boleta ya cuadrada: las siete líneas en `ok`. Es el punto de partida del AC5. */
+const LINEAS_OK = [1, 2, 3, 4, 5, 6, 7].map((n) => linea(n, n === 3 ? { yaDescontadoEnLiquidacion: true } : {}));
+const DETALLE_CUADRADO = {
+  ...DETALLE,
+  lineas: LINEAS_OK,
+  sinCuadrar: 0,
+  totalCruzado: 3933300,
+  conteo: { ...CONTEO_TODOS, ok: 7, no_encontrada: 0, no_pagado: 0, valor_distinto: 0, poliza_duplicada: 0, otra_compania: 0, ya_conciliada: 0 },
+};
+
+const DETALLE_CONCILIADO = {
+  ...DETALLE_CUADRADO,
+  estado: 'conciliada',
+  conciliadaEn: '2026-08-20T20:42:00.000Z',
+  conciliadaPorNombre: 'Laura Restrepo',
+  lineas: LINEAS_OK.map((l) => ({ ...l, conciliadaEn: '2026-08-20T20:42:00.000Z' })),
+};
+
+const CONCILIACION_HECHA = {
+  boleta: DETALLE_CONCILIADO,
+  soatConciliados: 7,
+  totalConciliado: 3933300,
+  cliente: { companiaId: 5, nombre: 'Transportes Andinos S.A.S.', descontado: 3371400, saldoResultante: 12450300 },
+  transito: [{ bolsaId: 'bolsa-1', nombre: 'Medellín', descontado: 4180000, saldoResultante: 9310500 }],
+  adoptados: [{ lineaId: 'linea-3', filaNumero: 3, soatId: 'soat-3', valor: 561900, movimientoBolsaId: 'mov-1', adoptado: true }],
+};
+
+const json = (cuerpo: unknown, status = 200) => ({
+  status, contentType: 'application/json', body: JSON.stringify(cuerpo),
+});
+
+async function mockLista(page: Page, items: unknown[], siguienteCursor: string | null = null) {
+  await page.route(RE_LISTA, (route) => route.fulfill(json({ items, siguienteCursor })));
+}
+
+async function mockDetalle(page: Page, boleta: unknown) {
+  await page.route(RE_DETALLE, (route) => route.fulfill(json(boleta)));
+}
+
+/** Punto de reposo: cuando el canario ha salido, lo que fuera a salir en el montaje ya salió. */
+async function reposo(page: Page): Promise<void> {
+  const salida = page.waitForRequest((r) => r.url().includes('__qa_canary'), { timeout: 10_000 });
+  await page.evaluate((ruta) => { void fetch(ruta).catch(() => {}); }, CANARIO);
+  await salida;
+}
+
+function espiarModulo(page: Page): string[] {
+  const vistas: string[] = [];
+  page.on('request', (req) => {
+    const { pathname } = new URL(req.url());
+    // Solo el método y el path: la query es justo el sitio por donde se filtraría una placa a un
+    // artefacto de CI (AGENTS.md §14).
+    if (pathname.startsWith('/api/flito/conciliacion')) vistas.push(`${req.method()} ${pathname}`);
+  });
+  return vistas;
+}
+
+/**
+ * Las claves del aviso que hay AHORA en la pestaña. Se leen por el literal del prefijo, no por una
+ * constante importada del código de producción: si alguien renombra el prefijo y se olvida del
+ * barrido, este test tiene que enterarse — no seguirle la corriente.
+ */
+function avisosGuardados(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Object.keys(sessionStorage).filter((k) => k.startsWith('flito:conciliacion:aviso:')));
+}
+
+/** Cerrar sesión como se cierra de verdad: por el menú de usuario del topbar. */
+async function cerrarSesion(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Menú de usuario/ }).click();
+  await page.getByRole('menuitem', { name: 'Cerrar sesión' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+}
+
+test.describe('FLITO — Conciliación · acceso y menú (AC1)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('financiera entra, la pantalla consulta el API y el menú la ofrece en Finanzas', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    const vistas = espiarModulo(page);
+    await mockLista(page, [RESUMEN]);
+
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();
+    await reposo(page);
+
+    expect(vistas.some((l) => l === 'GET /api/flito/conciliacion/boletas')).toBe(true);
+
+    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
+    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    const enlace = page.getByRole('link', { name: 'Conciliación', exact: true });
+    await expect(enlace).toBeVisible();
+    await expect(enlace).toHaveAttribute('href', '/flito/conciliacion');
+  });
+
+  for (const usuario of [AUDITOR_USER, PROVEEDOR_USER, GESTOR_IMPUESTOS_USER, CONDUCTOR_USER]) {
+    test(`${usuario.role} ve la pantalla de sin acceso y no dispara ninguna petición`, async ({ page }) => {
+      await loginAs(page, usuario);
+      const vistas = espiarModulo(page);
+      // Abortado a propósito: si algo se escapa, cae el contador Y cae el `NoAccess`, que pasaría a
+      // ser la banda de error. Dos señales independientes de la misma fuga.
+      await page.route(API_MODULO, (route) => route.abort('failed'));
+
+      await page.goto('/flito/conciliacion');
+      await expect(page.getByRole('heading', { name: /no tienes acceso a flito — conciliación/i })).toBeVisible();
+      await reposo(page);
+
+      expect(vistas).toEqual([]);
+    });
+  }
+
+  test('el enlace profundo al detalle tampoco dispara el GET de la boleta', async ({ page }) => {
+    // Es el caso que se olvida: sin el gate DENTRO de la página, entrar por la URL del detalle
+    // dispararía `GET /boletas/:id` y devolvería un 403 antes de que la ruta pintara `NoAccess`.
+    await loginAs(page, AUDITOR_USER);
+    const vistas = espiarModulo(page);
+    await page.route(API_MODULO, (route) => route.abort('failed'));
+
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    await expect(page.getByRole('heading', { name: /no tienes acceso a flito — conciliación/i })).toBeVisible();
+    await reposo(page);
+
+    expect(vistas).toEqual([]);
+  });
+});
+
+test.describe('FLITO — Conciliación · bandeja (AC2)', () => {
+  test('el error trae un reintento que vuelve a pedir de verdad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // El interruptor es una BANDERA y no un contador de llamadas: en desarrollo React monta el
+    // efecto dos veces, así que «la primera petición falla» no describiría lo que se quiere probar
+    // —que el reintento vuelve a preguntar— sino un detalle del modo estricto.
+    let caido = true;
+    let peticiones = 0;
+    await page.route(RE_LISTA, (route) => {
+      peticiones += 1;
+      return caido
+        ? route.fulfill(json({ error: 'Error del servidor' }, 500))
+        : route.fulfill(json({ items: [RESUMEN], siguienteCursor: null }));
+    });
+
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByText('No se pudo cargar la lista de boletas.')).toBeVisible();
+
+    const antes = peticiones;
+    caido = false;
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await expect(page.getByRole('cell', { name: 'BOL-000123', exact: true })).toBeVisible();
+    // Reintentar VUELVE A PEDIR, no solo repinta.
+    expect(peticiones).toBeGreaterThan(antes);
+  });
+
+  test('el vacío por filtros quita los filtros de verdad y vuelve a pedir', async ({ page }) => {
+    // Es literalmente el bug #11648: el botón repintaba sin resetear, así que el vacío se quedaba.
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await page.route(RE_LISTA, (route) => {
+      const url = route.request().url();
+      urls.push(url);
+      return route.fulfill(json({
+        items: url.includes('estado=descartada') ? [] : [RESUMEN], siguienteCursor: null,
+      }));
+    });
+
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByRole('cell', { name: 'BOL-000123', exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Descartadas' }).click();
+    await expect(page.getByText('Ninguna boleta con los filtros puestos.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).first().click();
+    await expect(page.getByRole('cell', { name: 'BOL-000123', exact: true })).toBeVisible();
+    expect(urls.at(-1)).not.toContain('estado=');
+    // Y el filtro queda de verdad sin poner, no solo la lista repintada.
+    await expect(page.getByRole('button', { name: 'Todas' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('sin ninguna boleta, el vacío explica de dónde sale una y ofrece cargarla', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page, []);
+
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByText('Todavía no hay boletas cargadas.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cargar boleta', exact: true })).toBeVisible();
+  });
+});
+
+async function mockClientes(page: Page) {
+  await page.route('**/api/clients', (route) => route.fulfill(json([
+    { id: 5, name: 'Transportes Andinos S.A.S.' },
+    { id: 6, name: 'Logística del Café S.A.S.' },
+  ])));
+}
+
+const XLSX = {
+  name: 'reporte-soat.xlsx',
+  mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  buffer: Buffer.from('PK fingido'),
+};
+
+test.describe('FLITO — Conciliación · cargar la boleta (AC3)', () => {
+  test('la carga pide cliente, fecha y archivo, y aterriza en el cuadre de la boleta creada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockClientes(page);
+    await mockLista(page, []);
+    await mockDetalle(page, DETALLE);
+    await page.route(RE_CARGA, (route) => (route.request().method() === 'POST'
+      ? route.fulfill(json(DETALLE, 201))
+      : route.fallback()));
+
+    await page.goto('/flito/conciliacion');
+    await page.getByRole('button', { name: '+ Cargar boleta' }).click();
+
+    // Hasta que no están los tres, el botón dice QUÉ falta: un «Cargar y cruzar» en gris no lo dice.
+    const cargar = page.getByRole('button', { name: /Cargar y cruzar/ });
+    await expect(cargar).toHaveAccessibleName('Cargar y cruzar — falta elegir el cliente');
+
+    await page.getByLabel('Cliente *').selectOption('5');
+    await expect(cargar).toHaveAccessibleName('Cargar y cruzar — falta elegir el archivo');
+
+    await page.locator('input[type=file]').setInputFiles(XLSX);
+    await expect(cargar).toHaveAttribute('aria-disabled', 'false');
+
+    await cargar.click();
+    // El cuadre ya viene resuelto en la respuesta de la carga: se aterriza en su ruta propia.
+    await expect(page).toHaveURL(new RegExp(`/flito/conciliacion/${BOLETA_ID}$`));
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
+    // Y el foco va al <h1>, no al <body> del documento nuevo.
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeFocused();
+  });
+
+  test('el mismo archivo dos veces lleva a la boleta que ya existe, en vez de dejar adivinando', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockClientes(page);
+    await mockLista(page, []);
+    await mockDetalle(page, DETALLE);
+    await page.route(RE_CARGA, (route) => (route.request().method() === 'POST'
+      ? route.fulfill(json({
+        error: 'Este mismo archivo ya se cargó como BOL-000122.',
+        codigo: 'boleta_duplicada',
+        boletaId: BOLETA_ID,
+        referencia: 'BOL-000122',
+      }, 409))
+      : route.fallback()));
+
+    await page.goto('/flito/conciliacion');
+    await page.getByRole('button', { name: '+ Cargar boleta' }).click();
+    await page.getByLabel('Cliente *').selectOption('5');
+    await page.locator('input[type=file]').setInputFiles(XLSX);
+    await page.getByRole('button', { name: /Cargar y cruzar/ }).click();
+
+    await expect(page.getByRole('alert')).toContainText('Este mismo archivo ya se cargó como BOL-000122.');
+    // El 409 trae el `boletaId` expresamente para esto: si el front no lo usa, el servidor le regaló
+    // un dato para nada.
+    await page.getByRole('button', { name: 'Ver BOL-000122' }).click();
+    await expect(page).toHaveURL(new RegExp(`/flito/conciliacion/${BOLETA_ID}$`));
+  });
+
+  test('el rechazo de la carga dice el motivo, no «Rechazado — cargar otro»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockClientes(page);
+    await mockLista(page, []);
+    await page.route(RE_CARGA, (route) => (route.request().method() === 'POST'
+      ? route.fulfill(json({
+        error: 'El archivo trae 620 líneas y el máximo son 500.',
+        codigo: 'demasiadas_filas',
+        filas: 620,
+        maximo: 500,
+      }, 400))
+      : route.fallback()));
+
+    await page.goto('/flito/conciliacion');
+    await page.getByRole('button', { name: '+ Cargar boleta' }).click();
+    await page.getByLabel('Cliente *').selectOption('5');
+    await page.locator('input[type=file]').setInputFiles(XLSX);
+    await page.getByRole('button', { name: /Cargar y cruzar/ }).click();
+
+    const alerta = page.getByRole('alert');
+    await expect(alerta).toContainText('El archivo trae 620 líneas y el máximo son 500.');
+    await expect(alerta).toContainText('Divide la boleta en dos archivos');
+    // El modal NO se cierra con un rechazo: cerrarlo perdería el motivo.
+    await expect(page.getByRole('dialog', { name: 'Cargar boleta del portal' })).toBeVisible();
+  });
+});
+
+test.describe('FLITO — Conciliación · el cuadre (AC3)', () => {
+  test('la tabla trae las cinco columnas, los siete resultados y el contador', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    for (const columna of ['Fila', 'Número de póliza', 'Placa', 'Valor boleta', 'Valor SOAT', 'Resultado']) {
+      await expect(page.getByRole('columnheader', { name: columna })).toBeVisible();
+    }
+
+    // Los siete desenlaces, cada uno con su ETIQUETA de texto: en escala de grises tienen que
+    // seguir siendo distinguibles, así que el color no puede cargar solo con la información.
+    for (const etiqueta of ['Cuadra', 'Sin SOAT', 'SOAT sin pagar', 'Valor distinto', 'Póliza repetida', 'Otro cliente', 'Ya conciliada']) {
+      await expect(page.getByText(etiqueta, { exact: true }).first()).toBeVisible();
+    }
+
+    await expect(page.getByText('1 de 7 líneas cuadra. 6 no cuadran.')).toBeVisible();
+  });
+
+  test('la línea sin SOAT no enseña ni una celda vacía ni un cero, y el valor distinto dice la diferencia', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    const sinSoat = page.getByRole('row').filter({ hasText: 'No hay ningún SOAT en FLITO' });
+    await expect(sinSoat.getByText('Sin identificar')).toBeVisible();
+    await expect(sinSoat.getByRole('cell', { name: 'Sin SOAT', exact: true })).toBeVisible();
+
+    const duplicada = page.getByRole('row').filter({ hasText: 'está en 2 SOAT distintos' });
+    await expect(duplicada.getByRole('cell', { name: '2 SOAT posibles', exact: true })).toBeVisible();
+    await expect(duplicada.getByRole('cell', { name: 'No se puede saber', exact: true })).toBeVisible();
+
+    // Los dos importes Y la diferencia calculada: restar dos números de seis cifras a ojo, 500
+    // veces, es el trabajo que esta pantalla existe para quitar.
+    await expect(page.getByText(/La boleta cobra .*587\.400.* y el SOAT registrado en FLITO vale .*561\.900.*: hay .*25\.500.* de diferencia\./)).toBeVisible();
+
+    // El motivo se VE, sin abrir nada: ni tooltip, ni «ver más».
+    await expect(page.getByText(/todavía no está marcado como pagado: hoy está en "Solicitado"/)).toBeVisible();
+    await expect(page.getByText(/Este SOAT es de Logística del Café S\.A\.S\., y esta boleta se cargó para Transportes Andinos/)).toBeVisible();
+    await expect(page.getByText(/ya se concilió en la boleta BOL-000099 el 15\/6\/2026/)).toBeVisible();
+  });
+
+  test('el filtro «solo las que no cuadran» deja fuera las que cuadran', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    const soloMalas = page.getByRole('button', { name: /Solo las que no cuadran/ });
+    await soloMalas.click();
+    await expect(soloMalas).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Cuadra', { exact: true })).toHaveCount(0);
+    // Una vez en la celda de VALOR SOAT y otra en el chip del resultado: las dos de la misma fila.
+    await expect(page.getByRole('row').filter({ hasText: 'No hay ningún SOAT en FLITO' })).toHaveCount(1);
+  });
+});
+
+test.describe('FLITO — Conciliación · no se concilia con novedades (AC4)', () => {
+  test('el botón bloqueado se alcanza con el tabulador, dice por qué y no pide nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const vistas = espiarModulo(page);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    const boton = page.getByRole('button', { name: /Conciliar boleta/ });
+    // `aria-disabled` y NO `disabled`: con `disabled` el botón no recibe foco y su nombre accesible
+    // —que es lo que el AC4 pide oír— sería inalcanzable.
+    await expect(boton).toHaveAttribute('aria-disabled', 'true');
+    await expect(boton).not.toHaveAttribute('disabled', '');
+    await expect(boton).toHaveAccessibleName('Conciliar boleta — no disponible: 6 de 7 líneas no cuadran');
+    await boton.focus();
+    await expect(boton).toBeFocused();
+
+    // El texto visible dice el MISMO número.
+    await expect(page.getByText(/No se puede conciliar: 6 de 7 líneas no cuadran/)).toBeVisible();
+
+    // `force`: para Playwright un `aria-disabled` está inhabilitado y esperaría eternamente, pero
+    // el navegador SÍ entrega el clic —de eso trata la decisión— y lo que se prueba es qué hace.
+    await boton.click({ force: true });
+    // Pulsarlo no pide nada: lleva el foco al motivo, que es la única acción útil que queda.
+    await expect(page.locator('#conciliar-bloqueante')).toBeFocused();
+    await reposo(page);
+    expect(vistas.filter((l) => l.includes('/conciliar'))).toEqual([]);
+  });
+
+  test('volver a cruzar repinta el cuadre y habilita el botón', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.route(RE_RECRUZAR, (route) => route.fulfill(json(DETALLE_CUADRADO)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await expect(page.getByText('1 de 7 líneas cuadra. 6 no cuadran.')).toBeVisible();
+    await page.getByRole('button', { name: 'Volver a cruzar' }).click();
+
+    await expect(page.getByText('Las 7 líneas cuadran.')).toBeVisible();
+    const boton = page.getByRole('button', { name: 'Conciliar boleta', exact: true });
+    await expect(boton).toHaveAttribute('aria-disabled', 'false');
+    await expect(page.getByText(/No se puede conciliar/)).toHaveCount(0);
+  });
+
+  test('descartar pide confirmación en la propia acción y no existe sobre una boleta conciliada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.getByRole('button', { name: 'Descartar' }).click();
+    await expect(page.getByText(/¿Descartar\? Se pierde el cruce/)).toBeVisible();
+    await page.getByRole('button', { name: 'No', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Descartar' })).toBeVisible();
+
+    // Ya conciliada: ni «Descartar» ni «Volver a cruzar». Es un documento contable.
+    await page.route(RE_DETALLE, (route) => route.fulfill(json(DETALLE_CONCILIADO)));
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Descartar' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Volver a cruzar' })).toHaveCount(0);
+  });
+});
+
+test.describe('FLITO — Conciliación · el aviso del dinero (AC5)', () => {
+  test('conciliar avisa con las cifras de cada bolsa y el aviso sobrevive a una recarga', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE_CUADRADO);
+    await page.route(RE_CONCILIAR, (route) => route.fulfill(json(CONCILIACION_HECHA)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.getByRole('button', { name: 'Conciliar boleta', exact: true }).click();
+    // El único diálogo de confirmación de la pantalla, y dice el verbo, no «Aceptar».
+    await expect(page.getByText(/No se puede deshacer/)).toBeVisible();
+    await page.getByRole('button', { name: 'Sí, conciliar' }).click();
+
+    const aviso = page.getByRole('status').filter({ hasText: 'Boleta conciliada' });
+    await expect(aviso).toBeVisible();
+    await expect(aviso).toContainText('Se conciliaron 7 SOAT');
+    await expect(aviso).toContainText('3.933.300');
+    await expect(aviso).toContainText('Transportes Andinos S.A.S.');
+    await expect(aviso).toContainText('3.371.400');
+    await expect(aviso).toContainText('12.450.300');
+    // Una línea por BOLSA de tránsito, con su saldo.
+    await expect(aviso).toContainText('Bolsa de tránsito de Medellín');
+    await expect(aviso).toContainText('9.310.500');
+    // El SOAT que ya se había descontado al liquidar: el aviso NO anuncia un cobro que no ocurrió.
+    await expect(aviso).toContainText(/1 de esos SOAT ya se había descontado al liquidar/);
+    await expect(aviso).toContainText('Este descuento no se revierte');
+
+    // Y sobrevive a una recarga de verdad, con sus cifras.
+    await page.route(RE_DETALLE, (route) => route.fulfill(json(DETALLE_CONCILIADO)));
+    await page.reload();
+    const trasRecargar = page.getByRole('status').filter({ hasText: 'Boleta conciliada' });
+    await expect(trasRecargar).toContainText('Se conciliaron 7 SOAT');
+    await expect(trasRecargar).toContainText('12.450.300');
+    await expect(page.getByText(/Conciliada por Laura Restrepo/)).toBeVisible();
+  });
+
+  test('si la boleta dejó de cuadrar, el 409 lo dice, repinta la tabla y jura que no se descontó nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE_CUADRADO);
+    await page.route(RE_CONCILIAR, (route) => route.fulfill(json({
+      error: 'La boleta cambió desde que la cargaste.',
+      codigo: 'boleta_incompleta',
+      boleta: DETALLE,
+      sinCuadrar: 6,
+    }, 409)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.getByRole('button', { name: 'Conciliar boleta', exact: true }).click();
+    await page.getByRole('button', { name: 'Sí, conciliar' }).click();
+
+    const alerta = page.getByRole('alert');
+    await expect(alerta).toContainText('ahora hay 6 líneas que no cuadran');
+    await expect(alerta).toContainText('No se descontó nada.');
+    // La tabla se repinta con las líneas que trae el 409, no con las que había en pantalla.
+    await expect(page.getByText('1 de 7 líneas cuadra. 6 no cuadran.')).toBeVisible();
+    await expect(page.getByText('Sin identificar')).toBeVisible();
+  });
+});
+
+test.describe('FLITO — Conciliación · comprobante PSE (AC6)', () => {
+  test('un archivo que no sirve dice por qué y la caja no se queda cargando', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'comprobante.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      buffer: Buffer.from('no soy un pdf'),
+    });
+
+    await expect(page.getByRole('alert')).toContainText('Ese archivo es un .docx');
+    await expect(page.getByText('Analizando...')).toHaveCount(0);
+  });
+
+  test('el motivo que solo se ve mirando los bytes lo dice el servidor, y tampoco deja la vista cargando', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+    await page.route(RE_COMPROBANTE, (route) => (route.request().method() === 'POST'
+      ? route.fulfill(json({
+        error: 'El archivo dice ser un PDF pero no lo es.', codigo: 'archivo_invalido',
+      }, 400))
+      : route.fallback()));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'falso.pdf', mimeType: 'application/pdf', buffer: Buffer.from('MZ no soy un pdf'),
+    });
+
+    await expect(page.getByRole('alert')).toContainText('El archivo dice ser un PDF pero no lo es.');
+    await expect(page.getByText('Analizando...')).toHaveCount(0);
+  });
+
+  test('el comprobante adjunto sale con su nombre y su enlace de descarga', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, {
+      ...DETALLE_CONCILIADO,
+      comprobante: {
+        id: 'sop-1', nombreArchivo: 'comprobante-pse-30jul.pdf', contentType: 'application/pdf',
+        tamanoBytes: 120345, subidoEn: '2026-08-20T20:45:00.000Z', subidoPorNombre: 'Laura Restrepo',
+        url: '/api/files?key=x&exp=1&sig=y',
+      },
+    });
+    await page.route(RE_COMPROBANTE, (route) => route.fulfill(json({
+      url: '/api/files?key=x&exp=2&sig=z', nombreArchivo: 'comprobante-pse-30jul.pdf',
+      contentType: 'application/pdf',
+    })));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await expect(page.getByText(/comprobante-pse-30jul\.pdf · PDF · subido el/)).toBeVisible();
+    // La URL firmada NO se pinta como href estático: caduca, y un enlace muerto es peor que un
+    // botón. El clic pide una firma fresca.
+    const firma = page.waitForRequest((r) => r.method() === 'GET' && RE_COMPROBANTE.test(r.url()));
+    await page.getByRole('button', { name: 'Descargar' }).click();
+    await firma;
+    await expect(page.getByText('Al reemplazarlo, el comprobante actual se descarta.')).toBeVisible();
+  });
+
+  test('antes de conciliar no hay caja de carga, hay una explicación', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockDetalle(page, DETALLE);
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await expect(page.getByText('El comprobante se adjunta después de conciliar la boleta.')).toBeVisible();
+    await expect(page.locator('input[type=file]')).toHaveCount(0);
+  });
+});
+
+test.describe('FLITO — Conciliación · ni póliza ni placa fuera del cuerpo (AC7)', () => {
+  test('la URL y la consola quedan limpias en todo el recorrido', async ({ page }) => {
+    const consola: string[] = [];
+    page.on('console', (m) => consola.push(m.text()));
+    page.on('pageerror', (e) => consola.push(e.message));
+
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page, [RESUMEN]);
+    await mockDetalle(page, DETALLE);
+
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByRole('cell', { name: 'BOL-000123', exact: true })).toBeVisible();
+    expect(page.url()).toMatch(/\/flito\/conciliacion$/);
+
+    await page.getByRole('link', { name: 'Abrir la boleta BOL-000123' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
+    // El path lleva el uuid OPACO y nada más; ni la póliza ni la placa entran en la query.
+    expect(page.url()).toMatch(new RegExp(`/flito/conciliacion/${BOLETA_ID}$`));
+    // Y la póliza sí está en el cuerpo de la respuesta, que es donde puede estar: la tabla la pinta.
+    await expect(page.getByRole('cell', { name: POLIZA_1 })).toBeVisible();
+
+    // El título del documento lleva la REFERENCIA, que es lo que queda escrito en el historial.
+    expect(await page.title()).toContain('BOL-000123');
+    expect(await page.title()).not.toContain(PLACA_1);
+
+    const rastro = consola.join('\n');
+    expect(rastro).not.toContain(POLIZA_1);
+    expect(rastro).not.toContain(PLACA_1);
+  });
+});
+
+test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', () => {
+  test('cerrar sesión borra los importes y saldos que el aviso dejó en la pestaña', async ({ page }) => {
+    // El cierre de sesión de FLIT es SPA: navega, NO recarga, así que `sessionStorage` sobrevive
+    // salvo que alguien lo barra. Sin el barrido, quien entrara después en la misma pestaña —aunque
+    // fuera un conductor— seguiría teniendo a mano los saldos de bolsa de quien salió.
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CUADRADO);
+    await page.route(RE_CONCILIAR, (route) => route.fulfill(json(CONCILIACION_HECHA)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.getByRole('button', { name: 'Conciliar boleta', exact: true }).click();
+    await page.getByRole('button', { name: 'Sí, conciliar' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Boleta conciliada' })).toBeVisible();
+
+    // Punto de partida: el aviso está guardado, con el usuario en la clave y el saldo dentro. Si
+    // esto fallara, lo de abajo pasaría en vacío y no probaría nada.
+    const claves = await avisosGuardados(page);
+    expect(claves).toEqual([`flito:conciliacion:aviso:${FINANCIERA_USER.id}:${BOLETA_ID}`]);
+    const guardado = await page.evaluate((k) => sessionStorage.getItem(k) ?? '', claves[0]);
+    expect(guardado).toContain('12450300');
+
+    await cerrarSesion(page);
+
+    expect(await avisosGuardados(page)).toEqual([]);
+  });
+
+  test('la sesión que expira sola deja la pestaña igual de limpia que el logout', async ({ page }) => {
+    // El otro camino, y el que se olvida: nadie pulsa «Cerrar sesión», el token caduca y api.ts
+    // emite SESSION_ENDED. Sin barrido ahí, expirar dejaría exactamente el mismo rastro que no
+    // haber cerrado sesión nunca.
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CUADRADO);
+    await page.route(RE_CONCILIAR, (route) => route.fulfill(json(CONCILIACION_HECHA)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+
+    await page.getByRole('button', { name: 'Conciliar boleta', exact: true }).click();
+    await page.getByRole('button', { name: 'Sí, conciliar' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Boleta conciliada' })).toBeVisible();
+    expect(await avisosGuardados(page)).toHaveLength(1);
+
+    // El token caduca: la siguiente petición del módulo responde 401 y arrastra la sesión con ella.
+    await page.route(RE_DETALLE, (route) => route.fulfill(json({ error: 'Sesión expirada' }, 401)));
+    await page.reload();
+    await expect(page).toHaveURL(/\/login$/);
+
+    expect(await avisosGuardados(page)).toEqual([]);
+  });
+
+  test('el aviso de otra persona no se pinta como si fuera el propio', async ({ page }) => {
+    // El hallazgo Baja: el aviso guardado GANA sobre el reconstruido del detalle. Con la clave
+    // atada solo a la boleta, la segunda persona que abriera esta boleta en la misma pestaña vería
+    // los saldos que dejó la primera, presentados como los de ahora. Cifras de dinero, viejas.
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+
+    // El aviso se siembra desde /login, que es donde `loginAs` deja la pestaña: hace falta un origin
+    // para escribir en `sessionStorage`, y pasar antes por una pantalla de la app abortaría el
+    // `GET /auth/me` en vuelo al navegar —su `catch` borra el token y el test acabaría en /login—.
+    await page.evaluate(({ id, ajeno }) => {
+      sessionStorage.setItem(`flito:conciliacion:aviso:${ajeno}:${id}`, JSON.stringify({
+        soatConciliados: 7,
+        totalConciliado: 3933300,
+        cliente: { nombre: 'Transportes Andinos S.A.S.', descontado: 99999999, saldoResultante: 88888888 },
+        transito: [],
+        adoptados: 0,
+      }));
+    }, { id: BOLETA_ID, ajeno: FINANCIERA_USER.id + 1 });
+
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    const aviso = page.getByRole('status').filter({ hasText: 'Boleta conciliada' });
+    await expect(aviso).toBeVisible();
+    // Se pinta el reconstruido del detalle —que calla los saldos— y no el snapshot del vecino.
+    await expect(aviso).not.toContainText('99.999.999');
+    await expect(aviso).not.toContainText('88.888.888');
+
+    // Y el control positivo, sin el cual lo de arriba pasaría también con la clave vieja —la que no
+    // distingue usuario— por el simple hecho de no encontrar NADA: el aviso propio, bajo su propia
+    // clave, sí se lee y sí pinta sus cifras.
+    await page.evaluate(({ id, propio }) => {
+      sessionStorage.setItem(`flito:conciliacion:aviso:${propio}:${id}`, JSON.stringify({
+        soatConciliados: 7,
+        totalConciliado: 3933300,
+        cliente: { nombre: 'Transportes Andinos S.A.S.', descontado: 3371400, saldoResultante: 12450300 },
+        transito: [],
+        adoptados: 0,
+      }));
+    }, { id: BOLETA_ID, propio: FINANCIERA_USER.id });
+    await page.reload();
+
+    const propio = page.getByRole('status').filter({ hasText: 'Boleta conciliada' });
+    await expect(propio).toContainText('12.450.300');
+    await expect(propio).not.toContainText('88.888.888');
+  });
+});

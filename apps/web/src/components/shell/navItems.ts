@@ -73,6 +73,10 @@ export const NAV_ITEMS: NavItem[] = [
   // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO. «prepago» se conserva en las
   // keywords: dejó de ser el nombre visible, pero es como muchos siguen buscándolo.
   { page: 'flito_bolsas', to: '/flito/bolsas',                   section: 'finanzas',      label: 'Bolsas',                  keywords: 'bolsa saldo prepago recarga movimiento manual cierre periodo extracto organismo secretaria transito conciliacion riesgo alerta financiera' },
+  // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
+  // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
+  // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.
+  { page: 'flito_conciliacion', to: '/flito/conciliacion',       section: 'finanzas',      label: 'Conciliación',            keywords: 'conciliacion boleta soat portal excel cruce poliza bolsa pse comprobante financiera cuadre recaudo' },
   // Facturación electrónica: va en Finanzas porque su dueño es contabilidad —es quien firma la
   // confirmación de cada concepto—, aunque el dominio técnico sea la integración con Siigo.
   { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
