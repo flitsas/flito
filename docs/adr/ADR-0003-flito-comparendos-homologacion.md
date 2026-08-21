@@ -16,7 +16,20 @@ El merge exige que SIMIT prevalezca y municipal aporte solo campos ausentes. Aú
 3. **v1 provisional** se siembra en la migración `0150_flito_comparendos_ingesta.sql` usando candidatos alineados a `SimitComparendo` / `normalizeComparendos` y alias municipales comunes (detalle en el diseño del Feature).
 4. **Spike** (HU BACKEND corta): capturar respuestas reales redactadas → fixtures de test → validar/ajustar mapa → insertar `version=2` con `provisional=false`. El código de merge lee la **máxima versión** activa.
 5. Regla de aplicación: para cada `target_field`, tomar valor SIMIT si presente; si no, municipal; nunca pisar un canónico no vacío con municipal.
-6. Normalización de `numero_comparendo` (trim / case) se cierra en el spike; hasta entonces: `trim` + conservar case del primer visto, comparar case-insensitive en lookup.
+6. **Normalización de `numero_comparendo` — cerrada por el spike (HU #11501).** La regla vigente la
+   implementa `numeroCanonico` en `flito-comparendos-merge.ts`: **mayúsculas y sin espacios internos**
+   (`replace(/\s+/g, '')`, no un `trim`), rechazando el vacío. Es más agresiva que la provisional a
+   propósito: `' c-1 '`, `'C-1'` y `'C - 1'` son el mismo comparendo — un proveedor que espacie el
+   número por bloques no debe crear una segunda deuda. Lo que **no** hace es adivinar separadores:
+   `'C 1'` normaliza a `'C1'` y por tanto NO colapsa con `'C-1'`.
+   - **No se recorta.** Si el resultado no cabe en `varchar(60)` se descarta el ítem entero
+     devolviendo `null`, y el descarte se cuenta. Recortar la llave inventaría un comparendo que no
+     existe y podría colisionar con otro que comparta prefijo, fundiendo dos deudas en una fila.
+   - **El lookup NO es case-insensitive.** `registros.service` usa `like` y no `ilike` justamente
+     porque lo guardado ya está normalizado; un `ilike` aquí sería una red que tapa el día en que
+     alguien escriba sin normalizar.
+   - Esto **deroga** la regla provisional anterior («`trim` + conservar case del primer visto,
+     comparar case-insensitive en lookup»), que rigió hasta la migración 0158.
 
 ## Alternativas consideradas
 
