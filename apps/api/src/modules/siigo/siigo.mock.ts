@@ -352,6 +352,10 @@ const TAXES_SIMULADOS = [
   { id: 13158, name: 'ReteFuente servicios 4%', type: 'Retefuente', percentage: 4.00, active: true },
   { id: 13159, name: 'ReteICA 0.966%', type: 'ReteICA', percentage: 0.966, active: true },
   { id: 13160, name: 'IVA 16% (derogado)', type: 'IVA', percentage: 16.00, active: false },
+  // IVA 0 %: es el impuesto que Siigo asocia a los productos EXENTOS —el reintegro de costos y el
+  // servicio de FLIT lo llevan en la cuenta real—, y sin él en el catálogo un producto simulado
+  // exento apuntaría a un id que la validación del mapeo daría por desconocido.
+  { id: 13161, name: 'IVA 0%', type: 'IVA', percentage: 0.00, active: true },
 ];
 
 /** Grupos de inventario / clasificaciones (`GET /v1/account-groups`). */
@@ -396,42 +400,172 @@ export const CATALOGOS_SIMULADOS: Record<string, unknown[]> = {
 // Los códigos siguen la forma que admite Siigo (alfanumérico con `.`, `_` y `-`, hasta 30) y cubren
 // los seis conceptos facturables, para que la parametrización completa se pueda configurar y
 // validar en modo simulado de punta a punta.
+//
+// **La FORMA es la de la respuesta real, contrastada contra la cuenta de FLIT.** Antes estas
+// fixtures tenían una forma inventada —`unit: '94'` en vez de `{ code, name }`, `account_group`
+// como número, sin `type` ni `tax_classification`, y `taxes: []` en todos— y las pruebas del
+// módulo afirmaban sobre ella. Un simulador más permisivo que el ambiente real deja pasar en
+// desarrollo justo lo que revienta en producción: es la lección que este proyecto ya pagó en la
+// HU #11297 con los terceros, aquí aplicada al catálogo de productos, con el modo real a días de
+// encenderse.
+//
+// Lo que la respuesta real enseña y estas fixtures reproducen:
+//
+//   · `unit` es un OBJETO `{ code, name }`, y hay productos que no traen la clave.
+//   · `account_group` es un OBJETO `{ id, name }`, no el id suelto.
+//   · en los productos `Excluded` la clave `taxes` NO EXISTE — no es un arreglo vacío. Quien los
+//     recorra tiene que sobrevivir a su ausencia, y ahora hay con qué probarlo.
+//   · `tax_included` puede venir en `true`, forma que el simulador nunca producía.
+
+/** Nombre de la unidad de medida por su código UNECE. Solo las que el simulador usa. */
+const UNIDADES_SIMULADAS: Record<string, string> = { '94': 'unidad' };
+
+/** `unit` con la forma real: objeto, no cadena. */
+function unidadSimulada(codigo: string): { code: string; name: string } {
+  return { code: codigo, name: UNIDADES_SIMULADAS[codigo] ?? 'unidad' };
+}
+
+/**
+ * `account_group` con la forma real: objeto con el nombre del grupo, no el id suelto.
+ *
+ * El nombre sale del mismo catálogo que sirve `/v1/account-groups`, y no de una constante aparte,
+ * para que un producto simulado no pueda apuntar a un grupo que el catálogo simulado desconoce.
+ */
+function grupoSimulado(id: number): { id: number; name: string } {
+  const g = ACCOUNT_GROUPS_SIMULADOS.find((x) => x.id === id);
+  return { id, name: g?.name ?? 'Grupo simulado' };
+}
+
+/**
+ * Impuesto de un producto con la forma real: `{ id, name, type, percentage }` — sin `active`, que
+ * es del catálogo y no de la línea del producto.
+ *
+ * Se resuelve contra `TAXES_SIMULADOS` a propósito: si el impuesto de un producto simulado no
+ * estuviera en el catálogo simulado, quien parametrizara en modo simulado copiando ese id se
+ * encontraría un `impuesto_desconocido` que el ambiente real no daría.
+ */
+function impuestoSimulado(id: number): { id: number; name: string; type: string; percentage: number } {
+  const t = TAXES_SIMULADOS.find((x) => x.id === id);
+  // Un id que el catálogo no conoce se devuelve tal cual: Siigo lo rechazaría al crear, y fingir
+  // aquí un nombre inventado escondería ese rechazo.
+  return t
+    ? { id: t.id, name: t.name, type: t.type, percentage: t.percentage }
+    : { id, name: '', type: '', percentage: 0 };
+}
+
+/**
+ * Un producto tal como lo devuelve `GET /v1/products`.
+ *
+ * Los campos opcionales NO son laxitud del tipo: son la variabilidad REAL de la respuesta. En la
+ * cuenta de FLIT hay productos sin `taxes` (los `Excluded`), sin `unit` ni `unit_label`, y con
+ * `prices` que otros no traen. Declararlos obligatorios obligaría a rellenarlos, y el simulador
+ * volvería a ser más uniforme —y por tanto más permisivo— que el ambiente que simula.
+ */
+export interface ProductoSimuladoApi {
+  id: string;
+  code: string;
+  name: string;
+  account_group: { id: number; name: string };
+  type: 'Product' | 'Service';
+  stock_control: boolean;
+  active: boolean;
+  tax_classification: 'Taxed' | 'Exempt' | 'Excluded';
+  tax_included: boolean;
+  tax_consumption_value?: number;
+  /** Ausente en los `Excluded`. La clave NO existe; no es un arreglo vacío. */
+  taxes?: Array<{ id: number; name: string; type: string; percentage: number }>;
+  unit?: { code: string; name: string };
+  unit_label?: string;
+  reference?: string;
+  description?: string;
+  prices?: Array<{
+    currency_code: string;
+    price_list: Array<{ position: number; name: string; value: number }>;
+  }>;
+  additional_fields: Record<string, string>;
+  available_quantity: number;
+  warehouses: Array<{ id: number; name: string; quantity: number }>;
+  metadata: { created: string; last_updated?: string };
+}
 
 /** Productos (`GET /v1/products?code=`). Uno por concepto facturable, más un caso inactivo. */
-const PRODUCTS_SIMULADOS = [
+const PRODUCTS_SIMULADOS: ProductoSimuladoApi[] = [
+  // Los tres primeros son `Excluded` y por eso NO llevan `taxes`: es la forma que devuelve Siigo
+  // para el SOAT, los trámites y los impuestos, y la que hay que poder recorrer sin romperse.
   {
-    id: 'mock-prod-soat', code: 'SOAT-2024', name: 'SOAT — Seguro Obligatorio', active: true,
-    account_group: 1254, taxes: [], unit: '94',
+    id: 'mock-prod-soat', code: 'SOAT-2024', name: 'SOAT — Seguro Obligatorio',
+    account_group: grupoSimulado(1254), type: 'Product', stock_control: true, active: true,
+    tax_classification: 'Excluded', tax_included: false, tax_consumption_value: 0,
+    unit: unidadSimulada('94'), unit_label: 'unidad', reference: '', description: '',
+    additional_fields: { barcode: '', brand: '', tariff: '', model: '' },
+    available_quantity: -1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -1 }],
+    metadata: { created: '2026-03-06T10:41:10.637Z' },
   },
   {
-    id: 'mock-prod-imp', code: 'IMP-VEHICULAR', name: 'Impuesto vehicular', active: true,
-    account_group: 1254, taxes: [], unit: '94',
+    id: 'mock-prod-imp', code: 'IMP-VEHICULAR', name: 'Impuesto vehicular',
+    account_group: grupoSimulado(1254), type: 'Product', stock_control: true, active: true,
+    tax_classification: 'Excluded', tax_included: false, tax_consumption_value: 0,
+    unit: unidadSimulada('94'), unit_label: 'unidad', reference: '', description: '',
+    additional_fields: { barcode: '', brand: '', tariff: '', model: '' },
+    available_quantity: -1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -1 }],
+    metadata: { created: '2026-03-06T10:42:28.263Z' },
   },
   {
-    id: 'mock-prod-der', code: 'DER-TRANSITO', name: 'Derecho de tránsito', active: true,
-    account_group: 1254, taxes: [], unit: '94',
+    id: 'mock-prod-der', code: 'DER-TRANSITO', name: 'Derecho de tránsito',
+    account_group: grupoSimulado(1254), type: 'Product', stock_control: true, active: true,
+    tax_classification: 'Excluded', tax_included: false, tax_consumption_value: 0,
+    unit: unidadSimulada('94'), unit_label: 'unidad', reference: '', description: '',
+    additional_fields: { barcode: '', brand: '', tariff: '', model: '' },
+    available_quantity: -1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -1 }],
+    metadata: { created: '2026-03-06T10:41:55.073Z', last_updated: '2026-03-10T16:47:54.620Z' },
   },
   {
-    id: 'mock-prod-tram', code: 'TRAMITE-DIGITAL', name: 'Trámite digital', active: true,
-    account_group: 1253, taxes: [{ id: 13156, name: 'IVA 19%', percentage: 19 }], unit: '94',
+    id: 'mock-prod-tram', code: 'TRAMITE-DIGITAL', name: 'Trámite digital',
+    account_group: grupoSimulado(1253), type: 'Service', stock_control: false, active: true,
+    tax_classification: 'Taxed', tax_included: false, taxes: [impuestoSimulado(13156)],
+    unit: unidadSimulada('94'), unit_label: 'unidad', reference: '', description: '',
+    additional_fields: { barcode: '', brand: '', tariff: '', model: '' },
+    available_quantity: -1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -1 }],
+    metadata: { created: '2025-12-09T16:53:49.247Z', last_updated: '2025-12-10T16:47:54.620Z' },
   },
   {
-    id: 'mock-prod-log', code: 'LOGISTICA', name: 'Servicio de logística', active: true,
-    account_group: 1253, taxes: [{ id: 13156, name: 'IVA 19%', percentage: 19 }], unit: '94',
+    id: 'mock-prod-log', code: 'LOGISTICA', name: 'Servicio de logística',
+    account_group: grupoSimulado(1253), type: 'Service', stock_control: false, active: true,
+    tax_classification: 'Taxed', tax_included: false, taxes: [impuestoSimulado(13156)],
+    unit: unidadSimulada('94'), unit_label: '', reference: '',
+    additional_fields: { barcode: '' },
+    available_quantity: -27, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -27 }],
+    metadata: { created: '2024-12-11T10:53:39.670Z' },
   },
+  // El reintegro de costos: exento con IVA 0 % y `tax_included: true`. La combinación existe en la
+  // cuenta real («002 Servicio FLIT») y es hoy inocua —el 0 % no mueve el total—, pero es una forma
+  // que el simulador nunca producía y con la que nadie había probado nada. Tampoco trae `unit`:
+  // otra ausencia real que el código de arriba tiene que aguantar.
   {
     id: 'mock-prod-gmf', code: 'GMF-4X1000', name: 'Gravamen a los movimientos financieros',
-    active: true, account_group: 1253, taxes: [], unit: '94',
+    account_group: grupoSimulado(1253), type: 'Service', stock_control: false, active: true,
+    tax_classification: 'Exempt', tax_included: true, tax_consumption_value: 0,
+    taxes: [impuestoSimulado(13161)],
+    prices: [{
+      currency_code: 'COP',
+      price_list: [{ position: 1, name: 'Precio de venta 1', value: 4000 }],
+    }],
+    additional_fields: {},
+    available_quantity: -1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: -1 }],
+    metadata: { created: '2024-01-22T14:11:36.927Z', last_updated: '2024-08-21T21:56:38.007Z' },
   },
   {
-    id: 'mock-prod-off', code: 'PRODUCTO-INACTIVO', name: 'Producto descontinuado', active: false,
-    account_group: 1255, taxes: [], unit: '94',
+    id: 'mock-prod-off', code: 'PRODUCTO-INACTIVO', name: 'Producto descontinuado',
+    account_group: grupoSimulado(1255), type: 'Product', stock_control: true, active: false,
+    tax_classification: 'Excluded', tax_included: false,
+    additional_fields: {},
+    available_quantity: 1, warehouses: [{ id: -1, name: 'Sin asignar', quantity: 1 }],
+    metadata: { created: '2020-08-27T20:30:32.627Z', last_updated: '2024-08-21T21:54:03.487Z' },
   },
 ];
 
 /** Exportado para que los tests afirmen sobre los mismos datos que sirve el simulador. */
-export const PRODUCTOS_SIMULADOS: readonly { code: string; active: boolean; name: string }[] =
-  PRODUCTS_SIMULADOS;
+export const PRODUCTOS_SIMULADOS: readonly ProductoSimuladoApi[] = PRODUCTS_SIMULADOS;
 
 /**
  * Productos creados durante la vida del proceso (HU #11286).
@@ -441,10 +575,28 @@ export const PRODUCTOS_SIMULADOS: readonly { code: string; active: boolean; name
  * actualiza → la actualización REVALIDA el código contra Siigo. Si lo recién creado no apareciera
  * en la siguiente consulta, la vinculación fallaría con «no existe» y el simulador no serviría para
  * ensayar justo lo que la historia pide ensayar.
+ *
+ * El `ambiente` va FUERA del producto: es del simulador, no de Siigo. Cuando estaba dentro, lo
+ * creado salía en el listado con una forma propia —`{ ambiente, id, code, name, active }`— distinta
+ * de la de las fixtures y con una clave que el API real no devuelve nunca.
  */
 const productosCreadosEnSimulacion: Array<{
-  ambiente: string; id: string; code: string; name: string; active: boolean;
+  ambiente: string; producto: ProductoSimuladoApi;
 }> = [];
+
+/**
+ * Lo que ve una consulta: las fixtures más lo creado en ESTE ambiente, con la misma forma.
+ *
+ * Ordenado por fecha de creación, más recientes primero, que es como Siigo devuelve el listado.
+ * Antes salían en el orden en que estaban escritas aquí, y con eso el orden alfabético que aplica
+ * `listarProductos` parecía innecesario: en modo simulado la lista ya venía «bien».
+ */
+function catalogoSimuladoDe(ambiente: string): ProductoSimuladoApi[] {
+  return [
+    ...PRODUCTS_SIMULADOS,
+    ...productosCreadosEnSimulacion.filter((p) => p.ambiente === ambiente).map((p) => p.producto),
+  ].sort((a, b) => b.metadata.created.localeCompare(a.metadata.created));
+}
 
 /**
  * Tope de productos recordados. El simulador es una ayuda de desarrollo, no un almacén: sin cota,
@@ -680,8 +832,7 @@ export function respuestaSimulada(
     // Siigo exige `code` único: el simulador replica ese rechazo con la misma estructura de error.
     // La unicidad se comprueba DENTRO del ambiente: pruebas y produccion son empresas distintas en
     // Siigo, y un simulador que las mezclara daría verde por una razón que el API real no concede.
-    const yaExiste = PRODUCTS_SIMULADOS.some((p) => p.code === code)
-      || productosCreadosEnSimulacion.some((p) => p.code === code && p.ambiente === ambiente);
+    const yaExiste = catalogoSimuladoDe(ambiente).some((p) => p.code === code);
     if (yaExiste) {
       return {
         status: 400,
@@ -703,32 +854,48 @@ export function respuestaSimulada(
     if (productosCreadosEnSimulacion.length >= MAX_PRODUCTOS_SIMULADOS) {
       productosCreadosEnSimulacion.shift();
     }
-    productosCreadosEnSimulacion.push({ ambiente, id, code, name, active: true });
 
-    return {
-      status: 201,
-      ok: true,
-      datos: {
-        id,
-        code,
-        name,
-        account_group: { id: enviado.account_group ?? 1253, name: 'Grupo simulado' },
-        type: enviado.type ?? 'Service',
-        stock_control: enviado.stock_control === true,
-        active: true,
-        tax_classification: enviado.tax_classification ?? 'Taxed',
-        taxes: Array.isArray(enviado.taxes) ? enviado.taxes : [],
-        prices: [],
-        unit: { code: enviado.unit ?? '94', name: 'unidad' },
-        unit_label: 'unidad',
-        reference: null,
-        description: null,
-        additional_fields: {},
-        available_quantity: 0,
-        warehouses: [],
-        metadata: { created: '2026-08-06T00:00:00.000Z', last_updated: null },
-      },
+    // Lo creado se recuerda con la MISMA forma con la que se sirve el listado, porque en Siigo es
+    // el mismo objeto. Antes se guardaban cinco campos sueltos y una clave `ambiente`, y la
+    // consulta posterior devolvía un producto que no se parecía a los demás ni al del API real.
+    const clasificacion: ProductoSimuladoApi['tax_classification'] =
+      enviado.tax_classification === 'Exempt' || enviado.tax_classification === 'Excluded'
+        ? enviado.tax_classification
+        : 'Taxed';
+    const impuestos = (Array.isArray(enviado.taxes) ? enviado.taxes : []).flatMap((t) => {
+      const idImpuesto = (t as { id?: unknown } | null)?.id;
+      // Siigo devuelve el impuesto COMPLETO —nombre, tipo y tarifa—, no el `{ id }` que se envió.
+      return typeof idImpuesto === 'number' ? [impuestoSimulado(idImpuesto)] : [];
+    });
+    const unidad = typeof enviado.unit === 'string' ? unidadSimulada(enviado.unit) : null;
+
+    const creado: ProductoSimuladoApi = {
+      id,
+      code,
+      name,
+      account_group: grupoSimulado(
+        typeof enviado.account_group === 'number' ? enviado.account_group : 1253),
+      type: enviado.type === 'Product' ? 'Product' : 'Service',
+      stock_control: enviado.stock_control === true,
+      active: true,
+      tax_classification: clasificacion,
+      tax_included: enviado.tax_included === true,
+      // `tax_consumption_value` solo viaja en los NO gravados, igual que en la respuesta real.
+      ...(clasificacion === 'Taxed' ? {} : { tax_consumption_value: 0 }),
+      // Los `Excluded` NO llevan la clave `taxes`. Es la forma del ambiente real, y devolver aquí
+      // un arreglo vacío haría pasar en desarrollo el código que da por hecho que la clave está.
+      ...(clasificacion === 'Excluded' ? {} : { taxes: impuestos }),
+      ...(unidad === null ? {} : { unit: unidad, unit_label: unidad.name }),
+      reference: '',
+      description: '',
+      additional_fields: {},
+      available_quantity: 0,
+      warehouses: [],
+      metadata: { created: '2026-08-06T00:00:00.000Z' },
     };
+    productosCreadosEnSimulacion.push({ ambiente, producto: creado });
+
+    return { status: 201, ok: true, datos: creado };
   }
 
   // Consulta de producto por código (HU #11283). Va ANTES del listado genérico: sin esto el
@@ -740,10 +907,7 @@ export function respuestaSimulada(
       // Siigo compara el `code` tal cual; el simulador hace lo mismo para no ser más permisivo que
       // el original y dejar pasar en pruebas un código que en producción no resolvería.
       // Se busca también entre los creados en esta simulación: es lo que hace posible el AC7.
-      const encontrados = [
-        ...PRODUCTS_SIMULADOS,
-        ...productosCreadosEnSimulacion.filter((p) => p.ambiente === ambiente),
-      ].filter((p) => p.code === codigo);
+      const encontrados = catalogoSimuladoDe(ambiente).filter((p) => p.code === codigo);
       return {
         status: 200,
         ok: true,
@@ -759,10 +923,7 @@ export function respuestaSimulada(
     // devolvía cero resultados, con lo que el selector de producto salía vacío en modo simulado: la
     // pantalla que existe para elegir un producto no se podía ensayar sin Siigo real.
     const query = new URLSearchParams(producto[1] ?? '');
-    const todos = [
-      ...PRODUCTS_SIMULADOS,
-      ...productosCreadosEnSimulacion.filter((p) => p.ambiente === ambiente),
-    ];
+    const todos = catalogoSimuladoDe(ambiente);
     const tam = Math.max(1, Number(query.get('page_size') ?? 25) || 25);
     const pagina = Math.max(1, Number(query.get('page') ?? 1) || 1);
     const desde = (pagina - 1) * tam;
