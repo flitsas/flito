@@ -204,6 +204,12 @@ const envSchema = z.object({
   // Si no se define, se deriva de JWT_SECRET en runtime para compatibilidad con tokens
   // ya distribuidos. Para rotación: definir esta var, regenerar tokens, distribuir nuevas URLs.
   DOWNLOAD_TOKEN_SECRET: z.string().min(32).optional(),
+  // Bug #11599: token del scrape de GET /metrics (`Authorization: Bearer`). Opcional en el
+  // esquema pero NO permisivo: sin definir, la ruta responde 404 en vez de abrirse. El
+  // endpoint quedaba público en los tres ambientes porque su única defensa era una
+  // suposición sobre nginx. Mín 32 chars: si se define corto, el boot falla en vez de
+  // dejar el registro detrás de un token adivinable. Generar con `openssl rand -hex 32`.
+  METRICS_TOKEN: z.string().min(32).optional(),
   // Destinatarios alertas PESV (alcoholimetría positiva, etc.). Coma-separados.
   // Si vacío, fallback a admins activos del tenant. NUNCA debe quedar en kyverum.com.
   PESV_ALERT_RECIPIENTS: z.string().optional(),

@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
+import { metricsAuth } from './shared/middleware/metricsAuth.js';
 import { esUuid } from './shared/utils/uuid.js';
 import { registry } from './shared/metrics.js';
 import { apiLimiter, authLimiter } from './shared/middleware/rateLimiter.js';
@@ -385,10 +386,12 @@ export function createApp() {
     }
   });
 
-  // PESV-07: métricas Prometheus. FUERA de /api a propósito → nginx solo proxya
-  // /api/ al dominio público, así que /metrics queda accesible solo en el host
-  // (Prometheus scrapea localhost:3005/metrics). No expone secretos.
-  app.get('/metrics', async (_req, res) => {
+  // PESV-07: métricas Prometheus. FUERA de /api a propósito, pero eso NO la protege:
+  // el vhost del subdominio de API sí enruta la raíz al servicio, así que la ruta es
+  // alcanzable desde internet en los tres ambientes (Bug #11599). Lo que la cierra es
+  // `metricsAuth`, en el código y no en nginx. No expone secretos ni PII, pero sí
+  // contadores de negocio (pesv_*, tram_*), versión de Node y datos del proceso.
+  app.get('/metrics', metricsAuth, async (_req, res) => {
     try {
       res.setHeader('Content-Type', registry.contentType);
       res.send(await registry.metrics());
