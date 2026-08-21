@@ -23,6 +23,10 @@ import {
   condicionEstadoFacturacion, facturacionDeFila, resumenFacturacionElectronica,
   SELECT_FACTURACION_ELECTRONICA, type FacturacionDeFila,
 } from './finanzas.facturacion-electronica.js';
+import {
+  celdaConciliacionCsv, conciliacionDeFila, SELECT_CONCILIACION_SOAT,
+  type ConciliacionSoatDeFila,
+} from './finanzas.conciliacion-soat.js';
 import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
 
 /**
@@ -65,7 +69,7 @@ export interface FiltrosReporte {
  * exija que `aFila` los rellene: son datos que la pantalla enseña en una columna propia, y una
  * columna que a veces llega vacía por olvido se lee como «este trámite no tiene factura».
  */
-export interface FilaReporte extends FacturacionDeFila {
+export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
@@ -374,6 +378,10 @@ const SELECT_FILA = {
   // `finanzas.facturacion-electronica.ts` junto al filtro y a los contadores que las comparten,
   // que es lo único que garantiza que la celda, el filtro y el número de arriba digan lo mismo.
   ...SELECT_FACTURACION_ELECTRONICA,
+  // Conciliación de boletas SOAT (HU #11679, CF-05). Mismo criterio que la facturación electrónica:
+  // se compone desde su propio archivo, y por subconsultas correlacionadas — un join aquí
+  // multiplicaría la fila y con ella los totales. Ver la cabecera de `finanzas.conciliacion-soat.ts`.
+  ...SELECT_CONCILIACION_SOAT,
 } as const;
 
 const n = (v: string | number | null): number | null => (v === null ? null : Number(v));
@@ -443,6 +451,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
     autogestionados,
     noAplican,
     ...facturacionDeFila(r),
+    ...conciliacionDeFila(r),
   };
 }
 
@@ -565,6 +574,9 @@ const CABECERAS_CSV = [
   // Todo lo que impide liquidar, no solo las tarifas: quien concilia necesita la lista completa de
   // lo que hay que resolver, le dé igual si es una tarifa, un recibo o un pago pendiente.
   'Qué falta para liquidar',
+  // HU #11679 (AC4): quien cuadra el cierre necesita distinguir de un vistazo el SOAT que ya se
+  // descontó de bolsa del que sigue por cobrar, y poder ir a la boleta que lo respalda.
+  'SOAT conciliado',
 ] as const;
 
 /** Solo el día, en ISO. Excel lo reconoce como fecha; el instante completo lo trata como texto. */
@@ -589,6 +601,7 @@ export function aCsv(filas: FilaReporte[]): string {
       f.soat, f.impuesto, f.derechoTramite, f.tramiteDigital, f.logistica, f.gmf, f.total,
       f.sellada ? (f.estadoLiquidacion === 'facturado' ? 'Facturado' : 'Liquidado') : 'Estimado',
       [...f.noConfigurados, ...f.sinRecibo, ...f.pendientesPago].join(' | '),
+      celdaConciliacionCsv(f),
     ].map(celda).join(';'));
   }
   return `﻿${lineas.join('\r\n')}\r\n`;
