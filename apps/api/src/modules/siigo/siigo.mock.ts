@@ -41,6 +41,16 @@ export interface RespuestaSimulada {
 export interface OpcionesSimulacion {
   /** Inyectable para que los tests no dependan del azar. */
   aleatorio?: () => number;
+  /**
+   * Proporción de respuestas simuladas que fallan / agotan la espera. Para ensayar reintentos.
+   *
+   * **Las inyecta quien prueba, y por omisión son 0: sin caos** (Bug #11649). Eran
+   * `SIIGO_MOCK_ERROR_RATE` y `SIIGO_MOCK_TIMEOUT_RATE`, dos variables de entorno cuyo único
+   * cometido era provocar fallos a propósito. Un ajuste que solo sirve dentro de una prueba no es
+   * configuración del despliegue: como variable había que acordarse de ponerla a 0 en todas
+   * partes, y el día que alguien la dejara puesta el simulador rompería peticiones reales de
+   * desarrollo sin que nada en el código lo explicara.
+   */
   tasaError?: number;
   tasaTimeout?: number;
   /**
@@ -494,8 +504,9 @@ export function respuestaSimulada(
   // Ambiente al que pertenece la simulación: los productos recordados se particionan por él.
   const ambiente = opciones.ambiente ?? env.SIIGO_AMBIENTE;
   const aleatorio = opciones.aleatorio ?? Math.random;
-  const tasaTimeout = opciones.tasaTimeout ?? env.SIIGO_MOCK_TIMEOUT_RATE;
-  const tasaError = opciones.tasaError ?? env.SIIGO_MOCK_ERROR_RATE;
+  // Por omisión, cero caos: el simulador solo falla si quien prueba se lo pide (Bug #11649).
+  const tasaTimeout = opciones.tasaTimeout ?? 0;
+  const tasaError = opciones.tasaError ?? 0;
 
   if (tasaTimeout > 0 && aleatorio() < tasaTimeout) throw new SiigoMockTimeout();
   if (tasaError > 0 && aleatorio() < tasaError) return errorSimulado();

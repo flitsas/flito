@@ -10,6 +10,19 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+/**
+ * El interruptor de los crons se lee del esquema validado, no de `process.env` (Bug #11649), así
+ * que aquí se mockea `config/env.js`. Antes bastaba con tocar `process.env` porque el cron leía la
+ * variable cruda — que era precisamente el defecto: cualquier valor distinto de la cadena `'0'`,
+ * la variable ausente incluida, lo dejaba encendido.
+ *
+ * Ojo con el defecto: `SIIGO_CRONS` vale `off` si nadie dice lo contrario, así que los casos que
+ * esperan que el cron CORRA tienen que encenderlo a propósito. Eso es la corrección, no una
+ * incomodidad del test.
+ */
+const envMock = { SIIGO_CRONS: 'on' as 'on' | 'off', SIIGO_AMBIENTE: 'pruebas' as const };
+vi.mock('../../src/config/env.js', () => ({ env: envMock }));
+
 const procesarCicloEmisionMock = vi.fn().mockResolvedValue({
   reconciliadas: 0, tomadas: 0, enviadas: 0, reintentables: 0, definitivas: 0, liberadas: 0,
   frenada: false, circuitoAbierto: false, detenido: false, agotoPlazo: false,
@@ -30,7 +43,7 @@ const { NOMBRE_CERROJO, startSiigoColaCron, stopSiigoColaCron } = await import(
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
-  delete process.env.SIIGO_COLA_CRON_ENABLED;
+  envMock.SIIGO_CRONS = 'on';
 });
 
 afterEach(() => {
@@ -65,11 +78,25 @@ describe('el cron de la cola de emisión', () => {
     expect(withLockMock).toHaveBeenCalledTimes(1);
   });
 
-  it('con SIIGO_COLA_CRON_ENABLED=0 no hace absolutamente nada', async () => {
-    process.env.SIIGO_COLA_CRON_ENABLED = '0';
+  it('con SIIGO_CRONS=off no hace absolutamente nada', async () => {
+    envMock.SIIGO_CRONS = 'off';
     startSiigoColaCron();
     await vi.advanceTimersByTimeAsync(600_000);
     expect(withLockMock).not.toHaveBeenCalled();
+  });
+
+  // Bug #11649 — el defecto, que es lo que estaba mal. La guarda anterior comparaba contra la
+  // cadena `'0'`: sin variable, con la variable mal escrita o con cualquier otro valor, el cron
+  // arrancaba y emitía ante la DIAN. Ahora solo `on` arranca, y `on` hay que escribirlo.
+  it('sin un `on` explícito NO arranca: emitir exige un acto deliberado', async () => {
+    for (const valor of ['off', '', '0', '1', 'true', 'ON', undefined]) {
+      vi.clearAllMocks();
+      stopSiigoColaCron();
+      (envMock as { SIIGO_CRONS: unknown }).SIIGO_CRONS = valor;
+      startSiigoColaCron();
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(withLockMock, `SIIGO_CRONS=${String(valor)} no debe arrancar el cron`).not.toHaveBeenCalled();
+    }
   });
 
   it('AC7 — al parar, el ciclo en vuelo se entera: `debeDetenerse` pasa a decir que sí', async () => {

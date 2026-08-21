@@ -62,13 +62,22 @@ const server = app.listen(env.PORT, () => {
     startValidacionStaleCron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
+    // FLITO/Siigo (Bug #11649): estado efectivo de los tres crons, en UNA línea y SIEMPRE, encendidos
+    // o apagados. Cada cron ya registra el suyo, pero el operador tendría que deducir el conjunto
+    // leyendo tres líneas o —peor— notando que faltan: «no aparece nada» es indistinguible de «el
+    // log se perdió», y estos tres emiten documentos irreversibles ante la DIAN. Va antes de
+    // arrancarlos para que la línea exista incluso si uno falla al levantar.
+    log.info(
+      { siigoCrons: env.SIIGO_CRONS, ambiente: env.SIIGO_AMBIENTE, modo: env.SIIGO_MODE },
+      env.SIIGO_CRONS === 'on'
+        ? 'crons de Siigo ENCENDIDOS (archivo, sondeo DIAN y cola de emisión)'
+        : 'crons de Siigo APAGADOS: no se archivará, ni se sondeará la DIAN, ni se vaciará la cola de emisión. Poner SIIGO_CRONS=on para habilitarlos',
+    );
     // FLITO: archiva el PDF y el XML de las facturas que la DIAN ya aceptó (HU #11335).
-    // Noop si SIIGO_ARCHIVO_CRON_ENABLED=0.
     startSiigoArchivoCron();
-    // FLITO: sondeo del estado ante la DIAN (noop si SIIGO_DIAN_CRON_ENABLED=0).
+    // FLITO: sondeo del estado ante la DIAN.
     startSiigoDianCron();
     // FLITO: vacía la cola de emisión y rescata las facturas huérfanas (HU #11327).
-    // Noop si SIIGO_COLA_CRON_ENABLED=0.
     startSiigoColaCron();
     // FLITO: purga por retención de comparendos (HU #11511, Ley 1581). Consume
     // COMPARENDOS_RETENTION_MONTHS. Noop si COMPARENDOS_PURGA_CRON_ENABLED!=1.

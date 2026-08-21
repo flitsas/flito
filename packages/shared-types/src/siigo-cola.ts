@@ -54,7 +54,8 @@ export const SIIGO_COLA_MAX_INTENTOS = 5;
 export const SIIGO_COLA_MAX_ESPERAS = 20;
 
 /**
- * Cuántas filas mira un ciclo del trabajador (`SIIGO_COLA_LOTE`).
+ * Cuántas filas mira un ciclo del trabajador. Fue `SIIGO_COLA_LOTE` hasta el Bug #11649; ahora es
+ * esta constante y `siigo.cola.cron.ts` la consume tal cual, sin variable de entorno de por medio.
  *
  * Peor caso ≈ 6 peticiones por fila (los 4 intentos de `ejecutarConResiliencia` más el margen del
  * tercero), o sea ≈ 90 < `MAX_PETICIONES_POR_VENTANA` (100). Con un intervalo de 2 min > `VENTANA_MS`

@@ -53,11 +53,16 @@ x-api-env: &api-env
   # `llave_maestra`, que es exactamente lo que hay que ver. Compose la toma del .env si está.
   SIIGO_ENC_KEY:
   SIIGO_PARTNER_ID: ${SIIGO_PARTNER_ID:-}
-  # Estas tres SÍ llevan valor por omisión: env.ts las valida con enum y url, y un enum vacío
+  # Estas cuatro SÍ llevan valor por omisión: env.ts las valida con enum y url, y un enum vacío
   # aborta el boot en vez de caer al default (`.default()` solo cubre undefined, no '').
   SIIGO_MODE: ${SIIGO_MODE:-mock}
   SIIGO_AMBIENTE: ${SIIGO_AMBIENTE:-pruebas}
   SIIGO_BASE_URL: ${SIIGO_BASE_URL:-https://api.siigo.com}
+  # Interruptor único de los tres crons de Siigo (Bug #11649). Apagado por omisión, igual que en
+  # `env.ts`: emitir ante la DIAN es irreversible. Sin esta línea la variable no llegaría al
+  # contenedor y en desarrollo no habría forma de encenderlos, porque este bloque enumera el
+  # entorno explícitamente y no usa `env_file`.
+  SIIGO_CRONS: ${SIIGO_CRONS:-off}
   # ─ Integraciones opcionales (mock/vacío por defecto en dev) ─
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   RNDC_MODE: ${RNDC_MODE:-mock}

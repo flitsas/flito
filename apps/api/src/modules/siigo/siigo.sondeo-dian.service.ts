@@ -50,7 +50,7 @@ export const TIMEOUT_SONDEO_MS = 15_000;
 /**
  * Cuántas facturas mira un ciclo, por defecto.
  *
- * Configurable por entorno (AC2) porque el número correcto depende del volumen de cada instalación,
+ * Ajustable en el código (AC2) porque el número correcto depende del volumen de cada instalación,
  * y el valor que sirve en desarrollo asfixiaría una empresa que emite cien facturas al día. Veinte
  * es conservador: a un ciclo cada cinco minutos son 240 consultas por hora, holgadamente dentro de
  * la cuota incluso compartiéndola con la emisión.

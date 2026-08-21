@@ -123,6 +123,39 @@ const ERRORES_DE_DATOS: readonly ResultadoOperacion[] = ['error_negocio'];
 
 const MS_POR_HORA = 3_600_000;
 
+/**
+ * LA POLÍTICA DEL FRENO: cuándo dejar de insistir.
+ *
+ * Son tres números y UNA sola decisión. Estaban partidos en tres variables de entorno
+ * —`SIIGO_FRENO_VENTANA_HORAS`, `SIIGO_FRENO_UMBRAL`, `SIIGO_FRENO_MIN_OPERACIONES`— y así se
+ * podían mover por separado, que es justo lo que no se debe hacer: la ventana y el umbral se
+ * calibraron el uno CONTRA el otro, y tocar uno solo rompe la cuenta que los sostiene. Desde el
+ * Bug #11649 viven aquí, juntos, con su razón al lado. Este es el texto original, sin retocar:
+ *
+ *   Freno por proporción de errores (HU #11341). Siigo bloquea el usuario API si durante 7 días
+ *   más del 80 % de las peticiones son errores. Medir con ESOS MISMOS números frenaría en el
+ *   instante exacto del bloqueo, que es tarde: hay que llegar antes por los dos lados.
+ *     · Ventana más corta (24 h): una racha sostenida se ve el mismo día en que empieza, no al
+ *       séptimo. El tope es 168 h —los 7 días de Siigo—: más allá se mediría algo que Siigo ya no
+ *       penaliza.
+ *     · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
+ *       el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
+ *
+ *   Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa
+ *   entera por una muestra que no significa nada.
+ *
+ * Los topes que validaba el esquema zod (168 h de ventana, umbral en (0, 1]) siguen siendo los
+ * límites de lo que tiene sentido escribir aquí; ya no hay valor externo que validar.
+ *
+ * Se puede seguir sustituyendo por prueba a través de `OpcionesFreno`, que es donde debe estar esa
+ * capacidad: en el llamador que mide un escenario, no en el despliegue.
+ */
+const POLITICA = {
+  ventanaHoras: 24,
+  umbral: 0.6,
+  minimoOperaciones: 20,
+} as const;
+
 export interface OpcionesFreno {
   /** Por omisión, el ambiente configurado en el servidor. */
   ambiente?: SiigoAmbiente;
@@ -154,9 +187,9 @@ interface Parametros {
 async function resolverParametros(o: OpcionesFreno): Promise<Parametros> {
   const ambiente = o.ambiente ?? env.SIIGO_AMBIENTE;
   const modo = modoSiigo();
-  const ventanaHoras = o.ventanaHoras ?? env.SIIGO_FRENO_VENTANA_HORAS;
-  const umbral = o.umbral ?? env.SIIGO_FRENO_UMBRAL;
-  const minimoOperaciones = o.minimoOperaciones ?? env.SIIGO_FRENO_MIN_OPERACIONES;
+  const ventanaHoras = o.ventanaHoras ?? POLITICA.ventanaHoras;
+  const umbral = o.umbral ?? POLITICA.umbral;
+  const minimoOperaciones = o.minimoOperaciones ?? POLITICA.minimoOperaciones;
 
   const hasta = new Date((o.ahora ?? Date.now)());
   const inicioVentana = new Date(hasta.getTime() - ventanaHoras * MS_POR_HORA);
