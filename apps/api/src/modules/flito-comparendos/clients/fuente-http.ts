@@ -325,13 +325,99 @@ const TIENE_MINUSCULA = /[a-z]/;
  */
 function describirForma(cuerpo: unknown): string {
   if (cuerpo === null || cuerpo === undefined) return 'cuerpo vacío';
-  if (typeof cuerpo === 'string') return `texto plano de ${cuerpo.length} caracteres`;
+  if (typeof cuerpo === 'string') return describirTexto(cuerpo);
   if (typeof cuerpo !== 'object') return `valor ${typeof cuerpo}`;
   const claves = Object.keys(cuerpo as Record<string, unknown>);
   if (claves.length === 0) return 'objeto sin claves';
   const seguras = claves.slice(0, 8)
     .map((k) => (CLAVE_DE_CONTRATO.test(k) && TIENE_MINUSCULA.test(k) ? k : '?'));
   return `claves recibidas: ${seguras.join(', ')}${claves.length > 8 ? '…' : ''}`;
+}
+
+/**
+ * Clasifica un cuerpo de TEXTO por su forma, sin copiar una sola letra del proveedor.
+ *
+ * `texto plano de N caracteres` a secas deja al operador sin nada que hacer: es exactamente lo que
+ * se vio el 2026-08-20, cuando las 8 fuentes del sync fallaron con «texto plano de 9738 caracteres»
+ * y hubo que salir a `curl` desde el VPS para saber siquiera qué clase de cosa estaba llegando.
+ *
+ * La restricción de siempre sigue en pie —esta pista viaja al cuerpo de la respuesta HTTP y a
+ * `flito_comparendos_sync_steps.mensaje`, que se conserva y se sirve, y el cuerpo de un portal de
+ * tránsito puede llevar placas y cédulas dentro—, así que aquí NO se copia contenido: se miran
+ * MARCADORES ESTRUCTURALES y se emite una categoría. Nada de lo que sale de esta función depende
+ * del texto del proveedor salvo su longitud y, en el caso JSON, un número de posición.
+ *
+ * Las categorías, y qué le dicen al operador:
+ *
+ *   · **HTML** — no está hablando con la API: hay un portal de bloqueo, un captive portal o un
+ *     proxy interceptando en el camino. Una página de error de ASP.NET (la «pantalla amarilla»)
+ *     también cae aquí: el marcador estructural manda, y `documento HTML` ya dice lo esencial.
+ *   · **Traza .NET** — la API sí contestó, pero reventó por dentro y devolvió el stack en el
+ *     cuerpo. Se busca al proveedor con el dato de la hora, no se toca nada de este lado.
+ *   · **JSON malformado** — empezaba como JSON y no parsea. La POSICIÓN del fallo es el dato de
+ *     oro: si cae cerca del final del cuerpo, la respuesta llegó TRUNCADA (proxy que corta,
+ *     `Content-Length` mentiroso, conexión cerrada a media respuesta), que es un fallo de
+ *     transporte y no de contrato.
+ *   · **JSON válido entregado como texto** — el cuerpo parsea perfectamente y aun así llegó aquí
+ *     como `string`: es el cuerpo DOBLEMENTE CODIFICADO del Bug #11711, o sea, un proveedor que
+ *     serializa el resultado y devuelve el texto. Se nombra por su causa y no como «JSON
+ *     malformado», que es lo que decía antes y era sencillamente falso —no hay nada malformado—.
+ *     La salida de esta rama es una instrucción: esa fuente necesita `desenrollarJsonAnidado` en
+ *     su llamada a `httpsGetJson` (el UTS municipal ya la tiene).
+ *
+ * Lo que esta función NO hace, y no debe hacer nunca: intentar rescatar la lista de un cuerpo que
+ * no es JSON. Recortar, aplicar regex o «buscar el primer `[`» convertiría un cuerpo incomprendido
+ * en una lista —vacía, con toda probabilidad— y una lista vacía inactiva el histórico entero del
+ * NIT. Si no es JSON, es un error y sigue siéndolo.
+ */
+function describirTexto(texto: string): string {
+  const n = texto.length;
+  // Solo la cabeza, y solo para MIRAR marcadores: este trozo no sale de aquí.
+  const inicio = texto.slice(0, 256).trimStart();
+
+  if (/^(<!doctype|<html|<\?xml)/i.test(inicio)) return `documento HTML de ${n} caracteres`;
+
+  // Marcadores de una traza de .NET: el namespace raíz más la forma del stack o del encabezado de
+  // la excepción. Se exigen dos porque `System.` suelto aparece en demasiados textos.
+  if (texto.includes('System.') && (texto.includes(' at ') || texto.includes('Exception:'))) {
+    return `traza de excepción .NET de ${n} caracteres`;
+  }
+
+  if (inicio.startsWith('{') || inicio.startsWith('[')) {
+    const fallo = falloJson(texto);
+    if (fallo === null) {
+      return `JSON válido entregado como TEXTO de ${n} caracteres (cuerpo doblemente codificado: `
+        + 'esta fuente necesita desenrollarJsonAnidado)';
+    }
+    return fallo.posicion === null
+      ? `JSON malformado de ${n} caracteres`
+      : `JSON malformado de ${n} caracteres (el parseo falla en la posición ${fallo.posicion})`;
+  }
+
+  return `texto plano de ${n} caracteres`;
+}
+
+/**
+ * `null` si el texto SÍ parsea; si no, dónde se rinde `JSON.parse` (o `null` dentro, si no lo dice).
+ *
+ * Las dos respuestas se distinguen a propósito: «parsea» y «no parsea sin decir dónde» son
+ * diagnósticos OPUESTOS —el primero es el cuerpo doblemente codificado, el segundo el cuerpo
+ * truncado— y colapsarlos en un solo `null` es lo que hacía que un JSON impecable se anunciara como
+ * «JSON malformado».
+ *
+ * Del error de `JSON.parse` se toma EXCLUSIVAMENTE el número: el mensaje de V8 incluye el token que
+ * encontró —o sea, contenido del proveedor— y ese mensaje no se copia, ni entero ni recortado.
+ * `Unexpected end of JSON input` no trae posición y sale como `{ posicion: null }`, que ya es en sí
+ * mismo el síntoma clásico del cuerpo truncado.
+ */
+function falloJson(texto: string): { posicion: number | null } | null {
+  try {
+    JSON.parse(texto);
+    return null;
+  } catch (e) {
+    const encontrado = /position (\d+)/i.exec(e instanceof Error ? e.message : '');
+    return { posicion: encontrado ? Number(encontrado[1]) : null };
+  }
 }
 
 /**

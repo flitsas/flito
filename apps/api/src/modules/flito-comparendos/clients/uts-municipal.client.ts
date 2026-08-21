@@ -113,12 +113,25 @@ const CODIGO_ESTADO_OK = 1;
  * contrato de esta clase de error es que la pista describe la FORMA, nunca el contenido. Por el
  * mismo motivo no sale el `criterio` de la raíz, que ES el NIT consultado.
  */
-function exigirEnvelopeUtsOk(cuerpo: unknown, httpStatus: number, ctx: ContextoFuente): void {
+/**
+ * El `codigoEstado` del envelope, o `undefined` si el UTS no se pronunció.
+ *
+ * Un solo lector para las dos preguntas que se le hacen al envelope —«¿dice que fue mal?» y «¿dice
+ * algo siquiera?»—, porque son la misma lectura y separarlas invita a que una se quede atrás. Un
+ * `estado` ausente, un `estado` que no es objeto y un `codigoEstado: null` son el MISMO caso: el
+ * proveedor no emitió veredicto. Se devuelve el valor crudo, sin convertir: quién lo compara y cómo
+ * es decisión de cada llamador.
+ */
+function codigoEstadoDelEnvelope(cuerpo: unknown): unknown {
   const estado = leerRuta(cuerpo, RUTA_ESTADO);
-  if (estado === null || typeof estado !== 'object') return;
-
+  if (estado === null || typeof estado !== 'object') return undefined;
   const codigo = (estado as Record<string, unknown>).codigoEstado;
-  if (codigo === undefined || codigo === null) return;
+  return codigo === null ? undefined : codigo;
+}
+
+function exigirEnvelopeUtsOk(cuerpo: unknown, httpStatus: number, ctx: ContextoFuente): void {
+  const codigo = codigoEstadoDelEnvelope(cuerpo);
+  if (codigo === undefined) return;
   if (Number(codigo) === CODIGO_ESTADO_OK) return;
 
   throw new ComparendosFuenteRespuestaIlegibleError(
@@ -213,7 +226,40 @@ export async function consultarComparendosMunicipales(
         'Cache-Control': 'no-store',
         // La misma excepción que arriba, y en el mismo sitio donde se decide: sin esto el helper
         // hablaría `https` contra un host que solo escucha en claro.
-      }, limiteDeTiempoMs(), { permitirTextoPlano: enClaro }),
+        //
+        // `desenrollarJsonAnidado`: el UTS devuelve el cuerpo DOBLEMENTE CODIFICADO —el JSON ya
+        // serializado, entregado como string—, de modo que el primer `JSON.parse` no da el objeto
+        // sino un string. No es una sospecha: es la causa raíz del Bug #11711, medida el 2026-08-21
+        // en CINCO de los OCHO municipios que siembra la 0150 (BELLO, MEDELLIN, ITAGUI, ENVIGADO y
+        // SABANETA; CALI, MANIZALES y RIONEGRO no se midieron), todos con `Content-Length` y todos
+        // con la comilla doble como primer byte del cuerpo. Que falten tres no deja un hueco: el
+        // desenrollado solo actúa si el primer `JSON.parse` entrega un `string`, así que un
+        // municipio que conteste JSON normal sigue el camino de siempre.
+        //
+        // Qué se veía ANTES del arreglo, dicho con precisión porque de aquí sale la decisión: un
+        // 502 `fuente_respuesta_ilegible` OPACO —la pista era «texto plano de N caracteres»—, y NO
+        // una lista vacía. `extraerLista` no reconoce ninguna lista dentro de un string y lanza, así
+        // que el histórico del NIT nunca llegó a tocarse por esta vía.
+        //
+        // Y aun así el desenrollado va AQUÍ, en el TRANSPORTE y ANTES de `exigirEnvelopeUtsOk`,
+        // porque el riesgo de verdad aparece en cuanto se desenrolla más tarde: sobre un string esa
+        // comprobación no ve el `codigoEstado` y sale limpia. Un cuerpo desenrollado más abajo
+        // llegaría a `extraerLista` con el envelope ENTERO y sus listas dentro —la captura del
+        // 2026-08-21 muestra envelopes cuyas cuatro listas vienen vacías—, de modo que un
+        // `codigoEstado` no-OK sin validar acabaría en `ok:true` con lista vacía. Y la lista vacía
+        // es lo que inactiva el histórico del NIT (ADR-0001 §5). El orden es la garantía; el
+        // emplazamiento no es cosmético.
+        //
+        // El alcance de lo que toca este arreglo NO es uniforme, y conviene no venderlo como si lo
+        // fuera:
+        //   · `permitirTextoPlano` y `desenrollarJsonAnidado` son POR LLAMADA. Encenderlas aquí no
+        //     las enciende en Verifik, traspaso, RUNT, Fasecolda ni Mercado Libre: esos cinco
+        //     siguen con el parseo de siempre.
+        //   · La acumulación del cuerpo en Buffer (`leerCuerpo`) NO es opt-in: aplica a TODOS los
+        //     llamadores del helper y ninguno la pidió. Se asume a conciencia —era una lectura mal
+        //     hecha para cualquiera— y lo único que cambia es el resultado de un cuerpo que hoy
+        //     llegaría con U+FFFD por un carácter multibyte partido entre dos trozos del socket.
+      }, limiteDeTiempoMs(), { permitirTextoPlano: enClaro, desenrollarJsonAnidado: true }),
       ctx,
     );
 
@@ -222,10 +268,25 @@ export async function consultarComparendosMunicipales(
     exigirEnvelopeUtsOk(respuesta.data, httpStatus, ctx);
     const items = extraerLista<ComparendoCrudoMunicipal>(respuesta.data, httpStatus, ctx, RUTAS_LISTA);
 
-    log.debug({ fuente: ctx.fuente, nit: maskDocument(nit), httpStatus, items: items.length },
+    // ── ¿Concluyente? (Bug #11711 AC8, RN-47) ────────────────────────────────────────────────────
+    //
+    // Llegados aquí el envelope o dijo `codigoEstado: 1` o no dijo nada: un código distinto ya lanzó
+    // arriba. La consulta se considera CONCLUYENTE si el proveedor se pronunció —hay `codigoEstado`—
+    // o si trajo comparendos, que es un pronunciamiento de hecho: quien devuelve una lista con algo
+    // dentro está contestando a la pregunta.
+    //
+    // Lo que queda fuera es el caso medido el 2026-08-21 en MEDELLIN con un NIT sin comparendos:
+    // `codigoEstado: null` y cero ítems. Ese vacío no es «no debe nada»; es «no sé decirte». Y no se
+    // convierte en error a propósito: el MISMO municipio contesta `codigoEstado: 1` para otro NIT
+    // —y BELLO contesta 1 con cero comparendos—, así que exigir veredicto los dejaría caídos para
+    // siempre. Se responde `ok`, con la lista que haya, y se le quita a esa respuesta el único
+    // poder que no puede tener: autorizar una inactivación por ausencia (ADR-0001 §5).
+    const concluyente = codigoEstadoDelEnvelope(respuesta.data) !== undefined || items.length > 0;
+
+    log.debug({ fuente: ctx.fuente, nit: maskDocument(nit), httpStatus, items: items.length, concluyente },
       'consulta a UTS municipal resuelta');
 
-    return { ...ctx, modo: 'real', httpStatus, items };
+    return { ...ctx, modo: 'real', httpStatus, items, concluyente };
   } catch (e) {
     const fallo = comoErrorDeFuente(e, ctx);
     log.warn({ fuente: ctx.fuente, nit: maskDocument(nit), codigo: fallo.codigo, httpStatus: fallo.httpStatus },
@@ -270,5 +331,8 @@ function respuestaSimulada(nit: string, ctx: ContextoFuente): RespuestaFuenteMun
   log.debug({ fuente: ctx.fuente, nit: maskDocument(nit), items: items.length },
     'consulta a UTS municipal simulada (COMPARENDOS_SIMIT_MODE=mock): no se tocó la red');
 
-  return { ...ctx, modo: 'mock', httpStatus: null, items };
+  // Concluyente: el mock SÍ contesta a lo que se le pregunta, y su lista es la respuesta completa.
+  // Marcarlo como no concluyente dejaría el modo simulado sin poder ejercer nunca la inactivación,
+  // que es media HU #11500.
+  return { ...ctx, modo: 'mock', httpStatus: null, items, concluyente: true };
 }
