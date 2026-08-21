@@ -14,6 +14,7 @@ import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '.
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import CeldaFacturacion from '../components/finanzas/CeldaFacturacion';
+import MarcaSoatConciliado from '../components/finanzas/MarcaSoatConciliado';
 import FichaFacturacion from '../components/finanzas/FichaFacturacion';
 import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
 import AccionEnviarFactura from '../components/finanzas/AccionEnviarFactura';
@@ -55,6 +56,18 @@ interface Fila {
   estadoFacturacion: SiigoEstadoReporte;
   facturaNumero: string | null;
   facturaRequiereRevision: boolean;
+  /**
+   * Conciliación del SOAT de la fila (HU #11679, Feature #11623). El servidor ya las manda en cada
+   * fila; declararlas aquí es lo que permite marcarlo en pantalla.
+   *
+   * No hay un cuarto campo con el NOMBRE DEL ARCHIVO de la boleta y no es un olvido: es el
+   * `originalname` de multer —texto libre— y una boleta agrupa SOAT de varios trámites, así que
+   * podría arrastrar la placa de un tercero a un reporte que `auditor` lee sin registro de acceso.
+   * La referencia identifica la boleta igual de bien y no es PII.
+   */
+  soatConciliado: boolean;
+  boletaReferencia: string | null;
+  soatConciliadoEn: string | null;
 }
 interface Totales {
   soat: number; impuesto: number; derechoTramite: number; logistica: number; tramiteDigital: number;
@@ -643,7 +656,13 @@ export default function FinanzasReporteCostos() {
                     {/* SOAT e impuesto nunca entran en `noConfigurados`: no hay tarifa que
                         configurar. Su celda vacía puede ser un pago pendiente, una compañía que los
                         autogestiona o un trámite exento, y cada una se dice con su nombre. */}
-                    <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.soat} falta={faltaDe(f, CONCEPTO.soat)} /></td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      <Monto v={f.soat} falta={faltaDe(f, CONCEPTO.soat)} />
+                      {/* Debajo del valor, y solo si está conciliado: el componente no pinta nada
+                          —ni un hueco— cuando no lo está, así que la fila de siempre no cambia. */}
+                      <MarcaSoatConciliado conciliado={f.soatConciliado} referencia={f.boletaReferencia}
+                        conciliadoEn={f.soatConciliadoEn} />
+                    </td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.impuesto} falta={faltaDe(f, CONCEPTO.impuesto)} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.derechoTramite} falta={faltaDe(f, CONCEPTO.derecho)} /></td>
                     <td className="px-4 py-2 text-right tabular-nums"><Monto v={f.logistica} falta={faltaDe(f, CONCEPTO.logistica)} /></td>
