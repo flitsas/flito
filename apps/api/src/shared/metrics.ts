@@ -2,8 +2,10 @@
 // y cierres de diagnóstico PESV.
 //
 // Registro dedicado (no el global default) para control explícito. Se expone en
-// GET /metrics (fuera de /api → nginx no lo proxya públicamente; lo scrapea
-// Prometheus desde el host en localhost:3005/metrics).
+// GET /metrics, fuera de /api. Estar fuera de /api NO lo protege: el vhost del
+// subdominio de API enruta la raíz al servicio y la ruta quedó pública en los tres
+// ambientes (Bug #11599). Hoy la cierra `shared/middleware/metricsAuth.ts`, que exige
+// `Authorization: Bearer ${METRICS_TOKEN}` y responde 404 si esa variable no está.
 
 import { Registry, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom-client';
 
