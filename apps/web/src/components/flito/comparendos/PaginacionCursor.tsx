@@ -18,6 +18,14 @@ const BTN_ESTILO = { borderColor: 'var(--flit-border-input)', color: 'var(--flit
 interface Props {
   /** Filas de la página actual. No es un total: el API no devuelve ninguno. */
   enEstaPagina: number;
+  /**
+   * Qué se está contando. Por defecto «comparendos», que es de donde viene el componente.
+   *
+   * Se abre como prop —igual que el `sustantivo` de `Paginacion.tsx`— porque la conciliación de
+   * boletas pagina también por cursor (HU #11680) y la alternativa era copiar el componente entero
+   * para cambiar una palabra: dos paginaciones idénticas que el día que cambie una se separan.
+   */
+  sustantivo?: string;
   pagina: number;
   hayAnterior: boolean;
   haySiguiente: boolean;
@@ -27,6 +35,7 @@ interface Props {
 
 export default function PaginacionCursor({
   enEstaPagina, pagina, hayAnterior, haySiguiente, onAnterior, onSiguiente,
+  sustantivo = 'comparendos',
 }: Props) {
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -34,7 +43,7 @@ export default function PaginacionCursor({
         <strong style={{ color: 'var(--flit-text-primary)' }}>
           {enEstaPagina.toLocaleString('es-CO')}
         </strong>
-        {' '}comparendos en esta página · página {pagina}
+        {' '}{sustantivo} en esta página · página {pagina}
       </span>
       <div className="flex gap-2">
         <button
