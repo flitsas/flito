@@ -23,7 +23,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Redacted } from '../../src/shared/utils/crypto.js';
 import {
-  FABRICADO, numeroSimit, payloadSimit, payloadUts,
+  cuerpoDobleEncodeado, FABRICADO, itemMunicipal, numeroSimit, payloadSimit, payloadUts,
 } from '../fixtures/comparendos/payloads-fuente.js';
 
 // Cadena con una pinta imposible de confundir: cualquier aparición suya en un log o en un mensaje
@@ -64,6 +64,15 @@ const { consultarComparendosMunicipales, reiniciarAvisoTextoPlano } =
   await import('../../src/modules/flito-comparendos/clients/uts-municipal.client.js');
 const { env } = await import('../../src/config/env.js');
 
+/**
+ * El parseo REAL del transporte, esquivando el mock de arriba (`vi.importActual`).
+ *
+ * Lo usa `respondeCuerpoCrudo`, y es lo que separa probar el Bug #11711 de probar una maqueta suya.
+ */
+const { parsearCuerpo } = await vi.importActual<
+  typeof import('../../src/modules/integraciones/http.js')
+>('../../src/modules/integraciones/http.js');
+
 // `env` es una foto validada en el import, pero es un objeto normal: mutarlo es la forma en que el
 // resto de la suite (ver `flito-comparendos-token.test.ts`) ejerce otros valores de entorno.
 type EnvMutable = {
@@ -84,6 +93,23 @@ function modoReal(verifik = 'https://verifik.test', uts = 'https://uts.test'): v
 
 /** Texto de todo lo logueado, para las aserciones de «esto no aparece en ningún sitio». */
 const logueado = () => JSON.stringify(registros);
+
+/**
+ * Hace que el mock del transporte responda un cuerpo CRUDO, parseándolo como lo haría el de verdad.
+ *
+ * El resto del archivo fija `data` a mano, que es lo correcto cuando lo que se ejerce es el adapter.
+ * Para el Bug #11711 no vale: lo que hay que demostrar es que el cuerpo del proveedor —texto, doble
+ * codificado— acaba desenrollado ANTES de que el adapter mire el envelope. Por eso aquí `data` no se
+ * escribe: se CALCULA con el `parsearCuerpo` real y con las opciones que el adapter haya pasado en la
+ * llamada. Si alguien apaga `desenrollarJsonAnidado` en `uts-municipal.client.ts`, este mock
+ * devuelve el string que devolvería el proveedor y los casos de abajo se ponen rojos.
+ */
+function respondeCuerpoCrudo(cuerpo: string, status = 200): void {
+  httpsGetJsonMock.mockImplementation(async (
+    _url: string, _hdrs: unknown, _timeoutMs: number,
+    opciones: { desenrollarJsonAnidado?: boolean } = {},
+  ) => ({ status, data: parsearCuerpo(cuerpo, opciones.desenrollarJsonAnidado === true) }));
+}
 
 beforeEach(() => {
   httpsJsonMock.mockReset();
@@ -477,7 +503,7 @@ describe('errores tipados de las fuentes', () => {
   });
 
   it('un cuerpo de texto plano no acaba en el mensaje del error', async () => {
-    httpsGetJsonMock.mockResolvedValue({ status: 200, data: '<html>placa ABC123 cédula 1036640908</html>' });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: 'placa ABC123 cédula 1036640908' });
 
     const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
 
@@ -485,6 +511,98 @@ describe('errores tipados de las fuentes', () => {
     expect(fallo.message).toContain('texto plano de');
     expect(fallo.message).not.toContain('1036640908');
     expect(fallo.message).not.toContain('ABC123');
+  });
+
+  // ── La CLASE de cuerpo de texto, que es lo único accionable que se puede dar ──────────────────
+  //
+  // «texto plano de 9738 caracteres» dejó al operador sin nada el 2026-08-20: las 8 fuentes del
+  // sync fallaron igual y hubo que salir a `curl` desde el VPS para saber qué clase de cosa estaba
+  // llegando. Lo que estos casos fijan es que la pista clasifica por MARCADORES ESTRUCTURALES y
+  // que ninguna aserción depende de texto del proveedor: los cuerpos llevan una placa y una cédula
+  // fabricadas dentro, y no pueden aparecer en el mensaje ni recortadas.
+
+  it('un cuerpo HTML se identifica como HTML, sin copiar una letra', async () => {
+    // El caso del portal de bloqueo o del proxy interceptando: no se está hablando con la API.
+    httpsGetJsonMock.mockResolvedValue({
+      status: 200,
+      data: '<!DOCTYPE html><html><body>Portal ABC123 1036640908</body></html>',
+    });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.message).toContain('documento HTML de');
+    expect(fallo.message).not.toContain('ABC123');
+    expect(fallo.message).not.toContain('1036640908');
+    expect(fallo.message).not.toContain('Portal');
+  });
+
+  it('una traza de excepción .NET se identifica como tal', async () => {
+    // La API sí contestó y reventó por dentro: el diagnóstico es del proveedor, no de este lado.
+    httpsGetJsonMock.mockResolvedValue({
+      status: 200,
+      data: 'System.NullReferenceException: placa ABC123\n   at Uts.Infraccion.Consultar(String nit)',
+    });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.message).toContain('traza de excepción .NET de');
+    expect(fallo.message).not.toContain('ABC123');
+    expect(fallo.message).not.toContain('NullReference');
+  });
+
+  it('un JSON truncado se identifica como malformado, con su longitud', async () => {
+    // El corte a media respuesta —proxy que trunca, conexión cerrada— da «Unexpected end of JSON
+    // input», que NO trae posición: la pista sale sin ella, y la longitud sigue diciendo lo suyo.
+    const truncado = '{"criterio":"1036640908","multas":[{"placa":"ABC123","valor":';
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: truncado });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.message).toContain(`JSON malformado de ${truncado.length} caracteres`);
+    expect(fallo.message).not.toContain('ABC123');
+    expect(fallo.message).not.toContain('1036640908');
+    expect(fallo.message).not.toContain('multas');
+  });
+
+  it('un JSON roto por dentro dice DÓNDE falla el parseo, y solo el número', async () => {
+    // La posición es el dato de oro para diagnosticar: dice si el cuerpo se rompió al principio
+    // (contrato distinto) o al final (transporte). Del error de `JSON.parse` se toma EXCLUSIVAMENTE
+    // el número — su mensaje nombra el token encontrado, que es contenido del proveedor.
+    const roto = '{"criterio":"1036640908","multas":[{"placa":"ABC123"} "valor":1}]}';
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: roto });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.message).toContain(`JSON malformado de ${roto.length} caracteres`);
+    expect(fallo.message).toMatch(/posición \d+/);
+    expect(fallo.message).not.toContain('ABC123');
+    expect(fallo.message).not.toContain('1036640908');
+    expect(fallo.message).not.toContain('multas');
+    // Ni una palabra del mensaje de V8, que es donde viaja el token del proveedor.
+    expect(fallo.message).not.toMatch(/Expected|token|line \d+/);
+  });
+
+  it('un JSON BIEN formado que llega como texto se nombra por su causa, no como «malformado»', async () => {
+    // El cuerpo doblemente codificado visto por una fuente que NO pidió el desenrollado. Antes salía
+    // como «JSON malformado», que era falso —no hay nada malformado— y mandaba a buscar un truncado
+    // que no existe. Ahora la pista dice qué pasa y qué hacer.
+    const comoTexto = JSON.stringify({ criterio: '1036640908', multas: [{ placa: 'ABC123' }] });
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: comoTexto });
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.message).toContain(`JSON válido entregado como TEXTO de ${comoTexto.length} caracteres`);
+    expect(fallo.message).toContain('desenrollarJsonAnidado');
+    expect(fallo.message).not.toContain('malformado');
+    // La regla de siempre: la pista describe la forma, nunca el contenido.
+    expect(fallo.message).not.toContain('ABC123');
+    expect(fallo.message).not.toContain('1036640908');
+    expect(fallo.message).not.toContain('multas');
   });
 
   it('un mapa indexado por placa o cédula tampoco filtra: las CLAVES también son datos', async () => {
@@ -598,6 +716,24 @@ describe('errores tipados de las fuentes', () => {
     const [, , , opciones] = httpsGetJsonMock.mock.calls[0];
     expect(opciones).toMatchObject({ permitirTextoPlano: false });
     expect(logueado()).not.toContain('sin cifrar');
+  });
+
+  it('el UTS pide el desenrollado de JSON anidado; Verifik NO, y ese es el punto', async () => {
+    // El UTS corre sobre ASP.NET, que tiene la costumbre de devolver el resultado ya serializado
+    // como string. La excepción se pide POR LLAMADA —igual que `permitirTextoPlano`— para que
+    // encenderla aquí no la encienda en Verifik ni en los cuatro llamadores que comparten el
+    // helper (traspaso, RUNT, Fasecolda, Mercado Libre), a los que este Bug no toca.
+    modoReal();
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { infracciones: [] } });
+
+    await consultarComparendosMunicipales(NIT, 'BELLO');
+    const [, , , opcionesUts] = httpsGetJsonMock.mock.calls[0];
+    expect(opcionesUts).toMatchObject({ desenrollarJsonAnidado: true });
+
+    httpsGetJsonMock.mockResolvedValue({ status: 200, data: { data: [{ numeroComparendo: 'A-1' }] } });
+    await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) });
+    const [, , , opcionesVerifik] = httpsGetJsonMock.mock.calls[1];
+    expect((opcionesVerifik ?? {}).desenrollarJsonAnidado).toBeFalsy();
   });
 
   it('una base con query o fragmento se rechaza: es el único punto interpolado de la URL', async () => {
@@ -716,5 +852,161 @@ describe('el token no aparece en ningún log ni mensaje', () => {
     // La red de seguridad de `Redacted`: incluso pasándolo entero a un log, sale `[REDACTED]`.
     expect(JSON.stringify({ token: envuelto })).toBe('{"token":"[REDACTED]"}');
     expect(String(envuelto)).toBe('[REDACTED]');
+  });
+});
+
+// ─────────── Bug #11711 · el UTS contesta el JSON doblemente codificado ─────────────────────────
+//
+// Medido contra el proveedor el 2026-08-21: los 5 municipios consultados responden `HTTP 200`,
+// `application/json; charset=utf-8`, con `Content-Length` y con el cuerpo serializado DOS veces —el
+// primer byte es una comilla doble—. `JSON.parse` no lanza sobre eso: devuelve un STRING.
+//
+// El síntoma que producía, sin adornarlo: un 502 `fuente_respuesta_ilegible` OPACO —«texto plano de
+// N caracteres»—, porque `extraerLista` no reconoce ninguna lista dentro de un string. NO se
+// devolvía una lista vacía y no se inactivó nada por este camino. Lo que sí se saltaba en silencio
+// era `exigirEnvelopeUtsOk`: sobre un string no hay `codigoEstado` que mirar.
+//
+// De ahí el emplazamiento que estos casos fijan —desenrollar en el TRANSPORTE, ANTES de esa
+// comprobación—. Desenrollar más tarde dejaría el envelope sin validar y entregaría a `extraerLista`
+// el envelope entero con sus listas dentro, que en la captura del 2026-08-21 vienen VACÍAS: un
+// `codigoEstado` no-OK sin comprobar saldría entonces como `ok:true` con lista vacía, y la lista
+// vacía es lo que inactiva el histórico del NIT (ADR-0001 §5).
+//
+// Los cuerpos de este bloque NO se escriben a mano: se generan con `cuerpoDobleEncodeado(...)` sobre
+// las fixtures, y el mock del transporte los parsea con el `parsearCuerpo` REAL respetando las
+// opciones que el adapter pasó. Así, lo que aquí se afirma depende de que el cliente PIDA el
+// desenrollado, no de que el test se lo regale.
+
+describe('UTS municipal: el cuerpo doblemente codificado (Bug #11711)', () => {
+  beforeEach(() => { modoReal(); });
+
+  it('AC1 — el cuerpo doble-encodeado se desenrolla y la consulta entrega sus comparendos', async () => {
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts()));
+
+    const r = await consultarComparendosMunicipales(NIT, 'MEDELLIN');
+
+    expect(r.modo).toBe('real');
+    expect(r.httpStatus).toBe(200);
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0].numeroComparendo).toBe(FABRICADO.numeroMunicipal);
+  });
+
+  it('AC2 — un `codigoEstado` != 1 DOBLE-ENCODEADO ya no se salta en silencio', async () => {
+    // El caso exacto que el bug dejaba pasar. La `descripcion` lleva dentro el NIT consultado a
+    // propósito: es texto del proveedor y no puede acabar en el mensaje, que se PERSISTE en
+    // `sync_steps.mensaje` (RN-20).
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({
+      nit: NIT,
+      estado: { codigoEstado: 4, descripcion: `SIN INFORMACION PARA EL NIT ${NIT}` },
+      comparendos: [],
+    })));
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'BELLO').catch((e) => e);
+
+    // 502 y no una lista vacía: «no se sabe» no es «no debe nada».
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.status).toBe(502);
+    expect(fallo.message).toContain('el UTS respondió codigoEstado 4');
+    expect(fallo.message).not.toContain('SIN INFORMACION');
+    expect(fallo.message).not.toContain(NIT);
+    // Y la pista es la del ENVELOPE, no la de «no reconozco esta forma»: si el desenrollado se
+    // apaga, el cuerpo llega como string y el error saldría igual pero por el otro camino —el de
+    // `describirTexto`—. Esta línea es la que distingue los dos.
+    expect(fallo.message).not.toContain('caracteres');
+  });
+
+  it('AC3 — ENVIGADO (doble-encodeado y SIN envelope) es 502, jamás lista vacía', async () => {
+    // Cuerpo real del 2026-08-21, con sus 38 bytes: `{"codigo":4,"descripcion":null}` serializado
+    // otra vez. Al desenrollar queda un objeto que no tiene NINGUNA de las `RUTAS_LISTA`.
+    respondeCuerpoCrudo(cuerpoDobleEncodeado({ codigo: 4, descripcion: null }));
+
+    const fallo = await consultarComparendosMunicipales(NIT, 'ENVIGADO').catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    expect(fallo.status).toBe(502);
+    // Se rechaza por lo que ES —un objeto con dos claves que no son una lista— y no como texto
+    // opaco: eso es lo que prueba que el desenrollado ocurrió antes.
+    expect(fallo.message).toContain('claves recibidas: codigo, descripcion');
+    expect(fallo.message).not.toContain('caracteres');
+    // Y lo que se obtuvo fue un FALLO, no una respuesta: degradar esto a `items: []` inactivaría
+    // el histórico entero del NIT (ADR-0001 §5).
+    expect(fallo).toBeInstanceOf(Error);
+  });
+
+  it('AC4 — Verifik NO desenrolla: el mismo cuerpo le sale como error, no como objeto', async () => {
+    // La garantía de que encender la opción en el UTS no se la enciende a los demás. Se ejerce con
+    // Verifik porque es la otra fuente del módulo, pero el helper es el mismo que usan traspaso,
+    // RUNT, Fasecolda y Mercado Libre. Sin la opción, el cuerpo se queda en `string` —lo de
+    // siempre— y termina en error tipado; nunca en una lista vacía silenciosa.
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadSimit(2)));
+
+    const fallo = await consultarComparendosSimit(NIT, { token: new Redacted(TOKEN) }).catch((e) => e);
+
+    expect(fallo.codigo).toBe('fuente_respuesta_ilegible');
+    const [, , , opcionesVerifik] = httpsGetJsonMock.mock.calls[0];
+    expect((opcionesVerifik ?? {}).desenrollarJsonAnidado).toBeFalsy();
+  });
+
+  // ── AC8 · «respondió» y «se pronunció» no son lo mismo (RN-47) ──────────────────────────────
+  //
+  // Medido el 2026-08-21 y es lo que obliga a separar las dos nociones: MEDELLIN contesta
+  // `codigoEstado: 1` con un comparendo para un NIT y `codigoEstado: null` con cero para otro,
+  // mientras BELLO contesta `codigoEstado: 1` con cero. El código no correlaciona con nada, así que
+  // ni su ausencia significa «sin deuda» ni puede tratarse como avería. Lo único que cambia es si
+  // esa respuesta puede sumar cobertura para inactivar (eso lo ejerce el test del sync).
+
+  it('AC8 — sin veredicto y sin comparendos: la consulta sale `ok` pero NO concluyente', async () => {
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({
+      estado: { codigoEstado: null, descripcion: null }, comparendos: [],
+    })));
+
+    const r = await consultarComparendosMunicipales(NIT, 'MEDELLIN');
+
+    // Ni error —no es una avería— ni cobertura: la respuesta vale como «no sé decirte».
+    expect(r.httpStatus).toBe(200);
+    expect(r.items).toEqual([]);
+    expect(r.concluyente).toBe(false);
+  });
+
+  it('AC8 — un envelope SIN `estado` es exactamente el mismo caso', async () => {
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({ estado: null, comparendos: [] })));
+
+    const r = await consultarComparendosMunicipales(NIT, 'MEDELLIN');
+
+    expect(r.concluyente).toBe(false);
+  });
+
+  it('AC8 — `codigoEstado: 1` con cero comparendos SÍ es concluyente (el caso de BELLO)', async () => {
+    // Y esto es lo que impide «resolver» el AC8 apagando la inactivación del módulo entero: un
+    // proveedor que se pronuncia y dice cero tiene que poder seguir autorizando el barrido.
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({ comparendos: [] })));
+
+    const r = await consultarComparendosMunicipales(NIT, 'BELLO');
+
+    expect(r.items).toEqual([]);
+    expect(r.concluyente).toBe(true);
+  });
+
+  it('AC8 — sin veredicto pero CON comparendos: contestar con datos ya es pronunciarse', async () => {
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({
+      estado: { codigoEstado: null, descripcion: null }, comparendos: [itemMunicipal()],
+    })));
+
+    const r = await consultarComparendosMunicipales(NIT, 'MEDELLIN');
+
+    expect(r.items).toHaveLength(1);
+    expect(r.concluyente).toBe(true);
+  });
+
+  it('AC5 — MEDELLIN con un comparendo de verdad: sin 502 y sin «lista no reconocible»', async () => {
+    respondeCuerpoCrudo(cuerpoDobleEncodeado(payloadUts({ comparendos: [itemMunicipal()] })));
+
+    const r = await consultarComparendosMunicipales(NIT, 'MEDELLIN');
+
+    expect(r.items).toHaveLength(1);
+    // Las dos hojas que el mapa v2 homologa a `numeroComparendo` y a `estadoFuente`.
+    expect(r.items[0].numeroComparendo).toBe(FABRICADO.numeroMunicipal);
+    expect(r.items[0].descripcionEstado).toBe('Se adeuda');
+    expect(logueado()).not.toContain('reconocible');
   });
 });

@@ -24,8 +24,9 @@
 //        presupuesto de tiempo. El token se descifra UNA vez por corrida, no una por NIT.
 //
 // RN-18  Inactivación conservadora (CF-10). Solo se inactiva por ausencia a los NIT cuyo paso SIMIT
-//        fue `ok` **y** cuyos municipios activos fueron TODOS `ok`. Un municipio con timeout no
-//        significa «este comparendo ya no existe», significa «hoy no sabemos».
+//        fue `ok` **y** cuyos municipios activos fueron TODOS `ok` y CONCLUYENTES (RN-47). Un
+//        municipio con timeout no significa «este comparendo ya no existe», significa «hoy no
+//        sabemos» — y uno que contesta sin veredicto tampoco significa nada más que eso.
 //
 // RN-19  El timeline no se repite. `primera_llegada` una sola vez por registro; `inactivacion` y
 //        `reaparicion` como mucho una por corrida, garantizado por el único
@@ -68,6 +69,19 @@
 //        (PATCH del catálogo, HU #11497, que no avisa de nada) para que la corrida siguiente lo
 //        apagara. Caso extremo: con CERO municipios activos, `municipales.every(...)` sobre la lista
 //        vacía es `true` y un sync solo-SIMIT apagaría todo el histórico municipal.
+//
+// RN-47  Cobertura es «respondió Y se pronunció», no solo «respondió» (Bug #11711 AC8). El UTS
+//        municipal contesta a veces con `codigoEstado: null` y cero comparendos, y eso no es «este
+//        NIT no debe nada»: es «no sé decirte». Medido contra el proveedor el 2026-08-21, y lo que
+//        se midió es que el código NO correlaciona con nada — el mismo MEDELLIN responde `1` con un
+//        comparendo para un NIT y `null` con cero para otro, y BELLO responde `1` con cero—. De ahí
+//        las dos mitades de la regla: ni se puede deducir «sin deuda» de la ausencia de veredicto,
+//        ni se puede tratar esa ausencia como avería (exigir veredicto dejaría a esos municipios
+//        caídos para siempre, y un municipio caído es un `partial` eterno). Así que el paso queda
+//        `ok` —la corrida sigue, el municipio no se marca como caído— pero NO cuenta como cobertura
+//        para el CF-10, con lo que ningún comparendo de ese NIT se apaga por ausencia. El motivo
+//        viaja en `sync_steps.mensaje`, que ya se conserva: sin columna nueva y sin copiar una
+//        palabra del proveedor.
 //
 // RN-24  Freno de inactivación masiva. Un token vencido cuyo proveedor conteste `200` con lista
 //        vacía pasa todos los filtros sin ruido, y una sola corrida apagaría el histórico entero. Si
@@ -495,7 +509,10 @@ interface ResultadoNit {
   steps: ComparendosSyncStep[];
   acumulador: AcumuladorNit;
   itemsIgnorados: number;
-  /** SIMIT ok **y** todos los municipios activos ok: la condición del CF-10 (RN-18, RN-22). */
+  /**
+   * SIMIT ok **y** todos los municipios activos ok Y CONCLUYENTES: la condición del CF-10
+   * (RN-18, RN-22, RN-47).
+   */
   coberturaCompleta: boolean;
 }
 
@@ -534,7 +551,11 @@ async function procesarNit(ctx: ContextoCorrida, nit: string): Promise<Resultado
     steps,
     acumulador,
     itemsIgnorados,
-    coberturaCompleta: simit.step.ok && municipales.every((m) => m.step.ok),
+    // `ok` no basta (RN-47): un municipio que contestó sin veredicto y sin comparendos no ha dicho
+    // que este NIT no deba nada, así que su vacío no puede sumar cobertura. Se le resta a este NIT
+    // la elegibilidad entera —y no solo sus filas— porque la ausencia se mide contra el conjunto: un
+    // comparendo que hoy no vio SIMIT podría estar en el municipio que no se pronunció.
+    coberturaCompleta: simit.step.ok && municipales.every((m) => m.step.ok && m.concluyente),
   };
 }
 
@@ -549,8 +570,22 @@ async function procesarNit(ctx: ContextoCorrida, nit: string): Promise<Resultado
  *   2. La corrida pasa a `partial` y el paso queda con su `errorCode` en `sync_steps`, que es lo que
  *      el operador ve. Con `ok: true` la pantalla diría «completada, 0 comparendos» y nadie iría a
  *      mirar el `field_map`.
- *   3. La cobertura del CF-10 se calcula sobre `ok`, así que la regla queda en UN sitio y no en dos
- *      condiciones que hay que acordarse de mantener sincronizadas.
+ *   3. La cobertura del CF-10 mira `ok`, así que degradar el paso basta para que este caso deje de
+ *      autorizar una inactivación: no hay que acordarse de restarle la cobertura por separado.
+ *
+ * Matiz que este archivo debe a RN-47 (Bug #11711), porque el punto 3 decía «la regla queda en UN
+ * sitio» y ya no es cierto: la cobertura son DOS condiciones —`ok` **y** `concluyente`—. No se
+ * unificaron porque los dos casos no son el mismo y no merecen el mismo trato:
+ *
+ *   · **«No te entiendo»** (esto, RN-22) SÍ es un fallo. La respuesta llegó y no se pudo leer: hay
+ *     algo roto —el `field_map` o el contrato del proveedor— y alguien tiene que ir a mirarlo. Paso
+ *     `ok: false`, corrida `partial`, `errorCode` en `sync_steps`.
+ *   · **«No me pronuncio»** (RN-47) NO lo es. El UTS contesta a veces sin `codigoEstado` y sin
+ *     comparendos, y eso es una respuesta legítima de un proveedor que funciona: marcarla como fallo
+ *     dejaría a ese municipio caído cada vez que un NIT no tiene comparendos allí. Paso `ok: true`,
+ *     corrida `completed`, y lo único que se le quita es la cobertura.
+ *
+ * Lo que comparten —y es lo que importa— es que ninguno de los dos autoriza a apagar nada.
  *
  * Lo que sí se conserva es lo que sí se entendió: los ítems con número ya están en el acumulador y se
  * escriben igual. Un fallo parcial no tira los datos buenos.
@@ -569,7 +604,28 @@ interface ResultadoLlamada {
   step: ComparendosSyncStep;
   /** Ítems crudos, o `null` si la fuente falló. `null` NO es lista vacía: ver RN-18. */
   items: Record<string, unknown>[] | null;
+  /**
+   * ¿La fuente se pronunció sobre este NIT? (RN-47).
+   *
+   * Vive aquí y no en el `step` a propósito: es una entrada del cálculo de cobertura, no un dato del
+   * histórico. Persistirlo obligaría a una columna en `flito_comparendos_sync_steps` para algo que
+   * solo se consulta dentro de la corrida; lo que el operador necesita —el motivo— ya va en
+   * `mensaje`. Si algún día hay que filtrar corridas por esto, entonces sí será una columna.
+   */
+  concluyente: boolean;
 }
+
+/**
+ * Lo que se le dice al operador cuando el municipio contesta pero no se pronuncia (RN-47).
+ *
+ * Se persiste en `sync_steps.mensaje`, que se conserva y se sirve, así que describe la FORMA de la
+ * respuesta y su CONSECUENCIA, y ni una palabra del proveedor (RN-20). Es además el primer `mensaje`
+ * que acompaña a un paso `ok: true`: hasta ahora solo lo llevaban los fallidos, y aquí el municipio
+ * no ha fallado — simplemente no ha dicho nada que autorice a apagar comparendos.
+ */
+const MENSAJE_SIN_VEREDICTO = 'El UTS respondió sin veredicto (codigoEstado ausente) y sin '
+  + 'comparendos: la respuesta no confirma que el NIT no deba nada, así que este municipio no cuenta '
+  + 'como cobertura y no se inactiva nada de este NIT en esta corrida.';
 
 async function llamarSimit(ctx: ContextoCorrida, nit: string): Promise<ResultadoLlamada> {
   const inicio = Date.now();
@@ -578,9 +634,13 @@ async function llamarSimit(ctx: ContextoCorrida, nit: string): Promise<Resultado
     return {
       step: paso(nit, FUENTE_SIMIT, { ok: true, httpStatus: r.httpStatus, itemsLeidos: r.items.length }, inicio),
       items: r.items as Record<string, unknown>[],
+      // Verifik no publica un veredicto aparte de la lista: su `data` ES la respuesta a la consulta,
+      // y una `multas: []` suya sí significa «no consta ninguna». Que RN-47 sea del UTS y no de aquí
+      // no es un olvido — es que la ambigüedad la introduce el otro proveedor, no este.
+      concluyente: true,
     };
   } catch (e) {
-    return { step: pasoFallido(nit, FUENTE_SIMIT, e, inicio), items: null };
+    return { step: pasoFallido(nit, FUENTE_SIMIT, e, inicio), items: null, concluyente: false };
   }
 }
 
@@ -589,11 +649,21 @@ async function llamarMunicipal(ctx: ContextoCorrida, nit: string, codigoFuente: 
   try {
     const r = await consultarComparendosMunicipales(nit, codigoFuente);
     return {
-      step: paso(nit, codigoFuente, { ok: true, httpStatus: r.httpStatus, itemsLeidos: r.items.length }, inicio),
+      // `ok: true` aunque no sea concluyente (RN-47): el municipio contestó y se entendió, así que
+      // marcarlo como caído sería mentir sobre el proveedor y dejar la corrida en `partial` para
+      // siempre. Lo que cambia es el `mensaje` —para que el operador vea por qué no se apagó nada—
+      // y la cobertura, que se decide más arriba con `concluyente`.
+      step: paso(nit, codigoFuente, {
+        ok: true,
+        httpStatus: r.httpStatus,
+        itemsLeidos: r.items.length,
+        mensaje: r.concluyente ? undefined : MENSAJE_SIN_VEREDICTO,
+      }, inicio),
       items: r.items as Record<string, unknown>[],
+      concluyente: r.concluyente,
     };
   } catch (e) {
-    return { step: pasoFallido(nit, codigoFuente, e, inicio), items: null };
+    return { step: pasoFallido(nit, codigoFuente, e, inicio), items: null, concluyente: false };
   }
 }
 
