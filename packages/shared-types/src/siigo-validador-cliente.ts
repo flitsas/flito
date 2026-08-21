@@ -77,3 +77,23 @@ export interface ResumenValidacionClientes {
   /** Cuántos clientes arrastra cada motivo. Ordena el trabajo: por dónde empezar. */
   porMotivo: { motivo: MotivoNoFacturable; detalle: string; clientes: number }[];
 }
+
+/**
+ * Cuerpo del rechazo cuando se sincroniza el tercero de un cliente al que le faltan datos
+ * (HU #11299, AC4 y AC6): `POST /api/siigo/terceros/cliente/:clienteId` → **422**.
+ *
+ * `faltantes` es EXACTAMENTE el mismo `FaltanteCliente[]` que devuelve
+ * `GET /api/siigo/clientes/:id/validacion`, para que la pantalla pinte la lista con el mismo
+ * componente: dos rutas del mismo módulo describiendo el mismo concepto de dos maneras distintas es
+ * una deuda que termina pagando el front.
+ *
+ * Lo que NO lleva, y no es un olvido: ni `nombre`, ni `documento`, ni ningún valor de la ficha. El
+ * cuerpo nombra los CAMPOS que faltan, nunca su contenido (Ley 1581). Quien dispara la
+ * sincronización ya tiene el nombre del cliente en la fila desde la que la disparó.
+ */
+export interface ErrorClienteNoFacturable {
+  error: string;
+  codigo: 'cliente_no_facturable';
+  clienteId: number;
+  faltantes: FaltanteCliente[];
+}
