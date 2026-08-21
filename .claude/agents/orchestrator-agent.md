@@ -102,8 +102,8 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Gate | Cuándo |
 |---|---|
 | Activar una HU en ADO | antes de empezar a implementarla (`Skill flit-gestion-hu`) |
-| Crear rama, commit o push | antes de tocar git |
-| Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request`, luego `Skill flit-integration-ado` Modo A |
+| Crear rama, commit o push | antes de tocar git. La rama exige HU o Bug en ADO y nombre `HU/<ID>-<dev>-<desc>` (`.cursor/rules/convenciones-rama-pr.mdc`) |
+| Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` con título `HU <ID>: <descripción>`, luego `Skill flit-integration-ado` Modo A |
 | **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal mergea vía MCP github **sin re-preguntar**; sin autorización, lo mergea el humano. **No** es gate pedir «continúa» mientras CI está en curso |
 | **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |

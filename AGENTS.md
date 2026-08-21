@@ -71,14 +71,24 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 
 ## Git flow
 
-- Una rama por HU, **siempre desde `develop` actualizado**: `feat/flito-hu<ID>-<slug-corto>` (lo exige la precondición de merge de `flit-integration-ado`). Ramas `docs/*` / `chore/*` sin HU: merge a `develop` con «sí» humano y CI verde; **sin** Modo A/B en ADO.
+- **Trazabilidad estricta: todo desarrollo y todo PR va ligado a una HU o un Bug de Azure DevOps.** No se abre rama ni PR de producto sin work item; si el pedido llega sin él, primero `flit-intake` → `tech-lead-agent` / `flit-crear-hu`. Única vía sin work item: ramas `CHORE/` y `DOCS/`, acotadas a lo que **no es producto** (documentación, `.claude/`, `.cursor/`, tooling, CI, `scripts/`) — merge a `develop` con «sí» humano y CI verde, **sin** Modo A/B en ADO. En cuanto el diff toca `apps/**` o `packages/**` es desarrollo y exige HU o Bug.
+- Una rama por HU/Bug, **siempre desde `develop` actualizado** (o de la rama previa en cadena apilada). Formato **obligatorio**, detalle en [`.cursor/rules/convenciones-rama-pr.mdc`](.cursor/rules/convenciones-rama-pr.mdc):
+
+  | Rama | Título del PR |
+  |---|---|
+  | `HU/<ID>-<desarrollador>-<descripcion-breve>` | `HU <ID>: <descripción>` |
+  | `BUG/<ID>-<desarrollador>-<descripcion-breve>` | `BUG <ID>: <descripción>` |
+  | `CHORE/` · `DOCS/<desarrollador>-<descripcion-breve>` | `CHORE:` · `DOCS: <descripción>` |
+  | Promoción (`develop`→`staging`→`release`) | `RELEASE: <descripción>` |
+
+  Prefijo en MAYÚSCULAS, ID de ADO sin `#`, descripción en kebab-case sin acentos, rama ≤ 80 caracteres. **Sin sufijo de ambiente** (`-dev`/`-qa`/`-pdn`): la rama de trabajo siempre va a `develop` y el ambiente ya se registra en ADO (`Deploy DEV/QA/PDN`). Título ≤ 100 caracteres, descriptivo del cambio y su para qué (un «Ajustes» no cumple), sin punto final. La convención vieja `feat/flito-hu<ID>-*` queda **derogada** para ramas nuevas. Verificación local antes del push y del PR: `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título>"`.
 - **Nunca `git add -A` ni `git add .`**: el working tree puede tener parches de demo. Archivos explícitos + `git status --short` antes de commitear.
 - `.claude/` **sí está versionado** (es el equipo de agentes/skills del repo): sus cambios se commitean como cualquier archivo. Lo que no se commitea: parches locales de demo (stubs de OCR, MinIO local).
-- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos; HU → rama `feat/flito-*`; **HEAD a mergear = `SHA revisado` del veredicto vigente de `flit-code-review`** — commits post-veredicto exigen re-review; **gate `qa-agent` B invocado** tras `Resolved` — nunca mergear con QA pendiente o FAIL sin retrabajo). Estrategia: merge commit. Tras merge de HU → `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
+- **Merge a `develop`:** el agente (hilo principal) **puede** mergear vía MCP `github` (`merge_pull_request`) cuando el humano autorizó el Feature (o dio "sí" textual) **y** se cumplen las precondiciones de `flit-integration-ado` (base exactamente `develop`, CI `build + test` + `dependency-audit` + `secret-scan` en verde, sin conflictos; rama y título del PR con el formato de la tabla de arriba — check CI `naming` en verde; **HEAD a mergear = `SHA revisado` del veredicto vigente de `flit-code-review`** — commits post-veredicto exigen re-review; **gate `qa-agent` B invocado** tras `Resolved` — nunca mergear con QA pendiente o FAIL sin retrabajo). Estrategia: merge commit. Tras merge de HU → `flit-integration-ado` Modo B (Deploy DEV). En **cadena apilada**, si el CI de merges intermedios queda `cancelled` por concurrency, el gate de Deploy es el tip de `develop` que ya incluye la cadena (detalle en la skill).
 - **Merge a `staging` / `release`:** siempre humano (`flit-release`). Ningún agente mergea promociones.
 - Cerrar un Feature es exclusivo del Product Owner.
 - **GitHub:** MCP `github` es la vía canónica (PR, checks, merge). En esta máquina **`gh` no es el CLI de GitHub** (visor de ayuda): comprobar con `gh --version` antes de asumir; si no es el CLI real, no usarlo.
-- **Hook `pre-push` (versionado en `scripts/git-hooks/`, activo vía `core.hooksPath`)**: bloquea el push si gitleaks encuentra secretos en los commits que suben, o si hay vulnerabilidades **Critical** en dependencias de producción. High/Moderate avisan (CI `dependency-audit` bloquea el merge). En un clone nuevo, activarlo una vez con `git config core.hooksPath scripts/git-hooks`. Escape manual documentado: `git push --no-verify`. Falsos positivos de gitleaks: justificados en `.gitleaks.toml` con scope estricto (nunca allowlist global).
+- **Hook `pre-push` (versionado en `scripts/git-hooks/`, activo vía `core.hooksPath`)**: bloquea el push si gitleaks encuentra secretos en los commits que suben, o si hay vulnerabilidades **Critical** en dependencias de producción. High/Moderate avisan (CI `dependency-audit` bloquea el merge), y un nombre de rama fuera de convención también avisa (CI `naming` bloquea el PR). En un clone nuevo, activarlo una vez con `git config core.hooksPath scripts/git-hooks`. Escape manual documentado: `git push --no-verify`. Falsos positivos de gitleaks: justificados en `.gitleaks.toml` con scope estricto (nunca allowlist global).
 
 ## Verificación (salida real, nunca inventada)
 
@@ -112,7 +122,7 @@ npm run smoke:prod / synthetic:check     # producción — SOLO con autorizació
 
 Migraciones contra la BD demo local: exportar `DATABASE_URL` (`set -a; source apps/api/.env; set +a`), aplicar la migración sola con `docker exec -i flito-postgres psql …` y **correrla dos veces** para comprobar idempotencia. Avisar al usuario de que se tocó su BD.
 
-En CI (`.github/workflows/ci.yml`) existen tres checks de gate: **`build + test`**, **`dependency-audit`** y **`secret-scan`** — los tres deben estar en verde para mergear (precondiciones de `flit-integration-ado`). La suite completa de tests en CI **no** se sustituye por el mínimo filtrado local.
+En CI (`.github/workflows/ci.yml`) existen cuatro checks de gate: **`build + test`**, **`dependency-audit`**, **`secret-scan`** y **`naming`** (rama, título del PR y trazabilidad HU/Bug; solo corre en PRs) — los cuatro deben estar en verde para mergear (precondiciones de `flit-integration-ado`). La suite completa de tests en CI **no** se sustituye por el mínimo filtrado local.
 
 Prohibido declarar una HU terminada sin la salida real pegada de los comandos del **mínimo aplicable**. Prohibido inventar tablas de resultados. Si el entorno no está levantado, se dice y se para (`SIN-ENTORNO` vía `qa-agent` cuando aplique).
 

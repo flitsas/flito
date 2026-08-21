@@ -179,6 +179,7 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 2. Asigna severidad (tabla abajo). Ante duda entre dos niveles, escoge el más alto y avísalo.
 3. Asignación (hard-stop regla 6b): novedad de HU → `AssignedTo` de la HU padre si está poblado; si el padre **no** tiene `AssignedTo` → identidad de sesión. Bug como `Child`. Sin HU / fuera de alcance → identidad de sesión o Líder Técnico si el pedido lo indica. **Productivo → siempre vía Líder Técnico**.
 4. Con "sí" del humano: radica el Bug **con** `AssignedTo` en el mismo alta; si es novedad de la HU bajo prueba formal, tag `QA_NOVEDAD` y reactiva la HU a `Active` con comentario.
+5. En el HANDOFF, **devuelve el ID del Bug**: la corrección se hará en rama `BUG/<ID>-<desarrollador>-<desc>` con PR `BUG <ID>: <descripción>` (trazabilidad estricta de `AGENTS.md`). Tú no creas la rama (regla 9).
 
 ### Modo D — Regresión
 **Trigger:** deploy a QA/PDN, bug productivo resuelto, o solicitud del Líder Técnico. **Contexto:** `regresion`.

@@ -108,6 +108,42 @@ jobs:
       - name: npm audit (dependencias de producción)
         run: node scripts/dependency-audit.mjs
 
+  # Gate de trazabilidad — convenciones de rama y título del PR
+  # (.cursor/rules/convenciones-rama-pr.mdc). Todo desarrollo va ligado a una HU
+  # o un Bug de Azure DevOps: sin eso no hay trazabilidad del proyecto.
+  # El título llega por env y no interpolado en `run:` — un título de PR es
+  # entrada de usuario y en el shell sería inyección de comandos.
+  naming:
+    name: naming
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Convenciones de rama y título del PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=100
+          # La lista de cambios solo alimenta la guarda «CHORE/DOCS no toca producto».
+          # Si no se puede calcular, se sigue validando rama y título.
+          if ! git diff --name-only "origin/$BASE_REF...HEAD" >/tmp/naming-changed.txt; then
+            echo "::warning::No se pudo calcular el diff contra $BASE_REF; se omite la guarda de rutas de producto."
+            : >/tmp/naming-changed.txt
+          fi
+          node scripts/check-naming.mjs \
+            --branch "$HEAD_REF" \
+            --title "$PR_TITLE" \
+            --files-from /tmp/naming-changed.txt
+
   # Gate de secretos — precondición de merge #6 de flit-integration-ado.
   # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.
   # Se usa el binario directo y no la action oficial: la action exige licencia

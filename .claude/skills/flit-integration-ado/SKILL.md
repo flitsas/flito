@@ -52,7 +52,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 
 **Prohibido:** cambiar `System.State` (Resolved/Active/Closed lo gestionan implementación y PO). **Prohibido:** `Deploy * = true` si el CI que valida la integración (ver Modo B §2) no está en verde.
 
-**PRs sin HU (docs/chore):** merge a `develop` con «sí» humano y checks verdes está permitido; **no** hay Modo A/B en ADO (no hay work item). Rama típica `docs/*` o `chore/*`, no `feat/flito-hu*`.
+**PRs sin work item (`CHORE/`, `DOCS/`):** única vía permitida sin HU/Bug, y solo para lo que **no es producto** (documentación, `.claude/`, `.cursor/`, tooling, CI, `scripts/`). Merge a `develop` con «sí» humano y checks verdes; **no** hay Modo A/B en ADO (no hay work item). Rama `CHORE/<dev>-<desc>` o `DOCS/<dev>-<desc>`, título `CHORE:` / `DOCS: <descripción>`. Si el diff toca `apps/**` o `packages/**` es desarrollo: exige HU o Bug y rama `HU/`/`BUG/` (lo bloquea el check CI `naming`).
 
 ---
 
@@ -85,7 +85,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 
 1. **GitHub (MCP):** `pull_request_read` method `get` — `state`, `merged_at`, merge SHA, `base.ref`, `head.ref`, `html_url`, diff stats.
    - Si no está `MERGED` → informar «PR aún no integrada» y **no** poner Deploy * en true.
-2. **CI que valida la integración:** checks requeridos (`build + test`, `dependency-audit`, `secret-scan`; `lint` si corre) en `success` (o `skipped` aceptable).
+2. **CI que valida la integración:** checks requeridos (`build + test`, `dependency-audit`, `secret-scan`, `naming`; `lint` si corre) en `success` (o `skipped` aceptable — `naming` solo corre en PRs, así que en el tip de `develop` aparece ausente, no rojo).
    - Caso normal: check-runs del **merge commit** del PR.
    - **Cadena apilada / merges en ráfaga:** el workflow CI usa `cancel-in-progress` por ref; los runs de merges intermedios a `develop` suelen quedar `cancelled`. El gate es el CI del **tip de `develop`** que ya contiene el merge (y el resto de la cadena), no exigir verde en cada SHA intermedio cancelado.
    - Si el tip (o el merge commit, en caso normal) tiene un check requerido en rojo → **bloquear** Deploy * = true; reportar URL del run fallido.
@@ -219,7 +219,8 @@ Con MCP: `wit_work_item_write` (servidor **`ado`**). Con REST: `json.dumps(patch
 
 | Operación | MCP `github` |
 |-----------|----------------|
-| Crear PR | `create_pull_request` (base `develop`) |
+| Crear PR | `create_pull_request` (base `develop`; `title` = `HU <ID>: <descripción>` — ver `.cursor/rules/convenciones-rama-pr.mdc`) |
+| Corregir título | `update_pull_request` (si el check `naming` lo marca) |
 | Ver PR / merge SHA | `pull_request_read` method `get` |
 | Checks del HEAD o merge | `pull_request_read` method `get_check_runs`; runs en rama: `actions_list` |
 | Merge (sí textual / Feature) | `merge_pull_request` con `merge_method: merge` |
@@ -240,13 +241,14 @@ MCP `github` (`merge_pull_request`, merge commit).
 | # | Condición | Verificación |
 |---|-----------|----------------|
 | 1 | PR `OPEN` | `state == OPEN` |
-| 2 | Rama origen | Flujo HU: `feat/flito-*`. Docs/chore (`docs/*`, `chore/*`): permitidos con «sí» humano; **sin** Modo A/B ADO |
+| 2 | Rama origen y título | Flujo HU/Bug: rama `HU/<ID>-<dev>-<desc>` o `BUG/<ID>-…` **y** título `HU <ID>: <descripción>` / `BUG <ID>: …` con el mismo ID (`.cursor/rules/convenciones-rama-pr.mdc`). Sin work item: solo `CHORE/` y `DOCS/` con «sí» humano y **sin** Modo A/B ADO |
 | 3 | Target | Agente: **solo `develop`**. Humano/LT: también `staging` / `release` (promoción) |
 | 4 | Autorización | «puedes mergear a develop este Feature» (sesión) **o** «sí» textual por este PR |
 | 5 | CI build/test | check `build + test` → `success` |
 | 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
+| 6b | Convenciones | check `naming` → `success` (rama, título y trazabilidad HU/Bug). Título mal puesto: corregir con `update_pull_request` y esperar el re-run |
 | 7 | Sin conflictos | mergeable / no conflict |
-| 8 | HU en ADO (solo flujo HU) | `Custom.Refinement=true`, Story Points — `GET workitem`. Omitir en docs/chore |
+| 8 | HU en ADO (solo flujo HU/Bug) | `Custom.Refinement=true`, Story Points — `GET workitem`. Omitir en `CHORE/` y `DOCS/` |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
 | 10 | HEAD con veredicto vigente | El HEAD a mergear == `SHA revisado` del veredicto de `flit-code-review`; commits post-veredicto (fixes, retrabajo QA) exigen re-review de la skill sobre el nuevo HEAD |
 | 11 | Gate QA invocado (flujo HU/Bug con AC) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; nunca mergear con qa ❌ ni con FAIL sin retrabajo |
@@ -279,7 +281,8 @@ Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop
 | `Custom.Commits` 400 | Enviar JSON UTF-8 con `charset=utf-8`; con MCP usar `wit_work_item_write` |
 | PR merged pero CI tip/merge rojo | No Deploy * = true; comentario en Discussion con enlace al run |
 | Merges en cadena: CI intermedio `cancelled` | Esperado por concurrency; validar tip de `develop` (Modo B §2) |
-| PR docs/chore sin HU | Merge con sí + CI verde; no Modo A/B |
+| PR `CHORE/` / `DOCS/` sin HU | Merge con sí + CI verde; no Modo A/B. Si toca `apps/**` o `packages/**` → exigir HU/Bug y renombrar la rama |
+| Check `naming` en rojo | Leer el motivo del run: título (corregir con `update_pull_request`) o rama (`git branch -m` + re-push, o cerrar y reabrir el PR desde la rama nueva) |
 | Target `staging` pero usuario esperaba DEV | Explicar matriz develop→DEV, staging→QA, release→PDN |
 | Duplicar Hyperlink PR | `GET` relations antes de `add` |
 

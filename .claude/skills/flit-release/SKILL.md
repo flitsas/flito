@@ -21,14 +21,14 @@ La promoción siempre es un PR de la rama inferior a la superior: `develop → s
 
 ### Pre-condiciones (todas, verificadas con salida real)
 
-1. CI en verde sobre el último commit de `develop`: checks `build + test`, `dependency-audit` y `secret-scan` en `success` (MCP `github` → `pull_request_read` / check-runs del commit).
+1. CI en verde sobre el último commit de `develop`: checks `build + test`, `dependency-audit` y `secret-scan` en `success` (MCP `github` → `pull_request_read` / check-runs del commit). El check `naming` solo corre en PRs: en el PR de promoción exige el título `RELEASE: …`.
 2. Todas las HUs incluidas en el diff `staging...develop` están en `Resolved` **con certificación QA del gate registrada en Discussion** (matriz AC→TC + salida real del `qa-agent`). El tag `QA_PDN` está **SUSPENDIDO** (2026-08-21, sin permisos de tags en ADO) — no exigirlo ni escribirlo; el comentario de certificación es el registro vigente. Si alguna tiene `QA_NOVEDAD` abierta o bugs Crítico/Alto sin resolver → **no-go**.
 3. Regresión ejecutada: `qa-agent` modo D sobre los módulos afectados (mínimo `npm run test:e2e:smoke -w apps/web` con entorno levantado). Veredicto **go** requerido.
 
 ### Ejecución
 
 1. Resumen de lo que se promueve: HUs (ID, título, estado QA), PRs mergeados, diff estadístico (`git diff staging...develop --stat`).
-2. Crear el PR `develop → staging` con el servidor MCP `github` (recordar: `gh` no es el CLI de GitHub en esta máquina), cuerpo con: lista de HUs, resultado de regresión, checks CI, y checklist de rollback (abajo).
+2. Crear el PR `develop → staging` con el servidor MCP `github` (recordar: `gh` no es el CLI de GitHub en esta máquina). **Título:** `RELEASE: <descripción>` — prefijo reservado a promociones, ≤ 100 caracteres, p. ej. `RELEASE: Promoción a QA de 4 HUs del Feature 11623 (comparendos)`. Cuerpo con: lista de HUs, resultado de regresión, checks CI, y checklist de rollback (abajo).
 3. **Gate humano:** el merge lo hace el Líder Técnico. Esta skill no mergea.
 4. Post-merge (humano confirma): `flit-integration-ado` Modo B activa `Deploy QA` por cada HU del PR.
 

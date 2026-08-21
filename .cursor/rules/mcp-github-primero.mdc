@@ -36,6 +36,8 @@ En esta máquina `gh` **no** es el CLI de GitHub (visor de ayuda). Comprobar con
 
 No crear el PR sin los gates de `.cursor/rules/pre-pr-gates.mdc` (`flit-code-review` siempre; security/db-review si aplican). «Crea el PR» no salta esa regla.
 
+**`title` obligatorio en formato canónico** (`.cursor/rules/convenciones-rama-pr.mdc`): `HU <ID>: <descripción>` o `BUG <ID>: <descripción>` — `CHORE:` / `DOCS:` sin work item, `RELEASE:` en promociones. Máximo 100 caracteres, descriptivo, sin punto final, con el mismo ID que la rama `HU/<ID>-<dev>-<desc>`. Un título mal puesto se corrige con `update_pull_request`, no se deja pasar: el check CI `naming` bloquea el merge.
+
 ## Si MCP falla — detener, reintentar, detener e informar
 
 Ante **cualquier** fallo de un servidor MCP (error, timeout, o llamada que no responde en ~2-3 min — una llamada colgada cuenta como fallo: no dejarla esperando indefinidamente):

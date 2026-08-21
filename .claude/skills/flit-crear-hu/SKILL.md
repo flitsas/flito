@@ -148,6 +148,7 @@ Tras obtener el `id` del `POST`, enviar `PATCH` con:
 - Description y AC siempre en **HTML** al enviar a ADO (`<p>`, `<br>`, `<h3>`, `<pre>`).
 - Confirmar al usuario: ID, URL; campos Description y AC poblados; Commits/Evidences **vacíos**.
 - Anti-duplicado: WIQL por título exacto antes de crear (ver `flit-azure-devops`).
+- **El ID que devuelve ADO es el que amarra toda la trazabilidad**: rama `HU/<ID>-<desarrollador>-<desc>` y título de PR `HU <ID>: <descripción>` (`.cursor/rules/convenciones-rama-pr.mdc`). Confirmárselo al usuario junto con la URL — sin ese ID no puede empezar el desarrollo.
 - Plantilla de referencia: `.claude/skills/flit-crear-hu/assets/user-story.template.md`
 
 ## Checklist de salida

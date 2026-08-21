@@ -148,8 +148,18 @@ Feature, el agente mergea tras CI verde antes de arrancar la siguiente. **Aun as
 
 ### 2. Rama nueva (cadena apilada por defecto)
 
-**Siempre** una rama por HU. Convención de nombre: `feat/flito-*` (lo exige la precondición 2 de
-`flit-integration-ado`).
+**Siempre** una rama por HU, y **siempre ligada a un work item**: sin HU o Bug en ADO no se abre
+rama (trazabilidad estricta de `AGENTS.md`). Convención **obligatoria** de nombre
+(`.cursor/rules/convenciones-rama-pr.mdc`, lo exige la precondición 2 de `flit-integration-ado` y
+lo bloquea el check CI `naming`):
+
+```
+HU/<ID>-<desarrollador>-<descripcion-breve>      # p. ej. HU/11678-davidchica-ajustes-flito
+BUG/<ID>-<desarrollador>-<descripcion-breve>
+```
+
+`<desarrollador>` = humano de la sesión en minúsculas sin acentos (derivar de `git config user.name`).
+Prefijo en MAYÚSCULAS, ID sin `#`, descripción kebab-case, ≤ 80 caracteres, **sin sufijo de ambiente**.
 
 **Worktree aislado** (cuando el checkout principal está ocupado): tras crearlo, correr
 `npm install` en la raíz del worktree **antes** de lanzar agentes (sin `node_modules`, el
@@ -159,16 +169,17 @@ typecheck y los tests mueren y cada subagente lo redescribe por su cuenta).
 
 ```bash
 git checkout develop && git pull --ff-only origin develop
-git checkout -b feat/flito-hu<ID>-<slug-corto>
+git checkout -b HU/<ID>-<desarrollador>-<descripcion-breve>
+node scripts/check-naming.mjs --branch "$(git branch --show-current)"
 ```
 
 **HUs siguientes en modo continuo** (defecto): ramificar desde la rama de la HU previa, no desde
 `develop`:
 
 ```bash
-git checkout feat/flito-hu<ANTERIOR>-<slug>
-git pull --ff-only origin feat/flito-hu<ANTERIOR>-<slug>   # si ya está en remoto
-git checkout -b feat/flito-hu<ID>-<slug-corto>
+git checkout HU/<ANTERIOR>-<desarrollador>-<desc>
+git pull --ff-only origin HU/<ANTERIOR>-<desarrollador>-<desc>   # si ya está en remoto
+git checkout -b HU/<ID>-<desarrollador>-<descripcion-breve>
 ```
 
 | Situación | Estrategia |
@@ -205,7 +216,7 @@ El prompt del Task debe ser **denso** (AC pegados, paths, modo slim|full). No em
 Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por este PR):
 
 1. Verificar precondiciones de `flit-integration-ado` (base = `develop`, tres checks CI en
-   `success`, sin conflictos, rama `feat/flito-*`).
+   `success` — incluido `naming` —, sin conflictos, rama `HU/<ID>-*` o `BUG/<ID>-*`).
 2. Mergear con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a `staging`/`release`.
 3. **`Skill flit-integration-ado` Modo B** (Deploy DEV + Commits integrado en `Custom.Commits`).
 4. Tras Modo B (o al cerrar una ráfaga de merges de la pila): invocar **`Agent devops-agent` M1** una vez
@@ -288,7 +299,15 @@ Los checks CI `dependency-audit` y `secret-scan` siguen siendo gates de merge.
 git add <archivos explícitos>        # NUNCA git add -A ni git add .
 git status --short                   # verificar que no se cuela nada
 git commit -m "feat(flito): ... (HU #<ID>)"
-git push -u origin feat/flito-hu<ID>-<slug>
+git push -u origin HU/<ID>-<desarrollador>-<descripcion-breve>
+```
+
+**Título del PR — formato obligatorio** (`.cursor/rules/convenciones-rama-pr.mdc`):
+`HU <ID>: <descripción>` (o `BUG <ID>: …`), ≤ 100 caracteres, descriptivo del cambio y su para
+qué, sin punto final y con el **mismo ID que la rama**. Verificar antes de abrir:
+
+```bash
+node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "HU <ID>: <descripción>"
 ```
 
 **El PR se crea con el servidor MCP `github`** (`mcp__github__create_pull_request`), no con `gh`:
@@ -380,9 +399,11 @@ pendientes.
    a criterio del momento. Un «crea el PR» del humano **no** salta el 4b: solo autoriza el
    `create_pull_request` cuando los gates ya están en verde (ver `.cursor/rules/pre-pr-gates.mdc`).
 5. **Nunca commitear secretos** ni `.env`.
-6. **Una rama por HU.** En modo continuo, la N-ésima nace de la rama de la (N-1) o de `develop`
-   tras merge del eslabón previo; en modo secuencial, de `develop` actualizado. Dejarlo escrito
-   en el cuerpo del PR.
+6. **Una rama por HU, siempre ligada a un work item.** Sin HU o Bug en ADO no hay rama ni PR.
+   Nombre `HU/<ID>-<desarrollador>-<desc>` y título `HU <ID>: <descripción>` — formato estricto de
+   `.cursor/rules/convenciones-rama-pr.mdc`, bloqueado por el check CI `naming`. En modo continuo,
+   la N-ésima nace de la rama de la (N-1) o de `develop` tras merge del eslabón previo; en modo
+   secuencial, de `develop` actualizado. Dejarlo escrito en el cuerpo del PR.
 7. **No tocar `Custom.Evidences`** aquí (lo llena el rol de tests/QA) ni los campos `Deploy *`
    sin pasar por `flit-integration-ado` Modo B.
 8. Si una HU se bloquea (falta un dato de negocio, un permiso, un archivo de muestra, CI rojo o
@@ -416,7 +437,8 @@ pendientes.
 - [ ] Feature padre en `Active` (regla de `AGENTS.md`)
 - [ ] Esta skill cargada al inicio del Feature (no ciclo improvisado)
 - [ ] HU en `Active` al empezar, `Resolved` al terminar — vía **Skill** `flit-gestion-hu` (no wit_* branded)
-- [ ] Rama `feat/flito-hu<ID>-*` creada (desde `develop` o desde la rama previa, según el modo)
+- [ ] Rama `HU/<ID>-<desarrollador>-<desc>` creada (desde `develop` o desde la rama previa, según el modo)
+- [ ] Título del PR `HU <ID>: <descripción>` (≤ 100 car., mismo ID que la rama) — `check-naming.mjs` en verde
 - [ ] En cadena: dependencia y eslabón declarados en el cuerpo del PR
 - [ ] Diseño previo: `architecture-agent` / `ux-agent` en slim|full **o** «no aplica» declarado en PR
 - [ ] Implementación vía **Agent** `backend-agent` / `frontend-agent` con prompt denso (no código de HU completa en el hilo)

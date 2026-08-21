@@ -50,7 +50,8 @@ PR = fallo de proceso (aunque el veredicto sea OK).
 ### 1. Proceso (bloqueante)
 
 - [ ] `git status --short` sin archivos colados: nada de `.claude/`, parches de demo, `.env*`, archivos ajenos a la HU.
-- [ ] Rama con convención `feat/flito-hu<ID>-*` basada en `develop` (si aplica).
+- [ ] **Trazabilidad:** el trabajo está ligado a una HU o un Bug de ADO. Sin work item, solo se admite `CHORE/` / `DOCS/` y **sin** tocar `apps/**` ni `packages/**`.
+- [ ] Rama y título del PR en formato canónico (`.cursor/rules/convenciones-rama-pr.mdc`): `HU/<ID>-<dev>-<desc>` + `HU <ID>: <descripción>` (mismo ID, ≤ 100 caracteres, descriptivo). Comprobado con `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título propuesto>"` — es bloqueante en CI (`naming`).
 - [ ] Salida **real** de verificación pegada por quien implementó (ver comandos en `AGENTS.md`); si falta, exigirla o ejecutarla. Prohibido aceptar "los tests pasan" sin salida.
 - [ ] Diff ≤ 800 líneas (precondición de merge de `flit-integration-ado`); si se pasa, recomendar partir el PR.
 
