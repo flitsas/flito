@@ -65,8 +65,11 @@ comprobante creado previamente en vez de duplicarlo. **No** enviar el header en 
 > | Bloqueo del usuario API por proporción de errores | **freno por proporción acumulada** | `siigo.freno.service.ts` |
 >
 > El freno se calcula sobre `siigo_operaciones` (sin contador aparte) en una ventana de **24 h** con
-> umbral del **60 %** —`SIIGO_FRENO_VENTANA_HORAS`, `SIIGO_FRENO_UMBRAL`,
-> `SIIGO_FRENO_MIN_OPERACIONES`—. Los números son deliberadamente más estrictos que los de Siigo:
+> umbral del **60 %** y un mínimo de **20 operaciones** —la constante `POLITICA` de
+> `siigo.freno.service.ts`; fueron `SIIGO_FRENO_VENTANA_HORAS`, `SIIGO_FRENO_UMBRAL` y
+> `SIIGO_FRENO_MIN_OPERACIONES` hasta el Bug #11649, y se agruparon porque los tres números se
+> calibraron el uno contra el otro y moverlos por separado rompe la cuenta—. Los números son
+> deliberadamente más estrictos que los de Siigo:
 > medir 7 días al 80 % frenaría en el instante exacto del bloqueo, que ya es tarde. Los errores
 > causados por datos nuestros (`parameter_required` y compañía) **no** cuentan, ni en el numerador ni
 > en el denominador: no dicen nada sobre la salud del servicio. Estado y reactivación manual en

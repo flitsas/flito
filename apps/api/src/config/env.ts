@@ -98,31 +98,20 @@ const envSchema = z.object({
   // `mock` por defecto (HU #11252): mientras no haya credenciales del ambiente real, el valor
   // seguro es NO salir a la red. Pasar a `real` es una decisión explícita de despliegue.
   SIIGO_MODE: z.enum(['mock', 'real']).default('mock'),
-  SIIGO_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
-  SIIGO_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0),
-  // Freno por proporción de errores (HU #11341). Siigo bloquea el usuario API si durante 7 días
-  // más del 80 % de las peticiones son errores. Medir con ESOS MISMOS números frenaría en el
-  // instante exacto del bloqueo, que es tarde: hay que llegar antes por los dos lados.
-  //   · Ventana más corta (24 h): una racha sostenida se ve el mismo día en que empieza, no al
-  //     séptimo. El tope es 168 h —los 7 días de Siigo—: más allá se mediría algo que Siigo ya no
-  //     penaliza.
-  //   · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
-  //     el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
-  // Cuántas facturas mira cada ciclo del sondeo del estado DIAN (HU #11332, AC2). El número
-  // correcto depende del volumen de cada instalación: la cuota de 100/min es de la EMPRESA y la
-  // comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
-  SIIGO_DIAN_SONDEO_LOTE: z.coerce.number().int().min(1).max(200).optional(),
-  // Cuántas filas de la cola procesa cada ciclo del trabajador de emisión (HU #11327).
-  // El defecto (15) sale de una cuenta, no de un gusto: peor caso ≈ 6 peticiones por fila (los 4
-  // intentos de `ejecutarConResiliencia` más el margen del tercero) ≈ 90 < las 100 por minuto que
-  // permite Siigo, y el ciclo corre cada 2 min > la ventana de 60 s. El tope de 60 es el punto en
-  // que un ciclo empezaría a hacer dormir al limitador y a comerse la cuota del sondeo DIAN.
-  SIIGO_COLA_LOTE: z.coerce.number().int().min(1).max(60).optional(),
-  SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
-  SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
-  // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa
-  // entera por una muestra que no significa nada.
-  SIIGO_FRENO_MIN_OPERACIONES: z.coerce.number().int().min(1).default(20),
+  // Interruptor ÚNICO de los tres crons de Siigo —archivo de soportes, sondeo DIAN y vaciado de la
+  // cola de emisión— (Bug #11649). Sustituye a `SIIGO_DIAN_CRON_ENABLED`,
+  // `SIIGO_ARCHIVO_CRON_ENABLED` y `SIIGO_COLA_CRON_ENABLED`, que se leían crudas de `process.env`
+  // con la guarda `=== '0'`: cualquier valor que no fuera exactamente esa cadena —incluida la
+  // variable ausente o con el nombre mal escrito— dejaba el cron ENCENDIDO.
+  //
+  // **El defecto es `off` y esa es la corrección del Bug.** Estos tres ciclos emiten documentos
+  // ante la DIAN, y una emisión es irreversible hacia un tercero: arrancarla exige un acto
+  // deliberado del despliegue, no la ausencia de una variable. La asimetría es la que decide:
+  // NO arrancar se nota —la cola crece y se ve en la bandeja—, arrancar de más no se nota hasta
+  // que el documento ya está ante la DIAN. Es además el mismo criterio que ya usan los crons de
+  // portal y de purga de comparendos en `server.ts` (apagados salvo `=1`); estaba invertido justo
+  // en los tres que más caro cuestan.
+  SIIGO_CRONS: z.enum(['on', 'off']).default('off'),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // ── Monitoreo de comparendos (Feature #11492, 17a) ─────────────────────────

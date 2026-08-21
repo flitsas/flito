@@ -49,9 +49,22 @@ const PLAZO_DEL_CICLO_MS = Math.floor(LOCK_TTL_MS * 0.5);
 /** Arranque diferido: al levantar el proceso hay cosas más urgentes que emitir facturas. */
 const RETRASO_INICIAL_MS = 60_000;
 
-function lote(): number {
-  return env.SIIGO_COLA_LOTE ?? SIIGO_COLA_LOTE_DEFECTO;
-}
+/**
+ * Cuántas filas de la cola procesa cada ciclo del trabajador de emisión (HU #11327).
+ *
+ * Era `SIIGO_COLA_LOTE` y dejó de ser variable de entorno en el Bug #11649: el número no depende
+ * del despliegue, depende de la cuota de Siigo, que es la misma en todos los ambientes. Su
+ * justificación viaja con él, literal, porque sin ella nadie puede cambiarlo con criterio:
+ *
+ *   El defecto (15) sale de una cuenta, no de un gusto: peor caso ≈ 6 peticiones por fila (los 4
+ *   intentos de `ejecutarConResiliencia` más el margen del tercero) ≈ 90 < las 100 por minuto que
+ *   permite Siigo, y el ciclo corre cada 2 min > la ventana de 60 s. El tope de 60 es el punto en
+ *   que un ciclo empezaría a hacer dormir al limitador y a comerse la cuota del sondeo DIAN.
+ *
+ * Ese «tope de 60» era el `max(60)` del esquema zod, que ya no hace falta: no queda ningún valor
+ * de fuera que validar. Sigue siendo el techo que no se debe cruzar al editar esta línea.
+ */
+const LOTE = SIIGO_COLA_LOTE_DEFECTO;
 
 /**
  * Guarda de reentrada dentro del proceso.
@@ -81,7 +94,7 @@ async function tick(): Promise<void> {
     const r = await withLock(NOMBRE_CERROJO, LOCK_TTL_MS, () => procesarCicloEmision({
       ambiente: env.SIIGO_AMBIENTE,
       plazoMs: PLAZO_DEL_CICLO_MS,
-      lote: lote(),
+      lote: LOTE,
       debeDetenerse: () => detenido,
     }));
     // `null` = otra instancia lo está corriendo. No es un fallo y no se registra como tal: en un
@@ -100,8 +113,11 @@ let timer: NodeJS.Timeout | null = null;
 
 export function startSiigoColaCron(): void {
   if (timer) return;
-  if (process.env.SIIGO_COLA_CRON_ENABLED === '0') {
-    log.info({ host: HOST_ID }, 'cron de emisión de la cola DESHABILITADO');
+  // Bug #11649: apagado por defecto y leído del esquema validado, nunca de `process.env`. La guarda
+  // anterior (`SIIGO_COLA_CRON_ENABLED !== '0'`) dejaba el cron encendido ante cualquier valor que
+  // no fuera esa cadena exacta, la variable ausente incluida — y este ciclo emite ante la DIAN.
+  if (env.SIIGO_CRONS !== 'on') {
+    log.info({ host: HOST_ID, siigoCrons: env.SIIGO_CRONS }, 'cron de emisión de la cola DESHABILITADO');
     return;
   }
   detenido = false;
@@ -110,7 +126,7 @@ export function startSiigoColaCron(): void {
       host: HOST_ID,
       intervalMin: INTERVAL_MS / 60_000,
       lockTtlMin: LOCK_TTL_MS / 60_000,
-      lote: lote(),
+      lote: LOTE,
       ambiente: env.SIIGO_AMBIENTE,
     },
     'cron de emisión de la cola activo',

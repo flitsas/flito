@@ -302,7 +302,8 @@ Tres notas:
 - **La cuota se comparte a propósito.** El sondeo usa la MISMA clave de limitador que la emisión,
   porque el límite de 100/min es de la *empresa*, no del endpoint. Una clave propia no crearía cuota
   nueva: crearía la ilusión de tenerla, y el que se quedaría sin turnos sería el que factura. El
-  freno real es el presupuesto por ciclo (`SIIGO_DIAN_SONDEO_LOTE`, 20 por defecto). El
+  freno real es el presupuesto por ciclo (la constante `PRESUPUESTO` de `siigo.dian.cron.ts`, 20;
+  fue `SIIGO_DIAN_SONDEO_LOTE` hasta el Bug #11649). El
   cortacircuitos sí es propio.
 - **La edad hace de contador de intentos.** Con un ciclo periódico, los intentos son proporcionales
   a la antigüedad, así que la cadencia se deriva de la edad de la factura y no de un contador

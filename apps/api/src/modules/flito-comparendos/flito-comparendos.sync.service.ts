@@ -182,7 +182,8 @@ const RATIO_IGNORADOS_ILEGIBLE = 0.5;
 /**
  * Mínimo de comparendos activos para que el freno por PORCENTAJE tenga sentido (RN-24).
  *
- * Mismo razonamiento que `SIIGO_FRENO_MIN_OPERACIONES` en `config/env.ts`: sobre una muestra
+ * Mismo razonamiento que el mínimo de operaciones de la política de freno de Siigo
+ * (`POLITICA` en `modules/siigo/siigo.freno.service.ts`): sobre una muestra
  * diminuta, un porcentaje no significa nada. Un NIT con 3 comparendos activos que paga los tres
  * dispararía un freno del 100 % en una corrida perfectamente correcta. Por debajo de este número
  * solo aplica el tope absoluto de filas.

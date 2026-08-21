@@ -26,6 +26,7 @@
 import { createHash } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import { RESPONSABILIDADES_FISCALES_CODIGOS, SIIGO_ID_TIPOS_CODIGOS } from '@operaciones/shared-types';
+import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
 import { clients, siigoTerceros } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -613,7 +614,10 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
   //
   // Ahora se intenta armar, y si no se puede se sigue adelante con la identidad. Solo las ramas que
   // ESCRIBEN exigen el armado, y para entonces la hidratación ya tuvo su oportunidad.
-  const ambiente = process.env.SIIGO_AMBIENTE ?? 'pruebas';
+  // Bug #11649: del esquema validado, no de `process.env`. Leer la variable cruda aquí se saltaba
+  // el `z.enum(['pruebas','produccion'])` y daba por bueno cualquier texto — incluido uno con una
+  // errata, que habría particionado los terceros contra un ambiente que no existe.
+  const ambiente = env.SIIGO_AMBIENTE;
   const identidad = identidadDeCliente(cliente);
   let armado = intentarArmar(cliente);
   let huella = armado.ok ? huellaDeTercero(armado.valor) : null;
