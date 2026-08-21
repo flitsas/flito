@@ -322,7 +322,41 @@ body {
 }
 [data-theme='dark'] .flit-shell-palette {
   background: rgba(22, 39, 68, 0.96);
+  border-color: rgba(240, 238, 233, 0.14);
 }
+
+/* Bug #11720 — la paleta invierte su fondo (regla de arriba) pero su texto no: seguía usando
+   los tokens FLIT de tema claro, que son invariantes a propósito. El ítem activo pintaba
+   --flit-text-primary (#162744) sobre un panel que compone a #162743: ratio 1,00, el mismo
+   color. La opción seleccionada era literalmente invisible en oscuro.
+   Mismo patrón acotado que `.flit-nav-pill` de aquí arriba: se parchea la superficie que
+   invierte, sin abrir un tema oscuro FLIT completo.
+
+   EL ORDEN IMPORTA, y es la trampa de este bug: dentro del panel hay superficies con fondo
+   CLARO fijo en ambos temas —`.flit-shell-sunken` (fila de búsqueda y pie) y los `kbd`, que
+   además traen `bg-white` de Tailwind—. Hoy esos puntos sí cumplen. Aclarar la tinta sin
+   oscurecerlas antes hundiría el input del buscador a 1,13 y los `kbd` del pie a 2,65:
+   cambiaría un fallo por otro, y justo donde empieza toda interacción con la paleta.
+   Por eso las superficies van primero y los colores de texto después. */
+[data-theme='dark'] .flit-shell-palette .flit-shell-sunken {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(240, 238, 233, 0.14);
+}
+/* `kbd` como elemento y no por clase: los tres del pie y del ítem activo llevan `bg-white`,
+   una utilidad de Tailwind que una regla de clase suelta no ganaría. Un punto más de alfa que
+   las superficies para que la tecla siga leyéndose como pastilla sobre la barra que la aloja. */
+[data-theme='dark'] .flit-shell-palette kbd {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(240, 238, 233, 0.14);
+}
+/* Ratios sobre el panel (#162743) / la barra hundida (#1F304B) / el `kbd` (#24344E).
+   El peor caso queda en 4,73 — mínimo AA para texto normal: 4,5. */
+[data-theme='dark'] .flit-shell-palette .flit-shell-muted { color: #93a0b5; }
+[data-theme='dark'] .flit-shell-palette .flit-shell-secondary { color: #a9b4c6; }
+[data-theme='dark'] .flit-shell-palette .flit-shell-primary { color: #ffffff; }
+/* El acento solo pinta texto en el `kbd` ↵ del ítem activo. Sobre el fondo claro que ese `kbd`
+   tenía, --flit-blue daba 4,49; sobre el oscuro de arriba se quedaría en 3,2. */
+[data-theme='dark'] .flit-shell-palette .flit-shell-accent { color: #8fb0f0; }
 
 /* Componentes FLIT — sustitutos Aura en BatchValidator, ExpedienteVisor, etc. */
 .flit-tone-muted { color: var(--flit-text-muted); }
