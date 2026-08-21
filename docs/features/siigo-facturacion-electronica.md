@@ -3,11 +3,12 @@
 > **Estado:** Features creadas en Azure DevOps (serie 10-15, IDs 11239-11244). Este documento
 > sigue siendo la fuente de diseño detallado que citan.
 > Base técnica: [`docs/integraciones/siigo-api.md`](../integraciones/siigo-api.md).
-> Implementación de referencia: [`docs/uso-siigo/`](../uso-siigo/README.md) — cliente portable con
-> las formas exactas de los payloads (`EJEMPLO_CLIENTE`, `EJEMPLO_FACTURA`), el patrón de reserva
-> idempotente (restricción `UNIQUE` + `INSERT ... ON CONFLICT DO NOTHING` **antes** de llamar a
-> Siigo), el saneamiento de `name` y la normalización de la respuesta (`cufe`, `pdf_url`,
-> `stamp_status`, `public_url`). Insumo directo de F3, F4 y F5.
+> **`docs/uso-siigo/` no existe, y nunca estuvo en el repositorio** (comprobado el 2026-08-21
+> contra todos los refs de git). Era un cliente JS de referencia que vivía en local y se perdió.
+> Este documento lo citaba **seis veces** como fuente de las formas de los payloads; cada cita se
+> reemplazó por el código que hoy sostiene esa pieza. No hace falta reconstruirlo: el módulo está
+> implementado y cubierto por pruebas, y desde que hay acceso real la fuente autoritativa es la API
+> misma, no un archivo intermedio.
 
 ## 1. Objetivo
 
@@ -120,6 +121,16 @@ sepa con qué comprobante, vendedor y forma de pago nacer.
 - **Gate de producción:** la emisión contra el ambiente real se rechaza mientras algún concepto
   aplicable tenga `confirmado_por_contabilidad = false`. En mock/pruebas no aplica el gate, para no
   frenar el desarrollo.
+  > **SUPERADO por el cambio A7 (migración `0145`).** La firma de contabilidad **dejó de condicionar
+  > la compuerta**. El motivo: FLITO guardaba una COPIA del tratamiento tributario y encima pedía
+  > firmarla, cuando `GET /v1/products` ya publica los impuestos de cada producto con su id, tipo y
+  > porcentaje. Hoy la factura **no envía `taxes`** y los aplica Siigo desde el producto.
+  > Lo que la compuerta exige ahora es solo esto: que cada concepto aplicable tenga producto
+  > elegido, activo y validado, y sin el pendiente del GMF.
+  > **La consecuencia, dicha sin rodeos:** la garantía de que el IVA sale bien pasó a depender de la
+  > parametrización de Siigo Nube. Es donde contabilidad trabaja, pero **un producto mal configurado
+  > allá ya no lo detiene nada de este lado**. La columna `confirmado_por_contabilidad` sigue
+  > existiendo y registrando quién firmó y cuándo; lo que ya no hace es bloquear.
 - Configuración global de emisión: `document.id` (tipo de comprobante FV), `seller` por defecto,
   `payment.id` por defecto, `cost_center` opcional.
 - Pantalla de administración dentro de parametrización FLITO, con validación en vivo contra los
@@ -156,7 +167,7 @@ determinan si esto son 6 productos o N (tipo de trámite × concepto).
   dígitos y signos (Siigo los rechaza), pero la razón social **conserva dígitos y siglas** —
   «TRANSPORTES 3M S.A.S.» no debe convertirse en «TRANSPORTES M S.A.S.». `limpiarNombre()` de la
   referencia aplica solo al caso Person. El validador previo detecta nombres rechazables según el
-  tipo de persona. Ver [`docs/uso-siigo/`](../uso-siigo/README.md).
+  tipo de persona. Vive en `apps/api/src/modules/siigo/siigo.nombre.ts`.
   **Quien decide la forma es el `person_type` nuevo, no una suposición sobre la cartera**: hoy la
   mayoría de los clientes son compañías (`clients.document_type` tiene default `NIT`), pero el
   modelo no lo restringe — no hay enum en el esquema y `clients.routes.ts` acepta cualquier cadena
@@ -212,8 +223,10 @@ consulta a Siigo Nube, no con una decisión de nadie.
   - `stamp.send = true` (DIAN) y envío al correo de la compañía (D-3);
   - `Idempotency-Key` derivado del `id` del **lote de facturación** (ver §7) — **estable, no
     aleatorio**, para que un reintento nunca genere una factura duplicada;
-  - la forma exacta del payload (`items`, `payments`, `stamp.send`, `send_email`) sigue
-    `EJEMPLO_FACTURA` de [`docs/uso-siigo/siigo-uso.js`](../uso-siigo/siigo-uso.js);
+  - la forma exacta del payload la arma `apps/api/src/modules/siigo/facturacion.armado.ts`, y el
+    contrato de `InvoiceIn` está en [`docs/integraciones/siigo-api.md`](../integraciones/siigo-api.md)
+    §3. **El campo del correo se llama `mail`, no `send_email`** — este documento lo nombró mal
+    hasta el 2026-08-21;
   - validación de sanidad en servidor al armar: total > 0, ítems con código de producto e importes
     no negativos (`validarItems()` de la referencia), aunque los valores salgan de la liquidación
     sellada.
@@ -228,8 +241,9 @@ consulta a Siigo Nube, no con una decisión de nadie.
   emitir. Si el POST a Siigo tuvo éxito pero el UPDATE local falló, la reconciliación (consulta a
   Siigo por el identificador FLIT en `observations`) recupera esa factura DIAN real en vez de
   dejarla marcada como fallida. «Consultar y luego emitir» es una carrera que produce dos facturas
-  DIAN reales; patrón base de [`docs/uso-siigo/siigo-uso.js`](../uso-siigo/siigo-uso.js), que aquí
-  se corrige en el manejo de `en_proceso`/`fallida`.
+  DIAN reales. El patrón venía de aquel cliente de referencia perdido, que **no** distinguía
+  `en_proceso` de `fallida`; la corrección vive en
+  `apps/api/src/modules/siigo/facturacion.emision.service.ts`.
   - **La toma de una clave `fallida` es atómica.** El reintento no lee el estado y luego emite:
     reclama la fila con un `UPDATE` condicional y **solo emite quien recibe fila**.
     `UPDATE siigo_facturas SET estado='en_proceso', intentos=intentos+1 WHERE idempotency_key=$1
@@ -289,8 +303,7 @@ qué factura) y *armar* (construir el `InvoiceIn` de un grupo). Hoy solo existe 
   no son la misma persona.
 - Descarga y archivo de **PDF y XML** (`/pdf`, `/xml`) en S3 bajo `clients.flitoCarpetaStorage`,
   enlazados al trámite para que queden junto a los demás soportes.
-- La respuesta de emisión se normaliza a `cufe`, `pdf_url`, `stamp_status` y `public_url` como en
-  `emitirFactura()` de [`docs/uso-siigo/siigo-client.js`](../uso-siigo/siigo-client.js), de modo
+- La respuesta de emisión se normaliza a `cufe`, `pdf_url`, `stamp_status` y `public_url`, de modo
   que el reconciliador y el archivo lean siempre los mismos campos.
 - Panel de estado: emitidas, aceptadas por DIAN, rechazadas con su motivo, pendientes de envío.
 - Reenvío manual de correo y reintento manual de las rechazadas, desde el reporte.
@@ -425,10 +438,39 @@ De la 6 se desprende un riesgo que conviene tener presente: si contabilidad conf
 la forma de pago habitual **con vencimiento**, esa opción desaparece del selector y quien factura se
 queda sin poder elegirla. La salida es configurarla de contado, no reintentar.
 
+### Respondidas el 2026-08-21
+
+**La que reordena el alcance: la factura lleva UNA sola línea.**
+
+Confirmado por David. FLIT factura electrónicamente **solo el trámite digital**, contra el producto
+`007 SERVICIO EN LA NUBE` de Siigo (`Service`, `Exempt`, IVA 0 %, activo). SOAT, impuesto, derecho
+de trámite, logística y GMF **no se facturan**: se gestionan por reintegro, fuera de la factura
+electrónica. Concuerda con el catálogo real, donde esos productos viven en el grupo «Reintegro» y
+existe un producto «INGRESOS PARA TERCEROS».
+
+**El código ya estaba construido para esto y no hay que tocarlo.** Tres piezas lo sostienen:
+
+- `conceptosFacturados()` es la intersección de lo APLICABLE con lo ELEGIDO en el envío — «se
+  gestiona el trámite entero y se factura electrónicamente una parte».
+- Un concepto con `facturaLineaPropia = false` se salta **antes** de cualquier validación: lo que no
+  va en la factura no se valida, así que no hay que darle producto de Siigo al SOAT.
+- El total esperado de la conciliación es la suma de las **líneas armadas**, no el total de la
+  liquidación. Sin eso, cada factura se marcaría para revisión por diseño.
+
+**Cuidado al parametrizar.** En el catálogo real hay **tres** productos llamados «SERVICIO EN LA
+NUBE» —`007` activo, `004` y `005` inactivos— y `011 SERVICIO CONSULTA` es el único servicio activo
+con **IVA 19 %**. Mapear ahí rompería el «no hay IVA» **en silencio**: con A7 no queda nada de este
+lado que lo detecte, y la conciliación de totales corre DESPUÉS de que la factura ya salió.
+
+| # | Pregunta | Respuesta | Qué implica en el código |
+|---|---|---|---|
+| 5 | GMF como línea propia | **No se factura** | Nada. `lineaPropiaPendiente` deja de ser un bloqueo práctico: el concepto no se elige al enviar, y la compuerta se evalúa sobre los conceptos ELEGIDOS, no sobre todos los aplicables |
+| 10 | Ambiente de pruebas | **Siigo está pagado**; la integración ya puede salir a la red | Sigue abierto si hay credenciales de PRUEBAS distintas de las de producción. Lo que protege no es el nombre del ambiente: es que con `SIIGO_AMBIENTE=pruebas` **no se timbra ante la DIAN ni se manda correo** (`efectosExternosPermitidos`) |
+
 ### Importantes (se pueden asumir, pero conviene confirmar)
 
-5. **GMF (4x1000).** ¿Se factura como una línea más (un producto «GMF»), o se absorbe dentro del
-   valor de otro concepto? Facturar un gravamen bancario como producto tiene lectura tributaria.
+5. ~~**GMF (4x1000).**~~ **RESPONDIDA (2026-08-21): no se factura.** La factura electrónica lleva
+   una sola línea, el trámite digital; el GMF va por reintegro como los demás conceptos.
 6. ~~**Forma de pago.**~~ **RESPONDIDA (2026-08-13): se captura por cliente**, al enviar, y se
    recuerda para el próximo envío de esa empresa. Sin plazo de vencimiento, así que no se envía
    `due_date` y las formas de pago que lo manejan se filtran del selector.
@@ -440,8 +482,10 @@ queda sin poder elegirla. La salida es configurarla de contado, no reintentar.
    crédito no cubre.
 9. **Empresa emisora.** ¿FLIT factura desde un único NIT / una sola empresa de Siigo Nube, o hay
    varias? El rate limit y las credenciales son **por empresa**.
-10. **Ambiente de pruebas.** ¿Ya se solicitaron las credenciales de pruebas a Siigo? Hasta tenerlas
-    el desarrollo va contra mock, y la certificación real quedaría fuera de la definición de hecho.
+10. **Ambiente de pruebas.** **Parcialmente respondida (2026-08-21): Siigo ya está pagado**, así
+    que la integración puede salir a la red. Queda por confirmar si hay credenciales de PRUEBAS
+    distintas de las de producción — con las de producción cargadas bajo `pruebas` se obtienen
+    facturas reales en Siigo sin timbre ni correo, pero son documentos reales del lado contable.
 11. **Universo facturable.** ¿Solo trámites con liquidación **sellada** y documentación completa, o
     también estimados? (Recomendación: solo sellados; un estimado puede cambiar mañana y una factura
     electrónica aceptada por la DIAN no.)
@@ -478,7 +522,7 @@ definición de negocio, y porque una factura rechazada por la DIAN no arrastra a
 
 | Riesgo si se asume mal | Cómo lo neutraliza el diseño |
 |---|---|
-| Emitir facturas con IVA incorrecto ante la DIAN — un error caro y difícil de deshacer (solo con nota crédito) | La clasificación tributaria y los impuestos de cada concepto son **datos configurables**, y la emisión en producción está bloqueada hasta que contabilidad marque cada concepto como confirmado |
+| Emitir facturas con IVA incorrecto ante la DIAN — un error caro y difícil de deshacer (solo con nota crédito) | ~~La clasificación tributaria y los impuestos de cada concepto son datos configurables, y la emisión en producción está bloqueada hasta que contabilidad marque cada concepto como confirmado~~ · **SUPERADO por A7 (migración `0145`):** FLITO ya no guarda copia del tratamiento tributario ni exige firmarla. El riesgo **no desapareció: se mudó** a la parametrización de Siigo Nube, y de este lado ya no queda nada que lo detenga |
 | Descubrir tarde que el total de FLITO no coincide con el de Siigo | La conciliación de totales compara el `total` devuelto por Siigo contra la liquidación y marca la diferencia para revisión en lugar de aceptarla |
 | Que «ingresos para terceros» resulte necesario y no esté contemplado | El flag `es_ingreso_terceros` existe en el mapeo desde el inicio; lo pendiente sería poblar el tercero beneficiario, acotado a SOAT/impuesto/derecho |
 
@@ -493,8 +537,7 @@ Queda señalado como **riesgo de alcance** de F2, no como bloqueo de F1/F3.
 
 - **DT-1 — Caché de token Siigo multi-instancia.** El caché de `siigo.token.ts` vive en memoria
   del proceso. Si PM2 llega a correr más de una instancia del API, cada una autentica por su lado:
-  Siigo lo tolera, pero se pierde el mutex y se gastan logins extra. La referencia
-  (`docs/uso-siigo/siigo-client.js`) ya admite caché inyectable. Acción cuando se escale a 2+
+  Siigo lo tolera, pero se pierde el mutex y se gastan logins extra. Acción cuando se escale a 2+
   instancias: mover el caché a Redis (`src/shared/redis.ts`) sin tocar el resto del cliente.
   **No urgente** mientras haya una sola instancia.
 - **NG-1 — Cierre de la Feature 10 (ADO 11239).** Su alcance está implementado y probado al 100 %
