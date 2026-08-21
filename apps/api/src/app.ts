@@ -10,7 +10,7 @@ import { errorHandler } from './shared/middleware/errorHandler.js';
 import { metricsAuth } from './shared/middleware/metricsAuth.js';
 import { esUuid } from './shared/utils/uuid.js';
 import { registry } from './shared/metrics.js';
-import { apiLimiter, authLimiter } from './shared/middleware/rateLimiter.js';
+import { apiLimiter, authLimiter, metricsLimiter } from './shared/middleware/rateLimiter.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import usersRoutes from './modules/users/users.routes.js';
 import vehiclesRoutes from './modules/vehicles/vehicles.routes.js';
@@ -391,7 +391,10 @@ export function createApp() {
   // alcanzable desde internet en los tres ambientes (Bug #11599). Lo que la cierra es
   // `metricsAuth`, en el código y no en nginx. No expone secretos ni PII, pero sí
   // contadores de negocio (pesv_*, tram_*), versión de Node y datos del proceso.
-  app.get('/metrics', metricsAuth, async (_req, res) => {
+  // El limiter va ANTES del guard: frena el barrido de tokens en la puerta, y los 401 que
+  // sí pasen quedan registrados por `metricsAuth` (hasta el Bug #11599 esta ruta no tenía
+  // ni freno ni traza porque `apiLimiter` solo cubre `/api`).
+  app.get('/metrics', metricsLimiter, metricsAuth, async (_req, res) => {
     try {
       res.setHeader('Content-Type', registry.contentType);
       res.send(await registry.metrics());

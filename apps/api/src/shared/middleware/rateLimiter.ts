@@ -45,6 +45,22 @@ export const authLimiter = rateLimit({
   store: makeStore('rl:auth:'),
 });
 
+// GET /metrics: 120 requests / 15 min / IP (Bug #11599). La ruta vive FUERA de `/api`, así
+// que `apiLimiter` nunca la cubrió; ahora que porta autenticación, la regla 18 de AGENTS.md
+// pide freno propio. No es contención de costo —`metricsAuth` rechaza antes de llamar a
+// `registry.metrics()`, no hay amplificación— sino techo a la fuerza bruta contra el token.
+// 120/15min deja holgura al scrape legítimo de Prometheus (60 con el intervalo por defecto
+// de 15s) incluso con dos scrapers apuntando a la misma instancia.
+export const metricsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('metrics:'),
+  message: { error: 'Demasiadas solicitudes' },
+  store: makeStore('rl:metrics:'),
+});
+
 // QR público RNDC: 60 requests / 15 min / IP. Anti-enumeración del token.
 export const qrPublicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
