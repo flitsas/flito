@@ -18,6 +18,7 @@ import { clients } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
+import { COLUMNAS_LISTADO, registrarAccesoListado } from './clients.pii.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -183,10 +184,27 @@ async function parejaOcupada(document: string, branchOffice: number, excluirId?:
   return fila !== undefined;
 }
 
+/**
+ * El padrón de clientes, por tramos (HU #11299, AC8).
+ *
+ * Dos cosas que antes no estaban y que van juntas:
+ *
+ *   · **Proyección explícita.** Era un `db.select()` desnudo: la fila COMPLETA de hasta 500
+ *     clientes, incluidas columnas que ninguna pantalla lee y las que se añadan mañana a la tabla.
+ *     Qué entrega ahora —y contra qué consumidores se midió— está en `clients.pii.ts`.
+ *   · **Rastro de la lectura.** Es la lectura de datos personales más grande de la aplicación y no
+ *     dejaba una línea en `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16).
+ *
+ * El registro va DESPUÉS de la consulta y con `await`: `filas` no se sabe antes, y `logPiiAccess`
+ * es best-effort —nunca tumba la operación—, así que esperar cuesta una inserción y garantiza que
+ * el rastro está escrito antes de que la respuesta salga.
+ */
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
-  const result = await db.select().from(clients).orderBy(clients.name).limit(limit).offset(offset);
+  const result = await db.select(COLUMNAS_LISTADO).from(clients)
+    .orderBy(clients.name).limit(limit).offset(offset);
+  await registrarAccesoListado(req, { filas: result.length, limit, offset });
   res.json(result);
 });
 
