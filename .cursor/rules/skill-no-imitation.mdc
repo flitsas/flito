@@ -11,6 +11,11 @@ Esta regla **prevalece** sobre atajos del hilo que «parecen» cumplir el proces
 
 Las skills (`flit-gestion-hu`, `flit-code-review`, `flit-integration-ado`, `flit-modo-desarrollo-auto`, …) existen para **ejecutarse**. Un comentario HTML en Azure DevOps del tipo «usando @flit-…», un `wit_*` suelto, o un checklist inventado en el chat **no** sustituyen la skill.
 
+**Aplican igual a HU y a Bug.** `flit-gestion-hu` gobierna el ciclo `Active → Resolved` de **ambos**
+tipos (regla «Paridad HU ↔ Bug» de `AGENTS.md`). Decir «ninguna skill mueve el State de un Bug» y
+dejarlo en `Active` con su corrección mergeada es **Bug huérfano**: fallo de proceso, no prudencia.
+Lo que se le pregunta al humano es la autorización para escribir en ADO, no si existe el proceso.
+
 ## Qué cuenta
 
 | Tipo | Prueba mínima |
@@ -34,6 +39,8 @@ es la imitación más frecuente (veredicto o plantilla «de memoria»). El ledge
 - Comentario «listo para QA» **sin** lanzar `qa-agent`
 - Reusar salida de Vitest/Playwright del `backend-agent` / hilo como certificación QA
 - Feature «modo auto» improvisado sin cargar `flit-modo-desarrollo-auto` (salvo pedido explícito de no usarla)
+- Cerrar el ciclo de un **Bug** sin `flit-gestion-hu` (dejarlo en `Active`, o moverlo con `wit_*` suelto)
+- Tratar el Bug como work item de segunda: sin comentario de inicio/cierre, sin `Custom.Commits`, sin gate `qa-agent`
 
 ## Orquestación
 
@@ -41,4 +48,4 @@ Pedido multi-fase / Feature completo → cargar `flit-modo-desarrollo-auto` y/o 
 
 ## QA (participación mínima)
 
-Tras **cada** HU en `Resolved` con AC Gherkin, UI o BACKEND-only aplicable → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → HU a `Active` + corregir; **sin** Bug/modo C. Modo C solo con pedido explícito del QA. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».
+Tras **cada** HU **o Bug** en `Resolved` (AC Gherkin, UI, BACKEND-only, o repro corregido) → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → HU a `Active` + corregir; **sin** Bug/modo C. Modo C solo con pedido explícito del QA. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».

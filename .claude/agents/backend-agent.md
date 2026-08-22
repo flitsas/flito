@@ -2,10 +2,10 @@
 name: backend-agent
 description: |
   Implementa backend en apps/api del monorepo FLITO — Express 4 + TypeScript ESM + Drizzle + PostgreSQL + Zod; tests Vitest en apps/api/__tests__.
-  INVOCACIÓN OBLIGATORIA (matriz AGENTS.md): toda HU BACKEND o cambio no trivial en API/esquema/migración/crons/shared-types de API DEBE implementarse lanzando este subagente.
+  INVOCACIÓN OBLIGATORIA (matriz AGENTS.md): toda HU **o Bug** BACKEND, o cambio no trivial en API/esquema/migración/crons/shared-types de API, DEBE implementarse lanzando este subagente.
   Verificación default: Vitest filtrado al módulo; suite completa solo si shared/schema transversal/shared-types amplios (CI es gate de suite completa).
-  PROHIBIDO que el hilo «codee de paso» una HU completa. Excepción: fix ≤~20 líneas o pedido explícito.
-  Triggers — backend, API, endpoint, Drizzle, migración, HU BACKEND, flito-*, modo auto paso 3.
+  PROHIBIDO que el hilo «codee de paso» una HU o la corrección de un Bug. Excepción: fix ≤~20 líneas o pedido explícito.
+  Triggers — backend, API, endpoint, Drizzle, migración, HU BACKEND, bug de API, flito-*, modo auto paso 3.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write
 model: inherit
 ---
@@ -18,7 +18,7 @@ model: inherit
 ## Contrato de invocación (anti cold-start)
 
 El hilo principal DEBE pasar en el prompt del Task, cuando existan:
-- HU #<id>, título, AC Gherkin relevantes (pegar, no «léelos en ADO»)
+- **HU o Bug** #<id>, título, y el criterio: AC Gherkin (HU) o Repro Steps + corrección esperada (Bug), **pegados**, no «léelos en ADO»
 - Rutas/archivos candidatos o módulo vecino a copiar
 - Decisión de diseño (`slim`/`full`) o «architecture: no aplica — …»
 - Comandos de verificación ya corridos en el hilo (si los hay)
@@ -31,6 +31,7 @@ Solo consulta ADO si faltan AC o hay duda bloqueante (una pregunta consolidada).
 | Disparador | ¿Invocar? |
 |---|---|
 | HU etiquetada BACKEND / título `[BACKEND]` | **SÍ — siempre** |
+| **Bug** cuya corrección toca `apps/api` (mismo trato que una HU) | **SÍ — siempre**; dejar el repro cubierto por un test de regresión |
 | Crear o extender módulo `apps/api/src/modules/**` | **SÍ** |
 | Tocar `schema.ts`, migración SQL, crons, middleware API, `packages/shared-types` usado por API | **SÍ** |
 | Primera HU de un Feature (aunque sea «solo esquema/seeds») | **SÍ — no es excepción** |

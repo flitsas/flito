@@ -53,12 +53,12 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Verificación post-deploy, salud de crons/contenedores, rollback guiado, triage de caídas | `devops-agent` | subagente |
 | Auditoría del esquema de BD — normalización, FKs circulares, índices, drift schema↔migraciones | `db-review-agent` | subagente |
 | Leer o escribir work items en ADO | skill `flit-azure-devops` (MCP servidor **`ado`**) | skill |
-| Crear HUs en ADO | skill `flit-crear-hu` | skill |
-| Ciclo Active → Resolved, entrega a QA | skill `flit-gestion-hu` | skill |
+| Crear HUs **o Bugs** en ADO | skill `flit-crear-hu` | skill |
+| Ciclo Active → Resolved, entrega a QA (**HU o Bug**, mismo ciclo) | skill `flit-gestion-hu` | skill |
 | Revisión del diff antes del PR | skill `flit-code-review` | skill |
 | PR de GitHub ↔ ADO (`Custom.Commits`, Deploy DEV/QA/PDN) | skill `flit-integration-ado` | skill |
 | Promoción develop → staging → release | skill `flit-release` | skill |
-| Ciclo completo y repetible por HU de un Feature | skill `flit-modo-desarrollo-auto` | skill |
+| Ciclo completo y repetible por HU **o Bug** de un Feature o lote | skill `flit-modo-desarrollo-auto` | skill |
 
 **No existen** `infra-agent`, `integration-agent` ni `code-review-agent`. Tampoco existe `.cursor/workflows/` ni el comando `/code-review`. Si un plan los nombra, está mal: el esquema Drizzle lo implementa `backend-agent` y lo audita `db-review-agent`, el PR lo hace el hilo principal con `flit-integration-ado` (rol integración), la revisión de diff es la skill `flit-code-review` más `security-agent`, la promoción entre ambientes es `flit-release`, y la infraestructura se escala a un humano.
 
@@ -86,6 +86,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 2. **Elijo la forma del flujo** (respetar la **matriz de invocación** de `AGENTS.md`; no omitir un ejecutor cuyo disparador aplica):
    - *Requerimiento nuevo (informal)* → `flit-intake` → tech-lead (Feature + HUs) → architecture (si no es trivial) → `ux-agent` (si hay UI nueva significativa) → **Skill `flit-modo-desarrollo-auto`** (o fases explícitas equivalentes con Skills/Agents reales)
    - *HU ya existente* → Skill `flit-gestion-hu` Active → architecture/ux si aplica → backend o frontend → (qa modo A opcional temprano) → Skill `flit-code-review` (+ security/db-review) → PR → Skill `flit-integration-ado` A → Skill `flit-gestion-hu` Resolved → **Agent `qa-agent` B** → merge → Modo B → devops M1
+   - *Bug ya radicado* → **exactamente la misma cadena** que la HU (paridad de `AGENTS.md`), con rama `BUG/<ID>-…`, alcance de QA = repro + regresión, y cierre a `Resolved` con `flit-gestion-hu`. Un plan que deje el Bug sin fase de cierre está incompleto
    - *Corrección puntual* → el agente dueño del archivo → verificación + `flit-code-review` → PR (security/db-review solo si el disparador aplica)
    - *Auditoría* → security-agent (seguridad/PII), `db-review-agent` (esquema de BD), o tech-lead modo D (deuda técnica)
    - *Feature completo con varias HUs en cadena* → **Skill `flit-modo-desarrollo-auto`** (incluye matriz por HU; no reescribir el ciclo en prosa)
@@ -101,7 +102,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 
 | Gate | Cuándo |
 |---|---|
-| Activar una HU en ADO | antes de empezar a implementarla (`Skill flit-gestion-hu`) |
+| Activar una HU **o un Bug** en ADO | antes de empezar a implementarlo (`Skill flit-gestion-hu`) |
 | Crear rama, commit o push | antes de tocar git. La rama exige HU o Bug en ADO y nombre `HU/<ID>-<dev>-<desc>` (`.cursor/rules/convenciones-rama-pr.mdc`) |
 | Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` con título `HU <ID>: <descripción>`, luego `Skill flit-integration-ado` Modo A |
 | **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal mergea vía MCP github **sin re-preguntar**; sin autorización, lo mergea el humano. **No** es gate pedir «continúa» mientras CI está en curso |

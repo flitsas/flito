@@ -2,17 +2,23 @@
 name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
-  Por CADA HU: Skill flit-gestion-hu → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear HU en el hilo) → verificación filtrada → Skill flit-code-review ANTES del PR (+ security diff-scoped ∥ db-review) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent B alcance AC (A temprano; FAIL=retrabajo sin Bug) → monitor CI + merge al verde en paralelo con siguiente HU → Modo B → devops M1 mínimo al tip.
-  Ledger obligatorio por HU. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, flit-modo-desarrollo-auto.
+  Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación filtrada → Skill flit-code-review ANTES del PR (+ security diff-scoped ∥ db-review) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent B alcance AC (repro+regresión en Bug; A temprano; FAIL=retrabajo sin Bug nuevo) → monitor CI + merge al verde en paralelo con el siguiente work item → Modo B → devops M1 mínimo al tip.
+  Ledger obligatorio por work item. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos, y PROHIBIDO dejar un Bug mergeado sin Resolved. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, corrige los bugs, flit-modo-desarrollo-auto.
 ---
 
 # Modo de desarrollo auto
 
-Ciclo cerrado por HU, repetido hasta que **todas** las historias del Feature quedan entregadas.
+Ciclo cerrado por work item, repetido hasta que **todos** los del lote quedan entregados.
+
+**«HU» aquí significa work item de desarrollo: User Story *o* Bug.** El ciclo, los gates y el ledger
+son idénticos (regla «Paridad HU ↔ Bug» de `AGENTS.md`). Un lote de Bugs se trabaja en cadena
+apilada igual que las HUs de un Feature: rama `BUG/<ID>-…`, título `BUG <ID>: …`, y **cierre a
+`Resolved` con `flit-gestion-hu`** — un Bug mergeado que se queda en `Active` es fallo de proceso,
+no un pendiente que se le consulta al humano.
 Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invocación** vive en `AGENTS.md` — aquí solo se fija en qué paso del ciclo se dispara cada ejecutor:
 
 - `flit-azure-devops` — conexión MCP/REST, encoding, idempotencia
-- `flit-gestion-hu` — estados `Active` / `Resolved` y comentarios (**Skill en cada HU**)
+- `flit-gestion-hu` — estados `Active` / `Resolved` y comentarios (**Skill en cada HU y en cada Bug**)
 - `architecture-agent` / `ux-agent` — diseño previo cuando aplica (paso 2c)
 - `backend-agent` / `frontend-agent` — implementación (paso 3); el hilo principal no «codea de paso» una HU completa
 - `flit-code-review` — revisión del diff antes del PR (paso 4b) (**Skill en cada HU**)
@@ -45,17 +51,22 @@ cargado la Skill en el turno **es imitación**, no cumplimiento. Igual: `wit_*` 
 | Comentario «listo para QA» / seguir a la siguiente HU sin `Agent qa-agent` | `qa-agent` |
 | Radicar Bug / modo C porque falló el gate B del Feature | `qa-agent` (FAIL = re-trabajo, no Bug) |
 | `curl /api/health` del hilo presentado como M1 | `devops-agent` |
+| Bug mergeado que queda en `Active`, o «¿lo paso a Resolved?» como si no hubiera proceso | `flit-gestion-hu` Paso 3 (mismo cierre que una HU) |
+| Bug trabajado sin comentario de inicio/cierre, sin `Custom.Commits` o sin gate QA | el ciclo completo — el Bug no es un work item de segunda |
 
 Si un paso no aplica, **declararlo en el cuerpo del PR / reporte** («architecture: no aplica — …»).
 Omitir en silencio = fallo de proceso.
 
-### Ledger de invocaciones (obligatorio al cerrar cada HU)
+### Ledger de invocaciones (obligatorio al cerrar cada HU o Bug)
 
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-HU #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
+<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · estado=Resolved✅|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
 ```
+
+`estado=Resolved` es la casilla que delata al **Bug huérfano**: si el work item se mergeó y el
+ledger no puede marcarla, el ciclo no está cerrado.
 
 Cada ✅ de Skill lleva la **hora de su carga en el turno de esa operación**. Una carga tiene
 vigencia de **una operación** (una activación/cierre de HU, un code-review, un Modo A, un Modo B):
@@ -70,8 +81,10 @@ no contar como entregada. En ráfaga, la invocación de `qa-agent` es el gate; `
 
 ## Entrada
 
-El Feature padre (ej. `#10938`) o una lista de HU. Si solo dan el Feature, obtener sus hijas por
-WIQL y ordenarlas por dependencias (las declaradas en *Dependencies* dentro de Acceptance Criteria).
+El Feature padre (ej. `#10938`), una lista de HU, **o una lista de Bugs** (p. ej. «corrige los bugs
+#11766 y #11767»). Si solo dan el Feature, obtener sus hijas por WIQL y ordenarlas por dependencias
+(las declaradas en *Dependencies* dentro de Acceptance Criteria). Un lote de Bugs se ordena por
+severidad y por dependencia entre módulos, y se recorre con el **mismo** ciclo de abajo.
 
 ## Modo continuo (cadena apilada) — defecto del Feature completo
 
@@ -141,10 +154,10 @@ Feature, el agente mergea tras CI verde antes de arrancar la siguiente. **Aun as
 
 ### 1. Activar en Azure
 
-- **`Skill flit-gestion-hu` Paso 1** (obligatorio en **cada** HU, no solo la primera):
-  - **Feature padre primero** (regla de `AGENTS.md`): si el Feature padre está `New`, pasarlo a **`Active`** con comentario de inicio en su Discussion. Si ya está `Active`, no rehacer.
-  - `System.State` de la HU → **`Active`** + comentario de inicio (plantilla de la skill).
-- Si la HU ya está `Active` o `Resolved`, **no** rehacer: continuar donde quedó.
+- **`Skill flit-gestion-hu` Paso 1** (obligatorio en **cada** HU y en **cada Bug**, no solo la primera):
+  - **Padre primero** (regla de `AGENTS.md`): si el Feature padre está `New`, pasarlo a **`Active`** con comentario de inicio en su Discussion. Si ya está `Active`, no rehacer. Un Bug **sin padre** se activa igual y la ausencia se declara en el comentario.
+  - `System.State` del work item → **`Active`** + comentario de inicio (plantilla de la skill; en Bug incluye quién lo reportó, severidad y el repro que debe quedar en verde).
+- Si el work item ya está `Active` o `Resolved`, **no** rehacer: continuar donde quedó.
 
 ### 2. Rama nueva (cadena apilada por defecto)
 
@@ -324,11 +337,12 @@ muy largo, resumir historial previo y concatenar — **no** abandonar el campo �
 `Custom.Commits` y Discussion — **no** abandonar Commits. Los `updates[].value` de
 `wit_work_item_write` van como string (HTML incluido).
 
-### 6. Cerrar la HU
+### 6. Cerrar la HU o el Bug
 
 **`Skill flit-gestion-hu` Paso 3:** `System.State` → **`Resolved`** + comentario de entrega a QA
-(plantillas de la skill). Condición mínima: **build/tests locales en verde** y PR abierto con
-Modo A. Si el CI remoto aún está `pending`, **no** bloquear el Resolved ni la pista B: dejar el
+(plantillas de la skill; la de Bug añade causa, corrección y repro verificado). Condición mínima:
+**build/tests locales en verde** —y, en Bug, el repro en verde tras estar rojo— y PR abierto con
+Modo A. **Un Bug no se salta este paso**: cerrar el ciclo sin `Resolved` es dejarlo huérfano. Si el CI remoto aún está `pending`, **no** bloquear el Resolved ni la pista B: dejar el
 monitor de CI activo y mergear (paso 2b) cuando pase a verde. **No** `Resolved` si el CI remoto
 ya está en rojo — corregir antes. No cerrar con `wit_*` sueltos sin la skill.
 
@@ -348,10 +362,11 @@ código es desperdicio de contexto/wall-time, no paralelismo.
 **gate de calidad de desarrollo** (`Contexto: desarrollo-gate`) **antes** de dar la HU por
 «entregada a QA»:
 
-| Tipo HU | Modos mínimos | Precisión exigida en HANDOFF |
+| Tipo de work item | Modos mínimos | Precisión exigida en HANDOFF |
 |---|---|---|
 | AC Gherkin / FRONTEND | A (si faltan TCs) + **B** (alcance AC: spec/módulo filtrado) | Matriz AC→TC; re-run propio; PASS / FAIL / SIN-ENTORNO |
 | BACKEND-only | **B** Vitest del módulo (filtrado); E2E declarado si se omite | Comando + salida real de **esta** invocación |
+| **Bug** | **B** con alcance repro + regresión del módulo (A antes si no hay TC del repro) | Repro rojo→verde con salida real; TC de regresión nombrado |
 | Entorno caído | Invocar igual | Fast-path `SIN-ENTORNO` (≤2 checks); del **agente**, no del hilo |
 
 **FAIL del gate B:** reactivar la HU a `Active` y corregir vía `backend-agent` / `frontend-agent`.
@@ -432,13 +447,13 @@ pendientes.
 - Un test que ya existía empieza a fallar por una razón no obvia.
 - Un PR de la pila recibe cambios pedidos en revisión (hay que rebasar los eslabones encima).
 
-## Checklist de salida por HU
+## Checklist de salida por HU o Bug
 
-- [ ] Feature padre en `Active` (regla de `AGENTS.md`)
-- [ ] Esta skill cargada al inicio del Feature (no ciclo improvisado)
-- [ ] HU en `Active` al empezar, `Resolved` al terminar — vía **Skill** `flit-gestion-hu` (no wit_* branded)
-- [ ] Rama `HU/<ID>-<desarrollador>-<desc>` creada (desde `develop` o desde la rama previa, según el modo)
-- [ ] Título del PR `HU <ID>: <descripción>` (≤ 100 car., mismo ID que la rama) — `check-naming.mjs` en verde
+- [ ] Padre en `Active` si existe (regla de `AGENTS.md`); Bug sin padre → declarado
+- [ ] Esta skill cargada al inicio del Feature / lote (no ciclo improvisado)
+- [ ] Work item en `Active` al empezar, **`Resolved` al terminar** — vía **Skill** `flit-gestion-hu` (no wit_* branded). Vale igual para Bugs: ninguno queda en `Active` con su fix mergeado
+- [ ] Rama `HU/<ID>-<desarrollador>-<desc>` o `BUG/<ID>-…` creada (desde `develop` o desde la rama previa, según el modo)
+- [ ] Título del PR `HU <ID>: <descripción>` o `BUG <ID>: <descripción>` (≤ 100 car., mismo ID que la rama) — `check-naming.mjs` en verde
 - [ ] En cadena: dependencia y eslabón declarados en el cuerpo del PR
 - [ ] Diseño previo: `architecture-agent` / `ux-agent` en slim|full **o** «no aplica» declarado en PR
 - [ ] Implementación vía **Agent** `backend-agent` / `frontend-agent` con prompt denso (no código de HU completa en el hilo)

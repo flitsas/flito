@@ -1,8 +1,8 @@
 ---
 name: flit-integration-ado
 description: |
-  Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama.
-  INVOCACIÓN OBLIGATORIA: cargar esta Skill Modo A en CADA PR de HU; Modo B en CADA merge (o tip de ráfaga). Discussion / comentario branded NO sustituyen Custom.Commits (anti-imitación).
+  Registra PRs de GitHub (flitsas/flito) en Azure DevOps: Custom.Commits (HTML canónico), Discussion, hyperlinks; post-merge Deploy DEV/QA/PDN según rama. Aplica igual a HU y a Bug (paridad de AGENTS.md).
+  INVOCACIÓN OBLIGATORIA: cargar esta Skill Modo A en CADA PR con work item (HU o Bug); Modo B en CADA merge (o tip de ráfaga). Discussion / comentario branded NO sustituyen Custom.Commits (anti-imitación).
   Tras Modo B con Deploy*=true → Agent devops-agent M1 (una vez por tip).
   Triggers — PR GitHub, Custom.Commits, Deploy DEV, Deploy QA, Deploy PDN, post-merge, Modo A, Modo B, flit-integration-ado, flit-modo-desarrollo-auto pasos 5 y 2b.
 ---
@@ -19,8 +19,8 @@ description: |
 
 | Disparador | Modo | Campo obligatorio |
 |---|---|---|
-| Justo después de `create_pull_request` de una HU | **Modo A** | `Custom.Commits` sección «PR abierta» (HTML) + Discussion breve + hyperlink si se puede |
-| PR de HU **MERGED** a `develop` / `staging` / `release` | **Modo B** | Añadir «Integrado» en `Custom.Commits` **sin borrar** lo previo + `Deploy*` según rama |
+| Justo después de `create_pull_request` de una **HU o un Bug** | **Modo A** | `Custom.Commits` sección «PR abierta» (HTML) + Discussion breve + hyperlink si se puede |
+| PR de **HU o Bug** **MERGED** a `develop` / `staging` / `release` | **Modo B** | Añadir «Integrado» en `Custom.Commits` **sin borrar** lo previo + `Deploy*` según rama |
 | Ráfaga de merges | Modo B por PR (o consolidado al tip con evidencia de cada SHA) + **una** `devops-agent` M1 al tip | No omitir Commits «por presupuesto de tokens» |
 
 **Cómo contar:** herramienta `Skill` con `skill: flit-integration-ado` y args `Modo A|B` + IDs de
@@ -34,6 +34,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 - PATCH ADO / `wit_*` sueltos sin cargar esta skill ni las plantillas
 - Dar por cerrado el post-merge sin invocar `devops-agent` M1 tras `Deploy*=true`
 - Modo B solo en Discussion cuando `Custom.Commits` quedó vacío (caso #11500 — no repetir)
+- Saltarse Modo A/B «porque es solo un Bug» — el Bug tiene los mismos campos y el mismo trato
 
 **Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
 
@@ -50,7 +51,12 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 | **Deploy PDN** | `Custom.DeployPDN` | Modo B | PR **MERGED** → target `release` |
 | **Discussion** | `System.History` | Modo A y B | Comentario HTML breve (no duplicar el HTML largo de Commits) |
 
-**Prohibido:** cambiar `System.State` (Resolved/Active/Closed lo gestionan implementación y PO). **Prohibido:** `Deploy * = true` si el CI que valida la integración (ver Modo B §2) no está en verde.
+**Los mismos campos aplican al tipo `Bug`** — no son exclusivos de User Story. Verificado en el
+proyecto real (Bugs #11518, #11599, #11604, #11622, #11649, #11694, #11711, #11720 tienen
+`Custom.Commits` poblado y `Custom.DeployDEV = "true"`). Un Bug registrado solo en Discussion es el
+mismo anti-patrón que una HU registrada solo en Discussion.
+
+**Prohibido:** cambiar `System.State` (Resolved/Active/Closed lo gestionan `flit-gestion-hu` y el PO). **Prohibido:** `Deploy * = true` si el CI que valida la integración (ver Modo B §2) no está en verde.
 
 **PRs sin work item (`CHORE/`, `DOCS/`):** única vía permitida sin HU/Bug, y solo para lo que **no es producto** (documentación, `.claude/`, `.cursor/`, tooling, CI, `scripts/`). Merge a `develop` con «sí» humano y checks verdes; **no** hay Modo A/B en ADO (no hay work item). Rama `CHORE/<dev>-<desc>` o `DOCS/<dev>-<desc>`, título `CHORE:` / `DOCS: <descripción>`. Si el diff toca `apps/**` o `packages/**` es desarrollo: exige HU o Bug y rama `HU/`/`BUG/` (lo bloquea el check CI `naming`).
 
@@ -60,7 +66,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 
 ### Modo A — Registro de PR (hilo principal — rol integración)
 
-**Cuándo:** Tras crear el PR en GitHub (MCP `create_pull_request`, target `develop` por defecto). Solo aplica a PRs de **HU** con work item en ADO.
+**Cuándo:** Tras crear el PR en GitHub (MCP `create_pull_request`, target `develop` por defecto). Aplica a todo PR con work item en ADO — **HU o Bug**, sin diferencia de trato.
 
 **Quién:** el hilo principal con esta skill (no frontend/backend-agent). **No existe un agente
 `integration-agent` separado** — el rol integración lo asume el hilo principal.
@@ -77,7 +83,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 
 ### Modo B — Confirmación post-merge (Líder Técnico / hilo principal)
 
-**Cuándo:** Tras un merge a `develop` (agente bajo autorización o humano) o tras merge de promoción a `staging`/`release` (siempre humano); o cuando el Líder Técnico pide validar integración y confirmar Deploy. Solo PRs con HU en ADO.
+**Cuándo:** Tras un merge a `develop` (agente bajo autorización o humano) o tras merge de promoción a `staging`/`release` (siempre humano); o cuando el Líder Técnico pide validar integración y confirmar Deploy. Solo PRs con work item en ADO — **HU o Bug**.
 
 **Invocación típica:** *«Valida si ya se integró el PR y actualiza Azure»* — **no** requiere segundo «sí» (solo verificación + PATCH ADO).
 
@@ -89,7 +95,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
    - Caso normal: check-runs del **merge commit** del PR.
    - **Cadena apilada / merges en ráfaga:** el workflow CI usa `cancel-in-progress` por ref; los runs de merges intermedios a `develop` suelen quedar `cancelled`. El gate es el CI del **tip de `develop`** que ya contiene el merge (y el resto de la cadena), no exigir verde en cada SHA intermedio cancelado.
    - Si el tip (o el merge commit, en caso normal) tiene un check requerido en rojo → **bloquear** Deploy * = true; reportar URL del run fallido.
-3. **ADO:** leer HU actual (`GET workitem`) — comprobar `System.State == Resolved`; si no, **avisar** al humano (no cambiar estado).
+3. **ADO:** leer el work item (`GET workitem`) — comprobar `System.State == Resolved`. Si no lo está, **avisar** al humano; esta skill no cambia estados. Un work item **mergeado y todavía en `Active`** —el caso típico del **Bug huérfano**— no se deja pasar con una nota: el hilo debe cerrarlo con **`Skill flit-gestion-hu` Paso 3** (con «sí» del humano para escribir en ADO) antes de dar el ciclo por cerrado.
 4. **ADO:** `PATCH` `Custom.Commits` — **añadir** bloque **«Integrado»** **sin borrar** el contenido previo (reemplazar campo con HTML concatenado: sección anterior + `<hr/>` + nueva sección).
 5. **ADO:** según `baseRefName` del PR merged:
 
@@ -113,11 +119,13 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 ## Plantilla HTML — `Custom.Commits`
 
 Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `<th>` y `<td>`.
+El encabezado nombra el tipo real del work item: `HU #{id}` o `Bug #{id}` (así está en el Bug
+#11720, que es la referencia de formato ya publicada).
 
 ### Sección Modo A — PR abierta
 
 ```html
-<h2>Evidencia Pull Request — HU #{hu_id}</h2>
+<h2>Evidencia Pull Request — {HU|Bug} #{wi_id}</h2>
 <p><strong>Estado:</strong> Abierta (pendiente merge)</p>
 <p><strong>Registrado:</strong> {YYYY-MM-DD HH:MM}</p>
 <h3>Pull Request GitHub</h3>
@@ -136,7 +144,7 @@ Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `
 
 ```html
 <hr/>
-<h2>Integración confirmada — HU #{hu_id}</h2>
+<h2>Integración confirmada — {HU|Bug} #{wi_id}</h2>
 <p><strong>Estado PR:</strong> MERGED</p>
 <p><strong>Fecha merge:</strong> {mergedAt}</p>
 <p><strong>Confirmado por:</strong> {USER_REAL_NAME} (Líder Técnico / hilo principal)</p>
@@ -162,7 +170,7 @@ Usar tablas con `style="border:1px solid #cccccc;padding:6px 8px"` en **cada** `
 **Modo A:**
 
 ```html
-<div>🔗 [@{actor}] PR <a href="{pr_url}">#{pr_number}</a> registrada en <b>Commits</b> (HU #{hu_id}). Target: <code>{baseRefName}</code>.</div>
+<div>🔗 [@{actor}] PR <a href="{pr_url}">#{pr_number}</a> registrada en <b>Commits</b> ({HU|Bug} #{wi_id}). Target: <code>{baseRefName}</code>.</div>
 ```
 
 **Modo B:**
@@ -208,7 +216,7 @@ Con MCP: `wit_work_item_write` (servidor **`ado`**). Con REST: `json.dumps(patch
   "value": {
     "rel": "Hyperlink",
     "url": "https://github.com/{org}/{repo}/pull/{n}",
-    "attributes": { "comment": "PR #{n} — HU #{hu_id}" }
+    "attributes": { "comment": "PR #{n} — {HU|Bug} #{wi_id}" }
   }
 }]
 ```
@@ -219,7 +227,7 @@ Con MCP: `wit_work_item_write` (servidor **`ado`**). Con REST: `json.dumps(patch
 
 | Operación | MCP `github` |
 |-----------|----------------|
-| Crear PR | `create_pull_request` (base `develop`; `title` = `HU <ID>: <descripción>` — ver `.cursor/rules/convenciones-rama-pr.mdc`) |
+| Crear PR | `create_pull_request` (base `develop`; `title` = `HU <ID>: <descripción>` o `BUG <ID>: <descripción>` — ver `.cursor/rules/convenciones-rama-pr.mdc`) |
 | Corregir título | `update_pull_request` (si el check `naming` lo marca) |
 | Ver PR / merge SHA | `pull_request_read` method `get` |
 | Checks del HEAD o merge | `pull_request_read` method `get_check_runs`; runs en rama: `actions_list` |
@@ -248,12 +256,12 @@ MCP `github` (`merge_pull_request`, merge commit).
 | 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
 | 6b | Convenciones | check `naming` → `success` (rama, título y trazabilidad HU/Bug). Título mal puesto: corregir con `update_pull_request` y esperar el re-run |
 | 7 | Sin conflictos | mergeable / no conflict |
-| 8 | HU en ADO (solo flujo HU/Bug) | `Custom.Refinement=true`, Story Points — `GET workitem`. Omitir en `CHORE/` y `DOCS/` |
+| 8 | Work item en ADO | **HU:** `Custom.Refinement=true` + Story Points. **Bug:** `Severity` + Repro Steps poblados (el tipo Bug no usa `Refinement` ni exige Story Points) — `GET workitem`. Omitir en `CHORE/` y `DOCS/` |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
 | 10 | HEAD con veredicto vigente | El HEAD a mergear == `SHA revisado` del veredicto de `flit-code-review`; commits post-veredicto (fixes, retrabajo QA) exigen re-review de la skill sobre el nuevo HEAD |
-| 11 | Gate QA invocado (flujo HU/Bug con AC) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; nunca mergear con qa ❌ ni con FAIL sin retrabajo |
+| 11 | Gate QA invocado (HU o Bug) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; en Bug el alcance es el repro + regresión del módulo. Nunca mergear con qa ❌ ni con FAIL sin retrabajo |
 
-Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop` de una HU → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
+Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop` de una HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
 
 ---
 
@@ -269,8 +277,8 @@ Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |
 | Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester / **`qa-agent`** |
-| Estado `Resolved` en HU | quien implementó (gestión HU) — el hilo principal **solo avisa** si falta |
-| TCs y certificación funcional | **`qa-agent`** tras Resolved (matriz `AGENTS.md`) |
+| Estado `Resolved` en HU **o Bug** | quien implementó, vía **Skill `flit-gestion-hu`** — el hilo principal **solo avisa** si falta, pero no cierra el ciclo dejándolo pendiente |
+| TCs y certificación funcional | **`qa-agent`** tras Resolved (matriz `AGENTS.md`) — también en Bugs |
 
 ---
 
@@ -291,4 +299,4 @@ Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop
 ## Skills relacionadas
 
 - `flit-azure-devops` — conexión MCP/REST, encoding y PATCH
-- `flit-gestion-hu` — estado `Resolved` de la HU antes del Modo B
+- `flit-gestion-hu` — ciclo `Active → Resolved` del work item (HU **o Bug**) antes del Modo B
