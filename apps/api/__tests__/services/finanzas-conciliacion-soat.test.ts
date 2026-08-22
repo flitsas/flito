@@ -7,8 +7,16 @@
 //      de drizzle ignora el SQL y devuelve lo que el test registró, así que sobre él un join
 //      abanicado y una subconsulta escalar son indistinguibles. Por eso la consulta se COMPILA con
 //      `PgDialect` y se afirma sobre el texto — el mismo recurso que ya usa el test de la HU #11336.
+//      Afirmar sobre el texto NO es afirmar por substring: el predicado que impide el abanico se
+//      comprueba por implicación lógica sobre los términos del WHERE (ver `whereDeTope`), porque
+//      `toContain` no distingue el predicado de su neutralización.
 //   2. **La TRADUCCIÓN a la fila.** Eso sí es puro, y se interroga por la ruta HTTP real para que
-//      cubra también quién puede verla (AC5).
+//      cubra también quién puede verla (AC5). Lo que la fila no debe cambiar se compara contra
+//      `FILA_BASE`, un literal escrito a mano, y no contra otra salida del mismo código.
+//
+// Esas dos precisiones son la HU #11769. Hasta ella TRES casos de este archivo estaban en verde
+// sin poder ponerse en rojo: los dos del predicado del WHERE y el de «ninguna otra columna
+// cambia». El resto sí mordía; lo que se corrigió fue el modo de afirmar de esos tres.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -54,6 +62,81 @@ async function sqlDeConJoins(): Promise<string> {
   return new PgDialect().sqlToQuery(conJoined.getSQL()).sql.toLowerCase();
 }
 
+/**
+ * El WHERE de una subconsulta compilada, partido en sus condiciones DE TOPE, más si a ese nivel
+ * aparece algún `OR`.
+ *
+ * Existe porque `toContain('l.conciliada_en is not null')` **no distingue el predicado de su
+ * neutralización**: `AND (l.conciliada_en IS NOT NULL OR TRUE)` contiene la frase entera y no
+ * restringe nada, y eso devuelve el abanico de filas que esta historia existe para impedir.
+ *
+ * Con las dos piezas que devuelve esta función el predicado se afirma por IMPLICACIÓN LÓGICA y no
+ * por presencia del texto: si el WHERE es una conjunción —sin ningún `OR` de tope, así que ningún
+ * término puede anular a otro— y uno de sus términos ES, palabra por palabra, el predicado,
+ * entonces el WHERE entero lo implica y ninguna fila con `conciliada_en` en NULL puede salir.
+ * Envolverlo en un paréntesis, relajarlo con un `OR`, esconderlo dentro de otro término o borrarlo
+ * rompe una de las dos condiciones.
+ *
+ * Es deliberadamente CONSERVADOR: una reescritura equivalente (`NOT (l.conciliada_en IS NULL)`)
+ * también lo pondría rojo. Es el mismo criterio que el canario del conteo de joins de este archivo
+ * — no prohíbe el cambio, obliga a pasar por aquí a justificarlo.
+ *
+ * Y sigue siendo una afirmación sobre el TEXTO del SQL, no sobre su ejecución: `apps/api/__tests__`
+ * no tiene base, así que nada de esto demuestra que PostgreSQL use el índice ni reproduce el
+ * abanico de verdad. Demuestra que la consulta que se le manda dice lo que tiene que decir, que es
+ * lo máximo que se puede afirmar sin base y es exactamente lo que el `toContain` no afirmaba.
+ */
+function whereDeTope(sqlCompilado: string): { conjuntos: string[]; orDeTope: boolean } {
+  const t = sqlCompilado.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!t.startsWith('(') || !t.endsWith(')')) throw new Error(`no es una subconsulta: ${t}`);
+  const cuerpo = t.slice(1, -1).trim();
+
+  // Qué posiciones están fuera de TODO paréntesis y de toda comilla: es lo que separa el nivel de
+  // tope del interior, y sin ello `(... OR TRUE)` se confundiría con un `OR` de tope.
+  const tope = new Array<boolean>(cuerpo.length).fill(false);
+  let prof = 0;
+  let comilla: string | null = null;
+  for (let i = 0; i < cuerpo.length; i++) {
+    const c = cuerpo[i];
+    if (comilla !== null) { if (c === comilla) comilla = null; continue; }
+    if (c === "'" || c === '"') { comilla = c; continue; }
+    if (c === '(') { prof++; continue; }
+    if (c === ')') { prof--; continue; }
+    tope[i] = prof === 0;
+  }
+  const enTope = (aguja: string, desde: number): number => {
+    for (let i = desde; i <= cuerpo.length - aguja.length; i++) {
+      if (tope[i] && cuerpo.startsWith(aguja, i)) return i;
+    }
+    return -1;
+  };
+
+  const iw = enTope(' where ', 0);
+  if (iw < 0) throw new Error(`la subconsulta no tiene WHERE de tope: ${cuerpo}`);
+  // Todo lo que puede venir DESPUÉS del WHERE y no forma parte de él. Si apareciera cualquiera, el
+  // troceo pararía ahí en vez de tragárselo como si fuera una condición más.
+  let fin = cuerpo.length;
+  for (const cola of [' group by ', ' having ', ' window ', ' order by ', ' limit ', ' offset ', ' fetch ']) {
+    const j = enTope(cola, iw);
+    if (j > -1 && j < fin) fin = j;
+  }
+
+  const conjuntos: string[] = [];
+  let orDeTope = false;
+  let ini = iw + ' where '.length;
+  for (let i = ini; i < fin; i++) {
+    if (!tope[i]) continue;
+    if (cuerpo.startsWith(' or ', i)) orDeTope = true;
+    if (cuerpo.startsWith(' and ', i)) {
+      conjuntos.push(cuerpo.slice(ini, i).trim());
+      ini = i + ' and '.length;
+      i = ini - 1;
+    }
+  }
+  conjuntos.push(cuerpo.slice(ini, fin).trim());
+  return { conjuntos, orDeTope };
+}
+
 /** Una fila cruda del reporte, como la devolvería PostgreSQL. Por defecto, SIN conciliar. */
 function filaCruda(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -79,6 +162,46 @@ const CONCILIADA = {
   boletaReferencia: 'BOL-000123',
   boletaConciliadaEn: new Date('2026-08-05T14:20:00.000Z'),
 };
+
+/** Las tres claves que ESTA historia añade a la fila. Todo lo demás es preexistente. */
+const NUEVAS = ['soatConciliado', 'boletaReferencia', 'soatConciliadoEn'] as const;
+
+/**
+ * La fila del reporte que corresponde a `filaCruda()`, **escrita a mano**: la LÍNEA BASE del AC2.
+ *
+ * Está a mano a propósito. Hasta la HU #11769 el AC2 se comprobaba comparando `filaServida(sin)`
+ * contra `filaServida(conciliada)`, y eso no es una línea base: los dos lados los produce el MISMO
+ * código, sobre el MISMO fixture, en el MISMO commit, así que romper una columna preexistente
+ * —`gmf` a `null` en `aFila`, por ejemplo— movía los dos lados a la vez y el test seguía en verde.
+ * Comparar contra este literal es lo que hace que romper cualquier columna del reporte se vea.
+ *
+ * Cada valor sale de `filaCruda()` y de las reglas de `aFila`, no de copiar una salida:
+ *   · los importes son los de la fila cruda, ya en número (`gmf` 2980, `total` 747980);
+ *   · `noConfigurados`, `sinRecibo` y `pendientesPago` van vacíos porque la fila trae los tres
+ *     conceptos con valor y ningún pendiente;
+ *   · `autogestionados` va vacío porque las tres banderas `*Autogestionable` son `false`;
+ *   · `noAplican` trae 'Impuesto' porque el organismo no lo entrega en gestión
+ *     (`gestionaImpuesto: false`) y la compañía tampoco lo autogestiona.
+ */
+const FILA_BASE = {
+  tramiteId: 'aaaa1111-2222-4333-8444-555566667777', idFlit: 'FLIT-1',
+  placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME', tipoTramite: 'Traspaso',
+  vin: 'VIN1', marca: 'RENAULT', linea: 'LOGAN',
+  fechaAprobacion: '2026-07-14T15:30:00.000Z',
+  fechaCreacion: '2026-07-01T00:00:00.000Z',
+  soat: 450000, impuesto: null, derechoTramite: 80000,
+  logistica: 15000, tramiteDigital: 200000, gmf: 2980, total: 747980,
+  sellada: false, estadoLiquidacion: null,
+  noConfigurados: [], sinRecibo: [], pendientesPago: [], autogestionados: [],
+  noAplican: ['Impuesto'],
+  estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+};
+
+/** La fila servida sin las tres claves de esta historia: lo que el AC2 dice que no cambia. */
+function salvoLasNuevas(fila: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fila).filter(([k]) => !(NUEVAS as readonly string[]).includes(k)));
+}
 
 const auth = async (role: TestRole) => `Bearer ${await testToken({ sub: 3, username: `${role}@flit.io`, role })}`;
 
@@ -180,20 +303,25 @@ describe('AC2 — la fila sin conciliar no cambia', () => {
   });
 
   it('ninguna otra columna de la fila cambia: solo se AÑADEN las tres nuevas', async () => {
-    // El AC2 es de no regresión, y la forma de comprobarlo sin escribir a mano las treinta claves
-    // es comparar la fila entera contra la de un SOAT conciliado: la diferencia tiene que ser
-    // exactamente el bloque nuevo.
+    // El AC2 es de no regresión, así que los dos lados se comparan contra `FILA_BASE`, que está
+    // escrita a mano en este archivo, y NO uno contra el otro: comparar dos salidas del mismo
+    // código sobre el mismo fixture no puede detectar que ese código se rompa (ver `FILA_BASE`).
     const sin = await filaServida(filaCruda());
     kdb.reset();
     const con = await filaServida(filaCruda(CONCILIADA));
 
-    const NUEVAS = ['soatConciliado', 'boletaReferencia', 'soatConciliadoEn'];
-    expect(Object.keys(sin).sort()).toEqual(Object.keys(con).sort());
-    for (const k of Object.keys(sin)) {
-      if (NUEVAS.includes(k)) continue;
-      expect({ [k]: con[k] }).toEqual({ [k]: sin[k] });
+    // Ni una columna preexistente cambia de valor, ni sobra ni falta ninguna: `toEqual` exige el
+    // mismo juego de claves, así que una columna nueva colada de rondón también se ve.
+    expect(salvoLasNuevas(sin)).toEqual(FILA_BASE);
+    // Y conciliar el SOAT no mueve NADA fuera de su bloque: mismo literal, misma fila.
+    expect(salvoLasNuevas(con)).toEqual(FILA_BASE);
+
+    // Las tres nuevas están en las dos filas, conciliada o no: la columna existe siempre y lo que
+    // cambia es su valor. Una clave que aparece solo a veces se lee como un dato que se perdió.
+    for (const k of NUEVAS) {
+      expect(Object.keys(sin)).toContain(k);
+      expect(Object.keys(con)).toContain(k);
     }
-    for (const k of NUEVAS) expect(Object.keys(sin)).toContain(k);
   });
 
   it('una referencia vacía cuenta como ausencia, no como boleta sin nombre', async () => {
@@ -237,15 +365,55 @@ describe('El join que no se hizo — por qué la fila no se multiplica', () => {
   );
 
   it.each(['boletaReferencia', 'boletaConciliadaEn'] as const)(
-    '%s exige `conciliada_en IS NOT NULL`, que es lo que hace única a la línea', async (col) => {
+    '%s: el WHERE IMPLICA `conciliada_en IS NOT NULL`, no solo lo menciona', async (col) => {
       // SIN este predicado el índice único parcial `idx_flito_concil_linea_soat_unica` deja de
       // aplicar: una boleta descartada y su reemplazo conservan las dos líneas del mismo SOAT, la
       // subconsulta devuelve dos filas y PostgreSQL aborta la consulta. Y aun si devolviera una,
       // marcaría como cobrado un SOAT cuya boleta nunca movió dinero.
-      const texto = (await sqlDe(col)).toLowerCase();
-      expect(texto).toContain('l.conciliada_en is not null');
+      //
+      // Se afirma por implicación y no con `toContain`, que es lo que hacía este test hasta la HU
+      // #11769: la frase también está —intacta— dentro de `AND (l.conciliada_en IS NOT NULL OR
+      // TRUE)`, que no restringe NADA. Ver `whereDeTope` para el argumento completo.
+      const { conjuntos, orDeTope } = whereDeTope(await sqlDe(col));
+
+      // (1) El WHERE es una conjunción pura: sin un `OR` a este nivel ningún término anula a otro.
+      expect(orDeTope).toBe(false);
+      // (2) Y sus términos son EXACTAMENTE estos dos. Que el predicado sea un término ENTERO —y no
+      //     que aparezca dentro de uno— es lo que hace que el WHERE completo lo implique. De paso
+      //     ata la correlación por `soat_id`, que si se neutralizara igual devolvería el abanico.
+      expect(conjuntos).toEqual([
+        'l.soat_id = "flito_tramites"."soat_id"',
+        'l.conciliada_en is not null',
+      ]);
     },
   );
+
+  describe('y el troceador que lo sostiene muerde de verdad', () => {
+    // `whereDeTope` es código, y de él depende que el test de arriba discrimine. Si algún día se
+    // rompiera, el bloque entero volvería a aparentar cobertura en silencio: estos son los WHERE
+    // que TIENEN que caer, incluido el mutante exacto que sobrevivía al `toContain`.
+    const ESPERADO = ['l.soat_id = "flito_tramites"."soat_id"', 'l.conciliada_en is not null'];
+    const acepta = (where: string): boolean => {
+      const { conjuntos, orDeTope } = whereDeTope(
+        `(\n SELECT b.referencia\n FROM flito_conciliacion_lineas l\n WHERE ${where}\n)`);
+      return !orDeTope && conjuntos.length === ESPERADO.length
+        && conjuntos.every((c, i) => c === ESPERADO[i]);
+    };
+    const SOAT = 'l.soat_id = "flito_tramites"."soat_id"';
+
+    const CASOS: [string, string, boolean][] = [
+      ['el predicado tal cual pasa', `${SOAT} AND l.conciliada_en IS NOT NULL`, true],
+      ['neutralizado dentro de un paréntesis cae', `${SOAT} AND (l.conciliada_en IS NOT NULL OR TRUE)`, false],
+      ['relajado con un OR al final cae', `${SOAT} AND l.conciliada_en IS NOT NULL OR TRUE`, false],
+      ['con TODO el WHERE bajo un OR cae', `TRUE OR (${SOAT} AND l.conciliada_en IS NOT NULL)`, false],
+      ['borrado cae', SOAT, false],
+      ['neutralizada la correlación cae', `(${SOAT} OR TRUE) AND l.conciliada_en IS NOT NULL`, false],
+    ];
+
+    it.each(CASOS)('%s', (_nombre, where, esperado) => {
+      expect(acepta(where)).toBe(esperado);
+    });
+  });
 
   it.each(['boletaReferencia', 'boletaConciliadaEn'] as const)(
     '%s NO lleva LIMIT: si la unicidad se rompiera, tiene que doler', async (col) => {
