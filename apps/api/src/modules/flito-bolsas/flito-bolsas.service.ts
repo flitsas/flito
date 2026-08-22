@@ -361,10 +361,28 @@ function validarMovimiento(datos: DatosMovimiento): { valor: number; fecha: stri
  * `23505` aborta la transacción en PostgreSQL: sin un `SAVEPOINT` alrededor del `INSERT`, cualquier
  * consulta posterior muere con `25P02`. Si eso pasa se devuelve `null` para que suba el error
  * ORIGINAL —el `23505`, que dice la verdad— en lugar de un `25P02` que solo despista a quien lea el
- * log. La mejora de verdad sería envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y
- * está sin hacer a propósito: tocar la anidación de la transacción del dinero por un caso residual
- * pide su propia HU y su propia prueba. El mismo comentario vale para `asentar` en el libro de
- * tránsito, que tiene este patrón desde antes y con la misma limitación.
+ * log. La mejora de verdad es envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y aquí
+ * sigue sin hacerse: el Bug #11685 la aplicó en `insertarMovimiento` del libro de TRÁNSITO, que es
+ * donde el caso residual tiene una ventana real —`liquidar()` se salta este libro cuando el trámite
+ * no tiene compañía cruzada, y ahí las dos transacciones dejan de serializarse por este lock—.
+ *
+ * **OJO con lo que este comentario decía antes, porque era FALSO.** Afirmaba que en este libro los
+ * dos escritores toman siempre el mismo `FOR UPDATE` y que por tanto el `23505` exigía una colisión
+ * entre bolsas distintas. Lo tumbó el gate de QA del Bug #11685: los dos escritores derivan la
+ * compañía de fuentes DISTINTAS —conciliación de `flito_soat.compania_id`, liquidación de
+ * `flito_tramites.compania_id`— y esas dos columnas **pueden divergir a propósito**: cuando la
+ * sincronización engancha un SOAT ya existente a un trámite nuevo no toca `flito_soat.compania_id`
+ * («denormalizados y congelados: el SOAT vive más que sus trámites», `schema.ts`), mientras que el
+ * trámite sí se reescribe. Un vehículo que cambia de empresa gestora produce justo eso. Y la llave
+ * `salida:soat:<id>` no lleva compañía, con índice único de TABLA ENTERA. O sea: sí pueden bloquear
+ * filas distintas con la misma llave.
+ *
+ * Lo que sigue en pie es la CONCLUSIÓN, no aquel argumento. En secuencial el pre-chequeo de fuera
+ * del lock filtra solo por llave, encuentra el previo de la otra empresa y devuelve `duplicado`: no
+ * hay `23505`. Para llegar al choque hacen falta las dos cosas a la vez —concurrencia Y compañías
+ * divergentes— y el desenlace es un 500 limpio con rollback completo, no un descuadre. Por eso
+ * extender el savepoint hasta aquí sigue mereciendo decidirse aparte y no de rebote; pero que se
+ * decida sabiendo que el hueco existe, no creyendo que no lo hay.
  */
 async function reintentoPorLlave(
   tx: Tx,
