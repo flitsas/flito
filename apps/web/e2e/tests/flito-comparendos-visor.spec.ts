@@ -698,6 +698,29 @@ const PAGINA_TIPOS = {
 };
 
 /**
+ * La clave `tipoRegistro` **AUSENTE**, que no es lo mismo que `null`.
+ *
+ * Es lo que responde el backend anterior al merge de la HU #11712, y lo que ve durante minutos una
+ * pestaña ya cargada el día del despliegue: el mismo escenario que el resto del bloque dice cubrir,
+ * pero con el campo sin llegar en vez de llegando en nulo. `ComparendoRegistro` NO admite este
+ * payload —por eso la fila se construye quitando la clave con un `rest` y no escribiéndola como
+ * `undefined`, que el tipo tampoco aceptaría— pero la red sí lo entrega, y de eso va la prueba.
+ *
+ * Va en su propia página, con una sola fila: añadirla a `PAGINA_TIPOS` movería el conteo de filas y
+ * los altos que miden los otros tests de este bloque.
+ */
+const { tipoRegistro: _tipoOmitido, ...FILA_SIN_CLAVE_TIPO } = FILA;
+const FILA_SIN_TIPO = {
+  ...FILA_SIN_CLAVE_TIPO,
+  id: '66666666-6666-4666-8666-666666666666',
+  numeroComparendo: '08001000334455',
+  numeroResolucion: null,
+  estadoFuente: null,
+};
+
+const PAGINA_SIN_TIPO = { items: [FILA_SIN_TIPO], nextCursor: null };
+
+/**
  * La celda de una columna, por el NOMBRE de su cabecera y no por una posición escrita a mano.
  *
  * Un índice literal (`td:nth-child(2)`) se queda en verde cuando alguien mueve la columna: seguiría
@@ -763,6 +786,26 @@ test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #
 
     // El número de resolución no es una columna: es el dato del que el backend DERIVA el tipo.
     await expect(page.getByRole('table').getByText('RES-2026-4471')).toHaveCount(0);
+  });
+
+  test('AC3 — con la clave `tipoRegistro` AUSENTE la celda «Tipo» dice «—» y NO se queda vacía', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_SIN_TIPO });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_SIN_TIPO.numeroComparendo)).toBeVisible();
+
+    // El campo ausente NO es `null`, y ese es todo el punto: una comparación estricta contra `null`
+    // lo deja pasar, el `Record` devuelve `undefined`, el respaldo al valor crudo devuelve
+    // `undefined` y React no pinta nada. La celda vacía es la única de las tres formas prohibidas
+    // por el AC3 que todavía se puede conseguir, y se consigue sin tocar ninguna otra línea.
+    const tipo = await celdaDe(page, FILA_SIN_TIPO.numeroComparendo, 'Tipo');
+    await expect(tipo).toHaveText('—');
+    // Y las tres prohibiciones del AC3 por separado, porque fallan por motivos distintos: la celda
+    // vacía es un `undefined` renderizado, «null»/«undefined» serían una interpolación descuidada.
+    expect((await tipo.innerText()).trim()).not.toBe('');
+    await expect(tipo).not.toHaveText(/^(null|undefined)$/i);
   });
 
   test('AC2+AC5 — «Estado en la fuente» tal cual, sin `title`, a una línea y sin mover el alto', async ({ page }) => {

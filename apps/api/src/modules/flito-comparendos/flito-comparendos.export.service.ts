@@ -81,6 +81,9 @@ export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] =
   // vive «Estado en la fuente», que es el del proveedor. Dos cabeceras que empiezan por la misma
   // palabra se confunden al filtrar en Excel igual que se confunden en la pantalla, y la pantalla ya
   // renombró su columna: archivo y visor tienen que llamar igual a la misma cosa.
+  // **El renombre puede romper una plantilla externa montada sobre la cabecera «Estado»** (AC8):
+  // cualquier consumidor del `.xlsx` que localice la columna POR EL TEXTO del encabezado deja de
+  // encontrarla. La clave interna `estado` NO cambia — cambia solo el rótulo que se imprime.
   { header: 'Monitoreo', key: 'estado', width: 12 },
   { header: 'Estado en la fuente', key: 'estadoFuente', width: 18 },
   { header: 'Origen', key: 'origenMerge', width: 12 },

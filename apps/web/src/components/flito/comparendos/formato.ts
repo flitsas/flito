@@ -212,6 +212,11 @@ const ETIQUETA_TIPO_REGISTRO: Record<ComparendosTipoRegistro, string> = {
  * la tabla y no se usa aquí para adivinar lo que el servidor no afirmó.
  */
 export function etiquetaTipoRegistro(tipo: ComparendoRegistro['tipoRegistro']): string {
-  if (tipo === null) return SIN_DATO;
+  // `==` A PROPÓSITO, no un descuido que haya que «corregir» a `===`: cubre `null` y `undefined` con
+  // una sola rama. El tipo promete `null`, pero el valor llega por la red y una pestaña cacheada
+  // contra un backend anterior a la HU #11712 recibe la clave AUSENTE — que es justo el caso que el
+  // párrafo de arriba dice cubrir. Con `===` el lookup daría `undefined`, el `?? tipo` devolvería
+  // `undefined` y React pintaría la celda VACÍA: exactamente lo que el AC3 prohíbe.
+  if (tipo == null) return SIN_DATO;
   return (ETIQUETA_TIPO_REGISTRO as Record<string, string | undefined>)[tipo] ?? tipo;
 }
