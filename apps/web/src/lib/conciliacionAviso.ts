@@ -78,22 +78,37 @@ export function leerAviso(userId: string | number, boletaId: string): AvisoConci
  * misma pestaña seguiría teniendo a mano los saldos de bolsa de quien salió, aunque fuera un
  * conductor. Y la expiración cuenta igual que el logout: deja el mismo rastro.
  *
- * Dos detalles que no son de estilo:
+ * Tres detalles que no son de estilo:
  *
  *   · **Las claves se recogen antes de borrar.** `sessionStorage.key(i)` se reindexa en cada
  *     `removeItem`, así que borrar mientras se itera se salta la mitad de las claves.
  *   · **No lanza nunca.** El almacenamiento puede estar deshabilitado, y un usuario que no puede
  *     cerrar sesión porque el barrido explotó es peor que el rastro que esto viene a limpiar.
+ *   · **Cada borrado va en su propio `try`, y lo que no se pudo borrar se dice.** Con un solo `try`
+ *     alrededor de los dos bucles, un `removeItem` que lanzara a mitad dejaba las claves restantes
+ *     sin borrar —saldos de bolsa vivos en la pestaña— y sin ningún rastro. «No fallar» y «no
+ *     enterarse» no son lo mismo. El aviso va por consola, como el resto de lo que falla en el front
+ *     sin tumbar la vista (`[pwa]`, `[ErrorBoundary]`), y **no nombra las claves**: llevan dentro el
+ *     usuario y la boleta (AGENTS.md §14), así que solo se dice cuántas quedaron.
  */
 export function limpiarAvisos(): void {
+  const claves: string[] = [];
   try {
-    const claves: string[] = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const clave = sessionStorage.key(i);
       if (clave !== null && clave.startsWith(PREFIJO_AVISO)) claves.push(clave);
     }
-    for (const clave of claves) sessionStorage.removeItem(clave);
-  } catch { /* sessionStorage deshabilitado: no hay nada que barrer y el cierre de sesión sigue */ }
+  } catch {
+    // sessionStorage deshabilitado: no hay nada que barrer y el cierre de sesión sigue.
+    return;
+  }
+  let sinBorrar = 0;
+  for (const clave of claves) {
+    try { sessionStorage.removeItem(clave); } catch { sinBorrar += 1; }
+  }
+  if (sinBorrar > 0) {
+    console.warn(`[conciliacion] ${sinBorrar} de ${claves.length} aviso(s) no se pudieron borrar de la pestaña al cerrar sesión`);
+  }
 }
 
 /** `descontado === -1` marca «esto no se sabe», que no es lo mismo que «fue cero». */
