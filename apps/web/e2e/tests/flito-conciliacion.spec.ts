@@ -831,7 +831,13 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
     await loginAs(page, FINANCIERA_USER);
     await mockDetalle(page, DETALLE_CONCILIADO);
 
-    const CLAVES = [1, 2, 3].map((n) => `flito:conciliacion:aviso:${FINANCIERA_USER.id}:boleta-${n}`);
+    // OCHO claves, y el número no es decorativo. La otra propiedad que este archivo declara —recoger
+    // las claves ANTES de borrar, porque `sessionStorage.key(i)` se reindexa en cada `removeItem` y
+    // borrar mientras se itera se salta la mitad— con TRES claves no se distingue: el orden en que
+    // Chromium las devuelve puede hacer que el barrido roto las toque todas igual, y entonces
+    // reintroducir ese bug pasa desapercibido. Con ocho, el salteo deja fuera a varias y el aserto de
+    // `intentadas` lo ve.
+    const CLAVES = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `flito:conciliacion:aviso:${FINANCIERA_USER.id}:boleta-${n}`);
     await page.evaluate((claves) => {
       for (const clave of claves) sessionStorage.setItem(clave, '{"soatConciliados":1}');
     }, CLAVES);
@@ -918,6 +924,10 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
       const warn = console.warn.bind(console);
       console.warn = (...args: unknown[]) => {
         if (typeof args[0] === 'string' && args[0].includes('[conciliacion]')) {
+          // Se apunta ANTES de lanzar: sin esta marca el caso pasaría en verde aunque el `warn` no
+          // llegara a emitirse nunca —suprimirlo del módulo lo dejaría sin señal propia— y estaría
+          // certificando un cierre de sesión que no tropezó con nada.
+          (window as unknown as { warnLanzado?: boolean }).warnLanzado = true;
           throw new TypeError('console.warn no disponible');
         }
         warn(...args);
@@ -931,6 +941,12 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
     // sin borrar ya está dicho —el almacenamiento está roto a propósito— y no es lo que se prueba.
     await cerrarSesion(page);
     await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toBeVisible();
+
+    // Y el `warn` SÍ se intentó: es lo que convierte el verde de arriba en una afirmación sobre este
+    // camino y no sobre uno en el que no pasó nada. El cierre de sesión es SPA —navega, no recarga—,
+    // así que la marca del documento sigue en pie después de salir.
+    expect(await page.evaluate(() =>
+      (window as unknown as { warnLanzado?: boolean }).warnLanzado === true)).toBe(true);
   });
 
   test('el aviso tampoco sobrevive en la OTRA pestaña, que arranca ya sin token', async ({ page, context }) => {
