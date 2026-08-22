@@ -1,41 +1,52 @@
 // Privacy — el log de accesos PII bajo filtro de rango (HU #11276, AC4 y control del AC2).
 //
-// ██ ESTE ARCHIVO CONTIENE CUATRO TESTS QUE FALLAN A PROPÓSITO. NO SE ROMPIERON. ██
+// ██ LOS CUATRO DEFECTOS QUE ESTE ARCHIVO DOCUMENTABA ESTÁN CORREGIDOS (Bug #11772). ██
 //
-// Los cuatro llevan `test.fail()` y documentan CUATRO defectos distintos de `PesvLogPii.tsx`, todos
-// verificados en el código antes de escribirlos. El runner los cuenta como ÉXITO mientras el defecto
-// siga vivo, así que CI queda en verde; y siguen siendo guardianes en las dos direcciones: el día
-// que se corrijan y alguien olvide quitar la anotación, se pondrán ROJOS y lo dirán. Misma
-// convención que `laft-unusual-error.spec.ts` (Bug #11768), que documenta el mismo patrón en LAFT.
+// Nacieron con `test.fail()`: mientras el defecto siguió vivo el runner los contaba como ÉXITO y CI
+// quedaba en verde. La anotación se retiró al corregir `PesvLogPii.tsx`, que es el cierre del Bug
+// #11772, y desde entonces los cuatro son guardianes en la dirección normal: si alguno de los
+// cuatro arreglos se revierte, su test se pone ROJO. Comprobado por mutación, uno por uno.
 //
-// No se corrigió ninguno aquí porque es código de producción y esa decisión es del humano.
+// ── Los cuatro defectos y el arreglo que hoy los sostiene ──────────────────────────────────────
 //
-// ── Los cuatro defectos, con su línea ──────────────────────────────────────────────────────────
-//
-// La raíz de los tres primeros es el `catch` de `PesvLogPii.tsx:36-41`:
+// La raíz de los tres primeros era el `catch` del `load`:
 //
 //     try { const r = await api.get(...); setRows(r.rows); setTotal(r.total); }
 //     catch (e) { toast.error(errorMessage(e)); }
 //
-// No toca `rows` ni `total`. El toast dura unos segundos y se va; lo que queda en pantalla, no.
+// No tocaba `rows` ni `total`. El toast dura unos segundos y se va; lo que queda en pantalla, no.
+// Hoy el `catch` escribe `error`, el `tbody` tiene los cuatro estados y el pie limpia su total.
 //
-//   1. **Un 500 en la primera carga se lee como «no hubo accesos».** `rows` sigue en `[]` y la tabla
-//      entra en su rama de vacío y escribe «Sin accesos para los filtros» (`:106`). En el log de
+//   1. **Un 500 en la primera carga se leía como «no hubo accesos».** `rows` seguía en `[]` y la
+//      tabla entraba en su rama de vacío y escribía «Sin accesos para los filtros». En el log de
 //      Ley 1581 art. 17 —la prueba documental de quién miró datos personales— «no pude leer el
-//      registro» y «nadie accedió» son conclusiones OPUESTAS y hoy se ven idénticas. Una cierra una
-//      inspección; la otra obliga a reintentar. Y no hay reintento: la única salida es recargar.
-//   2. **Un 500 al cambiar el filtro deja las filas anteriores bajo el filtro nuevo.** El auditor ve
-//      accesos que NO pertenecen al filtro que acaba de aplicar, sin ninguna señal de que la
-//      consulta falló.
-//   3. **`total` sobrevive al fallo.** El pie sigue anunciando el total de la consulta ANTERIOR
-//      (`:123`), que el usuario lee como «hay N accesos que cumplen mi filtro».
-//   4. **`offset` no se reinicia al filtrar, y este no involucra ningún error.** Los `onChange` de
-//      `:86-96` solo tocan su campo; el `useEffect` de `:50` reacciona a `[filter, offset]` y vuelve
-//      a pedir con el `offset` que hubiera. Estando en la página 2, aplicar un rango con menos de
-//      100 registros manda `offset=100`, el backend responde `rows: []` CORRECTAMENTE —un 200 OK, no
-//      hay nada en ese desplazamiento— y la pantalla dice que no hay accesos. Hay registros y la
-//      vista lo niega, sin un error de por medio que avise. Es el peor de los cuatro justamente por
-//      eso: los otros tres al menos parpadean un toast.
+//      registro» y «nadie accedió» son conclusiones OPUESTAS y se veían idénticas. Una cierra una
+//      inspección; la otra obliga a reintentar, y no había reintento: la única salida era recargar.
+//      ARREGLO: `setError(...)` en el `catch`, la rama de error del `tbody` con `role="alert"` y el
+//      botón `[Reintentar]`, que vuelve a llamar al `load` con el filtro y el offset vigentes.
+//   2. **Un 500 al cambiar el filtro dejaba las filas anteriores bajo el filtro nuevo.** El auditor
+//      veía accesos que NO pertenecían al filtro que acababa de aplicar, sin ninguna señal de que la
+//      consulta hubiera fallado.
+//      ARREGLO: la guarda `!loading && !error` del `rows.map` — el mismo patrón de `LaftAuditPlan`,
+//      `LaftManual` y `LaftOfficer`. NO se limpia `rows` además: sería una segunda mecánica para lo
+//      mismo, y la mutación demostró que con la guarda puesta nadie puede distinguirla.
+//   3. **`total` sobrevivía al fallo.** El pie seguía anunciando el total de la consulta ANTERIOR,
+//      que el usuario lee como «hay N accesos que cumplen mi filtro».
+//      ARREGLO: el pie ENTERO —total, «página X de Y» y los dos botones— bajo la misma guarda
+//      `!loading && !error` que el `tbody`. Y NO `setTotal(0)`, que fue el primer intento y está
+//      mal: `Total: 0` ES «nadie accedió», o sea la afirmación que da título a este Bug. La cura
+//      para un dato que no se puede afirmar no es afirmar cero, es NO AFIRMAR. Mismo defecto en
+//      `LaftUnusual.tsx` y `Laft.tsx` (Bug #11768): la tabla se movió al cuarto estado y el
+//      contador se quedó afirmando cero.
+//   4. **`offset` no se reiniciaba al filtrar, y este no involucraba ningún error.** Los `onChange`
+//      solo tocaban su campo; el `useEffect` reacciona a `[filter, offset]` y volvía a pedir con el
+//      `offset` que hubiera. Estando en la página 2, aplicar un rango con menos de 100 registros
+//      mandaba `offset=100`, el backend respondía `rows: []` CORRECTAMENTE —un 200 OK, no hay nada
+//      en ese desplazamiento— y la pantalla decía que no hay accesos. Había registros y la vista lo
+//      negaba, sin un error de por medio que avisara. Era el peor de los cuatro justamente por eso:
+//      los otros tres al menos parpadeaban un toast.
+//      ARREGLO: `aplicarFiltro()` — todo `onChange` de filtro hace `setOffset(0)` junto al
+//      `setFilter`. Un filtro nuevo estrena paginación.
 //
 // El aserto central del cuarto lee el `URLSearchParams` de la petición y exige `offset === '0'`: la
 // causa, no el síntoma. Afirmar solo sobre la pantalla lo dejaría atado a un fixture concreto.
@@ -45,8 +56,9 @@
 // El AC2 pedía descargar el reporte de accesos con el rango filtrado. Está RETIRADO del alcance por
 // decisión del humano, porque no existe ni en la UI ni en el API:
 //
-//   · `PesvLogPii.tsx` no tiene control de descarga. Sus únicos botones son «← Anterior» y
-//     «Siguiente →» (`:125-126`).
+//   · `PesvLogPii.tsx` no tiene control de descarga. Sus únicos botones son los dos de paginación,
+//     «← Anterior» y «Siguiente →», más el `[Reintentar]` que solo existe en el estado de error
+//     (Bug #11772). Ninguno descarga nada.
 //   · `apps/api/src/modules/privacy/pii-access.routes.ts` publica exactamente dos rutas: `GET /`
 //     (`:15`) y `GET /stats` (`:39`). No hay export, ni CSV, ni `Content-Disposition`.
 //
@@ -58,7 +70,19 @@
 // La OTRA mitad del AC2 —«con el rango filtrado»— sí es verificable y sí se cubre: el primer test
 // comprueba que las fechas del filtro llegan al API como `from`/`to`.
 //
-// ── Nota de montaje ────────────────────────────────────────────────────────────────────────────
+// ── Nota de montaje · el mock discrimina por la PETICIÓN, nunca por el número de llamada ───────
+//
+// `main.tsx` envuelve la app en `<React.StrictMode>`, que en dev monta, desmonta y vuelve a montar:
+// el montaje de esta vista gasta DOS llamadas al listado (y dos al resumen), comprobado contando
+// peticiones reales. Un mock del tipo `llamada === 1 ? filas : 500` le entrega el 500 a la SEGUNDA
+// petición del montaje —que aún no lleva filtro— y no a la del filtro, que es la que el test cree
+// estar midiendo. Con el defecto vivo eso no se notaba, porque el código descartaba el error; con
+// la pantalla corregida el montaje termina en estado de error y el test se cae en su propio
+// preámbulo. Por eso los cuatro escenarios discriminan por `url.searchParams`, que es además lo que
+// documenta `mockLogPii`: responder «como respondería el backend de verdad» ante ese rango o ese
+// desplazamiento.
+//
+// ── Nota de montaje · localizadores ────────────────────────────────────────────────────────────
 //
 // Los filtros de `:86-96` no tienen `<label>` ni `aria-label`; los dos `input[type=date]` no tienen
 // siquiera `placeholder`. No hay nombre accesible por el que localizarlos, así que aquí se usan
@@ -174,10 +198,8 @@ test.describe('Privacy — log PII: el rango filtrado (HU #11276, AC4)', () => {
 
   // ── Los cuatro defectos ───────────────────────────────────────────────────────────────────────
 
-  test('AC4 [ROJO A PROPÓSITO · defecto 1/4] — un 500 en la primera carga se pinta como estado VACÍO', async ({ page }) => {
-    // Rojo esperado: documenta el defecto 1 (ver cabecera). `test.fail()` mantiene CI en verde y
-    // sigue siendo guardián: se pondrá ROJO el día que se corrija y no se quite esto.
-    test.fail();
+  test('AC4 [GUARDIÁN · defecto 1/4] — un 500 en la primera carga se pinta como estado VACÍO', async ({ page }) => {
+    // Guardián del defecto 1 (ver cabecera): se pone ROJO si se revierte el estado de error.
     await entrar(page, COMPLIANCE_PRIVACY_USER);
     const peticiones = espiarApiPrivacy(page);
     await mockLogPii(page, {
@@ -203,16 +225,20 @@ test.describe('Privacy — log PII: el rango filtrado (HU #11276, AC4)', () => {
     await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
   });
 
-  test('AC4 [ROJO A PROPÓSITO · defecto 2/4] — un 500 al filtrar deja las filas anteriores bajo el filtro nuevo', async ({ page }) => {
-    // Rojo esperado: documenta el defecto 2 (ver cabecera).
-    test.fail();
+  test('AC4 [GUARDIÁN · defecto 2/4] — un 500 al filtrar deja las filas anteriores bajo el filtro nuevo', async ({ page }) => {
+    // Guardián del defecto 2 (ver cabecera): se pone ROJO si se quita la guarda `!error` del `tbody`.
     await entrar(page, COMPLIANCE_PRIVACY_USER);
     await mockLogPii(page, {
       // Carga bien y falla al aplicar el filtro: el escenario real de un backend que se cae un
       // momento, y el único que enseña el defecto.
-      log: ({ llamada }) => (llamada === 1
-        ? { cuerpo: LOG_CON_FILAS }
-        : { status: 500, cuerpo: { error: ERROR_SINTETICO } }),
+      //
+      // Se discrimina por la QUERY y no por el número de llamada — ver «El montaje discrimina por
+      // la petición» en la cabecera: `<React.StrictMode>` monta dos veces en dev, así que el
+      // montaje gasta DOS llamadas y un `llamada === 1` le entregaría el 500 a la segunda del
+      // montaje, no a la del filtro.
+      log: ({ url }) => (url.searchParams.get('accion') === 'export'
+        ? { status: 500, cuerpo: { error: ERROR_SINTETICO } }
+        : { cuerpo: LOG_CON_FILAS }),
       stats: { cuerpo: STATS_CON_DATOS },
     });
 
@@ -233,16 +259,16 @@ test.describe('Privacy — log PII: el rango filtrado (HU #11276, AC4)', () => {
     ).toHaveCount(0);
   });
 
-  test('AC4 [ROJO A PROPÓSITO · defecto 3/4] — tras un fallo, el pie sigue anunciando el total anterior', async ({ page }) => {
-    // Rojo esperado: documenta el defecto 3 (ver cabecera). El total se escribe con
-    // `total.toLocaleString()` (`:123`); se usa 999 a propósito, que no lleva separador de millares
-    // en ninguna configuración regional y deja el aserto libre de la locale del runner.
-    test.fail();
+  test('AC4 [GUARDIÁN · defecto 3/4] — tras un fallo, el pie sigue anunciando el total anterior', async ({ page }) => {
+    // Guardián del defecto 3 (ver cabecera): se pone ROJO si se quita el `setTotal(0)` del `catch`.
+    // El total se escribe con `total.toLocaleString()`; se usa 999 a propósito, que no lleva
+    // separador de millares en ninguna configuración regional y deja el aserto libre de la locale.
     await entrar(page, COMPLIANCE_PRIVACY_USER);
     await mockLogPii(page, {
-      log: ({ llamada }) => (llamada === 1
-        ? { cuerpo: { ...LOG_CON_FILAS, total: 999 } }
-        : { status: 500, cuerpo: { error: ERROR_SINTETICO } }),
+      // Por la QUERY y no por el número de llamada, por el mismo motivo que el defecto 2/4.
+      log: ({ url }) => (url.searchParams.get('accion') === 'export'
+        ? { status: 500, cuerpo: { error: ERROR_SINTETICO } }
+        : { cuerpo: { ...LOG_CON_FILAS, total: 999 } }),
       stats: { cuerpo: STATS_CON_DATOS },
     });
 
@@ -259,12 +285,28 @@ test.describe('Privacy — log PII: el rango filtrado (HU #11276, AC4)', () => {
       page.getByText(/Total: 999/),
       'la consulta filtrada falló y el pie sigue diciendo «Total: 999»: es el total de OTRA consulta, y se lee como el del filtro actual',
     ).toHaveCount(0);
+
+    // Y que el 999 se vaya NO basta, que fue el primer intento de arreglo de este Bug: sustituirlo
+    // por `Total: 0` cambia una afirmación falsa por otra, y encima por LA del título del Bug —
+    // «Total: 0» ES «nadie accedió». Bajo el cartel de error el pie no puede afirmar NINGÚN total.
+    await expect(
+      page.getByText(/Total:/),
+      'bajo el cartel de error el pie sigue afirmando un total: si dice «Total: 0» está diciendo «nadie accedió a estos datos personales», que es justo lo que el fallo NO permite concluir',
+    ).toHaveCount(0);
+    // Los dos botones se van con él: su `disabled` se calcula sobre `total`, así que bajo un fallo
+    // ofrecen una paginación que no describe ningún resultado.
+    await expect(
+      page.getByRole('button', { name: /Anterior|Siguiente/ }),
+      'bajo el cartel de error sigue habiendo paginación, y pagina sobre el total de otra consulta',
+    ).toHaveCount(0);
+    // Control de que el localizador SÍ sabe ver el pie cuando lo hay: el cuarto estado está puesto.
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible();
   });
 
-  test('AC4 [ROJO A PROPÓSITO · defecto 4/4] — al filtrar no se reinicia el offset: falso vacío con 200 OK', async ({ page }) => {
-    // Rojo esperado: documenta el defecto 4 (ver cabecera). Es el único de los cuatro que no
-    // involucra ningún error: el backend responde correctamente y la pantalla igual miente.
-    test.fail();
+  test('AC4 [GUARDIÁN · defecto 4/4] — al filtrar no se reinicia el offset: falso vacío con 200 OK', async ({ page }) => {
+    // Guardián del defecto 4 (ver cabecera): se pone ROJO si `aplicarFiltro` deja de reiniciar el
+    // offset. Es el único de los cuatro que no involucra ningún error: el backend responde
+    // correctamente y la pantalla igual mentía.
     await entrar(page, COMPLIANCE_PRIVACY_USER);
     const peticiones = espiarApiPrivacy(page);
 
