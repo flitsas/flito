@@ -36,7 +36,13 @@ export default function VisorPdf({ url, nombre }: { url: string; nombre?: string
 
         const pdfjs = await import('pdfjs-dist');
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-        const doc = await pdfjs.getDocument({ data: datos }).promise;
+        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
+        // la matriz de fuente de un PDF malicioso acaba concatenada en un `new Function(...)` al
+        // compilar los glifos, y abrir el documento ejecuta JavaScript arbitrario. El fix upstream es
+        // el major 3→6, hoy bloqueado por producto (subiría el suelo a Chrome 125 / Safari 18), así que
+        // se aplica el workaround oficial del advisory. Este visor rasteriza a PNG y no usa capa de
+        // texto, luego apagar el eval no cambia lo que se ve. Guardado por `npm run check:pdfjs-eval`.
+        const doc = await pdfjs.getDocument({ data: datos, isEvalSupported: false }).promise;
 
         const salida: string[] = [];
         for (let n = 1; n <= doc.numPages; n += 1) {

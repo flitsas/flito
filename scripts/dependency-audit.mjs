@@ -4,7 +4,8 @@
 // de producción, salvo las exenciones aprobadas en EXEMPTIONS. Política
 // (AGENTS.md, ci.yml): tolerancia 0 a High+ en producción; una excepción solo
 // es válida si está aprobada por el Líder Técnico, documentada en su PR y
-// registrada aquí de forma explícita y acotada a UN advisory.
+// registrada de forma explícita y acotada a UN advisory en
+// scripts/dependency-audit-exemptions.mjs.
 //
 // Uso local: `node scripts/dependency-audit.mjs`.
 // Modo estricto (verificación del propio gate): FLITO_AUDIT_DISABLE_EXEMPTIONS=1
@@ -12,14 +13,9 @@
 
 import { spawnSync } from 'node:child_process';
 
-// Exenciones aprobadas: URL del advisory → motivo con referencia. Retirar cada
-// entrada en cuanto el paquete se actualice y desaparezca del audit.
-const EXEMPTIONS = new Map([
-  [
-    'https://github.com/advisories/GHSA-wgrm-67xf-hhpq', // pdfjs-dist <=4.1.392 (High)
-    'el fix es major 3→6 en los 4 visores PDF de apps/web y va en HU propia (aprobado en PR #91)',
-  ],
-]);
+// Las exenciones viven en su propio módulo porque también las lee scripts/check-exemptions.mjs,
+// que falla si alguna deja de aparecer en el audit (exención zombi).
+import { EXEMPTIONS } from './dependency-audit-exemptions.mjs';
 
 const exemptionsEnabled = !process.env.FLITO_AUDIT_DISABLE_EXEMPTIONS;
 
