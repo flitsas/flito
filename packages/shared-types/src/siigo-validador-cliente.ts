@@ -60,8 +60,23 @@ export interface FaltanteCliente {
 
 export interface VeredictoCliente {
   clienteId: number;
-  /** Enmascarado o no según quién pregunte; el servicio decide. */
+  /**
+   * Nombre e identificación **en claro, siempre**. No hay enmascarado en ninguna capa.
+   *
+   * El comentario anterior prometía lo contrario («enmascarado o no según quién pregunte; el
+   * servicio decide») y era falso: `evaluarCliente` copia `documento: c.document` y `nombre: c.name`
+   * tal cual, sin mirar quién pregunta, y ninguna ruta los transforma después. Un comentario que
+   * promete un control inexistente es peor que no tener comentario — el siguiente que escriba un
+   * consumidor asume que la protección ya está puesta y no la pone.
+   *
+   * Lo que SÍ protege estos dos campos, y es de otra naturaleza: el permiso de lectura
+   * (`admin`, `auditor`, `financiera`) y, desde la HU #11299, el registro en `pii_access_log` de
+   * toda ruta que los entregue (`siigo.pii.ts`). Si alguna vista necesita enmascararlos, hay
+   * `maskDocument` y `maskName` en `apps/api/src/shared/utils/pii.ts`, pero es una decisión de
+   * producto que hoy no está tomada y que cambiaría el contrato de este tipo.
+   */
   nombre: string;
+  /** En claro, siempre — cédula o NIT según el tipo de persona. Ver la nota de `nombre`. */
   documento: string | null;
   facturable: boolean;
   /** true si lo que falta es una decisión humana, no un dato (AC3). */
