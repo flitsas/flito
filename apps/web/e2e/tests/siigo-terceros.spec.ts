@@ -198,6 +198,12 @@ async function mockSincronizacion(page: Page, alPedir?: (clienteId: number) => v
  * Lo que el modal de ficha fiscal pide al abrirse. Va aparte de `mockPanel` porque solo lo necesita
  * el test que abre la ficha: en los demás el modal ni se monta.
  *
+ * La fila que devuelve `/clients` son las 26 columnas de `COLUMNAS_LISTADO` (`clients.pii.ts`), ni
+ * una más: el AC8 recortó esa respuesta y `notes` y `active` —que este doble seguía entregando— ya
+ * no salen de ahí. Un doble que simula lo que el producto dejó de devolver no falla hoy, pero
+ * mañana le dice a quien lo lea que la ruta entrega la fila entera, que es justo lo que esta HU
+ * quitó.
+ *
  * `pedidos` recoge los `clienteId` cuya validación se consultó. Es lo que permite afirmar que la
  * ficha abierta es la del cliente de la fila y no solo que el título lo diga.
  */
@@ -207,7 +213,8 @@ async function mockFichaFiscal(page: Page, pedidos: number[]) {
       ? route.fulfill(json([{
         id: CARGA_RAPIDA.clienteId, name: CARGA_RAPIDA.nombre, document: '901222333',
         documentType: 'NIT', phone: null, email: null, address: null, city: 'Km 5 vía Cota',
-        notes: null, active: true,
+        soatAutogestionable: false, impuestosAutogestionable: false,
+        logisticaAutogestionable: false, logisticaPermiteParcial: false,
         personType: null, idType: null, checkDigit: null, fiscalResponsibilities: [],
         countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,
         contactFirstName: null, contactLastName: null, contactEmail: null,
@@ -404,6 +411,103 @@ test.describe('AC1 — acceso y permisos por rol', () => {
     await revisar.click({ force: true });
     await page.waitForTimeout(200);
     expect(recalculos).toBe(0);
+  });
+
+  test('financiera abre la ficha fiscal desde el panel y la ve en solo lectura: del modal no sale ni una escritura', async ({ page }) => {
+    // La cuarta capacidad del panel, `editarFicha`. `PATCH /clients/:id` está guardado con
+    // `requireRole('admin')`, así que un formulario editable para financiera no sería un permiso de
+    // más: sería ofrecerle teclear la ficha entera para que el servidor se la devuelva con un 403
+    // cuando pulse guardar.
+    //
+    // Se afirma por CONDUCTA y no por un atributo del formulario: un `disabled` que se cayera de un
+    // campo, o un control de guardar llamado de otra forma, pasarían por debajo de cualquier
+    // aserción sobre atributos. Lo que el AC protege es que de este modal no salga ni un PATCH
+    // hacia la ficha, así que las escrituras se interceptan y se cuentan, como en el AC5 con las
+    // confirmaciones.
+    await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    const fichasPedidas: number[] = [];
+    await mockFichaFiscal(page, fichasPedidas);
+    const escrituras: string[] = [];
+    await page.route(/\/api\/clients\/\d+$/, (route) => {
+      const metodo = route.request().method();
+      if (metodo !== 'GET') escrituras.push(`${metodo} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill(json({ id: CARGA_RAPIDA.clienteId }));
+    });
+
+    await page.goto(RUTA);
+    await page.locator('li', { hasText: 'CARGA RÁPIDA' })
+      .getByRole('button', { name: 'Completar ficha' }).click();
+
+    // La ve: el modal es el del cliente de la fila y trae sus datos, no una pantalla vacía ni un
+    // «no tienes acceso». Consultar la ficha sí lo puede.
+    const ficha = page.getByRole('dialog', { name: 'Datos fiscales · CARGA RÁPIDA' });
+    const razonSocial = ficha.getByRole('textbox', { name: 'Razón social' });
+    await expect(razonSocial).toHaveValue('CARGA RÁPIDA');
+    await expect(ficha.getByText('Falta la dirección.')).toBeVisible();
+
+    // Barrido del modal: se pulsa TODO lo que ofrece —salvo los cierres, que se llevarían por
+    // delante lo que queda por barrer— y se comprueba tras cada pulsación que no salió nada. Un
+    // control que guarde cae aquí aunque se llame de otro modo.
+    const botones = ficha.getByRole('button');
+    for (let i = 0; i < await botones.count(); i += 1) {
+      const boton = botones.nth(i);
+      // El aria-label primero: la «X» de la cabecera no tiene texto, solo su etiqueta.
+      const nombre = (await boton.getAttribute('aria-label')) ?? (await boton.innerText()).trim();
+      if (nombre === 'Cerrar') continue;
+      // `force`: los inhabilitados también se pulsan a propósito — lo que se comprueba es que no
+      // mandan nada, no que Playwright se niegue a pulsarlos.
+      await boton.click({ force: true });
+      await page.waitForTimeout(200);
+      expect(escrituras, `«${nombre}» escribió en la ficha desde un rol que no la puede editar`).toEqual([]);
+    }
+
+    // La otra puerta es el teclado: «Enter» dentro de un formulario lo envía si hay un control de
+    // envío, sin que nadie tenga que verlo ni pulsarlo. `force` porque los campos están
+    // inhabilitados y Playwright se negaría a teclear en ellos.
+    await razonSocial.press('Enter', { force: true });
+    await page.waitForTimeout(200);
+    expect(escrituras).toEqual([]);
+
+    // El rótulo va al final a propósito: primero se comprueba que la ficha no escribe y solo
+    // después que lo DICE. Al revés, cualquier deriva del permiso moriría en el rótulo y el
+    // barrido —que es lo que de verdad guarda el AC— no llegaría a correr nunca.
+    await expect(ficha.getByText('Tu rol puede consultar estos datos, no modificarlos.')).toBeVisible();
+
+    // Y la lectura que sí hizo fue la de ESE cliente y ningún otro.
+    expect([...new Set(fichasPedidas)]).toEqual([CARGA_RAPIDA.clienteId]);
+  });
+
+  test('admin abre la misma ficha y sí la guarda: el PATCH sale, y sale uno solo', async ({ page }) => {
+    // El contrapeso, y lo que impide que el caso anterior sea trivial: si la ficha se montara en
+    // solo lectura para todo el mundo —o dejara de montarse—, «financiera no escribe» pasaría en
+    // verde sin decir nada de nadie. El MISMO botón del MISMO panel abre para admin una ficha que
+    // guarda de verdad.
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const fichasPedidas: number[] = [];
+    await mockFichaFiscal(page, fichasPedidas);
+    const escrituras: string[] = [];
+    await page.route(/\/api\/clients\/\d+$/, (route) => {
+      const metodo = route.request().method();
+      if (metodo !== 'GET') escrituras.push(`${metodo} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill(json({ id: CARGA_RAPIDA.clienteId }));
+    });
+
+    await page.goto(RUTA);
+    await page.locator('li', { hasText: 'CARGA RÁPIDA' })
+      .getByRole('button', { name: 'Completar ficha' }).click();
+
+    const ficha = page.getByRole('dialog', { name: 'Datos fiscales · CARGA RÁPIDA' });
+    const direccion = ficha.getByRole('textbox', { name: 'Dirección' });
+    await expect(direccion).toBeEditable();
+    await expect(ficha.getByText('Tu rol puede consultar estos datos, no modificarlos.')).toHaveCount(0);
+
+    await direccion.fill('CALLE 100 # 15-20');
+    await ficha.getByRole('button', { name: 'Guardar datos fiscales' }).click();
+
+    await expect(page.getByText('Datos fiscales guardados')).toBeVisible();
+    expect(escrituras).toEqual([`PATCH /api/clients/${CARGA_RAPIDA.clienteId}`]);
   });
 });
 
