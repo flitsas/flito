@@ -62,18 +62,19 @@ const EXTENSION: Record<string, string> = {
 /**
  * Nombre con el que el comprobante se guarda en el ALMACENAMIENTO — nunca el que subió el usuario.
  *
- * `uploadEntityDocument` mete el nombre saneado dentro de la clave, y `firmarDescargaEntidad` mete
- * esa clave en el query string del enlace. Un archivo llamado `comprobante-ABC123.pdf` acabaría con
- * una **placa en la URL**: en los logs de nginx, en el historial del navegador y en la cabecera
- * `Referer` de cualquier recurso que se cargue después. Es el mismo riesgo por el que el `detail` de
- * la bitácora tampoco copia `originalname`, y quedaba abierto por el otro lado.
+ * `firmarDescargaEntidad` mete la clave del objeto en el query string del enlace. Un archivo llamado
+ * `comprobante-ABC123.pdf` acabaría con una **placa en la URL**: en los logs de nginx, en el
+ * historial del navegador y en la cabecera `Referer` de cualquier recurso que se cargue después. Es
+ * el mismo riesgo por el que el `detail` de la bitácora tampoco copia `originalname`.
  *
  * El nombre original **no se pierde**: vive en `flito_soportes.nombre_archivo`, que es lo que la
  * ficha pinta y lo que la descarga devuelve. Lo que cambia es solo la clave del objeto.
  *
- * Se normaliza SOLO aquí y no en `uploadEntityDocument`: aquel helper lo comparten bolsas, SOAT,
- * derechos e impuestos, y cambiarlo sería un cambio transversal que no pertenece a este Feature.
- * La deuda queda registrada aparte.
+ * La deuda que este comentario dejaba registrada —que `uploadEntityDocument` metía el nombre
+ * saneado dentro de la clave para todos los demás flujos— la pagó el **Bug #11694**: aquel helper ya
+ * nombra sus objetos con un UUID. Esta función se mantiene porque es la que decide cómo se llama el
+ * comprobante de conciliación, y porque su prefijo `comprobante-` es lo que hace legible el bucket;
+ * al helper le llega un nombre que ya no dice nada del usuario.
  */
 export function nombreEnAlmacen(contentType: string): string {
   return `comprobante-${randomUUID()}.${EXTENSION[contentType] ?? 'bin'}`;
