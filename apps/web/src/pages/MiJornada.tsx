@@ -141,7 +141,7 @@ export default function MiJornada() {
             )}
           </div>
 
-          <button onClick={cerrar} className="flit-focus w-full rounded-[999px] px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90" style={{ background: 'var(--flit-gradient-danger)' }}>
+          <button onClick={cerrar} className="flit-focus w-full rounded-[999px] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95" style={{ background: 'var(--flit-gradient-danger)' }}>
             Cerrar jornada
           </button>
 

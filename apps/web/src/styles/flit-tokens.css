@@ -67,12 +67,33 @@
   --flit-warning-ink: #B94120;
   --flit-danger-ink: #C02F24;
   --flit-blue-ink: #4264B7;
+  /* Bug #11766: el cian era el único color de marca sin compañero -ink, y era justo el que
+     arrancaba los gradientes primary/success/sidebar. #4FD4CC es tan claro que sobre él el blanco
+     puro da 1,81 — ni siquiera llega al 3:1 de un anillo de foco, cosa que #11604 ya midió y
+     archivó sin preguntarse qué implicaba para el TEXTO. Mismo matiz (HSL 176°, S 61 %), L 57 % →
+     30 %: 5,07 sobre blanco, en línea con el resto de la familia (5,14 / 5,47 / 5,62 / 5,72). */
+  --flit-cyan-ink: #1E7B75;
 
-  /* Gradientes */
-  --flit-gradient-primary: linear-gradient(90deg, #4FD4CC 0%, #4F74C9 100%);
-  --flit-gradient-success: linear-gradient(90deg, #4FD4CC 0%, #70CF3A 100%);
-  --flit-gradient-sidebar: linear-gradient(180deg, #4FD4CC 0%, #4F74C9 100%);
-  --flit-gradient-danger: linear-gradient(90deg, #F05A35 0%, #E43D30 100%);
+  /* Gradientes — nivel TINTA, por la misma causa raíz que las variantes -ink de aquí arriba.
+     Bug #11766: los cuatro se definieron como superficie decorativa y terminaron siendo el mayor
+     sustrato de TEXTO del producto —112 puntos de llamada en 60 archivos, casi todos botones con
+     la etiqueta en blanco— sin que nadie los reevaluara. Con los hex de marca ningún punto del
+     recorrido admitía blanco: primary, success y sidebar arrancaban en 1,81 sobre el cian
+     (#4FD4CC) y danger no pasaba de 3,38 sobre el naranja (#F05A35). Y no había salida por la
+     tinta: primary y sidebar cruzaban de #4FD4CC (luminancia 0,53) a #4F74C9 (0,18), un recorrido
+     tan largo que ningún color de texto —ni blanco ni navy— cumple en los dos extremos a la vez.
+     Había que mover el fondo.
+     Se mueven al nivel -ink, que es el que #11604 creó justo para esto: MISMO matiz (±0,3° de
+     hue contra el token de marca), una luminosidad menos. Peor punto del sistema: 1,81 → 5,07.
+     El cian era el único de la familia que no tenía compañero -ink; se añade arriba.
+     Los hex brillantes siguen vivos como --flit-cyan/blue/green: si algún día hace falta un ramo
+     decorativo SIN texto encima, se compone entonces y se mide entonces.
+     Lo comprueba `npm run check:contraste`, que muestrea 21 puntos por tramo — el peor ratio no
+     tiene por qué caer en un extremo. */
+  --flit-gradient-primary: linear-gradient(90deg, #1E7B75 0%, #4264B7 100%);
+  --flit-gradient-success: linear-gradient(90deg, #1E7B75 0%, #3C7C17 100%);
+  --flit-gradient-sidebar: linear-gradient(180deg, #1E7B75 0%, #4264B7 100%);
+  --flit-gradient-danger: linear-gradient(90deg, #B94120 0%, #C02F24 100%);
 
   /* Radios */
   --flit-radius-sm: 8px;
@@ -165,16 +186,30 @@
 }
 
 /* Foco sobre superficies con gradiente (drawer del sidebar en <lg).
-   Era un anillo blanco al 65% → 1,45:1 sobre el extremo cian (#4FD4CC) del gradiente. Aquí no hay
-   ajuste pequeño posible: el cian es tan claro que ni el blanco puro llega (1,80). Se invierte a
-   navy, que sí cumple en TODO el recorrido del gradiente: 8,25 en el extremo cian y 3,32 en el
-   extremo azul (#4F74C9).
-   También pierde el prefijo `.flit-app`: su ÚNICO consumidor es FlitSidebar, que se pinta dentro
+   Vuelve a BLANCO, y conviene entender por qué en dos pasos, porque de lejos parece que #11766
+   deshace #11604:
+
+   · #11604 lo puso navy con razón. El anillo era blanco al 65 % y daba 1,45:1 sobre el extremo
+     cian (#4FD4CC) del gradiente de entonces. Sobre aquel ramo tan claro no había ajuste pequeño
+     posible —ni el blanco puro llegaba, 1,81— y el navy sí cumplía en todo el recorrido: 8,25 en
+     el cian y 3,32 en el azul (#4F74C9).
+   · #11766 movió el sustrato, no el criterio. El gradiente del drawer ahora va de #1E7B75 a
+     #4264B7, y sobre ESE ramo el navy se hunde: peor punto 2,65, por debajo del 3:1 que pide
+     SC 1.4.11. El blanco puro, que antes era el que fallaba, ahora es el que cumple: 5,07 en el
+     extremo teal y 5,62 en el índigo.
+
+   Es el mismo acoplamiento en las dos direcciones: el color del anillo y el del gradiente se
+   mueven JUNTOS. Cambiar uno sin el otro cierra un incumplimiento abriendo el contrario, y hasta
+   #11766 eso no lo veía nadie. Ahora sí: `npm run check:contraste` mide este anillo contra las 21
+   muestras de --flit-gradient-sidebar. El alfa se queda en 1: sobre estos fondos un blanco
+   translúcido no cumple (al 65 % da 3,10, y en el extremo índigo aún menos).
+
+   Y sigue SIN el prefijo `.flit-app`: su ÚNICO consumidor es FlitSidebar, que se pinta dentro
    de un ModalPortal colgado de <body>. Con el prefijo la regla no llegaba nunca y el drawer
-   enseñaba el anillo por defecto de Chrome (blanco al 85% → los mismos ~1,45 sobre el cian). */
+   enseñaba el anillo por defecto de Chrome. */
 .flit-focus-light:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--flit-blue-dark);
+  box-shadow: 0 0 0 3px #ffffff;
 }
 
 /* Foco para contenedores DESPLAZABLES que viven dentro de una tarjeta con `overflow: hidden`

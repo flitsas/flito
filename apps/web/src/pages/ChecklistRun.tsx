@@ -26,7 +26,7 @@ type ButtonTone = 'success' | 'warning' | 'danger';
 
 const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
 const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const TONE_VAR: Record<ButtonTone, string> = { success: 'var(--flit-gradient-success)', warning: 'linear-gradient(90deg,#F05A35,#F05A35)', danger: 'var(--flit-gradient-danger)' };
+const TONE_VAR: Record<ButtonTone, string> = { success: 'var(--flit-gradient-success)', warning: 'var(--flit-warning-ink)', danger: 'var(--flit-gradient-danger)' };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}</span>{children}</label>;

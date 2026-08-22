@@ -129,7 +129,7 @@ export default function TraspasoStepComercial({ vehiculo, inicial, busy, readOnl
             <p className="text-xs font-bold" style={{ color: 'var(--flit-success)' }}>Valor Fasecolda (oficial)</p>
             <button type="button" onClick={consultarFasecolda} disabled={fasecoldaLoading}
               className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-semibold disabled:opacity-50"
-              style={{ color: 'white', background: 'linear-gradient(135deg,#059669,#0d9488)' }}>
+              style={{ color: 'white', background: 'var(--flit-gradient-success)' }}>
               {fasecoldaLoading ? 'Consultando…' : 'Traer valor'}
             </button>
           </div>

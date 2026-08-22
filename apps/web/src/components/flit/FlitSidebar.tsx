@@ -97,7 +97,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
           type="button"
           onClick={onClose}
           aria-label="Cerrar menú"
-          className="flit-focus-light ml-auto grid h-9 w-9 place-items-center rounded-lg text-white/85 hover:bg-white/15 lg:hidden"
+          className="flit-focus-light ml-auto grid h-9 w-9 place-items-center rounded-lg text-white hover:bg-white/15 lg:hidden"
         >
           <IconClose className="h-5 w-5" />
         </button>
@@ -117,17 +117,17 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => toggleSection(section)}
-                className="flit-focus-light flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-white/90 transition-colors hover:bg-white/10"
+                className="flit-focus-light flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-white transition-colors hover:bg-white/10"
               >
                 <SectionIcon className="h-4 w-4 shrink-0" />
                 <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.18em]">
                   {SECTION_LABEL[section]}
                 </span>
-                <span className="tabular-nums text-[10px] text-white/50" aria-hidden="true">
+                <span className="tabular-nums text-[10px] text-white" aria-hidden="true">
                   {items.length}
                 </span>
                 <IconChevronDown
-                  className={`h-4 w-4 shrink-0 text-white/70 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
+                  className={`h-4 w-4 shrink-0 text-white transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
                 />
               </button>
               <div
@@ -144,7 +144,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
                         to={it.to}
                         end={it.to === '/'}
                         onClick={onClose}
-                        className="flit-focus-light group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
+                        className="flit-focus-light group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white transition-colors hover:bg-white/10 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
                       >
                         <IconDot className="h-3 w-3 shrink-0 opacity-70 group-aria-[current=page]:opacity-100" />
                         <span className="truncate">{it.label}</span>
@@ -159,7 +159,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
       </div>
 
       {/* Pie legal */}
-      <div className="px-5 py-4 text-[10px] leading-relaxed text-white/65">
+      <div className="px-5 py-4 text-[10px] leading-relaxed text-white">
         ISO 27001 · Decreto 1079/2015
       </div>
     </nav>
