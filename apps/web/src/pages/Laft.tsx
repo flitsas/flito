@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { api } from '../lib/api';
+import { api, errorMessage } from '../lib/api';
 import CounterpartyForm from '../components/laft/CounterpartyForm';
 import CounterpartyDetail from '../components/laft/CounterpartyDetail';
 import ListsPanel from '../components/laft/ListsPanel';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 
 interface Counterparty {
   id: number;
@@ -51,6 +52,7 @@ const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(-
 export default function Laft() {
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showLists, setShowLists] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -60,8 +62,14 @@ export default function Laft() {
   const [offset, setOffset] = useState(0);
   const limit = 50;
 
+  // Bug #11768 — el fallo del listado solo se contaba con un toast que se desvanece y la tabla
+  // quedaba diciendo «Sin contrapartes registradas». En LAFT eso no es un matiz: «no hay
+  // contrapartes que debida diligencia deba revisar» y «no pude leer las contrapartes» llevan a
+  // decisiones opuestas. Estado de error en el cuerpo, calcado de LaftAuditPlan / LaftManual /
+  // LaftOfficer, más el «Reintentar» que ya usa finanzas (ContadoresFacturacion).
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       params.set('limit', String(limit));
@@ -72,7 +80,10 @@ export default function Laft() {
       const res = await api.get<ListResponse>(`/laft/counterparties?${params}`);
       setData(res);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error cargando');
+      // Se descarta la página anterior: dejar contrapartes viejas con su documento bajo un cartel
+      // de error es enseñar datos que ya no se sabe si siguen siendo los vigentes.
+      setData(null);
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -145,9 +156,14 @@ export default function Laft() {
               <option value="alto">Riesgo alto</option>
             </select>
           </div>
-          <div className="col-span-12 text-right text-xs font-medium md:col-span-1" style={{ color: 'var(--flit-text-muted)' }}>
-            {total} total
-          </div>
+          {/* Guardado por `!error` — ver el motivo largo en LaftUnusual.tsx: «0 total» bajo el
+              cartel de error es el propio defecto del Bug #11768 dicho por la cabecera. El pie de
+              paginación de más abajo ya está a salvo por su `data &&`, con `setData(null)`. */}
+          {!error && (
+            <div className="col-span-12 text-right text-xs font-medium md:col-span-1" style={{ color: 'var(--flit-text-muted)' }}>
+              {total} total
+            </div>
+          )}
         </div>
       </section>
 
@@ -163,10 +179,24 @@ export default function Laft() {
               {loading && (
                 <tr><td colSpan={8} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>
               )}
-              {!loading && rows.length === 0 && (
+              {!loading && error && (
+                <tr>
+                  <td colSpan={8} className="py-12 text-center">
+                    {/* `--flit-danger-ink`, no `--flit-danger`: el segundo es token de SUPERFICIE y
+                        como texto no llega a 4,5:1. Ver LaftUnusual.tsx y `styles/flit-tokens.css`. */}
+                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+                      No se pudo cargar el listado de contrapartes. {error}
+                    </p>
+                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
+                      Reintentar
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && rows.length === 0 && (
                 <tr><td colSpan={8} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin contrapartes registradas</td></tr>
               )}
-              {!loading && rows.map((cp) => {
+              {!loading && !error && rows.map((cp) => {
                 const s = STATUS_LABEL[cp.status];
                 const r = cp.riskLevel ? RISK_LABEL[cp.riskLevel] : null;
                 return (
