@@ -231,6 +231,11 @@ describe('AC3 — el mismo documento no se archiva dos veces', () => {
 });
 
 describe('AC4 — sin carpeta configurada no se inventa una', () => {
+  // La raíz de excepción se nombra con el ID de la compañía (42), no con su documento (900123456).
+  // Cambió en la HU #11770: la carpeta es el prefijo de la clave del objeto y la clave viaja entera
+  // en el `?key=` del enlace firmado, así que un NIT ahí acaba en los logs de nginx — y con cliente
+  // persona natural ese campo es una cédula. La fila mock SIGUE trayendo `document` a propósito:
+  // así el test comprueba que no se usa, en vez de que no esté disponible.
   it('el documento va a la carpeta de excepción y queda dicho que la compañía no la tiene', async () => {
     kdb.when.select('siigo_facturas', [factura({ carpeta: null })]);
     nadaArchivadoTodavia();
@@ -239,7 +244,8 @@ describe('AC4 — sin carpeta configurada no se inventa una', () => {
     const r = await archivarFactura(FACTURA_ID);
 
     expect(uploadMock.mock.calls[0][0])
-      .toBe('_sin-carpeta-configurada/900123456/facturacion-electronica');
+      .toBe('_sin-carpeta-configurada/42/facturacion-electronica');
+    expect(uploadMock.mock.calls[0][0]).not.toContain('900123456');
     expect(r.carpetaDeExcepcion).toBe(true);
   });
 

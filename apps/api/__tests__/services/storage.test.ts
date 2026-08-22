@@ -241,12 +241,25 @@ describe('storage — uploadEntityDocument: la clave no lleva el nombre del clie
   // (ABC123, WGY45F) y la de una cédula o un NIT caben ENTERAS dentro de «alfanumérico y corto», que
   // era el filtro. O sea que el dato que este Bug persigue volvía a la clave —y de ahí al `?key=`—
   // por la puerta de atrás. Solo un conjunto CERRADO de extensiones lo cierra.
+  //
+  // Los cuatro primeros casos traen un mime CONOCIDO, así que se resuelven por la tabla y no llegan
+  // a mirar el nombre: prueban que el mime manda, no el conjunto cerrado. Los que ejercitan el
+  // conjunto cerrado son los de `application/octet-stream`, y son además los realistas: es
+  // exactamente lo que producen los dos expansores de ZIP (`flito-soat.service.ts` y
+  // `flito-recibos.service.ts`), que le ponen `application/octet-stream` a toda entrada que no
+  // reconozcan por su nombre y la pasan tal cual. Sin ellos, borrar el filtro por
+  // `EXTENSIONES_CONOCIDAS` dejaba este bloque entero en verde. (HU #11770, AC3.)
   const EVASIONES: Array<[string, string, string, string]> = [
     ['comprobante.ABC123', 'application/pdf', 'abc123', '.pdf'],
     ['soporte.WGY45F', 'application/pdf', 'wgy45f', '.pdf'],
     ['cedula.79483215', 'image/jpeg', '79483215', '.jpg'],
     ['nit.900123', 'application/pdf', '900123', '.pdf'],
     ['a.b.c.SXG87H', 'application/pdf', 'sxg87h', '.pdf'], // varios puntos: se toma el último
+    // Mime genérico → el nombre es lo único que queda, y ahí es donde el conjunto cerrado trabaja.
+    ['comprobante.ABC123', 'application/octet-stream', 'abc123', '.bin'],
+    ['recibo.WGY45F', 'application/octet-stream', 'wgy45f', '.bin'],
+    ['soporte.79483215', 'application/octet-stream', '79483215', '.bin'],
+    ['a.b.c.SXG87H', 'application/octet-stream', 'sxg87h', '.bin'],
   ];
 
   it.each(EVASIONES)(
@@ -294,6 +307,100 @@ describe('storage — uploadEntityDocument: la clave no lleva el nombre del clie
     // PESV recupera el nombre parseando la clave con /^\d+_[0-9a-f]+_/: el formato es su contrato.
     expect(key).toMatch(/^pesv\/diagnostico-evidencia\/12\/\d+_[0-9a-f]{12}_Politica_de_alcohol\.pdf$/);
     expect(key.split('/').pop()!.replace(/^\d+_[0-9a-f]+_/, '')).toBe('Politica_de_alcohol.pdf');
+  });
+});
+
+// La extensión con la que se guarda el objeto sale del MIME, y el MIME que llega NO viene siempre
+// canónico: multer copia el `Content-Type` de la parte multipart tal cual, y ahí caben parámetros
+// (`; charset=…`, que el navegador añade en los `text/*`) y mayúsculas. Por eso `extensionDe`
+// normaliza con `mime.split(';')[0].trim().toLowerCase()` antes de mirar la tabla.
+//
+// Sin estos casos esa normalización era código sin prueba: quitarla dejaba las 38 pruebas en verde y
+// el efecto en producción habría sido silencioso —`flito-soat` y `flito-recibos` guardando `.bin`
+// que `GET /api/files` sirve como `octet-stream`, o sea descargas que el navegador no sabe abrir—.
+// (HU #11770, AC2.)
+describe('storage — extensionDe: el mime se normaliza antes de buscarlo en la tabla', () => {
+  // El nombre NO trae una extensión utilizable en ningún caso, a propósito: así lo único que puede
+  // producir la extensión correcta es la tabla del mime. Con un `x.pdf` el fallback la acertaría
+  // por casualidad y el caso dejaría de medir lo suyo.
+  const SIN_EXTENSION_UTIL = 'comprobante-ABC123';
+
+  const NO_CANONICOS: Array<[string, string]> = [
+    ['text/csv; charset=utf-8', '.csv'],       // lo que manda un navegador al subir un .csv
+    ['application/pdf;charset=binary', '.pdf'],// sin espacio tras el `;`
+    ['APPLICATION/PDF', '.pdf'],               // mayúsculas
+    ['Image/PNG', '.png'],                     // mixto
+    ['  image/jpeg  ', '.jpg'],                // con espacios alrededor
+  ];
+
+  it.each(NO_CANONICOS)('mime %s → %s', async (mime, esperada) => {
+    bucketExistsMock.mockResolvedValue(true);
+    const { uploadEntityDocument } = await import('../../src/services/storage.js');
+    const key = await uploadEntityDocument('p', 1, SIN_EXTENSION_UTIL, Buffer.from('x'), mime);
+    expect(key.endsWith(esperada)).toBe(true);
+    expect(key).not.toContain('ABC123');
+    expect(key).toMatch(UUID_KEY);
+  });
+
+  it('un mime que no está en la tabla sigue dando `bin` aunque venga con parámetros', async () => {
+    bucketExistsMock.mockResolvedValue(true);
+    const { uploadEntityDocument } = await import('../../src/services/storage.js');
+    const key = await uploadEntityDocument('p', 1, SIN_EXTENSION_UTIL, Buffer.from('x'),
+      'application/x-cosa; charset=utf-8');
+    expect(key.endsWith('.bin')).toBe(true);
+  });
+});
+
+// La tabla `EXTENSION_POR_MIME` completa. No es exhaustividad por gusto: cada fila es una ruta de
+// carga viva del monorepo, y las que faltaban podían borrarse sin que ninguna prueba avisara.
+// (HU #11770, AC3.)
+describe('storage — extensionDe: la tabla de mimes cubre las rutas de carga vivas', () => {
+  const POR_MIME: Array<[string, string]> = [
+    ['application/pdf', '.pdf'],
+    ['image/jpeg', '.jpg'],
+    ['image/png', '.png'],
+    ['image/webp', '.webp'],       // logos de organismos de tránsito (`transito-config`)
+    ['image/svg+xml', '.svg'],     // idem — el `+` del subtipo no se toca al normalizar
+    ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xlsx'],
+    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', '.docx'], // evidencias PESV
+    ['application/xml', '.xml'],   // XML de la factura electrónica (Siigo)
+    ['text/xml', '.xml'],          // el mismo documento con el otro mime
+    ['application/zip', '.zip'],   // cargas masivas de SOAT e impuestos
+    ['text/csv', '.csv'],
+    ['text/plain', '.txt'],
+  ];
+
+  it.each(POR_MIME)('mime %s → %s', async (mime, esperada) => {
+    bucketExistsMock.mockResolvedValue(true);
+    const { uploadEntityDocument } = await import('../../src/services/storage.js');
+    // Nombre sin extensión utilizable: la respuesta solo puede venir de la tabla.
+    const key = await uploadEntityDocument('p', 1, 'documento-ABC123', Buffer.from('x'), mime);
+    expect(key.endsWith(esperada)).toBe(true);
+    expect(key).toMatch(UUID_KEY);
+  });
+
+  // `jpeg` es el único miembro de `EXTENSIONES_CONOCIDAS` que no sale de `Object.values` de la
+  // tabla: se añade a mano porque es una extensión real cuyo mime canónico se escribe `.jpg`. Al no
+  // ser valor de ninguna fila, es el único que podía desaparecer sin que nada lo notara, y su
+  // efecto sería convertir en `.bin` un `foto.jpeg` subido con mime genérico.
+  it('`jpeg` en el nombre sobrevive aunque el mime no diga nada (miembro suelto del conjunto)', async () => {
+    bucketExistsMock.mockResolvedValue(true);
+    const { uploadEntityDocument } = await import('../../src/services/storage.js');
+    const key = await uploadEntityDocument('p', 1, 'foto.jpeg', Buffer.from('x'), 'application/octet-stream');
+    expect(key.endsWith('.jpeg')).toBe(true);
+  });
+
+  // El resto del conjunto cerrado, por la vía del nombre y no de la tabla: mime genérico + nombre
+  // con extensión conocida. Es el camino de los expansores de ZIP.
+  it.each([
+    ['plan.pdf', '.pdf'], ['foto.JPG', '.jpg'], ['logo.webp', '.webp'], ['logo.svg', '.svg'],
+    ['padron.xlsx', '.xlsx'], ['politica.docx', '.docx'], ['factura.xml', '.xml'],
+    ['lote.zip', '.zip'], ['maestro.csv', '.csv'], ['notas.txt', '.txt'],
+  ])('mime genérico + nombre %s → %s', async (filename, esperada) => {
+    bucketExistsMock.mockResolvedValue(true);
+    const { uploadEntityDocument } = await import('../../src/services/storage.js');
+    const key = await uploadEntityDocument('p', 1, filename, Buffer.from('x'), 'application/octet-stream');
+    expect(key.endsWith(esperada)).toBe(true);   // se normaliza a minúsculas
   });
 });
 
