@@ -66,13 +66,14 @@ export interface ResultadoRecibos { conciliados: ItemRecibo[]; enRevision: ItemR
 // Datos de un impuesto candidato para conciliar/archivar.
 interface Candidato {
   impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string; tramiteId: string;
-  placa: string | null; companiaId: number; document: string | null; carpeta: string | null; valorLiquidado: string | null;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
+  placa: string | null; companiaId: number; carpeta: string | null; valorLiquidado: string | null;
   // D-5 (Fase 7): activación de diferencia de valor por organismo + tolerancia de la compañía.
   diferenciaActiva: boolean; tolerancia: string;
 }
 const SELECT_CAND = {
   impuestoId: flitoImpuestos.id, estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
-  tramiteIdFlit: flitoTramites.idFlit, tramiteId: flitoTramites.id, placa: vehicles.plate, companiaId: clients.id, document: clients.document,
+  tramiteIdFlit: flitoTramites.idFlit, tramiteId: flitoTramites.id, placa: vehicles.plate, companiaId: clients.id,
   carpeta: clients.flitoCarpetaStorage, valorLiquidado: flitoImpuestos.valorLiquidado,
   diferenciaActiva: organismosTransitoConfig.flitoDiferenciaValorActiva,
   tolerancia: clients.flitoToleranciaValorImpuesto,
@@ -276,7 +277,7 @@ async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubid
 }
 
 async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<string> {
-  const carpeta = carpetaDe({ id: cand.companiaId, document: cand.document, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
+  const carpeta = carpetaDe({ id: cand.companiaId, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
   return uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, archivo.buffer, archivo.mimetype);
 }
 

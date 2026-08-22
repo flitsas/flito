@@ -43,6 +43,16 @@ async function downloadEvidencias(
       });
       const buf = Buffer.concat(chunks);
       const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+      // Tercer y último sitio que saca el nombre del archivo PARSEANDO la clave (HU #11770). Los
+      // otros dos son `evidenciaPublic` (`diagnostico.routes.ts`) y `decodeFilename`
+      // (`diagnostico-evidencias.routes.ts`). Es la razón por la que las evidencias PESV quedaron
+      // fuera de la clave opaca del Bug #11694: `evidencia_keys` es un `text[]` y no hay columna con
+      // el nombre, así que volver la clave opaca dejaría este ZIP lleno de UUID —un paquete de
+      // evidencias que el auditor no puede leer—. El precio que se paga por ello es que el nombre
+      // del cliente sigue dentro de la clave, y la clave viaja entera en el `?key=` del enlace
+      // firmado que emite el `GET .../evidencias/:keyHash`.
+      //
+      // Quien añada la columna `nombre_archivo` tiene que migrar los TRES, este incluido.
       const filename = key.split('/').pop()?.replace(/^\d+_[0-9a-f]+_/, '') ?? 'evidencia';
       out.push({ filename, buf, sha256, key });
     } catch (e) {

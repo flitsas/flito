@@ -71,10 +71,17 @@ const EXTENSION: Record<string, string> = {
  * ficha pinta y lo que la descarga devuelve. Lo que cambia es solo la clave del objeto.
  *
  * La deuda que este comentario dejaba registrada —que `uploadEntityDocument` metía el nombre
- * saneado dentro de la clave para todos los demás flujos— la pagó el **Bug #11694**: aquel helper ya
- * nombra sus objetos con un UUID. Esta función se mantiene porque es la que decide cómo se llama el
- * comprobante de conciliación, y porque su prefijo `comprobante-` es lo que hace legible el bucket;
- * al helper le llega un nombre que ya no dice nada del usuario.
+ * saneado dentro de la clave para todos los demás flujos— la pagó el **Bug #11694**: aquel helper
+ * nombra sus objetos con un UUID **salvo cuando se le pide lo contrario**. La excepción es
+ * `conservarNombreEnClave`, y hoy la usa un solo flujo: las evidencias del autodiagnóstico PESV,
+ * que no tienen columna donde guardar el nombre y lo recuperan parseando la clave. Ahí el nombre
+ * del cliente sigue dentro de la clave y sigue viajando en el `?key=` del enlace firmado. Decirlo
+ * en universal («ya nombra sus objetos con un UUID») era falso y hacía parecer cerrado un vector
+ * que no lo está (HU #11770); para conciliación sí lo está, porque este flujo no usa la excepción.
+ *
+ * Esta función se mantiene porque es la que decide cómo se llama el comprobante de conciliación, y
+ * porque su prefijo `comprobante-` es lo que hace legible el bucket; al helper le llega un nombre
+ * que ya no dice nada del usuario.
  */
 export function nombreEnAlmacen(contentType: string): string {
   return `comprobante-${randomUUID()}.${EXTENSION[contentType] ?? 'bin'}`;
@@ -223,7 +230,7 @@ export async function destinoComprobante(
   }
 
   const [compania] = await db
-    .select({ id: clients.id, document: clients.document, flitoCarpetaStorage: clients.flitoCarpetaStorage })
+    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage })
     .from(clients)
     .where(eq(clients.id, boleta.companiaId))
     .limit(1);

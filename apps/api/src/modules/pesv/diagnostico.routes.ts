@@ -120,6 +120,22 @@ router.get('/:id', async (req: Request, res: Response) => {
 // Representación pública mínima de evidencia. ADR-PESV-001: el frontend usa
 // keyHash, nunca la storageKey real. sizeBytes=0 acá porque no consultamos
 // stat en bulk (lo hace el GET presigned). Frontend lo trata como "desconocido".
+//
+// ⚠️ «Nunca la storageKey real» vale para ESTA respuesta, no para el módulo (HU #11770). El
+// `GET /:id/items/:estandarId/evidencias/:keyHash` (`diagnostico-evidencias.routes.ts`) firma la
+// descarga con `presignedGetEntityDocument`, y esa firma mete la clave ENTERA en el `?key=` de la
+// url que devuelve. O sea que la storageKey sí sale del backend, por la otra puerta y unas 170
+// líneas más allá — y en PESV la clave conserva el nombre del archivo que escribió el cliente.
+//
+// Ese nombre es justo lo que el `replace` de aquí abajo extrae, y por eso PESV quedó FUERA de la
+// clave opaca del Bug #11694: `pesv_diagnostico_items.evidencia_keys` es un `text[]` sin columna
+// para el nombre, y esta pantalla —más `decodeFilename` y el ZIP de `export-diagnostico.routes.ts`—
+// lo saca parseando la clave. La consecuencia aceptada es que una placa o una cédula dentro del
+// nombre del archivo viaja en el query string del enlace, y de ahí a los logs de nginx, al historial
+// del navegador y al `Referer`. Fijado en `__tests__/services/pesv.evidencias.nombre.test.ts`.
+//
+// Se cierra el día que exista la columna `nombre_archivo`: entonces estos tres parseos leen de ella
+// y la clave puede volverse opaca. Antes no, o las tres pantallas pasan a enseñar un UUID.
 function evidenciaPublic(storageKey: string, uploadedBy: number, updatedAt: Date | string) {
   const filename = storageKey.split('/').pop()?.replace(/^\d+_[0-9a-f]+_/, '') ?? 'archivo';
   const keyHash = crypto.createHash('sha256').update(storageKey).digest('hex').slice(0, 16);
