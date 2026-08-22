@@ -21,6 +21,22 @@ export const FABRICADO = {
   organismoMunicipal: 'STRIA DE TTOyTTE VILLADEMO',
 } as const;
 
+/**
+ * El cuerpo TAL Y COMO lo manda el UTS municipal: el JSON serializado DOS veces (Bug #11711).
+ *
+ * Se genera con `JSON.stringify(JSON.stringify(...))` y no se pega una cadena escapada a mano, para
+ * que la fixture no pueda desincronizarse de `payloadUts()` y para que se lea lo que representa.
+ *
+ * La forma está medida contra el proveedor el 2026-08-21 en CINCO de los OCHO municipios sembrados
+ * (BELLO, MEDELLIN, ITAGUI, ENVIGADO y SABANETA; sin CALI, MANIZALES ni RIONEGRO): `HTTP 200`,
+ * `application/json; charset=utf-8`,
+ * `Content-Length` presente, `Transfer-Encoding` ausente, y el primer byte del cuerpo una comilla
+ * doble. `JSON.parse` NO lanza ahí —devuelve un string— y ahí empezaba el silencio del bug.
+ */
+export function cuerpoDobleEncodeado(objeto: unknown): string {
+  return JSON.stringify(JSON.stringify(objeto));
+}
+
 /** Número de comparendo de SIMIT: 20 dígitos, como el del proveedor. */
 export function numeroSimit(i = 0): string {
   return `9999900000001234567${i}`;

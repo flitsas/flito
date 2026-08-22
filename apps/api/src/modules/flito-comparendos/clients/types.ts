@@ -84,7 +84,30 @@ export interface RespuestaFuente<T> {
 }
 
 export type RespuestaFuenteSimit = RespuestaFuente<ComparendoCrudoSimit>;
-export type RespuestaFuenteMunicipal = RespuestaFuente<ComparendoCrudoMunicipal>;
+/**
+ * La municipal lleva algo más: si la consulta fue CONCLUYENTE (Bug #11711 AC8, RN-47).
+ *
+ * `ok` y `concluyente` no son lo mismo y por eso son dos cosas:
+ *
+ *   · **ok** — la consulta se resolvió: hubo 2xx, el cuerpo se entendió y no hubo error de
+ *     transporte. Es lo que decide si el municipio «se cayó».
+ *   · **concluyente** — el proveedor además emitió VEREDICTO sobre el NIT, así que su lista (aunque
+ *     venga vacía) significa «esto es lo que hay» y no «no sé decirte».
+ *
+ * La distinción existe porque el UTS no es coherente consigo mismo. Medido el 2026-08-21: MEDELLIN
+ * contesta `codigoEstado: 1` con un comparendo para un NIT y `codigoEstado: null` con cero
+ * comparendos para otro, mientras BELLO contesta `codigoEstado: 1` con cero comparendos. O sea: la
+ * ausencia de veredicto NO se puede leer como «este NIT no debe nada», y tampoco como avería —
+ * exigir veredicto dejaría a esos municipios permanentemente caídos—.
+ *
+ * Quien consume esto es la cobertura del CF-10 en el sync: un municipio no concluyente no cuenta
+ * como cobertura y, por tanto, no autoriza a inactivar por ausencia. `ok` sigue siendo `true` y la
+ * corrida sigue su curso.
+ */
+export interface RespuestaFuenteMunicipal extends RespuestaFuente<ComparendoCrudoMunicipal> {
+  /** ¿El proveedor dio veredicto (o comparendos)? Si no, su vacío no autoriza a inactivar nada. */
+  concluyente: boolean;
+}
 
 /** Etiqueta de la fuente SIMIT en la columna `fuente` de los steps (los municipios usan su código). */
 export const FUENTE_SIMIT = 'simit';

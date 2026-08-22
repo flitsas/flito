@@ -20,14 +20,19 @@
 // Drizzle va con el mock keyed por tabla + el espía de escrituras: sin él, afirmar sobre el merge
 // obligaría a mirar la fila que el propio test devolvió, que es una tautología.
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import http from 'http';
+import type { AddressInfo } from 'net';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia, type Mutacion } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 import { Redacted } from '../../src/shared/utils/crypto.js';
+import {
+  cuerpoDobleEncodeado, FABRICADO, itemMunicipal, payloadUts,
+} from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -100,6 +105,8 @@ type EnvMutable = {
   COMPARENDOS_SIMIT_MODE: 'mock' | 'real';
   COMPARENDOS_SYNC_CONCURRENCIA: number;
   NODE_ENV: string;
+  /** Solo la usa el bloque del Bug #11711, que habla con un servidor local de verdad. */
+  UTS_MUNICIPAL_BASE_URL?: string;
 };
 const entorno = env as unknown as EnvMutable;
 const original = { ...entorno };
@@ -136,8 +143,13 @@ const sync = async (body?: Record<string, unknown>, role: TestRole = 'admin') =>
 const respuestaSimit = (items: Record<string, unknown>[], httpStatus: number | null = null) =>
   ({ origen: 'simit', fuente: 'simit', modo: 'mock', httpStatus, items });
 
-const respuestaMunicipal = (fuente: string, items: Record<string, unknown>[]) =>
-  ({ origen: 'municipal', fuente, modo: 'mock', httpStatus: null, items });
+/**
+ * `concluyente` por defecto en `true`, que es lo que devuelve el adapter cuando el UTS se pronuncia
+ * —y lo que devuelve siempre el modo mock—. Los casos de RN-47 lo ponen en `false` a mano.
+ */
+const respuestaMunicipal = (
+  fuente: string, items: Record<string, unknown>[], concluyente = true,
+) => ({ origen: 'municipal', fuente, modo: 'mock', httpStatus: null, items, concluyente });
 
 /** El comparendo que ven las DOS fuentes: SIMIT sin descripción, el municipio con ella (CF-08). */
 const ITEM_SIMIT = {
@@ -923,6 +935,102 @@ describe('POST /sync — la inactivación respeta a quién se le preguntó (RN-2
   });
 });
 
+// ───────── Un municipio sin veredicto no autoriza a apagar (Bug #11711 AC8, RN-47) ─────────────
+//
+// Medido contra el proveedor el 2026-08-21, y lo importante es que el código NO correlaciona con
+// nada: MEDELLIN contesta `codigoEstado: 1` con un comparendo para un NIT y `codigoEstado: null` con
+// cero comparendos para otro; BELLO contesta `codigoEstado: 1` con cero comparendos. De ahí las dos
+// mitades de la regla, y las dos se prueban aquí:
+//
+//   · La ausencia de veredicto NO puede leerse como «este NIT no debe nada» → no suma cobertura.
+//   · La ausencia de veredicto TAMPOCO es una avería → el paso no falla y la corrida no se degrada;
+//     si no, esos municipios quedarían caídos para siempre y ninguna corrida sería `completed`.
+
+describe('POST /sync — un municipio sin veredicto no cuenta como cobertura (RN-47)', () => {
+  /** La respuesta medida: contestó, se entendió, no trajo nada y no se pronunció. */
+  const sinVeredicto = async (_n: string, fuente: string) => respuestaMunicipal(fuente, [], false);
+
+  it('**un municipio que responde SIN veredicto no autoriza a inactivar el histórico del NIT**', async () => {
+    escenario({
+      municipios: ['MEDELLIN'],
+      inactivados: [
+        { id: 'reg-solo-medellin', municipioFuente: 'MEDELLIN' },
+        { id: 'reg-simit', municipioFuente: null },
+      ],
+    });
+    municipalMock.mockImplementation(sinVeredicto);
+    // SIMIT contesta bien y con cero: sin esta regla, el NIT saldría con cobertura completa y el
+    // barrido apagaría las dos filas —incluida la que SOLO reporta el municipio que no se pronunció.
+    simitMock.mockImplementation(async () => respuestaSimit([], 200));
+
+    const r = await sync();
+
+    expect(r.body.resumen.inactivados).toBe(0);
+    expect(r.body.resumen.nitsSinInactivacion).toBe(1);
+    expect(updatesEn('flito_comparendos_registros').some((d) => d.estado === 'inactivo')).toBe(false);
+    // Ni un evento de timeline: el daño de una inactivación en falso se revierte en la fila, pero el
+    // timeline deduplica por corrida y esa línea queda escrita para siempre (RN-19).
+    expect(eventosEscritos()).toHaveLength(0);
+  });
+
+  it('y aun así el paso NO falla: el municipio no está caído, solo no se pronunció', async () => {
+    escenario({ municipios: ['MEDELLIN'] });
+    municipalMock.mockImplementation(sinVeredicto);
+    simitMock.mockImplementation(async () => respuestaSimit([], 200));
+
+    const r = await sync();
+
+    // La otra mitad de la regla. Marcarlo `ok: false` dejaría a MEDELLIN caído cada vez que un NIT
+    // no tiene comparendos allí, y la corrida en `partial` permanente: el operador dejaría de mirar.
+    expect(r.body.estado).toBe('completed');
+    const pasoMunicipal = r.body.steps.find((p: Record<string, unknown>) => p.fuente === 'MEDELLIN');
+    expect(pasoMunicipal).toMatchObject({ ok: true, errorCode: null, itemsLeidos: 0 });
+    // Y el motivo queda legible para el operador, en el `mensaje` que ya se persiste —sin columna
+    // nueva—, describiendo la respuesta y su consecuencia y sin una palabra del proveedor (RN-20).
+    expect(pasoMunicipal.mensaje).toContain('sin veredicto');
+    expect(pasoMunicipal.mensaje).toContain('no cuenta como cobertura');
+    expect(pasoMunicipal.mensaje).not.toContain(NIT_A);
+  });
+
+  it('con veredicto y listas vacías SÍ es concluyente: el barrido procede como siempre', async () => {
+    // El caso de BELLO: `codigoEstado: 1` con cero comparendos. Eso sí es «no consta ninguno». Sin
+    // este test, la regla podría implementarse apagando la inactivación entera y nadie se enteraría.
+    escenario({ municipios: ['BELLO'], inactivados: [{ id: 'reg-bello', municipioFuente: 'BELLO' }] });
+    municipalMock.mockImplementation(async (_n: string, fuente: string) => respuestaMunicipal(fuente, []));
+    simitMock.mockImplementation(async () => respuestaSimit([], 200));
+
+    const r = await sync();
+
+    expect(r.body.resumen.inactivados).toBe(1);
+    expect(eventosEscritos().filter((e) => e.tipo === 'inactivacion').map((e) => e.registroId))
+      .toEqual(['reg-bello']);
+    // Y sin mensaje: no hay nada que explicarle a nadie cuando la fuente se pronunció.
+    expect(r.body.steps.find((p: Record<string, unknown>) => p.fuente === 'BELLO').mensaje).toBeNull();
+  });
+
+  it('un municipio mudo entre varios frena la inactivación del NIT ENTERO, y es a propósito', async () => {
+    escenario({
+      municipios: ['BELLO', 'MEDELLIN'],
+      inactivados: [
+        { id: 'reg-bello', municipioFuente: 'BELLO' },
+        { id: 'reg-simit', municipioFuente: null },
+      ],
+    });
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      (fuente === 'MEDELLIN' ? respuestaMunicipal(fuente, [], false) : respuestaMunicipal(fuente, [])));
+    simitMock.mockImplementation(async () => respuestaSimit([], 200));
+
+    const r = await sync();
+
+    // Podría apagarse «solo lo de BELLO», y se decide NO hacerlo: la ausencia se mide contra el
+    // conjunto de fuentes, y un comparendo que hoy no vio SIMIT podría estar precisamente en el
+    // municipio que no se pronunció. Ante la duda, RN-18: no apagar.
+    expect(r.body.resumen.inactivados).toBe(0);
+    expect(eventosEscritos()).toHaveLength(0);
+    expect(r.body.estado).toBe('completed');
+  });
+});
+
 // ───────── Freno de inactivación masiva (RN-24) ─────────────────────────────────────────────────
 
 describe('POST /sync — freno de inactivación masiva (RN-24)', () => {
@@ -1339,5 +1447,151 @@ describe('sync — acceso y auditoría', () => {
     expect(logueado).not.toContain(NIT_A);
     // Y sí sale enmascarado, que es lo que permite diagnosticar sin exponer el dato.
     expect(logueado).toContain('90****456');
+  });
+});
+
+// ────────── Bug #11711 · el UTS doble-encodeado, de la red a la fila (AC5) ──────────────────────
+//
+// El único bloque del archivo donde el adapter municipal NO está mockeado: se le deja hablar por el
+// transporte de verdad contra un `http.createServer` local que responde EXACTAMENTE lo que respondió
+// el proveedor el 2026-08-21 —`HTTP 200`, `application/json; charset=utf-8`, `Content-Length`, sin
+// `Transfer-Encoding`, y el JSON del envelope serializado DOS veces—.
+//
+// Se monta así porque el AC5 no se puede demostrar de otra forma: lo que hay que ver es que ese
+// cuerpo atraviesa transporte, adapter, homologación y escritura, y que la corrida acaba
+// `completed` con el comparendo PERSISTIDO. Con el adapter mockeado se estaría probando el mock.
+//
+// El resto del archivo no se entera: el mock del módulo sigue en su sitio y aquí solo se le cambia
+// la implementación a la función real durante estos casos.
+
+const { consultarComparendosMunicipales: municipalReal } = await vi.importActual<
+  typeof import('../../src/modules/flito-comparendos/clients/uts-municipal.client.js')
+>('../../src/modules/flito-comparendos/clients/uts-municipal.client.js');
+
+describe('POST /sync — el UTS entrega comparendos de verdad (Bug #11711, AC5)', () => {
+  /**
+   * Mapa v2, el que declara la migración 0158 para las claves REALES del UTS.
+   *
+   * Con la v1 (`numero`, `estado`) este payload no homologaría, y eso es otro asunto —la HU #11712—:
+   * aquí lo que se ejerce es el transporte, así que el mapa se pone en su versión vigente y no se
+   * toca. `estadoCuenta.direccion`, `nombres` e `identificador` NO se nombran, que es lo que hace
+   * que la poda los tire del payload persistido.
+   */
+  const MAPA_V2 = [
+    ...MAPA.map((f) => ({ ...f, version: 2 })),
+    { version: 2, origen: 'municipal', sourcePath: 'numeroComparendo', targetField: 'numeroComparendo', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'placa', targetField: 'placa', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'codigoInfraccion', targetField: 'codigoInfraccion', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'descripcionInfraccion', targetField: 'descripcionInfraccion', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'fechaComparendo', targetField: 'fechaComparendo', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'estadoCuenta.secretaria.nombreAutoridadTransito', targetField: 'organismo', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'valor', targetField: 'monto', prioridad: 1, provisional: false },
+    { version: 2, origen: 'municipal', sourcePath: 'descripcionEstado', targetField: 'estadoFuente', prioridad: 1, provisional: false },
+  ];
+
+  /** Lo que el servidor local contesta. Lo fija cada caso antes de sincronizar. */
+  let cuerpo = '';
+  let servidor: http.Server;
+  let base = '';
+
+  beforeAll(async () => {
+    servidor = http.createServer((_req, res) => {
+      const bytes = Buffer.from(cuerpo, 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': bytes.length,
+      });
+      res.end(bytes);
+    });
+    await new Promise<void>((listo) => servidor.listen(0, '127.0.0.1', listo));
+    base = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((listo) => servidor.close(() => listo()));
+  });
+
+  beforeEach(() => {
+    // El adapter municipal, de verdad. `permitirTextoPlano` ya está encendido dentro de él para
+    // esta fuente, que es lo que deja usar `http://` contra el servidor local.
+    municipalMock.mockImplementation(municipalReal);
+    entorno.COMPARENDOS_SIMIT_MODE = 'real';
+    entorno.UTS_MUNICIPAL_BASE_URL = base;
+    // SIMIT no pinta nada en este AC y su adapter sigue mockeado: sin ítems, la fila que se escriba
+    // solo puede venir del municipio.
+    simitMock.mockImplementation(async () => respuestaSimit([], 200));
+  });
+
+  afterEach(() => { delete entorno.UTS_MUNICIPAL_BASE_URL; });
+
+  it('la corrida termina `completed` y el comparendo se persiste con número y estado', async () => {
+    escenario({ municipios: ['MEDELLIN'], mapa: MAPA_V2 });
+    cuerpo = cuerpoDobleEncodeado(payloadUts({ nit: NIT_A, comparendos: [itemMunicipal()] }));
+
+    const r = await sync({ nits: [NIT_A] });
+
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('completed');
+    // Ni un 502: el paso del municipio salió limpio.
+    const pasoMunicipal = r.body.steps.find((p: Record<string, unknown>) => p.fuente === 'MEDELLIN');
+    expect(pasoMunicipal).toMatchObject({ ok: true, errorCode: null, httpStatus: 200 });
+    // Y el mensaje del bug NO aparece por ningún lado de la corrida.
+    expect(JSON.stringify(r.body)).not.toContain('no contiene una lista de comparendos reconocible');
+
+    const insertados = insertsEn('flito_comparendos_registros');
+    expect(insertados).toHaveLength(1);
+    expect(insertados[0]).toMatchObject({
+      numeroComparendo: FABRICADO.numeroMunicipal,
+      estadoFuente: 'Se adeuda',
+      nitMonitoreado: NIT_A,
+      municipioFuente: 'MEDELLIN',
+      vistoEnMunicipal: true,
+      estado: 'activo',
+    });
+    expect(insertados[0].numeroComparendo).not.toBeNull();
+    expect(insertados[0].estadoFuente).not.toBeNull();
+  });
+
+  it('y lo persistido no lleva PII: la poda tira `nombres`, `identificador` y la dirección', async () => {
+    // Va aquí y no en el test de poda porque este es el único sitio donde el payload llega por la
+    // red: si el desenrollado del transporte metiera el cuerpo crudo en el payload, se vería.
+    escenario({ municipios: ['MEDELLIN'], mapa: MAPA_V2 });
+    cuerpo = cuerpoDobleEncodeado(payloadUts({ nit: NIT_A, comparendos: [itemMunicipal()] }));
+
+    await sync({ nits: [NIT_A] });
+
+    const guardado = JSON.stringify(insertsEn('flito_comparendos_registros')[0]);
+    expect(guardado).not.toContain(FABRICADO.direccionMunicipal);
+    expect(guardado).not.toContain('nombres');
+    expect(guardado).not.toContain('identificador');
+  });
+
+  it('un `codigoEstado` != 1 doble-encodeado corta el paso y NO inactiva nada (AC2)', async () => {
+    // El mismo cuerpo del proveedor, con el envelope diciendo que la consulta no se resolvió. Lo
+    // que se fija aquí es lo que la corrida hace con eso: el paso falla CON el diagnóstico del
+    // envelope —no con una pista opaca, que es lo que salía antes— y no se apaga ni una fila. La
+    // lista vacía nunca llega a existir, que es de lo que va todo el módulo (ADR-0001 §5).
+    escenario({
+      municipios: ['MEDELLIN'], mapa: MAPA_V2, inactivados: [{ id: 'reg-viejo', municipioFuente: 'MEDELLIN' }],
+    });
+    cuerpo = cuerpoDobleEncodeado(payloadUts({
+      nit: NIT_A, estado: { codigoEstado: 4, descripcion: 'SIN INFORMACION' }, comparendos: [],
+    }));
+
+    const r = await sync({ nits: [NIT_A] });
+
+    expect(r.body.estado).toBe('partial');
+    const pasoMunicipal = r.body.steps.find((p: Record<string, unknown>) => p.fuente === 'MEDELLIN');
+    expect(pasoMunicipal).toMatchObject({ ok: false, errorCode: 'fuente_respuesta_ilegible' });
+    // Nada apagado: el NIT no tuvo cobertura completa, así que el barrido ni se plantea.
+    expect(r.body.resumen.inactivados).toBe(0);
+    expect(updatesEn('flito_comparendos_registros').some((d) => d.estado === 'inactivo')).toBe(false);
+    // El diagnóstico que el operador necesita, y solo eso: el `mensaje` se PERSISTE en
+    // `sync_steps.mensaje`, así que no arrastra ni el NIT consultado (`criterio`, que va en el
+    // cuerpo del proveedor) ni la `descripcion` que el UTS pone junto al código (RN-20). El `nit`
+    // de la fila del paso sí está, y ahí es donde tiene que estar: es la clave del paso.
+    expect(pasoMunicipal.mensaje).toContain('el UTS respondió codigoEstado 4');
+    expect(pasoMunicipal.mensaje).not.toContain(NIT_A);
+    expect(pasoMunicipal.mensaje).not.toContain('SIN INFORMACION');
   });
 });
