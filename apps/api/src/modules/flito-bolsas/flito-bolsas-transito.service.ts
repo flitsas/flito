@@ -444,6 +444,59 @@ function validarMovimiento(datos: DatosMovimientoTransito): { valor: number; fec
 }
 
 /**
+ * Traduce un `23505` de la llave en el movimiento que sí quedó asentado, o `null` si no procede.
+ *
+ * Gemelo del de `flito-bolsas.service.ts`; vive aquí y no allá solo por el tipo del DTO. Es la red
+ * de DEBAJO de la relectura bajo el lock, no su sustituta: cuando las dos transacciones compiten por
+ * la MISMA bolsa el `FOR UPDATE` las serializa y aquí no se llega. Se llega si la llave colisiona
+ * entre bolsas DISTINTAS —el índice único es uno para toda la tabla— o si otra familia de llaves
+ * choca por un error de construcción.
+ *
+ * **La relectura va en su propio `try`, y esto conviene entenderlo antes de «simplificarlo»**
+ * (Bug #11685, punto 2). Con el `SAVEPOINT` de `insertarMovimiento` la transacción sigue usable tras
+ * el `23505` y la relectura debería correr; si aun así falla —un `25P02` porque alguien quitó el
+ * savepoint, la conexión caída— se devuelve `null` para que suba el error ORIGINAL, el `23505`, que
+ * dice la verdad de lo que pasó, en lugar de uno que solo despista a quien lea el log.
+ */
+async function reintentoPorLlave(
+  tx: Tx,
+  e: unknown,
+  llave: string | null | undefined,
+): Promise<MovimientoTransitoDto | null> {
+  if (!esLlaveDuplicada(e) || !llave) return null;
+  try {
+    return (await movimientoPorLlave(tx, llave)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * El INSERT del asiento, acotado por un `SAVEPOINT` (Bug #11685, punto 3).
+ *
+ * `tx.transaction()` sobre una transacción YA abierta no abre otra: emite `savepoint` y, si el
+ * callback lanza, `rollback to savepoint` antes de relanzar el error tal cual. Eso es exactamente lo
+ * que hacía falta, porque en PostgreSQL un `23505` aborta la transacción ENTERA: sin savepoint, la
+ * relectura de `reintentoPorLlave` ni siquiera puede ejecutarse —muere con `25P02`— y la
+ * conciliación se cae con un 500 aunque el movimiento que buscaba estuviera ahí.
+ *
+ * **Envuelve el INSERT y nada más.** El UPDATE del saldo queda fuera a propósito: si falla, tiene
+ * que abortar la transacción del dinero, no quedar acotado por un savepoint. Y como el savepoint se
+ * libera en cuanto el INSERT cuaja, la fila sigue siendo parte de la transacción de afuera: si el
+ * sellado o la conciliación se deshacen, el asiento se deshace con ellos. El precio son dos
+ * sentencias más por movimiento (`savepoint` y `release`).
+ */
+async function insertarMovimiento(
+  tx: Tx,
+  fila: typeof flitoBolsaTransitoMovimientos.$inferInsert,
+): Promise<typeof flitoBolsaTransitoMovimientos.$inferSelect> {
+  return tx.transaction(async (sp) => {
+    const [insertada] = await sp.insert(flitoBolsaTransitoMovimientos).values(fila).returning();
+    return insertada;
+  });
+}
+
+/**
  * El cuerpo del asiento, sobre una transacción YA abierta.
  *
  * NO valida saldo suficiente: la bolsa puede quedar en negativo y eso es el préstamo (AC5). Si el
@@ -458,18 +511,40 @@ async function asentar(
   const { valor, fecha } = validarMovimiento(datos);
 
   // Pre-chequeo de la llave ANTES de tocar el saldo: un reintento del sellado no puede mover la
-  // bolsa ni un peso (AC10).
+  // bolsa ni un peso (AC10). Va fuera del lock porque no necesita bloquear nada — si ya existe, no
+  // hay nada que escribir.
   if (datos.llaveIdempotencia) {
     const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
     if (previo) return { movimiento: previo, duplicado: true };
   }
 
   const bolsa = await bolsaBloqueada(tx, bolsaId);
+
+  // SEGUNDA lectura de la llave, ya DENTRO del lock, y es la que de verdad cierra la carrera
+  // (Bug #11685, punto 1; el libro del cliente la tiene desde la HU #11677).
+  //
+  // Desde el Feature #11623 la familia `consumo:soat:*` tiene DOS escritores: el sellado de la
+  // liquidación y la conciliación de una boleta. Normalmente el lock del libro del CLIENTE los
+  // serializa de forma transitiva —los dos lo toman antes de llegar aquí—, pero no siempre:
+  // `liquidar()` condiciona esa escritura a que el trámite tenga compañía cruzada, así que un
+  // trámite SIN cliente se salta el libro del cliente y sí escribe este. Ahí las dos transacciones
+  // solo se serializan por `bolsaBloqueada`, y sin esta relectura las dos pasarían el pre-chequeo de
+  // arriba y la segunda llegaría al INSERT con la llave ya ocupada.
+  //
+  // Bajo READ COMMITTED —el nivel por defecto— este SELECT ve un snapshot nuevo, ya con lo que la
+  // otra transacción acaba de confirmar. Cuesta una consulta solo cuando el atajo de arriba falla,
+  // que es el caso raro.
+  if (datos.llaveIdempotencia) {
+    const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
+    if (previo) return { movimiento: previo, duplicado: true };
+  }
+
   const delta = datos.tipo === 'entrada' ? valor : -valor;
   const saldoResultante = redondear(bolsa.saldo + delta);
 
+  let fila: typeof flitoBolsaTransitoMovimientos.$inferSelect;
   try {
-    const [fila] = await tx.insert(flitoBolsaTransitoMovimientos).values({
+    fila = await insertarMovimiento(tx, {
       bolsaId: bolsa.id,
       organismoCodigo: datos.organismoCodigo ?? null,
       concepto: datos.concepto ?? null,
@@ -485,30 +560,29 @@ async function asentar(
       registradoPorId: ctx.userId,
       registradoPorNombre: ctx.nombre.slice(0, 150),
       llaveIdempotencia: datos.llaveIdempotencia ?? null,
-    }).returning();
-
-    const actualizacion: Record<string, unknown> = {
-      saldo: String(saldoResultante),
-      updatedAt: new Date(),
-    };
-    // La última CARGA es la base del nivel de alerta. Solo la mueven las entradas de origen `carga`:
-    // una devolución por reverso no es dinero nuevo y tomarla como base falsearía el porcentaje.
-    if (datos.tipo === 'entrada' && datos.origen === 'carga') {
-      actualizacion.ultimaCargaValor = String(valor);
-      actualizacion.ultimaCargaEn = new Date();
-    }
-    await tx.update(flitoBolsasTransito)
-      .set(actualizacion)
-      .where(eq(flitoBolsasTransito.id, bolsa.id));
-
-    return { movimiento: aMovimientoDto(fila), duplicado: false };
+    });
   } catch (e) {
     // Carrera contra otra transacción con la misma llave: la otra ganó y su movimiento es el bueno.
-    if (!esLlaveDuplicada(e) || !datos.llaveIdempotencia) throw e;
-    const previo = await movimientoPorLlave(tx, datos.llaveIdempotencia);
+    const previo = await reintentoPorLlave(tx, e, datos.llaveIdempotencia);
     if (!previo) throw e;
     return { movimiento: previo, duplicado: true };
   }
+
+  const actualizacion: Record<string, unknown> = {
+    saldo: String(saldoResultante),
+    updatedAt: new Date(),
+  };
+  // La última CARGA es la base del nivel de alerta. Solo la mueven las entradas de origen `carga`:
+  // una devolución por reverso no es dinero nuevo y tomarla como base falsearía el porcentaje.
+  if (datos.tipo === 'entrada' && datos.origen === 'carga') {
+    actualizacion.ultimaCargaValor = String(valor);
+    actualizacion.ultimaCargaEn = new Date();
+  }
+  await tx.update(flitoBolsasTransito)
+    .set(actualizacion)
+    .where(eq(flitoBolsasTransito.id, bolsa.id));
+
+  return { movimiento: aMovimientoDto(fila), duplicado: false };
 }
 
 async function movimientoPorLlave(tx: Tx, llave: string): Promise<MovimientoTransitoDto | undefined> {

@@ -361,10 +361,13 @@ function validarMovimiento(datos: DatosMovimiento): { valor: number; fecha: stri
  * `23505` aborta la transacción en PostgreSQL: sin un `SAVEPOINT` alrededor del `INSERT`, cualquier
  * consulta posterior muere con `25P02`. Si eso pasa se devuelve `null` para que suba el error
  * ORIGINAL —el `23505`, que dice la verdad— en lugar de un `25P02` que solo despista a quien lea el
- * log. La mejora de verdad sería envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y
- * está sin hacer a propósito: tocar la anidación de la transacción del dinero por un caso residual
- * pide su propia HU y su propia prueba. El mismo comentario vale para `asentar` en el libro de
- * tránsito, que tiene este patrón desde antes y con la misma limitación.
+ * log. La mejora de verdad es envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y aquí
+ * sigue sin hacerse: el Bug #11685 la aplicó en `insertarMovimiento` del libro de TRÁNSITO, que es
+ * donde el caso residual tiene una ventana real —`liquidar()` se salta este libro cuando el trámite
+ * no tiene compañía cruzada, y ahí las dos transacciones dejan de serializarse por este lock—. En
+ * este libro los dos escritores toman SIEMPRE el mismo `FOR UPDATE`, así que llegar al `23505` exige
+ * una colisión entre bolsas DISTINTAS. Extenderlo hasta aquí es un cambio en la anidación de la
+ * transacción del dinero y merece decidirse aparte, no de rebote.
  */
 async function reintentoPorLlave(
   tx: Tx,
