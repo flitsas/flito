@@ -45,18 +45,27 @@ vi.mock('../../src/modules/siigo/siigo.freno.service.js', () => ({
   OPERACION_ENCOLAR: 'factura_encolar',
 }));
 
-const { enviarAFacturacion, TOPE_TRAMITES_ENVIO } =
+const { enviarAFacturacion, SiigoEnvioInvalidoError, TOPE_TRAMITES_ENVIO } =
   await import('../../src/modules/siigo/facturacion.encolado.service.js');
 
 const A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-2222-4111-8111-bbbbbbbbbbbb';
 const C = 'cccccccc-3333-4111-8111-cccccccccccc';
 
-const elegible = (tramiteId: string): ElegibilidadTramite =>
-  ({ tramiteId, elegible: true, motivos: [] });
+/**
+ * A quién se le factura. Va con valor por omisión —y el MISMO para todos— porque hasta la HU #11708
+ * ningún caso de este archivo lo miraba, y el hueco que se coló se veía justo ahí: con todo lo
+ * elegible perteneciendo siempre a una sola empresa, un envío de varias no se probaba nunca.
+ */
+const EMPRESA = 7;
+const OTRA_EMPRESA = 8;
 
-const noElegible = (tramiteId: string, motivos: MotivoElegibilidad[]): ElegibilidadTramite =>
-  ({ tramiteId, elegible: false, motivos });
+const elegible = (tramiteId: string, companiaId: number = EMPRESA): ElegibilidadTramite =>
+  ({ tramiteId, elegible: true, motivos: [], companiaId });
+
+const noElegible = (
+  tramiteId: string, motivos: MotivoElegibilidad[], companiaId: number | null = EMPRESA,
+): ElegibilidadTramite => ({ tramiteId, elegible: false, motivos, companiaId });
 
 function colaOk(tramiteId: string) {
   return {
@@ -73,7 +82,7 @@ const entrada = (tramiteIds: string[], over: Record<string, unknown> = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   frenoMock.mockResolvedValue({ frenada: false });
-  elegibilidadMock.mockImplementation(async (ids: string[]) => ids.map(elegible));
+  elegibilidadMock.mockImplementation(async (ids: string[]) => ids.map((id) => elegible(id)));
   encolarMock.mockImplementation(async (e: { tramiteIds: string[] }) => colaOk(e.tramiteIds[0]!));
 });
 
@@ -330,5 +339,98 @@ describe('el correo elegido en el envío llega a cada lote', () => {
     await enviarAFacturacion(entrada([A]));
 
     expect(encolarMock.mock.calls[0]![0].correo).toEqual({ solicitado: false, destinatarios: [] });
+  });
+});
+
+describe('HU #11708 — direcciones concretas con varias empresas: no se encola nada', () => {
+  const CARTERA_A = { correo: 'cartera@empresa-a.test', origen: 'manual' as const };
+
+  /** Dos trámites elegibles de dos empresas distintas, que es la selección que abre el agujero. */
+  const dosEmpresas = () => {
+    elegibilidadMock.mockResolvedValue([elegible(A, EMPRESA), elegible(B, OTRA_EMPRESA)]);
+  };
+
+  it('rechaza el envío entero: la factura de una empresa no puede salir al buzón de otra', async () => {
+    // El agujero que cierra esta guarda. `correo.destinatarios` viaja para la SELECCIÓN, así que sin
+    // ella los dos lotes se encolaban con la misma lista y Siigo entregaba la factura de la empresa
+    // A —con sus valores y su NIT dentro— a quien la empresa B escribiera en el diálogo. Es una
+    // transferencia de datos personales a quien no es su titular (Ley 1581), y en el acta figura
+    // como un `enviado` normal: nadie la encuentra después. No es alcanzable desde la pantalla, pero
+    // sí con una petición escrita a mano por cualquiera con permiso `emitir`.
+    dosEmpresas();
+
+    await expect(enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [CARTERA_A] },
+    }))).rejects.toBeInstanceOf(SiigoEnvioInvalidoError);
+  });
+
+  it('y no encola NI el primero: es un rechazo, no medio envío', async () => {
+    // La guarda va antes del bucle a propósito. Puesta dentro, la empresa A ya tendría su lote —y su
+    // correo— cuando la petición fallara, y quien envió recibiría un error sobre un trabajo que
+    // ya está en marcha.
+    dosEmpresas();
+
+    await expect(enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [CARTERA_A] },
+    }))).rejects.toThrow();
+
+    expect(encolarMock).not.toHaveBeenCalled();
+  });
+
+  it('el mensaje dice qué hacer, y no nombra ninguna dirección ni ninguna empresa', async () => {
+    // AC5: lo que se contesta a una petición rechazada acaba en el registro de errores de quien
+    // integra. Cuántas empresas son sí se puede decir —es un número—; cuáles y a quién iba, no.
+    dosEmpresas();
+
+    const e = await enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [CARTERA_A] },
+    })).catch((err: unknown) => err as InstanceType<typeof SiigoEnvioInvalidoError>);
+
+    expect(e.codigo).toBe('correo_multiempresa');
+    expect(e.message).not.toContain('@');
+    expect(e.message).not.toContain(String(OTRA_EMPRESA));
+    expect(e.message).toMatch(/una empresa a la vez/i);
+  });
+
+  it('varias empresas SIN direcciones concretas SÍ se envían: cada factura sale a su propia ficha', async () => {
+    // El complementario, y no es un caso de relleno: sin él la guarda podría estar prohibiendo de
+    // más. La lista vacía significa «a quien diga la ficha de cada cliente», así que ahí no hay
+    // ninguna dirección que se aplique a la empresa equivocada — es el envío normal de una selección
+    // de varias empresas, que es lo que hace el reporte de costos todos los días.
+    dosEmpresas();
+
+    const r = await enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [] },
+    }));
+
+    expect(r.resumen).toMatchObject({ encolados: 2, rechazados: 0 });
+    expect(encolarMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('una sola empresa con direcciones concretas sigue pasando, que es para lo que existe', async () => {
+    elegibilidadMock.mockResolvedValue([elegible(A, EMPRESA), elegible(B, EMPRESA)]);
+
+    const r = await enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [CARTERA_A] },
+    }));
+
+    expect(r.resumen.encolados).toBe(2);
+  });
+
+  it('la segunda empresa NO elegible tampoco bloquea: sin factura no hay correo que entregar', async () => {
+    // Se cuentan las empresas de lo que de verdad se encolaría, no las de todo lo seleccionado. Un
+    // trámite rechazado no produce factura, así que contarlo pararía envíos legítimos —cincuenta
+    // trámites de una empresa y uno, no elegible, de otra— sin proteger nada.
+    elegibilidadMock.mockResolvedValue([
+      elegible(A, EMPRESA),
+      noElegible(B, [{ motivo: 'documentacion_incompleta', detalle: 'Falta el SOAT.' }], OTRA_EMPRESA),
+    ]);
+
+    const r = await enviarAFacturacion(entrada([A, B], {
+      correo: { solicitado: true, destinatarios: [CARTERA_A] },
+    }));
+
+    expect(r.items.map((i) => i.resultado)).toEqual(['encolado', 'no_elegible']);
+    expect(encolarMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -31,7 +31,8 @@
 //      puede tardar; el resto de la aplicación no tiene por qué enterarse.
 
 import type {
-  ConceptoFacturable, MotivoElegibilidad, SiigoEnvioTramite, SiigoRespuestaEnvio,
+  ConceptoFacturable, ElegibilidadTramite, MotivoElegibilidad, SiigoEnvioTramite,
+  SiigoRespuestaEnvio,
 } from '@operaciones/shared-types';
 import { resumirEnvio } from '@operaciones/shared-types';
 import { evaluarElegibilidad } from './facturacion.elegibilidad.service.js';
@@ -52,6 +53,25 @@ import type { SiigoAmbiente } from './credenciales.service.js';
  * HTTP. Deliberadamente por debajo del tope de la elegibilidad (400), que solo lee.
  */
 export const TOPE_TRAMITES_ENVIO = 200;
+
+/**
+ * El envío es incoherente y no se encola nada. La ruta lo traduce a 400.
+ *
+ * Es la única familia de fallos de esta capa que aborta la petición ENTERA en vez de resolverse
+ * trámite a trámite, y la diferencia no es de gravedad sino de sujeto: un trámite no elegible es un
+ * hecho sobre ese trámite —los demás siguen—, mientras que esto es un defecto de lo que se pidió, y
+ * lo pedido es uno solo. Contestar «rechazado» fila por fila diría que el problema está en los
+ * trámites, que están bien.
+ */
+export class SiigoEnvioInvalidoError extends Error {
+  readonly codigo: 'correo_multiempresa';
+
+  constructor(codigo: SiigoEnvioInvalidoError['codigo'], message: string) {
+    super(message);
+    this.name = 'SiigoEnvioInvalidoError';
+    this.codigo = codigo;
+  }
+}
 
 export interface EntradaEnvio {
   tramiteIds: string[];
@@ -78,9 +98,14 @@ export interface EntradaEnvio {
    *
    * Va para toda la selección y no por empresa, al revés que `emision`. El vendedor y la forma de
    * pago son atributos del cliente; «mándale esta factura por correo» es una decisión del momento en
-   * que se envía, y quien marca cincuenta filas la toma una vez para las cincuenta. Elegir
-   * direcciones concretas para una selección de varias empresas es pedir que todas reciban en las
-   * mismas direcciones — que es lo que quiere quien las escribe, porque las escribe él.
+   * que se envía, y quien marca cincuenta filas la toma una vez para las cincuenta.
+   *
+   * **Y justo por ser de la selección entera, las direcciones concretas exigen UNA sola empresa.**
+   * Con dos, la misma lista se aplicaría a las facturas de las dos y cada empresa recibiría la de la
+   * otra: una entrega de datos personales a quien no es su titular (Ley 1581) que además queda en el
+   * acta como un `enviado` normal, indistinguible de uno correcto. Lo rechaza
+   * `exigirCorreoDeUnaSolaEmpresa`, y es la misma postura que la pantalla: con varias empresas no se
+   * escriben direcciones, se envía con la lista vacía y cada factura sale a la ficha de su cliente.
    *
    * **Ausente no es «como antes».** Antes de esta historia el correo lo decidía el ambiente y en
    * producción salía siempre. Ahora, si nadie lo pide, no sale — y la emisión deja acta diciendo que
@@ -132,6 +157,16 @@ export async function enviarAFacturacion(entrada: EntradaEnvio): Promise<SiigoRe
     (await evaluarElegibilidad(ids, ambiente, conceptos)).map((v) => [v.tramiteId, v]),
   );
 
+  // HU #11708 — la guarda va AQUÍ y no en la ruta, y esa es la excepción razonada al reparto de
+  // siempre (la ruta valida la forma, el servicio decide). Lo que hay que comprobar no es la forma
+  // del cuerpo —`correo` y `tramiteIds` son válidos por separado— sino a cuántas empresas pertenece
+  // lo que se seleccionó, y eso solo se sabe leyendo. La ruta tendría que consultar la base para
+  // preguntarlo, o repetir esta misma evaluación: dos consultas de elegibilidad por envío y dos
+  // sitios donde vive la regla. Va justo después de los veredictos —la primera línea en que el dato
+  // existe— y antes del bucle, que es lo que la hace un rechazo y no una limpieza a medias: hasta
+  // aquí solo se ha leído.
+  exigirCorreoDeUnaSolaEmpresa(entrada.correo, veredictos);
+
   // A2 — la emisión se indexa por empresa una sola vez. Cada trámite busca la suya por su compañía,
   // que la elegibilidad ya resolvió: sin eso habría que volver a consultarla por trámite.
   const emisionPorCliente = new Map<number, EmisionElegida>(
@@ -162,6 +197,52 @@ export async function enviarAFacturacion(entrada: EntradaEnvio): Promise<SiigoRe
   }
 
   return { ambiente, items, resumen: resumirEnvio(items) };
+}
+
+/**
+ * Direcciones concretas y varias empresas en la misma selección: no se encola nada (HU #11708).
+ *
+ * `correo.destinatarios` viaja para la selección ENTERA —así se guarda en el lote y así lo lee el
+ * trabajador—, de modo que con dos empresas la factura de cada una saldría también al buzón de la
+ * otra. No es un envío de más: es entregar a un tercero la facturación de una empresa que no
+ * autorizó nada (Ley 1581), y el acta lo registraría como un `enviado` cualquiera, así que después
+ * no habría ni forma de encontrarlo. Como el correo sale de un documento fiscal ya emitido, tampoco
+ * se puede deshacer.
+ *
+ * **El servidor no puede ser el lado permisivo**: la pantalla ya no deja escribir direcciones con
+ * varias empresas, pero un `POST` construido a mano por cualquiera con permiso `emitir` no pasa por
+ * la pantalla, y la frontera es esta.
+ *
+ * Se cuentan las empresas de lo que DE VERDAD se encolaría —los trámites sin motivos—, no las de
+ * todo lo seleccionado. Un trámite rechazado no produce factura y por tanto no produce correo:
+ * contarlo bloquearía envíos legítimos —cincuenta trámites de una empresa y uno, no elegible, de
+ * otra— sin proteger nada. Un veredicto elegible siempre trae compañía; los que no la tienen entran
+ * con el motivo `sin_compania` y quedan fuera por su cuenta.
+ *
+ * **Sin direcciones concretas no hay nada que rechazar** y varias empresas son legítimas: la lista
+ * vacía significa «a quien diga la ficha de cada cliente», y ahí cada factura sale a la suya.
+ *
+ * El mensaje no nombra ni una dirección ni una empresa, solo cuántas hay (AC5): lo que se responde a
+ * una petición rechazada acaba en el registro de errores de quien integra.
+ */
+function exigirCorreoDeUnaSolaEmpresa(
+  correo: CorreoDelEnvio | undefined, veredictos: Map<string, ElegibilidadTramite>,
+): void {
+  if (!correo || correo.destinatarios.length === 0) return;
+
+  const empresas = new Set<number>();
+  for (const v of veredictos.values()) {
+    if (v.motivos.length === 0 && v.companiaId !== null) empresas.add(v.companiaId);
+  }
+  if (empresas.size <= 1) return;
+
+  throw new SiigoEnvioInvalidoError(
+    'correo_multiempresa',
+    `La selección tiene trámites de ${empresas.size} empresas y se escribieron direcciones de `
+    + 'correo concretas, que se aplicarían a todas las facturas por igual. Envía una empresa a la '
+    + 'vez para elegir direcciones, o envíalas sin direcciones: cada factura sale a las de la ficha '
+    + 'de su propio cliente.',
+  );
 }
 
 /**

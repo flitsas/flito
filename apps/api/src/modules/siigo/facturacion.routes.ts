@@ -45,7 +45,9 @@ import { frenoConRastro, makeStore, userOrIpKey } from '../../shared/middleware/
 import { loggerFor } from '../../shared/logger.js';
 import { exigirAccionSiigo, registrarAccionSiigo } from './siigo.permisos.js';
 import { colaDeTramites, SiigoColaError } from './facturacion.cola.service.js';
-import { enviarAFacturacion, TOPE_TRAMITES_ENVIO } from './facturacion.encolado.service.js';
+import {
+  enviarAFacturacion, SiigoEnvioInvalidoError, TOPE_TRAMITES_ENVIO,
+} from './facturacion.encolado.service.js';
 import { emisionRecordada } from './emision-cliente.repo.js';
 import { SiigoIntegracionFrenadaError } from './siigo.freno.service.js';
 
@@ -145,7 +147,17 @@ const envioSchema = z.object({
    */
   correo: z.object({
     enviar: z.boolean(),
-    destinatarios: z.array(z.string().trim().email().max(150))
+    // `.toLowerCase()` NO es cosmética: es lo que hace alcanzable el derecho de supresión. La purga
+    // por dirección (`purgarDestinatariosDeLotes`) busca con `jsonb @>`, que compara byte a byte,
+    // así que un `Contabilidad@Empresa.com` tecleado aquí no lo encuentra el titular que pide el
+    // olvido escribiendo su correo como lo tiene la ficha — y se le contestaría que quedó borrado
+    // sin estarlo. Normalizar al ESCRIBIR y no al consultar es además la única forma de conservar
+    // útil el índice GIN: bajar a minúsculas en la consulta pediría un índice sobre `lower()`.
+    // Estas direcciones son `origen: 'manual'`, o sea tecleadas, que es justo donde la coincidencia
+    // exacta falla; y el sistema ya trata el buzón como insensible a mayúsculas cuando
+    // `validarDestinatarios` detecta repetidos, así que comparar distinto en cada sitio hacía que
+    // dos direcciones fueran la misma para rechazarlas y distintas para borrarlas.
+    destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
       .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
       .optional(),
   }).strict().optional(),
@@ -342,6 +354,13 @@ async function dejarRastro(
  * como 500 con su traza, no disfrazarse de rechazo de negocio.
  */
 function fallo(res: Response, e: unknown): void {
+  // 400 y no 409: lo que se pidió no es coherente y no lo arregla esperar. El mensaje viene del
+  // servicio y ya está escrito para quien envía —dice qué hacer y no nombra ninguna dirección ni
+  // ninguna empresa (AC5)—, así que se pasa tal cual en vez de redactarlo aquí otra vez.
+  if (e instanceof SiigoEnvioInvalidoError) {
+    res.status(400).json({ error: e.message, codigo: e.codigo });
+    return;
+  }
   if (e instanceof SiigoIntegracionFrenadaError) {
     res.status(503).json({
       error: e.message, codigo: 'integracion_frenada', freno: e.estado,

@@ -59,6 +59,11 @@ const enviarMock = vi.fn();
 vi.mock('../../src/modules/siigo/facturacion.encolado.service.js', () => ({
   enviarAFacturacion: (...a: unknown[]) => enviarMock(...a),
   TOPE_TRAMITES_ENVIO: 200,
+  SiigoEnvioInvalidoError: class SiigoEnvioInvalidoError extends Error {
+    codigo: string;
+
+    constructor(codigo: string, mensaje: string) { super(mensaje); this.codigo = codigo; }
+  },
 }));
 
 const colaMock = vi.fn();
@@ -628,4 +633,77 @@ describe('el correo al cliente viaja en la petición de envío', () => {
     expect(r.status).toBe(400);
     expect(enviarMock).not.toHaveBeenCalled();
   });
+
+  it('el envío incoherente que rechaza el servicio sale como 400, no como 500', async () => {
+    // La otra mitad de la guarda de multiempresa: el servicio decide y ESTA capa traduce. Sin la
+    // rama en `fallo`, el error se iría al manejador global y quien envía recibiría un 500 con
+    // «error interno» — que dice que el servidor se rompió cuando lo que pasa es que la petición no
+    // es coherente, y manda a mirar los logs en vez de a corregir el envío.
+    const { SiigoEnvioInvalidoError } =
+      await import('../../src/modules/siigo/facturacion.encolado.service.js');
+    enviarMock.mockRejectedValueOnce(new SiigoEnvioInvalidoError(
+      'correo_multiempresa', 'Envía una empresa a la vez para elegir direcciones.',
+    ));
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A, B],
+        correo: { enviar: true, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ codigo: 'correo_multiempresa' });
+    expect(JSON.stringify(r.body)).not.toContain('@cliente.test');
+  });
+
+  it('la dirección se guarda en minúsculas: es lo que la hace alcanzable por el derecho al olvido', async () => {
+    // La purga por dirección busca con `jsonb @>`, que compara byte a byte: un
+    // `Contabilidad@Empresa.com` tecleado en el diálogo no lo encuentra el titular que pide el
+    // olvido escribiendo su correo como lo tiene la ficha, y se le contestaría que quedó borrado sin
+    // estarlo. Quitar el `.toLowerCase()` del esquema pone rojo este caso.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, destinatarios: ['  Contabilidad@Empresa.COM '] },
+      });
+
+    expect(r.status).toBe(202);
+    const guardado = (enviarMock.mock.calls[0]![0] as {
+      correo: { destinatarios: { correo: string }[] };
+    }).correo.destinatarios[0]!.correo;
+
+    expect(guardado).toBe('contabilidad@empresa.com');
+    // El `@>` del repositorio, en JavaScript: el mismo cotejo exacto que hace PostgreSQL sobre el
+    // objeto guardado. Es lo que se está comprobando de verdad — que la purga lo encuentre—, y no
+    // que la cadena esté en minúsculas.
+    expect(contenidoPorLaPurga(guardado, 'contabilidad@empresa.com')).toBe(true);
+  });
+
+  it('sin normalizar NO la encontraría: ese es exactamente el fallo que se cierra', () => {
+    // El caso de control del anterior. Si `contenidoPorLaPurga` plegara mayúsculas por su cuenta, el
+    // test de arriba pasaría con `.toLowerCase()` y sin él, y no probaría nada. Guardar la dirección
+    // como se tecleó es dejarla fuera del alcance de la purga; a quién llega el correo no cambia
+    // —el buzón es insensible a mayúsculas, que es lo que ya asume `validarDestinatarios`—, lo que
+    // cambia es que se pueda borrar.
+    expect(contenidoPorLaPurga('Contabilidad@Empresa.COM', 'contabilidad@empresa.com')).toBe(false);
+  });
 });
+
+/**
+ * El `jsonb @> '[{"correo": ...}]'` de `purgarDestinatariosDeLotes`, escrito en JavaScript.
+ *
+ * PostgreSQL compara el valor del objeto contenido byte a byte, sin plegar mayúsculas —medido contra
+ * el motor: `'[{"correo":"A@B.CO"}]'::jsonb @> '[{"correo":"a@b.co"}]'` es falso—. Reproducirlo aquí
+ * es lo que convierte «la cadena está en minúsculas» en «el titular la encuentra cuando pide que se
+ * la borren», que es la afirmación que importa.
+ */
+function contenidoPorLaPurga(guardado: string, buscado: string): boolean {
+  return guardado === buscado;
+}
