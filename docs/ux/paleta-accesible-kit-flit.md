@@ -113,7 +113,17 @@ mismo hex se usa como **color de texto**, que necesita 4.5:1:
 |---|---|---|
 | Pill activa (`flitPillBtn(true)`) | `#FFFFFF` (la pill activa se pinta blanca) | **4.49 ❌** |
 | `StatusChip` tono `active` | tinte `rgba(79,116,201,.14)` aplanado sobre blanco = `#E6ECF7` | **3.78 ❌** |
-| Gradiente de marca, iconos de módulo | — | No aplica (no es texto) |
+| Gradiente de marca, iconos de módulo | — | ~~No aplica (no es texto)~~ **✗ FALSO — ver Bug #11766** |
+
+> **Corrección (Bug #11766).** La celda tachada de arriba es el error de alcance que dejó pasar
+> este mismo defecto un nivel más arriba. El gradiente de marca **sí es texto**: es el mayor
+> sustrato de texto del producto —112 puntos de llamada `var(--flit-gradient-*)` en 60 archivos
+> de `apps/web/src`, casi todos botones con la etiqueta en blanco—. Sobre él, el blanco puro daba
+> **1,81** en el extremo cian. #11766 subió los cuatro gradientes al nivel `-ink` que este bug
+> creó. Detalle: el número que lo delataba ya estaba escrito en este documento (la fila
+> `.flit-focus-light` de más abajo dice *«No alcanza ni con alfa 1.0 (1.80)»*); lo que faltó fue
+> preguntarse qué implicaba para el TEXTO, que pide 4,5 y no 3.
+
 
 ### Cambio propuesto — **Opción A (recomendada, mínima deriva)**
 
@@ -337,11 +347,27 @@ invierte, no abre un tema oscuro FLIT completo.
 | 6 | `--flit-warning-ink` | *(nuevo)* | `#B94120` | tinte `#FDE8E3` | 2.86 ❌ | **4.63 ✅** |
 | 7 | `--flit-danger-ink` | *(nuevo)* | `#C02F24` | tinte `#FBE4E2` | 3.45 ❌ | **4.70 ✅** |
 | 8 | `.flit-focus` box-shadow | `rgba(79,116,201,.28)` | `rgba(79,116,201,.85)` | `#FFFFFF` | 1.42 ❌ | **3.44 ✅** |
-| 9 | `.flit-focus-light` box-shadow | `rgba(255,255,255,.65)` | `#162744` sólido | gradiente sidebar (peor caso `#4FD4CC`) | 1.45 ❌ | **8.25 ✅** |
+| 9 | `.flit-focus-light` box-shadow | `rgba(255,255,255,.65)` | `#162744` sólido | gradiente sidebar (peor caso `#4FD4CC`) | 1.45 ❌ | **8.25 ✅** *(revertido — ver abajo)* |
+
+> **Corrección (Bug #11766) — la fila 9 se revierte, y no porque estuviera mal.** El navy era la
+> respuesta correcta *sobre el gradiente claro de entonces*. Al subir el gradiente del drawer al
+> nivel `-ink` (`#1E7B75` → `#4264B7`) el navy cae a **2,65** en su peor punto e incumple el 3:1
+> de SC 1.4.11; el blanco puro, que aquí fallaba, pasa a cumplir con **5,07 / 5,62**. El color del
+> anillo y el del gradiente están ACOPLADOS y se mueven juntos: cambiar uno sin el otro cierra un
+> incumplimiento abriendo el contrario. Eso no lo veía ningún gate, y por eso #11766 añadió esta
+> comprobación concreta a `npm run check:contraste`.
+
 
 **Sin tocar:** `--flit-blue`, `--flit-cyan`, `--flit-green`, `--flit-success`,
-`--flit-warning`, `--flit-danger`, `--flit-blue-dark`, todos los gradientes, todos los
+`--flit-warning`, `--flit-danger`, `--flit-blue-dark`, ~~todos los gradientes~~, todos los
 fondos, todos los bordes. La identidad de marca no se mueve.
+
+> **Corrección (Bug #11766).** «Todos los gradientes» no era una constatación: era una decisión de
+> alcance, tomada sin medir, sobre la superficie con más texto del producto. Los cuatro gradientes
+> incumplían 1.4.3 en TODO su recorrido (peor punto 1,81) y ninguno se salvaba cambiando la tinta:
+> `primary` y `sidebar` iban de luminancia 0,53 a 0,18, un tramo tan largo que ni el blanco ni el
+> navy cumplen en los dos extremos a la vez. #11766 los movió al nivel `-ink`: peor punto 5,07.
+> Y con eso **la fila 9 de esta tabla se invierte** — ver la nota bajo la tabla.
 
 ### Cambios en componentes
 

@@ -965,7 +965,7 @@ const IMP_OPC: Opc[] = Object.values(EstadoImpuesto).map((e) => ({ value: e, lab
 function BotonSolicitar({ onClick }: { onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
-      className="mt-1.5 inline-flex cursor-pointer items-center rounded-md px-2.5 py-1 text-[11px] font-semibold text-white transition-opacity hover:opacity-85"
+      className="mt-1.5 inline-flex cursor-pointer items-center rounded-md px-2.5 py-1 text-[11px] font-semibold text-white transition hover:brightness-95"
       style={{ background: 'var(--flit-gradient-primary)' }}>
       Solicitar
     </button>

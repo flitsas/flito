@@ -94,24 +94,86 @@ export async function cargarAxe(page: Page): Promise<void> {
  * Carga axe y lo corre sobre el documento completo con las etiquetas WCAG 2.0/2.1/2.2 nivel A y AA.
  * Devuelve las violaciones. Si axe no está disponible, LANZA: nunca devuelve una lista vacía que se
  * pueda confundir con «no hay violaciones».
+ *
+ * Los `incomplete` NO se devuelven, pero desde el Bug #11766 SÍ se imprimen. Un `incomplete` es
+ * «axe no pudo decidir»: para `color-contrast` es lo que sale cuando el fondo del nodo es un
+ * `background-image` —un gradiente, por ejemplo—, porque axe no muestrea la imagen. Hasta este bug
+ * esta función hacía `return r.violations.map(...)` a secas: los `incomplete` se descartaban aquí
+ * dentro y ningún spec podía verlos AUNQUE QUISIERA. No es que los tests los ignorasen; es que no
+ * llegaban. Así vivió #11766 —texto blanco a 1,81:1 sobre los cuatro gradientes del kit— con los
+ * specs de accesibilidad en verde.
+ *
+ * Descartar en silencio lo que no se pudo medir es la misma «salida verde silenciosa» que la
+ * cabecera de este archivo declara la peor de las tres. Se imprimen, entonces.
+ *
+ * Lo que NO se hace aquí y hay que saberlo: no se falla por un `incomplete`. Convertirlos en fallo
+ * pide antes medir qué pantallas se pondrían en rojo y por qué, y esa medición no está hecha. El
+ * incumplimiento de contraste sobre los gradientes lo cierra `npm run check:contraste`, que no
+ * necesita navegador y mide el token en vez del píxel.
  */
 export async function correrAxe(page: Page): Promise<ViolacionAxe[]> {
   await cargarAxe(page);
-  return page.evaluate(async () => {
+  const { violaciones, incompletos } = await page.evaluate(async () => {
     // @ts-expect-error axe se inyecta en tiempo de ejecución
     const r = await window.axe.run(document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
     });
-    return r.violations.map(
-      (v: { id: string; impact?: string; nodes: { target: unknown[] }[]; help?: string }) => ({
-        id: v.id,
-        impact: v.impact ?? 'minor',
-        nodes: v.nodes.length,
-        help: v.help ?? '',
-        selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(n.target)),
-      }),
-    );
+    // ── Redacción de los selectores (Bug #11766) ─────────────────────────────────────────
+    // Un `target` de axe NO es sólo etiquetas y clases: puede transportar el VALOR LITERAL de un
+    // atributo. `filterAttributes` (axe-core, `getSelector`) admite cualquier atributo que no
+    // esté en `ignoredAttributes`, no lleve `:` y cuyo valor mida menos de
+    // MAXATTRIBUTELENGTH = 31 caracteres. En esa lista de ignorados NO están `aria-label`,
+    // `name`, `title`, `alt`, `placeholder`, `value` ni ningún `data-*`, así que un selector
+    // puede salir como `[aria-label="Eliminar vehículo ABC123"]` — con la placa dentro, y las
+    // placas y los NIT son dato sensible según AGENTS.md §14. En este repo hay etiquetas así por
+    // debajo del umbral (`Vehicles.tsx:261`, `FlitTopbar.tsx:128`) y `data-testid` con id de
+    // compañía (`BolsasTablero.tsx:242`).
+    //
+    // Se redacta AQUÍ y no en el `console.log` a propósito: `resumir` es el único punto por el
+    // que pasan las violaciones Y los incompletos, así que una sola regla cubre los dos volcados
+    // —incluido el de `esperarSinViolacionesGraves`, que ya existía—. Si esto se mueve al sitio
+    // de impresión hay que acordarse de hacerlo dos veces, y ese es el olvido que se paga.
+    //
+    // Se conserva el NOMBRE del atributo (dice qué clase de nodo era) y se tira el valor, salvo
+    // los atributos cuyo vocabulario cierra la especificación: ésos no pueden llevar texto libre
+    // y son justo los que más ayudan a localizar el nodo (`button[type="submit"]`).
+    const ATRIBUTOS_DE_VOCABULARIO_CERRADO = new Set([
+      'type', 'role', 'dir', 'lang', 'method', 'rel', 'target', 'scope',
+      'aria-current', 'aria-haspopup', 'aria-live', 'aria-modal', 'aria-orientation', 'aria-sort',
+    ]);
+    const redactarSelector = (sel: string): string =>
+      sel.replace(
+        /\[([A-Za-z_][-\w.]*)([~^$*|]?=)"((?:[^"\\]|\\.)*)"\]/g,
+        (entero: string, nombre: string, operador: string) =>
+          ATRIBUTOS_DE_VOCABULARIO_CERRADO.has(nombre.toLowerCase())
+            ? entero
+            : `[${nombre}${operador}"…"]`,
+      );
+    // El `target` puede anidar arrays (un nodo dentro de un iframe), de ahí el recorrido.
+    const redactarTarget = (t: unknown): unknown =>
+      typeof t === 'string' ? redactarSelector(t) : Array.isArray(t) ? t.map(redactarTarget) : t;
+
+    const resumir = (v: {
+      id: string;
+      impact?: string;
+      nodes: { target: unknown[] }[];
+      help?: string;
+    }) => ({
+      id: v.id,
+      impact: v.impact ?? 'minor',
+      nodes: v.nodes.length,
+      help: v.help ?? '',
+      selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(redactarTarget(n.target))),
+    });
+    return { violaciones: r.violations.map(resumir), incompletos: r.incomplete.map(resumir) };
   });
+  if (incompletos.length > 0) {
+    console.log(
+      `[a11y · axe NO PUDO MEDIR] ${incompletos.length} regla(s) incompletas — no son un`
+      + ` incumplimiento probado, pero tampoco están medidas: ${JSON.stringify(incompletos)}`,
+    );
+  }
+  return violaciones;
 }
 
 /**

@@ -65,8 +65,8 @@ export default function PublicTramiteVerify() {
   return (
     <div className="min-h-screen bg-[color:var(--flit-bg-app)] py-10 px-4">
       <div className="mx-auto max-w-xl overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(22,39,68,0.08)]" style={{ borderColor: 'var(--flit-border-input)' }}>
-        <div className="px-6 py-5" style={{ background: ok ? 'var(--flit-gradient-success)' : 'linear-gradient(90deg,#E43D30,#F05A35)' }}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-white/80">FLIT · Verificación de expediente</p>
+        <div className="px-6 py-5" style={{ background: ok ? 'var(--flit-gradient-success)' : 'var(--flit-gradient-danger)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-white">FLIT · Verificación de expediente</p>
           <h1 className="mt-1 text-lg font-bold text-white">{ok ? 'Expediente verificado' : 'Verificación no válida'}</h1>
         </div>
 

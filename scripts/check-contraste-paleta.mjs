@@ -1,5 +1,18 @@
-// Bug #11720 (tema oscuro) · Bug #11767 (tema CLARO) — gate de contraste de la CommandPalette.
+// Gate de contraste sin navegador. Cubre dos invariantes que se rompieron por separado:
 //
+//   · Bug #11720 (tema oscuro) · Bug #11767 (tema CLARO) — la CommandPalette, en los dos temas
+//     (bloque CASOS + `medirTema`, más abajo).
+//   · Bug #11766 — todo punto de todo `--flit-gradient-*` admite texto blanco (bloque GRADIENTES,
+//     al final) y el anillo `.flit-focus-light`, que está acoplado a ese gradiente.
+//
+// Comparten este archivo porque comparten la maquinaria —leer el hex del CSS real y medir— y
+// porque comparten el motivo por el que existen: `axe` no es dependencia del repo y el CI no
+// ejecuta E2E. En el caso de los gradientes hay una razón de más, y es peor: `axe` tampoco
+// habría servido corriendo, porque un fondo con `background-image` no lo puede medir y lo reporta
+// como `incomplete` — y `e2e/helpers/axe.ts` devuelve sólo `r.violations`, así que ningún spec
+// puede ver un `incomplete` aunque quiera. Sobre estos fondos, este script es la única vía.
+//
+// ── Bugs #11720 y #11767, la CommandPalette ───────────────────────────────────────────────
 // La paleta (⌘K) es una de las dos únicas superficies del shell que INVIERTEN su fondo en
 // oscuro. Su texto no invierte: usa los tokens FLIT, que son invariantes a propósito. El
 // resultado fue tinta oscura sobre fondo oscuro — el ítem activo daba ratio 1,00, el mismo
@@ -355,8 +368,223 @@ if (fallos > 0) {
       '\n  entera solo. La medición sobre el píxel está en e2e/tests/command-palette-claro.spec.ts' +
       '\n  y e2e/tests/command-palette-oscuro.spec.ts.',
   );
+} else {
+  console.log(`✓ Los ${resultados[0].total} puntos de la CommandPalette cumplen ${MINIMO}:1 en tema ${TEMAS.join(' y ')}.`);
+}
+
+// ── Gradientes FLIT (Bug #11766) ─────────────────────────────────────────────────────────
+// Segunda invariante, independiente de la anterior: TODO punto de TODO `--flit-gradient-*`
+// admite texto BLANCO PURO con al menos 4,5:1.
+//
+// Cabe en este script —que no abre navegador— porque es una invariante del TOKEN y no del DOM:
+// no hace falta saber qué nodo lleva la etiqueta. Si se cumple, cualquier texto blanco sobre
+// cualquiera de los cuatro gradientes cumple por construcción, y eso alcanza de una vez a los
+// 112 puntos de llamada `var(--flit-gradient-*)` que hay hoy en 60 archivos de apps/web/src
+// (medido con `rg -o 'var\(--flit-gradient-(primary|success|sidebar|danger)\)' apps/web/src`).
+// Ninguna otra capa los alcanza: ~104 de esos puntos son `style={{}}` escritos en la página, así
+// que arreglar GradientButton y flitBtnPrimaryStyle cerraría 2 de 112.
+//
+// LO QUE ESTE BLOQUE NO VE, dicho para que nadie lo suponga: un `text-white/85` encima (el alfa
+// vive en el TSX y baja el ratio), un `linear-gradient(...)` a pelo sin token, y un
+// `hover:opacity` que mezcla el fondo con la página clara al pasar el ratón. Esos tres se cierran
+// en la revisión de PR y en los specs; aquí no hay forma de verlos.
+let fallosGradiente = 0;
+const BLANCO = [255, 255, 255];
+const GRADIENTES = [
+  '--flit-gradient-primary',
+  '--flit-gradient-success',
+  '--flit-gradient-sidebar',
+  '--flit-gradient-danger',
+];
+
+// Muestras por tramo, extremos incluidos.
+//
+// Para texto BLANCO, hoy, las dos paradas bastarían: la luminancia a lo largo de un tramo sRGB es
+// convexa en t, así que su MÁXIMO —el peor caso del blanco— cae siempre en un extremo. Conviene
+// decirlo con ese matiz y no vender el muestreo como si salvara el caso de hoy: con las cuatro
+// rampas actuales, bajar MUESTRAS_POR_TRAMO a 2 daría los mismos cuatro veredictos.
+//
+// Se muestrea por lo que el gate tendrá que aguantar mañana, que es donde la demostración de
+// arriba deja de valer: una TERCERA parada (la convexidad es por tramo, y con tres paradas el
+// peor punto puede ser una de las intermedias), un `in oklab` futuro —que ya no interpola por
+// canal en sRGB—, y sobre todo una TINTA OSCURA, para la que lo que importa es el MÍNIMO, y el
+// mínimo sí cae dentro. No es hipotético: con el anillo navy sobre --flit-gradient-sidebar el
+// mínimo está en el 90 % (2,65) y no en el extremo (2,66). Ese caso concreto lo habrían cazado
+// igual las dos paradas —se lleva 0,01—, pero enseña que el interior manda, y no hay ninguna
+// garantía de que la próxima vez el margen vuelva a ser de céntimos.
+//
+// Un gradiente no se evalúa por sus extremos como si el contraste interpolara: en `success` el
+// máximo cae en el 45 % (5,20) por encima de sus dos extremos (5,07 y 5,14), porque entre
+// #1E7B75 y #3C7C17 los canales se mueven en direcciones opuestas.
+//
+// Muestrear cuesta microsegundos. No es el número el que sostiene el gate: es el muestreo.
+const MUESTRAS_POR_TRAMO = 21;
+
+/**
+ * Corta la lista de un `linear-gradient(...)` por las comas de PRIMER NIVEL. Un `split(',')` a
+ * secas parte por dentro de cualquier función —`rgba(185, 65, 32, .6)` se volvía «rgba(185», y el
+ * error resultante señalaba a la coma en vez de al alfa, que es el problema real—. Con el corte a
+ * nivel cero cada parada llega entera y el mensaje puede nombrar lo que de verdad pasa.
+ */
+function separarParadas(lista) {
+  const partes = [];
+  let nivel = 0;
+  let actual = '';
+  for (const ch of lista) {
+    if (ch === '(') nivel++;
+    else if (ch === ')') nivel--;
+    if (ch === ',' && nivel === 0) {
+      partes.push(actual.trim());
+      actual = '';
+    } else actual += ch;
+  }
+  partes.push(actual.trim());
+  return partes.filter((x) => x.length > 0);
+}
+
+/**
+ * Paradas de un `linear-gradient(...)`, en orden. Cada parada puede ser un hex o un
+ * `var(--token)`, que se resuelve con el mismo `parsear()` que usa el resto del gate.
+ *
+ * Que acepte `var()` no es comodidad: es lo que permite que los gradientes REFERENCIEN los
+ * tokens `-ink` en vez de repetir su hex a mano. Con el hex duplicado, `--flit-cyan-ink` y las
+ * paradas eran dos fuentes de verdad que nadie ataba: tocar el token dejaba los gradientes
+ * quietos y el gate seguía en verde —porque, en efecto, no se habían movido— y la tinta sólida
+ * y el gradiente derivaban en silencio. Ahora hay una sola fuente y el gate la sigue.
+ *
+ * FALLA —nunca aprueba— si el token deja de ser un linear-gradient, si una parada trae alfa, o
+ * si trae algo que este parser no interpolaría igual que el navegador (`in oklab`): un gate que
+ * se calla ante lo que no entiende es un gate apagado, que es la regla que ya rige `ganadora()`.
+ */
+function paradasGradiente(valor, token) {
+  const cuerpo = valor.match(/^linear-gradient\(([\s\S]*)\)$/i);
+  if (!cuerpo) {
+    throw new Error(
+      `${token} ya no es un linear-gradient(): "${valor}". Si el token pasó a ser un color sólido`
+        + ' o una composición de capas, hay que reescribir esta comprobación, no borrarla.',
+    );
+  }
+  const paradas = [];
+  for (const parte of separarParadas(cuerpo[1])) {
+    // Ángulo o palabra clave de dirección: no aportan color.
+    if (/^-?[\d.]+(deg|grad|rad|turn)$/i.test(parte) || /^to\s+[a-z\s]+$/i.test(parte)) continue;
+    const parada = parte.match(/^(#[0-9a-f]{3}|#[0-9a-f]{6}|var\(.+?\)|rgba?\([^)]*\))(?:\s+([\d.]+)%)?$/i);
+    if (!parada) {
+      throw new Error(
+        `${token}: no se pudo interpretar la parada "${parte}". Este gate interpola por canal en`
+          + ' sRGB, que es lo que hace el navegador con un linear-gradient sin `in <colorspace>`;'
+          + ' con otro espacio de color o con alfa, las muestras dejarían de ser las que se pintan.',
+      );
+    }
+    // Un `var(--x, reserva)` NO se acepta, y no es purismo: `resolverVar()` sólo reconoce la
+    // forma `var(--token)`, así que con reserva se le escapa y el `#hex` que acaba encontrando es
+    // EL DE LA RESERVA — justo el color que el navegador NO usa cuando el token está declarado.
+    // Medido: con `var(--flit-cyan-ink, #4FD4CC)` el gate leía #4fd4cc mientras la página pintaba
+    // #1e7b75. Ahí se puso rojo por suerte; con la reserva oscura y el token claro habría salido
+    // VERDE sobre una pantalla incumpliendo, que es exactamente lo que este archivo existe para
+    // que no pase.
+    if (/^var\(/i.test(parada[1]) && parada[1].includes(',')) {
+      throw new Error(
+        `${token}: la parada "${parte}" usa \`var()\` con valor de reserva. Este gate no sabe cuál`
+          + ' de los dos pintaría el navegador, y adivinar sería peor que fallar. Usa'
+          + ' `var(--token)` a secas.',
+      );
+    }
+    // `parsear()` resuelve el `var()` contra los CSS de tokens y devuelve {color, alfa}.
+    const { color, alfa } = parsear(parada[1], `${token}, parada "${parte}"`);
+    if (alfa !== 1) {
+      throw new Error(
+        `${token}: la parada "${parte}" es translúcida (alfa ${alfa}). Lo que se pinta depende`
+          + ' entonces de lo que haya DETRÁS del gradiente, que este gate no conoce. Compón la'
+          + ' capa a mano en un caso de CASOS, o usa un color opaco.',
+      );
+    }
+    paradas.push({ color, pos: parada[2] === undefined ? null : +parada[2] });
+  }
+  if (paradas.length < 2) throw new Error(`${token}: se esperaban 2 paradas o más, hay ${paradas.length}.`);
+  // Posiciones omitidas: la primera es 0 %, la última 100 %, y las de en medio se reparten
+  // uniformemente entre sus vecinas conocidas (regla de CSS Images).
+  if (paradas[0].pos === null) paradas[0].pos = 0;
+  if (paradas.at(-1).pos === null) paradas.at(-1).pos = 100;
+  for (let i = 0; i < paradas.length; i++) {
+    if (paradas[i].pos !== null) continue;
+    let j = i;
+    while (paradas[j].pos === null) j++;
+    const desde = paradas[i - 1].pos;
+    const paso = (paradas[j].pos - desde) / (j - i + 1);
+    for (let k = i; k < j; k++) paradas[k].pos = desde + paso * (k - i + 1);
+  }
+  return paradas;
+}
+
+/**
+ * Recorre el gradiente y devuelve el PEOR ratio, con el porcentaje y el hex compuesto donde cae.
+ * `tintaDe` recibe la muestra del fondo porque una tinta translúcida (un anillo de foco con alfa)
+ * cambia de color según lo que tenga debajo. Un gate que sólo dice «falla» obliga a repetir el
+ * cálculo a mano, así que se devuelve DÓNDE falla.
+ */
+function peorDelGradiente(paradas, tintaDe) {
+  let peor = { r: Infinity, pos: 0, fondo: paradas[0].color };
+  for (let s = 0; s < paradas.length - 1; s++) {
+    const [a, b] = [paradas[s], paradas[s + 1]];
+    for (let i = 0; i < MUESTRAS_POR_TRAMO; i++) {
+      const t = i / (MUESTRAS_POR_TRAMO - 1);
+      const fondo = a.color.map((c, k) => Math.round(c + (b.color[k] - c) * t));
+      const r = ratio(tintaDe(fondo), fondo);
+      if (r < peor.r) peor = { r, pos: a.pos + (b.pos - a.pos) * t, fondo };
+    }
+  }
+  return peor;
+}
+
+const rampas = GRADIENTES.map((token) => ({
+  token,
+  paradas: paradasGradiente(ganadora(flitTokens, FLIT_TOKENS_CSS, [':root'], token).valor, token),
+}));
+
+console.log(`\nGradientes FLIT — texto blanco puro, ${MUESTRAS_POR_TRAMO} muestras por tramo`);
+for (const { token, paradas } of rampas) {
+  const peor = peorDelGradiente(paradas, () => BLANCO);
+  const ok = peor.r >= MINIMO;
+  if (!ok) fallosGradiente++;
+  console.log(
+    `${ok ? '✓' : '✗'} ${token.padEnd(26)} peor ${peor.r.toFixed(2)} en ${peor.pos.toFixed(0).padStart(3)}% (${hex(peor.fondo)})`,
+  );
+}
+
+// ── Acoplamiento: el anillo de foco del drawer (SC 1.4.11) ───────────────────────────────
+// `.flit-focus-light` tiene un único consumidor, FlitSidebar, y la superficie que pinta ese
+// componente es --flit-gradient-sidebar (FlitSidebar.tsx:185). Se comprueba aparte de la lista de
+// arriba porque su mínimo es otro —3:1, indicador de foco, no texto— y porque es la trampa de
+// #11766: la regla es navy desde #11604 y lo es PORQUE el gradiente era claro. Si el gradiente se
+// oscurece, ese arreglo se invierte y el anillo deja de cumplir sin que nada avise. Aquí avisa.
+const MINIMO_NO_TEXTO = 3;
+const anillo = leer(flitTokens, FLIT_TOKENS_CSS, ['.flit-focus-light:focus-visible'], 'box-shadow');
+const rampaDrawer = rampas.find((r) => r.token === '--flit-gradient-sidebar');
+const peorAnillo = peorDelGradiente(rampaDrawer.paradas, (fondo) => sobre(anillo.color, anillo.alfa, fondo));
+const anilloOk = peorAnillo.r >= MINIMO_NO_TEXTO;
+if (!anilloOk) fallosGradiente++;
+console.log(
+  `${anilloOk ? '✓' : '✗'} ${'.flit-focus-light'.padEnd(26)} peor ${peorAnillo.r.toFixed(2)} en `
+    + `${peorAnillo.pos.toFixed(0).padStart(3)}% (${hex(peorAnillo.fondo)}) — anillo ${hex(sobre(anillo.color, anillo.alfa, peorAnillo.fondo))} sobre el gradiente del drawer, mínimo ${MINIMO_NO_TEXTO}`,
+);
+
+if (fallos + fallosGradiente > 0) {
+  console.error(
+    `\n✗ ${fallos + fallosGradiente} comprobación(es) de contraste en rojo.`
+      + '\n  Si lo que falla son los gradientes: la salida de arriba dice en qué % del recorrido y'
+      + '\n  con qué color compuesto, así que no hay que remedir a mano. Y no se arregla repintando'
+      + '\n  los consumidores —son más de cien y casi todos escriben el gradiente en línea—: se'
+      + '\n  arregla en flit-tokens.css, que es la única capa que los alcanza a todos.'
+      + '\n  Ojo con QUÉ se edita ahí: las paradas de --flit-gradient-* son `var(--flit-*-ink)`, así'
+      + '\n  que el color vive en el token -ink y mover ESE mueve el gradiente y el chip a la vez.'
+      + '\n  Si sólo quieres mover el gradiente, cambia la parada; si sólo la tinta, el token.'
+      + '\n  Si lo que falla es .flit-focus-light: su color y el gradiente del drawer están acoplados,'
+      + '\n  se mueven juntos o se rompe el foco visible (SC 1.4.11). Ver docs/ux/gradientes-texto-kit-flit.md.',
+  );
   process.exit(1);
 }
 console.log(
-  `✓ Los ${resultados[0].total} puntos de la CommandPalette cumplen ${MINIMO}:1 en tema ${TEMAS.join(' y ')}.`,
+  `\n✓ Contraste OK: CommandPalette en tema ${TEMAS.join(' y ')} (${resultados[0].total} puntos)`
+    + ` y los ${GRADIENTES.length} gradientes FLIT + su anillo de foco.`,
 );
