@@ -292,7 +292,10 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
           </div>
         )}
 
-        {cargando && <TablaComparendosCargando />}
+        {/* El esqueleto recibe el MISMO `mostrarInactivado` que la tabla llena (HU #11713, AC6):
+            el filtro se conoce antes de que la petición responda, y sin él el encabezado saltaría de
+            trece a catorce columnas al llegar los datos con «Inactivos» puesto. */}
+        {cargando && <TablaComparendosCargando mostrarInactivado={criterios.estado === 'inactivo'} />}
 
         {!error && items?.length === 0 && (
           <FlitEmpty>

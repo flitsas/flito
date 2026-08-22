@@ -381,6 +381,17 @@ describe('AC2 — una fila por registro, las columnas del visor, sin payloads', 
     expect(cabeceras).toContain('Observación');
     expect(cabeceras).toContain('Última gestión');
 
+    // La cabecera del estado de MONITOREO se escribe literal y no derivada de `COLUMNAS`: el aserto
+    // de arriba compara el archivo contra la constante y pasaría igual con las dos renombradas a la
+    // vez, que es exactamente lo que esta HU no puede permitir. La pantalla dejó de llamarla
+    // «Estado» (HU #11713) y el archivo tiene que decir lo mismo, porque el operador filtra por
+    // nombre de columna en Excel con la pantalla al lado.
+    expect(cabeceras).toContain('Monitoreo');
+    expect(cabeceras).toContain('Estado en la fuente');
+    // Y «Estado» a secas NO puede volver: junto a «Estado en la fuente» son dos columnas cuya
+    // primera palabra es la misma y que hablan de cosas distintas.
+    expect(cabeceras).not.toContain('Estado');
+
     // Una fila por registro y ni una de más: el encabezado no cuenta.
     expect(hoja.rowCount).toBe(3);
     expect(hoja.actualRowCount).toBe(3);

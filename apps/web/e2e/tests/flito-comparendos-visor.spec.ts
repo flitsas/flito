@@ -32,6 +32,10 @@ const FILA = {
   municipioFuente: 'ITAGUI',
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
+  // Multa, y con su resolución: la fila de referencia es la que prueba que «Tipo» se traduce y que
+  // el número de resolución NO sale a la tabla (HU #11713, AC1 y AC3).
+  tipoRegistro: 'multa',
+  numeroResolucion: 'RES-2026-4471',
   origenMerge: 'ambos',
   vistoEnSimit: true,
   vistoEnMunicipal: true,
@@ -61,6 +65,10 @@ const FILA_SIMIT = {
   codigoInfraccion: null,
   descripcionInfraccion: null,
   origenMerge: 'simit',
+  // `null` = «no se sabe», que es lo que devuelve TODO el histórico anterior a la migración 0160.
+  // En una fila `inactivo` es permanente: ningún sync vuelve a visitarla (CF-10).
+  tipoRegistro: null,
+  numeroResolucion: null,
   estado: 'inactivo',
   inactivadoEn: '2026-06-28T08:11:00Z',
   causalId: null,
@@ -183,8 +191,10 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
 
     const tabla = page.getByRole('table');
     await expect(tabla).toBeVisible();
-    for (const columna of ['N.º comparendo', 'Placa', 'NIT monitoreado', 'Fecha', 'Infracción',
-      'Municipio', 'Monto', 'Estado', 'Gestión', 'Organismo', 'Origen', 'Registrado']) {
+    // «Estado» era «Estado» hasta la HU #11713, y «Organismo» estaba en esta lista: la primera se
+    // renombró a «Monitoreo» y la segunda salió de la tabla (el dato sigue entero en el detalle).
+    for (const columna of ['N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', 'Fecha', 'Infracción',
+      'Municipio', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
       await expect(tabla.getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
     }
 
@@ -200,7 +210,6 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     await expect(fila).toContainText('C29 · Estacionar en zona prohibida');
     // El municipio se pinta con el nombre del catálogo, no con el `codigoFuente` que guarda el sync.
     await expect(fila).toContainText('Itagüí');
-    await expect(fila).toContainText('Secretaría de Movilidad de Medellín');
     await expect(fila).toContainText('Ambos');
     await expect(fila).toContainText('Activo');
     // La causal resuelta a su nombre: es la respuesta a «¿esto ya lo miró alguien?».
@@ -221,8 +230,20 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     // La fecha de NOTIFICACIÓN no se muestra: ninguna fuente la entrega todavía (spike #11501), y
     // dejar la columna «para cuando llegue» sería prometer un dato que no existe.
     await expect(tabla.getByRole('columnheader', { name: /notificaci/i })).toHaveCount(0);
-    // `estadoFuente` tampoco: es texto libre del proveedor y en columna sugeriría que se filtra.
-    await expect(page.getByText('EN COBRO COACTIVO')).toHaveCount(0);
+    // `estadoFuente` SÍ, desde la HU #11713, y **tal cual lo manda el proveedor**: sin `capitalize`,
+    // sin `uppercase` y sin recortar. Es lo que el operador tendría que citarle al organismo.
+    await expect(fila).toContainText('EN COBRO COACTIVO');
+    // «Organismo» ya no está en la tabla (HU #11713, AC7): quince columnas eran demasiadas y el dato
+    // vive entero en el panel de detalle. Se comprueba por los dos caminos —la cabecera y el valor—
+    // porque quitar solo uno de los dos es exactamente el arreglo a medias que deja la columna coja.
+    await expect(tabla.getByRole('columnheader', { name: 'Organismo', exact: true })).toHaveCount(0);
+    await expect(tabla.getByText('Secretaría de Movilidad de Medellín')).toHaveCount(0);
+    // Y **ninguna columna se llama solo «Estado»** (AC2): con «Estado en la fuente» al lado, las dos
+    // primeras palabras serían idénticas al oído.
+    await expect(tabla.getByRole('columnheader', { name: 'Estado', exact: true })).toHaveCount(0);
+    // El número de resolución no se pinta en la tabla (AC3): es el dato del que se DERIVA el tipo,
+    // no una columna más.
+    await expect(tabla.getByText('RES-2026-4471')).toHaveCount(0);
     // Y no hay fila de totales: `monto` es una cadena decimal y no se suma en el cliente.
     await expect(page.locator('tfoot')).toHaveCount(0);
   });
@@ -621,4 +642,402 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     ).toBeVisible();
     await expect(page.getByRole('table').locator('caption')).toHaveClass(/sr-only/);
   });
+});
+
+// ═══════════════════════════ HU #11713 · «Tipo» y «Estado en la fuente» ═════════════════════════
+//
+// Dos datos que el backend ya publica desde la HU #11712 (`tipoRegistro`, `estadoFuente`) y que la
+// tabla no mostraba. Lo que este bloque protege no son las dos columnas: son las tres maneras de
+// equivocarse al añadirlas, y cada una tiene su prueba.
+//
+//   1. **Rellenar el hueco.** `tipoRegistro: null` es «no se sabe» —todo el histórico anterior a la
+//      migración 0160— y pintarlo «Comparendo» lo convertiría en un dato verificado que nadie va a
+//      revisar: las filas `inactivo` ya no las visita ningún sync. El front tampoco lo deriva de
+//      `numeroResolucion`, que ni siquiera se pinta.
+//   2. **Confundir los dos estados.** «Monitoreo» y «Estado en la fuente» hablan de cosas
+//      distintas. En modo tabla un lector de pantalla anuncia la cabecera al cambiar de celda, así
+//      que dos rótulos que empiezan por la misma palabra se oyen casi iguales.
+//   3. **Pagar las columnas con accesibilidad.** Dos celdas más no pueden añadir paradas de
+//      tabulador, ni `title`, ni alto de fila, ni hacer saltar el encabezado del esqueleto.
+
+/** El estado del proveedor, largo de verdad: 80 caracteres. Los organismos escriben frases. */
+const ESTADO_LARGO = 'RESOLUCIÓN DE COBRO COACTIVO NOTIFICADA POR AVISO — SALDO PENDIENTE POR PAGAR AA';
+
+const FILA_MULTA = {
+  ...FILA,
+  id: '33333333-3333-4333-8333-333333333333',
+  numeroComparendo: '76001000445566',
+  tipoRegistro: 'multa',
+  numeroResolucion: 'RES-2026-4471',
+  estadoFuente: 'Se adeuda',
+  causalId: CAUSAL_ID,
+};
+
+const FILA_COMPARENDO = {
+  ...FILA,
+  id: '44444444-4444-4444-8444-444444444444',
+  numeroComparendo: '11001000778899',
+  tipoRegistro: 'comparendo',
+  numeroResolucion: null,
+  estadoFuente: null,
+};
+
+/** El tipo que este front todavía no conoce: lo manda un backend un paso por delante de la pestaña. */
+const FILA_TIPO_DESCONOCIDO = {
+  ...FILA,
+  id: '55555555-5555-4555-8555-555555555555',
+  numeroComparendo: '05001000112233',
+  tipoRegistro: 'sancion',
+  numeroResolucion: null,
+  estadoFuente: ESTADO_LARGO,
+};
+
+const PAGINA_TIPOS = {
+  items: [FILA_MULTA, FILA_COMPARENDO, FILA_SIMIT, FILA_TIPO_DESCONOCIDO],
+  nextCursor: null,
+};
+
+/**
+ * La clave `tipoRegistro` **AUSENTE**, que no es lo mismo que `null`.
+ *
+ * Es lo que responde el backend anterior al merge de la HU #11712, y lo que ve durante minutos una
+ * pestaña ya cargada el día del despliegue: el mismo escenario que el resto del bloque dice cubrir,
+ * pero con el campo sin llegar en vez de llegando en nulo. `ComparendoRegistro` NO admite este
+ * payload —por eso la fila se construye quitando la clave con un `rest` y no escribiéndola como
+ * `undefined`, que el tipo tampoco aceptaría— pero la red sí lo entrega, y de eso va la prueba.
+ *
+ * Va en su propia página, con una sola fila: añadirla a `PAGINA_TIPOS` movería el conteo de filas y
+ * los altos que miden los otros tests de este bloque.
+ */
+const { tipoRegistro: _tipoOmitido, ...FILA_SIN_CLAVE_TIPO } = FILA;
+const FILA_SIN_TIPO = {
+  ...FILA_SIN_CLAVE_TIPO,
+  id: '66666666-6666-4666-8666-666666666666',
+  numeroComparendo: '08001000334455',
+  numeroResolucion: null,
+  estadoFuente: null,
+};
+
+const PAGINA_SIN_TIPO = { items: [FILA_SIN_TIPO], nextCursor: null };
+
+/**
+ * La celda de una columna, por el NOMBRE de su cabecera y no por una posición escrita a mano.
+ *
+ * Un índice literal (`td:nth-child(2)`) se queda en verde cuando alguien mueve la columna: seguiría
+ * leyendo «la segunda celda», que ya sería otra cosa. Buscando el índice en el encabezado, mover la
+ * columna mueve también el aserto — y quitarla pone el test rojo con un mensaje que se entiende.
+ *
+ * Se cuentan los `th` con un selector CSS y no por rol: por debajo de 1280 px los de nivel B están
+ * en el DOM pero fuera del árbol accesible, y el índice de columna tiene que seguir siendo el mismo
+ * en los dos anchos porque los `td` de nivel B tampoco desaparecen del DOM.
+ */
+async function celdaDe(page: Page, textoDeFila: string, cabecera: string) {
+  const cabeceras = await page.locator('table thead th').allTextContents();
+  const indice = cabeceras.findIndex((t) => t.trim() === cabecera);
+  expect(indice, `no existe la columna «${cabecera}»`).toBeGreaterThanOrEqual(0);
+  return page.getByRole('row').filter({ hasText: textoDeFila }).locator('td').nth(indice);
+}
+
+test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #11713)', () => {
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  test('AC1+AC3 — «Multa» en texto plano SIN chip; el tipo nulo es «—» y no «Comparendo»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    const tipoMulta = await celdaDe(page, FILA_MULTA.numeroComparendo, 'Tipo');
+    await expect(tipoMulta).toHaveText('Multa');
+    // **Texto plano, no un chip**, y se comprueba por dos caminos que fallan por separado:
+    //   · la celda no tiene NI UN elemento dentro —un `StatusChip` son dos `span` anidados—,
+    //   · y en particular no está el punto decorativo `aria-hidden` que todo chip lleva.
+    // Ningún `ChipTone` diría la verdad aquí: `warning`/`danger` editorializan una etapa normal del
+    // cobro, `success` sería perverso, `active` ya lo lleva «Monitoreo» en esta misma fila y
+    // `draft`/`neutral` son los grises que en esta tabla significan «Inactivo» y «Sin gestión».
+    await expect(tipoMulta.locator('*')).toHaveCount(0);
+    await expect(tipoMulta.locator('[aria-hidden="true"]')).toHaveCount(0);
+
+    const tipoComparendo = await celdaDe(page, FILA_COMPARENDO.numeroComparendo, 'Tipo');
+    await expect(tipoComparendo).toHaveText('Comparendo');
+    // Mismo PESO tipográfico en los dos valores: una «Multa» en negrita sería color por otros
+    // medios, que es justo lo que la decisión de no usar chip descartó.
+    const peso = (c: typeof tipoMulta) => c.evaluate((el) => getComputedStyle(el).fontWeight);
+    expect(await peso(tipoMulta)).toBe(await peso(tipoComparendo));
+
+    // El mutante de la HU: `null` pintado «Comparendo». Es la fila del histórico, y en una fila
+    // `inactivo` el hueco es permanente porque ningún sync vuelve a visitarla.
+    const tipoNulo = await celdaDe(page, FILA_SIMIT.numeroComparendo, 'Tipo');
+    await expect(tipoNulo).toHaveText('—');
+
+    // Y en ESA MISMA fila «Sin gestión» sigue siendo un chip: las dos ausencias no se confunden.
+    // Sin este aserto, «pintar el guion en todas las celdas vacías» pasaría el test de arriba.
+    const gestionNula = await celdaDe(page, FILA_SIMIT.numeroComparendo, 'Gestión');
+    await expect(gestionNula).toContainText('Sin gestión');
+    await expect(gestionNula.locator('[aria-hidden="true"]')).toHaveCount(1);
+
+    // Un tipo que este front no conoce se pinta CRUDO, no «undefined» y no en blanco: el mapa es un
+    // `Record` sobre la unión —añadir un tipo al contrato no compila hasta escribirle su texto— pero
+    // el valor llega por la red, y una pestaña cacheada puede recibir uno que el mapa no tiene.
+    const tipoRaro = await celdaDe(page, FILA_TIPO_DESCONOCIDO.numeroComparendo, 'Tipo');
+    await expect(tipoRaro).toHaveText('sancion');
+
+    // El número de resolución no es una columna: es el dato del que el backend DERIVA el tipo.
+    await expect(page.getByRole('table').getByText('RES-2026-4471')).toHaveCount(0);
+  });
+
+  test('AC3 — con la clave `tipoRegistro` AUSENTE la celda «Tipo» dice «—» y NO se queda vacía', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_SIN_TIPO });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_SIN_TIPO.numeroComparendo)).toBeVisible();
+
+    // El campo ausente NO es `null`, y ese es todo el punto: una comparación estricta contra `null`
+    // lo deja pasar, el `Record` devuelve `undefined`, el respaldo al valor crudo devuelve
+    // `undefined` y React no pinta nada. La celda vacía es la única de las tres formas prohibidas
+    // por el AC3 que todavía se puede conseguir, y se consigue sin tocar ninguna otra línea.
+    const tipo = await celdaDe(page, FILA_SIN_TIPO.numeroComparendo, 'Tipo');
+    await expect(tipo).toHaveText('—');
+    // Y las tres prohibiciones del AC3 por separado, porque fallan por motivos distintos: la celda
+    // vacía es un `undefined` renderizado, «null»/«undefined» serían una interpolación descuidada.
+    expect((await tipo.innerText()).trim()).not.toBe('');
+    await expect(tipo).not.toHaveText(/^(null|undefined)$/i);
+  });
+
+  test('AC2+AC5 — «Estado en la fuente» tal cual, sin `title`, a una línea y sin mover el alto', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    // Tal cual llega: ni `capitalize` ni `uppercase`. «Se adeuda» es lo que el operador tendría que
+    // citarle al organismo, y «Se Adeuda» ya no sería lo que dijo la fuente.
+    const estado = await celdaDe(page, FILA_MULTA.numeroComparendo, 'Estado en la fuente');
+    await expect(estado).toHaveText('Se adeuda');
+    // `toHaveText` compara el texto renderizado, no el aplicado por CSS, así que la transformación
+    // se comprueba aparte: es el único camino por el que un `capitalize` pasaría desapercibido.
+    expect(await estado.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
+
+    // `null` → «—», igual que el resto de ausencias del módulo.
+    const estadoNulo = await celdaDe(page, FILA_COMPARENDO.numeroComparendo, 'Estado en la fuente');
+    await expect(estadoNulo).toHaveText('—');
+
+    // 80 caracteres: una línea, sin `title` en ninguna parte de la celda, y **el alto de la fila no
+    // cambia** respecto de la que trae un estado corto. Ese alto es la razón del recorte.
+    const estadoLargo = await celdaDe(page, FILA_TIPO_DESCONOCIDO.numeroComparendo, 'Estado en la fuente');
+    await expect(estadoLargo).toHaveText(ESTADO_LARGO);
+    await expect(estadoLargo.locator('[title]')).toHaveCount(0);
+    await expect(estadoLargo).not.toHaveAttribute('title', /.*/);
+    // Y el texto NO se recorta con puntos suspensivos en el DOM: se recorta al PINTAR. Lo que llega
+    // al portapapeles sigue siendo la frase entera.
+    expect((await estadoLargo.innerText()).length).toBe(ESTADO_LARGO.length);
+
+    // Una línea DE VERDAD, y esto es lo que pone rojo el mutante de quitar el `line-clamp-1`: el
+    // texto desborda su caja —hay más contenido del que se ve— pero la caja mide UNA línea.
+    const clamp = await estadoLargo.locator('span').evaluate((el) => ({
+      alto: el.clientHeight,
+      desbordado: el.scrollHeight > el.clientHeight,
+      linea: parseFloat(getComputedStyle(el).lineHeight),
+    }));
+    expect(clamp.desbordado).toBe(true);
+    expect(clamp.alto).toBeLessThanOrEqual(Math.ceil(clamp.linea) + 1);
+
+    // Y la consecuencia que se ve: el alto de la fila no se mueve. La tolerancia es de un píxel
+    // —los bordes de fila caen en medios píxeles: 56,5 frente a 57— y no de veinte, que es lo que
+    // sumaría una segunda línea de texto.
+    const altoDe = async (numero: string) => {
+      const caja = await page.getByRole('row').filter({ hasText: numero }).boundingBox();
+      return caja?.height ?? 0;
+    };
+    const largo = await altoDe(FILA_TIPO_DESCONOCIDO.numeroComparendo);
+    const corto = await altoDe(FILA_MULTA.numeroComparendo);
+    expect(Math.abs(largo - corto), `${largo} px frente a ${corto} px`).toBeLessThanOrEqual(1);
+  });
+
+  test('AC2 — la columna del monitoreo se lee «Monitoreo», y ninguna se llama solo «Estado»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    const tabla = page.getByRole('table');
+    await expect(tabla.getByRole('columnheader', { name: 'Monitoreo', exact: true })).toBeVisible();
+    // El mutante: devolverle el nombre «Estado». Con «Estado en la fuente» en la misma tabla, un
+    // lector en modo tabla anunciaría «Estado… Activo» y «Estado en la fuente… Se adeuda»: dos
+    // primeras palabras idénticas para dos hechos que no tienen nada que ver.
+    await expect(tabla.getByRole('columnheader', { name: 'Estado', exact: true })).toHaveCount(0);
+    await expect(page.locator('table thead th', { hasText: /^Estado$/ })).toHaveCount(0);
+
+    // Y sigue siendo el chip de siempre, con su etiqueta dentro: lo que cambió es el rótulo de la
+    // columna, no la presentación del valor.
+    const monitoreo = await celdaDe(page, FILA_MULTA.numeroComparendo, 'Monitoreo');
+    await expect(monitoreo).toContainText('Activo');
+    await expect(monitoreo.locator('[aria-hidden="true"]')).toHaveCount(1);
+  });
+
+  test('AC4+AC5 — sin selector de columnas y con UNA sola parada de tabulador por fila', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    // No hay menú de columnas ni preferencia persistida: sería un patrón nuevo que ninguna otra
+    // pantalla de FLITO tiene. El reparto es A/B por breakpoint y nada más.
+    for (const nombre of [/columnas/i, /personalizar/i, /mostrar columnas/i]) {
+      await expect(page.getByRole('button', { name: nombre })).toHaveCount(0);
+    }
+    const almacenado = await page.evaluate(
+      () => JSON.stringify(window.localStorage) + JSON.stringify(window.sessionStorage),
+    );
+    expect(almacenado.toLowerCase()).not.toContain('columna');
+
+    // Las dos celdas nuevas son `<td>` MUDOS. Se camina el tabulador de verdad desde el primer
+    // botón: tantas paradas dentro de la tabla como filas, ni una más. Un `tabIndex` en la celda de
+    // «Tipo» —o un botón para copiar el estado de la fuente— pondría esto rojo al instante.
+    const filas = PAGINA_TIPOS.items.length;
+    const tabla = page.getByRole('table');
+    await expect(tabla.getByRole('button')).toHaveCount(filas);
+
+    await tabla.getByRole('button').first().focus();
+    let paradas = 1;
+    for (let i = 0; i < 60; i += 1) {
+      await page.keyboard.press('Tab');
+      const dentro = await page.evaluate(() => !!document.activeElement?.closest('table'));
+      if (!dentro) break;
+      paradas += 1;
+    }
+    expect(paradas).toBe(filas);
+  });
+
+  test('AC9 — la petición NO manda `tipo` ni `estadoFuente`: el esquema del backend es `.strict()`', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    const traza = await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+    // Las dos columnas son de LECTURA. Un filtro por tipo o por estado de la fuente no existe en el
+    // contrato, y mandarlo «por si acaso» sería un 400 en cada carga de la pantalla.
+    await campoPlaca(page).fill('ABC123');
+    await boton(page, 'Buscar').click();
+    await expect.poll(() => traza.cuerpos.length).toBe(1);
+
+    for (const p of traza.peticiones) {
+      expect(p).not.toContain('tipo');
+      expect(p).not.toContain('estadoFuente');
+      expect(p).not.toContain('estado_fuente');
+    }
+    for (const cuerpo of traza.cuerpos) {
+      const enviado = JSON.parse(cuerpo) as Record<string, unknown>;
+      expect(Object.keys(enviado)).not.toContain('tipo');
+      expect(Object.keys(enviado)).not.toContain('tipoRegistro');
+      expect(Object.keys(enviado)).not.toContain('estadoFuente');
+    }
+  });
+});
+
+test.describe('FLITO — Comparendos · el reparto A/B y el esqueleto (HU #11713, AC6)', () => {
+  /**
+   * Los dos anchos que importan son 1280 y 1279: `xl` de Tailwind es `min-width: 1280px`, así que el
+   * píxel de diferencia es la frontera exacta. Se prueban los DOS porque un `lg:` en lugar de un
+   * `xl:` pasaría cualquier test escrito solo a 1600.
+   *
+   * A 1280 son **catorce** cabeceras (diez de nivel A + tres de B + «Inactivado», que solo existe
+   * con el filtro «Inactivos» puesto) y a 1279 son **diez**.
+   */
+  const ANCHO = { xl: 1280, previo: 1279 };
+
+  /** Con el filtro «Inactivos» puesto, que es lo que hace existir la columna condicional. */
+  async function abrirInactivos(page: Page) {
+    await page.goto('/flito/comparendos');
+    await boton(page, 'Inactivos').click();
+    await expect(page.getByText(FILA_SIMIT.numeroComparendo)).toBeVisible();
+  }
+
+  test('a 1280 px hay 14 cabeceras y a 1279 px hay 10; el nivel B sale del árbol accesible', async ({ page }) => {
+    await page.setViewportSize({ width: ANCHO.xl, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: { items: [FILA_SIMIT], nextCursor: null } });
+    await abrirInactivos(page);
+
+    const tabla = page.getByRole('table');
+    await expect(tabla.getByRole('columnheader')).toHaveCount(14);
+    for (const b of ['Estado en la fuente', 'Origen', 'Registrado', 'Inactivado']) {
+      await expect(tabla.getByRole('columnheader', { name: b, exact: true })).toBeVisible();
+    }
+
+    await page.setViewportSize({ width: ANCHO.previo, height: 900 });
+    // **`toHaveCount(10)` sobre el ROL**: lo que se afirma es que las cuatro de nivel B salieron del
+    // árbol accesible, no solo que no se ven. Una columna «oculta» con `opacity: 0` o `visibility`
+    // mal elegida seguiría anunciándose a un lector de pantalla y este aserto la vería.
+    await expect(tabla.getByRole('columnheader')).toHaveCount(10);
+    // El mismo hecho por el otro camino, con un selector CSS que SÍ encuentra los nodos ocultos: sin
+    // esta línea, un encabezado borrado del DOM daría el mismo 10 de arriba.
+    for (const b of ['Estado en la fuente', 'Origen', 'Registrado', 'Inactivado']) {
+      const th = page.locator('table thead th').filter({ hasText: new RegExp(`^${b}$`) });
+      await expect(th).toHaveCount(1);
+      await expect(th).toBeHidden();
+    }
+    // «Tipo» es de nivel A: se ve en los DOS anchos. Es la columna que dice qué es la fila, y a
+    // 1279 px —un portátil de 13"— es cuando más falta hace.
+    await expect(tabla.getByRole('columnheader', { name: 'Tipo', exact: true })).toBeVisible();
+    await expect(tabla.getByRole('columnheader', { name: 'Monitoreo', exact: true })).toBeVisible();
+  });
+
+  /**
+   * El esqueleto y la tabla llena, medidos EN LA MISMA CORRIDA y comparados entre sí: el número no
+   * se escribe a mano en ninguno de los dos lados, así que el test sigue siendo cierto el día que la
+   * tabla gane o pierda una columna. Lo que afirma es la ausencia del SALTO.
+   */
+  for (const ancho of [ANCHO.xl, ANCHO.previo]) {
+    test(`a ${ancho} px el esqueleto tiene las MISMAS columnas que la tabla llena`, async ({ page }) => {
+      await page.setViewportSize({ width: ancho, height: 900 });
+      await loginAs(page, OPERACIONES_USER);
+      await mockCatalogos(page);
+
+      // La respuesta del listado con «Inactivos» se retiene: mientras tanto en pantalla está el
+      // esqueleto, ya con el filtro puesto —que es lo que hace existir la columna condicional—.
+      let soltar: (() => void) | null = null;
+      const retenida = new Promise<void>((resolve) => { soltar = resolve; });
+      await page.route(API_REGISTROS, async (route) => {
+        const inactivos = new URL(route.request().url()).searchParams.get('estado') === 'inactivo';
+        if (inactivos) await retenida;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ items: inactivos ? [FILA_SIMIT] : [], nextCursor: null }),
+        });
+      });
+
+      await page.goto('/flito/comparendos');
+      await boton(page, 'Inactivos').click();
+
+      const cargando = page.getByRole('status', { name: 'Cargando comparendos' });
+      await expect(cargando).toBeVisible();
+      const delEsqueleto = await cargando.getByRole('columnheader').count();
+      // Este es el defecto que la HU arregla: el esqueleto pintaba nueve cabeceras en duro y ni una
+      // de nivel B, así que a ≥1280 px el encabezado SALTABA de nueve a trece en cuanto llegaban los
+      // datos — justo el salto que el esqueleto existe para evitar.
+      expect(delEsqueleto).toBe(ancho === ANCHO.xl ? 14 : 10);
+      // Y cada fila fantasma trae tantas celdas visibles como cabeceras visibles: una columna nueva
+      // no puede dejar el esqueleto con una celda de menos y las filas desalineadas.
+      const celdas = await cargando.locator('tbody tr').first().locator('td:visible').count();
+      expect(celdas).toBe(delEsqueleto);
+
+      soltar?.();
+      await expect(page.getByText(FILA_SIMIT.numeroComparendo)).toBeVisible();
+      await expect(cargando).toHaveCount(0);
+      const deLaTabla = await page.getByRole('table').getByRole('columnheader').count();
+      expect(deLaTabla, `el encabezado saltó al llegar los datos (${ancho} px)`).toBe(delEsqueleto);
+    });
+  }
 });
