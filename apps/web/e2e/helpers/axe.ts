@@ -118,6 +118,41 @@ export async function correrAxe(page: Page): Promise<ViolacionAxe[]> {
     const r = await window.axe.run(document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
     });
+    // ── Redacción de los selectores (Bug #11766) ─────────────────────────────────────────
+    // Un `target` de axe NO es sólo etiquetas y clases: puede transportar el VALOR LITERAL de un
+    // atributo. `filterAttributes` (axe-core, `getSelector`) admite cualquier atributo que no
+    // esté en `ignoredAttributes`, no lleve `:` y cuyo valor mida menos de
+    // MAXATTRIBUTELENGTH = 31 caracteres. En esa lista de ignorados NO están `aria-label`,
+    // `name`, `title`, `alt`, `placeholder`, `value` ni ningún `data-*`, así que un selector
+    // puede salir como `[aria-label="Eliminar vehículo ABC123"]` — con la placa dentro, y las
+    // placas y los NIT son dato sensible según AGENTS.md §14. En este repo hay etiquetas así por
+    // debajo del umbral (`Vehicles.tsx:261`, `FlitTopbar.tsx:128`) y `data-testid` con id de
+    // compañía (`BolsasTablero.tsx:242`).
+    //
+    // Se redacta AQUÍ y no en el `console.log` a propósito: `resumir` es el único punto por el
+    // que pasan las violaciones Y los incompletos, así que una sola regla cubre los dos volcados
+    // —incluido el de `esperarSinViolacionesGraves`, que ya existía—. Si esto se mueve al sitio
+    // de impresión hay que acordarse de hacerlo dos veces, y ese es el olvido que se paga.
+    //
+    // Se conserva el NOMBRE del atributo (dice qué clase de nodo era) y se tira el valor, salvo
+    // los atributos cuyo vocabulario cierra la especificación: ésos no pueden llevar texto libre
+    // y son justo los que más ayudan a localizar el nodo (`button[type="submit"]`).
+    const ATRIBUTOS_DE_VOCABULARIO_CERRADO = new Set([
+      'type', 'role', 'dir', 'lang', 'method', 'rel', 'target', 'scope',
+      'aria-current', 'aria-haspopup', 'aria-live', 'aria-modal', 'aria-orientation', 'aria-sort',
+    ]);
+    const redactarSelector = (sel: string): string =>
+      sel.replace(
+        /\[([A-Za-z_][-\w.]*)([~^$*|]?=)"((?:[^"\\]|\\.)*)"\]/g,
+        (entero: string, nombre: string, operador: string) =>
+          ATRIBUTOS_DE_VOCABULARIO_CERRADO.has(nombre.toLowerCase())
+            ? entero
+            : `[${nombre}${operador}"…"]`,
+      );
+    // El `target` puede anidar arrays (un nodo dentro de un iframe), de ahí el recorrido.
+    const redactarTarget = (t: unknown): unknown =>
+      typeof t === 'string' ? redactarSelector(t) : Array.isArray(t) ? t.map(redactarTarget) : t;
+
     const resumir = (v: {
       id: string;
       impact?: string;
@@ -128,7 +163,7 @@ export async function correrAxe(page: Page): Promise<ViolacionAxe[]> {
       impact: v.impact ?? 'minor',
       nodes: v.nodes.length,
       help: v.help ?? '',
-      selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(n.target)),
+      selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(redactarTarget(n.target))),
     });
     return { violaciones: r.violations.map(resumir), incompletos: r.incomplete.map(resumir) };
   });

@@ -18,6 +18,14 @@
 >    Sobre el ramo ink el mismo hover da **4.64**: sigue cumpliendo, pero con menos margen. No
 >    cambia la acción prescrita (los tres pasan a `hover:brightness-95`, medido en 4.92 / 5.31).
 >
+> **Refinamiento sobre §4.1, medido:** las paradas de los cuatro gradientes se escriben como
+> `var(--flit-*-ink)` en vez de repetir el hex. Los valores pintados son **exactamente** los de
+> §4.1 (comprobado en navegador: el `aside` del login computa `rgb(30,123,117) → rgb(66,100,183)`),
+> pero con el hex duplicado había dos fuentes de verdad: cambiar `--flit-cyan-ink` NO movía los
+> gradientes y el gate seguía en verde precisamente porque no se habían movido. Esa es la misma
+> deriva por duplicación que §1.5 diagnostica en el #11604. Con la referencia, mover el token
+> mueve los cuatro gradientes —y si el resultado incumple, el gate se pone rojo—.
+>
 > §8.2 (que `correrAxe` falle ante un `incomplete`) se implementó **sólo a medias y a propósito**:
 > los `incomplete` ya se imprimen, pero no fallan. Ver el porqué en `e2e/helpers/axe.ts`.
 

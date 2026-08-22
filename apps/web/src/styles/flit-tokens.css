@@ -88,12 +88,20 @@
      El cian era el único de la familia que no tenía compañero -ink; se añade arriba.
      Los hex brillantes siguen vivos como --flit-cyan/blue/green: si algún día hace falta un ramo
      decorativo SIN texto encima, se compone entonces y se mide entonces.
-     Lo comprueba `npm run check:contraste`, que muestrea 21 puntos por tramo — el peor ratio no
-     tiene por qué caer en un extremo. */
-  --flit-gradient-primary: linear-gradient(90deg, #1E7B75 0%, #4264B7 100%);
-  --flit-gradient-success: linear-gradient(90deg, #1E7B75 0%, #3C7C17 100%);
-  --flit-gradient-sidebar: linear-gradient(180deg, #1E7B75 0%, #4264B7 100%);
-  --flit-gradient-danger: linear-gradient(90deg, #B94120 0%, #C02F24 100%);
+
+     Las paradas REFERENCIAN los tokens -ink en vez de repetir su hex, y eso importa: mientras
+     estuvieron duplicados había dos fuentes de verdad para el mismo color. Quien ajustara
+     --flit-cyan-ink para retocar la tinta habría creído que movía también estos cuatro
+     gradientes; no los movía, y el gate seguía en verde precisamente porque no se habían movido.
+     Esa es la deriva silenciosa que este archivo lleva todo el Bug #11766 intentando cerrar. Con
+     `var()` hay una sola fuente y `check:contraste` la sigue: cambia el token y los cuatro
+     gradientes cambian con él, o el gate se pone rojo.
+     Lo comprueba `npm run check:contraste`, que resuelve cada `var()` y muestrea 21 puntos por
+     tramo — el peor ratio no tiene por qué caer en un extremo. */
+  --flit-gradient-primary: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
+  --flit-gradient-success: linear-gradient(90deg, var(--flit-cyan-ink) 0%, var(--flit-success-ink) 100%);
+  --flit-gradient-sidebar: linear-gradient(180deg, var(--flit-cyan-ink) 0%, var(--flit-blue-ink) 100%);
+  --flit-gradient-danger: linear-gradient(90deg, var(--flit-warning-ink) 0%, var(--flit-danger-ink) 100%);
 
   /* Radios */
   --flit-radius-sm: 8px;

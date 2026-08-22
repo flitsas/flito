@@ -407,10 +407,40 @@ const GRADIENTES = [
 const MUESTRAS_POR_TRAMO = 21;
 
 /**
- * Paradas de un `linear-gradient(...)` escrito con hex, en orden. FALLA —nunca aprueba— si el
- * token deja de ser un linear-gradient o si trae algo que este parser no sabe interpolar igual
- * que el navegador (`in oklab`, un `rgba()`): un gate que se calla ante lo que no entiende es un
- * gate apagado, que es la regla que ya rige `ganadora()` aquí arriba.
+ * Corta la lista de un `linear-gradient(...)` por las comas de PRIMER NIVEL. Un `split(',')` a
+ * secas parte por dentro de cualquier función —`rgba(185, 65, 32, .6)` se volvía «rgba(185», y el
+ * error resultante señalaba a la coma en vez de al alfa, que es el problema real—. Con el corte a
+ * nivel cero cada parada llega entera y el mensaje puede nombrar lo que de verdad pasa.
+ */
+function separarParadas(lista) {
+  const partes = [];
+  let nivel = 0;
+  let actual = '';
+  for (const ch of lista) {
+    if (ch === '(') nivel++;
+    else if (ch === ')') nivel--;
+    if (ch === ',' && nivel === 0) {
+      partes.push(actual.trim());
+      actual = '';
+    } else actual += ch;
+  }
+  partes.push(actual.trim());
+  return partes.filter((x) => x.length > 0);
+}
+
+/**
+ * Paradas de un `linear-gradient(...)`, en orden. Cada parada puede ser un hex o un
+ * `var(--token)`, que se resuelve con el mismo `parsear()` que usa el resto del gate.
+ *
+ * Que acepte `var()` no es comodidad: es lo que permite que los gradientes REFERENCIEN los
+ * tokens `-ink` en vez de repetir su hex a mano. Con el hex duplicado, `--flit-cyan-ink` y las
+ * paradas eran dos fuentes de verdad que nadie ataba: tocar el token dejaba los gradientes
+ * quietos y el gate seguía en verde —porque, en efecto, no se habían movido— y la tinta sólida
+ * y el gradiente derivaban en silencio. Ahora hay una sola fuente y el gate la sigue.
+ *
+ * FALLA —nunca aprueba— si el token deja de ser un linear-gradient, si una parada trae alfa, o
+ * si trae algo que este parser no interpolaría igual que el navegador (`in oklab`): un gate que
+ * se calla ante lo que no entiende es un gate apagado, que es la regla que ya rige `ganadora()`.
  */
 function paradasGradiente(valor, token) {
   const cuerpo = valor.match(/^linear-gradient\(([\s\S]*)\)$/i);
@@ -421,10 +451,10 @@ function paradasGradiente(valor, token) {
     );
   }
   const paradas = [];
-  for (const parte of cuerpo[1].split(',').map((s) => s.trim())) {
+  for (const parte of separarParadas(cuerpo[1])) {
     // Ángulo o palabra clave de dirección: no aportan color.
     if (/^-?[\d.]+(deg|grad|rad|turn)$/i.test(parte) || /^to\s+[a-z\s]+$/i.test(parte)) continue;
-    const parada = parte.match(/^(#[0-9a-f]{3}|#[0-9a-f]{6})(?:\s+([\d.]+)%)?$/i);
+    const parada = parte.match(/^(#[0-9a-f]{3}|#[0-9a-f]{6}|var\(.+?\)|rgba?\([^)]*\))(?:\s+([\d.]+)%)?$/i);
     if (!parada) {
       throw new Error(
         `${token}: no se pudo interpretar la parada "${parte}". Este gate interpola por canal en`
@@ -432,7 +462,30 @@ function paradasGradiente(valor, token) {
           + ' con otro espacio de color o con alfa, las muestras dejarían de ser las que se pintan.',
       );
     }
-    paradas.push({ color: rgb(parada[1]), pos: parada[2] === undefined ? null : +parada[2] });
+    // Un `var(--x, reserva)` NO se acepta, y no es purismo: `resolverVar()` sólo reconoce la
+    // forma `var(--token)`, así que con reserva se le escapa y el `#hex` que acaba encontrando es
+    // EL DE LA RESERVA — justo el color que el navegador NO usa cuando el token está declarado.
+    // Medido: con `var(--flit-cyan-ink, #4FD4CC)` el gate leía #4fd4cc mientras la página pintaba
+    // #1e7b75. Ahí se puso rojo por suerte; con la reserva oscura y el token claro habría salido
+    // VERDE sobre una pantalla incumpliendo, que es exactamente lo que este archivo existe para
+    // que no pase.
+    if (/^var\(/i.test(parada[1]) && parada[1].includes(',')) {
+      throw new Error(
+        `${token}: la parada "${parte}" usa \`var()\` con valor de reserva. Este gate no sabe cuál`
+          + ' de los dos pintaría el navegador, y adivinar sería peor que fallar. Usa'
+          + ' `var(--token)` a secas.',
+      );
+    }
+    // `parsear()` resuelve el `var()` contra los CSS de tokens y devuelve {color, alfa}.
+    const { color, alfa } = parsear(parada[1], `${token}, parada "${parte}"`);
+    if (alfa !== 1) {
+      throw new Error(
+        `${token}: la parada "${parte}" es translúcida (alfa ${alfa}). Lo que se pinta depende`
+          + ' entonces de lo que haya DETRÁS del gradiente, que este gate no conoce. Compón la'
+          + ' capa a mano en un caso de CASOS, o usa un color opaco.',
+      );
+    }
+    paradas.push({ color, pos: parada[2] === undefined ? null : +parada[2] });
   }
   if (paradas.length < 2) throw new Error(`${token}: se esperaban 2 paradas o más, hay ${paradas.length}.`);
   // Posiciones omitidas: la primera es 0 %, la última 100 %, y las de en medio se reparten
@@ -508,7 +561,10 @@ if (fallos + fallosGradiente > 0) {
       + '\n  Si lo que falla son los gradientes: la salida de arriba dice en qué % del recorrido y'
       + '\n  con qué color compuesto, así que no hay que remedir a mano. Y no se arregla repintando'
       + '\n  los consumidores —son más de cien y casi todos escriben el gradiente en línea—: se'
-      + '\n  arregla en el token, que es la única capa que los alcanza a todos.'
+      + '\n  arregla en flit-tokens.css, que es la única capa que los alcanza a todos.'
+      + '\n  Ojo con QUÉ se edita ahí: las paradas de --flit-gradient-* son `var(--flit-*-ink)`, así'
+      + '\n  que el color vive en el token -ink y mover ESE mueve el gradiente y el chip a la vez.'
+      + '\n  Si sólo quieres mover el gradiente, cambia la parada; si sólo la tinta, el token.'
       + '\n  Si lo que falla es .flit-focus-light: su color y el gradiente del drawer están acoplados,'
       + '\n  se mueven juntos o se rompe el foco visible (SC 1.4.11). Ver docs/ux/gradientes-texto-kit-flit.md.',
   );
