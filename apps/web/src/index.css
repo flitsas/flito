@@ -332,30 +332,62 @@ body {
    Mismo patrón acotado que `.flit-nav-pill` de aquí arriba: se parchea la superficie que
    invierte, sin abrir un tema oscuro FLIT completo.
 
-   EL ORDEN IMPORTA, y es la trampa de este bug: dentro del panel hay superficies con fondo
-   CLARO fijo en ambos temas —`.flit-shell-sunken` (fila de búsqueda y pie) y los `kbd`, que
-   además traen `bg-white` de Tailwind—. Hoy esos puntos sí cumplen. Aclarar la tinta sin
-   oscurecerlas antes hundiría el input del buscador a 1,13 y los `kbd` del pie a 2,65:
-   cambiaría un fallo por otro, y justo donde empieza toda interacción con la paleta.
-   Por eso las superficies van primero y los colores de texto después. */
+   RETRABAJO — lo que sigue está medido sobre el PÍXEL PINTADO, no recompuesto a mano:
+   `apps/web/e2e/tests/command-palette-oscuro.spec.ts` abre la paleta en oscuro y lee lo que
+   quedó en pantalla. Dos afirmaciones de la versión anterior de este comentario eran falsas y
+   dejaron pasar una regresión que el gate estático dio por buena:
+
+     · «los `kbd` traen `bg-white`, que una regla de clase no ganaría» → `bg-white` es una
+       utilidad de Tailwind y vive en @layer utilities: CUALQUIER regla sin capa le gana, así
+       que `bg-white` no pintaba nada ni en claro ni en oscuro. Lo que pintaba las teclas era
+       `.flit-shell-palette .flit-shell-sunken` (0,3,0) —las cinco llevan también esa clase—,
+       que le gana a `.flit-shell-palette kbd` (0,2,1). La regla del `kbd` estaba MUERTA.
+     · «el peor caso queda en 4,73» → esos 4,73 daban por hecho que las teclas caen sobre el
+       panel. En el DOM las cinco cuelgan de una barra `.flit-shell-sunken`, del ítem activo o
+       del panel, así que apilaban un segundo velo claro: el peor caso real era 4,26 y AA se
+       incumplía en la tecla «esc» del buscador y en las dos del pie (Bug #11720, retrabajo).
+
+   La cadena de superficies, de fuera adentro: `.flit-app` (#EAF2FF — el shell NO invierte en
+   oscuro y es lo que hay bajo el overlay) → overlay → panel → barra o ítem activo → tecla.
+   Son cuatro capas translúcidas: cada una que ACLARA se suma a la anterior, y por eso el orden
+   importa. Las superficies van primero y los colores de texto después. */
 [data-theme='dark'] .flit-shell-palette .flit-shell-sunken {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(240, 238, 233, 0.14);
 }
-/* `kbd` como elemento y no por clase: los tres del pie y del ítem activo llevan `bg-white`,
-   una utilidad de Tailwind que una regla de clase suelta no ganaría. Un punto más de alfa que
-   las superficies para que la tecla siga leyéndose como pastilla sobre la barra que la aloja. */
-[data-theme='dark'] .flit-shell-palette kbd {
-  background: rgba(255, 255, 255, 0.06);
+/* La tecla OSCURECE en vez de aclarar, y ese es el arreglo de fondo: un velo blanco sobre una
+   barra que ya es un velo blanco se acumula, y entonces el contraste de la tecla depende de
+   dónde caiga —barra, panel o ítem activo—, que es justo lo que nadie estaba mirando.
+   Oscureciendo, el peor caso deja de estar en la tecla más apilada y las cinco quedan entre
+   5,3 y 6,4 sin mover ni una tinta. Es además lo que hace el tema claro, donde la tecla
+   (#EAF2FF) es más OSCURA que el panel (blanco): aquí se recupera esa misma jerarquía.
+   El segundo selector no es redundante: las cinco teclas llevan `flit-shell-sunken`, y sin
+   nombrar esa clase esta regla vuelve a perder la cascada y a quedarse muerta. El primero
+   cubre una tecla que llegue sin ella. */
+[data-theme='dark'] .flit-shell-palette kbd,
+[data-theme='dark'] .flit-shell-palette kbd.flit-shell-sunken {
+  background: rgba(0, 0, 0, 0.14);
   border-color: rgba(240, 238, 233, 0.14);
 }
-/* Ratios sobre el panel (#162743) / la barra hundida (#1F304B) / el `kbd` (#24344E).
-   El peor caso queda en 4,73 — mínimo AA para texto normal: 4,5. */
+/* El placeholder del buscador no lo pintaba `placeholder:flit-shell-muted` —no es una utilidad
+   de Tailwind y nunca generó regla—, sino el preflight, que usa currentColor al 50 %: blanco a
+   medias sobre la barra, 4,41. El gate lo daba por `muted` y por bueno, y axe no mira los
+   placeholders. En tema CLARO se queda como está (currentColor al 50 %, ~2,9): es deuda previa
+   a este bug y de otro tema, se reporta aparte en vez de repintarla a ciegas desde aquí. */
+[data-theme='dark'] .flit-shell-palette ::placeholder {
+  color: #93a0b5;
+  opacity: 1;
+}
+/* Fondos compuestos con el peor caso detrás del panel: panel #1b2b48 · barra hundida #24334f ·
+   tecla sobre la barra #1f2c44 · ítem activo #1c325c. El píxel real cae a ±1 por canal de esos
+   valores (el 4 % que deja pasar el panel depende de qué haya detrás de la paleta).
+   El peor de los 15 puntos queda en 4,78 — mínimo AA para texto normal: 4,5. */
 [data-theme='dark'] .flit-shell-palette .flit-shell-muted { color: #93a0b5; }
 [data-theme='dark'] .flit-shell-palette .flit-shell-secondary { color: #a9b4c6; }
 [data-theme='dark'] .flit-shell-palette .flit-shell-primary { color: #ffffff; }
 /* El acento solo pinta texto en el `kbd` ↵ del ítem activo. Sobre el fondo claro que ese `kbd`
-   tenía, --flit-blue daba 4,49; sobre el oscuro de arriba se quedaría en 3,2. */
+   tenía, --flit-blue daba 4,49; sobre el oscuro de arriba se quedaría en 3,2. Con la tecla ya
+   oscurecida, este hex llega a 6,4 sobre ella. */
 [data-theme='dark'] .flit-shell-palette .flit-shell-accent { color: #8fb0f0; }
 
 /* Componentes FLIT — sustitutos Aura en BatchValidator, ExpedienteVisor, etc. */

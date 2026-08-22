@@ -14,6 +14,17 @@ interface Props {
 // Command Palette Aura 2026 — inspirado en Raycast/Linear/Vercel/Arc.
 // Cmd+K abre · Esc cierra · ↑↓ navega · Enter ejecuta.
 // Usa exclusivamente design tokens Aura (sin colores neutros hardcoded).
+//
+// Bug #11720 (retrabajo) — de aquí se quitaron cuatro clases que NO pintaban nada y que sí
+// desorientaban a quien venía a arreglar el contraste: `bg-white` en los `kbd` (utilidad de
+// Tailwind, vive en @layer utilities y `.flit-shell-sunken`, sin capa, se la come),
+// `hover:flit-shell-primary` y `placeholder:flit-shell-muted` (no son utilidades de Tailwind,
+// así que nunca generaron regla) y un `flit-shell-sunken/40` con modificador de opacidad sobre
+// una clase propia. Comprobado sobre el píxel en los dos temas: quitarlas no cambia un color.
+// El ítem apuntado se queda en tinta secundaria y el placeholder lo pinta ahora una regla real
+// en index.css. Las teclas heredan su fondo de `.flit-shell-sunken` y del bloque oscuro de la
+// paleta; si mueves un `kbd` de contenedor, cambia el fondo que compone y hay que remedirlo
+// (`scripts/check-contraste-paleta.mjs` y `e2e/tests/command-palette-oscuro.spec.ts`).
 export default function CommandPalette({ open, onClose }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -180,7 +191,7 @@ export default function CommandPalette({ open, onClose }: Props) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKeyDown}
             placeholder="Buscar o ir a…"
-            className="flex-1 bg-transparent text-base flit-shell-primary placeholder:flit-shell-muted outline-none"
+            className="flex-1 bg-transparent text-base flit-shell-primary outline-none"
             role="combobox"
             aria-expanded="true"
             aria-controls={listboxId}
@@ -190,7 +201,7 @@ export default function CommandPalette({ open, onClose }: Props) {
             spellCheck={false}
           />
           <kbd
-            className="hidden items-center rounded-md border flit-shell-sunken border flit-shell-sunken px-2 py-0.5 font-mono text-[10px] flit-shell-muted sm:inline-flex"
+            className="hidden items-center rounded-md border flit-shell-sunken px-2 py-0.5 font-mono text-[10px] flit-shell-muted sm:inline-flex"
             aria-label="Tecla escape para cerrar"
           >
             esc
@@ -227,7 +238,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                 <span className="font-medium flit-shell-primary">"{query}"</span>
               </p>
               <p className="text-xs flit-shell-muted">
-                Pulsa <kbd className="rounded border flit-shell-sunken border flit-shell-sunken px-1.5 py-0.5 font-mono text-[10px]">Esc</kbd>{' '}
+                Pulsa <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono text-[10px]">Esc</kbd>{' '}
                 o haz click fuera para cerrar
               </p>
             </div>
@@ -261,7 +272,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                         'transition-all',
                         isActive
                           ? 'flit-shell-active flit-shell-primary translate-x-0.5'
-                          : 'flit-shell-secondary flit-shell-hover hover:flit-shell-primary',
+                          : 'flit-shell-secondary flit-shell-hover',
                       ].join(' ')}
                       style={{ transitionDuration: 'var(--duration-base)', transitionTimingFunction: 'var(--ease-out)' }}
                     >
@@ -276,7 +287,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                       />
                       <span className="flex-1 text-sm font-medium">{it.label}</span>
                       {isActive && (
-                        <kbd className="rounded border flit-shell-sunken border bg-white px-1.5 py-0.5 font-mono text-[10px] flit-shell-accent">
+                        <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono text-[10px] flit-shell-accent">
                           ↵
                         </kbd>
                       )}
@@ -289,16 +300,16 @@ export default function CommandPalette({ open, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="flex h-10 items-center justify-between border-t flit-shell-sunken flit-shell-sunken/40 px-5 text-[11px] flit-shell-muted">
+        <div className="flex h-10 items-center justify-between border-t flit-shell-sunken px-5 text-[11px] flit-shell-muted">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
-              <kbd className="rounded border flit-shell-sunken border bg-white px-1.5 py-0.5 font-mono">
+              <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono">
                 ↑↓
               </kbd>
               navegar
             </span>
             <span className="flex items-center gap-1.5">
-              <kbd className="rounded border flit-shell-sunken border bg-white px-1.5 py-0.5 font-mono">
+              <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono">
                 ↵
               </kbd>
               abrir

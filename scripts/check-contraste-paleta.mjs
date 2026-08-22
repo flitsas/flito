@@ -14,6 +14,22 @@
 // el gate remide y responde con el número nuevo. Un gate que compara contra su propia foto
 // no protege nada.
 //
+// ── RETRABAJO (el gate se saltaba la superficie que decía vigilar) ────────────────────────
+// La primera versión de este archivo salió VERDE sobre una pantalla que incumplía: recomponía
+// bien los colores, pero se equivocaba de PADRE. Componía las teclas sobre el panel cuando en
+// el DOM las cinco cuelgan de una barra `.flit-shell-sunken` o del ítem activo, y ponía debajo
+// del overlay el fondo oscuro del `body` cuando lo que hay ahí es `.flit-app`, que no invierte
+// y es CLARO. Cuatro capas translúcidas encadenadas: equivocarse en una arrastra a las demás.
+//
+// De ahí las dos reglas de este archivo:
+//   1. Cada caso nombra la superficie sobre la que el texto cae DE VERDAD, y ese emparejamiento
+//      se contrasta con el DOM de `CommandPalette.tsx` cuando se toca cualquiera de los dos.
+//   2. Este gate NO es la última palabra: quien manda es el píxel. La comprobación de verdad
+//      vive en `apps/web/e2e/tests/command-palette-oscuro.spec.ts`, que abre la paleta en
+//      oscuro y lee lo que el compositor dejó en pantalla. Este script es el que puede correr
+//      en CI (no necesita navegador) y por eso existe, pero si los dos discrepan, el que está
+//      mal es este.
+//
 // Uso local: `npm run check:contraste`.
 
 import { readFileSync } from 'node:fs';
@@ -49,14 +65,28 @@ const sobre = (fg, alfa, bg) => fg.map((c, i) => Math.round(c * alfa + bg[i] * (
 // ── Extracción del CSS ───────────────────────────────────────────────────────────────────
 // Si un selector se renombra, el gate FALLA en vez de aprobar por no encontrar nada: un
 // `match` a null que se tratara como «sin problema» sería un gate que se apaga solo.
+//
+// Se compara selector A SELECTOR en vez de buscar «el texto seguido de {» por dos motivos que
+// costaron caro: una lista `A,\nB { … }` no la encontraba NINGUNA de las dos formas (y las
+// listas aparecen en cuanto una regla necesita ganar la cascada), y el texto suelto también
+// casaba dentro de un comentario, que es CSS que no pinta nada.
+const sinComentarios = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+
 function extraer(css, archivo, selector, propiedad) {
-  const bloque = css.match(
-    new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`),
-  );
-  if (!bloque) throw new Error(`No se encontró el selector "${selector}" en ${archivo}.`);
-  const valor = bloque[1].match(new RegExp(`(?:^|;)\\s*${propiedad}\\s*:\\s*([^;]+)`));
-  if (!valor) throw new Error(`"${selector}" existe en ${archivo} pero no declara "${propiedad}".`);
-  return valor[1].trim();
+  const objetivo = selector.replace(/\s+/g, ' ').trim();
+  let encontrado = false;
+  for (const [, selectores, cuerpo] of sinComentarios(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const lista = selectores.split(',').map((s) => s.replace(/\s+/g, ' ').trim());
+    if (!lista.includes(objetivo)) continue;
+    encontrado = true;
+    const valor = cuerpo.match(new RegExp(`(?:^|;)\\s*${propiedad}\\s*:\\s*([^;]+)`));
+    // Se sigue buscando si esta regla no declara la propiedad: puede estar en otra del mismo
+    // selector. Sólo cuando no aparece en ninguna se distingue «no existe el selector» de
+    // «existe pero no declara eso», que son dos averías distintas y se arreglan distinto.
+    if (valor) return valor[1].trim();
+  }
+  if (!encontrado) throw new Error(`No se encontró el selector "${selector}" en ${archivo}.`);
+  throw new Error(`"${selector}" existe en ${archivo} pero no declara "${propiedad}".`);
 }
 
 // Los tokens `--flit-*` son colores planos declarados una sola vez. Se resuelven porque la
@@ -69,7 +99,7 @@ function resolverVar(valor) {
   const ref = valor.match(/var\(\s*(--[\w-]+)\s*\)/);
   if (!ref) return valor;
   for (const css of [flitTokens, tokens, index]) {
-    const decl = css.match(new RegExp(`${ref[1]}\\s*:\\s*([^;]+)`));
+    const decl = sinComentarios(css).match(new RegExp(`${ref[1]}\\s*:\\s*([^;]+)`));
     if (decl) return decl[1].trim();
   }
   throw new Error(`No se pudo resolver ${ref[1]}: no está declarado en los CSS de tokens.`);
@@ -90,47 +120,74 @@ const leer = (css, archivo, selector, propiedad) =>
 
 const PALETA = "[data-theme='dark'] .flit-shell-palette";
 
-const pagina = leer(tokens, TOKENS_CSS, ":root[data-theme='dark']", '--color-surface');
+// Lo que hay DETRÁS del overlay no es el `body` sino el shell de la app, y el shell no invierte
+// en oscuro: `.flit-app` pinta --flit-bg-app (#EAF2FF) en los dos temas. Tomar el
+// `--color-surface` oscuro del body daba un panel 0,3 más oscuro del que se pinta —el body
+// queda tapado por un shell `min-h-screen`— y con él todos los ratios salían regalados.
+// Peor caso admitido: detrás del panel puede haber una tarjeta blanca en vez del fondo de la
+// app; son ~0,02 de ratio, dentro del margen con el que se eligieron las tintas.
+const pagina = leer(flitTokens, FLIT_TOKENS_CSS, '.flit-app', 'background');
 const overlay = leer(index, INDEX_CSS, '.flit-shell-overlay', 'background');
 const panelBg = leer(index, INDEX_CSS, PALETA, 'background');
 const sunkenBg = leer(index, INDEX_CSS, `${PALETA} .flit-shell-sunken`, 'background');
-const kbdBg = leer(index, INDEX_CSS, `${PALETA} kbd`, 'background');
+// A propósito el selector CON la clase, que es el que gana la cascada (0,3,1): las cinco teclas
+// llevan `flit-shell-sunken`, así que leer `${PALETA} kbd` a secas devolvería una regla que el
+// navegador descarta. Un gate que mide CSS muerto miente igual que uno que se equivoca de padre.
+const kbdBg = leer(index, INDEX_CSS, `${PALETA} kbd.flit-shell-sunken`, 'background');
 const activoBg = leer(index, INDEX_CSS, '.flit-shell-active', 'background');
 const hoverBg = leer(index, INDEX_CSS, "[data-theme='dark'] .flit-shell-hover:hover", 'background');
 
 const muted = leer(index, INDEX_CSS, `${PALETA} .flit-shell-muted`, 'color').color;
+// El placeholder es su propio punto: no hereda de `.flit-shell-muted` ni lo pinta ninguna clase
+// del TSX, sino esta regla. Si desaparece, vuelve el currentColor al 50 % del preflight (4,41).
+const placeholder = leer(index, INDEX_CSS, `${PALETA} ::placeholder`, 'color').color;
 const secundario = leer(index, INDEX_CSS, `${PALETA} .flit-shell-secondary`, 'color').color;
 const primario = leer(index, INDEX_CSS, `${PALETA} .flit-shell-primary`, 'color').color;
 const acento = leer(index, INDEX_CSS, `${PALETA} .flit-shell-accent`, 'color').color;
 
 // ── Composición real de superficies ──────────────────────────────────────────────────────
-// página → overlay del modal → panel de la paleta → (barra hundida | kbd | ítem activo).
+// shell de la app → overlay del modal → panel de la paleta → (barra hundida | ítem activo) →
+// tecla. NINGUNA tecla cuelga del panel a pelo: las tres de la fila de búsqueda y del pie
+// caen sobre una barra `.flit-shell-sunken`, la del ítem seleccionado sobre `.flit-shell-active`
+// y sólo la del estado vacío cae sobre el panel. Ese detalle —qué hay debajo de cada tecla— es
+// el que se saltó la primera versión del gate y el que dejó pasar la regresión.
 const trasOverlay = sobre(overlay.color, overlay.alfa, pagina.color);
 const panel = sobre(panelBg.color, panelBg.alfa, trasOverlay);
 const sunken = sobre(sunkenBg.color, sunkenBg.alfa, panel);
-const kbd = sobre(kbdBg.color, kbdBg.alfa, panel);
 const activo = sobre(activoBg.color, activoBg.alfa, panel);
 const hover = sobre(hoverBg.color, hoverBg.alfa, panel);
+/** Una tecla no tiene color propio: tiene el de su fondo compuesto sobre lo que la aloja. */
+const tecla = (superficie) => sobre(kbdBg.color, kbdBg.alfa, superficie);
+const teclaEnBarra = tecla(sunken);
+const teclaEnPanel = tecla(panel);
+const teclaEnActivo = tecla(activo);
 
 // Cada punto de TEXTO de CommandPalette.tsx, con la superficie sobre la que cae de verdad.
 const CASOS = [
   ['fila de búsqueda — texto tecleado', primario, sunken],
-  ['fila de búsqueda — icono y placeholder', muted, sunken],
-  ['fila de búsqueda — tecla «esc»', muted, sunken],
+  ['fila de búsqueda — icono de lupa', muted, sunken],
+  ['fila de búsqueda — placeholder', placeholder, sunken],
+  ['fila de búsqueda — tecla «esc»', muted, teclaEnBarra],
   ['cabecera de sección', muted, panel],
   ['ítem no activo', secundario, panel],
-  ['ítem no activo en hover', primario, hover],
+  // `hover:flit-shell-primary` no es una utilidad de Tailwind y nunca generó regla: el ítem
+  // apuntado conserva la tinta secundaria. Se comprueba lo que se pinta, no lo que se quiso.
+  ['ítem no activo en hover', secundario, hover],
   ['ítem ACTIVO', primario, activo],
-  ['ítem activo — tecla ↵', acento, kbd],
+  ['ítem activo — tecla ↵', acento, teclaEnActivo],
   ['vacío — «Sin resultados»', secundario, panel],
   ['vacío — la consulta buscada', primario, panel],
   ['vacío — pista de cierre', muted, panel],
-  ['pie — texto', muted, sunken],
-  ['pie — teclas ↑↓ y ↵', muted, kbd],
+  ['vacío — tecla «Esc» de la pista', muted, teclaEnPanel],
+  ['pie — texto y recuento', muted, sunken],
+  ['pie — teclas ↑↓ y ↵', muted, teclaEnBarra],
 ];
 
 const hex = (c) => '#' + c.map((x) => x.toString(16).padStart(2, '0')).join('');
-console.log(`Fondos compuestos — panel ${hex(panel)} · barra ${hex(sunken)} · kbd ${hex(kbd)} · activo ${hex(activo)}\n`);
+console.log(
+  `Fondos compuestos — panel ${hex(panel)} · barra ${hex(sunken)} · activo ${hex(activo)} · hover ${hex(hover)}\n`
+  + `Teclas — sobre la barra ${hex(teclaEnBarra)} · sobre el panel ${hex(teclaEnPanel)} · sobre el ítem activo ${hex(teclaEnActivo)}\n`,
+);
 
 let fallos = 0;
 for (const [nombre, fg, bg] of CASOS) {
@@ -143,8 +200,11 @@ for (const [nombre, fg, bg] of CASOS) {
 if (fallos > 0) {
   console.error(
     `\n✗ ${fallos} punto(s) de la CommandPalette bajo ${MINIMO}:1 en tema oscuro (Bug #11720).` +
-      '\n  Ojo al orden: si aclaras la tinta, oscurece ANTES las superficies internas' +
-      ' (.flit-shell-sunken y kbd), o hundirás el buscador y las teclas del pie.',
+      '\n  Antes de tocar una tinta, mira QUÉ HAY DEBAJO: las capas translúcidas se acumulan y' +
+      '\n  aclarar el texto de un punto puede hundir otro. Y si cambias el DOM de' +
+      '\n  CommandPalette.tsx, revisa que cada caso de CASOS siga nombrando la superficie real:' +
+      '\n  este gate no lee el DOM, así que un `kbd` que se mude de padre no se entera solo.' +
+      '\n  La medición sobre el píxel está en e2e/tests/command-palette-oscuro.spec.ts.',
   );
   process.exit(1);
 }
