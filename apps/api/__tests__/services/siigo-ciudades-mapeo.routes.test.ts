@@ -25,6 +25,19 @@ vi.mock('../../src/shared/redis.js', () => ({
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 
+/**
+ * El registro de acceso de `/propuestas` y `/obsoletas` (HU #11299) se neutraliza aquí y se prueba
+ * en `siigo-ciudades-mapeo.pii.test.ts`, que es su sitio.
+ *
+ * Sin este mock, el `db.insert` de arriba —un `vi.fn()` que devuelve `undefined`— hace fallar el
+ * INSERT de `pii_access_log`. No rompe nada, porque `logPiiAccess` es best-effort y se traga su
+ * error, y ese es justamente el problema: llenaría estas pruebas de un ERROR que no dice nada sobre
+ * lo que miran (AC1, AC6, AC7) y que se acabaría leyendo como ruido normal.
+ */
+vi.mock('../../src/shared/pii-audit.js', () => ({
+  logPiiAccess: vi.fn().mockResolvedValue(undefined),
+}));
+
 const proponerMock = vi.fn();
 const estadoMock = vi.fn();
 const confirmarMock = vi.fn();

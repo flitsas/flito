@@ -60,8 +60,23 @@ export interface FaltanteCliente {
 
 export interface VeredictoCliente {
   clienteId: number;
-  /** Enmascarado o no según quién pregunte; el servicio decide. */
+  /**
+   * Nombre e identificación **en claro, siempre**. No hay enmascarado en ninguna capa.
+   *
+   * El comentario anterior prometía lo contrario («enmascarado o no según quién pregunte; el
+   * servicio decide») y era falso: `evaluarCliente` copia `documento: c.document` y `nombre: c.name`
+   * tal cual, sin mirar quién pregunta, y ninguna ruta los transforma después. Un comentario que
+   * promete un control inexistente es peor que no tener comentario — el siguiente que escriba un
+   * consumidor asume que la protección ya está puesta y no la pone.
+   *
+   * Lo que SÍ protege estos dos campos, y es de otra naturaleza: el permiso de lectura
+   * (`admin`, `auditor`, `financiera`) y, desde la HU #11299, el registro en `pii_access_log` de
+   * toda ruta que los entregue (`siigo.pii.ts`). Si alguna vista necesita enmascararlos, hay
+   * `maskDocument` y `maskName` en `apps/api/src/shared/utils/pii.ts`, pero es una decisión de
+   * producto que hoy no está tomada y que cambiaría el contrato de este tipo.
+   */
   nombre: string;
+  /** En claro, siempre — cédula o NIT según el tipo de persona. Ver la nota de `nombre`. */
   documento: string | null;
   facturable: boolean;
   /** true si lo que falta es una decisión humana, no un dato (AC3). */
@@ -76,4 +91,24 @@ export interface ResumenValidacionClientes {
   pendientesClasificacion: number;
   /** Cuántos clientes arrastra cada motivo. Ordena el trabajo: por dónde empezar. */
   porMotivo: { motivo: MotivoNoFacturable; detalle: string; clientes: number }[];
+}
+
+/**
+ * Cuerpo del rechazo cuando se sincroniza el tercero de un cliente al que le faltan datos
+ * (HU #11299, AC4 y AC6): `POST /api/siigo/terceros/cliente/:clienteId` → **422**.
+ *
+ * `faltantes` es EXACTAMENTE el mismo `FaltanteCliente[]` que devuelve
+ * `GET /api/siigo/clientes/:id/validacion`, para que la pantalla pinte la lista con el mismo
+ * componente: dos rutas del mismo módulo describiendo el mismo concepto de dos maneras distintas es
+ * una deuda que termina pagando el front.
+ *
+ * Lo que NO lleva, y no es un olvido: ni `nombre`, ni `documento`, ni ningún valor de la ficha. El
+ * cuerpo nombra los CAMPOS que faltan, nunca su contenido (Ley 1581). Quien dispara la
+ * sincronización ya tiene el nombre del cliente en la fila desde la que la disparó.
+ */
+export interface ErrorClienteNoFacturable {
+  error: string;
+  codigo: 'cliente_no_facturable';
+  clienteId: number;
+  faltantes: FaltanteCliente[];
 }

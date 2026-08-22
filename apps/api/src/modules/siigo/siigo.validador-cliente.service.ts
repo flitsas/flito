@@ -179,6 +179,18 @@ export const COLUMNAS_CLIENTE_EVALUABLE = {
   facturacionBloqueos: clients.facturacionBloqueos,
 };
 
+/**
+ * Qué cuenta como «cliente vivo» para todo lo que mire la cartera desde este programa.
+ *
+ * Se exporta y se comparte —lo usan las dos consultas de aquí abajo y el conteo de terceros
+ * vinculados de la HU #11299— por una razón que se ve en pantalla: el panel pinta en la MISMA
+ * tarjeta cuántos clientes están listos para facturar y cuántos tienen tercero en Siigo. Si cada
+ * consulta decidiera por su cuenta a quién mira, un día alguien añadiría aquí un `active` y allá no,
+ * y las dos cifras se contradirían sin que ninguna estuviera «mal». Un cliente inactivo no se va a
+ * facturar: meterlo en el denominador solo consigue que la lista parezca más grande de lo que es.
+ */
+export const CLIENTE_ACTIVO = eq(clients.active, true);
+
 export interface OpcionesInforme {
   /** Solo los clientes que arrastran este motivo (AC5). */
   motivo?: MotivoNoFacturable;
@@ -205,7 +217,7 @@ export async function informeClientes(opciones: OpcionesInforme = {}): Promise<{
   const offset = Math.max(0, opciones.offset ?? 0);
 
   const filas = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients)
-    .where(eq(clients.active, true))
+    .where(CLIENTE_ACTIVO)
     .orderBy(clients.name);
 
   let veredictos = filas.map((f) => evaluarCliente(f as ClienteEvaluable));
@@ -225,7 +237,7 @@ export async function informeClientes(opciones: OpcionesInforme = {}): Promise<{
  * tienen contacto y 3 no tienen tipo de persona, el trabajo grande es capturar contactos.
  */
 export async function resumenValidacionClientes(): Promise<ResumenValidacionClientes> {
-  const filas = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients).where(eq(clients.active, true));
+  const filas = await db.select(COLUMNAS_CLIENTE_EVALUABLE).from(clients).where(CLIENTE_ACTIVO);
   const veredictos = filas.map((f) => evaluarCliente(f as ClienteEvaluable));
 
   const conteos = new Map<MotivoNoFacturable, number>();

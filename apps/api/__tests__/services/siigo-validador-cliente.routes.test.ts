@@ -27,6 +27,19 @@ vi.mock('../../src/db/client.js', () => ({
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 
+/**
+ * El registro de acceso a datos personales de las rutas de lectura (HU #11299) se neutraliza aquí y
+ * se prueba en `siigo-validador-cliente.pii.test.ts`, que es su sitio.
+ *
+ * Sin este mock, el `db.insert` de arriba —un `vi.fn()` que devuelve `undefined`— hace fallar el
+ * INSERT de `pii_access_log`. No rompería nada, porque `logPiiAccess` es best-effort y se traga su
+ * error, y ese es justamente el problema: dejaría estas pruebas llenas de un ERROR que no dice nada
+ * sobre lo que miran (AC5, AC6, AC7) y que se acabaría leyendo como ruido normal.
+ */
+vi.mock('../../src/shared/pii-audit.js', () => ({
+  logPiiAccess: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../src/shared/redis.js', () => ({
   getRedis: () => null,
   closeRedis: vi.fn().mockResolvedValue(undefined),

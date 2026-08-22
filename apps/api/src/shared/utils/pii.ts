@@ -56,8 +56,30 @@ export function maskPhone(phone: string | null | undefined): string {
 }
 
 /**
+ * Enmascara una dirección: no deja NADA.
+ *
+ * A diferencia de un documento o un teléfono, una dirección no tiene una parte inocua que enseñar.
+ * «CRA 43 # 1-20» ya localiza a alguien sin los últimos tres caracteres, y el patrón de
+ * primeros-2/últimos-3 de `maskDocument` sobre un texto libre deja legible justo el prefijo que
+ * ubica la manzana. Se devuelve un marcador de longitud: para un log lo que importa es que el campo
+ * VENÍA (por eso no es cadena vacía) y cuánto ocupaba, no qué decía.
+ *
+ * - "CRA 43 # 1-20" → "*** (13 car.)"
+ * - null → ''
+ */
+export function maskAddress(address: string | null | undefined): string {
+  if (!address) return '';
+  return `*** (${String(address).trim().length} car.)`;
+}
+
+/**
  * Enmascara TODOS los campos PII de un objeto antes de loggear o auditar.
  * Útil para `audit({ detail: JSON.stringify(maskPII(obj)) })`.
+ *
+ * **Solo enmascara valores `string`**: lo que no lo sea sale tal cual, a propósito —un booleano o
+ * una fecha no identifican a nadie—. Quien pueda recibir un dato personal en otro tipo (una cédula
+ * que llegó por `z.coerce.number()`, por ejemplo) tiene que normalizarlo a texto ANTES de llamar
+ * aquí; `siigo.pii.ts` lo hace así y explica por qué.
  */
 export function maskPII<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -65,7 +87,18 @@ export function maskPII<T extends Record<string, unknown>>(obj: T): Record<strin
     if (v == null) { out[k] = v; continue; }
     if (typeof v !== 'string') { out[k] = v; continue; }
     const lk = k.toLowerCase();
-    if (lk.includes('document') || lk.includes('cedula') || lk.includes('cédula') || lk.includes('doc_number') || lk.includes('nit')) {
+    // `identificaci` cubre «identificacion» e «identificación» sin depender de la normalización —el
+    // mismo truco que `direcci` más abajo—, y NO estaba: «identificacion» no contiene ninguna de las
+    // subcadenas de esta lista (lo que lleva dentro es «nti», no «nit»), así que la clave con la que
+    // el módulo de Siigo nombra la cédula/NIT del cliente —`siigo_terceros.identificacion` y la
+    // respuesta del POST de terceros— pasaba de largo y salía literal al log. Hoy ningún llamador
+    // pasa esa clave, así que esto es prevención y no una fuga que haya que rectificar. `placa`
+    // entra por lo mismo: identifica a un titular por su vehículo, AGENTS.md la nombra junto a la
+    // cédula y el NIT entre los filtros que no pueden viajar en la query, y
+    // `flito-comparendos.pii.ts` ya la enmascaraba en su lista local — que es precisamente la lista
+    // que existe porque esta se quedó corta.
+    if (lk.includes('document') || lk.includes('cedula') || lk.includes('cédula') || lk.includes('doc_number') || lk.includes('nit')
+      || lk.includes('identificaci') || lk.includes('identification') || lk.includes('placa')) {
       out[k] = maskDocument(v);
     } else if (lk.includes('email') || lk.includes('correo')) {
       out[k] = maskEmail(v);
@@ -73,6 +106,10 @@ export function maskPII<T extends Record<string, unknown>>(obj: T): Record<strin
       out[k] = maskPhone(v);
     } else if (lk.includes('name') || lk.includes('nombre') || lk.includes('apellido') || lk.includes('full_name') || lk.includes('owner_name') || lk.includes('propietario')) {
       out[k] = maskName(v);
+    } else if (lk.includes('address') || lk.includes('direcci')) {
+      // `direcci` y no `direccion`: cubre «dirección» con tilde sin depender de la normalización.
+      // AGENTS.md §14 nombra la dirección entre lo que no puede viajar en claro a un log.
+      out[k] = maskAddress(v);
     } else {
       out[k] = v;
     }
