@@ -537,20 +537,47 @@ export interface ComparendosRegistrosPagina {
  * Tope duro de filas de un export, y la mitad del techo de extracción del módulo (ADR-0004 §2).
  *
  * Vive aquí por lo mismo que {@link COMPARENDOS_REGISTROS_LIMIT_MAX}: la pantalla necesita el número
- * para explicar el 422 («tu filtro supera las 5 000 filas, acótalo») sin inventárselo ni descubrirlo
+ * para explicar el 422 («tu filtro supera las N filas, acótalo») sin inventárselo ni descubrirlo
  * probando. El servidor **no lo lee de aquí**: lo lee de `COMPARENDOS_EXPORT_MAX_FILAS` en el
  * entorno, cuyo valor por defecto ES esta constante, para poder recalibrarlo con datos reales del
  * `pii_access_log` sin desplegar código.
  *
  * De ahí el matiz que hay que tener presente al usarlo en la interfaz: es el tope **por defecto**,
- * no una garantía del servidor. Un despliegue que lo baje a 2 000 hará que el 422 aparezca antes de
- * lo que diga la pantalla; por eso el mensaje de error del API viene con su propio número dentro y
- * es ese el que conviene mostrar cuando llega.
+ * no una garantía del servidor. Un despliegue que lo baje hará que el 422 aparezca antes de lo que
+ * diga la pantalla; por eso el mensaje de error del API viene con su propio número dentro y es ese
+ * el que conviene mostrar cuando llega.
  *
- * Por qué 5 000 y no 2 000 ni «sin tope» está argumentado entero en el ADR-0004, junto con la
- * contrapartida que se paga: el techo de extracción por minuto sube de 3 000 a 25 000 filas.
+ * ── Por qué 2 000 y no 5 000 (HU #11651, medido el 2026-08-22) ───────────────────────────────────
+ *
+ * Valía 5 000 —la Opción C del ADR-0004—, y el propio ADR lo aceptó **con la condición de medirlo**,
+ * porque `sendExcel` construye el workbook ENTERO en memoria y el API corre en una sola instancia
+ * fork con `max_memory_restart: '512M'` (`ecosystem.config.cjs:22`). Ya está medido, en el peor caso
+ * del archivo (la observación al máximo en todas las filas) y en el escenario que el limitador
+ * permite —`exportLimiter` es `max: 5` por minuto **por usuario**, así que dos administradores
+ * distintos lanzan dos exports a la vez y pasan los dos, sin ninguna cota global entre ellos—:
+ *
+ *     filas | 1 export | 2 simultáneos | 3 simultáneos
+ *     ------|----------|---------------|--------------
+ *     5 000 |  +152 MB |    +247 MB    |   +365 MB
+ *     2 000 |  + 93 MB |    +106 MB    |   +124 MB
+ *
+ * (delta de RSS sobre el reposo del proceso; método y reproducción en
+ * `apps/api/__tests__/services/flito-comparendos-export-concurrencia.test.ts`.)
+ *
+ * Sobre un API en régimen de 250 MB —el extremo pesimista del rango que cita el PR #153— quedan
+ * 262 MB hasta el techo de PM2. Con 5 000, dos exports simultáneos se comen 247 de esos 262: el
+ * proceso se queda a 15 MB del reinicio, y con tres lo cruza. Con 2 000 el mismo par consume 106 MB
+ * y aguanta hasta cuatro simultáneos. Además, un solo export de 5 000 filas ya llegaba a los ~150 MB
+ * de delta que ADR-0004 §Coste fijó como **señal de reapertura de la decisión**.
+ *
+ * 2 000 no es un número nuevo: es la Opción B del ADR-0004, la que allí se descartó «por poco» y
+ * sobre la que ese mismo ADR dejó escrito que bajar a ella es un cambio de una línea que no necesita
+ * otro ADR. Lo que se paga está en su tabla de contras (un NIT grande con varios años de histórico
+ * puede no caber en un solo archivo y obliga a trocear por filtro); lo que se compra es que el techo
+ * de extracción por minuto baje de 25 000 a 10 000 filas y que exportar deje de poder reiniciar el
+ * API.
  */
-export const COMPARENDOS_EXPORT_MAX_FILAS = 5000;
+export const COMPARENDOS_EXPORT_MAX_FILAS = 2000;
 
 /**
  * El filtro completo de `POST /registros/export`: **el mismo del visor, sin paginación**.

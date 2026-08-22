@@ -16,10 +16,21 @@
 //        la fila—, así que una columna sensible que alguien añada al esquema mañana no aparece en el
 //        Excel por el hecho de existir.
 //
-// RN-43  El export tiene un TOPE DURO de filas (`COMPARENDOS_EXPORT_MAX_FILAS`, 5 000 por defecto,
-//        ADR-0004 §2). Por encima no se entrega un archivo recortado: se lanza
-//        `ComparendosExportDemasiadoGrandeError` y no se genera nada. Un export truncado en silencio
-//        es peor que un error — el usuario concilia contra un conjunto que cree completo.
+// RN-43  El export tiene un TOPE DURO de filas (`COMPARENDOS_EXPORT_MAX_FILAS`, **2 000 por
+//        defecto** desde la HU #11651, ADR-0004 §2 y §Coste). Por encima no se entrega un archivo
+//        recortado: se lanza `ComparendosExportDemasiadoGrandeError` y no se genera nada. Un export
+//        truncado en silencio es peor que un error — el usuario concilia contra un conjunto que cree
+//        completo.
+//
+//        **El 2 000 es una cota de MEMORIA, no de producto.** Valía 5 000 hasta que se midió lo que
+//        cuesta construir el workbook: `sendExcel` lo arma entero en el heap y el API corre en una
+//        sola instancia fork con `max_memory_restart: '512M'`. Dos exports simultáneos de 5 000
+//        filas en el peor caso añadían 247 MB al proceso —de los 262 MB que hay entre un API en
+//        régimen (250 MB) y el techo de PM2—, y el `exportLimiter` es por usuario, así que nada
+//        impide que ocurran. La medición, su método y la tabla por tamaño están en el docstring de
+//        la constante en `packages/shared-types` y en
+//        `apps/api/__tests__/services/flito-comparendos-export-concurrencia.test.ts`. Subirlo otra
+//        vez sin repetir esa medición es reintroducir el defecto de la HU #11651.
 //
 // RN-44  El tope se comprueba pidiendo `tope + 1` filas, no con un `count(*)` sobre el filtro. Es el
 //        mismo truco de `listarRegistros`, y por los mismos dos motivos: el `count(*)` es la
@@ -55,8 +66,8 @@ import { condicionesDeFiltro } from './flito-comparendos.registros.service.js';
  * Dos decisiones sobre los valores que conviene tener a mano al leer la lista:
  *
  *   · **La causal sale por NOMBRE, no por `causalId`.** El visor pinta el nombre resolviéndolo
- *     contra el catálogo que ya tiene cargado; un archivo con 5 000 UUID no serviría para conciliar
- *     con nadie. De ahí el único `LEFT JOIN` de la consulta.
+ *     contra el catálogo que ya tiene cargado; un archivo con miles de UUID no serviría para
+ *     conciliar con nadie. De ahí el único `LEFT JOIN` de la consulta.
  *   · **El municipio sale por su `codigoFuente` («ITAGUI»), no por el nombre del catálogo.** Es el
  *     valor que el registro guarda y el mismo con el que se filtra, así que el archivo y la pantalla
  *     hablan del mismo dato aunque alguien renombre el municipio en la parametrización. Si en

@@ -215,8 +215,9 @@ const syncLimiter = rateLimit({
  * **Ese 3 000 es el techo de ESTA ruta, no el del módulo — y desde la HU #11558 la diferencia
  * importa.** El export a Excel entrega hasta `COMPARENDOS_EXPORT_MAX_FILAS` filas por petición con
  * su propia cuota (`exportLimiter`, 5/min), así que el techo del módulo es la SUMA de los dos y hoy
- * lo domina el export (5 × 5 000 = 25 000 filas por minuto). Dejar escrito aquí «el techo del
- * módulo» sería afirmar un número que dejó de ser cierto. Las dos cotas y por qué se aceptan juntas
+ * lo domina el export (5 × 2 000 = 10 000 filas por minuto; eran 25 000 hasta que la HU #11651 bajó
+ * el tope de 5 000 a 2 000 por memoria del proceso). Dejar escrito aquí «el techo del módulo» sería
+ * afirmar un número que dejó de ser cierto. Las dos cotas y por qué se aceptan juntas
  * están en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`, que **complementa** a
  * ADR-0001: no lo enmienda ni lo supersede.
  *
@@ -242,10 +243,19 @@ const registrosLimiter = rateLimit({
  * Export a Excel: **5 peticiones por minuto y usuario** (HU #11558, ADR-0004 §3).
  *
  * El más estrecho de los limitadores de lectura, y con doce veces menos cuota que el del listado
- * porque cada petición vale cien veces más: una página son 50 filas, un export hasta 5 000. Con
- * estos dos números, 5/min es el multiplicador que deja el techo del export (25 000 filas/minuto) en
- * el mismo orden de magnitud que el de la lectura paginada (3 000) en vez de tres órdenes por
- * encima, que es lo que saldría con la cuota de 60.
+ * porque cada petición vale cuarenta veces más: una página son 50 filas, un export hasta 2 000. Con
+ * estos dos números, 5/min es el multiplicador que deja el techo del export (10 000 filas/minuto) en
+ * el mismo orden de magnitud que el de la lectura paginada (3 000) en vez de dos órdenes por encima,
+ * que es lo que saldría con la cuota de 60.
+ *
+ * **Esta cuota es por USUARIO y no hay ninguna global — la HU #11651 lo dejó medido, no supuesto.**
+ * Dos administradores distintos lanzan dos exports a la vez y el limitador deja pasar a los dos, así
+ * que el consumo de memoria que hay que presupuestar no es el de un export sino el de varios
+ * coexistiendo en el heap del mismo proceso. Esa es la razón de que `COMPARENDOS_EXPORT_MAX_FILAS`
+ * valga hoy 2 000 y no 5 000; con 5 000, dos exports simultáneos dejaban el proceso a 15 MB del
+ * `max_memory_restart` de PM2. Serializar la generación (semáforo en proceso) o escribir el `.xlsx`
+ * incremental con `WorkbookWriter` son las dos salidas que quitarían esa dependencia entre el tope y
+ * la concurrencia; las dos quedaron fuera del alcance de la #11651 y son decisión del Líder Técnico.
  *
  * **Es una cuota SEPARADA de la de `/registros`, y a propósito** (AC5): con una compartida, gastar
  * los 5 exports dejaría a la pantalla sin poder paginar —el usuario vería la tabla romperse por
@@ -1083,11 +1093,11 @@ router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Res
  * para recalibrar el tope (el razonamiento entero está en el `catch`).
  *
  * El registro de acceso va con `filas` = las entregadas de verdad (no el tope, no lo pedido) y se
- * espera con `await` antes de escribir el primer byte (AC6): esta petición vale hasta 5 000 NITs y
- * placas, así que perder su rastro por un fallo a mitad del archivo no es aceptable. `campos` no
- * incluye `CAMPOS_PII_PAYLOAD` porque los payloads no salen en el archivo (RN-42): declarar de más
- * haría que `campos_accedidos` dejara de decir la verdad, que es lo único que ese log tiene que
- * hacer.
+ * espera con `await` antes de escribir el primer byte (AC6): esta petición vale hasta
+ * `COMPARENDOS_EXPORT_MAX_FILAS` NITs y placas, así que perder su rastro por un fallo a mitad del
+ * archivo no es aceptable. `campos` no incluye `CAMPOS_PII_PAYLOAD` porque los payloads no salen en
+ * el archivo (RN-42): declarar de más haría que `campos_accedidos` dejara de decir la verdad, que
+ * es lo único que ese log tiene que hacer.
  */
 router.post('/registros/export', exportLimiter, async (req: Request, res: Response) => {
   const query = exportQuerySchema.safeParse(req.query);
@@ -1144,7 +1154,7 @@ router.post('/registros/export', exportLimiter, async (req: Request, res: Respon
     //   · Trazabilidad: «pedí el histórico entero de este NIT» es un gesto que la Ley 1581 art. 17
     //     puede tener que responder, y sin esta línea de él solo consta que alguien gastó cuota.
     //   · **Sesgo en el dato con el que ADR-0004 promete recalibrar el tope.** El ADR dice revisar
-    //     el `pii_access_log` a los dos o tres meses para decidir si 5 000 sobra o falta. Si los
+    //     el `pii_access_log` a los dos o tres meses para decidir si el tope sobra o falta. Si los
     //     exports que superan el tope no se escriben, la muestra queda amputada JUSTO en la cola que
     //     se quiere medir: concluiría que casi nadie se acerca al tope precisamente porque los que
     //     lo pasan son invisibles.

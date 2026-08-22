@@ -131,6 +131,34 @@ Se acepta a 5 000 filas **con la condición de medirlo** en la HU (duración, de
 - **Lag del event loop perceptible** durante la generación (peticiones concurrentes al API degradándose mientras alguien exporta).
 - **Cualquier petición de subir `COMPARENDOS_EXPORT_MAX_FILAS` por encima de ~20 000**: a esa escala el debate ya no es el tope, es la arquitectura — y entonces toca ADR sucesor con `Supersedes` a este.
 
+### Medición (HU #11651, 2026-08-22) — el tope baja de 5 000 a 2 000
+
+La condición se cumplió: está medido. **Y la medición desmiente el 5 000.**
+
+**Método.** `sendExcel` con filas sintéticas de la forma real —todas las columnas de `COLUMNAS_EXPORT`, textos distintos por fila para que `exceljs` no comprima la tabla de cadenas— sobre un sumidero que drena, como hace el socket real. Se mide el delta de RSS sobre el reposo del proceso, el pico de heap y el retraso real de un `setInterval` de 20 ms (lag del event loop). Instrumento en `apps/api/__tests__/helpers/export-coste.ts`; escenarios en `flito-comparendos-export-coste.test.ts` (secuencial) y `flito-comparendos-export-concurrencia.test.ts` (simultáneo). **Cada escenario se corre en un proceso propio**: Vitest reutiliza los workers entre archivos y un proceso que ya construyó un workbook grande arranca el siguiente con las arenas del allocator calientes, lo que hace que el delta salga optimista — así se midió la primera vez, en la HU #11558, y por eso su «peor caso» daba un delta MENOR que su caso realista.
+
+**Resultado, peor caso del archivo (observación al máximo en todas las filas), delta de RSS:**
+
+| filas | 1 export | 2 simultáneos | 3 simultáneos | 4 | 5 |
+|------:|---------:|--------------:|--------------:|--:|--:|
+| 5 000 | +152 MB  | **+247 MB**   | +365 MB       | — | — |
+| 4 000 | +102 MB  | +166 MB       | —             | — | — |
+| 3 000 | + 58 MB  | +116 MB       | +203 MB       | — | — |
+| 2 500 | + 91 MB  | +140 MB       | +150 MB       | — | — |
+| 2 000 | + 93 MB  | **+106 MB**   | +124 MB       | +169 MB | +239 MB |
+
+Duración de 1,0 a 1,7 s por export aislado y lag máximo del event loop de 0,4 a 1,0 s; con dos simultáneos, 2,0 s y 2,2 s respectivamente.
+
+**Cómo se lee.** El presupuesto no es 512 MB: es **512 − lo que el API ya ocupa**. Con el extremo pesimista del rango del PR #153 (250 MB en régimen) quedan **262 MB** para la generación. Con 5 000 filas, dos exports simultáneos consumen 247 de esos 262 — a **15 MB** del `max_memory_restart`— y tres lo cruzan (615 MB proyectados). Y esos dos simultáneos no son hipótesis: `exportLimiter` tiene `keyGenerator: userOrIpKey(…)`, o sea cuota **por usuario**, y no existe ninguna cota global ni semáforo, así que dos administradores distintos los lanzan y pasan los dos.
+
+Dos de las señales de reapertura escritas arriba estaban ya disparadas con el valor anterior: el delta por export de 5 000 filas es de ~152 MB (el umbral era ~150 MB) y el lag del event loop llega a 1 s aislado y 2 s en concurrencia.
+
+**Decisión: `COMPARENDOS_EXPORT_MAX_FILAS` pasa de 5 000 a 2 000**, que es la **Opción B** de este mismo ADR — la que se descartó «por poco» y sobre la que quedó escrito que bajar a ella «es un cambio de una línea y no necesita otro ADR». Con 2 000, dos exports simultáneos consumen 106 MB de los 262 (40 % del presupuesto) y el proceso aguanta hasta cuatro a la vez. Las contras de la Opción B siguen siendo las de su tabla y no se maquillan: un NIT grande con varios años de histórico puede no caber en un archivo y el usuario trocea por filtro. El techo de extracción por minuto baja a la vez de 25 000 a 10 000 filas, que es una mejora de privacidad, no un daño colateral.
+
+**Sobre las dos salidas que se retiraron del alcance, con un número en vez de una intuición.** Se midió aparte el mismo par de exports encadenado en lugar de solapado —que es lo que haría un semáforo en proceso que serializase la generación—: 5 000 filas cuestan 246 MB solapados y **198 MB encadenados**; 2 000 filas, 105 y 95 MB. Solapar cuesta un 24 % más, pero el grueso del coste no es el solapamiento sino que el RSS no vuelve al sistema operativo entre un export y el siguiente. Traducido: **con el tope en 5 000, el semáforo por sí solo no habría arreglado el defecto** —dejaba el proceso en 198 MB de los 262 de presupuesto, con dos exports y sin margen para un tercero—. La salida que sí baja el pico es no tener el libro entero en memoria (`WorkbookWriter`), o tener menos filas, que es lo que hace esta HU.
+
+**Lo que esto NO resuelve, y es la parte que hay que leer.** Bajar el tope acota el coste por export; **no acota la concurrencia**, porque nada la acota. Con 2 000 filas la pared está en **cinco exports simultáneos** (+239 MB de 262). Cinco administradores exportando a la vez siguen reiniciando el proceso, y ningún valor del tope arregla eso: es una propiedad del diseño —workbook entero en memoria, sin cota global— y no de la calibración. Las dos salidas que sí lo arreglarían (semáforo en proceso que serialice la generación, o `stream.xlsx.WorkbookWriter` escribiendo incremental sobre `res`) quedaron **fuera del alcance** de la HU #11651 por decisión del Líder Técnico el 2026-08-20. Este párrafo existe para que el día que aparezca un reinicio de PM2 correlacionado con la ruta, nadie tenga que volver a descubrir por qué.
+
 ## Consecuencias
 
 **Positivas**
