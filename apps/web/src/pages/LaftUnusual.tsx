@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { api } from '../lib/api';
+import { api, errorMessage } from '../lib/api';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 
 type Decision = 'pendiente' | 'en_analisis' | 'descartada' | 'escalada' | 'reportada';
 
@@ -50,18 +51,32 @@ export default function LaftUnusual() {
   const [total, setTotal] = useState(0);
   const [filter, setFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<UnusualOp | null>(null);
 
+  // Bug #11768 — esta pantalla tenía tres estados, no cuatro: un fallo del listado se contaba con
+  // un toast que se desvanece y dejaba la tabla en «Sin operaciones registradas». Es la peor forma
+  // de fallar de un módulo de cumplimiento: «no hay señales de alerta» y «no pude leer las señales
+  // de alerta» son conclusiones opuestas y se veían idénticas, sin camino de vuelta salvo recargar.
+  // Se adopta el estado de error en el cuerpo que ya usan LaftAuditPlan / LaftManual / LaftOfficer,
+  // con el «Reintentar» que ya existe en finanzas (ContadoresFacturacion, TarjetaEnvioFacturacion).
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ limit: '100' });
       if (filter) params.set('decision', filter);
       const res = await api.get<{ rows: UnusualOp[]; total: number }>(`/laft/unusual?${params}`);
       setData(res.rows);
       setTotal(res.total);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error'); }
+    } catch (e) {
+      // Se vacía lo que había: dejar filas viejas bajo un cartel de error es enseñar contrapartes
+      // que ya no se sabe si siguen ahí, con su documento al lado.
+      setData([]);
+      setTotal(0);
+      setError(errorMessage(e));
+    }
     finally { setLoading(false); }
   }, [filter]);
 
@@ -80,7 +95,12 @@ export default function LaftUnusual() {
           <option value="">Todas las decisiones</option>
           {Object.entries(DECISION_LABEL).map(([v, l]) => <option key={v} value={v}>{l.label}</option>)}
         </select>
-        <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{total} operaciones registradas</span>
+        {/* Bug #11768 — el contador va guardado por `!error` igual que el cuerpo de la tabla, y no
+            es un detalle: bajo un 500 esta línea decía «0 operaciones registradas» a 20 px del
+            cartel de error, que es LA MISMA afirmación que el Bug corrige, dicha por la cabecera.
+            Se oculta en vez de pintar «—» porque el estado de error de abajo ya explica por qué no
+            hay número, y un guion suelto junto a un filtro se lee como «cero». */}
+        {!error && <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{total} operaciones registradas</span>}
       </section>
 
       <section className="overflow-hidden bg-white" style={CARD}>
@@ -93,8 +113,28 @@ export default function LaftUnusual() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={7} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && data.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin operaciones registradas</td></tr>}
-              {!loading && data.map((op) => {
+              {!loading && error && (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center">
+                    {/* Tinta, no superficie: `--flit-danger` (#E43D30) es un token de SUPERFICIE y como
+                        color de texto sobre blanco da 4,19:1 — por debajo del 4,5:1 de AGENTS.md.
+                        `--flit-danger-ink` (#C02F24) es el mismo matiz con luminosidad de texto:
+                        5,72:1 sobre blanco y 5,08:1 sobre --flit-bg-app (medido). El porqué está en
+                        `styles/flit-tokens.css` («Estado — variante TINTA»), y la confusión entre
+                        ambos niveles es la causa raíz de los fallos de #11604 y del Bug #11767.
+                        OJO: LaftAuditPlan / LaftManual / LaftOfficer todavía usan el de superficie
+                        aquí; se calcó su estructura, no su deuda. */}
+                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+                      No se pudo cargar el listado de operaciones inusuales. {error}
+                    </p>
+                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
+                      Reintentar
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && data.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin operaciones registradas</td></tr>}
+              {!loading && !error && data.map((op) => {
                 const d = DECISION_LABEL[op.decision];
                 return (
                   <tr key={op.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
