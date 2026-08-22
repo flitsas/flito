@@ -209,6 +209,14 @@ const envSchema = z.object({
   // endpoint quedaba público en los tres ambientes porque su única defensa era una
   // suposición sobre nginx. Mín 32 chars: si se define corto, el boot falla en vez de
   // dejar el registro detrás de un token adivinable. Generar con `openssl rand -hex 32`.
+  //
+  // Se evaluó exigir hex de 64 (`/^[0-9a-f]{64}$/`) para cerrar el caso «32 letras a», y se
+  // descartó: un regex valida FORMATO, no entropía —`'0'.repeat(64)` lo pasaría igual—, y el
+  // modo de fallo sería el peor posible: el boot de TODA la API abortando por una variable
+  // que solo gobierna el scrape. Sumado a eso, sería incompatible con cualquier ambiente que
+  // ya tuviera un token no-hex; en condicional, porque desde el repo no se comprueba lo que
+  // hay en el `.env` de cada ambiente. Queda igual que JWT_SECRET y DOWNLOAD_TOKEN_SECRET: la
+  // calidad del token la da el `openssl rand` de arriba y de .env.example, no el schema.
   METRICS_TOKEN: z.string().min(32).optional(),
   // Destinatarios alertas PESV (alcoholimetría positiva, etc.). Coma-separados.
   // Si vacío, fallback a admins activos del tenant. NUNCA debe quedar en kyverum.com.
