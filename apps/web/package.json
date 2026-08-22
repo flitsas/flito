@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test e2e/tests/auth.spec.ts e2e/tests/vehicles-pipeline.spec.ts e2e/tests/tramite-embudo.spec.ts e2e/tests/tramite-wizard.spec.ts e2e/tests/transito-bandeja.spec.ts e2e/tests/transito-organismos.spec.ts --reporter=line",
+    "test:e2e:smoke": "playwright test e2e/tests/auth.spec.ts e2e/tests/vehicles-pipeline.spec.ts e2e/tests/tramite-embudo.spec.ts e2e/tests/tramite-wizard.spec.ts e2e/tests/transito-bandeja.spec.ts e2e/tests/transito-organismos.spec.ts e2e/tests/laft-smoke-vistas.spec.ts e2e/tests/laft-acceso.spec.ts e2e/tests/laft-unusual-error.spec.ts e2e/tests/laft-manual-descarga.spec.ts --reporter=line",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
