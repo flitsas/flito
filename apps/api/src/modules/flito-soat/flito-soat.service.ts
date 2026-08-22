@@ -881,13 +881,14 @@ export async function marcarPagado(soatId: string, extraccion: ExtraccionSoat, c
 // Datos de un SOAT necesarios para leer y archivar su factura: llave, compañía (carpeta S3) y umbral.
 interface DatosCarga {
   soatId: string; vin: string; placa: string | null; estado: EstadoSoat;
-  companiaId: number; document: string | null; carpeta: string | null; umbralOcr: string | null;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
+  companiaId: number; carpeta: string | null; umbralOcr: string | null;
 }
 
 async function datosCargaPorId(id: string): Promise<DatosCarga | null> {
   const [r] = await db.select({
     soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
-    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    companiaId: clients.id, carpeta: clients.flitoCarpetaStorage,
     umbralOcr: flitoProveedoresSoat.umbralOcr,
   }).from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
@@ -906,7 +907,7 @@ async function facturaDuplicada(hash: string): Promise<boolean> {
 
 /** Sube la factura a S3 y devuelve su storage_key. Va ANTES de tocar la BD (CA-11). */
 async function archivarFactura(datos: DatosCarga, archivo: ArchivoSubido): Promise<string> {
-  const carpeta = carpetaDe({ id: datos.companiaId, document: datos.document, flitoCarpetaStorage: datos.carpeta }, 'soat/facturas');
+  const carpeta = carpetaDe({ id: datos.companiaId, flitoCarpetaStorage: datos.carpeta }, 'soat/facturas');
   return uploadEntityDocument(carpeta, datos.soatId, archivo.originalname, archivo.buffer, archivo.mimetype);
 }
 
@@ -1005,7 +1006,7 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
 
   const [r] = await db.select({
     soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
-    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    companiaId: clients.id, carpeta: clients.flitoCarpetaStorage,
     umbralOcr: flitoProveedoresSoat.umbralOcr,
   }).from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))

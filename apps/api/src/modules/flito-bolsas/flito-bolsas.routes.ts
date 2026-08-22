@@ -519,7 +519,7 @@ router.post('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {
   const [compania] = await db
-    .select({ id: clients.id, document: clients.document, flitoCarpetaStorage: clients.flitoCarpetaStorage })
+    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage })
     .from(clients)
     .where(eq(clients.id, companiaId))
     .limit(1);

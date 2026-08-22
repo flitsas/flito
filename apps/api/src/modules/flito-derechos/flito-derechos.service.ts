@@ -129,7 +129,7 @@ export interface CandidatoTramite {
   tipoTramite: string | null;
   organismoCodigo: string | null;
   companiaId: number | null;
-  document: string | null;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
   carpeta: string | null;
   yaTieneDerecho: boolean;
   // Los tres siguientes solo se usan para componer el nombre del archivo (ver `nombreArchivoDerecho`).
@@ -168,7 +168,6 @@ export async function buscarCandidatos(placa: string): Promise<CandidatoTramite[
     tipoTramite: flitoTramites.tipoTramite,
     organismoCodigo: flitoTramites.organismoCodigo,
     companiaId: flitoTramites.companiaId,
-    document: clients.document,
     carpeta: clients.flitoCarpetaStorage,
     yaTieneDerecho: sql<boolean>`${flitoDerechosTramite.id} is not null`,
     placa: vehicles.plate,
@@ -543,7 +542,7 @@ async function archivar(
   ctx: DerechoCtx,
 ): Promise<string> {
   const carpeta = cand.companiaId !== null
-    ? carpetaDe({ id: cand.companiaId, document: cand.document, flitoCarpetaStorage: cand.carpeta }, 'derechos-tramite')
+    ? carpetaDe({ id: cand.companiaId, flitoCarpetaStorage: cand.carpeta }, 'derechos-tramite')
     : `${CARPETA_SIN_ASOCIAR}/sin-compania`;
   // El nombre se compone solo cuando el recibo ya cruzó con un trámite: antes de eso faltan la
   // ciudad, el cliente y el tipo, y quedaría un nombre a medias.
@@ -793,7 +792,6 @@ export async function registrarDesdeRevision(
     tipoTramite: flitoTramites.tipoTramite,
     organismoCodigo: flitoTramites.organismoCodigo,
     companiaId: flitoTramites.companiaId,
-    document: clients.document,
     carpeta: clients.flitoCarpetaStorage,
     yaTieneDerecho: sql<boolean>`${flitoDerechosTramite.id} is not null`,
     placa: vehicles.plate,
