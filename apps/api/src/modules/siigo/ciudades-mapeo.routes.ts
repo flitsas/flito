@@ -6,11 +6,25 @@
 // el municipio que va a salir impreso en una factura ante la DIAN: no es un gesto de consulta.
 //
 // Ninguna ruta llama a Siigo: todo sale del catálogo local.
+//
+// ── Registro de acceso a datos personales (HU #11299) ────────────────────────────────────────────
+//
+// `/propuestas` y `/obsoletas` devuelven el NOMBRE de cada cliente pendiente, y las dos listas van
+// completas: sin paginar y sin tope. Son, en volumen, la lectura de identidades más grande del
+// módulo, y la pantalla de Terceros las pide al abrirse. Desde esta HU dejan rastro en
+// `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16) con `registrarAccesoCliente`, el mismo contrato
+// que usa el informe de facturabilidad — que es lo que permite responder «¿quién ha leído nombres de
+// clientes?» con UNA consulta en vez de tres.
+//
+// `/estado` no registra: devuelve seis conteos y ni un identificador. `/:id/propuesta` tampoco, y
+// eso NO es una decisión sino deuda declarada: entrega el nombre de un cliente y le falta el rastro,
+// pero esta pantalla no la llama y su HU es otra. Está inventariada en `siigo.pii.ts`.
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { CAMPOS_PII_NOMBRE_CLIENTE, registrarAccesoCliente } from './siigo.pii.js';
 import {
   SiigoCiudadMapeoError, confirmarCiudad, equivalenciasObsoletas,
   estadoMapeoCiudades, proponerEquivalencias, propuestaDeCliente,
@@ -55,6 +69,14 @@ router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: 'País inválido' }); return; }
   try {
     const data = await proponerEquivalencias(parsed.data.pais);
+    // `filas` es lo único que distingue aquí una consulta de un volcado, porque la ruta no acepta
+    // `limit`: quien la llama se lleva SIEMPRE todos los clientes pendientes que haya.
+    await registrarAccesoCliente(req, {
+      accion: 'search',
+      campos: CAMPOS_PII_NOMBRE_CLIENTE,
+      filas: data.length,
+      filtros: { pais: parsed.data.pais },
+    });
     res.json({ total: data.length, data });
   } catch (e) {
     if (!responderError(res, e)) throw e;
@@ -62,8 +84,13 @@ router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
 });
 
 // GET /obsoletas — equivalencias cuyo texto de origen cambió después de confirmarse.
-router.get('/obsoletas', LECTURA, async (_req: Request, res: Response) => {
+router.get('/obsoletas', LECTURA, async (req: Request, res: Response) => {
   const data = await equivalenciasObsoletas();
+  await registrarAccesoCliente(req, {
+    accion: 'search',
+    campos: CAMPOS_PII_NOMBRE_CLIENTE,
+    filas: data.length,
+  });
   res.json({ total: data.length, data });
 });
 

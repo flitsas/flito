@@ -1,16 +1,24 @@
 // Siigo — registro de acceso a datos personales del padrón de clientes (HU #11299).
 //
-// El informe de facturabilidad (HU #11296) devuelve NOMBRE e IDENTIFICACIÓN de clientes: la cédula
-// cuando el cliente es persona natural, el NIT cuando es jurídica. Ley 1581 art. 17 — el titular
+// El informe de facturabilidad (HU #11296) devuelve NOMBRE e IDENTIFICACIÓN de clientes —la cédula
+// cuando el cliente es persona natural, el NIT cuando es jurídica— y las listas de equivalencia de
+// ciudad (HU #11294) devuelven el nombre de cada cliente pendiente. Ley 1581 art. 17 — el titular
 // puede preguntar «¿quién consultó mis datos y para qué?», y hasta esta HU el módulo `siigo/` entero
 // no escribía una sola línea en `pii_access_log`, mientras `drivers/`, `flito-comparendos/`,
 // `flito-conciliacion/` y `pesv/` sí lo hacían (AGENTS.md §16).
 //
-// Es deuda preexistente —la ruta es de la HU #11296— y se cierra AHORA porque el panel de Terceros
-// convierte esa ruta en su fuente principal: pasa de consulta puntual a barrido rutinario de hasta
-// 500 fichas identificadas por llamada. El control de acceso ya estaba bien
-// (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder reconstruir QUIÉN leyó
-// el padrón.
+// Es deuda preexistente —las rutas son de las HU #11294 y #11296— y se cierra AHORA porque el panel
+// de Terceros las convierte en su fuente de datos: pasan de consulta puntual a barrido rutinario de
+// hasta 500 fichas identificadas por llamada, y las de ciudad ni siquiera tienen tope. El control de
+// acceso ya estaba bien (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder
+// reconstruir QUIÉN leyó el padrón.
+//
+// El corte del alcance: este archivo cubre **todas las lecturas de identidad que hace el panel que
+// entrega esta HU** —las tres del informe de facturabilidad y las dos listas de equivalencia de
+// ciudad—. Las que el panel no toca (`GET /clientes-ciudades/:id/propuesta`, el `select()` sin
+// proyección de `terceros.routes.ts`, el job de archivo) quedan inventariadas para una HU aparte:
+// cerrar una puerta y dejar abiertas otras dos de la MISMA pantalla sería media corrección, pero
+// arrastrar aquí lo que este PR no entrega sería otra cosa distinta.
 //
 // Existe aparte del router por el mismo motivo que `flito-conciliacion.pii.ts` y
 // `flito-comparendos.pii.ts`, que son sus precedentes exactos: son varios endpoints que devuelven lo
@@ -54,6 +62,22 @@ export const RECURSO_CLIENTE = 'client';
  * campos y motivos de un catálogo estático, no valores de la ficha.
  */
 export const CAMPOS_PII_VEREDICTO = ['name', 'document'] as const;
+
+/**
+ * Lo personal que entregan las listas de equivalencia de ciudad: el NOMBRE del cliente y nada más.
+ *
+ * `GET /clientes-ciudades/propuestas` y `/obsoletas` devuelven `{ clienteId, nombre, ciudad… }` de
+ * todos los clientes activos que cumplen el criterio, **sin paginar y sin tope** —a diferencia del
+ * informe de facturabilidad, que al menos está acotado a 500—, así que en volumen son la lectura
+ * más grande del módulo. La identificación no sale por ahí, y por eso `document` NO va en esta
+ * lista: declararlo haría que «¿quién ha leído documentos?» señalara a quien solo vio nombres, que
+ * es la misma exageración que se evita en {@link CAMPOS_PII_RESUMEN} por el otro lado.
+ *
+ * Que un nombre sea dato personal no depende de si el cliente es una empresa: `clients` mezcla
+ * personas naturales y jurídicas en la misma tabla —es justo lo que el validador tiene que
+ * clasificar—, así que la lista lleva nombres de persona sí o sí.
+ */
+export const CAMPOS_PII_NOMBRE_CLIENTE = ['name'] as const;
 
 /**
  * Lo que entrega el resumen de facturabilidad: **nada personal**, y por eso la lista va vacía.
