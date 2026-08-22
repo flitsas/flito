@@ -79,6 +79,10 @@ function esCatalogoVacio(e: unknown): boolean {
 
 interface Props {
   version: number;
+  /**
+   * Solo admin, igual que `requireRole('admin')` en `POST /clientes-ciudades/:id/confirmar`. NO se
+   * deriva del permiso de sincronizar, que es más amplio: financiera sincroniza y no confirma.
+   */
   puedeConfirmar: boolean;
   onConfirmada: () => void;
 }

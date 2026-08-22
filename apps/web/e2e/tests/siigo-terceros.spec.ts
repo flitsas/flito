@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, ADMIN_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/auth';
+import { loginAs, ADMIN_USER, AUDITOR_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/auth';
 
 // Facturación electrónica — pestaña «Terceros»: revisar y sincronizar (HU #11299, Feature #11241).
 //
@@ -250,8 +250,109 @@ test.describe('AC1 — acceso y permisos por rol', () => {
     await expect(page.getByText('¿A cuántos se les puede facturar?')).toHaveCount(0);
   });
 
-  test('financiera consulta el panel, alcanza los controles y no dispara ninguna escritura', async ({ page }) => {
+  test('financiera dispara la sincronización de terceros: la petición sale, no solo el botón', async ({ page }) => {
+    // Esta prueba afirmaba lo contrario —«financiera no dispara ninguna escritura»— y el AC1 se
+    // reescribió (decisión de PO del 2026-08-22) para decir lo que el servidor ya hacía:
+    // `POST /siigo/terceros/cliente/:id` está guardado con `exigirAccionSiigo('emitir')`, que
+    // resuelve a admin + financiera. Que el botón esté habilitado no prueba que llame, así que la
+    // petición se intercepta y se CUENTA, como hace el AC5 con las confirmaciones.
     await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    const sincronizados: number[] = [];
+    await mockSincronizacion(page, (id) => { sincronizados.push(id); });
+    await page.goto(RUTA);
+
+    // Ve los informes.
+    await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
+
+    // Bloque D — una tanda de uno. Sin `force` a propósito: si el control estuviera marcado como no
+    // disponible, Playwright se negaría a pulsarlo y el test caería aquí.
+    await page.getByRole('checkbox', { name: /TRANSPORTES DEL SUR/ }).check();
+    await page.getByRole('button', { name: /^Sincronizar 1 en pruebas$/ }).click();
+    await expect(page.getByText('Creado en Siigo (1)')).toBeVisible({ timeout: 30_000 });
+    expect(sincronizados).toEqual([1]);
+
+    // Bloque B — el otro sitio donde se sincroniza: la fila suelta de un cliente incompleto.
+    const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
+    await expect(sincronizarFila).not.toHaveAttribute('aria-disabled', 'true');
+    await sincronizarFila.click();
+    await expect(page.getByText('No se pudo sincronizar: hay que corregir la ficha.')).toBeVisible();
+    expect(sincronizados).toEqual([1, CARGA_RAPIDA.clienteId]);
+
+    // Y ningún control le anuncia que no puede lo que acaba de hacer.
+    await expect(page.getByText(/Sincronizar escribe en Siigo/)).toHaveCount(0);
+  });
+
+  test('financiera NO confirma equivalencias de ciudad: alcanza el control, se le dice por qué, y no sale ni una confirmación', async ({ page }) => {
+    // El contraste con la prueba anterior es el AC1 entero: el MISMO rol dispara una escritura y no
+    // la otra. Mientras las dos colgaron de un único booleano, esto no se podía ni escribir.
+    await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    let confirmaciones = 0;
+    await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/confirmar/, (route) => {
+      if (route.request().method() === 'POST') confirmaciones += 1;
+      return route.fulfill(json({ clienteId: 1, cityCode: '11001', cityName: 'Bogotá D.C.' }));
+    });
+    await page.goto(RUTA);
+
+    // Por el nombre que NO cambia al abrirse: al plegarse dice «Ocultar las propuestas».
+    const plegador = page.getByRole('button', { name: /las propuestas$/ });
+    await plegador.click();
+
+    const confirmar = page.locator('#confirmar-ciudad-1');
+    await expect(confirmar).toHaveAttribute('aria-disabled', 'true');
+
+    // Se alcanza con Tab: `disabled` lo sacaría del orden de tabulación y con él su explicación, así
+    // que quien navega con teclado o con lector no sabría siquiera que la acción existe.
+    await expect(plegador).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirmar).toBeFocused();
+
+    // Y anuncia por qué, con el texto de SU acción y no con el de sincronizar.
+    const idExplicacion = await confirmar.getAttribute('aria-describedby');
+    expect(idExplicacion).toBe('permiso-ciudades');
+    await expect(page.locator(`#${idExplicacion}`)).toContainText(/Confirmar una ciudad.*lo hace administración/s);
+
+    // `force`: Playwright trata `aria-disabled` como inhabilitado y se niega a pulsarlo — que es
+    // justo lo que se quiere. Se fuerza para comprobar que, si alguien lo pulsa de todos modos, no
+    // sale ninguna petición.
+    await confirmar.click({ force: true });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    expect(confirmaciones).toBe(0);
+    await expect(page.getByText(/→ Bogotá D\.C\. \(confirmada\)/)).toHaveCount(0);
+  });
+
+  test('admin dispara las dos acciones: sincroniza y confirma', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const sincronizados: number[] = [];
+    const confirmados: number[] = [];
+    await mockSincronizacion(page, (id) => { sincronizados.push(id); });
+    await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/confirmar/, (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      confirmados.push(Number(/clientes-ciudades\/(\d+)\/confirmar/.exec(route.request().url())![1]));
+      return route.fulfill(json({ clienteId: 1, cityCode: '11001', cityName: 'Bogotá D.C.' }));
+    });
+    await page.goto(RUTA);
+
+    await page.getByRole('checkbox', { name: /TRANSPORTES DEL SUR/ }).check();
+    await page.getByRole('button', { name: /^Sincronizar 1 en pruebas$/ }).click();
+    await expect(page.getByText('Creado en Siigo (1)')).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
+    await page.locator('#confirmar-ciudad-1').click();
+    await expect(page.getByText('TRANSPORTES DEL SUR S.A.S. → Bogotá D.C. (confirmada)')).toBeVisible();
+
+    expect(sincronizados).toEqual([1]);
+    expect(confirmados).toEqual([1]);
+  });
+
+  test('el rol de solo consulta no puede ninguna de las dos, y cada explicación dice quién sí', async ({ page }) => {
+    // `auditor` es el único rol que llega a la pestaña sin poder sincronizar. Sin este caso, el
+    // texto «lo hacen administración y financiera» no lo comprobaría nadie y podría quedarse
+    // diciéndole a financiera que no puede lo que sí puede.
+    await loginAs(page, AUDITOR_USER);
     await mockPanel(page);
     let escrituras = 0;
     await page.route(/\/api\/siigo\/(terceros\/cliente|clientes-ciudades\/\d+\/confirmar)/, (route) => {
@@ -260,46 +361,49 @@ test.describe('AC1 — acceso y permisos por rol', () => {
     });
     await page.goto(RUTA);
 
-    // Ve los informes.
-    await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
     await expect(page.getByText('CARGA RÁPIDA')).toBeVisible();
 
-    // El botón de sincronizar la fila EXISTE y se alcanza (no está `disabled`, que lo sacaría del
-    // orden de tabulación junto con su explicación), pero está marcado como no disponible.
     const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
     await expect(sincronizarFila).toHaveAttribute('aria-disabled', 'true');
-    await sincronizarFila.focus();
-    await expect(sincronizarFila).toBeFocused();
-    // `force`: Playwright trata `aria-disabled` como inhabilitado y se niega a pulsarlo — que es
-    // justo lo que se quiere comprobar. Se fuerza el clic para verificar además que, si alguien lo
-    // pulsa de todos modos, no sale ninguna petición de escritura.
     await sincronizarFila.click({ force: true });
+    const idSincronizar = await sincronizarFila.getAttribute('aria-describedby');
+    expect(idSincronizar).toBe('permiso-terceros-lista');
+    await expect(page.locator(`#${idSincronizar}`))
+      .toContainText('lo hacen administración y financiera');
 
-    // Y la explicación está escrita una sola vez y referenciada desde el botón.
-    const idExplicacion = await sincronizarFila.getAttribute('aria-describedby');
-    expect(idExplicacion).toBe('permiso-terceros-lista');
-    await expect(page.locator(`#${idExplicacion}`)).toContainText(/lo(s)? hace administración/);
-
-    // Lo mismo en la cola de ciudades.
     await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
-    const confirmar = page.getByRole('button', { name: 'Confirmar', exact: true }).first();
+    const confirmar = page.locator('#confirmar-ciudad-1');
     await expect(confirmar).toHaveAttribute('aria-disabled', 'true');
     await confirmar.click({ force: true });
+    await expect(page.locator('#permiso-ciudades')).toContainText('lo hace administración');
 
     expect(escrituras).toBe(0);
   });
 
-  test('admin sí dispone de las dos acciones', async ({ page }) => {
-    await loginAs(page, ADMIN_USER);
+  test('recalcular los duplicados sigue siendo solo de administración, también para financiera', async ({ page }) => {
+    // El tercer permiso del bloque B: `POST /validacion/recalcular-duplicados` está guardado con
+    // `requireRole('admin')`, así que NO se movió con el AC1. Si volviera a colgar del permiso de
+    // sincronizar, financiera vería un botón habilitado que el servidor le devuelve con un 403.
+    await loginAs(page, FINANCIERA_USER);
     await mockPanel(page);
+    let recalculos = 0;
+    await page.route(/\/api\/siigo\/clientes\/validacion\/recalcular-duplicados/, (route) => {
+      if (route.request().method() === 'POST') recalculos += 1;
+      return route.fulfill(json({ marcados: 0, desmarcados: 0 }));
+    });
     await page.goto(RUTA);
 
-    const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
-    await expect(sincronizarFila).not.toHaveAttribute('aria-disabled', 'true');
+    await page.getByRole('button', { name: /Otro cliente tiene la misma identificación/ }).click();
+    await expect(page.getByText(/Filtrado por: Otro cliente tiene la misma identificación/)).toBeVisible();
+    const revisar = page.getByRole('button', { name: 'Volver a revisar los duplicados' });
+    await expect(revisar).toHaveAttribute('aria-disabled', 'true');
+    expect(await revisar.getAttribute('aria-describedby')).toBe('permiso-terceros-duplicados');
+    await expect(page.locator('#permiso-terceros-duplicados'))
+      .toContainText('reescribe las marcas de identificación de las fichas');
 
-    await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
-    await expect(page.getByRole('button', { name: 'Confirmar', exact: true }).first())
-      .not.toHaveAttribute('aria-disabled', 'true');
+    await revisar.click({ force: true });
+    await page.waitForTimeout(200);
+    expect(recalculos).toBe(0);
   });
 });
 

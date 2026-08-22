@@ -19,12 +19,17 @@
 //      o la respuesta. Los errores se pintan con `errorMessage(e)` y nada más.
 //
 // ── Permisos (AC1) ────────────────────────────────────────────────────────────────────────────
-// Confirmar una ciudad y sincronizar son de administración. Ver `BotonAccion.tsx`: ahí está escrito
-// por qué eso es una guía de interfaz y NO un control de seguridad, y cuál es la divergencia con el
-// servidor que sigue abierta.
+// **Dos capacidades, no una.** Sincronizar terceros lo hacen administración y financiera; confirmar
+// una equivalencia de ciudad, solo administración. Cada bloque recibe la suya y ninguna se deriva
+// de la otra: mientras las dos colgaron de un único `esAdmin`, la pantalla le negó a financiera una
+// escritura que el servidor le concedía desde el primer día. Ver `BotonAccion.tsx`: ahí está
+// escrito por qué esto es una guía de interfaz y NO un control de seguridad.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { MotivoNoFacturable, ResumenValidacionClientes } from '@operaciones/shared-types';
+import {
+  puedeEjecutar,
+  type MotivoNoFacturable, type ResumenValidacionClientes,
+} from '@operaciones/shared-types';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import FichaFiscal from '../clientes/FichaFiscal';
@@ -43,8 +48,29 @@ interface CompuertaServidor {
 
 export default function PanelTerceros() {
   const { user } = useAuth();
-  // El AC1 es más estricto que el servidor a propósito. No es seguridad: es guía. Ver BotonAccion.
   const esAdmin = user?.role === 'admin';
+  /**
+   * Una entrada por acción, y al lado la guarda del servidor que refleja. No es seguridad —el 403
+   * lo da el servidor— pero tiene que decir LO MISMO que él: un solo booleano para acciones que el
+   * servidor distingue termina, según hacia dónde se equivoque, negando lo que el endpoint acepta
+   * (lo que pasaba con financiera y la sincronización) u ofreciendo lo que va a rechazar.
+   *
+   * Tres de las cuatro coinciden hoy en `esAdmin` y aun así se declaran aparte: cuando una cambie
+   * —esta HU es el precedente— se moverá sola, sin arrastrar a las otras.
+   */
+  const permisos = {
+    /** `POST /siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')`. Se lee de la MISMA tabla
+     *  que usa el servidor, así que cambiarla mueve las dos a la vez. */
+    sincronizar: puedeEjecutar(user?.role, 'emitir'),
+    /** `POST /siigo/clientes-ciudades/:id/confirmar` → `requireRole('admin')`, y con razón: fija el
+     *  municipio que sale impreso en la factura ante la DIAN. */
+    confirmarCiudad: esAdmin,
+    /** `POST /siigo/clientes/validacion/recalcular-duplicados` → `requireRole('admin')`. Reescribe
+     *  las marcas de identificación de las fichas; no es «parte de sincronizar». */
+    recalcularDuplicados: esAdmin,
+    /** `PATCH /clients/:id` → `requireRole('admin')`. Financiera abre la ficha en solo lectura. */
+    editarFicha: esAdmin,
+  };
 
   /** Sube cada vez que algo pudo mover la cartera: una ficha guardada, una ciudad, un tercero. */
   const [version, setVersion] = useState(0);
@@ -98,7 +124,8 @@ export default function PanelTerceros() {
           version={version}
           motivo={motivo}
           onQuitarFiltro={() => setMotivo(null)}
-          puedeSincronizar={esAdmin}
+          puedeSincronizar={permisos.sincronizar}
+          puedeRecalcularDuplicados={permisos.recalcularDuplicados}
           simulado={simulado}
           onAbrirFicha={abrirFicha}
           onCambio={recargar}
@@ -108,13 +135,13 @@ export default function PanelTerceros() {
 
       <EquivalenciasCiudad
         version={version}
-        puedeConfirmar={esAdmin}
+        puedeConfirmar={permisos.confirmarCiudad}
         onConfirmada={recargar}
       />
 
       <SincronizacionTerceros
         version={version}
-        puedeSincronizar={esAdmin}
+        puedeSincronizar={permisos.sincronizar}
         explicacionPermisoId={ID_EXPLICACION_SINCRONIZAR}
         simulado={simulado}
         ambienteServidor={servidor?.ambiente ?? null}
@@ -130,7 +157,7 @@ export default function PanelTerceros() {
         <FichaFiscal
           clienteId={ficha.clienteId}
           clienteNombre={ficha.nombre}
-          editable={esAdmin}
+          editable={permisos.editarFicha}
           onClose={() => setFicha(null)}
           onGuardado={recargar}
         />

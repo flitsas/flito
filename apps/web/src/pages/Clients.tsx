@@ -33,10 +33,15 @@ import type { VeredictoCliente } from '../components/clientes/tipos';
 
 // Un cliente ES una compañía FLITO: misma tabla. Por eso la autogestión, las tarifas y los datos de
 // contacto se administran en el mismo sitio.
+//
+// Esta interfaz describe lo que `GET /clients` ENTREGA, que ya no es la fila completa sino las 26
+// columnas de `COLUMNAS_LISTADO` (`clients.pii.ts`). `notes` y `active` estaban declarados aquí sin
+// que nadie los leyera; quedarse con ellos sería prometer en el tipo dos campos que la respuesta no
+// trae — y `notes` es texto libre que no debe viajar en un listado de 500 fichas.
 interface Client {
   id: number; name: string; document: string | null; documentType: string | null;
   phone: string | null; email: string | null; address: string | null;
-  city: string | null; notes: string | null; active: boolean;
+  city: string | null;
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
   logisticaPermiteParcial: boolean;
 }

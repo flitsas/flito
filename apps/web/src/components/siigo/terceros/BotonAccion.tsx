@@ -3,14 +3,20 @@
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // ESTO NO ES UN CONTROL DE SEGURIDAD. Es una guía de interfaz.
 //
-// El AC1 dice que confirmar una ciudad y sincronizar terceros los hace **administración**. El
-// servidor no dice exactamente eso: `POST /api/siigo/terceros/cliente/:id` está guardado con
-// `exigirAccionSiigo('emitir')`, que resuelve a `['admin', 'financiera']`, así que financiera SÍ
-// puede sincronizar llamando al endpoint. La pantalla implementa el AC —es el sentido seguro— y
-// queda constancia de que es más estricta que el servidor. Cerrar esa divergencia (¿el endpoint
-// pasa a exigir `admin`, o el AC admite a financiera?) es decisión de tech-lead/PO y está
-// pendiente: **no se resuelve escondiendo botones**. Confirmar la ciudad sí coincide, porque
-// `/clientes-ciudades/:id/confirmar` ya usa `requireRole('admin')`.
+// Quien decide es el servidor, y no decide lo mismo para todas las acciones de esta pestaña:
+//
+//   · `POST /api/siigo/terceros/cliente/:id` → `exigirAccionSiigo('emitir')` = admin + financiera.
+//   · `POST /api/siigo/clientes-ciudades/:id/confirmar` → `requireRole('admin')`.
+//   · `POST /api/siigo/clientes/validacion/recalcular-duplicados` → `requireRole('admin')`.
+//
+// Por eso `permitido` llega POR ACCIÓN y nunca de una bandera «es admin» compartida. Cuando las dos
+// primeras colgaban del mismo booleano, la pantalla le negaba a financiera una sincronización que
+// el endpoint le aceptaba; el AC1 zanjó la divergencia a favor del servidor (decisión de PO del
+// 2026-08-22): financiera sincroniza, y confirmar la ciudad sigue siendo solo de administración
+// porque fija el municipio que se imprime en la factura ante la DIAN.
+//
+// Corolario: inhabilitar un control no protege nada —protege la guarda del servidor—. Esto solo
+// evita pulsar para recibir un 403, y por eso mismo tiene que decir la verdad sobre quién puede.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 //
 // Por qué `aria-disabled` y no `disabled`: `disabled` saca el botón del orden de tabulación, así
@@ -28,9 +34,10 @@ import { flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../
 interface Props {
   /** `id` del botón. Lo usa la cola de ciudades para encadenar el foco sin `forwardRef`. */
   id?: string;
-  /** `false` = el rol no puede: el botón se pinta, se alcanza con Tab y no dispara nada. */
+  /** `false` = el rol no puede ESTA acción: el botón se pinta, se alcanza con Tab y no dispara
+   *  nada. Cada bloque pasa la capacidad que corresponde a su endpoint, no una genérica. */
   permitido: boolean;
-  /** `id` del párrafo que explica por qué no está disponible (uno por bloque). */
+  /** `id` del párrafo que explica por qué no está disponible (uno por acción de cada bloque). */
   explicacionId: string;
   onClick: () => void;
   children: ReactNode;
