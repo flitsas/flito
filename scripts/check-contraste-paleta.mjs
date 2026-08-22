@@ -397,13 +397,27 @@ const GRADIENTES = [
   '--flit-gradient-danger',
 ];
 
-// Muestras por tramo, extremos incluidos. Para texto BLANCO bastarían las paradas: la luminancia
-// a lo largo de un tramo sRGB es convexa en t, así que su MÁXIMO —el peor caso del blanco— cae
-// siempre en un extremo. Pero el mínimo puede caer DENTRO, y ahí es donde fallaría una tinta
-// oscura: con la rampa ink de #11766 el punto medio de `success` da 5,17 y sus extremos 5,07 y
-// 5,14, es decir el interior tiene MÁS contraste que los bordes. Un gradiente no se evalúa por
-// sus extremos como si el contraste interpolara. Muestrear cuesta microsegundos y cubre además
-// una tercera parada. No es el número el que sostiene el gate: es el muestreo.
+// Muestras por tramo, extremos incluidos.
+//
+// Para texto BLANCO, hoy, las dos paradas bastarían: la luminancia a lo largo de un tramo sRGB es
+// convexa en t, así que su MÁXIMO —el peor caso del blanco— cae siempre en un extremo. Conviene
+// decirlo con ese matiz y no vender el muestreo como si salvara el caso de hoy: con las cuatro
+// rampas actuales, bajar MUESTRAS_POR_TRAMO a 2 daría los mismos cuatro veredictos.
+//
+// Se muestrea por lo que el gate tendrá que aguantar mañana, que es donde la demostración de
+// arriba deja de valer: una TERCERA parada (la convexidad es por tramo, y con tres paradas el
+// peor punto puede ser una de las intermedias), un `in oklab` futuro —que ya no interpola por
+// canal en sRGB—, y sobre todo una TINTA OSCURA, para la que lo que importa es el MÍNIMO, y el
+// mínimo sí cae dentro. No es hipotético: con el anillo navy sobre --flit-gradient-sidebar el
+// mínimo está en el 90 % (2,65) y no en el extremo (2,66). Ese caso concreto lo habrían cazado
+// igual las dos paradas —se lleva 0,01—, pero enseña que el interior manda, y no hay ninguna
+// garantía de que la próxima vez el margen vuelva a ser de céntimos.
+//
+// Un gradiente no se evalúa por sus extremos como si el contraste interpolara: en `success` el
+// máximo cae en el 45 % (5,20) por encima de sus dos extremos (5,07 y 5,14), porque entre
+// #1E7B75 y #3C7C17 los canales se mueven en direcciones opuestas.
+//
+// Muestrear cuesta microsegundos. No es el número el que sostiene el gate: es el muestreo.
 const MUESTRAS_POR_TRAMO = 21;
 
 /**

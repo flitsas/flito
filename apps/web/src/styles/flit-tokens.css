@@ -197,20 +197,34 @@
    Vuelve a BLANCO, y conviene entender por qué en dos pasos, porque de lejos parece que #11766
    deshace #11604:
 
-   · #11604 lo puso navy con razón. El anillo era blanco al 65 % y daba 1,45:1 sobre el extremo
+   El umbral aquí es 3:1, no 4,5: un anillo de foco es elemento gráfico (SC 1.4.11), no texto.
+
+   · #11604 lo puso navy con razón. El anillo era blanco al 65 % y daba 1,46:1 sobre el extremo
      cian (#4FD4CC) del gradiente de entonces. Sobre aquel ramo tan claro no había ajuste pequeño
-     posible —ni el blanco puro llegaba, 1,81— y el navy sí cumplía en todo el recorrido: 8,25 en
+     posible —ni el blanco puro llegaba, 1,81— y el navy sí cumplía en todo el recorrido: 8,26 en
      el cian y 3,32 en el azul (#4F74C9).
    · #11766 movió el sustrato, no el criterio. El gradiente del drawer ahora va de #1E7B75 a
-     #4264B7, y sobre ESE ramo el navy se hunde: peor punto 2,65, por debajo del 3:1 que pide
-     SC 1.4.11. El blanco puro, que antes era el que fallaba, ahora es el que cumple: 5,07 en el
-     extremo teal y 5,62 en el índigo.
+     #4264B7, y sobre ESE ramo el navy se hunde: peor punto 2,65, por debajo del 3:1. El blanco
+     puro, que antes era el que fallaba, ahora es el que cumple: 5,07 en el extremo teal y 5,62
+     en el índigo.
 
    Es el mismo acoplamiento en las dos direcciones: el color del anillo y el del gradiente se
    mueven JUNTOS. Cambiar uno sin el otro cierra un incumplimiento abriendo el contrario, y hasta
    #11766 eso no lo veía nadie. Ahora sí: `npm run check:contraste` mide este anillo contra las 21
-   muestras de --flit-gradient-sidebar. El alfa se queda en 1: sobre estos fondos un blanco
-   translúcido no cumple (al 65 % da 3,10, y en el extremo índigo aún menos).
+   muestras de --flit-gradient-sidebar.
+
+   Por qué alfa 1 y no un blanco translúcido, que es la duda que trae cualquiera que toque esto:
+   un blanco al 65 % SÍ CUMPLE sobre este ramo —peor punto 3,10, y el gate sale en verde—, así
+   que descartarlo por «no llega» sería falso. Se descarta por margen y por dependencia:
+
+     · 3,10 contra un mínimo de 3 deja 0,10 de margen. El blanco opaco deja 2,07 (5,07 en su peor
+       punto). Cualquier retoque futuro del ramo se come el primero sin que nadie lo note.
+     · un anillo translúcido no tiene color propio: se compone con lo que haya DEBAJO, así que su
+       ratio se mueve cada vez que se mueve el gradiente. El opaco vale 5,07 pase lo que pase.
+
+   Y de paso, contra la intuición: el peor punto del anillo es el extremo TEAL, no el índigo — al
+   65 % el teal da 3,10 y el índigo 3,39. Con el opaco, 5,07 contra 5,62. El teal manda en los dos
+   casos, que es también por lo que el gate lo señala en el 0 %.
 
    Y sigue SIN el prefijo `.flit-app`: su ÚNICO consumidor es FlitSidebar, que se pinta dentro
    de un ModalPortal colgado de <body>. Con el prefijo la regla no llegaba nunca y el drawer

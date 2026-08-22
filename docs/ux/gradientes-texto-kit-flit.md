@@ -9,7 +9,7 @@
 > §6.2 (los 3 gradientes a pelo), §6.3 (los 10 puntos de blanco con alfa), §6.4 (los 3
 > `hover:opacity`) y §6.5 (el gate de §8.1, añadido y visto en ROJO antes de mover un solo token).
 >
-> **Dos deltas medidos al implementar, declarados en vez de corregidos en el cuerpo:**
+> **Tres deltas medidos al implementar, declarados en vez de corregidos en el cuerpo:**
 > 1. §1.2 dice «109 puntos en 58 archivos». Remedido sobre `develop` (352b08b) el 2026-08-22:
 >    **112 puntos en 60 archivos**. `develop` avanzó entre el análisis y la implementación
 >    (`ResumenFacturabilidad`, `TransitoBandeja`, `TransitoOrganismos` son consumidores nuevos).
@@ -17,6 +17,10 @@
 > 2. §6.4 mide `hover:opacity-90` sobre `danger` en **4.93 ✅** — ese número es del ramo ANTERIOR.
 >    Sobre el ramo ink el mismo hover da **4.64**: sigue cumpliendo, pero con menos margen. No
 >    cambia la acción prescrita (los tres pasan a `hover:brightness-95`, medido en 4.92 / 5.31).
+> 3. §4.2 pone el 50 % de `success` en **5.20**. Muestreado con el redondeo por canal que usa el
+>    gate, el 50 % exacto (`#2d7c46`) da **5.14**; el 5.20 existe, pero cae en el **45 %**. El
+>    argumento de §8.1 —que el interior puede superar a los dos extremos (5.07 y 5.14)— **se
+>    sostiene**: sólo se mueve el punto donde ocurre.
 >
 > **Refinamiento sobre §4.1, medido:** las paradas de los cuatro gradientes se escriben como
 > `var(--flit-*-ink)` en vez de repetir el hex. Los valores pintados son **exactamente** los de

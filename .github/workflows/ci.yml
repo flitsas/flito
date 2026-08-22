@@ -47,13 +47,20 @@ jobs:
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
-      # Bug #11720 (oscuro) · Bug #11767 (claro) — contraste de la CommandPalette en LOS DOS
-      # temas. Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI NO ejecuta
-      # E2E y `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser
-      # invisible en oscuro —o que el placeholder vuelva al 50 % del preflight en claro— no lo
-      # detectaría nadie hasta que lo reporte una persona. El tema claro es el de por defecto y
-      # estuvo sin cubrir hasta el #11767: el gate medía sólo el minoritario.
-      - name: Contraste CommandPalette (claro + oscuro)
+      # Contraste, DOS invariantes distintas en el mismo script:
+      #   · Bug #11720 (oscuro) · Bug #11767 (claro) — la CommandPalette en LOS DOS temas. El
+      #     claro es el de por defecto y estuvo sin cubrir hasta el #11767: se medía sólo el
+      #     minoritario.
+      #   · Bug #11766 — que todo punto de todo `--flit-gradient-*` admita texto blanco, y que el
+      #     anillo `.flit-focus-light` cumpla sobre el gradiente del drawer. Son los cuatro
+      #     gradientes del kit: el mayor sustrato de texto del producto.
+      #
+      # Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI NO ejecuta E2E y
+      # `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser invisible
+      # en oscuro —o que un gradiente vuelva a llevar blanco a 1,81— no lo detectaría nadie hasta
+      # que lo reporte una persona. Con los gradientes hay además un motivo de más: `axe` no mide
+      # un fondo `background-image`, lo marca `incomplete`, así que ni ejecutando E2E saltaría.
+      - name: Contraste (CommandPalette claro+oscuro · gradientes FLIT · anillo de foco)
         run: npm run check:contraste
 
       # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
