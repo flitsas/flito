@@ -16,15 +16,23 @@
 // que usa el informe de facturabilidad — que es lo que permite responder «¿quién ha leído nombres de
 // clientes?» con UNA consulta en vez de tres.
 //
-// `/estado` no registra: devuelve seis conteos y ni un identificador. `/:id/propuesta` tampoco, y
-// eso NO es una decisión sino deuda declarada: entrega el nombre de un cliente y le falta el rastro,
-// pero esta pantalla no la llama y su HU es otra. Está inventariada en `siigo.pii.ts`.
+// `/estado` no registra: devuelve seis conteos y ni un identificador.
+//
+// `/:id/propuesta` tampoco, y la razón NO es la que decía la primera versión de este comentario.
+// Decía que «entrega el nombre de un cliente», y es falso: `propuestaDeCliente` proyecta solo
+// `clients.city`. Lo que sí devuelve es esa ciudad, dentro de `textoOrigen` — o sea que tampoco es
+// una ruta sin datos personales, solo que los que entrega son otros. Queda fuera porque esta
+// pantalla no la llama (es de la ficha fiscal, HU #11298) y su rastro va con la HU de seguimiento,
+// no porque no le haga falta. Un inventario que describe mal la deuda hace que la HU que la recoja
+// se dimensione sobre un dato que no existe.
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { CAMPOS_PII_NOMBRE_CLIENTE, registrarAccesoCliente } from './siigo.pii.js';
+import {
+  CAMPOS_PII_EQUIVALENCIA_OBSOLETA, CAMPOS_PII_PROPUESTA_CIUDAD, registrarAccesoCliente,
+} from './siigo.pii.js';
 import {
   SiigoCiudadMapeoError, confirmarCiudad, equivalenciasObsoletas,
   estadoMapeoCiudades, proponerEquivalencias, propuestaDeCliente,
@@ -73,7 +81,8 @@ router.get('/propuestas', LECTURA, async (req: Request, res: Response) => {
     // `limit`: quien la llama se lleva SIEMPRE todos los clientes pendientes que haya.
     await registrarAccesoCliente(req, {
       accion: 'search',
-      campos: CAMPOS_PII_NOMBRE_CLIENTE,
+      // Nombre Y ciudad: la respuesta trae `ciudadTexto`, que es `clients.city` del titular.
+      campos: CAMPOS_PII_PROPUESTA_CIUDAD,
       filas: data.length,
       filtros: { pais: parsed.data.pais },
     });
@@ -88,7 +97,8 @@ router.get('/obsoletas', LECTURA, async (req: Request, res: Response) => {
   const data = await equivalenciasObsoletas();
   await registrarAccesoCliente(req, {
     accion: 'search',
-    campos: CAMPOS_PII_NOMBRE_CLIENTE,
+    // Una ubicación más que `/propuestas`: esta lista compara la ciudad de hoy con la confirmada.
+    campos: CAMPOS_PII_EQUIVALENCIA_OBSOLETA,
     filas: data.length,
   });
   res.json({ total: data.length, data });

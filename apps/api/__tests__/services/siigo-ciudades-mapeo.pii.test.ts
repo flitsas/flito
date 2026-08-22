@@ -9,8 +9,10 @@
 // Lo que se demuestra:
 //
 //   1. **Las dos listas dejan rastro**, con recurso, acción, campos y cuántas filas se entregaron.
-//   2. **Se declara `name` y NADA más**: por aquí no sale la identificación, y decir que sí haría
-//      que «¿quién ha leído documentos?» señalara a quien solo vio nombres.
+//   2. **Se declara lo que cada lista entrega, ni de más ni de menos**: nombre y ciudad —la
+//      ubicación del titular es dato personal, AGENTS.md §14—, y en `/obsoletas` además el texto de
+//      origen confirmado. La identificación NO sale por aquí, y decir que sí haría que «¿quién ha
+//      leído documentos?» señalara a quien solo vio nombres.
 //   3. **`/estado` no registra**: seis conteos, ni un identificador. El rastro es señal o no sirve.
 //   4. **Un 403 y un fallo del servicio no registran**: nadie llegó a mirar nada.
 //   5. **El rastro no copia lo leído**: el nombre del cliente no aparece en el motivo.
@@ -58,7 +60,9 @@ vi.mock('../../src/modules/siigo/siigo.ciudades-mapeo.service.js', async (import
   };
 });
 
-const { CAMPOS_PII_NOMBRE_CLIENTE, RECURSO_CLIENTE } = await import('../../src/modules/siigo/siigo.pii.js');
+const {
+  CAMPOS_PII_EQUIVALENCIA_OBSOLETA, CAMPOS_PII_PROPUESTA_CIUDAD, RECURSO_CLIENTE,
+} = await import('../../src/modules/siigo/siigo.pii.js');
 const { SiigoCiudadMapeoError } = await import('../../src/modules/siigo/siigo.ciudades-mapeo.service.js');
 
 const BASE = '/api/siigo/clientes-ciudades';
@@ -112,8 +116,8 @@ describe('AGENTS.md §16 — las listas de equivalencia dejan rastro', () => {
     expect(ultimoAcceso()).toMatchObject({
       resourceTipo: RECURSO_CLIENTE,
       accion: 'search',
-      // Solo el nombre: la identificación no sale por esta ruta.
-      camposAccedidos: ['name'],
+      // Nombre y ciudad: `ciudadTexto` es `clients.city`. La identificación no sale por aquí.
+      camposAccedidos: ['name', 'city'],
       resourceId: null,
     });
     // La ruta no acepta `limit`: quien la llama se lleva todos los pendientes que haya, y `filas` es
@@ -132,14 +136,18 @@ describe('AGENTS.md §16 — las listas de equivalencia dejan rastro', () => {
     expect(ultimoAcceso()).toMatchObject({
       resourceTipo: RECURSO_CLIENTE,
       accion: 'search',
-      camposAccedidos: ['name'],
+      // Una ubicación más: esta lista compara la ciudad de hoy con la que se confirmó.
+      camposAccedidos: ['name', 'city', 'city_texto_origen'],
       resourceId: null,
     });
     expect(ultimoAcceso().motivo).toContain('filas=1');
   });
 
-  it('las dos usan la MISMA lista de campos, que es lo que hace consultable el log', async () => {
-    expect(CAMPOS_PII_NOMBRE_CLIENTE).toEqual(['name']);
+  it('las listas de campos declaran la ubicación, que también es dato del titular', async () => {
+    // Sub-declararlas fue el hallazgo de la re-auditoría: las dos respuestas traen la ciudad del
+    // cliente y el log decía que solo se habían leído nombres.
+    expect(CAMPOS_PII_PROPUESTA_CIUDAD).toEqual(['name', 'city']);
+    expect(CAMPOS_PII_EQUIVALENCIA_OBSOLETA).toEqual(['name', 'city', 'city_texto_origen']);
   });
 
   it('el rastro no copia el nombre que se leyó', async () => {
@@ -150,8 +158,10 @@ describe('AGENTS.md §16 — las listas de equivalencia dejan rastro', () => {
     const escrito = JSON.stringify(ultimoAcceso());
     expect(escrito).not.toContain('PEDRO');
     expect(escrito).not.toContain('ACME');
-    // Lo que sí lleva es el nombre de la COLUMNA.
+    expect(escrito).not.toContain('BOGOTA');
+    // Lo que sí lleva son los nombres de COLUMNA.
     expect(escrito).toContain('name');
+    expect(escrito).toContain('city');
   });
 });
 

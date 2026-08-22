@@ -56,8 +56,30 @@ export function maskPhone(phone: string | null | undefined): string {
 }
 
 /**
+ * Enmascara una dirección: no deja NADA.
+ *
+ * A diferencia de un documento o un teléfono, una dirección no tiene una parte inocua que enseñar.
+ * «CRA 43 # 1-20» ya localiza a alguien sin los últimos tres caracteres, y el patrón de
+ * primeros-2/últimos-3 de `maskDocument` sobre un texto libre deja legible justo el prefijo que
+ * ubica la manzana. Se devuelve un marcador de longitud: para un log lo que importa es que el campo
+ * VENÍA (por eso no es cadena vacía) y cuánto ocupaba, no qué decía.
+ *
+ * - "CRA 43 # 1-20" → "*** (13 car.)"
+ * - null → ''
+ */
+export function maskAddress(address: string | null | undefined): string {
+  if (!address) return '';
+  return `*** (${String(address).trim().length} car.)`;
+}
+
+/**
  * Enmascara TODOS los campos PII de un objeto antes de loggear o auditar.
  * Útil para `audit({ detail: JSON.stringify(maskPII(obj)) })`.
+ *
+ * **Solo enmascara valores `string`**: lo que no lo sea sale tal cual, a propósito —un booleano o
+ * una fecha no identifican a nadie—. Quien pueda recibir un dato personal en otro tipo (una cédula
+ * que llegó por `z.coerce.number()`, por ejemplo) tiene que normalizarlo a texto ANTES de llamar
+ * aquí; `siigo.pii.ts` lo hace así y explica por qué.
  */
 export function maskPII<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -73,6 +95,10 @@ export function maskPII<T extends Record<string, unknown>>(obj: T): Record<strin
       out[k] = maskPhone(v);
     } else if (lk.includes('name') || lk.includes('nombre') || lk.includes('apellido') || lk.includes('full_name') || lk.includes('owner_name') || lk.includes('propietario')) {
       out[k] = maskName(v);
+    } else if (lk.includes('address') || lk.includes('direcci')) {
+      // `direcci` y no `direccion`: cubre «dirección» con tilde sin depender de la normalización.
+      // AGENTS.md §14 nombra la dirección entre lo que no puede viajar en claro a un log.
+      out[k] = maskAddress(v);
     } else {
       out[k] = v;
     }

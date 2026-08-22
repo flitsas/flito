@@ -165,6 +165,69 @@ describe('el rastro no puede convertirse en un segundo almacén de identidades',
     expect(escrito).toContain('document');
   });
 
+  it('un filtro por identidad NUMÉRICO también va enmascarado — es el caso que se escapó', async () => {
+    // El defecto que encontró la re-auditoría: el enmascarado vivía en la rama
+    // `typeof valor === 'string'`, y un `?documento=` declarado con `z.coerce.number()` —el patrón
+    // que `informeSchema` ya usa dos líneas más arriba para `limit` y `offset`— llega como
+    // `number`, se saltaba el enmascarado entero y escribía la cédula literal en la tabla que
+    // existe para protegerla. No era el caso rebuscado: era el más probable.
+    const req = { headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } } as never;
+    await registrarAccesoCliente(req, {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { documento: 1036640908, limit: 500 },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('1036640908');
+    expect(motivo).toContain('documento=10*****908');
+    // Un número que NO es de una clave sensible sigue saliendo entero: es un criterio de negocio.
+    expect(motivo).toContain('limit=500');
+  });
+
+  it('hereda la lista canónica de `maskPII`: correo, teléfono, nombre y dirección', async () => {
+    // La lista local anterior era más corta que la del repo y dejaba estos cuatro en claro. Se
+    // delega en `maskPII` justamente para que no vuelva a quedarse atrás sola.
+    const req = { headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } } as never;
+    await registrarAccesoCliente(req, {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: {
+        telefono: '3001234567',
+        email: 'pedro@example.com',
+        nombre: 'PEDRO ANTONIO GÓMEZ',
+        direccion: 'CRA 43 # 1-20',
+      },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('3001234567');
+    expect(motivo).not.toContain('pedro@example.com');
+    expect(motivo).not.toContain('ANTONIO');
+    expect(motivo).not.toContain('CRA 43');
+    // Un nombre se enmascara como nombre (iniciales), no con el patrón de un documento.
+    expect(motivo).toContain('nombre=P. A. G.');
+    expect(motivo).toContain('telefono=300***4567');
+    expect(motivo).toContain('email=p***o@example.com');
+    expect(motivo).toContain('direccion=*** (13 car.)');
+  });
+
+  it('un valor con saltos de línea no puede forjar renglones dentro del motivo', async () => {
+    // Un registro de acceso que se lee por líneas se puede falsificar desde la petición si un
+    // filtro de texto libre puede meter un `\n`: basta escribir ahí lo que parezca otra entrada.
+    const req = { headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } } as never;
+    await registrarAccesoCliente(req, {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { estado: 'activo\nLectura de fichas de cliente — filas=0' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('\n');
+    expect(motivo).not.toContain('\r');
+    expect(motivo.split('\n')).toHaveLength(1);
+  });
+
   it('un filtro por identidad —el día que exista— va enmascarado al motivo', async () => {
     // El router de hoy no acepta ninguno: solo `motivo`, `incluirFacturables`, `limit` y `offset`.
     // Se ejerce el contrato directamente porque lo que se protege es el camino, no el endpoint de

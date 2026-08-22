@@ -37,6 +37,17 @@ vi.mock('../../src/shared/redis.js', () => ({
 const auditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 
+/**
+ * El registro de salida de PII hacia Siigo (HU #11299) se neutraliza aquí y se prueba en
+ * `siigo-terceros.pii.test.ts`, que es su sitio. Sin el mock, el `db.insert` de arriba —un `vi.fn()`
+ * que devuelve `undefined`— hace fallar el INSERT de `pii_access_log`; no rompe nada, porque
+ * `logPiiAccess` es best-effort, y por eso mismo dejaría un ERROR de ruido en una suite que mira la
+ * traducción de errores HTTP.
+ */
+vi.mock('../../src/shared/pii-audit.js', () => ({
+  logPiiAccess: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../src/modules/siigo/siigo.operaciones.repo.js', () => ({
   registrarOperacion: vi.fn().mockResolvedValue(undefined),
 }));

@@ -13,12 +13,23 @@
 // acceso ya estaba bien (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder
 // reconstruir QUIÉN leyó el padrón.
 //
-// El corte del alcance: este archivo cubre **todas las lecturas de identidad que hace el panel que
-// entrega esta HU** —las tres del informe de facturabilidad y las dos listas de equivalencia de
-// ciudad—. Las que el panel no toca (`GET /clientes-ciudades/:id/propuesta`, el `select()` sin
-// proyección de `terceros.routes.ts`, el job de archivo) quedan inventariadas para una HU aparte:
-// cerrar una puerta y dejar abiertas otras dos de la MISMA pantalla sería media corrección, pero
-// arrastrar aquí lo que este PR no entrega sería otra cosa distinta.
+// El corte del alcance: este archivo cubre **todo lo que el panel que entrega esta HU hace con
+// identidades** — las tres rutas del informe de facturabilidad, las dos listas de equivalencia de
+// ciudad y el `POST /terceros/cliente/:id`, que no es una lectura sino una SALIDA de datos hacia
+// Siigo (`accion: 'export'`).
+//
+// Queda fuera, inventariado para la HU de seguimiento y descrito como es —un inventario que
+// exagera o que se equivoca hace que la HU que lo recoja se dimensione sobre algo que no existe—:
+//
+//   · `GET /clientes-ciudades/:id/propuesta` — NO devuelve el nombre (proyecta solo `clients.city`),
+//     pero sí devuelve esa ciudad en `textoOrigen`. Es de la ficha fiscal (HU #11298), no de este
+//     panel.
+//   · `GET /terceros/cliente/:clienteId` — `select()` sin proyección sobre `siigo_terceros`:
+//     devuelve `identificacion`, la copia del documento. Cualquier columna que se añada mañana sale
+//     sola. El panel usa el POST, no este GET.
+//   · `siigo.archivo-documentos.service.ts` — lee `clients.document` para resolver la carpeta de
+//     storage. Es un job sin `req`, así que es de otra naturaleza: `logPiiAccess` se apoya en una
+//     petición.
 //
 // Existe aparte del router por el mismo motivo que `flito-conciliacion.pii.ts` y
 // `flito-comparendos.pii.ts`, que son sus precedentes exactos: son varios endpoints que devuelven lo
@@ -35,7 +46,7 @@
 
 import type { Request } from 'express';
 import { logPiiAccess } from '../../shared/pii-audit.js';
-import { maskDocument } from '../../shared/utils/pii.js';
+import { maskPII } from '../../shared/utils/pii.js';
 
 /**
  * `resource_tipo` de una lectura de fichas de cliente.
@@ -64,20 +75,63 @@ export const RECURSO_CLIENTE = 'client';
 export const CAMPOS_PII_VEREDICTO = ['name', 'document'] as const;
 
 /**
- * Lo personal que entregan las listas de equivalencia de ciudad: el NOMBRE del cliente y nada más.
+ * Lo personal que entrega `GET /clientes-ciudades/propuestas`: el nombre del cliente y su ciudad.
  *
- * `GET /clientes-ciudades/propuestas` y `/obsoletas` devuelven `{ clienteId, nombre, ciudad… }` de
- * todos los clientes activos que cumplen el criterio, **sin paginar y sin tope** —a diferencia del
- * informe de facturabilidad, que al menos está acotado a 500—, así que en volumen son la lectura
- * más grande del módulo. La identificación no sale por ahí, y por eso `document` NO va en esta
- * lista: declararlo haría que «¿quién ha leído documentos?» señalara a quien solo vio nombres, que
- * es la misma exageración que se evita en {@link CAMPOS_PII_RESUMEN} por el otro lado.
+ * La lista va COMPLETA —sin paginar y sin tope, a diferencia del informe de facturabilidad, que al
+ * menos está acotado a 500—, así que en volumen es la lectura de identidades más grande del módulo.
+ *
+ * `city` está aquí desde la re-auditoría de la HU #11299 y su ausencia era un error, no una
+ * omisión discutible: la respuesta trae `ciudadTexto` —que ES `clients.city`— y además lo repite
+ * dentro de `propuesta.textoOrigen`. Por el mismo criterio que fija el resto de este archivo —lo
+ * que decide es si la RESPUESTA entrega datos personales—, la ubicación del titular lo es;
+ * AGENTS.md §14 nombra la dirección en esa lista. La identificación, en cambio, NO sale por aquí, y
+ * por eso `document` no está: declararlo señalaría a quien solo vio nombres y ciudades.
  *
  * Que un nombre sea dato personal no depende de si el cliente es una empresa: `clients` mezcla
  * personas naturales y jurídicas en la misma tabla —es justo lo que el validador tiene que
  * clasificar—, así que la lista lleva nombres de persona sí o sí.
  */
-export const CAMPOS_PII_NOMBRE_CLIENTE = ['name'] as const;
+export const CAMPOS_PII_PROPUESTA_CIUDAD = ['name', 'city'] as const;
+
+/**
+ * Lo que entrega `GET /clientes-ciudades/obsoletas`: lo anterior MÁS el texto de origen confirmado.
+ *
+ * Devuelve `ciudadActual` (`clients.city`) y `textoConfirmado` (`clients.city_texto_origen`), que
+ * son dos ubicaciones del mismo titular en dos momentos distintos — precisamente lo que hace útil
+ * la lista. Se declaran las dos columnas y no una: el log tiene que poder decir qué se leyó.
+ */
+export const CAMPOS_PII_EQUIVALENCIA_OBSOLETA = ['name', 'city', 'city_texto_origen'] as const;
+
+/**
+ * Lo que SALE HACIA SIIGO al asegurar un tercero, que es un tercero externo (`accion: 'export'`).
+ *
+ * `POST /siigo/terceros/cliente/:clienteId` no es una lectura interna: `armarTercero` compone el
+ * cuerpo del `POST`/`PUT` a `/v1/customers` con la ficha del cliente, y ahí van nombre, nombre
+ * comercial, identificación, dirección, ubicación, teléfono y los datos del contacto. Que el dato
+ * cruce la frontera del sistema es exactamente la distinción que la columna `accion` existe para
+ * poder reconstruir, y `audit()` no la cubre: la bitácora anota la operación de negocio («tercero
+ * creado»), no qué datos personales salieron.
+ *
+ * Se nombran las columnas de `clients`, no las claves del JSON de Siigo (`identification`,
+ * `commercial_name`), por lo mismo de siempre: el log tiene que cruzarse con la tabla real.
+ */
+export const CAMPOS_PII_TERCERO_EXPORTADO = [
+  'name', 'commercial_name', 'document', 'address',
+  'country_code', 'state_code', 'city_code',
+  'phone_indicative', 'phone_number',
+  'contact_first_name', 'contact_last_name', 'contact_email',
+] as const;
+
+/**
+ * Solo la identificación, para cuando eso es lo ÚNICO que sale.
+ *
+ * Es el caso de `desenlace: 'sin_cambios'` —la rama más frecuente de asegurar un tercero: la huella
+ * coincide, no se hace ni una petición a Siigo— y el de `'vinculado_existente'`, donde lo que viajó
+ * fuera fue la identificación dentro del `GET /v1/customers?identification=…`. En los dos, el
+ * cuerpo devuelve `identificacion` en claro a quien preguntó. Declarar aquí los doce campos del
+ * export completo diría que salió una ficha entera que no salió.
+ */
+export const CAMPOS_PII_IDENTIFICACION = ['document'] as const;
 
 /**
  * Lo que entrega el resumen de facturabilidad: **nada personal**, y por eso la lista va vacía.
@@ -98,8 +152,11 @@ export const CAMPOS_PII_NOMBRE_CLIENTE = ['name'] as const;
 export const CAMPOS_PII_RESUMEN: readonly string[] = [];
 
 export interface AccesoCliente {
-  /** `search` = barrido o listado; `read` = la ficha de un cliente concreto. */
-  accion: 'read' | 'search';
+  /**
+   * `search` = barrido o listado; `read` = la ficha de un cliente concreto; `export` = los datos
+   * SALEN del sistema hacia Siigo, que es un tercero externo.
+   */
+  accion: 'read' | 'search' | 'export';
   /** Columnas personales que la RESPUESTA devuelve. Usar las constantes de este archivo. */
   campos: readonly string[];
   /**
@@ -121,34 +178,55 @@ export interface AccesoCliente {
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */
 const MOTIVO_MAX = 200;
 
-/** Claves de filtro cuyo VALOR es un dato personal y no puede ir literal al motivo. */
-const FILTRO_SENSIBLE = /nit|documento|document|cedula|c[eé]dula|identificacion|identificaci[oó]n|nombre|name/i;
+/** Lo que cabe de un filtro en el motivo, ya enmascarado. `motivo` es `varchar(200)` en total. */
+const VALOR_MAX = 40;
+
+/**
+ * Deja el valor en una sola línea antes de meterlo en `motivo`.
+ *
+ * Un filtro de texto libre —hoy no hay ninguno, mañana puede haberlo— con un `\n` dentro partiría
+ * el motivo en dos renglones, y un registro de acceso que se lee por líneas se puede FORJAR desde
+ * la petición: basta escribir ahí lo que parezca otra entrada. Se colapsan todos los caracteres de
+ * control, no solo el salto de línea, porque el retorno de carro y el tabulador dan el mismo
+ * resultado en cualquier visor.
+ */
+function unaLinea(valor: string): string {
+  // eslint-disable-next-line no-control-regex -- son EXACTAMENTE lo que hay que quitar, no un descuido.
+  return valor.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, VALOR_MAX);
+}
 
 /**
  * Resume los filtros para el motivo, enmascarando los valores personales.
  *
- * Hoy este router no acepta ningún filtro por identidad —solo `motivo`, `incluirFacturables`,
- * `limit` y `offset`, que son criterios de negocio—, así que el enmascarado no tiene nada que hacer.
- * Va igual, y no por simetría con `flito-comparendos.pii.ts`: el día que alguien añada un
- * `?documento=` al informe —que es la petición más natural del mundo para una pantalla de
- * corrección— el valor entraría solo en el motivo, y escribir la cédula dentro del rastro de quién
- * la miró es publicar el dato en el registro que existe para protegerlo. Se conserva la CLAVE
- * siempre: saber que alguien buscó «por documento» es justamente lo que hace útil el registro.
+ * **Delega en `maskPII`** (`shared/utils/pii.ts`) en vez de llevar su propia lista de claves
+ * sensibles, y esto es una corrección, no una preferencia de estilo. La versión anterior tenía un
+ * regex local —más corto que el canónico: no cubría correo, teléfono ni apellido— y, peor, solo
+ * enmascaraba la rama `typeof valor === 'string'`: un `?documento=` declarado con
+ * `z.coerce.number()` —el patrón que `informeSchema` ya usa dos líneas más arriba para `limit` y
+ * `offset`— llegaba aquí como `number`, se saltaba el enmascarado entero y escribía la cédula
+ * literal dentro de la tabla que existe para protegerla. No era el caso rebuscado: era el más
+ * probable.
+ *
+ * De ahí el `String(valor)` ANTES de enmascarar: `maskPII` solo toca `string` a propósito —un
+ * booleano no identifica a nadie—, así que normalizar es lo que cierra la rama de tipo. Y delegar
+ * es lo que hace que la lista no vuelva a quedarse corta: cuando alguien añada una clave al
+ * catálogo canónico, este módulo la hereda sin acordarse de este archivo.
+ *
+ * Se conserva la CLAVE siempre: saber que alguien buscó «por documento» es justamente lo que hace
+ * útil el registro. Los objetos y arrays no se vuelcan.
  */
 function resumirFiltros(filtros: Record<string, unknown>): string {
   const partes: string[] = [];
   for (const [clave, valor] of Object.entries(filtros)) {
     if (valor === undefined || valor === null || valor === '') continue;
-    if (typeof valor === 'string') {
-      partes.push(`${clave}=${FILTRO_SENSIBLE.test(clave) ? maskDocument(valor) : valor.slice(0, 40)}`);
+    if (typeof valor === 'object') {
+      // Constancia de que el filtro se usó, sin volcar su contenido: no cabría en 200 caracteres y
+      // enmascararlo campo a campo aquí sería reimplementar `maskPII` para un caso que no existe.
+      partes.push(`${clave}=[…]`);
       continue;
     }
-    if (typeof valor === 'number' || typeof valor === 'boolean') {
-      partes.push(`${clave}=${String(valor)}`);
-      continue;
-    }
-    // Arrays y objetos: constancia de que el filtro se usó, sin volcar su contenido.
-    partes.push(`${clave}=[…]`);
+    const enmascarado = maskPII({ [clave]: String(valor) })[clave];
+    partes.push(`${clave}=${unaLinea(String(enmascarado))}`);
   }
   return partes.join(' ');
 }

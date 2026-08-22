@@ -7,6 +7,14 @@
 //
 // Las guardas van como middleware ANTES del handler, nunca dentro: así una ruta nueva que se olvide
 // de la guarda se nota leyendo el `router.<verbo>`.
+//
+// ── Salida de datos personales (HU #11299) ───────────────────────────────────────────────────────
+//
+// El `POST` deja registro en `pii_access_log` con `accion: 'export'`: manda a Siigo —un proveedor
+// externo— la ficha del cliente y devuelve su identificación en el cuerpo. El `GET` de aquí abajo
+// también entrega `identificacion` y NO registra: es deuda declarada en `siigo.pii.ts` para la HU
+// de seguimiento, porque el panel de la HU #11299 usa el POST y no el GET. Escribirlo aquí para que
+// quien añada el rastro no tenga que descubrirlo.
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -20,6 +28,9 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { exigirAccionSiigo } from './siigo.permisos.js';
+import {
+  CAMPOS_PII_IDENTIFICACION, CAMPOS_PII_TERCERO_EXPORTADO, registrarAccesoCliente,
+} from './siigo.pii.js';
 import { asegurarTercero, SiigoTerceroError, vinculoDeCliente } from './siigo.terceros.service.js';
 import {
   ClienteNoFacturableError, COLUMNAS_CLIENTE_EVALUABLE,
@@ -134,6 +145,32 @@ router.post('/cliente/:clienteId', ESCRITURA, asegurarLimiter, async (req: Reque
 
   try {
     const r = await asegurarTercero(id.data);
+
+    // Registro de acceso a PII (HU #11299, Ley 1581 art. 17). Va con `accion: 'export'` y no con
+    // `read` porque aquí los datos SALEN del sistema: `armarTercero` manda a Siigo —un tercero
+    // externo— nombre, identificación, dirección, ubicación, teléfono y contacto, y el cuerpo
+    // devuelve además la identificación en claro a quien preguntó. El panel llama a esta ruta en
+    // bucle sobre la lista de no facturables, así que es la salida de identidades más repetida de
+    // la pantalla.
+    //
+    // NO lo cubre el `audit()` de abajo, y no es redundancia: la bitácora responde «quién CREÓ un
+    // tercero» —una operación de negocio— y esto responde «qué datos personales salieron y de
+    // quién». Cuando un titular pregunte a quién se le entregaron sus datos, la respuesta está en
+    // esta tabla y no en la otra.
+    //
+    // Los campos se eligen por DESENLACE, porque no todos los caminos exportan lo mismo:
+    // `sin_cambios` no hace ni una petición a Siigo —la huella coincide— y `vinculado_existente`
+    // solo mandó la identificación en la consulta. Declarar los doce campos en esos dos casos diría
+    // que salió una ficha entera que nunca salió.
+    const escribioEnSiigo = r.desenlace === 'creado' || r.desenlace === 'actualizado';
+    await registrarAccesoCliente(req, {
+      accion: 'export',
+      campos: escribioEnSiigo ? CAMPOS_PII_TERCERO_EXPORTADO : CAMPOS_PII_IDENTIFICACION,
+      clienteId: r.clienteId,
+      // El desenlace, no la identificación: el motivo dice qué pasó, no qué dato salió.
+      filtros: { desenlace: r.desenlace, sucursal: r.sucursal },
+    });
+
     // La auditoría anota el desenlace, que es lo que alguien querrá reconstruir después: no es lo
     // mismo haber creado un tercero en Siigo que haberse vinculado a uno que ya estaba.
     await audit(req, {
