@@ -340,6 +340,29 @@ describe('POST /forget — flujo principal', () => {
   });
 });
 
+describe('POST /forget — el olvido alcanza las direcciones del módulo Siigo (HU #11708)', () => {
+  it('purga también las direcciones ELEGIDAS al enviar, no solo las de las actas', async () => {
+    // Desde la HU #11708 el lote de facturación guarda las direcciones que alguien escribió en el
+    // envío, porque la emisión ocurre después y en otro proceso. Es el segundo sitio del módulo con
+    // datos personales: si el olvido no lo alcanzara, al titular se le respondería que se le olvidó
+    // mientras una copia sigue viva en una tabla que nadie mira. El resumen es la prueba de que la
+    // tabla entró en la transacción del olvido, no un adorno del cuerpo de la respuesta.
+    selectMock.mockReturnValueOnce(chain([]));
+    selectMock.mockReturnValueOnce(chain([]));
+    transactionMock.mockImplementationOnce(buildTxMock());
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '900123456', reason: 'titular ejerce derecho al olvido' });
+
+    expect(r.status).toBe(200);
+    expect(r.body.summary.siigo_lotes_facturacion).toBeGreaterThan(0);
+    // Y las actas se siguen redactando: esta historia añadió una tabla, no sustituyó a la otra.
+    expect(r.body.summary.siigo_factura_envios).toBeGreaterThan(0);
+  });
+});
+
 describe('GET /preview/:docNumber', () => {
   it('docNumber < 3 chars → 400', async () => {
     const token = await testToken({ sub: 1, role: 'admin' });

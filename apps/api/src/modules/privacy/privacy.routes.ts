@@ -13,6 +13,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
+import { purgarDestinatariosDeLotes } from '../siigo/facturacion.lote.repo.js';
 import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
 import { deletePhoto } from '../../services/storage.js';
@@ -360,6 +361,15 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
     // compañía Y por la dirección: solo por compañía quedarían fuera las actas de trámites sin
     // empresa resuelta y los destinatarios escritos a mano en facturas de terceros.
     stats.siigo_factura_envios = await purgarDestinatariosDeClientes(
+      cli.map((c) => c.id), correosDelTitular, tx,
+    );
+
+    // 15b. siigo_lotes_facturacion: las direcciones ELEGIDAS al enviar (HU #11708). Desde esa
+    // historia el lote puede guardar direcciones para que la emisión —que ocurre después y en otro
+    // proceso— sepa a quién mandar la factura. Es el segundo sitio del módulo con datos personales y
+    // el olvido tiene que alcanzarlo: una copia fuera de la purga convertiría esta respuesta en
+    // mentira. Se busca igual que las actas, por compañía Y por dirección.
+    stats.siigo_lotes_facturacion = await purgarDestinatariosDeLotes(
       cli.map((c) => c.id), correosDelTitular, tx,
     );
 
