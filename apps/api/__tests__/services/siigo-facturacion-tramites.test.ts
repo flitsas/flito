@@ -34,6 +34,7 @@ function fila(over: Record<string, unknown> = {}) {
   return {
     tramite_id: TRAMITE, factura_id: 'fact-1', numero: 'FV-1-9', estado_emision: 'emitida',
     cufe: 'cufe-9', estado_dian: 'aceptada', motivo: null, verificado_en: new Date('2026-08-10T10:00:00Z'),
+    revision_motivo: null,
     pdf: true, xml: false, envios: 2, ultimo_enviado_en: new Date('2026-08-09T10:00:00Z'),
     ...over,
   };
@@ -174,6 +175,58 @@ describe('La ficha que se devuelve', () => {
     // El disparador de la 0135 define `activo = (estado <> 'fallida')`, así que filtrar solo por
     // `activo` haría que un trámite con emisión fallida pareciera no haberse intentado nunca.
     expect(texto).toContain("sft.activo OR sf.estado = 'fallida'");
+  });
+});
+
+describe('AC6 — la marca de revisión llega con su explicación', () => {
+  // El motivo de la marca es un DATO DEL SERVIDOR, no una resta de la pantalla. Sin proyectarlo, la
+  // fila enseñaba «Pendiente de revisión» y no había forma de decir por qué: el AC6 pide los dos
+  // totales y la diferencia, y el único sitio donde existen es la frase que compuso `revisionDeTotal`
+  // al emitir. Restarlos en el navegador daría otro número, porque el total con el que el servidor
+  // contrasta es la suma de los conceptos facturados y no el de la liquidación.
+  const DESCUADRE = 'El total devuelto por Siigo (200000.00) no coincide con la suma de los '
+    + 'conceptos facturados (150000.00). Diferencia: 50000.00.';
+
+  it('la frase con los dos totales y la diferencia viaja tal cual', async () => {
+    kdb.execute.mockResolvedValueOnce([fila({ revision_motivo: DESCUADRE })]);
+
+    const [f] = await facturacionDeTramites([TRAMITE]);
+
+    expect(f.revisionMotivo).toBe(DESCUADRE);
+    // Las tres cifras, no solo la marca: es lo que convierte «hay que mirarla» en «mira esto».
+    expect(f.revisionMotivo).toContain('200000.00');
+    expect(f.revisionMotivo).toContain('150000.00');
+    expect(f.revisionMotivo).toContain('50000.00');
+  });
+
+  it('una factura que cuadra no trae motivo, y `null` no se vuelve cadena vacía', async () => {
+    kdb.execute.mockResolvedValueOnce([fila()]);
+
+    const [f] = await facturacionDeTramites([TRAMITE]);
+
+    // `null` y no `''` porque la pantalla decide con la ausencia: una cadena vacía es un valor
+    // presente, y pintaría un bloque de explicación sin explicación dentro.
+    expect(f.revisionMotivo).toBeNull();
+  });
+
+  it('el descuadre no es el único motivo: lo que escribe la reconciliación llega igual', async () => {
+    // La reconciliación marca así lo que no puede concluir, y la resolución a mano deja escrito
+    // quién la resolvió. Un contrato de dos cifras no sabría contar ninguna de las dos cosas.
+    const AMANO = 'Resuelta a mano: una persona la localizó en Siigo y FLITO comprobó el documento.';
+    kdb.execute.mockResolvedValueOnce([fila({ revision_motivo: AMANO })]);
+
+    const [f] = await facturacionDeTramites([TRAMITE]);
+
+    expect(f.revisionMotivo).toBe(AMANO);
+  });
+
+  it('la consulta pide la columna, no la deduce', async () => {
+    kdb.execute.mockResolvedValueOnce([]);
+    await facturacionDeTramites([TRAMITE]);
+
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { sql: texto } = new PgDialect().sqlToQuery(kdb.execute.mock.calls[0][0]);
+    expect(texto).toContain('sf.revision_motivo');
   });
 });
 

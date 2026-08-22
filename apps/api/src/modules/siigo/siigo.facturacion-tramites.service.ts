@@ -51,6 +51,26 @@ export interface FacturacionDeTramite {
   /** Cuándo se comprobó por última vez ante la DIAN. Es la mitad del AC3. */
   verificadoEn: string | null;
   cufe: string | null;
+  /**
+   * Por qué la factura está señalada como pendiente de revisión, en la frase que compuso el
+   * servidor. `null` = no lo está (HU #11331, AC6).
+   *
+   * **Viaja la frase, no las cifras sueltas, y esa es la decisión.** En el caso del descuadre la
+   * compone `revisionDeTotal()` al emitir y ya lleva dentro los dos totales y la diferencia, que es
+   * literalmente lo que el AC6 pide enseñar. Restar en el navegador el total de la factura menos el
+   * de la liquidación daría OTRO número: el total con el que el servidor contrasta es la suma de
+   * las LÍNEAS ARMADAS, y desde que los conceptos se eligen al enviar esa suma deja de coincidir
+   * con la liquidación a propósito —se factura el trámite digital y el resto va por reintegro—, así
+   * que la pantalla mandaría a buscar un descuadre inexistente en el caso normal.
+   *
+   * Y el descuadre no es el único motivo: la reconciliación marca así lo que no puede concluir y la
+   * resolución a mano deja escrito quién la resolvió. Dos cifras no sabrían contar eso; la frase
+   * sí, y es la misma que ya se guardó.
+   *
+   * No va en la fila del reporte —que solo lleva el booleano— porque son doscientas filas por
+   * página y un párrafo por fila para algo que solo se lee al abrir el detalle.
+   */
+  revisionMotivo: string | null;
   /** Cuántos documentos hay archivados de los dos que debería haber (AC6). */
   documentos: { pdf: boolean; xml: boolean };
   /** Resumen del envío por correo (AC5). */
@@ -83,6 +103,7 @@ export async function facturacionDeTramites(tramiteIds: string[]): Promise<Factu
            sf.estado        AS estado_emision,
            sf.ambiente,
            sf.cufe,
+           sf.revision_motivo,
            dian.estado      AS estado_dian,
            dian.motivo      AS motivo,
            dian.verificado_en,
@@ -163,6 +184,10 @@ export async function facturacionDeTramites(tramiteIds: string[]): Promise<Factu
       motivoPendiente: esMotivoPendiente(motivo),
       verificadoEn: aIso(f.verificado_en),
       cufe: (f.cufe as string | null) ?? null,
+      // Tal cual se guardó. Ni se recorta ni se reescribe aquí: el sitio donde nace esa frase es
+      // el que sabe con qué se contrastó, y una segunda redacción en el camino sería otra versión
+      // del mismo hecho que algún día dice algo distinto.
+      revisionMotivo: (f.revision_motivo as string | null) ?? null,
       documentos: { pdf: f.pdf === true, xml: f.xml === true },
       correo: { veces: Number(f.envios) || 0, ultimoEnviadoEn: aIso(f.ultimo_enviado_en) },
     });

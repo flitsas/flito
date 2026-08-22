@@ -7,7 +7,6 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { hasPage } from '../lib/permissions';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import FlitModal from '../components/flit/FlitModal';
 import StatusChip from '../components/flit/StatusChip';
 import RangoFechas from '../components/flit/RangoFechas';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
@@ -15,7 +14,7 @@ import VisorSoportes from '../components/flit/VisorSoportes';
 import ContadoresFacturacion from '../components/finanzas/ContadoresFacturacion';
 import CeldaFacturacion from '../components/finanzas/CeldaFacturacion';
 import MarcaSoatConciliado from '../components/finanzas/MarcaSoatConciliado';
-import FichaFacturacion from '../components/finanzas/FichaFacturacion';
+import DetalleFacturacion from '../components/finanzas/DetalleFacturacion';
 import TarjetaEnvioFacturacion from '../components/finanzas/TarjetaEnvioFacturacion';
 import AccionEnviarFactura from '../components/finanzas/AccionEnviarFactura';
 import DialogoEnvioFacturacion, { type TramiteDelEnvio } from '../components/finanzas/DialogoEnvioFacturacion';
@@ -211,7 +210,13 @@ export default function FinanzasReporteCostos() {
   const [feError, setFeError] = useState<string | null>(null);
   const [fichasFe, setFichasFe] = useState<Map<string, FacturacionTramite>>(new Map());
   const [estadoFe, setEstadoFe] = useState<SiigoEstadoReporte | null>(null);
-  const [fichaAbierta, setFichaAbierta] = useState<{ ficha: FacturacionTramite; idFlit: string } | null>(null);
+  /**
+   * La fila cuyo detalle está abierto (HU #11331). Se guarda la FILA y no su ficha: el detalle se
+   * ofrece sobre cualquier trámite —también sobre los que no tienen factura todavía, que es donde
+   * vive el estado vacío del AC2— y lo que necesita para arrancar son las tres columnas que el
+   * reporte ya trae en cada fila. La ficha la pide él.
+   */
+  const [detalleDe, setDetalleDe] = useState<Fila | null>(null);
 
   // Envío a facturación electrónica (HU #11329).
   const [envio, setEnvio] = useState<{
@@ -307,8 +312,11 @@ export default function FinanzasReporteCostos() {
     api.get<{ items: FacturacionTramite[] }>(
       `/siigo/facturacion/tramites?${new URLSearchParams({ ids: ids.join(',') }).toString()}`)
       .then((r) => setFichasFe(new Map(r.items.map((i) => [i.tramiteId, i]))))
-      // Un fallo aquí NO rompe el reporte: las filas se pintan sin la columna de facturación, que
-      // es información añadida y no el motivo por el que alguien abrió esta pantalla.
+      // Un fallo aquí NO rompe el reporte, y desde la HU #11331 **tampoco miente**: la columna
+      // sigue pintando el estado que trae cada fila y lo único que se pierde es el enriquecido —el
+      // motivo del rechazo en el título—. Antes, este mapa vacío dejaba toda la columna igual que
+      // un trámite jamás enviado, que es un fallo disfrazado de ausencia. Quien quiera el detalle
+      // lo abre, y ahí el error sí se dice con su nombre y con reintento.
       .catch(() => setFichasFe(new Map()));
   }, [data]);
 
@@ -671,7 +679,8 @@ export default function FinanzasReporteCostos() {
                     <td className="px-4 py-2 text-right tabular-nums" style={{ color: 'var(--flit-blue-text)' }}><Monto v={f.total} negrita /></td>
                     <td className="px-3 py-2 text-center">
                       <CeldaFacturacion ficha={fichasFe.get(f.tramiteId)} estadoFila={estadoFeDe(f)}
-                        onAbrir={(ficha) => setFichaAbierta({ ficha, idFlit: f.idFlit })} />
+                        numeroFila={f.facturaNumero} requiereRevision={f.facturaRequiereRevision}
+                        onAbrir={() => setDetalleDe(f)} />
                     </td>
                     <td className="px-3 py-2">
                       <Acciones fila={f} puedeLiquidar={puedeLiquidar} puedeReversar={puedeReversar} enProceso={enProceso}
@@ -715,17 +724,19 @@ export default function FinanzasReporteCostos() {
         </FlitCard>
       )}
 
-      {fichaAbierta && (
-        <FichaFacturacion
-          ficha={fichaAbierta.ficha}
-          idFlit={fichaAbierta.idFlit}
+      {detalleDe && (
+        <DetalleFacturacion
+          tramiteId={detalleDe.tramiteId}
+          idFlit={detalleDe.idFlit}
+          estadoFila={estadoFeDe(detalleDe)}
+          requiereRevision={detalleDe.facturaRequiereRevision}
           // LA MISMA tabla que usa el servidor para decidir el 403, no una regla paralela. Cuando
           // la pantalla reimplementaba «admin o financiera», eran dos definiciones de lo mismo que
           // coincidían por costumbre: el día que una cambiara, la pantalla ofrecería un botón que
           // el servidor rechaza —o escondería uno que sí se puede pulsar— y ninguno de los dos
           // fallos aparece en los tests de la otra mitad.
           puedeOperar={puedeEjecutar(user?.role, 'reenviar_correo')}
-          onClose={() => setFichaAbierta(null)}
+          onClose={() => setDetalleDe(null)}
           onCambio={() => setRecarga((n) => n + 1)}
         />
       )}

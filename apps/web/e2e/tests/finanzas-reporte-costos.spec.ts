@@ -100,6 +100,8 @@ const FICHA_ACEPTADA = {
   // Timbrada: estas fichas son las de producción, que son las que tienen estado ante la DIAN.
   timbrada: true,
   motivoPendiente: false, verificadoEn: '2026-08-10T10:00:00.000Z', cufe: 'cufe-100',
+  // Sin nada que revisar, que es el caso normal. Las fichas de la HU #11331 lo sobrescriben.
+  revisionMotivo: null,
   documentos: { pdf: true, xml: true }, correo: { veces: 1, ultimoEnviadoEn: '2026-08-09T10:00:00.000Z' },
 };
 
@@ -833,5 +835,383 @@ test.describe('Reporte de costos — conciliación del SOAT', () => {
     // filas de la página en vez de las del filtro, y sin la columna—, así que se afirma el pedido.
     await expect.poll(() => pedidas.length).toBe(1);
     expect(pedidas[0]).toContain('estados=Aprobado');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11331 — ver, filtrar y entender el estado de facturación electrónica.
+//
+// Describe propio, con su reporte de tres filas: una que nunca se envió, una cuya emisión falló y
+// una emitida cuyo total no cuadra. Las tres a la vez, porque casi todo lo que esta historia añade
+// consiste en que NO se parezcan entre sí.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Emisión fallida. `estadoLiquidacion: 'facturado'` porque solo se emite sobre lo ya facturado. */
+const FILA_FALLIDA = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000008', idFlit: 'FLIT-2008',
+  sellada: true, estadoLiquidacion: 'facturado', estadoFacturacion: 'fallido',
+};
+
+/**
+ * Emitida y con el total descuadrado (AC6). Las dos cosas a la vez y en la misma fila: es la única
+ * forma de comprobar que la marca no le quita el estado.
+ */
+const FILA_EMITIDA_REVISION = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000009', idFlit: 'FLIT-2009',
+  sellada: true, estadoLiquidacion: 'facturado', estadoFacturacion: 'emitido',
+  facturaNumero: 'FV-1-200', facturaRequiereRevision: true,
+};
+
+const REPORTE_FE = {
+  ...REPORTE, total: 3,
+  items: [FILA_ESTIMADA, FILA_FALLIDA, FILA_EMITIDA_REVISION],
+  resumen: { listo: 1, incompleto: 0, porFacturar: 0, facturado: 2 },
+};
+
+const CONTADORES_FE = {
+  no_enviado: 1, encolado: 0, en_proceso: 0, emitido: 1, aceptado: 0, rechazado: 0, anulado: 0,
+  fallido: 1, total: 3,
+};
+
+const FICHA_FALLIDA = {
+  ...FICHA_ACEPTADA, tramiteId: FILA_FALLIDA.tramiteId, facturaId: 'f-fallida', numero: null,
+  estadoEmision: 'fallida', estado: 'fallido', estadoDian: null, cufe: null, verificadoEn: null,
+  motivo: null, documentos: { pdf: false, xml: false },
+};
+
+/**
+ * Los TRES motivos que el servidor sabe escribir en `revision_motivo`, literales.
+ *
+ * Están los tres porque la marca es una sola y las causas no: el descuadre es el que el AC6 nombra,
+ * pero la reconciliación escribe ahí lo que no puede concluir y la resolución a mano deja constancia
+ * de quién la cerró. Con un solo motivo de fixture, una pantalla que rotulara todo como «diferencia
+ * de totales» pasaría en verde mintiendo en dos casos de cada tres.
+ */
+const MOTIVO_DESCUADRE = 'El total devuelto por Siigo (200000.00) no coincide con la suma de los '
+  + 'conceptos facturados (150000.00). Diferencia: 50000.00.';
+const MOTIVO_RECONCILIACION = 'La reconciliación no puede concluir y no se resolverá sola: hay dos '
+  + 'facturas en Siigo para este trámite y ninguna coincide con lo que FLITO envió.';
+const MOTIVO_A_MANO = 'Resuelta a mano: una persona la localizó en Siigo y FLITO comprobó el '
+  + 'documento.';
+
+const FICHA_REVISION = {
+  ...FICHA_ACEPTADA, tramiteId: FILA_EMITIDA_REVISION.tramiteId, facturaId: 'f-revision',
+  numero: 'FV-1-200', estado: 'emitido', estadoDian: null, verificadoEn: null,
+  revisionMotivo: MOTIVO_DESCUADRE,
+  documentos: { pdf: false, xml: false },
+};
+
+/**
+ * Cambia el motivo de la ficha emitida sin tocar nada más. `null` = marcada y sin motivo escrito.
+ *
+ * `unroute` primero: registrar una segunda ruta sobre el mismo patrón deja las dos vivas, y el test
+ * dependería del orden en que Playwright las resuelve en vez de de lo que se quiere probar.
+ */
+async function refichaConMotivo(page: import('@playwright/test').Page, motivo: string | null) {
+  await page.unroute(/\/api\/siigo\/facturacion\/tramites/);
+  await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      items: [{ ...FICHA_REVISION, revisionMotivo: motivo }],
+    }) }));
+}
+
+/**
+ * La fila de cola del trámite fallido (AC5).
+ *
+ * `errorDetalle` es lo que el servidor guarda de verdad: la `descripcionOperativa` del catálogo de
+ * `siigo.errors.ts`, no el `Message` crudo de Siigo. Que la fixture lleve el texto traducido no es
+ * un atajo del test — es el contrato: si algún día ahí llegara el mensaje crudo, el arreglo sería
+ * del servidor, y traducirlo en la pantalla habría creado una segunda copia del catálogo.
+ */
+const COLA_FALLIDA = {
+  id: 'cola-1', loteId: 'lote-1', ambiente: 'produccion', estado: 'error',
+  intentos: 3, maxIntentos: 5, esperas: 0, maxEsperas: 20,
+  proximoIntentoAt: '2026-08-14T18:00:00.000Z', ultimoIntentoAt: '2026-08-14T17:00:00.000Z',
+  facturaId: 'f-fallida', desenlace: 'fallida',
+  errorCode: 'invalid_customer_identification',
+  errorDetalle: 'El cliente no existe en Siigo o su identificación no coincide con la registrada.',
+  createdAt: '2026-08-14T16:00:00.000Z', updatedAt: '2026-08-14T17:00:00.000Z',
+};
+
+/**
+ * La cola. Se enruta por `pathname` exacto y no por expresión regular: `/api/siigo/facturacion` y
+ * `/api/siigo/facturacion/tramites` comparten prefijo, y un patrón laxo se quedaría con las dos.
+ */
+async function mockCola(page: import('@playwright/test').Page, cola: unknown = COLA_FALLIDA) {
+  await page.route((url) => url.pathname === '/api/siigo/facturacion', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ambiente: 'produccion',
+      items: cola === null ? [] : [{ tramiteId: FILA_FALLIDA.tramiteId, cola }],
+    }) }));
+}
+
+/** Actas de envío: las pide la ficha en cuanto se abre, con cualquier factura. */
+async function mockEnvios(page: import('@playwright/test').Page) {
+  await page.route(/\/api\/siigo\/envios\/factura\//, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      facturaId: 'f', veces: 0, vecesEnviado: 0, ultimo: null, ultimoEnviado: null, envios: [],
+    }) }));
+}
+
+/**
+ * El reporte de esta historia. `fichas` admite un número de estado para que el caso de error del
+ * AC2 use exactamente la misma ruta que el resto y solo cambie lo que se está probando.
+ */
+async function mockFe(
+  page: import('@playwright/test').Page,
+  opciones: { fichas?: unknown[] | number; retardoMs?: number } = {},
+) {
+  const { fichas = [FICHA_FALLIDA, FICHA_REVISION], retardoMs = 0 } = opciones;
+  await mockFacetas(page, ['Aprobado']);
+  await mockElegibilidad(page);
+  await mockEnvios(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\/facturacion-electronica/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CONTADORES_FE) }));
+  await page.route(/\/api\/siigo\/facturacion\/tramites/, async (route) => {
+    if (retardoMs > 0) await new Promise((r) => setTimeout(r, retardoMs));
+    if (typeof fichas === 'number') {
+      return route.fulfill({ status: fichas, contentType: 'application/json', body: JSON.stringify({ error: 'Base no disponible' }) });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: fichas }) });
+  });
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE_FE) }));
+}
+
+const filaDe = (page: import('@playwright/test').Page, idFlit: string) =>
+  page.getByRole('row').filter({ hasText: idFlit });
+
+test.describe('Reporte de costos — estado de facturación electrónica (HU #11331)', () => {
+  test('AC3 — un trámite emitido muestra el número de su factura sin abrir nada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // El número identifica el documento ante la DIAN. Tenerlo que buscar abriendo un modal por fila
+    // es hacer un clic por cada dato de una línea, justo el que se copia a un correo o a un ticket.
+    await expect(filaDe(page, 'FLIT-2009')).toContainText('Factura FV-1-200');
+  });
+
+  test('AC3 — nunca enviado y falló no se pintan igual, ni cuando la consulta de fichas se cae', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    // 500 en las fichas A PROPÓSITO: es el caso que la columna pintaba mal. El estado de cada fila
+    // lo manda el reporte, que no depende de esa consulta, así que un fallo de enriquecido no puede
+    // convertir una emisión fallida en un trámite que nadie tocó nunca.
+    await mockFe(page, { fichas: 500 });
+    await page.goto('/finanzas/reporte-costos');
+
+    await expect(filaDe(page, 'FLIT-2008')).toContainText('Falló al emitir');
+    await expect(filaDe(page, 'FLIT-2001')).toContainText('Sin enviar');
+    // Y la que falló no se lee como la que nunca se envió: no es solo que digan cosas distintas,
+    // es que ninguna de las dos dice la de la otra.
+    await expect(filaDe(page, 'FLIT-2008')).not.toContainText('Sin enviar');
+    await expect(filaDe(page, 'FLIT-2001')).not.toContainText('Falló al emitir');
+  });
+
+  test('AC2 — el detalle de un trámite nunca enviado dice que aún no se ha enviado, no que falte un dato', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await filaDe(page, 'FLIT-2001').getByTitle('Sin enviar — ver detalle').click();
+
+    await expect(page.getByText(/todavía no se le ha pedido factura electrónica/)).toBeVisible();
+    // Vacío NO es error: si se dijera «no se pudo consultar» sobre algo que sí se consultó, quien
+    // lee saldría a buscar una avería que no existe.
+    await expect(page.getByText(/No se pudo consultar/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
+  });
+
+  test('AC2 — si el detalle no se puede consultar, se dice con su nombre y se reintenta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page, { fichas: 500 });
+    await page.goto('/finanzas/reporte-costos');
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    await expect(page.getByText(/No se pudo consultar la facturación electrónica de este trámite/)).toBeVisible();
+    // Y no se cuela el vacío: un error que dijera «todavía no se ha enviado» estaría afirmando algo
+    // que nadie ha comprobado.
+    await expect(page.getByText(/todavía no se le ha pedido factura/)).toHaveCount(0);
+
+    // El reintento es de verdad: se repite la consulta, y esta vez responde.
+    await page.unroute(/\/api\/siigo\/facturacion\/tramites/);
+    await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [FICHA_REVISION] }) }));
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+
+    await expect(page.getByText('Entrega al cliente')).toBeVisible();
+  });
+
+  test('AC2 — mientras el detalle carga se ve que está cargando, no un vacío', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page, { retardoMs: 1200 });
+    await page.goto('/finanzas/reporte-costos');
+    // La primera carga (la del lote de la tabla) también pasa por el retardo: se espera a que la
+    // fila exista antes de pulsar, o el clic caería sobre una tabla a medio pintar.
+    await expect(filaDe(page, 'FLIT-2009')).toBeVisible();
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    await expect(page.getByText('Consultando el estado de la facturación electrónica de este trámite…')).toBeVisible();
+    // Y lo que sale después es el contenido, no un vacío que se quedó puesto.
+    await expect(page.getByText('Entrega al cliente')).toBeVisible();
+  });
+
+  test('AC5 — el fallo se explica en lenguaje operativo, con los intentos y el último', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await mockCola(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    await filaDe(page, 'FLIT-2008').getByTitle('Falló al emitir — ver detalle').click();
+
+    // El motivo, traducido por el servidor. La pantalla no traduce ni un código de Siigo.
+    await expect(page.getByText(/El cliente no existe en Siigo o su identificación no coincide/)).toBeVisible();
+    // Y qué hacer al respecto, que es la mitad que convierte un diagnóstico en una tarea.
+    await expect(page.getByText(/Se reintenta sola/)).toBeVisible();
+    await expect(page.getByText(/Intentos:/)).toContainText('3');
+    await expect(page.getByText(/Último intento: 14\/08\/26/)).toBeVisible();
+    // El código crudo está, pero como referencia y no como única explicación: el motivo se lee
+    // arriba en castellano y esto sirve para buscar en Siigo Nube o pegarlo en un ticket.
+    await expect(page.getByText('Código de Siigo: invalid_customer_identification')).toBeVisible();
+  });
+
+  test('AC6 — el total descuadrado se marca Y la factura sigue apareciendo como emitida', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // LAS DOS AFIRMACIONES A LA VEZ, y en la misma celda: ante la DIAN el documento existe, así que
+    // una implementación que sacara la fila de «Emitida» para poder marcarla incumpliría la mitad
+    // del criterio sin que se notara mirando solo la marca.
+    const celda = filaDe(page, 'FLIT-2009').getByTestId('marca-revision-factura');
+    await expect(celda).toContainText('Pendiente de revisión');
+    await expect(filaDe(page, 'FLIT-2009')).toContainText('Emitida');
+    // La marca lleva escrito lo que significa, para quien no ve el color ni puede parar el ratón.
+    await expect(celda).toHaveAttribute('aria-label', /sigue emitida ante la DIAN/);
+
+    // Una factura sin descuadre no lleva marca: si la llevaran todas, no marcaría nada.
+    await expect(filaDe(page, 'FLIT-2008').getByTestId('marca-revision-factura')).toHaveCount(0);
+
+    // Y en el detalle, lo mismo: estado y marca conviven.
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+    await expect(page.getByRole('dialog').getByTestId('marca-revision-factura')).toBeVisible();
+    await expect(page.getByRole('dialog')).toContainText('Emitida');
+  });
+
+  test('AC6 — al abrirla se leen los dos totales y la diferencia, en la frase del servidor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // En la FILA no: son hasta doscientas por página y esto es un párrafo. La fila lleva la marca,
+    // que es lo que se recorre de un vistazo; el porqué se lee al abrir, que es cuando se pregunta.
+    await expect(filaDe(page, 'FLIT-2009')).not.toContainText('200000.00');
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    // La frase ENTERA y literal: el total que devolvió Siigo, la suma de los conceptos facturados y
+    // la resta. Comprobarla completa y no cifra a cifra es el criterio: el AC6 pide los dos totales
+    // Y la diferencia, y tres asertos sueltos pasarían en verde con las cifras descolocadas.
+    await expect(page.getByTestId('motivo-revision-factura')).toContainText(MOTIVO_DESCUADRE);
+    // Y sigue emitida mientras se explica el descuadre: la marca amplía el estado, no lo sustituye.
+    await expect(page.getByRole('dialog')).toContainText('Emitida');
+  });
+
+  test('AC6 — los motivos que no son de totales se leen tal cual, sin rótulo que los llame descuadre', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+
+    // Los otros dos autores de la marca. Se prueban los dos porque el error que se está evitando
+    // —poner encima un rótulo fijo de «diferencia de totales»— no lo delata el caso del descuadre,
+    // que es justo aquel en el que el rótulo sería cierto.
+    for (const motivo of [MOTIVO_RECONCILIACION, MOTIVO_A_MANO]) {
+      await refichaConMotivo(page, motivo);
+      // `goto` y no cerrar el modal: recargar deja la pantalla en el mismo punto de partida para la
+      // segunda vuelta, sin arrastrar estado de la primera.
+      await page.goto('/finanzas/reporte-costos');
+      await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+      const bloque = page.getByTestId('motivo-revision-factura');
+      await expect(bloque).toContainText(motivo);
+      // Lo que NO puede aparecer: ni «diferencia» ni «totales» en ninguna forma. Aquí no hay
+      // descuadre que contar, y titularlo así mandaría a cuadrar dos cifras que nadie ha comparado.
+      await expect(bloque).not.toContainText(/diferencia|totales/i);
+      // La pastilla sí sigue, porque lo que la marca afirma —hay algo que comprobar— vale para los
+      // tres motivos. Es el único encabezado que puede llevar el bloque sin mentir en dos de ellos.
+      await expect(bloque).toContainText('Pendiente de revisión');
+    }
+  });
+
+  test('AC6 — marcada y sin motivo escrito lo dice, en vez de dejar un hueco o pintar «null»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await refichaConMotivo(page, null);
+    await page.goto('/finanzas/reporte-costos');
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    const bloque = page.getByTestId('motivo-revision-factura');
+    // Quien abre el detalle viene a preguntar por qué. La pastilla sola se lee como una pantalla a
+    // medio cargar, así que se dice lo único que se sabe —que no quedó escrito— y adónde ir.
+    await expect(bloque).toContainText(/No quedó escrito por qué/);
+    await expect(bloque).toContainText(/Siigo Nube/);
+    // Y no se cuela el valor crudo, que es la otra forma de dejar el hueco.
+    await expect(bloque).not.toContainText(/null|undefined/i);
+  });
+
+  test('AC4 — el filtro por estado viaja al servidor, convive con los demás y la exportación lo respeta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mockFe(page);
+    await page.unroute(/\/api\/finanzas\/reporte-costos\?/);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE_FE) });
+    });
+    const exportadas: string[] = [];
+    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
+      exportadas.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'Trámite\r\n' });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('button', { name: 'Falló al emitir 1' }).click();
+
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estadoFacturacion=fallido');
+    // Convive con los que ya estaban: el filtro nuevo no borra el estado del trámite ni la etapa.
+    expect(urls.at(-1)).toContain('estados=Aprobado');
+
+    // Y el archivo sale del MISMO filtro que la tabla. Un CSV que ignore el filtro puesto es peor
+    // que no exportar: parece el listado que se está viendo y no lo es.
+    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+    await expect.poll(() => exportadas.length).toBe(1);
+    expect(exportadas[0]).toContain('estadoFacturacion=fallido');
+  });
+
+  test('AC1 — un rol de solo lectura ve estado, filtro y detalle, y ninguna acción de emisión', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    const urls: string[] = [];
+    await mockFe(page);
+    await page.unroute(/\/api\/finanzas\/reporte-costos\?/);
+    await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE_FE) });
+    });
+    await page.goto('/finanzas/reporte-costos');
+
+    // Ve el estado de cada fila…
+    await expect(filaDe(page, 'FLIT-2008')).toContainText('Falló al emitir');
+    // …puede filtrar por él…
+    await page.getByRole('button', { name: 'Emitida 1' }).click();
+    await expect.poll(() => urls.at(-1) ?? '').toContain('estadoFacturacion=emitido');
+    // …y abre el detalle entero.
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+    await expect(page.getByText('Entrega al cliente')).toBeVisible();
+
+    // Lo que no ve es ninguna acción que emita o reenvíe. Auditar es mirar.
+    await expect(page.getByRole('button', { name: 'Reenviar correo' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Enviar .* a facturación electrónica/ })).toHaveCount(0);
   });
 });
