@@ -7,11 +7,29 @@
 //
 // El orden de los estados no es casual: **el error va ANTES que el vacío**. Si la consulta falló no
 // se sabe si hay algo, y decir «no hay clientes pendientes» sería afirmar lo que nadie comprobó.
+//
+// ── La tercera cifra ─────────────────────────────────────────────────────────────────────────────
+//
+// El AC3 nombra tres cifras en la misma frase, y la tercera —cuántos clientes tienen tercero
+// vinculado en Siigo— sale de otra ruta y de otra tabla: `GET /siigo/terceros/resumen` mira
+// `siigo_terceros`, no `clients`. Por eso se pide **en paralelo y con estado propio**, no dentro
+// del `try` de la otra: que se caiga el conteo de terceros no es motivo para dejar de decir a
+// cuántos se les puede facturar, ni al revés. `totalClientes` es el mismo universo que
+// `resumen.total` —criterio compartido en el servidor—, así que la tarjeta nunca pinta dos totales.
+//
+// **Esa cifra no tiene listado propio, y es deliberado.** Decir QUIÉN está vinculado costaría una
+// petición por cliente, que es justo el descarte nº 6 del diseño de UX
+// (`docs/ux/siigo-terceros-revision-sincronizacion.md`, también §R3-b). Así que «cada cifra lleva
+// al listado que la compone» se cumple llevando al bloque D de sincronización, que es el único
+// sitio donde ese número se mueve: allí se crean y se vinculan los terceros. El botón lo dice con
+// esas palabras —«Ir a sincronizar terceros», no «ver los vinculados»— para no prometer una lista
+// que no existe.
 
 import { useCallback, useEffect, useState } from 'react';
 import {
   MOTIVOS_NO_FACTURABLE,
   type MotivoNoFacturable,
+  type ResumenTerceros,
   type ResumenValidacionClientes,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../../lib/api';
@@ -36,6 +54,9 @@ export default function ResumenFacturabilidad({
   const [resumen, setResumen] = useState<ResumenValidacionClientes | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [terceros, setTerceros] = useState<ResumenTerceros | null>(null);
+  const [cargandoTerceros, setCargandoTerceros] = useState(true);
+  const [errorTerceros, setErrorTerceros] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -55,7 +76,24 @@ export default function ResumenFacturabilidad({
     }
   }, [onResumen]);
 
+  const cargarTerceros = useCallback(async () => {
+    setCargandoTerceros(true);
+    setErrorTerceros(null);
+    try {
+      const r = await api.get<ResumenTerceros>('/siigo/terceros/resumen');
+      setTerceros(r);
+    } catch (e) {
+      // Mismo criterio que arriba: el fallo se pinta y no se registra.
+      setErrorTerceros(errorMessage(e));
+      setTerceros(null);
+    } finally {
+      setCargandoTerceros(false);
+    }
+  }, []);
+
+  // Dos efectos, no uno encadenado: las dos peticiones salen juntas y ninguna espera a la otra.
   useEffect(() => { void cargar(); }, [cargar, version]);
+  useEffect(() => { void cargarTerceros(); }, [cargarTerceros, version]);
 
   return (
     <FlitCard>
@@ -168,6 +206,65 @@ export default function ResumenFacturabilidad({
           )}
         </div>
       )}
+
+      {/* AC3 — la tercera cifra. Vive en la misma tarjeta que las otras dos porque responde la misma
+          pregunta de negocio, pero en su propio bloque: su dato viene de otra ruta y puede faltar
+          cuando las otras dos están. También aquí el error va antes que el vacío. */}
+      <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--flit-border-input)' }}>
+        {cargandoTerceros && (
+          <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            Contando los terceros ya vinculados…
+          </p>
+        )}
+
+        {!cargandoTerceros && errorTerceros !== null && (
+          <div>
+            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+              No se pudo contar los terceros vinculados en Siigo: {errorTerceros}
+            </p>
+            {/* Nombre propio, y no otro «Reintentar» a secas: en esta tarjeta puede haber dos
+                botones de reintento a la vez, uno por cifra caída. */}
+            <button
+              type="button"
+              onClick={() => { void cargarTerceros(); }}
+              className={`${flitBtnSecondary} mt-3`}
+              style={flitBtnSecondaryStyle}
+            >
+              Reintentar el conteo de terceros
+            </button>
+          </div>
+        )}
+
+        {!cargandoTerceros && errorTerceros === null && terceros !== null && terceros.totalClientes === 0 && (
+          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            Todavía no hay clientes activos a los que vincularles un tercero en Siigo.
+          </p>
+        )}
+
+        {!cargandoTerceros && errorTerceros === null && terceros !== null && terceros.totalClientes > 0 && (
+          <div className="space-y-3">
+            {terceros.conTercero === 0 ? (
+              // El cero no es «no hay dato»: es una cartera entera sin puente con Siigo, y lo que
+              // falta por hacer se dice en la misma frase.
+              <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                Ninguno de los {terceros.totalClientes} clientes activos tiene todavía tercero
+                vinculado en Siigo: el vínculo se crea al sincronizar.
+              </p>
+            ) : (
+              <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+                <strong>{terceros.conTercero}</strong> de los {terceros.totalClientes} clientes
+                activos ya tienen tercero vinculado en Siigo.
+              </p>
+            )}
+
+            {/* Lleva al bloque D, no a un listado de vinculados: ver la cabecera del archivo. */}
+            <button type="button" onClick={onIrASincronizar} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+              Ir a sincronizar terceros
+            </button>
+          </div>
+        )}
+      </div>
     </FlitCard>
   );
 }

@@ -57,6 +57,13 @@ const RESUMEN = {
   ],
 };
 
+/**
+ * La tercera cifra del AC3. `totalClientes` repite a propósito el total de `RESUMEN`: en el
+ * servidor sale del mismo criterio de cliente activo, y una tarjeta con dos totales distintos sería
+ * una contradicción a la vista.
+ */
+const RESUMEN_TERCEROS = { totalClientes: 6, conTercero: 2 };
+
 const PROPUESTAS = {
   total: 3,
   data: [
@@ -117,6 +124,8 @@ interface OpcionesMock {
   noFacturables?: unknown[];
   propuestas?: unknown;
   estadoPropuestas?: number;
+  resumenTerceros?: unknown;
+  estadoResumenTerceros?: number;
 }
 
 const json = (body: unknown, status = 200) => ({
@@ -128,6 +137,7 @@ async function mockPanel(page: Page, o: OpcionesMock = {}) {
     modo = 'real', resumen = RESUMEN, estadoResumen = 200,
     facturables = FACTURABLES, noFacturables = [CARGA_RAPIDA],
     propuestas = PROPUESTAS, estadoPropuestas = 200,
+    resumenTerceros = RESUMEN_TERCEROS, estadoResumenTerceros = 200,
   } = o;
 
   await page.route(/\/api\/siigo\/compuerta(\?|$)/, (route) => route.fulfill(json({
@@ -148,6 +158,14 @@ async function mockPanel(page: Page, o: OpcionesMock = {}) {
     const data = todos ? [...facturables, ...noFacturables] : noFacturables;
     return route.fulfill(json({ total: data.length, data }));
   });
+
+  // El conteo de terceros vinculados (AC3). Va aquí y no en cada test porque el panel lo pide al
+  // abrirse: sin este mock, la tarjeta arrancaría con la tercera cifra en error en los 16 tests que
+  // no hablan de ella.
+  await page.route(/\/api\/siigo\/terceros\/resumen(\?|$)/, (route) => (
+    estadoResumenTerceros === 200
+      ? route.fulfill(json(resumenTerceros))
+      : route.fulfill(json({ error: 'Se cayó la base' }, estadoResumenTerceros))));
 
   await page.route(/\/api\/siigo\/clientes-ciudades\/estado/, (route) => route.fulfill(json(ESTADO_CIUDADES)));
   await page.route(/\/api\/siigo\/clientes-ciudades\/obsoletas/, (route) => route.fulfill(json({ total: 0, data: [] })));
@@ -314,6 +332,78 @@ test.describe('AC3 y AC4 — el resumen encabeza, y el detalle dice qué falta',
     await expect.poll(() => consultas.some((u) => u.includes('motivo=direccion_faltante'))).toBe(true);
     // El filtro viaja en la petición; la URL del SPA sigue sin nada de nadie.
     expect(new URL(page.url()).search).toBe('?seccion=terceros');
+  });
+
+  test('la tercera cifra dice cuántos clientes ya tienen tercero en Siigo y lleva a donde ese número se mueve', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    await page.goto(RUTA);
+
+    // El número va dentro de la frase, no suelto: es lo que lee un lector de pantalla de corrido.
+    await expect(page.getByText(/2 de los 6 clientes activos ya tienen tercero vinculado en Siigo/))
+      .toBeVisible();
+
+    // No hay listado de vinculados —costaría una petición por cliente y se descartó—, así que la
+    // cifra lleva al único sitio donde ese número cambia: el bloque de sincronización.
+    await page.getByRole('button', { name: 'Ir a sincronizar terceros' }).click();
+    await expect(page.getByRole('heading', { name: 'Sincronizar terceros con Siigo' })).toBeFocused();
+    expect(new URL(page.url()).search).toBe('?seccion=terceros');
+  });
+
+  test('cero vinculados no se cuenta como un dato que falta, sino como una cartera que nadie ha sincronizado', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page, { resumenTerceros: { totalClientes: 6, conTercero: 0 } });
+    await page.goto(RUTA);
+
+    await expect(page.getByText(/Ninguno de los 6 clientes activos tiene todavía tercero vinculado en Siigo/))
+      .toBeVisible();
+    // Y dice qué hacer con eso, en la misma frase.
+    await expect(page.getByText(/el vínculo se crea al sincronizar/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ir a sincronizar terceros' })).toBeVisible();
+  });
+
+  test('si se cae el conteo de terceros, las otras dos cifras se siguen viendo y solo se reintenta el que falló', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    let intentosTerceros = 0;
+    await page.route(/\/api\/siigo\/terceros\/resumen(\?|$)/, (route) => {
+      intentosTerceros += 1;
+      return intentosTerceros === 1
+        ? route.fulfill(json({ error: 'Se cayó la base' }, 500))
+        : route.fulfill(json(RESUMEN_TERCEROS));
+    });
+    let consultasCartera = 0;
+    page.on('request', (r) => {
+      if (/\/clientes\/validacion(\?|$)/.test(r.url())) consultasCartera += 1;
+    });
+
+    await page.goto(RUTA);
+
+    await expect(page.getByText(/No se pudo contar los terceros vinculados en Siigo/)).toBeVisible();
+    // Son dos consultas sobre dos tablas distintas: una caída no se lleva a la otra por delante.
+    await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Ver los 1 que no pueden todavía/ })).toBeVisible();
+    // Y nunca «ninguno tiene tercero»: con la consulta caída nadie contó nada.
+    await expect(page.getByText(/tiene todavía tercero vinculado/)).toHaveCount(0);
+
+    // El reintento pide lo que falló, no toda la tarjeta. Se compara ANTES contra DESPUÉS y no
+    // contra un número fijo: en desarrollo `StrictMode` monta dos veces y duplica las peticiones de
+    // arranque, que es ruido del entorno y no conducta del producto.
+    const carteraAntesDelReintento = consultasCartera;
+    await page.getByRole('button', { name: 'Reintentar el conteo de terceros' }).click();
+    await expect(page.getByText(/2 de los 6 clientes activos ya tienen tercero vinculado en Siigo/))
+      .toBeVisible();
+    expect(consultasCartera).toBe(carteraAntesDelReintento);
+  });
+
+  test('y al revés: con la cartera caída, la cifra de terceros se sigue viendo', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page, { estadoResumen: 500 });
+    await page.goto(RUTA);
+
+    await expect(page.getByText(/No se pudo revisar la cartera/)).toBeVisible();
+    await expect(page.getByText(/2 de los 6 clientes activos ya tienen tercero vinculado en Siigo/))
+      .toBeVisible();
   });
 
   test('seis carencias se pintan en DOS grupos, una por línea y con el texto del servidor', async ({ page }) => {
