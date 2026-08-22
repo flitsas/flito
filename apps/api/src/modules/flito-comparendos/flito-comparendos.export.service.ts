@@ -77,7 +77,11 @@ export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] =
   { header: 'Municipio', key: 'municipioFuente', width: 16 },
   { header: 'Organismo', key: 'organismo', width: 30 },
   { header: 'Monto', key: 'monto', width: 14 },
-  { header: 'Estado', key: 'estado', width: 10 },
+  // «Monitoreo» y no «Estado» desde la HU #11713: es el estado de MONITOREO y en el mismo archivo
+  // vive «Estado en la fuente», que es el del proveedor. Dos cabeceras que empiezan por la misma
+  // palabra se confunden al filtrar en Excel igual que se confunden en la pantalla, y la pantalla ya
+  // renombró su columna: archivo y visor tienen que llamar igual a la misma cosa.
+  { header: 'Monitoreo', key: 'estado', width: 12 },
   { header: 'Estado en la fuente', key: 'estadoFuente', width: 18 },
   { header: 'Origen', key: 'origenMerge', width: 12 },
   { header: 'Causal', key: 'causal', width: 26 },

@@ -16,7 +16,7 @@
 // sitio habría cambiado tres columnas de la tabla y las aserciones vigentes de la #11560, así que
 // se parte en dos: la de siempre se renombra a lo que hace y la de la hora nace nueva.
 
-import type { ComparendoRegistro } from '@operaciones/shared-types';
+import type { ComparendoRegistro, ComparendosTipoRegistro } from '@operaciones/shared-types';
 
 /** Guion de ausencia. `null` es información: hay fuentes que no traen la placa, la fecha o el monto. */
 export const SIN_DATO = '—';
@@ -187,4 +187,31 @@ export function fechaHoraCortaColombia(instante: string | null): string {
     day: 'numeric', month: 'short',
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
+}
+
+/**
+ * Qué es la fila HOY ante la autoridad (HU #11712). Lo deriva el merge del número de resolución;
+ * **no lo dice ningún campo del proveedor** y no se puede inferir de `estadoFuente`.
+ */
+const ETIQUETA_TIPO_REGISTRO: Record<ComparendosTipoRegistro, string> = {
+  comparendo: 'Comparendo',
+  multa: 'Multa',
+};
+
+/**
+ * El tipo de registro, con la MISMA forma que {@link etiquetaOrigen} y por los mismos dos motivos:
+ * el `Record` sobre la unión hace que añadir un tercer tipo al contrato NO compile hasta que alguien
+ * le escriba su texto, y el respaldo al valor crudo evita el «undefined» cuando un backend un paso
+ * por delante de esta pestaña manda un valor que este mapa todavía no tiene.
+ *
+ * **El `null` se pinta {@link SIN_DATO}, nunca «Comparendo»** (HU #11713, AC3). `null` es «no se
+ * sabe»: es lo que devuelve todo el histórico anterior a la migración 0160, cuyo dato ya no está en
+ * ninguna parte, y en las filas `inactivo` es permanente porque ningún sync vuelve a visitarlas
+ * (CF-10). Rellenar el hueco con la palabra convertiría una ausencia en un dato verificado que nadie
+ * va a revisar nunca — y el front, además, **no deriva** el tipo: `numeroResolucion` no se pinta en
+ * la tabla y no se usa aquí para adivinar lo que el servidor no afirmó.
+ */
+export function etiquetaTipoRegistro(tipo: ComparendoRegistro['tipoRegistro']): string {
+  if (tipo === null) return SIN_DATO;
+  return (ETIQUETA_TIPO_REGISTRO as Record<string, string | undefined>)[tipo] ?? tipo;
 }

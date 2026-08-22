@@ -217,7 +217,7 @@ Quien necesite sumar, exporta.
 | Qué es | Estado de **monitoreo**: `activo` / `inactivo` | Lo que dice el **proveedor**, texto libre |
 | Qué significa `inactivo` | «Las fuentes dejaron de reportarlo con cobertura completa» (CF-10) | — |
 | Qué **no** significa | **Ni pagado ni resuelto** | — |
-| En la interfaz | `StatusChip` + tooltip de columna + copy explícito | Texto plano en el **detalle**, sin chip y sin color |
+| En la interfaz | `StatusChip` + tooltip de columna + copy explícito | Texto plano, sin chip y sin color. ~~Solo en el detalle.~~ **Desde la #11713 también en una columna de NIVEL B de la tabla** — ver el bloque fechado del 21 ago 2026 al final de «Columnas y jerarquía» |
 
 **No se le asigna tono cromático a `estadoFuente` bajo ningún concepto.** No está enumerado; cualquier
 mapa de colores sería una lista de valores observados un martes, y el proveedor que mañana escriba
@@ -345,19 +345,20 @@ sirve para reconocer la fila y decidir si se abre; abajo va lo que se lee cuando
 | Nivel | Columna | Campo | Por qué ahí |
 |---|---|---|---|
 | **A · siempre** | N.º comparendo | `numeroComparendo` | Es la llave de negocio, única en el país (CF-07). Es además el **botón** que abre el detalle |
+| **A · añadida el 21 ago 2026 (HU #11713), posición 2** | Tipo | `tipoRegistro` | «Comparendo» / «Multa», **texto plano**. `null` → «—», NUNCA «Comparendo» |
 | **A** | Placa | `placa` | La primera pregunta operativa es «¿de qué vehículo?». `null` → «—» (hay comparendos sin placa) |
 | **A** | NIT monitoreado | `nitMonitoreado` | Es el eje del módulo: de qué empresa vigilada salió esta consulta. Con alias del catálogo si lo hay |
 | **A** | Fecha | `fechaComparendo` | Ordena la conversación con el organismo. `null` → «—»: hay fuentes que no la traen |
 | **A** | Infracción | `codigoInfraccion` + `descripcionInfraccion` | Una sola columna: el código sin descripción no dice nada y la descripción sin código no se puede citar. Descripción a **una línea** con recorte |
 | **A** | Municipio | `municipioFuente` → nombre | Decide quién gestiona. `null` = solo lo vio SIMIT |
 | **A** | Monto | `monto` | Es el criterio de prioridad. Alineado a la derecha, cifras tabulares |
-| **A** | Estado | `estado` | `StatusChip`. La distinción activo/inactivo cambia por completo cómo se lee la fila |
+| **A** | ~~Estado~~ **Monitoreo** | `estado` | `StatusChip`. La distinción activo/inactivo cambia por completo cómo se lee la fila. **Renombrada el 21 ago 2026 (HU #11713)**: con «Estado en la fuente» en la misma tabla, dos rótulos que empiezan por la misma palabra se oyen casi iguales |
 | **A** | Gestión | `causalId` → nombre de la causal | Responde «¿esto ya lo miró alguien?», que es la razón de abrir la pantalla |
-| **B · colapsa por debajo de 1280 px** | Organismo | `organismo` | Contexto útil, rara vez decisivo: casi siempre se deduce del municipio |
+| **B · colapsa por debajo de 1280 px** | ~~Organismo~~ | `organismo` | ~~Contexto útil, rara vez decisivo: casi siempre se deduce del municipio.~~ **RETIRADA de la tabla el 21 ago 2026 (HU #11713)**, por decisión del supervisor sobre el aviso de UX de que quince columnas son demasiadas. El dato no se pierde: está entero en el panel de detalle. Sigue en el export |
 | **B** | Origen | `origenMerge` | «SIMIT» / «Municipal» / «Ambos». Importa cuando algo no cuadra, no en la lectura normal |
 | **B** | Registrado | `primeraVistoEn` | Antigüedad en el sistema. Se distingue de la fecha del comparendo y por eso no van juntas |
 | **B · condicional** | Inactivado | `inactivadoEn` | **Solo se pinta con el filtro «Inactivos»**: en la vista de activos es una columna de guiones por definición (`null` mientras está activo) |
-| **C · solo en el detalle** | Estado en la fuente | `estadoFuente` | Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él |
+| ~~**C · solo en el detalle**~~ → **B** | Estado en la fuente | `estadoFuente` | ~~Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él.~~ **Revocado el 21 ago 2026 (HU #11713):** es columna de nivel B, la primera del bloque. El razonamiento está en el bloque fechado al final de esta sección |
 | **C** | Observación | `observacion` | Texto largo. En una celda o se recorta hasta ser inútil o rompe el alto de la fila |
 | **C** | Visto por última vez | `ultimoVistoEn` | Es «cuándo corrió el último sync que lo tocó», no un hecho del comparendo |
 | **C** | Última corrida | `ultimoSyncRunId` | Puente al detalle de la corrida; identificador técnico |
@@ -373,6 +374,70 @@ poder ocultarlo.
 **Recorte de la descripción de la infracción:** una línea con `line-clamp-1`. **El texto completo NO
 se pone en un `title`**: un `title` no lo ve el teclado, no lo anuncia bien un lector de pantalla y
 no existe en táctil. El texto completo vive en el detalle, que está a un clic y a un Enter.
+
+---
+
+#### Enmienda del 21 ago 2026 — «Tipo», «Estado en la fuente» y el renombre a «Monitoreo» (HU #11713)
+
+Esta spec se escribió antes de que el contrato tuviera `tipoRegistro`, que nació en la **HU #11712**
+al distinguir el comparendo de la multa por el número de resolución. Cuatro decisiones, y las cuatro
+contradicen algo que esta misma sección afirmaba más arriba. Se corrigió **en sitio**, tachado y con
+remisión aquí, en vez de reescribir el texto viejo: lo que se decidió un día y se revocó otro es
+parte del expediente, y borrarlo hace que la misma discusión vuelva dentro de tres meses.
+
+**1. `estadoFuente` sube de nivel C a nivel B.** El argumento que lo bajó a «solo en el detalle»
+—texto libre, no comparable entre filas, y en columna «sugeriría que se puede filtrar por él»— es
+correcto sobre la comparación y falso sobre la sugerencia: en esta tabla ninguna columna es
+filtrable, ni «Municipio», ni «Origen», ni «Gestión», y nadie ha deducido de ellas un filtro. Lo que
+inclinó la balanza es que la pregunta «¿esto en qué va?» es la que hace abrir la pantalla, y hoy se
+responde abriendo el panel fila por fila. Va al nivel **B**, que es exactamente lo que el nivel B
+significa: útil, no decisivo, y disponible entero en el detalle cuando la pantalla es estrecha.
+
+**Y va la PRIMERA del bloque B, tras «Gestión» — no pegada a «Monitoreo».** Ponerla al lado haría
+más evidente el contraste entre los dos estados, que es lo que la decisión 5 pide, pero empujaría
+unos 11 rem a la derecha una columna de **nivel A** dentro de un `overflow-x-auto` que a 1280 px ya
+desplaza. Un dato de nivel A que hay que buscar con la barra horizontal deja de ser de nivel A. El
+contraste se explica en el `caption`, que no cuesta un solo píxel de ancho.
+
+**2. «Estado» pasa a llamarse «Monitoreo», y ninguna columna se llama solo «Estado».** Con «Estado» y
+«Estado en la fuente» en la misma tabla, un lector de pantalla en modo tabla —que anuncia la cabecera
+cada vez que se cambia de celda— dice «Estado… Activo» y «Estado en la fuente… Se adeuda»: **dos
+primeras palabras idénticas** para dos hechos que no tienen nada que ver. «Monitoreo» se distingue
+desde la primera sílaba, y no es una palabra inventada para este problema: es la que `docs/dominio.md`
+ya usa, la que dice el `aria-label` del grupo de pills («Filtrar por estado de monitoreo») y la que
+define `ComparendosRegistroEstado` en el contrato. **La cabecera del export se renombra igual**: el
+operador filtra en Excel con la pantalla al lado, y dos nombres para la misma columna es un error de
+conciliación esperando a pasar.
+
+**3. «Tipo» es TEXTO PLANO, y eso no es una omisión.** Ningún `ChipTone` del kit dice la verdad aquí:
+`warning` y `danger` editorializarían una etapa **normal** del cobro —una multa no es una alarma—,
+`success` sería perverso, `active` ya lo lleva «Monitoreo» en la misma fila, y `draft`/`neutral` son
+los grises que en esta tabla significan «Inactivo» y «Sin gestión», o sea «no hay nada»: lo contrario
+exacto de una multa. `origenMerge`, que es el mismo tipo de dato —un enum corto derivado por el
+merge—, ya se pinta texto plano. Y los dos valores llevan el **mismo peso tipográfico**: una «Multa»
+en negrita sería color por otros medios, que es justo lo que este párrafo descarta. Es coherente con
+la decisión 9 de más abajo, que ya prohibió colorear `estadoFuente`.
+
+**`tipoRegistro: null` se pinta «—», nunca «Comparendo».** El `null` es lo que devuelve todo el
+histórico anterior a la migración 0160 y su dato ya no está en ninguna parte; en las filas `inactivo`
+es **permanente**, porque ningún sync vuelve a visitarlas (CF-10). El front tampoco lo deriva de
+`numeroResolucion`, que ni siquiera se pinta: derivar en el cliente lo que el servidor no afirmó es
+cómo una ausencia se convierte en un dato verificado que nadie va a revisar nunca.
+
+**4. «Organismo» se retira de la tabla.** Con las dos columnas nuevas la tabla llegaba a quince, y
+esta sección abre diciendo que quince columnas convierten una tabla en una hoja de cálculo ilegible.
+Decisión del supervisor sobre el aviso de UX. El organismo casi siempre se deduce del municipio, que
+sí está, y el dato **no se pierde**: está entero en el panel de detalle y sigue en el export. La
+tabla queda en **14** columnas con «Inactivado» puesto, **10** por debajo de 1280 px.
+
+**Lo que NO cambia:** sigue sin haber selector de columnas ni preferencia persistida —sería un patrón
+nuevo con estado por usuario que ninguna pantalla de FLITO tiene—, el reparto sigue siendo A/B por
+breakpoint, las dos celdas nuevas son `<td>` **mudos** (una sola parada de tabulador por fila, la del
+número), y el estado del proveedor se pinta **tal cual**: sin `capitalize`, sin `uppercase`, sin
+recorte en el DOM y **sin `title`** —el operador puede tener que citárselo al organismo—, a una línea
+con `line-clamp-1` por la misma razón que la infracción: el alto de la fila.
+
+---
 
 ### Estados (4)
 
@@ -870,11 +935,13 @@ escritura que esta pantalla consume.
 | `nitMonitoreado` | NIT monitoreado |
 | `fechaComparendo` | Fecha |
 | infracción | Infracción |
-| `organismo` | Organismo |
+| `organismo` | ~~Organismo~~ — **fuera de la tabla desde la #11713**; sigue en el detalle y en el export |
 | `municipioFuente` | Municipio |
 | `monto` | Monto |
 | `origenMerge` | Origen |
-| `estado` | Estado |
+| `estado` | ~~Estado~~ **Monitoreo** (#11713) |
+| `estadoFuente` | Estado en la fuente (#11713, nivel B) |
+| `tipoRegistro` | Tipo (#11713, nivel A) |
 | `primeraVistoEn` | Registrado |
 | `inactivadoEn` | Inactivado |
 | gestión | Gestión |
@@ -897,7 +964,7 @@ escritura que esta pantalla consume.
 |---|---|
 | Subtítulo de la página | «Lo que SIMIT y los municipios reportan de los NIT que se vigilan. Los datos vienen de la fuente y no se editan aquí: lo único que se registra es la causal y la observación de gestión.» |
 | Bajo los filtros de identidad | «El NIT y la placa se buscan exactos y no viajan en la dirección del navegador.» |
-| Ayuda de la columna Estado (`aria-describedby` de la cabecera) | «Activo o inactivo es lo que dicen las fuentes, no si está pagado: “inactivo” significa que dejaron de reportarlo.» |
+| ~~Ayuda de la columna Estado (`aria-describedby` de la cabecera)~~ → **`<caption>` de la tabla** (#11713) | «Comparendos monitoreados. “Monitoreo” dice si las fuentes siguen reportándolo —“inactivo” no significa pagado—. “Estado en la fuente” es lo que dice el proveedor, sin normalizar, y puede venir vacío. “Tipo” distingue el comparendo de la multa, que es su etapa siguiente.» |
 | Junto a «Estado en la fuente», en el detalle | «Lo que reporta el proveedor, tal cual. No está normalizado.» |
 | Junto a «NIT monitoreado», en el detalle | «El NIT con el que se preguntó, no el del infractor.» |
 | Junto al botón de exportar | «Se exporta el conjunto filtrado, hasta 5.000 filas.» |
@@ -934,8 +1001,13 @@ error inesperado».
   texto cambia a «Preparando el archivo…»: el atributo solo no lo anuncia nadie.
 - Tabla: `<caption class="sr-only">Comparendos monitoreados</caption>`. `FlitTh` ya pone
   `scope="col"`.
-- Cabecera de «Estado»: `aria-describedby` apuntando al texto de ayuda, para que la aclaración de
-  «inactivo ≠ pagado» esté también en el árbol accesible y no solo en un tooltip visual.
+- ~~Cabecera de «Estado»: `aria-describedby` apuntando al texto de ayuda, para que la aclaración de
+  «inactivo ≠ pagado» esté también en el árbol accesible y no solo en un tooltip visual.~~
+  **Enmendado el 21 ago 2026 (HU #11713):** la columna se llama **«Monitoreo»** y la aclaración vive
+  en el **`<caption>`**, que es el único texto que un lector anuncia con seguridad al entrar en la
+  tabla. Un `aria-describedby` en un `th` se anuncia de forma desigual entre lectores y no llega
+  nunca a quien recorre la tabla celda a celda; el `caption` sí, y además cabe la advertencia sobre
+  «Estado en la fuente», que no está normalizado.
 
 **Orden de tabulación**
 
@@ -1080,7 +1152,21 @@ anteriores]` si existe.
 34. La columna «Inactivado» solo existe con el filtro «Inactivos» puesto.
 35. `municipioFuente: 'ITAGUI'` se pinta «Itagüí» con el catálogo cargado, y «ITAGUI» si
     `GET /municipios` falló — **y en los dos casos la tabla se pinta**.
-36. `estadoFuente` **no** aparece en ninguna columna de la tabla.
+36. ~~`estadoFuente` **no** aparece en ninguna columna de la tabla.~~ **REVOCADO el 21 ago 2026
+    (HU #11713) — no ejecutar: su resultado esperado es hoy el contrario.** Lo que se comprueba en su
+    lugar: `estadoFuente` **sí** es columna de nivel B, rotulada «Estado en la fuente», con el texto
+    **tal cual** lo manda el proveedor (ni `capitalize` ni `uppercase` ni recorte en el DOM), a una
+    línea con `line-clamp-1`, **sin `title`**, y `null` → «—».
+36b. La columna del monitoreo se llama **«Monitoreo»** y **ninguna** columna se llama solo «Estado».
+36c. «Tipo» es columna de nivel A en posición 2, en **texto plano y sin `StatusChip`**;
+    `tipoRegistro: null` → «—» y **nunca** «Comparendo»; un tipo desconocido se pinta crudo;
+    `numeroResolucion` **no** se pinta en la tabla.
+36d. «Organismo» **ya no** es columna de la tabla (sigue en el detalle y en el export).
+36e. A **1280 px** el encabezado tiene **14** cabeceras con el filtro «Inactivos» puesto y a
+    **1279 px** tiene **10**, con las de nivel B fuera del árbol accesible. El **esqueleto** tiene el
+    mismo número de columnas que la tabla llena en cada uno de los dos anchos.
+36f. La petición del listado **no** manda `tipo` ni `estadoFuente`: el esquema del backend es
+    `.strict()` y sería un 400.
 37. Una descripción de infracción de 200 caracteres se recorta a una línea y **no** se pone en un
     `title`.
 
