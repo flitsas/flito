@@ -31,7 +31,7 @@ import {
 } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { frenoConRastro, makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { exigirAccionSiigo } from './siigo.permisos.js';
 import {
   CAMPOS_PII_IDENTIFICACION, CAMPOS_PII_TERCERO_EXPORTADO, registrarAccesoCliente,
@@ -62,6 +62,10 @@ const asegurarLimiter = rateLimit({
   max: 60,
   keyGenerator: userOrIpKey('siigo-terceros'),
   message: { error: 'Demasiadas sincronizaciones seguidas. Espera unos minutos.' },
+  // El 429 deja rastro (HU #11299). Con el limitador delante de la guarda, quien insiste sin
+  // permiso deja de escribir en la bitácora a partir del tope — que es lo que se buscaba — pero
+  // también dejaba de aparecer en ningún sitio. `frenoConRastro` cuenta el freno y anota la llave.
+  handler: frenoConRastro('siigo-terceros'),
   store: makeStore('rl:siigo-terceros:'),
 });
 

@@ -1,7 +1,9 @@
-import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
+import rateLimit, { Options, ipKeyGenerator, type RateLimitInfo } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import { getRedis } from '../redis.js';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
+import { loggerFor } from '../logger.js';
+import { rateLimitBloqueadoTotal } from '../metrics.js';
 
 // Helper: keyGenerator que prefiere userId si está autenticado, sino normaliza IP (IPv6 /64).
 // Sin esta normalización, atacantes con IPv6 pueden bypassear los límites cambiando los bits bajos.
@@ -23,6 +25,59 @@ export function makeStore(prefix: string): Options['store'] | undefined {
     sendCommand: (...args: string[]) => (r.call as any)(...args),
     prefix,
   });
+}
+
+const logFreno = loggerFor('rate-limit');
+
+/**
+ * Handler de 429 que además deja rastro: un `warn` con la llave y un punto en el contador.
+ *
+ * ── Por qué existe (HU #11299) ─────────────────────────────────────────────────────────────────
+ *
+ * La corrección de seguridad de esa HU puso los limitadores del módulo `siigo/` DELANTE de las
+ * guardas de permiso, porque una denegación escribe en `siigo_operaciones` y esa tabla es
+ * append-only: sin limitador por delante, un autenticado sin permiso podía inundar una bitácora que
+ * nadie puede podar. El intercambio es el correcto, pero abrió un punto ciego: a partir del intento
+ * 61, el mismo actor recibe 429 y ya NO deja la fila `permiso_denegado`. Y el 429 no era observable
+ * por ningún lado —`metrics.ts` no expone estados HTTP y el handler por defecto de
+ * `express-rate-limit` no escribe nada—, así que quien insistía se volvía invisible exactamente
+ * cuando pasaba a ser interesante. Frenar a un atacante sin verlo es media defensa.
+ *
+ * Se cierra con los dos mecanismos que el repo ya tiene, cada uno con lo que sabe hacer:
+ *
+ *   · **El contador** (`rate_limit_bloqueado_total`, etiquetado por limitador) responde «¿cuánto?»
+ *     y es lo que se grafica y lo que dispara una alerta. No lleva llave ni ruta: serían series sin
+ *     techo de cardinalidad.
+ *   · **El log** responde «¿quién?». La llave del limitador es `<prefijo>-<sub>` para un
+ *     autenticado, y ese `sub` es el identificador interno del usuario en `users` — que es
+ *     justamente lo que hace falta para cruzarlo con `audit_logs` y con la bitácora del módulo.
+ *
+ * **Nada de datos personales**, y no por costumbre: `logger` no redacta lo que no reconoce, y aquí
+ * el 429 puede venir de una petición cuya query trae un documento o una placa. Por eso se escribe
+ * la llave y NO el correo, y por eso la ruta va sin query string. Un log de frenos que copiara la
+ * consulta sería una copia sin control de aquello que el resto de esta HU se ha dedicado a acotar.
+ *
+ * Responde igual que el handler por defecto —mismo estado y mismo cuerpo, tomados de `options`—
+ * para que añadir el rastro no cambie ni una respuesta.
+ */
+export function frenoConRastro(limitador: string): Options['handler'] {
+  return (req: Request, res: Response, _next, options) => {
+    // `key`, `limit` y `used` los deja el propio middleware en `req.rateLimit`; el tipo no está
+    // declarado en el `Request` de Express, de ahí el ensanchado local (igual que en `userOrIpKey`).
+    const info = (req as Request & { rateLimit?: RateLimitInfo }).rateLimit;
+    rateLimitBloqueadoTotal.inc({ limitador });
+    logFreno.warn({
+      limitador,
+      // La llave, no el usuario: lleva el `sub` y nunca el correo ni el nombre.
+      llave: info?.key ?? null,
+      metodo: req.method,
+      // Sin query string: ahí es donde viajan el documento y la placa.
+      ruta: (req.originalUrl || req.url || '').split('?')[0]!.slice(0, 300),
+      limite: info?.limit ?? null,
+      intentos: info?.used ?? null,
+    }, 'Limitador activado: peticion rechazada con 429');
+    if (!res.writableEnded) res.status(options.statusCode).send(options.message);
+  };
 }
 
 // General API rate limit: 500 requests per 15 min per IP

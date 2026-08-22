@@ -15,6 +15,9 @@
 //      fila más en la bitácora WORM. Es la garantía de fondo, medida en la cuenta real de escrituras.
 //   3. **No se debilitó el permiso**: el 403 lo sigue dando la misma guarda, el handler no se
 //      ejecuta y quien sí puede emitir sigue pasando.
+//   4. **El 429 deja rastro** (`frenoConRastro`, segunda tanda de la HU): la inversión apaga la fila
+//      de la bitácora a partir del tope, así que el freno tiene que verse en otro sitio o el que
+//      insiste se vuelve invisible.
 //
 // La cuota se lleva por usuario (`userOrIpKey`), así que cada prueba usa su propio `sub`: quien
 // insiste sin permiso se frena a sí mismo y no al que factura. Es también lo que hace que estas
@@ -51,6 +54,8 @@ const registrarOperacionMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/modules/siigo/siigo.operaciones.repo.js', () => ({
   registrarOperacion: (...args: unknown[]) => registrarOperacionMock(...args),
 }));
+
+const { rateLimitBloqueadoTotal } = await import('../../src/shared/metrics.js');
 
 const asegurarMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => {
@@ -148,6 +153,26 @@ describe('el intento denegado se cuenta antes de escribirse', () => {
       statusHttp: 403,
       codigo: 'PERMISO_DENEGADO',
     });
+  });
+});
+
+describe('el 429 no es un punto ciego', () => {
+  it('el freno cuenta un punto en `rate_limit_bloqueado_total` con SU limitador', async () => {
+    // La otra mitad de la inversión (HU #11299, segunda tanda). Frenar al que insiste es lo que se
+    // buscaba, pero a partir del intento 61 deja de escribir en la bitácora y, sin esto, dejaba
+    // también de aparecer en ningún otro sitio: un actor persistente invisible justo cuando más
+    // interesa verlo. La etiqueta prueba además que el `handler` está cableado en ESTE limitador.
+    const app = await buildApp();
+    const token = await auth('auditor', 107);
+    const metrica = async () => (await rateLimitBloqueadoTotal.get()).values
+      .find((v) => v.labels.limitador === 'siigo-terceros')?.value ?? 0;
+    const antes = await metrica();
+
+    for (let i = 0; i < MAX_VENTANA + 1; i += 1) {
+      await request(app).post('/api/siigo/terceros/cliente/41').set('Authorization', token);
+    }
+
+    expect(await metrica()).toBe(antes + 1);
   });
 });
 

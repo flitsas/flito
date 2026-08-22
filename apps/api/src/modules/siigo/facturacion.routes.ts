@@ -41,7 +41,7 @@ import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { frenoConRastro, makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { loggerFor } from '../../shared/logger.js';
 import { exigirAccionSiigo, registrarAccionSiigo } from './siigo.permisos.js';
 import { colaDeTramites, SiigoColaError } from './facturacion.cola.service.js';
@@ -83,6 +83,10 @@ const envioLimiter = rateLimit({
   max: 20,
   keyGenerator: userOrIpKey('siigo-envio-facturacion'),
   message: { error: 'Demasiados envíos seguidos. Espera un momento antes de volver a enviar.' },
+  // El 429 deja rastro (HU #11299). Con el limitador delante de la guarda, quien insiste sin
+  // permiso deja de escribir en la bitácora a partir del tope — que es lo que se buscaba — pero
+  // también dejaba de aparecer en ningún sitio. `frenoConRastro` cuenta el freno y anota la llave.
+  handler: frenoConRastro('siigo-envio-facturacion'),
   store: makeStore('rl:siigo-envio-facturacion:'),
 });
 
@@ -139,13 +143,44 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * `reactivar: true` exige además el permiso de reactivar. Condicional y no siempre, porque el envío
  * normal —el que se usa cada día— no reactiva nada y no debe pedir un permiso que no ejerce.
+ *
+ * Que sea condicional no lo hace inocuo para el freno: cuando dispara, delega en `REACTIVACION`,
+ * que es otro `exigirAccionSiigo` y por tanto escribe su propia fila `permiso_denegado` en la
+ * bitácora WORM. Es la segunda escritura de esta ruta, y por eso el limitador va delante de las
+ * DOS y no entre ellas.
  */
 function exigirReactivar(req: Request, res: Response, next: NextFunction): void {
   if ((req.body as { reactivar?: unknown } | undefined)?.reactivar !== true) { next(); return; }
   REACTIVACION(req, res, next);
 }
 
-router.post('/', EMISION, exigirReactivar, envioLimiter, async (req: Request, res: Response) => {
+/**
+ * **El limitador va ANTES de las dos guardas**, y el orden es la corrección, no el estilo (deuda de
+ * seguridad del PR #194, cerrada en la segunda tanda de la HU #11299).
+ *
+ * Con `EMISION` delante, cada intento sin permiso se resolvía en 403 sin que el limitador llegara a
+ * contarlo, y `exigirAccionSiigo` escribe una fila `permiso_denegado` en `siigo_operaciones` por
+ * cada uno. Esa tabla es append-only por disparador (HU #11251): lo que entra ahí no se borra ni se
+ * rectifica. Un autenticado cualquiera —con rol de consulta— podía meter así las ~500 filas que le
+ * permitiera `apiLimiter` cada quince minutos en una bitácora que nadie puede podar.
+ *
+ * **Y va antes también de `exigirReactivar`, que es lo que esta ruta tiene de distinto**: son tres
+ * middlewares, no dos, y el del medio TAMBIÉN escribe cuando deniega —delega en `REACTIVACION`, que
+ * es otra guarda del mismo catálogo—. Poner el limitador en medio (`EMISION, envioLimiter,
+ * exigirReactivar`) habría tapado una de las dos escrituras y dejado la otra abierta, que es medio
+ * arreglo con aspecto de arreglo entero. El limitador va primero porque lo que se está acotando no
+ * es «pedir facturar», es «cuántas veces puede un mismo usuario hacer que el servidor escriba en
+ * una tabla que no se puede podar», y las dos guardas escriben.
+ *
+ * Gastar cuota antes de comprobar el permiso es exactamente lo que se quiere aquí: la cuota se
+ * lleva por usuario (`userOrIpKey`), así que quien insiste sin permiso se frena a sí mismo y no a
+ * quien factura. Y el desperdicio no existe: una petición denegada NO es gratis para el sistema
+ * —cuesta una fila WORM—, así que cobrarla es contabilizar el coste real, no castigar un error.
+ *
+ * No debilita nada: los 403 los siguen dando las mismas guardas sobre el mismo rol del JWT, en el
+ * mismo orden entre ellas, y el limitador no mira el cuerpo ni ejecuta el handler.
+ */
+router.post('/', envioLimiter, EMISION, exigirReactivar, async (req: Request, res: Response) => {
   const parsed = envioSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });

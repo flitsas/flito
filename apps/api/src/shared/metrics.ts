@@ -86,3 +86,24 @@ export const tramNotifSentTotal = new Counter({
   labelNames: ['tipo', 'canal'] as const,
   registers: [registry],
 });
+
+// HU #11299 — freno de un limitador que dispara (429).
+//
+// Existe por un punto ciego que abrió la propia corrección de seguridad de esta HU: al poner los
+// limitadores del módulo `siigo/` DELANTE de las guardas de permiso, los intentos que exceden la
+// ventana se resuelven en 429 y ya no dejan la fila `permiso_denegado` en `siigo_operaciones`. El
+// intercambio es el correcto —una bitácora que no se puede inundar vale más que un registro
+// exhaustivo que sí—, pero dejaba al actor persistente invisible justo a partir del intento en que
+// empieza a ser interesante: la API no exponía ningún contador de 429 ni escribía nada al frenar.
+//
+// La etiqueta es el NOMBRE del limitador y nada más. Ni la ruta ni la llave: la ruta lleva
+// identificadores en los parámetros y la llave lleva el `sub` del usuario, y las dos harían crecer
+// la cardinalidad de la serie sin techo. Quién insiste va al log (`shared/middleware/rateLimiter`),
+// que es donde una llave se puede leer y caducar; aquí va cuánto, que es lo que se grafica y lo que
+// dispara una alerta.
+export const rateLimitBloqueadoTotal = new Counter({
+  name: 'rate_limit_bloqueado_total',
+  help: 'Peticiones rechazadas con 429 por un limitador, por limitador.',
+  labelNames: ['limitador'] as const,
+  registers: [registry],
+});
