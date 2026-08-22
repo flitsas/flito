@@ -15,7 +15,8 @@
 //     catch (e) { toast.error(errorMessage(e)); }
 //
 // No tocaba `rows` ni `total`. El toast dura unos segundos y se va; lo que queda en pantalla, no.
-// Hoy el `catch` escribe `error`, el `tbody` tiene los cuatro estados y el pie limpia su total.
+// Hoy el `catch` NO limpia nada: solo escribe `error`. Quien deja de afirmar es el render — el
+// `tbody` con sus cuatro estados y el pie ENTERO, los dos bajo `!loading && !error`.
 //
 //   1. **Un 500 en la primera carga se leía como «no hubo accesos».** `rows` seguía en `[]` y la
 //      tabla entraba en su rama de vacío y escribía «Sin accesos para los filtros». En el log de
@@ -260,7 +261,16 @@ test.describe('Privacy — log PII: el rango filtrado (HU #11276, AC4)', () => {
   });
 
   test('AC4 [GUARDIÁN · defecto 3/4] — tras un fallo, el pie sigue anunciando el total anterior', async ({ page }) => {
-    // Guardián del defecto 3 (ver cabecera): se pone ROJO si se quita el `setTotal(0)` del `catch`.
+    // Guardián del defecto 3 (ver cabecera): se pone ROJO si se le quita al PIE su guarda `!error`.
+    //
+    // Y NO existe ningún `setTotal(0)`: fue el primer intento de arreglo de este Bug y se descartó
+    // a propósito, no se olvidó. Poner el total a cero bajo el fallo cambia una contradicción
+    // visible —«Total: 999» junto a una tabla vacía, que al menos chirría— por una mentira
+    // consistente: «Total: 0» ES «nadie accedió a estos datos personales», o sea exactamente la
+    // conclusión que da título a este Bug, y encima suena tranquilizadora. La cura para un dato que
+    // no se puede afirmar no es afirmar cero, es NO AFIRMAR. Lo prueban dos mutaciones: quitar la
+    // guarda deja reaparecer el 999 (lo atrapa el aserto de :295) y reponer el `setTotal(0)` sin
+    // guarda deja «Total: 0», que el de :295 NO ve y solo atrapa el de :303.
     // El total se escribe con `total.toLocaleString()`; se usa 999 a propósito, que no lleva
     // separador de millares en ninguna configuración regional y deja el aserto libre de la locale.
     await entrar(page, COMPLIANCE_PRIVACY_USER);
