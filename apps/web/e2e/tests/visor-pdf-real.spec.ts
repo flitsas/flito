@@ -12,9 +12,10 @@
 // podía dejar de renderizar por completo sin que ninguna prueba se enterara.
 //
 // Este spec sirve el fixture como CUERPO de la respuesta y comprueba el resultado observable:
-// tantos `<img>` como páginas tiene el documento, cada uno con bitmap decodificado
-// (`naturalWidth > 0`) y con la geometría de la página real. No hay capa de texto ni miniaturas que
-// mirar —el visor no las tiene—, así que el PNG rasterizado es LA evidencia.
+// tantos `<img>` como páginas tiene el documento, cada uno con bitmap decodificado, con la geometría
+// de la página real y —lo que decide si el visor SIRVE— a una resolución legible (ver
+// `ANCHO_MINIMO_LEGIBLE`). No hay capa de texto ni miniaturas que mirar —el visor no las tiene—, así
+// que el PNG rasterizado es LA evidencia.
 //
 // ── Por qué importa más allá de este spec ─────────────────────────────────────────────────────
 //
@@ -78,6 +79,30 @@ async function abrirVisor(page: import('@playwright/test').Page) {
 /** Los `<img>` que pinta el visor. El `alt` es `«<nombre> — página N de M»`; nada más en la app lo lleva. */
 const paginasPintadas = (page: import('@playwright/test').Page) => page.locator('img[alt*=" — página "]');
 
+/**
+ * Suelo de resolución del bitmap, en píxeles de ancho. Es el aserto que separa «el visor rasteriza»
+ * de «el visor sirve para leer un recibo».
+ *
+ * Por qué existe: comprobar solo `naturalWidth > 0` deja pasar CUALQUIER resolución ≥ 1 px. Medido
+ * por mutación: con `VisorPdf.tsx → ANCHO_OBJETIVO = 20` cada hoja se rasteriza a 20 px de ancho
+ * —ilegible— y sin este aserto el spec seguía en verde. La relación de aspecto (`h > w`, abajo) no
+ * lo tapa porque es invariante a escala: 20×25 la cumple igual que 1400×1811.
+ *
+ * Por qué 900 y no 1400 (el valor real de hoy):
+ *  · 896 px es la frontera objetiva. El `<img>` del visor es `w-full max-w-4xl`, es decir hasta
+ *    56rem = 896 px CSS de ancho: por debajo de eso el navegador ESCALA HACIA ARRIBA el PNG y el
+ *    documento se ve borroso. 900 redondea ese límite.
+ *  · Un umbral pegado a 1400 sería tan malo como no tenerlo: se pondría rojo ante cualquier ajuste
+ *    legítimo del peso del canvas, que no es un defecto. Así queda ~36 % de holgura por debajo del
+ *    valor de producción, y aun así mata el mutante de 20 px por un factor de 45.
+ *  · No es frágil ante el entorno: `VisorPdf` calcula `scale = ANCHO_OBJETIVO / base.width`, de modo
+ *    que `canvas.width` sale igual a `ANCHO_OBJETIVO` para cualquier tamaño de página, y NUNCA
+ *    multiplica por `devicePixelRatio` ni depende del viewport del navegador. Medido en el runner:
+ *    1400 × 1811 px con dpr = 1. El único ruido posible es el truncado a entero del float del
+ *    viewport de pdf.js (±1 px), a 500 px del umbral.
+ */
+const ANCHO_MINIMO_LEGIBLE = 900;
+
 test.describe('Visor de PDF — rasterización de un documento real', () => {
   test('un PDF de dos páginas se rasteriza en dos imágenes con bitmap', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -117,10 +142,14 @@ test.describe('Visor de PDF — rasterización de un documento real', () => {
       // `canvas.toDataURL('image/png')`. Si el visor volviera al visor nativo del navegador —el que
       // ejecuta el `/OpenAction … this.print()` de las facturas de SOAT— esto se cae.
       expect(m.esPng, `página ${i + 1}: el src debe ser un PNG rasterizado`).toBe(true);
-      expect(m.w, `página ${i + 1}: ancho`).toBeGreaterThan(0);
-      expect(m.h, `página ${i + 1}: alto`).toBeGreaterThan(0);
+      // Que RASTERICE no basta: tiene que rasterizar a algo que se pueda leer. Sustituye a los
+      // asertos `w > 0` / `h > 0`, que quedan subsumidos (900 > 0, y el alto es mayor que el ancho).
+      expect(
+        m.w,
+        `página ${i + 1}: ancho rasterizado ${m.w}px, por debajo del mínimo legible (${ANCHO_MINIMO_LEGIBLE}px)`,
+      ).toBeGreaterThanOrEqual(ANCHO_MINIMO_LEGIBLE);
       // Geometría de la página real (612×792 pt, vertical). Un placeholder cuadrado o apaisado no
-      // salió de este documento.
+      // salió de este documento. Ojo: esto es invariante a escala, así que NO cubre la resolución.
       expect(m.h, `página ${i + 1}: debe ser vertical como el documento`).toBeGreaterThan(m.w);
     }
 
