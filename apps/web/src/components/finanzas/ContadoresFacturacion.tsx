@@ -9,22 +9,9 @@
 
 import { SIIGO_ESTADOS_REPORTE, SIIGO_ESTADO_REPORTE_ETIQUETA } from '@operaciones/shared-types';
 import type { SiigoEstadoReporte } from '@operaciones/shared-types';
-import StatusChip, { type ChipTone } from '../flit/StatusChip';
+import StatusChip from '../flit/StatusChip';
 import { FlitCard } from '../flit/flitPageKit';
-import type { ResumenFacturacion } from './tiposFacturacion';
-
-/** Tono de cada estado. `rechazado` y `fallido` comparten el rojo: los dos piden que alguien actúe. */
-const TONO: Record<SiigoEstadoReporte, ChipTone> = {
-  no_enviado: 'draft',
-  // En cola: en marcha, nadie tiene que hacer nada. Mismo tono que «en proceso» (HU #11328).
-  encolado: 'active',
-  en_proceso: 'active',
-  emitido: 'active',
-  aceptado: 'success',
-  rechazado: 'danger',
-  anulado: 'neutral',
-  fallido: 'danger',
-};
+import { TONO_CHIP_ESTADO, type ResumenFacturacion } from './tiposFacturacion';
 
 interface Props {
   resumen: ResumenFacturacion | null;
@@ -111,7 +98,7 @@ export default function ContadoresFacturacion({
                 background: activo ? 'rgba(79, 116, 201, 0.08)' : 'white',
               }}
             >
-              <StatusChip tone={TONO[estado]}>{SIIGO_ESTADO_REPORTE_ETIQUETA[estado]}</StatusChip>
+              <StatusChip tone={TONO_CHIP_ESTADO[estado]}>{SIIGO_ESTADO_REPORTE_ETIQUETA[estado]}</StatusChip>
               <span className="font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
                 {cuantos}
               </span>
