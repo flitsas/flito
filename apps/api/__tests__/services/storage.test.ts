@@ -242,7 +242,7 @@ describe('storage — uploadEntityDocument: la clave no lleva el nombre del clie
   // era el filtro. O sea que el dato que este Bug persigue volvía a la clave —y de ahí al `?key=`—
   // por la puerta de atrás. Solo un conjunto CERRADO de extensiones lo cierra.
   //
-  // Los cuatro primeros casos traen un mime CONOCIDO, así que se resuelven por la tabla y no llegan
+  // Los CINCO primeros casos traen un mime CONOCIDO, así que se resuelven por la tabla y no llegan
   // a mirar el nombre: prueban que el mime manda, no el conjunto cerrado. Los que ejercitan el
   // conjunto cerrado son los de `application/octet-stream`, y son además los realistas: es
   // exactamente lo que producen los dos expansores de ZIP (`flito-soat.service.ts` y
@@ -263,7 +263,7 @@ describe('storage — uploadEntityDocument: la clave no lleva el nombre del clie
   ];
 
   it.each(EVASIONES)(
-    'sufijo con forma de placa/cédula (%s): NO entra en la clave, manda el mime',
+    'sufijo con forma de placa/cédula (%s con mime %s): NO entra en la clave, manda el mime',
     async (filename, mime, sufijo, extEsperada) => {
       bucketExistsMock.mockResolvedValue(true);
       const { uploadEntityDocument } = await import('../../src/services/storage.js');
@@ -431,6 +431,23 @@ describe('storage — firma de descarga: las claves del formato VIEJO siguen sir
       await import('../../src/services/storage.js');
     const params = new URLSearchParams(firmarDescargaEntidad(CLAVE_VIEJA, -1).split('?')[1]);
     expect(verificarDescargaEntidad(CLAVE_VIEJA, params.get('exp')!, params.get('sig')!)).toBe(false);
+  });
+
+  // La HU #11770 cambió el PREFIJO de la clave, no el sufijo. `CLAVE_VIEJA` de arriba es formato
+  // legado del sufijo (Bug #11694) y no ejercita eso. Esta es la forma que la #11770 deja atrás: la
+  // raíz de excepción nombrada con el NIT. El AC1 promete literalmente que «la clave sigue siendo
+  // estable y resoluble para las descargas ya existentes», y sin este caso esa cláusula no la
+  // comprobaba nadie. Lo señaló el gate de QA de la propia HU. (H-4.)
+  it('clave legada con el NIT en la RAÍZ (lo que la HU #11770 deja atrás) sigue firmándose y verificándose', async () => {
+    const CLAVE_VIEJA_CON_NIT =
+      '_sin-carpeta-configurada/900123456/impuestos/recibos/1755000000000_a1b2c3d4e5f6_recibo.pdf';
+    const { firmarDescargaEntidad, verificarDescargaEntidad } =
+      await import('../../src/services/storage.js');
+    const params = new URLSearchParams(firmarDescargaEntidad(CLAVE_VIEJA_CON_NIT, 300).split('?')[1]);
+    // La clave viaja ENTERA y sin normalizar: el día que alguien «limpie» los prefijos viejos, esto
+    // se pone rojo antes de que se rompa una descarga en producción.
+    expect(params.get('key')).toBe(CLAVE_VIEJA_CON_NIT);
+    expect(verificarDescargaEntidad(params.get('key')!, params.get('exp')!, params.get('sig')!)).toBe(true);
   });
 
   it('clave NUEVA (opaca): mismo camino de firma y verificación', async () => {

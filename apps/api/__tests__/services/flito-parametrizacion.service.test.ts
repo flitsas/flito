@@ -54,7 +54,13 @@ describe('carpetaDe — la raíz no lleva el documento del cliente (HU #11770)',
   // La fila que llega de `clients` TRAE el documento, aunque `carpetaDe` ya no lo pida: así lo que
   // se comprueba es que no se usa, no que no esté disponible. Es lo que verá el mutante si alguien
   // devuelve `compania.document ?? compania.id` a la expresión de la raíz.
-  const filaCliente = (over: Partial<{ id: number | string; flitoCarpetaStorage: string | null }> = {}) =>
+  // El tipo de `id` es el MISMO que acepta `carpetaDe`, no `string` a secas: si el fixture lo
+  // ensancha, este archivo deja de compilar contra la firma real y nadie se entera — `__tests__`
+  // queda fuera de `build:api` (`include: src/**/*`) y vitest no comprueba tipos. Lo encontró el
+  // gate de QA de esta misma HU, con ocho TS2345 vivos. (HU #11770, H-1.)
+  const filaCliente = (
+    over: Partial<{ id: number | `factura-${string}`; flitoCarpetaStorage: string | null }> = {},
+  ) =>
     ({ id: 42, document: CEDULA, name: 'JUAN PÉREZ', flitoCarpetaStorage: null, ...over });
 
   it('sin carpeta parametrizada, la raíz se nombra con el id — el documento NO aparece', () => {
@@ -84,8 +90,14 @@ describe('carpetaDe — la raíz no lleva el documento del cliente (HU #11770)',
       .not.toBe(carpetaDe(filaCliente({ id: 43 }), 'sub'));
   });
 
-  it('el mismo id da siempre la misma raíz (estabilidad: lo ya archivado se sigue encontrando)', () => {
-    expect(carpetaDe(filaCliente({ id: 42 }), 'sub')).toBe(carpetaDe(filaCliente({ id: 42 }), 'sub'));
+  // OJO con lo que este caso prueba y lo que NO. `carpetaDe` es pura, así que llamarla dos veces
+  // con lo mismo TIENE que dar lo mismo: eso no es estabilidad, es una tautología, y sobrevive a
+  // cualquier mutante de esta HU. Lo que de verdad importa —que una carpeta ya archivada se siga
+  // encontrando— se prueba fijando el valor LITERAL, que es lo que rompería quien cambie de
+  // identificador otra vez. (HU #11770, H-3.)
+  it('la raíz de un id dado es un valor fijo, no derivado: lo ya archivado se sigue encontrando', () => {
+    expect(carpetaDe(filaCliente({ id: 42 }), 'sub')).toBe('_sin-carpeta-configurada/42/sub');
+    expect(carpetaDe(filaCliente({ id: 7 }), 'sub')).toBe('_sin-carpeta-configurada/7/sub');
   });
 
   // `siigo.archivo-documentos` es el único llamador que pasa un id que no es el de una compañía: una
