@@ -17,7 +17,8 @@ Orden fijo:
 2. Ejecutarlos (**Skill** `flit-code-review` real + subagentes si aplican) — ver también `.cursor/rules/skill-no-imitation.mdc`.
 3. Solo si el veredicto lo permite → commit/push (si faltan) → MCP `github` `create_pull_request`.
 4. Luego **Skill** `flit-integration-ado` Modo A (si hay HU **o Bug** en ADO) — Discussion sola no basta.
-5. Tras `Resolved`: **Agent** `qa-agent` (no es pre-PR, pero no se omite en el ciclo del work item).
+5. **Agent** `pr-monitor-agent` sobre el PR recién abierto (**siempre**, también en `CHORE/`/`DOCS/`): vigila los checks, hace triage del log rojo, detecta conflictos y mergea a `develop` si hay autorización y las precondiciones se cumplen. Lanzarlo en background y seguir trabajando.
+6. Tras `Resolved`: **Agent** `qa-agent` (no es pre-PR, pero no se omite en el ciclo del work item).
 
 **HU y Bug se tratan igual** en todo lo anterior (regla «Paridad HU ↔ Bug» de `AGENTS.md`): mismos
 gates, mismo Modo A/B, mismo cierre a `Resolved` vía `flit-gestion-hu`. Un PR de Bug no es una vía
@@ -47,3 +48,5 @@ Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo d
 ## Tras gates en verde
 
 Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU o Bug): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`. Cuando el trabajo se mergee, cerrar el work item a `Resolved` con `flit-gestion-hu` — **también si es un Bug**.
+
+**El PR abierto no se deja solo:** invocar `Agent pr-monitor-agent` con el número del PR y los hechos de gate que él no puede conocer (autorización de merge del humano, `SHA revisado` del veredicto de `flit-code-review`, HANDOFF de `qa-agent`, campos del work item, si es eslabón de cadena apilada). Sin esos datos no mergea y devuelve `LISTO-PARA-MERGE`. Prohibido sustituirlo por un `pull_request_read` suelto del hilo, y prohibido cerrar el turno con «avísame cuando el CI pase». Tras su `MERGED`, la cola del hilo es obligatoria: `flit-integration-ado` **Modo B** → `devops-agent` **M1** al tip.

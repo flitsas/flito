@@ -246,6 +246,11 @@ mergear si **`baseRefName` es exactamente `develop`** y hay autorización del Fe
 textual por ese PR). Merge a `staging`/`release` → siempre humano (`flit-release`). Ejecución vía
 MCP `github` (`merge_pull_request`, merge commit).
 
+**Quién las verifica en la práctica:** el subagente **`pr-monitor-agent`**, invocado tras cada
+`create_pull_request` (matriz `AGENTS.md`). Él monitorea los checks y ejecuta el merge; las
+condiciones 4, 8, 10 y 11 no puede conocerlas solo, así que el hilo principal se las pasa en el
+prompt — si falta alguna, no mergea y devuelve `LISTO-PARA-MERGE` con el número de la que falta.
+
 | # | Condición | Verificación |
 |---|-----------|----------------|
 | 1 | PR `OPEN` | `state == OPEN` |
@@ -272,7 +277,8 @@ Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop
 | Implementar código | frontend-agent / backend-agent / humano |
 | Crear PR en GitHub | **hilo principal** (rol integración) |
 | Registrar PR en ADO (Modo A) | **hilo principal** (rol integración) |
-| Ejecutar merge → `develop` | **hilo principal** (MCP github) tras autorización del Feature + precondiciones; o humano |
+| Monitorear checks del PR y triage del CI rojo | **`pr-monitor-agent`** (el hilo principal lo invoca tras abrir el PR) |
+| Ejecutar merge → `develop` | **`pr-monitor-agent`** (o el hilo principal) tras autorización del Feature + precondiciones; o humano |
 | Ejecutar merge → `staging` / `release` | **Siempre humano** (`flit-release`) |
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |

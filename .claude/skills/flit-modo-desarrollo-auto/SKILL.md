@@ -25,6 +25,7 @@ Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invo
 - `security-agent` / `db-review-agent` — gates pre-PR cuando el diff lo dispara (paso 4b)
 - `qa-agent` — TCs (A) + gate B tras `Resolved` (**Agent en cada HU que aplique**); **prohibido** modo C por FAIL del gate
 - `flit-integration-ado` — Modo A al abrir PR y Modo B post-merge (**Skill; `Custom.Commits` obligatorio**)
+- `pr-monitor-agent` — monitoreo del PR y merge a `develop` tras Modo A (**Agent en cada PR**, en background; paso 2b)
 - `devops-agent` — M1 post-Deploy (paso 2b / fin de ráfaga) (**Agent; curl del hilo no cuenta**)
 
 ## Contrato de invocación (rompe el ciclo si se viola)
@@ -51,6 +52,7 @@ cargado la Skill en el turno **es imitación**, no cumplimiento. Igual: `wit_*` 
 | Comentario «listo para QA» / seguir a la siguiente HU sin `Agent qa-agent` | `qa-agent` |
 | Radicar Bug / modo C porque falló el gate B del Feature | `qa-agent` (FAIL = re-trabajo, no Bug) |
 | `curl /api/health` del hilo presentado como M1 | `devops-agent` |
+| Polling de check-runs a mano, o cerrar el turno con «avísame cuando el CI pase» | `pr-monitor-agent` |
 | Bug mergeado que queda en `Active`, o «¿lo paso a Resolved?» como si no hubiera proceso | `flit-gestion-hu` Paso 3 (mismo cierre que una HU) |
 | Bug trabajado sin comentario de inicio/cierre, sin `Custom.Commits` o sin gate QA | el ciclo completo — el Bug no es un work item de segunda |
 
@@ -62,7 +64,7 @@ Omitir en silencio = fallo de proceso.
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · estado=Resolved✅|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
+<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · estado=Resolved✅|❌ · pr-monitor=Agent MERGED|LISTO-PARA-MERGE|CI-EN-CURSO|CI-ROJO|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
 ```
 
 `estado=Resolved` es la casilla que delata al **Bug huérfano**: si el work item se mergeó y el
@@ -115,7 +117,7 @@ Abrir el PR **no** es un gate humano de “espera a que te digan sigue”. Tras 
 
 | Pista | Qué hace | No hace |
 |---|---|---|
-| **A — CI → merge** | Monitorea checks del PR (`pull_request_read` / `get_check_runs`). Con auth del Feature y los 3 checks en `success` + mergeable → **merge automático** (paso 2b) sin nuevo “sí”. | No termina el turno con «PR abierto, avísame cuando CI pase» |
+| **A — CI → merge** | **Delegada al `Agent pr-monitor-agent`** (en background) con el número del PR y los hechos de gate: él monitorea los checks, hace triage del log rojo, detecta conflictos y mergea a `develop` con la auth del Feature, sin nuevo “sí”. | No termina el turno con «PR abierto, avísame cuando CI pase»; no vigila los checks a mano con `pull_request_read` suelto |
 | **B — Siguiente HU** | En cadena apilada, **arranca la siguiente HU** (Active → diseño si aplica → impl) desde la rama previa **mientras** corre el CI de la actual, si el ledger `qa=` de la actual ya es ✅ o `SIN-ENTORNO` | No se queda idle solo porque el merge aún no ocurrió |
 
 **Prohibido (anti-patrones de estancamiento):**
@@ -135,10 +137,10 @@ humano, no los agentes. El anti-estancamiento aplica solo a trabajo **ya autoriz
 
 **Cómo monitorear CI sin congelar el hilo:**
 
-1. Tras el push/PR: una consulta inmediata a check-runs.
-2. Si aún no están verdes: **no** quedarse en espera activa indefinida. Preferir: (a) arrancar pista B (siguiente HU), o (b) `AwaitShell`/sleep acotado (p. ej. 2–5 min) y reconsultar; repetir con backoff hasta verde, rojo o tope razonable (~45–60 min).
-3. Al ponerse verde + auth → merge en el **mismo ciclo de trabajo**, sin preguntar de nuevo.
-4. Si CI rojo → **sí** pausar esa HU/pila, comentar en Discussion, informar al humano (única pausa legítima por CI).
+1. Tras el push/PR + Modo A: lanzar `Agent pr-monitor-agent` **en background** (contrato de invocación en `.claude/agents/pr-monitor-agent.md`: PR, autorización del Feature, `SHA revisado` del veredicto, HANDOFF de qa, campos del work item, si es eslabón de la pila).
+2. Arrancar de inmediato la pista B (siguiente HU/Bug). El hilo **no** hace polling propio de check-runs: eso es trabajo del subagente, que espera con backoff hasta ~25-30 min.
+3. Su HANDOFF decide: `MERGED` → cola post-merge (Modo B + M1 + rebase de la pila) en el **mismo ciclo**, sin preguntar de nuevo · `LISTO-PARA-MERGE` → completar el gate que falta y relanzarlo · `CI-EN-CURSO` → relanzarlo al terminar el eslabón en curso · `CONFLICTO` → delegar al agente dueño que él nombra.
+4. Si el veredicto es `CI-ROJO` con causa `CODIGO` → **sí** pausar esa HU/pila, delegar la corrección al agente dueño, comentar en Discussion e informar al humano (única pausa legítima por CI). Con causa `INFRA` el subagente ya relanzó el job una vez: no relanzarlo otra vez a mano.
 
 **Cuándo sí se pausa** (única excepción al continuo): CI rojo de la HU actual, veredicto
 `BLOQUEADO`/`FAIL` en el paso 4b, cambios pedidos en revisión de un PR de la pila, AC ambiguo o
@@ -228,9 +230,13 @@ El prompt del Task debe ser **denso** (AC pegados, paths, modo slim|full). No em
 
 Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por este PR):
 
-1. Verificar precondiciones de `flit-integration-ado` (base = `develop`, tres checks CI en
-   `success` — incluido `naming` —, sin conflictos, rama `HU/<ID>-*` o `BUG/<ID>-*`).
-2. Mergear con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a `staging`/`release`.
+1. Los pasos 1 y 2 los ejecuta el **`Agent pr-monitor-agent`** ya lanzado en el anti-estancamiento:
+   verifica las precondiciones de `flit-integration-ado` (base = `develop`, checks CI en `success`
+   — incluido `naming` —, sin conflictos, rama `HU/<ID>-*` o `BUG/<ID>-*`, HEAD == `SHA revisado`,
+   gate QA invocado) y mergea con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a
+   `staging`/`release`. El hilo solo mergea por su cuenta si el subagente devolvió
+   `LISTO-PARA-MERGE` y el gate faltante ya se completó.
+2. Del HANDOFF del subagente se toma el **SHA del merge commit** para el Modo B.
 3. **`Skill flit-integration-ado` Modo B** (Deploy DEV + Commits integrado en `Custom.Commits`).
 4. Tras Modo B (o al cerrar una ráfaga de merges de la pila): invocar **`Agent devops-agent` M1** una vez
    sobre el tip/ambiente DEV — no por cada PR intermedio, **tampoco cero**. Un `curl` del hilo no
@@ -289,8 +295,8 @@ docker exec -i flito-postgres psql -U flito -d flito_demo -v ON_ERROR_STOP=1 < <
 
 **Nunca** `drizzle-kit migrate`. Avisar al usuario de que se tocó su BD local.
 
-Tras el push y el PR, **Anti-estancamiento post-PR**: monitorear checks; en paralelo avanzar siguiente
-HU si el ledger lo permite; al verde + auth → merge sin nuevo “sí”.
+Tras el push y el PR, **Anti-estancamiento post-PR**: lanzar `Agent pr-monitor-agent` (background);
+en paralelo avanzar la siguiente HU si el ledger lo permite; al verde + auth él mergea sin nuevo “sí”.
 
 **Si CI falla: arreglarlo y repetir. No apilar encima de rojo.**
 
@@ -325,8 +331,9 @@ node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "H
 
 **El PR se crea con el servidor MCP `github`** (`mcp__github__create_pull_request`), no con `gh`:
 en esta máquina `gh` es **otro programa** con el mismo nombre (un visor de ayuda), no el CLI de
-GitHub. Comprobar con `gh --version` antes de asumir lo contrario. Para consultar el estado del PR
-y sus checks, `mcp__github__pull_request_read` con `method: get_check_runs` / `get_status`.
+GitHub. Comprobar con `gh --version` antes de asumir lo contrario. El estado del PR y sus checks los
+consulta el **`Agent pr-monitor-agent`** (`mcp__github__pull_request_read` con `method:
+get_check_runs` / `get_status`), no el hilo con polling propio.
 
 Luego **`Skill flit-integration-ado` Modo A**: registrar el PR en `Custom.Commits` (HTML canónico)
 y comentario breve en Discussion. Discussion **sola no basta**. Si el campo `Custom.Commits` es
