@@ -194,6 +194,52 @@ async function mockSincronizacion(page: Page, alPedir?: (clienteId: number) => v
   });
 }
 
+/**
+ * Lo que el modal de ficha fiscal pide al abrirse. Va aparte de `mockPanel` porque solo lo necesita
+ * el test que abre la ficha: en los demás el modal ni se monta.
+ *
+ * `pedidos` recoge los `clienteId` cuya validación se consultó. Es lo que permite afirmar que la
+ * ficha abierta es la del cliente de la fila y no solo que el título lo diga.
+ */
+async function mockFichaFiscal(page: Page, pedidos: number[]) {
+  await page.route(/\/api\/clients(\?|$)/, (route) => (
+    route.request().method() === 'GET'
+      ? route.fulfill(json([{
+        id: CARGA_RAPIDA.clienteId, name: CARGA_RAPIDA.nombre, document: '901222333',
+        documentType: 'NIT', phone: null, email: null, address: null, city: 'Km 5 vía Cota',
+        notes: null, active: true,
+        personType: null, idType: null, checkDigit: null, fiscalResponsibilities: [],
+        countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,
+        contactFirstName: null, contactLastName: null, contactEmail: null,
+        phoneIndicative: null, phoneNumber: null,
+      }]))
+      : route.continue()));
+
+  await page.route(/\/api\/siigo\/clientes\/\d+\/validacion/, (route) => {
+    const id = Number(/clientes\/(\d+)\/validacion/.exec(route.request().url())![1]);
+    pedidos.push(id);
+    return route.fulfill(json({ ...CARGA_RAPIDA, clienteId: id }));
+  });
+
+  // El catálogo de ubicaciones de la cascada. Sin esto el modal pinta la cascada vacía y el aviso
+  // de «catálogo no cargado», que no es lo que este test mira.
+  await page.route(/\/api\/siigo\/ciudades$/, (route) => route.fulfill(
+    json({ cargado: true, total: 4605, activas: 4605, version: '2026-08-06' }),
+  ));
+  await page.route(/\/api\/siigo\/ciudades\/paises/, (route) => route.fulfill(
+    json({ data: [{ codigo: 'Co', nombre: 'Colombia' }] }),
+  ));
+  await page.route(/\/api\/siigo\/ciudades\/Co\/departamentos/, (route) => route.fulfill(
+    json({ data: [{ codigo: '11', nombre: 'Bogotá D.C' }] }),
+  ));
+  await page.route(/\/api\/siigo\/ciudades\/Co\/\d+\/ciudades/, (route) => route.fulfill(
+    json({ data: [{ codigo: '11001', nombre: 'Bogotá D.C.' }] }),
+  ));
+  await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/propuesta$/, (route) => route.fulfill(
+    json({ textoOrigen: 'Km 5 vía Cota', certeza: 'sin_equivalencia', candidatas: [] }),
+  ));
+}
+
 test.describe('AC1 — acceso y permisos por rol', () => {
   test('un rol sin el permiso de la pantalla no entra ni por el enlace directo', async ({ page }) => {
     await loginAs(page, CONDUCTOR_USER);
@@ -296,6 +342,40 @@ test.describe('AC2 — los cuatro estados, con el error antes que el vacío', ()
     await page.getByRole('button', { name: 'Reintentar' }).first().click();
     await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
     expect(intentos).toBeGreaterThan(1);
+  });
+
+  test('si lo que se cae es el LISTADO, el listado lo dice y no se cuela «ningún cliente tiene datos pendientes»', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    // Se cae SOLO `/validacion/detalle`. El resumen de arriba sigue en pie y sigue diciendo que hay
+    // 1 pendiente: es el escenario en el que el vacío mentiría mejor, porque la pantalla no se ve
+    // rota por ninguna parte. Con el resumen caído —el otro test— la lista tiene filas de todos
+    // modos y el vacío no llegaría a pintarse ni aunque el error no lo tapara.
+    let caido = true;
+    await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => {
+      if (caido) return route.fulfill(json({ error: 'Se cayó la base' }, 500));
+      const todos = new URL(route.request().url()).searchParams.get('incluirFacturables') === 'true';
+      const data = todos ? [...FACTURABLES, CARGA_RAPIDA] : [CARGA_RAPIDA];
+      return route.fulfill(json({ total: data.length, data }));
+    });
+
+    await page.goto(RUTA);
+
+    await expect(page.getByText(/No se pudo traer la lista: Se cayó la base/)).toBeVisible();
+    // Nunca «ningún cliente tiene datos pendientes»: la consulta que lo sabría no respondió. Y
+    // encima contradiría al resumen de al lado, que sí cargó y dice que hay 1.
+    await expect(page.getByText('Ningún cliente activo tiene datos pendientes.')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Ver los 1 que no pueden todavía/ })).toBeVisible();
+
+    // El bloque D pide el mismo endpoint: su vacío tampoco puede aparecer en lugar del error.
+    await expect(page.getByText(/No se pudo traer la lista de clientes listos/)).toBeVisible();
+    await expect(page.getByText('No hay clientes que sincronizar.')).toHaveCount(0);
+
+    // Y el error no es un callejón: reintentar trae la lista.
+    caido = false;
+    await page.getByRole('button', { name: 'Reintentar' }).first().click();
+    await expect(page.getByRole('button', { name: 'CARGA RÁPIDA' })).toBeVisible();
+    await expect(page.getByText(/No se pudo traer la lista: /)).toHaveCount(0);
   });
 
   test('el vacío no es «no hay nada»: es que toda la cartera está lista', async ({ page }) => {
@@ -425,6 +505,42 @@ test.describe('AC3 y AC4 — el resumen encabeza, y el detalle dice qué falta',
     await expect(page.getByText(/pueden aparecer datos nuevos/)).toBeVisible();
   });
 
+  test('«Completar ficha» abre la ficha del cliente de la fila, y la URL del SPA no gana ningún identificador', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const fichasPedidas: number[] = [];
+    await mockFichaFiscal(page, fichasPedidas);
+
+    await page.goto(RUTA);
+    await page.locator('li', { hasText: 'CARGA RÁPIDA' })
+      .getByRole('button', { name: 'Completar ficha' }).click();
+
+    // Se abre la ficha DEL CLIENTE DE LA FILA. No basta el título: la ficha pidió la validación del
+    // 6 y pinta los datos del 6.
+    const ficha = page.getByRole('dialog', { name: 'Datos fiscales · CARGA RÁPIDA' });
+    await expect(ficha).toBeVisible();
+    await expect(ficha.getByRole('textbox', { name: 'Razón social' })).toHaveValue('CARGA RÁPIDA');
+    await expect(ficha.getByText('Falta la dirección.')).toBeVisible();
+    // Los identificadores DISTINTOS que se consultaron, no cuántas veces: en desarrollo
+    // `StrictMode` monta dos veces y duplica la petición de arranque. Lo que se afirma es que solo
+    // se pidió la ficha de ese cliente y de ningún otro.
+    expect([...new Set(fichasPedidas)]).toEqual([CARGA_RAPIDA.clienteId]);
+
+    // La otra mitad, que es la que protege el §14 de AGENTS.md: esto ABRE UN MODAL, no navega. Ni
+    // el identificador del cliente ni su documento pueden acabar en la URL del SPA —donde los
+    // guardan el historial del navegador, los marcadores y los logs del proxy—, y eso vale al
+    // abrir y también al cerrar.
+    const url = new URL(page.url());
+    expect(url.pathname).toBe('/siigo/parametrizacion');
+    expect(url.search).toBe('?seccion=terceros');
+    expect(url.hash).toBe('');
+
+    // La «X» de la cabecera del modal; abajo hay otro «Cerrar», que es el del formulario.
+    await ficha.getByLabel('Cerrar').click();
+    await expect(ficha).toHaveCount(0);
+    expect(new URL(page.url()).search).toBe('?seccion=terceros');
+  });
+
   test('un cliente incompleto ve QUÉ le falta, no «Error interno del servidor»', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockPanel(page);
@@ -463,9 +579,63 @@ test.describe('AC5 — las equivalencias se confirman una a una', () => {
     await radios.first().check();
     await expect(confirmar).not.toHaveAttribute('aria-disabled', 'true');
 
-    // Y en toda la pestaña no existe ningún control que confirme más de una a la vez.
-    await expect(page.getByRole('button', { name: /confirmar todas/i })).toHaveCount(0);
+    // La pantalla además DICE por qué no hay acción masiva. Que de verdad no la haya se comprueba
+    // pulsando, no leyendo rótulos: eso es el test siguiente.
     await expect(page.getByText('No hay «confirmar todas»: cada municipio sale impreso en una factura ante la DIAN.')).toBeVisible();
+  });
+
+  test('ningún control del bloque confirma dos municipios de una vez: se cuentan las peticiones, no los rótulos', async ({ page }) => {
+    // Atarlo al nombre del botón («no existe ninguno que se llame "confirmar todas"») no prueba el
+    // AC5: una acción masiva llamada de otra forma pasaría. Lo que el AC prohíbe es la CONDUCTA —
+    // que una sola pulsación confirme municipios que nadie miró—, así que se interceptan las
+    // confirmaciones y se cuentan.
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const confirmados: number[] = [];
+    await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/confirmar/, (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      const id = Number(/clientes-ciudades\/(\d+)\/confirmar/.exec(route.request().url())![1]);
+      confirmados.push(id);
+      return route.fulfill(json({ clienteId: id, cityCode: '11001', cityName: 'Bogotá D.C.' }));
+    });
+
+    await page.goto(RUTA);
+    await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
+
+    const bloque = page.getByRole('heading', { name: 'Equivalencias de ciudad' })
+      .locator('xpath=ancestor::div[contains(@class,"bg-white")][1]');
+    // Ancla del alcance: si este localizador dejara de resolver la tarjeta, el barrido de abajo no
+    // recorrería nada y la prueba pasaría sin haber pulsado nada.
+    await expect(bloque.getByRole('button', { name: 'Confirmar', exact: true })).toHaveCount(3);
+
+    // Barrido: se pulsa TODO lo que hay en el bloque —salvo el «Confirmar» de una fila, que es la
+    // acción legítima y se prueba justo después, y el plegador, que sacaría del DOM lo que queda
+    // por barrer— y sin marcar ni un radio, es decir sin elegir municipio en ninguna parte. De ahí
+    // no puede salir ni una sola confirmación.
+    const botones = bloque.getByRole('button');
+    for (let i = 0; i < await botones.count(); i += 1) {
+      const boton = botones.nth(i);
+      const nombre = (await boton.innerText()).trim();
+      if (nombre === 'Confirmar' || /las propuestas$/.test(nombre)) continue;
+      // `force`: los inhabilitados por estado también se pulsan a propósito — lo que se comprueba
+      // es que no mandan nada, no que Playwright se niegue a pulsarlos.
+      await boton.click({ force: true });
+      await page.waitForTimeout(200);
+      expect(confirmados, `«${nombre}» disparó confirmaciones sin que nadie eligiera municipio`).toEqual([]);
+    }
+
+    // Lo único que confirma es el «Confirmar» de UNA fila, y confirma esa fila y nada más: las
+    // otras dos propuestas del bloque siguen sin tocar.
+    await bloque.locator('li', { hasText: 'TRANSPORTES DEL SUR' }).getByRole('button', { name: 'Confirmar' }).click();
+    await expect(page.getByText('TRANSPORTES DEL SUR S.A.S. → Bogotá D.C. (confirmada)')).toBeVisible();
+    expect(confirmados).toEqual([1]);
+
+    // Y las dos que quedan siguen sin municipio elegido: forzar su botón no manda nada.
+    for (const fila of ['AGRÍCOLA EL ROBLE', 'MINAS DEL NORTE']) {
+      await bloque.locator('li', { hasText: fila }).getByRole('button', { name: 'Confirmar' }).click({ force: true });
+      await page.waitForTimeout(200);
+    }
+    expect(confirmados).toEqual([1]);
   });
 
   test('al confirmar, la fila se resuelve, se anuncia lo que queda y el foco salta a la siguiente', async ({ page }) => {
