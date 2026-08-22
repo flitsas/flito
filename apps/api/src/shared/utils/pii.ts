@@ -106,9 +106,24 @@ export function maskPII<T extends Record<string, unknown>>(obj: T): Record<strin
       out[k] = maskPhone(v);
     } else if (lk.includes('name') || lk.includes('nombre') || lk.includes('apellido') || lk.includes('full_name') || lk.includes('owner_name') || lk.includes('propietario')) {
       out[k] = maskName(v);
-    } else if (lk.includes('address') || lk.includes('direcci')) {
+    } else if (lk.includes('address') || lk.includes('direcci') || lk.includes('city') || lk.includes('ciudad')) {
       // `direcci` y no `direccion`: cubre «dirección» con tilde sin depender de la normalización.
       // AGENTS.md §14 nombra la dirección entre lo que no puede viajar en claro a un log.
+      //
+      // `city`/`ciudad` van en la MISMA rama, y no por asimilar una ciudad a una dirección: la
+      // ubicación del titular es dato personal por sí sola —es lo que declara
+      // `CAMPOS_PII_PROPUESTA_CIUDAD` citando AGENTS.md §14—, y este catálogo era el único sitio
+      // donde el mismo ciclo la trataba como si no lo fuera. Es prevención, igual que `placa` e
+      // `identificaci`: hoy ningún llamador pasa esa clave, pero es la que nombra la columna que
+      // dos rutas del módulo de Siigo entregan.
+      //
+      // Que `cityCode` —un código DANE, que no ubica a nadie por sí mismo— caiga también aquí es
+      // consecuencia de decidir por subcadena, y se acepta a sabiendas: el precio es un código de
+      // catálogo ilegible en un log; el del error contrario es un municipio en claro en la tabla
+      // que existe para evitarlo. `stateCode` no entra —no lleva la subcadena—, así que el criterio
+      // no es uniforme entre los tres códigos de ubicación; lo es entre lo que nombra una ciudad.
+      // Y las claves que llevan además «name» —`cityName`— no llegan hasta aquí: las atrapa antes
+      // la rama de nombre.
       out[k] = maskAddress(v);
     } else {
       out[k] = v;

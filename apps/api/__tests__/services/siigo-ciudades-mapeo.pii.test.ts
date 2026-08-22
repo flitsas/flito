@@ -2,9 +2,9 @@
 //
 // El segundo frente del hallazgo de seguridad: además del informe de facturabilidad, la pantalla de
 // Terceros abre `GET /clientes-ciudades/propuestas` y `/obsoletas`, y las dos devuelven el NOMBRE de
-// cada cliente pendiente en una lista COMPLETA — sin paginar y sin tope, a diferencia del informe,
-// que al menos está acotado a 500. En volumen es la lectura de identidades más grande del módulo, y
-// hasta esta HU no dejaba ni una línea en `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16).
+// cada cliente pendiente. En volumen es la lectura de identidades más grande del módulo, y hasta
+// esta HU no dejaba ni una línea en `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16). Iban además
+// sin tope; el techo llegó con la segunda tanda de la HU y se prueba en el test de rutas.
 //
 // Lo que se demuestra:
 //
@@ -120,10 +120,9 @@ describe('AGENTS.md §16 — las listas de equivalencia dejan rastro', () => {
       camposAccedidos: ['name', 'city'],
       resourceId: null,
     });
-    // La ruta no acepta `limit`: quien la llama se lleva todos los pendientes que haya, y `filas` es
-    // lo único que deja constancia de cuántos fueron.
+    // `filas` es lo que deja constancia de cuántos nombres se entregaron de verdad.
     expect(ultimoAcceso().motivo).toContain('filas=2');
-    expect(ultimoAcceso().motivo).toContain('pais=Co');
+    expect(ultimoAcceso().motivo).toContain('pais="Co"');
   });
 
   it('/obsoletas registra igual, con su propio conteo', async () => {
@@ -162,6 +161,26 @@ describe('AGENTS.md §16 — las listas de equivalencia dejan rastro', () => {
     // Lo que sí lleva son los nombres de COLUMNA.
     expect(escrito).toContain('name');
     expect(escrito).toContain('city');
+  });
+});
+
+describe('el rastro cuenta lo entregado, no lo que había', () => {
+  it('con tope, `filas` es el tramo y el motivo dice cuál', async () => {
+    // Desde que la lista tiene techo, «cuántos nombres se llevó quien preguntó» y «cuántos había»
+    // son dos cifras distintas, y la que responde al art. 17 es la primera. `limit`/`offset` van al
+    // motivo porque sin ellas `filas=2` no distingue el primer tramo del noveno.
+    proponerMock.mockResolvedValue([...PENDIENTES, ...PENDIENTES]);
+    const app = await buildApp();
+
+    const r = await request(app).get(`${BASE}/propuestas?limit=2&offset=1`)
+      .set('Authorization', await auth());
+
+    expect(r.body.total).toBe(4);
+    expect(r.body.data).toHaveLength(2);
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).toContain('filas=2');
+    expect(motivo).toContain('limit="2"');
+    expect(motivo).toContain('offset="1"');
   });
 });
 

@@ -9,9 +9,10 @@
 //
 // Es deuda preexistente —las rutas son de las HU #11294 y #11296— y se cierra AHORA porque el panel
 // de Terceros las convierte en su fuente de datos: pasan de consulta puntual a barrido rutinario de
-// hasta 500 fichas identificadas por llamada, y las de ciudad ni siquiera tienen tope. El control de
-// acceso ya estaba bien (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder
-// reconstruir QUIÉN leyó el padrón.
+// hasta 500 fichas identificadas por llamada, y las de ciudad ni siquiera tenían tope hasta la
+// segunda tanda de esta HU. El control de acceso ya estaba bien
+// (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder reconstruir QUIÉN leyó
+// el padrón.
 //
 // El corte del alcance: este archivo cubre las rutas **del módulo `siigo/`** que el panel de esta
 // HU usa — las tres del informe de facturabilidad, las dos listas de equivalencia de ciudad y el
@@ -22,21 +23,19 @@
 // afirmaba cubrir «todo lo que el panel hace con identidades», que era falso y por tanto peor que
 // no decir nada — un inventario que se declara completo es el que hace que nadie vuelva a mirar.
 //
+// Ya NO queda fuera `GET /clients` (`clients/clients.routes.ts`), que era la mayor de todas: la
+// segunda tanda de esta HU le puso proyección explícita y rastro de acceso, y el contrato de ESTE
+// archivo es el que reutiliza —`registrarAccesoCliente`— para que las seis rutas que leen fichas de
+// cliente escriban el mismo `resource_tipo` y el mismo formato de motivo. Qué entrega y qué declara
+// está en `clients/clients.pii.ts`, derivado de su proyección.
+//
 // Queda fuera, inventariado para la HU de seguimiento y descrito como es —un inventario que
 // exagera o que se equivoca hace que la HU que lo recoja se dimensione sobre algo que no existe—:
 //
-//   · `GET /clients` (`clients/clients.routes.ts`) — **es la lectura de datos personales más grande
-//     que provoca este panel, y no está cubierta.** `PanelTerceros` monta el modal `FichaFiscal` y
-//     lo abre con el botón de ficha de dos de sus bloques —`ListaNoFacturables` y
-//     `SincronizacionTerceros`—; al montarse, esa ficha pide `/clients?limit=500`;
-//     del otro lado hay un `db.select()` SIN proyección sobre `clients` —nombre, documento,
-//     dirección, teléfono, correo y contacto de hasta 500 fichas— y en todo ese router no hay una
-//     sola llamada a `logPiiAccess`. Queda fuera de ESTA HU por alcance, no por criterio: es un
-//     módulo ajeno (`clients/`) con sus propios consumidores —la pantalla de clientes, los
-//     selectores de media aplicación—, y la corrección de fondo son dos cosas que hay que medir
-//     antes de tocarlas (proyección explícita, que cambia el DTO que ya consume el front, y el
-//     rastro de acceso). Dimensionarla aquí sería meter en una HU de Siigo un cambio transversal
-//     que ningún test de este módulo protege.
+//   · `POST /clients` y `PATCH /clients/:id` — son escrituras y `audit()` ya las anota, pero las
+//     dos devuelven la fila COMPLETA (`.returning()` sin proyección), y el PATCH además lee una
+//     fila completa antes de escribir. No entran aquí porque quien recibe esos datos acaba de
+//     escribirlos y porque proyectar una respuesta de escritura es otro cambio, con otro riesgo.
 //   · `GET /clientes-ciudades/:id/propuesta` — NO devuelve el nombre (proyecta solo `clients.city`),
 //     pero sí devuelve esa ciudad en `textoOrigen`. Es de la ficha fiscal (HU #11298), no de este
 //     panel.
@@ -103,8 +102,9 @@ export const CAMPOS_PII_VEREDICTO = ['name', 'document'] as const;
 /**
  * Lo personal que entrega `GET /clientes-ciudades/propuestas`: el nombre del cliente y su ciudad.
  *
- * La lista va COMPLETA —sin paginar y sin tope, a diferencia del informe de facturabilidad, que al
- * menos está acotado a 500—, así que en volumen es la lectura de identidades más grande del módulo.
+ * La lista era la única que iba COMPLETA, sin paginar y sin tope; desde la segunda tanda de esta HU
+ * está acotada a 500 como el informe de facturabilidad. En volumen sigue siendo la lectura de
+ * identidades más grande del módulo, y por eso `filas` cuenta lo que se entregó de verdad.
  *
  * `city` está aquí desde la re-auditoría de la HU #11299 y su ausencia era un error, no una
  * omisión discutible: la respuesta trae `ciudadTexto` —que ES `clients.city`— y además lo repite
@@ -207,24 +207,75 @@ const MOTIVO_MAX = 200;
 /** Lo que cabe de un filtro en el motivo, ya enmascarado. `motivo` es `varchar(200)` en total. */
 const VALOR_MAX = 40;
 
+/** Lo que cabe de la CLAVE de un filtro. Una clave más larga que esto no nombra un criterio. */
+const CLAVE_MAX = 40;
+
 /**
- * Deja el valor en una sola línea antes de meterlo en `motivo`.
+ * ── El formato de `motivo`, que es una decisión de bitácora y no un detalle ─────────────────────
  *
- * Un filtro de texto libre —hoy no hay ninguno, mañana puede haberlo— con un `\n` dentro partiría
- * el motivo en dos renglones, y un registro de acceso que se lee por líneas se puede FORJAR desde
- * la petición: basta escribir ahí lo que parezca otra entrada. Se colapsan todos los caracteres de
- * control, no solo el salto de línea, porque el retorno de carro y el tabulador dan el mismo
- * resultado en cualquier visor.
+ * `motivo` se lee como una lista de parejas `clave=valor` separadas por espacios:
  *
- * `U+2028` y `U+2029` —separador de linea y de parrafo de Unicode— van en la misma clase aunque
- * NO sean caracteres de control: quedan fuera de los dos rangos de arriba y aun asi muchisimos
- * visores de logs los pintan como un salto de linea de verdad. Sin ellos la defensa estaba
- * cerrada contra el `\n` y abierta contra los dos code points que hacen exactamente lo mismo un
- * poco mas abajo en la tabla Unicode, que es la clase de hueco que solo se encuentra buscandolo.
+ *     Lectura de fichas de cliente — filas=500 cliente=41 pais="Co" documento="79***612"
+ *
+ * y de ahí sale la regla: **el espacio separa parejas, así que nada que venga de la petición puede
+ * producir uno que se lea como separador**. Cerrar `\n`, `\r`, los caracteres de control y
+ * `U+2028/29` subió el listón contra el visor que pinta renglones, pero dejaba abierto el mismo
+ * ataque contra quien parsea parejas: un espacio corriente dentro de un valor —o un `=` dentro de
+ * una clave— fabrica una pareja entera. `estado=activo filas=0` no necesita ni un carácter raro
+ * para mentir, y el rastro forjado se lee igual de bien que el legítimo.
+ *
+ * Se cierra DELIMITANDO en vez de recortando, que es lo que además conserva el dato:
+ *
+ *   · **El valor va entrecomillado**, con sus `"` y sus `\` escapados. Lo de dentro puede llevar
+ *     espacios —de hecho los lleva: `maskName` produce «P. A. G.» y `maskAddress` «*** (13 car.)»,
+ *     así que colapsarlos habría mutilado nuestro propio enmascarado— y aun así no puede cerrar la
+ *     comilla ni empezar una pareja nueva.
+ *   · **La clave se reduce a un identificador** (`[A-Za-z0-9_.-]`): sin espacios, sin `=`, sin
+ *     comillas. Una clave no es texto libre; es el nombre de un criterio.
+ *   · **Los contadores que pone el código —`filas`, `cliente`, `evaluados`— van SIN comillas**, y
+ *     eso no es inconsistencia de estilo: es lo que los distingue de un filtro que se llamara
+ *     igual. El día que alguien registre `req.query`, un `?filas=999` sale como `filas="999"` y
+ *     nunca como `filas=999`, así que el conteo real del servidor sigue siendo reconocible por su
+ *     forma y no solo por su posicion.
+ *
+ * Los caracteres de control se siguen colapsando a un espacio: dentro de las comillas ya no forjan
+ * ninguna pareja, pero un `\n` en `motivo` seguiría partiendo el renglón de cualquier visor.
  */
-function unaLinea(valor: string): string {
+
+/**
+ * Aplana un texto a una sola línea, colapsando todo lo que un visor pinte como salto.
+ *
+ * `U+2028` y `U+2029` —separador de línea y de párrafo de Unicode— entran aunque NO sean caracteres
+ * de control: quedan fuera de los dos rangos y aun así muchísimos visores de logs los pintan como
+ * un salto de línea de verdad.
+ */
+function aplanar(texto: string): string {
   // eslint-disable-next-line no-control-regex -- son EXACTAMENTE lo que hay que quitar, no un descuido.
-  return valor.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim().slice(0, VALOR_MAX);
+  return texto.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ');
+}
+
+/**
+ * El valor de una pareja, ya delimitado: `"…"` con las comillas y las barras de dentro escapadas.
+ *
+ * El orden importa y por eso se deja escrito: se RECORTA antes de escapar. Al revés, el recorte
+ * podría partir una secuencia de escape por la mitad y dejar la comilla de cierre fuera de sitio,
+ * que es exactamente el hueco que este formato viene a cerrar.
+ */
+function valorDelimitado(valor: string): string {
+  const plano = aplanar(valor).trim().slice(0, VALOR_MAX);
+  return `"${plano.replace(/["\\]/g, '\\$&')}"`;
+}
+
+/**
+ * La clave de una pareja, reducida a identificador.
+ *
+ * Cada tramo de lo que no sea `[A-Za-z0-9_.-]` se sustituye por un `_`, así que no queda nada capaz
+ * de separar parejas ni de abrir una nueva. Nunca se enmascara: saber que alguien buscó «por
+ * documento» es justamente lo que hace útil el registro.
+ */
+function claveIdentificador(clave: string): string {
+  const limpia = clave.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, CLAVE_MAX);
+  return limpia === '' ? '_' : limpia;
 }
 
 /**
@@ -247,32 +298,36 @@ function unaLinea(valor: string): string {
  * Se conserva la CLAVE siempre: saber que alguien buscó «por documento» es justamente lo que hace
  * útil el registro. Los objetos y arrays no se vuelcan.
  *
- * La clave pasa por `unaLinea` igual que el valor, y no es simetría decorativa: hasta la
- * re-auditoría solo el VALOR se saneaba, así que la mitad de cada pareja que se escribe en `motivo`
- * llegaba cruda desde el llamador. Las tres llamadas de hoy pasan claves literales escritas en el
- * código, pero lo que este archivo protege es el CAMINO, no los tres llamadores de hoy: el atajo
- * evidente el día que alguien quiera registrar los filtros de verdad es `filtros: req.query`, y ahí
- * las claves las elige quien hace la petición. Con la mitad sin sanear, la defensa anti-forja se
- * esquivaba por el lado que nadie había mirado.
+ * La clave se sanea igual que el valor, y no es simetría decorativa: hasta la re-auditoría solo el
+ * VALOR se saneaba, así que la mitad de cada pareja que se escribe en `motivo` llegaba cruda desde
+ * el llamador. Las llamadas de hoy pasan claves literales escritas en el código, pero lo que este
+ * archivo protege es el CAMINO, no los llamadores de hoy: el atajo evidente el día que alguien
+ * quiera registrar los filtros de verdad es `filtros: req.query`, y ahí las claves las elige quien
+ * hace la petición. Con la mitad sin sanear, la defensa anti-forja se esquivaba por el lado que
+ * nadie había mirado.
+ *
+ * Cada una se sanea según lo que ES: la clave a identificador, el valor entre comillas. El porqué
+ * —y por qué colapsar el separador no bastaba— está arriba, con el formato de `motivo`.
  */
 function resumirFiltros(filtros: Record<string, unknown>): string {
   const partes: string[] = [];
   for (const [claveCruda, valor] of Object.entries(filtros)) {
     if (valor === undefined || valor === null || valor === '') continue;
-    // La clave NO se enmascara —nombrar el criterio es lo que hace útil el registro— pero sí se
-    // aplana: en `motivo` no puede entrar nada que parezca un renglón nuevo, venga del lado que
-    // venga de la pareja.
-    const clave = unaLinea(claveCruda);
+    // La clave NO se enmascara —nombrar el criterio es lo que hace útil el registro— pero se reduce
+    // a identificador: en `motivo` no puede entrar por el lado de la clave nada que parezca un
+    // renglón nuevo ni una pareja nueva.
+    const clave = claveIdentificador(claveCruda);
     if (typeof valor === 'object') {
       // Constancia de que el filtro se usó, sin volcar su contenido: no cabría en 200 caracteres y
       // enmascararlo campo a campo aquí sería reimplementar `maskPII` para un caso que no existe.
-      partes.push(`${clave}=[…]`);
+      // Va entrecomillado como cualquier otro valor: el formato de las parejas es uno solo.
+      partes.push(`${clave}="[…]"`);
       continue;
     }
-    // Se enmascara con la clave CRUDA: `maskPII` decide por el nombre del campo, y aplanarlo
-    // antes podría cambiar qué rama del catálogo casa. El saneado es para lo que se ESCRIBE.
+    // Se enmascara con la clave CRUDA: `maskPII` decide por el nombre del campo, y sanearlo antes
+    // podría cambiar qué rama del catálogo casa. El saneado es para lo que se ESCRIBE.
     const enmascarado = maskPII({ [claveCruda]: String(valor) })[claveCruda];
-    partes.push(`${clave}=${unaLinea(String(enmascarado))}`);
+    partes.push(`${clave}=${valorDelimitado(String(enmascarado))}`);
   }
   return partes.join(' ');
 }

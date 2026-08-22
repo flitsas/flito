@@ -127,7 +127,7 @@ describe('lo que sale hacia Siigo se registra como `export`', () => {
       camposAccedidos: [...CAMPOS_PII_TERCERO_EXPORTADO],
       resourceId: 41,
     });
-    expect(ultimoAcceso().motivo).toContain('desenlace=creado');
+    expect(ultimoAcceso().motivo).toContain('desenlace="creado"');
     // Doce columnas de `clients`, no las claves del JSON de Siigo: el log se cruza con la tabla.
     expect(CAMPOS_PII_TERCERO_EXPORTADO).toContain('contact_email');
     expect(CAMPOS_PII_TERCERO_EXPORTADO).toContain('address');
@@ -157,7 +157,7 @@ describe('lo que sale hacia Siigo se registra como `export`', () => {
         camposAccedidos: [...CAMPOS_PII_IDENTIFICACION],
         resourceId: 41,
       });
-      expect(ultimoAcceso().motivo).toContain(`desenlace=${desenlace}`);
+      expect(ultimoAcceso().motivo).toContain(`desenlace="${desenlace}"`);
     });
   }
 

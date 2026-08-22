@@ -6,7 +6,9 @@
 // emite, y separarlas daría un permiso que no sirve para nada por sí solo.
 //
 // Las guardas van como middleware ANTES del handler, nunca dentro: así una ruta nueva que se olvide
-// de la guarda se nota leyendo el `router.<verbo>`.
+// de la guarda se nota leyendo el `router.<verbo>`. Lo que sí va antes que la guarda es el
+// limitador, y el porqué está en el POST: una denegación también escribe en una bitácora
+// append-only, así que también hay que poder frenarla.
 //
 // ── Salida de datos personales (HU #11299) ───────────────────────────────────────────────────────
 //
@@ -167,8 +169,26 @@ router.get('/cliente/:clienteId', LECTURA, async (req: Request, res: Response) =
   res.json({ vinculo: await vinculoDeCliente(id.data) });
 });
 
-/** Asegura el tercero: consulta, vincula o crea, y actualiza solo si algo cambió. */
-router.post('/cliente/:clienteId', ESCRITURA, asegurarLimiter, async (req: Request, res: Response) => {
+/**
+ * Asegura el tercero: consulta, vincula o crea, y actualiza solo si algo cambió.
+ *
+ * **El limitador va ANTES de la guarda**, y el orden es la corrección, no el estilo (deuda de
+ * seguridad del PR #194). Con `ESCRITURA` primero, cada intento sin permiso se resolvía en 403 sin
+ * que el limitador llegara a contarlo, y `exigirAccionSiigo` escribe una fila `permiso_denegado` en
+ * `siigo_operaciones` por cada uno. Esa tabla es append-only por disparador (HU #11251): lo que
+ * ahí entra no se borra ni se rectifica. Un autenticado cualquiera —con rol de consulta, sin
+ * permiso de emitir— podía así meter las ~500 filas que le permitiera `apiLimiter` cada quince
+ * minutos en una bitácora que nadie puede podar.
+ *
+ * Contándolo primero, el mismo usuario agota sus 60 de la ventana y a partir de ahí recibe 429 sin
+ * tocar la bitácora. El precio es que un denegado gasta cuota de su propia llave —`userOrIpKey` la
+ * calcula por usuario—, que es exactamente lo que se quiere: quien insiste sin permiso se frena a
+ * sí mismo y no al que factura.
+ *
+ * No debilita nada: el 403 lo sigue dando la misma guarda sobre el mismo rol del JWT, y el
+ * limitador no mira el cuerpo ni ejecuta el handler.
+ */
+router.post('/cliente/:clienteId', asegurarLimiter, ESCRITURA, async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.clienteId);
   if (!id.success) {
     res.status(400).json({ error: 'Identificador de cliente inválido' });
