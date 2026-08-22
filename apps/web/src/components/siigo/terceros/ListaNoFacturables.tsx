@@ -35,10 +35,16 @@ import {
 const POR_PAGINA = 50;
 
 /**
- * La explicación del permiso se escribe UNA vez por bloque y todos los botones la referencian con
- * `aria-describedby`: repetirla en cincuenta filas serían cincuenta anuncios idénticos.
+ * La explicación del permiso se escribe UNA vez y todos los botones de esa acción la referencian
+ * con `aria-describedby`: repetirla en cincuenta filas serían cincuenta anuncios idénticos.
+ *
+ * Son DOS y no una porque son dos permisos distintos en el servidor: sincronizar es de admin y
+ * financiera (`exigirAccionSiigo('emitir')`) y recalcular duplicados es solo de admin
+ * (`requireRole('admin')`). Con un solo texto, a financiera —que sí sincroniza— se le anunciaría
+ * que no puede.
  */
-const ID_EXPLICACION_PERMISO = 'permiso-terceros-lista';
+const ID_EXPLICACION_SINCRONIZAR = 'permiso-terceros-lista';
+const ID_EXPLICACION_DUPLICADOS = 'permiso-terceros-duplicados';
 
 /** El desenlace de sincronizar UNA fila, o su fallo. Vive en la fila y no en un toast que se va. */
 type EstadoFila =
@@ -51,7 +57,10 @@ interface Props {
   version: number;
   motivo: MotivoNoFacturable | null;
   onQuitarFiltro: () => void;
+  /** Escribir el tercero en Siigo: admin y financiera. */
   puedeSincronizar: boolean;
+  /** Reescribir las marcas de identificación duplicada de las fichas: solo admin. */
+  puedeRecalcularDuplicados: boolean;
   simulado: boolean;
   onAbrirFicha: (clienteId: number, nombre: string) => void;
   onCambio: () => void;
@@ -59,7 +68,7 @@ interface Props {
 }
 
 export default function ListaNoFacturables({
-  version, motivo, onQuitarFiltro, puedeSincronizar,
+  version, motivo, onQuitarFiltro, puedeSincronizar, puedeRecalcularDuplicados,
   simulado, onAbrirFicha, onCambio, tituloRef,
 }: Props) {
   const [filas, setFilas] = useState<VeredictoCliente[]>([]);
@@ -123,6 +132,9 @@ export default function ListaNoFacturables({
    * Es idempotente y **quita** marcas de conflictos ya resueltos: sin él ese contador no baja nunca
    * y la lista deja de mirarse. La interfaz NUNCA dice con qué otro cliente choca —el backend
    * tampoco lo dice—: son datos de un tercero que no es el que se está mirando.
+   *
+   * Su guarda en el servidor es `requireRole('admin')`, no la de sincronizar: por eso llega en su
+   * propio permiso y con su propia explicación.
    */
   const recalcularDuplicados = async () => {
     setDuplicados(null);
@@ -162,18 +174,26 @@ export default function ListaNoFacturables({
       )}
 
       {!puedeSincronizar && (
-        <p id={ID_EXPLICACION_PERMISO} className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          Sincronizar escribe en Siigo y volver a revisar los duplicados reescribe las marcas de la
-          ficha: los hace administración. Tu rol puede revisar la lista y corregir lo que falte.
+        <p id={ID_EXPLICACION_SINCRONIZAR} className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          Sincronizar escribe en Siigo: lo hacen administración y financiera. Tu rol puede revisar la
+          lista y abrir la ficha de cada cliente.
         </p>
       )}
 
       {motivo === 'identificacion_duplicada' && (
         <div className="mt-2">
+          {/* Va aquí dentro y no arriba: el único botón que la referencia solo existe con este
+              filtro puesto, y un `aria-describedby` que apunta a un id ausente no anuncia nada. */}
+          {!puedeRecalcularDuplicados && (
+            <p id={ID_EXPLICACION_DUPLICADOS} className="mb-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+              Volver a revisar los duplicados reescribe las marcas de identificación de las fichas:
+              lo hace administración.
+            </p>
+          )}
           <BotonAccion
             compacto
-            permitido={puedeSincronizar}
-            explicacionId={ID_EXPLICACION_PERMISO}
+            permitido={puedeRecalcularDuplicados}
+            explicacionId={ID_EXPLICACION_DUPLICADOS}
             onClick={() => { void recalcularDuplicados(); }}
           >
             Volver a revisar los duplicados
@@ -321,7 +341,7 @@ function FilaCliente({
           <BotonAccion
             compacto
             permitido={puedeSincronizar}
-            explicacionId={ID_EXPLICACION_PERMISO}
+            explicacionId={ID_EXPLICACION_SINCRONIZAR}
             bloqueadoPorEstado={estado?.fase === 'corriendo'}
             onClick={onSincronizar}
           >
@@ -383,7 +403,7 @@ function FilaCliente({
             compacto
             className="mt-2"
             permitido={puedeSincronizar}
-            explicacionId={ID_EXPLICACION_PERMISO}
+            explicacionId={ID_EXPLICACION_SINCRONIZAR}
             onClick={onSincronizar}
           >
             Reintentar este

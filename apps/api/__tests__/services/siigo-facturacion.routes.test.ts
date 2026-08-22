@@ -85,7 +85,21 @@ async function buildApp() {
   return app;
 }
 
-const auth = async (role: TestRole, sub = 42) =>
+/**
+ * Cada llamada estrena un `sub`, y desde la HU #11299 eso es una condición para que este archivo
+ * pase, no una comodidad.
+ *
+ * `envioLimiter` pasó a ir DELANTE de las guardas —una denegación escribe en `siigo_operaciones`,
+ * que es append-only, así que también hay que poder frenarla—, de modo que ahora cuenta también los
+ * 403 y los 400. Con el `sub` fijo de antes, este archivo compartía una sola llave (`userOrIpKey`
+ * la calcula por usuario) y sus más de veinte peticiones agotaban entre todas la ventana de 20 por
+ * minuto: la mitad de las pruebas empezaba a recibir 429 por lo que hacía la prueba anterior. Es la
+ * misma razón por la que `siigo-terceros-limitador.test.ts` estrena `sub` en cada caso.
+ *
+ * Lo que un caso necesita fijar —el `usuarioId` que llega al servicio— se pasa explícito.
+ */
+let subDeTurno = 100;
+const auth = async (role: TestRole, sub = (subDeTurno += 1)) =>
   `Bearer ${await testToken({ sub, username: `${role}@flit.io`, role })}`;
 
 function respuesta(over: Partial<SiigoRespuestaEnvio> = {}): SiigoRespuestaEnvio {
@@ -244,8 +258,10 @@ describe('El ambiente sale del servidor, pase lo que pase', () => {
     const { env } = await import('../../src/config/env.js');
     const app = await buildApp();
     await request(app).post('/api/siigo/facturacion')
-      .set('Authorization', await auth('financiera')).send({ conceptos: CONCEPTOS, tramiteIds: [A, B] });
+      .set('Authorization', await auth('financiera', 42)).send({ conceptos: CONCEPTOS, tramiteIds: [A, B] });
 
+    // El `sub` va explícito porque este caso comprueba que llega al servicio: con el de turno, la
+    // aserción se compararía contra un número que cambia de una corrida a otra.
     expect(enviarMock.mock.calls[0]![0]).toMatchObject({
       ambiente: env.SIIGO_AMBIENTE, tramiteIds: [A, B], usuarioId: 42,
     });

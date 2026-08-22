@@ -58,6 +58,7 @@ interface Linea {
 
 interface Props {
   version: number;
+  /** Escribir el tercero en Siigo: admin y financiera, igual que `exigirAccionSiigo('emitir')`. */
   puedeSincronizar: boolean;
   explicacionPermisoId: string;
   simulado: boolean;
@@ -193,7 +194,8 @@ export default function SincronizacionTerceros({
 
       {!puedeSincronizar && (
         <p id={explicacionPermisoId} className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-          Sincronizar escribe en Siigo: lo hace administración.
+          Sincronizar escribe en Siigo: lo hacen administración y financiera. Tu rol puede ver qué
+          clientes están listos.
         </p>
       )}
 

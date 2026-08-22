@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, ADMIN_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/auth';
+import { loginAs, ADMIN_USER, AUDITOR_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/auth';
 
 // Facturación electrónica — pestaña «Terceros»: revisar y sincronizar (HU #11299, Feature #11241).
 //
@@ -198,6 +198,12 @@ async function mockSincronizacion(page: Page, alPedir?: (clienteId: number) => v
  * Lo que el modal de ficha fiscal pide al abrirse. Va aparte de `mockPanel` porque solo lo necesita
  * el test que abre la ficha: en los demás el modal ni se monta.
  *
+ * La fila que devuelve `/clients` son las 26 columnas de `COLUMNAS_LISTADO` (`clients.pii.ts`), ni
+ * una más: el AC8 recortó esa respuesta y `notes` y `active` —que este doble seguía entregando— ya
+ * no salen de ahí. Un doble que simula lo que el producto dejó de devolver no falla hoy, pero
+ * mañana le dice a quien lo lea que la ruta entrega la fila entera, que es justo lo que esta HU
+ * quitó.
+ *
  * `pedidos` recoge los `clienteId` cuya validación se consultó. Es lo que permite afirmar que la
  * ficha abierta es la del cliente de la fila y no solo que el título lo diga.
  */
@@ -207,7 +213,8 @@ async function mockFichaFiscal(page: Page, pedidos: number[]) {
       ? route.fulfill(json([{
         id: CARGA_RAPIDA.clienteId, name: CARGA_RAPIDA.nombre, document: '901222333',
         documentType: 'NIT', phone: null, email: null, address: null, city: 'Km 5 vía Cota',
-        notes: null, active: true,
+        soatAutogestionable: false, impuestosAutogestionable: false,
+        logisticaAutogestionable: false, logisticaPermiteParcial: false,
         personType: null, idType: null, checkDigit: null, fiscalResponsibilities: [],
         countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,
         contactFirstName: null, contactLastName: null, contactEmail: null,
@@ -250,8 +257,109 @@ test.describe('AC1 — acceso y permisos por rol', () => {
     await expect(page.getByText('¿A cuántos se les puede facturar?')).toHaveCount(0);
   });
 
-  test('financiera consulta el panel, alcanza los controles y no dispara ninguna escritura', async ({ page }) => {
+  test('financiera dispara la sincronización de terceros: la petición sale, no solo el botón', async ({ page }) => {
+    // Esta prueba afirmaba lo contrario —«financiera no dispara ninguna escritura»— y el AC1 se
+    // reescribió (decisión de PO del 2026-08-22) para decir lo que el servidor ya hacía:
+    // `POST /siigo/terceros/cliente/:id` está guardado con `exigirAccionSiigo('emitir')`, que
+    // resuelve a admin + financiera. Que el botón esté habilitado no prueba que llame, así que la
+    // petición se intercepta y se CUENTA, como hace el AC5 con las confirmaciones.
     await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    const sincronizados: number[] = [];
+    await mockSincronizacion(page, (id) => { sincronizados.push(id); });
+    await page.goto(RUTA);
+
+    // Ve los informes.
+    await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
+
+    // Bloque D — una tanda de uno. Sin `force` a propósito: si el control estuviera marcado como no
+    // disponible, Playwright se negaría a pulsarlo y el test caería aquí.
+    await page.getByRole('checkbox', { name: /TRANSPORTES DEL SUR/ }).check();
+    await page.getByRole('button', { name: /^Sincronizar 1 en pruebas$/ }).click();
+    await expect(page.getByText('Creado en Siigo (1)')).toBeVisible({ timeout: 30_000 });
+    expect(sincronizados).toEqual([1]);
+
+    // Bloque B — el otro sitio donde se sincroniza: la fila suelta de un cliente incompleto.
+    const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
+    await expect(sincronizarFila).not.toHaveAttribute('aria-disabled', 'true');
+    await sincronizarFila.click();
+    await expect(page.getByText('No se pudo sincronizar: hay que corregir la ficha.')).toBeVisible();
+    expect(sincronizados).toEqual([1, CARGA_RAPIDA.clienteId]);
+
+    // Y ningún control le anuncia que no puede lo que acaba de hacer.
+    await expect(page.getByText(/Sincronizar escribe en Siigo/)).toHaveCount(0);
+  });
+
+  test('financiera NO confirma equivalencias de ciudad: alcanza el control, se le dice por qué, y no sale ni una confirmación', async ({ page }) => {
+    // El contraste con la prueba anterior es el AC1 entero: el MISMO rol dispara una escritura y no
+    // la otra. Mientras las dos colgaron de un único booleano, esto no se podía ni escribir.
+    await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    let confirmaciones = 0;
+    await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/confirmar/, (route) => {
+      if (route.request().method() === 'POST') confirmaciones += 1;
+      return route.fulfill(json({ clienteId: 1, cityCode: '11001', cityName: 'Bogotá D.C.' }));
+    });
+    await page.goto(RUTA);
+
+    // Por el nombre que NO cambia al abrirse: al plegarse dice «Ocultar las propuestas».
+    const plegador = page.getByRole('button', { name: /las propuestas$/ });
+    await plegador.click();
+
+    const confirmar = page.locator('#confirmar-ciudad-1');
+    await expect(confirmar).toHaveAttribute('aria-disabled', 'true');
+
+    // Se alcanza con Tab: `disabled` lo sacaría del orden de tabulación y con él su explicación, así
+    // que quien navega con teclado o con lector no sabría siquiera que la acción existe.
+    await expect(plegador).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(confirmar).toBeFocused();
+
+    // Y anuncia por qué, con el texto de SU acción y no con el de sincronizar.
+    const idExplicacion = await confirmar.getAttribute('aria-describedby');
+    expect(idExplicacion).toBe('permiso-ciudades');
+    await expect(page.locator(`#${idExplicacion}`)).toContainText(/Confirmar una ciudad.*lo hace administración/s);
+
+    // `force`: Playwright trata `aria-disabled` como inhabilitado y se niega a pulsarlo — que es
+    // justo lo que se quiere. Se fuerza para comprobar que, si alguien lo pulsa de todos modos, no
+    // sale ninguna petición.
+    await confirmar.click({ force: true });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    expect(confirmaciones).toBe(0);
+    await expect(page.getByText(/→ Bogotá D\.C\. \(confirmada\)/)).toHaveCount(0);
+  });
+
+  test('admin dispara las dos acciones: sincroniza y confirma', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const sincronizados: number[] = [];
+    const confirmados: number[] = [];
+    await mockSincronizacion(page, (id) => { sincronizados.push(id); });
+    await page.route(/\/api\/siigo\/clientes-ciudades\/\d+\/confirmar/, (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      confirmados.push(Number(/clientes-ciudades\/(\d+)\/confirmar/.exec(route.request().url())![1]));
+      return route.fulfill(json({ clienteId: 1, cityCode: '11001', cityName: 'Bogotá D.C.' }));
+    });
+    await page.goto(RUTA);
+
+    await page.getByRole('checkbox', { name: /TRANSPORTES DEL SUR/ }).check();
+    await page.getByRole('button', { name: /^Sincronizar 1 en pruebas$/ }).click();
+    await expect(page.getByText('Creado en Siigo (1)')).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
+    await page.locator('#confirmar-ciudad-1').click();
+    await expect(page.getByText('TRANSPORTES DEL SUR S.A.S. → Bogotá D.C. (confirmada)')).toBeVisible();
+
+    expect(sincronizados).toEqual([1]);
+    expect(confirmados).toEqual([1]);
+  });
+
+  test('el rol de solo consulta no puede ninguna de las dos, y cada explicación dice quién sí', async ({ page }) => {
+    // `auditor` es el único rol que llega a la pestaña sin poder sincronizar. Sin este caso, el
+    // texto «lo hacen administración y financiera» no lo comprobaría nadie y podría quedarse
+    // diciéndole a financiera que no puede lo que sí puede.
+    await loginAs(page, AUDITOR_USER);
     await mockPanel(page);
     let escrituras = 0;
     await page.route(/\/api\/siigo\/(terceros\/cliente|clientes-ciudades\/\d+\/confirmar)/, (route) => {
@@ -260,46 +368,146 @@ test.describe('AC1 — acceso y permisos por rol', () => {
     });
     await page.goto(RUTA);
 
-    // Ve los informes.
-    await expect(page.getByText(/pueden recibir factura electrónica/)).toBeVisible();
     await expect(page.getByText('CARGA RÁPIDA')).toBeVisible();
 
-    // El botón de sincronizar la fila EXISTE y se alcanza (no está `disabled`, que lo sacaría del
-    // orden de tabulación junto con su explicación), pero está marcado como no disponible.
     const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
     await expect(sincronizarFila).toHaveAttribute('aria-disabled', 'true');
-    await sincronizarFila.focus();
-    await expect(sincronizarFila).toBeFocused();
-    // `force`: Playwright trata `aria-disabled` como inhabilitado y se niega a pulsarlo — que es
-    // justo lo que se quiere comprobar. Se fuerza el clic para verificar además que, si alguien lo
-    // pulsa de todos modos, no sale ninguna petición de escritura.
     await sincronizarFila.click({ force: true });
+    const idSincronizar = await sincronizarFila.getAttribute('aria-describedby');
+    expect(idSincronizar).toBe('permiso-terceros-lista');
+    await expect(page.locator(`#${idSincronizar}`))
+      .toContainText('lo hacen administración y financiera');
 
-    // Y la explicación está escrita una sola vez y referenciada desde el botón.
-    const idExplicacion = await sincronizarFila.getAttribute('aria-describedby');
-    expect(idExplicacion).toBe('permiso-terceros-lista');
-    await expect(page.locator(`#${idExplicacion}`)).toContainText(/lo(s)? hace administración/);
-
-    // Lo mismo en la cola de ciudades.
     await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
-    const confirmar = page.getByRole('button', { name: 'Confirmar', exact: true }).first();
+    const confirmar = page.locator('#confirmar-ciudad-1');
     await expect(confirmar).toHaveAttribute('aria-disabled', 'true');
     await confirmar.click({ force: true });
+    await expect(page.locator('#permiso-ciudades')).toContainText('lo hace administración');
 
     expect(escrituras).toBe(0);
   });
 
-  test('admin sí dispone de las dos acciones', async ({ page }) => {
-    await loginAs(page, ADMIN_USER);
+  test('recalcular los duplicados sigue siendo solo de administración, también para financiera', async ({ page }) => {
+    // El tercer permiso del bloque B: `POST /validacion/recalcular-duplicados` está guardado con
+    // `requireRole('admin')`, así que NO se movió con el AC1. Si volviera a colgar del permiso de
+    // sincronizar, financiera vería un botón habilitado que el servidor le devuelve con un 403.
+    await loginAs(page, FINANCIERA_USER);
     await mockPanel(page);
+    let recalculos = 0;
+    await page.route(/\/api\/siigo\/clientes\/validacion\/recalcular-duplicados/, (route) => {
+      if (route.request().method() === 'POST') recalculos += 1;
+      return route.fulfill(json({ marcados: 0, desmarcados: 0 }));
+    });
     await page.goto(RUTA);
 
-    const sincronizarFila = page.getByRole('button', { name: 'Sincronizar', exact: true });
-    await expect(sincronizarFila).not.toHaveAttribute('aria-disabled', 'true');
+    await page.getByRole('button', { name: /Otro cliente tiene la misma identificación/ }).click();
+    await expect(page.getByText(/Filtrado por: Otro cliente tiene la misma identificación/)).toBeVisible();
+    const revisar = page.getByRole('button', { name: 'Volver a revisar los duplicados' });
+    await expect(revisar).toHaveAttribute('aria-disabled', 'true');
+    expect(await revisar.getAttribute('aria-describedby')).toBe('permiso-terceros-duplicados');
+    await expect(page.locator('#permiso-terceros-duplicados'))
+      .toContainText('reescribe las marcas de identificación de las fichas');
 
-    await page.getByRole('button', { name: /Revisar las propuestas/ }).click();
-    await expect(page.getByRole('button', { name: 'Confirmar', exact: true }).first())
-      .not.toHaveAttribute('aria-disabled', 'true');
+    await revisar.click({ force: true });
+    await page.waitForTimeout(200);
+    expect(recalculos).toBe(0);
+  });
+
+  test('financiera abre la ficha fiscal desde el panel y la ve en solo lectura: del modal no sale ni una escritura', async ({ page }) => {
+    // La cuarta capacidad del panel, `editarFicha`. `PATCH /clients/:id` está guardado con
+    // `requireRole('admin')`, así que un formulario editable para financiera no sería un permiso de
+    // más: sería ofrecerle teclear la ficha entera para que el servidor se la devuelva con un 403
+    // cuando pulse guardar.
+    //
+    // Se afirma por CONDUCTA y no por un atributo del formulario: un `disabled` que se cayera de un
+    // campo, o un control de guardar llamado de otra forma, pasarían por debajo de cualquier
+    // aserción sobre atributos. Lo que el AC protege es que de este modal no salga ni un PATCH
+    // hacia la ficha, así que las escrituras se interceptan y se cuentan, como en el AC5 con las
+    // confirmaciones.
+    await loginAs(page, FINANCIERA_USER);
+    await mockPanel(page);
+    const fichasPedidas: number[] = [];
+    await mockFichaFiscal(page, fichasPedidas);
+    const escrituras: string[] = [];
+    await page.route(/\/api\/clients\/\d+$/, (route) => {
+      const metodo = route.request().method();
+      if (metodo !== 'GET') escrituras.push(`${metodo} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill(json({ id: CARGA_RAPIDA.clienteId }));
+    });
+
+    await page.goto(RUTA);
+    await page.locator('li', { hasText: 'CARGA RÁPIDA' })
+      .getByRole('button', { name: 'Completar ficha' }).click();
+
+    // La ve: el modal es el del cliente de la fila y trae sus datos, no una pantalla vacía ni un
+    // «no tienes acceso». Consultar la ficha sí lo puede.
+    const ficha = page.getByRole('dialog', { name: 'Datos fiscales · CARGA RÁPIDA' });
+    const razonSocial = ficha.getByRole('textbox', { name: 'Razón social' });
+    await expect(razonSocial).toHaveValue('CARGA RÁPIDA');
+    await expect(ficha.getByText('Falta la dirección.')).toBeVisible();
+
+    // Barrido del modal: se pulsa TODO lo que ofrece —salvo los cierres, que se llevarían por
+    // delante lo que queda por barrer— y se comprueba tras cada pulsación que no salió nada. Un
+    // control que guarde cae aquí aunque se llame de otro modo.
+    const botones = ficha.getByRole('button');
+    for (let i = 0; i < await botones.count(); i += 1) {
+      const boton = botones.nth(i);
+      // El aria-label primero: la «X» de la cabecera no tiene texto, solo su etiqueta.
+      const nombre = (await boton.getAttribute('aria-label')) ?? (await boton.innerText()).trim();
+      if (nombre === 'Cerrar') continue;
+      // `force`: los inhabilitados también se pulsan a propósito — lo que se comprueba es que no
+      // mandan nada, no que Playwright se niegue a pulsarlos.
+      await boton.click({ force: true });
+      await page.waitForTimeout(200);
+      expect(escrituras, `«${nombre}» escribió en la ficha desde un rol que no la puede editar`).toEqual([]);
+    }
+
+    // La otra puerta es el teclado: «Enter» dentro de un formulario lo envía si hay un control de
+    // envío, sin que nadie tenga que verlo ni pulsarlo. `force` porque los campos están
+    // inhabilitados y Playwright se negaría a teclear en ellos.
+    await razonSocial.press('Enter', { force: true });
+    await page.waitForTimeout(200);
+    expect(escrituras).toEqual([]);
+
+    // El rótulo va al final a propósito: primero se comprueba que la ficha no escribe y solo
+    // después que lo DICE. Al revés, cualquier deriva del permiso moriría en el rótulo y el
+    // barrido —que es lo que de verdad guarda el AC— no llegaría a correr nunca.
+    await expect(ficha.getByText('Tu rol puede consultar estos datos, no modificarlos.')).toBeVisible();
+
+    // Y la lectura que sí hizo fue la de ESE cliente y ningún otro.
+    expect([...new Set(fichasPedidas)]).toEqual([CARGA_RAPIDA.clienteId]);
+  });
+
+  test('admin abre la misma ficha y sí la guarda: el PATCH sale, y sale uno solo', async ({ page }) => {
+    // El contrapeso, y lo que impide que el caso anterior sea trivial: si la ficha se montara en
+    // solo lectura para todo el mundo —o dejara de montarse—, «financiera no escribe» pasaría en
+    // verde sin decir nada de nadie. El MISMO botón del MISMO panel abre para admin una ficha que
+    // guarda de verdad.
+    await loginAs(page, ADMIN_USER);
+    await mockPanel(page);
+    const fichasPedidas: number[] = [];
+    await mockFichaFiscal(page, fichasPedidas);
+    const escrituras: string[] = [];
+    await page.route(/\/api\/clients\/\d+$/, (route) => {
+      const metodo = route.request().method();
+      if (metodo !== 'GET') escrituras.push(`${metodo} ${new URL(route.request().url()).pathname}`);
+      return route.fulfill(json({ id: CARGA_RAPIDA.clienteId }));
+    });
+
+    await page.goto(RUTA);
+    await page.locator('li', { hasText: 'CARGA RÁPIDA' })
+      .getByRole('button', { name: 'Completar ficha' }).click();
+
+    const ficha = page.getByRole('dialog', { name: 'Datos fiscales · CARGA RÁPIDA' });
+    const direccion = ficha.getByRole('textbox', { name: 'Dirección' });
+    await expect(direccion).toBeEditable();
+    await expect(ficha.getByText('Tu rol puede consultar estos datos, no modificarlos.')).toHaveCount(0);
+
+    await direccion.fill('CALLE 100 # 15-20');
+    await ficha.getByRole('button', { name: 'Guardar datos fiscales' }).click();
+
+    await expect(page.getByText('Datos fiscales guardados')).toBeVisible();
+    expect(escrituras).toEqual([`PATCH /api/clients/${CARGA_RAPIDA.clienteId}`]);
   });
 });
 

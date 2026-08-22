@@ -180,9 +180,9 @@ describe('el rastro no puede convertirse en un segundo almacén de identidades',
 
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('1036640908');
-    expect(motivo).toContain('documento=10*****908');
+    expect(motivo).toContain('documento="10*****908"');
     // Un número que NO es de una clave sensible sigue saliendo entero: es un criterio de negocio.
-    expect(motivo).toContain('limit=500');
+    expect(motivo).toContain('limit="500"');
   });
 
   it('hereda la lista canónica de `maskPII`: correo, teléfono, nombre y dirección', async () => {
@@ -206,10 +206,10 @@ describe('el rastro no puede convertirse en un segundo almacén de identidades',
     expect(motivo).not.toContain('ANTONIO');
     expect(motivo).not.toContain('CRA 43');
     // Un nombre se enmascara como nombre (iniciales), no con el patrón de un documento.
-    expect(motivo).toContain('nombre=P. A. G.');
-    expect(motivo).toContain('telefono=300***4567');
-    expect(motivo).toContain('email=p***o@example.com');
-    expect(motivo).toContain('direccion=*** (13 car.)');
+    expect(motivo).toContain('nombre="P. A. G."');
+    expect(motivo).toContain('telefono="300***4567"');
+    expect(motivo).toContain('email="p***o@example.com"');
+    expect(motivo).toContain('direccion="*** (13 car.)"');
   });
 
   it('un valor con saltos de línea no puede forjar renglones dentro del motivo', async () => {
@@ -242,8 +242,8 @@ describe('el rastro no puede convertirse en un segundo almacén de identidades',
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('79345612');
     // La CLAVE se conserva: saber que alguien buscó «por documento» es lo que hace útil el registro.
-    expect(motivo).toContain('documento=79***612');
-    expect(motivo).toContain('motivo=direccion_faltante');
+    expect(motivo).toContain('documento="79***612"');
+    expect(motivo).toContain('motivo="direccion_faltante"');
     expect(motivo.length).toBeLessThanOrEqual(200);
   });
 });
@@ -264,7 +264,7 @@ describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
 
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('1036640908');
-    expect(motivo).toContain('identificacion=10*****908');
+    expect(motivo).toContain('identificacion="10*****908"');
   });
 
   it('cubre también la forma con tilde y la inglesa, que es como la nombra Siigo', async () => {
@@ -279,7 +279,7 @@ describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('1036640908');
     expect(motivo).not.toContain('900123456');
-    expect(motivo).toContain('identification=90****456');
+    expect(motivo).toContain('identification="90****456"');
   });
 
   it('`placa` entra por lo mismo: identifica a un titular por su vehículo', async () => {
@@ -291,7 +291,7 @@ describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
 
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('WGY123');
-    expect(motivo).toContain('placa=W****3');
+    expect(motivo).toContain('placa="W****3"');
   });
 
   it('`U+2028` y `U+2029` tampoco pueden forjar un renglón, aunque no sean de control', async () => {
@@ -307,7 +307,7 @@ describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).not.toContain('\u2028');
     expect(motivo).not.toContain('\u2029');
-    expect(motivo).toContain('estado=activo Lectura de fichas filas=0');
+    expect(motivo).toContain('estado="activo Lectura de fichas filas=0"');
   });
 
   it('la CLAVE del filtro también se aplana: era la mitad de la pareja que iba cruda', async () => {
@@ -347,7 +347,224 @@ describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
 
     const motivo = String(ultimoAcceso().motivo);
     expect(motivo).toContain('documento=');
-    expect(motivo).toContain('documento=79***612');
+    expect(motivo).toContain('documento="79***612"');
+  });
+});
+
+/**
+ * Parsea `motivo` con la gramática que `siigo.pii.ts` documenta: parejas `clave=valor` separadas
+ * por espacios, con el valor entrecomillado cuando viene de un filtro.
+ *
+ * Existe porque la garantía que hay que comprobar es la del PARSEO, no la de una subcadena: un
+ * `toContain` no distingue «el valor contiene un espacio» de «hay una pareja más». Con el formato
+ * anterior —valores sin delimitar— este mismo parser encuentra las parejas forjadas, que es lo que
+ * hace que estas pruebas caigan si alguien quita las comillas.
+ */
+function parejas(motivo: string): [string, string][] {
+  const re = /([A-Za-z0-9_.-]+)=(?:"((?:[^"\\]|\\.)*)"|([^\s"]*))/g;
+  return [...motivo.matchAll(re)]
+    .map((m) => [m[1], (m[2] ?? m[3] ?? '').replace(/\\(.)/g, '$1')] as [string, string]);
+}
+
+describe('el separador del motivo: un valor no puede fabricar una pareja', () => {
+  const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
+
+  const registrar = async (acceso: Record<string, unknown>) => {
+    await registrarAccesoCliente(req(), {
+      accion: 'search', campos: CAMPOS_PII_VEREDICTO, ...acceso,
+    } as never);
+    return String(ultimoAcceso().motivo);
+  };
+
+  it('un espacio corriente ya no parte la pareja en dos', async () => {
+    // El hallazgo: cerrar `\n`, los controles y `U+2028/29` protegía al visor que pinta renglones,
+    // pero contra quien parsea parejas basta un espacio. `estado=activo filas=0` no necesita ni un
+    // carácter raro para colar un conteo que el servidor nunca escribió.
+    const motivo = await registrar({ filtros: { estado: 'activo filas=0' } });
+
+    expect(parejas(motivo)).toEqual([['estado', 'activo filas=0']]);
+  });
+
+  it('tampoco cerrando la comilla a mano: se escapa', async () => {
+    const motivo = await registrar({ filtros: { estado: 'activo" filas=0' } });
+
+    expect(parejas(motivo)).toEqual([['estado', 'activo" filas=0']]);
+  });
+
+  it('ni desde la CLAVE, que se reduce a identificador', async () => {
+    // La clave es la otra mitad de la pareja y el atajo evidente del día que alguien registre
+    // `filtros: req.query` es que la elija quien hace la petición.
+    const motivo = await registrar({ filtros: { 'estado filas=0': 'activo' } });
+
+    const claves = parejas(motivo).map(([c]) => c);
+    expect(claves).not.toContain('filas');
+    expect(claves).toHaveLength(1);
+    expect(claves[0]).not.toContain(' ');
+  });
+
+  it('un filtro que se llame como un contador se distingue por la forma', async () => {
+    // Los contadores que pone el código van SIN comillas y los filtros CON, así que un `?filas=`
+    // convive con el conteo real sin poder suplantarlo.
+    const motivo = await registrar({ filas: 2, filtros: { filas: 999 } });
+
+    expect(motivo).toContain('filas=2 ');
+    expect(motivo).toContain('filas="999"');
+  });
+
+  it('el valor sigue llegando entero: el enmascarado de este repo lleva espacios', async () => {
+    // Colapsar el separador dentro del valor —la otra forma de cerrarlo— habría partido lo que
+    // producen `maskName` y `maskAddress`, que es justo lo que el motivo tiene que poder leer.
+    const motivo = await registrar({ filtros: { nombre: 'PEDRO ANTONIO GÓMEZ' } });
+
+    expect(parejas(motivo)).toEqual([['nombre', 'P. A. G.']]);
+  });
+
+  it('el saneado no puede dejar la comilla de cierre fuera de sitio al recortar', async () => {
+    // `motivo` es `varchar(200)` y el valor se recorta a 40: si se recortara DESPUÉS de escapar,
+    // un valor lleno de barras podría partir un escape por la mitad.
+    const motivo = await registrar({ filtros: { estado: '\\'.repeat(60) } });
+
+    expect(parejas(motivo)).toHaveLength(1);
+    expect(motivo.length).toBeLessThanOrEqual(200);
+  });
+});
+
+/**
+ * La gramática ENTERA de `motivo`, anclada, tal y como la documenta `siigo.pii.ts`: el encabezado y
+ * después cero o más parejas `clave=valor` separadas por un espacio, con el valor entrecomillado
+ * cuando viene de un filtro y sin comillas cuando es un contador del código.
+ *
+ * Anclada y no por subcadenas, que es lo que la hace útil aquí: un `toContain` no ve la diferencia
+ * entre un motivo bien formado y uno cuya ÚLTIMA pareja quedó cortada por la mitad. Y esa era la
+ * observación: el recorte a 200 caracteres se aplicaba sobre la cadena ya ensamblada, así que podía
+ * caer dentro de un valor entrecomillado y dejar un número impar de barras al final —un escape
+ * partido, con la comilla de cierre en ninguna parte—. No forjaba una pareja nueva ni tocaba los
+ * contadores, pero dejaba malformado justo el eslabón que este formato viene a endurecer.
+ */
+const PAREJA = '[A-Za-z0-9_.-]+=(?:"(?:[^"\\\\]|\\\\.)*"|[^\\s"]+)';
+const MOTIVO_BIEN_FORMADO = new RegExp(
+  `^Lectura de fichas de cliente(?: — ${PAREJA}(?: ${PAREJA})*)?$`,
+);
+
+describe('el motivo se presupuesta por parejas: el corte ya no parte ninguna', () => {
+  const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
+
+  const registrar = async (acceso: Record<string, unknown>) => {
+    await registrarAccesoCliente(req(), {
+      accion: 'search', campos: CAMPOS_PII_VEREDICTO, ...acceso,
+    } as never);
+    return String(ultimoAcceso().motivo);
+  };
+
+  /** Doce filtros de barras invertidas: cada valor ocupa el máximo y el corte cae dentro de uno. */
+  const filtrosDesbordantes = () => Object.fromEntries(
+    Array.from({ length: 12 }, (_, i) => [`f${i}`, '\\'.repeat(60)]),
+  );
+
+  it('doce filtros llenos de barras ya no dejan un escape partido al final', async () => {
+    // El caso exacto que reprodujo la auditoría: con el recorte sobre la cadena ensamblada, el
+    // motivo terminaba en algo como `f11="\\"\\\\` —comilla abierta, barra suelta— y ningún parser
+    // estricto podía leer la última pareja. Ahora la pareja que no cabe entera no se escribe.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    expect(motivo.length).toBeLessThanOrEqual(200);
+  });
+
+  it('y ninguna barra queda desemparejada dentro de un valor', async () => {
+    // La comprobación directa del hallazgo, sin pasar por la gramática: dentro de las comillas toda
+    // barra viaja escapada, así que las barras solo pueden aparecer en número PAR. Un número impar
+    // al final es exactamente la firma del escape partido.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    const colaDeBarras = /\\+$/.exec(motivo.replace(/"$/, ''));
+    expect(colaDeBarras).toBeNull();
+    for (const [, valor] of parejas(motivo)) {
+      expect(valor).toMatch(/^(?:\\\\)*$|^[^\\]*$|^(?:[^\\]|\\\\)*$/);
+    }
+  });
+
+  it('los contadores del código sobreviven al desbordamiento: van primero', async () => {
+    // La garantía que ya existía y que no se puede perder al cambiar el corte. Se ejercen los tres
+    // a la vez con doce filtros detrás: si el presupuesto se gastara en otro orden, el motivo
+    // dejaría de decir cuántas fichas se leyeron —que es lo único que no se puede reconstruir—.
+    const motivo = await registrar({
+      filas: 500, evaluados: 900, clienteId: 41, filtros: filtrosDesbordantes(),
+    });
+
+    const claves = parejas(motivo).map(([c]) => c);
+    expect(claves.slice(0, 3)).toEqual(['filas', 'evaluados', 'cliente']);
+    expect(motivo).toContain('filas=500');
+    expect(motivo).toContain('evaluados=900');
+    expect(motivo).toContain('cliente=41');
+  });
+
+  it('y el motivo DICE cuántas parejas se quedaron fuera', async () => {
+    // Un rastro recortado en silencio afirma que se buscó con dos filtros cuando fueron doce. La
+    // marca va sin comillas, como los contadores del código, así que un filtro llamado `truncado`
+    // saldría como `truncado="…"` y se seguiría distinguiendo.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    const cuenta = parejas(motivo).find(([c]) => c === 'truncado');
+    expect(cuenta).toBeDefined();
+    const escritas = parejas(motivo).filter(([c]) => /^f\d+$/.test(c)).length;
+    // Doce filtros: los que se escribieron más los que la marca declara son los doce.
+    expect(Number(cuenta![1]) + escritas).toBe(12);
+  });
+
+  it('un motivo que cabe entero no lleva marca de truncado', async () => {
+    // La marca tiene que significar algo. Si apareciera siempre, dejaría de informar.
+    const motivo = await registrar({ filas: 2, filtros: { pais: 'Co', estado: 'activo' } });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    expect(motivo).not.toContain('truncado');
+    expect(parejas(motivo).map(([c]) => c)).toEqual(['filas', 'pais', 'estado']);
+  });
+
+  it('el corte del VALOR tampoco parte un carácter en dos', async () => {
+    // El otro corte del archivo, el de 40 caracteres por valor: `slice` cuenta unidades UTF-16, así
+    // que 39 caracteres y un emoji dejaban suelta la mitad alta de un par sustituto. No forja nada
+    // —no cierra la comilla— pero es un carácter que no existe: UTF-8 no lo puede codificar y el
+    // driver lo escribiría como `U+FFFD` dentro de un motivo que se quiere legible.
+    const motivo = await registrar({ filtros: { estado: `${'a'.repeat(39)}\u{1F600}b` } });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    // Ni media pareja sustituta alta sin su baja, ni al revés.
+    expect(motivo).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(motivo).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it('nunca se pasa de `varchar(200)`, que es lo que el recorte protegía', async () => {
+    // El presupuesto sustituye al recorte: si se hubiera quitado el corte sin ponerlo, esto sería
+    // un 22001 en producción y no un rastro.
+    const motivo = await registrar({
+      filas: 500, evaluados: 900, clienteId: 41, filtros: filtrosDesbordantes(),
+    });
+
+    expect(motivo.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('la ubicación del titular también se enmascara', () => {
+  const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
+
+  it('`ciudad` y `city` ya no salen en claro al motivo', async () => {
+    // El mismo ciclo declaró `city` como dato personal en `CAMPOS_PII_PROPUESTA_CIUDAD` citando
+    // AGENTS.md §14, y el catálogo de `maskPII` era el único sitio donde seguía tratándose como si
+    // no lo fuera. Es prevención, igual que `placa` e `identificaci`: es la clave que nombra la
+    // columna que dos rutas de este módulo entregan.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { ciudad: 'MEDELLIN', city: 'CHIA' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('MEDELLIN');
+    expect(motivo).not.toContain('CHIA');
+    // Queda la constancia de que el campo venía y cuánto ocupaba, que es lo que un log necesita.
+    expect(motivo).toContain('ciudad="*** (8 car.)"');
+    expect(motivo).toContain('city="*** (4 car.)"');
   });
 });
 

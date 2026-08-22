@@ -170,6 +170,81 @@ describe('propuesta de un cliente puntual', () => {
   });
 });
 
+describe('HU #11299 — las dos listas tienen techo', () => {
+  /** Cuatro pendientes: suficiente para que un tramo se note. */
+  const pendientes = (n: number) => Array.from({ length: n }, (_, i) => ({
+    clienteId: i + 1, nombre: `CLIENTE ${i + 1}`, ciudadTexto: 'BOGOTA D.C.',
+    propuesta: { textoOrigen: 'BOGOTA D.C.', certeza: 'exacta', candidatas: [] },
+  }));
+
+  it('la forma de la respuesta no cambia: `total` de la lista completa y `data` del tramo', async () => {
+    // Es lo que permite acotar sin tocar la pantalla, que hoy pide las listas sin parámetros y las
+    // pinta de una: `total` sigue diciendo cuántos hay, `data` cuántos vinieron. Mismo criterio que
+    // el informe de facturabilidad.
+    proponerMock.mockResolvedValue(pendientes(4));
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/clientes-ciudades/propuestas?limit=2')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(4);
+    expect(r.body.data).toHaveLength(2);
+    expect(r.body.data[0]).toMatchObject({ clienteId: 1 });
+  });
+
+  it('`offset` mueve el tramo sin cambiar el total', async () => {
+    proponerMock.mockResolvedValue(pendientes(4));
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/clientes-ciudades/propuestas?limit=2&offset=2')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.body.total).toBe(4);
+    expect(r.body.data.map((p: { clienteId: number }) => p.clienteId)).toEqual([3, 4]);
+  });
+
+  it('sin parámetros se sigue llevando la lista entera: el defecto es el máximo', async () => {
+    // Bajar el defecto habría truncado la pantalla en silencio. Lo que faltaba era el techo.
+    proponerMock.mockResolvedValue(pendientes(4));
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/clientes-ciudades/propuestas')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.body.data).toHaveLength(4);
+  });
+
+  it('pedir más de 500 se rechaza: el tope no es negociable desde la query', async () => {
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/clientes-ciudades/propuestas?limit=501')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(400);
+    expect(proponerMock).not.toHaveBeenCalled();
+  });
+
+  it('`/obsoletas` tiene el mismo techo y la misma forma', async () => {
+    obsoletasMock.mockResolvedValue([
+      { clienteId: 1, nombre: 'A', ciudadActual: 'CHIA', textoConfirmado: 'BOGOTA' },
+      { clienteId: 2, nombre: 'B', ciudadActual: 'ITAGUI', textoConfirmado: 'MEDELLIN' },
+    ]);
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/clientes-ciudades/obsoletas?limit=1')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(2);
+    expect(r.body.data).toHaveLength(1);
+
+    const malo = await request(app).get('/api/siigo/clientes-ciudades/obsoletas?limit=0')
+      .set('Authorization', await auth('admin'));
+    expect(malo.status).toBe(400);
+  });
+});
+
 describe('validación y errores', () => {
   it('una terna mal formada se rechaza sin llamar al servicio', async () => {
     const app = await buildApp();
