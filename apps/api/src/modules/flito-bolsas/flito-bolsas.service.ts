@@ -364,10 +364,25 @@ function validarMovimiento(datos: DatosMovimiento): { valor: number; fecha: stri
  * log. La mejora de verdad es envolver el `INSERT` en un savepoint (`tx.transaction(...)`), y aquí
  * sigue sin hacerse: el Bug #11685 la aplicó en `insertarMovimiento` del libro de TRÁNSITO, que es
  * donde el caso residual tiene una ventana real —`liquidar()` se salta este libro cuando el trámite
- * no tiene compañía cruzada, y ahí las dos transacciones dejan de serializarse por este lock—. En
- * este libro los dos escritores toman SIEMPRE el mismo `FOR UPDATE`, así que llegar al `23505` exige
- * una colisión entre bolsas DISTINTAS. Extenderlo hasta aquí es un cambio en la anidación de la
- * transacción del dinero y merece decidirse aparte, no de rebote.
+ * no tiene compañía cruzada, y ahí las dos transacciones dejan de serializarse por este lock—.
+ *
+ * **OJO con lo que este comentario decía antes, porque era FALSO.** Afirmaba que en este libro los
+ * dos escritores toman siempre el mismo `FOR UPDATE` y que por tanto el `23505` exigía una colisión
+ * entre bolsas distintas. Lo tumbó el gate de QA del Bug #11685: los dos escritores derivan la
+ * compañía de fuentes DISTINTAS —conciliación de `flito_soat.compania_id`, liquidación de
+ * `flito_tramites.compania_id`— y esas dos columnas **pueden divergir a propósito**: cuando la
+ * sincronización engancha un SOAT ya existente a un trámite nuevo no toca `flito_soat.compania_id`
+ * («denormalizados y congelados: el SOAT vive más que sus trámites», `schema.ts`), mientras que el
+ * trámite sí se reescribe. Un vehículo que cambia de empresa gestora produce justo eso. Y la llave
+ * `salida:soat:<id>` no lleva compañía, con índice único de TABLA ENTERA. O sea: sí pueden bloquear
+ * filas distintas con la misma llave.
+ *
+ * Lo que sigue en pie es la CONCLUSIÓN, no aquel argumento. En secuencial el pre-chequeo de fuera
+ * del lock filtra solo por llave, encuentra el previo de la otra empresa y devuelve `duplicado`: no
+ * hay `23505`. Para llegar al choque hacen falta las dos cosas a la vez —concurrencia Y compañías
+ * divergentes— y el desenlace es un 500 limpio con rollback completo, no un descuadre. Por eso
+ * extender el savepoint hasta aquí sigue mereciendo decidirse aparte y no de rebote; pero que se
+ * decida sabiendo que el hueco existe, no creyendo que no lo hay.
  */
 async function reintentoPorLlave(
   tx: Tx,

@@ -170,6 +170,9 @@ describe('asiento de tránsito — qué error sube cuando el INSERT choca', () =
       .insert(MOVIMIENTOS, () => { throw error23505(); });
 
     expect(await consumo()).toBeNull();
+    // Igual que abajo: el INSERT SÍ se intentó, así que el `null` es la defensa y no un «no había
+    // bolsa». Sin esta línea el mutante que cortocircuita la función deja la prueba en verde.
+    expect(espia.insertsEn(MOVIMIENTOS)).toHaveLength(1);
     expect(espia.updatesEn(BOLSAS)).toHaveLength(0);
   });
 
@@ -277,6 +280,11 @@ describe('asiento de tránsito — el SAVEPOINT alrededor del INSERT', () => {
     // Sin savepoint, el 23505 deja la transacción abortada y la relectura muere con 25P02: el
     // desenlace sería el error de servidor que reporta el Bug, con el movimiento correcto ahí al lado.
     expect(await consumo()).toBeNull();
+    // Sin esto la prueba pasa aunque NADA de la defensa corra: `registrarConsumoTransito` devuelve
+    // `null` también cuando ninguna bolsa cubre el par, así que un `toBeNull()` a secas no distingue
+    // «la defensa actuó» de «aquí no había bolsa». Lo destapó el gate de QA con un mutante que
+    // cortocircuitaba la función entera. (Bug #11685.)
+    expect(espia.insertsEn(MOVIMIENTOS)).toHaveLength(1);
     expect(espia.updatesEn(BOLSAS)).toHaveLength(0);
   });
 
