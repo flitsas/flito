@@ -57,6 +57,7 @@ vi.mock('../../src/modules/siigo/siigo.operaciones.repo.js', () => ({
 // del router y el que lanza la prueba sean la MISMA clase.
 const asegurarMock = vi.fn();
 const vinculoMock = vi.fn();
+const resumenMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => {
   class SiigoTerceroError extends Error {
     readonly codigo: string;
@@ -70,6 +71,7 @@ vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => {
     SiigoTerceroError,
     asegurarTercero: (...args: unknown[]) => asegurarMock(...args),
     vinculoDeCliente: (...args: unknown[]) => vinculoMock(...args),
+    resumenTerceros: (...args: unknown[]) => resumenMock(...args),
   };
 });
 
@@ -106,6 +108,7 @@ const FALTANTES: FaltanteCliente[] = [
 beforeEach(() => {
   asegurarMock.mockReset();
   vinculoMock.mockReset();
+  resumenMock.mockReset();
   auditMock.mockClear();
 });
 
@@ -301,5 +304,109 @@ describe('La guarda sigue delante del 422', () => {
     expect(r.status).toBe(403);
     expect(r.body).not.toHaveProperty('faltantes');
     expect(asegurarMock).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// AC3 — la tercera cifra de la tarjeta
+//
+// «Then veo cuántos clientes están listos para facturar, cuántos no lo están Y CUÁNTOS TIENEN
+// TERCERO VINCULADO EN SIIGO». Las dos primeras salían de `GET /clientes/validacion`; la tercera no
+// existía en ninguna parte. Lo que se prueba aquí es la frontera HTTP —el contrato que el panel va a
+// consumir y la guarda—; que el conteo sea el correcto se compila y se afirma en
+// `siigo-terceros-resumen.test.ts`, donde `db` es un drizzle de verdad.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+describe('AC3 — cuántos clientes tienen tercero vinculado en Siigo', () => {
+  it('devuelve las dos claves del contrato, y solo esas', async () => {
+    // El front las lee por nombre. Una clave de más aquí sería una identidad de más mañana: este
+    // endpoint no puede crecer hacia «y además dime quiénes» sin volver a pasar por seguridad.
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ totalClientes: 294, conTercero: 181 });
+    expect(Object.keys(r.body)).toEqual(['totalClientes', 'conTercero']);
+  });
+
+  it('con clientes vinculados y sin vincular, las dos cifras difieren', async () => {
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('financiera'));
+
+    // 113 pendientes de vincular: es la resta que el panel pinta y el trabajo que queda por hacer.
+    expect(r.body.totalClientes - r.body.conTercero).toBe(113);
+  });
+
+  it('ninguno vinculado todavía: cero, no un vacío ni un `null`', async () => {
+    // El primer día del panel. Un `conTercero` ausente se pintaría como «—» y diría «no se pudo
+    // consultar» cuando lo que pasa es «aún no has vinculado a nadie», que es lo contrario de un
+    // error: es la lista de trabajo.
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 0 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('auditor'));
+
+    expect(r.body).toEqual({ totalClientes: 294, conTercero: 0 });
+  });
+
+  it('una cartera vacía responde 200 con dos ceros, no 404', async () => {
+    resumenMock.mockResolvedValue({ totalClientes: 0, conTercero: 0 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ totalClientes: 0, conTercero: 0 });
+  });
+
+  it('la cifra no se audita: leer un conteo no es una operación de negocio', async () => {
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    await request(app).get('/api/siigo/terceros/resumen').set('Authorization', await auth('admin'));
+
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('AC3 — la guarda del conteo es la de LECTURA, la misma del resto del router', () => {
+  it('sin token no se llega a saber cuántos clientes hay', async () => {
+    const app = await buildApp();
+    const r = await request(app).get('/api/siigo/terceros/resumen');
+
+    expect(r.status).toBe(401);
+    expect(resumenMock).not.toHaveBeenCalled();
+  });
+
+  it('un rol sin acceso a facturación electrónica recibe 403 y ninguna cifra', async () => {
+    const app = await buildApp();
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('conductor'));
+
+    expect(r.status).toBe(403);
+    expect(r.body).not.toHaveProperty('totalClientes');
+    expect(resumenMock).not.toHaveBeenCalled();
+  });
+
+  it('un rol de CONSULTA sí la ve: contar no es escribir en Siigo', async () => {
+    // Es la diferencia con el `POST` de este mismo router, que exige `emitir`. Pedir `emitir` para
+    // leer dos números le negaría la tarjeta a `auditor` y `financiera`, que son justamente quienes
+    // revisan la cartera antes de facturar (AC1 del diseño de UX).
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('auditor'));
+
+    expect(r.status).toBe(200);
+    expect(resumenMock).toHaveBeenCalledTimes(1);
   });
 });

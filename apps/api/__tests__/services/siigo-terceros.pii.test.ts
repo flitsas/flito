@@ -53,6 +53,7 @@ vi.mock('../../src/shared/pii-audit.js', () => ({
 
 const asegurarMock = vi.fn();
 const vinculoMock = vi.fn();
+const resumenMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => {
   class SiigoTerceroError extends Error {
     readonly codigo: string;
@@ -66,6 +67,7 @@ vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => {
     SiigoTerceroError,
     asegurarTercero: (...args: unknown[]) => asegurarMock(...args),
     vinculoDeCliente: (...args: unknown[]) => vinculoMock(...args),
+    resumenTerceros: (...args: unknown[]) => resumenMock(...args),
   };
 });
 
@@ -207,5 +209,37 @@ describe('lo que no llegó a salir no se registra', () => {
     expect(r.status).toBe(403);
     expect(logPiiAccessMock).not.toHaveBeenCalled();
     expect(asegurarMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('el conteo del AC3 no registra acceso, y es una decisión escrita', () => {
+  it('`GET /resumen` no escribe en `pii_access_log`: devuelve dos enteros', async () => {
+    // No es un olvido simétrico al de `GET /cliente/:id` —aquel SÍ entrega `identificacion` y está
+    // inventariado como deuda—. Este no proyecta ni una columna personal ni un `clients.id`:
+    // registrar aquí escribiría una fila de «acceso a datos personales» cada vez que alguien abre
+    // el panel, sin que nadie hubiera mirado a nadie. Es el criterio de `CAMPOS_PII_RESUMEN`: un
+    // registro que exagera es tan inservible como uno que falta.
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('admin'));
+
+    expect(r.status).toBe(200);
+    expect(logPiiAccessMock).not.toHaveBeenCalled();
+  });
+
+  it('la respuesta no lleva ninguna identidad que registrar', async () => {
+    resumenMock.mockResolvedValue({ totalClientes: 294, conTercero: 181 });
+    const app = await buildApp();
+
+    const r = await request(app).get('/api/siigo/terceros/resumen')
+      .set('Authorization', await auth('admin'));
+
+    // La prueba de que la premisa anterior es cierta y no una afirmación del comentario: el cuerpo
+    // son dos números. Si mañana alguien le añade `clientes: [...]`, esto se pone rojo y la
+    // decisión de no registrar tiene que revisarse.
+    expect(Object.values(r.body).every((v) => typeof v === 'number')).toBe(true);
+    expect(Object.keys(r.body)).toEqual(['totalClientes', 'conTercero']);
   });
 });

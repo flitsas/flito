@@ -11,10 +11,13 @@
 // ── Salida de datos personales (HU #11299) ───────────────────────────────────────────────────────
 //
 // El `POST` deja registro en `pii_access_log` con `accion: 'export'`: manda a Siigo —un proveedor
-// externo— la ficha del cliente y devuelve su identificación en el cuerpo. El `GET` de aquí abajo
-// también entrega `identificacion` y NO registra: es deuda declarada en `siigo.pii.ts` para la HU
-// de seguimiento, porque el panel de la HU #11299 usa el POST y no el GET. Escribirlo aquí para que
-// quien añada el rastro no tenga que descubrirlo.
+// externo— la ficha del cliente y devuelve su identificación en el cuerpo. El
+// `GET /cliente/:clienteId` también entrega `identificacion` y NO registra: es deuda declarada en
+// `siigo.pii.ts` para la HU de seguimiento, porque el panel de la HU #11299 usa el POST y no ese
+// GET. Escribirlo aquí para que quien añada el rastro no tenga que descubrirlo.
+//
+// El `GET /resumen` tampoco registra, pero por el motivo contrario y no por deuda: devuelve dos
+// conteos y ninguna identidad. Los dos casos están razonados en `siigo.pii.ts`.
 
 import { Router, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -31,7 +34,9 @@ import { exigirAccionSiigo } from './siigo.permisos.js';
 import {
   CAMPOS_PII_IDENTIFICACION, CAMPOS_PII_TERCERO_EXPORTADO, registrarAccesoCliente,
 } from './siigo.pii.js';
-import { asegurarTercero, SiigoTerceroError, vinculoDeCliente } from './siigo.terceros.service.js';
+import {
+  asegurarTercero, resumenTerceros, SiigoTerceroError, vinculoDeCliente,
+} from './siigo.terceros.service.js';
 import {
   ClienteNoFacturableError, COLUMNAS_CLIENTE_EVALUABLE,
 } from './siigo.validador-cliente.service.js';
@@ -124,6 +129,33 @@ function rechazoNoFacturable(e: ClienteNoFacturableError): ErrorClienteNoFactura
     : 'El cliente no se puede facturar todavía. Revísalo en el informe de clientes no facturables.';
   return { error, codigo: 'cliente_no_facturable', clienteId: e.clienteId, faltantes };
 }
+
+/**
+ * Cuántos clientes tienen tercero en Siigo (HU #11299, AC3).
+ *
+ * Es la TERCERA cifra que el AC pide en la misma frase que las otras dos («cuántos están listos
+ * para facturar, cuántos no lo están y cuántos tienen tercero vinculado en Siigo»), y las otras dos
+ * ya salían de `GET /siigo/clientes/validacion`. Esta ruta no repite aquella: cada una cuenta sobre
+ * su propia tabla —`clients` allá, `siigo_terceros` aquí— y el panel las pide en paralelo.
+ *
+ * **No es el lote de §R3-b del diseño de UX.** Aquello (`GET /terceros?clienteIds=`) diría QUIÉN
+ * está vinculado para pintar una columna fila por fila, y se descartó a propósito. Descartar una
+ * columna no es lo mismo que omitir un conteo: esto devuelve dos números y ninguna identidad.
+ *
+ * Va ANTES de `/cliente/:clienteId` por costumbre de este repo —rutas fijas primero—, aunque aquí
+ * los dos segmentos no puedan colisionar.
+ *
+ * **Sin registro de acceso PII, y es deliberado**: la respuesta son dos enteros, ni un nombre ni una
+ * identificación ni un `clients.id`. Es el mismo criterio que `CAMPOS_PII_RESUMEN` deja escrito en
+ * `siigo.pii.ts` para el resumen de facturabilidad —lo que decide no es la ruta ni la tabla que se
+ * recorre, sino si la RESPUESTA entrega datos personales—, con una diferencia: aquel sí registra
+ * con la lista vacía porque barre las FICHAS del padrón, y este cuenta llaves foráneas sin mirar
+ * una sola columna personal. El porqué está inventariado en `siigo.pii.ts` para que la próxima
+ * revisión no lo lea como un olvido.
+ */
+router.get('/resumen', LECTURA, async (_req: Request, res: Response) => {
+  res.json(await resumenTerceros());
+});
 
 /** El vínculo actual de un cliente. Lectura pura: no llama a Siigo. */
 router.get('/cliente/:clienteId', LECTURA, async (req: Request, res: Response) => {
