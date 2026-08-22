@@ -134,10 +134,29 @@ export default function DialogoEnvioFacturacion({
    * este freno, la ficha del cliente pisaría las direcciones que alguien acaba de escribir.
    */
   const correoSembrado = useRef(false);
+  /**
+   * Si alguien ya decidió sobre la casilla. **Un freno distinto del anterior**: aquel protege del
+   * segundo sembrado, este del primero, porque la decisión puede ser ANTERIOR a que la consulta
+   * conteste. La casilla es lo primero que se ve y nace marcada, así que quien no quiere correo la
+   * pulsa justo mientras `/clients` viaja —tres segundos bastan— y sin esto la semilla la volvería
+   * a marcar: la factura saldría por correo después de que alguien dijera explícitamente que no.
+   *
+   * Se detecta comparando `enviar`, y no con un `onToque` aparte, porque la casilla es el ÚNICO
+   * control que lo cambia: editar direcciones deja `enviar` intacto. Así, tocar la casilla congela
+   * la elección y la semilla sigue rellenando las direcciones, que es lo que de verdad aporta y no
+   * está a la vista durante la carga (esos campos solo se pintan con la ficha ya cargada).
+   */
+  const enviarDecidido = useRef(false);
+  const cambiarCorreo = (v: EleccionCorreo) => {
+    if (v.enviar !== correo.enviar) enviarDecidido.current = true;
+    setCorreo(v);
+  };
   const sembrarCorreo = (v: EleccionCorreo) => {
     if (correoSembrado.current) return;
     correoSembrado.current = true;
-    setCorreo(v);
+    setCorreo((prev) => (enviarDecidido.current
+      ? { enviar: prev.enviar, destinatarios: v.destinatarios }
+      : v));
   };
 
   /**
@@ -286,7 +305,7 @@ export default function DialogoEnvioFacturacion({
             {/* El correo se elige EN EL PRIMER PASO y no junto al botón de enviar: es una decisión
                 sobre qué pasa con la factura, no sobre con qué se emite, y el AC1 la quiere a la
                 vista en cuanto el diálogo carga. */}
-            <CorreoDelEnvio empresas={empresas} valor={correo} onCambio={setCorreo}
+            <CorreoDelEnvio empresas={empresas} valor={correo} onCambio={cambiarCorreo}
               onSemilla={sembrarCorreo} />
 
             {excluidos.length > 0 && (

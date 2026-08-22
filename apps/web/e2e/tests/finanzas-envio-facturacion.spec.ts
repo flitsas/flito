@@ -749,6 +749,26 @@ async function abrirDialogo(page: Page, cuantos = 1) {
 
 const CASILLA = 'Enviar la factura por correo al cliente';
 
+/**
+ * Retiene `/clients` hasta que se le suelte, y devuelve el gatillo.
+ *
+ * Un retraso fijo no vale para lo que estas pruebas afirman. Lo que miran es qué pasa DURANTE el
+ * vuelo de la consulta, y con un temporizador el «durante» depende de lo rápida que sea la máquina:
+ * un `expect` con cinco segundos de espera contra un retraso de uno y medio no comprueba el estado
+ * de la carga, comprueba el resultado de la semilla — exactamente lo contrario de lo que dice.
+ */
+async function padronEnVuelo(page: Page, padron: unknown[] = PADRON): Promise<() => void> {
+  let soltar: () => void = () => {};
+  const espera = new Promise<void>((resolver) => { soltar = resolver; });
+  await page.route(/\/api\/clients\?/, async (route) => {
+    await espera;
+    return route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify(padron),
+    });
+  });
+  return () => soltar();
+}
+
 test.describe('AC1 — la opción existe, viene marcada y dice a qué direcciones iría', () => {
   test('nace marcada y propone la dirección de la ficha del cliente', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -756,10 +776,42 @@ test.describe('AC1 — la opción existe, viene marcada y dice a qué direccione
     await mockEnvio(page, RESPUESTA_MIXTA);
     await abrirDialogo(page);
 
+    // Marcada CON la ficha ya cargada. Que también nazca marcada —antes de que la consulta
+    // conteste— no lo prueba este aserto, que esperaría a la semilla sin notarlo: lo prueba el
+    // envío en pleno vuelo del AC4, mirando el cuerpo del `POST`.
     await expect(page.getByRole('checkbox', { name: CASILLA })).toBeChecked();
     // La dirección sale de la ficha, no de una constante: es lo que `resolverDestinatarios`
     // devolvería en el servidor, con la misma regla (hoy, solo el correo de la compañía).
     await expect(page.getByLabel('Dirección 1')).toHaveValue('facturacion@acme.co');
+  });
+
+  /**
+   * El defecto que el gate encontró: `enviar` se perdía en la única dirección que importa, de
+   * «no» a «sí». La casilla nace marcada y es lo primero que se ve, así que quien no quiere correo
+   * la pulsa justo mientras `/clients` viaja — y la semilla la volvía a marcar al llegar.
+   */
+  test('desmarcarla mientras la consulta viaja: la semilla no la vuelve a marcar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    const soltarPadron = await padronEnVuelo(page);
+    await abrirDialogo(page);
+
+    await expect(page.getByText('Buscando a qué direcciones iría…')).toBeVisible();
+    await page.getByRole('checkbox', { name: CASILLA }).uncheck();
+
+    // Ahora contesta el padrón: la semilla trae `enviar: true` y la dirección de la ficha. Entra
+    // la dirección —eso no lo decidió nadie—, no la casilla.
+    soltarPadron();
+    await expect(page.getByText('Buscando a qué direcciones iría…')).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: CASILLA })).not.toBeChecked();
+
+    // Y lo que de verdad decide qué pasa con la factura: el cuerpo del `POST`.
+    await enviarDesdeDialogo(page, 1);
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    expect((cuerpos[0] as { correo: unknown }).correo)
+      .toEqual({ enviar: false, destinatarios: [] });
   });
 });
 
@@ -800,6 +852,45 @@ test.describe('AC2 — los destinatarios se cambian, y una dirección inválida 
     await page.getByLabel('Dirección 1').fill('facturacion@acme.co');
     await expect(page.getByRole('button', { name: 'Siguiente: con qué se emite' })).toBeEnabled();
   });
+
+  test('una dirección repetida tampoco pasa, y el aviso nombra la posición, no el valor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await abrirDialogo(page);
+
+    await expect(page.getByLabel('Dirección 1')).toHaveValue('facturacion@acme.co');
+    await page.getByRole('button', { name: 'Añadir dirección' }).click();
+    // En MAYÚSCULAS: para el correo la caja no distingue, así que Siigo mandaría dos veces el
+    // mismo documento y gastaría dos de las cinco plazas.
+    await page.getByLabel('Dirección 2').fill('FACTURACION@acme.co');
+
+    const aviso = page.getByRole('alert').filter({ hasText: 'La dirección 2 está repetida' });
+    await expect(aviso).toBeVisible();
+    // La misma regla que el acta del servidor: el aviso no puede llevar la dirección dentro.
+    expect(await aviso.innerText()).not.toContain('acme.co');
+    await expect(page.getByRole('button', { name: 'Siguiente: con qué se emite' })).toBeDisabled();
+    expect(cuerpos).toHaveLength(0);
+  });
+
+  test('en la quinta dirección ya no se puede añadir otra (el tope de Siigo)', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA);
+    await abrirDialogo(page);
+
+    await expect(page.getByLabel('Dirección 1')).toHaveValue('facturacion@acme.co');
+    for (let i = 2; i <= 5; i += 1) {
+      await page.getByRole('button', { name: 'Añadir dirección' }).click();
+      await page.getByLabel(`Dirección ${i}`).fill(`buzon${i}@acme.co`);
+    }
+
+    // Se impide antes de escribirla, no después: llegar a seis y que un aviso diga que sobra una
+    // obliga a decidir cuál se cae cuando ya se pegaron todas.
+    await expect(page.getByRole('button', { name: 'Añadir dirección' })).toBeDisabled();
+    await expect(page.getByLabel('Dirección 6')).toHaveCount(0);
+  });
 });
 
 test.describe('AC3 — fuera de producción la opción se explica, no se esconde', () => {
@@ -817,22 +908,53 @@ test.describe('AC3 — fuera de producción la opción se explica, no se esconde
     // Y no se ofrece editar direcciones para un correo que en este ambiente no sale de nadie.
     await expect(page.getByLabel('Dirección 1')).toHaveCount(0);
   });
+
+  test('sigue MARCADA y con cero direcciones: el acta dirá «a nadie», no «no se solicitó»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    await mock(page, { filas: [ELEGIBLE], ambiente: 'pruebas' });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await abrirDialogo(page);
+
+    // Primero la carga: sin esperar al motivo, la casilla marcada sería la de nacimiento y no la
+    // que este ambiente decide.
+    await expect(page.getByText(/no sale ningún correo al cliente/)).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: CASILLA })).toBeChecked();
+
+    await enviarDesdeDialogo(page, 1);
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    // `enviar: true` con cero direcciones es lo que hace que el acta del servidor diga «en este
+    // ambiente no se manda correo a nadie». Con `enviar: false` diría «no se solicitó», que es otro
+    // hecho: alguien lo desmarcó. Y desmarcarlo no se puede — la casilla está deshabilitada.
+    //
+    // Cero direcciones y no las de la ficha: guardar datos personales en el lote para un correo
+    // que nadie va a mandar es lo que la minimización (Ley 1581) prohíbe.
+    expect((cuerpos[0] as { correo: unknown }).correo)
+      .toEqual({ enviar: true, destinatarios: [] });
+  });
 });
 
 test.describe('AC4 — los cuatro estados del bloque de correo', () => {
-  test('mientras busca las direcciones lo dice', async ({ page }) => {
+  test('mientras busca las direcciones lo dice, y enviar en pleno vuelo manda la elección por omisión', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
     await mock(page, { filas: [ELEGIBLE] });
-    await mockEnvio(page, RESPUESTA_MIXTA);
-    await page.route(/\/api\/clients\?/, async (route) => {
-      await new Promise((r) => setTimeout(r, 1500));
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PADRON) });
-    });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    const soltarPadron = await padronEnVuelo(page);
     await abrirDialogo(page);
 
     await expect(page.getByText('Buscando a qué direcciones iría…')).toBeVisible();
-    // La elección por omisión ya vale mientras tanto: no depende de esta consulta.
-    await expect(page.getByRole('checkbox', { name: CASILLA })).toBeChecked();
+
+    // Que la elección por omisión ya valga mientras tanto NO lo prueba una casilla marcada: ese
+    // aserto espera, la respuesta llega y acaba comprobando la semilla. Lo prueba enviar sin que
+    // la consulta haya contestado y mirar qué viajó. Si `CORREO_POR_OMISION` naciera desmarcada,
+    // este envío saldría con `enviar: false` y el servidor levantaría acta de que nadie lo pidió.
+    await enviarDesdeDialogo(page, 1);
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    expect((cuerpos[0] as { correo: unknown }).correo)
+      .toEqual({ enviar: true, destinatarios: [] });
+
+    soltarPadron();
   });
 
   test('si falla se reintenta SIN cerrar el diálogo, y se dice qué pasará mientras tanto', async ({ page }) => {
@@ -904,6 +1026,31 @@ test.describe('AC5 — el cliente sin correo no es un error', () => {
     expect((cuerpos[0] as { correo: unknown }).correo).toEqual({ enviar: false, destinatarios: [] });
     await expect(page.getByRole('heading', { name: /enviados a la cola/ })).toBeVisible();
   });
+
+  test('una ficha que no se pudo leer NO es «sin correo»: la casilla sigue marcada', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    // El padrón llega por tramos (`/clients?limit=500`) y esta compañía cae fuera del tramo: no
+    // aparece. Que no aparezca no dice nada sobre su correo.
+    await mock(page, { filas: [ELEGIBLE], padron: [{ id: 999, name: 'OTRA SAS', email: 'x@otra.co' }] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await abrirDialogo(page);
+
+    await expect(page.getByText(/no se pudo leer su ficha; se usará lo que tenga al emitirse/)).toBeVisible();
+    // Y no el otro mensaje: son dos hechos distintos y el segundo se leería como el primero.
+    await expect(page.getByText(/no tiene ningún correo registrado/)).toHaveCount(0);
+    // No se apaga la casilla por un dato que no se llegó a mirar.
+    await expect(page.getByRole('checkbox', { name: CASILLA })).toBeChecked();
+    // Tampoco se ofrece editar direcciones: no hay ninguna que proponer y las que se escribieran
+    // sustituirían a las de la ficha, que es justo lo que aquí no se conoce.
+    await expect(page.getByLabel('Dirección 1')).toHaveCount(0);
+
+    await enviarDesdeDialogo(page, 1);
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+    // Vacío es «a lo que diga su ficha al emitirse», que es lo único cierto que se puede pedir.
+    expect((cuerpos[0] as { correo: unknown }).correo)
+      .toEqual({ enviar: true, destinatarios: [] });
+  });
 });
 
 test.describe('AC6 — accesibilidad del bloque de correo', () => {
@@ -931,5 +1078,35 @@ test.describe('AC6 — accesibilidad del bloque de correo', () => {
     const descrito = await direccion.getAttribute('aria-describedby');
     expect(descrito).not.toBeNull();
     await expect(page.locator(`#${descrito}`)).toHaveText('No tiene formato de correo.');
+  });
+});
+
+test.describe('AGENTS.md §14 — las direcciones viajan en el cuerpo y en ningún otro sitio', () => {
+  test('ni la URL del SPA, ni ninguna petición, ni la consola llevan la dirección', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cuerpos: unknown[] = [];
+    const consola: string[] = [];
+    const urls: string[] = [];
+    // Se escucha ANTES de navegar: un `console.log` de montaje no se vería si se enganchara
+    // después, y es justo el que se colaría sin querer.
+    page.on('console', (m) => consola.push(m.text()));
+    page.on('request', (r) => urls.push(r.url()));
+    await mock(page, { filas: [ELEGIBLE] });
+    await mockEnvio(page, RESPUESTA_MIXTA, cuerpos);
+    await abrirDialogo(page);
+
+    // Un dominio que no aparece en ningún mock: cualquier rastro suyo lo puso la pantalla.
+    await page.getByLabel('Dirección 1').fill('privado@titular.co');
+    await page.getByRole('button', { name: 'Añadir dirección' }).click();
+    await page.getByLabel('Dirección 2').fill('otro@titular.co');
+    await enviarDesdeDialogo(page, 1);
+    await expect.poll(() => cuerpos.length).toBeGreaterThan(0);
+
+    // Llegaron —el envío hace lo que dice— y llegaron por el ÚNICO camino admitido.
+    expect((cuerpos[0] as { correo: { destinatarios: string[] } }).correo.destinatarios)
+      .toEqual(['privado@titular.co', 'otro@titular.co']);
+    expect(page.url()).not.toContain('titular.co');
+    expect(urls.filter((u) => u.includes('titular.co'))).toEqual([]);
+    expect(consola.filter((c) => c.includes('titular.co'))).toEqual([]);
   });
 });

@@ -131,6 +131,12 @@ interface Props {
   /**
    * La elección que se deduce de lo cargado. El diálogo la aplica UNA sola vez: volver al paso 1
    * después de haber estado en el 2 no puede borrar lo que alguien escribió.
+   *
+   * Y no la aplica entera si la casilla ya se tocó: desde ese momento `enviar` es de la persona y
+   * la semilla solo aporta las direcciones. Sembrar sobre una casilla ya desmarcada mandaría por
+   * correo una factura que alguien dijo que no saliera, y la ventana no es teórica —la casilla se
+   * ve desde el primer fotograma y esta consulta tarda—. El freno vive en el diálogo, que es quien
+   * tiene la elección.
    */
   onSemilla: (v: EleccionCorreo) => void;
 }
