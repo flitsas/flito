@@ -13,14 +13,30 @@
 // acceso ya estaba bien (`requireRole('admin','auditor','financiera')`); lo que faltaba era poder
 // reconstruir QUIÉN leyó el padrón.
 //
-// El corte del alcance: este archivo cubre **todo lo que el panel que entrega esta HU hace con
-// identidades** — las tres rutas del informe de facturabilidad, las dos listas de equivalencia de
-// ciudad y el `POST /terceros/cliente/:id`, que no es una lectura sino una SALIDA de datos hacia
-// Siigo (`accion: 'export'`).
+// El corte del alcance: este archivo cubre las rutas **del módulo `siigo/`** que el panel de esta
+// HU usa — las tres del informe de facturabilidad, las dos listas de equivalencia de ciudad y el
+// `POST /terceros/cliente/:id`, que no es una lectura sino una SALIDA de datos hacia Siigo
+// (`accion: 'export'`).
+//
+// **No cubre todo lo que el panel alcanza**, y decirlo importa: la primera versión de este párrafo
+// afirmaba cubrir «todo lo que el panel hace con identidades», que era falso y por tanto peor que
+// no decir nada — un inventario que se declara completo es el que hace que nadie vuelva a mirar.
 //
 // Queda fuera, inventariado para la HU de seguimiento y descrito como es —un inventario que
 // exagera o que se equivoca hace que la HU que lo recoja se dimensione sobre algo que no existe—:
 //
+//   · `GET /clients` (`clients/clients.routes.ts`) — **es la lectura de datos personales más grande
+//     que provoca este panel, y no está cubierta.** `PanelTerceros` monta el modal `FichaFiscal` y
+//     lo abre con el botón de ficha de dos de sus bloques —`ListaNoFacturables` y
+//     `SincronizacionTerceros`—; al montarse, esa ficha pide `/clients?limit=500`;
+//     del otro lado hay un `db.select()` SIN proyección sobre `clients` —nombre, documento,
+//     dirección, teléfono, correo y contacto de hasta 500 fichas— y en todo ese router no hay una
+//     sola llamada a `logPiiAccess`. Queda fuera de ESTA HU por alcance, no por criterio: es un
+//     módulo ajeno (`clients/`) con sus propios consumidores —la pantalla de clientes, los
+//     selectores de media aplicación—, y la corrección de fondo son dos cosas que hay que medir
+//     antes de tocarlas (proyección explícita, que cambia el DTO que ya consume el front, y el
+//     rastro de acceso). Dimensionarla aquí sería meter en una HU de Siigo un cambio transversal
+//     que ningún test de este módulo protege.
 //   · `GET /clientes-ciudades/:id/propuesta` — NO devuelve el nombre (proyecta solo `clients.city`),
 //     pero sí devuelve esa ciudad en `textoOrigen`. Es de la ficha fiscal (HU #11298), no de este
 //     panel.
@@ -30,6 +46,16 @@
 //   · `siigo.archivo-documentos.service.ts` — lee `clients.document` para resolver la carpeta de
 //     storage. Es un job sin `req`, así que es de otra naturaleza: `logPiiAccess` se apoya en una
 //     petición.
+//
+// Y queda fuera por no tener nada que registrar, que es distinto de quedar pendiente:
+//
+//   · `GET /terceros/resumen` (HU #11299, AC3) — devuelve `{ totalClientes, conTercero }`: dos
+//     enteros contados con `count(distinct …)` en la base. No proyecta ni una columna personal, no
+//     devuelve identificadores de cliente y no recorre fichas —a diferencia del resumen de
+//     facturabilidad, que sí las evalúa una a una y por eso SÍ registra con `CAMPOS_PII_RESUMEN`
+//     vacío—. Registrar aquí escribiría una fila de «acceso a datos personales» por cada vez que
+//     alguien abre el panel, sin que nadie haya mirado a nadie: exactamente el ruido que la nota de
+//     `CAMPOS_PII_RESUMEN` explica que hace inservible la consulta «¿quién ha leído documentos?».
 //
 // Existe aparte del router por el mismo motivo que `flito-conciliacion.pii.ts` y
 // `flito-comparendos.pii.ts`, que son sus precedentes exactos: son varios endpoints que devuelven lo
@@ -189,10 +215,16 @@ const VALOR_MAX = 40;
  * la petición: basta escribir ahí lo que parezca otra entrada. Se colapsan todos los caracteres de
  * control, no solo el salto de línea, porque el retorno de carro y el tabulador dan el mismo
  * resultado en cualquier visor.
+ *
+ * `U+2028` y `U+2029` —separador de linea y de parrafo de Unicode— van en la misma clase aunque
+ * NO sean caracteres de control: quedan fuera de los dos rangos de arriba y aun asi muchisimos
+ * visores de logs los pintan como un salto de linea de verdad. Sin ellos la defensa estaba
+ * cerrada contra el `\n` y abierta contra los dos code points que hacen exactamente lo mismo un
+ * poco mas abajo en la tabla Unicode, que es la clase de hueco que solo se encuentra buscandolo.
  */
 function unaLinea(valor: string): string {
   // eslint-disable-next-line no-control-regex -- son EXACTAMENTE lo que hay que quitar, no un descuido.
-  return valor.replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, VALOR_MAX);
+  return valor.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim().slice(0, VALOR_MAX);
 }
 
 /**
@@ -214,18 +246,32 @@ function unaLinea(valor: string): string {
  *
  * Se conserva la CLAVE siempre: saber que alguien buscó «por documento» es justamente lo que hace
  * útil el registro. Los objetos y arrays no se vuelcan.
+ *
+ * La clave pasa por `unaLinea` igual que el valor, y no es simetría decorativa: hasta la
+ * re-auditoría solo el VALOR se saneaba, así que la mitad de cada pareja que se escribe en `motivo`
+ * llegaba cruda desde el llamador. Las tres llamadas de hoy pasan claves literales escritas en el
+ * código, pero lo que este archivo protege es el CAMINO, no los tres llamadores de hoy: el atajo
+ * evidente el día que alguien quiera registrar los filtros de verdad es `filtros: req.query`, y ahí
+ * las claves las elige quien hace la petición. Con la mitad sin sanear, la defensa anti-forja se
+ * esquivaba por el lado que nadie había mirado.
  */
 function resumirFiltros(filtros: Record<string, unknown>): string {
   const partes: string[] = [];
-  for (const [clave, valor] of Object.entries(filtros)) {
+  for (const [claveCruda, valor] of Object.entries(filtros)) {
     if (valor === undefined || valor === null || valor === '') continue;
+    // La clave NO se enmascara —nombrar el criterio es lo que hace útil el registro— pero sí se
+    // aplana: en `motivo` no puede entrar nada que parezca un renglón nuevo, venga del lado que
+    // venga de la pareja.
+    const clave = unaLinea(claveCruda);
     if (typeof valor === 'object') {
       // Constancia de que el filtro se usó, sin volcar su contenido: no cabría en 200 caracteres y
       // enmascararlo campo a campo aquí sería reimplementar `maskPII` para un caso que no existe.
       partes.push(`${clave}=[…]`);
       continue;
     }
-    const enmascarado = maskPII({ [clave]: String(valor) })[clave];
+    // Se enmascara con la clave CRUDA: `maskPII` decide por el nombre del campo, y aplanarlo
+    // antes podría cambiar qué rama del catálogo casa. El saneado es para lo que se ESCRIBE.
+    const enmascarado = maskPII({ [claveCruda]: String(valor) })[claveCruda];
     partes.push(`${clave}=${unaLinea(String(enmascarado))}`);
   }
   return partes.join(' ');

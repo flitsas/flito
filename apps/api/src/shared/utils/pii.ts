@@ -87,7 +87,18 @@ export function maskPII<T extends Record<string, unknown>>(obj: T): Record<strin
     if (v == null) { out[k] = v; continue; }
     if (typeof v !== 'string') { out[k] = v; continue; }
     const lk = k.toLowerCase();
-    if (lk.includes('document') || lk.includes('cedula') || lk.includes('cédula') || lk.includes('doc_number') || lk.includes('nit')) {
+    // `identificaci` cubre «identificacion» e «identificación» sin depender de la normalización —el
+    // mismo truco que `direcci` más abajo—, y NO estaba: «identificacion» no contiene ninguna de las
+    // subcadenas de esta lista (lo que lleva dentro es «nti», no «nit»), así que la clave con la que
+    // el módulo de Siigo nombra la cédula/NIT del cliente —`siigo_terceros.identificacion` y la
+    // respuesta del POST de terceros— pasaba de largo y salía literal al log. Hoy ningún llamador
+    // pasa esa clave, así que esto es prevención y no una fuga que haya que rectificar. `placa`
+    // entra por lo mismo: identifica a un titular por su vehículo, AGENTS.md la nombra junto a la
+    // cédula y el NIT entre los filtros que no pueden viajar en la query, y
+    // `flito-comparendos.pii.ts` ya la enmascaraba en su lista local — que es precisamente la lista
+    // que existe porque esta se quedó corta.
+    if (lk.includes('document') || lk.includes('cedula') || lk.includes('cédula') || lk.includes('doc_number') || lk.includes('nit')
+      || lk.includes('identificaci') || lk.includes('identification') || lk.includes('placa')) {
       out[k] = maskDocument(v);
     } else if (lk.includes('email') || lk.includes('correo')) {
       out[k] = maskEmail(v);

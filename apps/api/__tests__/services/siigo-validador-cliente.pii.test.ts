@@ -248,6 +248,109 @@ describe('el rastro no puede convertirse en un segundo almacén de identidades',
   });
 });
 
+describe('los dos huecos que dejó la primera pasada del enmascarado', () => {
+  const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
+
+  it('`identificacion` —la palabra que usa este módulo para la cédula— ya no se escapa', async () => {
+    // El catálogo de `maskPII` decide por SUBCADENA del nombre de la clave, y ninguna de las que
+    // tenía casa con «identificacion»: lo que lleva dentro es «nti», no «nit». Es literalmente el
+    // nombre de la columna (`siigo_terceros.identificacion`) y de la clave que devuelve el POST de
+    // terceros, así que era la clave más probable de este módulo y la única que salía en claro.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { identificacion: '1036640908' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('1036640908');
+    expect(motivo).toContain('identificacion=10*****908');
+  });
+
+  it('cubre también la forma con tilde y la inglesa, que es como la nombra Siigo', async () => {
+    // `identification` es la clave del JSON de `/v1/customers`; «identificación» es como la escribe
+    // cualquiera en español. Las tres formas nombran el mismo dato y las tres tienen que enmascarar.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { 'identificaci\u00f3n': '1036640908', identification: '900123456' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('1036640908');
+    expect(motivo).not.toContain('900123456');
+    expect(motivo).toContain('identification=90****456');
+  });
+
+  it('`placa` entra por lo mismo: identifica a un titular por su vehículo', async () => {
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { placa: 'WGY123' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('WGY123');
+    expect(motivo).toContain('placa=W****3');
+  });
+
+  it('`U+2028` y `U+2029` tampoco pueden forjar un renglón, aunque no sean de control', async () => {
+    // La versión anterior colapsaba los rangos de caracteres de CONTROL, y estos dos no lo son:
+    // están en el bloque de puntuación general. Muchos visores de logs los pintan igual que un
+    // `\n`, así que la defensa anti-forja quedaba abierta por dos code points.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { estado: 'activo\u2028Lectura de fichas\u2029filas=0' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('\u2028');
+    expect(motivo).not.toContain('\u2029');
+    expect(motivo).toContain('estado=activo Lectura de fichas filas=0');
+  });
+
+  it('la CLAVE del filtro también se aplana: era la mitad de la pareja que iba cruda', async () => {
+    // Hasta aquí solo el VALOR pasaba por `unaLinea`; la clave se interpolaba tal cual. Las tres
+    // llamadas de hoy usan claves literales escritas en el código, pero lo que se protege es el
+    // CAMINO: el atajo evidente el día que alguien quiera registrar los filtros de verdad es
+    // `filtros: req.query`, y ahí las claves las elige quien hace la petición.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { 'estado\nLectura de fichas de cliente \u2014 filas=0': 'activo' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).not.toContain('\n');
+    expect(motivo.split('\n')).toHaveLength(1);
+  });
+
+  it('una clave con `U+2028` tampoco parte el motivo', async () => {
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { 'estado\u2028filas=0': 'activo' },
+    });
+
+    expect(String(ultimoAcceso().motivo)).not.toContain('\u2028');
+  });
+
+  it('aplanar la clave no la enmascara: el criterio se sigue leyendo', async () => {
+    // Lo que hace útil el registro es poder responder «alguien buscó POR DOCUMENTO». Si la clave
+    // acabara enmascarada, el log diría que hubo una búsqueda y no de qué.
+    await registrarAccesoCliente(req(), {
+      accion: 'search',
+      campos: CAMPOS_PII_VEREDICTO,
+      filtros: { documento: '79345612' },
+    });
+
+    const motivo = String(ultimoAcceso().motivo);
+    expect(motivo).toContain('documento=');
+    expect(motivo).toContain('documento=79***612');
+  });
+});
+
 describe('lo que NO se registra', () => {
   it('un cliente que no existe (404) no deja registro de acceso', async () => {
     cartera([]);
