@@ -94,7 +94,7 @@ export interface ComparendosExportRequest {
   nit?: string;
   placa?: string;
 }
-export const COMPARENDOS_EXPORT_MAX_FILAS = 5000;
+export const COMPARENDOS_EXPORT_MAX_FILAS = 2000; // 5000 en el diseño original; recalibrado por memoria en la HU #11651
 export const COMPARENDOS_OBSERVACION_MAX = /* el tope real de la columna */;
 export type ComparendosEventoTipo = 'primera_llegada' | 'inactivacion' | 'reaparicion' | 'gestion';
 ```

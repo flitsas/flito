@@ -179,8 +179,10 @@ export interface AvisoExport {
  *   · Y el eco es la ÚNICA implementación correcta del tope, que es lo que lo obliga: el tope
  *     efectivo es `COMPARENDOS_EXPORT_MAX_FILAS` del ENTORNO (mín. 1, máx. 20 000), el cuerpo del 422
  *     es `{ error, codigo }` sin campo `tope`, y `shared-types` advierte expresamente de que su
- *     constante es solo el valor POR DEFECTO. Escribir «5.000» en la pantalla sería escribir una
- *     cifra que cualquier despliegue puede desmentir sin que nadie se entere.
+ *     constante es solo el valor POR DEFECTO. Escribir aquí el número del día —fuera «5.000», hoy
+ *     «2.000» tras la recalibración de la HU #11651— sería escribir una cifra que cualquier
+ *     despliegue puede desmentir sin que nadie se entere, y que además caduca cuando el tope se
+ *     mueve. Por eso esta línea no cita ninguna: el número lo trae el mensaje del 422.
  *
  * Mejora pendiente, anotada y NO hecha aquí porque es superficie de backend: que el 422 lleve `tope`
  * como campo del cuerpo. Con eso la pantalla podría redactar su propio copy sin adivinar el número
