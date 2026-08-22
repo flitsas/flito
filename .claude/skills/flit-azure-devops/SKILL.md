@@ -81,6 +81,21 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
 
+### Tipos de work item — HU y Bug
+
+Ambos son work items de desarrollo con el **mismo ciclo** (`New → Active → Resolved → Closed`) y las
+mismas skills (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`). Diferencias de campos:
+la HU usa `System.Description` + `Microsoft.VSTS.Common.AcceptanceCriteria` + Story Points; el Bug
+usa `Microsoft.VSTS.TCM.ReproSteps` + `Microsoft.VSTS.Common.Severity` y **no tiene** campo
+Acceptance Criteria.
+
+**Gotcha verificado (2026-08-22):** `wit_work_item` `action: "get_type"` con `workItemType: "Bug"`
+**no lista** los campos `Custom.*` (los sí lista para `User Story`). Eso **no** significa que no
+existan en el Bug: `Custom.Commits` y `Custom.DeployDEV` están poblados en los Bugs #11518, #11599,
+#11604, #11622, #11649, #11694, #11711 y #11720. Fiarse del comportamiento real del PATCH, no de esa
+lista; si un `Custom.*` concreto sí lo rechaza, registrar el contenido en Discussion y **declarar**
+la limitación en el reporte — nunca descartarlo en silencio.
+
 **Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`, `mcp__azure-devops__*`.
 
 > Con MCP activo, usar **siempre** `CallMcpTool` con `server: "ado"`; no mezclar MCP y REST en la misma operación.
@@ -149,7 +164,7 @@ Buscar duplicado reciente por título exacto (evita doble clic humano + reintent
 ```sql
 SELECT [System.Id] FROM WorkItems
 WHERE [System.TeamProject] = 'FLIT - FLITO'
-  AND [System.WorkItemType] = 'User Story'
+  AND [System.WorkItemType] = 'User Story'   -- o 'Bug' según el tipo que se va a crear
   AND [System.Title] = @title
   AND [System.State] <> 'Removed'
 ORDER BY [System.CreatedDate] DESC
@@ -293,8 +308,8 @@ Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Est
 
 ## Skills que dependen de este contrato
 
-- `flit-crear-hu` — crear User Stories
-- `flit-gestion-hu` — ciclo Active → Resolved
-- `flit-integration-ado` — Commits / Deploy tras PR
+- `flit-crear-hu` — crear User Stories y Bugs
+- `flit-gestion-hu` — ciclo Active → Resolved de HU **y de Bug** (mismo ciclo; ver «Paridad HU ↔ Bug» en `AGENTS.md`)
+- `flit-integration-ado` — Commits / Deploy tras PR (HU y Bug)
 
 Al implementar o modificar cualquiera de ellas, **enlazar** `flit-azure-devops` y no duplicar la lógica de autenticación/encoding. Si el schema MCP cambia, actualizar **este** archivo primero; las skills hijas solo nombran operaciones, no inventan toolNames.

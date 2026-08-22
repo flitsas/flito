@@ -16,8 +16,12 @@ Orden fijo:
 1. Evaluar qué gates pre-PR aplican al diff (`git diff origin/develop...HEAD` o working tree).
 2. Ejecutarlos (**Skill** `flit-code-review` real + subagentes si aplican) — ver también `.cursor/rules/skill-no-imitation.mdc`.
 3. Solo si el veredicto lo permite → commit/push (si faltan) → MCP `github` `create_pull_request`.
-4. Luego **Skill** `flit-integration-ado` Modo A (si hay HU en ADO) — Discussion sola no basta.
-5. Tras `Resolved`: **Agent** `qa-agent` (no es pre-PR, pero no se omite en el ciclo de la HU).
+4. Luego **Skill** `flit-integration-ado` Modo A (si hay HU **o Bug** en ADO) — Discussion sola no basta.
+5. Tras `Resolved`: **Agent** `qa-agent` (no es pre-PR, pero no se omite en el ciclo del work item).
+
+**HU y Bug se tratan igual** en todo lo anterior (regla «Paridad HU ↔ Bug» de `AGENTS.md`): mismos
+gates, mismo Modo A/B, mismo cierre a `Resolved` vía `flit-gestion-hu`. Un PR de Bug no es una vía
+rápida sin proceso.
 
 ## Checklist mínimo (siempre)
 
@@ -42,4 +46,4 @@ Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo d
 
 ## Tras gates en verde
 
-Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`.
+Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU o Bug): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`. Cuando el trabajo se mergee, cerrar el work item a `Resolved` con `flit-gestion-hu` — **también si es un Bug**.

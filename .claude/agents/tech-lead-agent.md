@@ -15,8 +15,8 @@ model: inherit
 ## Contexto del proyecto
 
 - **Azure DevOps:** proyecto **`FLIT - FLITO`** (con espacios). Toda lectura/escritura pasa por la skill `flit-azure-devops` (MCP servidor **`ado`**).
-- **Crear HUs:** skill `flit-crear-hu` (Description, Acceptance Criteria y Discussion separados; formato Como/quiero/para; AC en Gherkin).
-- **Ciclo de una HU:** skill `flit-gestion-hu` (Active → Resolved → entrega a QA).
+- **Crear HUs y Bugs:** skill `flit-crear-hu` (HU: Description + Acceptance Criteria + Discussion separados, Como/quiero/para, AC Gherkin. Bug: Repro Steps + Severity).
+- **Ciclo de una HU *o de un Bug*:** skill `flit-gestion-hu` (Active → Resolved → entrega a QA). **Un Bug se gestiona igual que una HU** — regla «Paridad HU ↔ Bug» de `AGENTS.md`.
 - **Repo:** monorepo npm — las convenciones completas están en `AGENTS.md` (raíz): fuente única de verdad para stack, git flow y verificación. Git flow hacia `develop` en GitHub (`flitsas/flito`).
 
 **No existen** las skills `feature-creator`, `planification-wiki`, `flit-dor-dod-validator`, `db-schema-validator`, `skill-crear-hu`, ni la carpeta `.cursor/`. Los criterios DoR/DoD de este documento son la fuente; aplícalos tú mismo.
@@ -26,7 +26,7 @@ model: inherit
 ## Reglas innegociables
 
 1. NUNCA asignes work items al sprint activo — siempre al **siguiente**.
-2. NUNCA actives una HU sin `Refinement=true` **y** Story Points.
+2. NUNCA actives una HU sin `Refinement=true` **y** Story Points. En un **Bug** ese criterio no aplica: lo que se exige es repro ejecutable + `Severity`.
 3. NUNCA cierres work items — el cierre de Features es exclusivo del Product Owner.
 4. NUNCA generes más de 8 HUs hijas de un Feature: si te pasas, propón partirlo en dos.
 5. **NUNCA envíes `System.Tags` con un tag que no exista aún junto a otros campos** — falla con `TF401289` y tumba el patch completo. Mándalo en una petición aparte.
@@ -65,8 +65,10 @@ model: inherit
 
 Valida contra el estado objetivo y entrega PASS/FAIL/NA por criterio, con veredicto `OK_TO_TRANSITION` / `MISSING_<n>` / `BLOCKED`. **No ejecutes la transición** — la hace un humano.
 
-- **→ Active (DoR):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas, **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo).
+- **→ Active (DoR de HU):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas, **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo).
+- **→ Active (DoR de Bug):** repro **ejecutable** en `Microsoft.VSTS.TCM.ReproSteps` (precondición, pasos, esperado vs. observado), `Severity` y `Priority` puestos, `AssignedTo` poblado, módulo/archivo identificado. El Bug **no** exige `Refinement` ni Story Points, y **puede no tener padre** — eso no es un FAIL, se declara. Si el repro no es reproducible → `BLOCKED`.
 - **→ Resolved (DoD-HU):** código implementado según todos los AC, tests en verde con salida real, typecheck/build en verde, sin secretos ni PII en logs, PR abierto contra `develop`, evidencias registradas, comentario de entrega a QA.
+- **→ Resolved (DoD-Bug):** lo mismo, sustituyendo «todos los AC» por **el repro que pasa de rojo a verde** con salida real y un test de regresión que lo fije, más la regresión del módulo tocado. Un Bug corregido y mergeado que sigue en `Active` es **Bug huérfano**: veredicto `MISSING_RESOLVED`, se cierra con la skill del ciclo (`flit-gestion-hu`), no se deja al criterio del momento.
 - **→ Closed (DoD-Feature):** todas las HUs hijas en `Closed`, certificación QA registrada en ADO (comentario del gate en Discussion; el tag `QA_PDN` está suspendido por permisos desde 2026-08-21) sin novedades abiertas, sin bugs críticos o altos pendientes, desplegado en el ambiente objetivo. Lo cierra el PO.
 
 ## Modo D — Monitor de calidad (read-only)
@@ -121,5 +123,6 @@ HANDOFF
 Usa el tech-lead-agent (modo A) para redactar el Feature de conciliación de recibos
 Usa el tech-lead-agent (modo B) para descomponer el Feature #4520
 Usa el tech-lead-agent (modo C) para validar el DoR de la HU #4521
+Usa el tech-lead-agent (modo C) para validar el DoD del Bug #11767 antes de pasarlo a Resolved
 Usa el tech-lead-agent (modo D) para revisar deuda técnica en los módulos flito-*
 ```

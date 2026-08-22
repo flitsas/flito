@@ -15,9 +15,9 @@ description: |
 
 | Disparador | ¿Invocar esta Skill? |
 |---|---|
-| Antes de `create_pull_request` (cualquier HU, docs, chore) | **SÍ — siempre** |
+| Antes de `create_pull_request` (cualquier HU, **Bug**, docs, chore) | **SÍ — siempre** |
 | Humano dice «crea / abre / sube el PR» | **SÍ primero**; el pedido solo autoriza el PR *después* del veredicto |
-| Paso 4b de `flit-modo-desarrollo-auto` (cada eslabón de la cadena) | **SÍ — en cada HU**, no solo en la primera |
+| Paso 4b de `flit-modo-desarrollo-auto` (cada eslabón de la cadena) | **SÍ — en cada HU y en cada Bug**, no solo en el primero |
 | Pedido «revisa el diff» / «code review» | **SÍ** |
 
 **Cómo contar:** herramienta `Skill` con `skill: flit-code-review` **o** `Read` de este `SKILL.md`
@@ -31,7 +31,7 @@ PR = fallo de proceso (aunque el veredicto sea OK).
 **NO cuenta — imitación (anti-patrones graves):**
 - Tabla improvisada «Mi revisión» / «gates cerrados» sin cargar esta skill ni el veredicto canónico
 - Haber corrido solo `security-agent` / `db-review-agent` y dar por cerrado el pre-PR
-- Reusar el veredicto de la HU anterior en la cadena apilada
+- Reusar el veredicto de la HU o del Bug anterior en la cadena apilada
 - Abrir el PR y «revisar después» (aunque sea retrospectivo «documental», no desbloquea el PR ya abierto como si el gate se hubiera cumplido)
 
 **Relación con otros gates:** esta skill es el **checklist de proceso+código**. Escala a `security-agent` / `db-review-agent` cuando aplique; esos agentes **complementan**, no reemplazan.
@@ -42,8 +42,8 @@ PR = fallo de proceso (aunque el veredicto sea OK).
 
 1. Determinar el diff a revisar:
    - Cambios sin commitear → `git diff` (y `git status --short`).
-   - Rama de HU → `git diff origin/develop...HEAD` (y el log de commits).
-2. Si la HU tiene ID de ADO, leer título y AC con la skill `flit-azure-devops` para revisar contra ellos.
+   - Rama de HU o Bug → `git diff origin/develop...HEAD` (y el log de commits).
+2. Si hay ID de ADO, leer el work item con la skill `flit-azure-devops` y revisar contra su criterio: **AC** en una HU, **Repro Steps + corrección esperada** en un Bug (el tipo Bug no tiene AC). En un Bug, comprobar además que el diff deja un **test que cubre el repro**; un fix sin test de regresión es hallazgo, no detalle.
 
 ## Checklist
 
@@ -51,7 +51,7 @@ PR = fallo de proceso (aunque el veredicto sea OK).
 
 - [ ] `git status --short` sin archivos colados: nada de `.claude/`, parches de demo, `.env*`, archivos ajenos a la HU.
 - [ ] **Trazabilidad:** el trabajo está ligado a una HU o un Bug de ADO. Sin work item, solo se admite `CHORE/` / `DOCS/` y **sin** tocar `apps/**` ni `packages/**`.
-- [ ] Rama y título del PR en formato canónico (`.cursor/rules/convenciones-rama-pr.mdc`): `HU/<ID>-<dev>-<desc>` + `HU <ID>: <descripción>` (mismo ID, ≤ 100 caracteres, descriptivo). Comprobado con `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título propuesto>"` — es bloqueante en CI (`naming`).
+- [ ] Rama y título del PR en formato canónico (`.cursor/rules/convenciones-rama-pr.mdc`): `HU/<ID>-<dev>-<desc>` + `HU <ID>: <descripción>` — o `BUG/<ID>-…` + `BUG <ID>: …` (mismo ID y mismo tipo, ≤ 100 caracteres, descriptivo). Comprobado con `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título propuesto>"` — es bloqueante en CI (`naming`).
 - [ ] Salida **real** de verificación pegada por quien implementó (ver comandos en `AGENTS.md`); si falta, exigirla o ejecutarla. Prohibido aceptar "los tests pasan" sin salida.
 - [ ] Diff ≤ 800 líneas (precondición de merge de `flit-integration-ado`); si se pasa, recomendar partir el PR.
 

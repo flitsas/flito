@@ -132,13 +132,45 @@ Prohibido **atribuir al humano** instrucciones, decisiones o autorizaciones que 
 
 - **Código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards, proyecto **`FLIT - FLITO`** (con espacios; codificar en URLs REST).
 - Toda lectura/escritura en ADO pasa por la skill `flit-azure-devops`: MCP servidor **`ado`** primero → REST (PAT) como fallback → borrador `.md` local. Nunca usar el id legado `azure-devops`.
-- Ciclo de una HU: `flit-gestion-hu` (Active → Resolved → entrega a QA). Creación de HUs: `flit-crear-hu`. Registro PR ↔ ADO y Deploy DEV/QA/PDN: `flit-integration-ado`. Ciclo completo por Feature: `flit-modo-desarrollo-auto` (**cadena apilada por defecto**; merge a `develop` bajo gates tras autorización del Feature — ver Git flow). **Anti-estancamiento:** tras abrir el PR, monitorear CI y mergear al verde si hay auth; en paralelo arrancar la siguiente HU — **prohibido** quedarse idle pidiendo «continúa» solo porque el CI está en curso.
+- Ciclo de un work item de desarrollo (**HU o Bug** — ver «Paridad HU ↔ Bug»): `flit-gestion-hu` (Active → Resolved → entrega a QA). Creación: `flit-crear-hu` (HU y Bug). Registro PR ↔ ADO y Deploy DEV/QA/PDN: `flit-integration-ado`. Ciclo completo por Feature: `flit-modo-desarrollo-auto` (**cadena apilada por defecto**; merge a `develop` bajo gates tras autorización del Feature — ver Git flow). **Anti-estancamiento:** tras abrir el PR, monitorear CI y mergear al verde si hay auth; en paralelo arrancar la siguiente HU — **prohibido** quedarse idle pidiendo «continúa» solo porque el CI está en curso.
 - Features/HUs en ADO: audiencia PO + Tech Lead + desarrollo. **Funcional primero** (objetivo, flujo, criterios); **técnico al final** (módulos, esquema). Dueño de la redacción: `tech-lead-agent` (A/B) + `flit-crear-hu`.
 - Nunca escribir en ADO sin un "sí" explícito del humano. Nunca asignar work items al sprint activo — siempre al siguiente.
 - **`System.AssignedTo` obligatorio al crear** cualquier work item (Feature, User Story, Bug, Task): el humano de la sesión que pide desde Cursor — identidad del usuario autenticado en MCP `ado` (la que figura como `CreatedBy`; resolver con `core_get_identity_ids` si hace falta; si no está clara, preguntarla). **Prohibido** dejar el campo vacío o con placeholder. No confundir con `IterationPath` (sprint): “asignar al sprint” ≠ `AssignedTo`. Detalle operativo: skill `flit-azure-devops`.
-- **Activar una HU exige que su Feature padre esté `Active`**: la skill que activa la HU (`flit-gestion-hu` / `flit-modo-desarrollo-auto`) pasa el padre de `New` a `Active` con comentario de inicio en su Discussion (si ya está `Active`, no rehacer; si la HU no tiene padre, se declara en el comentario). Lo valida `tech-lead-agent` modo C en el DoR. El cierre del Feature sigue siendo exclusivo del Product Owner.
+- **Activar una HU exige que su Feature padre esté `Active`**: la skill que activa la HU (`flit-gestion-hu` / `flit-modo-desarrollo-auto`) pasa el padre de `New` a `Active` con comentario de inicio en su Discussion (si ya está `Active`, no rehacer; si la HU no tiene padre, se declara en el comentario). Un **Bug** con padre sigue la misma regla; un Bug **sin** padre se activa igual y se declara la ausencia. Lo valida `tech-lead-agent` modo C en el DoR. El cierre del Feature sigue siendo exclusivo del Product Owner.
 - Tags por defecto: Features `DOR; adopcion-ia; fase-1-diseño`; User Stories `DOR; adopcion-ia`.
 - **`System.Tags` con un tag nuevo va en petición aparte** — mezclarlo con otros campos falla con `TF401289` y tumba el patch completo.
+
+### Paridad HU ↔ Bug (regla de proceso)
+
+**Un Bug se trabaja exactamente igual que una Historia de Usuario.** Donde este documento, una
+skill o un agente digan «HU», léase **work item de desarrollo = User Story (HU) *o* Bug**, salvo
+que la línea diga explícitamente lo contrario. Mismo ciclo de estados, mismos gates, mismos
+campos de trazabilidad, mismas menciones:
+
+`New → Active` (con comentario de inicio) `→` implementación por `backend-agent`/`frontend-agent`
+`→` `flit-code-review` `→` PR `→` `flit-integration-ado` Modo A `→` **`Resolved`** (con comentario
+de entrega a QA) `→` `qa-agent` gate B `→` merge `→` Modo B (`Deploy *`) `→` `devops-agent` M1.
+**`Closed` lo pone el PO/QA**, nunca un agente.
+
+**Hard-stop — Bug huérfano:** ningún Bug queda en `Active` después de que su corrección se mergea,
+ni pasa a `Resolved` sin el comentario de cierre y sin el gate `qa-agent`. «Ninguna skill mueve el
+State de un Bug» dejó de ser cierto: lo mueve `flit-gestion-hu`, igual que en una HU. Un Bug
+mergeado y sin `Resolved` es fallo de proceso, no una zona gris.
+
+Las **diferencias** son de campos y de origen del criterio de prueba, no de ciclo (verificado
+contra el proyecto real el 2026-08-22 sobre los Bugs #11518, #11599, #11604, #11622, #11649,
+#11694, #11711 y #11720):
+
+| Aspecto | User Story (HU) | Bug |
+|---|---|---|
+| Narrativa | `System.Description` (Como / quiero / para) | `Microsoft.VSTS.TCM.ReproSteps` (qué pasa · cómo reproducirlo · corrección esperada) |
+| Criterio de prueba del gate QA | `Microsoft.VSTS.Common.AcceptanceCriteria` (Gherkin) | **El tipo Bug no tiene Acceptance Criteria**: el criterio es el repro (debe pasar de rojo a verde) + regresión del módulo tocado |
+| Dimensionamiento | Story Points + `Custom.Refinement` | `Microsoft.VSTS.Common.Severity` + `Priority` (Story Points opcional: existe en el tipo) |
+| Padre | Feature (se activa antes que la HU) | Feature o HU **opcional** — si no tiene, declararlo en el comentario de inicio |
+| Trazabilidad del PR | `Custom.Commits` | **el mismo campo**, mismo HTML canónico |
+| Deploy | `Custom.DeployDEV` / `DeployQA` / `DeployPDN` | **los mismos campos** |
+| Evidencias | `Custom.Evidences` | mismo campo; si el PATCH lo rechaza en el tipo Bug, registrar la evidencia en Discussion y **decirlo** — nunca omitirla en silencio |
+| Rama y PR | `HU/<ID>-…` · `HU <ID>: …` | `BUG/<ID>-…` · `BUG <ID>: …` (check CI `naming`) |
 
 ## Equipo de agentes y skills
 
@@ -151,14 +183,14 @@ Prohibido **atribuir al humano** instrucciones, decisiones o autorizaciones que 
 | Diseño UX/UI (slim\|full\|omit) | `ux-agent` |
 | Código `apps/api` | `backend-agent` |
 | Código `apps/web` | `frontend-agent` |
-| TCs, gate post-Resolved, regresión; Bugs solo con pedido explícito del QA | `qa-agent` |
+| TCs, gate post-Resolved (de HU **y de Bug**), regresión; radicar Bugs nuevos solo con pedido explícito del QA | `qa-agent` |
 | Auditoría SCA/secretos/PII | `security-agent` |
 | Auditoría del esquema de BD (normalización, FKs circulares, índices, drift de migraciones) | `db-review-agent` |
 | Post-deploy, salud de ambientes/crons, rollback | `devops-agent` |
 | Revisión de diff pre-PR | skill `flit-code-review` |
 | Promoción develop→staging→release | skill `flit-release` |
 | ADO (conexión) | skill `flit-azure-devops` |
-| ADO (crear HU / ciclo HU / PR ↔ ADO / feature completo) | skills `flit-crear-hu` / `flit-gestion-hu` / `flit-integration-ado` / `flit-modo-desarrollo-auto` |
+| ADO (crear HU o Bug / ciclo del work item / PR ↔ ADO / feature completo) | skills `flit-crear-hu` / `flit-gestion-hu` / `flit-integration-ado` / `flit-modo-desarrollo-auto` |
 
 Glosario de producto: [`docs/dominio.md`](docs/dominio.md). Pedido sin Feature/HU en ADO → skill `flit-intake` antes de crear work items o código.
 
@@ -184,19 +216,19 @@ el hilo principal es quien encadena.
 | Feature / descomponer HUs / DoR | Planear o refinar backlog | `tech-lead-agent` | HUs mal cortadas |
 | Antes de código no trivial | **full:** módulo/modelo/contrato nuevo o tradeoff (PII/auth/ext). **slim:** extensión de patrón vecino. **omit:** cambio mecánico (declarar en PR) | `architecture-agent` | Diseño implícito en el diff |
 | Antes de UI nueva significativa | **full:** nueva ruta/PageSlug/wizard/bandeja o FRONTEND sin `docs/ux/`. **slim:** extensión de pantalla. **omit:** copy/a11y menor (declarar en PR) | `ux-agent` | UI inventada en el agent de código |
-| Implementar `apps/api` | HU BACKEND o diff en API/esquema/migración (**también la 1.ª HU / «solo esquema»**); tests filtrados al módulo por defecto | `backend-agent` | Lógica fuera de patrón / HU codeada en el hilo |
-| Implementar `apps/web` | HU FRONTEND o diff en páginas/componentes; E2E del spec por defecto | `frontend-agent` | 4 estados / permisos rotos |
+| Implementar `apps/api` | HU **o Bug** BACKEND, o diff en API/esquema/migración (**también la 1.ª HU / «solo esquema»**); tests filtrados al módulo por defecto | `backend-agent` | Lógica fuera de patrón / HU codeada en el hilo |
+| Implementar `apps/web` | HU **o Bug** FRONTEND, o diff en páginas/componentes; E2E del spec por defecto | `frontend-agent` | 4 estados / permisos rotos |
 | Pre-PR (siempre, **cada** PR) | Antes de `create_pull_request` (aunque el humano diga «crea el PR»); `security-agent` **no** lo sustituye | **Skill** `flit-code-review` | PR sin checklist / veredicto inventado |
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy — modo **diff-scoped**; ∥ `db-review` si ambos aplican | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` — en paralelo con security si ambos aplican | `db-review-agent` | Drift / FKs / índices |
-| Ciclo ADO Active→Resolved | Activar **o** cerrar **cada** HU (plantillas) | **Skill** `flit-gestion-hu` | Estados huérfanos / plantillas rotas |
-| HU `Active` con AC Gherkin (ideal, en paralelo al dev) | Generar TCs temprano | `qa-agent` **modo A** | TCs improvisados al cierre |
-| Tras `Resolved` (Gherkin, UI, o BACKEND-only) | Gate B con **alcance AC** (re-run propio filtrado; suite completa en D/release/shell). Invocar aunque entorno falle (`SIN-ENTORNO` fast-path). FAIL → `Active` + corregir; **sin** Bug/modo C | `qa-agent` **modo B** (A si aún faltan TCs) | «Entregada a QA» sin HANDOFF |
-| Hallazgo formal / novedad (ambiente QA u otra etapa post-entrega) | Radicar Bug solo con **pedido explícito del QA** | `qa-agent` **modo C** | Bug inventado en el ciclo de desarrollo |
+| Ciclo ADO Active→Resolved | Activar **o** cerrar **cada** HU **y cada Bug** que se trabaje (plantillas) | **Skill** `flit-gestion-hu` | Estados huérfanos / **Bugs huérfanos** / plantillas rotas |
+| HU o Bug `Active` con criterio listo (ideal, en paralelo al dev) | Generar TCs temprano (AC Gherkin en HU; repro + regresión en Bug) | `qa-agent` **modo A** | TCs improvisados al cierre |
+| Tras `Resolved` (Gherkin, UI, BACKEND-only **o corrección de Bug**) | Gate B con **alcance AC** — en Bug, alcance = repro que debe pasar de rojo a verde + regresión del módulo (re-run propio filtrado; suite completa en D/release/shell). Invocar aunque entorno falle (`SIN-ENTORNO` fast-path). FAIL → `Active` + corregir; **sin** Bug nuevo/modo C | `qa-agent` **modo B** (A si aún faltan TCs) | «Entregada a QA» sin HANDOFF |
+| Hallazgo formal / novedad (ambiente QA u otra etapa post-entrega) | Radicar Bug **nuevo** solo con **pedido explícito del QA** | `qa-agent` **modo C** | Bug inventado en el ciclo de desarrollo |
 | Al abrir PR / post-merge | PR↔ADO; Discussion **no** sustituye `Custom.Commits` | **Skill** `flit-integration-ado` A/B | Commits/Deploy vacíos |
 | Tras Modo B con `Deploy*=true` | Ambiente desplegado o **fin de ráfaga** (una M1 al tip; curl del hilo no cuenta) | `devops-agent` M1 | Deploy sin smoke formal |
 | Promoción staging/release | Pedido de promover | `flit-release` (+ qa D + devops post-merge) | Promoción sin gates |
-| Feature completo en cadena | «modo auto» / feature completo | **Skill** `flit-modo-desarrollo-auto` (encadena la matriz **por HU** con Skill/Agent reales) | Ciclo improvisado |
+| Feature completo en cadena | «modo auto» / feature completo | **Skill** `flit-modo-desarrollo-auto` (encadena la matriz **por HU o Bug** con Skill/Agent reales) | Ciclo improvisado |
 
 #### Anti-patrones (prohibidos)
 
@@ -213,12 +245,14 @@ el hilo principal es quien encadena.
 | Exigir suite monorepo local completa en cada HU «por costumbre» cuando el umbral es filtrado | Mínimo local de `AGENTS.md` + CI | Media |
 | Architecture/UX **full** en extensión trivial de patrón/pantalla | slim u omit declarado | Media |
 | Crear Bug hijo / modo C porque falló el gate B de la HU recién `Resolved` | Re-trabajo (`Active` + backend/frontend); modo C solo con pedido explícito del QA | **Alta** |
+| Dejar el Bug en `Active` tras mergear su corrección, o preguntar «¿lo paso a Resolved?» como si no hubiera proceso | Skill `flit-gestion-hu` cierra el Bug igual que una HU (Paridad HU ↔ Bug) | **Alta (Bug huérfano)** |
+| Tratar un Bug como «work item de segunda»: sin comentario de inicio/cierre, sin `Custom.Commits`, sin gate `qa-agent` | Mismo ciclo y mismos campos que la HU | **Alta** |
 | `curl /health` del hilo como «M1» | `devops-agent` M1 | Alta |
 
-**Ledger por HU (recomendado en modo auto):** al cerrar cada eslabón, listar en el reporte del hilo: `gestion ✅|❌ · impl-agent ✅|❌ · code-review ✅|❌ · security/db ✅|N/A · integration-A ✅|❌ · qa HANDOFF ✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B ✅|❌ · M1 tip ✅|N/A`. Sin fila `qa` en ✅/SIN-ENTORNO → la HU **no** está «entregada a QA». `FAIL-retrabajo` = gate rojo sin Bug; corregir antes de seguir.
+**Ledger por HU o Bug (recomendado en modo auto):** al cerrar cada eslabón, listar en el reporte del hilo: `gestion ✅|❌ · impl-agent ✅|❌ · code-review ✅|❌ · security/db ✅|N/A · integration-A ✅|❌ · qa HANDOFF ✅|SIN-ENTORNO|FAIL-retrabajo|❌ · merge · integration-B ✅|❌ · M1 tip ✅|N/A`. Sin fila `qa` en ✅/SIN-ENTORNO → la HU **no** está «entregada a QA». `FAIL-retrabajo` = gate rojo sin Bug; corregir antes de seguir.
 
-**Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs mergeadas no tienen evidencia de `qa-agent`, declararlo en el reporte final («QA pendiente en HUs: …») — no fingir que se ejecutó.
+**Operación solo-merge** («mergea los PRs», Modo B en lote): no inventar arquitectura/código; sí completar `flit-integration-ado` Modo B y **después** `devops-agent` M1 sobre el tip. Si las HUs o Bugs mergeados no tienen evidencia de `qa-agent`, o quedaron sin `Resolved`, declararlo en el reporte final («QA pendiente en: …», «sin cerrar: …») — no fingir que se ejecutó.
 
-Los subagentes no pueden invocar a otros subagentes: cada uno devuelve un bloque `HANDOFF` y el hilo principal continúa. Gates humanos que **nunca** se omiten: activar una HU, crear rama/commit/push, abrir PR, **autorizar merge a `develop` del Feature** (una vez por Feature o "sí" por PR), merge a `staging`/`release`, cerrar un Feature, instalar herramientas, desplegar. El merge a `develop` bajo gates, tras esa autorización, lo ejecuta el agente **sin re-preguntar** cuando el CI esté verde. **No es gate** pedir al humano que despierte el hilo tras abrir el PR o mientras el CI está `pending` — ver Anti-estancamiento en `flit-modo-desarrollo-auto`.
+Los subagentes no pueden invocar a otros subagentes: cada uno devuelve un bloque `HANDOFF` y el hilo principal continúa. Gates humanos que **nunca** se omiten: activar una HU o Bug, crear rama/commit/push, abrir PR, **autorizar merge a `develop` del Feature** (una vez por Feature o "sí" por PR), merge a `staging`/`release`, cerrar un Feature, instalar herramientas, desplegar. El merge a `develop` bajo gates, tras esa autorización, lo ejecuta el agente **sin re-preguntar** cuando el CI esté verde. **No es gate** pedir al humano que despierte el hilo tras abrir el PR o mientras el CI está `pending` — ver Anti-estancamiento en `flit-modo-desarrollo-auto`.
 
 **«Crea / abre el PR» no salta la matriz.** Ese pedido solo autoriza abrir el PR *después* de evaluar y ejecutar los gates Pre-PR de la tabla (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara). Veredicto `BLOQUEADO` / `FAIL` / hallazgos críticos de esquema → no llamar a `create_pull_request`. Si un gate no aplica, declararlo explícitamente (nunca omitirlo en silencio). Detalle operativo: `.cursor/rules/pre-pr-gates.mdc` y skill `flit-code-review`.
