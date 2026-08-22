@@ -248,14 +248,16 @@ const registrosLimiter = rateLimit({
  * el mismo orden de magnitud que el de la lectura paginada (3 000) en vez de dos órdenes por encima,
  * que es lo que saldría con la cuota de 60.
  *
- * **Esta cuota es por USUARIO y no hay ninguna global — la HU #11651 lo dejó medido, no supuesto.**
- * Dos administradores distintos lanzan dos exports a la vez y el limitador deja pasar a los dos, así
- * que el consumo de memoria que hay que presupuestar no es el de un export sino el de varios
- * coexistiendo en el heap del mismo proceso. Esa es la razón de que `COMPARENDOS_EXPORT_MAX_FILAS`
- * valga hoy 2 000 y no 5 000; con 5 000, dos exports simultáneos dejaban el proceso a 15 MB del
- * `max_memory_restart` de PM2. Serializar la generación (semáforo en proceso) o escribir el `.xlsx`
- * incremental con `WorkbookWriter` son las dos salidas que quitarían esa dependencia entre el tope y
- * la concurrencia; las dos quedaron fuera del alcance de la #11651 y son decisión del Líder Técnico.
+ * **Esta cuota es por USUARIO, por MINUTO, y no hay ninguna global — la HU #11651 lo dejó medido, no
+ * supuesto.** `express-rate-limit` cuenta peticiones por ventana, no peticiones EN VUELO: nada
+ * impide que una sola cuenta dispare sus cinco exports en el mismo segundo (y dos usuarios
+ * distintos, cinco cada uno), así que el consumo de memoria que hay que presupuestar no es el de un
+ * export sino el de varios coexistiendo en el heap del mismo proceso. Esa es la razón de que
+ * `COMPARENDOS_EXPORT_MAX_FILAS` valga hoy 2 000 y no 5 000; con 5 000, dos exports simultáneos
+ * dejaban el proceso a 15 MB del `max_memory_restart` de PM2. Serializar la generación (semáforo en
+ * proceso) o escribir el `.xlsx` incremental con `WorkbookWriter` son las dos salidas que quitarían
+ * esa dependencia entre el tope y la concurrencia; las dos quedaron fuera del alcance de la #11651 y
+ * son decisión del Líder Técnico.
  *
  * **Es una cuota SEPARADA de la de `/registros`, y a propósito** (AC5): con una compartida, gastar
  * los 5 exports dejaría a la pantalla sin poder paginar —el usuario vería la tabla romperse por

@@ -553,29 +553,47 @@ export interface ComparendosRegistrosPagina {
  * porque `sendExcel` construye el workbook ENTERO en memoria y el API corre en una sola instancia
  * fork con `max_memory_restart: '512M'` (`ecosystem.config.cjs:22`). Ya está medido, en el peor caso
  * del archivo (la observación al máximo en todas las filas) y en el escenario que el limitador
- * permite —`exportLimiter` es `max: 5` por minuto **por usuario**, así que dos administradores
- * distintos lanzan dos exports a la vez y pasan los dos, sin ninguna cota global entre ellos—:
+ * permite. Ese escenario NO es «varios administradores coordinándose»: `exportLimiter` acota
+ * peticiones **por minuto, no peticiones en vuelo** (`max: 5` por usuario, `keyGenerator:
+ * userOrIpKey(…)`, sin ninguna cota global ni semáforo), así que **una sola cuenta** —una sesión de
+ * administrador comprometida, un script, o alguien con prisa pulsando cinco veces— pone sus cinco
+ * exports a construirse a la vez en el mismo proceso:
  *
- *     filas | 1 export | 2 simultáneos | 3 simultáneos
- *     ------|----------|---------------|--------------
- *     5 000 |  +152 MB |    +247 MB    |   +365 MB
- *     2 000 |  + 93 MB |    +106 MB    |   +124 MB
+ *     filas | 1 export | 2 simult. | 3 simult. | 4 simult. | 5 simult.
+ *     ------|----------|-----------|-----------|-----------|----------
+ *     5 000 |  +152 MB |  +247 MB  |  +365 MB  |     —     |     —
+ *     3 000 |  + 58 MB |  +116 MB  |  +203 MB  |     —     |     —
+ *     2 000 |  + 93 MB |  +106 MB  |  +124 MB  |  +169 MB  |  +239 MB
  *
- * (delta de RSS sobre el reposo del proceso; método y reproducción en
- * `apps/api/__tests__/services/flito-comparendos-export-concurrencia.test.ts`.)
+ * (Delta de RSS sobre el reposo del proceso. El instrumento es
+ * `apps/api/__tests__/helpers/export-coste.ts`; los tests que quedan en el repo fijan UNO y DOS
+ * exports simultáneos al tope vigente —`flito-comparendos-export-coste.test.ts` y
+ * `flito-comparendos-export-concurrencia.test.ts`—, y las demás celdas salen de corridas puntuales
+ * del mismo instrumento durante la HU, variando el tope y el número de lotes a mano.)
  *
- * Sobre un API en régimen de 250 MB —el extremo pesimista del rango que cita el PR #153— quedan
- * 262 MB hasta el techo de PM2. Con 5 000, dos exports simultáneos se comen 247 de esos 262: el
- * proceso se queda a 15 MB del reinicio, y con tres lo cruza. Con 2 000 el mismo par consume 106 MB
- * y aguanta hasta cuatro simultáneos. Además, un solo export de 5 000 filas ya llegaba a los ~150 MB
- * de delta que ADR-0004 §Coste fijó como **señal de reapertura de la decisión**.
+ * Sobre un API en régimen de 250 MB quedan 262 MB hasta el techo de PM2 — y ese 250 es una
+ * **estimación heredada del PR #153, no una medida del proceso de hoy** (`REGIMEN_API_MB` en
+ * `apps/api/__tests__/helpers/export-coste.ts`), de la que cuelga todo el presupuesto. Con 5 000,
+ * dos exports simultáneos se comen 247 de esos 262: el proceso se queda a 15 MB del reinicio, y con
+ * tres lo cruza. Con 2 000 caben **los cinco** que el limitador deja pasar en un minuto (+239 MB de
+ * los 262, con 23 MB de margen); el **sexto no está medido** —extrapolando la pendiente de la tabla
+ * cruzaría el techo, pero eso es proyección, no medición—. Además, un solo export de 5 000 filas ya
+ * llegaba a los ~150 MB de delta que ADR-0004 §Coste fijó como **señal de reapertura de la
+ * decisión**.
  *
- * 2 000 no es un número nuevo: es la Opción B del ADR-0004, la que allí se descartó «por poco» y
- * sobre la que ese mismo ADR dejó escrito que bajar a ella es un cambio de una línea que no necesita
- * otro ADR. Lo que se paga está en su tabla de contras (un NIT grande con varios años de histórico
- * puede no caber en un solo archivo y obliga a trocear por filtro); lo que se compra es que el techo
- * de extracción por minuto baje de 25 000 a 10 000 filas y que exportar deje de poder reiniciar el
- * API.
+ * **Qué distingue la medición y qué no.** Descarta 5 000 con holgura: 247 MB frente a 106 MB con dos
+ * simultáneos es un factor 2,3 que ningún ruido explica. Lo que NO hace es separar 2 000 de 3 000:
+ * 3 000 filas miden +58 MB y 2 000, +93 MB (con dos simultáneos, 116 frente a 106), y un archivo más
+ * pequeño costando más RSS significa que a esa escala manda el ruido del allocator y del GC, no el
+ * número de filas. 2 000 se elige por ser la Opción B del ADR-0004 —la que allí se descartó «por
+ * poco», con la nota de que bajar a ella es un cambio de una línea que no necesita otro ADR—, por
+ * ser el extremo conservador de esa banda y por dejar margen; no porque la tabla lo distinga de
+ * 3 000. Lo que se paga está en la tabla de contras de esa opción (un NIT grande con varios años de
+ * histórico puede no caber en un solo archivo y obliga a trocear por filtro); lo que se compra es
+ * que el techo de extracción por minuto baje de 25 000 a 10 000 filas y que el par simultáneo deje
+ * de rozar el techo de PM2. Lo que NO se compra es que exportar no pueda reiniciar el API: eso no lo
+ * arregla ningún valor del tope, porque nada acota la concurrencia (ADR-0004, «Lo que esto NO
+ * resuelve»).
  */
 export const COMPARENDOS_EXPORT_MAX_FILAS = 2000;
 
