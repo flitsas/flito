@@ -304,3 +304,31 @@ describe('El ambiente lo pone quien llama al servicio, y viaja a todo lo de abaj
       .toBe('produccion');
   });
 });
+
+// ── HU #11708 — la elección del correo llega entera a la cola ───────────────
+
+describe('el correo elegido en el envío llega a cada lote', () => {
+  const CARTERA = { correo: 'cartera@cliente.test', origen: 'manual' as const };
+
+  it('viaja a los tres encolados: la elección es de la SELECCIÓN, no de un trámite', async () => {
+    // Al revés que la emisión, que es por empresa: «mándale esta factura por correo» se decide una
+    // vez para todo lo que se marcó. Si solo llegara al primero, los otros dos saldrían sin correo y
+    // quien envió no tendría forma de saberlo hasta que el cliente reclamara.
+    await enviarAFacturacion(entrada([A, B, C], {
+      correo: { solicitado: true, destinatarios: [CARTERA] },
+    }));
+
+    expect(encolarMock).toHaveBeenCalledTimes(3);
+    for (const c of encolarMock.mock.calls) {
+      expect(c[0].correo).toEqual({ solicitado: true, destinatarios: [CARTERA] });
+    }
+  });
+
+  it('un envío que no dice nada del correo encola «no solicitado», no `undefined`', async () => {
+    // La ausencia se traduce a una elección explícita aquí y no más abajo: así el lote guarda un
+    // hecho —«no se pidió»— en vez de un hueco que cada lector interpretaría a su manera.
+    await enviarAFacturacion(entrada([A]));
+
+    expect(encolarMock.mock.calls[0]![0].correo).toEqual({ solicitado: false, destinatarios: [] });
+  });
+});

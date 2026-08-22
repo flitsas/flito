@@ -38,6 +38,7 @@ import { evaluarElegibilidad } from './facturacion.elegibilidad.service.js';
 import { encolar } from './facturacion.cola.service.js';
 import { recordarEmision } from './emision-cliente.repo.js';
 import type { EmisionElegida } from './facturacion.armado.js';
+import { correoNoSolicitado, type CorreoDelEnvio } from './facturacion.correo.js';
 import { exigirIntegracionNoFrenada } from './siigo.freno.service.js';
 import { sanearMensaje } from './siigo.redaccion.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -72,6 +73,20 @@ export interface EntradaEnvio {
    * sería el camino más lento y el que más se equivoca.
    */
   emision?: ReadonlyArray<EmisionElegida & { clienteId: number }>;
+  /**
+   * Si la factura sale por correo al cliente y a qué direcciones (HU #11708). Ausente = no se pidió.
+   *
+   * Va para toda la selección y no por empresa, al revés que `emision`. El vendedor y la forma de
+   * pago son atributos del cliente; «mándale esta factura por correo» es una decisión del momento en
+   * que se envía, y quien marca cincuenta filas la toma una vez para las cincuenta. Elegir
+   * direcciones concretas para una selección de varias empresas es pedir que todas reciban en las
+   * mismas direcciones — que es lo que quiere quien las escribe, porque las escribe él.
+   *
+   * **Ausente no es «como antes».** Antes de esta historia el correo lo decidía el ambiente y en
+   * producción salía siempre. Ahora, si nadie lo pide, no sale — y la emisión deja acta diciendo que
+   * no se pidió, que es lo que distingue «nadie lo quería» de «se nos olvidó» (AC2).
+   */
+  correo?: CorreoDelEnvio;
   /**
    * Contra qué empresa de Siigo se encola. **Lo decide el servidor** (`env.SIIGO_AMBIENTE`) y nunca
    * quien llama: dejarlo elegir al cliente sería ofrecer un botón para emitir en producción desde
@@ -180,6 +195,7 @@ async function enviarUno(
       tramiteIds: [tramiteId],
       conceptos: entrada.conceptos,
       emision,
+      correo: entrada.correo ?? correoNoSolicitado(),
       ambiente: entrada.ambiente,
       usuarioId: entrada.usuarioId,
       reactivar: entrada.reactivar,

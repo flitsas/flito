@@ -13,8 +13,10 @@ const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
 
-const { asegurarLote, ESTRATEGIA_LOTE, lotesDeTramites, tramitesDelLote } = await import(
-  '../../src/modules/siigo/facturacion.lote.repo.js');
+const {
+  asegurarLote, correoDelLote, ESTRATEGIA_LOTE, lotesDeTramites, purgarDestinatariosDeLotes,
+  tramitesDelLote,
+} = await import('../../src/modules/siigo/facturacion.lote.repo.js');
 
 const LOTE = 'llllllll-1111-4111-8111-llllllllllll';
 const A = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -95,5 +97,81 @@ describe('lotesDeTramites', () => {
     kdb.when.select('siigo_lote_tramites', [{ loteId: LOTE, tramiteId: A }]);
     expect(await lotesDeTramites('produccion', [A])).toEqual([{ loteId: LOTE, tramiteId: A }]);
     expect(espia.filtrosUsados()).toContain('produccion');
+  });
+});
+
+// ── HU #11708 — la elección del correo viaja con el lote ────────────────────
+
+describe('el correo elegido en el envío', () => {
+  const CARTERA = { correo: 'cartera@cliente.test', origen: 'manual' as const };
+
+  it('se guarda con el lote: el envío encola y la emisión ocurre después, en otro proceso', async () => {
+    // Sin el snapshot habría que deducirlo en el cron, y deducirlo es la regla fija del ambiente que
+    // esta historia quitó: la factura saldría sin el correo que alguien pidió.
+    await asegurarLote({ ...ENTRADA, correo: { solicitado: true, destinatarios: [CARTERA] } });
+
+    expect(espia.ultimoInsertEn('siigo_lotes_facturacion')).toMatchObject({
+      correoSolicitado: true, correoDestinatarios: [CARTERA],
+    });
+  });
+
+  it('un envío que no eligió nada deja el lote sin correo y sin direcciones', async () => {
+    await asegurarLote(ENTRADA);
+
+    expect(espia.ultimoInsertEn('siigo_lotes_facturacion')).toMatchObject({
+      correoSolicitado: false, correoDestinatarios: [],
+    });
+  });
+
+  it('se lee tal cual se guardó', async () => {
+    kdb.when.select('siigo_lotes_facturacion', [{ solicitado: true, destinatarios: [CARTERA] }]);
+
+    expect(await correoDelLote(LOTE)).toEqual({ solicitado: true, destinatarios: [CARTERA] });
+  });
+
+  it('un lote anterior a la migración 0161 se lee como «no se pidió», no como «sin decidir»', async () => {
+    // La columna nace con `false`, y ese valor significa exactamente lo mismo para un lote viejo que
+    // para uno nuevo: no sale correo, y la emisión lo deja escrito. No hay tercer estado que
+    // interpretar, que es lo que evita que alguien invente un respaldo «como antes».
+    kdb.when.select('siigo_lotes_facturacion', []);
+
+    expect(await correoDelLote(LOTE)).toEqual({ solicitado: false, destinatarios: [] });
+  });
+});
+
+describe('purgarDestinatariosDeLotes (Ley 1581)', () => {
+  it('vacía las direcciones de los lotes encontrados y cuenta cuántos', async () => {
+    // Desde la HU #11708 esta tabla guarda datos personales. Una copia fuera del alcance de la purga
+    // convertiría la respuesta al titular en una mentira.
+    kdb.when
+      .select('siigo_lotes_facturacion', [{ id: LOTE }])
+      .update('siigo_lotes_facturacion', [{ id: LOTE }]);
+
+    expect(await purgarDestinatariosDeLotes([7], ['cartera@cliente.test'])).toBe(1);
+    expect(espia.updatesEn('siigo_lotes_facturacion')[0]!.datos)
+      .toMatchObject({ correoDestinatarios: [] });
+  });
+
+  it('sin compañías y sin correos no toca nada: un olvido vacío no puede vaciar la tabla', async () => {
+    // Es la avería que importa: si los dos filtros degradaran a «verdadero», este UPDATE borraría las
+    // direcciones de TODOS los lotes del sistema por una llamada sin argumentos.
+    expect(await purgarDestinatariosDeLotes([], [])).toBe(0);
+    expect(kdb.update).not.toHaveBeenCalled();
+    expect(kdb.select).not.toHaveBeenCalled();
+  });
+
+  it('busca por dirección aunque no haya compañía: el titular puede no ser el cliente del trámite', async () => {
+    kdb.when
+      .select('siigo_lotes_facturacion', [{ id: LOTE }])
+      .update('siigo_lotes_facturacion', [{ id: LOTE }]);
+
+    expect(await purgarDestinatariosDeLotes([], ['tercero@otra.test'])).toBe(1);
+  });
+
+  it('no cuenta lotes que no tenían nada que borrar', async () => {
+    kdb.when.select('siigo_lotes_facturacion', []);
+
+    expect(await purgarDestinatariosDeLotes([7], [])).toBe(0);
+    expect(kdb.update).not.toHaveBeenCalled();
   });
 });

@@ -3871,6 +3871,26 @@ export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
   vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
   formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
   centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  /**
+   * Si al enviar se pidió que la factura saliera por correo (HU #11708, migración 0161).
+   *
+   * **No entra en la huella**, y esa es la diferencia con los cuatro campos de arriba. El vendedor
+   * cambia el DOCUMENTO que ve la DIAN; el correo solo dice qué hacer con él después. Meterlo en la
+   * identidad del lote le daría dos claves de idempotencia al mismo documento fiscal —y con ellas la
+   * posibilidad de dos facturas ante la DIAN— para expresar una diferencia que la DIAN no ve. Un
+   * segundo envío con la casilla cambiada recibe `ya_estaba`, y el correo se pide con el reenvío.
+   */
+  correoSolicitado: boolean('correo_solicitado').notNull().default(false),
+  /**
+   * Direcciones elegidas al enviar. **Vacío = las de la ficha del cliente, no «a nadie»**: quien no
+   * quiere que salga no marca `correoSolicitado`.
+   *
+   * DATO PERSONAL en una tabla que no tenía ninguno. Se guarda porque la emisión ocurre después y en
+   * otro proceso, y para entonces la ficha pudo cambiar. La contrapartida no es opcional: el flujo
+   * de supresión de `privacy.routes.ts` la vacía con `purgarDestinatariosDeLotes`, igual que redacta
+   * las actas. Toda dirección que este programa guarda tiene que estar al alcance de la purga.
+   */
+  correoDestinatarios: jsonb('correo_destinatarios').$type<SiigoDestinatario[]>().notNull().default([]),
   creadoPor: integer('creado_por').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

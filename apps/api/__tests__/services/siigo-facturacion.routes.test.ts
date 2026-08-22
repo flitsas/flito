@@ -520,3 +520,112 @@ describe('GET / — el estado de la cola de unos trámites', () => {
     expect(colaMock).not.toHaveBeenCalled();
   });
 });
+
+// ── HU #11708 — el correo se elige en el cuerpo del envío ───────────────────
+
+describe('el correo al cliente viaja en la petición de envío', () => {
+  it('lo pedido llega al servicio con las direcciones marcadas como escritas a mano', async () => {
+    // `manual` es lo que distingue después, en el acta, «el cliente tiene mal su ficha» de «quien
+    // envió se equivocó al escribirlo». Sin la procedencia, las dos averías son la misma fila.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: {
+        solicitado: true,
+        destinatarios: [{ correo: 'cartera@cliente.test', origen: 'manual' }],
+      },
+    }));
+  });
+
+  it('sin `correo` en el cuerpo NO se pide correo, y eso es una decisión, no un olvido', async () => {
+    // Antes de esta historia el correo salía siempre en producción. Que la ausencia lo apague en vez
+    // de romper la petición es deliberado: un 400 no factura nada, mientras que un correo que no
+    // salió se reenvía — y además queda acta diciendo que nadie lo pidió.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: { solicitado: false, destinatarios: [] },
+    }));
+  });
+
+  it('con la casilla apagada no se guarda ninguna dirección, aunque vengan en el cuerpo', async () => {
+    // Una pantalla que conserva lo escrito mientras se desmarca la casilla es lo normal. Guardarlas
+    // metería datos personales en el lote para un correo que nadie va a mandar, y ese lote acabaría
+    // en la lista de cosas que el derecho de supresión tiene que ir a limpiar sin motivo.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: false, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: { solicitado: false, destinatarios: [] },
+    }));
+  });
+
+  it('una dirección mal escrita se rechaza aquí, y el 400 no repite lo que rechaza', async () => {
+    // La emisión vuelve a validar —es donde el AC5 lo pide— pero decírselo ahora a quien lo escribió
+    // vale más que contárselo media hora después en un acta. Ley 1581: el mensaje de error acaba en
+    // el log de la aplicación, así que no puede llevar la dirección dentro.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, destinatarios: ['esto-no-es-un-correo'] },
+      });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r.body)).not.toContain('esto-no-es-un-correo');
+  });
+
+  it('más direcciones de las que Siigo admite se rechazan antes de encolar nada', async () => {
+    const app = await buildApp();
+    const seis = Array.from({ length: 6 }, (_, i) => `persona${i}@cliente.test`);
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({ conceptos: CONCEPTOS, tramiteIds: [A], correo: { enviar: true, destinatarios: seis } });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+  });
+
+  it('un campo inventado dentro de `correo` es un 400 ruidoso, no un campo ignorado', async () => {
+    // `.strict()`, por lo mismo que en el resto del cuerpo: un campo ignorado deja a quien llama
+    // convencido de que se le hizo caso. Aquí eso sería creer que se eligió a quién mandar.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, ambiente: 'produccion' },
+      });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+  });
+});
