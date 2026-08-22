@@ -15,6 +15,9 @@ const FILA_ESTIMADA = {
   // El reporte manda estas tres columnas en cada fila (HU #11329): la celda «Factura DIAN» las usa
   // para pintar «En cola» cuando todavía no existe ninguna factura.
   estadoFacturacion: 'no_enviado', facturaNumero: null, facturaRequiereRevision: false,
+  // Y estas tres desde la HU #11679: la conciliación del SOAT de la fila. El caso normal es que el
+  // SOAT NO esté conciliado, y así queda en todas las fixtures salvo en la que lo prueba.
+  soatConciliado: false, boletaReferencia: null, soatConciliadoEn: null,
 };
 const FILA_BLOQUEADA = {
   ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000002', idFlit: 'FLIT-2002',
@@ -45,6 +48,22 @@ const FILA_SIN_PAGAR = {
   soat: null, impuesto: null, total: null,
   pendientesPago: ['SOAT'], autogestionados: ['Impuesto'],
 };
+
+/**
+ * Un SOAT que ya se descontó de bolsa al conciliar una boleta de pago externo (Feature #11623).
+ *
+ * Clon EXACTO de la fila estimada salvo por los tres campos de conciliación —y por el id, que tiene
+ * que ser único—. Esa igualdad es lo que sostiene la comprobación del hueco del AC2: si las dos
+ * filas solo se diferencian en la conciliación, cualquier diferencia de alto entre ellas la produce
+ * la marca, y ninguna otra cosa.
+ */
+const FILA_CONCILIADA = {
+  ...FILA_ESTIMADA, tramiteId: 'aaaa0000-0000-0000-0000-000000000007', idFlit: 'FLIT-2007',
+  soatConciliado: true, boletaReferencia: 'BOL-000123', soatConciliadoEn: '2026-08-14T15:30:00.000Z',
+};
+
+/** Lo que la marca dice cuando se le pide el detalle. Una sola definición: se afirma en tres tests. */
+const DETALLE_BOLETA = 'Boleta BOL-000123 · 14 de ago de 26';
 
 const REPORTE = {
   items: [FILA_ESTIMADA, FILA_BLOQUEADA, FILA_LIQUIDADA, FILA_FACTURADA, FILA_SIN_RECIBO, FILA_SIN_PAGAR],
@@ -142,6 +161,16 @@ async function mock(page: import('@playwright/test').Page) {
   await mockFacturacion(page);
   await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(REPORTE) }));
+}
+
+/** Igual que `mock`, pero con las dos únicas filas que la marca de conciliado necesita (HU #11681). */
+async function mockConciliacion(page: import('@playwright/test').Page) {
+  await mockFacetas(page, ['Aprobado']);
+  await mockFacturacion(page);
+  await page.route(/\/api\/finanzas\/reporte-costos\?/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      ...REPORTE, items: [FILA_ESTIMADA, FILA_CONCILIADA], total: 2,
+    }) }));
 }
 
 test.describe('Finanzas — Reporte de costos', () => {
@@ -703,5 +732,106 @@ test.describe('Reporte de costos — facturación electrónica', () => {
     await page.goto('/finanzas/reporte-costos');
 
     await expect(page.getByText(/El primer paso es liquidarlos/)).toBeVisible();
+  });
+
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HU #11681 — la marca de conciliado en la celda de SOAT, y de dónde sale el CSV.
+//
+// Describe propio: estos casos no comparten el reporte de seis filas de los de arriba. Se montan
+// sobre DOS filas idénticas salvo por la conciliación, que es lo que permite atribuirle a la marca
+// cualquier diferencia entre ellas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Reporte de costos — conciliación del SOAT', () => {
+  test('AC1 — el SOAT conciliado lo dice con texto, y al apuntarlo revela su boleta y su fecha', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConciliacion(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const marca = page.getByRole('row').filter({ hasText: 'FLIT-2007' })
+      .getByTestId('marca-soat-conciliado');
+    // Escrito, no insinuado por el tono: es la mitad del criterio que no puede quedarse en color.
+    await expect(marca).toContainText('Conciliado · bolsa');
+
+    // El detalle NO está antes de pedirlo: la columna del dinero no se llena de texto de boleta.
+    await expect(page.getByText(DETALLE_BOLETA)).toHaveCount(0);
+    await marca.hover();
+    await expect(page.getByText(DETALLE_BOLETA)).toBeVisible();
+  });
+
+  test('AC1 — el detalle sale también por teclado, y lo accesible no depende de llegar a revelarlo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConciliacion(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const marca = page.getByRole('row').filter({ hasText: 'FLIT-2007' })
+      .getByRole('note', { name: /SOAT conciliado con la bolsa/ });
+
+    // Sin foco y sin puntero: boleta y fecha ya están en el nombre accesible. Quien escucha la
+    // tabla no depende ni de poder apuntar la marca ni de distinguir su color.
+    await expect(marca).toHaveAccessibleName(`SOAT conciliado con la bolsa. ${DETALLE_BOLETA}.`);
+
+    await marca.focus();
+    await expect(page.getByText(DETALLE_BOLETA)).toBeVisible();
+
+    // Y se quita de encima sin mover el foco: mientras está abierto tapa la celda de al lado
+    // (WCAG 1.4.13).
+    await page.keyboard.press('Escape');
+    await expect(page.getByText(DETALLE_BOLETA)).toHaveCount(0);
+  });
+
+  test('AC2 — la fila sin conciliar se ve como siempre: ni marca, ni hueco reservado', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConciliacion(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    const sinConciliar = page.getByRole('row').filter({ hasText: 'FLIT-2001' });
+    const conciliada = page.getByRole('row').filter({ hasText: 'FLIT-2007' });
+
+    const celdaSoat = sinConciliar.getByRole('cell').filter({ hasText: /450\.000/ });
+    await expect(celdaSoat).toHaveCount(1);
+    await expect(celdaSoat.getByTestId('marca-soat-conciliado')).toHaveCount(0);
+    // Un solo elemento dentro: el importe. Un hueco reservado —un envoltorio vacío, una pastilla
+    // invisible— sería un segundo nodo aunque no se viera nada en pantalla.
+    await expect(celdaSoat.locator('*')).toHaveCount(1);
+
+    // Y el hueco tampoco está puesto por CSS, que es lo que ninguna aserción de texto vería.
+    //
+    // Se mide por DESPLAZAMIENTO: la celda centra su contenido, así que un hueco reservado debajo
+    // del importe lo empujaría hacia arriba. En la fila sin conciliar el importe está en el centro
+    // exacto de su celda; en la conciliada, la marca sí lo sube. La segunda medición está para
+    // probar que la primera discrimina: si el desplazamiento no se pudiera medir, las dos pasarían.
+    const centro = async (l: import('@playwright/test').Locator) => {
+      const caja = (await l.boundingBox())!;
+      return caja.y + caja.height / 2;
+    };
+    const importe = (celda: import('@playwright/test').Locator) => celda.getByText(/450\.000/);
+    expect(Math.abs(await centro(importe(celdaSoat)) - await centro(celdaSoat))).toBeLessThan(1);
+
+    const celdaConciliada = conciliada.getByRole('cell').filter({ hasText: /450\.000/ });
+    expect(await centro(importe(celdaConciliada))).toBeLessThan(await centro(celdaConciliada));
+  });
+
+  test('AC3 — el CSV lo sigue armando el servidor, que es donde vive la columna «SOAT conciliado»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockConciliacion(page);
+
+    // A nivel de CONTEXTO: la exportación se abre en una pestaña nueva, y `page.route` no la ve.
+    const pedidas: string[] = [];
+    await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
+      pedidas.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'Trámite;SOAT conciliado\r\n' });
+    });
+
+    await page.goto('/finanzas/reporte-costos');
+    await page.getByRole('button', { name: 'Exportar CSV' }).click();
+
+    // La columna la añadió la HU #11679 en `aCsv`, con su prueba en la API. Lo que esta pantalla
+    // tiene que garantizar es que no se le adelanta armando el archivo por su cuenta —con las 50
+    // filas de la página en vez de las del filtro, y sin la columna—, así que se afirma el pedido.
+    await expect.poll(() => pedidas.length).toBe(1);
+    expect(pedidas[0]).toContain('estados=Aprobado');
   });
 });
