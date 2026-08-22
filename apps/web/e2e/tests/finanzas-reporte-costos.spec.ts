@@ -768,14 +768,30 @@ test.describe('Reporte de costos — conciliación del SOAT', () => {
     await mockConciliacion(page);
     await page.goto('/finanzas/reporte-costos');
 
-    const marca = page.getByRole('row').filter({ hasText: 'FLIT-2007' })
-      .getByRole('note', { name: /SOAT conciliado con la bolsa/ });
+    const fila = page.getByRole('row').filter({ hasText: 'FLIT-2007' });
+    const marca = fila.getByRole('note', { name: /SOAT conciliado con la bolsa/ });
 
     // Sin foco y sin puntero: boleta y fecha ya están en el nombre accesible. Quien escucha la
     // tabla no depende ni de poder apuntar la marca ni de distinguir su color.
     await expect(marca).toHaveAccessibleName(`SOAT conciliado con la bolsa. ${DETALLE_BOLETA}.`);
 
-    await marca.focus();
+    // Se llega con el TABULADOR, no con `marca.focus()`.
+    //
+    // `focus()` es foco programático: funciona igual con `tabIndex={-1}`, así que certificaba que la
+    // marca «se puede enfocar» —cosa que nadie necesita— y no lo que el criterio pide: que quien
+    // navega con teclado LLEGUE a ella. Con la marca fuera del orden de tabulación, el detalle sería
+    // inalcanzable sin ratón y las cuatro pruebas de este bloque seguirían en verde.
+    //
+    // Se arranca desde la casilla de la propia fila para no tabular la pantalla entera, y el tope
+    // está para que una marca inalcanzable ponga el caso ROJO en vez de dejar el bucle corriendo.
+    await fila.getByRole('checkbox', { name: 'Seleccionar FLIT-2007' }).focus();
+    let alcanzada = false;
+    for (let i = 0; i < 8 && !alcanzada; i += 1) {
+      await page.keyboard.press('Tab');
+      alcanzada = await marca.evaluate((el) => el === document.activeElement);
+    }
+    expect(alcanzada, 'la marca no se alcanza con el tabulador desde su propia fila').toBe(true);
+    await expect(marca).toBeFocused();
     await expect(page.getByText(DETALLE_BOLETA)).toBeVisible();
 
     // Y se quita de encima sin mover el foco: mientras está abierto tapa la celda de al lado
@@ -816,23 +832,29 @@ test.describe('Reporte de costos — conciliación del SOAT', () => {
     expect(await centro(importe(celdaConciliada))).toBeLessThan(await centro(celdaConciliada));
   });
 
-  test('AC3 — el CSV lo sigue armando el servidor, que es donde vive la columna «SOAT conciliado»', async ({ page }) => {
+  test('AC3 — la pantalla PIDE el CSV al servidor con sus filtros, no lo arma por su cuenta', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockConciliacion(page);
 
     // A nivel de CONTEXTO: la exportación se abre en una pestaña nueva, y `page.route` no la ve.
+    //
+    // El cuerpo que devuelve el mock es de relleno: lo escribe este mismo archivo y **no se afirma
+    // nada sobre él**. Afirmarlo sería comprobar el mock. La columna «SOAT conciliado» la añadió la
+    // HU #11679 en `aCsv`, y quien la comprueba es la prueba de la API, no esta.
     const pedidas: string[] = [];
     await page.context().route(/\/api\/finanzas\/reporte-costos\/export/, (route) => {
       pedidas.push(route.request().url());
-      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'Trámite;SOAT conciliado\r\n' });
+      return route.fulfill({ status: 200, contentType: 'text/csv', body: 'relleno\r\n' });
     });
 
     await page.goto('/finanzas/reporte-costos');
     await page.getByRole('button', { name: 'Exportar CSV' }).click();
 
-    // La columna la añadió la HU #11679 en `aCsv`, con su prueba en la API. Lo que esta pantalla
-    // tiene que garantizar es que no se le adelanta armando el archivo por su cuenta —con las 50
-    // filas de la página en vez de las del filtro, y sin la columna—, así que se afirma el pedido.
+    // Lo que esta pantalla tiene que garantizar es que no se adelanta armando el archivo por su
+    // cuenta —con las 50 filas de la página en vez de las del filtro, y sin la columna—, así que lo
+    // que se afirma es el PEDIDO: que sale, que sale una sola vez, y que lleva los filtros de la
+    // pantalla en la query. `estados=Aprobado` es el valor POR DEFECTO del filtro de estado, no uno
+    // puesto a mano en este caso: lo que prueba es que los filtros viajan, no que se cambió alguno.
     await expect.poll(() => pedidas.length).toBe(1);
     expect(pedidas[0]).toContain('estados=Aprobado');
   });

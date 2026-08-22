@@ -1,7 +1,11 @@
 // FLITO — Conciliación de boletas SOAT (Feature #11623, HU #11680). Backend mockeado.
 //
-// Cubre los ocho AC de la pantalla. Tres decisiones de montaje que hacen que los asertos midan algo:
+// Cubre los ocho AC de la pantalla. Cuatro decisiones de montaje que hacen que los asertos midan algo:
 //
+//   · **El gate que se mide es el de la PÁGINA, así que el rol entra con el slug concedido.** Los
+//     roles del fixture base llevan `allowedPages: []`: con ellos `ProtectedRoute` corta antes de
+//     montar nada y el gate interno no llega a correr, de modo que el caso del enlace profundo
+//     certificaría «no se ve» en lugar de «no se pide». Por eso usa `AUDITOR_CON_SLUG`.
 //   · **El AC1 se comprueba sobre la PETICIÓN, no sobre la pantalla.** El fixture base responde
 //     `200 []` a todo `/api/**` no mockeado, así que una llamada fugada con el rol equivocado no
 //     deja ninguna huella visible: solo el espía la ve. Y el gemelo positivo vive en este mismo
@@ -35,6 +39,13 @@ const RE_COMPROBANTE = /\/api\/flito\/conciliacion\/boletas\/[0-9a-f-]{36}\/comp
 // consola. Se declaran aquí para que el test los busque por el mismo literal que pinta la tabla.
 const POLIZA_1 = '3903400012345671';
 const PLACA_1 = 'ABC121';
+
+/**
+ * La fecha del pago que se escribe en el modal de carga. Es la de `RESUMEN`, y **no** la de hoy: el
+ * campo arranca relleno con `hoyColombia`, así que un valor distinto es lo único que permite afirmar
+ * que lo que viajó en el cuerpo es lo que se puso.
+ */
+const FECHA_PAGO = '2026-07-30';
 
 type Linea = Record<string, unknown>;
 
@@ -165,6 +176,15 @@ function avisosGuardados(page: Page): Promise<string[]> {
     Object.keys(sessionStorage).filter((k) => k.startsWith('flito:conciliacion:aviso:')));
 }
 
+/**
+ * Auditoría **con el slug de la página concedido a mano**.
+ *
+ * Es el único montaje en el que el gate de rol de la página decide algo: los roles del fixture base
+ * llevan `allowedPages: []` y `ProtectedRoute` los detiene antes de montar nada, así que un test que
+ * los use está midiendo el gate de la RUTA aunque el aserto hable del de la página.
+ */
+const AUDITOR_CON_SLUG = { ...AUDITOR_USER, allowedPages: ['flito_conciliacion'] };
+
 /** Cerrar sesión como se cierra de verdad: por el menú de usuario del topbar. */
 async function cerrarSesion(page: Page): Promise<void> {
   await page.getByRole('button', { name: /Menú de usuario/ }).click();
@@ -212,12 +232,25 @@ test.describe('FLITO — Conciliación · acceso y menú (AC1)', () => {
   test('el enlace profundo al detalle tampoco dispara el GET de la boleta', async ({ page }) => {
     // Es el caso que se olvida: sin el gate DENTRO de la página, entrar por la URL del detalle
     // dispararía `GET /boletas/:id` y devolvería un 403 antes de que la ruta pintara `NoAccess`.
-    await loginAs(page, AUDITOR_USER);
+    //
+    // Y por eso el fixture es AUDITOR_CON_SLUG y no AUDITOR_USER: con `allowedPages: []`,
+    // `ProtectedRoute` corta ANTES de montar la página y el gate interno no llega a correr nunca —el
+    // caso lo resolvería el router y el test certificaría «no se ve» en vez de «no se pide»—. Con el
+    // slug concedido a mano, la página SÍ se monta y el gate de rol es lo único que decide.
+    await loginAs(page, AUDITOR_CON_SLUG);
     const vistas = espiarModulo(page);
     await page.route(API_MODULO, (route) => route.abort('failed'));
 
     await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
     await expect(page.getByRole('heading', { name: /no tienes acceso a flito — conciliación/i })).toBeVisible();
+
+    // Control de que el montaje es el que se quiere: el menú ofrece la página, que es la misma
+    // decisión (`hasPage`) que toma `ProtectedRoute`. Si alguien vaciara `allowedPages` de este
+    // fixture, esto se pondría rojo en vez de dejar el caso midiendo el gate equivocado en silencio.
+    const nav = page.getByRole('navigation', { name: 'Navegación principal' });
+    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await expect(page.getByRole('link', { name: 'Conciliación', exact: true })).toBeVisible();
+
     await reposo(page);
 
     expect(vistas).toEqual([]);
@@ -299,14 +332,20 @@ const XLSX = {
 };
 
 test.describe('FLITO — Conciliación · cargar la boleta (AC3)', () => {
-  test('la carga pide cliente, fecha y archivo, y aterriza en el cuadre de la boleta creada', async ({ page }) => {
+  test('la carga pide cliente, fecha y archivo, y los tres viajan en el cuerpo del POST', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockClientes(page);
     await mockLista(page, []);
     await mockDetalle(page, DETALLE);
-    await page.route(RE_CARGA, (route) => (route.request().method() === 'POST'
-      ? route.fulfill(json(DETALLE, 201))
-      : route.fallback()));
+    // El cuerpo se guarda para poder afirmarlo: la fecha es el único de los tres datos que NO deja
+    // huella en la pantalla si se cae del cuerpo —el modal se cierra y se aterriza en el cuadre
+    // igual—, así que sin mirar el POST nadie se enteraría de que dejó de viajar.
+    const cuerpos: string[] = [];
+    await page.route(RE_CARGA, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      cuerpos.push(route.request().postData() ?? '');
+      return route.fulfill(json(DETALLE, 201));
+    });
 
     await page.goto('/flito/conciliacion');
     await page.getByRole('button', { name: '+ Cargar boleta' }).click();
@@ -318,6 +357,10 @@ test.describe('FLITO — Conciliación · cargar la boleta (AC3)', () => {
     await page.getByLabel('Cliente *').selectOption('5');
     await expect(cargar).toHaveAccessibleName('Cargar y cruzar — falta elegir el archivo');
 
+    // La fecha se escribe a mano, y un día que NO es el de hoy: arranca rellena con `hoyColombia`,
+    // así que con la de por defecto no se podría distinguir «viajó la que puse» de «viajó cualquier
+    // cosa con forma de fecha».
+    await page.getByLabel('Fecha del pago en el portal *').fill(FECHA_PAGO);
     await page.locator('input[type=file]').setInputFiles(XLSX);
     await expect(cargar).toHaveAttribute('aria-disabled', 'false');
 
@@ -327,6 +370,50 @@ test.describe('FLITO — Conciliación · cargar la boleta (AC3)', () => {
     await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
     // Y el foco va al <h1>, no al <body> del documento nuevo.
     await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeFocused();
+
+    // Los TRES en el cuerpo del multipart, cada uno con su nombre de campo. La fecha, además, con el
+    // valor que se puso: es la que decide a qué mes contable pertenece el pago.
+    expect(cuerpos).toHaveLength(1);
+    expect(cuerpos[0]).toContain('name="companiaId"');
+    expect(cuerpos[0]).toContain('name="archivo"');
+    expect(cuerpos[0]).toContain('name="fechaPago"');
+    expect(cuerpos[0]).toContain(FECHA_PAGO);
+  });
+
+  test('sin la fecha del pago no se carga nada, y el botón dice que es eso lo que falta', async ({ page }) => {
+    // La rama que no ejercitaba nadie: `fechaPago` arranca con la de hoy, así que a «falta poner la
+    // fecha del pago» solo se llega BORRÁNDOLA. Y borrarla es el gesto corriente —se abre el campo
+    // para poner la del portal—, no un caso de laboratorio.
+    await loginAs(page, OPERACIONES_USER);
+    await mockClientes(page);
+    await mockLista(page, []);
+    let posts = 0;
+    await page.route(RE_CARGA, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      posts += 1;
+      return route.fulfill(json(DETALLE, 201));
+    });
+
+    await page.goto('/flito/conciliacion');
+    await page.getByRole('button', { name: '+ Cargar boleta' }).click();
+    await page.getByLabel('Cliente *').selectOption('5');
+    await page.locator('input[type=file]').setInputFiles(XLSX);
+
+    const cargar = page.getByRole('button', { name: /Cargar y cruzar/ });
+    // Punto de partida: con los tres puestos el botón SÍ está disponible. Sin esto, lo de abajo
+    // pasaría también con un botón bloqueado por cualquier otro motivo.
+    await expect(cargar).toHaveAttribute('aria-disabled', 'false');
+
+    await page.getByLabel('Fecha del pago en el portal *').fill('');
+    await expect(cargar).toHaveAccessibleName('Cargar y cruzar — falta poner la fecha del pago');
+    await expect(cargar).toHaveAttribute('aria-disabled', 'true');
+
+    // `force`: para Playwright un `aria-disabled` está inhabilitado y esperaría eternamente, pero el
+    // navegador SÍ entrega el clic. Lo que se prueba es que no sale una boleta sin fecha de pago.
+    await cargar.click({ force: true });
+    await reposo(page);
+    expect(posts).toBe(0);
+    await expect(page.getByRole('dialog', { name: 'Cargar boleta del portal' })).toBeVisible();
   });
 
   test('el mismo archivo dos veces lleva a la boleta que ya existe, en vez de dejar adivinando', async ({ page }) => {
@@ -704,6 +791,218 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
     await expect(page).toHaveURL(/\/login$/);
 
     expect(await avisosGuardados(page)).toEqual([]);
+  });
+
+  test('el arranque con el token caducado deja la pestaña igual de limpia', async ({ page }) => {
+    // El tercer camino, y el que no cubría nadie: la pestaña se abre —o se recarga— con un token que
+    // ya no sirve, y `/auth/me` falla al arrancar con algo que NO es un 401 (la API caída, un 502 del
+    // proxy, la red). No hay `SESSION_ENDED` en ese camino: lo único que corre es el `catch` del
+    // arranque de `AuthProvider`, así que si ese catch solo tira el token, los saldos de bolsa de la
+    // sesión anterior se quedan en la pestaña para quien entre después.
+    await loginAs(page, FINANCIERA_USER);
+    await page.evaluate(({ id, propio }) => {
+      sessionStorage.setItem(`flito:conciliacion:aviso:${propio}:${id}`, JSON.stringify({
+        soatConciliados: 7,
+        totalConciliado: 3933300,
+        cliente: { nombre: 'Transportes Andinos S.A.S.', descontado: 3371400, saldoResultante: 12450300 },
+        transito: [],
+        adoptados: 0,
+      }));
+    }, { id: BOLETA_ID, propio: FINANCIERA_USER.id });
+    // Punto de partida: si esto fallara, lo de abajo pasaría en vacío.
+    expect(await avisosGuardados(page)).toHaveLength(1);
+
+    // 500 y no 401 a propósito: el 401 ya tiene su camino probado arriba, y es justo el que hace que
+    // este parezca cubierto sin estarlo.
+    await page.route('**/api/auth/me', (route) => route.fulfill(json({ error: 'Base no disponible' }, 500)));
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    await expect(page).toHaveURL(/\/login$/);
+
+    expect(await avisosGuardados(page)).toEqual([]);
+  });
+
+  test('si el barrido tropieza con una clave, sigue con las demás, se entera y cierra la sesión igual', async ({ page }) => {
+    // «No fallar» y «no enterarse» no son lo mismo. Con los dos bucles bajo un solo `try`, un
+    // `removeItem` que lance a mitad deja las claves restantes sin borrar —saldos de bolsa vivos en
+    // la pestaña— sin dejar ningún rastro de que el barrido se quedó a medias.
+    const consola: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') consola.push(m.text()); });
+
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+
+    // OCHO claves, y el número no es decorativo. La otra propiedad que este archivo declara —recoger
+    // las claves ANTES de borrar, porque `sessionStorage.key(i)` se reindexa en cada `removeItem` y
+    // borrar mientras se itera se salta la mitad— con TRES claves no se distingue: el orden en que
+    // Chromium las devuelve puede hacer que el barrido roto las toque todas igual, y entonces
+    // reintroducir ese bug pasa desapercibido. Con ocho, el salteo deja fuera a varias y el aserto de
+    // `intentadas` lo ve.
+    const CLAVES = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => `flito:conciliacion:aviso:${FINANCIERA_USER.id}:boleta-${n}`);
+    await page.evaluate((claves) => {
+      for (const clave of claves) sessionStorage.setItem(clave, '{"soatConciliados":1}');
+    }, CLAVES);
+
+    // La avería se instala con `addInitScript` y no con un `evaluate`: el parche vive en
+    // `Storage.prototype`, que se reconstruye con cada documento, y entre sembrar las claves y cerrar
+    // sesión hay una navegación de verdad. Con un `evaluate` el parche se pierde en ella y el caso
+    // pasaría a probar un barrido que no tropieza con nada.
+    //
+    // Revienta la PRIMERA clave de aviso que se toque, sea cual sea, y no una elegida de antemano:
+    // el orden en que `sessionStorage.key(i)` devuelve las claves no es el de inserción ni está
+    // garantizado, así que fijar la bomba en una concreta hace que «se paró» y «siguió» coincidan
+    // cuando la bomba cae la última. Así el corte es siempre en la primera y el resto siempre queda
+    // por intentar. Y se apunta cada intento: es lo que el criterio pide comprobar —que las demás se
+    // INTENTAN—, y no se puede deducir de qué claves quedaron.
+    await page.addInitScript(() => {
+      const intentos: string[] = [];
+      (window as unknown as { intentosDeBarrido: string[] }).intentosDeBarrido = intentos;
+      const original = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function bloqueado(this: Storage, k: string) {
+        if (k.startsWith('flito:conciliacion:aviso:')) {
+          intentos.push(k);
+          if (intentos.length === 1) throw new DOMException('sessionStorage bloqueado', 'SecurityError');
+        }
+        return original.call(this, k);
+      };
+    });
+
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
+
+    await cerrarSesion(page);
+
+    // Las TRES se intentaron: el tropiezo en la primera no se llevó por delante a las que faltaban.
+    const intentadas = await page.evaluate(() =>
+      (window as unknown as { intentosDeBarrido: string[] }).intentosDeBarrido);
+    expect([...intentadas].sort()).toEqual([...CLAVES].sort());
+    // Y solo sobrevive la que reventó, que es exactamente la que no se pudo borrar.
+    expect(await avisosGuardados(page)).toEqual([intentadas[0]]);
+    // El cierre de sesión se completó de todos modos: `cerrarSesion` ya exigió el /login.
+    await expect(page).toHaveURL(/\/login$/);
+    // Y no pasó inadvertido. Por el mismo canal que el resto del front usa para lo que falla y no
+    // tumba la vista (`[pwa]`, `[ErrorBoundary]`): un aviso en la consola, con su etiqueta.
+    expect(consola.some((l) => l.includes('[conciliacion]'))).toBe(true);
+    // Sin identificadores en el aviso: dice cuántas quedaron, no cuáles. No es §14 —un `userId` y un
+    // uuid no son PII para AGENTS.md— sino la higiene que el propio módulo se impone.
+    expect(consola.join('\n')).not.toContain(BOLETA_ID);
+    expect(consola.join('\n')).not.toContain(intentadas[0]);
+  });
+
+  test('si hasta el aviso por consola revienta, el cierre de sesión se completa igual', async ({ page }) => {
+    // El barrido declara en su docblock que NO LANZA NUNCA, y la razón está escrita: `logout` llama a
+    // `limpiarAvisos()` ANTES de `setUser(null)`, así que una excepción aquí deja la sesión sin
+    // cerrar. Con el `console.warn` fuera de todo `try`, esa invariante pasó a depender de que
+    // `console` exista y no lance —y el `warn` solo corre cuando algo YA falló, que es el peor
+    // momento para descubrir que el aviso del fallo es lo que tumba el cierre—.
+    //
+    // Lo que se ve si se rompe: `handleLogout` navega a /login y DESPUÉS llama a `logout()`, así que
+    // la excepción deja a `user` sin anular y la ruta /login —que es `user ? <Navigate to="/" /> …`—
+    // rebota al tablero. Se sale de la sesión y se vuelve a entrar en ella sin token.
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+
+    const CLAVES = [1, 2].map((n) => `flito:conciliacion:aviso:${FINANCIERA_USER.id}:boleta-${n}`);
+    await page.evaluate((claves) => {
+      for (const clave of claves) sessionStorage.setItem(clave, '{"soatConciliados":1}');
+    }, CLAVES);
+
+    // Dos averías a la vez, y las dos hacen falta: la del `removeItem` es la única forma de llegar al
+    // `warn` —solo se emite cuando alguna clave no se pudo borrar—, y la del `console.warn` es la que
+    // se está probando. `addInitScript` por lo mismo que en el caso de al lado: los dos parches viven
+    // en objetos del documento y hay una navegación de por medio.
+    //
+    // El `warn` solo revienta para el mensaje de este módulo: reventar TODOS convertiría el caso en
+    // «la app sobrevive sin consola», que es otra cosa y con otro alcance.
+    await page.addInitScript(() => {
+      const original = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function bloqueado(this: Storage, k: string) {
+        if (k.startsWith('flito:conciliacion:aviso:')) {
+          throw new DOMException('sessionStorage bloqueado', 'SecurityError');
+        }
+        return original.call(this, k);
+      };
+      const warn = console.warn.bind(console);
+      console.warn = (...args: unknown[]) => {
+        if (typeof args[0] === 'string' && args[0].includes('[conciliacion]')) {
+          // Se apunta ANTES de lanzar: sin esta marca el caso pasaría en verde aunque el `warn` no
+          // llegara a emitirse nunca —suprimirlo del módulo lo dejaría sin señal propia— y estaría
+          // certificando un cierre de sesión que no tropezó con nada.
+          (window as unknown as { warnLanzado?: boolean }).warnLanzado = true;
+          throw new TypeError('console.warn no disponible');
+        }
+        warn(...args);
+      };
+    });
+
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
+
+    // Y el cierre de sesión se completa: es lo único que este caso persigue. Que las claves se queden
+    // sin borrar ya está dicho —el almacenamiento está roto a propósito— y no es lo que se prueba.
+    await cerrarSesion(page);
+    await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toBeVisible();
+
+    // Y el `warn` SÍ se intentó: es lo que convierte el verde de arriba en una afirmación sobre este
+    // camino y no sobre uno en el que no pasó nada. El cierre de sesión es SPA —navega, no recarga—,
+    // así que la marca del documento sigue en pie después de salir.
+    expect(await page.evaluate(() =>
+      (window as unknown as { warnLanzado?: boolean }).warnLanzado === true)).toBe(true);
+  });
+
+  test('el aviso tampoco sobrevive en la OTRA pestaña, que arranca ya sin token', async ({ page, context }) => {
+    // El cuarto camino del arranque, y el único de los cuatro que no hace ninguna petición.
+    //
+    // `localStorage` se comparte entre las pestañas del mismo origen; `sessionStorage` NO. Así que al
+    // cerrar sesión en la pestaña 1 el token desaparece para las dos —es compartido— pero el barrido
+    // solo alcanza al `sessionStorage` de la 1. La 2 no se entera de nada: no hay ni un
+    // `addEventListener('storage', …)` en todo `apps/web/src`. Cuando esa pestaña se recarga, arranca
+    // sin token y sale por el `return` de «sin token»; si esa rama no barre, quien entre después en
+    // ella tiene a mano los saldos de bolsa de quien salió.
+    await loginAs(page, FINANCIERA_USER);
+    await mockLista(page, [RESUMEN]);
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();
+
+    // La pestaña 2 **no inicia sesión**: hereda el token de la 1 sin escribirlo, que es la mitad del
+    // mecanismo que hay que dar por probada antes de mirar la otra. Y navega UNA sola vez: pasar por
+    // /login primero dejaría un `GET /auth/me` en vuelo que el siguiente `goto` abortaría, y su
+    // `catch` —el del camino de arriba— barrería los avisos por la puerta de al lado, dando el caso
+    // por bueno sin que la rama que se quiere probar hubiera corrido.
+    const otra = await context.newPage();
+    await otra.route('**/api/**', (route) => route.fulfill(json([])));
+    await otra.route('**/api/auth/me', (route) => route.fulfill(json(FINANCIERA_USER)));
+    await mockLista(otra, [RESUMEN]);
+    await otra.goto('/flito/conciliacion');
+    await expect(otra.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();
+
+    const CLAVE = `flito:conciliacion:aviso:${FINANCIERA_USER.id}:${BOLETA_ID}`;
+    await otra.evaluate((clave) => {
+      sessionStorage.setItem(clave, JSON.stringify({
+        soatConciliados: 7,
+        totalConciliado: 3933300,
+        cliente: { nombre: 'Transportes Andinos S.A.S.', descontado: 3371400, saldoResultante: 12450300 },
+        transito: [],
+        adoptados: 0,
+      }));
+    }, CLAVE);
+    expect(await avisosGuardados(otra)).toEqual([CLAVE]);
+
+    // La sesión se cierra en la pestaña 1, por el menú de usuario, como se cierra de verdad.
+    await cerrarSesion(page);
+
+    // Las dos mitades del mecanismo, afirmadas por separado para que un fallo diga cuál se rompió.
+    // El token SÍ cruza de pestaña —vive en `localStorage`—…
+    expect(await otra.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    // …y el aviso NO —vive en `sessionStorage`—: sigue en la pestaña 2 hasta que ella misma lo barra.
+    expect(await avisosGuardados(otra)).toEqual([CLAVE]);
+
+    // Y el sitio donde barrerlo es este: al recargar, la pestaña 2 arranca sin token, y sin token no
+    // hay ninguna sesión cuyo aviso convenga preservar.
+    await otra.reload();
+    await expect(otra).toHaveURL(/\/login$/);
+    expect(await avisosGuardados(otra)).toEqual([]);
+
+    await otra.close();
   });
 
   test('el aviso de otra persona no se pinta como si fuera el propio', async ({ page }) => {

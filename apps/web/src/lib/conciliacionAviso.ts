@@ -78,22 +78,47 @@ export function leerAviso(userId: string | number, boletaId: string): AvisoConci
  * misma pestaña seguiría teniendo a mano los saldos de bolsa de quien salió, aunque fuera un
  * conductor. Y la expiración cuenta igual que el logout: deja el mismo rastro.
  *
- * Dos detalles que no son de estilo:
+ * Tres detalles que no son de estilo:
  *
  *   · **Las claves se recogen antes de borrar.** `sessionStorage.key(i)` se reindexa en cada
  *     `removeItem`, así que borrar mientras se itera se salta la mitad de las claves.
  *   · **No lanza nunca.** El almacenamiento puede estar deshabilitado, y un usuario que no puede
  *     cerrar sesión porque el barrido explotó es peor que el rastro que esto viene a limpiar.
+ *   · **Cada borrado va en su propio `try`, y lo que no se pudo borrar se dice.** Con un solo `try`
+ *     alrededor de los dos bucles, un `removeItem` que lanzara a mitad dejaba las claves restantes
+ *     sin borrar —saldos de bolsa vivos en la pestaña— y sin ningún rastro. «No fallar» y «no
+ *     enterarse» no son lo mismo. El aviso va por consola, como el resto de lo que falla en el front
+ *     sin tumbar la vista (`[pwa]`, `[ErrorBoundary]`), y **no nombra las claves**: se dice cuántas
+ *     quedaron y nada más. No porque AGENTS.md §14 lo prohíba —no lo hace: ahí lo vetado son
+ *     contraseñas, tokens, cédulas y demás PII, y los ids opacos están expresamente permitidos—, sino
+ *     por higiene de diagnóstico: el número es lo único que sirve para diagnosticar, escribir el
+ *     `userId` y el `boletaId` no añade nada, y una consola sin identificadores es lo que evita que
+ *     el día que la clave cambie de forma nadie tenga que acordarse de revisar este `warn`.
  */
 export function limpiarAvisos(): void {
+  const claves: string[] = [];
   try {
-    const claves: string[] = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {
       const clave = sessionStorage.key(i);
       if (clave !== null && clave.startsWith(PREFIJO_AVISO)) claves.push(clave);
     }
-    for (const clave of claves) sessionStorage.removeItem(clave);
-  } catch { /* sessionStorage deshabilitado: no hay nada que barrer y el cierre de sesión sigue */ }
+  } catch {
+    // sessionStorage deshabilitado: no hay nada que barrer y el cierre de sesión sigue.
+    return;
+  }
+  let sinBorrar = 0;
+  for (const clave of claves) {
+    try { sessionStorage.removeItem(clave); } catch { sinBorrar += 1; }
+  }
+  if (sinBorrar > 0) {
+    // El aviso, también en su propio `try`. Es la única sentencia del cuerpo que podría lanzar, y
+    // lanzar aquí sería lo peor de los dos mundos: `logout` y `onSessionEnded` llaman a esto ANTES de
+    // `setUser(null)`, así que la sesión se quedaría sin cerrar por culpa de la línea que solo existe
+    // para contar que algo ya había fallado.
+    try {
+      console.warn(`[conciliacion] ${sinBorrar} de ${claves.length} aviso(s) no se pudieron borrar de la pestaña al cerrar sesión`);
+    } catch { /* sin consola utilizable: el cierre de sesión manda sobre el diagnóstico */ }
+  }
 }
 
 /** `descontado === -1` marca «esto no se sabe», que no es lo mismo que «fue cero». */

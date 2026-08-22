@@ -137,6 +137,37 @@ function chipOrigen(fila: import('@playwright/test').Locator) {
   return fila.getByRole('cell').nth(5).locator('span').first();
 }
 
+/**
+ * Lo mismo que `chipOrigen`, pero en el CSV exportado: el valor de una COLUMNA, en la fila que
+ * contiene `ancla`.
+ *
+ * Existe por el mismo motivo y contra el mismo error. «Conciliación» aparece también en la
+ * OBSERVACIÓN de la fila («Conciliación de la boleta BOL-000123»), así que un
+ * `expect(csv).toContain('Conciliación')` pasa igual aunque la columna Origen exporte el valor crudo
+ * del enum (`conciliacion`) en vez de la etiqueta de la pantalla. La pantalla ya tenía este cuidado;
+ * el archivo no.
+ *
+ * La columna se localiza por su ENCABEZADO y no por un índice escrito a mano, que se descuadra en
+ * cuanto alguien añade una columna delante. Y se comprueba que la fila tenga tantas celdas como el
+ * encabezado: el separador es `;` y una celda entrecomillada que lo llevara dentro descuadraría el
+ * troceado — antes que leer la columna equivocada en silencio, el test falla.
+ */
+function columnaCsv(csv: string, encabezado: string, ancla: string): string {
+  // El BOM se quita con su escape `\uFEFF` y no con el carácter: es un espacio invisible y ESLint lo
+  // marca como irregular —con razón: en un regex nadie lo ve—.
+  const lineas = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+  const celdas = (linea: string) => linea.split(';')
+    .map((c) => c.replace(/^"([\s\S]*)"$/, '$1').replace(/""/g, '"'));
+  const cabecera = celdas(lineas[0]);
+  const indice = cabecera.indexOf(encabezado);
+  expect(indice, `el CSV no trae ninguna columna «${encabezado}»`).toBeGreaterThanOrEqual(0);
+  const fila = lineas.slice(1).find((l) => l.includes(ancla));
+  expect(fila, `el CSV no trae ninguna fila con «${ancla}»`).toBeDefined();
+  const valores = celdas(fila as string);
+  expect(valores, 'la fila no tiene las mismas celdas que el encabezado').toHaveLength(cabecera.length);
+  return valores[indice];
+}
+
 const fondoDe = (chip: import('@playwright/test').Locator) =>
   chip.evaluate((el) => getComputedStyle(el).backgroundColor);
 
@@ -313,10 +344,13 @@ test.describe('FLITO — Bolsas · movimientos', () => {
       page.getByRole('button', { name: /Exportar CSV/ }).click(),
     ]);
     const csv = await readFile(await descarga.path(), 'utf8');
-    // La MISMA etiqueta que la pantalla, porque sale del mismo mapa. Y la boleta viaja con ella: un
-    // libro exportado que dice «Conciliación» sin decir de cuál no cuadra ningún cierre.
-    expect(csv).toContain('Conciliación');
-    expect(csv).toContain('BOL-000123');
+    // La MISMA etiqueta que la pantalla, porque sale del mismo mapa. Se afirma sobre la COLUMNA
+    // Origen y no sobre el texto del archivo: la palabra está también en la observación de esta misma
+    // fila, así que un `toContain` daría por buena una columna que exportara el enum en crudo.
+    expect(columnaCsv(csv, 'Origen', 'BOL-000123')).toBe('Conciliación');
+    // Y la boleta viaja con ella: un libro exportado que dice «Conciliación» sin decir de cuál no
+    // cuadra ningún cierre.
+    expect(columnaCsv(csv, 'Observación', 'BOL-000123')).toContain('BOL-000123');
     expect(csv).not.toContain('Automático');
   });
 

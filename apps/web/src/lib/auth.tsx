@@ -28,12 +28,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
+      // Cuarto camino, y el que no hace ninguna petición: la pestaña arranca ya sin token. Barre
+      // igual, porque `localStorage` se comparte entre pestañas y `sessionStorage` no: cerrar sesión
+      // en OTRA pestaña se lleva el token de esta —es el mismo— pero no sus avisos, y nadie escucha
+      // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
+      limpiarAvisos();
       setLoading(false);
       return;
     }
     api.get<User>('/auth/me')
       .then(setUser)
-      .catch(() => clearToken())
+      // El mismo barrido que hacen `logout` y `SESSION_ENDED`, y por el mismo motivo: aquí se
+      // arranca con un token que ya no sirve, y la sesión anterior no llegó a cerrarse por ninguno de
+      // esos dos caminos —el 401 emite el evento, pero un 502 del proxy o la API caída no—. Sin esto,
+      // los avisos de conciliación (importes y saldos de bolsa) se quedan en la pestaña.
+      .catch(() => { clearToken(); limpiarAvisos(); })
       .finally(() => setLoading(false));
   }, []);
 
