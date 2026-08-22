@@ -1,31 +1,41 @@
-// FLITO Conciliación — el vistazo al `.xlsx` ANTES de abrirlo (HU #11676, hallazgo de seguridad).
+// El vistazo a un `.xlsx` ANTES de abrirlo (HU #11676 en Conciliación; promovido a compartido por
+// el Bug #11682, que encontró el mismo agujero en los otros tres puntos de ingesta del monolito).
 //
 // Un `.xlsx` es un zip. `ExcelJS.xlsx.load(buffer)` descomprime y materializa el libro ENTERO en el
 // heap antes de que nadie pueda mirar cuántas filas trae, así que cualquier tope que se compruebe
 // sobre el libro ya cargado llega tarde: el daño —el heap y el event loop— ya está hecho.
 //
-// Medido en este repo con un reporte de 800 000 filas fabricado con el propio ExcelJS (9,0 MB, o
-// sea POR DEBAJO del `limits.fileSize` de 10 MB, con MIME correcto y magic number de xlsx legítimo):
+// Medido en este repo (Bug #11682) con un libro de 580 000 filas escrito por el propio ExcelJS
+// —10 016 899 bytes, o sea POR DEBAJO del `limits.fileSize` de 10 MB, con MIME correcto y magic
+// number de xlsx legítimo, y 122 MB descomprimidos por dentro—, subido a las rutas reales:
 //
-//   · `load` tarda 13,7 s con el event loop bloqueado y deja +1215 MB de heap / 1,7 GB de RSS.
-//   · Con `--max-old-space-size=1024` no lanza una excepción: es `FATAL ERROR: Reached heap limit`,
-//     que ningún `try/catch` atrapa. Se muere el proceso entero de la API, no la petición.
+//   · `POST /api/vehicles/upload`        → 32,5 s bloqueado, +2553 MB de heap, RSS 3060 MB
+//   · `POST /api/soat/batch-validate`    → 26,5 s bloqueado, +1925 MB de heap … para luego contestar
+//                                          «Máximo 200 VINs por lote»: el tope se miraba DESPUÉS
+//   · `POST /api/soat/upload-purchases`  → 20,7 s bloqueado, +1418 MB de heap
+//
+// Con el heap acotado a 512 MB las tres mueren igual: `FATAL ERROR: Ineffective mark-compacts near
+// heap limit`, que ningún `try/catch` atrapa. Se muere el proceso entero de la API, no la petición.
 //
 // Este módulo contesta «¿cuánto pesa esto por dentro?» sin abrir el libro, en dos pasadas:
 //
 //   1. **Cabeceras.** El directorio central del zip declara el tamaño descomprimido de cada entrada.
 //      Leerlo es aritmética sobre unos cientos de bytes al final del archivo: no descomprime nada.
-//      Ahí muere el caso real —el de 800 000 filas declara 105 MB de `sheet1.xml`— en microsegundos.
+//      Ahí muere el caso real —el de 580 000 filas declara 122 MB— en microsegundos.
 //   2. **Datos.** Las cabeceras las escribe quien fabrica el zip, o sea que MIENTEN si el atacante
 //      quiere: un zip puede declarar 1 KB y traer 200 MB de deflate. Por eso, cuando las cabeceras
 //      pasan, se inflan las entradas con `maxOutputLength` como presupuesto duro. zlib corta en
 //      cuanto se pasa (`ERR_BUFFER_TOO_LARGE`) y devuelve el control sin haber materializado el
-//      resto. El coste está acotado por el propio presupuesto y para un reporte de verdad —25 KB
-//      descomprimidos— es ruido.
+//      resto. El coste está acotado por el propio presupuesto.
 //
 // Después de esto, `load` recibe un archivo del que YA se sabe que no pasa de `maxBytes` inflado.
 // Lo que este módulo NO hace: entender xlsx. No lee XML, no sabe qué es una hoja más allá del
 // nombre de la entrada, y no valida nada de negocio. Eso sigue siendo cosa del parser.
+//
+// Tampoco decide QUÉ límites ni QUÉ error: devuelve un dato. Cada consumidor pone su techo (que
+// depende de cuántas filas admite SU flujo) y traduce el resultado a su propio HTTP y su propio
+// copy. Aquí no se sabe nada de eso a propósito: es lo que permite que lo compartan Conciliación,
+// vehículos y SOAT sin que ninguno arrastre los códigos de error de otro.
 
 import zlib from 'zlib';
 import { promisify } from 'util';
@@ -58,7 +68,7 @@ export interface LimitesZip {
   maxBytes: number;
   /** Hojas (`xl/worksheets/…`) que se toleran. */
   maxHojas: number;
-  /** Entradas del zip que se toleran. El reporte del portal trae diez. */
+  /** Entradas del zip que se toleran. Un libro de una hoja escrito por ExcelJS trae dieciséis. */
   maxEntradas: number;
 }
 
@@ -69,13 +79,19 @@ export interface LimitesZip {
  *   ok           — cabe: `bytes` es lo que de verdad ocupa descomprimido
  *   ilegible     — no es un zip que se pueda recorrer, o usa un método de compresión ajeno
  *   excede       — se pasa del presupuesto. `segun` dice si lo delataron sus cabeceras o sus datos
- *   estructura   — demasiadas hojas o demasiadas entradas para ser el reporte del portal
+ *   estructura   — demasiadas hojas o demasiadas entradas para el libro que el flujo espera
  */
 export type MedidaXlsx =
   | { estado: 'ok'; entradas: number; hojas: number; bytes: number }
   | { estado: 'ilegible' }
   | { estado: 'excede'; bytes: number; segun: 'cabeceras' | 'datos' }
   | { estado: 'estructura'; entradas: number; hojas: number };
+
+/**
+ * El subconjunto de `MedidaXlsx` que obliga a rechazar el archivo. Se nombra aparte para que la
+ * firma de quien traduce el resultado no admita un `ok` por descuido.
+ */
+export type RechazoXlsx = Exclude<MedidaXlsx, { estado: 'ok' }>;
 
 interface EntradaCentral {
   nombre: string;

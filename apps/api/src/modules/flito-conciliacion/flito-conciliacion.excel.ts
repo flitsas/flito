@@ -30,7 +30,7 @@ import {
   CONCILIACION_COLUMNA_POLIZA, CONCILIACION_COLUMNA_TOTAL, CONCILIACION_HOJA,
   CodigoErrorConciliacion, normalizarPoliza, POLIZA_MAX_LONGITUD,
 } from '@operaciones/shared-types';
-import { medirXlsx, type LimitesZip } from './flito-conciliacion.zip.js';
+import { medirXlsx, type LimitesZip } from '../../shared/utils/xlsx-zip.js';
 
 /** Una fila de datos ya leída y normalizada. Es todo lo que el cruce necesita del archivo. */
 export interface FilaBoleta {
@@ -243,7 +243,7 @@ function mb(bytes: number): string {
 /**
  * El portero: mira el zip por fuera y decide si se puede abrir. Lanza si no.
  *
- * Todo el porqué está en `flito-conciliacion.zip.ts`. Lo que importa aquí es el ORDEN: esto corre
+ * Todo el porqué está en `shared/utils/xlsx-zip.ts`. Lo que importa aquí es el ORDEN: esto corre
  * ANTES de `wb.xlsx.load`, que es la línea que descomprime y materializa el libro entero.
  */
 async function revisarZip(buffer: Buffer, limites: LimitesZip, maxFilas: number): Promise<void> {
