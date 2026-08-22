@@ -293,7 +293,16 @@ body {
 .flit-shell-muted { color: var(--flit-text-muted); }
 .flit-shell-primary { color: var(--flit-text-primary); }
 .flit-shell-secondary { color: var(--flit-text-secondary); }
-.flit-shell-accent { color: var(--flit-blue); }
+/* Bug #11767 — era --flit-blue (#4F74C9), que en el kit es un color de SUPERFICIE: cumple el 3:1
+   de elementos gráficos, no el 4,5:1 de texto. Y esta regla sólo pinta TEXTO (la tecla ↵ del ítem
+   activo, a 10px). El #11720 lo dio por bueno en 4,49 «sobre el fondo claro que ese kbd tenía»,
+   pero ese fondo era el `bg-white` que ese mismo bug demostró muerto: lo que pinta la tecla es
+   `.flit-shell-sunken` (#EAF2FF), y ahí #4F74C9 se queda en 3,99.
+   --flit-blue-text es el token que el kit creó para esto y se eligió midiendo contra ESTE fondo
+   (--flit-bg-app): 4,64 sobre la tecla. La distinción superficie/tinta es la misma que ya resolvió
+   el Bug #11604 con los tokens `-ink`. El tema oscuro no se ve afectado: tiene su propio override
+   más abajo (#8fb0f0). */
+.flit-shell-accent { color: var(--flit-blue-text); }
 .flit-shell-nav {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--flit-border-soft);
@@ -319,6 +328,21 @@ body {
   background: rgba(255, 255, 255, 0.98);
   border: 1px solid var(--flit-border-soft);
   box-shadow: var(--flit-shadow-card);
+}
+/* Bug #11767 — el `::placeholder` del buscador en tema CLARO.
+   Nadie lo pintaba: hasta el retrabajo del #11720 el input llevaba `placeholder:flit-shell-muted`,
+   que NO es una utilidad de Tailwind y jamás generó regla, así que decidía el preflight
+   (`color-mix(in oklab, currentcolor 50%, transparent)`). Y `currentcolor` ahí es la tinta del
+   input —`flit-shell-primary`, #162744—, que al 50 % sobre la barra #EAF2FF compone #808DA1: 2,98,
+   el peor punto de toda la paleta. Un placeholder «gris claro» que en realidad es el texto a media
+   tinta: se ve pálido porque está a medias, no porque alguien eligiera ese gris.
+   --flit-text-muted es justo el token para esto y su valor se eligió midiendo contra este mismo
+   fondo (Bug #11604): 4,55 sobre la barra, el mismo ratio con el que ya se leen a su lado el icono
+   de la lupa y las teclas. `opacity: 1` neutraliza el reset de Firefox del preflight.
+   El tema oscuro tiene su propia regla (0,2,1) y le gana a ésta (0,1,1): no se toca. */
+.flit-shell-palette ::placeholder {
+  color: var(--flit-text-muted);
+  opacity: 1;
 }
 [data-theme='dark'] .flit-shell-palette {
   background: rgba(22, 39, 68, 0.96);
@@ -372,8 +396,8 @@ body {
 /* El placeholder del buscador no lo pintaba `placeholder:flit-shell-muted` —no es una utilidad
    de Tailwind y nunca generó regla—, sino el preflight, que usa currentColor al 50 %: blanco a
    medias sobre la barra, 4,41. El gate lo daba por `muted` y por bueno, y axe no mira los
-   placeholders. En tema CLARO se queda como está (currentColor al 50 %, ~2,9): es deuda previa
-   a este bug y de otro tema, se reporta aparte en vez de repintarla a ciegas desde aquí. */
+   placeholders. En tema CLARO quedó fuera de alcance («deuda previa, se reporta aparte») y esa
+   deuda es el Bug #11767, ya cerrado: su regla vive arriba, sin prefijo de tema. */
 [data-theme='dark'] .flit-shell-palette ::placeholder {
   color: #93a0b5;
   opacity: 1;
@@ -385,9 +409,11 @@ body {
 [data-theme='dark'] .flit-shell-palette .flit-shell-muted { color: #93a0b5; }
 [data-theme='dark'] .flit-shell-palette .flit-shell-secondary { color: #a9b4c6; }
 [data-theme='dark'] .flit-shell-palette .flit-shell-primary { color: #ffffff; }
-/* El acento solo pinta texto en el `kbd` ↵ del ítem activo. Sobre el fondo claro que ese `kbd`
-   tenía, --flit-blue daba 4,49; sobre el oscuro de arriba se quedaría en 3,2. Con la tecla ya
-   oscurecida, este hex llega a 6,4 sobre ella. */
+/* El acento solo pinta texto en el `kbd` ↵ del ítem activo. Sobre el oscuro de arriba, --flit-blue
+   se quedaría en 3,2; con la tecla ya oscurecida, este hex llega a 6,4 sobre ella.
+   (Aquel «--flit-blue daba 4,49 sobre el fondo claro que ese kbd tenía» era falso y lo corrigió el
+   Bug #11767: los 4,49 se medían contra el `bg-white` MUERTO, no contra el #EAF2FF que pinta de
+   verdad, donde daba 3,99. En claro el acento es ahora --flit-blue-text.) */
 [data-theme='dark'] .flit-shell-palette .flit-shell-accent { color: #8fb0f0; }
 
 /* Componentes FLIT — sustitutos Aura en BatchValidator, ExpedienteVisor, etc. */

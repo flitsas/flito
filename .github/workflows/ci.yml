@@ -47,11 +47,13 @@ jobs:
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
-      # Bug #11720 — contraste de la CommandPalette en tema oscuro. Va aquí, junto al resto
-      # de guardas que solo leen fuentes, porque el CI NO ejecuta E2E y `axe` no es dependencia
-      # del repo: sin este paso, que el ítem activo vuelva a ser invisible en oscuro no lo
-      # detectaría nadie hasta que lo reporte una persona.
-      - name: Contraste CommandPalette (dark)
+      # Bug #11720 (oscuro) · Bug #11767 (claro) — contraste de la CommandPalette en LOS DOS
+      # temas. Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI NO ejecuta
+      # E2E y `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser
+      # invisible en oscuro —o que el placeholder vuelva al 50 % del preflight en claro— no lo
+      # detectaría nadie hasta que lo reporte una persona. El tema claro es el de por defecto y
+      # estuvo sin cubrir hasta el #11767: el gate medía sólo el minoritario.
+      - name: Contraste CommandPalette (claro + oscuro)
         run: npm run check:contraste
 
       # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
