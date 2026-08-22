@@ -266,6 +266,10 @@ const filaRegistro = (over: Record<string, unknown> = {}) => ({
   organismo: 'Secretaría de Medellín',
   monto: '604100.00',
   estadoFuente: 'Pendiente de pago',
+  // HU #11712: por defecto la fila existente es un COMPARENDO (sin resolución). Los casos de multa
+  // las ponen con `filaRegistro({ numeroResolucion: … })`.
+  numeroResolucion: null,
+  idResolucion: null,
   ...over,
 });
 
@@ -461,6 +465,34 @@ describe('POST /sync — pool de llamadas municipales', () => {
   });
 });
 
+/**
+ * Registra las PROYECCIONES de los `select` que se hagan a partir de aquí.
+ *
+ * El mock keyed responde por tabla y **ignora la proyección**, así que ninguna aserción sobre las
+ * filas devueltas puede distinguir «la consulta pidió esta columna» de «el mock la trajo igual».
+ * Para las columnas cuyo valor se USA para decidir —las de resolución, de las que sale el tercer
+ * escalón de RN-13— esa diferencia es la que separa un test que vigila de uno que acompaña.
+ *
+ * Se instala dentro del `it` y después de `escenario()`, porque el `beforeEach` reinstala el mock.
+ */
+function espiarProyecciones(): string[][] {
+  const proyecciones: string[][] = [];
+  const base = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
+  kdb.select.mockImplementation((...args: unknown[]) => {
+    if (args[0] !== null && typeof args[0] === 'object') proyecciones.push(Object.keys(args[0] as object));
+    return base(...args);
+  });
+  return proyecciones;
+}
+
+/** El MAPA de arriba + los candidatos de resolución que siembra la v3 (0160, HU #11712). */
+const MAPA_CON_RESOLUCION = [
+  ...MAPA,
+  { version: 1, origen: 'simit', sourcePath: 'numeroResolucion', targetField: 'numeroResolucion', prioridad: 1, provisional: true },
+  { version: 1, origen: 'simit', sourcePath: 'idResolucion', targetField: 'idResolucion', prioridad: 1, provisional: true },
+  { version: 1, origen: 'municipal', sourcePath: 'nroResolucion', targetField: 'numeroResolucion', prioridad: 1, provisional: true },
+];
+
 // ─────────────────────────── AC2 · Merge y unicidad ─────────────────────────────────────────────
 
 describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
@@ -603,6 +635,92 @@ describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
 
     expect(r.body.resumen.itemsIgnorados).toBe(1);
     expect(insertsEn('flito_comparendos_registros')).toHaveLength(1);
+  });
+});
+
+// ─────────────── Comparendo o multa: lo que de verdad llega a la base (HU #11712) ────────────────
+//
+// El merge lo decide y estos tests miran el otro extremo: lo que viaja al INSERT y al UPDATE. Es lo
+// que ningún test de `resolverCampos` puede afirmar, porque entre una cosa y la otra están la
+// proyección de `FilaExistente` y el `set()` del UPDATE — y es justo ahí donde una columna que no se
+// LEE convierte la regla monótona en una regresión silenciosa.
+
+describe('POST /sync — tipo de registro y resolución (HU #11712)', () => {
+  it('un comparendo sin resolución se inserta como `comparendo`, no como `null`', async () => {
+    escenario({ mapa: MAPA_CON_RESOLUCION });
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.tipoRegistro).toBe('comparendo');
+    expect(insertado.numeroResolucion).toBeNull();
+    expect(insertado.idResolucion).toBeNull();
+  });
+
+  it('**el que SÍ trae resolución se inserta como `multa`, con su número**', async () => {
+    escenario({ mapa: MAPA_CON_RESOLUCION });
+    simitMock.mockImplementation(async () => respuestaSimit([{
+      ...ITEM_SIMIT, numeroResolucion: 'RES-2026-4471', idResolucion: '115697134',
+    }]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.tipoRegistro).toBe('multa');
+    expect(insertado.numeroResolucion).toBe('RES-2026-4471');
+    expect(insertado.idResolucion).toBe('115697134');
+  });
+
+  it('**la que solo la trae el MUNICIPAL también sube a multa**: el silencio de SIMIT no la niega', async () => {
+    escenario({ mapa: MAPA_CON_RESOLUCION });
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      respuestaMunicipal(fuente, [{ ...ITEM_MUNICIPAL, nroResolucion: 'RES-UTS-9' }]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.tipoRegistro).toBe('multa');
+    expect(insertado.numeroResolucion).toBe('RES-UTS-9');
+  });
+
+  it('**una fila que ya era multa NO regresa a comparendo porque hoy nadie mande el campo**', async () => {
+    // La regresión que este diseño existe para impedir, mirada desde el UPDATE.
+    escenario({
+      mapa: MAPA_CON_RESOLUCION,
+      existentes: [filaRegistro({ numeroResolucion: 'RES-VIEJA', vistoEnMunicipal: true })],
+    });
+    const proyecciones = espiarProyecciones();
+
+    await sync();
+
+    expect(insertsEn('flito_comparendos_registros')).toHaveLength(0);
+    const actualizado = updatesEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(actualizado.numeroResolucion).toBe('RES-VIEJA');
+    expect(actualizado.tipoRegistro).toBe('multa');
+
+    // Y la mitad que el mock no puede demostrar por sí sola: la lectura previa PIDE las dos columnas
+    // de resolución. El mock devuelve la fila registrada haya o no proyección, así que sin esta
+    // aserción se podría borrar `numero_resolucion` del `select` y el test seguiría verde mientras
+    // producción degrada cada multa a comparendo en la primera corrida. Comprobado: es exactamente
+    // el mutante que sobrevivía.
+    expect(proyecciones.some((p) => p.includes('numeroResolucion'))).toBe(true);
+    expect(proyecciones.some((p) => p.includes('idResolucion'))).toBe(true);
+    // Y NO pide `tipo_registro`: se deriva, y leerlo dejaría que el valor viejo pesara sobre el nuevo.
+    expect(proyecciones.some((p) => p.includes('tipoRegistro'))).toBe(false);
+  });
+
+  it('con el mapa SIN candidatos de resolución la fila nace comparendo y sin resolución', async () => {
+    // El mapa v2 (el que había antes de la 0160). Es coherente con el CHECK —sin resolución, el tipo
+    // solo puede ser `comparendo`— y es la razón por la que la v3 se siembra en la MISMA migración
+    // que crea las columnas: una base capaz de guardar `tipo_registro` es una base cuyo mapa máximo
+    // pregunta por la resolución.
+    escenario();
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.tipoRegistro).toBe('comparendo');
+    expect(insertado.numeroResolucion).toBeNull();
   });
 });
 

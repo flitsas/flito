@@ -43,6 +43,13 @@ export interface ComparendoCrudoSimit {
   monto?: string | number;
   estado?: string;
   estadoCartera?: string;
+  estadoPago?: string;
+  // Resolución (HU #11712). Los dos llegan **nulos mientras el registro sigue siendo un comparendo**
+  // y con valor cuando ya es multa, y por eso se declaran `| null` y no solo opcionales: aquí la
+  // diferencia entre «no vino la clave» y «vino en null» es la que el proveedor usa para hablar.
+  // `idResolucion` es un identificador de SISTEMA (`'115697134'`), no el número legible.
+  numeroResolucion?: string | null;
+  idResolucion?: string | null;
   [clave: string]: unknown;
 }
 
@@ -63,6 +70,17 @@ export interface ComparendoCrudoMunicipal {
   valor?: string | number;
   monto?: string | number;
   estado?: string;
+  estadoPago?: string;
+  // Resolución (HU #11712). El UTS la nombra `nroResolucion`, verificado contra el proveedor real;
+  // `numeroResolucion` es el respaldo simétrico con el nombre largo de SIMIT, no observado aquí.
+  //
+  // `fechaResolucion` se declara y **no se mapea a nada**: el ítem real de Medellín la trae con
+  // valor (`'2026-09-22'`) y `nroResolucion` en `null` a la vez, así que usarla como señal del tipo
+  // fabricaría multas. Está aquí para que quien lea este archivo sepa que existe y por qué se
+  // ignora, que es más barato que volver a descubrirlo.
+  nroResolucion?: string | null;
+  numeroResolucion?: string | null;
+  fechaResolucion?: string | null;
   [clave: string]: unknown;
 }
 

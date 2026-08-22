@@ -77,6 +77,12 @@ const HACE_TIEMPO = new Date('2026-08-01T07:00:00.000Z');
  * El dato personal que los payloads del proveedor llevan dentro y que ninguna respuesta puede
  * mostrar. Es una cadena reconocible a propósito: si algún día sale, el fallo se lee solo.
  */
+/**
+ * `id_resolucion` de la fila (HU #11712): identificador de SISTEMA del proveedor, que se guarda para
+ * deducir el tipo y **no se publica**. Es un centinela como el de la cédula: si algún día alguien
+ * añade la columna a `COLUMNAS_REGISTRO` «por simetría», sale por aquí.
+ */
+const ID_RESOLUCION_INTERNO = '115697134';
 const CEDULA_EN_PAYLOAD = 'cedula-del-propietario-1032456789';
 
 async function buildApp() {
@@ -121,6 +127,12 @@ const fila = (over: Record<string, unknown> = {}) => ({
   municipioFuente: 'BELLO',
   monto: '604100.00',
   estadoFuente: 'PENDIENTE',
+  // HU #11712. La fila base es una MULTA con sus dos columnas de resolución puestas —incluida
+  // `idResolucion`, que la base SÍ tiene y el API NO publica—: así el centinela de abajo puede
+  // demostrar que no sale, en vez de pasar por no estar.
+  tipoRegistro: 'multa',
+  numeroResolucion: 'RES-2026-4471',
+  idResolucion: ID_RESOLUCION_INTERNO,
   origenMerge: 'ambos',
   vistoEnSimit: true,
   vistoEnMunicipal: true,
@@ -449,6 +461,8 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       municipioFuente: 'BELLO',
       monto: '604100.00',
       estadoFuente: 'PENDIENTE',
+      tipoRegistro: 'multa',
+      numeroResolucion: 'RES-2026-4471',
       origenMerge: 'ambos',
       vistoEnSimit: true,
       vistoEnMunicipal: true,
@@ -484,6 +498,31 @@ describe('GET /registros — la forma de lo que devuelve', () => {
     expect(r.body.items[0]).not.toHaveProperty('payloadSimit');
     expect(r.body.items[0]).not.toHaveProperty('payloadMunicipal');
     expect(JSON.stringify(r.body)).not.toContain(CEDULA_EN_PAYLOAD);
+  });
+
+  it('**publica `tipoRegistro` y `numeroResolucion`, y NO `idResolucion`** (HU #11712)', async () => {
+    kdb.when.select(TABLA, [fila()]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.body.items[0].tipoRegistro).toBe('multa');
+    expect(r.body.items[0].numeroResolucion).toBe('RES-2026-4471');
+    // El id de resolución no se pide a la base ni sale a la respuesta: no es legible para nadie
+    // fuera del proveedor y su único uso —saber si la fila ya es multa— ya viaja en `tipoRegistro`.
+    expect(listado().proyeccion).not.toContain('idResolucion');
+    expect(r.body.items[0]).not.toHaveProperty('idResolucion');
+    expect(JSON.stringify(r.body)).not.toContain(ID_RESOLUCION_INTERNO);
+  });
+
+  it('un `tipoRegistro` NULO se publica como `null`, no como «comparendo» (HU #11712)', async () => {
+    // Es el histórico anterior a la 0160: «no se sabe». Traducirlo aquí a un valor por defecto lo
+    // convertiría en un dato verificado que nadie va a volver a comprobar (CF-10).
+    kdb.when.select(TABLA, [fila({ tipoRegistro: null, numeroResolucion: null, idResolucion: null })]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.body.items[0].tipoRegistro).toBeNull();
+    expect(r.body.items[0].numeroResolucion).toBeNull();
   });
 
   it('el `monto` viaja como CADENA: `numeric(14,2)` por un `double` pierde el último centavo', async () => {

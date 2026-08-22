@@ -61,6 +61,18 @@ export const RECURSO_NIT = 'flito_comparendos_nit';
  * `nit_monitoreado` es PII cuando el NIT es de una persona natural, y `placa` identifica
  * indirectamente al propietario — las dos lo dicen los COMMENT de la 0150. El resto del canónico
  * (código de infracción, monto, organismo) describe la infracción, no a una persona.
+ *
+ * **`numero_resolucion` y `tipo_registro` (HU #11712) NO entran, y siguen el criterio de
+ * `numero_comparendo`, no el del párrafo de arriba.** Decir que una resolución «identifica un acto
+ * administrativo y no a una persona» no se sostiene en abstracto: es una llave de consulta hacia el
+ * registro que el organismo de tránsito tiene del caso, igual que la placa, que aquí SÍ está
+ * declarada como PII indirecta. Lo que decide es otra cosa: **no añade vinculabilidad sobre lo que
+ * la fila ya publica**, porque `numero_comparendo` es la misma clase de llave hacia el mismo
+ * registro y ya viaja en el listado y en el Excel. La resolución no abre una puerta nueva: abre la
+ * misma. Y `tipo_registro` son dos valores derivados de ella, que no dicen nada de nadie.
+ *
+ * Corolario para quien añada una columna al listado o al export: la pregunta no es «¿esto es un dato
+ * de persona?», es «¿esto amplía lo que ya se puede averiguar con lo que la respuesta ya entrega?».
  */
 export const CAMPOS_PII_REGISTRO = ['nit_monitoreado', 'placa'] as const;
 

@@ -205,6 +205,20 @@ export type ComparendosRegistroEstado = 'activo' | 'inactivo';
 export type ComparendosOrigenMerge = 'simit' | 'municipal' | 'ambos';
 
 /**
+ * Qué es la fila HOY ante la autoridad: un comparendo, o la multa en que ese comparendo se
+ * convirtió (HU #11712).
+ *
+ * Los dos endpoints devuelven las dos cosas en la misma lista y lo que las distingue es el número
+ * de resolución: sin resolución sigue siendo comparendo, con resolución ya es multa. Lo deriva el
+ * merge de lo que dijeron las fuentes; **no lo dice ningún campo del proveedor** y no se puede
+ * inferir de `estadoFuente`, que es texto crudo sin normalizar.
+ *
+ * El tipo se usa siempre junto a su `| null`, y ese `null` es la mitad importante del contrato —ver
+ * {@link ComparendoRegistro.tipoRegistro}—.
+ */
+export type ComparendosTipoRegistro = 'comparendo' | 'multa';
+
+/**
  * Un comparendo consolidado, tal como lo devuelven `GET /registros` y `POST /registros/buscar`
  * (CF-09). Las dos rutas devuelven exactamente esta forma; lo único que cambia entre ellas es por
  * dónde entran los filtros de identidad.
@@ -236,8 +250,43 @@ export interface ComparendoRegistro {
   /** `codigoFuente` del municipio donde se vio, o `null` si solo lo reportó SIMIT. */
   municipioFuente: string | null;
   monto: string | null;
-  /** Estado que reporta el proveedor, tal cual. Texto libre: no se enumera ni se traduce. */
+  /**
+   * Estado que reporta el proveedor, tal cual. Texto libre: no se enumera ni se traduce.
+   *
+   * Desde el mapa v3 (HU #11712) la cadena de candidatos cruza tres vocabularios del proveedor
+   * —comparendo, cartera y pago—, así que dos filas pueden traer estados de vocabularios distintos.
+   * Sigue siendo texto crudo y **no sirve para saber si la fila es comparendo o multa**: para eso
+   * está {@link ComparendoRegistro.tipoRegistro}.
+   */
   estadoFuente: string | null;
+  /**
+   * Comparendo o multa, o **`null` = «no se sabe»** (HU #11712).
+   *
+   * `null` NO significa «comparendo» y no se puede pintar como tal: es lo que devuelve todo el
+   * histórico anterior a la migración 0160, cuyo dato no está en ninguna parte —los payloads crudos
+   * ya se podaron a la lista blanca (RN-25) y ninguna versión anterior del mapa nombraba la
+   * resolución, así que tampoco se puede reconstruir—. Y no se va a arreglar solo: las filas
+   * `inactivo` ya no las visita ningún sync (CF-10).
+   *
+   * Consecuencia vinculante para el visor: `null` se muestra como «sin dato», no suma a ningún
+   * contador de comparendos y un filtro por tipo no lo incluye en ninguno de los dos valores.
+   */
+  tipoRegistro: ComparendosTipoRegistro | null;
+  /**
+   * Número de la resolución que convirtió el comparendo en multa, o `null` mientras sigue siendo
+   * comparendo (y en todo el histórico anterior a la 0160).
+   *
+   * **No es literal de la fuente**: viaja normalizado como los demás códigos del canónico —sin
+   * espacios de sobra, en MAYÚSCULAS y recortado a 60 caracteres—, así que no sirve para comparar
+   * byte a byte contra el portal del organismo. Se recorta, y se puede, porque no es llave de nada:
+   * a diferencia de `numeroComparendo`, ningún join ni unicidad depende de él.
+   *
+   * Es el dato del que se deriva `tipoRegistro`, así que los dos no pueden contradecirse: la base lo
+   * sostiene con un CHECK. Lo que **no** viaja aquí es el `id_resolucion` del proveedor: es un
+   * identificador de sistema (`115697134`), no es legible para nadie fuera de él, y publicarlo solo
+   * daría una segunda columna que nadie sabría leer.
+   */
+  numeroResolucion: string | null;
   origenMerge: ComparendosOrigenMerge;
   vistoEnSimit: boolean;
   vistoEnMunicipal: boolean;

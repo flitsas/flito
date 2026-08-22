@@ -118,6 +118,11 @@ const COLUMNAS_REGISTRO = {
   municipioFuente: flitoComparendosRegistros.municipioFuente,
   monto: flitoComparendosRegistros.monto,
   estadoFuente: flitoComparendosRegistros.estadoFuente,
+  // HU #11712. `id_resolucion` NO sale por aquí y no es un olvido: es un identificador de sistema
+  // del proveedor, ilegible fuera de él, y su único uso —saber si la fila ya es multa— ya viaja
+  // resuelto en `tipoRegistro`. Publicarlo daría una segunda columna que nadie sabría leer.
+  tipoRegistro: flitoComparendosRegistros.tipoRegistro,
+  numeroResolucion: flitoComparendosRegistros.numeroResolucion,
   origenMerge: flitoComparendosRegistros.origenMerge,
   vistoEnSimit: flitoComparendosRegistros.vistoEnSimit,
   vistoEnMunicipal: flitoComparendosRegistros.vistoEnMunicipal,
@@ -181,6 +186,10 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     municipioFuente: f.municipioFuente,
     monto: f.monto,
     estadoFuente: f.estadoFuente,
+    // `null` se publica tal cual: es «no se sabe» y NO «comparendo» (HU #11712). Traducirlo aquí a
+    // un valor por defecto convertiría el histórico anterior a la 0160 en un dato verificado.
+    tipoRegistro: f.tipoRegistro,
+    numeroResolucion: f.numeroResolucion,
     origenMerge: f.origenMerge,
     vistoEnSimit: f.vistoEnSimit,
     vistoEnMunicipal: f.vistoEnMunicipal,
