@@ -20,10 +20,35 @@
 import ts from 'typescript';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const PROPIO = fileURLToPath(import.meta.url);
 
 const ROOT = process.cwd();
 const args = process.argv.slice(2);
 const targets = args.length ? args : ['apps/web/src'];
+
+// Recuento versionado de llamadas a getDocument(). NO es cosmético: sin él, «0 llamadas
+// encontradas» contaría como éxito y el gate se saltaría solo. El reconocimiento es sintáctico —
+// busca el NOMBRE `getDocument`— así que cualquier forma de escribir la llamada que no mencione ese
+// identificador deja el escáner a cero y el CI en verde sobre visores sin mitigar. Cuatro maneras de
+// caer en eso sin mala intención:
+//
+//   1. `import { getDocument as gd } from 'pdfjs-dist'` … `gd({ data })`
+//   2. `pdfjsLib['getDocument']({ data })`                        (acceso por string)
+//   3. `const { getDocument: cargar } = await import('pdfjs-dist')`  ← la más probable:
+//      el código YA usa `await import('pdfjs-dist')`, así que desestructurar con alias es el
+//      siguiente paso natural para alguien que sólo quiere acortar una línea.
+//   4. un visor nuevo en .js/.jsx/.mjs cuando el escáner sólo miraba .ts/.tsx (ya corregido arriba,
+//      pero el recuento lo cubre igual si mañana aparece otra extensión).
+//
+// El recuento falla en LAS DOS direcciones a propósito:
+//   · si BAJA  → alguien escondió una llamada tras un alias, o borró un visor.
+//   · si SUBE  → hay un visor nuevo; que un humano confirme que lleva la mitigación y suba el número.
+// Ese segundo caso es el que convierte esto en función de forzado y no en un contador.
+//
+// Actualizar este número es parte legítima del trabajo de añadir o quitar un visor PDF.
+const ESPERADAS = 5;
 
 /** ¿Es una llamada a `getDocument(...)` o `algo.getDocument(...)`? */
 function nombreLlamada(node) {
@@ -78,12 +103,24 @@ function recorrer(node, sf) {
   node.forEachChild((c) => recorrer(c, sf));
 }
 
+// Se escanean también .js/.jsx/.mjs/.cjs: hoy no hay ninguno bajo apps/web/src, pero un gate no
+// debe depender de que eso siga siendo cierto — un visor nuevo en .jsx sería invisible.
+const ESCANEABLE = /\.(tsx?|jsx?|mjs|cjs)$/;
+
 function* fuentes(dir) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) yield* fuentes(full);
-    else if (/\.tsx?$/.test(entry) && !/\.d\.ts$/.test(entry)) yield full;
+    else if (ESCANEABLE.test(entry) && !/\.d\.ts$/.test(entry)) yield full;
   }
+}
+
+/** El parser de TS necesita saber si el archivo admite JSX; si no, `<T>` se lee mal. */
+function scriptKind(file) {
+  if (/\.tsx$/.test(file)) return ts.ScriptKind.TSX;
+  if (/\.ts$/.test(file)) return ts.ScriptKind.TS;
+  if (/\.jsx$/.test(file)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
 }
 
 let archivos = 0;
@@ -95,22 +132,50 @@ for (const t of targets) {
   for (const file of fuentes(t)) {
     archivos++;
     const src = readFileSync(file, 'utf8');
-    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, scriptKind(file));
     recorrer(sf, sf);
   }
 }
 
 console.log(
-  `check:pdfjs-eval · ${archivos} archivo(s) .ts/.tsx en ${targets.join(', ')} — ${llamadas} llamada(s) a getDocument()`,
+  `check:pdfjs-eval · ${archivos} archivo(s) en ${targets.join(', ')} — ${llamadas} llamada(s) a getDocument() (esperadas: ${ESPERADAS})`,
 );
 
+let fallo = false;
+
 if (violaciones.length > 0) {
+  fallo = true;
   console.error('\n✗ CVE-2024-4367 (GHSA-wgrm-67xf-hhpq) sin mitigar:');
   for (const v of violaciones) console.error(`  ✗ ${relative(ROOT, v.file)}:${v.line}  ${v.msg}`);
   console.error(
     `\n${violaciones.length} llamada(s) sin mitigar. Añade \`isEvalSupported: false\` al objeto de opciones de getDocument().`,
   );
-  process.exit(1);
 }
 
-console.log('✓ Todas las llamadas a getDocument() llevan `isEvalSupported: false` (CVE-2024-4367 mitigado).');
+if (llamadas !== ESPERADAS) {
+  fallo = true;
+  const bajaron = llamadas < ESPERADAS;
+  console.error(
+    `\n✗ Recuento de llamadas a getDocument(): ${llamadas}, esperadas ${ESPERADAS} (ESPERADAS en ${relative(ROOT, PROPIO)}).`,
+  );
+  if (bajaron) {
+    console.error(
+      '  El escáner reconoce la llamada por el NOMBRE `getDocument`. Que falte alguna suele significar\n' +
+        '  una de dos cosas:\n' +
+        '   · se renombró al importarla —`{ getDocument as gd }`, `{ getDocument: cargar }`, `obj[\'getDocument\']`—\n' +
+        '     y entonces HAY visores sin verificar aunque este gate no los vea: deshaz el alias o amplía el escáner;\n' +
+        '   · o se eliminó un visor de verdad, y entonces basta con bajar ESPERADAS.',
+    );
+  } else {
+    console.error(
+      '  Hay llamadas nuevas a getDocument(). Comprueba que TODAS llevan `isEvalSupported: false`\n' +
+        '  y sube ESPERADAS a ' + llamadas + ' en el mismo commit que añade el visor.',
+    );
+  }
+}
+
+if (fallo) process.exit(1);
+
+console.log(
+  `✓ Las ${llamadas} llamadas a getDocument() llevan \`isEvalSupported: false\` (CVE-2024-4367 mitigado).`,
+);
