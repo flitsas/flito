@@ -204,6 +204,12 @@ export interface AccesoCliente {
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */
 const MOTIVO_MAX = 200;
 
+/** Lo que todo motivo dice antes de las parejas. Entra en el presupuesto; nunca se recorta. */
+const MOTIVO_PREFIJO = 'Lectura de fichas de cliente';
+
+/** Lo que separa el encabezado de las parejas. Cuenta como parte fija del presupuesto. */
+const MOTIVO_SEPARADOR = ' — ';
+
 /** Lo que cabe de un filtro en el motivo, ya enmascarado. `motivo` es `varchar(200)` en total. */
 const VALOR_MAX = 40;
 
@@ -240,6 +246,22 @@ const CLAVE_MAX = 40;
  *
  * Los caracteres de control se siguen colapsando a un espacio: dentro de las comillas ya no forjan
  * ninguna pareja, pero un `\n` en `motivo` seguiría partiendo el renglón de cualquier visor.
+ *
+ * ── Y el TAMAÑO se presupuesta por parejas, no recortando el resultado ──────────────────────────
+ *
+ * La primera versión de este formato ensamblaba la cadena entera y le aplicaba un
+ * `.slice(0, MOTIVO_MAX)` al final. El corte caía donde cayera: dentro de un valor entrecomillado,
+ * después de un `=`, o —el caso que encontró la auditoría— justo detrás de un número IMPAR de
+ * barras invertidas, dejando un escape partido (`… f11="\"\\`) y la comilla de cierre en ninguna
+ * parte. No forja nada —no queda nada después del corte que pueda leerse como pareja nueva— y no
+ * toca los contadores, que van primero; lo que hace es dejar malformado, para un parser estricto,
+ * justo el eslabón que este formato viene a endurecer. Un formato delimitado que se recorta a
+ * ciegas no es un formato delimitado.
+ *
+ * Se presupuesta ANTES de unir: cada pareja se añade si cabe entera, y la primera que no cabe corta
+ * la lista. Nunca hay un corte a mitad de pareja porque nunca hay un corte. El precio —perder el
+ * último filtro— es el correcto: `motivo` es un resumen y una pareja incompleta no informa de nada
+ * que la ausencia de la pareja no informe igual, sin mentirle al que parsea.
  */
 
 /**
@@ -260,9 +282,17 @@ function aplanar(texto: string): string {
  * El orden importa y por eso se deja escrito: se RECORTA antes de escapar. Al revés, el recorte
  * podría partir una secuencia de escape por la mitad y dejar la comilla de cierre fuera de sitio,
  * que es exactamente el hueco que este formato viene a cerrar.
+ *
+ * Y se descarta la mitad alta de un par sustituto que quede suelta al final. `slice` corta por
+ * unidades UTF-16, así que un valor de 39 caracteres seguido de un emoji deja aquí media pareja
+ * sustituta: sola no es un carácter, no la codifica UTF-8 y el driver la escribiría como `U+FFFD`
+ * dentro de un motivo que se quiere legible. No permite forjar nada —no cierra la comilla ni abre
+ * una pareja—, pero es el mismo defecto que la auditoría señaló arriba, un corte que parte algo
+ * indivisible, en el OTRO corte de este archivo; arreglar solo uno de los dos habría dejado la
+ * mitad del camino hecho por no mirar dos funciones más abajo.
  */
 function valorDelimitado(valor: string): string {
-  const plano = aplanar(valor).trim().slice(0, VALOR_MAX);
+  const plano = aplanar(valor).trim().slice(0, VALOR_MAX).replace(/[\uD800-\uDBFF]$/, '');
   return `"${plano.replace(/["\\]/g, '\\$&')}"`;
 }
 
@@ -308,8 +338,12 @@ function claveIdentificador(clave: string): string {
  *
  * Cada una se sanea según lo que ES: la clave a identificador, el valor entre comillas. El porqué
  * —y por qué colapsar el separador no bastaba— está arriba, con el formato de `motivo`.
+ *
+ * Devuelve la LISTA de parejas y no la cadena ya unida: quien presupuesta el tamaño necesita poder
+ * descartar una pareja entera, y para eso tiene que verlas separadas. Unirlas aquí obligaría a
+ * volver a partirlas por un espacio que dentro de las comillas es un carácter más.
  */
-function resumirFiltros(filtros: Record<string, unknown>): string {
+function resumirFiltros(filtros: Record<string, unknown>): string[] {
   const partes: string[] = [];
   for (const [claveCruda, valor] of Object.entries(filtros)) {
     if (valor === undefined || valor === null || valor === '') continue;
@@ -329,7 +363,63 @@ function resumirFiltros(filtros: Record<string, unknown>): string {
     const enmascarado = maskPII({ [claveCruda]: String(valor) })[claveCruda];
     partes.push(`${clave}=${valorDelimitado(String(enmascarado))}`);
   }
-  return partes.join(' ');
+  return partes;
+}
+
+/**
+ * Une las parejas en un `motivo` que cabe en `varchar(200)` **sin cortar ninguna por la mitad**.
+ *
+ * Es la corrección del escape partido que documenta el formato, aquí arriba. La regla es una: se
+ * suma pareja a pareja mientras quepan, y lo que no quepa no se escribe. El resultado nunca se
+ * recorta, así que ningún `\` ni ninguna comilla puede quedar a un lado del corte con su pareja al
+ * otro.
+ *
+ * **Se PARA en la primera que no cabe** en vez de seguir probando si alguna más corta entraría. Un
+ * motivo que se salta una pareja y escribe la siguiente parece completo y además reordena la lista,
+ * y quien lo lea no tiene cómo notarlo; parando, lo escrito es siempre un prefijo de lo real. Como
+ * los contadores del código van delante de los filtros —a propósito, para que un futuro
+ * `filtros: req.query` no pueda empujarlos fuera—, lo que se pierde es siempre filtro y nunca
+ * conteo.
+ *
+ * **Y que se perdió algo se dice**, con una marca `truncado=N` que cuenta las parejas descartadas.
+ * Un rastro recortado en silencio afirma que se buscó con dos filtros cuando fueron doce, y este
+ * archivo entero se sostiene sobre no dejar que el motivo diga de más ni de menos. Va sin comillas,
+ * como los demás contadores que pone el código: un filtro que se llamara igual saldría como
+ * `truncado="…"` y seguiría distinguiéndose por su forma. Hacerle sitio puede exigir sacar otra
+ * pareja, y sacarla sube la cuenta —de ahí el bucle y no una resta—.
+ */
+function componerMotivo(parejas: readonly string[]): string {
+  const presupuesto = MOTIVO_MAX - MOTIVO_PREFIJO.length - MOTIVO_SEPARADOR.length;
+  const cabidas: string[] = [];
+  let usado = 0;
+  let descartadas = 0;
+
+  for (const pareja of parejas) {
+    // El espacio que la separa de la anterior también ocupa, y solo lo hay si hay anterior.
+    const coste = pareja.length + (cabidas.length > 0 ? 1 : 0);
+    if (descartadas > 0 || usado + coste > presupuesto) { descartadas += 1; continue; }
+    cabidas.push(pareja);
+    usado += coste;
+  }
+
+  while (descartadas > 0) {
+    const marca = `truncado=${descartadas}`;
+    if (usado + marca.length + (cabidas.length > 0 ? 1 : 0) <= presupuesto) {
+      cabidas.push(marca);
+      break;
+    }
+    const quitada = cabidas.pop();
+    // Defensa de borde: hoy no puede pasar —la pareja más larga posible son 123 caracteres y el
+    // presupuesto son 169—, pero si un día no cabe ni una, el motivo se queda en su prefijo antes
+    // que en un `truncado=N` sin nada que truncar.
+    if (quitada === undefined) return MOTIVO_PREFIJO;
+    usado -= quitada.length + (cabidas.length > 0 ? 1 : 0);
+    descartadas += 1;
+  }
+
+  return cabidas.length > 0
+    ? `${MOTIVO_PREFIJO}${MOTIVO_SEPARADOR}${cabidas.join(' ')}`
+    : MOTIVO_PREFIJO;
 }
 
 /**
@@ -345,20 +435,24 @@ function resumirFiltros(filtros: Record<string, unknown>): string {
  * identidades, y encima append-only.
  */
 export async function registrarAccesoCliente(req: Request, acceso: AccesoCliente): Promise<void> {
-  const detalles = [
+  // Los contadores del código van ANTES que los filtros, y el orden es una garantía y no un gusto:
+  // el presupuesto se gasta por delante, así que lo que se pierde al truncar es siempre filtro. El
+  // día que alguien registre `req.query`, un caudal de filtros no podrá empujar `filas` fuera del
+  // motivo y hacer desaparecer cuántas fichas se leyeron de verdad.
+  const parejas = [
     acceso.filas === undefined ? null : `filas=${acceso.filas}`,
     acceso.evaluados === undefined ? null : `evaluados=${acceso.evaluados}`,
     acceso.clienteId === undefined || acceso.clienteId === null ? null : `cliente=${acceso.clienteId}`,
-    acceso.filtros ? resumirFiltros(acceso.filtros) : null,
+    ...(acceso.filtros ? resumirFiltros(acceso.filtros) : []),
   ].filter((p): p is string => p !== null && p !== '');
-
-  const motivo = `Lectura de fichas de cliente${detalles.length > 0 ? ` — ${detalles.join(' ')}` : ''}`;
 
   await logPiiAccess(req, {
     resourceTipo: RECURSO_CLIENTE,
     resourceId: acceso.clienteId ?? null,
     accion: acceso.accion,
     camposAccedidos: [...acceso.campos],
-    motivo: motivo.slice(0, MOTIVO_MAX),
+    // Sin `.slice` final: el tamaño se garantiza por construcción, y recortar aquí volvería a poder
+    // partir la última pareja — que es exactamente el defecto que `componerMotivo` cierra.
+    motivo: componerMotivo(parejas),
   });
 }

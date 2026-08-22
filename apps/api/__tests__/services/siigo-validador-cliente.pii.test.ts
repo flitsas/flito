@@ -429,6 +429,122 @@ describe('el separador del motivo: un valor no puede fabricar una pareja', () =>
   });
 });
 
+/**
+ * La gramática ENTERA de `motivo`, anclada, tal y como la documenta `siigo.pii.ts`: el encabezado y
+ * después cero o más parejas `clave=valor` separadas por un espacio, con el valor entrecomillado
+ * cuando viene de un filtro y sin comillas cuando es un contador del código.
+ *
+ * Anclada y no por subcadenas, que es lo que la hace útil aquí: un `toContain` no ve la diferencia
+ * entre un motivo bien formado y uno cuya ÚLTIMA pareja quedó cortada por la mitad. Y esa era la
+ * observación: el recorte a 200 caracteres se aplicaba sobre la cadena ya ensamblada, así que podía
+ * caer dentro de un valor entrecomillado y dejar un número impar de barras al final —un escape
+ * partido, con la comilla de cierre en ninguna parte—. No forjaba una pareja nueva ni tocaba los
+ * contadores, pero dejaba malformado justo el eslabón que este formato viene a endurecer.
+ */
+const PAREJA = '[A-Za-z0-9_.-]+=(?:"(?:[^"\\\\]|\\\\.)*"|[^\\s"]+)';
+const MOTIVO_BIEN_FORMADO = new RegExp(
+  `^Lectura de fichas de cliente(?: — ${PAREJA}(?: ${PAREJA})*)?$`,
+);
+
+describe('el motivo se presupuesta por parejas: el corte ya no parte ninguna', () => {
+  const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
+
+  const registrar = async (acceso: Record<string, unknown>) => {
+    await registrarAccesoCliente(req(), {
+      accion: 'search', campos: CAMPOS_PII_VEREDICTO, ...acceso,
+    } as never);
+    return String(ultimoAcceso().motivo);
+  };
+
+  /** Doce filtros de barras invertidas: cada valor ocupa el máximo y el corte cae dentro de uno. */
+  const filtrosDesbordantes = () => Object.fromEntries(
+    Array.from({ length: 12 }, (_, i) => [`f${i}`, '\\'.repeat(60)]),
+  );
+
+  it('doce filtros llenos de barras ya no dejan un escape partido al final', async () => {
+    // El caso exacto que reprodujo la auditoría: con el recorte sobre la cadena ensamblada, el
+    // motivo terminaba en algo como `f11="\\"\\\\` —comilla abierta, barra suelta— y ningún parser
+    // estricto podía leer la última pareja. Ahora la pareja que no cabe entera no se escribe.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    expect(motivo.length).toBeLessThanOrEqual(200);
+  });
+
+  it('y ninguna barra queda desemparejada dentro de un valor', async () => {
+    // La comprobación directa del hallazgo, sin pasar por la gramática: dentro de las comillas toda
+    // barra viaja escapada, así que las barras solo pueden aparecer en número PAR. Un número impar
+    // al final es exactamente la firma del escape partido.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    const colaDeBarras = /\\+$/.exec(motivo.replace(/"$/, ''));
+    expect(colaDeBarras).toBeNull();
+    for (const [, valor] of parejas(motivo)) {
+      expect(valor).toMatch(/^(?:\\\\)*$|^[^\\]*$|^(?:[^\\]|\\\\)*$/);
+    }
+  });
+
+  it('los contadores del código sobreviven al desbordamiento: van primero', async () => {
+    // La garantía que ya existía y que no se puede perder al cambiar el corte. Se ejercen los tres
+    // a la vez con doce filtros detrás: si el presupuesto se gastara en otro orden, el motivo
+    // dejaría de decir cuántas fichas se leyeron —que es lo único que no se puede reconstruir—.
+    const motivo = await registrar({
+      filas: 500, evaluados: 900, clienteId: 41, filtros: filtrosDesbordantes(),
+    });
+
+    const claves = parejas(motivo).map(([c]) => c);
+    expect(claves.slice(0, 3)).toEqual(['filas', 'evaluados', 'cliente']);
+    expect(motivo).toContain('filas=500');
+    expect(motivo).toContain('evaluados=900');
+    expect(motivo).toContain('cliente=41');
+  });
+
+  it('y el motivo DICE cuántas parejas se quedaron fuera', async () => {
+    // Un rastro recortado en silencio afirma que se buscó con dos filtros cuando fueron doce. La
+    // marca va sin comillas, como los contadores del código, así que un filtro llamado `truncado`
+    // saldría como `truncado="…"` y se seguiría distinguiendo.
+    const motivo = await registrar({ filas: 500, filtros: filtrosDesbordantes() });
+
+    const cuenta = parejas(motivo).find(([c]) => c === 'truncado');
+    expect(cuenta).toBeDefined();
+    const escritas = parejas(motivo).filter(([c]) => /^f\d+$/.test(c)).length;
+    // Doce filtros: los que se escribieron más los que la marca declara son los doce.
+    expect(Number(cuenta![1]) + escritas).toBe(12);
+  });
+
+  it('un motivo que cabe entero no lleva marca de truncado', async () => {
+    // La marca tiene que significar algo. Si apareciera siempre, dejaría de informar.
+    const motivo = await registrar({ filas: 2, filtros: { pais: 'Co', estado: 'activo' } });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    expect(motivo).not.toContain('truncado');
+    expect(parejas(motivo).map(([c]) => c)).toEqual(['filas', 'pais', 'estado']);
+  });
+
+  it('el corte del VALOR tampoco parte un carácter en dos', async () => {
+    // El otro corte del archivo, el de 40 caracteres por valor: `slice` cuenta unidades UTF-16, así
+    // que 39 caracteres y un emoji dejaban suelta la mitad alta de un par sustituto. No forja nada
+    // —no cierra la comilla— pero es un carácter que no existe: UTF-8 no lo puede codificar y el
+    // driver lo escribiría como `U+FFFD` dentro de un motivo que se quiere legible.
+    const motivo = await registrar({ filtros: { estado: `${'a'.repeat(39)}\u{1F600}b` } });
+
+    expect(motivo).toMatch(MOTIVO_BIEN_FORMADO);
+    // Ni media pareja sustituta alta sin su baja, ni al revés.
+    expect(motivo).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(motivo).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it('nunca se pasa de `varchar(200)`, que es lo que el recorte protegía', async () => {
+    // El presupuesto sustituye al recorte: si se hubiera quitado el corte sin ponerlo, esto sería
+    // un 22001 en producción y no un rastro.
+    const motivo = await registrar({
+      filas: 500, evaluados: 900, clienteId: 41, filtros: filtrosDesbordantes(),
+    });
+
+    expect(motivo.length).toBeLessThanOrEqual(200);
+  });
+});
+
 describe('la ubicación del titular también se enmascara', () => {
   const req = () => ({ headers: {}, ip: '10.0.0.1', user: { sub: 7, role: 'admin' } }) as never;
 
