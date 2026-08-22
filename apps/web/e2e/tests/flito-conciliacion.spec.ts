@@ -876,9 +876,117 @@ test.describe('FLITO — Conciliación · el aviso no sobrevive a la sesión', (
     // Y no pasó inadvertido. Por el mismo canal que el resto del front usa para lo que falla y no
     // tumba la vista (`[pwa]`, `[ErrorBoundary]`): un aviso en la consola, con su etiqueta.
     expect(consola.some((l) => l.includes('[conciliacion]'))).toBe(true);
-    // Sin PII ni identificadores en el aviso (AGENTS.md §14): dice cuántas quedaron, no cuáles.
+    // Sin identificadores en el aviso: dice cuántas quedaron, no cuáles. No es §14 —un `userId` y un
+    // uuid no son PII para AGENTS.md— sino la higiene que el propio módulo se impone.
     expect(consola.join('\n')).not.toContain(BOLETA_ID);
     expect(consola.join('\n')).not.toContain(intentadas[0]);
+  });
+
+  test('si hasta el aviso por consola revienta, el cierre de sesión se completa igual', async ({ page }) => {
+    // El barrido declara en su docblock que NO LANZA NUNCA, y la razón está escrita: `logout` llama a
+    // `limpiarAvisos()` ANTES de `setUser(null)`, así que una excepción aquí deja la sesión sin
+    // cerrar. Con el `console.warn` fuera de todo `try`, esa invariante pasó a depender de que
+    // `console` exista y no lance —y el `warn` solo corre cuando algo YA falló, que es el peor
+    // momento para descubrir que el aviso del fallo es lo que tumba el cierre—.
+    //
+    // Lo que se ve si se rompe: `handleLogout` navega a /login y DESPUÉS llama a `logout()`, así que
+    // la excepción deja a `user` sin anular y la ruta /login —que es `user ? <Navigate to="/" /> …`—
+    // rebota al tablero. Se sale de la sesión y se vuelve a entrar en ella sin token.
+    await loginAs(page, FINANCIERA_USER);
+    await mockDetalle(page, DETALLE_CONCILIADO);
+
+    const CLAVES = [1, 2].map((n) => `flito:conciliacion:aviso:${FINANCIERA_USER.id}:boleta-${n}`);
+    await page.evaluate((claves) => {
+      for (const clave of claves) sessionStorage.setItem(clave, '{"soatConciliados":1}');
+    }, CLAVES);
+
+    // Dos averías a la vez, y las dos hacen falta: la del `removeItem` es la única forma de llegar al
+    // `warn` —solo se emite cuando alguna clave no se pudo borrar—, y la del `console.warn` es la que
+    // se está probando. `addInitScript` por lo mismo que en el caso de al lado: los dos parches viven
+    // en objetos del documento y hay una navegación de por medio.
+    //
+    // El `warn` solo revienta para el mensaje de este módulo: reventar TODOS convertiría el caso en
+    // «la app sobrevive sin consola», que es otra cosa y con otro alcance.
+    await page.addInitScript(() => {
+      const original = Storage.prototype.removeItem;
+      Storage.prototype.removeItem = function bloqueado(this: Storage, k: string) {
+        if (k.startsWith('flito:conciliacion:aviso:')) {
+          throw new DOMException('sessionStorage bloqueado', 'SecurityError');
+        }
+        return original.call(this, k);
+      };
+      const warn = console.warn.bind(console);
+      console.warn = (...args: unknown[]) => {
+        if (typeof args[0] === 'string' && args[0].includes('[conciliacion]')) {
+          throw new TypeError('console.warn no disponible');
+        }
+        warn(...args);
+      };
+    });
+
+    await page.goto(`/flito/conciliacion/${BOLETA_ID}`);
+    await expect(page.getByRole('heading', { level: 1, name: /BOL-000123/ })).toBeVisible();
+
+    // Y el cierre de sesión se completa: es lo único que este caso persigue. Que las claves se queden
+    // sin borrar ya está dicho —el almacenamiento está roto a propósito— y no es lo que se prueba.
+    await cerrarSesion(page);
+    await expect(page.getByRole('heading', { name: 'Iniciar sesión' })).toBeVisible();
+  });
+
+  test('el aviso tampoco sobrevive en la OTRA pestaña, que arranca ya sin token', async ({ page, context }) => {
+    // El cuarto camino del arranque, y el único de los cuatro que no hace ninguna petición.
+    //
+    // `localStorage` se comparte entre las pestañas del mismo origen; `sessionStorage` NO. Así que al
+    // cerrar sesión en la pestaña 1 el token desaparece para las dos —es compartido— pero el barrido
+    // solo alcanza al `sessionStorage` de la 1. La 2 no se entera de nada: no hay ni un
+    // `addEventListener('storage', …)` en todo `apps/web/src`. Cuando esa pestaña se recarga, arranca
+    // sin token y sale por el `return` de «sin token»; si esa rama no barre, quien entre después en
+    // ella tiene a mano los saldos de bolsa de quien salió.
+    await loginAs(page, FINANCIERA_USER);
+    await mockLista(page, [RESUMEN]);
+    await page.goto('/flito/conciliacion');
+    await expect(page.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();
+
+    // La pestaña 2 **no inicia sesión**: hereda el token de la 1 sin escribirlo, que es la mitad del
+    // mecanismo que hay que dar por probada antes de mirar la otra. Y navega UNA sola vez: pasar por
+    // /login primero dejaría un `GET /auth/me` en vuelo que el siguiente `goto` abortaría, y su
+    // `catch` —el del camino de arriba— barrería los avisos por la puerta de al lado, dando el caso
+    // por bueno sin que la rama que se quiere probar hubiera corrido.
+    const otra = await context.newPage();
+    await otra.route('**/api/**', (route) => route.fulfill(json([])));
+    await otra.route('**/api/auth/me', (route) => route.fulfill(json(FINANCIERA_USER)));
+    await mockLista(otra, [RESUMEN]);
+    await otra.goto('/flito/conciliacion');
+    await expect(otra.getByRole('heading', { name: 'Conciliación', level: 1 })).toBeVisible();
+
+    const CLAVE = `flito:conciliacion:aviso:${FINANCIERA_USER.id}:${BOLETA_ID}`;
+    await otra.evaluate((clave) => {
+      sessionStorage.setItem(clave, JSON.stringify({
+        soatConciliados: 7,
+        totalConciliado: 3933300,
+        cliente: { nombre: 'Transportes Andinos S.A.S.', descontado: 3371400, saldoResultante: 12450300 },
+        transito: [],
+        adoptados: 0,
+      }));
+    }, CLAVE);
+    expect(await avisosGuardados(otra)).toEqual([CLAVE]);
+
+    // La sesión se cierra en la pestaña 1, por el menú de usuario, como se cierra de verdad.
+    await cerrarSesion(page);
+
+    // Las dos mitades del mecanismo, afirmadas por separado para que un fallo diga cuál se rompió.
+    // El token SÍ cruza de pestaña —vive en `localStorage`—…
+    expect(await otra.evaluate(() => localStorage.getItem('token'))).toBeNull();
+    // …y el aviso NO —vive en `sessionStorage`—: sigue en la pestaña 2 hasta que ella misma lo barra.
+    expect(await avisosGuardados(otra)).toEqual([CLAVE]);
+
+    // Y el sitio donde barrerlo es este: al recargar, la pestaña 2 arranca sin token, y sin token no
+    // hay ninguna sesión cuyo aviso convenga preservar.
+    await otra.reload();
+    await expect(otra).toHaveURL(/\/login$/);
+    expect(await avisosGuardados(otra)).toEqual([]);
+
+    await otra.close();
   });
 
   test('el aviso de otra persona no se pinta como si fuera el propio', async ({ page }) => {

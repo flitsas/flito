@@ -28,6 +28,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
+      // Cuarto camino, y el que no hace ninguna petición: la pestaña arranca ya sin token. Barre
+      // igual, porque `localStorage` se comparte entre pestañas y `sessionStorage` no: cerrar sesión
+      // en OTRA pestaña se lleva el token de esta —es el mismo— pero no sus avisos, y nadie escucha
+      // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
+      limpiarAvisos();
       setLoading(false);
       return;
     }
