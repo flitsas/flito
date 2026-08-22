@@ -36,6 +36,20 @@ export interface FacturacionTramite {
   motivoPendiente: boolean;
   verificadoEn: string | null;
   cufe: string | null;
+  /**
+   * Por qué está señalada como pendiente de revisión, en la frase que compuso el servidor.
+   * `null` = está señalada pero no quedó motivo escrito (HU #11331, AC6).
+   *
+   * **Es una frase ya redactada, y aquí solo se pinta.** Tiene tres autores distintos en el
+   * servidor —el descuadre de totales, la reconciliación que no puede concluir y la resolución a
+   * mano— así que ni se parsea para sacarle cifras ni se le pone encima un rótulo del estilo
+   * «diferencia de totales»: ese rótulo sería falso en dos de los tres casos, y una pantalla de
+   * control que titula mal lo que enseña manda a buscar una avería que no existe.
+   *
+   * Y no viene en la fila del reporte a propósito: son doscientas filas por página y esto es un
+   * párrafo que solo se lee al abrir el detalle. La fila lleva el booleano y ya.
+   */
+  revisionMotivo: string | null;
   documentos: { pdf: boolean; xml: boolean };
   correo: { veces: number; ultimoEnviadoEn: string | null };
 }

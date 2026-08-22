@@ -100,6 +100,8 @@ const FICHA_ACEPTADA = {
   // Timbrada: estas fichas son las de producción, que son las que tienen estado ante la DIAN.
   timbrada: true,
   motivoPendiente: false, verificadoEn: '2026-08-10T10:00:00.000Z', cufe: 'cufe-100',
+  // Sin nada que revisar, que es el caso normal. Las fichas de la HU #11331 lo sobrescriben.
+  revisionMotivo: null,
   documentos: { pdf: true, xml: true }, correo: { veces: 1, ultimoEnviadoEn: '2026-08-09T10:00:00.000Z' },
 };
 
@@ -877,11 +879,41 @@ const FICHA_FALLIDA = {
   motivo: null, documentos: { pdf: false, xml: false },
 };
 
+/**
+ * Los TRES motivos que el servidor sabe escribir en `revision_motivo`, literales.
+ *
+ * Están los tres porque la marca es una sola y las causas no: el descuadre es el que el AC6 nombra,
+ * pero la reconciliación escribe ahí lo que no puede concluir y la resolución a mano deja constancia
+ * de quién la cerró. Con un solo motivo de fixture, una pantalla que rotulara todo como «diferencia
+ * de totales» pasaría en verde mintiendo en dos casos de cada tres.
+ */
+const MOTIVO_DESCUADRE = 'El total devuelto por Siigo (200000.00) no coincide con la suma de los '
+  + 'conceptos facturados (150000.00). Diferencia: 50000.00.';
+const MOTIVO_RECONCILIACION = 'La reconciliación no puede concluir y no se resolverá sola: hay dos '
+  + 'facturas en Siigo para este trámite y ninguna coincide con lo que FLITO envió.';
+const MOTIVO_A_MANO = 'Resuelta a mano: una persona la localizó en Siigo y FLITO comprobó el '
+  + 'documento.';
+
 const FICHA_REVISION = {
   ...FICHA_ACEPTADA, tramiteId: FILA_EMITIDA_REVISION.tramiteId, facturaId: 'f-revision',
   numero: 'FV-1-200', estado: 'emitido', estadoDian: null, verificadoEn: null,
+  revisionMotivo: MOTIVO_DESCUADRE,
   documentos: { pdf: false, xml: false },
 };
+
+/**
+ * Cambia el motivo de la ficha emitida sin tocar nada más. `null` = marcada y sin motivo escrito.
+ *
+ * `unroute` primero: registrar una segunda ruta sobre el mismo patrón deja las dos vivas, y el test
+ * dependería del orden en que Playwright las resuelve en vez de de lo que se quiere probar.
+ */
+async function refichaConMotivo(page: import('@playwright/test').Page, motivo: string | null) {
+  await page.unroute(/\/api\/siigo\/facturacion\/tramites/);
+  await page.route(/\/api\/siigo\/facturacion\/tramites/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      items: [{ ...FICHA_REVISION, revisionMotivo: motivo }],
+    }) }));
+}
 
 /**
  * La fila de cola del trámite fallido (AC5).
@@ -1066,6 +1098,67 @@ test.describe('Reporte de costos — estado de facturación electrónica (HU #11
     await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
     await expect(page.getByRole('dialog').getByTestId('marca-revision-factura')).toBeVisible();
     await expect(page.getByRole('dialog')).toContainText('Emitida');
+  });
+
+  test('AC6 — al abrirla se leen los dos totales y la diferencia, en la frase del servidor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await page.goto('/finanzas/reporte-costos');
+
+    // En la FILA no: son hasta doscientas por página y esto es un párrafo. La fila lleva la marca,
+    // que es lo que se recorre de un vistazo; el porqué se lee al abrir, que es cuando se pregunta.
+    await expect(filaDe(page, 'FLIT-2009')).not.toContainText('200000.00');
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    // La frase ENTERA y literal: el total que devolvió Siigo, la suma de los conceptos facturados y
+    // la resta. Comprobarla completa y no cifra a cifra es el criterio: el AC6 pide los dos totales
+    // Y la diferencia, y tres asertos sueltos pasarían en verde con las cifras descolocadas.
+    await expect(page.getByTestId('motivo-revision-factura')).toContainText(MOTIVO_DESCUADRE);
+    // Y sigue emitida mientras se explica el descuadre: la marca amplía el estado, no lo sustituye.
+    await expect(page.getByRole('dialog')).toContainText('Emitida');
+  });
+
+  test('AC6 — los motivos que no son de totales se leen tal cual, sin rótulo que los llame descuadre', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+
+    // Los otros dos autores de la marca. Se prueban los dos porque el error que se está evitando
+    // —poner encima un rótulo fijo de «diferencia de totales»— no lo delata el caso del descuadre,
+    // que es justo aquel en el que el rótulo sería cierto.
+    for (const motivo of [MOTIVO_RECONCILIACION, MOTIVO_A_MANO]) {
+      await refichaConMotivo(page, motivo);
+      // `goto` y no cerrar el modal: recargar deja la pantalla en el mismo punto de partida para la
+      // segunda vuelta, sin arrastrar estado de la primera.
+      await page.goto('/finanzas/reporte-costos');
+      await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+      const bloque = page.getByTestId('motivo-revision-factura');
+      await expect(bloque).toContainText(motivo);
+      // Lo que NO puede aparecer: ni «diferencia» ni «totales» en ninguna forma. Aquí no hay
+      // descuadre que contar, y titularlo así mandaría a cuadrar dos cifras que nadie ha comparado.
+      await expect(bloque).not.toContainText(/diferencia|totales/i);
+      // La pastilla sí sigue, porque lo que la marca afirma —hay algo que comprobar— vale para los
+      // tres motivos. Es el único encabezado que puede llevar el bloque sin mentir en dos de ellos.
+      await expect(bloque).toContainText('Pendiente de revisión');
+    }
+  });
+
+  test('AC6 — marcada y sin motivo escrito lo dice, en vez de dejar un hueco o pintar «null»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockFe(page);
+    await refichaConMotivo(page, null);
+    await page.goto('/finanzas/reporte-costos');
+
+    await filaDe(page, 'FLIT-2009').getByTitle('Emitida — ver detalle').click();
+
+    const bloque = page.getByTestId('motivo-revision-factura');
+    // Quien abre el detalle viene a preguntar por qué. La pastilla sola se lee como una pantalla a
+    // medio cargar, así que se dice lo único que se sabe —que no quedó escrito— y adónde ir.
+    await expect(bloque).toContainText(/No quedó escrito por qué/);
+    await expect(bloque).toContainText(/Siigo Nube/);
+    // Y no se cuela el valor crudo, que es la otra forma de dejar el hueco.
+    await expect(bloque).not.toContainText(/null|undefined/i);
   });
 
   test('AC4 — el filtro por estado viaja al servidor, convive con los demás y la exportación lo respeta', async ({ page }) => {

@@ -130,7 +130,13 @@ export default function DetalleFacturacion({
   // si algo hay que mirar o arreglar, se ve sin desplazarse.
   const extra = (
     <>
-      <MarcaRevisionFactura requiereRevision={requiereRevision} />
+      {/* El motivo solo cuando hay ficha, porque es la ficha quien lo trae: la fila del reporte
+          únicamente manda el booleano. `?? null` y no `undefined` para el caso en que el campo no
+          venga —una respuesta vieja del servidor—, que así se lee «no quedó escrito por qué» en vez
+          de degradar en silencio a la pastilla pelada de la tabla. Sin ficha no hay factura, así
+          que ahí la marca ni siquiera puede estar puesta. */}
+      <MarcaRevisionFactura requiereRevision={requiereRevision}
+        motivo={ficha ? ficha.revisionMotivo ?? null : undefined} />
       {(ficha?.estado ?? estadoFila) === 'fallido' && <FalloEmision cola={cola} />}
     </>
   );
