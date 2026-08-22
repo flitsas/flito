@@ -23,17 +23,22 @@
 //
 // ── AMPLIACIÓN A TEMA CLARO (Bug #11767) ─────────────────────────────────────────────────
 // El gate sólo miraba el tema oscuro, que es el minoritario: el claro es el de por defecto.
-// Al medirlo aparecieron tres puntos por debajo de AA que llevaban ahí desde siempre, y los
-// tres por el MISMO motivo de fondo — dar por supuesto el fondo en vez de componerlo:
+// Al medirlo aparecieron DOS puntos por debajo de AA que llevaban ahí desde siempre, y los
+// dos por el MISMO motivo de fondo — dar por supuesto el fondo en vez de componerlo:
 //
 //   · el `::placeholder`, que en claro no lo pintaba ninguna regla sino el preflight de Tailwind
-//     (`color-mix(in oklab, currentcolor 50%, transparent)`, o sea la tinta del input al 50 %);
-//   · la tinta `muted` sobre el PANEL, que no es blanco puro: `rgba(255,255,255,.98)` deja
-//     pasar un 2 % del overlay ya oscurecido y compone #fdfdfd, donde #646e82 caía a 4,46
-//     (sobre blanco puro da 5,13, y ése es el número con el que se eligió el token);
+//     (`color-mix(in oklab, currentcolor 50%, transparent)`, o sea la tinta del input al 50 %):
+//     #808da2 sobre la barra #eaf2ff → 2,98;
 //   · la tecla ↵ del ítem activo, que se dio por buena en 4,49 «sobre el fondo claro que ese
 //     kbd tenía» — pero ese fondo era el `bg-white` que el propio #11720 demostró MUERTO. Lo
 //     que pinta la tecla es `.flit-shell-sunken` (#eaf2ff), donde --flit-blue daba 3,99.
+//
+// Una tercera sospecha se midió y NO era defecto, y se deja escrita porque el gate de QA la
+// cazó como afirmación falsa en esta misma cabecera: la tinta `muted` sobre el PANEL, que no
+// es blanco puro (`rgba(255,255,255,.98)` deja pasar un 2 % del overlay y compone #fdfdfd).
+// Ahí #646e82 da 5,04 — pasa. La ficha del Bug reportaba «4,41», que es el ratio del hex
+// ANTERIOR al #11604 (#667085 → 4,42): un número correcto para un token que ya no existe.
+// Cuidado con repetirlo: el propósito de este archivo es que se crea al número y no a la frase.
 //
 // Por eso esta versión ya no pregunta «¿qué dice el selector que yo creo que gana?», sino que
 // resuelve la CASCADA entre todos los candidatos que pintan cada elemento (ver `ganadora`):
