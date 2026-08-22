@@ -822,7 +822,19 @@ test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #
     await expect(estado).toHaveText('Se adeuda');
     // `toHaveText` compara el texto renderizado, no el aplicado por CSS, así que la transformación
     // se comprueba aparte: es el único camino por el que un `capitalize` pasaría desapercibido.
-    expect(await estado.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
+    //
+    // Y se mide la celda **y todo lo que lleva dentro**, no solo el `<td>`: la clase de Tailwind
+    // vive en el `<span>` del `line-clamp`, así que hasta la HU #11771 un `capitalize` en el span
+    // pasaba este aserto en verde mientras el operador leía «Se Adeuda» en pantalla. Se recogen los
+    // infractores en vez de afirmar un booleano para que el fallo diga QUÉ elemento y con qué
+    // valor, y el barrido por descendientes sobrevive a que mañana se envuelva el texto en otra
+    // capa: el aserto no queda atado a la forma exacta del DOM de hoy.
+    const transformados = await estado.evaluate((el) =>
+      [el, ...el.querySelectorAll('*')]
+        .filter((n) => getComputedStyle(n).textTransform !== 'none')
+        .map((n) => `${n.tagName.toLowerCase()}[${n.className}] → ${getComputedStyle(n).textTransform}`),
+    );
+    expect(transformados, 'nada dentro de la celda del estado puede llevar `text-transform`').toEqual([]);
 
     // `null` → «—», igual que el resto de ausencias del módulo.
     const estadoNulo = await celdaDe(page, FILA_COMPARENDO.numeroComparendo, 'Estado en la fuente');
@@ -858,6 +870,51 @@ test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #
     const largo = await altoDe(FILA_TIPO_DESCONOCIDO.numeroComparendo);
     const corto = await altoDe(FILA_MULTA.numeroComparendo);
     expect(Math.abs(largo - corto), `${largo} px frente a ${corto} px`).toBeLessThanOrEqual(1);
+  });
+
+  test('AC5 — el `caption` sigue diciendo las TRES advertencias, y no solo llevando `sr-only`', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    // En modo tabla el `caption` es el único texto que un lector de pantalla anuncia con seguridad
+    // al entrar, y por eso el AC5 lo cargó con tres advertencias que ninguna cabecera de once
+    // caracteres puede dar. Hasta la HU #11771 lo único que alguien afirmaba de él era que llevaba
+    // `sr-only`: devolverle el texto anterior —el que solo hablaba de activo/inactivo— dejaba la
+    // suite entera en verde.
+    const caption = page.getByRole('table').locator('caption');
+    // Sigue siendo para quien escucha y no para quien mira: un caption visible cambiaría la tabla.
+    await expect(caption).toHaveClass(/sr-only/);
+    // `textContent` y no `innerText`: el `sr-only` recorta la caja a un píxel, y lo que se afirma es
+    // lo que se anuncia, no lo que se pinta. El JSX parte la frase en varias líneas.
+    const texto = ((await caption.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+
+    // Las TRES cláusulas POR SEPARADO y por sus piezas semánticas, nunca la cadena literal: un
+    // aserto sobre el texto exacto se pone rojo con cualquier retoque de redacción, acaba
+    // molestando y termina borrado —que es justo como se pierde la cobertura—. Cada cláusula
+    // nombra su rótulo Y desactiva UNA lectura falsa concreta, y van en `expect.soft` para que el
+    // fallo liste TODAS las que faltan de una vez: si alguien vacía el caption, el informe dice las
+    // tres cosas que se perdieron y no solo la primera.
+
+    // 1. «Monitoreo» no habla de pagos: sin esto, «inactivo» se oye como «ya está pagado».
+    expect.soft(texto, 'el caption nombra la columna «Monitoreo» por su rótulo').toMatch(/monitoreo/i);
+    expect.soft(texto, '…y dice que «inactivo» NO quiere decir pagado').toMatch(/inactivo/i);
+    expect.soft(texto, '…negando el pago expresamente').toMatch(/pagad/i);
+
+    // 2. «Estado en la fuente» llega crudo y puede venir vacío: sin esto, una celda en blanco se
+    //    lee como «no debe nada» en vez de «la fuente no dijo nada».
+    expect.soft(texto, 'el caption nombra «Estado en la fuente»').toMatch(/estado en la fuente/i);
+    expect.soft(texto, '…avisa de que NO está normalizado').toMatch(/normaliz/i);
+    expect.soft(texto, '…y de que puede venir vacío').toMatch(/vac[ií]/i);
+
+    // 3. Qué separa un comparendo de una multa: sin esto, «Multa» se lee como un error de la
+    //    fuente y no como la etapa siguiente del mismo hecho.
+    expect.soft(texto, 'el caption nombra la columna «Tipo»').toMatch(/tipo/i);
+    expect.soft(texto, '…y contrapone comparendo con multa').toMatch(/comparendo/i);
+    expect.soft(texto, '…nombrando la multa').toMatch(/multa/i);
   });
 
   test('AC2 — la columna del monitoreo se lee «Monitoreo», y ninguna se llama solo «Estado»', async ({ page }) => {
