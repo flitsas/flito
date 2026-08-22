@@ -17,11 +17,19 @@
 // se puede inflar. Ese archivo tiene dos desenlaces posibles y son distinguibles:
 //
 //   · si se mide antes de abrirlo  → 413, «ocupa 200,0 MB por dentro y el máximo son …»
-//   · si se abriera primero        → ExcelJS revienta y sale el 500 del error handler
+//   · si se abriera primero        → la petición NO responde nunca
+//
+// Ese segundo desenlace se midió mutando el orden, y conviene dejarlo escrito porque no es el que
+// uno supondría: no sale un 500. ExcelJS delega en JSZip, que revienta con
+// «Bug : uncompressed data size mismatch» desde un worker asíncrono, **fuera de la cadena de
+// promesas** de la petición (`jszip/lib/compressedObject.js:38`). El error handler de Express nunca
+// lo ve: llega como `Unhandled Rejection` y la petición se queda colgada. Aquí el test muere por
+// `Test timed out in 10000ms`; en producción sería una conexión abierta y un handle filtrado — es
+// decir, **peor de diagnosticar que un 500**, no mejor.
 //
 // El primer `describe` comprueba la premisa —que ExcelJS efectivamente no puede con ese buffer—, así
 // que el 413 no puede venir de un parseo afortunado. No hay forma de que estas pruebas pasen si el
-// orden se invierte.
+// orden se invierte: mueren por timeout en vez de por aserción, pero mueren.
 //
 // A propósito NO se mockea `shared/utils/excel.js` (como sí hacen soat/vehicles.routes.test.ts):
 // el guardián vive ahí y mockearlo sería probar el mock.
