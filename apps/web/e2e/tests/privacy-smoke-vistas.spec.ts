@@ -41,10 +41,13 @@
 //      `200 []` a todo `/api/**`. El seguro es el espía de peticiones REALES sobre el pathname.
 //   3. **Un colector de consola sin control positivo pasa siempre.** El canario está al final.
 //
-// Y un cuarto, propio de esta pantalla: **`PesvLogPii` no tiene estado de carga**. `rows` arranca en
-// `[]`, así que la tabla escribe «Sin accesos para los filtros» ANTES de que llegue la respuesta.
-// Todo aserto sobre su cuerpo espera primero a la respuesta (`esperarLog` / `esperarStats`); sin eso
-// el vacío sería verde por accidente, midiendo el instante previo a la carga.
+// Y un cuarto, propio de esta pantalla: **hasta el Bug #11772 `PesvLogPii` no tenía estado de
+// carga**. `rows` arrancaba en `[]`, así que la tabla escribía «Sin accesos para los filtros» ANTES
+// de que llegara la respuesta y cualquier aserto de vacío que no esperara era verde por accidente,
+// midiendo el instante previo a la carga. Ese bug añadió el «Cargando...», con lo que el falso
+// vacío ya no existe; las esperas (`esperarLog` / `esperarStats`) se MANTIENEN igual, porque siguen
+// siendo lo que ata cada aserto a la respuesta que dice medir, y `noEstaNiCargandoNiBloqueada` pasa
+// a ser un aserto con dientes: ahora hay un «Cargando...» de verdad que podría quedarse pegado.
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { ADMIN_USER } from '../helpers/auth';
