@@ -30,7 +30,7 @@ Un plan **aprobable** cumple todo esto. Si falta alguno, el plan está incomplet
 5. **Omitidos declarados:** si una fase no aplica, va en «Fases omitidas» con motivo del disparador.
 6. **Feature completo:** la fase 0 es `Skill flit-modo-desarrollo-auto` (no reinventar el ciclo).
 7. **QA no opcional:** toda HU con AC/UI/BACKEND aplicable tiene fase `Agent qa-agent`; prohibido «dejar QA para el final del Feature» sin invocación por HU.
-8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye monitoreo CI → merge (si auth) y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento).
+8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye una fase `Agent pr-monitor-agent` (background) para monitoreo CI → merge (si auth) y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento). Prohibido planear «el hilo vigila los checks».
 9. **Invocaciones listas:** bloque copiable con prompts **densos** (IDs, AC pegados, paths, modos `slim|full`, alcance verificación filtrado).
 10. **Redacción de backlog:** si el plan incluye tech-lead A/B, recordar **funcional arriba / técnico abajo** (audiencia PO + TL + dev).
 11. **Proporcionalidad:** elegir `architecture slim|full|omit`, `ux slim|full|omit`, verificación filtrada y QA B acotado al AC. **Prohibido** planear suite monorepo local completa en cada HU «por costumbre». Si security y db-review aplican, planearlos **en paralelo**.
@@ -51,6 +51,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | TCs, ejecución de suites, bugs, regresión, certificación | `qa-agent` | subagente |
 | Dependencias, secretos, patrones inseguros, PII / Ley 1581 | `security-agent` | subagente |
 | Verificación post-deploy, salud de crons/contenedores, rollback guiado, triage de caídas | `devops-agent` | subagente |
+| Monitoreo del PR abierto (checks CI, triage del log rojo, conflictos) y merge a `develop` | `pr-monitor-agent` | subagente |
 | Auditoría del esquema de BD — normalización, FKs circulares, índices, drift schema↔migraciones | `db-review-agent` | subagente |
 | Leer o escribir work items en ADO | skill `flit-azure-devops` (MCP servidor **`ado`**) | skill |
 | Crear HUs **o Bugs** en ADO | skill `flit-crear-hu` | skill |

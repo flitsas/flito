@@ -36,6 +36,7 @@ es la imitación más frecuente (veredicto o plantilla «de memoria»). El ledge
 - Branded Discussion + PATCH ADO «como si» fuera `flit-gestion-hu` / `flit-integration-ado`
 - «Gates cerrados» / «ya revisado» sin veredicto canónico de `flit-code-review` sobre **este** diff/HEAD
 - Abrir el PR y revisar después
+- Vigilar los checks del PR a mano (`pull_request_read` suelto), relanzar jobs «por si acaso» o mergear sin invocar `pr-monitor-agent` — y peor: cerrar el turno con «avísame cuando el CI pase»
 - Comentario «listo para QA» **sin** lanzar `qa-agent`
 - Reusar salida de Vitest/Playwright del `backend-agent` / hilo como certificación QA
 - Feature «modo auto» improvisado sin cargar `flit-modo-desarrollo-auto` (salvo pedido explícito de no usarla)
