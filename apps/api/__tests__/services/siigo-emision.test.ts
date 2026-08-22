@@ -267,12 +267,14 @@ describe('AC1 — la reserva precede a la red', () => {
     expect(peticiones[0]!.cuerpo).not.toHaveProperty('mail');
   });
 
-  it('A6 — en producción sí, y sin que nadie lo configure', async () => {
-    // La regla se deriva del ambiente. Si algún día se vuelve configurable, esta prueba es la que
-    // obliga a decidirlo a propósito en vez de descubrirlo con una factura sin timbrar.
+  it('A6 — en producción el timbre sí, y sin que nadie lo configure', async () => {
+    // El TIMBRE se sigue derivando del ambiente, y esta prueba es la que obliga a decidirlo a
+    // propósito el día que alguien quiera hacerlo configurable, en vez de descubrirlo con una
+    // factura sin timbrar. La HU #11708 movió el correo —y solo el correo— a una elección del
+    // envío: por eso `mail` ya no aparece aquí, donde nadie lo pidió.
     await emitirFactura([TRAMITE], { ambiente: 'produccion', ahora: () => AHORA, emision: EMISION });
     expect(peticiones[0]!.cuerpo).toHaveProperty('stamp', { send: true });
-    expect(peticiones[0]!.cuerpo).toHaveProperty('mail', true);
+    expect(peticiones[0]!.cuerpo).not.toHaveProperty('mail');
   });
 });
 

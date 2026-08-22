@@ -32,7 +32,9 @@
 // reconciliación —que sí consulta— solo actúa sobre filas que ya nadie está emitiendo.
 
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { ConceptoFacturable, MotivoElegibilidad } from '@operaciones/shared-types';
+import type {
+  ConceptoFacturable, MotivoElegibilidad, SiigoDestinatario,
+} from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   flitoLiquidaciones, flitoTramites, siigoFacturas, siigoFacturaTramites, vehicles,
@@ -54,6 +56,11 @@ import {
   armarFactura, claveIdempotencia, conceptosFacturados, huellaDeLote, type EmisionElegida,
   type FacturaArmada, type MapeoPorConcepto, type TerceroResuelto, type TramiteFacturable,
 } from './facturacion.armado.js';
+import {
+  aplicarCorreoDeEmision, correoNoSolicitado, decidirCorreoDeEmision,
+  type CorreoDelEnvio, type DecisionCorreo,
+} from './facturacion.correo.js';
+import { destinatariosDeLaFicha } from './siigo.envio-correo.service.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 import { efectosExternosPermitidos } from './siigo.config.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
@@ -333,6 +340,14 @@ export interface PreparacionEmision {
   clave: string;
   /** Los identificadores FLIT del grupo. Es lo único de las observaciones que va a la bitácora. */
   idsFlit: string[];
+  /**
+   * Qué pasa con el correo al cliente (HU #11708). Se decide aquí y se ejecuta después de emitir.
+   *
+   * Viaja en la preparación y no se recalcula al final por una razón concreta: la decisión depende
+   * del ambiente y de la ficha, y entre el armado y el `POST` hay una petición de red. Decidir dos
+   * veces sería admitir que el documento se creara con `mail: true` y el acta dijera otra cosa.
+   */
+  correo: DecisionCorreo;
 }
 
 export interface EntradaPreparacion {
@@ -348,6 +363,23 @@ export interface EntradaPreparacion {
    * recalcular un total. Omitirla no es «que use lo de siempre», es un error garantizado.
    */
   emision?: EmisionElegida | null;
+  /**
+   * Correo elegido en el envío (HU #11708). Ausente = no se pidió, y la emisión lo deja escrito.
+   *
+   * A diferencia de `emision`, su ausencia no es un error recuperable ni un lote viejo: es una
+   * respuesta legítima —«no se pidió correo»— y por eso no lanza. Lo que no puede hacer es pasar
+   * inadvertida, y de eso se encarga el acta.
+   */
+  correo?: CorreoDelEnvio | null;
+  /**
+   * Los destinatarios que la ficha del cliente resuelve HOY. Solo se usan si el envío no eligió
+   * direcciones concretas (AC3).
+   *
+   * Se reciben ya resueltos, igual que el tercero y las filas de trámite, y por el mismo motivo:
+   * quien llama es el que sabe contra qué cliente se está emitiendo. Que esta función leyera la
+   * ficha por su cuenta la obligaría a saber de `clients`, que es una tabla que no toca.
+   */
+  destinatariosFicha?: SiigoDestinatario[];
   tercero: TerceroResuelto;
   ahora: Date;
 }
@@ -413,6 +445,16 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
   // se emite— y baja al armador como dato. Ver `efectosExternosPermitidos`.
   const efectosExternos = efectosExternosPermitidos(ambiente);
 
+  // El correo, en cambio, YA NO se deduce del ambiente: se eligió en el envío y aquí solo se pasa
+  // por el filtro (HU #11708). `efectosExternos` sigue mandando —es un Y, no un O— pero ahora tiene
+  // que haber alguien que lo pidiera. La decisión completa se guarda para ejecutarla al emitir.
+  const correo = decidirCorreoDeEmision({
+    elegido: entrada.correo ?? correoNoSolicitado(),
+    deLaFicha: entrada.destinatariosFicha ?? [],
+    efectosExternos,
+    ambiente,
+  });
+
   const armada = armarFactura({
     tramites: tramites.map((t) => ({
       tramiteId: t.tramiteId,
@@ -428,7 +470,11 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
       formaPagoCodigo: resuelta.formaPagoCodigo,
       centroCostoCodigo: resuelta.centroCostoCodigo,
       timbrarEnDian: efectosExternos,
-      enviarCorreoAlCliente: efectosExternos,
+      // `mail: true` manda a la dirección que el tercero tiene registrada EN SIIGO. Cuando el envío
+      // eligió direcciones concretas, esa es justamente la que se está sustituyendo (AC3): la
+      // creación va sin `mail` y el correo se pide después por la ruta que admite lista. Pedirlo por
+      // los dos caminos le mandaría el mismo documento dos veces al cliente.
+      enviarCorreoAlCliente: correo.enviar && !correo.explicitos,
     },
     conceptos,
     mapeo,
@@ -448,6 +494,7 @@ export async function prepararEmision(entrada: EntradaPreparacion): Promise<Prep
     huella,
     clave: claveIdempotencia(ambiente, huella),
     idsFlit: tramites.map((t) => t.idFlit),
+    correo,
   };
 }
 
@@ -836,6 +883,11 @@ export interface OpcionesEmision {
   conceptos?: readonly ConceptoFacturable[];
   /** Emisión elegida del lote (A2). El trabajador la lee de `emisionDelLote` y la pasa tal cual. */
   emision?: EmisionElegida | null;
+  /**
+   * Correo elegido en el envío (HU #11708). El trabajador lo lee de `correoDelLote` y lo pasa tal
+   * cual. Ausente = no se pidió, que es lo que significan los lotes anteriores a la migración 0161.
+   */
+  correo?: CorreoDelEnvio | null;
   usuarioId?: number | null;
   /** Inyectable: probar el arrendamiento sin esperar quince minutos reales. */
   ahora?: () => Date;
@@ -928,19 +980,32 @@ export async function emitirFactura(
   const tercero = await asegurarTercero(companiaDelGrupo(tramites));
 
   const ahora = relojDe();
+  // HU #11708 — la ficha solo se consulta cuando de verdad hace falta: si nadie pidió correo, o si
+  // el envío eligió direcciones concretas, la respuesta no depende de ella y la consulta sobraría en
+  // cada emisión. Se lee AQUÍ y no al enviar porque entre el clic y este ciclo alguien pudo
+  // completar el correo que faltaba en la ficha, y congelar aquella ausencia habría sido una
+  // decisión que nadie tomó.
+  const correo = opciones.correo ?? correoNoSolicitado();
+  const destinatariosFicha = correo.solicitado && correo.destinatarios.length === 0
+    ? await destinatariosDeLaFicha(tercero.clienteId)
+    : [];
+
   const preparacion = await prepararEmision({
     tramiteIds: ids,
     tramites,
     ambiente,
     conceptos,
     emision,
+    correo,
+    destinatariosFicha,
     tercero: { identificacion: tercero.identificacion, sucursal: tercero.sucursal },
     ahora,
   });
 
   // ── AC1 — la reserva, y solo entonces la red ──────────────────────────────
   const loteId = await asegurarLote({
-    ambiente, huella: preparacion.huella, tramiteIds: ids, conceptos, emision, creadoPor: usuarioId,
+    ambiente, huella: preparacion.huella, tramiteIds: ids, conceptos, emision, correo,
+    creadoPor: usuarioId,
   });
   if (!loteId) {
     // Solo puede pasar si alguien borró el lote entre el INSERT y el SELECT. No se inventa uno:
@@ -1046,6 +1111,14 @@ async function emitirReservada(
         'la factura se emitió en Siigo pero no se pudo actualizar la fila local');
       return { ...resultadoDeFila('huerfana', fila), siigoInvoiceId: emitida.siigoInvoiceId };
     }
+
+    // HU #11708 — el correo se resuelve DESPUÉS de que la factura conste como emitida, y solo
+    // entonces. Antes no hay documento que mandar, y un acta contra una factura que aún no está
+    // emitida diría que se entregó algo que todavía podía fallar. No lanza nunca: para cuando esto
+    // corre existe un documento ante la DIAN, y ningún problema de correo puede convertir esa
+    // emisión en un fallo que el trabajador reintentaría.
+    await aplicarCorreoDeEmision(actualizada.id, preparacion.correo);
+
     return resultadoDeFila('emitida', actualizada);
   } catch (e) {
     const { codigo, detalle, definitivo, respondio } = describirFallo(e);

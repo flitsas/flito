@@ -68,7 +68,8 @@ export class SiigoEnvioError extends Error {
     | 'ambiente_no_productivo'
     | 'cliente_sin_correo'
     | 'demasiados_destinatarios'
-    | 'destinatario_invalido';
+    | 'destinatario_invalido'
+    | 'destinatario_repetido';
 
   constructor(codigo: SiigoEnvioError['codigo'], message: string) {
     super(message);
@@ -118,6 +119,31 @@ export function resolverDestinatarios(ficha: FichaDeContacto): SiigoDestinatario
 }
 
 /**
+ * Los destinatarios que la ficha de un cliente resuelve hoy (HU #11708).
+ *
+ * Es `resolverDestinatarios` con la ficha leída de la base, y existe para que la emisión no tenga
+ * que saber de qué columnas de `clients` sale un correo. La resolución sigue siendo UNA —la función
+ * pura de arriba—: esto solo le acerca la ficha.
+ *
+ * **Se lee en el momento de emitir, no en el del envío.** Entre el clic y el ciclo del cron pasan
+ * minutos y alguien pudo completar el correo que faltaba; leerlo al enviar habría congelado la
+ * ausencia. Lo contrario —direcciones ELEGIDAS a mano— sí se congela, y por eso se guarda con el
+ * lote: aquello fue una decisión de una persona y no puede cambiar sola.
+ *
+ * Un cliente que no existe devuelve lista vacía, que es lo mismo que un cliente sin correo: no hay a
+ * quién mandarle. La emisión lo registra como `cliente_sin_correo`, con lo que la pregunta «¿por qué
+ * no le llegó?» tiene respuesta sin que esta función invente un error.
+ */
+export async function destinatariosDeLaFicha(clienteId: number): Promise<SiigoDestinatario[]> {
+  const [ficha] = await db.select({ email: clients.email, contactEmail: clients.contactEmail })
+    .from(clients)
+    .where(eq(clients.id, clienteId))
+    .limit(1);
+  if (!ficha) return [];
+  return resolverDestinatarios({ email: ficha.email, contactEmail: ficha.contactEmail });
+}
+
+/**
  * ¿Esta lista se puede mandar? (AC6)
  *
  * Devuelve el motivo o `null`. Separada del envío para poder contestar «esto no va a salir» sin
@@ -148,6 +174,29 @@ export function validarDestinatarios(
       codigo: 'destinatario_invalido',
       mensaje: `La dirección número ${posicion + 1} no tiene forma de dirección de correo.`,
     };
+  }
+
+  // La misma dirección dos veces (HU #11708, AC5). Va DESPUÉS del formato a propósito: si la lista
+  // trae basura repetida, lo primero que hay que decir es que no es una dirección, no que se repite.
+  //
+  // Se compara en minúsculas y sin espacios porque para el buzón de destino son la misma: la parte
+  // del dominio es insensible a mayúsculas por norma, y ningún proveedor real distingue el buzón. Si
+  // no se comparara así, dos formas del mismo correo pasarían el filtro y el cliente recibiría el
+  // documento dos veces — y las dos copias contarían contra el tope de cinco de Siigo.
+  //
+  // Se nombran las DOS posiciones y ninguna dirección, por lo mismo que arriba: quien lo lea tiene
+  // que poder mirar su lista y quitar una, y eso se hace con los números.
+  const vistas = new Map<string, number>();
+  for (let i = 0; i < destinatarios.length; i += 1) {
+    const clave = destinatarios[i]!.correo.trim().toLowerCase();
+    const primera = vistas.get(clave);
+    if (primera !== undefined) {
+      return {
+        codigo: 'destinatario_repetido',
+        mensaje: `La dirección número ${i + 1} repite la número ${primera + 1}.`,
+      };
+    }
+    vistas.set(clave, i);
   }
   return null;
 }
@@ -208,7 +257,20 @@ async function cargarFactura(facturaId: string): Promise<FacturaAEnviar | null> 
   return fila ?? null;
 }
 
-/** Escribe la fila del acta. Es el único sitio del módulo que inserta en esta tabla. */
+/**
+ * Escribe la fila del acta. Es el único sitio del módulo que inserta en esta tabla.
+ *
+ * **Una lista por encima del tope se guarda VACÍA, y no es una decisión de este archivo**: la tabla
+ * lleva desde la migración 0141 un CHECK de `jsonb_array_length(destinatarios) <= 5`, así que el
+ * INSERT moriría y el acta —justo la del caso en que hay algo que arreglar— no llegaría a existir.
+ * Se descubrió escribiendo el AC5 de la HU #11708: el único desenlace que puede traer más
+ * direcciones de las que caben es precisamente «se pidieron más de las que Siigo admite».
+ *
+ * No se pierde lo que importa: `motivo` dice cuántas eran, y quien las escribió las tiene delante en
+ * la pantalla desde la que las escribió. Recortarlas a las cinco primeras habría sido peor —una
+ * lista que nadie pidió, con cinco direcciones elegidas por un `slice`— y guardar cero es además lo
+ * que menos dato personal conserva de una petición que no salió.
+ */
 async function anotarEnvio(campos: {
   facturaId: string;
   origen: SiigoEnvioOrigen;
@@ -218,11 +280,13 @@ async function anotarEnvio(campos: {
   motivo?: string | null;
   solicitadoPor?: number | null;
 }): Promise<SiigoEnvioRegistro> {
+  const cabenEnElActa = campos.destinatarios.length <= SIIGO_ENVIO_MAX_DESTINATARIOS;
+
   const [fila] = await db.insert(siigoFacturaEnvios).values({
     facturaId: campos.facturaId,
     origen: campos.origen,
     resultado: campos.resultado,
-    destinatarios: campos.destinatarios,
+    destinatarios: cabenEnElActa ? campos.destinatarios : [],
     codigo: campos.codigo ?? null,
     motivo: campos.motivo ?? null,
     solicitadoPor: campos.solicitadoPor ?? null,
@@ -258,8 +322,23 @@ function aRegistro(fila: typeof siigoFacturaEnvios.$inferSelect): SiigoEnvioRegi
  */
 export async function enviarFacturaPorCorreo(
   facturaId: string,
-  opciones: { solicitadoPor?: number | null; destinatarios?: SiigoDestinatario[] } = {},
+  opciones: {
+    solicitadoPor?: number | null;
+    destinatarios?: SiigoDestinatario[];
+    /**
+     * Quién originó este envío. Por omisión `reenvio`, que es quien llamaba cuando esto se escribió.
+     *
+     * La emisión lo pasa como `emision` cuando el envío eligió direcciones concretas (HU #11708,
+     * AC3): ahí el `mail: true` de la creación no sirve —Siigo manda a la dirección de la ficha, que
+     * es justo la que se está sustituyendo— y hay que pedirle el correo por su ruta propia. Es el
+     * MISMO envío, con las mismas comprobaciones y el mismo registro; lo único distinto es de dónde
+     * vino. Duplicar esta función para cambiar una palabra habría duplicado también la guarda del
+     * ambiente, y esa es la que no puede tener dos versiones.
+     */
+    origen?: SiigoEnvioOrigen;
+  } = {},
 ): Promise<SiigoEnvioRegistro> {
+  const origen = opciones.origen ?? 'reenvio';
   const f = await cargarFactura(facturaId);
   if (!f) throw new SiigoEnvioError('no_existe', 'La factura no existe.');
 
@@ -296,7 +375,7 @@ export async function enviarFacturaPorCorreo(
   if (problema) {
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'no_realizado',
       destinatarios,
       codigo: problema.codigo,
@@ -332,7 +411,7 @@ export async function enviarFacturaPorCorreo(
 
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'enviado',
       destinatarios,
       solicitadoPor: opciones.solicitadoPor,
@@ -355,7 +434,7 @@ export async function enviarFacturaPorCorreo(
     // AC1 — un envío fallido queda registrado como fallido; no se pierde.
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'fallido',
       destinatarios,
       codigo: 'siigo_rechazo',
@@ -378,14 +457,27 @@ export async function enviarFacturaPorCorreo(
  */
 export async function registrarEnvioDeEmision(
   facturaId: string,
-  respuesta: { enviado: boolean; destinatarios: SiigoDestinatario[]; motivo?: string | null },
+  respuesta: {
+    enviado: boolean;
+    destinatarios: SiigoDestinatario[];
+    motivo?: string | null;
+    /**
+     * Por qué no salió, con nombre propio (HU #11708).
+     *
+     * Sin él, «nadie lo pidió» (AC2), «este ambiente no manda correo» (AC4) y «la lista de
+     * direcciones no era mandable» (AC5) caían los tres en `emision_sin_correo`, y la bandeja no
+     * podría distinguir lo que no hay que arreglar de lo que sí. El texto del motivo lo explica a
+     * una persona; el código es lo que permite filtrar.
+     */
+    codigo?: string | null;
+  },
 ): Promise<SiigoEnvioRegistro> {
   return anotarEnvio({
     facturaId,
     origen: 'emision',
     resultado: respuesta.enviado ? 'enviado' : 'no_realizado',
     destinatarios: respuesta.destinatarios,
-    codigo: respuesta.enviado ? null : 'emision_sin_correo',
+    codigo: respuesta.enviado ? null : respuesta.codigo ?? 'emision_sin_correo',
     motivo: respuesta.enviado
       ? null
       : respuesta.motivo ?? 'Siigo no envió el correo al crear la factura.',
