@@ -47,6 +47,16 @@ export interface EspiaDrizzle {
   filtros: () => string[];
   /** Valores enlazados de TODOS los `where` de la operación, aplanados. */
   filtrosUsados: () => string[];
+  /**
+   * Condiciones `where` de los SELECT, en crudo y en orden.
+   *
+   * `filtros`/`filtrosUsados` recogen los valores enlazados que `paramsDe` sabe reconocer, y hay
+   * formas de construir un `sql` cuyos valores no quedan en un objeto con `.value` —una lista
+   * interpolada con `sql.join`, por ejemplo—. Cuando lo que se prueba es el PREDICADO y no la llave
+   * (una purga cuya corrección depende de cómo compara), el test serializa la condición con
+   * `PgDialect.sqlToQuery()` y afirma sobre el SQL y los parámetros reales.
+   */
+  condicionesLeidas: () => unknown[];
   /** Limpia lo registrado y reinstala el espía. Llamar DESPUÉS de `kdb.reset()`. */
   reiniciar: () => void;
 }
@@ -90,6 +100,7 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
   const updates: Mutacion[] = [];
   let ultimosFiltros: string[] = [];
   const historialFiltros: string[] = [];
+  const condicionesDeSelect: unknown[] = [];
 
   function instalar(): void {
     const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
@@ -99,6 +110,7 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
       c.where = (cond: unknown) => {
         ultimosFiltros = paramsDe(cond);
         historialFiltros.push(...ultimosFiltros);
+        condicionesDeSelect.push(cond);
         return original(cond);
       };
       return c;
@@ -142,10 +154,12 @@ export function crearEspia(kdb: KeyedDb): EspiaDrizzle {
     secuencia: () => inserts.map((m) => m.tabla),
     filtros: () => ultimosFiltros,
     filtrosUsados: () => historialFiltros,
+    condicionesLeidas: () => condicionesDeSelect,
     reiniciar: () => {
       inserts.length = 0;
       updates.length = 0;
       historialFiltros.length = 0;
+      condicionesDeSelect.length = 0;
       ultimosFiltros = [];
       instalar();
     },

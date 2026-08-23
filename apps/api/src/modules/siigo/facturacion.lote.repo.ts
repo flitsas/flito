@@ -14,11 +14,18 @@
 // fila con un `loteId` y nada más. Por eso la pertenencia se escribe ahora en `siigo_lote_tramites`,
 // **en el lote y no en la cola**: la cola dice cuándo toca trabajar, el lote dice sobre qué.
 
-import { and, asc, eq, sql } from 'drizzle-orm';
-import { esConceptoFacturable, type ConceptoFacturable } from '@operaciones/shared-types';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { esConceptoFacturable, type ConceptoFacturable, type SiigoDestinatario } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { siigoLotesFacturacion, siigoLoteTramites } from '../../db/schema.js';
 import type { EmisionElegida } from './facturacion.armado.js';
+// Solo el tipo: la regla de qué se hace con esa elección vive en `facturacion.correo.ts`, y este
+// archivo es un repositorio. Un `import type` no deja nada en el bundle ni crea dependencia real.
+import type { CorreoDelEnvio } from './facturacion.correo.js';
+// El predicado de «esta columna contiene una dirección del titular» se importa, no se copia: es
+// el mismo dato con la misma forma en las dos tablas y lo purga el mismo flujo. Dos copias eran
+// dos criterios que se desincronizan, y el que se quedara atrás dejaría vivo lo que dice borrar.
+import { correoDelTitularEn, correosDeBusqueda } from './siigo.envio-correo.service.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** La única estrategia de lote admitida hoy. Consolidar exige migración (D-1, diferida). */
@@ -44,6 +51,15 @@ export interface EntradaLote {
    * `prepararEmision` rechaza el lote que llegue sin comprobante, vendedor y forma de pago.
    */
   emision?: EmisionElegida | null;
+  /**
+   * Lo que el envío eligió sobre el correo al cliente (HU #11708). Ausente = no se pidió, que es lo
+   * que significan también los lotes anteriores a la migración 0161.
+   *
+   * **No entra en la huella**, al revés que `conceptos` y `emision`. Ver el comentario de la columna
+   * en `schema.ts`: el correo no cambia el documento que ve la DIAN, así que darle identidad propia
+   * al lote sería crear una segunda clave de idempotencia para la misma factura.
+   */
+  correo?: CorreoDelEnvio | null;
   creadoPor: number | null;
 }
 
@@ -80,6 +96,8 @@ async function crearORecuperar(entrada: EntradaLote): Promise<string | null> {
       vendedorCodigo: entrada.emision?.vendedorCodigo ?? null,
       formaPagoCodigo: entrada.emision?.formaPagoCodigo ?? null,
       centroCostoCodigo: entrada.emision?.centroCostoCodigo ?? null,
+      correoSolicitado: entrada.correo?.solicitado ?? false,
+      correoDestinatarios: entrada.correo?.destinatarios ?? [],
       creadoPor: entrada.creadoPor,
     })
     .onConflictDoNothing({
@@ -189,6 +207,96 @@ export async function emisionDelLote(loteId: string): Promise<EmisionElegida> {
     formaPagoCodigo: fila?.formaPagoCodigo ?? null,
     centroCostoCodigo: fila?.centroCostoCodigo ?? null,
   };
+}
+
+/**
+ * Lo que este lote eligió sobre el correo al cliente (HU #11708).
+ *
+ * **Ausente en la fila = no se pidió.** Es el valor por omisión de la columna y el que tienen los
+ * lotes anteriores a la 0161, y significa exactamente lo mismo en los dos casos: la emisión no manda
+ * correo y deja acta `no_realizado` con `no_solicitado`. No hay aquí ninguna deuda de compatibilidad
+ * escondida, porque hasta esta historia el correo lo decidía el ambiente y no el lote.
+ *
+ * Un lote que no existe devuelve también «no solicitado», y no lanza: quien llama —el trabajador—
+ * ya trata el lote sin trámites como un fallo de datos con su mensaje propio, y un segundo error
+ * distinto para el mismo lote fantasma solo cambiaría cuál de los dos se ve.
+ */
+export async function correoDelLote(loteId: string): Promise<CorreoDelEnvio> {
+  const [fila] = await db.select({
+    solicitado: siigoLotesFacturacion.correoSolicitado,
+    destinatarios: siigoLotesFacturacion.correoDestinatarios,
+  })
+    .from(siigoLotesFacturacion)
+    .where(eq(siigoLotesFacturacion.id, loteId))
+    .limit(1);
+  return {
+    solicitado: fila?.solicitado === true,
+    destinatarios: (fila?.destinatarios ?? []) as SiigoDestinatario[],
+  };
+}
+
+/**
+ * Borra las direcciones elegidas de los lotes de un titular (Ley 1581).
+ *
+ * Hermana de `purgarDestinatariosDeClientes`, que hace lo propio con las actas, y por el mismo
+ * motivo: desde la HU #11708 esta tabla guarda direcciones, así que tiene que estar al alcance del
+ * derecho de supresión. Una copia que la purga no alcanza es peor que no tener el dato, porque al
+ * titular se le responde que se olvidó.
+ *
+ * **Se busca por los dos caminos, igual que en las actas y por las mismas tres razones**: la
+ * compañía de los trámites del lote puede ser NULL, las direcciones escritas a mano pueden ser de un
+ * tercero que no es el cliente de esos trámites, y una segunda ejecución del olvido ya no encuentra
+ * clientes que buscar. El segundo camino es `correoDelTitularEn`, la MISMA función que usan las
+ * actas: compara en minúsculas los dos lados porque la ruta del envío normaliza lo que se teclea y
+ * la ficha del cliente se guarda tal cual se escribió, así que la coincidencia exacta no encontraba
+ * la fila que ella misma acababa de producir. Por eso la 0161 no crea un GIN de contención —que este
+ * predicado no usaría— sino un btree parcial sobre el mismo `jsonb_array_length(...) > 0` con el que
+ * filtra la consulta de abajo. El razonamiento completo está en `correoDelTitularEn`.
+ *
+ * A diferencia del acta, aquí **no se conserva ninguna marca**: el lote no es un registro de lo que
+ * pasó —eso es el acta— sino una instrucción de lo que había que hacer, y una instrucción cumplida
+ * sin destinatarios no le debe nada a nadie. Vaciarla es idempotente: no hay disparador que se queje
+ * de una segunda purga, y por eso tampoco hace falta excluir las ya purgadas.
+ *
+ * Recibe el ejecutor porque el olvido corre dentro de UNA transacción: con la conexión suelta, estas
+ * direcciones podrían borrarse mientras el resto del olvido se deshace, o al revés.
+ */
+export async function purgarDestinatariosDeLotes(
+  companiaIds: number[],
+  correos: string[] = [],
+  ejecutor: Pick<typeof db, 'select' | 'update'> = db,
+): Promise<number> {
+  const limpios = correosDeBusqueda(correos);
+  if (companiaIds.length === 0 && limpios.length === 0) return 0;
+
+  const porCompania = companiaIds.length > 0
+    ? sql`EXISTS (
+        SELECT 1 FROM siigo_lote_tramites slt
+          JOIN flito_tramites ft ON ft.id = slt.tramite_id
+         WHERE slt.lote_id = ${siigoLotesFacturacion.id}
+           AND ft.compania_id IN (${sql.join(companiaIds.map((c) => sql`${c}`), sql`, `)}))`
+    : sql`false`;
+
+  const porCorreo = correoDelTitularEn(siigoLotesFacturacion.correoDestinatarios, limpios);
+
+  // Solo los que tienen algo que borrar: sin este filtro, un olvido tocaría todos los lotes de la
+  // compañía —que pueden ser miles— para dejarlos como estaban, y el resumen que se le entrega al
+  // titular diría que se purgaron mil filas en las que no había ni una dirección.
+  const lotes = await ejecutor.select({ id: siigoLotesFacturacion.id })
+    .from(siigoLotesFacturacion)
+    .where(and(
+      sql`jsonb_array_length(${siigoLotesFacturacion.correoDestinatarios}) > 0`,
+      sql`(${porCompania} OR ${porCorreo})`,
+    ));
+
+  if (lotes.length === 0) return 0;
+
+  const purgados = await ejecutor.update(siigoLotesFacturacion)
+    .set({ correoDestinatarios: [] })
+    .where(inArray(siigoLotesFacturacion.id, lotes.map((l) => l.id)))
+    .returning({ id: siigoLotesFacturacion.id });
+
+  return purgados.length;
 }
 
 /**
