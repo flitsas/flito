@@ -8,6 +8,7 @@
 // feliz y no excluye nada en producción, así que un test de resultado la daría por buena.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createKeyedDb } from '../helpers/keyed-db.js';
@@ -34,7 +35,8 @@ vi.mock('../../src/modules/siigo/siigo.client.js', () => ({
 }));
 
 const {
-  colaDeTramites, encolar, liberar, registrarDesenlace, SiigoColaError, tomarLote,
+  colaDeTramites, descartarDefinitivo, encolar, filaDeCola, liberar, registrarDesenlace,
+  SiigoColaError, tomarLote,
 } = await import('../../src/modules/siigo/facturacion.cola.service.js');
 
 const TRAMITE = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
@@ -469,5 +471,96 @@ describe('el estado se puede consultar mientras el trabajador procesa', () => {
   it('sin trámites no pregunta nada', async () => {
     expect(await colaDeTramites('pruebas', [])).toEqual([]);
     expect(kdb.select).not.toHaveBeenCalled();
+  });
+});
+
+// ── AC5 de la HU #11340 — dar una fila por perdida a mano ──────────────────
+//
+// Vive en ESTE archivo, y no en el de la bandeja, por la invariante que encabeza el servicio: es el
+// único que escribe en `siigo_cola_facturacion`. Y se prueba aquí porque el test de la bandeja
+// mockea esta función: allí se comprueba que se la llama; la condición que la hace segura solo se
+// puede comprobar donde está escrita.
+
+describe('descartarDefinitivo — las DOS condiciones del WHERE son la corrección', () => {
+  const dialecto = new PgDialect();
+
+  /** El `WHERE` real de la última mutación sobre la cola, como SQL. */
+  function whereDelUpdate(): string {
+    const m = espia.updatesEn('siigo_cola_facturacion').at(-1)!;
+    return m.condiciones.map((c) => dialecto.sqlToQuery(c as never).sql).join(' AND ');
+  }
+
+  beforeEach(() => {
+    kdb.when.update('siigo_cola_facturacion', [filaCola({ estado: 'fallido_definitivo' })]);
+  });
+
+  it('solo marca lo que sigue vivo: `enviado` produjo un documento ante la DIAN', async () => {
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7, ahora: AHORA });
+    expect(whereDelUpdate()).toMatch(/estado.*in \('pendiente', 'error'\)/i);
+  });
+
+  it('NO pisa una fila que un trabajador tiene arrendada AHORA MISMO', async () => {
+    // Sin esta condición el UPDATE deja la fila en un estado terminal CON el arrendamiento puesto
+    // —lo que el `siigo_cola_arrendamiento_estado_chk` prohíbe— y, peor, el desenlace de esa emisión
+    // llega después encima de una fila que alguien acaba de dar por perdida.
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7, ahora: AHORA });
+    expect(whereDelUpdate()).toMatch(/tomado_por.*is null/i);
+  });
+
+  it('suelta el arrendamiento en el MISMO UPDATE, por si alguien relaja la condición', async () => {
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7, ahora: AHORA });
+    const datos = espia.updatesEn('siigo_cola_facturacion').at(-1)!.datos;
+    expect(datos).toMatchObject({ estado: 'fallido_definitivo', tomadoPor: null, tomadoEn: null });
+  });
+
+  it('NO toca `error_code` ni `error_detalle`: ahí vive el diagnóstico del fallo', async () => {
+    // Sobrescribirlos con el motivo del descarte perdería POR QUÉ falló —que es lo que decide si
+    // reintentar sirve (AC3)— y guardaría la decisión en una fila que sí se puede sobrescribir.
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7, ahora: AHORA });
+    const datos = espia.updatesEn('siigo_cola_facturacion').at(-1)!.datos;
+    expect(datos).not.toHaveProperty('errorCode');
+    expect(datos).not.toHaveProperty('errorDetalle');
+  });
+
+  it('cero filas NO es un error: dice cuál de las cuatro causas fue', async () => {
+    // Es lo que permite a la ruta distinguir un 409 «se está procesando» de un caso normal —el
+    // trabajador ya la había agotado— al que solo le falta la decisión de una persona.
+    kdb.when.update('siigo_cola_facturacion', []);
+
+    kdb.when.select('siigo_cola_facturacion', [filaCola({ estado: 'fallido_definitivo' })]);
+    expect((await descartarDefinitivo({ colaId: COLA, usuarioId: 7 })).estado).toBe('ya_terminal');
+
+    kdb.when.select('siigo_cola_facturacion', [filaCola({ estado: 'enviado' })]);
+    expect((await descartarDefinitivo({ colaId: COLA, usuarioId: 7 })).estado).toBe('emitida');
+
+    kdb.when.select('siigo_cola_facturacion', [filaCola({ estado: 'pendiente' })]);
+    expect((await descartarDefinitivo({ colaId: COLA, usuarioId: 7 })).estado).toBe('en_proceso');
+
+    kdb.when.select('siigo_cola_facturacion', []);
+    expect((await descartarDefinitivo({ colaId: COLA, usuarioId: 7 })).estado).toBe('no_existe');
+  });
+
+  it('la lectura que explica el cero va DESPUÉS del UPDATE, nunca antes', async () => {
+    // Leer primero y decidir después es la carrera que este archivo entero evita. Se comprueba por
+    // el orden real de las operaciones: si alguien invirtiera las dos, el SELECT saldría primero.
+    kdb.when.update('siigo_cola_facturacion', []);
+    kdb.when.select('siigo_cola_facturacion', [filaCola()]);
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7 });
+
+    expect(kdb.update.mock.invocationCallOrder[0]!)
+      .toBeLessThan(kdb.select.mock.invocationCallOrder[0]!);
+  });
+
+  it('en el camino feliz NO hace la lectura de diagnóstico', async () => {
+    kdb.select.mockClear();
+    await descartarDefinitivo({ colaId: COLA, usuarioId: 7, ahora: AHORA });
+    expect(kdb.select).not.toHaveBeenCalled();
+  });
+
+  it('`filaDeCola` solo lee: la escritura sigue siendo de este archivo', async () => {
+    kdb.when.select('siigo_cola_facturacion', [filaCola()]);
+    const fila = await filaDeCola(COLA);
+    expect(fila?.id).toBe(COLA);
+    expect(espia.updatesEn('siigo_cola_facturacion')).toEqual([]);
   });
 });

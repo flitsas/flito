@@ -171,12 +171,33 @@ describe('AC3 — reintentar y corregir no se confunden', () => {
     expect(guia.responsable).toBe('automatico');
   });
 
-  it('las dos frases son excluyentes: ningún texto puede decir las dos cosas', () => {
+  it('las frases de reintento son excluyentes: cada texto dice UNA, ni cero ni dos', () => {
+    // Eran dos hasta la HU #11340, que añadió la tercera —«no vuelve solo, pero reintentarlo desde
+    // la bandeja sí puede salir bien»— para los códigos que no vuelven por su cuenta y aun así se
+    // desatascan pulsando. Sin ella, esos códigos tenían que elegir entre dos frases falsas.
+    //
+    // La garantía que esta prueba defiende NO cambia: ningún texto puede decir dos cosas
+    // contradictorias sobre el reintento, y ninguno puede quedarse callado. Lo que cambia es que
+    // ahora las alternativas son tres, así que se cuenta en vez de comparar dos booleanos.
     for (const codigo of codigosCatalogados()) {
       const texto = guiaParaCodigo(codigo).texto;
-      const dicePasajero = /Se reintenta automáticamente/.test(texto);
-      const diceDefinitivo = /Reintentar no lo arregla/.test(texto);
-      expect(dicePasajero).not.toBe(diceDefinitivo);
+      const dichas = [
+        /Se reintenta automáticamente/,
+        /Reintentar no lo arregla/,
+        /No vuelve solo, pero reintentarlo desde la bandeja/,
+      ].filter((f) => f.test(texto));
+
+      expect(dichas, `«${codigo}» dice ${dichas.length} frases de reintento`).toHaveLength(1);
+    }
+  });
+
+  it('«vuelve solo» y «reintentarlo a mano sirve» nunca se ponen a la vez', () => {
+    // Son excluyentes por definición: si el sistema lo reintenta sin ayuda, no hay nada que pulsar.
+    // Una entrada del catálogo con las dos marcas produciría un texto que promete las dos cosas.
+    for (const codigo of codigosCatalogados()) {
+      const guia = guiaParaCodigo(codigo);
+      expect(guia.reintentable && guia.reintentoManual, codigo).toBe(false);
+      expect(guia.sirveReintentar, codigo).toBe(guia.reintentable || guia.reintentoManual);
     }
   });
 

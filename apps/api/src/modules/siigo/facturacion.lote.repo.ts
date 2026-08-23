@@ -192,6 +192,73 @@ export async function emisionDelLote(loteId: string): Promise<EmisionElegida> {
 }
 
 /**
+ * Todo lo que hace falta para volver a encolar varios lotes, **en dos consultas y no en 3·N**.
+ *
+ * Existe por la bandeja de fallidos (HU #11340): reintentar cien facturas con
+ * `tramitesDelLote` + `conceptosDelLote` + `emisionDelLote` serían trescientas consultas antes de
+ * empezar a encolar. Las tres funciones de una en una siguen ahí porque el trabajador las usa así
+ * —toma UNA fila y pregunta por SU lote—, y esto no las sustituye: las agrupa.
+ *
+ * Vive en el repositorio y no en la bandeja **para que siga habiendo un solo lector del lote**. Si
+ * la bandeja leyera `siigo_lotes_facturacion` por su cuenta, tendría su propia idea de qué contiene
+ * un lote —empezando por cómo se filtra `conceptos` contra el catálogo— y dos lecturas distintas del
+ * mismo lote es exactamente lo que produce una factura con líneas que nadie pidió.
+ *
+ * Un lote que no existe simplemente no sale en el mapa: quien pregunta distingue «vacío» de
+ * «ausente», y son cosas distintas (ver `conceptosDelLote`).
+ */
+export interface ContenidoLote {
+  tramiteIds: string[];
+  /** Vacío = lote anterior a A1. **No es «ninguno»**: no se puede reencolar tal cual. */
+  conceptos: ConceptoFacturable[];
+  emision: EmisionElegida;
+}
+
+export async function contenidoDeLotes(loteIds: string[]): Promise<Map<string, ContenidoLote>> {
+  const ids = [...new Set(loteIds)].filter(Boolean);
+  if (ids.length === 0) return new Map();
+
+  const lotes = await db.select({
+    id: siigoLotesFacturacion.id,
+    conceptos: siigoLotesFacturacion.conceptos,
+    documentoTipoCodigo: siigoLotesFacturacion.documentoTipoCodigo,
+    vendedorCodigo: siigoLotesFacturacion.vendedorCodigo,
+    formaPagoCodigo: siigoLotesFacturacion.formaPagoCodigo,
+    centroCostoCodigo: siigoLotesFacturacion.centroCostoCodigo,
+  }).from(siigoLotesFacturacion)
+    .where(sql`${siigoLotesFacturacion.id} = ANY(${sql.param(ids)}::uuid[])`);
+
+  const pertenencia = await db.select({
+    loteId: siigoLoteTramites.loteId,
+    tramiteId: siigoLoteTramites.tramiteId,
+  }).from(siigoLoteTramites)
+    .where(sql`${siigoLoteTramites.loteId} = ANY(${sql.param(ids)}::uuid[])`)
+    // El MISMO orden que `tramitesDelLote`, y no por gusto: la clave de idempotencia se deriva de la
+    // huella y la huella se calcula sobre los ids ordenados. Dos lecturas del mismo lote que
+    // devolvieran órdenes distintos producirían huellas distintas, es decir, DOS LOTES para el mismo
+    // contenido — la carrera que todo este modelo existe para cerrar.
+    .orderBy(asc(siigoLoteTramites.tramiteId));
+
+  const tramitesPorLote = new Map<string, string[]>();
+  for (const p of pertenencia) {
+    const lista = tramitesPorLote.get(String(p.loteId)) ?? [];
+    lista.push(String(p.tramiteId));
+    tramitesPorLote.set(String(p.loteId), lista);
+  }
+
+  return new Map(lotes.map((l) => [String(l.id), {
+    tramiteIds: tramitesPorLote.get(String(l.id)) ?? [],
+    conceptos: conceptosDeLaColumna(l.conceptos),
+    emision: {
+      documentoTipoCodigo: l.documentoTipoCodigo ?? null,
+      vendedorCodigo: l.vendedorCodigo ?? null,
+      formaPagoCodigo: l.formaPagoCodigo ?? null,
+      centroCostoCodigo: l.centroCostoCodigo ?? null,
+    },
+  }]));
+}
+
+/**
  * Los lotes que contienen alguno de estos trámites, con su ambiente.
  *
  * Lo usa la consulta de estado de la cola: quien pregunta conoce trámites, no lotes.

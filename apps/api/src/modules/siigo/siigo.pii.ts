@@ -177,6 +177,26 @@ export const CAMPOS_PII_IDENTIFICACION = ['document'] as const;
  */
 export const CAMPOS_PII_RESUMEN: readonly string[] = [];
 
+/**
+ * Lo que entrega la bandeja de fallidos (HU #11340): **la razón social del cliente y nada más**.
+ *
+ * `document` NO está, y su ausencia es una decisión de diseño de la respuesta, no un descuido: la
+ * bandeja devuelve `clienteId` —un id interno— y `clienteNombre`, porque es lo que quien opera
+ * necesita para saber a quién llamar. El NIT no viaja: si la pantalla no lo necesita para hacer su
+ * trabajo, no sale de la base. Declararlo aquí haría que la consulta «¿quién ha leído
+ * identificaciones?» devolviera a todo el que abrió la bandeja, y un registro de acceso que exagera
+ * es tan inservible como uno que falta.
+ *
+ * Que el titular sea una empresa no lo saca del alcance: `clients` mezcla personas naturales y
+ * jurídicas en la misma tabla, así que la lista lleva nombres de persona sí o sí. Es el mismo
+ * criterio que aplican `CAMPOS_PII_PROPUESTA_CIUDAD` y `flito-comparendos.pii.ts`: lo que decide no
+ * es la ruta ni el verbo, sino si la RESPUESTA entrega datos personales.
+ *
+ * La bandeja tampoco devuelve la placa del vehículo —cuasi-PII y en una tabla que se refresca sola—:
+ * de cada trámite salen su id y su `id_flit`, que es lo que sirve para buscarlo.
+ */
+export const CAMPOS_PII_BANDEJA = ['name'] as const;
+
 export interface AccesoCliente {
   /**
    * `search` = barrido o listado; `read` = la ficha de un cliente concreto; `export` = los datos

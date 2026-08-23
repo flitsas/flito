@@ -262,6 +262,90 @@ async function reactivarFila(colaId: string, ahora: Date): Promise<SiigoColaItem
   return fila ? aItem(fila as Record<string, unknown>) : null;
 }
 
+export type ResultadoDescarte =
+  /** Estaba viva y ahora es terminal. Es el camino normal. */
+  | { estado: 'marcada'; fila: SiigoColaItem }
+  /**
+   * Ya era `fallido_definitivo` **antes de que nadie la marcara**: el trabajador agotó su techo.
+   *
+   * NO es un error, y distinguirlo importa: el estado ya cumple el «deja de reintentarse» del AC5,
+   * pero falta lo que el AC5 pide de verdad —motivo, quién y cuándo—, y eso se escribe en la
+   * bitácora igual. Colapsarlo con «no se pudo» dejaría sin justificar precisamente los casos que
+   * llevan más tiempo parados.
+   */
+  | { estado: 'ya_terminal'; fila: SiigoColaItem }
+  /** Se emitió: hay un documento ante la DIAN y darlo por perdido sería mentir sobre él. */
+  | { estado: 'emitida'; fila: SiigoColaItem }
+  /** Un trabajador la tiene arrendada AHORA MISMO. No se pisa: se pide reintentar en un minuto. */
+  | { estado: 'en_proceso'; fila: SiigoColaItem }
+  | { estado: 'no_existe' };
+
+/**
+ * AC5 de la HU #11340 — Da una fila por perdida a mano.
+ *
+ * **Está aquí, y no en el servicio de la bandeja, porque este archivo es el único que escribe en
+ * `siigo_cola_facturacion`** —hay una prueba que lo vigila—. Un `UPDATE` suelto desde otro módulo que
+ * tocara el estado sin mirar el arrendamiento dejaría una fila terminada y arrendada, cosa que el
+ * `CHECK siigo_cola_arrendamiento_estado_chk` prohíbe: el 500 saldría del motor, con la sentencia y
+ * sus parámetros dentro, y por un camino que nadie prueba.
+ *
+ * **Las DOS condiciones del `WHERE` son la corrección, no una de ellas.**
+ *
+ *   · `estado IN ('pendiente', 'error')` — lo `enviado` ya produjo un documento y darlo por perdido
+ *     sería mentir sobre una factura que existe ante la DIAN; lo que ya es `fallido_definitivo` no
+ *     necesita marcarse otra vez, y marcarlo escribiría un segundo motivo encima del primero.
+ *   · `tomado_por IS NULL` — sin esto se pisa una fila que un trabajador está emitiendo AHORA MISMO:
+ *     el `UPDATE` la dejaría en un estado terminal con el arrendamiento puesto (el CHECK revienta) y,
+ *     peor, el desenlace de esa emisión llegaría después sobre una fila que alguien dio por perdida.
+ *
+ * Cero filas NO es un error del sistema: tiene cuatro causas y solo dos son un problema, así que se
+ * devuelve CUÁL fue en vez de un `null` que quien llama tendría que reinterpretar.
+ *
+ * **No toca `error_code` ni `error_detalle`, y es deliberado.** Esas columnas dicen POR QUÉ falló, y
+ * es lo que la bandeja pinta y lo que decide si reintentar sirve de algo (AC3). El motivo del
+ * descarte es otra cosa —una decisión de una persona— y su sitio es `siigo_operaciones`, que además
+ * es WORM: escribirlo encima del código de error perdería el diagnóstico y guardaría la decisión en
+ * una fila que sí se puede sobrescribir. Justo al revés de lo que hace falta.
+ */
+export async function descartarDefinitivo(args: {
+  colaId: string; usuarioId: number | null; ahora?: Date;
+}): Promise<ResultadoDescarte> {
+  const ahora = args.ahora ?? new Date();
+  const [fila] = await db.update(siigoColaFacturacion)
+    .set({
+      estado: 'fallido_definitivo',
+      // Redundante con el `WHERE` y a propósito: si algún día alguien relaja la condición del
+      // arrendamiento, esto evita que la fila quede terminada Y arrendada.
+      tomadoPor: null,
+      tomadoEn: null,
+      updatedAt: ahora,
+    })
+    .where(and(
+      eq(siigoColaFacturacion.id, args.colaId),
+      sql`${siigoColaFacturacion.estado} IN ('pendiente', 'error')`,
+      sql`${siigoColaFacturacion.tomadoPor} IS NULL`,
+    ))
+    .returning(COLUMNAS);
+  if (fila) return { estado: 'marcada', fila: aItem(fila as Record<string, unknown>) };
+
+  // La lectura va DESPUÉS del `UPDATE`, nunca antes: leer primero y decidir después es la carrera
+  // que este archivo entero evita. Aquí ya no hay decisión que pueda correr —la escritura fracasó—
+  // y esto solo sirve para explicar por qué.
+  const actual = await filaDeCola(args.colaId);
+  if (!actual) return { estado: 'no_existe' };
+  if (actual.estado === 'enviado') return { estado: 'emitida', fila: actual };
+  if (actual.estado === 'fallido_definitivo') return { estado: 'ya_terminal', fila: actual };
+  return { estado: 'en_proceso', fila: actual };
+}
+
+/** Una fila de la cola por su id. Solo lectura; la escritura sigue viviendo en este archivo. */
+export async function filaDeCola(colaId: string): Promise<SiigoColaItem | null> {
+  const [f] = await db.select(COLUMNAS).from(siigoColaFacturacion)
+    .where(eq(siigoColaFacturacion.id, colaId))
+    .limit(1);
+  return f ? aItem(f as Record<string, unknown>) : null;
+}
+
 /**
  * Deja rastro del encolado en la bitácora.
  *
