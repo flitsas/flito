@@ -147,16 +147,22 @@ const envioSchema = z.object({
    */
   correo: z.object({
     enviar: z.boolean(),
-    // `.toLowerCase()` NO es cosmética: es lo que hace alcanzable el derecho de supresión. La purga
-    // por dirección (`purgarDestinatariosDeLotes`) busca con `jsonb @>`, que compara byte a byte,
-    // así que un `Contabilidad@Empresa.com` tecleado aquí no lo encuentra el titular que pide el
-    // olvido escribiendo su correo como lo tiene la ficha — y se le contestaría que quedó borrado
-    // sin estarlo. Normalizar al ESCRIBIR y no al consultar es además la única forma de conservar
-    // útil el índice GIN: bajar a minúsculas en la consulta pediría un índice sobre `lower()`.
-    // Estas direcciones son `origen: 'manual'`, o sea tecleadas, que es justo donde la coincidencia
-    // exacta falla; y el sistema ya trata el buzón como insensible a mayúsculas cuando
-    // `validarDestinatarios` detecta repetidos, así que comparar distinto en cada sitio hacía que
-    // dos direcciones fueran la misma para rechazarlas y distintas para borrarlas.
+    // `.trim().toLowerCase()` NO es cosmética, pero tampoco es ya la única defensa del derecho de
+    // supresión: la purga por dirección (`purgarDestinatariosDeLotes`) dejó de comparar con
+    // `jsonb @>` —byte a byte— y hoy pliega mayúsculas y espacios en los DOS lados
+    // (`correoDelTitularEn`), así que alcanza también lo que se haya guardado sin normalizar. Se
+    // normaliza igual al ESCRIBIR, y por dos motivos que siguen en pie: deja UNA sola forma en la
+    // columna, que es lo que hace comparables las filas entre sí —`validarDestinatarios` juzga los
+    // repetidos con este mismo criterio, y comparar distinto en cada sitio era decir que dos
+    // direcciones son la misma para rechazarlas y distintas para borrarlas—, y no hace depender el
+    // olvido de que la consulta siga siendo la correcta. Estas direcciones son `origen: 'manual'`,
+    // o sea tecleadas, que es justo donde la forma varía.
+    //
+    // Lo que YA NO justifica esta línea es el índice. Decía que normalizar al escribir era «la única
+    // forma de conservar útil el índice GIN», y es falso desde que la purga dejó de usar `@>`: el
+    // GIN `jsonb_path_ops` de la 0161 solo sirve a ese operador, así que hoy no lo usa nadie —lo
+    // escriba como lo escriba esta ruta—. Ese índice está pendiente de sustituirse por un btree
+    // parcial con el predicado que la purga sí ejecuta; hasta entonces, no es un motivo.
     destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
       .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
       .optional(),

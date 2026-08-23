@@ -129,30 +129,43 @@ function buildTxMock(opts: {
  *
  * Esta versión añade las dos cosas que hacen falta para que el orden IMPORTE:
  *
- *   1. Enruta por nombre de tabla, de modo que el `SELECT` sobre `clients` puede devolver una ficha
- *      con direcciones de verdad.
- *   2. **Recuerda que `clients` ya se anonimizó.** En producción, el `UPDATE` del paso 1 escribe
- *      `document = docHash` (que empieza por `ANON-`), y `matchByDoc` compara contra el documento
- *      CRUDO y excluye explícitamente `NOT LIKE 'ANON-%'`. O sea: después de ese UPDATE, ese mismo
- *      `SELECT` devuelve cero filas. Sin simularlo, mover la captura de las direcciones a después
- *      del UPDATE seguía verde aquí y degradaba en silencio allá.
+ *   1. Enruta por nombre de tabla, de modo que el `SELECT` sobre cualquiera de las tablas donde el
+ *      titular tiene correo puede devolver direcciones de verdad.
+ *   2. **Recuerda qué tablas ya se anonimizaron.** En producción, cada `UPDATE` de este flujo
+ *      escribe el documento como `docHash` (que empieza por `ANON-`), y `matchByDoc` compara contra
+ *      el documento CRUDO y excluye explícitamente `NOT LIKE 'ANON-%'`. O sea: después de ese
+ *      UPDATE, ese mismo `SELECT` devuelve cero filas. Sin simularlo, mover la captura de las
+ *      direcciones a después del UPDATE seguía verde aquí y degradaba en silencio allá — y no en una
+ *      tabla, sino en cada una de las seis de las que este flujo saca correos.
  */
 function buildTxPorTabla(opts: {
   /** Lo que `SELECT email, contact_email FROM clients WHERE <doc del titular>` devuelve. */
   fichaDelTitular?: Array<{ email: string | null; contactEmail: string | null }>;
+  /**
+   * Correos del titular en las OTRAS tablas que este flujo anonimiza, por nombre de tabla
+   * (`laft_counterparties`, `tramites_validaciones`, `tenedores`, `propietarios_carga`,
+   * `destinatarios_carga`). Cada uno se sirve como una fila `{ email }`.
+   */
+  correosPorTabla?: Record<string, Array<string | null>>;
+  /** Correo del comprador en `tramites_digitales`, que se lee con `execute` porque vive en JSONB. */
+  correosDeComprador?: Array<string | null>;
   /** Filas que devuelve el SELECT de cada tabla. Por omisión, una. */
   filasPorTabla?: Record<string, number>;
 } = {}) {
   const ficha = opts.fichaDelTitular ?? [];
+  const correosPorTabla = opts.correosPorTabla ?? {};
+  const correosDeComprador = opts.correosDeComprador ?? [];
 
   return async (cb: any) => {
     const { getTableName } = await import('drizzle-orm');
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialecto = new PgDialect();
     const nombre = (t: unknown): string => {
       try { return getTableName(t as never); } catch { return '__expr__'; }
     };
-    // El estado que hace que el ORDEN se note: en cuanto `clients` queda anonimizada, el documento
+    // El estado que hace que el ORDEN se note: en cuanto una tabla queda anonimizada, el documento
     // del titular ya no existe en su forma cruda y ningún `matchByDoc` vuelve a encontrarla.
-    let clientsAnonimizada = false;
+    const anonimizadas = new Set<string>();
 
     /** Filas afectadas por un UPDATE. Llevan `id` porque quien llama las usa como llave. */
     const filasAfectadas = (tabla: string): unknown[] => {
@@ -160,9 +173,12 @@ function buildTxPorTabla(opts: {
       return Array.from({ length: n }, (_, i) => ({ id: i + 1, userId: i + 1 }));
     };
 
-    /** Filas que devuelve un SELECT. Solo `clients` depende de si ya se anonimizó. */
+    /** Filas que devuelve un SELECT. Una tabla ya anonimizada devuelve cero, como en la BD. */
     const filasLeidas = (tabla: string): unknown[] => {
-      if (tabla === 'clients') return clientsAnonimizada ? [] : ficha;
+      if (anonimizadas.has(tabla)) return [];
+      if (tabla === 'clients') return ficha;
+      const correos = correosPorTabla[tabla];
+      if (correos) return correos.map((email) => ({ email }));
       return filasAfectadas(tabla);
     };
 
@@ -177,7 +193,20 @@ function buildTxPorTabla(opts: {
         c.then = (res: any, rej: any) => Promise.resolve().then(() => filasLeidas(tabla)).then(res, rej);
         return c;
       }),
-      execute: vi.fn().mockResolvedValue([{ id: 1 }]),
+      // `tramites_digitales` se lee y se escribe con SQL crudo, porque el comprador vive en JSONB.
+      // Se distingue la lectura de la escritura por el SQL generado, no por el orden de llamada: así
+      // el caso sigue diciendo la verdad aunque alguien reordene la transacción.
+      execute: vi.fn().mockImplementation(async (consulta: unknown) => {
+        const texto = ((): string => {
+          try { return dialecto.sqlToQuery(consulta as never).sql; } catch { return ''; }
+        })();
+        if (/^\s*SELECT\b/i.test(texto.trim())) {
+          return anonimizadas.has('tramites_digitales')
+            ? [] : correosDeComprador.map((email) => ({ email }));
+        }
+        anonimizadas.add('tramites_digitales'); // el UPDATE del paso 5 escribe `docHash`
+        return [{ id: 1 }];
+      }),
       update: vi.fn((t: unknown) => {
         const tabla = nombre(t);
         const c: any = {};
@@ -188,7 +217,7 @@ function buildTxPorTabla(opts: {
           // lista de compañías—; lo que cambia es que a partir de aquí ningún `matchByDoc` vuelve a
           // encontrarlas. Ese matiz es el que hace que la rama por compañía siga funcionando cuando
           // la captura se mueve: por eso el resumen NO delata el fallo y hacen falta los otros casos.
-          if (tabla === 'clients') clientsAnonimizada = true;
+          anonimizadas.add(tabla);
           return Promise.resolve(filasAfectadas(tabla));
         };
         return c;
@@ -500,8 +529,9 @@ describe('POST /forget — el olvido alcanza las direcciones del módulo Siigo (
     // porque la rama por compañía sigue devolviendo lo suyo.
     //
     // La transacción falsa lo reproduce: en cuanto `clients` recibe su UPDATE, ese mismo SELECT
-    // devuelve vacío. Mover `const correosDelTitular = …` debajo del `tx.update(clients)` pone rojo
-    // este caso — y solo este.
+    // devuelve vacío. Mover la lectura de `clients` debajo del `tx.update(clients)` pone rojo este
+    // caso Y el de «la rama POR DIRECCIÓN se ejercita de verdad», que compara la lista completa.
+    // Los dos, no uno: son la misma afirmación mirada por el tamaño y por el contenido.
     const tx = buildTxPorTabla({ fichaDelTitular: FICHA });
     const r = await olvidar(tx);
 
@@ -511,16 +541,97 @@ describe('POST /forget — el olvido alcanza las direcciones del módulo Siigo (
     expect(correosPasadosALotes[0]).toHaveLength(2);
   });
 
-  it('una ficha sin direcciones no convierte el olvido en una purga sin criterio', async () => {
-    // El control del caso anterior: cuando de verdad no hay direcciones que buscar, la lista llega
-    // vacía y las purgas se quedan con la compañía. Sin este caso, «llega vacío» y «no se capturó»
-    // serían el mismo resultado y el test de arriba no distinguiría nada.
+  it('un titular sin correo en NINGUNA de las seis tablas no convierte el olvido en una purga sin criterio', async () => {
+    // El control de todos los casos anteriores: cuando de verdad no hay direcciones que buscar, la
+    // lista llega vacía y las purgas se quedan con la compañía. Sin este caso, «llega vacío» y «no se
+    // capturó» serían el mismo resultado y los de arriba no distinguirían nada.
+    //
+    // Y es el borde que importa hacia el otro lado: con la lista vacía, `correoDelTitularEn` deja el
+    // predicado por dirección en `false` —nunca en «todo»—, así que reunir correos de seis tablas no
+    // puede degenerar en vaciar las dos tablas del módulo para todo el mundo. Se pone en blanco cada
+    // una de las seis, no solo la ficha: un null y un `'   '` por en medio, que es lo que de verdad
+    // trae una columna opcional.
     await olvidar(buildTxPorTabla({
       fichaDelTitular: [{ email: null, contactEmail: '   ' }],
+      correosPorTabla: {
+        laft_counterparties: [null],
+        tramites_validaciones: ['   '],
+        tenedores: [null],
+        propietarios_carga: ['  '],
+        destinatarios_carga: [null],
+      },
+      correosDeComprador: [null],
     }));
 
     expect(correosPasadosAActas).toEqual([[]]);
     expect(correosPasadosALotes).toEqual([[]]);
+  });
+
+  // ===== El titular que NO es cliente de nadie (bloqueante de la auditoría de seguridad) =====
+
+  /** El correo del titular en cada tabla que no es su ficha de cliente. Uno distinto por tabla. */
+  const CORREOS_POR_TABLA: Record<string, string[]> = {
+    laft_counterparties: ['contraparte@empresa.test'],
+    tramites_validaciones: ['validacion@empresa.test'],
+    tenedores: ['tenedor@empresa.test'],
+    propietarios_carga: ['propietario@empresa.test'],
+    destinatarios_carga: ['destinatario@empresa.test'],
+  };
+  const CORREO_COMPRADOR = 'comprador@empresa.test';
+
+  it('el titular que no es cliente de nadie también aporta direcciones: no se queda sin rama POR DIRECCIÓN', async () => {
+    // El bloqueante. La petición solo admite `docNumber` y `reason`: no hay forma de aportar una
+    // dirección desde fuera, así que la rama por dirección vale exactamente lo que valga lo que este
+    // flujo sepa leer. Y leía SOLO `clients`.
+    //
+    // El caso que eso deja fuera es justamente el que motiva la rama: la dirección tecleada a mano en
+    // la factura de OTRA empresa es, por definición, de alguien que no es el cliente de esos
+    // trámites. Si esa persona no tiene ficha, `clients` devuelve cero filas, `porCorreo` se evalúa a
+    // `false` y sus direcciones sobreviven en las dos tablas del módulo mientras la respuesta dice
+    // que se le olvidó. Y no es hipotético: este mismo flujo reconoce que tiene correo y se lo
+    // anonimiza en las cinco tablas de abajo.
+    await olvidar(buildTxPorTabla({
+      fichaDelTitular: [], // no es cliente: su ficha no existe
+      correosPorTabla: CORREOS_POR_TABLA,
+      correosDeComprador: [CORREO_COMPRADOR],
+    }));
+
+    expect(correosPasadosAActas[0]).toEqual([
+      'contraparte@empresa.test',
+      'validacion@empresa.test',
+      'tenedor@empresa.test',
+      'propietario@empresa.test',
+      'destinatario@empresa.test',
+      CORREO_COMPRADOR,
+    ]);
+    expect(correosPasadosALotes[0]).toEqual(correosPasadosAActas[0]);
+  });
+
+  // Un caso por tabla, y no uno solo con todas: lo que hay que impedir es que la captura vuelva a
+  // caer debajo de UN `UPDATE`, y con un único caso agregado no se sabría cuál se movió. Cada uno
+  // deja sola a su tabla, así que si su lectura se mueve debajo de su UPDATE la lista llega vacía.
+  for (const [tabla, correos] of Object.entries(CORREOS_POR_TABLA)) {
+    it(`la dirección del titular en ${tabla} se lee ANTES del UPDATE que la borra`, async () => {
+      await olvidar(buildTxPorTabla({
+        fichaDelTitular: [],
+        correosPorTabla: { [tabla]: correos },
+      }));
+
+      expect(correosPasadosAActas).toEqual([correos]);
+      expect(correosPasadosALotes).toEqual([correos]);
+    });
+  }
+
+  it('la dirección del comprador en tramites_digitales se lee ANTES del UPDATE que la borra', async () => {
+    // La sexta, y la única que no es una columna: el comprador vive en JSONB y su UPDATE (paso 5)
+    // pone `email` en null con el mismo filtro. Vale lo mismo que las otras cinco.
+    await olvidar(buildTxPorTabla({
+      fichaDelTitular: [],
+      correosDeComprador: [CORREO_COMPRADOR],
+    }));
+
+    expect(correosPasadosAActas).toEqual([[CORREO_COMPRADOR]]);
+    expect(correosPasadosALotes).toEqual([[CORREO_COMPRADOR]]);
   });
 });
 

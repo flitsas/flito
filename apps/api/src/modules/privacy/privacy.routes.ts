@@ -152,14 +152,62 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   const summary = await db.transaction(async (tx) => {
     const stats: Record<string, number> = {};
 
-    // Las direcciones del titular ANTES de anonimizarlas: después ya no se pueden conocer, y la
-    // purga de las actas de envío (paso 15) las necesita para alcanzar los correos que se
-    // escribieron a mano en la factura de otra empresa — que la búsqueda por compañía no ve.
-    const correosDelTitular = (await tx.select({
+    // ===== Las direcciones del titular, ANTES de anonimizar nada =====
+    //
+    // Las purgas del módulo Siigo (pasos 15 y 15b) buscan por dos caminos, y el segundo es la
+    // dirección: es el único que alcanza los correos escritos a mano en la factura de OTRA empresa
+    // —los que la búsqueda por compañía no ve, porque está indexada por el dueño de la factura y no
+    // por el titular del dato—. Ese camino vale exactamente lo que valga esta lista.
+    //
+    // **Se leen TODAS las tablas donde este mismo flujo reconoce que el titular tiene correo**, no
+    // solo su ficha de cliente. El titular que ejerce el derecho puede no ser cliente de nadie —es
+    // justo el caso que motiva el segundo camino— y entonces `clients` no devuelve ni una fila: la
+    // rama por dirección se apagaba entera y sus direcciones sobrevivían en las dos tablas del
+    // módulo mientras el resumen decía que se le había olvidado. Que este flujo anonimice el correo
+    // de esas otras tablas (pasos 5, 6, 9, 13, 14 y 15) y a la vez no lo use para buscar era la
+    // contradicción: se reconocía el dato como suyo para borrarlo aquí y no para alcanzarlo allá.
+    //
+    // **El orden no es estilo, es la corrección entera.** `matchByDoc` compara contra el documento
+    // CRUDO y excluye `NOT LIKE 'ANON-%'`; en cuanto cada UPDATE escribe `docHash`, ese mismo SELECT
+    // devuelve cero filas. Capturar debajo de cualquiera de esos UPDATE es capturar nada, y no se
+    // nota: el resumen no cambia ni una cifra porque la rama por compañía sigue devolviendo lo suyo.
+    // Por eso van todas aquí arriba, juntas, y hay un caso de prueba por cada tabla.
+    const fichaDelTitular = await tx.select({
       email: clients.email, contactEmail: clients.contactEmail,
-    }).from(clients).where(matchByDoc(clients.document)))
-      .flatMap((c) => [c.email, c.contactEmail])
-      .filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+    }).from(clients).where(matchByDoc(clients.document));
+
+    const correosLaft = await tx.select({ email: laftCounterparties.email })
+      .from(laftCounterparties).where(matchByDoc(laftCounterparties.docNumber));
+    const correosValidaciones = await tx.select({ email: tramitesValidaciones.email })
+      .from(tramitesValidaciones).where(matchByDoc(tramitesValidaciones.documento));
+    const correosTenedores = await tx.select({ email: tenedores.email })
+      .from(tenedores).where(matchByDoc(tenedores.documento));
+    const correosPropietarios = await tx.select({ email: propietariosCarga.email })
+      .from(propietariosCarga).where(matchByDoc(propietariosCarga.documento));
+    const correosDestinatarios = await tx.select({ email: destinatariosCarga.email })
+      .from(destinatariosCarga).where(matchByDoc(destinatariosCarga.documento));
+
+    // El comprador del trámite digital vive en JSONB, con el mismo filtro que usa su UPDATE (paso 5).
+    const correosComprador = await tx.execute(sql`
+      SELECT comprador->>'email' AS email
+        FROM tramites_digitales
+       WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized}
+         AND (comprador->>'documento') NOT LIKE 'ANON-%'
+    `) as unknown as Array<{ email: string | null }>;
+
+    // `correosDeBusqueda` normaliza y descarta vacíos y repetidos al otro lado; aquí basta con no
+    // colar nulos ni cadenas en blanco. Con la lista vacía las dos purgas dejan el predicado por
+    // dirección en `false` —nunca en «todo»—, que es lo que impide que un titular sin ningún correo
+    // convierta el olvido en una purga sin criterio.
+    const correosDelTitular = [
+      ...fichaDelTitular.flatMap((c) => [c.email, c.contactEmail]),
+      ...correosLaft.map((r) => r.email),
+      ...correosValidaciones.map((r) => r.email),
+      ...correosTenedores.map((r) => r.email),
+      ...correosPropietarios.map((r) => r.email),
+      ...correosDestinatarios.map((r) => r.email),
+      ...correosComprador.map((r) => r.email),
+    ].filter((c): c is string => typeof c === 'string' && c.trim() !== '');
 
     // 1. clients: por documento
     const cli = await tx.update(clients).set({

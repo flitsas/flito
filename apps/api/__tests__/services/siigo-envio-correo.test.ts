@@ -341,6 +341,21 @@ describe('Ley 1581 — las direcciones solo viven donde se pueden purgar', () =>
     expect(redactarCorreos('Sin direcciones aquí')).toBe('Sin direcciones aquí');
   });
 
+  it('la dirección escapada en una URL (`%40`) también se redacta', () => {
+    // El escape que se colaba. Los errores de una API HTTP citan la ruta que falló, y en una ruta la
+    // arroba va percent-encoded: `CONTA%40EMPRESA.COM` es la misma dirección y para quien lea la
+    // bitácora WORM después es igual de identificable, pero no lleva `@` y el patrón no la veía.
+    expect(redactarCorreos('CONTA%40EMPRESA.COM rechazada')).toBe('[correo] rechazada');
+    // Dentro de una ruta se lleva por delante la ruta entera, y eso NO es un defecto de este caso:
+    // es lo mismo que ya hacía con la arroba literal (`?email=a@b.test` → `[correo]`), porque nada
+    // separa la dirección del `?email=` que la precede. Redactar de más en una bitácora que no se
+    // puede editar es el lado correcto en el que equivocarse.
+    expect(redactarCorreos('404 en /v1/invoices?email=CONTA%40EMPRESA.COM')).toBe('404 en [correo]');
+    expect(redactarCorreos('404 en /v1/invoices?email=a@b.test')).toBe('404 en [correo]');
+    // Y lo que no es una dirección sigue sin tocarse: el escape no puede volverse un comodín.
+    expect(redactarCorreos('descuento del 40% aplicado')).toBe('descuento del 40% aplicado');
+  });
+
   it('el motivo de un fallo de Siigo no conserva la dirección que Siigo devolvió', async () => {
     kdb.when.select('siigo_facturas', [factura()]);
     kdb.when.insert('siigo_factura_envios', () => [{
@@ -492,6 +507,32 @@ describe('La purga alcanza lo que dice alcanzar', () => {
     // Y ya NO se compara por contención de jsonb, que es byte a byte y es lo que dejaba viva la
     // forma cruda. Si alguien la reintroduce «para volver a usar el índice GIN», esto se pone rojo.
     expect(texto).not.toContain('@>');
+  });
+
+  it('la simetría es completa: el lado guardado también recorta los espacios envolventes', async () => {
+    // El lado del titular pasa por `.trim()`; el guardado solo bajaba a minúsculas. Hoy los dos
+    // caminos de escritura recortan —los dos esquemas de Zod llevan `.trim()`—, así que no hay fila
+    // real que lo necesite; pero las cabeceras de las migraciones 0141 y 0161 contemplan por escrito
+    // el `INSERT` «hecho desde otro sitio», y ahí ` a@b.test ` volvería a sobrevivir al olvido.
+    // Cuesta una llamada.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { siigoFacturaEnvios } = await import('../../src/db/schema.js');
+
+    const { sql: texto } = new PgDialect().sqlToQuery(
+      correoDelTitularEn(siigoFacturaEnvios.destinatarios, correosDeBusqueda(['a@b.test'])),
+    );
+
+    expect(texto).toContain("btrim(lower(destinatario.valor ->> 'correo'))");
+  });
+
+  it('las direcciones repetidas del titular no se buscan dos veces', async () => {
+    // Desde la corrección del bloqueante, el flujo de olvido reúne los correos de siete columnas:
+    // la ficha del cliente, cuatro tablas de terceros, las validaciones de trámite y el comprador
+    // del trámite digital. Un titular con cincuenta filas en `tenedores` que llevan su mismo correo
+    // produciría un `ARRAY[…]` de cincuenta copias en cada una de las dos purgas. Se descartan
+    // DESPUÉS de bajar a minúsculas, porque `A@B.test` y `a@b.test` son el mismo buzón.
+    expect(correosDeBusqueda(['A@B.test', ' a@b.test ', 'a@b.test', 'otro@b.test']))
+      .toEqual(['a@b.test', 'otro@b.test']);
   });
 
   it('una lista de correos vacía sigue sin ser «todos»: el predicado es falso, no verdadero', async () => {

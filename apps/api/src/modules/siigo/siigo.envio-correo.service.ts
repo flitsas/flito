@@ -208,9 +208,14 @@ export function validarDestinatarios(
  * las direcciones en el error, pero el ambiente real es de otro y puede echárnoslas de vuelta en el
  * mensaje: si eso pasara, quedarían en una columna que la purga no vacía y que nadie puede editar.
  * Redactar aquí cuesta una línea; descubrirlo dentro de un año no tendría arreglo.
+ *
+ * La arroba se acepta también **codificada como `%40`**: los errores de una API HTTP citan la ruta
+ * que falló, y en una ruta la dirección va percent-encoded (`…?email=CONTA%40EMPRESA.COM`). Es la
+ * misma dirección y para quien la lea después es igual de identificable; sin esa alternativa entraba
+ * entera en la bitácora WORM.
  */
 export function redactarCorreos(texto: string): string {
-  return texto.replace(/[^\s<>()[\]",;:]+@[^\s<>()[\]",;:]+\.[A-Za-z]{2,}/g, '[correo]');
+  return texto.replace(/[^\s<>()[\]",;:]+(?:@|%40)[^\s<>()[\]",;:]+\.[A-Za-z]{2,}/g, '[correo]');
 }
 
 /**
@@ -520,9 +525,16 @@ export async function resumenEnvios(facturaId: string): Promise<SiigoEnvioResume
  * (`facturacion.routes.ts` y `envio-correo.routes.ts` bajan a minúsculas lo que se teclea) y la
  * consulta llegaba en crudo desde `clients.email`, así que una ficha con `Contabilidad@Empresa.com`
  * no encontraba la fila que ella misma había producido.
+ *
+ * Descarta además los REPETIDOS, y eso dejó de ser cosmético cuando el flujo de olvido pasó a reunir
+ * las direcciones de siete columnas: un titular con cincuenta filas en `tenedores` que llevan su
+ * mismo correo produciría un `ARRAY[…]` de cincuenta copias en cada una de las dos purgas. Se
+ * descartan DESPUÉS de bajar a minúsculas, porque para el buzón de destino `Contabilidad@Empresa.com`
+ * y `contabilidad@empresa.com` son la misma dirección — el mismo criterio con el que
+ * `validarDestinatarios` juzga los repetidos.
  */
 export function correosDeBusqueda(correos: string[]): string[] {
-  return correos.map((c) => c.trim().toLowerCase()).filter((c) => c !== '');
+  return [...new Set(correos.map((c) => c.trim().toLowerCase()).filter((c) => c !== ''))];
 }
 
 /**
@@ -552,8 +564,15 @@ export function correosDeBusqueda(correos: string[]): string[] {
  * y tenerlos distintos era decir que dos direcciones son la misma para rechazarlas y distintas para
  * borrarlas.
  *
+ * **También recorta los espacios envolventes del lado GUARDADO** (`btrim`). Hoy los dos caminos de
+ * escritura recortan —los dos esquemas de Zod llevan `.trim()`— así que no hay fila que lo necesite;
+ * pero el criterio de esta función es «la misma dirección para el buzón de destino», y ` a@b.test `
+ * lo es. Cerrarlo cuesta una llamada y evita que un `INSERT` hecho desde otro sitio —el supuesto que
+ * las migraciones 0141 y 0161 contemplan por escrito— reabra el hueco sin que nadie lo note.
+ *
  * **Precio, explícito:** este predicado NO usa los índices GIN `jsonb_path_ops` de las migraciones
- * 0141 y 0161, que solo sirven a `@>`. Se acepta a sabiendas: el olvido es una acción de admin,
+ * 0141 y 0161, que solo sirven a `@>` — o sea que hoy no los usa nadie y están pendientes de
+ * revisarse. Se acepta a sabiendas: el olvido es una acción de admin,
  * limitada por `forgetLimiter`, que se ejecuta una vez por titular y recorre estas dos tablas dentro
  * de una transacción que ya toca otras dieciséis. Un recorrido secuencial de unos cientos de miles
  * de filas cuesta milisegundos; una dirección que sobrevive al olvido no cuesta nada hasta que
@@ -568,7 +587,7 @@ export function correoDelTitularEn(columna: Column | SQL, correos: string[]): SQ
   return sql`EXISTS (
         SELECT 1
           FROM jsonb_array_elements(${columna}) AS destinatario(valor)
-         WHERE lower(destinatario.valor ->> 'correo') = ANY (ARRAY[${sql.join(
+         WHERE btrim(lower(destinatario.valor ->> 'correo')) = ANY (ARRAY[${sql.join(
            correos.map((c) => sql`${c}`), sql`, `,
          )}]::text[]))`;
 }
