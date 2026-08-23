@@ -82,11 +82,22 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- La purga por derecho de supresión busca también POR DIRECCIÓN, no solo por la compañía de los
 -- trámites del lote: `flito_tramites.compania_id` es NULLABLE y las direcciones escritas a mano
 -- pueden ser de un tercero que no es el cliente de esos trámites — que es justamente quien ejerce el
--- derecho. GIN con `jsonb_path_ops`: sirve al operador `@>` y a nada más, y aquí no se consulta por
--- clave suelta. Parcial, porque la enorme mayoría de los lotes no eligen direcciones y una lista
--- vacía no se busca nunca.
+-- derecho.
+--
+-- **Btree parcial, no GIN, y el motivo importa.** La purga NO compara con contención (`@>`): compara
+-- en minúsculas, desplegando el array con `jsonb_array_elements`, porque la escritura normaliza y las
+-- filas antiguas están en forma cruda. Un GIN `jsonb_path_ops` sirve a `@>` y a nada más, así que
+-- aquí no lo usaría ninguna consulta: nacería muerto, pagando escrituras a cambio de cero.
+-- Comprobado contra PostgreSQL 16.14 penalizando el seq scan (`enable_seqscan = off`): con el
+-- predicado real el planner sigue prefiriendo el recorrido secuencial, luego no existe camino por
+-- índice; con `@>` sí aparece el Bitmap Index Scan.
+--
+-- Lo que la consulta SÍ puede aprovechar es el predicado con el que ella misma acota
+-- (`facturacion.lote.repo.ts`): `jsonb_array_length(correo_destinatarios) > 0`. De ahí el parcial,
+-- espejo de `idx_siigo_envios_sin_purgar` de la 0141. La enorme mayoría de los lotes no eligen
+-- direcciones, así que el índice solo cubre la minoría que hay que recorrer.
 CREATE INDEX IF NOT EXISTS idx_siigo_lotes_correo_destinatarios
-    ON siigo_lotes_facturacion USING gin (correo_destinatarios jsonb_path_ops)
+    ON siigo_lotes_facturacion (id)
  WHERE jsonb_array_length(correo_destinatarios) > 0;
 
 COMMENT ON COLUMN siigo_lotes_facturacion.correo_solicitado IS

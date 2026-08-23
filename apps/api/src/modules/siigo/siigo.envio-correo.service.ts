@@ -570,9 +570,12 @@ export function correosDeBusqueda(correos: string[]): string[] {
  * lo es. Cerrarlo cuesta una llamada y evita que un `INSERT` hecho desde otro sitio —el supuesto que
  * las migraciones 0141 y 0161 contemplan por escrito— reabra el hueco sin que nadie lo note.
  *
- * **Precio, explícito:** este predicado NO usa los índices GIN `jsonb_path_ops` de las migraciones
- * 0141 y 0161, que solo sirven a `@>` — o sea que hoy no los usa nadie y están pendientes de
- * revisarse. Se acepta a sabiendas: el olvido es una acción de admin,
+ * **Precio, explícito:** este predicado no puede usar un índice GIN `jsonb_path_ops`, que solo sirve
+ * a `@>`. La 0161 ya no crea ninguno —se cambió por un btree parcial, que es lo que este camino sí
+ * aprovecha—, pero el de la 0141, `idx_siigo_envios_destinatarios`, sigue en pie y **sin lectores**:
+ * no es parcial, así que paga mantenimiento en cada acta con destinatarios a cambio de nada. Queda
+ * como deuda declarada, a `DROP` en la próxima migración del módulo. Se acepta a sabiendas: el
+ * olvido es una acción de admin,
  * limitada por `forgetLimiter`, que se ejecuta una vez por titular y recorre estas dos tablas dentro
  * de una transacción que ya toca otras dieciséis. Un recorrido secuencial de unos cientos de miles
  * de filas cuesta milisegundos; una dirección que sobrevive al olvido no cuesta nada hasta que

@@ -249,8 +249,9 @@ export async function correoDelLote(loteId: string): Promise<CorreoDelEnvio> {
  * clientes que buscar. El segundo camino es `correoDelTitularEn`, la MISMA función que usan las
  * actas: compara en minúsculas los dos lados porque la ruta del envío normaliza lo que se teclea y
  * la ficha del cliente se guarda tal cual se escribió, así que la coincidencia exacta no encontraba
- * la fila que ella misma acababa de producir. El precio —dejar de usar el índice GIN de la 0161—
- * está razonado allí.
+ * la fila que ella misma acababa de producir. Por eso la 0161 no crea un GIN de contención —que este
+ * predicado no usaría— sino un btree parcial sobre el mismo `jsonb_array_length(...) > 0` con el que
+ * filtra la consulta de abajo. El razonamiento completo está en `correoDelTitularEn`.
  *
  * A diferencia del acta, aquí **no se conserva ninguna marca**: el lote no es un registro de lo que
  * pasó —eso es el acta— sino una instrucción de lo que había que hacer, y una instrucción cumplida

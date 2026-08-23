@@ -216,7 +216,8 @@ describe('purgarDestinatariosDeLotes (Ley 1581)', () => {
     expect(texto).toContain('correo_destinatarios');
     expect(params).toEqual(['contabilidad@empresa.com']);
     // Ya no se compara por contención de jsonb, que es byte a byte y es lo que dejaba viva la forma
-    // cruda. Si alguien la reintroduce «para volver a usar el índice GIN de la 0161», esto enrojece.
+    // cruda. Si alguien la reintroduce «para volver a usar un índice de contención», esto enrojece:
+    // la 0161 ya no crea ninguno — su índice es un btree parcial, que es lo que este predicado sí usa.
     expect(texto).not.toContain('@>');
   });
 });
