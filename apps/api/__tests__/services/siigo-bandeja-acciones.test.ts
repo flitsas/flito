@@ -96,8 +96,10 @@ function escenario(): void {
     }])
     .select('siigo_lote_tramites', [{ loteId: LOTE, tramiteId: TRAMITE }])
     .select('siigo_cola_facturacion', [filaCola()])
+    // `ambiente` viene del INNER JOIN con `siigo_facturas`: el acta no tiene columna propia.
     .select('siigo_factura_envios', [{
       id: ACTA, facturaId: FACTURA, codigo: 'siigo_rechazo', resultado: 'fallido',
+      ambiente: 'pruebas',
     }]);
 }
 
@@ -439,7 +441,7 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
 
   it('un correo abandonado se apunta sobre el ACTA y no toca `siigo_factura_envios`', async () => {
     kdb.when.select('siigo_factura_envios', [{
-      id: ACTA, facturaId: FACTURA, resultado: 'fallido',
+      id: ACTA, facturaId: FACTURA, resultado: 'fallido', ambiente: 'pruebas',
     }]);
     const r = await descartarCaso({ ...DESCARTE, fuente: 'correo', refId: ACTA });
 
@@ -453,7 +455,9 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
   });
 
   it('un envío que SÍ salió no se puede abandonar', async () => {
-    kdb.when.select('siigo_factura_envios', [{ id: ACTA, facturaId: FACTURA, resultado: 'enviado' }]);
+    kdb.when.select('siigo_factura_envios', [{
+      id: ACTA, facturaId: FACTURA, resultado: 'enviado', ambiente: 'pruebas',
+    }]);
     await expect(descartarCaso({ ...DESCARTE, fuente: 'correo', refId: ACTA }))
       .rejects.toMatchObject({ codigo: 'fuente_no_admite' });
   });
@@ -468,6 +472,44 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     // rectifica ni se suprime (Ley 1581, art. 8).
     expect(normalizarNota('nota Failed query: select * from "clients" params: 900123456'))
       .toBe('nota [consulta SQL omitida]');
+  });
+
+  // ── La nota es la puerta que quedaba abierta al lado de la que el catálogo cerró ───────────
+  //
+  // El `motivo` es un catálogo cerrado PRECISAMENTE para que no entre PII en `siigo_operaciones`,
+  // que prohíbe UPDATE y DELETE. Si la nota de 200 caracteres que va al lado no se redacta, la
+  // decisión queda sin efecto: se escribe lo mismo un renglón más abajo. `sanearMensaje` no bastaba
+  // —solo entiende volcados de SQL y parejas `clave=valor`, o sea lo que escribe una máquina—.
+  it('una nota con una cédula y un nombre dentro llega ENMASCARADA al INSERT', async () => {
+    await descartarCaso({
+      ...DESCARTE, nota: 'Lo pidió Juan Pérez, cédula 79123456, correo juan.perez@cliente.com',
+    });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).not.toContain('79123456');
+    expect(escrito).not.toContain('Juan Pérez');
+    expect(escrito).not.toContain('juan.perez@cliente.com');
+    // Y lo que sirve para operar sigue ahí: se enmascara el dato, no la frase.
+    expect(escrito).toContain('cédula');
+    expect(escrito).toContain('79***456');
+    expect(escrito).toContain('J. P.');
+  });
+
+  it('lo mismo por la puerta del correo: la nota del acta pasa por el mismo filtro', async () => {
+    await descartarCaso({
+      ...DESCARTE, fuente: 'correo', refId: ACTA, nota: 'confirmó la placa ABC123 el titular',
+    });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).not.toContain('ABC123');
+  });
+
+  it('lo que NO es un dato personal se queda: un tope, una fecha y un importe', async () => {
+    // Si el enmascarado tapara esto, la nota dejaría de servir para lo único que existe —explicar la
+    // decisión— y la gente escribiría la explicación en otro sitio peor.
+    expect(normalizarNota('la resolución venció el 30-06-2026')).toBe('la resolución venció el 30-06-2026');
+    expect(normalizarNota('se cobró por fuera $1.250.000')).toBe('se cobró por fuera $1.250.000');
+    expect(normalizarNota('van 5 intentos con error 429')).toBe('van 5 intentos con error 429');
   });
 });
 
@@ -514,7 +556,7 @@ describe('AC6 — lo dado por perdido se puede resucitar y el marcado anterior s
 
   it('un correo abandonado vuelve con su hito de activación, y SIN mandar el correo', async () => {
     descartesVigentesMock.mockResolvedValue(new Map([[ACTA, ANTERIOR]]));
-    kdb.when.select('siigo_factura_envios', [{ id: ACTA, facturaId: FACTURA }]);
+    kdb.when.select('siigo_factura_envios', [{ id: ACTA, facturaId: FACTURA, ambiente: 'pruebas' }]);
 
     const r = await reactivarCaso({ ...REACTIVAR, fuente: 'correo', refId: ACTA });
 
@@ -529,6 +571,23 @@ describe('AC6 — lo dado por perdido se puede resucitar y el marcado anterior s
   it('un rechazo de la DIAN no se resucita', async () => {
     await expect(reactivarCaso({ ...REACTIVAR, fuente: 'dian' }))
       .rejects.toMatchObject({ codigo: 'fuente_no_admite' });
+  });
+
+  // Las cuatro acciones comprueban el ambiente, no dos de cuatro. El acta no tiene columna propia
+  // —la lleva su factura—, y sin la comprobación el hito que se escribe después afirmaría en una
+  // tabla inmutable un ambiente que no es el del caso.
+  it.each([
+    ['resucitar', async (refId: string) => reactivarCaso({ ...REACTIVAR, fuente: 'correo', refId })],
+    ['abandonar', async (refId: string) => descartarCaso({
+      ambiente: 'pruebas', fuente: 'correo', refId, motivo: 'tramite_anulado', usuarioId: 9,
+    })],
+  ] as const)('%s un acta de OTRO ambiente no encuentra nada', async (_accion, ejecutar) => {
+    kdb.when.select('siigo_factura_envios', [{
+      id: ACTA, facturaId: FACTURA, resultado: 'fallido', ambiente: 'produccion',
+    }]);
+
+    await expect(ejecutar(ACTA)).rejects.toMatchObject({ codigo: 'no_existe' });
+    expect(registrarHitoMock).not.toHaveBeenCalled();
   });
 });
 

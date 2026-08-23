@@ -42,7 +42,7 @@ import { contenidoDeLotes, type ContenidoLote } from './facturacion.lote.repo.js
 import { descartesVigentes, guiaDelCaso } from './siigo.bandeja.service.js';
 import { enviarFacturaPorCorreo, SiigoEnvioError } from './siigo.envio-correo.service.js';
 import { registrarHito } from './siigo.linea-tiempo.service.js';
-import { sanearMensaje } from './siigo.redaccion.js';
+import { redactarPIIEnTextoLibre, sanearMensaje } from './siigo.redaccion.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** Fallo de uso de la bandeja. La ruta lo traduce a HTTP; este archivo no sabe de códigos. */
@@ -513,14 +513,40 @@ async function descartarEmision(e: EntradaDescarte): Promise<SiigoBandejaRespues
   };
 }
 
+/**
+ * El acta de envío, **y solo si su factura es de ESTE ambiente**.
+ *
+ * `siigo_factura_envios` no tiene columna `ambiente` —vive en la factura—, y por eso las dos acciones
+ * sobre el acta eran las dos de las cuatro que no lo comprobaban, mientras las de emisión sí. La
+ * asimetría no tenía razón de ser: el hito que se escribe justo después lleva `ambiente: e.ambiente`,
+ * así que actuar desde producción sobre un acta de pruebas dejaría en una tabla que prohíbe UPDATE y
+ * DELETE una fila que afirma un ambiente que no es el suyo. Cuesta un `INNER JOIN` por la clave
+ * primaria de la factura, y devuelve `null` —no una fila de otro ambiente— para que quien llama no
+ * tenga que acordarse de filtrar.
+ */
+async function actaDelAmbiente(
+  refId: string, ambiente: SiigoAmbiente,
+): Promise<{ id: string; facturaId: string; resultado: string } | null> {
+  const [fila] = await db.select({
+    id: siigoFacturaEnvios.id,
+    facturaId: siigoFacturaEnvios.facturaId,
+    resultado: siigoFacturaEnvios.resultado,
+    ambiente: siigoFacturas.ambiente,
+  }).from(siigoFacturaEnvios)
+    .innerJoin(siigoFacturas, eq(siigoFacturas.id, siigoFacturaEnvios.facturaId))
+    .where(eq(siigoFacturaEnvios.id, refId))
+    .limit(1);
+
+  if (!fila || String(fila.ambiente) !== ambiente) return null;
+  return {
+    id: String(fila.id), facturaId: String(fila.facturaId), resultado: String(fila.resultado),
+  };
+}
+
 async function descartarCorreo(e: EntradaDescarte): Promise<SiigoBandejaRespuestaDescarte> {
   const ahora = e.ahora ?? new Date();
-  const [acta] = await db.select({
-    id: siigoFacturaEnvios.id, facturaId: siigoFacturaEnvios.facturaId,
-    resultado: siigoFacturaEnvios.resultado,
-  }).from(siigoFacturaEnvios).where(eq(siigoFacturaEnvios.id, e.refId)).limit(1);
-
-  if (!acta) throw new SiigoBandejaError('no_existe', 'Ese envío no existe.');
+  const acta = await actaDelAmbiente(e.refId, e.ambiente);
+  if (!acta) throw new SiigoBandejaError('no_existe', 'Ese envío no existe en este ambiente.');
   if (String(acta.resultado) === 'enviado') {
     throw new SiigoBandejaError(
       'fuente_no_admite', 'Ese envío sí salió: no hay nada que dar por perdido.',
@@ -588,9 +614,10 @@ async function asegurarFilaDeCola(
  * traducir, y la nota es texto de una persona. Si viajaran juntos habría que parsear la frase para
  * saber cuál fue la decisión, que es justo lo que el catálogo cerrado evita.
  *
- * La nota pasa por `sanearMensaje` y se recorta al tope. Es la última barrera: lo que entra en esta
- * tabla no se puede rectificar ni suprimir (Ley 1581, art. 8), así que el filtro va ANTES del INSERT
- * y no depende de que quien llame se acuerde.
+ * La nota pasa por `normalizarNota` —saneado del volcado de SQL, enmascarado de la PII que escribió
+ * la persona y recorte al tope—. Es la última barrera: lo que entra en esta tabla no se puede
+ * rectificar ni suprimir (Ley 1581, art. 8), así que el filtro va ANTES del INSERT y no depende de
+ * que quien llame se acuerde.
  */
 async function anotarDescarte(
   e: EntradaDescarte,
@@ -619,9 +646,23 @@ async function anotarDescarte(
   };
 }
 
+/**
+ * Deja la nota en condiciones de entrar en una tabla que nadie puede podar.
+ *
+ * **Dos filtros, y hacen falta los dos.** `sanearMensaje` corta lo que escribe una MÁQUINA —el
+ * volcado de SQL de drizzle, los filtros `clave=valor` de una URL—; `redactarPIIEnTextoLibre`
+ * enmascara lo que escribe una PERSONA, que es exactamente lo que este campo recoge. Sin el segundo,
+ * «lo pidió Juan Pérez, cédula 79123456» entraba entero: no lleva ninguna marca de SQL y no hay
+ * ningún `=` que recortar. El catálogo cerrado del `motivo` existe para que eso no ocurra, y una nota
+ * de 200 caracteres sin redactar al lado lo dejaba sin efecto.
+ *
+ * El enmascarado va ANTES del recorte, para que decida sobre el texto entero: media cédula cortada
+ * por el tope sigue siendo media cédula escrita para siempre.
+ */
 export function normalizarNota(nota: string | null | undefined): string | null {
   if (typeof nota !== 'string') return null;
-  const limpia = sanearMensaje(nota.trim()).slice(0, SIIGO_BANDEJA_NOTA_MAX).trim();
+  const redactada = redactarPIIEnTextoLibre(sanearMensaje(nota.trim()));
+  const limpia = redactada.slice(0, SIIGO_BANDEJA_NOTA_MAX).trim();
   return limpia === '' ? null : limpia;
 }
 
@@ -711,11 +752,8 @@ async function reactivarEmision(
 async function reactivarCorreo(
   e: EntradaReactivacion,
 ): Promise<SiigoBandejaRespuestaReactivacion> {
-  const [acta] = await db.select({
-    id: siigoFacturaEnvios.id, facturaId: siigoFacturaEnvios.facturaId,
-  }).from(siigoFacturaEnvios).where(eq(siigoFacturaEnvios.id, e.refId)).limit(1);
-
-  if (!acta) throw new SiigoBandejaError('no_existe', 'Ese envío no existe.');
+  const acta = await actaDelAmbiente(e.refId, e.ambiente);
+  if (!acta) throw new SiigoBandejaError('no_existe', 'Ese envío no existe en este ambiente.');
 
   const anterior = (await descartesVigentes('factura_envio', [String(acta.id)])).get(String(acta.id));
   if (!anterior) {

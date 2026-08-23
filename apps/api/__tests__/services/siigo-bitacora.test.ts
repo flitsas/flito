@@ -17,7 +17,7 @@ vi.mock('../../src/db/client.js', () => ({
 
 const { registrarOperacion, consultarBitacora, sanearCuerpo, contarPorResultado, marcaDeOperacion } =
   await import('../../src/modules/siigo/siigo.operaciones.repo.js');
-const { sanearMensaje, MARCA_SQL_OMITIDO } =
+const { sanearMensaje, redactarPIIEnTextoLibre, MARCA_SQL_OMITIDO } =
   await import('../../src/modules/siigo/siigo.redaccion.js');
 
 /** Captura los valores del INSERT. */
@@ -250,6 +250,51 @@ describe('la redacción alcanza también al mensaje', () => {
     const espia = espiarInsert();
     await registrarOperacion({ operacion: 'auth', ambiente: 'pruebas', resultado: 'ok' });
     expect((espia.mock.calls[0]![0] as Record<string, unknown>).mensaje).toBeNull();
+  });
+});
+
+// ── Lo que escribe una PERSONA (HU #11340) ─────────────────────────────────────────────────────
+//
+// `sanearMensaje` entiende volcados de SQL y parejas `clave=valor`: lo que escribe una MÁQUINA. La
+// nota de un descarte la escribe una persona, y ahí no hay ninguna marca que cortar. `maskPII` del
+// catálogo canónico tampoco sirve tal cual —decide por el NOMBRE DE LA CLAVE, y un texto libre no
+// tiene claves—, así que lo que falta es la DETECCIÓN; el enmascarado se delega en las mismas
+// funciones canónicas para no abrir un segundo criterio.
+describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
+  it.each([
+    ['una cédula', 'lo autorizó la cédula 79123456', '79123456'],
+    ['una cédula con puntos', 'la cédula 1.036.640.908 no coincide', '1.036.640.908'],
+    ['un NIT con dígito de verificación', 'el NIT 900.123.456-7 está mal', '900.123.456-7'],
+    ['un teléfono', 'llamar al 3003427829', '3003427829'],
+    ['un correo', 'escribió ana.hincapie@yahoo.es', 'ana.hincapie@yahoo.es'],
+    ['una placa', 'el vehículo WGY45D del titular', 'WGY45D'],
+    ['un nombre y apellido', 'lo pidió Ana Ramírez por teléfono', 'Ana Ramírez'],
+    ['un nombre compuesto', 'firmó Juan de la Cruz Pérez', 'Juan de la Cruz Pérez'],
+  ])('%s no sale entera', (_caso, texto, dato) => {
+    expect(redactarPIIEnTextoLibre(texto)).not.toContain(dato);
+  });
+
+  it.each([
+    ['una fecha', 'la resolución venció el 30-06-2026'],
+    ['un importe con marca', 'se cobró por fuera $1.250.000'],
+    ['un conteo y un código HTTP', 'van 5 intentos y Siigo devolvió 429'],
+    ['una sigla del dominio', 'la DIAN rechazó el CUFE por duplicado'],
+    ['dos términos del dominio seguidos', 'hay que hacer una Nota Crédito en Siigo Nube'],
+  ])('%s se queda tal cual: taparlo dejaría la nota sin lo que la hace útil', (_caso, texto) => {
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // Lo que esta heurística NO ve, escrito para que nadie lo dé por cubierto: un detector de nombres
+  // sobre prosa española no existe. Por eso el catálogo cerrado de motivos sigue siendo la defensa
+  // principal, y esto la segunda línea.
+  it('un nombre de pila suelto en minúsculas pasa: el hueco está declarado, no negado', () => {
+    expect(redactarPIIEnTextoLibre('lo pidió juan')).toBe('lo pidió juan');
+  });
+
+  it('cuando duda, tapa: dos palabras capitalizadas desconocidas se tratan como un nombre', () => {
+    // El precio del error es un término del dominio ilegible; el del error contrario, una cédula en
+    // una fila que nadie puede borrar.
+    expect(redactarPIIEnTextoLibre('revisar en Portal Terceros')).toBe('revisar en P. T.');
   });
 });
 

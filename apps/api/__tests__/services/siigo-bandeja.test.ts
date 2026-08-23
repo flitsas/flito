@@ -197,6 +197,29 @@ describe('AC1 — las tres patas, en una sola consulta paginada', () => {
     expect(item.guia.responsable).toBe('contabilidad');
   });
 
+  // Hasta esta HU el motivo del rechazo solo se leía en la ficha de UNA factura. Aquí sale en una
+  // fila que además trae la razón social, y nombre + identificación juntos son una correlación que
+  // `CAMPOS_PII_BANDEJA = ['name']` no declara. La escritura de ese campo
+  // (`siigo.motivo-rechazo.service.ts`) sigue sin redactar: esto evita que salga, no que se guarde.
+  it('el detalle de la DIAN sale ENMASCARADO: en esta fila va al lado de la razón social', async () => {
+    kdb.execute.mockResolvedValue([
+      casoEmision({ fuente: 'dian', ref_id: DIAN, cola_id: null, codigo: 'dian_rechazada' }),
+    ]);
+    kdb.when.select('siigo_factura_estados_dian', [{
+      id: DIAN,
+      estado: 'rechazada',
+      motivo: 'Regla FAJ26: el NIT del adquiriente 901234567 no corresponde al del certificado',
+    }]);
+
+    const item = (await consultarBandeja({ ambiente: 'pruebas', ahora: AHORA })).items[0]!;
+
+    expect(item.detalle).not.toContain('901234567');
+    // La regla infringida se conserva: es lo que el operador necesita para actuar. Y la razón social
+    // NO se toca —la fila existe para trabajarla—; lo que se quita es la identificación que sobra.
+    expect(item.detalle).toContain('FAJ26');
+    expect(item.clienteNombre).toBe('Transportes del Norte SAS');
+  });
+
   it('mirar la bandeja no gasta ni una petición de la cuota de Siigo', async () => {
     await consultarBandeja({ ambiente: 'pruebas', ahora: AHORA });
     await resumenBandeja({ ambiente: 'pruebas', ahora: AHORA });

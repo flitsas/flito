@@ -40,6 +40,7 @@ import {
   siigoFacturaTramites, siigoFacturas, siigoOperaciones,
 } from '../../db/schema.js';
 import { guiaParaCodigo, esReintentable } from './siigo.errors.js';
+import { redactarPIIEnTextoLibre } from './siigo.redaccion.js';
 import { OPERACION_ENCOLAR } from './siigo.freno.service.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
@@ -353,9 +354,25 @@ async function hidratar(casos: FilaCaso[], ahora: Date): Promise<SiigoBandejaIte
       guia: guiaDelCaso(caso.codigo),
       // El detalle de la fuente, NO el `error_detalle` de la factura: ese ya está resumido en la
       // guía, y repetirlo daría dos versiones del mismo diagnóstico en la misma fila.
-      detalle: caso.fuente === 'dian' ? dian?.motivo ?? null
-        : caso.fuente === 'correo' ? correo?.motivo ?? null
-          : null,
+      //
+      // **Enmascarado, y por lo que va AL LADO.** El motivo del rechazo lo escribe
+      // `siigo.motivo-rechazo.service.ts` con el texto que devuelve la DIAN, sin pasar por ninguna
+      // redacción, y esos textos citan con frecuencia el NIT del adquiriente. Hasta esta HU ese campo
+      // solo se leía en la ficha de una factura; aquí sale en una fila que además trae
+      // `clienteNombre`, y nombre + identificación juntos son una correlación que
+      // `CAMPOS_PII_BANDEJA = ['name']` no declara ante el registro del art. 17. Se enmascara al
+      // ENTREGARLO: el operador sigue viendo qué regla se infringió, que es lo que necesita para
+      // actuar.
+      //
+      // Queda pendiente la ruta de ESCRITURA: `siigo_factura_estados_dian.motivo` se sigue guardando
+      // crudo, y esta línea no lo arregla —solo evita que salga—. Comprobar contra datos reales de
+      // DEV qué trae ese campo y, si trae identificaciones, redactarlo también al escribirlo es una
+      // corrección aparte, que no se pudo verificar desde aquí por no haber acceso a esa base.
+      detalle: redactarPIIEnTextoLibre(
+        caso.fuente === 'dian' ? dian?.motivo ?? ''
+          : caso.fuente === 'correo' ? correo?.motivo ?? ''
+            : '',
+      ) || null,
       estado,
       colaId: caso.colaId ?? cola?.id ?? null,
       intentos: cola?.intentos ?? 0,

@@ -22,7 +22,7 @@
 //   5. **Dos endpoints de reintento y no uno.** El de emisión encola y vuelve en milisegundos → 202,
 //      porque cuando contesta la factura todavía no existe. El de correo llama a Siigo dentro de la
 //      petición y gasta cuota → 200, porque el acta ya existe. Uno solo tendría que mentir sobre uno
-//      de los dos códigos y compartir un tope que para el correo es peligroso (200 correos).
+//      de los dos códigos y compartir un tope que para el correo es peligroso (100 correos).
 //   6. **El limitador va ANTES de la guarda**, igual que en `envio-correo.routes.ts` y por lo mismo
 //      (deuda del PR #194, cerrada en la HU #11299): `exigirAccionSiigo` escribe una fila
 //      `permiso_denegado` en `siigo_operaciones` por cada 403, y esa tabla es append-only por
@@ -49,6 +49,7 @@ import {
 } from './siigo.bandeja-acciones.service.js';
 import { SiigoColaError } from './facturacion.cola.service.js';
 import { SiigoIntegracionFrenadaError } from './siigo.freno.service.js';
+import { detalleTecnico } from './siigo.redaccion.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -145,8 +146,12 @@ const reenvioSchema = z.object({
  * poder ejercerse sobre ese dato para siempre. El catálogo vive en `@operaciones/shared-types` y es
  * literalmente el mismo array que consume la pantalla: no hay dos listas que puedan separarse.
  *
- * La nota es opcional y corta —también forma parte de la decisión— y el servicio la vuelve a sanear
- * y recortar antes del INSERT: esta validación es la primera barrera, no la única.
+ * La nota es opcional y corta —también forma parte de la decisión—. **Zod aquí NO la redacta**: solo
+ * limita su longitud y le quita los espacios. Quien la deja apta para una tabla WORM es
+ * `normalizarNota` en el servicio, que le pasa `sanearMensaje` (volcados de SQL) y
+ * `redactarPIIEnTextoLibre` (la cédula o el nombre que teclea una persona) antes del INSERT. Decirlo
+ * así importa: la versión anterior de este párrafo afirmaba que el servicio «la vuelve a sanear», y
+ * quien lo leyera daba por cubierta una redacción de PII que no existía en ninguna de las dos capas.
  */
 const descarteSchema = z.object({
   fuente: z.enum(SIIGO_BANDEJA_FUENTES),
@@ -397,7 +402,11 @@ async function rastro(req: Request, accion: Parameters<typeof registrarAccionSii
       mensaje: d.detalle,
     });
   } catch (e) {
-    log.error({ err: (e as Error).message, accion }, 'rastro de la bandeja fallido');
+    // `detalleTecnico` y no `e.message`: quien falla aquí es un INSERT, y desde drizzle 0.45 el
+    // mensaje del driver viene envuelto en `Failed query: … params: …`. Hoy esos parámetros son
+    // conteos, códigos y UUIDs, pero este es el módulo que escribió el redactor y era el único
+    // sitio del código nuevo que se lo saltaba.
+    log.error({ err: detalleTecnico(e), accion }, 'rastro de la bandeja fallido');
   }
 }
 

@@ -17,6 +17,8 @@
 // reemplaza el resto por una marca fija. Un saneamiento parcial exigiría entender la sentencia, y
 // cualquier hueco en ese entendimiento se convierte en una fila inmutable con datos personales.
 
+import { maskDocument, maskEmail, maskName } from '../../shared/utils/pii.js';
+
 /** Sustituto de todo lo que vaya detrás de la primera marca de SQL. */
 export const MARCA_SQL_OMITIDO = '[consulta SQL omitida]';
 
@@ -124,4 +126,116 @@ export function esViolacionDeUnico(e: unknown): boolean {
     actual = (actual as { cause?: unknown }).cause;
   }
   return false;
+}
+
+// ── PII escrita por una PERSONA en texto libre ──────────────────────────────
+//
+// `sanearMensaje` corta volcados de SQL y recorta filtros con forma `clave=valor`. Eso cubre lo que
+// escribe una MÁQUINA. **No cubre nada de lo que escribe una persona**: «lo pidió Juan Pérez, cédula
+// 79123456» no lleva ninguna marca de SQL ni ningún `=`, así que salía intacto — y el sitio donde
+// acaba es `siigo_operaciones.mensaje`, WORM por disparador desde la `0126`. Una vez escrito ahí, los
+// derechos de rectificación y supresión (Ley 1581, art. 8 lit. d y e) ya no se pueden ejercer.
+//
+// **Por qué no basta con `maskPII`.** El catálogo canónico de `shared/utils/pii.ts` decide POR EL
+// NOMBRE DE LA CLAVE (`{ cedula: '79123456' }` → `maskDocument`). Un texto libre no tiene claves:
+// `maskPII({ nota })` devolvería la nota tal cual, porque «nota» no casa con ninguna rama. Lo que
+// falta en texto libre es la DETECCIÓN, no el enmascarado. Así que aquí se detecta por FORMA y se
+// enmascara con las MISMAS funciones canónicas (`maskDocument`, `maskEmail`, `maskName`): no hay un
+// segundo criterio de enmascarado que pueda divergir del de todo el repositorio.
+//
+// **Lo que NO detecta, dicho antes de que alguien lo dé por cubierto:** un nombre de pila suelto
+// («lo pidió juan»), un nombre en minúsculas, un apodo, una dirección escrita en prosa, y cualquier
+// identificador de menos de siete dígitos. Un detector de nombres sobre prosa española no existe; lo
+// que existe es esta heurística. Por eso el catálogo cerrado de motivos sigue siendo la defensa
+// principal y esto es la segunda línea, no al revés.
+//
+// **Cuando duda, tapa.** Todo error de esta heurística está inclinado a enmascarar de más: dos
+// palabras capitalizadas seguidas se tratan como un nombre salvo que TODAS estén en una lista corta
+// de términos del dominio. Si esa lista se queda corta, el precio es un «Nota Crédito» ilegible en
+// una nota; el del error contrario es una cédula en una fila que nadie puede borrar.
+
+const CORREO_EN_TEXTO = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/**
+ * Placa colombiana: tres letras y tres caracteres (`ABC123` de particular, `ABC12D` de moto).
+ * AGENTS.md §14 la nombra junto a la cédula y el NIT: identifica al titular por su vehículo.
+ */
+const PLACA_EN_TEXTO = /\b[A-Z]{3}[ -]?\d{2}[A-Z0-9]\b/g;
+
+/** Palabra con forma de nombre propio. Las siglas en mayúscula (`DIAN`, `CUFE`, `NIT`) quedan fuera. */
+const PALABRA_NOMBRE = '[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+';
+/** Enlaces de un nombre compuesto: «Juan de la Cruz» es UN nombre, no dos palabras sueltas. */
+const NEXO_DE_NOMBRE = '(?:de|del|la|las|los|y|da|di|van|von)';
+const NOMBRE_EN_TEXTO = new RegExp(
+  `${PALABRA_NOMBRE}(?:\\s+(?:${NEXO_DE_NOMBRE}\\s+)*${PALABRA_NOMBRE})+`, 'g',
+);
+
+/**
+ * Términos del dominio que pueden ir capitalizados sin nombrar a nadie.
+ *
+ * **Es corta a propósito y su incompletitud es segura**: lo que no esté aquí se enmascara. Ampliarla
+ * es una decisión consciente de dejar pasar una pareja de palabras; olvidarla solo cuesta legibilidad.
+ */
+const TERMINOS_NO_PERSONALES = new Set([
+  'nota', 'notas', 'crédito', 'credito', 'débito', 'debito', 'factura', 'facturas', 'documento',
+  'documentos', 'electrónico', 'electronica', 'electrónica', 'electronico', 'resolución',
+  'resolucion', 'siigo', 'nube', 'flito', 'bandeja', 'trámite', 'tramite', 'trámites', 'tramites',
+  'cliente', 'clientes', 'correo', 'correos', 'emisión', 'emision', 'envío', 'envio', 'error',
+  'rechazo', 'regla', 'validación', 'validacion', 'contabilidad', 'operaciones', 'ambiente',
+  'producción', 'produccion', 'pruebas', 'sistema', 'soporte', 'mesa', 'ayuda',
+]);
+
+/** Una tira de dígitos con sus separadores. `\b` no vale: los separadores son parte del número. */
+const NUMERO_EN_TEXTO = /\d[\d.\-/\s]*\d/g;
+
+/**
+ * Fechas, que NO se enmascaran: el motivo `resolucion_dian_vencida` se explica con una, y taparlas
+ * dejaría la nota sin lo único que la hace útil. Ninguna cédula ni NIT del país se escribe con esta
+ * forma —dos grupos de uno o dos dígitos y un año—, así que el hueco no es una puerta de entrada.
+ */
+const FECHA_EN_TEXTO = /^(?:\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})$/;
+
+/**
+ * A partir de cuántos dígitos seguidos una tira deja de ser una cantidad y pasa a ser un
+ * identificador. Siete es el mínimo de una cédula colombiana; por debajo están los consecutivos, los
+ * conteos y los códigos de error, que no identifican a nadie.
+ */
+const DIGITOS_DE_IDENTIFICADOR = 7;
+
+function enmascararNumeros(texto: string): string {
+  return texto.replace(NUMERO_EN_TEXTO, (bruto, desplazamiento: number) => {
+    // Un importe lleva marca delante y una cédula no. Es la única excepción por contexto, y va
+    // acotada al símbolo: «$1.250.000» se lee, «cédula $79123456» no lo escribe nadie.
+    if (texto.slice(0, desplazamiento).trimEnd().endsWith('$')) return bruto;
+    const compacto = bruto.replace(/\s+/g, '');
+    if (FECHA_EN_TEXTO.test(compacto)) return bruto;
+    const digitos = bruto.replace(/\D/g, '');
+    return digitos.length >= DIGITOS_DE_IDENTIFICADOR ? maskDocument(digitos) : bruto;
+  });
+}
+
+function enmascararNombres(texto: string): string {
+  return texto.replace(NOMBRE_EN_TEXTO, (bruto: string) => {
+    const capitalizadas = bruto.split(/\s+/).filter((p) => /^[A-ZÁÉÍÓÚÜÑ]/.test(p));
+    const todasDelDominio = capitalizadas
+      .every((p) => TERMINOS_NO_PERSONALES.has(p.toLowerCase()));
+    return todasDelDominio ? bruto : maskName(bruto);
+  });
+}
+
+/**
+ * Enmascara los datos personales que una persona escribió en un texto libre.
+ *
+ * Se aplica a lo que se ESCRIBE en la bitácora WORM (la nota de un descarte) y a lo que se ENTREGA
+ * en un listado junto a la razón social (el detalle de un rechazo de la DIAN). En los dos casos el
+ * dato que sobra es el mismo: una identificación al lado de un nombre.
+ *
+ * El orden importa poco pero no es casual: el correo primero, porque lleva dentro puntos y dígitos
+ * que las otras reglas trocearían; los números al final, porque las máscaras que dejan las demás ya
+ * no contienen tiras largas de dígitos.
+ */
+export function redactarPIIEnTextoLibre(texto: string): string {
+  const sinCorreos = texto.replace(CORREO_EN_TEXTO, (c) => maskEmail(c));
+  const sinPlacas = sinCorreos.replace(PLACA_EN_TEXTO, (p) => maskDocument(p));
+  return enmascararNumeros(enmascararNombres(sinPlacas));
 }
