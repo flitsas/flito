@@ -145,6 +145,15 @@ export default function DialogoEnvioFacturacion({
    * control que lo cambia: editar direcciones deja `enviar` intacto. Así, tocar la casilla congela
    * la elección y la semilla sigue rellenando las direcciones, que es lo que de verdad aporta y no
    * está a la vista durante la carga (esos campos solo se pintan con la ficha ya cargada).
+   *
+   * **Un borde conocido, fuera de producción** (lo levantó el gate de seguridad y se deja escrito
+   * en vez de corregido): si alguien desmarca la casilla en pleno vuelo estando en un ambiente NO
+   * productivo, `enviarDecidido` congela `enviar: false` y después la casilla queda deshabilitada
+   * por el ambiente, sin forma de deshacerlo. El servidor levanta entonces acta `no_solicitado` en
+   * lugar de «en este ambiente no se manda correo a nadie». Las dos actas son ciertas —la persona
+   * SÍ lo rechazó—, y la diferencia no cambia lo que ocurre: en ese ambiente no sale correo de
+   * ninguna manera. Se anota porque las dos actas se leen distinto en la bandeja, y porque el
+   * criterio de este archivo es que un estado no se lea como otro.
    */
   const enviarDecidido = useRef(false);
   const cambiarCorreo = (v: EleccionCorreo) => {
