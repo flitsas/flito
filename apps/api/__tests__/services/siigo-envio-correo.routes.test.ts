@@ -11,9 +11,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 
 const kdb = createKeyedDb();
+const espia = crearEspia(kdb);
 vi.mock('../../src/db/client.js', () => ({
   db: kdb.db,
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
@@ -233,6 +235,37 @@ describe('Lo que la ruta responde cuando el servicio dice que no', () => {
     // Un 5xx haría creer que no quedó rastro, que es lo contrario de lo que la historia garantiza.
     expect(r.status).toBe(200);
     expect(r.body.resultado).toBe('no_realizado');
+  });
+});
+
+describe('La dirección se guarda en UNA sola forma (HU #11708, retrabajo)', () => {
+  it('el reenvío normaliza lo que se teclea: la misma dirección no queda escrita de dos maneras', async () => {
+    // Esta ruta escribía la dirección tal cual llegaba mientras la del envío (`facturacion.routes`)
+    // ya la bajaba a minúsculas, así que la MISMA dirección quedaba en dos formas en dos tablas.
+    // El acta es append-only —el disparador de la 0141 solo admite la purga—, de modo que la forma
+    // en que entra es la única que va a tener: no hay una segunda oportunidad de uniformarla.
+    //
+    // La purga compara plegando mayúsculas y alcanza las dos formas, pero eso es la red de abajo.
+    // Lo que esta prueba fija es que lo nuevo se escriba ya canónico.
+    espia.reiniciar();
+    kdb.when.select('siigo_facturas', [facturaConCliente()]);
+    kdb.when.insert('siigo_factura_envios', () => [actaDevuelta()]);
+
+    const app = await buildApp();
+    const r = await request(app)
+      .post(`/api/siigo/envios/factura/${FACTURA_ID}`)
+      .set('Authorization', await auth('admin'))
+      .send({ destinatarios: ['  Contabilidad@Empresa.COM '] });
+
+    expect(r.status).toBe(200);
+    // Lo que se guarda en el acta.
+    const escrito = espia.ultimoInsertEn('siigo_factura_envios');
+    expect(escrito.destinatarios).toEqual([{ correo: 'contabilidad@empresa.com', origen: 'manual' }]);
+    // Y lo que de verdad viaja a Siigo, que es la misma cadena: el buzón es insensible a mayúsculas
+    // —es lo que ya asume `validarDestinatarios` al juzgar repetidos—, así que a quién le llega no
+    // cambia; lo que cambia es que se pueda borrar.
+    expect((siigoRequestOrThrowMock.mock.calls.at(-1)![0] as { cuerpo: { mail_to: string[] } })
+      .cuerpo.mail_to).toEqual(['contabilidad@empresa.com']);
   });
 });
 

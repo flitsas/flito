@@ -264,6 +264,26 @@ describe('AC1 — en producción y con el correo pedido, la factura se crea pidi
     expect(acta().destinatarios).toEqual([{ correo: DE_LA_FICHA, origen: 'compania' }]);
   });
 
+  it('y NO se le pide ADEMÁS por la ruta `/mail`: el cliente recibiría el documento dos veces', async () => {
+    // La invariante que ningún otro caso de este archivo mira, y la única que separa este camino del
+    // de al lado. Con `mail: true` Siigo YA mandó la factura a la dirección que el tercero tiene
+    // registrada allá; pedirla otra vez por `POST /v1/invoices/{id}/mail` no añade destinatarios
+    // —son los mismos— sino un SEGUNDO correo con el mismo documento adjunto.
+    //
+    // Se afirma sobre las PETICIONES SALIENTES a propósito. Las dos actas que los dos caminos
+    // escriben son indistinguibles —`origen: 'emision'`, `resultado: 'enviado'`, los destinatarios
+    // de la ficha, `codigo: null`—, así que mirar el acta no distingue «se apuntó el correo que la
+    // creación produjo» de «se pidió un correo de más». El único sitio donde el envío doble existe
+    // es la red, y por eso es donde hay que mirar.
+    //
+    // La guarda concreta es el `&& decision.explicitos` de `aplicarCorreoDeEmision`. Quitarlo
+    // —dejar `if (decision.enviar)`— deja este caso rojo y ningún otro.
+    await emitirCon({ solicitado: true, destinatarios: [] });
+
+    expect(peticiones.map((p) => p.ruta)).toEqual(['/v1/invoices']);
+    expect(peticionDeCorreo()).toBeUndefined();
+  });
+
   it('el timbre ante la DIAN sigue derivándose del ambiente y no de esta elección', async () => {
     // Frontera de la historia, escrita a propósito: el timbre NO se elige por factura. Un
     // interruptor apagado produciría facturas que en FLITO figuran emitidas y ante la DIAN no

@@ -22,7 +22,7 @@
 //      es una pregunta de contabilidad sin responder; aislarla en `resolverDestinatarios` hace que
 //      responderla sea añadir un origen, no rehacer el envío.
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type Column, type SQL } from 'drizzle-orm';
 import {
   SIIGO_ENVIO_MAX_DESTINATARIOS,
   type SiigoDestinatario,
@@ -512,6 +512,68 @@ export async function resumenEnvios(facturaId: string): Promise<SiigoEnvioResume
 }
 
 /**
+ * Las direcciones del titular, en la forma en que se buscan (Ley 1581).
+ *
+ * Baja a minúsculas y descarta lo vacío. Lo segundo es una guarda de seguridad —un `clients.email`
+ * en blanco no puede convertirse en «purga todo lo que tenga una dirección»— y lo primero es la
+ * mitad de la corrección de la asimetría que abrió la HU #11708: la escritura normaliza
+ * (`facturacion.routes.ts` y `envio-correo.routes.ts` bajan a minúsculas lo que se teclea) y la
+ * consulta llegaba en crudo desde `clients.email`, así que una ficha con `Contabilidad@Empresa.com`
+ * no encontraba la fila que ella misma había producido.
+ */
+export function correosDeBusqueda(correos: string[]): string[] {
+  return correos.map((c) => c.trim().toLowerCase()).filter((c) => c !== '');
+}
+
+/**
+ * ¿Esta columna de destinatarios contiene alguna dirección del titular? (Ley 1581)
+ *
+ * **Una sola definición para las dos tablas.** `siigo_factura_envios.destinatarios` y
+ * `siigo_lotes_facturacion.correo_destinatarios` guardan la misma clase de dato con la misma forma
+ * (`[{correo, origen}]`) y las purga el mismo flujo de olvido dentro de la misma transacción. Cuando
+ * cada una traía su copia del predicado, la corrección de una y el olvido de la otra eran un cambio
+ * de una línea — y el titular al que se le contesta que quedó borrado no tiene forma de comprobarlo.
+ *
+ * **Compara en minúsculas los DOS lados, y esa es la corrección.** Antes se comparaba con contención
+ * de jsonb (`@>`), que es byte a byte, contra las direcciones tal como estuvieran en la ficha. Eso
+ * dejaba vivas dos clases de fila y las dos existen de verdad:
+ *
+ *   1. La **tecleada en mayúsculas**: la ficha dice `Contabilidad@Empresa.com`, alguien escribe esa
+ *      misma dirección al enviar y la ruta la guarda en minúsculas. La búsqueda en crudo no la ve.
+ *   2. La **fila antigua en forma cruda**: las actas de la HU #11334 se escribieron sin normalizar
+ *      —y las de `origen: 'compania'` copian `clients.email` tal cual, con sus mayúsculas—, así que
+ *      buscar solo la forma normalizada tampoco las alcanza. Y esa tabla es append-only: no se
+ *      pueden reescribir para uniformarlas, el disparador de la 0141 solo admite la purga.
+ *
+ * Buscar las dos formas de cada dirección habría tapado esos dos casos y ninguno más: basta que la
+ * fila guarde una tercera forma —tecleada distinta de la ficha, antes de que la ruta normalizara—
+ * para que sobreviva. Comparar en minúsculas no tiene ese borde, y para el buzón de destino las tres
+ * son la misma dirección: es el mismo criterio con el que `validarDestinatarios` juzga los repetidos,
+ * y tenerlos distintos era decir que dos direcciones son la misma para rechazarlas y distintas para
+ * borrarlas.
+ *
+ * **Precio, explícito:** este predicado NO usa los índices GIN `jsonb_path_ops` de las migraciones
+ * 0141 y 0161, que solo sirven a `@>`. Se acepta a sabiendas: el olvido es una acción de admin,
+ * limitada por `forgetLimiter`, que se ejecuta una vez por titular y recorre estas dos tablas dentro
+ * de una transacción que ya toca otras dieciséis. Un recorrido secuencial de unos cientos de miles
+ * de filas cuesta milisegundos; una dirección que sobrevive al olvido no cuesta nada hasta que
+ * alguien la encuentra. Si la tabla creciera hasta que importe, el sitio de la corrección es un
+ * índice de expresión sobre las direcciones normalizadas, no volver a comparar byte a byte.
+ *
+ * `correos` debe venir de `correosDeBusqueda`. Con la lista vacía devuelve `false` —no «todo»—,
+ * que es lo que impide que un olvido sin direcciones vacíe la tabla entera.
+ */
+export function correoDelTitularEn(columna: Column | SQL, correos: string[]): SQL {
+  if (correos.length === 0) return sql`false`;
+  return sql`EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(${columna}) AS destinatario(valor)
+         WHERE lower(destinatario.valor ->> 'correo') = ANY (ARRAY[${sql.join(
+           correos.map((c) => sql`${c}`), sql`, `,
+         )}]::text[]))`;
+}
+
+/**
  * Redacta las direcciones de las actas de un titular, conservando el hecho del envío (Ley 1581).
  *
  * Es la mitad de la tabla que el flujo de olvido sí puede tocar, y la única: el disparador de la
@@ -531,7 +593,10 @@ export async function resumenEnvios(facturaId: string): Promise<SiigoEnvioResume
  *   3. Una segunda ejecución del olvido sobre el mismo documento no encuentra clientes (ya están
  *      anonimizados) y se quedaría sin nada que purgar aunque hubiera actas nuevas.
  *
- * El segundo camino usa contención de jsonb (`@>`), que es lo que el índice GIN de la 0141 acelera.
+ * El segundo camino compara en minúsculas los dos lados (`correoDelTitularEn`), no byte a byte: la
+ * escritura normaliza y las filas anteriores a esa normalización están en forma cruda, así que una
+ * coincidencia exacta dejaba vivas justo las actas más antiguas. El precio —que deja de usar el
+ * índice GIN de la 0141— está razonado en esa función.
  *
  * Devuelve cuántas actas se redactaron. Las ya purgadas se excluyen, y eso no es una optimización:
  * el disparador rechaza volver a purgar una fila redactada, así que sin el filtro una segunda
@@ -546,7 +611,7 @@ export async function purgarDestinatariosDeClientes(
   correos: string[] = [],
   ejecutor: Pick<typeof db, 'select' | 'update'> = db,
 ): Promise<number> {
-  const limpios = correos.map((c) => c.trim()).filter((c) => c !== '');
+  const limpios = correosDeBusqueda(correos);
   if (companiaIds.length === 0 && limpios.length === 0) return 0;
 
   const porCompania = companiaIds.length > 0
@@ -557,11 +622,7 @@ export async function purgarDestinatariosDeClientes(
            AND ft.compania_id IN (${sql.join(companiaIds.map((c) => sql`${c}`), sql`, `)}))`
     : sql`false`;
 
-  const porCorreo = limpios.length > 0
-    ? sql`${siigoFacturaEnvios.destinatarios} @> ANY (ARRAY[${sql.join(
-        limpios.map((c) => sql`${JSON.stringify([{ correo: c }])}::jsonb`), sql`, `,
-      )}])`
-    : sql`false`;
+  const porCorreo = correoDelTitularEn(siigoFacturaEnvios.destinatarios, limpios);
 
   const actas = await ejecutor.select({ id: siigoFacturaEnvios.id })
     .from(siigoFacturaEnvios)

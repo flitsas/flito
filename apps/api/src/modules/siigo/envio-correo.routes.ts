@@ -54,9 +54,16 @@ const idSchema = z.string().uuid();
  * que la factura debe ir además a otra dirección concreta de ese cliente, y se marca con origen
  * `manual` para que el acta distinga después lo que salió de la ficha de lo que escribió una
  * persona. El tope se valida aquí Y en el servicio: esta ruta no es el único camino al envío.
+ *
+ * `.toLowerCase()` por lo mismo que en `facturacion.routes.ts` (HU #11708): estas direcciones se
+ * guardan en `siigo_factura_envios.destinatarios`, que es una tabla append-only —el disparador de la
+ * 0141 solo admite la purga—, así que la forma en que entran es la única que va a tener. Sin
+ * normalizar, la misma dirección quedaba escrita de dos maneras en dos tablas y el olvido tenía que
+ * acertar con la de cada una. La purga compara en minúsculas y alcanza las dos, pero eso es la red
+ * de abajo: lo que se escribe nuevo se escribe ya en una sola forma.
  */
 const cuerpoSchema = z.object({
-  destinatarios: z.array(z.string().trim().email().max(150))
+  destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
     .min(1)
     .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
     .optional(),

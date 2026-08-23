@@ -22,6 +22,10 @@ import type { EmisionElegida } from './facturacion.armado.js';
 // Solo el tipo: la regla de qué se hace con esa elección vive en `facturacion.correo.ts`, y este
 // archivo es un repositorio. Un `import type` no deja nada en el bundle ni crea dependencia real.
 import type { CorreoDelEnvio } from './facturacion.correo.js';
+// El predicado de «esta columna contiene una dirección del titular» se importa, no se copia: es
+// el mismo dato con la misma forma en las dos tablas y lo purga el mismo flujo. Dos copias eran
+// dos criterios que se desincronizan, y el que se quedara atrás dejaría vivo lo que dice borrar.
+import { correoDelTitularEn, correosDeBusqueda } from './siigo.envio-correo.service.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** La única estrategia de lote admitida hoy. Consolidar exige migración (D-1, diferida). */
@@ -242,8 +246,11 @@ export async function correoDelLote(loteId: string): Promise<CorreoDelEnvio> {
  * **Se busca por los dos caminos, igual que en las actas y por las mismas tres razones**: la
  * compañía de los trámites del lote puede ser NULL, las direcciones escritas a mano pueden ser de un
  * tercero que no es el cliente de esos trámites, y una segunda ejecución del olvido ya no encuentra
- * clientes que buscar. El segundo camino usa contención de jsonb (`@>`), que es lo que acelera el
- * índice GIN de la 0161.
+ * clientes que buscar. El segundo camino es `correoDelTitularEn`, la MISMA función que usan las
+ * actas: compara en minúsculas los dos lados porque la ruta del envío normaliza lo que se teclea y
+ * la ficha del cliente se guarda tal cual se escribió, así que la coincidencia exacta no encontraba
+ * la fila que ella misma acababa de producir. El precio —dejar de usar el índice GIN de la 0161—
+ * está razonado allí.
  *
  * A diferencia del acta, aquí **no se conserva ninguna marca**: el lote no es un registro de lo que
  * pasó —eso es el acta— sino una instrucción de lo que había que hacer, y una instrucción cumplida
@@ -258,7 +265,7 @@ export async function purgarDestinatariosDeLotes(
   correos: string[] = [],
   ejecutor: Pick<typeof db, 'select' | 'update'> = db,
 ): Promise<number> {
-  const limpios = correos.map((c) => c.trim()).filter((c) => c !== '');
+  const limpios = correosDeBusqueda(correos);
   if (companiaIds.length === 0 && limpios.length === 0) return 0;
 
   const porCompania = companiaIds.length > 0
@@ -269,11 +276,7 @@ export async function purgarDestinatariosDeLotes(
            AND ft.compania_id IN (${sql.join(companiaIds.map((c) => sql`${c}`), sql`, `)}))`
     : sql`false`;
 
-  const porCorreo = limpios.length > 0
-    ? sql`${siigoLotesFacturacion.correoDestinatarios} @> ANY (ARRAY[${sql.join(
-        limpios.map((c) => sql`${JSON.stringify([{ correo: c }])}::jsonb`), sql`, `,
-      )}])`
-    : sql`false`;
+  const porCorreo = correoDelTitularEn(siigoLotesFacturacion.correoDestinatarios, limpios);
 
   // Solo los que tienen algo que borrar: sin este filtro, un olvido tocaría todos los lotes de la
   // compañía —que pueden ser miles— para dejarlos como estaban, y el resumen que se le entrega al

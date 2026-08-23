@@ -659,51 +659,37 @@ describe('el correo al cliente viaja en la petición de envío', () => {
     expect(JSON.stringify(r.body)).not.toContain('@cliente.test');
   });
 
-  it('la dirección se guarda en minúsculas: es lo que la hace alcanzable por el derecho al olvido', async () => {
-    // La purga por dirección busca con `jsonb @>`, que compara byte a byte: un
-    // `Contabilidad@Empresa.com` tecleado en el diálogo no lo encuentra el titular que pide el
-    // olvido escribiendo su correo como lo tiene la ficha, y se le contestaría que quedó borrado sin
-    // estarlo. Quitar el `.toLowerCase()` del esquema pone rojo este caso.
+  async function encolarCon(destinatarios: string[]) {
     const app = await buildApp();
-
     const r = await request(app).post('/api/siigo/facturacion')
       .set('Authorization', await auth('admin'))
-      .send({
-        conceptos: CONCEPTOS,
-        tramiteIds: [A],
-        correo: { enviar: true, destinatarios: ['  Contabilidad@Empresa.COM '] },
-      });
-
+      .send({ conceptos: CONCEPTOS, tramiteIds: [A], correo: { enviar: true, destinatarios } });
     expect(r.status).toBe(202);
-    const guardado = (enviarMock.mock.calls[0]![0] as {
+    return (enviarMock.mock.calls.at(-1)![0] as {
       correo: { destinatarios: { correo: string }[] };
-    }).correo.destinatarios[0]!.correo;
+    }).correo.destinatarios.map((d) => d.correo);
+  }
 
-    expect(guardado).toBe('contabilidad@empresa.com');
-    // El `@>` del repositorio, en JavaScript: el mismo cotejo exacto que hace PostgreSQL sobre el
-    // objeto guardado. Es lo que se está comprobando de verdad — que la purga lo encuentre—, y no
-    // que la cadena esté en minúsculas.
-    expect(contenidoPorLaPurga(guardado, 'contabilidad@empresa.com')).toBe(true);
+  it('la dirección se guarda normalizada: una sola forma por dirección', async () => {
+    // Quitar el `.toLowerCase()` del esquema pone rojo este caso.
+    //
+    // El motivo cambió con el retrabajo de la HU #11708 y conviene no repetir el anterior, que era
+    // falso a medias: la purga ya NO depende de que esto esté normalizado —compara plegando
+    // mayúsculas, porque las filas anteriores a esta normalización están en forma cruda y la tabla
+    // de actas es append-only—. Lo que esta prueba fija es lo otro: que la misma dirección no quede
+    // escrita de dos maneras en dos tablas, que es lo que obliga a que cada consulta acierte con la
+    // forma de cada sitio. Que la purga alcance las dos formas se prueba donde vive el predicado
+    // (`siigo-lote-repo.test.ts` y `siigo-envio-correo.test.ts`), contra el SQL real.
+    expect(await encolarCon(['  Contabilidad@Empresa.COM '])).toEqual(['contabilidad@empresa.com']);
   });
 
-  it('sin normalizar NO la encontraría: ese es exactamente el fallo que se cierra', () => {
-    // El caso de control del anterior. Si `contenidoPorLaPurga` plegara mayúsculas por su cuenta, el
-    // test de arriba pasaría con `.toLowerCase()` y sin él, y no probaría nada. Guardar la dirección
-    // como se tecleó es dejarla fuera del alcance de la purga; a quién llega el correo no cambia
-    // —el buzón es insensible a mayúsculas, que es lo que ya asume `validarDestinatarios`—, lo que
-    // cambia es que se pueda borrar.
-    expect(contenidoPorLaPurga('Contabilidad@Empresa.COM', 'contabilidad@empresa.com')).toBe(false);
+  it('dos formas de la misma dirección producen UNA sola forma guardada', async () => {
+    // El control del anterior: sin normalizar, estas dos peticiones dejarían dos cadenas distintas
+    // en la columna, y el sistema estaría tratando como dos lo que para el buzón de destino es una
+    // —el mismo criterio con el que `validarDestinatarios` las juzga repetidas—.
+    const tecleadaConMayusculas = await encolarCon(['Contabilidad@Empresa.COM']);
+    const tecleadaEnMinusculas = await encolarCon(['contabilidad@empresa.com']);
+
+    expect(tecleadaConMayusculas).toEqual(tecleadaEnMinusculas);
   });
 });
-
-/**
- * El `jsonb @> '[{"correo": ...}]'` de `purgarDestinatariosDeLotes`, escrito en JavaScript.
- *
- * PostgreSQL compara el valor del objeto contenido byte a byte, sin plegar mayúsculas —medido contra
- * el motor: `'[{"correo":"A@B.CO"}]'::jsonb @> '[{"correo":"a@b.co"}]'` es falso—. Reproducirlo aquí
- * es lo que convierte «la cadena está en minúsculas» en «el titular la encuentra cuando pide que se
- * la borren», que es la afirmación que importa.
- */
-function contenidoPorLaPurga(guardado: string, buscado: string): boolean {
-  return guardado === buscado;
-}

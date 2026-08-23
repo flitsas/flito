@@ -11,9 +11,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SIIGO_ENVIO_MAX_DESTINATARIOS } from '@operaciones/shared-types';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { crearEspia } from '../helpers/espia-drizzle.js';
 
 const kdb = createKeyedDb();
+const espia = crearEspia(kdb);
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
+
+/**
+ * Todo lo que el servicio loguea. El log es la tercera vía por la que una dirección devuelta por
+ * Siigo puede salir del proceso, y la única que NINGUNA purga alcanza: `logger.redact` solo cubre
+ * credenciales y un fichero de logs no se rectifica ni se suprime (Ley 1581, art. 8 d y e).
+ */
+const logueado: unknown[][] = [];
+const loggerFalso = {
+  debug: (...a: unknown[]) => { logueado.push(a); },
+  info: (...a: unknown[]) => { logueado.push(a); },
+  warn: (...a: unknown[]) => { logueado.push(a); },
+  error: (...a: unknown[]) => { logueado.push(a); },
+  child: () => loggerFalso,
+};
+vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: () => loggerFalso }));
 
 const siigoRequestOrThrowMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.client.js', () => ({
@@ -35,10 +52,12 @@ vi.mock('../../src/modules/siigo/siigo.operaciones.repo.js', async (original) =>
 });
 
 const {
+  correoDelTitularEn, correosDeBusqueda,
   enviarFacturaPorCorreo, facturaEnviable, registrarEnvioDeEmision, resolverDestinatarios,
   purgarDestinatariosDeClientes, redactarCorreos, resumenEnvios, SiigoEnvioError,
   validarDestinatarios,
 } = await import('../../src/modules/siigo/siigo.envio-correo.service.js');
+const { traducirErrorSiigo } = await import('../../src/modules/siigo/siigo.errors.js');
 
 const FACTURA_ID = 'aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa';
 
@@ -73,6 +92,8 @@ function elInsertDevuelveElActa() {
 
 beforeEach(() => {
   kdb.reset();
+  espia.reiniciar();
+  logueado.length = 0;
   siigoRequestOrThrowMock.mockReset();
   registrarOperacionMock.mockClear();
 });
@@ -344,6 +365,65 @@ describe('Ley 1581 — las direcciones solo viven donde se pueden purgar', () =>
     const anotado = JSON.stringify(registrarOperacionMock.mock.calls);
     expect(anotado).not.toContain('facturacion@transportes.test');
   });
+
+  it('cuando Siigo devuelve la dirección DENTRO de su error, no queda en el log, ni en la bitácora, ni en `motivo`', async () => {
+    // El caso que el test de arriba NO cruza, y él mismo lo admite: un `new Error` corriente lo
+    // traduce `motivoLegible` a la frase fija «Siigo no respondió», así que el texto del proveedor
+    // nunca llega al redactor y quitarlo no rompía nada. Aquí el error se construye como NACE de
+    // verdad —`traducirErrorSiigo` sobre el cuerpo de respuesta— y con la dirección ofensora dentro,
+    // que es lo que hace un proveedor cuando rechaza un `mail_to`.
+    //
+    // El `Code` es de Siigo y FLITO no lo controla: cuando el catálogo no lo traduce, se interpola
+    // TAL CUAL en la descripción operativa, que es la que acaba en `motivo` y en `siigo_operaciones`.
+    // Ese es el hueco real que `redactarCorreos` tapa, y sin este caso estaba sin probar.
+    //
+    // Las tres vías se afirman por separado porque son tres destinos distintos y ninguno redime a
+    // los otros: `motivo` es append-only (la purga solo vacía `destinatarios`), `siigo_operaciones`
+    // es WORM por disparador, y el log no lo alcanza ninguna purga.
+    const DIRECCION = 'facturacion@transportes.test';
+    kdb.when.select('siigo_facturas', [factura()]);
+    kdb.when.insert('siigo_factura_envios', () => [{
+      id: 'acta-r', facturaId: FACTURA_ID, origen: 'reenvio', resultado: 'fallido',
+      destinatarios: [], destinatariosPurgadosEn: null, codigo: 'siigo_rechazo',
+      motivo: null, solicitadoPor: null, createdAt: new Date(),
+    }]);
+    const rechazo = traducirErrorSiigo(400, {
+      Status: 400,
+      Errors: [{
+        Code: `invalid_mail_to[${DIRECCION}]`,
+        Message: `mail_to inválido: ${DIRECCION}`,
+      }],
+    });
+
+    // Control: el error SÍ lleva la dirección por las DOS vías que el `catch` redacta. Sin esto, las
+    // afirmaciones de abajo pasarían igual con un error que nunca la tuvo, que es exactamente lo que
+    // pasaba con el `new Error` del caso anterior.
+    expect(rechazo.descripcionOperativa).toContain(DIRECCION); // → `motivo` y `siigo_operaciones`
+    expect(rechazo.message).toContain(DIRECCION); // → `detalleTecnico` → log
+
+    // `traducirErrorSiigo` deja constancia del código que el catálogo no traduce, y ese código lleva
+    // la dirección dentro (`siigo.errors.ts`, `registrarCodigoDesconocido`). Es un escape REAL y
+    // ajeno a esta función —lo emite quien traduce el error, no quien lo captura, y ocurre una sola
+    // vez por código y proceso—, así que se descarta aquí para que este caso afirme sobre lo que
+    // `enviarFacturaPorCorreo` escribe, que es lo que la mutación cambia. Va inventariado aparte: no
+    // se tapa redactando en `siigo.errors`, porque esa misma interpolación es la que hace que la
+    // dirección llegue hasta aquí y lo que hay que decidir es si el código crudo debe registrarse.
+    logueado.length = 0;
+
+    siigoRequestOrThrowMock.mockRejectedValueOnce(rechazo);
+
+    await enviarFacturaPorCorreo(FACTURA_ID);
+
+    // 1. El log del servidor.
+    expect(JSON.stringify(logueado)).not.toContain(DIRECCION);
+    // 2. La bitácora WORM.
+    expect(JSON.stringify(registrarOperacionMock.mock.calls)).not.toContain(DIRECCION);
+    // 3. La columna `motivo` del acta, leída del INSERT real y no de lo que el mock devolvió.
+    const escrito = espia.ultimoInsertEn('siigo_factura_envios');
+    expect(String(escrito.motivo)).not.toContain(DIRECCION);
+    // Y no se pierde el diagnóstico: la marca dice que ahí había una dirección.
+    expect(String(escrito.motivo)).toContain('[correo]');
+  });
 });
 
 describe('La purga alcanza lo que dice alcanzar', () => {
@@ -368,6 +448,63 @@ describe('La purga alcanza lo que dice alcanzar', () => {
     kdb.when.update('siigo_factura_envios', () => [{ id: 'acta-2' }]);
 
     expect(await purgarDestinatariosDeClientes([42], [])).toBe(1);
+  });
+
+  it('alcanza la dirección que se TECLEÓ en mayúsculas y quedó guardada en minúsculas', async () => {
+    // Primera mitad del defecto que cerró el retrabajo de la HU #11708. La ficha del cliente dice
+    // `Contabilidad@Empresa.com`; alguien escribe esa misma dirección al enviar y la ruta la guarda
+    // normalizada. El titular pide el olvido y lo único que el flujo conoce es la forma de la ficha
+    // —`clients.email` se lee en crudo—, así que la búsqueda salía con las mayúsculas puestas y la
+    // fila que ella misma había producido quedaba viva.
+    kdb.when.select('siigo_factura_envios', [{ id: 'acta-1' }]);
+    kdb.when.update('siigo_factura_envios', () => [{ id: 'acta-1' }]);
+
+    expect(await purgarDestinatariosDeClientes([], ['  Contabilidad@Empresa.COM '])).toBe(1);
+
+    // Los parámetros del `where` REAL que se ejecutó, serializados como los recibiría PostgreSQL —no
+    // lo que el test quiso creer ni lo que el mock devolvió.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { params } = new PgDialect().sqlToQuery(espia.condicionesLeidas().at(-1) as never);
+
+    expect(params).toContain('contabilidad@empresa.com');
+    expect(params).not.toContain('  Contabilidad@Empresa.COM ');
+  });
+
+  it('y alcanza también la fila ANTIGUA, guardada en forma cruda: la comparación pliega mayúsculas', async () => {
+    // Segunda mitad, y la que no se arregla normalizando hacia adelante. Las actas de la HU #11334
+    // se escribieron sin normalizar, y las de `origen: 'compania'` copian `clients.email` tal cual.
+    // La tabla es append-only —el disparador de la 0141 solo admite la purga—, así que esas filas no
+    // se pueden reescribir para uniformarlas: o la consulta pliega mayúsculas, o sobreviven.
+    //
+    // Se afirma sobre el SQL que se genera porque es lo que la base ejecuta y aquí no hay PostgreSQL
+    // (mismo recurso que `finanzas-facturacion-electronica.test.ts`). Lo que se comprueba son las
+    // dos mitades de la simetría: el lado GUARDADO baja a minúsculas dentro de la consulta, y el
+    // lado del TITULAR llega ya bajado.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { siigoFacturaEnvios } = await import('../../src/db/schema.js');
+
+    const { sql: texto, params } = new PgDialect().sqlToQuery(
+      correoDelTitularEn(siigoFacturaEnvios.destinatarios, correosDeBusqueda(['Contabilidad@Empresa.com'])),
+    );
+
+    expect(texto).toContain("lower(destinatario.valor ->> 'correo')");
+    expect(params).toEqual(['contabilidad@empresa.com']);
+    // Y ya NO se compara por contención de jsonb, que es byte a byte y es lo que dejaba viva la
+    // forma cruda. Si alguien la reintroduce «para volver a usar el índice GIN», esto se pone rojo.
+    expect(texto).not.toContain('@>');
+  });
+
+  it('una lista de correos vacía sigue sin ser «todos»: el predicado es falso, no verdadero', async () => {
+    // La avería que importa del helper compartido: si con la lista vacía devolviera algo
+    // satisfacible, un olvido sin direcciones vaciaría las actas de todo el mundo.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { siigoFacturaEnvios } = await import('../../src/db/schema.js');
+
+    const { sql: texto } = new PgDialect().sqlToQuery(
+      correoDelTitularEn(siigoFacturaEnvios.destinatarios, []),
+    );
+
+    expect(texto.trim()).toBe('false');
   });
 
   it('las direcciones en blanco no cuentan como criterio de búsqueda', async () => {

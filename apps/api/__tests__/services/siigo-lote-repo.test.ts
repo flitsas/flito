@@ -174,4 +174,49 @@ describe('purgarDestinatariosDeLotes (Ley 1581)', () => {
     expect(await purgarDestinatariosDeLotes([7], [])).toBe(0);
     expect(kdb.update).not.toHaveBeenCalled();
   });
+
+  it('alcanza la dirección que se TECLEÓ en mayúsculas y quedó guardada en minúsculas', async () => {
+    // Primera mitad de la asimetría que cerró el retrabajo de la HU #11708. La ruta del envío
+    // normaliza lo que se teclea, así que el lote guarda `contabilidad@empresa.com`; el olvido solo
+    // conoce la dirección como esté en la ficha (`clients.email` se lee en crudo), así que buscaba
+    // `Contabilidad@Empresa.com` y no encontraba la fila que esa misma dirección había producido.
+    kdb.when
+      .select('siigo_lotes_facturacion', [{ id: LOTE }])
+      .update('siigo_lotes_facturacion', [{ id: LOTE }]);
+
+    expect(await purgarDestinatariosDeLotes([], ['  Contabilidad@Empresa.COM '])).toBe(1);
+
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { params } = new PgDialect().sqlToQuery(espia.condicionesLeidas().at(-1) as never);
+
+    expect(params).toContain('contabilidad@empresa.com');
+    expect(params).not.toContain('  Contabilidad@Empresa.COM ');
+  });
+
+  it('y alcanza también la fila guardada en forma cruda: la comparación pliega mayúsculas', async () => {
+    // Segunda mitad, y la que no se arregla normalizando hacia adelante: normalizar solo protege lo
+    // que se escriba a partir de ahora. Cualquier fila anterior —o escrita por otro camino— está en
+    // la forma en que se tecleó, y la coincidencia exacta la deja viva.
+    //
+    // Es la MISMA función que usan las actas (`correoDelTitularEn`), y comprobarlo aquí no es
+    // redundante: lo que se afirma es que este repositorio no tiene su propia copia del criterio,
+    // que era justo de dónde venía el fallo.
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const { correoDelTitularEn, correosDeBusqueda } = await import(
+      '../../src/modules/siigo/siigo.envio-correo.service.js');
+    const { siigoLotesFacturacion } = await import('../../src/db/schema.js');
+
+    const { sql: texto, params } = new PgDialect().sqlToQuery(
+      correoDelTitularEn(
+        siigoLotesFacturacion.correoDestinatarios, correosDeBusqueda(['Contabilidad@Empresa.com']),
+      ),
+    );
+
+    expect(texto).toContain("lower(destinatario.valor ->> 'correo')");
+    expect(texto).toContain('correo_destinatarios');
+    expect(params).toEqual(['contabilidad@empresa.com']);
+    // Ya no se compara por contención de jsonb, que es byte a byte y es lo que dejaba viva la forma
+    // cruda. Si alguien la reintroduce «para volver a usar el índice GIN de la 0161», esto enrojece.
+    expect(texto).not.toContain('@>');
+  });
 });

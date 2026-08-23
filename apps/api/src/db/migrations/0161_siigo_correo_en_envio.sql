@@ -36,9 +36,23 @@
 -- en el mismo flujo y la misma transacción que ya redacta las actas de `siigo_factura_envios`. Sin
 -- eso quedaría una copia inalcanzable, que es exactamente lo que el acta existe para no tener.
 --
--- Vaciarla no rompe nada: un lote purgado y todavía sin emitir cae al camino de la ficha del
--- cliente, que para entonces también está anonimizada, y la emisión deja su acta `no_realizado` con
--- `cliente_sin_correo`. Se queda sin correo, que es justo lo que el titular pidió.
+-- Vaciarla deja `correo_solicitado = true`, y lo que pasa entonces DEPENDE DE POR QUÉ se purgó. La
+-- primera versión de este párrafo decía que el lote «cae al camino de la ficha del cliente, que para
+-- entonces también está anonimizada», y eso solo es cierto por uno de los dos caminos:
+--
+--   · Purgado por la rama de COMPAÑÍA —el titular es el cliente de los trámites del lote—, el lote
+--     cae a la ficha de ese cliente, que la misma transacción acaba de anonimizar. La emisión deja
+--     su acta `no_realizado` con `cliente_sin_correo` y no sale nada: justo lo que el titular pidió.
+--   · Purgado por la rama de DIRECCIÓN —el titular no es el cliente del lote, sino alguien cuya
+--     dirección se escribió a mano en la factura de otra empresa—, la ficha de esa otra empresa
+--     sigue intacta. El lote cae a ella y la factura sale a la dirección de la ficha: NO al titular
+--     —su dirección ya no está—, pero tampoco a donde alguien decidió mandarla. La purga revierte en
+--     silencio un desvío deliberado. No es una fuga de datos del titular; es una instrucción de
+--     envío que cambia sin que nadie lo pida ni lo vea.
+--
+-- Queda escrito y no corregido a propósito: apagar `correo_solicitado` al purgar por dirección
+-- cancelaría un correo que el cliente del lote sí espera, y cuál de los dos daños es peor es una
+-- pregunta para contabilidad. Lo que no puede seguir es que el archivo afirme lo contrario.
 --
 -- No lleva marca de purga como la del acta: aquí no hay disparador que distinga una purga de
 -- cualquier otro UPDATE, así que una columna más solo añadiría un dato que nadie leería. El hecho
