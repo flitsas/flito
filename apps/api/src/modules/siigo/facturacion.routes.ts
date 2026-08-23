@@ -158,11 +158,12 @@ const envioSchema = z.object({
     // olvido de que la consulta siga siendo la correcta. Estas direcciones son `origen: 'manual'`,
     // o sea tecleadas, que es justo donde la forma varía.
     //
-    // Lo que YA NO justifica esta línea es el índice. Decía que normalizar al escribir era «la única
-    // forma de conservar útil el índice GIN», y es falso desde que la purga dejó de usar `@>`: el
-    // GIN `jsonb_path_ops` de la 0161 solo sirve a ese operador, así que hoy no lo usa nadie —lo
-    // escriba como lo escriba esta ruta—. Ese índice está pendiente de sustituirse por un btree
-    // parcial con el predicado que la purga sí ejecuta; hasta entonces, no es un motivo.
+    // Lo que YA NO justifica esta línea es el índice. Una versión anterior decía que normalizar al
+    // escribir era «la única forma de conservar útil el índice GIN»; dejó de ser cierto en cuanto la
+    // purga abandonó `@>`, porque un GIN `jsonb_path_ops` sirve a ese operador y a nada más. La 0161
+    // ya no crea ninguno: se cambió por un btree parcial sobre el mismo `jsonb_array_length(...) > 0`
+    // con el que la purga acota. O sea que el índice no es motivo de nada aquí — lo escriba como lo
+    // escriba esta ruta.
     destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
       .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
       .optional(),
