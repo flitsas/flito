@@ -368,20 +368,39 @@ notas que el texto de arriba no podía anticipar:
   (`parameter_required` → falta un dato; `invalid_dian_resolution` → resolución vencida; etc.).
 - Reintento masivo controlado y marcado manual de `fallido_definitivo`.
 - **Reversa:** hoy `reversar` está prohibido después de `facturado`. Con factura electrónica emitida
-  hay que corregirla por otra vía, y **cuál es esa vía no está establecida todavía**:
-  - Siigo expone **dos operaciones distintas**, no una: `DELETE /v1/invoices/{id}` es **borrar** y
-    `POST /v1/invoices/{id}/annul` es **anular** (ver `docs/integraciones/siigo-api.md` §3). Una
-    versión anterior de este documento las citaba como si fueran la misma cosa; era un error.
-  - Y la misma sección dice que **no se puede editar, borrar ni anular** una factura que esté en
-    proceso de envío a la DIAN o ya aceptada (que tenga CUFE). Es decir: contra lo que hoy sabemos,
-    **ninguna de las dos aplica a una factura aceptada**, que es justo el caso que hay que corregir.
-  - Queda la **nota crédito** (`/v1/credit-notes`), pero ese grupo de la API **todavía no se ha
-    leído** — figura entre las secciones pendientes de `docs/integraciones/siigo-api.md`.
+  hay que corregirla por otra vía. **El bloqueo documental está levantado desde el 2026-08-23**
+  (HU #11344, AC1): el contrato ya está verificado contra el blueprint de Apiary y escrito en
+  `docs/integraciones/siigo-api.md` §3 y §4. Lo que quedó establecido:
+  - Siigo expone **dos operaciones distintas**, no una: `DELETE /v1/invoices/{id}` es **borrar**
+    (responde `deleted: true`) y `POST /v1/invoices/{id}/annul` es **anular** (responde `Annul:
+    true`). Una versión anterior de este documento las citaba como si fueran la misma cosa; era un
+    error. **Verificado.**
+  - **Ninguna de las dos aplica a una factura aceptada.** El blueprint repite la misma frase en
+    `PUT`, en `DELETE` y en `annul`: no se puede editar, borrar ni anular una factura que esté en
+    proceso de envío a la DIAN o ya aceptada (que tenga CUFE), ni una que tenga documentos
+    relacionados en Nube. Sobre el caso que hay que corregir, esos tres endpoints no ofrecen nada, y
+    no hay excepción ni forzado documentados. **Verificado.**
+  - **`annul` no es «la anulación electrónica ante la DIAN».** El blueprint solo lo llama «Anular
+    Factura» y no describe su efecto. La única mención de *anulación de factura electrónica* en todo
+    el documento es el **motivo de rechazo DIAN código 2 de las notas crédito**. Son cosas distintas
+    con nombres parecidos. **Verificado.**
+  - **La nota crédito (`/v1/credit-notes`) sí tiene vía documentada, y es exactamente la inversa.**
+    El error `invalid_document` dice que si el comprobante está marcado como electrónico, la factura
+    **debe estar enviada ante la DIAN** para poder aplicarle nota crédito. Las dos vías son
+    complementarias: `annul`/`DELETE` cubren la factura **no** enviada; la nota crédito cubre la
+    enviada. **Verificado.** El grupo completo —rutas, campos obligatorios, `reason`, el caso de
+    factura que no existe en Nube, filtros y errores— está en §4.
+  - **No hay ventana temporal de anulación en el contrato.** Se barrió el blueprint entero buscando
+    plazos: las dos únicas menciones son el bloqueo por proporción de errores (7 días) y la fecha de
+    los comprobantes contables (10 días); ninguna aplica. Que la API no la exponga **no prueba que no
+    exista** —la normativa DIAN es otra fuente y no se consultó—, pero sí significa que un cliente no
+    puede calcularla ni anticipar un rechazo por tiempo. **Verificado como ausencia.**
 
-  Por tanto la pregunta 8 tiene **dos bloqueos, no uno**: el de negocio (¿entra la corrección en
-  este alcance o se maneja a mano en Siigo Nube?) y el documental (¿qué forma tiene el contrato?).
-  El segundo se puede levantar sin decidir nada. Hasta entonces, ningún diseño debe afirmar que la
-  corrección de una factura emitida sea una nota crédito: no lo sabemos.
+  Por tanto la pregunta 8 **ya no tiene dos bloqueos, sino uno**: el de negocio (¿entra la corrección
+  en este alcance o se maneja a mano en Siigo Nube, y por qué vía?). El documental está levantado, y
+  levantarlo **no responde** la pregunta de negocio: la responde un humano, ahora con el contrato a
+  la vista. Lo que sí puede afirmarse ya, porque es lectura del contrato y no decisión: **la única
+  operación de la API de Siigo que aplica a una factura aceptada por la DIAN es la nota crédito.**
 
   **Lo que ya está implementado y NO depende de esa respuesta** (HU #11343): la mitad de registro.
   «Por ahora se maneja a mano en Siigo Nube» también necesita software — sin él, corregir por fuera
@@ -394,7 +413,11 @@ notas que el texto de arriba no podía anticipar:
   - para una factura con CUFE, la evaluación **no nombra la operación**: dice que la vía es
     registrar lo que se haya hecho por fuera, y deja el «qué» en manos de quien lo hizo;
   - la **ventana** de anulación es un parámetro con valor «no establecida», no una constante
-    inventada. Cuando se establezca será un número, no lógica nueva.
+    inventada. Cuando se establezca será un número, no lógica nueva. **Sigue en «no establecida»
+    después del 2026-08-23**, y ahora por un motivo distinto y mejor: no es que nadie lo hubiera
+    mirado, es que **el contrato de la API no expone ninguna ventana** (§3 de la base de
+    conocimiento). Fijarla exige otra fuente —normativa DIAN, soporte de Siigo o el ambiente de
+    pruebas—, no otra lectura de Apiary.
 
   El ejecutor que actúa contra la API de Siigo es la HU #11344 y sigue bloqueado; la columna
   `ejecutor` nace desde el primer día para que ese día sea una función nueva y no una migración.
@@ -478,8 +501,16 @@ lado que lo detecte, y la conciliación de totales corre DESPUÉS de que la fact
    cliente que existe ya las trae configuradas, así que FLITO no envía `retentions[]`.
 8. **Notas crédito y anulación.** Si un trámite facturado hay que corregirlo o anularlo, ¿entran
    la nota crédito y la anulación electrónica en este alcance o se manejan manualmente en Siigo por
-   ahora? Son operaciones distintas: la anulación aplica en ventanas y estados DIAN que la nota
-   crédito no cubre.
+   ahora? **Sigue abierta: es una decisión de negocio.** Lo que cambió el 2026-08-23 es que ya no
+   está bloqueada por falta de contrato (§F6).
+
+   > **Corrección de la premisa.** La redacción original de esta pregunta decía que «la anulación
+   > aplica en ventanas y estados DIAN que la nota crédito no cubre». Verificado contra el blueprint,
+   > **eso es falso en sus dos mitades**: (a) no hay ninguna *ventana* en el contrato de la API; y
+   > (b) los *estados DIAN* en los que aplica `annul` son los **anteriores** al envío —es la nota
+   > crédito la que exige que la factura ya esté enviada—, así que no es que la anulación cubra algo
+   > que la nota crédito no: **cubren estados opuestos y complementarios**. Se deja escrita la
+   > premisa equivocada, y no borrada, porque sobre ella se razonó durante meses.
 9. **Empresa emisora.** ¿FLIT factura desde un único NIT / una sola empresa de Siigo Nube, o hay
    varias? El rate limit y las credenciales son **por empresa**.
 10. **Ambiente de pruebas.** **Parcialmente respondida (2026-08-21): Siigo ya está pagado**, así
