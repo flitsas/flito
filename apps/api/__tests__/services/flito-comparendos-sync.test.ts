@@ -1126,13 +1126,25 @@ describe('POST /sync — un municipio sin veredicto no cuenta como cobertura (RN
     //     `toContain('no cuenta como cobertura')`, y ese segundo fragmento lo comparten el copy
     //     nuevo y el viejo palabra por palabra: se quedaba verde con cualquiera de los dos, así que
     //     no distinguía nada. Aquí no queda ninguna aserción apoyada en un fragmento compartido.
-    expect(pasoMunicipal.mensaje).toBe(
+    const MENSAJE_ESPERADO =
       'La consulta salió bien y no trajo registros. Eso no confirma que el NIT esté al día, así que '
-      + 'este municipio no cuenta como cobertura: no se inactiva nada de este NIT en esta corrida.',
-    );
+      + 'este municipio no cuenta como cobertura: no se inactiva nada de este NIT en esta corrida.';
+    expect(pasoMunicipal.mensaje).toBe(MENSAJE_ESPERADO);
     // Redundante con la igualdad de arriba y aun así se queda: nombra la regla que protege. El NIT
     // consultado no se filtra a un texto que se persiste y se sirve meses después (RN-20).
     expect(pasoMunicipal.mensaje).not.toContain(NIT_A);
+
+    // Y la misma igualdad sobre la COLUMNA, que es una aserción distinta y no una repetición:
+    // `POST /sync` no relee `flito_comparendos_sync_steps` para responder —arma `steps[]` en memoria
+    // y lo devuelve—, así que todo lo de arriba solo habla del objeto en RAM. Que ese objeto llegue
+    // íntegro a la columna es el paso que nadie estaba vigilando: medido, mutar `guardarPasos` a
+    // `mensaje: null` dejaba en verde las 22 specs del módulo con la columna vacía. Y la columna es
+    // justamente lo que dura: el histórico la lee meses después (y la HU #11797 la va a aliasar),
+    // cuando el `steps[]` de esta respuesta hace rato no existe.
+    const pasoPersistido = insertsEn('flito_comparendos_sync_steps')
+      .flatMap((d) => (Array.isArray(d) ? d : [d]))
+      .find((p) => p.fuente === 'MEDELLIN');
+    expect(pasoPersistido?.mensaje).toBe(MENSAJE_ESPERADO);
   });
 
   it('NO-REGRESIÓN — con veredicto y listas vacías SÍ es concluyente, y sigue SIN mensaje', async () => {
