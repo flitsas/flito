@@ -642,10 +642,25 @@ interface ResultadoLlamada {
  * respuesta y su CONSECUENCIA, y ni una palabra del proveedor (RN-20). Es además el primer `mensaje`
  * que acompaña a un paso `ok: true`: hasta ahora solo lo llevaban los fallidos, y aquí el municipio
  * no ha fallado — simplemente no ha dicho nada que autorice a apagar comparendos.
+ *
+ * Por qué se reescribió el texto (HU #11796, enmienda UX del 24 ago 2026, decisión 18), y no es
+ * cuestión de tono: el anterior empezaba «El UTS respondió sin veredicto (codigoEstado ausente)…»,
+ * o sea NOMBRABA AL PROVEEDOR y CITABA UN CAMPO DE SU ENVELOPE — justo lo que RN-20 prohíbe, en la
+ * misma constante cuyo comentario la invoca. Y de paso era lo que lo hacía sonar a avería:
+ * «respondió sin veredicto» describe una anomalía del otro extremo, cuando lo que pasó es una
+ * consulta normal con cero resultados. El paso ya salía `Ok` (`ok: true`, arriba); lo único que
+ * sonaba a caída era este copy.
+ *
+ * Lo que el texto NO puede decir nunca: que el NIT no debe nada en ese municipio. Es el punto
+ * entero — la respuesta no lo confirmó —, así que «sin deudas», «al día» en afirmativo o «sin
+ * comparendos en el municipio» quedan prohibidos aquí.
+ *
+ * El histórico ya persistido conserva el texto viejo y NO se reescribe: la bitácora es lo que se le
+ * dijo al operador aquel día. El front lo aliasa al pintar (HU #11797); aquí no hay UPDATE.
  */
-const MENSAJE_SIN_VEREDICTO = 'El UTS respondió sin veredicto (codigoEstado ausente) y sin '
-  + 'comparendos: la respuesta no confirma que el NIT no deba nada, así que este municipio no cuenta '
-  + 'como cobertura y no se inactiva nada de este NIT en esta corrida.';
+const MENSAJE_VACIO_NO_CONCLUYENTE = 'La consulta salió bien y no trajo registros. Eso no confirma '
+  + 'que el NIT esté al día, así que este municipio no cuenta como cobertura: no se inactiva nada de '
+  + 'este NIT en esta corrida.';
 
 async function llamarSimit(ctx: ContextoCorrida, nit: string): Promise<ResultadoLlamada> {
   const inicio = Date.now();
@@ -677,7 +692,7 @@ async function llamarMunicipal(ctx: ContextoCorrida, nit: string, codigoFuente: 
         ok: true,
         httpStatus: r.httpStatus,
         itemsLeidos: r.items.length,
-        mensaje: r.concluyente ? undefined : MENSAJE_SIN_VEREDICTO,
+        mensaje: r.concluyente ? undefined : MENSAJE_VACIO_NO_CONCLUYENTE,
       }, inicio),
       items: r.items as Record<string, unknown>[],
       concluyente: r.concluyente,
