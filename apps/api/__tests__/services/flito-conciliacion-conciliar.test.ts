@@ -33,7 +33,7 @@ vi.mock('../../src/modules/flito-parametrizacion/flito-tarifas.service.js', () =
   tarifaDe: tarifaDeMock,
 }));
 
-const { conciliarBoleta } =
+const { conciliarBoleta, adoptar } =
   await import('../../src/modules/flito-conciliacion/flito-conciliacion.conciliar.service.js');
 const { liquidar, reversar } =
   await import('../../src/modules/flito-liquidacion/flito-liquidacion.service.js');
@@ -41,6 +41,7 @@ const { liquidar, reversar } =
 // ─────────────────────────── Constantes del escenario ────────────────────────
 
 const COMPANIA = 7;
+const OTRA_COMPANIA = 99;
 const BOLETA = 'b0000000-0000-4000-8000-000000000001';
 const LINEA_A = '11110000-0000-4000-8000-00000000000a';
 const LINEA_B = '11110000-0000-4000-8000-00000000000b';
@@ -264,14 +265,24 @@ const movsTransito = () => insertsEn('flito_bolsa_transito_movimientos').map((m)
 /**
  * `flito_bolsa_movimientos` tiene TRES consultas distintas y se distinguen por su filtro:
  *   · un solo parámetro                → pre-chequeo de idempotencia por llave;
- *   · el último es 'automatico'        → el `descontados` del cruce (llaves… + origen);
- *   · el último es 'salida'            → el barrido del reverso (trámite + origen + tipo + like).
+ *   · el último es 'salida'            → el barrido del reverso (trámite + origen + tipo + like);
+ *   · el resto, llaves `salida:soat:*` → el cruce (Bug #11773: cualquier origen, con `companiaId`).
  */
 const consultaLibroCliente: Resolver = () => {
   const f = ultimosFiltros;
+  const nombreDe = (companiaId: unknown) => {
+    if (companiaId === COMPANIA) return 'Transportes Andinos S.A.S.';
+    if (companiaId === OTRA_COMPANIA) return 'Cliente B S.A.S.';
+    return null;
+  };
+  const conAliasCruce = (fila: Fila) => ({
+    ...fila,
+    llave: fila.llaveIdempotencia,
+    companiaNombre: fila.companiaNombre ?? nombreDe(fila.companiaId),
+  });
   if (f.length === 1) {
     const fila = bd.libroCliente.find((x) => x.llaveIdempotencia === f[0]);
-    return fila ? [fila] : [];
+    return fila ? [conAliasCruce(fila)] : [];
   }
   if (f[f.length - 1] === 'salida') {
     const tramite = f[0];
@@ -279,10 +290,9 @@ const consultaLibroCliente: Resolver = () => {
       x.tramiteId === tramite && x.origen === 'automatico' && x.tipo === 'salida'
       && String(x.llaveIdempotencia).startsWith('salida:'));
   }
-  const llaves = f.slice(0, -1);
   return bd.libroCliente
-    .filter((x) => llaves.includes(String(x.llaveIdempotencia)) && x.origen === 'automatico')
-    .map((x) => ({ llave: x.llaveIdempotencia }));
+    .filter((x) => f.includes(String(x.llaveIdempotencia)))
+    .map((x) => conAliasCruce(x));
 };
 
 /** Igual, con dos consultas: por llave (1 parámetro) o el barrido del reverso de tránsito. */
@@ -949,5 +959,85 @@ describe('conciliar — guardas del asiento', () => {
     // cruce dijera `ok`, y este test fija que el camino feliz nunca descuenta cero.
     await expect(conciliarBoleta(BOLETA, CTX)).rejects.toMatchObject({ estado: 409 });
     expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+  });
+});
+
+describe('Bug #11773 · cobrado a otro cliente — no se cobra a A ni se suelta el unique', () => {
+  const MOV_B = 'mov-de-b';
+
+  function asientoDeB(over: Fila = {}): Fila {
+    return {
+      id: MOV_B, bolsaId: 'bolsa-b', companiaId: OTRA_COMPANIA, tipo: 'salida', origen: 'automatico',
+      concepto: 'soat', organismoCodigo: ORG_CUBIERTO, tramiteId: TRAMITE,
+      valor: String(VALOR_A), saldoResultante: '1000000', periodo: '2026-07', fecha: '2026-07-01',
+      observacion: 'Liquidación de B', soporteId: null, registradoPorNombre: 'sistema', createdAt: AHORA,
+      llaveIdempotencia: `salida:soat:${SOAT_A}`,
+      ...over,
+    };
+  }
+
+  it('ROJO-antes / VERDE-después: conciliar es 409, origen y valor de B iguales, cero INSERT en A', async () => {
+    // Antes: cruce `ok` + adoptar el asiento de B (le cambiaba el origen). Después: recruzar marca
+    // cobrado_otro_cliente, 409 boleta_incompleta, el asiento de B no se toca y A no recibe INSERT.
+    bd.libroCliente.push(asientoDeB());
+    escenarioConciliacion();
+
+    const error = await conciliarBoleta(BOLETA, CTX)
+      .catch((e) => e as { estado: number; codigo: string; extra: { boleta: { lineas: Array<{ resultado: string; companiaCobroNombre: string | null }> } } });
+
+    expect(error).toMatchObject({ estado: 409, codigo: 'boleta_incompleta' });
+    expect(error.extra.boleta.lineas[0]).toMatchObject({
+      resultado: 'cobrado_otro_cliente',
+      companiaCobroNombre: 'Cliente B S.A.S.',
+    });
+    expect(bd.lineas[0].resultado).toBe('cobrado_otro_cliente');
+
+    const movB = bd.libroCliente.find((m) => m.id === MOV_B);
+    expect(movB).toMatchObject({
+      origen: 'automatico', valor: String(VALOR_A), companiaId: OTRA_COMPANIA,
+    });
+    expect(insertsEn('flito_bolsa_movimientos').filter((m) => m.datos.companiaId === COMPANIA))
+      .toHaveLength(0);
+    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(bd.boleta.estado).toBe('cargada');
+    expect(bd.saldoCliente).toBe(10_000_000);
+  });
+
+  it('regresión HU #11677: mismo cliente, liquidar luego conciliar sigue adoptando', async () => {
+    escenarioSellado();
+    await liquidar(TRAMITE, 9);
+    updates.length = 0;
+
+    const r = await conciliarBoleta(BOLETA, CTX);
+
+    const movSoat = bd.libroCliente.find((m) => m.llaveIdempotencia === `salida:soat:${SOAT_A}`);
+    expect(movSoat).toMatchObject({ origen: 'conciliacion', companiaId: COMPANIA });
+    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(1);
+    expect(updatesEn('flito_bolsa_movimientos')[0].datos).toEqual({ origen: 'conciliacion' });
+    expect(r.adoptados).toHaveLength(1);
+    expect(r.adoptados[0]).toMatchObject({ soatId: SOAT_A, adoptado: true });
+  });
+
+  it('guarda de adoptar: movimiento de B no hace UPDATE de origen y aborta', async () => {
+    escenarioConciliacion();
+    updates.length = 0;
+
+    await expect(adoptar(
+      kdb.db as never,
+      {
+        id: LINEA_A, filaNumero: 1, numeroPolizaNorm: 'POL0001',
+        valorDeclarado: `${VALOR_A}.00`, soatId: SOAT_A, resultado: 'ok', detalle: null,
+        conciliadaEn: null,
+      },
+      {
+        id: SOAT_A, numeroPoliza: 'POL0001', estado: 'pagado', valorPagado: VALOR_A,
+        companiaId: COMPANIA, companiaNombre: 'Transportes Andinos S.A.S.', placa: 'ABC123',
+        organismoCodigo: ORG_CUBIERTO,
+      },
+      { id: MOV_B, origen: 'automatico', valor: VALOR_A, companiaId: OTRA_COMPANIA },
+      COMPANIA,
+    )).rejects.toMatchObject({ estado: 409, codigo: 'boleta_incompleta' });
+
+    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
   });
 });

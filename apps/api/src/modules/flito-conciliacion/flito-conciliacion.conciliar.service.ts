@@ -195,7 +195,7 @@ async function asentar(
     }, ctx);
 
     if (duplicado) {
-      adoptados.push(await adoptar(tx, linea, soat, movimiento));
+      adoptados.push(await adoptar(tx, linea, soat, movimiento, boleta.companiaId));
       // El aviso de la pantalla lee `adoptados`; este flag es el de la LÍNEA y ya no aplica: su
       // movimiento acaba de dejar de ser `automatico`. Se limpia para que la respuesta inmediata
       // diga exactamente lo mismo que dirá el detalle al recargar la página.
@@ -280,13 +280,25 @@ function soatDe(recruce: RecruceEnTx, linea: FilaLinea): SoatInfo {
  * ya descontada: lo que el aviso necesita decir es «esto no se volvió a cobrar», venga de donde
  * venga. En la práctica no ocurre —`idx_flito_concil_linea_soat_unica` lo impide— y por eso el
  * `UPDATE` se condiciona en vez de lanzarse siempre.
+ *
+ * **Guarda Bug #11773.** Si el asiento es de OTRA compañía, no se toca el `origen` y se aborta la
+ * transacción. El camino público es el cruce (`cobrado_otro_cliente` → 409 `boleta_incompleta`);
+ * esto es la red de debajo por si `asentarMovimiento` devolviera el duplicado global sin que el
+ * cruce lo hubiera visto. Se exporta para poder afirmar esa guarda sin pasar por el cruce.
  */
-async function adoptar(
+export async function adoptar(
   tx: Tx,
   linea: FilaLinea,
   soat: SoatInfo,
-  movimiento: { id: string; origen: string; valor: number },
+  movimiento: { id: string; origen: string; valor: number; companiaId: number },
+  companiaBoletaId: number,
 ): Promise<LineaAdoptadaDto> {
+  if (movimiento.companiaId !== companiaBoletaId) {
+    throw new ConciliacionError(
+      409, CodigoErrorConciliacion.BOLETA_INCOMPLETA,
+      'Este SOAT ya se descontó de la bolsa de otro cliente. No se descontó nada.',
+    );
+  }
   const adoptado = movimiento.origen === 'automatico';
   if (adoptado) {
     await tx.update(flitoBolsaMovimientos)

@@ -3521,7 +3521,7 @@ export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
   // Mismos CHECK que el `.sql`, por el motivo de arriba: son inline en un `CREATE TABLE IF NOT
   // EXISTS` que no los repara si la tabla ya existe.
   resultadoChk: check('flito_concil_linea_resultado_chk',
-    sql`${t.resultado} IN ('ok','no_encontrada','no_pagado','valor_distinto','poliza_duplicada','otra_compania','ya_conciliada')`),
+    sql`${t.resultado} IN ('ok','no_encontrada','no_pagado','valor_distinto','poliza_duplicada','otra_compania','ya_conciliada','cobrado_otro_cliente')`),
   // La póliza se guarda YA normalizada: escribir el valor crudo es un 23514 inmediato en vez de una
   // fila que no cruzará nunca con nada.
   polizaNormChk: check('flito_concil_linea_poliza_norm_chk',
