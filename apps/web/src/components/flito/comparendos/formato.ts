@@ -16,7 +16,9 @@
 // sitio habría cambiado tres columnas de la tabla y las aserciones vigentes de la #11560, así que
 // se parte en dos: la de siempre se renombra a lo que hace y la de la hora nace nueva.
 
-import type { ComparendoRegistro, ComparendosTipoRegistro } from '@operaciones/shared-types';
+import type {
+  ComparendoRegistro, ComparendosSyncStep, ComparendosTipoRegistro,
+} from '@operaciones/shared-types';
 
 /** Guion de ausencia. `null` es información: hay fuentes que no traen la placa, la fecha o el monto. */
 export const SIN_DATO = '—';
@@ -219,4 +221,71 @@ export function etiquetaTipoRegistro(tipo: ComparendoRegistro['tipoRegistro']): 
   // `undefined` y React pintaría la celda VACÍA: exactamente lo que el AC3 prohíbe.
   if (tipo == null) return SIN_DATO;
   return (ETIQUETA_TIPO_REGISTRO as Record<string, string | undefined>)[tipo] ?? tipo;
+}
+
+/**
+ * El texto que las corridas YA PERSISTIDAS llevan en `sync_steps.mensaje` para el 200 vacío no
+ * concluyente del UTS. Copiado literal de la constante que el backend usó hasta la HU #11796.
+ *
+ * Está aquí porque hay que RECONOCERLO, no porque se vaya a emitir nunca más.
+ */
+const HISTORICO_VACIO_NO_CONCLUYENTE = 'El UTS respondió sin veredicto (codigoEstado ausente) y sin '
+  + 'comparendos: la respuesta no confirma que el NIT no deba nada, así que este municipio no cuenta '
+  + 'como cobertura y no se inactiva nada de este NIT en esta corrida.';
+
+/**
+ * El copy vigente (decisión 18 de la enmienda de UX del 24 ago 2026). Lo emite ya el backend desde
+ * la HU #11796, así que una corrida NUEVA llega con esta cadena y el alias no la toca: entra, no
+ * encuentra entrada en la tabla —una clave no se aliasa a sí misma— y sale tal cual, una sola vez.
+ */
+const VACIO_NO_CONCLUYENTE = 'La consulta salió bien y no trajo registros. Eso no confirma que el '
+  + 'NIT esté al día, así que este municipio no cuenta como cobertura: no se inactiva nada de este '
+  + 'NIT en esta corrida.';
+
+/**
+ * La tabla de alias del histórico. UNA entrada, y se busca por la cadena ENTERA.
+ *
+ * `Map` y no un objeto literal por dos motivos, y el segundo es el que importa:
+ *
+ *   · `Map.get` es igualdad exacta sobre la clave completa. No hay forma de escribir aquí un
+ *     `includes`, un `startsWith` ni una expresión regular sin que se vea: un matcher laxo se
+ *     tragaría cualquier mensaje futuro que comparta un fragmento —«no cuenta como cobertura» y «no
+ *     se inactiva nada de este NIT» son frases que el módulo va a volver a escribir— y lo
+ *     reemplazaría por un texto que no le corresponde. La decisión 19 lo prohíbe por su nombre.
+ *   · Un objeto literal hereda el prototipo: un `mensaje` que valiera «constructor» o «toString»
+ *     encontraría una entrada que nadie escribió. El `Map` no tiene claves que no se hayan puesto.
+ *
+ * **Esto NO es una migración.** `sync_steps.mensaje` se queda como está: lo persistido es el
+ * registro de lo que se le dijo al operador aquel día, y reescribirlo por una mejora de redacción
+ * sería falsear la bitácora. El alias es de PRESENTACIÓN y vive aquí —y no dentro de la fila de la
+ * tabla— porque las dos superficies que pintan pasos (la tarjeta de resultado de la consola y el
+ * modal de detalle del historial) tienen que decir lo mismo sobre la misma corrida.
+ */
+const ALIAS_MENSAJE_PASO = new Map<string, string>([
+  [HISTORICO_VACIO_NO_CONCLUYENTE, VACIO_NO_CONCLUYENTE],
+]);
+
+/**
+ * Qué texto se pinta bajo el chip de un paso, o `null` si no se pinta ninguno (HU #11797).
+ *
+ * Tres reglas, y las tres son el AC:
+ *
+ *   · **Un paso FALLIDO no pasa por la tabla.** Un fallo se dice fallo (decisión 12 y RN-20): el
+ *     mensaje de error se pinta literal, sin suavizar y sin que ninguna mejora de copy del camino
+ *     feliz pueda alcanzarlo. Por eso la función recibe el paso y no solo su cadena — con la firma
+ *     `(mensaje: string)` esta regla no se podría escribir, y quien la borrara no rompería nada.
+ *   · **Alias solo por coincidencia exacta**, ver {@link ALIAS_MENSAJE_PASO}.
+ *   · **Lo que no coincide se pinta tal cual llegó.**
+ *
+ * La ausencia devuelve `null` y la fila no pinta el párrafo: en un paso `Ok` sin mensaje el silencio
+ * ES el copy (decisión 21, estado 2), y un `<p>` vacío o un guion de relleno romperían el criterio
+ * con el que el operador barre la tabla con la vista. La cadena VACÍA se trata igual que la
+ * ausencia: el contrato promete `null` y el backend emite la clave ausente, pero un `''` que llegara
+ * por la red no puede terminar en un párrafo vacío que ningún lector de pantalla sabe anunciar.
+ */
+export function mensajePaso(paso: Pick<ComparendosSyncStep, 'ok' | 'mensaje'>): string | null {
+  const mensaje = paso.mensaje;
+  if (mensaje === null || mensaje === undefined || mensaje === '') return null;
+  if (!paso.ok) return mensaje;
+  return ALIAS_MENSAJE_PASO.get(mensaje) ?? mensaje;
 }
