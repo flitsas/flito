@@ -533,13 +533,25 @@ describe('las columnas que la 0157 añade a tablas que ya existían', () => {
 
 describe('los CHECK de valor y sus tipos en shared-types', () => {
   it.each([
-    ['flito_concil_linea_resultado_chk', Object.values(ResultadoCruce), 'ResultadoCruce'],
+    // ResultadoCruce ya no vive en la 0157: Bug #11773 lo ensanchó en la 0162. Igualarlo aquí
+    // al CHECK congelado volvería a romper en cuanto se añada un desenlace.
     ['flito_concil_boleta_estado_chk', Object.values(EstadoBoleta), 'EstadoBoleta'],
     ['flito_concil_boleta_concepto_chk', Object.values(ConceptoBoleta), 'ConceptoBoleta'],
   ])('%s enumera exactamente los valores de %s', (constraint, valores) => {
     // Conjuntos y no arrays: el orden de un `IN (...)` no significa nada en PostgreSQL (a diferencia
     // del orden de un enum, que sí es el orden de comparación).
     expect(new Set(valoresDelCheck(constraint as string))).toEqual(new Set(valores as string[]));
+  });
+
+  it('el CHECK congelado de 0157 NO admite cobrado_otro_cliente (eso es la 0162)', () => {
+    const del0157 = new Set(valoresDelCheck('flito_concil_linea_resultado_chk'));
+    expect(del0157.has('cobrado_otro_cliente')).toBe(false);
+    expect(del0157).toEqual(new Set([
+      'ok', 'no_encontrada', 'no_pagado', 'valor_distinto', 'poliza_duplicada',
+      'otra_compania', 'ya_conciliada',
+    ]));
+    expect(new Set(Object.values(ResultadoCruce))).not.toEqual(del0157);
+    expect(Object.values(ResultadoCruce)).toContain('cobrado_otro_cliente');
   });
 
   it('**el estado de la boleta admite `descartada`** además de cargada y conciliada', () => {
@@ -814,9 +826,17 @@ describe.each(TABLAS)('$sql — los mismos CHECK en el .sql y en schema.ts', ({ 
     expect([...delSchema.keys()].sort()).toEqual([...delSql.keys()].sort());
   });
 
-  it.each([...checksDelSql(sql).keys()])('%s — la misma expresión', (nombre) => {
+  it.each(
+    [...checksDelSql(sql).keys()].filter((n) => n !== 'flito_concil_linea_resultado_chk'),
+  )('%s — la misma expresión', (nombre) => {
     expect(delSchema.get(nombre), `${nombre} falta en schema.ts`).toBeDefined();
     expect(normalizarExpr(delSchema.get(nombre)!)).toBe(normalizarExpr(delSql.get(nombre)!));
+  });
+
+  it('flito_concil_linea_resultado_chk de 0157 queda congelado: el octavo valor vive en schema.ts vía 0162', () => {
+    if (sql !== 'flito_conciliacion_lineas') return;
+    expect(delSql.get('flito_concil_linea_resultado_chk')).not.toMatch(/cobrado_otro_cliente/);
+    expect(delSchema.get('flito_concil_linea_resultado_chk')).toMatch(/cobrado_otro_cliente/);
   });
 });
 // ─────────────────────────── Invariantes del archivo (ADR-DB-001) ───────────────────────────────

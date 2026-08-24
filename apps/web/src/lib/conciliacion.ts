@@ -60,9 +60,9 @@ export const TONO_ESTADO_BOLETA: Record<EstadoBoleta, ChipTone> = {
 // ─────────────────────────── Los siete desenlaces del cruce ──────────────────────────────────────
 
 /**
- * Son SIETE, no seis: el `CHECK` de la migración 0157 admite además `ya_conciliada`, que es lo que
- * impide conciliar el mismo SOAT en dos boletas. Y es `no_encontrada`, en femenino («la línea»),
- * que es como lo escriben el ADR y la base — la HU lo escribe en masculino y ahí manda el `CHECK`.
+ * Son OCHO, no siete: el `CHECK` de la 0162 admite `cobrado_otro_cliente` además de los siete de
+ * la 0157. Y es `no_encontrada`, en femenino («la línea»), que es como lo escriben el ADR y la
+ * base — la HU lo escribe en masculino y ahí manda el `CHECK`.
  */
 export const ETIQUETA_RESULTADO: Record<ResultadoCruce, string> = {
   ok: 'Cuadra',
@@ -72,6 +72,7 @@ export const ETIQUETA_RESULTADO: Record<ResultadoCruce, string> = {
   poliza_duplicada: 'Póliza repetida',
   otra_compania: 'Otro cliente',
   ya_conciliada: 'Ya conciliada',
+  cobrado_otro_cliente: 'Cobrado a otro cliente',
 };
 
 /**
@@ -90,6 +91,7 @@ export const TONO_RESULTADO: Record<ResultadoCruce, ChipTone> = {
   poliza_duplicada: 'warning',
   otra_compania: 'danger',
   ya_conciliada: 'warning',
+  cobrado_otro_cliente: 'danger',
 };
 
 /** El motivo de una línea: qué pasó, y qué hacer. `null` en las que cuadran. */
@@ -164,6 +166,13 @@ export function motivoDeLinea(linea: LineaBoletaDto, companiaBoleta: string | nu
         queHacer: 'Un SOAT no se puede conciliar dos veces. Si esta boleta es la correcta y la '
           + 'anterior está mal, no se deshace desde aquí: hay que registrar un ajuste manual en la '
           + 'bolsa del cliente, con su motivo.',
+      };
+    case ResultadoCruce.COBRADO_OTRO_CLIENTE:
+      return {
+        motivo: `Este SOAT ya se descontó de la bolsa de ${linea.companiaCobroNombre ?? 'otro cliente'}, `
+          + `no de la de ${companiaBoleta ?? 'este cliente'}.`,
+        queHacer: 'No se concilia aquí: el asiento no se mueve de bolsa y no se vuelve a cobrar. Hay '
+          + 'que resolver el descuento en la bolsa del otro cliente (ajuste manual) y volver a cruzar.',
       };
     default:
       return null;

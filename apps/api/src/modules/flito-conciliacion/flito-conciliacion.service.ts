@@ -16,6 +16,7 @@
 //        ¿es de otra compañía?            → otra_compania
 //        ¿no está en 'pagado'?            → no_pagado, con el estado de hoy
 //        ¿ya se concilió en otra boleta?  → ya_conciliada, con cuál y cuándo
+//        ¿la llave ya está en OTRA bolsa? → cobrado_otro_cliente (Bug #11773)
 //        ¿el valor no coincide al peso?   → valor_distinto, con los dos importes
 //        si no                            → ok
 //
@@ -25,8 +26,8 @@
 // ese riesgo en una fila marcada delante de la persona que puede corregir el número.
 //
 // El orden de los descartes del punto 2 tampoco es arbitrario: cada uno responde una pregunta que
-// invalida las siguientes. Un SOAT de otro cliente no se arregla pagándolo, y uno ya conciliado no
-// se arregla corrigiéndole el valor.
+// invalida las siguientes. Un SOAT de otro cliente no se arregla pagándolo, uno ya conciliado no
+// se arregla corrigiéndole el valor, y uno cobrado en la bolsa de otro cliente no se «adopta».
 //
 // ── El valor se compara ESTRICTO (AC3) ───────────────────────────────────────────────────────────
 //
@@ -70,7 +71,7 @@ const LLAVE_SALIDA_SOAT = 'salida:soat:';
 const LISTADO_LIMITE_MAX = 100;
 const LISTADO_LIMITE_DEFECTO = 25;
 
-/** Todos los desenlaces posibles, para que el conteo traiga las siete claves aunque valgan 0. */
+/** Todos los desenlaces posibles, para que el conteo traiga las ocho claves aunque valgan 0. */
 const RESULTADOS = Object.values(ResultadoCruce);
 
 // ───────────────────────────── Contexto del cruce ────────────────────────────
@@ -113,8 +114,13 @@ export interface ContextoCruce {
   porSoatId: Map<string, SoatInfo>;
   /** SOAT ya conciliado en OTRA boleta → cuál y cuándo se pagó. */
   previas: Map<string, BoletaPrevia>;
-  /** SOAT cuya salida de bolsa ya reservó el sellado de la liquidación. */
+  /**
+   * SOAT cuya salida de bolsa ya reservó el sellado de ESTA compañía (`origen='automatico'`).
+   * Un `automatico` de otro cliente no entra aquí: eso es `cobradosOtro`.
+   */
   descontados: Set<string>;
+  /** SOAT cuya llave `salida:soat:<id>` ya está en el libro de OTRO cliente, cualquier origen. */
+  cobradosOtro: Map<string, { companiaNombre: string | null }>;
 }
 
 function infoDeFila(f: {
@@ -157,18 +163,24 @@ function seleccionSoat() {
  *
  * @param boletaId Boleta que se está cruzando. Sus PROPIAS líneas quedan fuera de `previas`: al
  *   re-cruzar (AC5) una boleta no puede acusarse a sí misma de haber conciliado ya el SOAT.
+ * @param companiaBoletaId Compañía de la boleta. Distingue `descontados` (esta bolsa) de
+ *   `cobradosOtro` (la llave vive en el libro de otro cliente).
  */
 async function contextoDe(
   dbx: DbOrTx,
   polizas: string[],
   boletaId: string,
+  companiaBoletaId: number,
 ): Promise<ContextoCruce> {
   const porPoliza = new Map<string, SoatInfo[]>();
   const porSoatId = new Map<string, SoatInfo>();
   const previas = new Map<string, BoletaPrevia>();
   const descontados = new Set<string>();
+  const cobradosOtro = new Map<string, { companiaNombre: string | null }>();
 
-  if (polizas.length === 0) return { porPoliza, porSoatId, previas, descontados };
+  if (polizas.length === 0) {
+    return { porPoliza, porSoatId, previas, descontados, cobradosOtro };
+  }
 
   // 1. TODOS los SOAT con alguna de esas pólizas. Sin filtro de compañía: `otra_compania` solo se
   //    puede diagnosticar si el SOAT del otro cliente entra en el resultado.
@@ -188,7 +200,7 @@ async function contextoDe(
   }
 
   const soatIds = [...porSoatId.keys()];
-  if (soatIds.length === 0) return { porPoliza, porSoatId, previas, descontados };
+  if (soatIds.length === 0) return { porPoliza, porSoatId, previas, descontados, cobradosOtro };
 
   // 2. ¿Alguno de esos SOAT ya se concilió en otra boleta? Es el diagnóstico de `ya_conciliada`; la
   //    barrera de verdad es `idx_flito_concil_linea_soat_unica`, que vive en la base.
@@ -212,28 +224,35 @@ async function contextoDe(
     if (c.soatId) previas.set(c.soatId, { referencia: c.referencia, fechaPago: c.fechaPago });
   }
 
-  // 3. ¿La LIQUIDACIÓN ya reservó la salida de alguno? No bloquea —la línea cuadra igual— pero es lo
-  //    que evita que el aviso de éxito anuncie un descuento que no ocurrirá.
-  //
-  //    El filtro por `origen='automatico'` no es decoración: la conciliación asienta con ESTA MISMA
-  //    llave (ADR-0006 §2.2, opción A). Sin él, en cuanto la boleta se concilia sus propias líneas
-  //    empezarían a decir «este SOAT ya se descontó al liquidar su trámite» —un trámite que puede no
-  //    existir— y la pantalla pintaría esa frase al recargar el detalle de una boleta conciliada.
-  const movimientos = await dbx.select({ llave: flitoBolsaMovimientos.llaveIdempotencia })
+  // 3. ¿Alguna de esas llaves ya está en el libro? El unique es GLOBAL, así que el asiento puede
+  //    ser de ESTA compañía o de otra. Se leen TODOS los orígenes: `cobrado_otro_cliente` no
+  //    distingue liquidación de conciliación ajena. `yaDescontadoEnLiquidacion` sí: solo el
+  //    `automatico` de ESTA compañía (sin ese filtro, una boleta conciliada se acusaría a sí misma).
+  const movimientos = await dbx.select({
+    llave: flitoBolsaMovimientos.llaveIdempotencia,
+    companiaId: flitoBolsaMovimientos.companiaId,
+    origen: flitoBolsaMovimientos.origen,
+    companiaNombre: clients.name,
+  })
     .from(flitoBolsaMovimientos)
-    .where(and(
-      inArray(
-        flitoBolsaMovimientos.llaveIdempotencia,
-        soatIds.map((id) => `${LLAVE_SALIDA_SOAT}${id}`),
-      ),
-      eq(flitoBolsaMovimientos.origen, 'automatico'),
+    .leftJoin(clients, eq(flitoBolsaMovimientos.companiaId, clients.id))
+    .where(inArray(
+      flitoBolsaMovimientos.llaveIdempotencia,
+      soatIds.map((id) => `${LLAVE_SALIDA_SOAT}${id}`),
     ));
 
   for (const m of movimientos) {
-    if (m.llave) descontados.add(m.llave.slice(LLAVE_SALIDA_SOAT.length));
+    const llave = m.llave;
+    if (!llave || !llave.startsWith(LLAVE_SALIDA_SOAT)) continue;
+    const soatId = llave.slice(LLAVE_SALIDA_SOAT.length);
+    if (m.companiaId !== companiaBoletaId) {
+      cobradosOtro.set(soatId, { companiaNombre: m.companiaNombre ?? null });
+      continue;
+    }
+    if (m.origen === 'automatico') descontados.add(soatId);
   }
 
-  return { porPoliza, porSoatId, previas, descontados };
+  return { porPoliza, porSoatId, previas, descontados, cobradosOtro };
 }
 
 /**
@@ -272,7 +291,7 @@ function centavos(valor: number): number {
 
 /**
  * Evalúa una fila contra el contexto. Función PURA: no toca la base, no lanza y no depende del
- * reloj — que es lo que permite probar los siete desenlaces sin montar una transacción.
+ * reloj — que es lo que permite probar los ocho desenlaces sin montar una transacción.
  */
 export function evaluarFila(
   fila: { numeroPolizaNorm: string; valorDeclarado: number },
@@ -329,6 +348,18 @@ export function evaluarFila(
       resultado: ResultadoCruce.YA_CONCILIADA,
       soatId: soat.id,
       detalle: `Este SOAT ya se concilió en la boleta ${previa.referencia}.`,
+      candidatos: null,
+    };
+  }
+
+  // Bug #11773: la llave ya está en el libro de OTRO cliente. Va después de `otra_compania` /
+  // `ya_conciliada` y antes de `ok` (y de `valor_distinto`): el dueño del asiento manda sobre el
+  // importe. Cualquier origen. No se adopta ni se vuelve a cobrar.
+  if (ctx.cobradosOtro.has(soat.id)) {
+    return {
+      resultado: ResultadoCruce.COBRADO_OTRO_CLIENTE,
+      soatId: soat.id,
+      detalle: 'Este SOAT ya se descontó de la bolsa de otro cliente.',
       candidatos: null,
     };
   }
@@ -393,6 +424,9 @@ function lineaDto(linea: FilaLinea, ctx: ContextoCruce): LineaBoletaDto {
     candidatos: candidatos > 1 ? candidatos : null,
     boletaAnteriorRef: previa?.referencia ?? null,
     boletaAnteriorFecha: previa?.fechaPago ?? null,
+    companiaCobroNombre: linea.soatId
+      ? ctx.cobradosOtro.get(linea.soatId)?.companiaNombre ?? null
+      : null,
     yaDescontadoEnLiquidacion: linea.soatId ? ctx.descontados.has(linea.soatId) : false,
     conciliadaEn: linea.conciliadaEn ? linea.conciliadaEn.toISOString() : null,
   };
@@ -524,7 +558,9 @@ export async function detalleBoleta(id: string): Promise<BoletaDetalleDto> {
   // AC2 de la HU #11678: quien mira la boleta ve su comprobante con un enlace FIRMADO y caducable,
   // nunca la clave del almacenamiento. Quién decide cuál es el comprobante vivo vive en su archivo.
   const comprobante = await comprobanteDeBoleta(db, id);
-  const ctx = await contextoDe(db, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id);
+  const ctx = await contextoDe(
+    db, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id, boleta.companiaId,
+  );
   await completarPorSoatId(
     db, ctx, lineas.map((l) => l.soatId).filter((s): s is string => s !== null),
   );
@@ -755,7 +791,9 @@ async function cruzarYGuardar(
   companiaId: number,
   filas: FilaBoleta[],
 ): Promise<{ lineas: LineaBoletaDto[]; totalCruzado: number }> {
-  const ctx = await contextoDe(tx, [...new Set(filas.map((f) => f.numeroPolizaNorm))], boletaId);
+  const ctx = await contextoDe(
+    tx, [...new Set(filas.map((f) => f.numeroPolizaNorm))], boletaId, companiaId,
+  );
 
   const evaluadas = filas.map((f) => ({ fila: f, ev: evaluarFila(f, ctx, companiaId) }));
 
@@ -859,7 +897,9 @@ export async function recruzarEnTx(tx: Tx, id: string): Promise<RecruceEnTx> {
   exigirCargada(boleta);
 
   const lineas = await lineasDe(tx, id);
-  const ctx = await contextoDe(tx, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id);
+  const ctx = await contextoDe(
+    tx, [...new Set(lineas.map((l) => l.numeroPolizaNorm))], id, boleta.companiaId,
+  );
   await completarPorSoatId(
     tx, ctx, lineas.map((l) => l.soatId).filter((s): s is string => s !== null),
   );
