@@ -19,8 +19,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { vi } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
-import { FABRICADO, itemMunicipal, itemMunicipalMulta, itemSimit, itemSimitMulta }
-  from '../fixtures/comparendos/payloads-fuente.js';
+import {
+  FABRICADO, itemMunicipal, itemMunicipalDeSimit, itemMunicipalMulta, itemSimit, itemSimitMulta,
+  numeroSimit,
+} from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -33,7 +35,9 @@ const {
   acumularSimit,
   cargarMapaHomologacion,
   candidatosDe,
+  formaNumero,
   homologar,
+  numeroCanonico,
   origenMerge,
   resolverCampos,
   tipoDeRegistro,
@@ -332,7 +336,7 @@ describe('acumular — una entrada por número de comparendo', () => {
 
     // Es la pista que el spike #11501 necesita: si el proveedor cambia el nombre del campo, esto
     // sube y el resumen de la corrida lo enseña.
-    const ignorados = acumularSimit(acumulador, [
+    const { ignorados } = acumularSimit(acumulador, [
       { numeroComparendo: 'C-1' },
       { otroCampo: 'sin número' },
       { numeroComparendo: '' },
@@ -356,10 +360,12 @@ describe('acumular — una entrada por número de comparendo', () => {
 
   // ── Normalización del número (ADR-0003 decisión 6, cerrada por el spike #11501) ──────────────
   //
-  // `numeroCanonico` no se exporta, así que se prueba por donde de verdad importa: la LLAVE del
-  // acumulador. Es lo que decide si dos avisos son una deuda o dos, y hasta este bloque ningún test
-  // del repo lo cubría — los casos de arriba usan `'C-1'` idéntico en las dos fuentes, que pasaría
-  // igual con la normalización desactivada.
+  // `numeroCanonico` se exporta desde la HU #11806 (el filtro `q` de `GET /registros` tiene que
+  // normalizar igual que se normalizó lo guardado) y su tabla de casos vive en su propio `describe`,
+  // más abajo. Aquí se prueba por donde de verdad importa: la LLAVE del acumulador. Es lo que decide
+  // si dos avisos son una deuda o dos, y hasta este bloque ningún test del repo lo cubría — los
+  // casos de arriba usan `'C-1'` idéntico en las dos fuentes, que pasaría igual con la normalización
+  // desactivada.
 
   it('**el mismo comparendo con espacios y minúsculas es UNA sola entrada**, no dos deudas', () => {
     const acumulador = new Map();
@@ -396,7 +402,7 @@ describe('acumular — una entrada por número de comparendo', () => {
     // Recortar la llave inventaría un comparendo que no existe y, peor, dos números largos que
     // compartan los primeros 60 caracteres se fundirían en una sola fila — dos deudas distintas
     // convertidas en una. Por eso el ítem se ignora y el descarte se CUENTA.
-    const ignorados = acumularSimit(acumulador, [
+    const { ignorados } = acumularSimit(acumulador, [
       { numeroComparendo: 'X'.repeat(61) },
       { numeroComparendo: 'Y'.repeat(60) },
     ], simit);
@@ -414,6 +420,188 @@ describe('acumular — una entrada por número de comparendo', () => {
     // Con el pool de paralelismo el orden de respuesta no está garantizado; quedarse con el último
     // haría bailar `municipio_fuente` entre corridas sin que nada hubiera cambiado en la realidad.
     expect(acumulador.get('C-1')!.municipioFuente).toBe('BELLO');
+  });
+});
+
+// ─────────────────────────── La clave de negocio entre fuentes (HU #11806) ──────────────────────
+//
+// Lo que se demuestra aquí, y el orden NO es casual: primero que la regla fusiona (AC1), y
+// enseguida las cuatro formas sobre las que **no** puede disparar (AC2 y AC3). Un archivo que solo
+// probara la fusión dejaría pasar la regla peligrosa —`slice(-20)` o `^[A-Z]*[0-9]+$`—, que pondría
+// AC1 igual de verde y fundiría dos deudas distintas el día que un municipio numere con 21 dígitos.
+//
+// El argumento de por qué la regla es segura está en el docblock de `numeroCanonico` y es CF-07: el
+// número lo asigna el Estado y veinte dígitos con la DIVIPOLA delante ya son la identidad completa.
+// Estos tests vigilan que el ALCANCE de la regla siga siendo el que ese argumento justifica, ni un
+// carácter más.
+
+describe('numeroCanonico — la forma nacional de 20 dígitos (HU #11806)', () => {
+  it('**las dos grafías del MISMO comparendo dan la MISMA clave** (AC1)', () => {
+    // La pareja real medida: SIMIT manda los veinte dígitos y el portal municipal los mismos veinte
+    // con la letra delante. Si esto se rompe, la deuda se cuenta dos veces.
+    expect(numeroCanonico('D05001000000054652201')).toBe('05001000000054652201');
+    expect(numeroCanonico('05001000000054652201')).toBe('05001000000054652201');
+    expect(numeroCanonico(`D${numeroSimit(0)}`)).toBe(numeroSimit(0));
+  });
+
+  it('**Bogotá ya llega canónica y sale INTACTA**: la regla no dispara sobre 20 dígitos pelados (AC2)', () => {
+    // `11001` es la DIVIPOLA de Bogotá. No hay nada que quitar y no se quita nada — y en particular
+    // esto NO es «quítale la primera letra a todo», que se lo llevaría por delante si algún día
+    // llegara con una.
+    const bogota = '11001000000012345678';
+    expect(numeroCanonico(bogota)).toBe(bogota);
+    expect(numeroCanonico(bogota)).toHaveLength(20);
+  });
+
+  it('**`D` + 19 y `D` + 21 NO disparan** — la regla es de longitud EXACTA (AC3)', () => {
+    // El test que impide que alguien «mejore» la regla a `^[A-Z]*[0-9]+$` o le quite el `{20}`. Un
+    // municipio que numere con 19 o 21 dígitos no está emitiendo el número único nacional, así que
+    // quitarle la letra fabricaría una clave que no es de nadie — y podría chocar con la de otro.
+    expect(numeroCanonico('D9999900000012345678')).toBe('D9999900000012345678');
+    expect(numeroCanonico('D999990000001234567890')).toBe('D999990000001234567890');
+  });
+
+  it('**tres letras tampoco**, y un prefijo con separador se queda entero (AC3)', () => {
+    // `{1,2}` es lo medido; tres letras es otra cosa de la que no hay muestra. Y `D-05001…` lleva un
+    // separador: adivinar separadores es exactamente lo que ADR-0003 §6 cierra.
+    expect(numeroCanonico('ABC99999000000099999901')).toBe('ABC99999000000099999901');
+    expect(numeroCanonico('D-9999900000009999990')).toBe('D-9999900000009999990');
+  });
+
+  it('**no recorta NUNCA**: 28 dígitos salen los 28, no los últimos 20 (AC3)', () => {
+    // La mutación `s.slice(-20)` sin el anclaje pondría AC1 en verde e inventaría aquí un comparendo
+    // que no existe, fundiendo esta deuda con cualquier otra que comparta el final.
+    const largo = 'ABCDE12345678901234567890123';
+    expect(numeroCanonico(largo)).toBe(largo);
+    expect(numeroCanonico('9'.repeat(28))).toBe('9'.repeat(28));
+  });
+
+  it('**dos números de 20 que difieren en el primer dígito son DOS claves** (AC3)', () => {
+    // Medellín y Bogotá comparten longitud y difieren en la DIVIPOLA. La regla no toca dígitos, así
+    // que no hay forma de que estos dos colapsen.
+    const medellin = '05001000000054652201';
+    const bogota = '11001000000054652201';
+    expect(numeroCanonico(medellin)).not.toBe(numeroCanonico(bogota));
+  });
+
+  it('lo de siempre sigue igual: mayúsculas, sin espacios internos, y >60 se descarta', () => {
+    // La regla nueva se aplica DESPUÉS de la normalización de siempre, no en su lugar.
+    expect(numeroCanonico('  d 05001 000000054652201  ')).toBe('05001000000054652201');
+    expect(numeroCanonico(' c-1 ')).toBe('C-1');
+    expect(numeroCanonico('X'.repeat(61))).toBeNull();
+    expect(numeroCanonico('')).toBeNull();
+    expect(numeroCanonico(null)).toBeNull();
+    expect(numeroCanonico({ numero: '05001000000054652201' })).toBeNull();
+  });
+
+  it('es idempotente: normalizar lo ya normalizado no vuelve a quitar nada', () => {
+    // Importa porque `condicionesDeFiltro` la aplica sobre una entrada que puede venir de cualquier
+    // sitio, y porque la migración 0163 puede correrse dos veces.
+    const una = numeroCanonico('D05001000000054652201')!;
+    expect(numeroCanonico(una)).toBe(una);
+  });
+});
+
+describe('acumular — las dos grafías del mismo comparendo son UNA fila (HU #11806, AC1)', () => {
+  let simit: ReturnType<typeof candidatosDe>;
+  let municipal: ReturnType<typeof candidatosDe>;
+
+  beforeEach(async () => {
+    conMapa(MAPA_V3);
+    const mapa = await cargarMapaHomologacion();
+    simit = candidatosDe(mapa, 'simit');
+    municipal = candidatosDe(mapa, 'municipal');
+  });
+
+  it('**SIMIT y el municipio traen el MISMO comparendo y sale UNA entrada**, no dos deudas', () => {
+    const acumulador = new Map();
+
+    // `itemMunicipalDeSimit(0)` compone su número como `'D' + numeroSimit(0)`: es la MISMA deuda que
+    // `itemSimit(0)`, no dos números parecidos. Antes de esta HU la fixture municipal usaba un
+    // número propio y por eso la suite entera pasaba en verde con el defecto vivo.
+    acumularSimit(acumulador, [itemSimit(0)], simit);
+    acumularMunicipal(acumulador, [itemMunicipalDeSimit(0)], municipal, 'MEDELLIN');
+
+    expect([...acumulador.keys()]).toEqual([numeroSimit(0)]);
+    const entrada = acumulador.get(numeroSimit(0))!;
+    expect(entrada.simit).not.toBeNull();
+    expect(entrada.municipal).not.toBeNull();
+    expect(entrada.municipioFuente).toBe('MEDELLIN');
+  });
+
+  it('y da igual QUIÉN llegue primero: la llave no depende del orden de las fuentes', () => {
+    // El pool (RN-17) no garantiza el orden de respuesta. Una llave que cambiara según quién habló
+    // primero sería un duplicado con otro nombre: `numero_comparendo` es el único de la tabla y la
+    // llave del upsert.
+    const municipalPrimero = new Map();
+    acumularMunicipal(municipalPrimero, [itemMunicipalDeSimit(0)], municipal, 'MEDELLIN');
+    acumularSimit(municipalPrimero, [itemSimit(0)], simit);
+
+    expect([...municipalPrimero.keys()]).toEqual([numeroSimit(0)]);
+    expect(municipalPrimero.get(numeroSimit(0))!.simit).not.toBeNull();
+  });
+
+  it('**la grafía cruda `D…` sobrevive en el payload**: la decisión es REVERSIBLE', () => {
+    // Si algún día se descubre que la letra era identidad, se quita la regla y el municipal vuelve a
+    // crear su fila en el siguiente sync, con el número crudo todavía en el JSONB (RN-25 lo
+    // conserva porque `numeroComparendo` es `source_path` de la v3).
+    const acumulador = new Map();
+    acumularMunicipal(acumulador, [itemMunicipalDeSimit(0)], municipal, 'MEDELLIN');
+
+    const payload = acumulador.get(numeroSimit(0))!.payloadMunicipal as Record<string, unknown>;
+    expect(payload.numeroComparendo).toBe(`D${numeroSimit(0)}`);
+  });
+
+  it('dos comparendos DISTINTOS del mismo municipio siguen siendo dos entradas', () => {
+    // El guardarraíl del test de arriba: si la regla fusionara de más, esto caería.
+    const acumulador = new Map();
+    acumularMunicipal(
+      acumulador, [itemMunicipalDeSimit(0), itemMunicipalDeSimit(1)], municipal, 'MEDELLIN',
+    );
+
+    expect([...acumulador.keys()].sort()).toEqual([numeroSimit(0), numeroSimit(1)].sort());
+  });
+});
+
+describe('formaNumero — el histograma que trae la muestra que falta (HU #11806)', () => {
+  it('emite la FORMA y **nunca el número**', () => {
+    // Es la propiedad de privacidad, y se afirma como tal: ni un dígito del número en el token.
+    const numero = '05001000000054652201';
+    expect(formaNumero(numero)).toBe('D20');
+    expect(formaNumero(numero)).not.toContain('5465');
+    expect(formaNumero(`D${numero}`)).toBe('L1D20');
+    expect(formaNumero(`AB${numero}`)).toBe('L2D20');
+  });
+
+  it('distingue las longitudes, que es justo lo que la regla no puede adivinar', () => {
+    expect(formaNumero('D9999900000012345678')).toBe('L1D19');
+    expect(formaNumero('D999990000001234567890')).toBe('L1D21');
+  });
+
+  it('lo que no es «letras + dígitos» es `OTRO`, y los bordes tienen su propio token', () => {
+    // `OTRO` es deliberadamente grueso: si un municipio empieza a mandar separadores, se verá como
+    // un `OTRO` que sube y alguien irá a mirar. Poner el valor en el token para «ayudar» sería
+    // publicar el número en el log.
+    expect(formaNumero('D-05001000000054652201')).toBe('OTRO');
+    expect(formaNumero('05001-2026')).toBe('OTRO');
+    expect(formaNumero('123ABC')).toBe('OTRO');
+    expect(formaNumero('X'.repeat(61))).toBe('LARGO');
+    expect(formaNumero('')).toBe('VACIO');
+    expect(formaNumero(undefined)).toBe('AUSENTE');
+    expect(formaNumero({ n: 1 })).toBe('AUSENTE');
+  });
+
+  it('**mide la forma CRUDA, no la normalizada**: el acumulador cuenta el prefijo que llegó', async () => {
+    // Si se midiera después de aplicar la regla, `L1D20` no aparecería jamás y el histograma no
+    // serviría para lo único que se hizo: saber qué emite cada municipio.
+    conMapa(MAPA_V3);
+    const mapa = await cargarMapaHomologacion();
+
+    const { formas } = acumularMunicipal(
+      new Map(), [itemMunicipalDeSimit(0)], candidatosDe(mapa, 'municipal'), 'MEDELLIN',
+    );
+
+    expect(Object.fromEntries(formas)).toEqual({ L1D20: 1 });
   });
 });
 
@@ -838,7 +1026,8 @@ describe('acumular* — el ítem municipal que ya es multa llega entero al conso
     const acumulador = new Map();
 
     acumularMunicipal(acumulador, [itemMunicipalMulta()], candidatosDe(mapa, 'municipal'), 'MEDELLIN');
-    const consolidado = acumulador.get(FABRICADO.numeroMunicipal)!;
+    // La llave ya no lleva la letra del portal (HU #11806): `D99999…901` normaliza a `99999…901`.
+    const consolidado = acumulador.get(FABRICADO.numeroMunicipalCanonico)!;
     const campos = resolverCampos(consolidado, null);
 
     expect(campos.numeroResolucion).toBe(FABRICADO.numeroResolucionMunicipal);

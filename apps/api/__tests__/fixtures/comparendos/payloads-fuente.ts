@@ -14,7 +14,18 @@ export const FABRICADO = {
   placaSimit: 'QWE321',
   documentoInfractor: '800111222',
   organismoSimit: 'Villademo',
+  /**
+   * El número tal y como lo emite el UTS municipal: la letra del portal delante de los veinte
+   * dígitos del número único nacional. La FORMA es la real (medida el 2026-08-20 en Medellín).
+   *
+   * Desde la HU #11806 esta constante es una TRAMPA a propósito y no un literal más: ya no es lo que
+   * se guarda. `numeroCanonico` normaliza esto a `numeroMunicipalCanonico`, así que un test que
+   * espere ver este valor en `numero_comparendo` está afirmando que la regla NO se aplicó. Donde sí
+   * sigue apareciendo intacto es en `payload_municipal`, que es lo que hace reversible la decisión.
+   */
   numeroMunicipal: 'D99999000000099999901',
+  /** Lo que la columna guarda de verdad para `numeroMunicipal`: los veinte dígitos, sin la letra. */
+  numeroMunicipalCanonico: '99999000000099999901',
   placaMunicipal: 'ZYX654',
   nitMunicipal: '800999888',
   direccionMunicipal: 'Calle 99 con Carrera 88 Sur - COMUNA 99',
@@ -160,6 +171,32 @@ export function itemMunicipal(): Record<string, unknown> {
 /** El mismo ítem del UTS cuando ya es multa: `nroResolucion` con valor (HU #11712). */
 export function itemMunicipalMulta(): Record<string, unknown> {
   return { ...itemMunicipal(), nroResolucion: FABRICADO.numeroResolucionMunicipal };
+}
+
+/**
+ * **El MISMO comparendo que `itemSimit(i)`, escrito como lo escribe el UTS municipal** (HU #11806).
+ *
+ * Esto es lo que faltaba y por lo que la suite pasaba en verde con el defecto vivo: hasta aquí cada
+ * fuente fabricaba su número por su cuenta —`numeroSimit(i)` frente a `FABRICADO.numeroMunicipal`—,
+ * así que NINGÚN test cruzaba las dos grafías del mismo comparendo. Con dos números que nunca
+ * coinciden, dos filas es el resultado correcto y una fila también lo parecía.
+ *
+ * El número se compone, no se copia: `'D' + numeroSimit(i)` es exactamente la pareja real medida
+ * —veinte dígitos en SIMIT y esos mismos veinte con la letra del portal delante en el municipio—, y
+ * componerlo impide que alguien «arregle» un test cambiando un literal y dejando de cruzar nada.
+ *
+ * El resto del ítem es el de `itemMunicipal()`: la misma envoltura, la misma PII que la poda tira y
+ * el mismo `estadoCuenta.numeroComparendo`, que también lleva la grafía prefijada porque el
+ * proveedor repite el número ahí dentro (y es candidato de prioridad 2 en la v3 del mapa).
+ */
+export function itemMunicipalDeSimit(i = 0): Record<string, unknown> {
+  const numero = `D${numeroSimit(i)}`;
+  const base = itemMunicipal();
+  return {
+    ...base,
+    numeroComparendo: numero,
+    estadoCuenta: { ...(base.estadoCuenta as Record<string, unknown>), numeroComparendo: numero },
+  };
 }
 
 /**

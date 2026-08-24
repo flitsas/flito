@@ -355,6 +355,8 @@ async function correrSync(
   const steps: ComparendosSyncStep[] = [];
   const resumen: ComparendosSyncResumen = resumenVacio(modo);
   const elegiblesParaInactivar: string[] = [];
+  // HU #11806. Telemetría de la corrida, no dato del histórico: ver `ResultadoNit.formasNumero`.
+  const formasNumero = new Map<string, number>();
 
   try {
     for (const nit of nits) {
@@ -375,6 +377,9 @@ async function correrSync(
       const nitResultado = await procesarNit(ctx, nit);
       steps.push(...nitResultado.steps);
       resumen.itemsIgnorados += nitResultado.itemsIgnorados;
+      for (const [llave, n] of nitResultado.formasNumero) {
+        formasNumero.set(llave, (formasNumero.get(llave) ?? 0) + n);
+      }
       contarLlamadas(resumen, nitResultado.steps);
       await guardarPasos(runId, nitResultado.steps);
 
@@ -408,7 +413,10 @@ async function correrSync(
     const finalizadoEn = new Date();
     await cerrarRun(runId, estado, resumen, finalizadoEn);
 
-    log.info({ runId, estado, ...sinModo(resumen) }, 'sync de comparendos terminado');
+    log.info(
+      { runId, estado, formasNumero: histogramaLegible(formasNumero), ...sinModo(resumen) },
+      'sync de comparendos terminado',
+    );
 
     return {
       runId,
@@ -448,6 +456,18 @@ function resumenVacio(modo: ComparendosSyncModo): ComparendosSyncResumen {
     abortadaPorTiempo: false,
     inactivacionOmitida: null,
   };
+}
+
+/**
+ * El histograma de formas como objeto plano y ORDENADO, que es como se lee en un log (HU #11806).
+ *
+ * Se construye con `Object.fromEntries` sobre llaves que produce `formaNumero` —tokens de un
+ * alfabeto cerrado (`D20`, `L1D20`, `OTRO`, `LARGO`…) precedidos por el código de fuente—, así que
+ * ninguna clave viene del proveedor y no hay aquí el problema de RN-14. El orden es alfabético para
+ * que dos corridas se puedan comparar a ojo.
+ */
+function histogramaLegible(formas: ReadonlyMap<string, number>): Record<string, number> {
+  return Object.fromEntries([...formas.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /** El resumen sin `modo`, para no repetirlo en la línea de log que ya lo lleva en el contexto. */
@@ -530,22 +550,51 @@ interface ResultadoNit {
   acumulador: AcumuladorNit;
   itemsIgnorados: number;
   /**
+   * Histograma de FORMAS del número, por PASO: `SIMIT|D20`, `MEDELLIN|L1D20`… (HU #11806).
+   *
+   * La llave lleva la fuente delante porque sin eso el histograma no responde la pregunta para la
+   * que existe: no es «qué formas hubo en la corrida», es **qué forma emite cada municipio**. La
+   * regla de `numeroCanonico` se escribió con muestra de tres de los nueve municipios sembrados, y
+   * esta es la única vía por la que los otros seis se declaran solos, en una corrida real.
+   *
+   * No entra en `ComparendosSyncResumen` a propósito: ese tipo es contrato publicado en
+   * `@operaciones/shared-types` y lo pinta el histórico. Esto es telemetría de diagnóstico, va al
+   * `log.info` de cierre y se muere ahí. Sumarlo al resumen obligaría a una migración de la columna
+   * `resumen` y a que el front supiera qué hacer con un token que puede cambiar mañana.
+   */
+  formasNumero: Map<string, number>;
+  /**
    * SIMIT ok **y** todos los municipios activos ok Y CONCLUYENTES: la condición del CF-10
    * (RN-18, RN-22, RN-47).
    */
   coberturaCompleta: boolean;
 }
 
+/**
+ * Vuelca el histograma de un paso en el de la corrida, con la fuente por delante.
+ *
+ * `formaNumero` ya garantiza que el token no lleva el número, solo su forma: aquí no hay nada que
+ * redactar y por eso la fuente puede acompañarlo sin repasar la Ley 1581.
+ */
+function sumarFormas(destino: Map<string, number>, fuente: string, formas: ReadonlyMap<string, number>): void {
+  for (const [forma, n] of formas) {
+    const llave = `${fuente}|${forma}`;
+    destino.set(llave, (destino.get(llave) ?? 0) + n);
+  }
+}
+
 async function procesarNit(ctx: ContextoCorrida, nit: string): Promise<ResultadoNit> {
   const acumulador: AcumuladorNit = new Map();
   let itemsIgnorados = 0;
+  const formasNumero = new Map<string, number>();
 
   // SIMIT primero y en serie: es una sola llamada por NIT y su resultado es el que manda en el
   // merge, así que no hay nada que ganar solapándola con las municipales.
   const simit = await llamarSimit(ctx, nit);
   if (simit.items) {
-    const ignorados = acumularSimit(acumulador, simit.items, candidatosDe(ctx.mapa, 'simit'));
+    const { ignorados, formas } = acumularSimit(acumulador, simit.items, candidatosDe(ctx.mapa, 'simit'));
     itemsIgnorados += ignorados;
+    sumarFormas(formasNumero, simit.step.fuente, formas);
     // RN-22: el veredicto de legibilidad se aplica al paso ANTES de que nadie mire `ok`, porque `ok`
     // es lo único que la cobertura del CF-10 consulta.
     simit.step = pasoIlegibleSiProcede(simit.step, 'simit', simit.items.length, ignorados);
@@ -559,10 +608,11 @@ async function procesarNit(ctx: ContextoCorrida, nit: string): Promise<Resultado
 
   for (const municipal of municipales) {
     if (!municipal.items) continue;
-    const ignorados = acumularMunicipal(
+    const { ignorados, formas } = acumularMunicipal(
       acumulador, municipal.items, candidatosDe(ctx.mapa, 'municipal'), municipal.step.fuente,
     );
     itemsIgnorados += ignorados;
+    sumarFormas(formasNumero, municipal.step.fuente, formas);
     municipal.step = pasoIlegibleSiProcede(municipal.step, 'municipal', municipal.items.length, ignorados);
   }
 
@@ -571,6 +621,7 @@ async function procesarNit(ctx: ContextoCorrida, nit: string): Promise<Resultado
     steps,
     acumulador,
     itemsIgnorados,
+    formasNumero,
     // `ok` no basta (RN-47): un municipio que contestó sin veredicto y sin comparendos no ha dicho
     // que este NIT no deba nada, así que su vacío no puede sumar cobertura. Se le resta a este NIT
     // la elegibilidad entera —y no solo sus filas— porque la ausencia se mide contra el conjunto: un
