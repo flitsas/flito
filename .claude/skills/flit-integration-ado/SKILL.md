@@ -36,7 +36,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 - Modo B solo en Discussion cuando `Custom.Commits` quedó vacío (caso #11500 — no repetir)
 - Saltarse Modo A/B «porque es solo un Bug» — el Bug tiene los mismos campos y el mismo trato
 
-**Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
+**Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto **OK** / **PASS** / **SANO** (éxito limpio; `*-CON-OBSERVACIONES` sin waiver no cuenta) → no abrir el PR.
 
 ---
 
@@ -264,7 +264,7 @@ prompt — si falta alguna, no mergea y devuelve `LISTO-PARA-MERGE` con el núme
 | 8 | Work item en ADO | **HU:** `Custom.Refinement=true` + Story Points. **Bug:** `Severity` + Repro Steps poblados (el tipo Bug no usa `Refinement` ni exige Story Points) — `GET workitem`. Omitir en `CHORE/` y `DOCS/` |
 | 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
 | 10 | HEAD con veredicto vigente | El HEAD a mergear == `SHA revisado` del veredicto de `flit-code-review`; commits post-veredicto (fixes, retrabajo QA) exigen re-review de la skill sobre el nuevo HEAD |
-| 11 | Gate QA invocado (HU o Bug) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; en Bug el alcance es el repro + regresión del módulo. Nunca mergear con qa ❌ ni con FAIL sin retrabajo |
+| 11 | Gate QA invocado (HU o Bug) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF **PASS** o `SIN-ENTORNO`; en Bug el alcance es el repro + regresión del módulo. `PASS-CON-OBSERVACIONES` **no** desbloquea el merge (tratar como FAIL: retrabajo o waiver explícito y re-gate hasta PASS). Nunca mergear con qa ❌ ni con FAIL sin retrabajo |
 
 Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop` de una HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
 

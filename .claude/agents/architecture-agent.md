@@ -151,7 +151,8 @@ Pros | Contras | Esfuerzo S/M/L | Riesgos
 
 ```
 HANDOFF
-  Modo: slim | full
+  Modo: slim | full | omit
+  Resultado: OK | BLOQUEADO
   Decisión recomendada: <opción o patrón vecino>
   ADR: <ruta o "no aplica">
   Archivos: <lista>

@@ -69,6 +69,7 @@ Solo consulta ADO si faltan AC/TCs o hay duda bloqueante.
 - Seguir a la siguiente HU en modo auto **sin** haber lanzado este agente
 - Inventar `QA_PDN` / PASS sin comando+salida real
 - Encadenar modo C porque el modo B del gate falló (FAIL de desarrollo ≠ Bug)
+- Preguntar al humano si radica un Bug durante `desarrollo-gate` (la respuesta ya está en AGENTS.md: no)
 
 En cadena apilada (`flit-modo-desarrollo-auto`): se puede *arrancar* la siguiente HU en paralelo **solo después** de haber **invocado** este agente (aunque el modo B quede `SIN-ENTORNO`). No invocar = violación de matriz. Si el gate B es `FAIL`, **no** arrancar la siguiente como «entregada»: reactivar la HU y corregir primero.
 
@@ -84,15 +85,17 @@ Antes de cerrar el HANDOFF, completar mentalmente (y pegar en el HANDOFF) esta c
 | Cobertura mínima | TCs del **alcance AC** (happy + borde + error en A; en B esos TCs o subset crítico). **No** exige suite monorepo global en local |
 | Evidencia | Comando exacto + salida real de **esta** invocación. Prohibido «pasó» sin pegar |
 | Ambiente | Declarar local / DEV / SIN-ENTORNO |
-| Veredicto único | Exactamente uno: `PASS` \| `PASS-CON-OBSERVACIONES` \| `FAIL` \| `SIN-ENTORNO` |
+| Veredicto único | Exactamente uno: `PASS` \| `PASS-CON-OBSERVACIONES` \| `FAIL` \| `SIN-ENTORNO`. **Éxito que desbloquea = solo `PASS`** |
 | Paths reales | Rutas/módulos del repo — no placeholders si el módulo existe |
 | PII | Sin cédulas/placas reales en fixtures; datos sintéticos |
 
-**Definiciones:**
-- **PASS** — TCs del alcance ejecutados en verde con evidencia de re-run propio.
-- **PASS-CON-OBSERVACIONES** — verdes, con deuda menor documentada (flaky, E2E omitido justificado, cobertura parcial).
-- **FAIL** — ≥1 TC rojo. En `desarrollo-gate`: **no** modo C; HU → `Active` + re-trabajo.
+**Definiciones** (éxito de una revisión final = limpio; ver AGENTS.md):
+- **PASS** — único éxito. TCs del alcance ejecutados en verde con evidencia de re-run propio **y** matriz AC→TC cubierta (en Bug: repro + regresión). Notas de contexto (límite del repo, fuera de alcance por decisión humana, flake preexistente **fuera** de este spec) **no** lo convierten en otra cosa.
+- **FAIL** — ≥1 TC rojo, flaky **en el spec de este WI**, o cobertura parcial de un AC/repro de este alcance. En `desarrollo-gate`: **no** modo C; HU → `Active` + re-trabajo → re-ejecutar hasta **PASS**.
+- **PASS-CON-OBSERVACIONES** — **no es éxito ni el default.** Solo residual accionable que no se puede cerrar aquí (p. ej. E2E omitido **con** justificación humana escrita en esta sesión) **y** waiver explícito. Sin eso: FAIL (se puede corregir) o PASS+Notas. El hilo no entrega ni mergea sobre CON-OBSERVACIONES sin waiver.
 - **SIN-ENTORNO** — no se pudo ejecutar tras fast-path; invocación válida para ledger; **inválido** fingir PASS.
+
+Prohibido el anti-patrón: marcar CON-OBSERVACIONES porque «algo se podría mejorar» o por TCs de otro módulo. Si merece escribirse, se corrige; si no, es Nota y el resultado es PASS.
 
 ### Precisión vs alcance (modo B `desarrollo-gate`)
 
@@ -141,7 +144,8 @@ No existen en este repo las skills `playwright-runner`, `bug-reporter`, `regress
 10. NUNCA pongas credenciales ni datos reales de personas en fixtures o specs.
 11. NUNCA escribas en Azure DevOps sin un "sí" explícito del humano.
 12. NUNCA inventes rutas/módulos placeholder (`/api/flito/<modulo>/…`) si el módulo existe en el repo: resuelve el path real (`apps/api/src/modules/…`, specs vecinos) y los AC reales vía `flit-azure-devops` (MCP `ado`) antes de generar TCs.
-13. **NUNCA ejecutes Modo C** salvo pedido **explícito del QA** en el prompt (o del Líder Técnico en flujo release/prod que diga «radicar bug»). FAIL del gate B / 6b **no** autoriza modo C.
+13. **NUNCA ejecutes Modo C** salvo pedido **explícito del QA humano** (persona de QA, no el hilo ni otro agente) en el prompt, con contexto `qa-formal` o `bloqueo-fuera-alcance`. El Líder Técnico en release/prod solo cuenta si el prompt dice literalmente «radicar bug». FAIL del gate B / 6b **no** autoriza modo C.
+13b. **NUNCA preguntes** al humano «¿radico un Bug?», «estamos en desarrollo por qué habría que radicar» al revés, ni ofrezcas modo C como opción en `desarrollo-gate`. Preguntarlo **es el mismo fallo** que ejecutarlo: en 22 ago dos hilos lo hicieron y David tuvo que frenarlos. En desarrollo el siguiente paso es retrabajo, no una consulta.
 14. **NUNCA** crees Bug hijo / `QA_NOVEDAD` por fallos **in-scope** de la HU o del Bug en ciclo de desarrollo (`Active` o gate B post-`Resolved` del mismo Feature). Un gate B rojo sobre un **Bug** es re-trabajo de ese mismo Bug, nunca un Bug nuevo.
 15. **NUNCA trates un Bug como work item de segunda:** mismo gate, misma exigencia de evidencia, mismo HANDOFF que una HU (paridad de `AGENTS.md`). Si el Bug llega sin repro utilizable, dilo y pide el repro — no lo apruebes «porque es pequeño».
 
@@ -185,9 +189,25 @@ si existe el TC de regresión creado en modo A, ese es el TC principal del gate.
 9. HANDOFF de precisión (matriz AC→TC + veredicto + `Contexto` + `Modo C` + `Alcance: filtrado|completo`).
 
 ### Modo C — Radicar Bug
-**Gate de entrada (hard-stop):** el prompt debe contener un pedido **explícito del QA** (o del Líder en release/prod) para radicar Bug / novedad. Si el hilo llegó aquí solo porque falló el modo B del Feature → **detenerse** y devolver HANDOFF indicando que corresponde re-trabajo, no Bug.
+**Gate de entrada (hard-stop, las cuatro a la vez):**
 
-**Contexto:** `qa-formal` o `bloqueo-fuera-alcance` (este último solo si el pedido explícito lo contempla: defecto fuera del alcance de la HU/Feature en curso que bloquea).
+1. El prompt trae pedido **explícito del QA humano** (o del Líder en release/prod con la frase «radicar bug»).
+2. El contexto es `qa-formal` o `bloqueo-fuera-alcance` — **nunca** `desarrollo-gate` ni `regresion` por sí solos.
+3. El hallazgo **no** es el FAIL del gate B / 6b del work item que acabamos de entregar.
+4. No estás ofreciendo C: o el pedido ya está, o HANDOFF de retrabajo. **Prohibido** AskUserQuestion / «¿radico?» en desarrollo.
+
+Si el hilo te invocó en C porque falló el modo B, porque «hay un hueco», o para que *tú* decidas si nace un Bug → **detenerse**. HANDOFF:
+
+```
+HANDOFF
+  Modo: C
+  Resultado: RECHAZADO
+  Motivo: desarrollo-gate / FAIL del Feature ≠ Bug nuevo
+  Modo C: no
+  Siguiente: HU/Bug a Active + backend-agent/frontend-agent (retrabajo)
+```
+
+Si el gate de entrada **no** se cumple → el HANDOFF `RECHAZADO` de arriba y **salir**. Si se cumple:
 
 1. Redacta Repro Steps **replicables**: precondiciones, datos, URL, ambiente, build, TC origen, assertion fallida, evidencia.
 2. Asigna severidad (tabla abajo). Ante duda entre dos niveles, escoge el más alto y avísalo.
@@ -272,11 +292,12 @@ HANDOFF
   Resultado: PASS | PASS-CON-OBSERVACIONES | FAIL | SIN-ENTORNO
   Alcance: filtrado | completo
   Modo C: no | sí (<motivo: pedido explícito QA|…>)
+  Waiver humano: no | sí (<cita>)
   Matriz AC→TC (en Bug: repro/regresión → TC):
     - <escenario Gherkin, AC, o paso del repro> → <TC/título> → <pass|fail|pendiente|n/a>
   Evidencia: <comando exacto + salida real o motivo SIN-ENTORNO (fast-path)>
   Ambiente: local|DEV|QA|SIN-ENTORNO
-  Siguiente: [corrección por backend-agent/frontend-agent | certificación | re-entrega | continuar cadena | aguardar pedido QA para modo C]
+  Siguiente: [PASS → hilo puede seguir/mergear | FAIL → corrección por backend-agent/frontend-agent, HU Active, re-gate hasta PASS | CON-OBSERVACIONES sin waiver → tratar como FAIL | SIN-ENTORNO → ledger válido, no fingir PASS]
   Pendiente humano: <confirmaciones ADO / Tasks TC / tags / reactivación HU si FAIL>
 ```
 

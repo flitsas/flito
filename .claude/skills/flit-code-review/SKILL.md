@@ -1,7 +1,7 @@
 ---
 name: flit-code-review
 description: |
-  Revisión estructurada del diff ANTES de abrir el PR en el monorepo FLITO. Checklist AGENTS.md; escala a security-agent y db-review-agent. Veredicto canónico OK / OK-CON-OBSERVACIONES / BLOQUEADO.
+  Revisión estructurada del diff ANTES de abrir el PR en el monorepo FLITO. Checklist AGENTS.md; escala a security-agent y db-review-agent. Veredicto canónico OK (único éxito que abre el PR) / OK-CON-OBSERVACIONES (no es éxito; retrabajo o waiver) / BLOQUEADO.
   INVOCACIÓN OBLIGATORIA antes de create_pull_request en CADA PR. Orden fijo: review → luego PR (nunca al revés). security-agent NO sustituye esta skill.
   PROHIBIDO: imitar con tabla «mi revisión», «gates cerrados» sin bloque Veredicto, o revisar después de abrir el PR.
   Triggers — code review, revisa el diff, revisión antes del PR, pre-PR, create_pull_request, flit-code-review, flit-modo-desarrollo-auto paso 4b.
@@ -25,8 +25,8 @@ en el mismo turno, **seguir** el checklist de punta a punta, y emitir el bloque 
 canónico (con la línea `Veredicto: OK|…`). Sin ese bloque → no hubo code-review.
 
 **Orden fijo (rompe si se invierte):** diff listo → **esta skill** (+ security/db si aplica) →
-veredicto OK / OK-CON-OBSERVACIONES → **entonces** `create_pull_request`. Review **después** del
-PR = fallo de proceso (aunque el veredicto sea OK).
+veredicto **OK** → **entonces** `create_pull_request`. `OK-CON-OBSERVACIONES` y `BLOQUEADO` no
+abren el PR. Review **después** del PR = fallo de proceso (aunque el veredicto sea OK).
 
 **NO cuenta — imitación (anti-patrones graves):**
 - Tabla improvisada «Mi revisión» / «gates cerrados» sin cargar esta skill ni el veredicto canónico
@@ -119,8 +119,8 @@ Alcance: <archivos y workspaces> | Diff: <+/- líneas>
 Bloqueantes
 - [sección] archivo:línea — qué falla y contra qué regla de AGENTS.md
 
-Observaciones (no bloquean)
-- …
+Notas (no afectan veredicto)
+- <límite del repo / fuera de alcance por decisión humana / deuda preexistente que este diff no empeora>
 
 Seguridad: [escalado a security-agent: veredicto | no aplica — por qué]
 Esquema: [escalado a db-review-agent: veredicto | no aplica — por qué]
@@ -128,16 +128,17 @@ Esquema: [escalado a db-review-agent: veredicto | no aplica — por qué]
 Veredicto: OK | OK-CON-OBSERVACIONES | BLOQUEADO
 ```
 
-- **BLOQUEADO** si hay ≥1 hallazgo bloqueante, falta salida real de tests, o un escalado
-  security/db-review quedó en FAIL/crítico → corregir y re-revisar. El PR no se abre.
-- **OK-CON-OBSERVACIONES**: el PR puede abrirse; las observaciones van en el cuerpo del PR.
-- **OK**: limpio.
+- **OK** (único éxito; el esperado): ningún hallazgo accionable en este diff. El PR **puede** abrirse. Las Notas no lo convierten en otra cosa.
+- **BLOQUEADO**: ≥1 hallazgo accionable en este diff, falta salida real de tests, o un escalado security/db-review no está en PASS/SANO → corregir y re-revisar hasta **OK**. El PR no se abre.
+- **OK-CON-OBSERVACIONES**: **no es éxito ni el default.** Solo si queda un residual accionable que **no** se puede corregir en este WI **y** el humano lo aceptó por escrito en esta sesión. Sin esas dos condiciones: es BLOQUEADO (si se puede corregir aquí) u OK+Notas (si no es un hallazgo). El hilo **no** abre el PR sobre CON-OBSERVACIONES sin waiver.
+
+Heurística (AGENTS.md): si merece escribirse como hallazgo, se corrige antes del pase final; si no merece corregirse, es Nota y el veredicto es OK. Prohibido usar CON-OBSERVACIONES por nits, deuda preexistente intacta, «solo Chromium» o scanners ausentes que ya eran baseline.
 
 ## Reglas
 
 1. NUNCA apruebes sin la salida real de la verificación — es el fraude más común.
 2. NUNCA corrijas el código tú mismo: reporta y devuelve.
-3. NUNCA trates observaciones como bloqueantes ni al revés — cita la regla de `AGENTS.md` que sustenta cada bloqueante.
-4. NUNCA revises más allá del diff: deuda preexistente se reporta como observación, no como bloqueante de este PR.
+3. Un hallazgo accionable **en este diff** es bloqueante. Una Nota no lo es. Cita la regla de `AGENTS.md` que sustenta cada bloqueante.
+4. NUNCA revises más allá del diff: deuda preexistente que este PR **no empeora** va a **Notas**, no a BLOQUEADO ni a CON-OBSERVACIONES. Si este PR la empeora, es BLOQUEADO.
 5. El veredicto **amarra el SHA revisado** (línea `SHA revisado:` del bloque). Si la rama recibe commits nuevos tras el veredicto (fixes post-review, retrabajo de QA, huecos cerrados), el gate queda **vencido**: re-ejecutar esta skill sobre el nuevo HEAD antes de abrir el PR — y antes del merge si los commits llegaron con el PR ya abierto. Mergear o abrir PR sobre un HEAD sin veredicto vigente = gate no ejecutado.
-6. Los hallazgos se **reportan**; NUNCA crear work items por ellos por iniciativa propia. Toda alta en ADO (Bug/HU/Task) exige «sí» explícito del humano, y un Bug además solo nace vía `qa-agent` modo C con pedido explícito del QA. Si el hallazgo es deuda fuera de alcance, proponerla al humano como observación — no radicarla.
+6. Los hallazgos se **reportan**; NUNCA crear work items por ellos por iniciativa propia. Toda alta en ADO (Bug/HU/Task) exige «sí» explícito del humano, y un Bug además solo nace vía `qa-agent` modo C con pedido explícito del QA. Si el hallazgo es deuda fuera de alcance, va a **Notas** — no a CON-OBSERVACIONES y no se radica.
