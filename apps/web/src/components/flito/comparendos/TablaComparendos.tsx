@@ -33,7 +33,14 @@ import type { CatalogosComparendos } from './useComparendosLista';
 
 
 
-const CELDA = 'px-4 py-2.5 text-sm';
+// `align-top` (HU #11777): desde que «Estado en la fuente» se muestra ENTERO, una celda puede medir
+// varias líneas —cuatro con un estado real de 80 caracteres, medido—, y con el
+// `vertical-align: middle` que la tabla traía por defecto el número del
+// comparendo quedaba flotando a media altura. Va aquí y en los dos `<td>` que no usan `CELDA`
+// —«Monitoreo» y «Gestión»—, para que una fila alta se lea como un bloque y no como columnas
+// sueltas a distintas alturas. El ESQUELETO no lo lleva: todas sus celdas miden lo mismo y no
+// cambiaría un píxel.
+const CELDA = 'px-4 py-2.5 text-sm align-top';
 
 function Celda({ children, clase = '' }: { children?: ReactNode; clase?: string }) {
   return (
@@ -192,12 +199,12 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado, 
               {/* Cifras tabulares y a la derecha: sin eso, dos montos no alinean sus unidades y
                   compararlos exige leerlos enteros. */}
               <Celda clase="whitespace-nowrap text-right tabular-nums">{pesos(c.monto)}</Celda>
-              <td className="px-4 py-2.5">
+              <td className="px-4 py-2.5 align-top">
                 <StatusChip tone={c.estado === 'activo' ? 'active' : 'draft'}>
                   {c.estado === 'activo' ? 'Activo' : 'Inactivo'}
                 </StatusChip>
               </td>
-              <td className="whitespace-nowrap px-4 py-2.5">
+              <td className="whitespace-nowrap px-4 py-2.5 align-top">
                 {causal
                   ? <StatusChip tone="success">{causal}</StatusChip>
                   : <StatusChip tone="draft">Sin gestión</StatusChip>}
@@ -219,10 +226,43 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado, 
                   El estado del proveedor se pinta TAL CUAL: sin `capitalize`, sin `uppercase` y sin
                   recortar el texto. El operador puede tener que citárselo al organismo, y un
                   «se adeuda» que la pantalla convirtió en «Se Adeuda» ya no es lo que dijo la
-                  fuente. Una línea con `line-clamp-1` —eso mantiene el alto de la fila— y **sin
-                  `title`**, igual que la infracción y por lo mismo: un `title` no lo ve el teclado,
-                  no lo anuncia bien un lector y no existe en táctil. */}
-              <CeldaB><span className="line-clamp-1 max-w-[11rem]">{c.estadoFuente ?? SIN_DATO}</span></CeldaB>
+                  fuente. Y **sin `title`**, igual que la infracción y por lo mismo: un `title` no lo
+                  ve el teclado, no lo anuncia bien un lector y no existe en táctil.
+
+                  REVOCADO por la HU #11777 — aquí decía «Una línea con `line-clamp-1` —eso mantiene
+                  el alto de la fila—». Era flojo como argumento y dañino como resultado: el alto
+                  uniforme ya lo rompían el alias del NIT y la segunda línea de «Gestión», así que el
+                  recorte no compraba uniformidad; solo ESCONDÍA, sin anunciarlo de ninguna manera,
+                  el dato que el operador tiene que citarle al organismo. Se muestra entero,
+                  envolviendo (docs/ux/flito-comparendos-estado-fuente.md):
+
+                    · `wrap-anywhere` (Tailwind v4.1) y NO `break-words`: además de partir la palabra
+                      que no cabe, es el único que no infla la contribución de tamaño MÍNIMO de la
+                      celda, y esta tabla es de layout automático. Sin él, un estado de 80 caracteres
+                      sin un solo espacio —los hay— queda cortado EN HORIZONTAL por el
+                      `overflow: hidden` del clamp: medido, 734 px de texto en una caja de 224. Es
+                      el mismo defecto que esta HU cierra, reaparecido de lado y aún más callado.
+                    · `min-w-[14rem]` **y** `max-w-[14rem]`, y hacen falta LOS DOS. El `max-w` solo
+                      pone un techo, y en una tabla de layout automático que ya desborda el reparto
+                      aprieta cada columna contra su MÍNIMO — que con `wrap-anywhere` es un
+                      carácter. Medido con solo el techo: la columna se quedaba en 49 px de
+                      contenido y los 80 caracteres seguían recortados, o sea el defecto intacto. El
+                      `min-w` es lo que hace que «14 rem» sea un ancho y no un deseo; el `max-w` es
+                      lo que impide que a 2400 px el sobrante se lo lleve entero esta columna
+                      (medido sin él: 734 px). Entre los dos, +48 px de scroll horizontal a 1280 px:
+                      coste aceptado y declarado en la decisión de UX, no un descuido.
+                    · `line-clamp-6` es un AIRBAG, no un recorte. La decisión de UX escribió `-4`
+                      sobre la cuenta de que 80 caracteres caben en 3 líneas a 14 rem; MEDIDO en el
+                      navegador son 4 líneas para un estado real y 5 para el peor caso que el
+                      contrato admite (80 caracteres de la letra más ancha), así que un `-4` habría
+                      recortado un dato legal y el AC1 sería falso. Con 6 queda una línea de margen
+                      sobre el peor caso medido: dentro de `varchar(80)`
+                      (apps/api/src/db/schema.ts:4388) NUNCA actúa. Existe para que ampliar la
+                      columna en la base no convierta una fila en quince líneas sin que nadie se
+                      entere; si algún día actuara, el valor completo sigue en el panel de detalle. */}
+              <CeldaB>
+                <span className="line-clamp-6 min-w-[14rem] max-w-[14rem] wrap-anywhere">{c.estadoFuente ?? SIN_DATO}</span>
+              </CeldaB>
               <CeldaB clase="whitespace-nowrap">{etiquetaOrigen(c.origenMerge)}</CeldaB>
               <CeldaB clase="whitespace-nowrap">{fechaColombia(c.primeraVistoEn)}</CeldaB>
               {mostrarInactivado && (
