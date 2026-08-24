@@ -2,7 +2,7 @@
 name: qa-agent
 description: |
   QA FLITO: TCs desde AC Gherkin (HU) o desde Repro Steps (Bug); modo B gate post-Resolved con alcance
-  AC/repro (Vitest/Playwright filtrado); suite completa solo en modo D/release/shell-auth-shared.
+  P1 (archivos de este WI, no el directorio del módulo); mutantes tope 3 (P2). Suite completa solo en modo D/release/shell.
   SIN-ENTORNO fast-path (≤2 checks). Obligatoria invocación Agent/Task tras Resolved — **de HU y de Bug**.
   PROHIBIDO: modo C por FAIL del gate; sustituir por comentario HTML o stdout del backend-agent sin
   re-run propio. HANDOFF canónico obligatorio.
@@ -54,8 +54,8 @@ Solo consulta ADO si faltan AC/TCs o hay duda bloqueante.
 | **Bug en `Active`** con repro reproducible (paralelo al fix) | **A** — TC de regresión que hoy debe estar **rojo** | Desaconsejado: un Bug sin test de regresión vuelve |
 | HU acaba de pasar a `Resolved` y tiene AC Gherkin | A (si faltan TCs) + **B** (`desarrollo-gate`) | **NO** |
 | HU `Resolved` FRONTEND / con UI | A + **B** | **NO** |
-| HU `Resolved` BACKEND-only | **B** (Vitest del módulo; E2E declarado si se omite) | **NO** — declarar omisión de E2E no exime invocar |
-| **Bug `Resolved`** (corrección entregada) | **B** con alcance = repro en verde + regresión del módulo | **NO** — el Bug no es «work item de segunda» |
+| HU `Resolved` BACKEND-only | **B** (Vitest P1: archivos de este WI, no el directorio del módulo; E2E declarado si se omite) | **NO** — declarar omisión de E2E no exime invocar |
+| **Bug `Resolved`** (corrección entregada) | **B** con alcance = repro en verde + test de regresión de **ese** repro | **NO** — el Bug no es «work item de segunda» |
 | Promoción / regresión (`flit-release`) | D | **NO** |
 | Entorno E2E caído | Invocar igual; reportar `SIN-ENTORNO` en HANDOFF + comentario ADO | No inventar PASS |
 | Radicar Bug **nuevo** / `QA_NOVEDAD` | **C** | Solo si el **QA lo pide explícitamente** en el prompt |
@@ -95,16 +95,16 @@ Antes de cerrar el HANDOFF, completar mentalmente (y pegar en el HANDOFF) esta c
 - **PASS-CON-OBSERVACIONES** — **no es éxito ni el default.** Solo residual accionable que no se puede cerrar aquí (p. ej. E2E omitido **con** justificación humana escrita en esta sesión) **y** waiver explícito. Sin eso: FAIL (se puede corregir) o PASS+Notas. El hilo no entrega ni mergea sobre CON-OBSERVACIONES sin waiver.
 - **SIN-ENTORNO** — no se pudo ejecutar tras fast-path; invocación válida para ledger; **inválido** fingir PASS.
 
-Prohibido el anti-patrón: marcar CON-OBSERVACIONES porque «algo se podría mejorar» o por TCs de otro módulo. Si merece escribirse, se corrige; si no, es Nota y el resultado es PASS.
+Prohibido el anti-patrón: marcar CON-OBSERVACIONES porque «algo se podría mejorar» o por TCs de otro módulo. Triage **P4** de `AGENTS.md`: BLOQUEANTE → FAIL y retrabajo; NOTA → PASS con Notas. **Prohibido** un segundo ciclo para endurecer una Nota.
 
 ### Precisión vs alcance (modo B `desarrollo-gate`)
 
 - DEBE re-ejecutar comandos en esta invocación (no copiar stdout del `backend-agent` / `frontend-agent`).
-- **Default BACKEND:** Vitest filtrado a `__tests__` del módulo + TCs de la matriz AC→TC.
-- **Default FRONTEND:** Playwright del spec de la HU/feature; si no hay spec → modo A primero o `SIN-ENTORNO`.
+- **Default BACKEND (P1):** `npm test -w apps/api -- <archivos *.test.ts de este WI>` + matriz AC→TC. **Prohibido** el glob del directorio del módulo.
+- **Default FRONTEND:** Playwright del spec de la HU; si no hay spec → modo A primero o `SIN-ENTORNO`.
+- **Mutantes (P2):** hasta **3 nombrados** (aserto que deben matar + comando P1). Cero no es FAIL si AC→TC está cubierta. Prohibido >3 o mutar la suite del módulo. El impl no debió mutar: no re-correr «su» matriz.
 - **Suite completa / smoke e2e amplio:** modo D, `flit-release`, o HU que toque shell/auth/shared.
-- Misma suite filtrada que el impl: válida solo tras **re-run propio** + pegar salida.
-- `PASS` exige matriz AC→TC cubierta + evidencia del alcance; **no** exige monorepo entero en verde en local.
+- `PASS` exige matriz AC→TC cubierta + evidencia P1; **no** exige el directorio del módulo ni el monorepo en local.
 
 ### Fast-path `SIN-ENTORNO`
 
@@ -121,7 +121,7 @@ Las convenciones generales del repo (stack, git flow, verificación) están en `
 | Capa | Cómo se prueba aquí |
 |---|---|
 | E2E / UI | **Playwright** — specs en `apps/web/e2e/tests/*.spec.ts`. `npm run test:e2e -w apps/web`, humo: `npm run test:e2e:smoke -w apps/web`, visual: `npm run test:e2e:ui -w apps/web` |
-| API / backend | **Vitest + supertest** — `apps/api/__tests__/**/*.test.ts`. `npm run test -w apps/api` (filtrar por archivo del módulo cuando exista) |
+| API / backend | **Vitest + supertest** — `apps/api/__tests__/**/*.test.ts`. Default P1: `npm test -w apps/api -- <archivos de este WI>`. **No** `npm run test -w apps/api` ni el glob del módulo en modo B |
 | Tipos | `npm run typecheck -w apps/web`, `npm run build -w apps/api` |
 | Producción | `npm run smoke:prod`, `npm run synthetic:check` (raíz) — **solo con autorización explícita** |
 
@@ -177,7 +177,7 @@ si existe el TC de regresión creado en modo A, ese es el TC principal del gate.
 1. Verifica el gate sin tocar `System.State` al inicio.
 2. Aplica **fast-path SIN-ENTORNO** si no hay entorno (≤2 checks) → HANDOFF y salir.
 3. Si no hay TCs → Modo A (o HANDOFF pidiendo A) **antes** de inventar ejecución.
-4. Ejecuta el **alcance AC** (filtrado; ver «Precisión vs alcance») y **pega la salida real** de este run.
+4. Ejecuta el **alcance P1** (archivos de este WI / matriz AC→TC; ver «Precisión vs alcance») y **pega la salida real** de este run. Mutantes: tope 3 (P2).
 5. Registra evidencia por TC en Discussion (con «sí» humano) si aplica.
 6. TC que pasa → Task a `Closed` (con «sí»).
 7. TC que falla (`desarrollo-gate`):

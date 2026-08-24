@@ -91,8 +91,9 @@ Tipos cruzados: `@operaciones/shared-types`.
 7. **Verifica y pega salida real:**
    - **Obligatorio:** `npm run typecheck -w apps/web`
    - `check:hooks` / `check:bundle` solo si tocaste hooks o peso de chunk
-   - **E2E default:** spec del feature (`npx playwright test e2e/tests/<spec>.spec.ts` o script equivalente del workspace) si el entorno está up
-   - **Smoke completo** (`test:e2e:smoke`): solo HUs de shell/router/login o pedido explícito
+   - **E2E default:** spec **de esta HU** (`npx playwright test e2e/tests/<spec>.spec.ts`) si el entorno está up. No el smoke entero.
+   - **Smoke completo** (`test:e2e:smoke`): solo HUs de shell/router/login o pedido explícito (P1/P5)
+   - Mutantes: no (P2 — eso es `qa-agent`, tope 3)
    - Sin entorno → declarar en HANDOFF; no inventar
 8. Reporta: archivos, `Alcance verificación: filtrado|completo`, salidas, propuesta de commit.
 

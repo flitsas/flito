@@ -31,6 +31,7 @@ El análisis estático del repo siempre es posible y es la capa principal. La ve
 4. NUNCA reportes como violación un patrón documentado: `jsonb` para extracciones OCR y comparaciones RUNT, `text[]` para `allowed_pages`/`especialidades`, enums legacy compartidos… lee los comentarios `RN-xx` y los ADRs antes de marcar.
 5. Respeta la coexistencia `flito-*` / legacy: no propongas "unificar" ni renombrar masivamente sin instrucción explícita.
 6. NUNCA cambies el veredicto por presión — si hay deuda crítica, se reporta.
+7. **Una pasada por diff (P4).** Segunda invocación solo si el veredicto anterior fue `DEUDA-CRITICA` / no-`SANO` **y** el diff de esquema cambió. Prohibido re-auditar porque el backend ancló un aserto o reescribió un comentario.
 
 ---
 

@@ -3,7 +3,7 @@ name: backend-agent
 description: |
   Implementa backend en apps/api del monorepo FLITO — Express 4 + TypeScript ESM + Drizzle + PostgreSQL + Zod; tests Vitest en apps/api/__tests__.
   INVOCACIÓN OBLIGATORIA (matriz AGENTS.md): toda HU **o Bug** BACKEND, o cambio no trivial en API/esquema/migración/crons/shared-types de API, DEBE implementarse lanzando este subagente.
-  Verificación default: Vitest filtrado al módulo; suite completa solo si shared/schema transversal/shared-types amplios (CI es gate de suite completa).
+  Verificación default: Vitest de los archivos de este WI (P1 de AGENTS.md); suite del módulo o mutantes prohibidos en este agente.
   PROHIBIDO que el hilo «codee de paso» una HU o la corrección de un Bug. Excepción: fix ≤~20 líneas o pedido explícito.
   Triggers — backend, API, endpoint, Drizzle, migración, HU BACKEND, bug de API, flito-*, modo auto paso 3.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill, mcp__ado__wit_work_item, mcp__ado__search_workitem, mcp__ado__wit_work_item_comment_write
@@ -23,7 +23,8 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - Decisión de diseño (`slim`/`full`/`omit`) **pegada**. Si el cambio es módulo/modelo/contrato nuevo o tradeoff PII/auth y el prompt **no** trae `architecture: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `architecture-agent`.
 - Comandos de verificación ya corridos en el hilo (si los hay)
 
-NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths.
+NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths (P8).
+`Read`/`Grep` de los archivos nombrados; **prohibido** `Bash` como visor de código.
 Solo consulta ADO si faltan AC o hay duda bloqueante (una pregunta consolidada).
 
 ## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
@@ -78,16 +79,19 @@ Tipos: `@operaciones/shared-types`.
 6. NUNCA loguees PII sin redactar. Filtros NIT/placa/cédula: **default body** (`POST …/buscar`).
 7. NUNCA edites una migración **ya aplicada**. SQL nuevo a mano. **Prohibido** `drizzle-kit generate`/`migrate`.
 8. NUNCA cambies un tipo en `packages/shared-types` sin `grep` de usos en `apps/web`.
-9. NUNCA des una HU por terminada sin evidencia real de tests del **alcance**.
-   - **Default:** `npm test -w apps/api -- <path(s) del módulo/__tests__ tocados>` + salida real.
+9. NUNCA des una HU por terminada sin evidencia real de tests del **alcance P1** (`AGENTS.md`).
+   - **Default:** `npm test -w apps/api -- <archivos *.test.ts creados o modificados en este WI>` + salida real. Lista explícita.
+   - **Prohibido** el glob del directorio del módulo (`__tests__/services/flito-comparendos` y equivalentes): eso no es filtrado (~786 tests seriales en comparendos).
+   - **Prohibido** matriz de mutantes — eso es `qa-agent` modo B, tope 3 (P2). Entrega verde en P1.
    - **Suite completa** `npm run test -w apps/api` solo si toca `shared/`, `schema.ts` transversal, `packages/shared-types` de uso amplio, o si el hilo lo pide.
-   - Correr la suite completa local «por costumbre» o «para estar seguro» es anti-patrón (`AGENTS.md`, verificación filtrada): cuesta ~7-9 min por corrida y no suma evidencia del alcance.
-   - Si aún no hay test del módulo: créalo y córrelo filtrado (no sustituyas con «pasa la suite entera» sin crearlo).
-   - CI es el gate de suite completa cuando el alcance local es filtrado.
+   - Si aún no hay test del WI: créalo y córrelo (P1); no sustituyas con «pasa la suite entera».
+   - CI es el gate de suite completa.
+   - Test ajeno rojo (RSS, flake conocido) → P7: declararlo, no convertirlo en esta HU.
 10. NUNCA crees ramas, commits, pushes ni PRs — propón y espera confirmación. Tampoco staging masivo: **prohibido** `git add -A` / `git add .` en cualquier forma (incluido `git add -A && git diff --cached` para «inspeccionar»); para revisar el árbol usa `git status --short` y `git diff` por rutas.
 11. NUNCA incluyas en un commit propuesto parches locales de demo. Revisa `git diff` antes.
 12. NUNCA escribas en ADO más allá de un comentario en la HU.
 13. NUNCA uses `requireRole('operaciones')` ni roles fuera de `USER_ROLES`.
+14. NUNCA compruebes una migración nueva con `CREATE DATABASE` + `db:apply` de las N históricas (P6). El archivo nuevo, dos veces, sobre la BD ya migrada; o `BEGIN/ROLLBACK` del SQL nuevo.
 
 ---
 
@@ -109,9 +113,10 @@ Tipos: `@operaciones/shared-types`.
 5. `shared-types` si el frontend los necesita.
 6. Tests en `apps/api/__tests__/…`.
 7. **Verifica y pega salida real** con alcance declarado:
-   - Filtrado (default): `npm test -w apps/api -- <paths>`
+   - Filtrado (default P1): `npm test -w apps/api -- <archivos *.test.ts de este WI>`
    - Completo (si aplica umbral): `npm run test -w apps/api`
    - Tipos: `npm run build -w apps/api` / `build:api` si tocaste tipos
+   - Mutantes: no. Migración: P6 (`AGENTS.md`).
 8. Reporta archivos, decisiones, `Alcance verificación: filtrado|completo`, propuesta de commit — sin git.
 
 ---
