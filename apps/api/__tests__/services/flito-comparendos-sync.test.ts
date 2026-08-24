@@ -1064,6 +1064,18 @@ describe('POST /sync — la inactivación respeta a quién se le preguntó (RN-2
 //   · La ausencia de veredicto TAMPOCO es una avería → el paso no falla y la corrida no se degrada;
 //     si no, esos municipios quedarían caídos para siempre y ninguna corrida sería `completed`.
 
+// Alcance de la HU #11796 (copy del paso 200 vacío no concluyente): SOLO el texto exacto del
+// `mensaje` persistido. Todo lo demás de este bloque es NO-REGRESIÓN y ya se cumplía antes:
+//
+//   · AC3 — vacío CONCLUYENTE (caso BELLO) sigue sin mensaje: el silencio es el copy (decisión 18
+//     de la enmienda UX del 24 ago 2026). Test titulado «NO-REGRESIÓN» más abajo.
+//   · AC4 — un fallo real sigue siendo Error, con su `errorCode` y su tono de avería sin suavizar:
+//     vive en los describes de fallo de fuente (HTTP 401/502, respuesta ilegible), no aquí.
+//   · AC5 — RN-47 intacta: cobertura incompleta no inactiva por ausencia y `nitsSinInactivacion`
+//     cuenta el NIT. Es el primer test de este describe.
+//
+// El chip NUNCA dijo «Error» (`ok: true`, decisión 17): afirmar sobre el chip no muerde.
+
 describe('POST /sync — un municipio sin veredicto no cuenta como cobertura (RN-47)', () => {
   /** La respuesta medida: contestó, se entendió, no trajo nada y no se pronunció. */
   const sinVeredicto = async (_n: string, fuente: string) => respuestaMunicipal(fuente, [], false);
@@ -1105,12 +1117,37 @@ describe('POST /sync — un municipio sin veredicto no cuenta como cobertura (RN
     expect(pasoMunicipal).toMatchObject({ ok: true, errorCode: null, itemsLeidos: 0 });
     // Y el motivo queda legible para el operador, en el `mensaje` que ya se persiste —sin columna
     // nueva—, describiendo la respuesta y su consecuencia y sin una palabra del proveedor (RN-20).
-    expect(pasoMunicipal.mensaje).toContain('sin veredicto');
-    expect(pasoMunicipal.mensaje).toContain('no cuenta como cobertura');
+    //
+    // Igualdad EXACTA contra el literal COPIADO aquí, y las dos mitades de esa frase son a propósito
+    // (HU #11796):
+    //   · Copiado, no importado. Importar `MENSAJE_VACIO_NO_CONCLUYENTE` del módulo lo compararía
+    //     consigo mismo: pasaría con cualquier texto, incluido el que esta HU vino a quitar.
+    //   · Igualdad, no `toContain`. Lo que había antes era `toContain('sin veredicto')` más
+    //     `toContain('no cuenta como cobertura')`, y ese segundo fragmento lo comparten el copy
+    //     nuevo y el viejo palabra por palabra: se quedaba verde con cualquiera de los dos, así que
+    //     no distinguía nada. Aquí no queda ninguna aserción apoyada en un fragmento compartido.
+    const MENSAJE_ESPERADO =
+      'La consulta salió bien y no trajo registros. Eso no confirma que el NIT esté al día, así que '
+      + 'este municipio no cuenta como cobertura: no se inactiva nada de este NIT en esta corrida.';
+    expect(pasoMunicipal.mensaje).toBe(MENSAJE_ESPERADO);
+    // Redundante con la igualdad de arriba y aun así se queda: nombra la regla que protege. El NIT
+    // consultado no se filtra a un texto que se persiste y se sirve meses después (RN-20).
     expect(pasoMunicipal.mensaje).not.toContain(NIT_A);
+
+    // Y la misma igualdad sobre la COLUMNA, que es una aserción distinta y no una repetición:
+    // `POST /sync` no relee `flito_comparendos_sync_steps` para responder —arma `steps[]` en memoria
+    // y lo devuelve—, así que todo lo de arriba solo habla del objeto en RAM. Que ese objeto llegue
+    // íntegro a la columna es el paso que nadie estaba vigilando: medido, mutar `guardarPasos` a
+    // `mensaje: null` dejaba en verde las 22 specs del módulo con la columna vacía. Y la columna es
+    // justamente lo que dura: el histórico la lee meses después (y la HU #11797 la va a aliasar),
+    // cuando el `steps[]` de esta respuesta hace rato no existe.
+    const pasoPersistido = insertsEn('flito_comparendos_sync_steps')
+      .flatMap((d) => (Array.isArray(d) ? d : [d]))
+      .find((p) => p.fuente === 'MEDELLIN');
+    expect(pasoPersistido?.mensaje).toBe(MENSAJE_ESPERADO);
   });
 
-  it('con veredicto y listas vacías SÍ es concluyente: el barrido procede como siempre', async () => {
+  it('NO-REGRESIÓN — con veredicto y listas vacías SÍ es concluyente, y sigue SIN mensaje', async () => {
     // El caso de BELLO: `codigoEstado: 1` con cero comparendos. Eso sí es «no consta ninguno». Sin
     // este test, la regla podría implementarse apagando la inactivación entera y nadie se enteraría.
     escenario({ municipios: ['BELLO'], inactivados: [{ id: 'reg-bello', municipioFuente: 'BELLO' }] });
