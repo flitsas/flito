@@ -338,6 +338,9 @@ Ruta `/flito/comparendos`. Es la pantalla ancla del módulo.
 
 ### Columnas y prioridad visual
 
+> Ver también: `docs/ux/flito-comparendos-estado-fuente.md` (HU #11777) — por qué «Estado en la
+> fuente» se muestra **completo** y ya no a una línea.
+
 Son **quince** los datos que el enunciado pide colocar y una tabla no muestra quince columnas sin
 convertirse en una hoja de cálculo ilegible. El criterio del reparto es uno solo: **arriba va lo que
 sirve para reconocer la fila y decidir si se abre; abajo va lo que se lee cuando ya se abrió.**
@@ -358,7 +361,7 @@ sirve para reconocer la fila y decidir si se abre; abajo va lo que se lee cuando
 | **B** | Origen | `origenMerge` | «SIMIT» / «Municipal» / «Ambos». Importa cuando algo no cuadra, no en la lectura normal |
 | **B** | Registrado | `primeraVistoEn` | Antigüedad en el sistema. Se distingue de la fecha del comparendo y por eso no van juntas |
 | **B · condicional** | Inactivado | `inactivadoEn` | **Solo se pinta con el filtro «Inactivos»**: en la vista de activos es una columna de guiones por definición (`null` mientras está activo) |
-| ~~**C · solo en el detalle**~~ → **B** | Estado en la fuente | `estadoFuente` | ~~Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él.~~ **Revocado el 21 ago 2026 (HU #11713):** es columna de nivel B, la primera del bloque. El razonamiento está en el bloque fechado al final de esta sección |
+| ~~**C · solo en el detalle**~~ → **B** | Estado en la fuente | `estadoFuente` | ~~Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él.~~ **Revocado el 21 ago 2026 (HU #11713):** es columna de nivel B, la primera del bloque. El razonamiento está en el bloque fechado al final de esta sección. **Se muestra ENTERO desde la HU #11777** (24 ago 2026), envolviendo a 14 rem: ver `docs/ux/flito-comparendos-estado-fuente.md` |
 | **C** | Observación | `observacion` | Texto largo. En una celda o se recorta hasta ser inútil o rompe el alto de la fila |
 | **C** | Visto por última vez | `ultimoVistoEn` | Es «cuándo corrió el último sync que lo tocó», no un hecho del comparendo |
 | **C** | Última corrida | `ultimoSyncRunId` | Puente al detalle de la corrida; identificador técnico |
@@ -434,8 +437,17 @@ tabla queda en **14** columnas con «Inactivado» puesto, **10** por debajo de 1
 nuevo con estado por usuario que ninguna pantalla de FLITO tiene—, el reparto sigue siendo A/B por
 breakpoint, las dos celdas nuevas son `<td>` **mudos** (una sola parada de tabulador por fila, la del
 número), y el estado del proveedor se pinta **tal cual**: sin `capitalize`, sin `uppercase`, sin
-recorte en el DOM y **sin `title`** —el operador puede tener que citárselo al organismo—, a una línea
-con `line-clamp-1` por la misma razón que la infracción: el alto de la fila.
+recorte en el DOM y **sin `title`** —el operador puede tener que citárselo al organismo—, ~~a una
+línea con `line-clamp-1` por la misma razón que la infracción: el alto de la fila~~.
+
+> **Revocado el 24 ago 2026 (HU #11777)** — solo lo tachado. El `line-clamp-1` y la equiparación con
+> la infracción ya no valen: el estado se muestra **entero**, envolviendo a 14 rem con
+> `wrap-anywhere` y un `line-clamp-4` que dentro del contrato (`varchar(80)`) nunca actúa. La
+> equiparación con la infracción era además el punto flojo del argumento: `descripcion_infraccion`
+> es `text()` **sin cota** y `estado_fuente` es `varchar(80)`, así que no son el mismo problema —por
+> eso «Infracción» conserva su `line-clamp-1`. Lo demás de esta frase **sigue vigente**: sin
+> `capitalize`, sin `uppercase`, sin `title` y `<td>` mudo. Razonamiento completo en
+> `docs/ux/flito-comparendos-estado-fuente.md`.
 
 ---
 
