@@ -137,6 +137,36 @@ const CABECERA = sql0163
   .join('\n')
   .replace(/\s+/g, ' ');
 
+/**
+ * Aísla UNA sentencia del cuerpo compactado —la única que encaja con `patron`— para poder afirmar
+ * sobre ELLA y no sobre el archivo entero.
+ *
+ * No es elegancia, es un hueco medido. La 0163 escribe `row_number() OVER (PARTITION BY …)` DOS
+ * veces: una para contar `v_ambiguas` y otra en el CTE `candidatas` del `UPDATE`. Una aserción que
+ * busque ese literal sobre todo el archivo queda satisfecha mientras sobreviva **cualquiera** de las
+ * dos copias, así que se podía particionar el CTE del `UPDATE` por `r.id` —que hace `rn = 1`
+ * siempre, o sea no tener ventana, o sea el 23505 de vuelta— y este archivo seguía verde. Lo midió
+ * el gate de `db-review` mutando en memoria; no es una hipótesis.
+ *
+ * El corte es por `;` porque en este archivo cada sentencia del `DO` acaba en uno y ninguna lleva un
+ * `;` dentro de una cadena. Si algún día lo llevara, la sentencia saldría partida y las aserciones
+ * de abajo se caerían: el fallo del extractor empuja hacia ROJO, que es el lado seguro.
+ */
+function sentencia(patron: RegExp, nombre: string): string {
+  const halladas = COMPACTO.split(';').filter((s) => patron.test(s));
+  if (halladas.length !== 1) {
+    throw new Error(
+      `se esperaba EXACTAMENTE una sentencia «${nombre}» en ${ARCHIVO}; se hallaron ${halladas.length}`,
+    );
+  }
+  return halladas[0].trim();
+}
+
+/** El `UPDATE` reparador con su CTE: la ventana que, si particiona mal, revienta con 23505. */
+const BLOQUE_UPDATE = sentencia(new RegExp(`UPDATE ${TABLA} r\\s+SET`, 'i'), `UPDATE ${TABLA}`);
+/** El contador previo. Su ventana no puede reventar nada: solo informar de menos. */
+const BLOQUE_CONTEO_AMBIGUAS = sentencia(/INTO v_ambiguas\b/i, 'SELECT … INTO v_ambiguas');
+
 // ─────────────────────────── Guardarraíl: ¿el podador dejó algo? ────────────────────────────────
 
 describe('migración 0163 — el extractor lee el archivo', () => {
@@ -153,6 +183,19 @@ describe('migración 0163 — el extractor lee el archivo', () => {
     expect(sql0163).toContain('NI UN `DELETE`');
     expect(sql0163).toContain('NO TOCA el `field_map`');
     expect(CUERPO).not.toContain('NI UN `DELETE`');
+  });
+
+  it('y **aísla de verdad** la sentencia del UPDATE de la del contador de ambiguas', () => {
+    // Guardarraíl del guardarraíl. Si `sentencia()` devolviera el archivo entero —o las dos copias
+    // pegadas—, las aserciones del `PARTITION BY` de abajo volverían a estar satisfechas por la
+    // ventana del contador y la del `UPDATE` podría particionar por lo que quisiera. Esto afirma que
+    // las dos ventanas viven en textos DISJUNTOS y estrictamente menores que el archivo.
+    expect(BLOQUE_UPDATE).toContain(`UPDATE ${TABLA} r`);
+    expect(BLOQUE_UPDATE).not.toMatch(/v_ambiguas/i);
+    expect(BLOQUE_CONTEO_AMBIGUAS).toMatch(/INTO v_ambiguas\b/i);
+    expect(BLOQUE_CONTEO_AMBIGUAS).not.toContain(`UPDATE ${TABLA} r`);
+    expect(BLOQUE_UPDATE.length).toBeLessThan(COMPACTO.length);
+    expect(BLOQUE_CONTEO_AMBIGUAS.length).toBeLessThan(COMPACTO.length);
   });
 });
 
@@ -245,21 +288,36 @@ describe('el UPDATE repara sin destruir', () => {
     // inicio de la sentencia, así que es ciego a las filas hermanas que el propio `UPDATE` reescribe:
     // `D05001…201` y `DD05001…201`, sin la fila de veinte, pasan las dos el `~` y las dos la guarda,
     // y colisionan entre ellas. Medido, no deducido (ver cabecera de este archivo).
-    expect(COMPACTO).toMatch(/row_number\(\s*\)\s*OVER\s*\(/i);
+    //
+    // Se afirma sobre `BLOQUE_UPDATE` y no sobre el archivo: la 0163 tiene DOS `row_number()` y
+    // buscar el literal en el texto entero se conforma con el del contador (ver `sentencia()`).
+    expect(BLOQUE_UPDATE).toMatch(/row_number\(\s*\)\s*OVER\s*\(/i);
     // Particionado por la CLAVE DESTINO, que es lo único que hace que el desempate signifique algo:
     // un `PARTITION BY` por cualquier otra cosa —el municipio, el nit— dejaría dos filas en el mismo
     // grupo destino y el 23505 volvería.
-    expect(COMPACTO).toMatch(
+    expect(BLOQUE_UPDATE).toMatch(
       /PARTITION BY substring\(\s*r\.numero_comparendo\s+from\s+'\[0-9\]\{20\}\$'\s*\)/i,
     );
+    // Y la exigencia fuerte, que es la que muerde: la expresión de la partición es IDÉNTICA a la que
+    // alimenta el `SET`. No basta con que sea «un substring»; tiene que ser ESE, porque el grupo del
+    // desempate y la clave que se escribe han de ser la misma cosa. Particionar por `r.id` —que hace
+    // `rn = 1` para todas, o sea equivale a no tener ventana— o por `r.nit_monitoreado` deja pasar
+    // las dos grafías del mismo comparendo y devuelve el 23505.
+    const claveDestino = /,\s*(substring\(.*?\))\s+AS clave\b/i.exec(BLOQUE_UPDATE);
+    expect(claveDestino, `no se supo leer la expresión de la clave destino en ${ARCHIVO}`)
+      .not.toBeNull();
+    const particion = /PARTITION BY (.*?)\s+ORDER BY/i.exec(BLOQUE_UPDATE);
+    expect(particion, `no se supo leer el PARTITION BY del CTE del UPDATE en ${ARCHIVO}`)
+      .not.toBeNull();
+    expect(particion![1]).toBe(claveDestino![1]);
     // Y con un orden TOTAL: `primera_visto_en` sola empata —dos filas sembradas en el mismo sync lo
     // hacen— y ahí cuál sobrevive lo decidiría el plan de ejecución, que es no decidirlo.
-    expect(COMPACTO).toMatch(/ORDER BY r\.primera_visto_en,\s*r\.id/i);
+    expect(BLOQUE_UPDATE).toMatch(/ORDER BY r\.primera_visto_en,\s*r\.id/i);
     // El filtro, que es donde el `row_number()` deja de ser decoración: calcularlo y no filtrarlo
     // pone verde cualquier búsqueda del literal y revienta igual en ejecución.
-    expect(COMPACTO).toMatch(/\brn\s*=\s*1\b/i);
+    expect(BLOQUE_UPDATE).toMatch(/\brn\s*=\s*1\b/i);
     // Y la guarda SIGUE ahí: la corrección se suma a la anterior, no la reemplaza.
-    expect(COMPACTO).toMatch(
+    expect(BLOQUE_UPDATE).toMatch(
       new RegExp(`AND NOT EXISTS \\(\\s*SELECT 1 FROM ${TABLA} g`, 'i'),
     );
   });
@@ -270,7 +328,15 @@ describe('el UPDATE repara sin destruir', () => {
     // el 23505, porque el operador no se entera de que tiene dos gestiones sobre el mismo comparendo.
     expect(COMPACTO).toMatch(/RAISE NOTICE '0163: % fila\(s\) prefijadas COLAPSAN/i);
     // El contador es real y se mide sobre `rn > 1`, no es un literal en el texto del NOTICE.
-    expect(COMPACTO).toMatch(/WHERE\s+\w+\.rn\s*>\s*1/i);
+    expect(BLOQUE_CONTEO_AMBIGUAS).toMatch(/WHERE\s+\w+\.rn\s*>\s*1/i);
+    // Y su ventana agrupa por la MISMA clave destino que la del `UPDATE`. Esta no puede provocar el
+    // 23505 —solo cuenta—, pero sí puede MENTIR sobre él: particionada por `r.id`, `rn` vale 1
+    // siempre, `v_ambiguas` sale 0 y el NOTICE calla justo en el caso que hay que reportar. Es el
+    // mismo fallo que persigue el bucket `HAVING` de la medición previa: una migración correcta cuya
+    // medición miente sobre el riesgo.
+    expect(BLOQUE_CONTEO_AMBIGUAS).toMatch(
+      /PARTITION BY substring\(\s*r\.numero_comparendo\s+from\s+'\[0-9\]\{20\}\$'\s*\)/i,
+    );
     // Y nombra la misma decisión humana que el caso 2, con las mismas tres columnas: si el texto se
     // aguara a «se omitieron N filas», el operador no sabría qué tiene que decidir.
     const notice = /RAISE NOTICE '0163: % fila\(s\) prefijadas COLAPSAN(.*?)'/i.exec(COMPACTO);
