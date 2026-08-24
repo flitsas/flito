@@ -16,6 +16,7 @@ import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.servi
 import { purgarDestinatariosDeLotes } from '../siigo/facturacion.lote.repo.js';
 import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
+import { matchDocumentoCompradorJsonb, matchDocumentoNormalizado } from './privacy.match-doc.js';
 import { deletePhoto } from '../../services/storage.js';
 import { logger } from '../../shared/logger.js';
 import crypto from 'crypto';
@@ -100,9 +101,11 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   const docHashHmac = hmacCedula(docNormalized); // Buffer 32 bytes — match para driver_profile.cedula_hash
 
   // Helper: match por documento aceptando cualquier formato de escritura ("1.036.640.908", " 1036640908 ", "CC1036640908").
-  // Aplica el mismo `normalizeDocument` (solo dígitos) en SQL para no fallar silenciosamente el derecho al olvido.
+  // Aplica el mismo `normalizeDocument` (solo dígitos) en SQL. La clase es `'[^0-9]'`, no `'\D'`:
+  // en `sql\`...\`` `\D` se cocina a `D` y el olvido solo alcanzaría dígitos puros (Bug #11776).
   // Excluye registros ya anonimizados (NOT LIKE 'ANON-%') para idempotencia segura.
-  const matchByDoc = (col: any) => sql`regexp_replace(${col}, '\D', '', 'g') = ${docNormalized} AND ${col} NOT LIKE 'ANON-%'`;
+  const matchByDoc = (col: Parameters<typeof matchDocumentoNormalizado>[0]) =>
+    matchDocumentoNormalizado(col, docNormalized);
 
   // ===== Pre-tx: capturar driverUserIds + S3 keys (necesarios para tx en alcohol/incidents y para cleanup). =====
   const driverRows = await db.select({
@@ -191,8 +194,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
     const correosComprador = await tx.execute(sql`
       SELECT comprador->>'email' AS email
         FROM tramites_digitales
-       WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized}
-         AND (comprador->>'documento') NOT LIKE 'ANON-%'
+       WHERE ${matchDocumentoCompradorJsonb(docNormalized)}
     `) as unknown as Array<{ email: string | null }>;
 
     // `correosDeBusqueda` normaliza y descarta vacíos y repetidos al otro lado; aquí basta con no
@@ -269,8 +271,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
             ),
             '{telefono}', 'null'::jsonb
           )
-      WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized}
-        AND (comprador->>'documento') NOT LIKE 'ANON-%'
+      WHERE ${matchDocumentoCompradorJsonb(docNormalized)}
       RETURNING id
     `);
     stats.tramites_digitales = (tram as unknown as Array<unknown>).length;
@@ -369,7 +370,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       titularPagoCuentaAuthTag: null,
       titularPagoCuentaAadNonce: null,
       titularPagoCuentaKeyVersion: null,
-    }).where(sql`regexp_replace(${manifiestos.titularPagoDoc}, '\D', '', 'g') = ${docNormalized} AND ${manifiestos.titularPagoDoc} NOT LIKE 'ANON-%'`).returning({ id: manifiestos.id });
+    }).where(matchByDoc(manifiestos.titularPagoDoc)).returning({ id: manifiestos.id });
     stats.manifiestos = man.length;
 
     // 13. tenedores: documento + nombre + dirección + telefono + email + notas.
@@ -458,19 +459,22 @@ router.get('/preview/:docNumber', previewLimiter, async (req: Request, res: Resp
   const docHashHmac = hmacCedula(docNormalized);
 
   // Mismo helper que en POST /forget — match por documento normalizado, excluye ya anonimizados.
-  const matchByDocPreview = (col: any) => sql`regexp_replace(${col}, '\D', '', 'g') = ${docNormalized} AND ${col} NOT LIKE 'ANON-%'`;
+  // Una sola definición (`matchDocumentoNormalizado`): si preview y forget divergieran, uno
+  // contaría filas que el otro no anonimiza (Bug #11776).
+  const matchByDocPreview = (col: Parameters<typeof matchDocumentoNormalizado>[0]) =>
+    matchDocumentoNormalizado(col, docNormalized);
 
   // Conteos paralelos por tabla (14 SELECT count).
   const [cli, veh, soat, tram, cp, bo, drv, trv, man, ten, prop, dest] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(clients).where(matchByDocPreview(clients.document)),
     db.select({ c: sql<number>`count(*)::int` }).from(vehicles).where(matchByDocPreview(vehicles.ownerDocument)),
-    db.execute(sql`SELECT count(*)::int AS c FROM soat_requests s INNER JOIN vehicles v ON s.vehicle_id = v.id WHERE regexp_replace(v.owner_document, '\D', '', 'g') = ${docNormalized} AND v.owner_document NOT LIKE 'ANON-%'`),
-    db.execute(sql`SELECT count(*)::int AS c FROM tramites_digitales WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized} AND (comprador->>'documento') NOT LIKE 'ANON-%'`),
+    db.execute(sql`SELECT count(*)::int AS c FROM soat_requests s INNER JOIN vehicles v ON s.vehicle_id = v.id WHERE ${matchDocumentoNormalizado(sql`v.owner_document`, docNormalized)}`),
+    db.execute(sql`SELECT count(*)::int AS c FROM tramites_digitales WHERE ${matchDocumentoCompradorJsonb(docNormalized)}`),
     db.select({ c: sql<number>`count(*)::int` }).from(laftCounterparties).where(matchByDocPreview(laftCounterparties.docNumber)),
     db.select({ c: sql<number>`count(*)::int` }).from(laftBeneficialOwners).where(matchByDocPreview(laftBeneficialOwners.docNumber)),
     db.select({ c: sql<number>`count(*)::int` }).from(driverProfile).where(eq(driverProfile.cedulaHash, docHashHmac)),
     db.select({ c: sql<number>`count(*)::int` }).from(tramitesValidaciones).where(matchByDocPreview(tramitesValidaciones.documento)),
-    db.select({ c: sql<number>`count(*)::int` }).from(manifiestos).where(sql`regexp_replace(${manifiestos.titularPagoDoc}, '\D', '', 'g') = ${docNormalized} AND ${manifiestos.titularPagoDoc} NOT LIKE 'ANON-%'`),
+    db.select({ c: sql<number>`count(*)::int` }).from(manifiestos).where(matchByDocPreview(manifiestos.titularPagoDoc)),
     db.select({ c: sql<number>`count(*)::int` }).from(tenedores).where(matchByDocPreview(tenedores.documento)),
     db.select({ c: sql<number>`count(*)::int` }).from(propietariosCarga).where(matchByDocPreview(propietariosCarga.documento)),
     db.select({ c: sql<number>`count(*)::int` }).from(destinatariosCarga).where(matchByDocPreview(destinatariosCarga.documento)),

@@ -151,6 +151,11 @@ function buildTxPorTabla(opts: {
   correosDeComprador?: Array<string | null>;
   /** Filas que devuelve el SELECT de cada tabla. Por omisión, una. */
   filasPorTabla?: Record<string, number>;
+  /**
+   * SQL renderizado (PgDialect) de cada `where` y de cada `execute`. Bug #11776: afirmar el
+   * patrón de `regexp_replace` contra el SQL que Drizzle manda, no contra el fuente.
+   */
+  capturarSql?: string[];
 } = {}) {
   const ficha = opts.fichaDelTitular ?? [];
   const correosPorTabla = opts.correosPorTabla ?? {};
@@ -190,6 +195,12 @@ function buildTxPorTabla(opts: {
           c[m] = () => c;
         }
         c.from = (t: unknown) => { tabla = nombre(t); return c; };
+        c.where = (cond?: unknown) => {
+          if (cond !== undefined && opts.capturarSql) {
+            try { opts.capturarSql.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* fragmento no serializable */ }
+          }
+          return c;
+        };
         c.then = (res: any, rej: any) => Promise.resolve().then(() => filasLeidas(tabla)).then(res, rej);
         return c;
       }),
@@ -200,6 +211,7 @@ function buildTxPorTabla(opts: {
         const texto = ((): string => {
           try { return dialecto.sqlToQuery(consulta as never).sql; } catch { return ''; }
         })();
+        opts.capturarSql?.push(texto);
         if (/^\s*SELECT\b/i.test(texto.trim())) {
           return anonimizadas.has('tramites_digitales')
             ? [] : correosDeComprador.map((email) => ({ email }));
@@ -211,7 +223,12 @@ function buildTxPorTabla(opts: {
         const tabla = nombre(t);
         const c: any = {};
         c.set = () => c;
-        c.where = () => c;
+        c.where = (cond?: unknown) => {
+          if (cond !== undefined && opts.capturarSql) {
+            try { opts.capturarSql.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* fragmento no serializable */ }
+          }
+          return c;
+        };
         c.returning = () => {
           // El UPDATE sí devuelve las filas que tocó —con su `id`, que es lo que la ruta usa como
           // lista de compañías—; lo que cambia es que a partir de aquí ningún `matchByDoc` vuelve a
@@ -722,3 +739,78 @@ describe('GET /preview/:docNumber', () => {
     expect(auditMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Bug #11776 — el SQL que forget/preview mandan de verdad', () => {
+  function patronDe(sqlTexto: string): string {
+    const m = sqlTexto.match(
+      /regexp_replace\([\s\S]*?,\s*(?:'((?:\\'|[^'])*)'|\$(\d+))\s*,\s*''\s*,\s*'g'\)/,
+    );
+    if (!m) throw new Error(`sin regexp_replace en: ${sqlTexto}`);
+    return m[1] ?? '';
+  }
+
+  it('SELECT de correos (HU #11708) y UPDATE de las tablas renderizan [^0-9], nunca D', async () => {
+    const capturarSql: string[] = [];
+    selectMock.mockImplementation(() => chain([]));
+    transactionMock.mockImplementationOnce(buildTxPorTabla({
+      fichaDelTitular: [{ email: 'titular@empresa.test', contactEmail: null }],
+      capturarSql,
+    }));
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '1036640908', reason: 'titular ejerce derecho al olvido' });
+    expect(r.status).toBe(200);
+
+    const conReplace = capturarSql.filter((s) => s.includes('regexp_replace'));
+    expect(conReplace.length).toBeGreaterThan(1);
+
+    const selectComprador = conReplace.find((s) => /^\s*SELECT\b/i.test(s.trim()));
+    const updateComprador = conReplace.find((s) => /^\s*UPDATE\b/i.test(s.trim()));
+    expect(selectComprador, 'SELECT de correos del comprador JSONB').toBeTruthy();
+    expect(updateComprador, 'UPDATE paso 5 tramites_digitales').toBeTruthy();
+    expect(patronDe(selectComprador!)).toBe(patronDe(updateComprador!));
+    expect(patronDe(selectComprador!)).toBe('[^0-9]');
+
+    for (const s of conReplace) {
+      expect(patronDe(s), s).toBe('[^0-9]');
+      expect(s).not.toMatch(/regexp_replace\([^,]+,\s*'D'\s*,/);
+    }
+  });
+
+  it('preview renderiza el mismo patrón no-dígitos (JSONB + soat)', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialecto = new PgDialect();
+    const sqls: string[] = [];
+    executeMock.mockImplementation(async (q: unknown) => {
+      sqls.push(dialecto.sqlToQuery(q as never).sql);
+      return [{ c: 0 }];
+    });
+    selectMock.mockImplementation(() => {
+      const c = chain([{ c: 0 }]);
+      const orig = c.where;
+      (c as { where: (cond?: unknown) => unknown }).where = (cond?: unknown) => {
+        if (cond !== undefined) {
+          try { sqls.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* */ }
+        }
+        return orig();
+      };
+      return c;
+    });
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).get('/api/privacy/preview/1036640908')
+      .set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+
+    const conReplace = sqls.filter((s) => s.includes('regexp_replace'));
+    expect(conReplace.length).toBeGreaterThan(0);
+    for (const s of conReplace) {
+      expect(patronDe(s), s).toBe('[^0-9]');
+      expect(s).not.toMatch(/regexp_replace\([^,]+,\s*'D'\s*,/);
+    }
+  });
+});
+
