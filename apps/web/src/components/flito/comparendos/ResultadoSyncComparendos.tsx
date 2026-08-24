@@ -29,7 +29,7 @@ import type {
 } from '@operaciones/shared-types';
 import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import { FlitCard, FlitTable, FlitTh, FlitTr } from '../../flit/flitPageKit';
-import { SIN_DATO, duracionCorta, fechaHoraColombia } from './formato';
+import { SIN_DATO, duracionCorta, fechaHoraColombia, mensajePaso } from './formato';
 
 /** Etiqueta y tono de cada estado de corrida. Los exporta el historial de la HU #11636. */
 export const ESTADO_SYNC: Record<ComparendosSyncEstado, { etiqueta: string; tono: ChipTone }> = {
@@ -231,14 +231,19 @@ export default function ResultadoSyncComparendos(
  */
 function FilaPaso({ paso }: { paso: ComparendosSyncStep }) {
   const celda = 'px-4 py-2.5 text-sm align-top';
+  // El mensaje pasa por `mensajePaso` y NO se lee de `paso.mensaje`: es el único punto por el que
+  // salen los pasos a pantalla —esta fila la pinta la tarjeta de resultado de la consola y también
+  // el modal de detalle del historial, que reusan este componente—, así que aquí es donde el alias
+  // del histórico (HU #11797) alcanza a las dos superficies a la vez. Ver `formato.ts`.
+  const mensaje = mensajePaso(paso);
   return (
     <FlitTr>
       <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{paso.nit}</td>
       <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{etiquetaFuente(paso.fuente)}</td>
       <td className={`${celda} max-w-md`}>
         <StatusChip tone={paso.ok ? 'success' : 'danger'}>{paso.ok ? 'Ok' : 'Error'}</StatusChip>
-        {paso.mensaje && (
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{paso.mensaje}</p>
+        {mensaje && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{mensaje}</p>
         )}
       </td>
       <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{paso.httpStatus ?? SIN_DATO}</td>
