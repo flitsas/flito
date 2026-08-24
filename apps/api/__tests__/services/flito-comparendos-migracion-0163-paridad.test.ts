@@ -3,7 +3,7 @@
 // La 0163 es la primera migración del módulo **sin una línea de DDL**. No crea, no altera y no borra
 // ningún objeto: declara una regla en el `COMMENT` de la columna y repara lo ya persistido. Por eso
 // su paridad no compara tipos ni constraints con `schema.ts` —no hay nada que comparar—, sino otras
-// tres cosas, y las tres son mutaciones que alguien haría de buena fe:
+// cuatro cosas, y las cuatro son mutaciones que alguien haría de buena fe:
 //
 //   · **La deriva regex código ↔ SQL.** La regla vive dos veces: en `NUMERO_FORMA_NACIONAL`
 //     (`flito-comparendos-merge.ts`) y en el `UPDATE` de este `.sql`. Si se separan, el resultado no
@@ -25,7 +25,24 @@
 //     deducido: sin la guarda muere con
 //     `duplicate key value violates unique constraint "uq_flito_comparendos_numero"`.
 //
-// Y una cuarta, de omisión: que **no aparezca un `INSERT` en `flito_comparendos_field_map`**. No hay
+//   · **Quitar el `row_number()` del `UPDATE` creyendo que el `NOT EXISTS` ya cubre el duplicado.**
+//     La más sutil, y la que se le escapó a la primera versión de esta HU: son DOS huecos distintos.
+//     El `NOT EXISTS` tapa la colisión contra una fila que YA ESTÁ en la tabla; no tapa la colisión
+//     de la sentencia **consigo misma**, porque en PostgreSQL la calificación de un `UPDATE` —sus
+//     subconsultas incluidas— se evalúa contra el snapshot del INICIO de la sentencia, y una
+//     sentencia no ve las versiones de fila que ella misma está escribiendo. Con `D05001…201` y
+//     `DD05001…201` presentes y la fila de veinte AUSENTE, las dos pasan el `~` (el `{1,2}` admite
+//     una letra y dos), las dos pasan el `NOT EXISTS` y las dos aterrizan en la misma clave.
+//     Reproducido contra PostgreSQL 16 con `ROLLBACK` durante el retrabajo, no deducido:
+//     `duplicate key value violates unique constraint "uq_flito_comparendos_numero"`, con
+//     `DETAIL: Key (numero_comparendo)=(05001000000054652201) already exists`.
+//
+//     Y lo que lo convierte de nota en bloqueante: la consulta de medición previa de la cabecera
+//     clasificaba ese par como `reparables = 2, conflicto = 0`. El operador que siga la instrucción
+//     de la propia migración —medir antes de aplicar— leía «seguro» y se llevaba el 23505 en el paso
+//     de migración del CD. Por eso aquí se exige TAMBIÉN el bucket que lo hace visible.
+//
+// Y una quinta, de omisión: que **no aparezca un `INSERT` en `flito_comparendos_field_map`**. No hay
 // v4 y no puede haberla: los `source_path` no cambian —el proveedor sigue mandando lo mismo por la
 // misma ruta— y esa tabla ES la lista blanca de la poda RN-25. Sembrar una v4 aquí movería la lista
 // blanca sin que nadie lo hubiera pedido.
@@ -106,6 +123,19 @@ function podarComentarios(texto: string): string {
 
 const CUERPO = podarComentarios(sql0163);
 const COMPACTO = CUERPO.replace(/\s+/g, ' ').trim();
+
+/**
+ * El complemento del podador: SOLO las líneas de comentario. Es donde vive la medición previa —la
+ * consulta que el operador copia y ejecuta ANTES de aplicar en un ambiente con datos—, y por eso hay
+ * que afirmarla ahí y no en el cuerpo: una migración correcta cuya medición previa miente sobre el
+ * riesgo es exactamente el fallo que este archivo existe para impedir.
+ */
+const CABECERA = sql0163
+  .split('\n')
+  .filter((linea) => linea.trimStart().startsWith('--'))
+  .map((linea) => linea.replace(/^\s*--\s?/, ''))
+  .join('\n')
+  .replace(/\s+/g, ' ');
 
 // ─────────────────────────── Guardarraíl: ¿el podador dejó algo? ────────────────────────────────
 
@@ -210,10 +240,74 @@ describe('el UPDATE repara sin destruir', () => {
     expect(columnas).toEqual(['numero_comparendo', 'updated_at']);
   });
 
+  it('**una sola fila origen por clave destino**: el `row_number()` que el `NOT EXISTS` NO sustituye', () => {
+    // Son dos huecos distintos y hacen falta las dos defensas. El `NOT EXISTS` mira el snapshot del
+    // inicio de la sentencia, así que es ciego a las filas hermanas que el propio `UPDATE` reescribe:
+    // `D05001…201` y `DD05001…201`, sin la fila de veinte, pasan las dos el `~` y las dos la guarda,
+    // y colisionan entre ellas. Medido, no deducido (ver cabecera de este archivo).
+    expect(COMPACTO).toMatch(/row_number\(\s*\)\s*OVER\s*\(/i);
+    // Particionado por la CLAVE DESTINO, que es lo único que hace que el desempate signifique algo:
+    // un `PARTITION BY` por cualquier otra cosa —el municipio, el nit— dejaría dos filas en el mismo
+    // grupo destino y el 23505 volvería.
+    expect(COMPACTO).toMatch(
+      /PARTITION BY substring\(\s*r\.numero_comparendo\s+from\s+'\[0-9\]\{20\}\$'\s*\)/i,
+    );
+    // Y con un orden TOTAL: `primera_visto_en` sola empata —dos filas sembradas en el mismo sync lo
+    // hacen— y ahí cuál sobrevive lo decidiría el plan de ejecución, que es no decidirlo.
+    expect(COMPACTO).toMatch(/ORDER BY r\.primera_visto_en,\s*r\.id/i);
+    // El filtro, que es donde el `row_number()` deja de ser decoración: calcularlo y no filtrarlo
+    // pone verde cualquier búsqueda del literal y revienta igual en ejecución.
+    expect(COMPACTO).toMatch(/\brn\s*=\s*1\b/i);
+    // Y la guarda SIGUE ahí: la corrección se suma a la anterior, no la reemplaza.
+    expect(COMPACTO).toMatch(
+      new RegExp(`AND NOT EXISTS \\(\\s*SELECT 1 FROM ${TABLA} g`, 'i'),
+    );
+  });
+
+  it('las filas que se dejan por ambiguas **se cuentan y se nombran**, como el caso 2', () => {
+    // Misma doctrina que «existen las dos grafías»: dejar, contar y decir en voz alta qué decisión
+    // humana queda pendiente. Un `row_number()` que descarta en silencio la fila hermana es peor que
+    // el 23505, porque el operador no se entera de que tiene dos gestiones sobre el mismo comparendo.
+    expect(COMPACTO).toMatch(/RAISE NOTICE '0163: % fila\(s\) prefijadas COLAPSAN/i);
+    // El contador es real y se mide sobre `rn > 1`, no es un literal en el texto del NOTICE.
+    expect(COMPACTO).toMatch(/WHERE\s+\w+\.rn\s*>\s*1/i);
+    // Y nombra la misma decisión humana que el caso 2, con las mismas tres columnas: si el texto se
+    // aguara a «se omitieron N filas», el operador no sabría qué tiene que decidir.
+    const notice = /RAISE NOTICE '0163: % fila\(s\) prefijadas COLAPSAN(.*?)'/i.exec(COMPACTO);
+    expect(notice, 'no se supo leer el NOTICE de las filas ambiguas').not.toBeNull();
+    expect(notice![1]).toContain('causal_id');
+    expect(notice![1]).toContain('observacion');
+    expect(notice![1]).toContain('gestion_actualizada_por');
+    expect(notice![1]).toContain('decision humana');
+  });
+
   it('el caso «existen las dos grafías» **se cuenta y se deja**, con su RAISE NOTICE', () => {
     // Fusionar dos filas exige decidir qué gestión sobrevive, y eso no lo decide una migración.
     expect(COMPACTO).toMatch(/RAISE NOTICE '0163: % fila\(s\) prefijadas CONVIVEN/i);
     expect(COMPACTO).toMatch(/GET DIAGNOSTICS \w+ = ROW_COUNT/i);
+  });
+});
+
+// ─────────────────────────── La medición previa: lo que el operador lee ─────────────────────────
+
+describe('la medición previa de la cabecera hace VISIBLE la clase que revienta', () => {
+  it('**incluye el bucket de las claves que colapsan** (`GROUP BY … HAVING count(*) > 1`)', () => {
+    // Sin este bucket la corrección del `UPDATE` no le sirve de nada a quien mide antes de aplicar:
+    // la consulta de `reparables` / `conflicto` cuenta un par colisionante como 2 y 0 —«seguro»—
+    // porque ninguna de las dos filas tiene gemela en la tabla. Es ciega a esa clase entera.
+    expect(CABECERA).toMatch(/GROUP BY substring\(\s*r\.numero_comparendo\s+from\s+'\[0-9\]\{20\}\$'\s*\)/i);
+    expect(CABECERA).toMatch(/HAVING count\(\*\) > 1/i);
+    // Y sobre el MISMO universo que repara el UPDATE: si el bucket midiera otro filtro, mediría otra
+    // cosa y volvería a mentir.
+    expect(CABECERA).toContain(`FROM ${TABLA} r WHERE r.numero_comparendo ~ '${FORMA_ESPERADA_SQL}' GROUP BY`);
+  });
+
+  it('y la cabecera **sigue trayendo la consulta de `reparables` / `conflicto`**', () => {
+    // El bucket nuevo se SUMA, no sustituye: las tres clases son disjuntas y el operador necesita
+    // las tres para saber qué va a pasar.
+    expect(CABECERA).toContain('AS reparables');
+    expect(CABECERA).toContain('AS conflicto');
+    expect(CABECERA).toMatch(/claves_ambiguas/i);
   });
 });
 
