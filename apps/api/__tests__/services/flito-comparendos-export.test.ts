@@ -137,6 +137,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   placa: PLACA,
   nitMonitoreado: NIT,
   fechaComparendo: '2026-06-02',
+  // HU #11794. La fixture base está NOTIFICADA, para que el caso del `null` —el histórico sin
+  // backfill— haya que pedirlo explícitamente y no se cuele por descuido de la fixture. Misma
+  // doctrina que `tipoRegistro` unas líneas más abajo.
+  fechaNotificacion: '2026-06-19',
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en sitio prohibido',
   municipioFuente: 'BELLO',
@@ -420,6 +424,50 @@ describe('AC2 — una fila por registro, las columnas del visor, sin payloads', 
 
     expect(celda(hoja, 2, 'tipoRegistro') ?? null).toBeNull();
     expect(textoDe(hoja)).not.toContain('Comparendo');
+    // Y la fila sí está: el test no pasa por no haber traído nada.
+    expect(celda(hoja, 2, 'numeroComparendo')).toBe('05001000000012345678');
+  });
+
+  it('**«Fecha de notificación» va PEGADA a «Fecha del comparendo»** (HU #11794, AC3)', () => {
+    // El AC no pide que la columna exista, pide que esté AL LADO: las dos fechas del proceso se leen
+    // comparándolas y con quince columnas de por medio esa lectura exige mover una en Excel. Se
+    // afirma sobre la DISTANCIA y no sobre un índice absoluto, que cambiaría con cualquier columna
+    // nueva delante y convertiría este test en un impuesto.
+    const claves = COLUMNAS.map((c) => c.key);
+    expect(claves.indexOf('fechaNotificacion') - claves.indexOf('fechaComparendo')).toBe(1);
+
+    const cabeceras = COLUMNAS.map((c) => c.header);
+    expect(cabeceras).toContain('Fecha de notificación');
+    // Y las dos se llaman DISTINTO: dos cabeceras que empiecen igual se confunden al filtrar en
+    // Excel, que es el argumento con el que la HU #11713 renombró «Estado».
+    expect(cabeceras.filter((h) => h.toLowerCase().startsWith('fecha'))).toEqual([
+      'Fecha del comparendo', 'Fecha de notificación',
+    ]);
+  });
+
+  it('la fecha de notificación sale EN SU CELDA, no en cualquier sitio del archivo', async () => {
+    // Por celda y no por `textoDe(hoja)`: la fecha del comparendo y la de notificación son dos
+    // cadenas parecidas en la misma fila, así que una columna vacía pasaría desapercibida.
+    kdb.when.select(TABLA, filas(1));
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'fechaNotificacion')).toBe('2026-06-19');
+    expect(celda(hoja, 2, 'fechaComparendo')).toBe('2026-06-02');
+  });
+
+  it('**un `null` sale VACÍO, nunca `01/01/1900`** (HU #11794, AC3)', async () => {
+    // El histórico sin backfill llega aquí en `null`. Rellenarlo con el centinela metería una fecha
+    // de 1900 en un archivo que sale del perímetro y que alguien va a promediar; rellenarlo con un
+    // texto de relleno («Sin notificar») haría la columna no filtrable en Excel.
+    kdb.when.select(TABLA, [fila({ fechaNotificacion: null })]);
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'fechaNotificacion') ?? null).toBeNull();
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('1900');
+    expect(texto).not.toContain('Sin notificar');
     // Y la fila sí está: el test no pasa por no haber traído nada.
     expect(celda(hoja, 2, 'numeroComparendo')).toBe('05001000000012345678');
   });

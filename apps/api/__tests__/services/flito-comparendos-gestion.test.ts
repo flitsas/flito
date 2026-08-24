@@ -100,6 +100,9 @@ const fila = (over: Record<string, unknown> = {}) => ({
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en sitio prohibido',
   fechaComparendo: '2026-06-02',
+  // HU #11794. Con valor, para que el AC7 pueda demostrar que gestionar NO la toca (CF-09): con la
+  // fixture en `null` el test pasaría por no haber nada que cambiar.
+  fechaNotificacion: '2026-06-19',
   organismo: 'Secretaría de Movilidad de Bello',
   municipioFuente: 'BELLO',
   monto: '604100.00',
@@ -633,6 +636,10 @@ describe('AC7 — los datos de fuente siguen siendo inmutables (RN-04, CF-09)', 
     ['origenMerge', { origenMerge: 'simit' }],
     ['estado', { estado: 'inactivo' }],
     ['numeroComparendo', { numeroComparendo: 'OTRO' }],
+    // HU #11794. La columna nueva es dato de FUENTE como las de arriba: nace inmutable y no hay que
+    // esperar a que alguien intente editarla para descubrirlo. Es el caso NEGATIVO que pide el AC1.
+    ['fechaNotificacion', { fechaNotificacion: '2026-06-19' }],
+    ['fechaComparendo', { fechaComparendo: '2026-06-02' }],
     // Las dos del sello de auditoría no son «de fuente», pero tampoco las escribe el cliente: quien
     // las mandara estaría firmando la gestión a nombre de otro o retrofechándola. Hoy lo impide
     // `.strict()`; esto es el candado de regresión por si alguien relaja el esquema.
@@ -648,6 +655,24 @@ describe('AC7 — los datos de fuente siguen siendo inmutables (RN-04, CF-09)', 
     expect(espia.inserts).toEqual([]);
   });
 
+  it.each([
+    ['fechaNotificacion', { fechaNotificacion: '2026-06-19' }],
+    ['fechaComparendo', { fechaComparendo: '2026-06-02' }],
+  ])('**`%s` JUNTO A una clave válida sigue siendo 400** (HU #11794, CF-09)', async (_campo, fuente) => {
+    // Esta versión y no solo la de arriba, y el motivo es un mutante que se midió: el `it.each` de
+    // claves sueltas pasa **por el `refine`** —un cuerpo sin `causalId` ni `observacion` es 400 diga
+    // lo que diga el resto—, así que seguía verde con `fechaNotificacion` AÑADIDA al esquema. Con la
+    // observación dentro, el `refine` se satisface y lo único que puede devolver el 400 es el
+    // `.strict()`: el candado que de verdad se quiere probar.
+    escenario();
+
+    const r = await gestionar({ observacion: OBSERVACION, ...fuente }, await auth());
+
+    expect(r.status).toBe(400);
+    expect(espia.updates).toEqual([]);
+    expect(espia.inserts).toEqual([]);
+  });
+
   it('mezclar un campo válido con uno de fuente NO guarda el válido: es 400 entero', async () => {
     escenario();
 
@@ -657,6 +682,18 @@ describe('AC7 — los datos de fuente siguen siendo inmutables (RN-04, CF-09)', 
     // mandó creería que cambió la placa.
     expect(r.status).toBe(400);
     expect(espia.updates).toEqual([]);
+  });
+
+  it('**gestionar no altera la fecha de notificación**, ni siquiera cuando el PATCH es válido', async () => {
+    // El otro lado del caso negativo (HU #11794, CF-09): el 400 impide mandarla, y esto comprueba
+    // que el camino BUENO tampoco la mueve — la respuesta del PATCH es el registro completo, así que
+    // un servicio que la recalculara o la vaciara se vería aquí.
+    escenario();
+
+    const r = await gestionar({ observacion: OBSERVACION }, await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body.fechaNotificacion).toBe('2026-06-19');
   });
 
   it('**el `set()` que llega a la base nombra solo las dos editables y el sello**', async () => {

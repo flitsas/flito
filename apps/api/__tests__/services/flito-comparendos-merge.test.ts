@@ -196,6 +196,8 @@ describe('homologar — el vocabulario del proveedor pasa al canónico', () => {
       organismo: 'Secretaría de Movilidad de Medellín',
       monto: '604100.00',
       estadoFuente: 'Pendiente de pago',
+      // Ídem con `fechaNotificacion`, cuyo candidato lo siembra la v4 (HU #11794).
+      fechaNotificacion: null,
       // El mapa v1 de esta tabla no tiene candidatos de resolución (los siembra la v3, HU #11712):
       // sin candidato, el campo se homologa a `null`. La aserción se deja EXHAUSTIVA a propósito —un
       // `toMatchObject` dejaría de mirar los campos nuevos justo cuando alguien los mapee mal.

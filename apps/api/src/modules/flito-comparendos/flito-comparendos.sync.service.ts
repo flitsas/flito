@@ -854,6 +854,11 @@ type FilaExistente = {
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
   fechaComparendo: string | null;
+  // HU #11794. Se lee por el MISMO motivo que los dos de la resolución: es el tercer escalón de
+  // RN-13. Sin ella, una corrida en la que ninguna fuente publique la notificación resolvería el
+  // campo a `null` y BORRARÍA la fecha ya guardada — dejar de recibir un dato no es recibir que está
+  // vacío.
+  fechaNotificacion: string | null;
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
@@ -902,6 +907,7 @@ async function escribirRegistros(
         codigoInfraccion: flitoComparendosRegistros.codigoInfraccion,
         descripcionInfraccion: flitoComparendosRegistros.descripcionInfraccion,
         fechaComparendo: flitoComparendosRegistros.fechaComparendo,
+        fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
         organismo: flitoComparendosRegistros.organismo,
         monto: flitoComparendosRegistros.monto,
         estadoFuente: flitoComparendosRegistros.estadoFuente,

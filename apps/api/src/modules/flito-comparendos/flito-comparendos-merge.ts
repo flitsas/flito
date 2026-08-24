@@ -68,6 +68,18 @@
 //        que ya es único, tanto si es del municipio como si es del tipo de comparendo. Alcance
 //        deliberadamente estrecho —separadores, sufijos y otras longitudes NO disparan—, con el
 //        porqué entero y el precedente de ADR-0003 §6 en el docblock de `numeroCanonico`.
+//
+// RN-48  `01/01/1900` es el CENTINELA de «no notificado» de las dos fuentes, NO una fecha, y no se
+//        persiste (HU #11794). El criterio vive en `fechaCanonica` y por tanto vale para las DOS
+//        columnas de fecha: `fecha_notificacion`, que estrena la HU, y `fecha_comparendo`, que hasta
+//        hoy guardaba `1900-01-01` como si fuera un hecho. Ponerlo solo en la columna nueva dejaría
+//        que la misma cadena del mismo proveedor significara «no notificado» en un campo y «ocurrió
+//        en 1900» en el de al lado.
+//
+//        Consecuencia asumida y declarada: **cambia salida ya visible en producción**. No se corrige
+//        con un `UPDATE` en la migración —eso escribiría la decisión de hoy sobre filas que nadie
+//        volvió a medir—, sino en el siguiente sync de cada fila; en las `inactivo`, que ya no se
+//        visitan (CF-10), el `1900-01-01` sobrevive.
 
 import { asc } from 'drizzle-orm';
 import type { ComparendosTipoRegistro } from '@operaciones/shared-types';
@@ -93,6 +105,13 @@ export const CAMPOS_CANONICOS = [
   'codigoInfraccion',
   'descripcionInfraccion',
   'fechaComparendo',
+  // HU #11794. Entra al mapa en la v4 y NO antes: hasta la v3 se dejaba fuera porque el proveedor la
+  // manda con el centinela `01/01/1900`, y sin criterio para el centinela mapearla habria guardado
+  // una fecha del siglo XIX. Lo que la HU cambia no es el nombre del campo, es que el centinela ya
+  // tiene criterio (ver `fechaCanonica`), y con criterio el campo se puede mapear como cualquier
+  // otro. Estar aqui es ademas lo que la mete en la lista blanca de la poda (RN-25): sin esta
+  // entrada, `camposConservables` la seguiria tirando y la columna no se llenaria nunca.
+  'fechaNotificacion',
   'organismo',
   'monto',
   'estadoFuente',
@@ -129,6 +148,8 @@ export interface ComparendoCanonico {
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
   fechaComparendo: string | null;
+  /** `YYYY-MM-DD` de la notificación, o `null` si no la hubo / no se sabe (HU #11794). */
+  fechaNotificacion: string | null;
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
@@ -335,6 +356,10 @@ export function homologar(item: Record<string, unknown>, candidatos: CandidatosP
     // `descripcion_infraccion` es TEXT: no lleva tope de ancho.
     descripcionInfraccion: texto(primerValor(item, candidatos.get('descripcionInfraccion')), null, false),
     fechaComparendo: fechaCanonica(primerValor(item, candidatos.get('fechaComparendo'))),
+    // Por la MISMA normalizadora que la de arriba, y eso es la mitad de la HU #11794: las tres
+    // grafías medidas y el centinela se resuelven en un solo sitio, así que no puede haber una
+    // columna que entienda `14/05/2026` y otra que no.
+    fechaNotificacion: fechaCanonica(primerValor(item, candidatos.get('fechaNotificacion'))),
     organismo: texto(primerValor(item, candidatos.get('organismo')), ANCHO.organismo, false),
     monto: montoCanonico(primerValor(item, candidatos.get('monto'))),
     estadoFuente: texto(primerValor(item, candidatos.get('estadoFuente')), ANCHO.estadoFuente, false),
@@ -482,7 +507,44 @@ export function placaCanonica(valor: unknown): string | null {
 }
 
 /**
- * Fecha → `YYYY-MM-DD`, o `null` si no se entiende.
+ * El valor con el que las dos fuentes dicen **«no notificado»**, no «el 1 de enero de 1900».
+ *
+ * La premisa la dejó escrita la migración 0158 al mirar los payloads reales, y hasta la HU #11794
+ * servía para NO mapear `fechaNotificacion`: sin criterio para el centinela, mapear el campo habría
+ * guardado una fecha del siglo XIX en la columna. Mapearlo obliga a decidir, y lo decidido es
+ * descartarlo.
+ *
+ * Se compara contra la fecha YA NORMALIZADA y no contra la cadena cruda, que es lo que hace que las
+ * cuatro escrituras del mismo centinela —`01/01/1900`, `01/01/1900 00:00:00`, `1900-01-01` y
+ * `01-01-1900`— caigan por igual sin escribir cuatro literales.
+ *
+ * **Lo que NO hace, y conviene no creérselo:** un centinela en prioridad 1 **sí sombrea** al
+ * candidato de prioridad 2. El filtro que elige candidato es `esValorHomologable`, que corre ANTES y
+ * ve una cadena no vacía; para cuando se descubre que es el centinela, `primerValor` ya decidió. Es
+ * exactamente el sombreado residual que documenta `esValorHomologable` para las fechas numéricas, y
+ * se deja igual y por lo mismo: cerrarlo pide un filtro POR CAMPO y no una lista común.
+ *
+ * **Y no es inerte en las dos columnas — ese es el error de lectura que hay que evitar, porque desde
+ * esta HU el criterio del centinela vale para las dos.** Para `fechaNotificacion` sí lo es: la v4 le
+ * da UN solo candidato por origen, así que no hay prioridad 2 a la que sombrear. Para
+ * `fechaComparendo` NO: la v4 sí tiene respaldo de prioridad 2 (`fechaImposicion` en SIMIT, `fecha`
+ * en municipal), de modo que un centinela en prioridad 1 descarta una fecha real que estaba
+ * disponible. Esta HU no lo estrena —antes el centinela también ganaba, solo que se persistía como
+ * `1900-01-01`— pero sí lo vuelve MENOS visible: lo que chirriaba como una fecha de 1900 pasa a ser
+ * una celda vacía, indistinguible de «no hay dato». Anotado y NO resuelto, que es distinto de estar
+ * resuelto.
+ *
+ * **Alcance estrecho a propósito:** SOLO ese día. `1900-01-02` y `1901-01-01` son fechas y se
+ * guardan. No hay ni un byte medido que diga que el proveedor usa un rango como centinela, y una
+ * regla más ancha se tragaría fechas legítimas — el error que sí sería irreversible.
+ *
+ * Se exporta para que la paridad de la migración pueda afirmar que el `.sql` y el código hablan del
+ * mismo literal, en vez de dejar dos copias sueltas del mismo hecho.
+ */
+export const FECHA_CENTINELA_NO_NOTIFICADO = '1900-01-01';
+
+/**
+ * Fecha → `YYYY-MM-DD`, o `null` si no se entiende **o si es el centinela**.
  *
  * Se parsea con expresiones regulares y NO con `new Date(...)`: el constructor interpreta
  * `'2026-06-02'` como medianoche UTC y, al formatearlo en un servidor en `America/Bogota` (UTC-5),
@@ -498,14 +560,43 @@ export function placaCanonica(valor: unknown): string | null {
  * NIT se homologaban con `fechaComparendo: null`. Lo que sigue detrás del día se ignora a
  * propósito: la hora no cabe en un `date` y, si se usara, arrastraría la zona horaria que el
  * párrafo de arriba evita.
+ *
+ * **Y que la hora sea OPCIONAL tampoco es cosmética desde la HU #11794**: las tres grafías medidas
+ * el 2026-08-24 sobre el NIT 901789698 son `DD/MM/YYYY HH:MM:SS` (SIMIT), `YYYY-MM-DD` (UTS
+ * Medellín) y **`DD/MM/YYYY` sin hora (UTS Bogotá)**. Exigir la hora en la rama con barras dejaría
+ * a Bogotá entera en `null`, y el síntoma —una ciudad con la columna llena y otra vacía— no lo ve
+ * ningún test escrito contra Medellín.
+ *
+ * ── El centinela (HU #11794) ─────────────────────────────────────────────────────────────────────
+ *
+ * `01/01/1900` sale `null`, y sale igual **para las dos columnas de fecha**. Que el criterio viva
+ * aquí y no en la línea de `fechaNotificacion` de `homologar` es la decisión: un centinela no cambia
+ * de significado según la columna en la que caiga, y ponerlo solo en la columna nueva dejaría que la
+ * misma cadena del mismo proveedor fuese «no notificado» en un campo y «ocurrió en 1900» en el de al
+ * lado.
+ *
+ * **Esto CAMBIA salida que ya se ve en producción**: un `fechaComparendo` que llegue `01/01/1900`
+ * pasa de guardarse `1900-01-01` a guardarse `null`. Es un AC de la HU y no un efecto colateral. No
+ * hay backfill: las filas ya escritas se corrigen en el siguiente sync que las visite (ver la
+ * cabecera de la migración 0164), y las `inactivo` no se visitan (CF-10).
  */
 function fechaCanonica(valor: unknown): string | null {
+  const fecha = fechaParseada(valor);
+  // Un único punto de descarte, después de normalizar: cubre las cuatro escrituras del centinela sin
+  // repetir literales, y es la línea que hay que borrar para reintroducir el defecto.
+  return fecha === FECHA_CENTINELA_NO_NOTIFICADO ? null : fecha;
+}
+
+/** Las tres gramáticas admitidas, sin opinión sobre el centinela. Ver {@link fechaCanonica}. */
+function fechaParseada(valor: unknown): string | null {
   if (typeof valor !== 'string') return null;
   const s = valor.trim();
 
   const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(s);
   if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
+  // La hora es OPCIONAL (`(?:[T ].*)?`) y ese signo de interrogación es Bogotá: sin él,
+  // `14/05/2026` no encaja y la ciudad entera se queda sin fecha de notificación.
   const local = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ].*)?$/.exec(s);
   if (local) return fechaValida(Number(local[3]), Number(local[2]), Number(local[1]));
 
@@ -884,6 +975,7 @@ export interface CamposResueltos {
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
   fechaComparendo: string | null;
+  fechaNotificacion: string | null;
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
@@ -956,6 +1048,31 @@ export function resolverCampos(
   const elegir = (campo: Exclude<CampoCanonico, 'numeroComparendo'>): string | null =>
     simit?.[campo] ?? municipal?.[campo] ?? previo[campo] ?? null;
 
+  /**
+   * Igual que `elegir`, pero el tercer escalón **no puede devolver el centinela** (HU #11794).
+   *
+   * Hace falta, y es el hallazgo de la HU: sin esto, el AC «las filas guardadas con `1900-01-01` se
+   * corrigen en el siguiente sync» sería falso. `01/01/1900` que llega de la fuente se convierte en
+   * `null` en `homologar`, así que los dos primeros escalones se quedan mudos y el `??` cae en
+   * `previo`, que trae el `1900-01-01` de la corrida anterior. Resultado: la fila se re-escribiría a
+   * sí misma con el defecto para siempre, y como la migración tampoco hace backfill, el valor no lo
+   * corregiría NADIE.
+   *
+   * No contradice el tercer escalón de RN-13 («dejar de recibir un dato no es recibir que está
+   * vacío»): eso protege VALORES, y el centinela no lo es —es la forma que tiene el proveedor de
+   * decir que no hay dato—. Conservarlo no conserva información, conserva un error de lectura.
+   *
+   * Y por eso la corrección no depende de que la fuente vuelva a mandar el centinela: basta con que
+   * el sync visite la fila. Lo único que se queda con el `1900-01-01` es lo que ya no se visita (las
+   * filas `inactivo`, CF-10), y eso está declarado en la cabecera de la migración 0164.
+   */
+  const elegirFecha = (campo: 'fechaComparendo' | 'fechaNotificacion'): string | null => {
+    const guardada = previo[campo] ?? null;
+    return simit?.[campo]
+      ?? municipal?.[campo]
+      ?? (guardada === FECHA_CENTINELA_NO_NOTIFICADO ? null : guardada);
+  };
+
   // Los dos de la resolución se resuelven ANTES para poder derivar el tipo de ellos (HU #11712).
   const numeroResolucion = elegir('numeroResolucion');
   const idResolucion = elegir('idResolucion');
@@ -964,7 +1081,12 @@ export function resolverCampos(
     placa: elegir('placa'),
     codigoInfraccion: elegir('codigoInfraccion'),
     descripcionInfraccion: elegir('descripcionInfraccion'),
-    fechaComparendo: elegir('fechaComparendo'),
+    fechaComparendo: elegirFecha('fechaComparendo'),
+    // Los MISMOS tres escalones, sin regla propia (HU #11794): SIMIT prevalece y el municipal solo
+    // llena el hueco (CF-08). Que en la muestra del NIT 901789698 las dos fuentes coincidan en
+    // `30/07/2026` no vuelve inerte la precedencia — la vuelve invisible, que es distinto, y por eso
+    // se prueba con un caso donde SÍ discrepan.
+    fechaNotificacion: elegirFecha('fechaNotificacion'),
     organismo: elegir('organismo'),
     monto: elegir('monto'),
     estadoFuente: elegir('estadoFuente'),

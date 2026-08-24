@@ -21,6 +21,8 @@
 // obligaría a mirar la fila que el propio test devolvió, que es una tautología.
 
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import request from 'supertest';
 import express from 'express';
 import http from 'http';
@@ -743,6 +745,139 @@ describe('POST /sync — las dos grafías del mismo comparendo son UNA fila (HU 
 // que ningún test de `resolverCampos` puede afirmar, porque entre una cosa y la otra están la
 // proyección de `FilaExistente` y el `set()` del UPDATE — y es justo ahí donde una columna que no se
 // LEE convierte la regla monótona en una regresión silenciosa.
+
+// ─────────────────────────── HU #11794 · La fecha de notificación llega a la COLUMNA ────────────
+
+/**
+ * El mapa mínimo con `fechaNotificacion` en los dos orígenes.
+ *
+ * No es la v4 entera —eso lo prueba la paridad de la 0164, contra el `.sql`— sino lo justo para que
+ * este archivo pueda responder la pregunta que solo él puede responder: **si el valor homologado
+ * llega o no a la fila que se escribe**. Probar el homologador en aislamiento y dar por hecho el
+ * resto es cómo un campo acaba correcto en el merge y vacío en la base.
+ */
+const MAPA_CON_NOTIFICACION = [
+  ...MAPA,
+  { version: 1, origen: 'simit', sourcePath: 'fechaNotificacion', targetField: 'fechaNotificacion', prioridad: 1, provisional: true },
+  { version: 1, origen: 'municipal', sourcePath: 'fechaNotificacion', targetField: 'fechaNotificacion', prioridad: 1, provisional: true },
+];
+
+describe('POST /sync — la fecha de notificación se PERSISTE (HU #11794)', () => {
+  it('**el valor homologado llega a la columna del INSERT**, no solo al canónico', async () => {
+    // La aserción que cierra el hueco entre «el merge lo calcula» y «la base lo guarda»: si el campo
+    // se cayera del `set()`/`values()` —o de `CamposResueltos`— el merge seguiría verde y la columna
+    // seguiría vacía en producción.
+    escenario({ municipios: [], mapa: MAPA_CON_NOTIFICACION });
+    simitMock.mockImplementation(async () => respuestaSimit([
+      { ...ITEM_SIMIT, fechaNotificacion: '14/05/2026 00:00:00' },
+    ]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.fechaNotificacion).toBe('2026-05-14');
+    // Y no ha pisado a la del comparendo, que es la de al lado y viene del mismo ítem.
+    expect(insertado.fechaComparendo).toBe('2026-05-14');
+  });
+
+  it('la grafía SIN HORA del UTS también llega a la columna', async () => {
+    escenario({ mapa: MAPA_CON_NOTIFICACION, municipios: ['BELLO'] });
+    // SIMIT no la trae; el municipio sí, en la grafía de Bogotá.
+    simitMock.mockImplementation(async () => respuestaSimit([ITEM_SIMIT]));
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      respuestaMunicipal(fuente, [{ ...ITEM_MUNICIPAL, fechaNotificacion: '14/05/2026' }]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.fechaNotificacion).toBe('2026-05-14');
+  });
+
+  it('**el centinela no se persiste, y tampoco en `fechaComparendo`**', async () => {
+    // El cambio de comportamiento visible: hasta esta HU, este mismo ítem escribía `1900-01-01` en
+    // `fecha_comparendo`.
+    escenario({ municipios: [], mapa: MAPA_CON_NOTIFICACION });
+    simitMock.mockImplementation(async () => respuestaSimit([
+      { ...ITEM_SIMIT, fechaComparendo: '01/01/1900 00:00:00', fechaNotificacion: '01/01/1900 00:00:00' },
+    ]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.fechaNotificacion).toBeNull();
+    expect(insertado.fechaComparendo).toBeNull();
+  });
+
+  it('**la fila que ya guardaba `1900-01-01` se CORRIGE en este sync**, sin migración de por medio', async () => {
+    escenario({
+      municipios: [],
+      mapa: MAPA_CON_NOTIFICACION,
+      existentes: [filaRegistro({ fechaComparendo: '1900-01-01', fechaNotificacion: '1900-01-01' })],
+    });
+    // La fuente ya no manda ninguna de las dos fechas: es el caso en el que el tercer escalón de
+    // RN-13 conservaría el valor viejo si nadie lo hubiera enseñado a distinguir el centinela.
+    simitMock.mockImplementation(async () => respuestaSimit([{ numeroComparendo: 'C-0001' }]));
+
+    await sync();
+
+    const actualizado = updatesEn('flito_comparendos_registros')
+      .find((d) => d.estado !== 'inactivo') as Record<string, unknown>;
+    expect(actualizado.fechaComparendo).toBeNull();
+    expect(actualizado.fechaNotificacion).toBeNull();
+  });
+
+  it('**la fecha ya guardada que NO es centinela se conserva** cuando nadie la reporta (RN-13)', async () => {
+    // La otra mitad, y la que exige que la columna se LEA en el SELECT de las filas existentes: sin
+    // ella en la proyección, el valor viejo llega `undefined`, el tercer escalón no tiene nada que
+    // conservar y cada corrida borraría la fecha de notificación de la fila.
+    escenario({
+      municipios: [],
+      mapa: MAPA_CON_NOTIFICACION,
+      existentes: [filaRegistro({ fechaNotificacion: '2026-03-26' })],
+    });
+    simitMock.mockImplementation(async () => respuestaSimit([{ numeroComparendo: 'C-0001' }]));
+
+    await sync();
+
+    const actualizado = updatesEn('flito_comparendos_registros')
+      .find((d) => d.estado !== 'inactivo') as Record<string, unknown>;
+    expect(actualizado.fechaNotificacion).toBe('2026-03-26');
+  });
+
+  it('**la columna se LEE de la fila existente**, o el tercer escalón no tendría qué conservar', () => {
+    // Análisis estático, y no es pereza: el mock de drizzle enruta por TABLA y devuelve las filas que
+    // el test registró **ignorando la proyección**, así que quitar esta columna del `select({...})`
+    // deja verde hasta el test de conservación de aquí arriba. Se midió: el mutante que la borra de
+    // la proyección no pone en rojo ni una aserción de comportamiento. Contra la base real, en
+    // cambio, el valor llegaría `undefined`, el tercer escalón de RN-13 no tendría nada que
+    // conservar y **cada corrida borraría la fecha de notificación de la fila**.
+    //
+    // El `as FilaExistente` del servicio tampoco lo caza: es un cast, no una comprobación, así que
+    // el compilador acepta una proyección más estrecha sin decir nada.
+    const fuente = readFileSync(
+      fileURLToPath(new URL('../../src/modules/flito-comparendos/flito-comparendos.sync.service.ts', import.meta.url)),
+      'utf8',
+    );
+
+    expect(fuente).toContain('fechaNotificacion: flitoComparendosRegistros.fechaNotificacion');
+    // Y el tipo que describe esa fila la declara: las dos mitades del mismo hecho.
+    expect(fuente).toMatch(/fechaNotificacion: string \| null;/);
+  });
+
+  it('SIMIT prevalece sobre el municipio también en esta columna (CF-08)', async () => {
+    escenario({ mapa: MAPA_CON_NOTIFICACION, municipios: ['BELLO'] });
+    simitMock.mockImplementation(async () => respuestaSimit([
+      { ...ITEM_SIMIT, fechaNotificacion: '14/05/2026 00:00:00' },
+    ]));
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      respuestaMunicipal(fuente, [{ ...ITEM_MUNICIPAL, fechaNotificacion: '2026-07-30' }]));
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(insertado.fechaNotificacion).toBe('2026-05-14');
+  });
+});
 
 describe('POST /sync — tipo de registro y resolución (HU #11712)', () => {
   it('un comparendo sin resolución se inserta como `comparendo`, no como `null`', async () => {
