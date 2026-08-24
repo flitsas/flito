@@ -59,6 +59,15 @@
 //        descubre que hacía falta un campo que se podó, re-mergear desde el JSONB ya no basta y hay
 //        que volver a consultar al proveedor. Se cambia una pérdida de datos recuperable
 //        (re-consulta) por una fuga de datos personales que no lo es.
+//
+// RN-26  La clave de negocio es la MISMA entre fuentes cuando el número es el número único
+//        nacional (HU #11806). Si la cadena ya normalizada encaja ENTERA con
+//        `^[A-Z]{1,2}[0-9]{20}$`, la clave son esos veinte dígitos; en cualquier otro caso, la
+//        cadena tal cual. No se apoya en que «la letra sobre», sino en CF-07: veinte dígitos con la
+//        DIVIPOLA delante ya son la identidad completa, así que la letra decora un identificador
+//        que ya es único, tanto si es del municipio como si es del tipo de comparendo. Alcance
+//        deliberadamente estrecho —separadores, sufijos y otras longitudes NO disparan—, con el
+//        porqué entero y el precedente de ADR-0003 §6 en el docblock de `numeroCanonico`.
 
 import { asc } from 'drizzle-orm';
 import type { ComparendosTipoRegistro } from '@operaciones/shared-types';
@@ -356,18 +365,104 @@ function texto(valor: unknown, max: number | null, mayusculas: boolean): string 
 }
 
 /**
+ * La FORMA NACIONAL del número de comparendo, decorada con una o dos letras delante (HU #11806).
+ *
+ * Este literal es la fuente de verdad de la regla y se repite —sin el grupo— en el `UPDATE` de
+ * reparación de la migración `0163`. Que las dos copias digan lo mismo NO se deja a la buena
+ * voluntad: lo vigila `flito-comparendos-migracion-0163-paridad.test.ts`, que compara el `.source`
+ * de esta constante con el literal del `.sql`.
+ *
+ * El grupo es la única diferencia entre las dos escrituras, y existe para extraer los veinte
+ * dígitos SIN recortar por posición: `s.slice(-20)` daría hoy el mismo resultado —el anclaje lo
+ * garantiza— pero sobreviviría a que alguien relajara el `{20}`, y entonces sí recortaría.
+ */
+export const NUMERO_FORMA_NACIONAL = /^[A-Z]{1,2}([0-9]{20})$/;
+
+/**
  * Número de comparendo: la llave de negocio (CF-07).
  *
  * Mayúsculas y sin espacios internos para que el mismo comparendo escrito por dos proveedores sea
  * una sola fila. **No se recorta:** si no cabe en `varchar(60)` se descarta el ítem entero
  * devolviendo `null`. Recortar la llave crearía un comparendo que no existe y, peor, podría colisionar
  * con otro que comparta prefijo — fundiendo dos deudas distintas en una sola fila.
+ *
+ * ── La regla de la forma nacional (HU #11806) ───────────────────────────────────────────────────
+ *
+ * Después de esa normalización, y SOLO si la cadena entera encaja con `^[A-Z]{1,2}[0-9]{20}$`, la
+ * clave son esos veinte dígitos. En cualquier otro caso sale la cadena tal cual, que es lo de
+ * siempre.
+ *
+ * **El argumento no es «la `D` sobra».** Es **CF-07**, que ya es premisa del modelo y está escrita
+ * en `schema.ts`: el número lo asigna el Estado y es ÚNICO EN EL PAÍS — por eso el único de la tabla
+ * es `(numero_comparendo)` y no `(nit, numero)`. Las dos grafías medidas son `05001` + 15 dígitos
+ * (DIVIPOLA de Medellín) y `11001` + 15 (Bogotá): veinte dígitos con la DIVIPOLA delante **ya son la
+ * identidad completa**.
+ *
+ * De ahí sale la propiedad que hace segura la regla bajo la incertidumbre que la HU declara: **da
+ * igual si la `D` es del municipio o del tipo de comparendo.** Bajo las dos lecturas la letra decora
+ * un identificador que ya es único por sí solo; no lo extiende. La regla no apuesta por ninguna de
+ * las dos hipótesis, se apoya en la tercera cosa que sí está verificada. Si mañana se descubre que
+ * la `D` era de «Detección electrónica», la regla sigue siendo correcta.
+ *
+ * **Y no es un recorte**, que es lo que el párrafo de arriba y ADR-0003 §6 prohíben: nunca se quita
+ * un dígito, solo letras, y solo cuando lo que queda es exactamente la forma nacional de veinte.
+ * `D` + 19 dígitos y `D` + 21 **no disparan** y salen intactos, igual que `ABCDE` + 23 dígitos: el
+ * peor caso de la regla es no fusionar algo que debería, y eso es el statu quo, no una regresión.
+ *
+ * ── Alcance, y lo que deliberadamente queda fuera ───────────────────────────────────────────────
+ *
+ * SOLO esa forma. Separadores (`D-05001…`), sufijos, prefijos numéricos y otras longitudes **no se
+ * tocan**, y no por olvido: de ninguna de esas formas hay hoy ni un byte medido, y de los municipios
+ * sembrados solo hay muestra de tres. Escribir una regla más ancha sería adivinar separadores, que
+ * es justo lo que ADR-0003 §6 cierra. La muestra que falta la trae `formaNumero`, que emite la FORMA
+ * de cada número por corrida sin emitir el número.
+ *
+ * La decisión es además **reversible**: `numeroComparendo` es `source_path` de la v3 del mapa en los
+ * dos orígenes, así que la grafía cruda `D…` sobrevive en `payload_municipal` aunque la columna
+ * guarde la de veinte (RN-25 la conserva). Si algún día la letra resultara ser identidad, se quita
+ * la regla y el municipal vuelve a crear su fila en el siguiente sync.
+ *
+ * **Se EXPORTA**, por el mismo motivo que `placaCanonica`: el filtro `q` de `GET /registros` tiene
+ * que normalizar su entrada exactamente igual que se normalizó lo guardado. Con dos
+ * implementaciones parecidas, el día que una cambie el filtro deja de encontrar filas que existen —
+ * y aquí el síntoma sería peor que en la placa, porque lo guardado es MÁS CORTO que lo tecleado y la
+ * búsqueda es por contenido (`%q%`).
  */
-function numeroCanonico(valor: unknown): string | null {
+export function numeroCanonico(valor: unknown): string | null {
   if (typeof valor !== 'string' && typeof valor !== 'number') return null;
   const s = String(valor).replace(/\s+/g, '').toUpperCase();
   if (s === '' || s.length > ANCHO.numeroComparendo) return null;
-  return s;
+  const nacional = NUMERO_FORMA_NACIONAL.exec(s);
+  return nacional === null ? s : nacional[1];
+}
+
+/**
+ * La FORMA de un número, sin el número: `D20`, `L1D20`, `L2D18`, `OTRO`… (HU #11806).
+ *
+ * Existe para responder EN UNA CORRIDA REAL la pregunta que la regla de arriba deja abierta: qué
+ * grafías emiten los municipios de los que no hay ni una muestra. Sin esto, la próxima vez que una
+ * fuente estrene una forma nos enteramos porque un humano cuenta filas duplicadas.
+ *
+ * **Cero PII, y ni siquiera el dato**: emite la longitud del bloque de letras y la del bloque de
+ * dígitos, nunca el valor. No es el debate de si `numero_comparendo` es publicable en un log — es
+ * que el número no sale.
+ *
+ * Se normaliza igual que `numeroCanonico` (mismos espacios, mismas mayúsculas) pero se mide ANTES de
+ * aplicar la regla, a propósito: lo que interesa saber es qué emite el proveedor, no en qué quedó
+ * después de normalizarlo — si midiéramos después, la forma prefijada nunca aparecería y el
+ * histograma no serviría para lo único que se hizo. Los tokens son de cardinalidad acotada (el
+ * número cabe en 60), así que el histograma no puede crecer sin límite.
+ */
+export function formaNumero(valor: unknown): string {
+  if (typeof valor !== 'string' && typeof valor !== 'number') return 'AUSENTE';
+  const s = String(valor).replace(/\s+/g, '').toUpperCase();
+  if (s === '') return 'VACIO';
+  // El descarte por ancho, que ya cuenta `numeroCanonico`, pero aquí como forma propia: si un
+  // proveedor empezara a mandar números largos, la corrida lo diría sin cruzar dos contadores.
+  if (s.length > ANCHO.numeroComparendo) return 'LARGO';
+  const bloques = /^([A-Z]*)([0-9]+)$/.exec(s);
+  if (bloques === null) return 'OTRO';
+  return bloques[1] === '' ? `D${bloques[2].length}` : `L${bloques[1].length}D${bloques[2].length}`;
 }
 
 /**
@@ -667,12 +762,33 @@ export interface ConsolidadoComparendo {
 export type AcumuladorNit = Map<string, ConsolidadoComparendo>;
 
 /**
+ * Lo que un `acumular*` cuenta de paso, sin mirar ni un valor.
+ *
+ * Era un `number` pelado —los ítems ignorados— hasta la HU #11806. Ahora viaja también el histograma
+ * de FORMAS (`formaNumero`), que es lo único que puede decirnos, en una corrida de verdad, qué
+ * grafías emiten los municipios de los que no hay muestra. Va en el retorno y no en un parámetro de
+ * salida para que estas funciones sigan siendo puras respecto de todo lo que no sea el acumulador.
+ */
+export interface ConteoAcumulacion {
+  /** Ítems descartados por no traer un número reconocible (la señal del spike #11501). */
+  ignorados: number;
+  /** Forma del número CRUDO → cuántas veces se vio. Nunca lleva el número (RN-25 y Ley 1581). */
+  formas: Map<string, number>;
+}
+
+/** Suma uno al token del histograma. Sale a función para que los dos acumuladores no la copien. */
+function contarForma(formas: Map<string, number>, item: Record<string, unknown>, candidatos: CandidatosPorCampo): void {
+  const forma = formaNumero(primerValor(item, candidatos.get('numeroComparendo')));
+  formas.set(forma, (formas.get(forma) ?? 0) + 1);
+}
+
+/**
  * Suma lo que devolvió SIMIT para un NIT.
  *
  * Gana el PRIMER ítem de cada número: si el proveedor repite un comparendo en la misma respuesta, la
  * segunda copia no aporta nada y sobrescribirla solo haría depender el resultado del orden de la
  * lista. Devuelve cuántos ítems se descartaron por no traer número reconocible, que es justamente la
- * señal que el spike #11501 necesita ver.
+ * señal que el spike #11501 necesita ver, y el histograma de formas de la HU #11806.
  *
  * El payload se PODA aquí (RN-25), en el mismo sitio en que se decide conservarlo. Podar más tarde
  * —al escribir— dejaría el ítem íntegro vivo en el acumulador de toda la corrida y bastaría con que
@@ -680,10 +796,12 @@ export type AcumuladorNit = Map<string, ConsolidadoComparendo>;
  */
 export function acumularSimit(
   acumulador: AcumuladorNit, items: readonly Record<string, unknown>[], candidatos: CandidatosPorCampo,
-): number {
+): ConteoAcumulacion {
   let ignorados = 0;
+  const formas = new Map<string, number>();
   const permitidos = camposConservables(candidatos);
   for (const item of items) {
+    contarForma(formas, item, candidatos);
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
     const previo = acumulador.get(canonico.numeroComparendo);
@@ -703,7 +821,7 @@ export function acumularSimit(
       municipioFuente: null,
     });
   }
-  return ignorados;
+  return { ignorados, formas };
 }
 
 /**
@@ -713,14 +831,20 @@ export function acumularSimit(
  * `municipio_fuente` es una pista de dónde se vio, y cambiarla en cada corrida según el orden en que
  * respondan los UTS —que con el pool de paralelismo no está garantizado— haría bailar el dato sin
  * que nada hubiera cambiado en la realidad.
+ *
+ * Aquí es donde la regla de la forma nacional (HU #11806) hace su trabajo: el ítem de Medellín llega
+ * con la grafía `D` + 20 dígitos y cae sobre la entrada que SIMIT ya creó con los mismos veinte
+ * dígitos, así que rellena huecos en vez de abrir una segunda deuda.
  */
 export function acumularMunicipal(
   acumulador: AcumuladorNit, items: readonly Record<string, unknown>[],
   candidatos: CandidatosPorCampo, codigoFuente: string,
-): number {
+): ConteoAcumulacion {
   let ignorados = 0;
+  const formas = new Map<string, number>();
   const permitidos = camposConservables(candidatos);
   for (const item of items) {
+    contarForma(formas, item, candidatos);
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
     const previo = acumulador.get(canonico.numeroComparendo);
@@ -741,7 +865,7 @@ export function acumularMunicipal(
       municipioFuente: codigoFuente,
     });
   }
-  return ignorados;
+  return { ignorados, formas };
 }
 
 /** Lo que ya había guardado, para no perder campos que esta corrida no trajo (RN-13). */

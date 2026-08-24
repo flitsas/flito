@@ -31,7 +31,8 @@ import { crearEspia, type Mutacion } from '../helpers/espia-drizzle.js';
 import { testToken, type TestRole } from '../helpers/auth.js';
 import { Redacted } from '../../src/shared/utils/crypto.js';
 import {
-  cuerpoDobleEncodeado, FABRICADO, itemMunicipal, payloadUts,
+  cuerpoDobleEncodeado, FABRICADO, itemMunicipal, itemMunicipalDeSimit, itemSimit, numeroSimit,
+  payloadUts,
 } from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
@@ -635,6 +636,104 @@ describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
 
     expect(r.body.resumen.itemsIgnorados).toBe(1);
     expect(insertsEn('flito_comparendos_registros')).toHaveLength(1);
+  });
+});
+
+// ─────────── La clave de negocio entre fuentes, de punta a punta (HU #11806, AC1/AC4) ────────────
+//
+// El merge ya lo prueba con funciones puras; esto mira el otro extremo, que es el que le importa al
+// operador: **cuántas FILAS se escriben**. Y hace falta aquí porque entre `numeroCanonico` y el
+// INSERT están el acumulador, el upsert por `numero_comparendo` y el mapa — tres sitios donde la
+// regla puede aplicarse y luego perderse.
+//
+// AC4 («la deuda no se cuenta dos veces») se demuestra con el conteo de filas y no con una suma de
+// `monto`: no existe endpoint que sume montos en el módulo. Una sola fila ES el AC4; dos filas lo
+// romperían aunque cada una tuviera su monto correcto.
+
+describe('POST /sync — las dos grafías del mismo comparendo son UNA fila (HU #11806)', () => {
+  /** El MAPA de arriba + la ruta con la que el UTS real nombra el número (`numeroComparendo`). */
+  const MAPA_11806 = [
+    ...MAPA,
+    { version: 1, origen: 'municipal', sourcePath: 'numeroComparendo', targetField: 'numeroComparendo', prioridad: 2, provisional: true },
+  ];
+
+  /** SIMIT trae `itemSimit(0)` y el municipio el MISMO comparendo con la letra del portal delante. */
+  function lasDosGrafias(): void {
+    simitMock.mockImplementation(async () => respuestaSimit([itemSimit(0)]));
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      respuestaMunicipal(fuente, [itemMunicipalDeSimit(0)]));
+  }
+
+  it('**un solo INSERT**, con `origenMerge: ambos` y las dos fuentes vistas (AC1/AC4)', async () => {
+    escenario({ municipios: ['MEDELLIN'], mapa: MAPA_11806 });
+    lasDosGrafias();
+
+    const r = await sync();
+
+    expect(r.status).toBe(200);
+    const insertados = insertsEn('flito_comparendos_registros');
+    // La aserción de la HU. Con la regla revertida esto son DOS: la deuda contada dos veces.
+    expect(insertados).toHaveLength(1);
+    expect(insertados[0]).toMatchObject({
+      numeroComparendo: numeroSimit(0),
+      origenMerge: 'ambos',
+      vistoEnSimit: true,
+      vistoEnMunicipal: true,
+      municipioFuente: 'MEDELLIN',
+      estado: 'activo',
+    });
+    // Y ni un ítem descartado: fusionar no puede ser un efecto de haber ignorado uno de los dos.
+    expect(r.body.resumen.itemsIgnorados).toBe(0);
+    expect(r.body.resumen.upserts).toBe(1);
+  });
+
+  it('**el payload municipal conserva la grafía cruda** aunque la columna guarde la canónica', async () => {
+    // La reversibilidad, vista en lo que de verdad se escribe: si mañana la letra resultara ser
+    // identidad, el dato para reconstruirla está en la fila.
+    escenario({ municipios: ['MEDELLIN'], mapa: MAPA_11806 });
+    lasDosGrafias();
+
+    await sync();
+
+    const insertado = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    const payload = insertado.payloadMunicipal as Record<string, unknown>;
+    expect(payload.numeroComparendo).toBe(`D${numeroSimit(0)}`);
+    expect(insertado.numeroComparendo).toBe(numeroSimit(0));
+  });
+
+  it('dos comparendos DISTINTOS siguen siendo dos filas: la regla no fusiona de más', async () => {
+    // El guardarraíl. Sin él, «una sola fila» también lo cumpliría una regla que lo funde todo.
+    escenario({ municipios: ['MEDELLIN'], mapa: MAPA_11806 });
+    simitMock.mockImplementation(async () => respuestaSimit([itemSimit(0), itemSimit(1)]));
+    municipalMock.mockImplementation(async (_n: string, fuente: string) =>
+      respuestaMunicipal(fuente, [itemMunicipalDeSimit(0), itemMunicipalDeSimit(1)]));
+
+    await sync();
+
+    const insertados = insertsEn('flito_comparendos_registros');
+    expect(insertados).toHaveLength(2);
+    expect(insertados.map((f) => f.numeroComparendo).sort())
+      .toEqual([numeroSimit(0), numeroSimit(1)].sort());
+  });
+
+  it('la fila que YA existe con la grafía canónica se ACTUALIZA: el municipio no abre una segunda', async () => {
+    // El caso de un ambiente que ya venía sincronizando por SIMIT. Sin la regla, la llegada del
+    // municipio insertaría una fila nueva al lado de una que ya tiene gestión encima.
+    escenario({
+      municipios: ['MEDELLIN'],
+      mapa: MAPA_11806,
+      existentes: [filaRegistro({
+        numeroComparendo: numeroSimit(0), vistoEnSimit: true, vistoEnMunicipal: false,
+      })],
+    });
+    lasDosGrafias();
+
+    await sync();
+
+    expect(insertsEn('flito_comparendos_registros')).toHaveLength(0);
+    expect(updatesEn('flito_comparendos_registros')[0]).toMatchObject({
+      vistoEnMunicipal: true, origenMerge: 'ambos',
+    });
   });
 });
 
@@ -1696,7 +1795,8 @@ describe('POST /sync — el UTS entrega comparendos de verdad (Bug #11711, AC5)'
     const insertados = insertsEn('flito_comparendos_registros');
     expect(insertados).toHaveLength(1);
     expect(insertados[0]).toMatchObject({
-      numeroComparendo: FABRICADO.numeroMunicipal,
+      // Sin la letra del portal (HU #11806): lo que se guarda es la grafia canonica de 20 digitos.
+      numeroComparendo: FABRICADO.numeroMunicipalCanonico,
       estadoFuente: 'Se adeuda',
       nitMonitoreado: NIT_A,
       municipioFuente: 'MEDELLIN',

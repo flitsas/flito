@@ -371,6 +371,28 @@ describe('acumular* — el payload entra YA podado al consolidado (AC1)', () => 
     expect(Object.prototype.hasOwnProperty.call(payload, 'documentoInfractor')).toBe(false);
     expect(payload.valorAPagar).toBe('604100');
   });
+
+  it('**el payload conserva la grafía CRUDA del número aunque la clave se normalice** (HU #11806)', async () => {
+    // Es lo que hace REVERSIBLE la regla de la forma nacional, y por eso se afirma aquí y no solo en
+    // el test del merge: `numeroComparendo` es `source_path` del mapa, así que la poda lo conserva.
+    // Si algún día se descubre que la letra del portal era identidad, se quita la regla y el
+    // municipal vuelve a crear su fila en el siguiente sync — el número crudo sigue en el JSONB.
+    //
+    // El corolario incómodo, dicho en voz alta: si alguien AÑADE aquí una poda que «normalice» el
+    // payload para que cuadre con la columna, la decisión deja de ser reversible sin que nada se
+    // ponga rojo. Este test es lo único que lo impide.
+    conMapa(MAPA_V1);
+    const mapa = await cargarMapaHomologacion();
+    const acumulador = new Map();
+
+    acumularMunicipal(
+      acumulador, [{ numero: 'D99999000000099999901' }], candidatosDe(mapa, 'municipal'), 'MEDELLIN',
+    );
+
+    expect([...acumulador.keys()]).toEqual(['99999000000099999901']);
+    const payload = acumulador.get('99999000000099999901')!.payloadMunicipal as Record<string, unknown>;
+    expect(payload.numero).toBe('D99999000000099999901');
+  });
 });
 
 // ────────────── Rutas ANIDADAS del mapa v2: se reconstruye la hoja, no el subárbol ──────────────
