@@ -123,6 +123,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en sitio prohibido',
   fechaComparendo: '2026-06-02',
+  // HU #11794. Con valor en la fila base, por lo mismo que la resolución de abajo: el caso del
+  // `null` —el histórico anterior a la 0164, que no tiene backfill— hay que pedirlo, y así no puede
+  // pasar por «no salía porque no había nada».
+  fechaNotificacion: '2026-06-19',
   organismo: 'Secretaría de Movilidad de Bello',
   municipioFuente: 'BELLO',
   monto: '604100.00',
@@ -457,6 +461,7 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       codigoInfraccion: 'C29',
       descripcionInfraccion: 'Estacionar en sitio prohibido',
       fechaComparendo: '2026-06-02',
+      fechaNotificacion: '2026-06-19',
       organismo: 'Secretaría de Movilidad de Bello',
       municipioFuente: 'BELLO',
       monto: '604100.00',
@@ -480,6 +485,22 @@ describe('GET /registros — la forma de lo que devuelve', () => {
     });
     // `null` y no ausente: la pantalla no tiene que distinguir «no vino» de «se acabó».
     expect(r.body.nextCursor).toBeNull();
+  });
+
+  it('**la fila anterior a la 0164 sale con `fechaNotificacion: null`**, sin inventar nada (AC4)', async () => {
+    // El histórico no tiene backfill —el dato no está ni en las columnas ni en `payload_*`, porque
+    // la v3 del mapa no lo nombraba y RN-25 lo podaba— así que se publica el hueco tal cual. `null`
+    // y no ausente: la pantalla no tiene que distinguir «no vino» de «no se sabe», y un valor por
+    // defecto convertiría el histórico en un dato verificado.
+    kdb.when.select(TABLA, [fila({ fechaNotificacion: null })]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body.items[0]).toHaveProperty('fechaNotificacion');
+    expect(r.body.items[0].fechaNotificacion).toBeNull();
+    // Y la otra fecha sigue saliendo: la fila no viene vacía entera.
+    expect(r.body.items[0].fechaComparendo).toBe('2026-06-02');
   });
 
   it('**el listado no pide los payloads crudos ni los devuelve** (RN-31)', async () => {

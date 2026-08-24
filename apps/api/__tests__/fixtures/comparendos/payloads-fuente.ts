@@ -168,6 +168,62 @@ export function itemMunicipal(): Record<string, unknown> {
   };
 }
 
+/**
+ * Las TRES grafías de `fechaNotificacion` observadas en respuestas reales del NIT 901789698
+ * (compartidas el 2026-08-24), y el centinela (HU #11794).
+ *
+ * **Estos valores NO son fabricados, al revés que el resto del archivo, y se puede:** una fecha de
+ * notificación no identifica a nadie —es un hito procesal del comparendo, como `fechaComparendo`— y
+ * aquí la FORMA es justamente lo que se prueba. Fabricarlas habría dejado la única aserción que
+ * importa (que `14/05/2026`, sin hora, entra) apoyada en un valor inventado.
+ *
+ * Las tres llegan por el MISMO `source_path` (`fechaNotificacion`, en la raíz del ítem), así que
+ * quien las homologa es el parser y no el mapa. La de Bogotá es la que se cae si alguien hace
+ * obligatoria la hora en la rama con barras.
+ */
+export const FECHA_NOTIFICACION = {
+  /** SIMIT (Verifik): `DD/MM/YYYY HH:MM:SS`. */
+  simit: '14/05/2026 00:00:00',
+  /** UTS Medellín: ISO, sin hora. */
+  medellin: '2026-07-30',
+  /** UTS Bogotá: `DD/MM/YYYY` **SIN HORA**. */
+  bogota: '14/05/2026',
+  /** El centinela de «no notificado», tal y como lo escribe SIMIT. */
+  centinela: '01/01/1900 00:00:00',
+  /** El mismo centinela sin hora, que es como lo escribe el UTS. */
+  centinelaSinHora: '01/01/1900',
+  /** Lo que las tres primeras tienen que producir en la columna, ya canónicas. */
+  canonicoSimit: '2026-05-14',
+  canonicoMedellin: '2026-07-30',
+  canonicoBogota: '2026-05-14',
+} as const;
+
+/**
+ * El ítem de SIMIT de un comparendo que **SÍ está notificado** (HU #11794).
+ *
+ * Va aparte y no como bandera de `itemSimit` a propósito: `itemSimit` trae el CENTINELA desde la HU
+ * #11501 y esa es su gracia —es el caso que obligaba a no mapear el campo—, así que cambiarlo
+ * borraría el escenario de AC2 al ganar el de AC1.
+ */
+export function itemSimitNotificado(i = 0): Record<string, unknown> {
+  return { ...itemSimit(i), fechaNotificacion: FECHA_NOTIFICACION.simit };
+}
+
+/** El ítem del UTS de Medellín: `fechaNotificacion` ISO en la RAÍZ del ítem (HU #11794). */
+export function itemMunicipalNotificadoMedellin(): Record<string, unknown> {
+  return { ...itemMunicipal(), fechaNotificacion: FECHA_NOTIFICACION.medellin };
+}
+
+/**
+ * El ítem del UTS de **Bogotá**: `DD/MM/YYYY` sin hora (HU #11794).
+ *
+ * Es la fixture que muerde. Con la hora obligatoria en el parser, este ítem —y con él la ciudad
+ * entera— homologa `fechaNotificacion: null` y ningún test escrito contra Medellín se entera.
+ */
+export function itemMunicipalNotificadoBogota(): Record<string, unknown> {
+  return { ...itemMunicipal(), fechaNotificacion: FECHA_NOTIFICACION.bogota };
+}
+
 /** El mismo ítem del UTS cuando ya es multa: `nroResolucion` con valor (HU #11712). */
 export function itemMunicipalMulta(): Record<string, unknown> {
   return { ...itemMunicipal(), nroResolucion: FABRICADO.numeroResolucionMunicipal };

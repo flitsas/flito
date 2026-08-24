@@ -114,6 +114,9 @@ const COLUMNAS_REGISTRO = {
   codigoInfraccion: flitoComparendosRegistros.codigoInfraccion,
   descripcionInfraccion: flitoComparendosRegistros.descripcionInfraccion,
   fechaComparendo: flitoComparendosRegistros.fechaComparendo,
+  // HU #11794. Sale por la lista blanca como todo lo demás: la columna nueva no se publica por
+  // existir, se publica porque está escrita aquí.
+  fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
   organismo: flitoComparendosRegistros.organismo,
   municipioFuente: flitoComparendosRegistros.municipioFuente,
   monto: flitoComparendosRegistros.monto,
@@ -182,6 +185,9 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     codigoInfraccion: f.codigoInfraccion,
     descripcionInfraccion: f.descripcionInfraccion,
     fechaComparendo: f.fechaComparendo,
+    // `null` es «no notificado o no se sabe», y también lo que devuelve todo el histórico anterior a
+    // la 0164 (sin backfill). No se traduce a nada aquí: el visor decide cómo pintar la ausencia.
+    fechaNotificacion: f.fechaNotificacion,
     organismo: f.organismo,
     municipioFuente: f.municipioFuente,
     monto: f.monto,

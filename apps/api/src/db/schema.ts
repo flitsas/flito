@@ -4382,6 +4382,20 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   codigoInfraccion: varchar('codigo_infraccion', { length: 20 }),
   descripcionInfraccion: text('descripcion_infraccion'),
   fechaComparendo: date('fecha_comparendo'),
+  // Cuándo se NOTIFICÓ el comparendo (HU #11794, migración 0164). Columna propia y no un dato
+  // derivable: las dos fuentes la publican —en tres grafías distintas— y de ella cuelga el conteo de
+  // términos del proceso. Un dato que no es columna no se puede filtrar ni ordenar, y el payload
+  // crudo viene podado a la lista blanca del `field_map` (RN-25).
+  //
+  // `null` significa «no notificado o no se sabe», y las dos cosas caben en el mismo nulo a
+  // propósito: ninguna de las dos fuentes distingue «todavía no se notificó» de «no publico la
+  // fecha». Lo que NO cabe es `1900-01-01`: ese valor es el CENTINELA con el que el proveedor dice
+  // «no notificado» (premisa documentada en la 0158), y persistirlo guardaría una fecha del siglo
+  // XIX como si fuera un hecho. Lo descarta `fechaCanonica`, para esta columna Y para
+  // `fecha_comparendo` — el mismo centinela con el mismo criterio.
+  //
+  // Dato de FUENTE (CF-09): lo escribe el sync y ningún endpoint de gestión lo edita.
+  fechaNotificacion: date('fecha_notificacion'),
   organismo: varchar('organismo', { length: 120 }),
   municipioFuente: varchar('municipio_fuente', { length: 40 }),
   monto: numeric('monto', { precision: 14, scale: 2 }),
