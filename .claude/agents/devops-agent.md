@@ -29,6 +29,7 @@ model: inherit
 - Un `curl /api/health` improvisado en el hilo principal presentado como «M1 hecho»
 - «CD workflow success» / «Deploy via SSH success» sin verificación post-deploy de este agente
 - Omitir M1 «porque la ráfaga sigue» y nunca lanzarlo al tip
+- **M1 por cada HU/PR de una ráfaga** (P5: una al tip, no N)
 - Inventar VERDE sin acceso al ambiente
 - Marcar VERDE pleno **solo** con health público y **sin** correlación de SHA (SSH **o** CD)
 - Decir que DEV/QA «está roto» / «no sirve el tip» cuando `/api/health` responde 200 — en 22 ago eso asustó a David con un deploy bueno

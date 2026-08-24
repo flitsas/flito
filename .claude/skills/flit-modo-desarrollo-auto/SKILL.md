@@ -2,7 +2,7 @@
 name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
-  Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación filtrada → Skill flit-code-review ANTES del PR (+ security diff-scoped ∥ db-review) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent B alcance AC (repro+regresión en Bug; A temprano; FAIL=retrabajo sin Bug nuevo) → monitor CI + merge al verde en paralelo con el siguiente work item → Modo B → devops M1 mínimo al tip.
+  Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Skill flit-code-review ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → Resolved vía Skill gestion-hu → Agent qa-agent B alcance P1 (mutantes ≤3; FAIL=retrabajo sin Bug nuevo) → monitor CI + merge al verde en paralelo con el siguiente work item → Modo B → devops M1 una vez al tip.
   Ledger obligatorio por work item. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos, y PROHIBIDO dejar un Bug mergeado sin Resolved. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, corrige los bugs, flit-modo-desarrollo-auto.
 ---
 
@@ -68,7 +68,7 @@ Omitir en silencio = fallo de proceso.
 Pegar en el reporte del hilo (y opcionalmente en el cuerpo del PR) una línea por eslabón:
 
 ```
-<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · estado=Resolved✅|❌ · pr-monitor=Agent MERGED|LISTO-PARA-MERGE|CI-EN-CURSO|CI-ROJO|❌ · merge · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
+<HU|Bug> #<id> ledger: gestion=Skill✅(HH:MM)|❌ · impl=Agent✅|❌ · code-review=Skill✅(HH:MM)|❌ · security=✅|N/A · db=✅|N/A · integration-A=Skill✅(HH:MM)|❌ · qa=HANDOFF✅|SIN-ENTORNO|FAIL-retrabajo|❌ · estado=Resolved✅|❌ · pr-monitor=Agent MERGED|CI-EN-CURSO|CI-ROJO|CONFLICTO|❌ · integration-B=Skill✅(HH:MM)|N/A · M1=Agent✅|N/A
 ```
 
 `estado=Resolved` es la casilla que delata al **Bug huérfano**: si el work item se mergeó y el
@@ -121,31 +121,31 @@ Abrir el PR **no** es un gate humano de “espera a que te digan sigue”. Tras 
 
 | Pista | Qué hace | No hace |
 |---|---|---|
-| **A — CI → merge** | **Delegada al `Agent pr-monitor-agent`** (en background) con el número del PR y los hechos de gate: él monitorea los checks, hace triage del log rojo, detecta conflictos y mergea a `develop` con la auth del Feature, sin nuevo “sí”. | No termina el turno con «PR abierto, avísame cuando CI pase»; no vigila los checks a mano con `pull_request_read` suelto |
+| **A — CI → merge** | **Delegada al `Agent pr-monitor-agent`** (en background) con el **número del PR**: él monitorea los checks, hace triage del log rojo, detecta conflictos y **mergea a `develop`** cuando CI está verde. Éxito = `MERGED`. | No termina el turno con «PR abierto, avísame cuando CI pase»; no vigila los checks a mano con `pull_request_read` suelto; no retiene el merge por falta de SHA/QA/«sí» en el prompt |
 | **B — Siguiente HU** | En cadena apilada, **arranca la siguiente HU** (Active → diseño si aplica → impl) desde la rama previa **mientras** corre el CI de la actual, si el ledger `qa=` de la actual ya es ✅ o `SIN-ENTORNO` | No se queda idle solo porque el merge aún no ocurrió |
 
 **Prohibido (anti-patrones de estancamiento):**
 
 1. Terminar el turno pidiendo al humano que diga «continúa» **solo** porque el PR está abierto o el CI está `pending`/`in_progress`.
 2. Bloquear toda la ráfaga esperando CI en un bucle vacío sin avanzar la pista B (siguiente HU apilada).
-3. Re-preguntar autorización de merge si **ya** se otorgó a nivel Feature en la sesión.
-4. Tratar “PR creado” como fin del trabajo de la HU cuando aún faltan monitor CI, merge (si auth) o la siguiente HU del Feature.
+3. Re-preguntar si se puede mergear a `develop` un PR cuyo CI ya está verde (salvo opt-out «no mergees»).
+4. Tratar “PR creado” como fin del trabajo de la HU cuando aún faltan monitor CI, merge a `develop` o la siguiente HU del Feature.
 5. Quedar idle tras un merge con la **cola post-merge pendiente** (Modo B, `devops-agent` M1, QA retro de la ráfaga): esa cola se ejecuta **en el mismo ciclo**, no es trabajo diferible.
 6. Mantener subagentes vivos con mensajes de «espera» (p. ej. qa-agent modo A retenido esperando la implementación): cada modo es una invocación acotada que cierra con HANDOFF.
 7. Preguntar al humano «qué debo hacer», «qué te queda», «qué sigue» cuando el siguiente paso está en la matriz de `AGENTS.md` (22 ago: varias sesiones lo devolvieron a David). El siguiente ejecutor se invoca; no se consulta.
 8. Codear un WI de **otro** Feature porque ADO lo muestra como siguiente. Dueño = esta sesión + bloque orchestrator si hay paralelo.
 
 **Espera legítima (NO es estancamiento ni ineficiencia):** detenerse a esperar al humano ante una
-decisión de negocio, un gate humano (merge sin autorización de Feature, promoción, despliegue), un
+decisión de negocio, un gate humano (promoción, despliegue, opt-out «no mergees»), un
 AC ambiguo o un permiso faltante es **obligatorio** — las decisiones importantes las toma el
 humano, no los agentes. El anti-estancamiento aplica solo a trabajo **ya autorizado y ejecutable**
 (CI verde sin merge hecho, Modo B/M1 pendientes, siguiente HU lista).
 
 **Cómo monitorear CI sin congelar el hilo:**
 
-1. Tras el push/PR + Modo A: lanzar `Agent pr-monitor-agent` **en background** (contrato de invocación en `.claude/agents/pr-monitor-agent.md`: PR, autorización del Feature, `SHA revisado` del veredicto, HANDOFF de qa, campos del work item, si es eslabón de la pila).
-2. Arrancar de inmediato la pista B (siguiente HU/Bug). El hilo **no** hace polling propio de check-runs: eso es trabajo del subagente, que espera con backoff hasta ~25-30 min.
-3. Su HANDOFF decide: `MERGED` → cola post-merge (Modo B + M1 + rebase de la pila) en el **mismo ciclo**, sin preguntar de nuevo · `LISTO-PARA-MERGE` → completar el gate que falta y relanzarlo · `CI-EN-CURSO` → relanzarlo al terminar el eslabón en curso · `CONFLICTO` → delegar al agente dueño que él nombra.
+1. Tras el push/PR + Modo A: lanzar `Agent pr-monitor-agent` **en background** (contrato: el número del PR basta; cadena apilada u opt-out «no mergees» solo si aplican — ver `.claude/agents/pr-monitor-agent.md`).
+2. Arrancar de inmediato la pista B (siguiente HU/Bug). El hilo **no** hace polling propio de check-runs: eso es trabajo del subagente, que espera el CI hasta estado terminal (~90 min).
+3. Su HANDOFF decide: `MERGED` → cola post-merge (Modo B + M1 + rebase de la pila) en el **mismo ciclo**, sin preguntar de nuevo · `CI-EN-CURSO` → **relanzarlo ya** (mismo PR) · `CI-ROJO` / `CONFLICTO` → delegar al agente dueño que él nombra · `LISTO-PARA-MERGE` solo si GitHub rechazó el merge (permisos / branch protection), no por un dato que el prompt no trajo.
 4. Si el veredicto es `CI-ROJO` con causa `CODIGO` → **sí** pausar esa HU/pila, delegar la corrección al agente dueño, comentar en Discussion e informar al humano (única pausa legítima por CI). Con causa `INFRA` el subagente ya relanzó el job una vez: no relanzarlo otra vez a mano.
 
 **Cuándo sí se pausa** (única excepción al continuo): CI rojo de la HU actual, veredicto
@@ -154,8 +154,8 @@ decisión de negocio pendiente. En esos casos se para **esa** HU (o la pila afec
 comentario en Discussion y se informa al humano — no se sigue construyendo encima de rojo.
 
 **Modo secuencial (opt-in):** solo si el humano pide explícitamente "una HU a la vez", "espera el
-merge" o "secuencial". Entonces cada HU nace de `develop` actualizado; con autorización del
-Feature, el agente mergea tras CI verde antes de arrancar la siguiente. **Aun así**, no pide
+merge" o "secuencial". Entonces cada HU nace de `develop` actualizado; el `pr-monitor-agent`
+mergea tras CI verde antes de arrancar la siguiente. **Aun así**, no pide
 «continúa» al humano mientras el CI está en curso: monitorea y mergea solo.
 
 ## El ciclo (por cada HU, en orden de dependencias)
@@ -232,16 +232,15 @@ Consultar la matriz de `AGENTS.md`. Umbrales proporcionales:
 
 El prompt del Task debe ser **denso** (AC pegados, paths, modo slim|full). No empezar el paso 3 sin entregables cuando el disparador exige full/slim.
 
-### 2b. Merge a `develop` (tras CI verde, si hay autorización)
+### 2b. Merge a `develop` (tras CI verde)
 
-Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por este PR):
+El **`Agent pr-monitor-agent`** ya lanzado en el anti-estancamiento **mergea** cuando el CI está
+verde y no hay conflictos. No hay un segundo «sí». Opt-out: el humano dijo «no mergees».
 
-1. Los pasos 1 y 2 los ejecuta el **`Agent pr-monitor-agent`** ya lanzado en el anti-estancamiento:
-   verifica las precondiciones de `flit-integration-ado` (base = `develop`, checks CI en `success`
-   — incluido `naming` —, sin conflictos, rama `HU/<ID>-*` o `BUG/<ID>-*`, HEAD == `SHA revisado`,
-   gate QA invocado) y mergea con MCP `github` (`merge_pull_request`, merge commit) — **nunca** a
-   `staging`/`release`. El hilo solo mergea por su cuenta si el subagente devolvió
-   `LISTO-PARA-MERGE` y el gate faltante ya se completó.
+1. El subagente verifica las condiciones GitHub de `flit-integration-ado` (base = `develop`,
+   checks CI en `success` — incluido `naming` —, sin conflictos) y mergea con MCP `github`
+   (`merge_pull_request`, merge commit) — **nunca** a `staging`/`release`. El hilo solo mergea
+   por su cuenta si el subagente devolvió `CI-EN-CURSO` (relanzarlo ya) o GitHub rechazó el merge.
 2. Del HANDOFF del subagente se toma el **SHA del merge commit** para el Modo B.
 3. **`Skill flit-integration-ado` Modo B** (Deploy DEV + Commits integrado en `Custom.Commits`).
 4. Tras Modo B (o al cerrar una ráfaga de merges de la pila): invocar **`Agent devops-agent` M1** una vez
@@ -251,9 +250,6 @@ Solo si el humano autorizó merge a `develop` para este Feature (o dio "sí" por
    DESFASE o CD en curso). Si no hay acceso, HANDOFF `SIN-ACCESO` (no fingir VERDE).
 5. Rebasar las ramas pendientes de la pila sobre `origin/develop` y
    `git push --force-with-lease` solo de la rama propia.
-
-Sin autorización: dejar el PR abierto y continuar la cadena apilada (el humano mergea cuando quiera;
-tras cada merge humano, rebasear igual).
 
 **Tras cada merge (agente o humano) de un eslabón:** rebasar las ramas pendientes sobre `develop`
 (`git fetch origin && git rebase origin/develop`) y force-with-lease solo de la rama propia.
@@ -266,16 +262,17 @@ del Feature y las de «solo esquema/migración/seeds». Excepción única: fix �
 archivo tras HANDOFF, o pedido explícito del humano. Cumplir los AC uno a uno (`AGENTS.md`).
 No ampliar el alcance a otras HU. Pasar prompt denso (AC + paths + decisión de diseño +
 prohibiciones operativas: **no** `git add -A`/`.` ni staging masivo, **no** commits, verificación
-filtrada por defecto — no suite completa local salvo umbral transversal).
+**P1** — archivos de este WI, no glob del módulo ni mutantes; no suite completa local salvo umbral
+transversal).
 
 ### 4. Tests y pipelines
 
-**Mínimo local vs CI** (cada comando del mínimo debe pasar con salida real; prohibido inventar):
+**Mínimo local vs CI** (cada comando del mínimo debe pasar con salida real; prohibido inventar). Alcance = **P1** de `AGENTS.md` (archivos de este WI, no el directorio del módulo):
 
 | Toque | Local mínimo | CI (gate suite completa) |
 |---|---|---|
-| API módulo | `npm test -w apps/api -- <paths __tests__>` + `build:api` si tipos | suite API completa |
-| Web página | `typecheck -w apps/web` + E2E del spec si entorno up | `build:web` + e2e smoke |
+| API de este WI | `npm test -w apps/api -- <archivos *.test.ts de este WI>` + `build:api` si tipos | suite API completa |
+| Web página | `typecheck -w apps/web` + E2E del spec de la HU si entorno up | `build:web` + e2e smoke |
 | shared-types / shared API / schema transversal | build shared-types + greps + tests afectados / suite API | completo |
 | Shell / router / login | typecheck + `test:e2e:smoke` si entorno | completo |
 
@@ -286,15 +283,14 @@ npm run build -w packages/shared-types   # si shared-types
 npm run test:shared-types                # si shared-types
 npm run check:hooks                      # si hooks
 npm run build:api                        # si tipos API
-npm test -w apps/api -- <paths>          # default filtrado
+npm test -w apps/api -- <archivos *.test.ts de este WI>  # default P1
 npm run test -w apps/api                 # solo umbral transversal
 npm run build:web / typecheck -w apps/web
-npx playwright test e2e/tests/<spec>.spec.ts   # default E2E filtrado
+npx playwright test e2e/tests/<spec>.spec.ts   # spec de esta HU
 npm run test:e2e:smoke -w apps/web       # shell/login o pedido explícito
 ```
 
-Migraciones de BD: exportar `DATABASE_URL` (`set -a; source apps/api/.env; set +a`). Validar migración
-nueva contra BD demo y **correrla dos veces** (idempotencia):
+Migraciones de BD: exportar `DATABASE_URL` (`set -a; source apps/api/.env; set +a`). Validar **el archivo nuevo** contra BD demo ya migrada y **correrla dos veces** (P6). **Prohibido** `CREATE DATABASE` + cadena histórica.
 
 ```bash
 docker exec -i flito-postgres psql -U flito -d flito_demo -v ON_ERROR_STOP=1 < <migracion>.sql
@@ -303,7 +299,7 @@ docker exec -i flito-postgres psql -U flito -d flito_demo -v ON_ERROR_STOP=1 < <
 **Nunca** `drizzle-kit migrate`. Avisar al usuario de que se tocó su BD local.
 
 Tras el push y el PR, **Anti-estancamiento post-PR**: lanzar `Agent pr-monitor-agent` (background);
-en paralelo avanzar la siguiente HU si el ledger lo permite; al verde + auth él mergea sin nuevo “sí”.
+en paralelo avanzar la siguiente HU si el ledger lo permite; al verde él mergea.
 
 **Si CI falla: arreglarlo y repetir. No apilar encima de rojo.**
 
@@ -312,8 +308,8 @@ en paralelo avanzar la siguiente HU si el ledger lo permite; al verde + auth él
 Con el diff (`git diff origin/develop...HEAD`), **antes** de abrir PR (**cada HU**):
 
 1. **`Skill flit-code-review`** (veredicto canónico). `BLOQUEADO` → corregir; no abrir PR.
-2. **`security-agent` (diff-scoped)** si superficie sensible. `FAIL` → corregir.
-3. **`db-review-agent`** si toca `schema.ts` o migraciones. Críticos → corregir vía backend.
+2. **`security-agent` (diff-scoped)** si superficie sensible (P5: no en copy/CSS/tests-only). `FAIL` → corregir.
+3. **`db-review-agent`** si toca `schema.ts` o migraciones. Críticos → corregir vía backend. No re-auditar por una Nota.
 4. Si **ambos** 2 y 3 aplican → lanzarlos **en paralelo** en el mismo turno.
 5. Si un gate no aplica → declararlo en el cuerpo del PR.
 
@@ -378,9 +374,9 @@ código es desperdicio de contexto/wall-time, no paralelismo.
 
 | Tipo de work item | Modos mínimos | Precisión exigida en HANDOFF |
 |---|---|---|
-| AC Gherkin / FRONTEND | A (si faltan TCs) + **B** (alcance AC: spec/módulo filtrado) | Matriz AC→TC; re-run propio; PASS / FAIL / SIN-ENTORNO |
-| BACKEND-only | **B** Vitest del módulo (filtrado); E2E declarado si se omite | Comando + salida real de **esta** invocación |
-| **Bug** | **B** con alcance repro + regresión del módulo (A antes si no hay TC del repro) | Repro rojo→verde con salida real; TC de regresión nombrado |
+| AC Gherkin / FRONTEND | A (si faltan TCs) + **B** (alcance AC = spec/archivos de este WI, P1) | Matriz AC→TC; re-run propio; PASS / FAIL / SIN-ENTORNO; mutantes ≤3 |
+| BACKEND-only | **B** Vitest P1 (archivos de este WI, no el directorio del módulo); E2E declarado si se omite | Comando + salida real de **esta** invocación |
+| **Bug** | **B** con alcance repro + test de regresión de **ese** repro (A antes si no hay TC) | Repro rojo→verde con salida real; TC de regresión nombrado |
 | Entorno caído | Invocar igual | Fast-path `SIN-ENTORNO` (≤2 checks); del **agente**, no del hilo |
 
 **FAIL del gate B:** reactivar la HU a `Active` y corregir vía `backend-agent` / `frontend-agent`.
@@ -388,9 +384,9 @@ código es desperdicio de contexto/wall-time, no paralelismo.
 desarrollo ≠ defecto formal. Modo C solo si el **QA lo pide explícitamente** (etapa formal).
 
 **Prohibido:** comentario HTML de entrega como sustituto; «QA pendiente» sin Agent; inventar
-`QA_PDN`; copiar stdout del impl como evidencia QA sin re-run; suite monorepo local como único
-criterio de PASS del gate B (el alcance AC basta; CI cubre la suite completa); seguir a la
-siguiente HU sin fila `qa=` en el ledger; tratar FAIL del gate como «novedad con Bug».
+`QA_PDN`; copiar stdout del impl como evidencia QA sin re-run; glob del módulo o suite monorepo
+como criterio de PASS (P1 basta; CI cubre la suite); segundo qa-agent para una Nota (P4); seguir a
+la siguiente HU sin fila `qa=` en el ledger; tratar FAIL del gate como «novedad con Bug».
 
 En cadena apilada se puede arrancar la siguiente HU **solo si ya se invocó** `qa-agent` en la
 actual **y** el resultado no es `FAIL` (aunque quede `SIN-ENTORNO`). Con `FAIL`: re-trabajo
@@ -403,13 +399,13 @@ En **modo continuo** (defecto):
 
 1. Tras PR + Modo A + qa del ledger en ✅/`SIN-ENTORNO` → **arrancar la siguiente HU de inmediato**
    (pista B), aunque el CI/merge de la actual aún no hayan terminado.
-2. En paralelo, pista A: cuando CI esté verde y haya auth del Feature → merge + Modo B + rebase pila
-   **sin** preguntar otra vez.
-3. Si no hay autorización de merge: igual se apila la siguiente desde la rama previa; los PRs
-   quedan abiertos para merge humano — **sin** quedarse idle.
+2. En paralelo, pista A: cuando CI esté verde → `pr-monitor-agent` mergea + Modo B + rebase pila
+   **sin** preguntar.
+3. Un «no mergees» explícito: igual se apila la siguiente desde la rama previa; ese PR queda
+   abierto — **sin** quedarse idle.
 
 En **modo secuencial** (opt-in): no arrancar la siguiente hasta merge de la actual; durante la
-espera de CI, **monitorear y mergear** (si auth), no pedir al humano que despierte el hilo.
+espera de CI, **monitorear y mergear**, no pedir al humano que despierte el hilo.
 
 Al terminar todas, reportar: HU, rama, PR, eslabón, estado del pipeline, merges hechos y PRs
 pendientes.
@@ -418,8 +414,8 @@ pendientes.
 
 1. **Nunca `git add -A` ni `git add .`** — el working tree puede tener parches de demo que no deben
    commitearse. Listar archivos explícitamente y verificar con `git status --short`.
-2. **Merge solo a `develop`**, y solo con autorización del Feature (o "sí" por PR) + precondiciones
-   de `flit-integration-ado` en verde. **Nunca** mergear a `staging` ni `release`.
+2. **Merge solo a `develop`**, cuando CI verde y sin conflictos, vía `pr-monitor-agent`.
+   Opt-out: el humano dijo «no mergees». **Nunca** mergear a `staging` ni `release`.
 3. **Nunca `Resolved` con build local en rojo o con CI remoto ya fallido.** CI remoto `pending`
    no bloquea Resolved ni la siguiente HU en cadena; sí obliga a seguir monitoreando hasta merge
    o rojo.
@@ -473,9 +469,9 @@ pendientes.
 - [ ] Implementación vía **Agent** `backend-agent` / `frontend-agent` con prompt denso (no código de HU completa en el hilo)
 - [ ] (Recomendado) **Agent** `qa-agent` modo A en paralelo con AC listos
 - [ ] Todos los AC cubiertos
-- [ ] Mínimo local del alcance en verde (filtrado); CI = gate de suite completa
+- [ ] Mínimo local P1 en verde (archivos de este WI, no glob del módulo); CI = gate de suite completa
 - [ ] **Skill** `flit-code-review` con veredicto **OK** **antes** del PR (único éxito; `OK-CON-OBSERVACIONES` = retrabajo o waiver, no abre el PR), cargada **en este turno** (no reusada de HUs previas) y amarrada al `SHA revisado`
-- [ ] Sin commits post-veredicto sin re-review: el HEAD del PR/merge == `SHA revisado` del veredicto vigente
+- [ ] **Agent** `pr-monitor-agent` invocado tras el PR (éxito = `MERGED`; `CI-EN-CURSO` → relanzar ya)
 - [ ] `security-agent` (diff-scoped) si superficie sensible (o "no aplica"); ∥ `db-review` si ambos aplican
 - [ ] `db-review-agent` si esquema/migraciones (o "no aplica")
 - [ ] Commit sin archivos colados (`git status --short` limpio)
@@ -484,7 +480,7 @@ pendientes.
 - [ ] **Skill** `flit-gestion-hu` → `Resolved` + plantilla entrega QA (local verde; CI pending OK con monitor activo)
 - [ ] **Agent** `qa-agent` invocado con HANDOFF (`PASS` = único éxito / `FAIL` / `SIN-ENTORNO`; `PASS-CON-OBSERVACIONES` se trata como FAIL). Si `FAIL` o CON-OBS sin waiver → HU a `Active` + corregir hasta **PASS**; **sin** modo C
 - [ ] Ledger de la HU pegado en el reporte del hilo, con hora de carga de cada Skill (`FAIL-retrabajo` si aplica)
-- [ ] Pista A activa: CI monitoreado; con auth → merge al verde **sin** re-preguntar; **Skill** Modo B
+- [ ] Pista A activa: `Agent pr-monitor-agent` lanzado; merge al verde **sin** re-preguntar; **Skill** Modo B tras `MERGED`
 - [ ] Pista B: siguiente HU arrancada si aplica (no idle «esperando continúa»)
 - [ ] Tras Modo B / fin de ráfaga: **Agent** `devops-agent` M1 (o HANDOFF `SIN-ACCESO`)
 - [ ] Siguiente HU solo si `qa=` del ledger es ✅ o `SIN-ENTORNO` (no con `FAIL-retrabajo` ni ❌)

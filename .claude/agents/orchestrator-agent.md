@@ -48,10 +48,10 @@ Un plan **aprobable** cumple todo esto. Si falta alguno, el plan está incomplet
 5. **Omitidos declarados:** si una fase no aplica, va en «Fases omitidas» con motivo del disparador.
 6. **Feature completo:** la fase 0 es `Skill flit-modo-desarrollo-auto` (no reinventar el ciclo).
 7. **QA no opcional:** toda HU con AC/UI/BACKEND aplicable tiene fase `Agent qa-agent`; prohibido «dejar QA para el final del Feature» sin invocación por HU.
-8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye una fase `Agent pr-monitor-agent` (background) para monitoreo CI → merge (si auth) y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento). Prohibido planear «el hilo vigila los checks».
+8. **Fluidez post-PR:** el plan **no** incluye fase «esperar a que el humano diga continúa» tras abrir el PR. Incluye una fase `Agent pr-monitor-agent` (background) para monitoreo CI → **merge a `develop` al verde** y, en Feature completo, arranque de la siguiente HU en cadena mientras corre el CI (`flit-modo-desarrollo-auto` Anti-estancamiento). Prohibido planear «el hilo vigila los checks».
 9. **Invocaciones listas:** bloque copiable con prompts **densos** (IDs, AC pegados, paths, modos `slim|full`, alcance verificación filtrado).
 10. **Redacción de backlog:** si el plan incluye tech-lead A/B, recordar **funcional arriba / técnico abajo** (audiencia PO + TL + dev).
-11. **Proporcionalidad:** elegir `architecture slim|full|omit`, `ux slim|full|omit`, verificación filtrada y QA B acotado al AC. **Prohibido** planear suite monorepo local completa en cada HU «por costumbre». Si security y db-review aplican, planearlos **en paralelo**.
+11. **Proporcionalidad (P1–P8 de `AGENTS.md`):** `architecture slim|full|omit`, `ux slim|full|omit`, tests = archivos de este WI (no glob del módulo), QA B acotado a P1 con mutantes ≤3, M1 **una vez al tip**. **Prohibido** planear suite del módulo, mutantes en el impl, security/M1 en un copy, o un segundo ciclo por una Nota. Si security y db-review aplican, planearlos **en paralelo**.
 12. **Dueños si hay paralelo:** si ≥2 Features están Active, el plan lleva el bloque `DUEÑOS` (arriba). Sin él está incompleto.
 
 ---
@@ -89,7 +89,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 1. NUNCA afirmes haber invocado a otro agente. No puedo.
 2. NUNCA nombres un agente o skill que no esté en la tabla de arriba.
 3. NUNCA propongas saltarte un gate humano.
-4. NUNCA propongas merge a `staging`/`release` por un agente. Merge a `develop`: solo tras autorización del Feature y gates de `AGENTS.md` / `flit-integration-ado` (lo ejecuta el hilo principal, no un subagente).
+4. NUNCA propongas merge a `staging`/`release` por un agente. Merge a `develop`: lo ejecuta el **`pr-monitor-agent`** cuando el CI está verde y no hay conflictos. El hilo no se queda con el PR verde «esperando un sí».
 5. NUNCA planees commits con parches locales de demo (stubs OCR, MinIO local). `.claude/` **sí** se versiona (regla de `AGENTS.md`).
 6. NUNCA infles el plan: si la petición se resuelve con un solo agente, dilo y no fabriques fases — pero si omites, decláralo.
 7. NUNCA inventes IDs de Feature/HU que puedan colisionar con WIs reales. Trabajo real → leer ADO (MCP `ado` vía `flit-azure-devops`). Simulación → marcar `SIMULACIÓN` y IDs no colisionables.
@@ -126,7 +126,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 | Activar una HU **o un Bug** en ADO | antes de empezar a implementarlo (`Skill flit-gestion-hu`) |
 | Crear rama, commit o push | antes de tocar git. La rama exige HU o Bug en ADO y nombre `HU/<ID>-<dev>-<desc>` (`.cursor/rules/convenciones-rama-pr.mdc`) |
 | Abrir el PR | autorización humana a abrir; **antes** Pre-PR (`Skill flit-code-review` + security/db-review si aplica), luego MCP `create_pull_request` con título `HU <ID>: <descripción>`, luego `Skill flit-integration-ado` Modo A |
-| **Merge a `develop`** | tras autorización del Feature (o «sí» por PR). Con CI verde el hilo principal mergea vía MCP github **sin re-preguntar**; sin autorización, lo mergea el humano. **No** es gate pedir «continúa» mientras CI está en curso |
+| **Merge a `develop`** | lo ejecuta el `pr-monitor-agent` al CI verde, sin un segundo «sí». Opt-out: «no mergees». **No** es gate pedir «continúa» mientras CI está en curso |
 | **Merge a `staging` / `release`** | siempre. **Lo mergea el humano** (`flit-release`); ningún agente |
 | Cerrar un Feature | exclusivo del Product Owner |
 | Instalar herramientas o desplegar | antes de ejecutar |
@@ -148,9 +148,9 @@ Fases omitidas: <cuáles y por qué del disparador>
 
 Fase 0 — <si Feature completo: Skill flit-modo-desarrollo-auto>
   Ejecutor: Skill flit-modo-desarrollo-auto
-  Entrada: Feature #<id> | autorización merge develop: sí/no/pendiente
+  Entrada: Feature #<id>
   Salida esperada: ciclo por HU según skill
-  Gate: autorización Feature / merge
+  Gate: ninguno extra para merge a develop (el pr-monitor mergea al verde)
 
 Fase N — <nombre>
   Ejecutor: Skill <nombre> | Agent <subagent_type>
