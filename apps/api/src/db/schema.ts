@@ -2559,11 +2559,32 @@ export const flitoSoat = pgTable('flito_soat', {
   valorPagado: numeric('valor_pagado', { precision: 14, scale: 2 }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionSoat>(),
+  /**
+   * Número de póliza NORMALIZADO (solo A-Z0-9, mayúsculas) — Feature #11623, migración 0157.
+   *
+   * Promovido desde `extraccion->'numeroPoliza'->>'valor'`, que es donde lo dejó el OCR y donde no
+   * se puede indexar ni comparar. La copia NO sustituye a `extraccion`: aquella es la prueba de lo
+   * que se leyó del documento, con su confianza; esta es la llave operativa con la que una boleta
+   * de pago externo cruza contra el SOAT.
+   *
+   * Nullable: un SOAT `pendiente` todavía no tiene póliza, y el OCR puede no haberla leído. La
+   * escriben el backfill de la 0157 (una vez) y `pagarEnTx` (en cada pago), los dos con
+   * `polizaParaColumna` de shared-types para que digan exactamente lo mismo.
+   *
+   * Cuasi-PII: no viaja en path ni en query (AGENTS.md 14).
+   */
+  numeroPoliza: varchar('numero_poliza', { length: 60 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_soat_estado').on(t.estado),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
+  // NO único a propósito (ADR-0006 §8): lo crea la migración, y una póliza reexpedida o un `0` que
+  // el OCR leyó como `O` haría fallar el `CREATE UNIQUE INDEX` en el despliegue, parando la cadena
+  // entera por un dato viejo. El duplicado se resuelve en el cruce, delante de quien puede
+  // arreglarlo (`poliza_duplicada`). Parcial: los SOAT pendientes no tienen póliza.
+  polizaIdx: index('idx_flito_soat_numero_poliza').on(t.numeroPoliza)
+    .where(sql`${t.numeroPoliza} IS NOT NULL`),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
@@ -2757,6 +2778,11 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // desde `siigo_factura_tramites`, que además sabe qué facturas siguen vivas. Es una FK HACIA
   // `siigo_facturas`, no una columna sobre ella (AC7).
   siigoFacturaId: uuid('siigo_factura_id').references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  // Feature #11623: QUINTA clave foránea nullable del mismo patrón — el comprobante PSE de la boleta
+  // que se conciló (CF-06). La referencia es un thunk, así que da igual que la tabla se declare más
+  // abajo en este archivo: mismo caso que `siigoFacturaId`.
+  conciliacionBoletaId: uuid('conciliacion_boleta_id')
+    .references(() => flitoConciliacionBoletas.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
@@ -2769,6 +2795,23 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
   facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)
     .where(sql`${t.siigoFacturaId} IS NOT NULL AND ${t.descartado} = false`),
+  // Calcado del anterior, por el mismo motivo: un solo comprobante VIVO de cada tipo por boleta.
+  boletaTipoUq: uniqueIndex('idx_flito_soportes_boleta_tipo').on(t.conciliacionBoletaId, t.tipo)
+    .where(sql`${t.conciliacionBoletaId} IS NOT NULL AND ${t.descartado} = false`),
+  // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
+  // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
+  // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales
+  // de arriba y —las dos FK son CASCADE— desaparecer con la factura llevándose el comprobante PSE
+  // de una boleta ya conciliada.
+  //
+  // Las tres FK viejas (soat/impuesto/derecho) siguen SIN excluirse entre sí, igual que las dejó la
+  // 0139: es una regla vigente desde mucho antes y cambiarla no es alcance de este Feature.
+  excluyenteChk: check('flito_soportes_factura_excluyente_chk',
+    sql`(${t.siigoFacturaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL
+              AND ${t.conciliacionBoletaId} IS NULL))
+     AND (${t.conciliacionBoletaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL))`),
 }));
 
 // Cola de revisión OCR (CA-06/CA-07). Los gestores no la resuelven (RN-04/RN-05).
@@ -3355,6 +3398,148 @@ export const flitoBolsaTransitoMovimientos = pgTable('flito_bolsa_transito_movim
 }));
 
 // ============================================================================
+// FLITO Conciliación de boletas (Feature #11623) — migración 0157
+// ============================================================================
+//
+// RN-01: una boleta agrupa varios pagos de UN solo cliente y de UN solo concepto. El MVP solo
+// admite 'soat'; el módulo se llama Conciliación (genérico) porque impuestos vendrá después.
+// RN-02: una boleta solo mueve dinero si TODAS sus líneas cuadran (CF-02). No hay conciliación
+// parcial: media boleta conciliada obligaría a llevar dos verdades sobre el mismo pago externo.
+// RN-03: el valor que se descuenta sale SIEMPRE de `flito_soat.valor_pagado`, nunca del Excel. El
+// Excel solo VALIDA — si el valor del portal no coincide, la línea no cuadra y la boleta se para.
+//
+// Diseño y tradeoffs: docs/adr/ADR-0006-flito-conciliacion-boletas-soat.md
+
+/** Boleta: un pago hecho en el portal externo, con su Excel y su comprobante. */
+export const flitoConciliacionBoletas = pgTable('flito_conciliacion_boletas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Referencia legible ('BOL-000123'). Existe para dos cosas concretas: la trazabilidad del reporte
+  // de costos (CF-05) y la observación del movimiento de bolsa, que necesita decir de qué boleta
+  // salió el dinero SIN escribir la placa ni la póliza en texto libre.
+  referencia: varchar('referencia', { length: 20 }).notNull().unique()
+    .default(sql`('BOL-' || lpad(nextval('flito_conciliacion_boleta_seq')::text, 6, '0'))`),
+  // RESTRICT y no CASCADE: es un documento contable. Mismo criterio que `flito_bolsas.compania_id`.
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** 'soat' (`ConceptoBoleta`). Acotado por CHECK en la base: ensancharlo es un ALTER de una línea. */
+  concepto: varchar('concepto', { length: 20 }).notNull().default('soat'),
+  /** 'cargada' | 'conciliada' | 'descartada' (`EstadoBoleta`). */
+  estado: varchar('estado', { length: 20 }).notNull().default('cargada'),
+  archivoNombre: varchar('archivo_nombre', { length: 300 }).notNull(),
+  /** SHA-256 del .xlsx. Es la idempotencia de la CARGA, no la del dinero. */
+  archivoHash: varchar('archivo_hash', { length: 64 }).notNull(),
+  filas: integer('filas').notNull(),
+  /** Suma de la columna «Total a Pagar» del portal: lo que el portal dice que se pagó. */
+  totalDeclarado: numeric('total_declarado', { precision: 14, scale: 2 }).notNull(),
+  /** Suma de `flito_soat.valor_pagado` de las líneas que cruzaron: lo que FLITO cree que se pagó. */
+  totalCruzado: numeric('total_cruzado', { precision: 14, scale: 2 }),
+  /**
+   * Fecha del pago en el portal (PSE), no la de la carga. Es la que se imputa al periodo contable:
+   * un pago del 30 que se carga el 2 pertenece al mes del pago.
+   */
+  fechaPago: date('fecha_pago').notNull(),
+  // RESTRICT explícito (ADR-0005): quién cargó y quién concilió son la prueba de un acto que movió
+  // dinero. Un `set null` dejaría filas que dicen «esta boleta la concilió nadie».
+  cargadaPorId: integer('cargada_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  cargadaPorNombre: varchar('cargada_por_nombre', { length: 150 }).notNull(),
+  conciliadaEn: timestamp('conciliada_en', { withTimezone: true }),
+  conciliadaPorId: integer('conciliada_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  conciliadaPorNombre: varchar('conciliada_por_nombre', { length: 150 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaIdx: index('idx_flito_concil_boleta_compania').on(t.companiaId, t.createdAt),
+  estadoIdx: index('idx_flito_concil_boleta_estado').on(t.estado),
+  // El mismo archivo no se carga dos veces. Parcial sobre `descartada` para que rehacer una boleta
+  // mal cargada no exija renombrar el .xlsx.
+  hashUq: uniqueIndex('idx_flito_concil_boleta_hash').on(t.archivoHash)
+    .where(sql`${t.estado} <> 'descartada'`),
+  // Los CHECK van AQUÍ y no solo en el `.sql`, siguiendo el precedente de
+  // `flito_comparendos_gestion_auditoria_chk` (0156, más arriba en este archivo). No es simetría
+  // estética: en la 0157 estos CHECK son INLINE dentro de un `CREATE TABLE IF NOT EXISTS`, así que
+  // NO se auto-reparan — si la tabla naciera por cualquier otra vía sin ellos, la migración se
+  // saltaría el CREATE y la tabla se quedaría permanentemente sin restricciones y en silencio.
+  // El test de paridad de la 0157 compara estas expresiones con las del archivo, una a una.
+  conceptoChk: check('flito_concil_boleta_concepto_chk', sql`${t.concepto} IN ('soat')`),
+  estadoChk: check('flito_concil_boleta_estado_chk',
+    sql`${t.estado} IN ('cargada','conciliada','descartada')`),
+  filasChk: check('flito_concil_boleta_filas_chk', sql`${t.filas} > 0`),
+  totalChk: check('flito_concil_boleta_total_chk', sql`${t.totalDeclarado} > 0`),
+  // El sello de la conciliación es una sola cosa: o están los tres campos o no está ninguno.
+  selloChk: check('flito_concil_boleta_sello_chk',
+    sql`(${t.conciliadaEn} IS NULL) = (${t.conciliadaPorId} IS NULL)
+       AND (${t.conciliadaEn} IS NULL) = (${t.conciliadaPorNombre} IS NULL)`),
+  // Y el estado no puede mentir sobre el sello.
+  estadoSelloChk: check('flito_concil_boleta_estado_sello_chk',
+    sql`${t.estado} <> 'conciliada' OR ${t.conciliadaEn} IS NOT NULL`),
+}));
+
+/** Una fila del Excel del portal, con el SOAT que le encontró el cruce (o el motivo de que no). */
+export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // CASCADE: una línea es PERTENENCIA de su boleta, no tiene existencia propia. El borrado de una
+  // boleta solo se admite en estado 'cargada'; una conciliada no se borra.
+  boletaId: uuid('boleta_id').notNull()
+    .references(() => flitoConciliacionBoletas.id, { onDelete: 'cascade' }),
+  /** Fila del Excel (1 = primera fila de datos). Es lo que el usuario ve en pantalla. */
+  filaNumero: integer('fila_numero').notNull(),
+  /** Póliza YA NORMALIZADA (`normalizarPoliza`). Cuasi-PII: no viaja nunca en path ni en query. */
+  numeroPolizaNorm: varchar('numero_poliza_norm', { length: 60 }).notNull(),
+  valorDeclarado: numeric('valor_declarado', { precision: 14, scale: 2 }).notNull(),
+  /**
+   * SOAT con el que cruzó la fila. NULL cuando no cruzó.
+   *
+   * `set null` y no `restrict` (ADR-0006 §1.1 proponía `restrict`): una línea CONCILIADA ya está
+   * protegida por `flito_concil_linea_sello_chk`, que exige `soat_id IS NOT NULL` en cuanto hay
+   * sello — así que borrar un SOAT conciliado falla igual, y lo que `set null` permite es solo lo
+   * que debe permitirse: deshacerse de un SOAT que aparece en una línea que nunca movió dinero.
+   */
+  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'set null' }),
+  /** `ResultadoCruce`. Solo 'ok' deja conciliar; cualquier otro para la boleta entera (CF-02). */
+  resultado: varchar('resultado', { length: 24 }).notNull(),
+  /** Motivo legible. SIN placa ni póliza en claro: el dato ya está en sus propias columnas. */
+  detalle: text('detalle'),
+  movimientoBolsaId: uuid('movimiento_bolsa_id')
+    .references(() => flitoBolsaMovimientos.id, { onDelete: 'restrict' }),
+  movimientoTransitoId: uuid('movimiento_transito_id')
+    .references(() => flitoBolsaTransitoMovimientos.id, { onDelete: 'restrict' }),
+  /** Se sella al conciliar. Es lo que hace única la conciliación de un SOAT (índice de abajo). */
+  conciliadaEn: timestamp('conciliada_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Único y no simple: además de ordenar el detalle, impide que un reprocesamiento duplique filas.
+  filaUq: uniqueIndex('idx_flito_concil_linea_fila').on(t.boletaId, t.filaNumero),
+  // Una póliza no se repite DENTRO de una boleta: dos filas con la misma póliza son el mismo pago
+  // contado dos veces. Se afirma en la base y no solo al leer el Excel porque de aquí salen dos
+  // salidas de bolsa por el mismo SOAT.
+  polizaUq: uniqueIndex('idx_flito_concil_linea_poliza').on(t.boletaId, t.numeroPolizaNorm),
+  soatIdx: index('idx_flito_concil_linea_soat').on(t.soatId).where(sql`${t.soatId} IS NOT NULL`),
+  // LA restricción que protege el dinero: un SOAT se concilia como MUCHO una vez, en toda la base.
+  // Va sobre un uuid, así que —a diferencia de un UNIQUE sobre la póliza— no puede fallar por datos
+  // heredados: al crearse, la tabla está vacía.
+  soatUnicaIdx: uniqueIndex('idx_flito_concil_linea_soat_unica').on(t.soatId)
+    .where(sql`${t.soatId} IS NOT NULL AND ${t.conciliadaEn} IS NOT NULL`),
+  // Mismos CHECK que el `.sql`, por el motivo de arriba: son inline en un `CREATE TABLE IF NOT
+  // EXISTS` que no los repara si la tabla ya existe.
+  resultadoChk: check('flito_concil_linea_resultado_chk',
+    sql`${t.resultado} IN ('ok','no_encontrada','no_pagado','valor_distinto','poliza_duplicada','otra_compania','ya_conciliada','cobrado_otro_cliente')`),
+  // La póliza se guarda YA normalizada: escribir el valor crudo es un 23514 inmediato en vez de una
+  // fila que no cruzará nunca con nada.
+  polizaNormChk: check('flito_concil_linea_poliza_norm_chk',
+    sql`${t.numeroPolizaNorm} ~ '^[A-Z0-9]{1,60}$'`),
+  // Solo una línea que cruzó puede quedar conciliada.
+  selloChk: check('flito_concil_linea_sello_chk',
+    sql`${t.conciliadaEn} IS NULL OR (${t.soatId} IS NOT NULL AND ${t.resultado} = 'ok')`),
+  // Y solo una conciliada puede tener movimiento — LOS DOS movimientos, no solo el del libro del
+  // cliente. Con el de tránsito fuera del CHECK, una línea con su salida de tránsito asentada y
+  // `conciliada_en` en NULL sería un estado legal; des-sellarla así la saca del índice parcial
+  // `idx_flito_concil_linea_soat_unica` y libera el SOAT para conciliarse otra vez en otra boleta,
+  // con el dinero de tránsito ya descontado y sin contramovimiento (doble descuento, CF-04).
+  movChk: check('flito_concil_linea_mov_chk',
+    sql`(${t.movimientoBolsaId} IS NULL AND ${t.movimientoTransitoId} IS NULL)
+           OR ${t.conciliadaEn} IS NOT NULL`),
+}));
+
+// ============================================================================
 // Siigo API — facturación electrónica de trámites (Feature #11239)
 // ============================================================================
 
@@ -3686,6 +3871,26 @@ export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
   vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
   formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
   centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  /**
+   * Si al enviar se pidió que la factura saliera por correo (HU #11708, migración 0161).
+   *
+   * **No entra en la huella**, y esa es la diferencia con los cuatro campos de arriba. El vendedor
+   * cambia el DOCUMENTO que ve la DIAN; el correo solo dice qué hacer con él después. Meterlo en la
+   * identidad del lote le daría dos claves de idempotencia al mismo documento fiscal —y con ellas la
+   * posibilidad de dos facturas ante la DIAN— para expresar una diferencia que la DIAN no ve. Un
+   * segundo envío con la casilla cambiada recibe `ya_estaba`, y el correo se pide con el reenvío.
+   */
+  correoSolicitado: boolean('correo_solicitado').notNull().default(false),
+  /**
+   * Direcciones elegidas al enviar. **Vacío = las de la ficha del cliente, no «a nadie»**: quien no
+   * quiere que salga no marca `correoSolicitado`.
+   *
+   * DATO PERSONAL en una tabla que no tenía ninguno. Se guarda porque la emisión ocurre después y en
+   * otro proceso, y para entonces la ficha pudo cambiar. La contrapartida no es opcional: el flujo
+   * de supresión de `privacy.routes.ts` la vacía con `purgarDestinatariosDeLotes`, igual que redacta
+   * las actas. Toda dirección que este programa guarda tiene que estar al alcance de la purga.
+   */
+  correoDestinatarios: jsonb('correo_destinatarios').$type<SiigoDestinatario[]>().notNull().default([]),
   creadoPor: integer('creado_por').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -4055,6 +4260,14 @@ export const flitoComparendosEventoTipoEnum = pgEnum('flito_comparendos_evento_t
 export const flitoComparendosOrigenMergeEnum = pgEnum('flito_comparendos_origen_merge', [
   'simit', 'municipal', 'ambos',
 ]);
+// Comparendo o multa (HU #11712, migración 0160). Los dos endpoints devuelven las dos cosas en la
+// misma lista y lo que las distingue es la resolución: sin resolución sigue siendo comparendo, con
+// resolución ya es multa. Es un enum y no un booleano porque un booleano no sabe decir «no se
+// sabe», que es exactamente lo que hay que decir del histórico anterior a la 0160 —y no es un
+// `varchar` con CHECK porque cuesta lo mismo y pierde la unión tipada en TypeScript.
+export const flitoComparendosTipoRegistroEnum = pgEnum('flito_comparendos_tipo_registro', [
+  'comparendo', 'multa',
+]);
 
 /**
  * NITs a monitorear (CF-01). Catálogo propio y no una vista de `clients`: se monitorean empresas
@@ -4173,6 +4386,25 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   municipioFuente: varchar('municipio_fuente', { length: 40 }),
   monto: numeric('monto', { precision: 14, scale: 2 }),
   estadoFuente: varchar('estado_fuente', { length: 80 }),
+  // Comparendo o multa, y la resolución que lo convirtió (HU #11712, migración 0160). Las tres son
+  // nullable y SIN default, y eso es la afirmación principal de la HU: `null` significa «no se
+  // sabe», que es todo lo que sabemos del histórico anterior a la 0160 —sus payloads ya fueron
+  // podados y ninguna versión del mapa nombraba la resolución, así que el dato no está en ninguna
+  // parte—. Un `default 'comparendo'` no sería optimismo transitorio: las filas `inactivo` ya no
+  // las visita ningún sync (CF-10), así que nadie volvería a corregirlo nunca.
+  //
+  // `tipoRegistro` lo DERIVA `resolverCampos` de las otras dos, y NO es un campo del `field_map`:
+  // si lo fuera, una fila de una tabla de texto elegiría el valor de una columna `enum` y el INSERT
+  // reventaría con un `22P02` a mitad de corrida, matando el NIT entero.
+  //
+  // `idResolucion` es columna propia y no un candidato más de `numeroResolucion` porque es un
+  // identificador de SISTEMA del proveedor (`115697134`) y no un número legible: como respaldo del
+  // número acabaría pintado en la columna «N.º resolución». Se guarda porque viene nulo mientras es
+  // comparendo y con valor cuando ya es multa, así que es la otra mitad de la señal del tipo. No se
+  // publica en el API.
+  tipoRegistro: flitoComparendosTipoRegistroEnum('tipo_registro'),
+  numeroResolucion: varchar('numero_resolucion', { length: 60 }),
+  idResolucion: varchar('id_resolucion', { length: 60 }),
   origenMerge: flitoComparendosOrigenMergeEnum('origen_merge').notNull(),
   vistoEnSimit: boolean('visto_en_simit').notNull().default(false),
   vistoEnMunicipal: boolean('visto_en_municipal').notNull().default(false),
@@ -4244,6 +4476,23 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   gestionAuditoriaChk: check(
     'flito_comparendos_gestion_auditoria_chk',
     sql`(${t.gestionActualizadaEn} is null) = (${t.gestionActualizadaPor} is null)`,
+  ),
+  // El tipo y la resolución no pueden contradecirse (HU #11712, migración 0160): o la fila no dice
+  // nada de las tres (el histórico), o dice el tipo y ese tipo es `multa` exactamente cuando hay
+  // alguna de las dos resoluciones. El merge lo cumple por construcción —deriva el tipo del valor
+  // que acaba de resolver—, y esto es lo que lo sostiene desde la base para el día que haya un
+  // segundo camino de escritura.
+  //
+  // Las dos piezas que parecen adorno hacen trabajos DISTINTOS, y confundirlas es fácil (verificado
+  // contra PostgreSQL 16): la PRIMERA rama está para **admitir el histórico**, no para cerrar un
+  // hueco —sin ella, `tipo_registro IS NOT NULL` da FALSE y el CHECK rechaza toda fila sin tipo, que
+  // al aplicar la 0160 son TODAS: el `ADD CONSTRAINT` moriría al validar—. Lo que cierra el hueco de
+  // la evaluación a NULL es la guarda `is not null` de la SEGUNDA rama: la comparación desnuda
+  // `(NULL = 'multa') = (…)` evalúa a NULL y un CHECK que evalúa a NULL PASA, así que sin ella se
+  // colaría la fila peor —sin tipo y con número de resolución—; con ella, `FALSE AND NULL` es FALSE.
+  tipoResolucionChk: check(
+    'flito_comparendos_tipo_resolucion_chk',
+    sql`(${t.tipoRegistro} is null and ${t.numeroResolucion} is null and ${t.idResolucion} is null) or (${t.tipoRegistro} is not null and (${t.tipoRegistro} = 'multa') = (${t.numeroResolucion} is not null or ${t.idResolucion} is not null))`,
   ),
 }));
 

@@ -115,7 +115,25 @@ router.post(
     }
 
     // Upload primero (idempotencia por contenido — defer dedupe por sha256(buf) a sprint 2).
-    const storageKey = await uploadEntityDocument('pesv/diagnostico-evidencia', id, filename, buf, mime);
+    //
+    // `conservarNombreEnClave` es la EXCEPCIÓN del Bug #11694, no un descuido: el resto del
+    // monorepo ya guarda claves opacas para que el nombre que escribe el cliente no viaje en el
+    // query string del enlace firmado. Aquí el nombre no vive en ninguna columna —`evidencia_keys`
+    // es un `text[]` de claves y nada más— y `decodeFilename`, `evidenciaPublic` (en
+    // `diagnostico.routes.ts`) y el nombre de cada entrada del ZIP de exportación lo sacan de la
+    // propia clave. Volverla opaca sin darles una fuente dejaría un UUID en las tres pantallas.
+    // Esa columna nueva es decisión de alcance; hasta entonces esta ruta se queda como estaba, con
+    // la excepción visible aquí en vez de escondida dentro del helper.
+    //
+    // ⚠️ Y hay que decirlo entero: esto NO es una excepción inocua. `GET /:id/evidencia-temporal`
+    // (más abajo) firma la descarga con `presignedGetEntityDocument`, así que esta clave —con el
+    // nombre que escribió el cliente dentro— acaba en el `?key=` del enlace, y de ahí a los logs de
+    // nginx y al historial. Es el vector del Bug #11694, retenido a propósito para no dejar un UUID
+    // en las tres pantallas que hoy sacan el nombre de la clave. Se acepta hasta que exista la
+    // columna; quien añada esa columna cierra también esto.
+    const storageKey = await uploadEntityDocument(
+      'pesv/diagnostico-evidencia', id, filename, buf, mime, { conservarNombreEnClave: true },
+    );
     const keyHash = hashKey(storageKey);
 
     // Append transaccional al array. FOR UPDATE evita race con otro PATCH/POST simultáneo.

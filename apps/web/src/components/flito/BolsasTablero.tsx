@@ -96,6 +96,13 @@ export default function BolsasTablero({
   const conBolsa = new Set(bolsas.map((b) => b.companiaId));
   const candidatos = clientes.filter((c) => !conBolsa.has(c.id));
 
+  // Las tres cosas que hay que ir a cerrar, en un solo número (HU #11678, AC6). La boleta conciliada
+  // sin comprobante entra aquí y no en `movimientosSinSoporte`: el comprobante cuelga de la boleta,
+  // así que es UNA pendiente, no una por cada SOAT que la boleta agrupa.
+  const conciliacionPendiente = (alertas?.conciliacion.soportesSinTramite ?? 0)
+    + (alertas?.conciliacion.movimientosSinSoporte ?? 0)
+    + (alertas?.conciliacion.boletasSinComprobante ?? 0);
+
   return (
     <div className="space-y-4">
       <section aria-label="Resumen de bolsas" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -105,10 +112,9 @@ export default function BolsasTablero({
           hint="Saldo crítico o agotado. Son las que frenan trámites."
           chip={enRiesgo > 0 ? { tone: 'danger', label: 'Requiere atención' } : undefined} />
         <KpiCard label="Conciliación pendiente"
-          value={(alertas?.conciliacion.soportesSinTramite ?? 0) + (alertas?.conciliacion.movimientosSinSoporte ?? 0)}
-          hint={`${alertas?.conciliacion.soportesSinTramite ?? 0} soporte(s) sin trámite · ${alertas?.conciliacion.movimientosSinSoporte ?? 0} movimiento(s) sin soporte.`}
-          chip={(alertas?.conciliacion.soportesSinTramite ?? 0) + (alertas?.conciliacion.movimientosSinSoporte ?? 0) > 0
-            ? { tone: 'warning', label: 'Revisar' } : undefined} />
+          value={conciliacionPendiente}
+          hint={`${alertas?.conciliacion.soportesSinTramite ?? 0} soporte(s) sin trámite · ${alertas?.conciliacion.movimientosSinSoporte ?? 0} movimiento(s) sin soporte · ${alertas?.conciliacion.boletasSinComprobante ?? 0} boleta(s) sin comprobante.`}
+          chip={conciliacionPendiente > 0 ? { tone: 'warning', label: 'Revisar' } : undefined} />
       </section>
 
       <FlitAcordeon

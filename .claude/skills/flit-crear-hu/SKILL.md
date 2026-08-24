@@ -1,11 +1,14 @@
 ---
 name: flit-crear-hu
-description: Crea Historias de Usuario en Azure DevOps con Description, Acceptance Criteria y Discussion separados; formato Como/quiero/para, AC Gherkin, Story Points y trazabilidad. Commits y Evidences NO se rellenan al crear. Triggers HU, User Story, FRONTEND, BACKEND, Gherkin, flit-crear-hu.
+description: Crea Historias de Usuario y Bugs en Azure DevOps con Description/Repro Steps, Acceptance Criteria y Discussion separados; formato Como/quiero/para, AC Gherkin, Story Points, Severity y trazabilidad. Commits y Evidences NO se rellenan al crear. El ciclo posterior (Active → Resolved) es flit-gestion-hu, igual para HU y Bug. Triggers HU, User Story, Bug, radicar bug, defecto, FRONTEND, BACKEND, Gherkin, repro steps, flit-crear-hu.
 ---
 
-# Crear Historia de Usuario en Azure DevOps
+# Crear Historia de Usuario o Bug en Azure DevOps
 
 Al **crear** una HU solo se rellenan los campos del momento de refinamiento/planificación. **Nunca** mezclar Gherkin ni trazabilidad dentro de `Description`.
+
+Para **Bugs**, ir a la sección «Crear un Bug» al final: mismo contrato de conexión, encoding e
+idempotencia, con `Microsoft.VSTS.TCM.ReproSteps` + `Severity` en lugar de Description + AC.
 
 **Integración ADO:** `flit-azure-devops` (MCP servidor **`ado`** primero, REST como fallback). Proyecto: `FLIT - FLITO`.
 
@@ -142,12 +145,59 @@ Tras obtener el `id` del `POST`, enviar `PATCH` con:
 | `Custom.Commits` | Integración de PR a `develop` — ver `flit-integration-ado` |
 | `Custom.Evidences` | Al adjuntar evidencias de tests (unitarios / E2E) |
 
+---
+
+## Crear un **Bug** (mismo contrato, otros campos)
+
+Un Bug es un work item de desarrollo de pleno derecho: se crea aquí y **se trabaja con el mismo
+ciclo que una HU** (`flit-gestion-hu` Active → Resolved → gate `qa-agent`; regla «Paridad HU ↔ Bug»
+de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, con pedido explícito.
+
+`POST $Bug` con JSON Patch. Mapeo verificado contra el proyecto real (2026-08-22):
+
+| Módulo en ADO | Campo API | ¿Al crear Bug? | Contenido |
+|---|---|---|---|
+| **Repro Steps** | `Microsoft.VSTS.TCM.ReproSteps` | **Sí** | HTML: qué pasa · medición/evidencia · **cómo reproducirlo** (numerado) · origen · corrección esperada |
+| **Severity** | `Microsoft.VSTS.Common.Severity` | **Sí** | `1 - Critical` \| `2 - High` \| `3 - Medium` \| `4 - Low` (tabla de severidad del `qa-agent`) |
+| **Priority** | `Microsoft.VSTS.Common.Priority` | Sí | 1-4, coherente con la severidad |
+| **Assigned To** | `System.AssignedTo` | **Sí — obligatorio** | Nunca vacío ni placeholder (`AGENTS.md`); productivo → siempre vía Líder Técnico |
+| **System Info** | `Microsoft.VSTS.TCM.SystemInfo` | Opcional | Ambiente, build, navegador cuando aporte |
+| **Discussion** | `System.History` | **Sí** | Comentario HTML de trazabilidad (misma plantilla del Paso 3, cambiando la skill que lo origina) |
+| **Padre** | `System.Parent` / relación `Hierarchy-Reverse` | Si aplica | HU o Feature afectado; si no hay, **declarar** que el Bug nace suelto |
+| **Acceptance Criteria** | — | **No existe en el tipo Bug** | El criterio de prueba es el repro; no inventar el campo |
+| **Story Points** | `Microsoft.VSTS.Scheduling.StoryPoints` | Opcional | Existe en el tipo; úsalo solo si el equipo lo estima |
+| **Commits / Evidences / Deploy** | `Custom.*` | **No al crear** | Igual que en HU: los llenan `flit-integration-ado` y el rol de tests |
+
+```json
+[
+  { "op": "add", "path": "/fields/System.Title", "value": "[A11Y] – Módulo – Síntoma observable" },
+  { "op": "add", "path": "/fields/Microsoft.VSTS.TCM.ReproSteps", "value": "<h3>Qué pasa</h3><p>…</p><h3>Cómo reproducirlo</h3><ol><li>…</li></ol><h3>Corrección esperada</h3><p>…</p>" },
+  { "op": "add", "path": "/fields/Microsoft.VSTS.Common.Severity", "value": "3 - Medium" },
+  { "op": "add", "path": "/fields/Microsoft.VSTS.Common.Priority", "value": 3 },
+  { "op": "add", "path": "/fields/System.AssignedTo", "value": "email@dominio.com" },
+  { "op": "add", "path": "/fields/System.AreaPath", "value": "FLIT - FLITO" },
+  { "op": "add", "path": "/fields/System.IterationPath", "value": "FLIT - FLITO\\<Sprint siguiente al activo>" }
+]
+```
+
+**Reglas propias del Bug:**
+
+- El repro tiene que ser **ejecutable por otra persona**: precondición, datos, pasos numerados,
+  resultado esperado vs. observado. Un «no funciona el filtro» no es un Bug radicable.
+- Decir **de dónde salió** y qué quedó **fuera de alcance** con criterio explícito (el Bug #11720
+  y su hermano #11767 son la referencia de redacción ya publicada en el board).
+- Al confirmar al usuario: ID, URL y que el ID amarra la rama `BUG/<ID>-<desarrollador>-<desc>` y
+  el título `BUG <ID>: <descripción>` (`.cursor/rules/convenciones-rama-pr.mdc`).
+- **Crear el Bug no lo activa.** Nace en `New`; cuando alguien tome la corrección, el ciclo lo
+  abre y lo cierra `flit-gestion-hu` — no se queda en `New`/`Active` por falta de proceso.
+
 ## Reglas
 
 - Título: prefijo `[FRONTEND] –` o `[BACKEND] –` con guion largo `–`; incluir módulo y verbo+sustantivo.
 - Description y AC siempre en **HTML** al enviar a ADO (`<p>`, `<br>`, `<h3>`, `<pre>`).
 - Confirmar al usuario: ID, URL; campos Description y AC poblados; Commits/Evidences **vacíos**.
 - Anti-duplicado: WIQL por título exacto antes de crear (ver `flit-azure-devops`).
+- **El ID que devuelve ADO es el que amarra toda la trazabilidad**: rama `HU/<ID>-<desarrollador>-<desc>` y título de PR `HU <ID>: <descripción>` (`.cursor/rules/convenciones-rama-pr.mdc`). Confirmárselo al usuario junto con la URL — sin ese ID no puede empezar el desarrollo.
 - Plantilla de referencia: `.claude/skills/flit-crear-hu/assets/user-story.template.md`
 
 ## Checklist de salida

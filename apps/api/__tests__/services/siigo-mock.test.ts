@@ -11,8 +11,6 @@ const envMock = {
   SIIGO_PARTNER_ID: 'FlitoIntegracion',
   SIIGO_AMBIENTE: 'pruebas' as const,
   SIIGO_MODE: 'mock' as 'mock' | 'real',
-  SIIGO_MOCK_ERROR_RATE: 0,
-  SIIGO_MOCK_TIMEOUT_RATE: 0,
   SIIGO_ENC_KEY: 'b71d3f9a20c845e6f8319ad4c7be5026a19d3f84c60be27159ad83f4c2e70b91',
   NODE_ENV: 'development',
   PII_ENC_KEY: 'test-pii',
@@ -44,8 +42,6 @@ beforeEach(() => {
   invalidarTodos();
   reiniciarConsecutivoSimulado();
   envMock.SIIGO_MODE = 'mock';
-  envMock.SIIGO_MOCK_ERROR_RATE = 0;
-  envMock.SIIGO_MOCK_TIMEOUT_RATE = 0;
   vi.stubGlobal('fetch', fetchMock);
 });
 
@@ -206,9 +202,18 @@ describe('AC3 — se pueden ensayar los fallos', () => {
     }
   });
 
-  it('las tasas se leen del entorno cuando no se pasan explícitas', () => {
-    envMock.SIIGO_MOCK_ERROR_RATE = 1;
-    const r = respuestaSimulada('POST', '/v1/invoices', { aleatorio: () => 0 });
+  // Bug #11649: las tasas dejaron de ser `SIIGO_MOCK_ERROR_RATE` / `SIIGO_MOCK_TIMEOUT_RATE`. Lo que
+  // antes comprobaba este caso —que se leyeran del entorno— ya no debe ocurrir, así que la
+  // afirmación se invierte: sin inyección explícita el simulador NO provoca caos.
+  it('sin tasas explícitas no hay caos: el defecto es 0 y no lo decide el entorno', () => {
+    // `aleatorio: () => 0` es el peor caso posible: con cualquier tasa > 0 fallaría siempre.
+    for (let i = 0; i < 20; i++) {
+      expect(respuestaSimulada('GET', '/v1/invoices', { aleatorio: () => 0 }).ok).toBe(true);
+    }
+  });
+
+  it('la tasa la inyecta quien prueba, y entonces sí falla', () => {
+    const r = respuestaSimulada('GET', '/v1/invoices', { tasaError: 1, aleatorio: () => 0 });
     expect(r.ok).toBe(false);
   });
 

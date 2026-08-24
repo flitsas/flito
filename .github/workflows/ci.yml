@@ -47,6 +47,30 @@ jobs:
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
+      # Contraste, DOS invariantes distintas en el mismo script:
+      #   · Bug #11720 (oscuro) · Bug #11767 (claro) — la CommandPalette en LOS DOS temas. El
+      #     claro es el de por defecto y estuvo sin cubrir hasta el #11767: se medía sólo el
+      #     minoritario.
+      #   · Bug #11766 — que todo punto de todo `--flit-gradient-*` admita texto blanco, y que el
+      #     anillo `.flit-focus-light` cumpla sobre el gradiente del drawer. Son los cuatro
+      #     gradientes del kit: el mayor sustrato de texto del producto.
+      #
+      # Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI NO ejecuta E2E y
+      # `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser invisible
+      # en oscuro —o que un gradiente vuelva a llevar blanco a 1,81— no lo detectaría nadie hasta
+      # que lo reporte una persona. Con los gradientes hay además un motivo de más: `axe` no mide
+      # un fondo `background-image`, lo marca `incomplete`, así que ni ejecutando E2E saltaría.
+      - name: Contraste (CommandPalette claro+oscuro · gradientes FLIT · anillo de foco)
+        run: npm run check:contraste
+
+      # HU #11289 — CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): pdfjs-dist 3.x ejecuta JS de un
+      # PDF malicioso salvo que cada `getDocument` lleve `isEvalSupported: false`. El salto a v6 está
+      # bloqueado por producto, así que la mitigación es por configuración — y una opción que se
+      # olvida no rompe nada visible: compila y renderiza igual, sólo deja el eval abierto otra vez.
+      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI NO ejecuta E2E.
+      - name: Mitigación CVE-2024-4367 en pdfjs (web)
+        run: npm run check:pdfjs-eval
+
       # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
       - name: Build API (tsc)
         run: npm run build:api
@@ -107,6 +131,50 @@ jobs:
 
       - name: npm audit (dependencias de producción)
         run: node scripts/dependency-audit.mjs
+
+      # HU #11289 — función de forzado sobre las exenciones del gate anterior: falla si alguna
+      # entrada de EXEMPTIONS ya no aparece en el audit. Sin esto, una exención sobrevive a la
+      # actualización que la vuelve innecesaria y enmascara advisories futuros del mismo URL.
+      # Que hoy pdfjs-dist siga en 3.x es justo lo que la mantiene legítima; cuando suba a v6 este
+      # paso se pondrá rojo hasta que se borre la entrada.
+      - name: Exenciones vigentes (sin zombis)
+        run: npm run check:exemptions
+
+  # Gate de trazabilidad — convenciones de rama y título del PR
+  # (.cursor/rules/convenciones-rama-pr.mdc). Todo desarrollo va ligado a una HU
+  # o un Bug de Azure DevOps: sin eso no hay trazabilidad del proyecto.
+  # El título llega por env y no interpolado en `run:` — un título de PR es
+  # entrada de usuario y en el shell sería inyección de comandos.
+  naming:
+    name: naming
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Convenciones de rama y título del PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=100
+          # La lista de cambios solo alimenta la guarda «CHORE/DOCS no toca producto».
+          # Si no se puede calcular, se sigue validando rama y título.
+          if ! git diff --name-only "origin/$BASE_REF...HEAD" >/tmp/naming-changed.txt; then
+            echo "::warning::No se pudo calcular el diff contra $BASE_REF; se omite la guarda de rutas de producto."
+            : >/tmp/naming-changed.txt
+          fi
+          node scripts/check-naming.mjs \
+            --branch "$HEAD_REF" \
+            --title "$PR_TITLE" \
+            --files-from /tmp/naming-changed.txt
 
   # Gate de secretos — precondición de merge #6 de flit-integration-ado.
   # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.

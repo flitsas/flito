@@ -11,7 +11,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { SIIGO_ENVIO_MAX_DESTINATARIOS, type SiigoDestinatario } from '@operaciones/shared-types';
 import { authMiddleware } from '../../shared/middleware/auth.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { frenoConRastro, makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { exigirAccionSiigo } from './siigo.permisos.js';
 import { enviarFacturaPorCorreo, resumenEnvios, SiigoEnvioError } from './siigo.envio-correo.service.js';
@@ -37,6 +37,10 @@ const envioLimiter = rateLimit({
   max: 30,
   keyGenerator: userOrIpKey('siigo-envio-correo'),
   message: { error: 'Demasiados envíos de factura seguidos. Espera unos minutos antes de reintentar.' },
+  // El 429 deja rastro (HU #11299). Con el limitador delante de la guarda, quien insiste sin
+  // permiso deja de escribir en la bitácora a partir del tope — que es lo que se buscaba — pero
+  // también dejaba de aparecer en ningún sitio. `frenoConRastro` cuenta el freno y anota la llave.
+  handler: frenoConRastro('siigo-envio-correo'),
   store: makeStore('rl:siigo-envio-correo:'),
 });
 
@@ -50,9 +54,16 @@ const idSchema = z.string().uuid();
  * que la factura debe ir además a otra dirección concreta de ese cliente, y se marca con origen
  * `manual` para que el acta distinga después lo que salió de la ficha de lo que escribió una
  * persona. El tope se valida aquí Y en el servicio: esta ruta no es el único camino al envío.
+ *
+ * `.toLowerCase()` por lo mismo que en `facturacion.routes.ts` (HU #11708): estas direcciones se
+ * guardan en `siigo_factura_envios.destinatarios`, que es una tabla append-only —el disparador de la
+ * 0141 solo admite la purga—, así que la forma en que entran es la única que va a tener. Sin
+ * normalizar, la misma dirección quedaba escrita de dos maneras en dos tablas y el olvido tenía que
+ * acertar con la de cada una. La purga compara en minúsculas y alcanza las dos, pero eso es la red
+ * de abajo: lo que se escribe nuevo se escribe ya en una sola forma.
  */
 const cuerpoSchema = z.object({
-  destinatarios: z.array(z.string().trim().email().max(150))
+  destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
     .min(1)
     .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
     .optional(),
@@ -79,8 +90,28 @@ router.get('/factura/:facturaId', LECTURA, async (req: Request, res: Response) =
   res.json(await resumenEnvios(id.data));
 });
 
-/** AC1, AC3–AC6 — pide el envío (o el reenvío) y devuelve el acta que quedó. */
-router.post('/factura/:facturaId', ESCRITURA, envioLimiter, async (req: Request, res: Response) => {
+/**
+ * AC1, AC3–AC6 — pide el envío (o el reenvío) y devuelve el acta que quedó.
+ *
+ * **El limitador va ANTES de la guarda**, igual que en `terceros.routes.ts` y por lo mismo (deuda
+ * de seguridad del PR #194, cerrada aquí en la segunda tanda de la HU #11299). Con `ESCRITURA`
+ * delante, cada intento sin permiso se resolvía en 403 sin que el limitador llegara a contarlo, y
+ * `exigirAccionSiigo` escribe una fila `permiso_denegado` en `siigo_operaciones` por cada uno. Esa
+ * tabla es append-only por disparador (HU #11251): lo que entra ahí no se borra ni se rectifica,
+ * así que un autenticado cualquiera —con rol de consulta, sin `reenviar_correo`— podía meterle las
+ * ~500 filas que le permitiera `apiLimiter` cada quince minutos en una bitácora que nadie puede
+ * podar. El techo de este router es más bajo que el de terceros —30 por ventana— pero el ataque no
+ * pasaba por aquí: pasaba por saltarse el limitador entero.
+ *
+ * Contándolo primero, el mismo usuario agota sus 30 y a partir de ahí recibe 429 sin tocar la
+ * bitácora. El precio es que un denegado gasta cuota de SU llave —`userOrIpKey` la calcula por
+ * usuario—, que es lo que se quiere: quien insiste sin permiso se frena a sí mismo y no al que
+ * reenvía facturas de verdad.
+ *
+ * No debilita nada: el 403 lo sigue dando la misma guarda sobre el mismo rol del JWT, y el
+ * limitador no mira el cuerpo ni ejecuta el handler.
+ */
+router.post('/factura/:facturaId', envioLimiter, ESCRITURA, async (req: Request, res: Response) => {
     const id = idSchema.safeParse(req.params.facturaId);
     if (!id.success) {
       res.status(400).json({ error: 'Identificador de factura inválido' });

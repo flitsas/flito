@@ -103,7 +103,7 @@ interface FacturaAArchivar {
   cufe: string | null;
   estado: string;
   companiaId: number | null;
-  document: string | null;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
   carpeta: string | null;
 }
 
@@ -151,7 +151,6 @@ async function cargarFactura(facturaId: string): Promise<FacturaAArchivar | null
     cufe: siigoFacturas.cufe,
     estado: siigoFacturas.estado,
     companiaId: clients.id,
-    document: clients.document,
     carpeta: clients.flitoCarpetaStorage,
   }).from(siigoFacturas)
     .leftJoin(
@@ -174,12 +173,18 @@ async function cargarFactura(facturaId: string): Promise<FacturaAArchivar | null
  * factura no llegue a ninguna compañía —un trámite sin empresa vinculada—: se le da al helper una
  * identidad derivada de la propia factura para que el documento acabe en la carpeta de excepción
  * con un nombre que dice de qué es, en vez de en una carpeta llamada `null`.
+ *
+ * Esa identidad va ahora en el `id` y no en el `document` (HU #11770): `carpetaDe` dejó de aceptar
+ * el documento del cliente porque la raíz de la carpeta entra en la clave del objeto y la clave
+ * viaja entera en el `?key=` del enlace firmado. La carpeta resultante para una factura huérfana no
+ * cambia —sigue siendo `factura-<id>`—; lo que cambia es la de una compañía real, que pasa de su
+ * NIT a su id.
  */
 function carpetaDestino(f: FacturaAArchivar): { carpeta: string; excepcion: boolean } {
   const carpeta = carpetaDe(
     f.companiaId === null
-      ? { id: -1, document: `factura-${f.id}`, flitoCarpetaStorage: null }
-      : { id: f.companiaId, document: f.document, flitoCarpetaStorage: f.carpeta },
+      ? { id: `factura-${f.id}`, flitoCarpetaStorage: null }
+      : { id: f.companiaId, flitoCarpetaStorage: f.carpeta },
     SUBCARPETA,
   );
   return { carpeta, excepcion: carpeta.startsWith('_sin-carpeta-configurada/') };

@@ -25,3 +25,9 @@ service-account*.json
 # JWT de la sesión. Sin esta regla, un `git add .` versiona un token válido.
 test-results/
 playwright-report/
+
+# Muestras reales que se usan para probar el OCR y los flujos de SOAT a mano: reportes con nombre
+# de titular y PDFs nombrados por placa. Son datos personales de verdad (Ley 1581), no fixtures.
+# Sin esta regla dependían de que nadie escribiera `git add -A` en todo el repo — y meterlos en la
+# historia de Git no se deshace borrándolos después.
+docs/ejemplos/

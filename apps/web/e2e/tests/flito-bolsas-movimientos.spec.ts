@@ -36,6 +36,36 @@ const SALIDA_DERECHO = {
   createdAt: `${PERIODO}-20T10:00:00.000Z`,
 };
 
+/**
+ * Los dos movimientos que el Feature #11623 obliga a distinguir, y que NO entran en `MOVIMIENTOS`:
+ * se inyectan solo en los casos que los miran, para no recontar las aserciones de los demás.
+ *
+ * El manual está aquí por una razón concreta: el criterio pide que la conciliación tenga tono propio
+ * frente al automático Y frente al manual, y eso no se puede afirmar sin los tres en la misma tabla.
+ */
+const AJUSTE_MANUAL = {
+  id: 'm4', companiaId: 1, tipo: 'salida', origen: 'manual', concepto: 'derecho',
+  organismoCodigo: '11001', tramiteId: 'cccc3333-0000-0000-0000-000000000003', idFlit: 'FLIT-3003',
+  valor: 100000, saldoResultante: 1200000, periodo: PERIODO, fecha: `${PERIODO}-21`,
+  observacion: 'Ajuste por doble cobro', soporteId: 'sop-3', registradoPorNombre: 'Financiera E2E',
+  createdAt: `${PERIODO}-21T10:00:00.000Z`,
+};
+
+/**
+ * Salida asentada al conciliar una boleta de pago externo.
+ *
+ * `tramiteId` e `idFlit` en `null` NO es una fixture incompleta: el asiento se hace contra el SOAT y
+ * no contra un trámite, así que la API manda las dos vacías a propósito. La boleta de la que viene
+ * el dinero viaja en la observación, que es lo único que el módulo deja salir de ella —su nombre de
+ * archivo es texto libre del cliente y puede arrastrar PII de un tercero—.
+ */
+const SALIDA_CONCILIACION = {
+  id: 'm5', companiaId: 1, tipo: 'salida', origen: 'conciliacion', concepto: 'soat',
+  organismoCodigo: '05001', tramiteId: null, idFlit: null, valor: 450000, saldoResultante: 750000,
+  periodo: PERIODO, fecha: `${PERIODO}-22`, observacion: 'Conciliación de la boleta BOL-000123',
+  soporteId: null, registradoPorNombre: 'Financiera E2E', createdAt: `${PERIODO}-22T10:00:00.000Z`,
+};
+
 const MOVIMIENTOS = [SALIDA_DERECHO, SALIDA_SOAT, RECARGA];
 
 const EXTRACTO = {
@@ -77,11 +107,69 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /** Abre el detalle del cliente, que es donde vive la tabla de movimientos (modal desde la #11210). */
-async function abrirCliente(page: import('@playwright/test').Page) {
+async function abrirCliente(page: import('@playwright/test').Page, filas = 3) {
   await page.goto('/flito/bolsas');
   await page.getByTestId('tarjeta-cliente-1').getByRole('button', { name: /Ver el detalle/ }).click();
-  await expect(page.getByText('Totales de lo filtrado (3 de 3)')).toBeVisible();
+  await expect(page.getByText(`Totales de lo filtrado (${filas} de ${filas})`)).toBeVisible();
 }
+
+/**
+ * El libro con los cinco movimientos, incluidos el manual y el de conciliación (HU #11681).
+ *
+ * La ruta se vuelve a registrar encima de la de `mock`: Playwright resuelve por la ÚLTIMA
+ * registrada, así que esto sustituye la lista sin tocar el resto de rutas ni las otras pruebas.
+ */
+async function mockConConciliacion(page: import('@playwright/test').Page) {
+  await mock(page);
+  await page.route(/\/api\/flito\/bolsas\/1\/movimientos/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(
+      [SALIDA_CONCILIACION, AJUSTE_MANUAL, SALIDA_DERECHO, SALIDA_SOAT, RECARGA],
+    ) }));
+}
+
+/**
+ * La pastilla de la columna «Origen» de una fila.
+ *
+ * Por posición de columna y no por texto: el texto «Conciliación» aparece también en la observación
+ * de la propia fila, y una búsqueda por texto acabaría comparando el color de la celda equivocada.
+ */
+function chipOrigen(fila: import('@playwright/test').Locator) {
+  return fila.getByRole('cell').nth(5).locator('span').first();
+}
+
+/**
+ * Lo mismo que `chipOrigen`, pero en el CSV exportado: el valor de una COLUMNA, en la fila que
+ * contiene `ancla`.
+ *
+ * Existe por el mismo motivo y contra el mismo error. «Conciliación» aparece también en la
+ * OBSERVACIÓN de la fila («Conciliación de la boleta BOL-000123»), así que un
+ * `expect(csv).toContain('Conciliación')` pasa igual aunque la columna Origen exporte el valor crudo
+ * del enum (`conciliacion`) en vez de la etiqueta de la pantalla. La pantalla ya tenía este cuidado;
+ * el archivo no.
+ *
+ * La columna se localiza por su ENCABEZADO y no por un índice escrito a mano, que se descuadra en
+ * cuanto alguien añade una columna delante. Y se comprueba que la fila tenga tantas celdas como el
+ * encabezado: el separador es `;` y una celda entrecomillada que lo llevara dentro descuadraría el
+ * troceado — antes que leer la columna equivocada en silencio, el test falla.
+ */
+function columnaCsv(csv: string, encabezado: string, ancla: string): string {
+  // El BOM se quita con su escape `\uFEFF` y no con el carácter: es un espacio invisible y ESLint lo
+  // marca como irregular —con razón: en un regex nadie lo ve—.
+  const lineas = csv.replace(/^\uFEFF/, '').trim().split('\r\n');
+  const celdas = (linea: string) => linea.split(';')
+    .map((c) => c.replace(/^"([\s\S]*)"$/, '$1').replace(/""/g, '"'));
+  const cabecera = celdas(lineas[0]);
+  const indice = cabecera.indexOf(encabezado);
+  expect(indice, `el CSV no trae ninguna columna «${encabezado}»`).toBeGreaterThanOrEqual(0);
+  const fila = lineas.slice(1).find((l) => l.includes(ancla));
+  expect(fila, `el CSV no trae ninguna fila con «${ancla}»`).toBeDefined();
+  const valores = celdas(fila as string);
+  expect(valores, 'la fila no tiene las mismas celdas que el encabezado').toHaveLength(cabecera.length);
+  return valores[indice];
+}
+
+const fondoDe = (chip: import('@playwright/test').Locator) =>
+  chip.evaluate((el) => getComputedStyle(el).backgroundColor);
 
 /** Despliega uno de los filtros de columna y devuelve su `<details>` para marcar opciones dentro. */
 function filtro(page: import('@playwright/test').Page, etiqueta: string) {
@@ -215,5 +303,73 @@ test.describe('FLITO — Bolsas · movimientos', () => {
     const fila = page.getByRole('row').filter({ hasText: 'GMF (4x1000)' });
     await expect(fila).toHaveCount(1);
     await expect(fila).toContainText(/14\.800/);
+  });
+
+  // ─────────────── HU #11681 · el origen «conciliación» en el libro de la bolsa ───────────────
+
+  test('AC4 — la conciliación se etiqueta como tal, y con un tono propio frente al automático y al manual', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockConConciliacion(page);
+    await abrirCliente(page, 5);
+
+    const conciliacion = libro(page).getByRole('row').filter({ hasText: 'BOL-000123' });
+    const automatico = libro(page).getByRole('row').filter({ hasText: 'FLIT-3001' });
+    const manual = libro(page).getByRole('row').filter({ hasText: 'FLIT-3003' });
+
+    await expect(chipOrigen(conciliacion)).toHaveText('Conciliación');
+    await expect(chipOrigen(automatico)).toHaveText('Automático');
+    await expect(chipOrigen(manual)).toHaveText('Manual');
+
+    // Tono propio de verdad, no la misma pastilla con otra palabra: un movimiento que el ciclo de la
+    // liquidación NO revierte no puede barrerse igual que uno que sí.
+    const fondo = await fondoDe(chipOrigen(conciliacion));
+    expect(fondo).not.toBe(await fondoDe(chipOrigen(automatico)));
+    expect(fondo).not.toBe(await fondoDe(chipOrigen(manual)));
+  });
+
+  test('AC4 — el filtro de origen ofrece «Conciliación», y la exportación la nombra igual', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockConConciliacion(page);
+    await abrirCliente(page, 5);
+
+    const porOrigen = filtro(page, 'Origen');
+    await porOrigen.locator('summary').click();
+    await porOrigen.getByRole('checkbox', { name: 'Conciliación' }).check();
+
+    await expect(page.getByText('Totales de lo filtrado (1 de 5)')).toBeVisible();
+    await expect(libro(page).getByRole('row').filter({ hasText: 'FLIT-3001' })).toHaveCount(0);
+
+    const [descarga] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: /Exportar CSV/ }).click(),
+    ]);
+    const csv = await readFile(await descarga.path(), 'utf8');
+    // La MISMA etiqueta que la pantalla, porque sale del mismo mapa. Se afirma sobre la COLUMNA
+    // Origen y no sobre el texto del archivo: la palabra está también en la observación de esta misma
+    // fila, así que un `toContain` daría por buena una columna que exportara el enum en crudo.
+    expect(columnaCsv(csv, 'Origen', 'BOL-000123')).toBe('Conciliación');
+    // Y la boleta viaja con ella: un libro exportado que dice «Conciliación» sin decir de cuál no
+    // cuadra ningún cierre.
+    expect(columnaCsv(csv, 'Observación', 'BOL-000123')).toContain('BOL-000123');
+    expect(csv).not.toContain('Automático');
+  });
+
+  test('AC5 — el movimiento de conciliación no inventa un trámite: raya, y la boleta de la que viene', async ({ page }) => {
+    await loginAs(page, FINANCIERA_USER);
+    await mockConConciliacion(page);
+    await abrirCliente(page, 5);
+
+    const fila = libro(page).getByRole('row').filter({ hasText: 'BOL-000123' });
+    const celdaTramite = fila.getByRole('cell').nth(3);
+
+    // La raya del vacío, no «Sin id de FLIT»: ese texto es para el movimiento que SÍ cuelga de un
+    // trámite y al que le falta el identificador, que es un problema distinto y sí hay que mirar.
+    await expect(celdaTramite).toContainText('—');
+    await expect(celdaTramite).not.toContainText('Sin id de FLIT');
+    // Y el hueco se escucha: un guion suelto no dice nada a quien no lo ve.
+    await expect(celdaTramite).toContainText('Sin trámite');
+
+    // De dónde salió el dinero, en la propia fila.
+    await expect(fila).toContainText('Conciliación de la boleta BOL-000123');
   });
 });

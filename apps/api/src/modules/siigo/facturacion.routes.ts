@@ -36,16 +36,18 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import type { SiigoRespuestaEnvio } from '@operaciones/shared-types';
-import { CONCEPTOS_FACTURABLES } from '@operaciones/shared-types';
+import type { SiigoDestinatario, SiigoRespuestaEnvio } from '@operaciones/shared-types';
+import { CONCEPTOS_FACTURABLES, SIIGO_ENVIO_MAX_DESTINATARIOS } from '@operaciones/shared-types';
 import { env } from '../../config/env.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
+import { frenoConRastro, makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { loggerFor } from '../../shared/logger.js';
 import { exigirAccionSiigo, registrarAccionSiigo } from './siigo.permisos.js';
 import { colaDeTramites, SiigoColaError } from './facturacion.cola.service.js';
-import { enviarAFacturacion, TOPE_TRAMITES_ENVIO } from './facturacion.encolado.service.js';
+import {
+  enviarAFacturacion, SiigoEnvioInvalidoError, TOPE_TRAMITES_ENVIO,
+} from './facturacion.encolado.service.js';
 import { emisionRecordada } from './emision-cliente.repo.js';
 import { SiigoIntegracionFrenadaError } from './siigo.freno.service.js';
 
@@ -83,6 +85,10 @@ const envioLimiter = rateLimit({
   max: 20,
   keyGenerator: userOrIpKey('siigo-envio-facturacion'),
   message: { error: 'Demasiados envíos seguidos. Espera un momento antes de volver a enviar.' },
+  // El 429 deja rastro (HU #11299). Con el limitador delante de la guarda, quien insiste sin
+  // permiso deja de escribir en la bitácora a partir del tope — que es lo que se buscaba — pero
+  // también dejaba de aparecer en ningún sitio. `frenoConRastro` cuenta el freno y anota la llave.
+  handler: frenoConRastro('siigo-envio-facturacion'),
   store: makeStore('rl:siigo-envio-facturacion:'),
 });
 
@@ -120,6 +126,48 @@ const envioSchema = z.object({
   // Reactivar lo dado por perdido es una decisión de quien opera, no un efecto secundario de
   // reenviar: por eso viaja explícito y apagado por omisión (AC3).
   reactivar: z.boolean().optional(),
+  /**
+   * HU #11708 — si la factura sale por correo al cliente y a qué direcciones.
+   *
+   * **Opcional, y su ausencia significa que NO se pidió** (AC2). Antes de esta historia el correo lo
+   * decidía el ambiente y en producción salía siempre; ahora hay que pedirlo. Que la ausencia
+   * apague el correo en vez de romper la petición con un 400 es deliberado: el daño de que un
+   * cliente no reciba el correo se repara con un reenvío —que existe y sigue igual (AC6)—, y además
+   * no pasa desapercibido, porque la emisión deja acta `no_realizado` diciendo que no se solicitó.
+   * El daño de un 400 sería que no se factura nada.
+   *
+   * `destinatarios` vacío o ausente = las direcciones de la ficha del cliente. Se validan aquí Y en
+   * la emisión, que es donde el AC5 las pide: esta ruta no es el único camino al lote —el cron emite
+   * lo que el lote diga— y la ficha puede cambiar entre el envío y la emisión. Lo de aquí es lo que
+   * permite decirle a quien escribe una dirección mal que la escribió mal, en vez de contárselo
+   * media hora después en un acta.
+   *
+   * El mensaje del rechazo lo escribe Zod con la POSICIÓN del campo y nunca su valor (Ley 1581):
+   * `.email()` no imprime lo que rechaza. Ninguna dirección puede acabar en un log de errores.
+   */
+  correo: z.object({
+    enviar: z.boolean(),
+    // `.trim().toLowerCase()` NO es cosmética, pero tampoco es ya la única defensa del derecho de
+    // supresión: la purga por dirección (`purgarDestinatariosDeLotes`) dejó de comparar con
+    // `jsonb @>` —byte a byte— y hoy pliega mayúsculas y espacios en los DOS lados
+    // (`correoDelTitularEn`), así que alcanza también lo que se haya guardado sin normalizar. Se
+    // normaliza igual al ESCRIBIR, y por dos motivos que siguen en pie: deja UNA sola forma en la
+    // columna, que es lo que hace comparables las filas entre sí —`validarDestinatarios` juzga los
+    // repetidos con este mismo criterio, y comparar distinto en cada sitio era decir que dos
+    // direcciones son la misma para rechazarlas y distintas para borrarlas—, y no hace depender el
+    // olvido de que la consulta siga siendo la correcta. Estas direcciones son `origen: 'manual'`,
+    // o sea tecleadas, que es justo donde la forma varía.
+    //
+    // Lo que YA NO justifica esta línea es el índice. Una versión anterior decía que normalizar al
+    // escribir era «la única forma de conservar útil el índice GIN»; dejó de ser cierto en cuanto la
+    // purga abandonó `@>`, porque un GIN `jsonb_path_ops` sirve a ese operador y a nada más. La 0161
+    // ya no crea ninguno: se cambió por un btree parcial sobre el mismo `jsonb_array_length(...) > 0`
+    // con el que la purga acota. O sea que el índice no es motivo de nada aquí — lo escriba como lo
+    // escriba esta ruta.
+    destinatarios: z.array(z.string().trim().toLowerCase().email().max(150))
+      .max(SIIGO_ENVIO_MAX_DESTINATARIOS)
+      .optional(),
+  }).strict().optional(),
 }).strict();
 
 const consultaSchema = z.object({ tramiteIds: z.string().trim().min(1) });
@@ -139,20 +187,66 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /**
  * `reactivar: true` exige además el permiso de reactivar. Condicional y no siempre, porque el envío
  * normal —el que se usa cada día— no reactiva nada y no debe pedir un permiso que no ejerce.
+ *
+ * Que sea condicional no lo hace inocuo para el freno: cuando dispara, delega en `REACTIVACION`,
+ * que es otro `exigirAccionSiigo` y por tanto escribe su propia fila `permiso_denegado` en la
+ * bitácora WORM. Es la segunda escritura de esta ruta, y por eso el limitador va delante de las
+ * DOS y no entre ellas.
  */
 function exigirReactivar(req: Request, res: Response, next: NextFunction): void {
   if ((req.body as { reactivar?: unknown } | undefined)?.reactivar !== true) { next(); return; }
   REACTIVACION(req, res, next);
 }
 
-router.post('/', EMISION, exigirReactivar, envioLimiter, async (req: Request, res: Response) => {
+/**
+ * **El limitador va ANTES de las dos guardas**, y el orden es la corrección, no el estilo (deuda de
+ * seguridad del PR #194, cerrada en la segunda tanda de la HU #11299).
+ *
+ * Con `EMISION` delante, cada intento sin permiso se resolvía en 403 sin que el limitador llegara a
+ * contarlo, y `exigirAccionSiigo` escribe una fila `permiso_denegado` en `siigo_operaciones` por
+ * cada uno. Esa tabla es append-only por disparador (HU #11251): lo que entra ahí no se borra ni se
+ * rectifica. Un autenticado cualquiera —con rol de consulta— podía meter así las ~500 filas que le
+ * permitiera `apiLimiter` cada quince minutos en una bitácora que nadie puede podar.
+ *
+ * **Y va antes también de `exigirReactivar`, que es lo que esta ruta tiene de distinto**: son tres
+ * middlewares, no dos, y el del medio TAMBIÉN escribe cuando deniega —delega en `REACTIVACION`, que
+ * es otra guarda del mismo catálogo—. Poner el limitador en medio (`EMISION, envioLimiter,
+ * exigirReactivar`) habría tapado una de las dos escrituras y dejado la otra abierta, que es medio
+ * arreglo con aspecto de arreglo entero. El limitador va primero porque lo que se está acotando no
+ * es «pedir facturar», es «cuántas veces puede un mismo usuario hacer que el servidor escriba en
+ * una tabla que no se puede podar», y las dos guardas escriben.
+ *
+ * Gastar cuota antes de comprobar el permiso es exactamente lo que se quiere aquí: la cuota se
+ * lleva por usuario (`userOrIpKey`), así que quien insiste sin permiso se frena a sí mismo y no a
+ * quien factura. Y el desperdicio no existe: una petición denegada NO es gratis para el sistema
+ * —cuesta una fila WORM—, así que cobrarla es contabilizar el coste real, no castigar un error.
+ *
+ * No debilita nada: los 403 los siguen dando las mismas guardas sobre el mismo rol del JWT, en el
+ * mismo orden entre ellas, y el limitador no mira el cuerpo ni ejecuta el handler.
+ */
+router.post('/', envioLimiter, EMISION, exigirReactivar, async (req: Request, res: Response) => {
   const parsed = envioSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
     return;
   }
-  const { tramiteIds, conceptos, emision, reactivar } = parsed.data;
+  const { tramiteIds, conceptos, emision, reactivar, correo } = parsed.data;
   const usuarioId = req.user?.sub ?? null;
+
+  // `manual` porque eso es lo que son: direcciones que escribió una persona en el diálogo de envío.
+  // La procedencia se guarda con cada una para que el acta distinga después lo que salió de la ficha
+  // de lo que alguien tecleó — que es la diferencia entre «el cliente lo tiene mal en su ficha» y
+  // «quien envió se equivocó al escribirlo». Las de la ficha no llegan por aquí: llegan por no
+  // elegir ninguna, y las resuelve `resolverDestinatarios` en el momento de emitir.
+  //
+  // **Con la casilla apagada no se guarda ninguna**, aunque vengan en el cuerpo: una pantalla que
+  // conserva lo escrito mientras se desmarca la casilla es lo normal, y guardarlas significaría
+  // meter datos personales en el lote para un correo que nadie va a mandar. Ley 1581, principio de
+  // minimización: el dato que no hace falta no se recoge.
+  const solicitado = correo?.enviar === true;
+  const destinatarios: SiigoDestinatario[] = solicitado
+    ? (correo?.destinatarios ?? []).map((c) => ({ correo: c, origen: 'manual' as const }))
+    : [];
 
   let salida: SiigoRespuestaEnvio;
   try {
@@ -160,6 +254,7 @@ router.post('/', EMISION, exigirReactivar, envioLimiter, async (req: Request, re
       tramiteIds,
       conceptos,
       emision,
+      correo: { solicitado, destinatarios },
       // AQUÍ, y en ningún otro sitio. El cuerpo no participa en esta línea.
       ambiente: env.SIIGO_AMBIENTE,
       usuarioId,
@@ -266,6 +361,13 @@ async function dejarRastro(
  * como 500 con su traza, no disfrazarse de rechazo de negocio.
  */
 function fallo(res: Response, e: unknown): void {
+  // 400 y no 409: lo que se pidió no es coherente y no lo arregla esperar. El mensaje viene del
+  // servicio y ya está escrito para quien envía —dice qué hacer y no nombra ninguna dirección ni
+  // ninguna empresa (AC5)—, así que se pasa tal cual en vez de redactarlo aquí otra vez.
+  if (e instanceof SiigoEnvioInvalidoError) {
+    res.status(400).json({ error: e.message, codigo: e.codigo });
+    return;
+  }
   if (e instanceof SiigoIntegracionFrenadaError) {
     res.status(503).json({
       error: e.message, codigo: 'integracion_frenada', freno: e.estado,

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, setToken, clearToken, SESSION_ENDED_EVENT } from './api';
+import { limpiarAvisos } from './conciliacionAviso';
 import type { UserRole } from './permissions';
 
 interface User {
@@ -27,21 +28,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
+      // Cuarto camino, y el que no hace ninguna petición: la pestaña arranca ya sin token. Barre
+      // igual, porque `localStorage` se comparte entre pestañas y `sessionStorage` no: cerrar sesión
+      // en OTRA pestaña se lleva el token de esta —es el mismo— pero no sus avisos, y nadie escucha
+      // el evento `storage`. Sin token no hay sesión cuyo aviso convenga preservar.
+      limpiarAvisos();
       setLoading(false);
       return;
     }
     api.get<User>('/auth/me')
       .then(setUser)
-      .catch(() => clearToken())
+      // El mismo barrido que hacen `logout` y `SESSION_ENDED`, y por el mismo motivo: aquí se
+      // arranca con un token que ya no sirve, y la sesión anterior no llegó a cerrarse por ninguno de
+      // esos dos caminos —el 401 emite el evento, pero un 502 del proxy o la API caída no—. Sin esto,
+      // los avisos de conciliación (importes y saldos de bolsa) se quedan en la pestaña.
+      .catch(() => { clearToken(); limpiarAvisos(); })
       .finally(() => setLoading(false));
   }, []);
 
   // F-2: fin de sesión emitido por api.ts (401) → logout SPA. Al poner user=null,
   // ProtectedRoute redirige a /login sin recargar la página. El motivo y la ruta
   // previa quedan en sessionStorage para que Login los muestre/restaure.
+  //
+  // Y por eso mismo hay que BARRER lo que dejó la sesión anterior: como no se recarga, el
+  // `sessionStorage` de la pestaña sobrevive intacto al cambio de usuario. `limpiarAvisos()` quita
+  // los avisos de conciliación —importes y saldos de bolsa— tanto aquí como en `logout`: una sesión
+  // que expira sola deja exactamente el mismo rastro que una que se cierra a mano.
   useEffect(() => {
     const onSessionEnded = () => {
       clearToken();
+      limpiarAvisos();
       setUser(null);
     };
     window.addEventListener(SESSION_ENDED_EVENT, onSessionEnded);
@@ -56,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     clearToken();
+    limpiarAvisos();
     setUser(null);
   };
 

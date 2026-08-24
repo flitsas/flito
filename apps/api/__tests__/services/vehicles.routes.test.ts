@@ -30,8 +30,11 @@ vi.mock('../../src/shared/middleware/audit.js', () => ({
 const sendExcelMock = vi.fn().mockImplementation((res: any) => {
   res.status(200).type('application/octet-stream').send(Buffer.from('xlsx'));
 });
-vi.mock('../../src/shared/utils/excel.js', () => ({
-  parseExcel: vi.fn(),
+// Se parte del módulo REAL y solo se sustituye `sendExcel` (que escribiría un xlsx en la
+// respuesta). El resto —`limitesXlsx`, `rechazoXlsxAHttp`, `bufferParaExcelJS`, `MIME_XLSX`— lo usa
+// el router de verdad desde el Bug #11682: mockearlo entero lo dejaba sin guardián y sin importarse.
+vi.mock('../../src/shared/utils/excel.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/shared/utils/excel.js')>()),
   sendExcel: sendExcelMock,
 }));
 

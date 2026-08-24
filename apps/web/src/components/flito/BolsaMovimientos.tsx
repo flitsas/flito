@@ -28,6 +28,11 @@ const ORIGEN: Record<OrigenMovimientoBolsa, { label: string; tono: ChipTone }> =
   recarga: { label: 'Recarga', tono: 'success' },
   automatico: { label: 'Automático', tono: 'neutral' },
   manual: { label: 'Manual', tono: 'warning' },
+  // Feature #11623: salida asentada al conciliar una boleta de pago externo. Tono propio a
+  // propósito — no es «automático»: no cuelga de ningún trámite (la columna Trámite sale con «—») y
+  // el reverso de la liquidación no lo devuelve. Este mismo mapa alimenta el filtro de origen y la
+  // exportación, así que con esta entrada quedan los tres.
+  conciliacion: { label: 'Conciliación', tono: 'active' },
 };
 
 interface Filtros {
@@ -256,7 +261,14 @@ export default function BolsaMovimientos({
                   {/* El id de FLIT, que es como nombra Operaciones al trámite. El UUID queda en el
                       `title` para quien tenga que rastrearlo contra la base. */}
                   <td className="px-4 py-2 align-top text-sm tabular-nums" title={m.tramiteId ?? undefined}>
-                    {m.idFlit ?? (m.tramiteId ? 'Sin id de FLIT' : '—')}
+                    {m.idFlit ?? (m.tramiteId
+                      ? 'Sin id de FLIT'
+                      // La raya es el DATO, no un fallo: una recarga no pasa por ningún trámite, y
+                      // un movimiento de conciliación tampoco (Feature #11623) —su dinero sale de
+                      // una boleta de pago externo, que la fila nombra en la observación—. Lleva su
+                      // `sr-only` detrás porque un guion suelto no se escucha, que es como esa
+                      // celda se convertía en un hueco sin explicación para quien no la ve.
+                      : <>—<span className="sr-only">Sin trámite</span></>)}
                   </td>
                   <td className="px-4 py-2 align-top text-sm">
                     {m.concepto ? CONCEPTO_BOLSA_LABEL[m.concepto] : '—'}

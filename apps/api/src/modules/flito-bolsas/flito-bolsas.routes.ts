@@ -16,14 +16,13 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
-import { storageKeySoporte } from '../flito-revisiones/flito-revisiones.service.js';
 import {
   deleteEntityDocument, firmarDescargaEntidad, uploadEntityDocument,
 } from '../../services/storage.js';
 import {
   alertasDeConciliacion, alertasDeSaldo, bolsaConRiesgoDe, BolsaError, bolsasConRiesgo,
   cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
-  registrarMovimientoManual, registrarRecarga, saldoConsolidado,
+  registrarMovimientoManual, registrarRecarga, saldoConsolidado, storageKeySoporteDeBolsa,
 } from './flito-bolsas.service.js';
 import {
   actualizarBolsaTransito, bolsasTransito, bolsaTransitoDe, crearBolsaTransito,
@@ -265,14 +264,21 @@ function claveIdempotencia(req: Request): string | null {
   return clave;
 }
 
-// GET /soportes/:soporteId — URL firmada del comprobante de un movimiento.
+// GET /soportes/:soporteId — URL firmada del comprobante de UN MOVIMIENTO DE BOLSA.
 //
 // Existe en vez de reusar `/flito/derechos/soporte/:id` porque aquel está abierto a `admin` y
 // `auditor`, y aquí quien necesita abrir el comprobante es `financiera`. Compartir la ruta obligaría
 // a ensanchar sus roles y le daría a auditoría acceso a los soportes de las bolsas, que el Feature
 // reserva a Administración y Financiera (§9).
+//
+// **HU #11678, AC7 — pertenencia, no solo rol.** Hasta ahora esta ruta resolvía CUALQUIER fila de
+// `flito_soportes` por su id, así que el rol de bolsas alcanzaba para descargar la factura de un
+// SOAT o el PDF de una factura electrónica con solo tener el uuid. `storageKeySoporteDeBolsa` exige
+// que el soporte esté referenciado por un movimiento de alguno de los dos libros; lo que no lo
+// esté —incluido el comprobante PSE de una boleta, que cuelga de la boleta y no de un movimiento—
+// sale por 404, el mismo desenlace que un id inexistente.
 router.get('/soportes/:soporteId', BOLSAS, async (req: Request, res: Response) => {
-  const s = await storageKeySoporte(req.params.soporteId);
+  const s = await storageKeySoporteDeBolsa(req.params.soporteId);
   if (!s) { res.status(404).json({ error: 'El soporte no existe' }); return; }
   res.json({
     url: firmarDescargaEntidad(s.storageKey),
@@ -513,7 +519,7 @@ router.post('/:companiaId/cierres', BOLSAS, async (req: Request, res: Response) 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {
   const [compania] = await db
-    .select({ id: clients.id, document: clients.document, flitoCarpetaStorage: clients.flitoCarpetaStorage })
+    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage })
     .from(clients)
     .where(eq(clients.id, companiaId))
     .limit(1);

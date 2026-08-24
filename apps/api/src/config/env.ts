@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS } from '@operaciones/shared-types';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -97,31 +98,20 @@ const envSchema = z.object({
   // `mock` por defecto (HU #11252): mientras no haya credenciales del ambiente real, el valor
   // seguro es NO salir a la red. Pasar a `real` es una decisión explícita de despliegue.
   SIIGO_MODE: z.enum(['mock', 'real']).default('mock'),
-  SIIGO_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
-  SIIGO_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0),
-  // Freno por proporción de errores (HU #11341). Siigo bloquea el usuario API si durante 7 días
-  // más del 80 % de las peticiones son errores. Medir con ESOS MISMOS números frenaría en el
-  // instante exacto del bloqueo, que es tarde: hay que llegar antes por los dos lados.
-  //   · Ventana más corta (24 h): una racha sostenida se ve el mismo día en que empieza, no al
-  //     séptimo. El tope es 168 h —los 7 días de Siigo—: más allá se mediría algo que Siigo ya no
-  //     penaliza.
-  //   · Umbral más bajo (60 %): aunque la ventana de 24 h se sostenga en 60 % seis días seguidos,
-  //     el acumulado de 7 días sigue por debajo del 80 % que dispara el bloqueo.
-  // Cuántas facturas mira cada ciclo del sondeo del estado DIAN (HU #11332, AC2). El número
-  // correcto depende del volumen de cada instalación: la cuota de 100/min es de la EMPRESA y la
-  // comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
-  SIIGO_DIAN_SONDEO_LOTE: z.coerce.number().int().min(1).max(200).optional(),
-  // Cuántas filas de la cola procesa cada ciclo del trabajador de emisión (HU #11327).
-  // El defecto (15) sale de una cuenta, no de un gusto: peor caso ≈ 6 peticiones por fila (los 4
-  // intentos de `ejecutarConResiliencia` más el margen del tercero) ≈ 90 < las 100 por minuto que
-  // permite Siigo, y el ciclo corre cada 2 min > la ventana de 60 s. El tope de 60 es el punto en
-  // que un ciclo empezaría a hacer dormir al limitador y a comerse la cuota del sondeo DIAN.
-  SIIGO_COLA_LOTE: z.coerce.number().int().min(1).max(60).optional(),
-  SIIGO_FRENO_VENTANA_HORAS: z.coerce.number().int().min(1).max(168).default(24),
-  SIIGO_FRENO_UMBRAL: z.coerce.number().min(0.01).max(1).default(0.6),
-  // Sin un mínimo, 2 fallos de 3 operaciones son un 67 % y frenarían la facturación de la empresa
-  // entera por una muestra que no significa nada.
-  SIIGO_FRENO_MIN_OPERACIONES: z.coerce.number().int().min(1).default(20),
+  // Interruptor ÚNICO de los tres crons de Siigo —archivo de soportes, sondeo DIAN y vaciado de la
+  // cola de emisión— (Bug #11649). Sustituye a `SIIGO_DIAN_CRON_ENABLED`,
+  // `SIIGO_ARCHIVO_CRON_ENABLED` y `SIIGO_COLA_CRON_ENABLED`, que se leían crudas de `process.env`
+  // con la guarda `=== '0'`: cualquier valor que no fuera exactamente esa cadena —incluida la
+  // variable ausente o con el nombre mal escrito— dejaba el cron ENCENDIDO.
+  //
+  // **El defecto es `off` y esa es la corrección del Bug.** Estos tres ciclos emiten documentos
+  // ante la DIAN, y una emisión es irreversible hacia un tercero: arrancarla exige un acto
+  // deliberado del despliegue, no la ausencia de una variable. La asimetría es la que decide:
+  // NO arrancar se nota —la cola crece y se ve en la bandeja—, arrancar de más no se nota hasta
+  // que el documento ya está ante la DIAN. Es además el mismo criterio que ya usan los crons de
+  // portal y de purga de comparendos en `server.ts` (apagados salvo `=1`); estaba invertido justo
+  // en los tres que más caro cuestan.
+  SIIGO_CRONS: z.enum(['on', 'off']).default('off'),
   RNDC_MOCK_ERROR_RATE: z.coerce.number().min(0).max(1).default(0),
   RNDC_MOCK_TIMEOUT_RATE: z.coerce.number().min(0).max(1).default(0.02),
   // ── Monitoreo de comparendos (Feature #11492, 17a) ─────────────────────────
@@ -177,6 +167,26 @@ const envSchema = z.object({
   // escala de un catálogo normal; súbelos si la operación real los roza.
   COMPARENDOS_INACTIVACION_MAX_FILAS: z.coerce.number().int().min(1).max(1_000_000).default(200),
   COMPARENDOS_INACTIVACION_MAX_RATIO: z.coerce.number().min(0.01).max(1).default(0.5),
+  // Tope de filas de un export a Excel del consolidado (HU #11558, ADR-0004 §2). Un filtro que
+  // devuelva más responde 422 y no genera archivo. El default es la constante de
+  // `packages/shared-types` —una sola fuente para el número que la pantalla usa al explicar el 422—
+  // y esta variable existe para poder BAJARLO con datos reales del `pii_access_log` sin desplegar.
+  //
+  // El techo de 20 000 no es holgura: es el punto en el que el propio ADR dice que el debate deja de
+  // ser el tope y pasa a ser la arquitectura (export asíncrono), así que subirlo más allá exige un
+  // ADR sucesor y no una variable de entorno. Súbelo aquí y el boot falla, que es la conversación
+  // que se quiere tener. Ojo: esta perilla es una decisión de PRIVACIDAD disfrazada de configuración
+  // —multiplica por 5/min el techo de extracción del módulo— y ADR-0004 es dónde está escrito.
+  COMPARENDOS_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
+    .default(COMPARENDOS_EXPORT_MAX_FILAS),
+  // Feature #11623 — tope de líneas de una boleta de conciliación. Perilla y no constante porque el
+  // coste real no es leer el Excel: es que la HU siguiente asienta UNA salida de bolsa por línea, en
+  // serie y dentro de una sola transacción, porque el saldo se encadena. El techo de 2 000 es el
+  // punto en el que esa transacción deja de ser reintentable a mano: pasarlo pide otro diseño (lote
+  // asíncrono), no otra variable. El valor por defecto es CONCILIACION_MAX_FILAS de shared-types,
+  // que es el número que la pantalla anuncia antes de subir el archivo.
+  CONCILIACION_MAX_FILAS: z.coerce.number().int().min(1).max(2_000)
+    .default(CONCILIACION_MAX_FILAS),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),
@@ -194,6 +204,20 @@ const envSchema = z.object({
   // Si no se define, se deriva de JWT_SECRET en runtime para compatibilidad con tokens
   // ya distribuidos. Para rotación: definir esta var, regenerar tokens, distribuir nuevas URLs.
   DOWNLOAD_TOKEN_SECRET: z.string().min(32).optional(),
+  // Bug #11599: token del scrape de GET /metrics (`Authorization: Bearer`). Opcional en el
+  // esquema pero NO permisivo: sin definir, la ruta responde 404 en vez de abrirse. El
+  // endpoint quedaba público en los tres ambientes porque su única defensa era una
+  // suposición sobre nginx. Mín 32 chars: si se define corto, el boot falla en vez de
+  // dejar el registro detrás de un token adivinable. Generar con `openssl rand -hex 32`.
+  //
+  // Se evaluó exigir hex de 64 (`/^[0-9a-f]{64}$/`) para cerrar el caso «32 letras a», y se
+  // descartó: un regex valida FORMATO, no entropía —`'0'.repeat(64)` lo pasaría igual—, y el
+  // modo de fallo sería el peor posible: el boot de TODA la API abortando por una variable
+  // que solo gobierna el scrape. Sumado a eso, sería incompatible con cualquier ambiente que
+  // ya tuviera un token no-hex; en condicional, porque desde el repo no se comprueba lo que
+  // hay en el `.env` de cada ambiente. Queda igual que JWT_SECRET y DOWNLOAD_TOKEN_SECRET: la
+  // calidad del token la da el `openssl rand` de arriba y de .env.example, no el schema.
+  METRICS_TOKEN: z.string().min(32).optional(),
   // Destinatarios alertas PESV (alcoholimetría positiva, etc.). Coma-separados.
   // Si vacío, fallback a admins activos del tenant. NUNCA debe quedar en kyverum.com.
   PESV_ALERT_RECIPIENTS: z.string().optional(),

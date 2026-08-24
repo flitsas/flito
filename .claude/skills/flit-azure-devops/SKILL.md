@@ -1,6 +1,6 @@
 ---
 name: flit-azure-devops
-description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Prioridad de conexión: MCP (servidor `ado`) → REST API (PAT, curl/Node) → borrador local .md. Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado).
+description: Integración con Azure DevOps Boards para el proyecto FLIT - FLITO. Conexión: MCP (servidor `ado`); ante fallo de MCP → detener, reintentar una vez a los pocos segundos y, si persiste, detener e informar el error (fallback REST/borrador SUSPENDIDOS desde 2026-08-21 salvo pedido explícito del humano). Invocar antes de crear, actualizar o consultar work items en ADO desde cualquier skill (flit-crear-hu, flit-gestion-hu, flit-integration-ado).
 ---
 
 # Azure DevOps — MCP primero, REST después
@@ -26,7 +26,7 @@ El nombre del proyecto lleva espacios: en URLs REST **codificarlo** (`encodeURIC
 
 - **MCP `ado`** es la vía de acceso — ya viene autenticado por su configuración de servidor: **no** requiere PAT ni archivos de credenciales en el repo.
 - **Trazabilidad** (nombre/email en comentarios HTML y menciones `mailto:`): la identidad del **usuario autenticado en Azure DevOps** — la cuenta con la que opera el MCP `ado` (la que figura como `CreatedBy` en cualquier escritura; búscala con `core_get_identity_ids` si necesitas su id). Si no está clara, pregúntala. **Nunca** uses un correo fijo por defecto.
-- **REST fallback:** solo aplica si el usuario provee un PAT **en la sesión** (variable de entorno temporal, scope *Work Items Read & Write*). En este proyecto **no existe** archivo de credenciales local — no lo busques ni lo crees. **Nunca** imprimir ni commitear el PAT.
+- **REST fallback:** **SUSPENDIDO (2026-08-21)** como vía automática — ante fallo de MCP se reintenta una vez y, si persiste, se detiene e informa (ver «Estrategia de ejecución»). Solo se reactiva si el humano lo pide explícitamente en la sesión y provee un PAT (variable de entorno temporal, scope *Work Items Read & Write*). En este proyecto **no existe** archivo de credenciales local — no lo busques ni lo crees. **Nunca** imprimir ni commitear el PAT.
 
 Variables de entorno para el fallback REST (las provee el usuario en la sesión):
 
@@ -40,11 +40,14 @@ Variables de entorno para el fallback REST (las provee el usuario en la sesión)
 
 ```
 1. MCP (ado)            ← SIEMPRE primero — verificar conexión antes de usar
-2. REST API (curl/Node) ← Solo si MCP no responde Y hay PAT disponible
-3. Borrador .md local   ← Si MCP falla y no hay PAT
+2. Fallo de MCP         ← DETENER la ejecución; reintentar UNA vez a los pocos segundos (~10-30 s)
+3. Fallo persistente    ← DETENER la ejecución e INFORMAR el error al humano (servidor, tool, mensaje)
 ```
 
-**Motivo MCP → REST:** el servidor MCP `ado` es la integración nativa del IDE, ya autenticada y sin gestión manual de PAT ni encoding. La REST API solo se usa como red de seguridad cuando MCP no está disponible (p. ej. ejecución headless/CI).
+**Política de fallo MCP (2026-08-21, decisión del usuario):** el fallback REST con PAT y el
+borrador `.md` quedan **SUSPENDIDOS** como vía automática — no usar `az`, curl/REST ni borrador
+salvo pedido explícito del humano en la sesión actual. Una llamada MCP que no responde en ~2-3 min
+**cuenta como fallo**: no dejarla colgada; aplicar los pasos 2-3.
 
 ## Verificación de conexión MCP (paso obligatorio)
 
@@ -54,7 +57,7 @@ Antes de operar:
 2. Llamada de bajo impacto: `CallMcpTool` → `server: "ado"`, `toolName: "core_list_projects"`.
 
 - **Devuelve la lista de proyectos** → MCP disponible; usar MCP en todos los pasos.
-- **Error de auth / timeout / modo no soportado** → pasar a REST si hay PAT; si no, entregar borrador `.md`. **No** reintentar MCP en la misma sesión.
+- **Error / timeout / llamada colgada (>2-3 min)** → detener, reintentar UNA vez a los pocos segundos; si persiste → detener e informar el error al humano. No pasar a REST ni a borrador salvo pedido explícito (política 2026-08-21).
 - Si `GetMcpTools` lista el servidor como `needsAuth` → pedir al humano autenticar MCP `ado` en Cursor; no inventar PAT.
 
 ### Cookbook MCP `ado` (nombres reales)
@@ -77,6 +80,21 @@ Las tools son **action-based** (un tool + `action`), no un tool por verbo. Antes
 | Comentario | `wit_work_item_comment_write` | `action: "add"`, `workItemId`, `text`, `format` | Comments API |
 | Vincular WIs | `wit_work_item_link_write` | `action: "link"`, `updates[]` | relations PATCH |
 | Link a PR | `wit_work_item_link_write` | `action: "link_to_pull_request"` | artifact link |
+
+### Tipos de work item — HU y Bug
+
+Ambos son work items de desarrollo con el **mismo ciclo** (`New → Active → Resolved → Closed`) y las
+mismas skills (`flit-crear-hu`, `flit-gestion-hu`, `flit-integration-ado`). Diferencias de campos:
+la HU usa `System.Description` + `Microsoft.VSTS.Common.AcceptanceCriteria` + Story Points; el Bug
+usa `Microsoft.VSTS.TCM.ReproSteps` + `Microsoft.VSTS.Common.Severity` y **no tiene** campo
+Acceptance Criteria.
+
+**Gotcha verificado (2026-08-22):** `wit_work_item` `action: "get_type"` con `workItemType: "Bug"`
+**no lista** los campos `Custom.*` (los sí lista para `User Story`). Eso **no** significa que no
+existan en el Bug: `Custom.Commits` y `Custom.DeployDEV` están poblados en los Bugs #11518, #11599,
+#11604, #11622, #11649, #11694, #11711 y #11720. Fiarse del comportamiento real del PATCH, no de esa
+lista; si un `Custom.*` concreto sí lo rechaza, registrar el contenido en Discussion y **declarar**
+la limitación en el reporte — nunca descartarlo en silencio.
 
 **Aliases legacy (NO usar como toolName):** `wit_create_work_item`, `wit_update_work_item`, `wit_get_work_item`, `wit_query_by_wiql`, `wit_add_work_item_comment`, `wit_work_items_link`, `mcp__azure-devops__*`.
 
@@ -146,7 +164,7 @@ Buscar duplicado reciente por título exacto (evita doble clic humano + reintent
 ```sql
 SELECT [System.Id] FROM WorkItems
 WHERE [System.TeamProject] = 'FLIT - FLITO'
-  AND [System.WorkItemType] = 'User Story'
+  AND [System.WorkItemType] = 'User Story'   -- o 'Bug' según el tipo que se va a crear
   AND [System.Title] = @title
   AND [System.State] <> 'Removed'
 ORDER BY [System.CreatedDate] DESC
@@ -199,7 +217,7 @@ Un tag **nuevo** en `System.Tags` va en **petición aparte** — mezclarlo con o
 
 ---
 
-## Fallback nivel 2 — REST API (solo con PAT)
+## Fallback nivel 2 — REST API (solo con PAT) — **SUSPENDIDO 2026-08-21 salvo pedido explícito del humano**
 
 ### Autenticación
 
@@ -279,9 +297,9 @@ await fetch(`${org}/${projectEncoded}/_apis/wit/workitems/$User%20Story?api-vers
 });
 ```
 
-## Fallback nivel 3 — borrador local `.md`
+## Fallback nivel 3 — borrador local `.md` — **SUSPENDIDO 2026-08-21 salvo pedido explícito del humano**
 
-Si MCP falla y no hay PAT: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** intentar Azure CLI.
+Si MCP falla y no hay PAT: la política vigente es detener e informar (ver «Estrategia de ejecución»). Solo si el humano lo pide explícitamente: entregar un `.md` con el work item redactado (título, campos, HTML) para que un humano lo cargue. **No** intentar Azure CLI.
 
 ## Tags FLIT por defecto
 
@@ -290,8 +308,8 @@ Si MCP falla y no hay PAT: entregar un `.md` con el work item redactado (título
 
 ## Skills que dependen de este contrato
 
-- `flit-crear-hu` — crear User Stories
-- `flit-gestion-hu` — ciclo Active → Resolved
-- `flit-integration-ado` — Commits / Deploy tras PR
+- `flit-crear-hu` — crear User Stories y Bugs
+- `flit-gestion-hu` — ciclo Active → Resolved de HU **y de Bug** (mismo ciclo; ver «Paridad HU ↔ Bug» en `AGENTS.md`)
+- `flit-integration-ado` — Commits / Deploy tras PR (HU y Bug)
 
 Al implementar o modificar cualquiera de ellas, **enlazar** `flit-azure-devops` y no duplicar la lógica de autenticación/encoding. Si el schema MCP cambia, actualizar **este** archivo primero; las skills hijas solo nombran operaciones, no inventan toolNames.

@@ -7,7 +7,7 @@
 // propio campo (`confirmadoPor`, `confirmadoEn`). Los gestores NO resuelven esta cola: si el gestor
 // que cargó la factura pudiera resolver su propia revisión, el umbral de OCR no serviría de nada.
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
   CampoDerechoTramite, CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
   FlujoRevision,
@@ -279,10 +279,36 @@ export async function descartar(id: string, motivo: string, ctx: RevisionCtx): P
   });
 }
 
-/** Storage key del soporte para servir su archivo (visor PDF de la cola). null si no existe. */
+/** Forma de un uuid, sin exigir versión ni variante: traduce un 22P02 en un 404. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Storage key del soporte para servir su archivo (visor PDF de la cola). null si no existe.
+ *
+ * **HU #11678, AC7 — el comprobante de una boleta NO sale por aquí.** Esta función resuelve
+ * cualquier soporte por su id, y la sirven dos rutas genéricas abiertas a `admin` y `auditor`
+ * (`GET /flito/revisiones/soporte/:id/archivo` y `GET /flito/derechos/soporte/:id`). Eso venía
+ * siendo aceptable mientras lo que colgaba de la tabla eran facturas y recibos de los flujos que
+ * esos dos roles ya ven; deja de serlo cuando cuelga un COMPROBANTE DE PAGO de la financiera, que
+ * el Feature #11623 reserva a Administración y Financiera —y que el AC5 de esta HU le niega
+ * expresamente a `auditor`—.
+ *
+ * El guarda es una condición y no una lista de tipos permitidos a propósito: la pregunta que hay
+ * que responder es «¿este soporte tiene dueño en otro módulo?», y `conciliacion_boleta_id` es esa
+ * respuesta. No cambia el comportamiento de una sola fila existente —hoy todas la tienen en NULL—,
+ * y el comprobante se sirve por las dos rutas donde el dueño es parte de la dirección:
+ * `…/conciliacion/boletas/:id/comprobante` y `GET /flito/soat/:id/soportes`.
+ */
 export async function storageKeySoporte(soporteId: string): Promise<{ storageKey: string; nombreArchivo: string; contentType: string } | null> {
+  // Un id que no tiene forma de uuid no es «no existe»: comparado contra una columna `uuid` es un
+  // 22P02, o sea un 500. Mismo guarda que `storageKeySoporteDeBolsa`, su gemela: endurecer una sola
+  // de las dos deja la otra devolviendo errores de servidor por una entrada mal formada.
+  if (!UUID_RE.test(soporteId)) return null;
+
   const [s] = await db.select({
     storageKey: flitoSoportes.storageKey, nombreArchivo: flitoSoportes.nombreArchivo, contentType: flitoSoportes.contentType,
-  }).from(flitoSoportes).where(eq(flitoSoportes.id, soporteId)).limit(1);
+  }).from(flitoSoportes)
+    .where(and(eq(flitoSoportes.id, soporteId), isNull(flitoSoportes.conciliacionBoletaId)))
+    .limit(1);
   return s ?? null;
 }

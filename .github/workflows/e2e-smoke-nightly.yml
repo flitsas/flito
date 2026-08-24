@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   e2e-smoke:
-    name: playwright smoke (6 specs)
+    name: playwright smoke (14 specs)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

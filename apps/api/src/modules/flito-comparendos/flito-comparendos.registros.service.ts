@@ -2,12 +2,18 @@
 // HU #11502, CF-09/CF-11), con los filtros de listado por municipio, fuente y causal que añadió la
 // HU #11555 (Feature #11495 17b, RN-36).
 //
-// Es el único archivo del módulo que LEE `flito_comparendos_registros` para devolvérselo a alguien.
-// El sync los escribe (`flito-comparendos.sync.service.ts`), la purga los borra
+// Es el archivo que LEE `flito_comparendos_registros` para devolvérselo a una PANTALLA. El sync los
+// escribe (`flito-comparendos.sync.service.ts`), la purga los borra
 // (`flito-comparendos-purga.cron.ts`), la gestión de 17b escribe sus dos únicas columnas editables
 // —causal y observación— desde `flito-comparendos.gestion.service.ts` (HU #11557), y aquí solo se
 // consultan: **no hay ni un INSERT, ni un UPDATE, ni un DELETE en este archivo**, y eso es el CF-09
 // en su forma más literal — los campos de fuente no se editan desde el API (RN-04).
+//
+// Desde la HU #11558 hay una segunda lectura de la tabla —el export a Excel, en
+// `flito-comparendos.export.service.ts`—, y no es una copia de esta: proyecta otras columnas (las
+// del archivo) y no pagina. Lo que SÍ comparten, y por eso vive aquí, es `condicionesDeFiltro`: qué
+// significa cada filtro se decide en un solo sitio, o el archivo acabaría conteniendo algo distinto
+// de lo que la pantalla enseña.
 //
 // ── Reglas de negocio ────────────────────────────────────────────────────────────────────────────
 //
@@ -63,6 +69,19 @@
 //        y no tiene cadena vacía que comparar. Que `causalId` y `sinCausal` juntos sean un 400 lo
 //        decide la RUTA (son dos parámetros contradictorios, y eso es validación de entrada); aquí,
 //        si llegaran los dos, el AND devuelve la página vacía que la lógica pide.
+//
+// RN-46  `gestionActualizadaPor` sale RESUELTO a `{ id, nombre }` (HU #11562), no como el id suelto
+//        con el que nació en la #11556. El único uso del campo es escribir «gestionado por X» en
+//        una pantalla, y no hay directorio de usuarios que la pantalla pueda consultar para
+//        resolverlo — así que el id suelto se pintaba tal cual («usuario 5»). El nombre se trae con
+//        un `leftJoin` a `users`, la misma forma y el mismo criterio que
+//        `ComparendosTokenSimitMeta.actualizadoPor`.
+//        `LEFT` y no `INNER`: la columna es nula en todo comparendo sin gestionar —que es la
+//        mayoría— y un join interno los dejaría FUERA del listado entero, no sin nombre.
+//        El nombre es dato de una persona identificable (personal interno): se publica a quien ya
+//        puede ver el comparendo, y no entra en el `detail` de `audit_logs`, ni en el `motivo` del
+//        `pii_access_log`, ni en ningún log. El EXPORT no lo lleva y sigue con el id (RN-42): ese
+//        archivo sale del perímetro.
 
 import { and, desc, eq, isNull, like, sql, type SQL } from 'drizzle-orm';
 import type {
@@ -73,7 +92,7 @@ import type {
   ComparendosRegistrosPagina,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoComparendosEventos, flitoComparendosRegistros } from '../../db/schema.js';
+import { flitoComparendosEventos, flitoComparendosRegistros, users } from '../../db/schema.js';
 import {
   ComparendosCursorInvalidoError,
   ComparendosNoEncontradoError,
@@ -99,6 +118,11 @@ const COLUMNAS_REGISTRO = {
   municipioFuente: flitoComparendosRegistros.municipioFuente,
   monto: flitoComparendosRegistros.monto,
   estadoFuente: flitoComparendosRegistros.estadoFuente,
+  // HU #11712. `id_resolucion` NO sale por aquí y no es un olvido: es un identificador de sistema
+  // del proveedor, ilegible fuera de él, y su único uso —saber si la fila ya es multa— ya viaja
+  // resuelto en `tipoRegistro`. Publicarlo daría una segunda columna que nadie sabría leer.
+  tipoRegistro: flitoComparendosRegistros.tipoRegistro,
+  numeroResolucion: flitoComparendosRegistros.numeroResolucion,
   origenMerge: flitoComparendosRegistros.origenMerge,
   vistoEnSimit: flitoComparendosRegistros.vistoEnSimit,
   vistoEnMunicipal: flitoComparendosRegistros.vistoEnMunicipal,
@@ -117,8 +141,35 @@ const COLUMNAS_REGISTRO = {
   updatedAt: flitoComparendosRegistros.updatedAt,
 } as const;
 
+/**
+ * La proyección que se le pide a la base: la lista blanca de la tabla **más el nombre del autor de
+ * la gestión**, que vive en `users` y llega por el `leftJoin` (RN-46).
+ *
+ * Está separada de {@link COLUMNAS_REGISTRO} y no fundida con ella para que la lista blanca siga
+ * siendo exactamente «las columnas del registro que se publican» (RN-31) y `FilaRegistro` pueda
+ * seguir derivándose de `$inferSelect` de esa tabla: una columna de `users` metida ahí dentro haría
+ * que ese tipo mintiera sobre de dónde sale cada campo.
+ */
+const SELECCION_REGISTRO = {
+  ...COLUMNAS_REGISTRO,
+  /**
+   * `users.name` del autor de la gestión, o `null` si la fila no está gestionada — el `leftJoin` no
+   * casa nada cuando `gestion_actualizada_por` es nulo.
+   *
+   * Del join sale SOLO el nombre. Ni el `username`, ni el correo, ni el rol: es la lista blanca de
+   * la otra tabla, y el criterio del RN-31 no cambia porque las columnas vengan de un join.
+   */
+  gestionAutorNombre: users.name,
+} as const;
+
+/** Condición del `leftJoin` a `users`. Una sola definición para las dos lecturas (RN-46). */
+const JOIN_AUTOR_GESTION = eq(users.id, flitoComparendosRegistros.gestionActualizadaPor);
+
 type FilaRegistro = {
   [K in keyof typeof COLUMNAS_REGISTRO]: (typeof flitoComparendosRegistros.$inferSelect)[K]
+} & {
+  /** `string | null`: lo que devuelve un `LEFT JOIN` que puede no casar, aunque la columna sea `NOT NULL`. */
+  gestionAutorNombre: string | null;
 };
 type FilaEvento = typeof flitoComparendosEventos.$inferSelect;
 
@@ -135,6 +186,10 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     municipioFuente: f.municipioFuente,
     monto: f.monto,
     estadoFuente: f.estadoFuente,
+    // `null` se publica tal cual: es «no se sabe» y NO «comparendo» (HU #11712). Traducirlo aquí a
+    // un valor por defecto convertiría el histórico anterior a la 0160 en un dato verificado.
+    tipoRegistro: f.tipoRegistro,
+    numeroResolucion: f.numeroResolucion,
     origenMerge: f.origenMerge,
     vistoEnSimit: f.vistoEnSimit,
     vistoEnMunicipal: f.vistoEnMunicipal,
@@ -149,9 +204,16 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     // es el caso de todo lo anterior a la HU #11556. Pedir la columna en `COLUMNAS_REGISTRO` y
     // olvidarla aquí devolvería `undefined` sin que ninguna aserción de proyección lo notara.
     gestionActualizadaEn: f.gestionActualizadaEn?.toISOString() ?? null,
-    // El id del usuario, no su nombre (igual que `ComparendosSyncRun.iniciadoPor`): resolverlo es
-    // cosa de la pantalla, y un JOIN por página para un dato casi siempre nulo no se paga.
-    gestionActualizadaPor: f.gestionActualizadaPor,
+    // El id Y el nombre, resueltos aquí (RN-46, HU #11562): la pantalla no tiene con qué resolver
+    // un id suelto. Misma forma y misma comprobación que `ComparendosTokenSimitMeta.actualizadoPor`.
+    //
+    // Hacen falta los dos para publicar el objeto: sin nombre no se puede escribir «gestionado por
+    // X», y devolver `{ id, nombre: null }` obligaría a la pantalla a pintar el número otra vez. El
+    // caso es teórico —la FK es `ON DELETE RESTRICT`, así que el usuario referenciado existe— y por
+    // eso se resuelve como el «no gestionado»: `null`, que la pantalla ya sabe pintar.
+    gestionActualizadaPor: f.gestionActualizadaPor !== null && f.gestionAutorNombre !== null
+      ? { id: f.gestionActualizadaPor, nombre: f.gestionAutorNombre }
+      : null,
     creadoEn: f.createdAt.toISOString(),
     actualizadoEn: f.updatedAt.toISOString(),
   };
@@ -288,13 +350,19 @@ function escaparLike(valor: string): string {
 }
 
 /**
- * Página de registros consolidados, del alta más reciente a la más antigua.
+ * Traduce el filtro ya validado a condiciones `WHERE`.
  *
- * Se piden `limit + 1` filas y la sobrante no se devuelve: es lo que permite saber si hay más
- * páginas sin un `count(*)` sobre el filtro —que en esta tabla es la consulta cara— y sin dejar al
- * cliente pidiendo una última página vacía para descubrir que se acabó.
+ * Está aparte de {@link listarRegistros} desde la HU #11558 porque el export a Excel consulta
+ * EXACTAMENTE el mismo conjunto —«lo que el visor está mostrando», sin paginar— y dos copias de este
+ * armado serían dos definiciones de qué significa cada filtro: el día que una cambie, el archivo
+ * dejaría de contener lo que la pantalla enseña y nadie lo notaría hasta que un cliente comparase.
+ * El export no manda `cursor` ni `limit`, así que la rama del cursor simplemente no entra.
+ *
+ * Devuelve `null` —y no una lista vacía de condiciones, que sería «sin filtros»— cuando el filtro no
+ * PUEDE casar con nada: una placa que al normalizar no deja ni un alfanumérico. La diferencia
+ * importa, porque confundirlas devolvería la tabla entera a quien pidió un vehículo concreto.
  */
-export async function listarRegistros(filtro: FiltroRegistros): Promise<ComparendosRegistrosPagina> {
+export function condicionesDeFiltro(filtro: ComparendosRegistrosFiltro): SQL[] | null {
   const condiciones: SQL[] = [];
 
   if (filtro.estado !== undefined) {
@@ -329,10 +397,9 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
   }
   if (filtro.placa !== undefined) {
     const placa = placaCanonica(filtro.placa);
-    // Una placa que al normalizar no deja ni un alfanumérico no puede coincidir con nada. Se
-    // responde una página vacía en vez de IGNORAR el filtro: ignorarlo devolvería la lista completa
-    // a quien pidió un vehículo concreto.
-    if (placa === null) return { items: [], nextCursor: null };
+    // Una placa que al normalizar no deja ni un alfanumérico no puede coincidir con nada: el filtro
+    // es imposible, no inexistente (ver la nota de `null` en la cabecera).
+    if (placa === null) return null;
     condiciones.push(eq(flitoComparendosRegistros.placa, placa));
   }
   if (filtro.q !== undefined) {
@@ -352,8 +419,25 @@ export async function listarRegistros(filtro: FiltroRegistros): Promise<Comparen
     condiciones.push(despuesDelCursor(decodificarCursor(filtro.cursor)));
   }
 
-  const filas = await db.select(COLUMNAS_REGISTRO)
+  return condiciones;
+}
+
+/**
+ * Página de registros consolidados, del alta más reciente a la más antigua.
+ *
+ * Se piden `limit + 1` filas y la sobrante no se devuelve: es lo que permite saber si hay más
+ * páginas sin un `count(*)` sobre el filtro —que en esta tabla es la consulta cara— y sin dejar al
+ * cliente pidiendo una última página vacía para descubrir que se acabó.
+ */
+export async function listarRegistros(filtro: FiltroRegistros): Promise<ComparendosRegistrosPagina> {
+  const condiciones = condicionesDeFiltro(filtro);
+  if (condiciones === null) return { items: [], nextCursor: null };
+
+  const filas = await db.select(SELECCION_REGISTRO)
     .from(flitoComparendosRegistros)
+    // El autor de la gestión (RN-46). No multiplica filas —casa por la clave primaria de `users`—,
+    // así que el `limit + 1` de abajo sigue significando lo mismo.
+    .leftJoin(users, JOIN_AUTOR_GESTION)
     .where(condiciones.length === 0 ? undefined : and(...condiciones))
     .orderBy(desc(flitoComparendosRegistros.createdAt), desc(flitoComparendosRegistros.id))
     .limit(filtro.limit + 1);
@@ -405,8 +489,12 @@ export async function obtenerRegistro(
   id: string,
   ejecutor: Ejecutor = db,
 ): Promise<ComparendoRegistroDetalle> {
-  const [fila] = await ejecutor.select(COLUMNAS_REGISTRO)
+  const [fila] = await ejecutor.select(SELECCION_REGISTRO)
     .from(flitoComparendosRegistros)
+    // Misma proyección y mismo join que el listado (RN-46): las dos superficies que devuelven un
+    // registro tienen que devolver la misma forma, y el PATCH de gestión construye su respuesta con
+    // esta lectura.
+    .leftJoin(users, JOIN_AUTOR_GESTION)
     .where(eq(flitoComparendosRegistros.id, id))
     .limit(1);
   if (!fila) throw new ComparendosNoEncontradoError('El comparendo no existe.');

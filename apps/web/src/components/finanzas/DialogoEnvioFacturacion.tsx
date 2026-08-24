@@ -29,6 +29,9 @@ import EmisionPorEmpresa, {
   type EmisionEmpresa,
   type EmpresaDelEnvio,
 } from './EmisionPorEmpresa';
+import CorreoDelEnvio, {
+  CORREO_POR_OMISION, destinatariosParaEnviar, problemaDelCorreo, type EleccionCorreo,
+} from './CorreoDelEnvio';
 
 /**
  * Espeja `TOPE_TRAMITES_ENVIO` de `facturacion.encolado.service.ts`. Con `pageSize = 50` es
@@ -115,6 +118,55 @@ export default function DialogoEnvioFacturacion({
    * no hay forma de saberlo. Validar «completo» sin esto dejaría pasar envíos que Siigo rechaza.
    */
   const [comprobantes, setComprobantes] = useState<ElementoComprobante[]>([]);
+  /**
+   * Si la factura sale por correo al cliente y a qué direcciones (HU #11709).
+   *
+   * Arranca en `CORREO_POR_OMISION` —marcada, sin direcciones— y no en «lo que diga el servidor»:
+   * esa elección no necesita ninguna consulta, porque `destinatarios` vacío ya significa «a lo que
+   * diga la ficha de cada cliente». Lo que carga el bloque solo revela cuáles son y descubre los dos
+   * casos que la cambian (ambiente no productivo, cliente sin correo). Así, quien envíe mientras la
+   * consulta viaja obtiene el comportamiento correcto y no el silencio, que es lo que el servidor
+   * entiende cuando `correo` no viene: nadie lo pidió.
+   */
+  const [correo, setCorreo] = useState<EleccionCorreo>(CORREO_POR_OMISION);
+  /**
+   * La semilla se aplica UNA vez. Volver del paso 2 al 1 remonta el bloque y volvería a cargar; sin
+   * este freno, la ficha del cliente pisaría las direcciones que alguien acaba de escribir.
+   */
+  const correoSembrado = useRef(false);
+  /**
+   * Si alguien ya decidió sobre la casilla. **Un freno distinto del anterior**: aquel protege del
+   * segundo sembrado, este del primero, porque la decisión puede ser ANTERIOR a que la consulta
+   * conteste. La casilla es lo primero que se ve y nace marcada, así que quien no quiere correo la
+   * pulsa justo mientras `/clients` viaja —tres segundos bastan— y sin esto la semilla la volvería
+   * a marcar: la factura saldría por correo después de que alguien dijera explícitamente que no.
+   *
+   * Se detecta comparando `enviar`, y no con un `onToque` aparte, porque la casilla es el ÚNICO
+   * control que lo cambia: editar direcciones deja `enviar` intacto. Así, tocar la casilla congela
+   * la elección y la semilla sigue rellenando las direcciones, que es lo que de verdad aporta y no
+   * está a la vista durante la carga (esos campos solo se pintan con la ficha ya cargada).
+   *
+   * **Un borde conocido, fuera de producción** (lo levantó el gate de seguridad y se deja escrito
+   * en vez de corregido): si alguien desmarca la casilla en pleno vuelo estando en un ambiente NO
+   * productivo, `enviarDecidido` congela `enviar: false` y después la casilla queda deshabilitada
+   * por el ambiente, sin forma de deshacerlo. El servidor levanta entonces acta `no_solicitado` en
+   * lugar de «en este ambiente no se manda correo a nadie». Las dos actas son ciertas —la persona
+   * SÍ lo rechazó—, y la diferencia no cambia lo que ocurre: en ese ambiente no sale correo de
+   * ninguna manera. Se anota porque las dos actas se leen distinto en la bandeja, y porque el
+   * criterio de este archivo es que un estado no se lea como otro.
+   */
+  const enviarDecidido = useRef(false);
+  const cambiarCorreo = (v: EleccionCorreo) => {
+    if (v.enviar !== correo.enviar) enviarDecidido.current = true;
+    setCorreo(v);
+  };
+  const sembrarCorreo = (v: EleccionCorreo) => {
+    if (correoSembrado.current) return;
+    correoSembrado.current = true;
+    setCorreo((prev) => (enviarDecidido.current
+      ? { enviar: prev.enviar, destinatarios: v.destinatarios }
+      : v));
+  };
 
   /**
    * Las empresas de la selección, con cuántos trámites aporta cada una.
@@ -150,6 +202,12 @@ export default function DialogoEnvioFacturacion({
     });
   }, [empresas, emision, comprobantes]);
 
+  /**
+   * Lo que impide continuar por culpa del correo (AC2): una dirección con formato inválido,
+   * repetida o de más. La regla vive en `CorreoDelEnvio`, junto a las filas que la producen.
+   */
+  const problemaCorreo = problemaDelCorreo(correo);
+
   const encabezadoRef = useRef<HTMLHeadingElement>(null);
 
   // El contenido cambia entero bajo el mismo diálogo: sin esto el foco se queda en un botón que ya
@@ -171,14 +229,24 @@ export default function DialogoEnvioFacturacion({
     ultimo.current = { ids, reactivar };
     setFase('enviando');
     try {
-      // El cuerpo es `.strict()` en el servidor: `tramiteIds`, `conceptos`, `emision` y, solo al
-      // reactivar, `reactivar`. Nada más — ni `ambiente`, que el servidor rechaza con un 400.
+      // El cuerpo es `.strict()` en el servidor: `tramiteIds`, `conceptos`, `emision`, `correo` y,
+      // solo al reactivar, `reactivar`. Nada más — ni `ambiente`, que el servidor rechaza con un 400.
       //
       // `emision` viaja SIEMPRE y con todas las empresas. Antes se filtraban las que no habían
       // elegido nada, porque el servidor las resolvía contra la configuración global; esa
       // configuración ya no existe, así que una empresa ausente es un lote que no se podrá emitir.
       // El botón no deja llegar aquí sin completarlas.
-      const cuerpo = { tramiteIds: ids, conceptos, emision };
+      //
+      // `correo` también viaja SIEMPRE, y explícito (HU #11709): su ausencia le dice al servidor que
+      // nadie pidió el correo, y desde la HU #11708 eso significa que la factura no sale por correo
+      // y queda un acta `no_solicitado`. Con la casilla apagada van cero direcciones aunque haya
+      // texto escrito: lo que no se va a usar no se manda ni se guarda (Ley 1581, minimización).
+      const cuerpo = {
+        tramiteIds: ids,
+        conceptos,
+        emision,
+        correo: { enviar: correo.enviar, destinatarios: destinatariosParaEnviar(correo) },
+      };
       const r = await api.post<SiigoRespuestaEnvio>(
         '/siigo/facturacion', reactivar ? { ...cuerpo, reactivar: true } : cuerpo,
       );
@@ -243,6 +311,12 @@ export default function DialogoEnvioFacturacion({
               </p>
             </fieldset>
 
+            {/* El correo se elige EN EL PRIMER PASO y no junto al botón de enviar: es una decisión
+                sobre qué pasa con la factura, no sobre con qué se emite, y el AC1 la quiere a la
+                vista en cuanto el diálogo carga. */}
+            <CorreoDelEnvio empresas={empresas} valor={correo} onCambio={cambiarCorreo}
+              onSemilla={sembrarCorreo} />
+
             {excluidos.length > 0 && (
               // Plegado: quien confirma no necesita leerlo, y quien duda lo abre. Dentro, los
               // motivos literales del servidor, con el mismo formato que «¿Por qué no?».
@@ -272,7 +346,11 @@ export default function DialogoEnvioFacturacion({
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
                 onClick={cerrar}>Cancelar</button>
+              {/* AC2 — con una dirección mal escrita no se sigue. El motivo ya está anunciado
+                  dentro del bloque de correo (`role="alert"`), así que el botón apagado no es un
+                  callejón sin salida: al lado está escrito qué corregir. */}
               <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+                disabled={problemaCorreo !== null}
                 onClick={() => setFase('emision')}>
                 Siguiente: con qué se emite
               </button>
@@ -287,6 +365,16 @@ export default function DialogoEnvioFacturacion({
           <>
             <EmisionPorEmpresa empresas={empresas} valores={emision} onCambio={setEmision}
               onCatalogos={setComprobantes} />
+
+            {/* Lo elegido sobre el correo, recordado junto a la acción irreversible: el paso 1 queda
+                fuera de la vista y «¿esto sale por correo?» es la pregunta que se hace justo aquí. */}
+            <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              {correo.enviar
+                ? (destinatariosParaEnviar(correo).length > 0
+                  ? `Se enviará por correo a ${destinatariosParaEnviar(correo).length} dirección(es) elegida(s).`
+                  : 'Se enviará por correo a las direcciones de la ficha de cada cliente.')
+                : 'No se enviará ningún correo al cliente con este envío.'}
+            </p>
 
             {/* Se enumeran las empresas incompletas en vez de deshabilitar el botón a secas: con
                 cuatro empresas plegadas en pantalla, un botón apagado sin motivo obliga a recorrer

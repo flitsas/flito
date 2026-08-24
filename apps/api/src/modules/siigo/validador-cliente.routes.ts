@@ -6,12 +6,26 @@
 // permisos distintos, que es cómo se cuelan las inconsistencias de autorización.
 //
 // Ninguna ruta de aquí llama a Siigo (AC6): todo sale de la copia local.
+//
+// ── Registro de acceso a datos personales (HU #11299) ────────────────────────────────────────────
+//
+// Las tres rutas de LECTURA dejan rastro en `pii_access_log` vía `registrarAccesoCliente`, porque el
+// informe devuelve nombre e identificación —cédula de personas naturales, NIT de jurídicas— y hasta
+// esta HU el módulo `siigo/` entero no registraba una sola lectura (Ley 1581 art. 17, AGENTS.md
+// §16). El permiso responde «¿podías mirar?»; esto responde «¿quién miró?», y son preguntas
+// distintas: la segunda es la que hay que poder contestar cuando la haga un titular.
+//
+// Cada ruta declara los campos que ELLA entrega, que no son los mismos: el resumen solo devuelve
+// conteos. El porqué de cada lista está en `siigo.pii.ts`, no repetido aquí.
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { MOTIVOS_NO_FACTURABLE_CODIGOS } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import {
+  CAMPOS_PII_RESUMEN, CAMPOS_PII_VEREDICTO, registrarAccesoCliente,
+} from './siigo.pii.js';
 import {
   informeClientes, recalcularDuplicados, resumenValidacionClientes, veredictoCliente,
 } from './siigo.validador-cliente.service.js';
@@ -32,8 +46,18 @@ const informeSchema = z.object({
 });
 
 // GET /validacion — conteos por motivo: por dónde empezar a corregir.
-router.get('/validacion', LECTURA, async (_req: Request, res: Response) => {
-  res.json(await resumenValidacionClientes());
+//
+// Registra el barrido con la lista de campos VACÍA (`CAMPOS_PII_RESUMEN`): recorre el padrón entero
+// pero no devuelve ni un nombre ni una identificación. `evaluados` deja constancia del tamaño del
+// recorrido, que es lo único personal-adyacente que hay aquí.
+router.get('/validacion', LECTURA, async (req: Request, res: Response) => {
+  const resumen = await resumenValidacionClientes();
+  await registrarAccesoCliente(req, {
+    accion: 'search',
+    campos: CAMPOS_PII_RESUMEN,
+    evaluados: resumen.total,
+  });
+  res.json(resumen);
 });
 
 // GET /validacion/detalle — la lista, filtrable por motivo (AC5).
@@ -44,12 +68,25 @@ router.get('/validacion/detalle', LECTURA, async (req: Request, res: Response) =
     return;
   }
   const { motivo, incluirFacturables, limit, offset } = parsed.data;
-  res.json(await informeClientes({
+  const informe = await informeClientes({
     motivo: motivo as never,
     incluirFacturables: incluirFacturables === 'true',
     limit,
     offset,
-  }));
+  });
+
+  // La lectura masiva del padrón: hasta 500 fichas con nombre e identificación en una respuesta, y
+  // desde el panel de Terceros es la llamada habitual, no la excepcional. `filas` distingue quien
+  // consultó una página de quien se llevó el tope. Los filtros van al motivo por
+  // `registrarAccesoCliente`, que los enmascara; ninguno es personal hoy.
+  await registrarAccesoCliente(req, {
+    accion: 'search',
+    campos: CAMPOS_PII_VEREDICTO,
+    filas: informe.data.length,
+    filtros: { motivo, incluirFacturables, offset },
+  });
+
+  res.json(informe);
 });
 
 // GET /:id/validacion — el veredicto de un cliente puntual (AC5).
@@ -61,6 +98,16 @@ router.get('/:id/validacion', LECTURA, async (req: Request, res: Response) => {
 
   const veredicto = await veredictoCliente(id);
   if (veredicto === null) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+  // DESPUÉS del 404 a propósito: si el cliente no existe nadie miró los datos de nadie, y registrar
+  // el intento llenaría el log de accesos que no ocurrieron. Aquí sí va `resource_id`: es la única
+  // de las tres rutas que apunta a una ficha concreta, y la columna es `integer` como `clients.id`.
+  await registrarAccesoCliente(req, {
+    accion: 'read',
+    campos: CAMPOS_PII_VEREDICTO,
+    clienteId: veredicto.clienteId,
+  });
+
   res.json(veredicto);
 });
 

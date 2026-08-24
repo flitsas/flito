@@ -5,7 +5,38 @@ const BASE = '/api';
 // colgada para siempre → el `finally` que apaga el spinner nunca corre.
 // 90s da margen al peor caso de RUNT (captcha + sub-peticiones) pero garantiza
 // que el cliente SIEMPRE resuelve o falla con un error legible.
+//
+// El tope cubre la petición ENTERA —cabeceras y cuerpo—, no solo el `fetch`. `fetch` resuelve en
+// cuanto llegan las cabeceras y el cuerpo se lee después (`res.json()`, `res.blob()`): apagar el
+// reloj ahí dejaría sin reloj justo la parte que puede estancarse durante minutos, que es lo que
+// pasa cuando el servidor responde 200 y luego se queda a medias. Ver `request`.
 const REQUEST_TIMEOUT_MS = 90_000;
+
+/**
+ * Techo duro para el tope POR PETICIÓN (`postConTimeout`). No sube el de arriba: son cosas distintas.
+ *
+ * `REQUEST_TIMEOUT_MS` lo comparten ~500 llamadas de toda la app y su valor está justificado por el
+ * peor caso de RUNT; subirlo para que una pantalla pueda esperar más cambiaría el comportamiento de
+ * todas las demás. Lo que se añade es la posibilidad de que UNA llamada pida más tiempo, y este
+ * techo es lo que impide que ese permiso se convierta en «el que llama decide sin límite».
+ *
+ * 115 s está por DEBAJO del corte del proxy (~120 s): pasado ese punto, quien corta es nginx y el
+ * cliente recibe un 502/504 en vez de su propio abort — es decir, el llamador perdería la
+ * distinción entre «se me acabó el tiempo a mí» y «el servidor falló», que es justo la que la
+ * consola de sincronización necesita para no pintar un fallo rojo definitivo (HU #11635).
+ */
+const TIMEOUT_MAX_MS = 115_000;
+
+/**
+ * Tope efectivo de una petición: el pedido, acotado al techo, o el de siempre si no se pide nada.
+ *
+ * Un valor no finito o ≤ 0 cae al de siempre en vez de abortar al instante: un `NaN` colado en un
+ * cálculo del llamador dejaría la petición muerta antes de salir, y eso se diagnostica fatal.
+ */
+function topeDeTiempo(pedido?: number): number {
+  if (pedido === undefined || !Number.isFinite(pedido) || pedido <= 0) return REQUEST_TIMEOUT_MS;
+  return Math.min(pedido, TIMEOUT_MAX_MS);
+}
 
 function getToken(): string | null {
   return localStorage.getItem('token');
@@ -100,7 +131,45 @@ function statusToMessage(status: number, backendMsg?: string): string {
   return `Error ${status}`;
 }
 
-async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+/**
+ * Gancho de SOLO LECTURA sobre la respuesta cruda, antes de que `request` consuma el cuerpo.
+ *
+ * Existe por una pérdida concreta: `request` devuelve `res.json()` o `res.blob()` y con ello se va
+ * el objeto `Response` entero, incluidas sus cabeceras. El nombre de un archivo lo decide el
+ * SERVIDOR en `Content-Disposition` —en comparendos, con la hora de Colombia— y sin este gancho el
+ * llamador no tiene forma de leerlo: se lo tiene que inventar.
+ *
+ * No puede alterar nada: no devuelve valor y se llama antes de tocar el cuerpo, así que no compite
+ * con quien lo lee después.
+ */
+type GanchoRespuesta = (res: Response) => void;
+
+/** AbortError = se cumplió el tope de tiempo (no es «sin conexión»), lo pare el `fetch` o el cuerpo. */
+function esCorteDelTope(e: unknown): boolean {
+  return e instanceof DOMException && e.name === 'AbortError';
+}
+
+const errorDeTope = () => new ApiError(0, 'La consulta tardó demasiado. Intente de nuevo.');
+
+/**
+ * Lee el cuerpo BAJO el tope de tiempo.
+ *
+ * Cuando el tope se cumple mientras el cuerpo se está leyendo, quien rechaza es el stream y lo hace
+ * con un `AbortError`: se traduce al MISMO error que sale al agotarse esperando las cabeceras,
+ * porque para quien llama es el mismo suceso y no tiene por qué distinguirlos.
+ *
+ * Cualquier otro fallo sale tal cual. Un JSON malformado no es un corte de tiempo, y disfrazarlo de
+ * uno mandaría a reintentar contra un cuerpo que no va a parsear nunca.
+ */
+async function leerCuerpo<T>(leer: () => Promise<T>): Promise<T> {
+  try {
+    return await leer();
+  } catch (e) {
+    throw esCorteDelTope(e) ? errorDeTope() : e;
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>, alRecibir?: GanchoRespuesta, timeoutMs?: number): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -117,20 +186,35 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
 
   const controller = new AbortController();
   opts.signal = controller.signal;
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), topeDeTiempo(timeoutMs));
 
+  // `await` y no `return` a secas: el `finally` apaga el reloj, y devolver la promesa sin esperarla
+  // lo apagaría con el cuerpo todavía a medio leer — que es exactamente el agujero que se cerró.
+  try {
+    return await pedirYLeer<T>(path, opts, alRecibir);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * La petición y la lectura de su cuerpo, ambas dentro del tope que `request` mantiene armado.
+ *
+ * Está separada de `request` por eso: el reloj se apaga en el `finally` de allí, así que todo lo que
+ * toque el cuerpo tiene que quedar dentro de esta función y ser esperado.
+ */
+async function pedirYLeer<T>(path: string, opts: RequestInit, alRecibir?: GanchoRespuesta): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, opts);
   } catch (e) {
-    // AbortError = se cumplió el tope de tiempo (no es "sin conexión").
-    if (e instanceof DOMException && e.name === 'AbortError') {
-      throw new ApiError(0, 'La consulta tardó demasiado. Intente de nuevo.');
-    }
+    if (esCorteDelTope(e)) throw errorDeTope();
     throw new ApiError(0, statusToMessage(0));
-  } finally {
-    clearTimeout(timeoutId);
   }
+
+  // Antes del 401, del blob y del `!res.ok`: quien lo pasa quiere las cabeceras pase lo que pase
+  // después, incluidas las de una respuesta de error.
+  alRecibir?.(res);
 
   // 401 global → fin de sesión vía evento (navegación SPA), no recarga dura.
   // EXCEPCIÓN: el propio /auth/login devuelve 401 para credenciales inválidas.
@@ -148,7 +232,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   // File downloads — pasar a través como blob.
   const ct = res.headers.get('content-type') || '';
   if (ct.includes('spreadsheet') || ct.includes('octet-stream') || ct.includes('zip') || ct.includes('pdf') || ct.includes('csv') || ct.includes('image/')) {
-    return res.blob() as unknown as T;
+    return leerCuerpo(() => res.blob() as unknown as Promise<T>);
   }
 
   if (!res.ok) {
@@ -166,12 +250,120 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
 
   // 204 No Content (típicamente DELETE) y respuestas vacías: no parsear JSON.
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as unknown as T;
-  return res.json();
+  return leerCuerpo<T>(() => res.json() as Promise<T>);
+}
+
+/**
+ * El nombre del archivo tal y como lo declara el servidor en `Content-Disposition`.
+ *
+ * Se prefiere el del servidor al que pueda componer la pantalla porque el sello de tiempo del
+ * archivo es SUYO: en comparendos, `nombreArchivoExport()` lo calcula en hora de Colombia, y un
+ * nombre fabricado en el cliente llevaría la hora del sistema operativo de quien descarga —que en
+ * un equipo con otra zona horaria nombraría el mismo archivo con otro día—.
+ *
+ * Se admiten las dos formas del RFC 6266 y gana `filename*`, que es la que declara su codificación.
+ * Devuelve `null` cuando no hay cabecera, cuando no es interpretable o cuando lo que queda tras
+ * sanear está vacío: el llamador siempre tiene que traer un nombre de respaldo.
+ */
+export function nombreDeContentDisposition(cabecera: string | null): string | null {
+  if (!cabecera) return null;
+  const extendido = /filename\*\s*=\s*([^;]+)/i.exec(cabecera);
+  if (extendido) {
+    const valor = extendido[1].trim();
+    // `UTF-8''nombre.xlsx` → se descarta el juego de caracteres y el idioma y se decodifica el resto.
+    const partes = valor.split("''");
+    const texto = partes.length > 1 ? partes.slice(1).join("''") : valor;
+    try { return saneaNombreDeArchivo(decodeURIComponent(texto)); } catch { return saneaNombreDeArchivo(texto); }
+  }
+  const simple = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(cabecera);
+  return simple ? saneaNombreDeArchivo(simple[1] ?? simple[2]) : null;
+}
+
+/**
+ * El nombre viene de la red, así que se trata como tal aunque lo haya escrito nuestro propio API.
+ *
+ * Se queda con el último segmento —un `filename` con separadores no puede proponer una ruta— y
+ * quita comillas y caracteres de control, que es lo que un nombre con `\r\n` usaría para escribirse
+ * de más en la carpeta de descargas.
+ */
+function saneaNombreDeArchivo(valor: string | undefined): string | null {
+  const base = (valor ?? '').split(/[\\/]/).pop() ?? '';
+  // eslint-disable-next-line no-control-regex -- es justo lo que hay que quitar.
+  const limpio = base.replace(/[\u0000-\u001F\u007F"]/g, '').trim();
+  return limpio && limpio !== '.' && limpio !== '..' ? limpio : null;
+}
+
+/**
+ * Entrega el blob al navegador y **libera el object URL DESPUÉS de la descarga**, no en la misma
+ * vuelta síncrona.
+ *
+ * Revocar en la misma vuelta del `a.click()` funciona en Chromium porque la descarga queda
+ * registrada durante el despacho del clic, pero es una carrera que depende del navegador: revocar
+ * la URL antes de que la descarga haya empezado a leer el blob la deja sin origen. Aquí se cede el
+ * turno primero (`setTimeout`), que es lo que convierte «se libera después de la descarga» en una
+ * afirmación cierta y no en una que suele cumplirse.
+ *
+ * El ancla se ADJUNTA al documento antes de pulsarla y se retira después: hay navegadores que
+ * ignoran el clic sobre un ancla que no está en el árbol.
+ *
+ * La usan las TRES formas de descargar de este módulo —`download`, `downloadPost` y
+ * `downloadPostNamed`—: `download` y `downloadPost` nacieron con la revocación síncrona y se
+ * migraron aquí en la HU #11652, que es cuando dejaron de estar sin test (AC2).
+ */
+function entregarArchivo(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * Un error que llegó VESTIDO de archivo.
+ *
+ * `request` mira el `content-type` ANTES que `res.ok`, así que una respuesta de error con
+ * `content-type` de xlsx no entra por la rama de error: sale como blob y acaba en la carpeta de
+ * descargas del usuario, con extensión `.xlsx` y un JSON dentro. El caso normal no ocurre —el 422
+ * del tope y el 429 del limitador responden JSON y sí lanzan `ApiError`—, pero el que ocurra
+ * depende de una cabecera que pone el servidor, y eso no es una garantía del cliente.
+ *
+ * Se reconstruye aquí el mismo `ApiError` que habría salido por la rama buena, leyendo el cuerpo
+ * que ya se consumió como blob.
+ */
+async function errorVestidoDeArchivo(status: number, blob: Blob): Promise<ApiError> {
+  let cuerpo: Record<string, unknown> = {};
+  try { cuerpo = JSON.parse(await blob.text()) as Record<string, unknown>; } catch { /* no era JSON */ }
+  const backendMsg = typeof cuerpo.error === 'string'
+    ? cuerpo.error
+    : typeof cuerpo.message === 'string' ? cuerpo.message : undefined;
+  const details = (cuerpo.details ?? null) as { fieldErrors?: Record<string, string[]> } | null;
+  return new ApiError(status, statusToMessage(status, backendMsg), details?.fieldErrors, cuerpo);
 }
 
 export const api = {
   get: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('GET', path, undefined, extraHeaders),
   post: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('POST', path, body, extraHeaders),
+  /**
+   * POST que puede esperar MÁS (o menos) que el tope compartido, acotado por `TIMEOUT_MAX_MS`.
+   *
+   * Se añade en vez de meter un parámetro en `post` —mismo criterio que `downloadPostNamed`— porque
+   * `post` lo llaman cientos de sitios y su firma no se mueve por una pantalla. Lo pide el disparo
+   * de la sincronización de comparendos (HU #11635), que es síncrono en el servidor y tarda minutos.
+   *
+   * **Cuánto tiempo se pide lo decide el llamador, no este archivo**: aquí no se sabe qué rutas hay
+   * ni cuánto tarda cada una. Lo único que este módulo garantiza es el techo.
+   *
+   * Al agotarse sale un `ApiError` con `status === 0` —el mismo que un fallo de red— y eso es
+   * deliberado: el cliente no puede distinguir «no me respondió a tiempo» de «no llegué a
+   * preguntar», y quien lo consume trata ambos igual.
+   */
+  postConTimeout: <T>(path: string, body: unknown, timeoutMs: number, extraHeaders?: Record<string, string>) =>
+    request<T>('POST', path, body, extraHeaders, undefined, timeoutMs),
   patch: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PATCH', path, body, extraHeaders),
   put: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PUT', path, body, extraHeaders),
   delete: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('DELETE', path, undefined, extraHeaders),
@@ -190,22 +382,48 @@ export const api = {
   },
   download: async (path: string, filename: string) => {
     const blob = await request<Blob>('GET', path);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    entregarArchivo(blob, filename);
   },
   /** POST que devuelve un PDF/blob (p.ej. generación de documentos legales) y lo descarga. */
   downloadPost: async (path: string, filename: string, body?: unknown) => {
     const blob = await request<Blob>('POST', path, body);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    entregarArchivo(blob, filename);
+  },
+  /**
+   * POST que descarga un archivo **con el nombre que decide el SERVIDOR** (HU #11561).
+   *
+   * Se añade en vez de tocar `downloadPost` porque aquel obliga al llamador a inventarse el nombre
+   * y lo consumen ya varias pantallas; su firma no se mueve. Las tres diferencias son:
+   *
+   *   · el nombre sale de `Content-Disposition` y `respaldo` solo se usa si no viene;
+   *   · una respuesta de error con `content-type` de archivo **no se descarga**, se lanza;
+   *   · el object URL se libera después de la descarga, no en la misma vuelta síncrona.
+   *
+   * `aceptaNombre` deja que **el llamador** decida qué forma admite, porque solo él la conoce: aquí
+   * no se puede saber si un `.xlsx` de comparendos o un `.pdf` de expediente es lo esperado. Lo que
+   * este módulo garantiza es que el nombre no sea una ruta ni lleve caracteres de control
+   * (`saneaNombreDeArchivo`); lo que SIGNIFICA el nombre se valida donde se sabe. Si el predicado
+   * dice que no, se usa el respaldo: nunca se propaga un nombre que no encaja.
+   *
+   * Devuelve el nombre con el que se guardó, que es lo que la pantalla necesita para poder decir
+   * «Archivo descargado: …» sin volver a adivinarlo.
+   */
+  downloadPostNamed: async (
+    path: string,
+    respaldo: string,
+    body?: unknown,
+    aceptaNombre?: (nombre: string) => boolean,
+  ): Promise<string> => {
+    let nombre = respaldo;
+    let respuesta = { ok: true, status: 200 };
+    const blob = await request<Blob>('POST', path, body, undefined, (res) => {
+      respuesta = { ok: res.ok, status: res.status };
+      const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
+      nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
+    });
+    if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
+    entregarArchivo(blob, nombre);
+    return nombre;
   },
 };
 

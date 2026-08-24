@@ -41,7 +41,11 @@ const sendExcelMock = vi.fn().mockImplementation((res: any) => {
   res.status(200).type('application/octet-stream').send(Buffer.from('xlsx'));
 });
 const parseExcelMock = vi.fn();
-vi.mock('../../src/shared/utils/excel.js', () => ({
+// Se parte del módulo REAL y solo se sustituyen las dos funciones que hacen E/S. El resto
+// —`limitesXlsx`, `rechazoXlsxAHttp`, `bufferParaExcelJS`, `MIME_XLSX`— lo usa el router de verdad
+// desde el Bug #11682: mockear el módulo entero lo dejaba sin importarse.
+vi.mock('../../src/shared/utils/excel.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/shared/utils/excel.js')>()),
   parseExcel: parseExcelMock,
   sendExcel: sendExcelMock,
 }));

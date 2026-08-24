@@ -19,6 +19,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { vi } from 'vitest';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { FABRICADO, itemMunicipal, itemMunicipalMulta, itemSimit, itemSimitMulta }
+  from '../fixtures/comparendos/payloads-fuente.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({
@@ -34,6 +36,7 @@ const {
   homologar,
   origenMerge,
   resolverCampos,
+  tipoDeRegistro,
 } = await import('../../src/modules/flito-comparendos/flito-comparendos-merge.js');
 const { ComparendosMapaHomologacionVacioError } =
   await import('../../src/modules/flito-comparendos/flito-comparendos.errors.js');
@@ -189,6 +192,11 @@ describe('homologar — el vocabulario del proveedor pasa al canónico', () => {
       organismo: 'Secretaría de Movilidad de Medellín',
       monto: '604100.00',
       estadoFuente: 'Pendiente de pago',
+      // El mapa v1 de esta tabla no tiene candidatos de resolución (los siembra la v3, HU #11712):
+      // sin candidato, el campo se homologa a `null`. La aserción se deja EXHAUSTIVA a propósito —un
+      // `toMatchObject` dejaría de mirar los campos nuevos justo cuando alguien los mapee mal.
+      numeroResolucion: null,
+      idResolucion: null,
     });
   });
 
@@ -346,6 +354,57 @@ describe('acumular — una entrada por número de comparendo', () => {
     expect(acumulador.get('C-1')!.simit?.estadoFuente).toBe('Primero');
   });
 
+  // ── Normalización del número (ADR-0003 decisión 6, cerrada por el spike #11501) ──────────────
+  //
+  // `numeroCanonico` no se exporta, así que se prueba por donde de verdad importa: la LLAVE del
+  // acumulador. Es lo que decide si dos avisos son una deuda o dos, y hasta este bloque ningún test
+  // del repo lo cubría — los casos de arriba usan `'C-1'` idéntico en las dos fuentes, que pasaría
+  // igual con la normalización desactivada.
+
+  it('**el mismo comparendo con espacios y minúsculas es UNA sola entrada**, no dos deudas', () => {
+    const acumulador = new Map();
+
+    // Lo que cambia entre las dos fuentes es solo la forma de escribirlo. Si la normalización se
+    // relajara a un `trim` —la regla PROVISIONAL que el ADR describía antes del spike—, los espacios
+    // INTERNOS de `'C - 1'` sobrevivirían, la llave sería otra y el mismo comparendo se cobraría dos
+    // veces. Ojo al límite real: se quitan los espacios, no los separadores. `'C 1'` NO es `'C-1'`
+    // (normaliza a `'C1'`), y así debe ser: fundirlos exigiría adivinar qué separador quiso el
+    // proveedor.
+    acumularSimit(acumulador, [{ numeroComparendo: '  c-1  ', valorAPagar: '100' }], simit);
+    acumularMunicipal(acumulador, [{ numero: 'C - 1', descripcion: 'Del municipio' }], municipal, 'BELLO');
+
+    expect(acumulador.size).toBe(1);
+    const entrada = acumulador.get('C-1')!;
+    expect(entrada.simit?.monto).toBe('100.00');
+    expect(entrada.municipal?.descripcionInfraccion).toBe('Del municipio');
+  });
+
+  it('la llave guardada es la NORMALIZADA, no la que mandó el primero en llegar', () => {
+    const acumulador = new Map();
+
+    // Guardar `' c-1 '` tal cual dejaría el filtro por número de `GET /registros` sin encontrar una
+    // fila que existe: ese filtro busca con `like` contra el valor ya normalizado (ADR-0003 dec. 6).
+    acumularSimit(acumulador, [{ numeroComparendo: ' c-1 ' }], simit);
+
+    expect([...acumulador.keys()]).toEqual(['C-1']);
+    expect(acumulador.get('C-1')!.simit?.numeroComparendo).toBe('C-1');
+  });
+
+  it('**un número que no cabe en varchar(60) se descarta entero; NO se recorta**', () => {
+    const acumulador = new Map();
+
+    // Recortar la llave inventaría un comparendo que no existe y, peor, dos números largos que
+    // compartan los primeros 60 caracteres se fundirían en una sola fila — dos deudas distintas
+    // convertidas en una. Por eso el ítem se ignora y el descarte se CUENTA.
+    const ignorados = acumularSimit(acumulador, [
+      { numeroComparendo: 'X'.repeat(61) },
+      { numeroComparendo: 'Y'.repeat(60) },
+    ], simit);
+
+    expect(ignorados).toBe(1);
+    expect([...acumulador.keys()]).toEqual(['Y'.repeat(60)]);
+  });
+
   it('si dos municipios traen el mismo comparendo, se conserva el primero', () => {
     const acumulador = new Map();
 
@@ -363,7 +422,8 @@ describe('acumular — una entrada por número de comparendo', () => {
 describe('resolverCampos — CF-08', () => {
   const canonico = (over: Record<string, unknown> = {}) => ({
     numeroComparendo: 'C-1', placa: null, codigoInfraccion: null, descripcionInfraccion: null,
-    fechaComparendo: null, organismo: null, monto: null, estadoFuente: null, ...over,
+    fechaComparendo: null, organismo: null, monto: null, estadoFuente: null,
+    numeroResolucion: null, idResolucion: null, ...over,
   });
 
   const consolidado = (simit: unknown, municipal: unknown) => ({
@@ -432,5 +492,356 @@ describe('origenMerge', () => {
     [true, true, 'ambos'],
   ])('visto en simit=%s / municipal=%s → %s', (enSimit, enMunicipal, esperado) => {
     expect(origenMerge(enSimit as boolean, enMunicipal as boolean)).toBe(esperado);
+  });
+});
+
+// ─────────────────── Comparendo o multa: la resolución manda (HU #11712) ────────────────────────
+//
+// Los dos endpoints devuelven comparendos Y multas en la misma lista. Lo que los distingue es la
+// resolución: sin resolución sigue siendo un comparendo, con resolución ya es una multa.
+//
+// Lo que se demuestra aquí, por orden de importancia:
+//
+//   1. **La fila no puede mentir.** `tipo = 'multa'` exactamente cuando hay alguna resolución. Es el
+//      invariante que la 0160 sostiene con un CHECK, y aquí se comprueba con la MISMA expresión
+//      (`mienteLaFila`) para que un cambio de criterio no pueda pasar por uno solo de los dos sitios.
+//   2. **La promoción es MONÓTONA.** Que una fuente calle no es la afirmación «no hay resolución»:
+//      cualquiera de las dos que la presente promueve la fila.
+//   3. **No hay regresión por silencio.** Una fila que ya fue multa no vuelve a comparendo porque el
+//      proveedor deje de mandar el campo.
+//   4. **`fechaResolucion` no es señal.** El ítem real de Medellín la trae CON valor y
+//      `nroResolucion` en `null` a la vez: tomarla como señal fabricaría multas.
+
+/** Recorte del mapa v3 que siembra la 0160: lo mínimo para hablar de resolución. */
+const MAPA_V3: FilaMapa[] = [
+  fila(3, 'simit', 'numeroComparendo', 'numeroComparendo', 1, false),
+  fila(3, 'simit', 'numeroResolucion', 'numeroResolucion', 1, false),
+  fila(3, 'simit', 'idResolucion', 'idResolucion', 1, false),
+  fila(3, 'simit', 'estadoComparendo', 'estadoFuente', 1, false),
+  fila(3, 'simit', 'estadoPago', 'estadoFuente', 3, false),
+  fila(3, 'municipal', 'numeroComparendo', 'numeroComparendo', 1, false),
+  fila(3, 'municipal', 'nroResolucion', 'numeroResolucion', 1, false),
+  // El respaldo de prioridad 2 que la 0160 siembra de verdad. Está aquí y no se omite «por
+  // simplicidad»: es el único sitio del mapa v3 donde un campo NUEVO tiene un segundo candidato, y
+  // por tanto el único donde se puede observar si el primero SOMBREA al segundo.
+  fila(3, 'municipal', 'numeroResolucion', 'numeroResolucion', 2, false),
+  fila(3, 'municipal', 'descripcionEstado', 'estadoFuente', 1, false),
+];
+
+/**
+ * El CHECK `flito_comparendos_tipo_resolucion_chk` de la 0160, dicho en TypeScript.
+ *
+ * No es una reimplementación cómoda: es la MISMA condición que la base va a rechazar con un 23514,
+ * escrita aquí para que estos tests fallen en el mismo sitio en que fallaría producción y no haga
+ * falta una base para verlo.
+ *
+ * El `if` del tipo nulo es la traducción de las dos ramas del CHECK, y traduce las dos: sin tipo y
+ * sin resolución es el HISTÓRICO —legal, «no se sabe»—; sin tipo y CON resolución es la mentira que
+ * la guarda `tipo_registro IS NOT NULL AND` de la segunda rama rechaza en la base. En SQL esa
+ * distinción cuesta las dos piezas porque la comparación desnuda `(NULL = 'multa') = (…)` evalúa a
+ * NULL y un CHECK que evalúa a NULL pasa; en TypeScript sale de un `if`, pero es lo mismo.
+ */
+function mienteLaFila(campos: {
+  tipoRegistro: string | null; numeroResolucion: string | null; idResolucion: string | null;
+}): boolean {
+  const hayResolucion = campos.numeroResolucion !== null || campos.idResolucion !== null;
+  if (campos.tipoRegistro === null) return hayResolucion;
+  return (campos.tipoRegistro === 'multa') !== hayResolucion;
+}
+
+describe('tipoDeRegistro — la regla de negocio, en una línea', () => {
+  it.each([
+    ['3000000123', null, 'multa'],
+    [null, '115697134', 'multa'],
+    ['3000000123', '115697134', 'multa'],
+    [null, null, 'comparendo'],
+  ])('numero=%s / id=%s → %s', (numero, id, esperado) => {
+    // Cualquiera de los dos vale como señal: el proveedor manda los dos y los dos vienen nulos
+    // mientras es comparendo. Exigir el número dejaría sin promover a las multas cuyo número aún no
+    // se publica; exigir los dos, a todas las del municipal, que no manda `idResolucion`.
+    expect(tipoDeRegistro(numero as string | null, id as string | null)).toBe(esperado);
+  });
+});
+
+describe('homologar — la resolución del proveedor entra al canónico (HU #11712)', () => {
+  let simit: ReturnType<typeof candidatosDe>;
+  let municipal: ReturnType<typeof candidatosDe>;
+
+  beforeEach(async () => {
+    conMapa(MAPA_V3);
+    const mapa = await cargarMapaHomologacion();
+    simit = candidatosDe(mapa, 'simit');
+    municipal = candidatosDe(mapa, 'municipal');
+  });
+
+  it('el ítem de SIMIT que ya es multa trae los DOS campos, y el que no, ninguno', () => {
+    expect(homologar(itemSimitMulta(), simit)).toMatchObject({
+      numeroResolucion: FABRICADO.numeroResolucionSimit,
+      idResolucion: FABRICADO.idResolucionSimit,
+    });
+    // El comparendo los manda EXPLÍCITAMENTE en `null`: la clave está, el valor no.
+    expect(homologar(itemSimit(), simit)).toMatchObject({
+      numeroResolucion: null, idResolucion: null,
+    });
+  });
+
+  it('**el ítem municipal con `fechaResolucion` y sin `nroResolucion` NO es una multa**', () => {
+    // La trampa del proveedor real: la fecha viene con valor («2026-09-22») y el número en `null`.
+    // El mapa v3 no nombra `fechaResolucion` en ninguna parte, y por eso esto sale comparendo.
+    const canonico = homologar(itemMunicipal(), municipal);
+
+    expect(canonico.numeroResolucion).toBeNull();
+    expect(tipoDeRegistro(canonico.numeroResolucion, canonico.idResolucion)).toBe('comparendo');
+    // Y el ítem SÍ trae la fecha: el test no está pasando por no haber dato que mirar.
+    expect(itemMunicipal().fechaResolucion).toBe('2026-09-22');
+  });
+
+  it('el mutante que mapea `fechaResolucion` fabricaría una multa — por eso la v3 no lo hace', () => {
+    // La consecuencia, hecha visible: es lo que pasaría con UNA fila de más en el `field_map`.
+    conMapa([...MAPA_V3, fila(3, 'municipal', 'fechaResolucion', 'numeroResolucion', 3, false)]);
+    return cargarMapaHomologacion().then((mapa) => {
+      const canonico = homologar(itemMunicipal(), candidatosDe(mapa, 'municipal'));
+      expect(tipoDeRegistro(canonico.numeroResolucion, canonico.idResolucion)).toBe('multa');
+    });
+  });
+
+  it('el número de resolución SÍ se recorta al ancho de la columna (no es llave)', () => {
+    // Al revés que `numeroComparendo`, que se descarta entero: aquel es la llave y recortarlo podría
+    // fundir dos deudas; este no lo usa ningún join, así que recortar degrada un dato de pantalla en
+    // vez de tumbar el NIT con un 22001.
+    const canonico = homologar({ numeroComparendo: 'C-1', numeroResolucion: 'R'.repeat(75) }, simit);
+    expect(canonico.numeroResolucion).toHaveLength(60);
+  });
+
+  it('un vacío o un no-escalar no son una resolución: SIN otro candidato, la fila queda en comparendo', () => {
+    for (const valor of ['', '   ', { total: 'RES-1' }, ['RES-1'], true]) {
+      // `simit` tiene UN solo candidato para la resolución, así que aquí solo se observa la mitad
+      // fácil del AC: que el valor no cuenta. La otra mitad —que no SOMBREA— necesita dos
+      // candidatos y es el test de abajo.
+      const canonico = homologar({ numeroComparendo: 'C-1', numeroResolucion: valor }, simit);
+      expect(canonico.numeroResolucion, `\`${JSON.stringify(valor)}\` coló como resolución`).toBeNull();
+      expect(tipoDeRegistro(canonico.numeroResolucion, canonico.idResolucion)).toBe('comparendo');
+    }
+  });
+
+  it('**un no-escalar en prioridad 1 NO sombrea al candidato de prioridad 2** (AC6)', () => {
+    // El fallo que el gate de QA reprodujo. Con el mapa v3 municipal real —`nroResolucion` p1,
+    // `numeroResolucion` p2— un objeto, un array o un booleano en el primer candidato hacían que el
+    // segundo NUNCA se leyera: `primerValor` devolvía el ruido, `texto()` lo volvía `null` y la
+    // multa se quedaba marcada como comparendo teniendo el número una fila más abajo del mapa.
+    //
+    // Es el mismo sombreado del `comparendo: true` que documenta la 0158; allí se esquivó sacando la
+    // fila del mapa, y esto es la corrección en la función.
+    for (const ruido of [{ numero: 'RES-1' }, ['RES-1'], true, false, '', '   ', null]) {
+      const canonico = homologar(
+        { numeroComparendo: 'C-1', nroResolucion: ruido, numeroResolucion: 'RES-9' }, municipal,
+      );
+
+      expect(canonico.numeroResolucion, `\`${JSON.stringify(ruido)}\` en p1 sombreó al de p2`)
+        .toBe('RES-9');
+      expect(tipoDeRegistro(canonico.numeroResolucion, canonico.idResolucion)).toBe('multa');
+    }
+  });
+
+  it('el sombreado tampoco ocurre en el campo donde se descubrió: `comparendo: true` (0158)', () => {
+    // La cadena de SIMIT para el NÚMERO, con el booleano delante. Antes de esta corrección el ítem
+    // entero se descartaba por «número irreconocible» y el NIT perdía un comparendo por corrida.
+    conMapa([
+      fila(3, 'simit', 'comparendo', 'numeroComparendo', 1, false),
+      fila(3, 'simit', 'numeroMulta', 'numeroComparendo', 2, false),
+    ]);
+    return cargarMapaHomologacion().then((mapa) => {
+      const canonico = homologar(
+        { comparendo: true, numeroMulta: '05001000000012345678' }, candidatosDe(mapa, 'simit'),
+      );
+      expect(canonico.numeroComparendo).toBe('05001000000012345678');
+    });
+  });
+
+  it('**los números legítimos siguen pasando**: saltar el ruido no es saltar los `number`', () => {
+    // El riesgo de la corrección, comprobado en vez de prometido: los proveedores mandan el mismo
+    // campo como `"604100"` y como `604100` según el endpoint, y el `valor: 633232.0` del UTS es el
+    // monto de verdad. Un predicado que se pasara de estricto vaciaría el importe de cada fila del
+    // municipal sin romper ningún otro test.
+    conMapa([
+      fila(3, 'municipal', 'numeroComparendo', 'numeroComparendo', 1, false),
+      fila(3, 'municipal', 'valor', 'monto', 1, false),
+      fila(3, 'municipal', 'codigoInfraccion', 'codigoInfraccion', 1, false),
+      fila(3, 'municipal', 'nroResolucion', 'numeroResolucion', 1, false),
+    ]);
+    return cargarMapaHomologacion().then((mapa) => {
+      const canonico = homologar({
+        numeroComparendo: 'C-1', valor: 633232.0, codigoInfraccion: 29, nroResolucion: 4471,
+      }, candidatosDe(mapa, 'municipal'));
+
+      expect(canonico.monto).toBe('633232.00');
+      expect(canonico.codigoInfraccion).toBe('29');
+      expect(canonico.numeroResolucion).toBe('4471');
+      // Y el `0` no es ausencia: es un número, y quien decide si significa algo es la normalización
+      // del campo, no el filtro de candidatos.
+      expect(homologar({ numeroComparendo: 'C-1', valor: 0 }, candidatosDe(mapa, 'municipal')).monto)
+        .toBe('0.00');
+    });
+  });
+
+  it('el número de resolución se normaliza a MAYÚSCULAS y sin espacios internos dobles', () => {
+    // La normalización existe —misma familia que `codigoInfraccion`, que también es un código— y
+    // hasta ahora no la probaba nadie: el test de recorte usa una cadena que ya está en mayúsculas,
+    // así que quitar el `toUpperCase` no ponía nada en rojo. Con esto, la frase «se guarda tal cual
+    // lo manda la fuente» deja de ser cierta, y por eso se corrigió en el COMMENT de la 0160 y en
+    // `shared-types`.
+    const canonico = homologar(
+      { numeroComparendo: 'C-1', nroResolucion: '  res-2026   4471 ' }, municipal,
+    );
+    expect(canonico.numeroResolucion).toBe('RES-2026 4471');
+  });
+});
+
+describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
+  const canonico = (over: Record<string, unknown> = {}) => ({
+    numeroComparendo: 'C-1', placa: null, codigoInfraccion: null, descripcionInfraccion: null,
+    fechaComparendo: null, organismo: null, monto: null, estadoFuente: null,
+    numeroResolucion: null, idResolucion: null, ...over,
+  });
+
+  const consolidado = (simit: unknown, municipal: unknown) => ({
+    numero: 'C-1',
+    simit: simit as never,
+    payloadSimit: null,
+    municipal: municipal as never,
+    payloadMunicipal: null,
+    municipioFuente: 'BELLO',
+  });
+
+  it('1. lo dice SIMIT y el municipal calla → multa', () => {
+    const campos = resolverCampos(
+      consolidado(canonico({ numeroResolucion: 'R-1', idResolucion: '115697134' }), canonico()),
+      null,
+    );
+
+    expect(campos.tipoRegistro).toBe('multa');
+    expect(campos.numeroResolucion).toBe('R-1');
+    expect(mienteLaFila(campos)).toBe(false);
+  });
+
+  it('2. **lo dice el municipal y SIMIT calla → multa igual**', () => {
+    // El caso que justifica la regla entera. Que SIMIT no traiga el campo es indistinguible de que
+    // no lo publique para este ítem: no es la afirmación «no hay resolución». Si el silencio de la
+    // fuente prioritaria ganara, la mitad de las multas se quedarían sin promover.
+    const campos = resolverCampos(
+      consolidado(canonico(), canonico({ numeroResolucion: 'RES-2026-4471' })),
+      null,
+    );
+
+    expect(campos.tipoRegistro).toBe('multa');
+    expect(campos.numeroResolucion).toBe('RES-2026-4471');
+    expect(mienteLaFila(campos)).toBe(false);
+  });
+
+  it('3. **ninguna la trae hoy, pero la fila YA era multa → sigue siendo multa**', () => {
+    // No hay regresión por silencio: el tercer escalón de RN-13 conserva lo guardado, así que un
+    // proveedor que deje de mandar el campo no degrada la fila.
+    const campos = resolverCampos(
+      consolidado(canonico({ estadoFuente: 'En cobro' }), null),
+      { numeroResolucion: 'R-VIEJA', idResolucion: null },
+    );
+
+    expect(campos.tipoRegistro).toBe('multa');
+    expect(campos.numeroResolucion).toBe('R-VIEJA');
+    expect(mienteLaFila(campos)).toBe(false);
+  });
+
+  it('4. nadie la trae y nunca la hubo → comparendo', () => {
+    const campos = resolverCampos(consolidado(canonico(), canonico()), { placa: 'ABC123' });
+
+    expect(campos.tipoRegistro).toBe('comparendo');
+    expect(campos.numeroResolucion).toBeNull();
+    expect(campos.idResolucion).toBeNull();
+    expect(mienteLaFila(campos)).toBe(false);
+  });
+
+  it('la fila que solo tiene `idResolucion` también es multa (el municipal no manda el número)', () => {
+    const campos = resolverCampos(
+      consolidado(canonico({ idResolucion: '115697134' }), canonico()), null,
+    );
+
+    expect(campos.tipoRegistro).toBe('multa');
+    expect(campos.numeroResolucion).toBeNull();
+    expect(mienteLaFila(campos)).toBe(false);
+  });
+
+  it('si las dos traen números DISTINTOS gana SIMIT (RN-13): discrepan en el número, no en el tipo', () => {
+    const campos = resolverCampos(
+      consolidado(canonico({ numeroResolucion: 'R-SIMIT' }), canonico({ numeroResolucion: 'R-UTS' })),
+      null,
+    );
+
+    expect(campos.numeroResolucion).toBe('R-SIMIT');
+    expect(campos.tipoRegistro).toBe('multa');
+  });
+
+  it('**el tipo se deriva de lo RESUELTO, no se elige por fuente**: es el mutante que rompe el CHECK', () => {
+    // Si `tipoRegistro` fuera un campo más del mapa, `elegir('tipoRegistro')` tomaría el de SIMIT
+    // —que no tiene resolución, luego `comparendo`— y `elegir('numeroResolucion')` el del municipal
+    // —que sí la tiene—: la fila saldría `comparendo` CON número de resolución y el INSERT moriría
+    // con un 23514. Reproducido aquí para que se vea que la incoherencia es alcanzable y que esta
+    // implementación no la produce.
+    const porFuente = {
+      tipoRegistro: 'comparendo',                  // lo que habría dicho SIMIT, que gana por RN-13
+      numeroResolucion: 'RES-2026-4471',           // lo que aportó el municipal por el 2.º escalón
+      idResolucion: null,
+    };
+    expect(mienteLaFila(porFuente)).toBe(true);
+
+    const campos = resolverCampos(
+      consolidado(canonico(), canonico({ numeroResolucion: 'RES-2026-4471' })), null,
+    );
+    expect(mienteLaFila(campos)).toBe(false);
+    expect(campos.tipoRegistro).toBe('multa');
+  });
+
+  it('un tipo NULO no es un comodín: sin resolución es el histórico, con resolución es una mentira', () => {
+    // Las dos filas que ninguna versión de `resolverCampos` puede producir pero un UPDATE a mano sí,
+    // y que en la base separan las dos piezas del CHECK.
+    //
+    // Esta la rechaza la GUARDA `tipo_registro IS NOT NULL AND` de la segunda rama (sin ella,
+    // `(NULL = 'multa') = (…)` evalúa a NULL y el CHECK pasaría):
+    expect(mienteLaFila({ tipoRegistro: null, numeroResolucion: 'R-1', idResolucion: null })).toBe(true);
+    // Y esta la ADMITE la primera rama, que existe justo para eso: el histórico entero llega así al
+    // aplicar la 0160, y sin esa rama el `ADD CONSTRAINT` no habría podido ni validarse.
+    expect(mienteLaFila({ tipoRegistro: null, numeroResolucion: null, idResolucion: null })).toBe(false);
+  });
+
+  it('ninguna combinación de las dos fuentes y el histórico produce una fila que mienta', () => {
+    // Barrido de las 27 combinaciones (cada fuente y el previo: sin resolución / con número / con
+    // id). El invariante del CHECK no puede depender de qué caso escribió alguien un test.
+    const opciones = [null, { numeroResolucion: 'R-X' }, { idResolucion: 'ID-X' }];
+    for (const s of opciones) {
+      for (const m of opciones) {
+        for (const p of opciones) {
+          const campos = resolverCampos(
+            consolidado(canonico(s ?? {}), canonico(m ?? {})),
+            p === null ? null : p,
+          );
+          expect(mienteLaFila(campos), `simit=${JSON.stringify(s)} municipal=${JSON.stringify(m)} previo=${JSON.stringify(p)}`)
+            .toBe(false);
+        }
+      }
+    }
+  });
+});
+
+describe('acumular* — el ítem municipal que ya es multa llega entero al consolidado', () => {
+  it('la resolución del UTS sobrevive al acumulador y sale en el merge', async () => {
+    conMapa(MAPA_V3);
+    const mapa = await cargarMapaHomologacion();
+    const acumulador = new Map();
+
+    acumularMunicipal(acumulador, [itemMunicipalMulta()], candidatosDe(mapa, 'municipal'), 'MEDELLIN');
+    const consolidado = acumulador.get(FABRICADO.numeroMunicipal)!;
+    const campos = resolverCampos(consolidado, null);
+
+    expect(campos.numeroResolucion).toBe(FABRICADO.numeroResolucionMunicipal);
+    expect(campos.tipoRegistro).toBe('multa');
   });
 });

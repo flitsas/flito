@@ -476,6 +476,36 @@ export class ComparendosCausalInvalidaError extends ComparendosError {
 }
 
 /**
+ * El filtro del export devuelve más filas de las que un `.xlsx` de este módulo puede llevar
+ * (ADR-0004 §2).
+ *
+ * **422 y no 400.** La petición está bien formada y el filtro es legítimo; lo que no cabe es el
+ * RESULTADO, y esa diferencia es la que permite a la pantalla decir «acota el filtro» en vez de
+ * «revisa lo que escribiste». Tampoco es 413 —el que no cabe no es el cuerpo que llegó— ni 507: no
+ * falta espacio en ningún sitio, hay un tope de producto y es deliberado.
+ *
+ * **No dice cuántas filas hay.** Se sabría —la comprobación es `tope + 1`, así que el número exacto
+ * ni siquiera se ha contado—, pero devolverlo convertiría el 422 en un contador de registros por
+ * filtro: quien no puede llevarse los datos podría al menos preguntar «¿cuántos comparendos tiene
+ * este NIT?» sin dejar más rastro que un error. El mensaje dice el TOPE, que es el dato con el que
+ * el usuario actúa.
+ *
+ * El tope viaja en el mensaje y no se lee de la constante compartida al pintarlo: el valor efectivo
+ * es el del entorno (`COMPARENDOS_EXPORT_MAX_FILAS`) y puede no coincidir con el que la pantalla
+ * tiene compilado.
+ */
+export class ComparendosExportDemasiadoGrandeError extends ComparendosError {
+  constructor(tope: number) {
+    super(
+      'export_demasiado_grande',
+      422,
+      `El filtro aplicado supera las ${tope.toLocaleString('es-CO')} filas que admite un export. `
+      + 'Acota la búsqueda —por municipio, por estado, por NIT o por placa— y vuelve a intentarlo.',
+    );
+  }
+}
+
+/**
  * `unique_violation` de PostgreSQL.
  *
  * Se comprueba ADEMÁS de consultar antes si la fila existe, no en su lugar. La consulta previa da el

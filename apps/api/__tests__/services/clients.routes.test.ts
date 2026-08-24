@@ -31,6 +31,19 @@ vi.mock('../../src/shared/redis.js', () => ({
   redisHealthy: vi.fn().mockResolvedValue(false),
 }));
 
+/**
+ * El registro de acceso del listado (HU #11299, AC8) se neutraliza aquí y se prueba en
+ * `clients-listado.pii.test.ts`, que es su sitio.
+ *
+ * Sin este mock, el `db.insert` de arriba —un `vi.fn()` que devuelve `undefined`— hace fallar el
+ * INSERT de `pii_access_log`. No rompe nada, porque `logPiiAccess` es best-effort y se traga su
+ * error, y ese es justamente el problema: llenaría estas pruebas de un ERROR que no dice nada sobre
+ * lo que miran y que se acabaría leyendo como ruido normal.
+ */
+vi.mock('../../src/shared/pii-audit.js', () => ({
+  logPiiAccess: vi.fn().mockResolvedValue(undefined),
+}));
+
 beforeEach(() => {
   selectMock.mockReset();
   insertMock.mockReset();
@@ -113,14 +126,19 @@ describe('GET /', () => {
   });
 
   it('devuelve los campos fiscales nuevos (AC6)', async () => {
-    selectMock.mockReturnValueOnce(chain([previo({ facturacionBloqueos: ['identificacion_duplicada'] })]));
+    selectMock.mockReturnValueOnce(chain([previo()]));
     const token = await adminToken();
     const app = await buildApp();
     const r = await request(app).get('/api/clients').set('Authorization', `Bearer ${token}`);
     expect(r.status).toBe(200);
     expect(r.body[0]).toMatchObject({ personType: 'Company', idType: '31', branchOffice: 0 });
-    expect(r.body[0].facturacionBloqueos).toEqual(['identificacion_duplicada']);
   });
+
+  // `facturacionBloqueos` se afirmaba aquí hasta la HU #11299 y era una prueba que mentía: el mock
+  // devuelve lo que el test le dé, así que pasaba tanto con proyección como sin ella. Desde el AC8
+  // la ruta proyecta y esa columna ya NO se entrega —ninguna pantalla la lee—, y quien lo comprueba
+  // de verdad es `clients-listado.pii.test.ts`, que afirma sobre la proyección que recibe
+  // `db.select()` y no sobre la fila que el propio test fabricó.
 });
 
 describe('POST /', () => {

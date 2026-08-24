@@ -10,10 +10,34 @@
 // `flito-comparendos.gestion.service.ts` (RN-37..RN-41), en sus cabeceras.
 // Este módulo NO es el gate SIMIT del traspaso ni el pre-vuelo: ver ADR-0001.
 //
-// Lo que falta de la superficie del Feature —el export a Excel— es de la HU #11558 y se añadirá
-// sobre este mismo router. Toda respuesta que lleve datos personales deja rastro con
-// `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17) y sale con `Cache-Control: no-store`,
-// incluida la del PATCH de gestión: escribe dos columnas y devuelve el registro entero.
+// El export a Excel del consolidado (HU #11558) es `POST /registros/export`, con su propio limitador
+// y su propio tope de filas (ADR-0004).
+//
+// ── Los dos rastros, y a qué respuestas se aplican ────────────────────────────────────────
+//
+// Toda respuesta que lleve datos personales **de los titulares que este módulo vigila** —NIT
+// monitoreado, alias, placa, observación de gestión— sale con `Cache-Control: no-store`, incluidas
+// las tres escrituras que devuelven la fila entera: el PATCH de gestión y las dos de `/nits`
+// (Bug #11671).
+//
+// Y toda respuesta que ENTREGUE datos personales **que el cliente no aportó** deja además rastro con
+// `registrarAccesoComparendos` (HU #11511, Ley 1581 art. 17). El criterio no es «rastro para las
+// lecturas y no para las escrituras»: `PATCH /registros/:id/gestion` y `PATCH /nits/:id` son
+// escrituras y las dos registran, porque a quien manda un UUID le devuelven identidades que no
+// tecleó. La única que se queda fuera POR DECISIÓN —y no por hueco de los de abajo— es `POST /nits`,
+// y por lo contrario: el 201 le devuelve el NIT y el alias que acaba de escribir él mismo —el razonamiento
+// entero está en su docstring—.
+//
+// ── Los dos huecos conocidos, escritos para que no se lean como criterio ──────────────────────
+//
+//   · `POST /sync`: su respuesta lleva NITs que el cliente no mandó y hoy no deja rastro ni sale con
+//     `no-store`. No se cierra por omisión sino por decisión de negocio pendiente (punto 1 del Bug
+//     #11671, anotado en el docstring de `GET /nits`).
+//   · `GET /config/token-simit`: devuelve `actualizadoPor: { id, nombre }`, y el nombre de una
+//     persona natural es dato personal por el art. 3 de la Ley 1581 aunque sea un empleado y no un
+//     titular de los que este módulo vigila. Sale sin `no-store` y sin registro de acceso. Queda
+//     fuera del alcance del Bug #11671 y se nombra aquí para que la regla de arriba no se lea como
+//     si ya cubriera el archivo entero.
 //
 // **Los filtros de identidad no viajan en la URL** (AGENTS.md §14): buscar por NIT o por placa es
 // `POST /registros/buscar` con esos dos valores en el CUERPO. La query solo lleva lo que no
@@ -30,7 +54,11 @@ import {
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
-import { ComparendosError } from './flito-comparendos.errors.js';
+import { sendExcel } from '../../shared/utils/excel.js';
+import {
+  ComparendosError,
+  ComparendosExportDemasiadoGrandeError,
+} from './flito-comparendos.errors.js';
 import {
   actualizarCausal,
   actualizarMunicipio,
@@ -54,9 +82,16 @@ import {
 } from './flito-comparendos.registros.service.js';
 import { gestionarComparendo } from './flito-comparendos.gestion.service.js';
 import {
+  COLUMNAS_EXPORT,
+  construirFilasExport,
+  nombreArchivoExport,
+} from './flito-comparendos.export.service.js';
+import {
+  CAMPOS_PII_NIT,
   CAMPOS_PII_OBSERVACION,
   CAMPOS_PII_REGISTRO,
   CAMPOS_PII_SYNC_RUN,
+  RECURSO_NIT,
   RECURSO_REGISTROS,
   RECURSO_SYNC_RUN,
   registrarAccesoComparendos,
@@ -176,6 +211,23 @@ const syncLimiter = rateLimit({
  * anota cada página con su usuario, su hora y sus filtros, y 3 000 filas por minuto son un rastro
  * imposible de confundir con una pantalla que pagina a mano. Bajar el tope de página de 200 a 50
  * dividió ese techo por cuatro sin quitarle nada al uso real (una tabla no muestra 200 filas).
+ *
+ * **Ese 3 000 es el techo de ESTA ruta, no el del módulo — y desde la HU #11558 la diferencia
+ * importa.** El export a Excel entrega hasta `COMPARENDOS_EXPORT_MAX_FILAS` filas por petición con
+ * su propia cuota (`exportLimiter`, 5/min), así que el techo del módulo es la SUMA de los dos y hoy
+ * lo domina el export (5 × 2 000 = 10 000 filas por minuto; eran 25 000 hasta que la HU #11651 bajó
+ * el tope de 5 000 a 2 000 por memoria del proceso). Dejar escrito aquí «el techo del módulo» sería
+ * afirmar un número que dejó de ser cierto. Las dos cotas y por qué se aceptan juntas
+ * están en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`, que **complementa** a
+ * ADR-0001: no lo enmienda ni lo supersede.
+ *
+ * **Desde el Bug #11646 los sumandos son tres**, y hasta él este párrafo declaraba un techo falso:
+ * el catálogo de NITs y las corridas de sync también devuelven NITs y no tenían cuota ninguna, así
+ * que el «techo del módulo» dejaba fuera precisamente las rutas sin límite. El tercer sumando es
+ * `lecturasPiiLimiter`, y no mueve el orden de magnitud porque lo que entrega está acotado por el
+ * tamaño del catálogo y por el `limit` sin offset de las corridas —el razonamiento entero está en su
+ * docstring—: el export lo sigue dominando. Y sigue habiendo una respuesta con NITs fuera de esta
+ * cuenta, `POST /sync`; está anotada en el docstring de `GET /nits`.
  */
 const registrosLimiter = rateLimit({
   windowMs: 60_000,
@@ -185,6 +237,91 @@ const registrosLimiter = rateLimit({
   keyGenerator: userOrIpKey('flito-comparendos-registros'),
   message: { error: 'Demasiadas consultas de comparendos seguidas, espere 1 minuto' },
   store: makeStore('rl:flito-comparendos-registros:'),
+});
+
+/**
+ * Export a Excel: **5 peticiones por minuto y usuario** (HU #11558, ADR-0004 §3).
+ *
+ * El más estrecho de los limitadores de lectura, y con doce veces menos cuota que el del listado
+ * porque cada petición vale cuarenta veces más: una página son 50 filas, un export hasta 2 000. Con
+ * estos dos números, 5/min es el multiplicador que deja el techo del export (10 000 filas/minuto) en
+ * el mismo orden de magnitud que el de la lectura paginada (3 000) en vez de dos órdenes por encima,
+ * que es lo que saldría con la cuota de 60.
+ *
+ * **Esta cuota es por USUARIO, por MINUTO, y no hay ninguna global — la HU #11651 lo dejó medido, no
+ * supuesto.** `express-rate-limit` cuenta peticiones por ventana, no peticiones EN VUELO: nada
+ * impide que una sola cuenta dispare sus cinco exports en el mismo segundo (y dos usuarios
+ * distintos, cinco cada uno), así que el consumo de memoria que hay que presupuestar no es el de un
+ * export sino el de varios coexistiendo en el heap del mismo proceso. Esa es la razón de que
+ * `COMPARENDOS_EXPORT_MAX_FILAS` valga hoy 2 000 y no 5 000; con 5 000, dos exports simultáneos
+ * dejaban el proceso a 15 MB del `max_memory_restart` de PM2. Serializar la generación (semáforo en
+ * proceso) o escribir el `.xlsx` incremental con `WorkbookWriter` son las dos salidas que quitarían
+ * esa dependencia entre el tope y la concurrencia; las dos quedaron fuera del alcance de la #11651 y
+ * son decisión del Líder Técnico.
+ *
+ * **Es una cuota SEPARADA de la de `/registros`, y a propósito** (AC5): con una compartida, gastar
+ * los 5 exports dejaría a la pantalla sin poder paginar —el usuario vería la tabla romperse por
+ * haber descargado— y, al revés, un visor abierto que pagina normalmente le comería la cuota al
+ * export sin que nada lo explicara. Dos gestos distintos, dos presupuestos.
+ *
+ * **Un 422 consume cuota igual que un 200, y no es un descuido**: `express-rate-limit` cuenta la
+ * petición al entrar, antes del handler. Si el export demasiado grande saliera gratis, sondear el
+ * tamaño de un filtro —«¿cuántos comparendos tiene este NIT?»— sería ilimitado, que es justo la
+ * pregunta que el 422 evita responder.
+ *
+ * Lo que este límite NO hace: acotar cuánto se lleva alguien AL DÍA. 5/min son 7 200 exports en 24
+ * horas; lo que hay contra eso no es esta ventana sino el rastro (`accion='export'` con su `filas`),
+ * y el tope diario quedó explícitamente sin resolver en ADR-0004 — es decisión de producto, no un
+ * olvido de esta ruta.
+ */
+const exportLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-export'),
+  message: { error: 'Demasiados exports seguidos, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-export:'),
+});
+
+/**
+ * Las OTRAS lecturas con datos personales —el catálogo de NITs y las corridas de sync—: 60 por
+ * minuto y usuario (Bug #11646).
+ *
+ * Existe porque el criterio del módulo no había llegado a estas tres rutas: devolvían NIT con el
+ * único freno del `apiLimiter` general (500/15 min y por IP, compartido con toda la API), que no es
+ * una cuota de este dato ni cuenta por usuario.
+ *
+ * **Bolsa propia y no la de `/registros`**, por el mismo motivo por el que el export tiene la suya
+ * (AC5 de la HU #11558): son gestos de pantallas distintas —la parametrización y la consola de
+ * sync—, y con una cuota compartida cargar la lista de NITs le comería el presupuesto a quien está
+ * paginando la tabla; el usuario vería romperse una pantalla por lo que hizo en otra.
+ *
+ * **60/min, el mismo número que el listado, pero acotando otra cosa.** Estas dos lecturas devuelven
+ * un conjunto de identidades acotado, y NO porque `scope_nits` sea un reflejo del catálogo: no lo
+ * es. `eliminarNit` borra en duro y las corridas conservan su alcance histórico, así que
+ * `/sync/runs` puede entregar NITs que ya no están en el catálogo — es un conjunto propio, no un
+ * subconjunto. Lo que lo acota son dos cotas reales: `runsQuerySchema` topa el `limit` en 100 y
+ * **no admite offset**, de modo que no hay manera de caminar el histórico hacia atrás, y lo que
+ * quedaría más allá de la retención ya lo ha borrado la purga (RN-26, migración 0152). El catálogo,
+ * por su parte, se entrega entero en la primera petición.
+ *
+ * Con esas dos cotas puestas, lo que compra la cuota no es un tope de filas sino ritmo y ruido: cada
+ * petición deja su fila de acceso, y un bucle contra estas rutas es un patrón visible en
+ * `pii_access_log` en vez de tráfico indistinguible del normal.
+ *
+ * Una sola bolsa para las tres y no una por ruta: ninguna es de alta frecuencia, y trocearlas más
+ * multiplicaría los sumandos del techo del módulo sin proteger un dato más. Cualquier lectura nueva
+ * del módulo que devuelva datos personales y no sea el consolidado va aquí.
+ */
+const lecturasPiiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-comparendos-lecturas-pii'),
+  message: { error: 'Demasiadas consultas seguidas, espere 1 minuto' },
+  store: makeStore('rl:flito-comparendos-lecturas-pii:'),
 });
 
 const idSchema = z.string().uuid();
@@ -218,25 +355,128 @@ const nitSchema = z.string()
     // spike #11501.
     .regex(/^\d+(-\d)?$/, 'El NIT admite solo dígitos, con guion opcional para el dígito de verificación'));
 
+/**
+ * El alias del NIT, **un solo campo para el alta y para la edición** (Bug #11671).
+ *
+ * Veta el salto de línea, el retorno de carro y la tabulación: el alias se concatena literal al
+ * `detail` de la bitácora —`audit()` lo inserta tal cual, no lo escapa— y un `\n` parte visualmente
+ * una entrada de auditoría en dos para quien la lea. El `textoOpcional` del servicio hace `trim()`,
+ * así que un salto al principio o al final se cae solo; el que sobrevive hasta `audit_logs.detail`
+ * es el de EN MEDIO, que es justamente el que sirve para fabricar una línea falsa debajo de una
+ * verdadera.
+ *
+ * **No dice «sin caracteres de control», porque no lo es** y decirlo sería la misma clase de
+ * afirmación falsa junto al código que este Bug vino a quitar: `\v`, `\f`, `U+2028` y `U+2029`
+ * pasan, y los dos últimos pueden partir la línea en un visor que los interprete como separadores.
+ * Cerrar eso sería ensanchar la regla y no arreglar lo que hay; queda anotado aquí, no implementado.
+ *
+ * El byte cero sí se cierra, con el mismo `refine` y por el mismo motivo que
+ * `gestionSchema.observacion`: un JSON puede llevarlo (`\u0000`), no cabe en un `varchar` de
+ * PostgreSQL y llegaría hasta el driver para salir como un `22021` por el manejador global —un 500—
+ * en vez de como el 400 que es. Va en un `refine` y no dentro del `regex` porque un carácter de
+ * control dentro de una expresión regular es un aviso de ESLint (`no-control-regex`) que aquí sería
+ * ruido: la comprobación es «no lo contiene», que se dice mejor sin regex.
+ *
+ * **Es compartido porque las dos copias habían divergido**: la regla vivía solo en el alta y
+ * `actualizarNitSchema` era un `z.string().max(120)` pelado, de modo que la validación del alta se
+ * rodeaba en dos pasos —crear el NIT con un alias limpio y editarlo después con el salto dentro— y
+ * el mismo valor acababa igual en la bitácora, solo que por el `detail` del `update`. Un campo y no
+ * dos declaraciones equivalentes, porque dos declaraciones equivalentes es exactamente como se
+ * separaron la primera vez.
+ */
+const aliasNitSchema = z.string()
+  .max(120)
+  .regex(/^[^\r\n\t]*$/, 'El alias no admite saltos de línea ni tabulaciones')
+  .refine((v) => !v.includes('\u0000'), 'El alias no admite caracteres nulos')
+  .nullable()
+  .optional();
+
 const crearNitSchema = z.object({
   nit: nitSchema,
-  // Sin caracteres de control: el alias se concatena literal al `detail` de la bitácora, y un `\n`
-  // parte visualmente una entrada de auditoría en dos para quien la lea.
-  alias: z.string().max(120).regex(/^[^\r\n\t]*$/, 'El alias no admite saltos de línea ni tabulaciones').nullable().optional(),
+  alias: aliasNitSchema,
   activo: z.boolean().optional(),
 });
 
 // Sin `nit`: no se edita (RN-02). Un cuerpo vacío es un 400 y no un no-op silencioso — quien lo
 // manda cree que cambió algo, y responderle 200 lo confirmaría en falso.
 const actualizarNitSchema = z.object({
-  alias: z.string().max(120).nullable().optional(),
+  alias: aliasNitSchema,
   activo: z.boolean().optional(),
 }).refine((d) => d.alias !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
 
-router.get('/nits', async (_req: Request, res: Response) => {
-  res.json(await listarNits());
+/**
+ * El catálogo entero, y por eso es una lectura de datos personales de pleno derecho (Bug #11646).
+ *
+ * Hasta este arreglo no dejaba rastro, y lo que se perdía no era defensa en profundidad sino la
+ * respuesta al art. 17 de la Ley 1581: se podía listar QUIÉNES están monitoreados —el catálogo
+ * completo, sin paginar ni filtrar— sin que quedara constancia de quién lo consultó. Las demás
+ * LECTURAS del módulo sí lo anotaban.
+ *
+ * **La cuota que se le añade no protege la confidencialidad, y conviene no confundirse.**
+ * `listarNits` no lleva `LIMIT` ni filtro: la petición nº 1 ya entregó el catálogo entero y las 59
+ * que quedan de cuota no añaden un solo NIT. Aquí el «ritmo y ruido» de `lecturasPiiLimiter` es
+ * literal y **el único control real de esta ruta es el registro de acceso** — de ahí que sea lo que
+ * el Bug #11646 vino a poner. Con una salvedad que hay que saber: ese registro es hoy suprimible
+ * desde el cliente (Bug #11622 — un `X-Request-Id` que no sea UUID revienta el INSERT con un 22P02
+ * que el `catch` best-effort de `logPiiAccess` se traga en silencio), así que mientras aquello siga
+ * abierto la constancia que este arreglo promete no está garantizada. No se cierra aquí porque el
+ * agujero es del helper compartido, no de esta ruta.
+ *
+ * **La excepción que queda en el módulo, escrita a propósito: `POST /sync`.** Su respuesta es un
+ * `ComparendosSyncResultado` con `scopeNits` y el `nit` de cada paso dentro, y no deja registro de
+ * acceso ni sale con `no-store`. Es menos grave —no inocua— por dos motivos, y ninguno es «no es
+ * PII»: es un POST, que ningún navegador guarda por heurística de caché, y `audit()` sí anota el
+ * actor, el alcance y el `runId`, así que del GESTO queda constancia aunque no del hecho de haber
+ * leído esos NITs. Lo que falta por decidir es si la bitácora basta para el art. 17 cuando la
+ * lectura es el efecto de una escritura; es otra ruta y otro alcance, y este arreglo se cerró a las
+ * tres del Bug #11646.
+ *
+ * `accion: 'search'` y no `'read'` aunque no haya filtros: `read` es «un recurso concreto» en el
+ * vocabulario de `AccesoComparendos`, y esto entrega la lista entera. `filas` es lo que de verdad
+ * distingue esta línea del log de una consulta menor, porque aquí no hay ningún otro criterio que
+ * anotar: sin filtros ni `:id`, el tamaño ES la lectura.
+ */
+router.get('/nits', lecturasPiiLimiter, async (req: Request, res: Response) => {
+  const nits = await listarNits();
+  await registrarAccesoComparendos(req, {
+    recurso: RECURSO_NIT,
+    accion: 'search',
+    campos: [...CAMPOS_PII_NIT],
+    filas: nits.length,
+  });
+  // La lista de a quién se vigila no se queda en el disco del navegador después de cerrar sesión.
+  res.set('Cache-Control', 'no-store');
+  res.json(nits);
 });
 
+/**
+ * Alta de un NIT. Devuelve el recurso creado —`nit` y `alias` dentro— y por eso sale con
+ * `no-store` desde el Bug #11671.
+ *
+ * **Solo la cabecera, y no `registrarAccesoComparendos`.** La distinción no es de comodidad: el
+ * registro del art. 17 de la Ley 1581 responde a «quién CONSULTÓ mis datos», y aquí el dato no se
+ * consulta, ENTRA — los dos campos personales del 201 (`nit` y `alias`) son los que acaba de
+ * teclear quien hizo la petición, que ya los tenía delante. Y no hay camino por el que este 201
+ * devuelva otra cosa: `crearNit` comprueba el duplicado antes de insertar y responde un 409 en vez
+ * de devolver la fila existente, así que el alta nunca revela el alias que otro puso. Del gesto sí
+ * queda constancia, y en el registro que le toca: `audit()` anota actor, acción y el NIT completo
+ * en `audit_logs`. Meter esta ruta en `pii_access_log` no añadiría un hecho nuevo; llenaría el log
+ * de accesos de escrituras y dejaría de poder leerse como «estas son las veces que alguien miró
+ * datos ajenos».
+ *
+ * **El `PATCH` de al lado NO es este caso, y por eso sí registra.** Ahí el cliente manda un UUID
+ * opaco y `{alias}` o `{activo}`, y la respuesta le devuelve el `nit` de la fila —que no tecleó y
+ * que pudo no haber visto nunca—, más el `alias` guardado si solo cambió `activo`. Es una lectura
+ * dentro de una escritura, exactamente lo mismo que `PATCH /registros/:id/gestion`, y las dos se
+ * resuelven igual. El criterio del módulo no es «rastro para las lecturas y no para las
+ * escrituras», sino rastro para toda respuesta que entregue datos personales que el cliente no
+ * aportó; este alta es la única que cae del otro lado.
+ *
+ * **`POST /sync` cae del mismo lado que el `PATCH` y sigue abierto**: su respuesta lleva NITs que
+ * el cliente NO mandó —el catálogo entero cuando la corrida es global—, así que también es una
+ * lectura escondida dentro de una escritura. No se cierra aquí porque su punto (el 1 del Bug
+ * #11671) está esperando decisión de negocio, no porque el criterio sea distinto.
+ */
 router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
   const parsed = crearNitSchema.safeParse(req.body);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
@@ -250,10 +490,38 @@ router.post('/nits', altaNitLimiter, async (req: Request, res: Response) => {
       action: 'create', resource: 'flito_comparendos_nit', resourceId: creado.id,
       detail: `NIT monitoreado ${creado.nit}${creado.alias ? ` (${creado.alias})` : ''}`,
     });
+    // El NIT recién dado de alta no se queda en el disco del navegador, igual que no se queda la
+    // lista que lo contiene (`GET /nits`).
+    res.set('Cache-Control', 'no-store');
     res.status(201).json(creado);
   } catch (e) { fallo(res, e); }
 });
 
+/**
+ * Edita `alias` y `activo` (RN-02) y devuelve la fila entera, NIT incluido.
+ *
+ * Deja rastro en los DOS registros, igual que `PATCH /registros/:id/gestion` y por el mismo motivo:
+ * `audit()` responde «quién CAMBIÓ qué» y `registrarAccesoComparendos` responde «quién MIRÓ datos
+ * personales». Aquí hace falta el segundo porque **la respuesta entrega un NIT que el cliente no
+ * aportó**: lo que manda es un UUID opaco y `{alias}` o `{activo}`, y lo que recibe es la fila
+ * completa —el `nit`, y también el `alias` guardado cuando solo cambió `activo`—. Que la petición
+ * sea una escritura no quita que la respuesta sea una lectura; el alta de al lado no registra
+ * justamente porque allí los dos campos personales del cuerpo son los que el cliente acaba de
+ * teclear (su docstring lo argumenta).
+ *
+ * `accion: 'read'` y no un valor de escritura, por lo mismo que en el PATCH de gestión: lo que se
+ * anota es que alguien VIO esta fila, y el «quién la cambió» ya lo cuenta `audit()`. `filas: 1` y
+ * `referencia: id` porque es un recurso concreto y no un listado.
+ *
+ * Los dos rastros son best-effort en el mismo sentido —`logPiiAccess` y `audit()` atrapan su propio
+ * error y lo dejan en el log de aplicación—, así que ninguno de los dos tumba la edición; se hacen
+ * con `await` para que estén escritos antes de que salga la respuesta.
+ *
+ * **El limitador que le falta está anotado, no puesto**: esta ruta no tiene bolsa propia y, por lo
+ * que acaba de decirse, es también un limitador de lectura disfrazado de escritura —quien quisiera
+ * leer NITs de uno en uno podría pedirlos por aquí sin gastar la cuota de `lecturasPiiLimiter`—. Es
+ * preexistente y no es del Bug #11671.
+ */
 router.patch('/nits/:id', async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
@@ -265,6 +533,16 @@ router.patch('/nits/:id', async (req: Request, res: Response) => {
       action: 'update', resource: 'flito_comparendos_nit', resourceId: id,
       detail: `NIT ${actualizado.nit}: activo=${actualizado.activo}, alias=${actualizado.alias ?? '—'}`,
     });
+    // La otra mitad: la respuesta le entrega el NIT y el alias de la fila a quien solo mandó su
+    // UUID. Ver el docstring — es el mismo caso que el PATCH de gestión, no el del alta.
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_NIT,
+      accion: 'read',
+      campos: [...CAMPOS_PII_NIT],
+      filas: 1,
+      referencia: id,
+    });
+    res.set('Cache-Control', 'no-store');
     res.json(actualizado);
   } catch (e) { fallo(res, e); }
 });
@@ -524,11 +802,15 @@ const runsQuerySchema = z.object({
  * Las dos lecturas de corridas dejan registro de acceso (HU #11511, Ley 1581 art. 17).
  *
  * No es celo de más: `scope_nits` es la lista de NITs monitoreados y cada paso lleva el suyo, y un
- * NIT de persona natural es un documento de identidad —lo dice el COMMENT de la 0150—. Es la única
- * lectura de datos personales que este módulo expone hoy; `GET /registros` (HU #11502) usará el
- * mismo `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ * NIT de persona natural es un documento de identidad —lo dice el COMMENT de la 0150—. `GET
+ * /registros` (HU #11502) usa el mismo `registrarAccesoComparendos` con `RECURSO_REGISTROS`.
+ *
+ * **Y por eso mismo las dos salen con `no-store` y con cuota desde el Bug #11646.** El rastro dice
+ * quién miró; no impide que la respuesta —hasta 100 corridas, cada una con su `scope_nits`— se
+ * quede escrita en la caché de disco del navegador y siga ahí cuando el usuario cierre sesión o
+ * preste el equipo. Son las dos mitades del mismo criterio y aquí solo estaba puesta una.
  */
-router.get('/sync/runs', async (req: Request, res: Response) => {
+router.get('/sync/runs', lecturasPiiLimiter, async (req: Request, res: Response) => {
   const parsed = runsQuerySchema.safeParse(req.query);
   if (!parsed.success) { datosInvalidos(res, parsed.error); return; }
   const runs = await listarSyncRuns(parsed.data.limit);
@@ -538,11 +820,12 @@ router.get('/sync/runs', async (req: Request, res: Response) => {
     campos: [...CAMPOS_PII_SYNC_RUN],
     filas: runs.length,
   });
+  res.set('Cache-Control', 'no-store');
   res.json(runs);
 });
 
 /** Detalle de una corrida con sus `steps[]`: qué fuente falló, con qué código y cuánto tardó (AC4). */
-router.get('/sync/runs/:id', async (req: Request, res: Response) => {
+router.get('/sync/runs/:id', lecturasPiiLimiter, async (req: Request, res: Response) => {
   const id = leerId(req, res);
   if (id === null) return;
   try {
@@ -556,6 +839,7 @@ router.get('/sync/runs/:id', async (req: Request, res: Response) => {
       filas: run.steps?.length ?? 0,
       referencia: run.runId,
     });
+    res.set('Cache-Control', 'no-store');
     res.json(run);
   } catch (e) { fallo(res, e); }
 });
@@ -623,7 +907,7 @@ const booleanoDeQuery = z.enum(['true', 'false']).transform((v) => v === 'true')
  * vacíos se tomaban como ausentes. Dos reglas distintas para el mismo gesto —mandar el parámetro
  * sin valor— es justo el tipo de asimetría que un cliente descubre en producción.
  */
-const registrosQuerySchema = z.object({
+const registrosQueryCampos = z.object({
   estado: vacioEsAusente(z.enum(['activo', 'inactivo'])),
   // Mínimo 3 caracteres: `q=1` recorrería la tabla para devolver medio módulo.
   q: vacioEsAusente(z.string().trim().min(3, 'Busca por al menos 3 caracteres del número').max(60)),
@@ -645,15 +929,46 @@ const registrosQuerySchema = z.object({
       .default(COMPARENDOS_REGISTROS_LIMIT_MAX),
   ),
   cursor: vacioEsAusente(z.string().max(200)),
-}).strict()
-  // «Con esta causal» y «sin ninguna causal» son preguntas incompatibles, y su intersección está
-  // vacía SIEMPRE. Dejarlas pasar respondería 200 con una lista vacía, que en una pantalla de
-  // gestión se lee como «no hay comparendos así» y no como «pediste dos filtros que se anulan» — el
-  // operador ajustaría el resto de la búsqueda persiguiendo un resultado que no puede llegar.
-  .refine((q) => !(q.causalId !== undefined && q.sinCausal === true), {
-    message: 'No se puede filtrar por una causal y por la ausencia de causal a la vez',
-    path: ['sinCausal'],
-  });
+}).strict();
+
+/**
+ * «Con esta causal» y «sin ninguna causal» son preguntas incompatibles, y su intersección está vacía
+ * SIEMPRE. Dejarlas pasar respondería 200 con una lista vacía, que en una pantalla de gestión se lee
+ * como «no hay comparendos así» y no como «pediste dos filtros que se anulan» — el operador
+ * ajustaría el resto de la búsqueda persiguiendo un resultado que no puede llegar.
+ *
+ * Es una función suelta y no un `refine` escrito dos veces porque desde la HU #11558 hay dos
+ * esquemas que la necesitan (el del listado y el del export). Dos copias serían dos reglas que
+ * pueden separarse, y separarse aquí significa que el archivo sale vacío por un motivo que la
+ * pantalla ya sabía explicar.
+ */
+const sinCausalContradictoria = (q: { causalId?: string; sinCausal?: boolean }): boolean =>
+  !(q.causalId !== undefined && q.sinCausal === true);
+
+const MENSAJE_CAUSAL_CONTRADICTORIA = {
+  message: 'No se puede filtrar por una causal y por la ausencia de causal a la vez',
+  path: ['sinCausal'],
+};
+
+const registrosQuerySchema = registrosQueryCampos
+  .refine(sinCausalContradictoria, MENSAJE_CAUSAL_CONTRADICTORIA);
+
+/**
+ * Query del export (HU #11558): la misma del listado **menos `limit` y `cursor`**.
+ *
+ * La resta es el contrato, no una omisión: un export no pagina —entrega el conjunto entero o
+ * responde 422—, así que `?limit=200` o un `?cursor=` no son parámetros que se ignoren, son un 400.
+ * Aceptarlos en silencio dejaría creer que se descargó «la página 3» de algo.
+ *
+ * Se deriva del MISMO objeto que el listado (`registrosQueryCampos`) y no se vuelve a escribir: el
+ * filtro que el usuario tiene puesto en el visor y el que produce el archivo tienen que ser el mismo
+ * o el export deja de ser «lo que estoy viendo» (AC1). El `.strict()` se repite después del `omit`
+ * porque es lo que convierte `?nit=` en la query en el 400 que exige el AGENTS.md §14.
+ */
+const exportQuerySchema = registrosQueryCampos
+  .omit({ limit: true, cursor: true })
+  .strict()
+  .refine(sinCausalContradictoria, MENSAJE_CAUSAL_CONTRADICTORIA);
 
 /**
  * Cuerpo de `POST /registros/buscar`: los dos filtros que identifican a alguien.
@@ -751,6 +1066,119 @@ router.post('/registros/buscar', registrosLimiter, async (req: Request, res: Res
   try {
     await entregarPagina(req, res, { ...query.data, ...cuerpo.data });
   } catch (e) { fallo(res, e); }
+});
+
+/**
+ * `POST /registros/export` — el resultado del filtro, en un `.xlsx` (HU #11558, CF-07, ADR-0004).
+ *
+ * **Es un POST y no existe la variante GET, que es medio AC1.** No es purismo REST: un
+ * `<a download href="…?nit=900123456">` —la forma natural de descargar— escribiría el NIT en el
+ * access log del proxy, en el historial del navegador y en el `Referer`, los tres sitios que este
+ * módulo lleva dos Features sacando de en medio (AGENTS.md §14). Que no haya GET es también lo que
+ * obliga a la pantalla a descargar con `fetch` + `blob`, que es lo que se pidió en el ADR.
+ *
+ * **El orden de las cuatro operaciones es normativo (AC4) y está sostenido por algo más que este
+ * comentario.** Validar → consultar con tope+1 → registro de acceso → cabeceras y archivo. Lo que
+ * hace el orden difícil de invertir no es la secuencia escrita aquí sino que
+ * `construirFilasExport` **lanza** cuando el filtro se pasa del tope: no devuelve filas de más que
+ * alguien pudiera empezar a escribir «mientras comprueba». Sin filas no hay `sendExcel`, y sin
+ * `sendExcel` no hay `Content-Disposition`; el 422 sale como JSON limpio por el `catch`, que es todo
+ * el AC3. Un `res.set('Content-Disposition', …)` movido dos líneas más arriba produciría un `.xlsx`
+ * de 300 bytes con un JSON de error dentro, y el usuario no lo entendería: por eso las cabeceras son
+ * lo ÚLTIMO.
+ *
+ * **Qué pasa en el 422 con el rastro, porque el AC4 se puede leer al revés.** Lo que el AC prohíbe
+ * emitir cuando el export no procede es el registro de acceso DEL EXPORT —`accion='export'` con sus
+ * filas—, y eso se cumple: por ahí no pasa. Lo que sí queda es una línea distinta, `accion='search'`
+ * con `filas=0` y el marcador `resultado=export_demasiado_grande`, porque la consulta llegó a correr
+ * y porque sin ella el `pii_access_log` mentiría por omisión justo donde ADR-0004 promete leerlo
+ * para recalibrar el tope (el razonamiento entero está en el `catch`).
+ *
+ * El registro de acceso va con `filas` = las entregadas de verdad (no el tope, no lo pedido) y se
+ * espera con `await` antes de escribir el primer byte (AC6): esta petición vale hasta
+ * `COMPARENDOS_EXPORT_MAX_FILAS` NITs y placas, así que perder su rastro por un fallo a mitad del
+ * archivo no es aceptable. `campos` no incluye `CAMPOS_PII_PAYLOAD` porque los payloads no salen en
+ * el archivo (RN-42): declarar de más haría que `campos_accedidos` dejara de decir la verdad, que
+ * es lo único que ese log tiene que hacer.
+ */
+router.post('/registros/export', exportLimiter, async (req: Request, res: Response) => {
+  const query = exportQuerySchema.safeParse(req.query);
+  if (!query.success) { datosInvalidos(res, query.error); return; }
+  // Igual que en `/registros/buscar`: sin cuerpo es un export sin filtros de identidad, no un error.
+  const cuerpo = registrosBusquedaSchema.safeParse(req.body ?? {});
+  if (!cuerpo.success) { datosInvalidos(res, cuerpo.error); return; }
+  const filtro = { ...query.data, ...cuerpo.data };
+
+  // Mismo orden que en `entregarPagina` y por el mismo motivo: `motivo` es `varchar(200)` y se
+  // recorta por el final, así que delante va con qué identidad se buscó.
+  const filtrosDelRastro = {
+    estado: filtro.estado,
+    nit: filtro.nit,
+    placa: filtro.placa,
+    q: filtro.q,
+    municipio: filtro.municipio,
+    fuente: filtro.fuente,
+    causalId: filtro.causalId,
+    sinCausal: filtro.sinCausal,
+  };
+
+  // Las mismas columnas personales que declara el listado, porque el archivo lleva las mismas: NIT,
+  // placa y la observación que escribió una persona. Los payloads no (RN-42).
+  const camposDelRastro = [...CAMPOS_PII_REGISTRO, ...CAMPOS_PII_OBSERVACION];
+
+  try {
+    // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
+    const filas = await construirFilasExport(filtro);
+
+    await registrarAccesoComparendos(req, {
+      recurso: RECURSO_REGISTROS,
+      accion: 'export',
+      campos: camposDelRastro,
+      filas: filas.length,
+      filtros: filtrosDelRastro,
+    });
+
+    // Un archivo con NIT, placa y observaciones dentro no se guarda en ningún intermedio.
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(res, nombreArchivoExport(), COLUMNAS_EXPORT, filas);
+  } catch (e) {
+    // Si el fallo llega con la respuesta ya empezada —el archivo se estaba escribiendo—, `fallo()`
+    // reventaría con ERR_HTTP_HEADERS_SENT y taparía la causa real. Se relanza al manejador global,
+    // que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+
+    // **El export que choca con el tope también deja rastro**, y no por simetría.
+    //
+    // La consulta ya CORRIÓ: `tope + 1` filas con su NIT y su placa entraron en el proceso; lo único
+    // que no ocurrió es la entrega. Un log que las omita deja dos agujeros, y el segundo es el que
+    // obliga:
+    //
+    //   · Trazabilidad: «pedí el histórico entero de este NIT» es un gesto que la Ley 1581 art. 17
+    //     puede tener que responder, y sin esta línea de él solo consta que alguien gastó cuota.
+    //   · **Sesgo en el dato con el que ADR-0004 promete recalibrar el tope.** El ADR dice revisar
+    //     el `pii_access_log` a los dos o tres meses para decidir si el tope sobra o falta. Si los
+    //     exports que superan el tope no se escriben, la muestra queda amputada JUSTO en la cola que
+    //     se quiere medir: concluiría que casi nadie se acerca al tope precisamente porque los que
+    //     lo pasan son invisibles.
+    //
+    // `accion: 'search'` y no `'export'`: no se exportó nada, y contarlo como export estropearía los
+    // agregados de `/api/privacy/pii-access/stats` y el recuento de filas realmente extraídas.
+    // `filas: 0` es literal —no se entregó ninguna—, y el conteo real ni se sabe ni se sabrá: el
+    // `tope + 1` existe para no calcularlo, así que esta fila tampoco revela cuántos comparendos
+    // tiene el filtro. El marcador va DELANTE de los filtros porque `motivo` se recorta por el
+    // final, y sin él esta línea sería indistinguible de una búsqueda cualquiera.
+    if (e instanceof ComparendosExportDemasiadoGrandeError) {
+      await registrarAccesoComparendos(req, {
+        recurso: RECURSO_REGISTROS,
+        accion: 'search',
+        campos: camposDelRastro,
+        filas: 0,
+        filtros: { resultado: e.codigo, ...filtrosDelRastro },
+      });
+    }
+
+    fallo(res, e);
+  }
 });
 
 /**

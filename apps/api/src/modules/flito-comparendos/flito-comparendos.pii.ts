@@ -44,11 +44,35 @@ export const RECURSO_REGISTROS = 'flito_comparendos_registro';
 export const RECURSO_SYNC_RUN = 'flito_comparendos_sync_run';
 
 /**
+ * `resource_tipo` de una lectura del catálogo de NITs monitoreados (Bug #11646).
+ *
+ * El literal es el MISMO que el `resource` con el que `audit()` anota las altas, ediciones y bajas
+ * del catálogo, y no por descuido de nombres: quien tenga que responder por un NIT concreto necesita
+ * cruzar «quién lo metió en la lista» (bitácora) con «quién leyó la lista donde está» (registro de
+ * acceso), y dos literales distintos para el mismo recurso obligarían a traducir entre las dos
+ * tablas para hacer esa consulta. Que las dos preguntas sean distintas ya lo dice la columna
+ * `accion`; el recurso es el mismo objeto.
+ */
+export const RECURSO_NIT = 'flito_comparendos_nit';
+
+/**
  * Columnas personales de un registro consolidado.
  *
  * `nit_monitoreado` es PII cuando el NIT es de una persona natural, y `placa` identifica
  * indirectamente al propietario — las dos lo dicen los COMMENT de la 0150. El resto del canónico
  * (código de infracción, monto, organismo) describe la infracción, no a una persona.
+ *
+ * **`numero_resolucion` y `tipo_registro` (HU #11712) NO entran, y siguen el criterio de
+ * `numero_comparendo`, no el del párrafo de arriba.** Decir que una resolución «identifica un acto
+ * administrativo y no a una persona» no se sostiene en abstracto: es una llave de consulta hacia el
+ * registro que el organismo de tránsito tiene del caso, igual que la placa, que aquí SÍ está
+ * declarada como PII indirecta. Lo que decide es otra cosa: **no añade vinculabilidad sobre lo que
+ * la fila ya publica**, porque `numero_comparendo` es la misma clase de llave hacia el mismo
+ * registro y ya viaja en el listado y en el Excel. La resolución no abre una puerta nueva: abre la
+ * misma. Y `tipo_registro` son dos valores derivados de ella, que no dicen nada de nadie.
+ *
+ * Corolario para quien añada una columna al listado o al export: la pregunta no es «¿esto es un dato
+ * de persona?», es «¿esto amplía lo que ya se puede averiguar con lo que la respuesta ya entrega?».
  */
 export const CAMPOS_PII_REGISTRO = ['nit_monitoreado', 'placa'] as const;
 
@@ -85,8 +109,30 @@ export const CAMPOS_PII_PAYLOAD = ['payload_simit', 'payload_municipal'] as cons
 /** Lo personal de una corrida: la lista de NITs del alcance y el NIT de cada paso. */
 export const CAMPOS_PII_SYNC_RUN = ['scope_nits', 'nit'] as const;
 
+/**
+ * Lo personal de una fila del catálogo: el NIT y su alias (Bug #11646).
+ *
+ * `nit` por lo mismo que `nit_monitoreado` del consolidado —el COMMENT de la 0150 lo dice: el de una
+ * persona natural es un documento de identidad—, y aquí la lectura es la peor de las tres: el
+ * catálogo ENTERO en una respuesta, sin paginar ni filtrar.
+ *
+ * `alias` va con él, y no se omite por parecer un rótulo administrativo. Es el otro campo del módulo
+ * que redacta una PERSONA —el mismo criterio que {@link CAMPOS_PII_OBSERVACION}—, lo escribe quien
+ * da de alta el NIT mirando de quién es, y el rótulo natural de un NIT de persona natural es su
+ * nombre. Ninguna validación de forma puede impedirlo. Desde el Bug #11671 la que hay al menos es
+ * UNIFORME —el alta y la edición comparten `aliasNitSchema`, que acota la longitud y veta el salto
+ * de línea, la tabulación y el byte cero; antes el PATCH solo miraba la longitud, y por ahí se
+ * rodeaba la regla del alta en dos pasos—. Ese techo sigue siendo lo máximo que se le puede pedir a
+ * un campo de texto libre sin volverlo inútil; por eso declararlo es lo único que hace que
+ * `campos_accedidos` diga la verdad sobre lo que la respuesta entregó.
+ *
+ * Se nombran las columnas de `flito_comparendos_nits`, no las claves del DTO: el log tiene que poder
+ * cruzarse con la tabla real, y `activo`, `id` y las marcas de tiempo no son de nadie.
+ */
+export const CAMPOS_PII_NIT = ['nit', 'alias'] as const;
+
 export interface AccesoComparendos {
-  /** `RECURSO_REGISTROS` o `RECURSO_SYNC_RUN`. */
+  /** `RECURSO_REGISTROS`, `RECURSO_SYNC_RUN` o `RECURSO_NIT`. */
   recurso: string;
   /** `search` = listado con filtros; `read` = un recurso concreto; `export` = descarga. */
   accion: 'read' | 'search' | 'export';

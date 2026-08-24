@@ -11,8 +11,6 @@ const envMock = {
   SIIGO_PARTNER_ID: 'FlitoIntegracion',
   SIIGO_AMBIENTE: 'pruebas' as const,
   SIIGO_MODE: 'real' as 'mock' | 'real',
-  SIIGO_MOCK_ERROR_RATE: 0,
-  SIIGO_MOCK_TIMEOUT_RATE: 0,
   SIIGO_ENC_KEY: 'b71d3f9a20c845e6f8319ad4c7be5026a19d3f84c60be27159ad83f4c2e70b91',
   NODE_ENV: 'development',
   PII_ENC_KEY: 'test-pii',

@@ -5,6 +5,8 @@
 #   2. Dependencias (npm audit) — BLOQUEA con Critical; High/Moderate solo avisan
 #      (CI «dependency-audit» ya bloquea el merge con High+; cuando la deuda actual
 #      se remedie, este gate debe subir de "critical" a "high").
+#   3. Nombre de rama           — solo AVISA: renombrar aquí sigue siendo barato, y el
+#      check «naming» de CI bloquea el PR si el nombre no cumple la convención.
 #
 # gitleaks se auto-provisiona en ~/.local/bin la primera vez (misma versión que CI).
 # Escape manual documentado: git push --no-verify
@@ -78,6 +80,18 @@ if [ -f package-lock.json ]; then
   elif [ "$HIGH" -gt 0 ]; then
     yel "[pre-push] AVISO: $HIGH vulnerabilidad(es) High en dependencias de producción."
     yel "           El push pasará, pero CI (dependency-audit) bloqueará el merge. Remedia: npm audit fix."
+  fi
+fi
+
+# --- 3. Convención de nombre de rama ------------------------------------------
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ -f scripts/check-naming.mjs ] && [ "$BRANCH" != "HEAD" ]; then
+  if ! node scripts/check-naming.mjs --branch "$BRANCH" >/dev/null 2>&1; then
+    node scripts/check-naming.mjs --branch "$BRANCH" --warn-only
+    yel "[pre-push] El check «naming» de CI bloqueará el PR. Renombra antes de abrirlo:"
+    yel "           git branch -m HU/<ID>-<desarrollador>-<descripcion-breve>"
+    yel "           git push origin :\"$BRANCH\" && git push -u origin HEAD   # si ya estaba en remoto"
   fi
 fi
 

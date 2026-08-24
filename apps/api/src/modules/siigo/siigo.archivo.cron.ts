@@ -13,6 +13,7 @@
 // minuto que comparte con la EMISIÓN, y archivar puede esperar diez minutos; emitir, no.
 
 import os from 'os';
+import { env } from '../../config/env.js';
 import { archivarFacturasPendientes } from './siigo.archivo-documentos.service.js';
 import { loggerFor } from '../../shared/logger.js';
 
@@ -35,8 +36,11 @@ async function tick(): Promise<void> {
 
 export function startSiigoArchivoCron(): void {
   if (timer) return;
-  if (process.env.SIIGO_ARCHIVO_CRON_ENABLED === '0') {
-    log.info({ host: HOST_ID }, 'cron de archivo de facturas DESHABILITADO');
+  // Bug #11649: apagado por defecto y leído del esquema validado, nunca de `process.env`. La guarda
+  // anterior (`SIIGO_ARCHIVO_CRON_ENABLED !== '0'`) dejaba el cron encendido ante cualquier valor
+  // que no fuera esa cadena exacta, la variable ausente o mal escrita incluidas.
+  if (env.SIIGO_CRONS !== 'on') {
+    log.info({ host: HOST_ID, siigoCrons: env.SIIGO_CRONS }, 'cron de archivo de facturas DESHABILITADO');
     return;
   }
   log.info({ host: HOST_ID, intervalMin: INTERVAL_MS / 60_000 }, 'cron de archivo de facturas activo');

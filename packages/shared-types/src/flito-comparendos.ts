@@ -6,10 +6,14 @@
 // El PATCH de gestión —`ComparendosGestionPatch` y `COMPARENDOS_OBSERVACION_MAX`— es de 17b y se
 // publica desde la HU #11557, que es la que expone el endpoint que lo consume.
 //
-// Lo que este archivo sigue SIN declarar, y es deliberado: los contratos del export a Excel, que son
-// de la HU #11558. Publicar hoy el tipo de algo que ningún endpoint responde invita a que la
-// pantalla se escriba contra una forma que aún puede cambiar. (`PageSlug` del módulo no está aquí
-// por otro motivo: el catálogo de páginas vive en `permissions.ts`, y lo añadió la HU #11559.)
+// `ComparendoRegistro.gestionActualizadaPor` cambió de forma en la HU #11562 (de `number` a
+// `{ id, nombre }`): el porqué está en su propio comentario, y es el único cambio incompatible que
+// este archivo ha tenido.
+//
+// El export a Excel —`ComparendosExportRequest` y `COMPARENDOS_EXPORT_MAX_FILAS`— es de la HU
+// #11558 y está al final del archivo, publicado desde la HU que expone el endpoint que lo consume.
+// (`PageSlug` del módulo no está aquí por otro motivo: el catálogo de páginas vive en
+// `permissions.ts`, y lo añadió la HU #11559.)
 //
 // Las fechas viajan como cadena ISO-8601 y no como `Date`: este paquete lo comparten el servidor y
 // el navegador, y `JSON.parse` nunca devuelve un `Date`. Tiparlo como `Date` sería mentirle al
@@ -201,6 +205,20 @@ export type ComparendosRegistroEstado = 'activo' | 'inactivo';
 export type ComparendosOrigenMerge = 'simit' | 'municipal' | 'ambos';
 
 /**
+ * Qué es la fila HOY ante la autoridad: un comparendo, o la multa en que ese comparendo se
+ * convirtió (HU #11712).
+ *
+ * Los dos endpoints devuelven las dos cosas en la misma lista y lo que las distingue es el número
+ * de resolución: sin resolución sigue siendo comparendo, con resolución ya es multa. Lo deriva el
+ * merge de lo que dijeron las fuentes; **no lo dice ningún campo del proveedor** y no se puede
+ * inferir de `estadoFuente`, que es texto crudo sin normalizar.
+ *
+ * El tipo se usa siempre junto a su `| null`, y ese `null` es la mitad importante del contrato —ver
+ * {@link ComparendoRegistro.tipoRegistro}—.
+ */
+export type ComparendosTipoRegistro = 'comparendo' | 'multa';
+
+/**
  * Un comparendo consolidado, tal como lo devuelven `GET /registros` y `POST /registros/buscar`
  * (CF-09). Las dos rutas devuelven exactamente esta forma; lo único que cambia entre ellas es por
  * dónde entran los filtros de identidad.
@@ -232,8 +250,43 @@ export interface ComparendoRegistro {
   /** `codigoFuente` del municipio donde se vio, o `null` si solo lo reportó SIMIT. */
   municipioFuente: string | null;
   monto: string | null;
-  /** Estado que reporta el proveedor, tal cual. Texto libre: no se enumera ni se traduce. */
+  /**
+   * Estado que reporta el proveedor, tal cual. Texto libre: no se enumera ni se traduce.
+   *
+   * Desde el mapa v3 (HU #11712) la cadena de candidatos cruza tres vocabularios del proveedor
+   * —comparendo, cartera y pago—, así que dos filas pueden traer estados de vocabularios distintos.
+   * Sigue siendo texto crudo y **no sirve para saber si la fila es comparendo o multa**: para eso
+   * está {@link ComparendoRegistro.tipoRegistro}.
+   */
   estadoFuente: string | null;
+  /**
+   * Comparendo o multa, o **`null` = «no se sabe»** (HU #11712).
+   *
+   * `null` NO significa «comparendo» y no se puede pintar como tal: es lo que devuelve todo el
+   * histórico anterior a la migración 0160, cuyo dato no está en ninguna parte —los payloads crudos
+   * ya se podaron a la lista blanca (RN-25) y ninguna versión anterior del mapa nombraba la
+   * resolución, así que tampoco se puede reconstruir—. Y no se va a arreglar solo: las filas
+   * `inactivo` ya no las visita ningún sync (CF-10).
+   *
+   * Consecuencia vinculante para el visor: `null` se muestra como «sin dato», no suma a ningún
+   * contador de comparendos y un filtro por tipo no lo incluye en ninguno de los dos valores.
+   */
+  tipoRegistro: ComparendosTipoRegistro | null;
+  /**
+   * Número de la resolución que convirtió el comparendo en multa, o `null` mientras sigue siendo
+   * comparendo (y en todo el histórico anterior a la 0160).
+   *
+   * **No es literal de la fuente**: viaja normalizado como los demás códigos del canónico —sin
+   * espacios de sobra, en MAYÚSCULAS y recortado a 60 caracteres—, así que no sirve para comparar
+   * byte a byte contra el portal del organismo. Se recorta, y se puede, porque no es llave de nada:
+   * a diferencia de `numeroComparendo`, ningún join ni unicidad depende de él.
+   *
+   * Es el dato del que se deriva `tipoRegistro`, así que los dos no pueden contradecirse: la base lo
+   * sostiene con un CHECK. Lo que **no** viaja aquí es el `id_resolucion` del proveedor: es un
+   * identificador de sistema (`115697134`), no es legible para nadie fuera de él, y publicarlo solo
+   * daría una segunda columna que nadie sabría leer.
+   */
+  numeroResolucion: string | null;
   origenMerge: ComparendosOrigenMerge;
   vistoEnSimit: boolean;
   vistoEnMunicipal: boolean;
@@ -257,13 +310,27 @@ export interface ComparendoRegistro {
    */
   gestionActualizadaEn: string | null;
   /**
-   * Quién la gestionó por última vez: el **id** del usuario, no su nombre.
+   * Quién la gestionó por última vez: el id **y el nombre** del usuario, o `null` si nadie la ha
+   * gestionado.
    *
-   * Igual que {@link ComparendosSyncRun.iniciadoPor}, y por lo mismo: resolver el id a un nombre es
-   * cosa de la pantalla, que ya tiene el directorio de usuarios cargado. Devolverlo aquí obligaría
-   * a un `JOIN` en cada página del listado para un dato que en la mayoría de las filas es `null`.
+   * Misma forma que {@link ComparendosTokenSimitMeta.actualizadoPor}, y por la misma razón: el
+   * único uso de este campo es escribir «gestionado por X» en una pantalla, y un id suelto no lo
+   * permite. La versión anterior publicaba solo el número dando por hecho que la pantalla tenía un
+   * directorio de usuarios cargado con el que resolverlo — y no lo hay: no existe hook ni endpoint
+   * de directorio consumible desde el visor de comparendos, así que el id se pintaba literalmente
+   * («usuario 5»), que no es «quién hizo la última gestión» (HU #11562, AC5). El `JOIN` que esto
+   * cuesta es un `LEFT JOIN` por clave primaria contra `users`, una vez por página.
+   *
+   * **No sigue el criterio de {@link ComparendosSyncRun.iniciadoPor}, que sigue siendo un id**, y la
+   * diferencia es deliberada: una corrida de sync la dispara quien administra el módulo y su autor
+   * solo se mira para depurar; esto lo lee a diario quien reparte el trabajo del equipo.
+   *
+   * El nombre es de una persona identificable (personal interno): se publica a quien ya puede ver el
+   * comparendo entero, pero no se escribe en logs, ni en el `detail` de `audit_logs`, ni en el
+   * `motivo` de `pii_access_log`. El export a Excel sigue llevando el **id** y no el nombre a
+   * propósito (`flito-comparendos.export.service.ts`): ahí el archivo sale del perímetro.
    */
-  gestionActualizadaPor: number | null;
+  gestionActualizadaPor: { id: number; nombre: string } | null;
   creadoEn: string;
   actualizadoEn: string;
 }
@@ -359,8 +426,15 @@ export const COMPARENDOS_OBSERVACION_MAX = 1000;
  *
  * Vive aquí y no solo en el router para que la pantalla no lo adivine ni pida 200 y reciba un 400.
  * El número sale de multiplicarlo por el limitador de la lectura (60 peticiones por minuto y
- * usuario): 50 filas × 60 = 3 000 NITs y placas por minuto, que es el techo de exfiltración que el
- * módulo acepta para un administrador con sesión válida.
+ * usuario): 50 filas × 60 = 3 000 NITs y placas por minuto, que es el techo de extracción de **la
+ * ruta interactiva**.
+ *
+ * **Desde la HU #11558 ese ya no es el techo del MÓDULO, y decirlo importa.** El export a Excel
+ * entrega en una sola petición hasta {@link COMPARENDOS_EXPORT_MAX_FILAS} filas con su propia cuota
+ * (5 por minuto y usuario), así que quien lea este número como «lo máximo que alguien se lleva de
+ * aquí por minuto» se equivocaría por 8,3×. Los dos techos —el de la lectura paginada y el del
+ * export— y por qué se aceptan están razonados juntos en `docs/adr/ADR-0004-flito-comparendos-export-excel-tope.md`,
+ * que **complementa** a ADR-0001: no lo enmienda ni lo supersede.
  */
 export const COMPARENDOS_REGISTROS_LIMIT_MAX = 50;
 
@@ -456,3 +530,87 @@ export interface ComparendosRegistrosPagina {
   items: ComparendoRegistro[];
   nextCursor: string | null;
 }
+
+// ─────────────────────── Export a Excel del consolidado (HU #11558, 17b) ─────────────────────────
+
+/**
+ * Tope duro de filas de un export, y la mitad del techo de extracción del módulo (ADR-0004 §2).
+ *
+ * Vive aquí por lo mismo que {@link COMPARENDOS_REGISTROS_LIMIT_MAX}: la pantalla necesita el número
+ * para explicar el 422 («tu filtro supera las N filas, acótalo») sin inventárselo ni descubrirlo
+ * probando. El servidor **no lo lee de aquí**: lo lee de `COMPARENDOS_EXPORT_MAX_FILAS` en el
+ * entorno, cuyo valor por defecto ES esta constante, para poder recalibrarlo con datos reales del
+ * `pii_access_log` sin desplegar código.
+ *
+ * De ahí el matiz que hay que tener presente al usarlo en la interfaz: es el tope **por defecto**,
+ * no una garantía del servidor. Un despliegue que lo baje hará que el 422 aparezca antes de lo que
+ * diga la pantalla; por eso el mensaje de error del API viene con su propio número dentro y es ese
+ * el que conviene mostrar cuando llega.
+ *
+ * ── Por qué 2 000 y no 5 000 (HU #11651, medido el 2026-08-22) ───────────────────────────────────
+ *
+ * Valía 5 000 —la Opción C del ADR-0004—, y el propio ADR lo aceptó **con la condición de medirlo**,
+ * porque `sendExcel` construye el workbook ENTERO en memoria y el API corre en una sola instancia
+ * fork con `max_memory_restart: '512M'` (`ecosystem.config.cjs:22`). Ya está medido, en el peor caso
+ * del archivo (la observación al máximo en todas las filas) y en el escenario que el limitador
+ * permite. Ese escenario NO es «varios administradores coordinándose»: `exportLimiter` acota
+ * peticiones **por minuto, no peticiones en vuelo** (`max: 5` por usuario, `keyGenerator:
+ * userOrIpKey(…)`, sin ninguna cota global ni semáforo), así que **una sola cuenta** —una sesión de
+ * administrador comprometida, un script, o alguien con prisa pulsando cinco veces— pone sus cinco
+ * exports a construirse a la vez en el mismo proceso:
+ *
+ *     filas | 1 export | 2 simult. | 3 simult. | 4 simult. | 5 simult.
+ *     ------|----------|-----------|-----------|-----------|----------
+ *     5 000 |  +152 MB |  +247 MB  |  +365 MB  |     —     |     —
+ *     3 000 |  + 58 MB |  +116 MB  |  +203 MB  |     —     |     —
+ *     2 000 |  + 93 MB |  +106 MB  |  +124 MB  |  +169 MB  |  +239 MB
+ *
+ * (Delta de RSS sobre el reposo del proceso. El instrumento es
+ * `apps/api/__tests__/helpers/export-coste.ts`; los tests que quedan en el repo fijan UNO y DOS
+ * exports simultáneos al tope vigente —`flito-comparendos-export-coste.test.ts` y
+ * `flito-comparendos-export-concurrencia.test.ts`—, y las demás celdas salen de corridas puntuales
+ * del mismo instrumento durante la HU, variando el tope y el número de lotes a mano.)
+ *
+ * Sobre un API en régimen de 250 MB quedan 262 MB hasta el techo de PM2 — y ese 250 es una
+ * **estimación heredada del PR #153, no una medida del proceso de hoy** (`REGIMEN_API_MB` en
+ * `apps/api/__tests__/helpers/export-coste.ts`), de la que cuelga todo el presupuesto. Con 5 000,
+ * dos exports simultáneos se comen 247 de esos 262: el proceso se queda a 15 MB del reinicio, y con
+ * tres lo cruza. Con 2 000 caben **los cinco** que el limitador deja pasar en un minuto (+239 MB de
+ * los 262, con 23 MB de margen); el **sexto no está medido** —extrapolando la pendiente de la tabla
+ * cruzaría el techo, pero eso es proyección, no medición—. Además, un solo export de 5 000 filas ya
+ * llegaba a los ~150 MB de delta que ADR-0004 §Coste fijó como **señal de reapertura de la
+ * decisión**.
+ *
+ * **Qué distingue la medición y qué no.** Descarta 5 000 con holgura: 247 MB frente a 106 MB con dos
+ * simultáneos es un factor 2,3 que ningún ruido explica. Lo que NO hace es separar 2 000 de 3 000:
+ * 3 000 filas miden +58 MB y 2 000, +93 MB (con dos simultáneos, 116 frente a 106), y un archivo más
+ * pequeño costando más RSS significa que a esa escala manda el ruido del allocator y del GC, no el
+ * número de filas. 2 000 se elige por ser la Opción B del ADR-0004 —la que allí se descartó «por
+ * poco», con la nota de que bajar a ella es un cambio de una línea que no necesita otro ADR—, por
+ * ser el extremo conservador de esa banda y por dejar margen; no porque la tabla lo distinga de
+ * 3 000. Lo que se paga está en la tabla de contras de esa opción (un NIT grande con varios años de
+ * histórico puede no caber en un solo archivo y obliga a trocear por filtro); lo que se compra es
+ * que el techo de extracción por minuto baje de 25 000 a 10 000 filas y que el par simultáneo deje
+ * de rozar el techo de PM2. Lo que NO se compra es que exportar no pueda reiniciar el API: eso no lo
+ * arregla ningún valor del tope, porque nada acota la concurrencia (ADR-0004, «Lo que esto NO
+ * resuelve»).
+ */
+export const COMPARENDOS_EXPORT_MAX_FILAS = 2000;
+
+/**
+ * El filtro completo de `POST /registros/export`: **el mismo del visor, sin paginación**.
+ *
+ * Es {@link ComparendosRegistrosFiltro} menos `limit` y `cursor`, y esa resta es el contrato: un
+ * export no pagina —entrega el conjunto entero o no entrega nada—, así que mandar cualquiera de los
+ * dos es un 400 y no un parámetro que se ignora. La pantalla puede pasar su estado de filtros tal
+ * cual, que es justo lo que hace que el archivo contenga lo que el usuario está viendo (AC1).
+ *
+ * **Se parte en dos al enviarlo, y no es un detalle de transporte:** lo que no identifica a nadie
+ * —`estado`, `q`, `municipio`, `fuente`, la causal— viaja en la query, y `nit` y `placa` van en el
+ * CUERPO del POST (AGENTS.md §14). No hay variante `GET` de este endpoint: un `<a download>` con
+ * `?nit=…` dejaría el NIT en el access log del proxy, en el historial y en el `Referer`, que son los
+ * tres sitios que el diseño de 17a sacó de en medio. La descarga se hace con `fetch` + `blob` +
+ * `createObjectURL`/`revokeObjectURL`.
+ */
+export interface ComparendosExportRequest
+  extends Omit<ComparendosRegistrosQuery, 'limit' | 'cursor'>, ComparendosRegistrosBusqueda {}

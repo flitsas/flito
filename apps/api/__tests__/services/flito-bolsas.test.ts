@@ -26,7 +26,7 @@ vi.mock('../../src/db/client.js', () => ({
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
 const {
-  registrarRecarga, bolsaDe, movimientosDe, llaveRecarga, BolsaError,
+  registrarRecarga, bolsaDe, movimientosDe, llaveRecarga, BolsaError, asentarMovimiento,
 } = await import('../../src/modules/flito-bolsas/flito-bolsas.service.js');
 
 // ─────────────────────────── Espía de escrituras ─────────────────────────────
@@ -350,11 +350,12 @@ describe('registrarRecarga — carrera de dos peticiones con la misma clave', ()
   }
 
   it('el índice único frena al segundo → se devuelve el asentado, no un 500', async () => {
-    // Las dos peticiones pasaron el pre-chequeo antes de que ninguna escribiera; la que pierde
+    // Las dos peticiones pasaron los DOS chequeos antes de que ninguna escribiera; la que pierde
     // choca con el índice. Para el usuario es el mismo caso que el replay.
     conBolsa('0');
     kdb.when
       .selectOnce('flito_bolsa_movimientos', [])        // pre-chequeo: todavía no había nada
+      .selectOnce('flito_bolsa_movimientos', [])        // relectura bajo el lock: sigue sin haberlo
       .select('flito_bolsa_movimientos', [movimientoPrevio]) // relectura tras el choque
       .insert('flito_bolsa_movimientos', () => { throw error23505(); });
 
@@ -387,6 +388,128 @@ describe('registrarRecarga — carrera de dos peticiones con la misma clave', ()
       });
 
     await expect(registrarRecarga(COMPANIA, datosRecarga(), CTX)).rejects.toMatchObject({ code: '23503' });
+  });
+});
+
+// ───────── Dos escritores para la misma llave (Feature #11623, HU #11677) ──────────
+//
+// Hasta la conciliación de boletas, la familia `salida:soat:*` tenía un solo escritor: el sellado de
+// la liquidación. Ahora son dos, y pueden pulsarse a la vez sobre el mismo SOAT. Se prueba contra
+// `asentarMovimiento` directamente —y no a través de `registrarRecarga`— para que lo que se afirme
+// sea SU defensa y no la red que la recarga tiene por fuera de la transacción.
+
+describe('asentarMovimiento — la llave la escriben dos caminos a la vez', () => {
+  function error23505(): Error {
+    return Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' });
+  }
+
+  const salidaSoat = {
+    tipo: 'salida' as const,
+    origen: 'conciliacion' as const,
+    valor: 450000,
+    fecha: '2026-03-04',
+    concepto: 'soat' as const,
+    organismoCodigo: '05001',
+    tramiteId: null,
+    llaveIdempotencia: 'salida:soat:50a70000-0000-4000-8000-00000000000a',
+    etiqueta: 'salida',
+  };
+
+  const asentar = () => asentarMovimiento(kdb.db as never, COMPANIA, salidaSoat, CTX);
+
+  it('la relectura DENTRO del lock frena al segundo sin llegar siquiera al INSERT', async () => {
+    // La carrera real: los dos pasan el chequeo de fuera del lock porque ninguno ha escrito todavía.
+    // `bolsaBloqueada` los serializa, y el que llega segundo vuelve a mirar la llave —ya bajo el
+    // lock y con un snapshot nuevo— y encuentra lo que el primero acaba de confirmar.
+    conBolsa('1000000');
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [])              // fuera del lock: libre
+      .select('flito_bolsa_movimientos', [movimientoPrevio]); // dentro del lock: la otra ya escribió
+
+    const { movimiento, duplicado } = await asentar();
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    // Ni una escritura: ni el asiento ni el saldo. Es un 200 «esto ya estaba hecho», no un 500.
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas')).toHaveLength(0);
+  });
+
+  it('si aun así el INSERT choca, el 23505 se traduce en duplicado y el saldo no se toca', async () => {
+    // Red de debajo: la llave es única para TODA la tabla, así que dos bolsas distintas pueden
+    // colisionar sin compartir el lock que serializa el caso de arriba.
+    conBolsa('1000000');
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [])
+      .selectOnce('flito_bolsa_movimientos', [])
+      .select('flito_bolsa_movimientos', [movimientoPrevio])
+      .insert('flito_bolsa_movimientos', () => { throw error23505(); });
+
+    const { movimiento, duplicado } = await asentar();
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    expect(updatesEn('flito_bolsas')).toHaveLength(0);
+  });
+
+  it('si la relectura tras el choque falla, sube el 23505 y no el error de la relectura', async () => {
+    // Un 23505 aborta la transacción en PostgreSQL: sin SAVEPOINT, releer da 25P02. Se prefiere que
+    // suba el error ORIGINAL, que dice la verdad de lo que pasó, y no uno que solo despista.
+    conBolsa('1000000');
+    kdb.when
+      .selectOnce('flito_bolsa_movimientos', [])
+      .selectOnce('flito_bolsa_movimientos', [])
+      .selectThrow('flito_bolsa_movimientos',
+        Object.assign(new Error('current transaction is aborted'), { code: '25P02' }))
+      .insert('flito_bolsa_movimientos', () => { throw error23505(); });
+
+    await expect(asentar()).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('un fallo que no es de unicidad sigue subiendo tal cual', async () => {
+    conBolsa('1000000');
+    kdb.when
+      .select('flito_bolsa_movimientos', [])
+      .insert('flito_bolsa_movimientos', () => {
+        throw Object.assign(new Error('violates check constraint'), { code: '23514' });
+      });
+
+    await expect(asentar()).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('sin llave de idempotencia no hay relectura de más: se asienta y punto', async () => {
+    // El coste de la segunda lectura solo lo pagan los movimientos que reservan llave.
+    conBolsa('1000000');
+    kdb.when.select('flito_bolsa_movimientos', []);
+
+    const { duplicado } = await asentarMovimiento(
+      kdb.db as never, COMPANIA,
+      { ...salidaSoat, llaveIdempotencia: undefined }, CTX,
+    );
+
+    expect(duplicado).toBe(false);
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(1);
+  });
+
+  it('Bug #11773 · liquidación ajena: llave en B, asentar(A) es duplicado sin INSERT ni throw', async () => {
+    const deB = {
+      ...movimientoPrevio,
+      companiaId: 99,
+      tipo: 'salida',
+      origen: 'automatico',
+      concepto: 'soat',
+      llaveIdempotencia: 'salida:soat:50a70000-0000-4000-8000-00000000000a',
+    };
+    conBolsa('1000000');
+    kdb.when.select('flito_bolsa_movimientos', [deB]);
+
+    const { movimiento, duplicado } = await asentar();
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    expect(movimiento.companiaId).toBe(99);
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas')).toHaveLength(0);
   });
 });
 

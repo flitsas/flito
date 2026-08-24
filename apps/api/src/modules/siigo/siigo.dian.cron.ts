@@ -56,9 +56,20 @@ const LOTE_MOTIVOS = 5;
 /** Arranque diferido: al levantar el proceso hay cosas más urgentes que preguntar por la DIAN. */
 const RETRASO_INICIAL_MS = 120_000;
 
-function presupuesto(): number {
-  return env.SIIGO_DIAN_SONDEO_LOTE ?? PRESUPUESTO_POR_CICLO;
-}
+/**
+ * Cuántas facturas mira cada ciclo del sondeo del estado DIAN (HU #11332, AC2).
+ *
+ * Era `SIIGO_DIAN_SONDEO_LOTE` y dejó de ser variable de entorno en el Bug #11649. La razón del
+ * número se traslada aquí literal, porque el número sin ella no se puede tocar con criterio:
+ *
+ *   El número correcto depende del volumen de cada instalación: la cuota de 100/min es de la
+ *   EMPRESA y la comparte con la emisión, así que subirlo se le quita a lo que está saliendo.
+ *
+ * Que dependa de la instalación no lo convierte en configuración de despliegue: hay UNA
+ * instalación, y ajustarlo aquí es un cambio revisable y con historia, en vez de una variable que
+ * cada ambiente pudo haber puesto en un número distinto sin que nadie se enterara.
+ */
+const PRESUPUESTO = PRESUPUESTO_POR_CICLO;
 
 /**
  * Guarda de reentrada dentro del proceso.
@@ -78,7 +89,7 @@ async function tick(): Promise<void> {
   enCurso = true;
   try {
     const r = await withLock(NOMBRE_CERROJO, LOCK_TTL_MS, async () => {
-      const estados = await sondearEstadosDian(presupuesto(), { plazoMs: PLAZO_DEL_CICLO_MS });
+      const estados = await sondearEstadosDian(PRESUPUESTO, { plazoMs: PLAZO_DEL_CICLO_MS });
       // Los rechazos que se quedaron sin explicar (HU #11333). Va DENTRO del mismo cerrojo y del
       // mismo ciclo, no en un cron aparte: comparte la cuota de la empresa con el sondeo y con la
       // emisión, así que darle su propio reloj sería darle un presupuesto que nadie coordina.
@@ -104,12 +115,15 @@ let timer: NodeJS.Timeout | null = null;
 
 export function startSiigoDianCron(): void {
   if (timer) return;
-  if (process.env.SIIGO_DIAN_CRON_ENABLED === '0') {
-    log.info({ host: HOST_ID }, 'cron de sondeo del estado DIAN DESHABILITADO');
+  // Bug #11649: apagado por defecto y leído del esquema validado, nunca de `process.env`. La guarda
+  // anterior (`SIIGO_DIAN_CRON_ENABLED !== '0'`) dejaba el cron encendido ante cualquier valor que
+  // no fuera esa cadena exacta, la variable ausente o mal escrita incluidas.
+  if (env.SIIGO_CRONS !== 'on') {
+    log.info({ host: HOST_ID, siigoCrons: env.SIIGO_CRONS }, 'cron de sondeo del estado DIAN DESHABILITADO');
     return;
   }
   log.info(
-    { host: HOST_ID, intervalMin: INTERVAL_MS / 60_000, lockTtlMin: LOCK_TTL_MS / 60_000, presupuesto: presupuesto() },
+    { host: HOST_ID, intervalMin: INTERVAL_MS / 60_000, lockTtlMin: LOCK_TTL_MS / 60_000, presupuesto: PRESUPUESTO },
     'cron de sondeo del estado DIAN activo',
   );
   setTimeout(() => { tick().catch(() => {}); }, RETRASO_INICIAL_MS).unref();

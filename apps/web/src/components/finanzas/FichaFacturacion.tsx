@@ -13,7 +13,7 @@
 //   2. **Lo que no se puede hacer se explica, no se esconde.** Un botón ausente obliga a adivinar
 //      por qué falta. Uno deshabilitado con su motivo dice qué hay que arreglar para habilitarlo.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { SIIGO_ESTADO_REPORTE_ETIQUETA } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -29,9 +29,21 @@ interface Props {
   onClose: () => void;
   /** Para que la fila del reporte se entere de que el envío cambió el historial. */
   onCambio?: () => void;
+  /**
+   * Lo que el detalle añade encima del ciclo del documento (HU #11331): la marca de revisión de
+   * totales y, si la emisión falló, por qué y qué hacer.
+   *
+   * Llega como hueco y no se calcula aquí a propósito. Esta ficha describe **una factura**, y esas
+   * dos cosas no salen de ella: la revisión viaja en la fila del reporte y el fallo, en la cola de
+   * emisión. Resolverlas dentro obligaría a esta ficha a consultar dos fuentes más para pintar algo
+   * que ya sabe quien la abre. Quien la monta —`DetalleFacturacion`— es quien tiene las tres.
+   */
+  extra?: ReactNode;
 }
 
-export default function FichaFacturacion({ ficha, idFlit, puedeOperar, onClose, onCambio }: Props) {
+export default function FichaFacturacion(
+  { ficha, idFlit, puedeOperar, onClose, onCambio, extra }: Props,
+) {
   const [envios, setEnvios] = useState<ResumenEnvios | null>(null);
   const [cargandoEnvios, setCargandoEnvios] = useState(true);
   const [errorEnvios, setErrorEnvios] = useState<string | null>(null);
@@ -106,6 +118,10 @@ export default function FichaFacturacion({ ficha, idFlit, puedeOperar, onClose, 
                 : 'Todavía no se ha verificado ante la DIAN'}
           </span>
         </section>
+
+        {/* HU #11331 — lo primero de todo, porque es lo accionable: si el total hay que revisarlo o
+            la emisión falló, se ve sin desplazarse y antes que el ciclo del documento. */}
+        {extra}
 
         {/* A6 — una factura que no se timbró no está esperando nada, y decir lo contrario manda a
             alguien a vigilar una pantalla que no va a cambiar nunca. Va ANTES del aviso de abajo

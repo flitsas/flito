@@ -99,7 +99,12 @@ async function fetchPdfPages(url: string, body: OrgDatos): Promise<{ pages: stri
   const blob = new Blob([buf], { type: 'application/pdf' });
   const pdfjsLib = await import('pdfjs-dist');
   pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+  // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x la
+  // matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los glifos. El
+  // fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el workaround
+  // oficial del advisory. El expediente se rasteriza a PNG sin capa de texto, luego el render no
+  // cambia. Guardado por `npm run check:pdfjs-eval`.
+  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0), isEvalSupported: false }).promise;
   const pages: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const pg = await pdf.getPage(i);

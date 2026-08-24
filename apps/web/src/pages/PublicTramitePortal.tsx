@@ -109,7 +109,7 @@ export default function PublicTramitePortal() {
       <Toaster position="top-center" />
       <div className="mx-auto max-w-lg overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(22,39,68,0.08)]" style={{ borderColor: 'var(--flit-border-input)' }}>
         <div className="px-6 py-5" style={{ background: 'var(--flit-gradient-primary)' }}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-white/80">FLIT · Portal del trámite</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-white">FLIT · Portal del trámite</p>
           <h1 className="mt-1 text-lg font-bold text-white">Completa tu parte del trámite</h1>
         </div>
         <div className="px-6 py-5">{children}</div>

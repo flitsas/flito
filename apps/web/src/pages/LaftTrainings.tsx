@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import toast from 'react-hot-toast';
-import { api } from '../lib/api';
+import { api, errorMessage } from '../lib/api';
 import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
+import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
 
 interface Training {
   id: number;
@@ -24,14 +25,23 @@ const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(-
 export default function LaftTrainings() {
   const [data, setData] = useState<Training[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
+  // Bug #11768 — mismo defecto que en LaftUnusual: el fallo del listado solo se contaba con un
+  // toast y la tabla quedaba en «Sin capacitaciones registradas». En SARLAFT ese cartel es una
+  // afirmación con consecuencias (la capacitación anual es obligatoria y auditable), así que no
+  // puede ser lo que se pinta cuando lo único cierto es que no se pudo leer.
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const rows = await api.get<Training[]>('/laft/trainings');
       setData(rows);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Error'); }
+    } catch (e) {
+      setData([]);
+      setError(errorMessage(e));
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -53,8 +63,22 @@ export default function LaftTrainings() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={5} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && data.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin capacitaciones registradas</td></tr>}
-              {!loading && data.map((t) => (
+              {!loading && error && (
+                <tr>
+                  <td colSpan={5} className="py-12 text-center">
+                    {/* `--flit-danger-ink`, no `--flit-danger`: el segundo es token de SUPERFICIE y
+                        como texto no llega a 4,5:1. Ver LaftUnusual.tsx y `styles/flit-tokens.css`. */}
+                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+                      No se pudo cargar el programa de capacitaciones. {error}
+                    </p>
+                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
+                      Reintentar
+                    </button>
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && data.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin capacitaciones registradas</td></tr>}
+              {!loading && !error && data.map((t) => (
                 <tr key={t.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
                   <td className="px-4 py-3">
                     <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.title}</p>

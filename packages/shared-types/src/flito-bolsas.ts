@@ -14,14 +14,25 @@ export type TipoMovimientoBolsa = (typeof TipoMovimientoBolsa)[keyof typeof Tipo
 /**
  * Quién produjo el movimiento.
  *
- *   recarga     — dinero que precarga FLIT en la bolsa del cliente (HU #11121)
- *   automatico  — salida generada al sellar la liquidación del trámite (HU #11122)
- *   manual      — contingencia registrada por Financiera con motivo y evidencia (HU #11123)
+ *   recarga      — dinero que precarga FLIT en la bolsa del cliente (HU #11121)
+ *   automatico   — salida generada al sellar la liquidación del trámite (HU #11122)
+ *   manual       — contingencia registrada por Financiera con motivo y evidencia (HU #11123)
+ *   conciliacion — descuento asentado al conciliar una boleta de pago externo (Feature #11623).
+ *                  **NO reversible por el ciclo de la liquidación**: el barrido de
+ *                  `reversarSalidasLiquidacion` filtra por `origen = 'automatico'`, así que un
+ *                  movimiento de conciliación queda fuera y su dinero NO vuelve cuando el trámite
+ *                  retrocede (CF-07). Es el único origen que significa «esto ya se pagó de verdad
+ *                  en un portal externo, y el ciclo del trámite no lo deshace».
+ *
+ * Añadir un valor aquí NO basta: `flito_bolsa_movimientos.origen` lleva un CHECK en la base
+ * (`flito_bolsa_mov_origen_valido`) que `schema.ts` no declara, y sin ensancharlo el INSERT muere
+ * con 23514. Lo ensancha la migración 0157.
  */
 export const OrigenMovimientoBolsa = {
   RECARGA: 'recarga',
   AUTOMATICO: 'automatico',
   MANUAL: 'manual',
+  CONCILIACION: 'conciliacion',
 } as const;
 
 export type OrigenMovimientoBolsa = (typeof OrigenMovimientoBolsa)[keyof typeof OrigenMovimientoBolsa];
@@ -206,6 +217,16 @@ export interface AlertasConciliacion {
   soportesSinTramite: number;
   /** Movimientos automáticos asentados sin soporte del organismo detrás. */
   movimientosSinSoporte: number;
+  /**
+   * Boletas ya conciliadas a las que todavía les falta el comprobante del pago PSE (HU #11678, AC6).
+   *
+   * Va como contador PROPIO y no sumado a `movimientosSinSoporte` por lo mismo que explica la
+   * cabecera de `alertasDeConciliacion`: el comprobante cuelga de la BOLETA y no de cada uno de los
+   * N movimientos que asentó, así que contarlo movimiento a movimiento daría N alertas para un solo
+   * archivo que falta — y ninguna de ellas se cerraría al subirlo. Una boleta, una alerta, y se
+   * apaga en cuanto el comprobante existe.
+   */
+  boletasSinComprobante: number;
 }
 
 /** Respuesta de `GET /flito/bolsas/alertas`. */

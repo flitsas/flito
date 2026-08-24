@@ -5,6 +5,7 @@
 // segundo sitio lo necesita, y de las dos copias siempre hay una que se queda vieja.
 
 import type { SiigoEstadoDian, SiigoEstadoReporte } from '@operaciones/shared-types';
+import type { ChipTone } from '../flit/StatusChip';
 
 /** Lo que el servidor sabe de la factura de un trámite. Espeja `FacturacionDeTramite` del API. */
 export interface FacturacionTramite {
@@ -35,6 +36,20 @@ export interface FacturacionTramite {
   motivoPendiente: boolean;
   verificadoEn: string | null;
   cufe: string | null;
+  /**
+   * Por qué está señalada como pendiente de revisión, en la frase que compuso el servidor.
+   * `null` = está señalada pero no quedó motivo escrito (HU #11331, AC6).
+   *
+   * **Es una frase ya redactada, y aquí solo se pinta.** Tiene tres autores distintos en el
+   * servidor —el descuadre de totales, la reconciliación que no puede concluir y la resolución a
+   * mano— así que ni se parsea para sacarle cifras ni se le pone encima un rótulo del estilo
+   * «diferencia de totales»: ese rótulo sería falso en dos de los tres casos, y una pantalla de
+   * control que titula mal lo que enseña manda a buscar una avería que no existe.
+   *
+   * Y no viene en la fila del reporte a propósito: son doscientas filas por página y esto es un
+   * párrafo que solo se lee al abrir el detalle. La fila lleva el booleano y ya.
+   */
+  revisionMotivo: string | null;
   documentos: { pdf: boolean; xml: boolean };
   correo: { veces: number; ultimoEnviadoEn: string | null };
 }
@@ -65,21 +80,29 @@ export interface ResumenEnvios {
 /**
  * Colores por estado. Se mapea a los tonos del sistema, no a colores sueltos.
  *
+ * **Una sola tabla, y en los tonos que el chip entiende** (HU #11331). Había tres descripciones del
+ * mismo color: esta —en un vocabulario propio, `espera`/`alerta`, que no consumía nadie— y dos
+ * copias literales de `ChipTone` dentro de los contadores y de la celda de la fila. El detalle de
+ * esta historia habría sido la cuarta. Tres tablas iguales que hay que editar a la vez son tres
+ * oportunidades de editar dos, y lo que se vería es el mismo estado con un color en la pastilla del
+ * filtro y otro en la fila que esa pastilla trae — que es justo lo que hace dudar de una pantalla
+ * de control.
+ *
  * `rechazado` y `fallido` comparten el rojo a propósito: los dos exigen que alguien haga algo. Lo
  * que los distingue —quién lo rompió y dónde se arregla— lo dice la etiqueta, no el color; pedirle
  * al color que transmita esa diferencia sería pedirle demasiado a alguien que mira de reojo.
  */
-export const TONO_ESTADO: Record<SiigoEstadoReporte, 'neutro' | 'espera' | 'exito' | 'alerta'> = {
-  no_enviado: 'neutro',
+export const TONO_CHIP_ESTADO: Record<SiigoEstadoReporte, ChipTone> = {
+  no_enviado: 'draft',
   // `encolado` comparte el tono de espera con `en_proceso` (HU #11328): los dos significan «va en
   // camino, no hagas nada». Lo que los separa —si ya existe documento— lo dice la etiqueta.
-  encolado: 'espera',
-  en_proceso: 'espera',
-  emitido: 'espera',
-  aceptado: 'exito',
-  rechazado: 'alerta',
-  anulado: 'neutro',
-  fallido: 'alerta',
+  encolado: 'active',
+  en_proceso: 'active',
+  emitido: 'active',
+  aceptado: 'success',
+  rechazado: 'danger',
+  anulado: 'neutral',
+  fallido: 'danger',
 };
 
 /** Fecha corta y legible. `null` se pinta como raya, nunca como «Invalid Date». */

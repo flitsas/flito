@@ -187,7 +187,8 @@ la retención declarada no se está ejecutando allí** — verificar por ambient
 | Host | EC2 de **AWS en la región `us-east-1`** (host bajo `compute-1.amazonaws.com`), según lo verificado por el Líder Técnico. **El valor concreto no está en el repositorio**: va en `UTS_MUNICIPAL_BASE_URL`, sin default, y solo el origen (la ruta la pone el adapter). |
 | Autenticación | **Ninguna.** El UTS no pide autorización; el token de Verifik no viaja aquí, deliberadamente. |
 | Módulo que lo invoca | `apps/api/src/modules/flito-comparendos/clients/uts-municipal.client.ts` |
-| Estado operativo | **NO OPERATIVO HOY.** El proveedor publica el endpoint sobre `http://`; el transporte del monorepo (`modules/integraciones/http.ts`) habla `https` incondicionalmente y `baseUrlExigida` **rechaza** con `503 fuente_no_configurada` toda base que no sea `https:`. En la práctica: **hoy no sale ningún NIT hacia el UTS por el modo real.** Pendiente de preguntar al proveedor si expone HTTPS. |
+| Estado operativo | **OPERATIVO desde el 2026-08-20** (antes no lo era: el adapter rechazaba la base `http://`). Confirmado que el proveedor **solo publica `http://`** y que el endpoint está en **AWS `us-east-1`**; David decidió ese día abrir la excepción, acotada a esta fuente (`permitirTextoPlano` en `baseUrlExigida` y en `httpsGetJson`). Verifik sigue siendo https-only porque lleva el Bearer. |
+| **Cifrado de transporte** | **NINGUNO.** La transferencia del NIT monitoreado al UTS va **en claro, sobre HTTP**, en la query de un GET: es legible para cualquier intermediario de la ruta hasta `us-east-1`. Es una consecuencia asumida y no un descuido — sin ella la fuente no es consultable—. El adapter emite un `log.warn` («el NIT viaja sin cifrar»), sin URL ni NIT en claro, **la primera vez que usa esa base en un proceso** — no una vez por corrida del sync: el gancho de reinicio existe (`reiniciarAvisoTextoPlano()`) pero todavía no lo llama nadie, así que un proceso de larga vida avisa una sola vez. Mitigación pendiente: que el proveedor exponga HTTPS. |
 
 ### 4.2 Dato remitido
 
@@ -245,10 +246,11 @@ El host es un EC2 de AWS en `us-east-1` (**Estados Unidos**). Por tanto:
   inequívoca del titular** para la transferencia, o un **contrato de transmisión** con las cláusulas
   del régimen reglamentario. **[VALIDAR]** cuál procede.
 
-> **Nota de honestidad:** hoy este canal **no está operativo** (§4.1). Eso reduce el riesgo actual a
-> cero, pero **no elimina la obligación**: en el momento en que el proveedor exponga HTTPS y se
-> provisione la variable, la transferencia internacional ocurre sin ningún cambio de código. Este
-> registro debe estar cerrado **antes** de ese momento, no después.
+> **Nota de honestidad:** desde el 2026-08-20 este canal **sí está operativo** (§4.1) y además va
+> **sin cifrado de transporte**. Lo que antes era una obligación futura es una obligación actual:
+> en cuanto se provisione `UTS_MUNICIPAL_BASE_URL` en un ambiente y `COMPARENDOS_SIMIT_MODE=real`,
+> la transferencia internacional ocurre en cada corrida del sync, en claro. Este registro debía
+> estar cerrado antes; cerrarlo es ahora el pendiente #3 de §6.
 
 ### 4.7 Datos recibidos, conservación
 
@@ -376,8 +378,10 @@ Se actualiza —y no se archiva— cuando ocurra cualquiera de estas cosas:
 1. Se añade una llamada saliente a un tercero que remita un dato de persona natural.
 2. Cambia el contrato de una salida existente: verbo, ubicación del dato, host o proveedor.
 3. Se cierra el hueco del `POST /sync` sin `logPiiAccess` (§4.bis) → actualizar esa entrada.
-4. El proveedor del UTS expone HTTPS y se provisiona `UTS_MUNICIPAL_BASE_URL` → la transferencia
-   internacional de §4.6 pasa de prevista a real; **el registro debe estar cerrado antes**.
+4. ~~El proveedor del UTS expone HTTPS~~ → **ocurrido de otra forma el 2026-08-20**: se abrió el
+   canal sobre `http://` sin esperar al HTTPS (§4.1), así que la transferencia internacional de
+   §4.6 ya es real **y sin cifrado de transporte** en cuanto se provisione
+   `UTS_MUNICIPAL_BASE_URL`. Vuelve a actualizarse el día que el proveedor sí exponga HTTPS.
 5. Se documenta a fondo cualquiera de las salidas de §5.1 → sale de «pendiente» y gana ficha.
 6. Ops habilita envío de logs a un agregador externo (§5.3).
 

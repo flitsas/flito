@@ -43,6 +43,13 @@ export interface ComparendoCrudoSimit {
   monto?: string | number;
   estado?: string;
   estadoCartera?: string;
+  estadoPago?: string;
+  // Resolución (HU #11712). Los dos llegan **nulos mientras el registro sigue siendo un comparendo**
+  // y con valor cuando ya es multa, y por eso se declaran `| null` y no solo opcionales: aquí la
+  // diferencia entre «no vino la clave» y «vino en null» es la que el proveedor usa para hablar.
+  // `idResolucion` es un identificador de SISTEMA (`'115697134'`), no el número legible.
+  numeroResolucion?: string | null;
+  idResolucion?: string | null;
   [clave: string]: unknown;
 }
 
@@ -63,6 +70,17 @@ export interface ComparendoCrudoMunicipal {
   valor?: string | number;
   monto?: string | number;
   estado?: string;
+  estadoPago?: string;
+  // Resolución (HU #11712). El UTS la nombra `nroResolucion`, verificado contra el proveedor real;
+  // `numeroResolucion` es el respaldo simétrico con el nombre largo de SIMIT, no observado aquí.
+  //
+  // `fechaResolucion` se declara y **no se mapea a nada**: el ítem real de Medellín la trae con
+  // valor (`'2026-09-22'`) y `nroResolucion` en `null` a la vez, así que usarla como señal del tipo
+  // fabricaría multas. Está aquí para que quien lea este archivo sepa que existe y por qué se
+  // ignora, que es más barato que volver a descubrirlo.
+  nroResolucion?: string | null;
+  numeroResolucion?: string | null;
+  fechaResolucion?: string | null;
   [clave: string]: unknown;
 }
 
@@ -84,7 +102,30 @@ export interface RespuestaFuente<T> {
 }
 
 export type RespuestaFuenteSimit = RespuestaFuente<ComparendoCrudoSimit>;
-export type RespuestaFuenteMunicipal = RespuestaFuente<ComparendoCrudoMunicipal>;
+/**
+ * La municipal lleva algo más: si la consulta fue CONCLUYENTE (Bug #11711 AC8, RN-47).
+ *
+ * `ok` y `concluyente` no son lo mismo y por eso son dos cosas:
+ *
+ *   · **ok** — la consulta se resolvió: hubo 2xx, el cuerpo se entendió y no hubo error de
+ *     transporte. Es lo que decide si el municipio «se cayó».
+ *   · **concluyente** — el proveedor además emitió VEREDICTO sobre el NIT, así que su lista (aunque
+ *     venga vacía) significa «esto es lo que hay» y no «no sé decirte».
+ *
+ * La distinción existe porque el UTS no es coherente consigo mismo. Medido el 2026-08-21: MEDELLIN
+ * contesta `codigoEstado: 1` con un comparendo para un NIT y `codigoEstado: null` con cero
+ * comparendos para otro, mientras BELLO contesta `codigoEstado: 1` con cero comparendos. O sea: la
+ * ausencia de veredicto NO se puede leer como «este NIT no debe nada», y tampoco como avería —
+ * exigir veredicto dejaría a esos municipios permanentemente caídos—.
+ *
+ * Quien consume esto es la cobertura del CF-10 en el sync: un municipio no concluyente no cuenta
+ * como cobertura y, por tanto, no autoriza a inactivar por ausencia. `ok` sigue siendo `true` y la
+ * corrida sigue su curso.
+ */
+export interface RespuestaFuenteMunicipal extends RespuestaFuente<ComparendoCrudoMunicipal> {
+  /** ¿El proveedor dio veredicto (o comparendos)? Si no, su vacío no autoriza a inactivar nada. */
+  concluyente: boolean;
+}
 
 /** Etiqueta de la fuente SIMIT en la columna `fuente` de los steps (los municipios usan su código). */
 export const FUENTE_SIMIT = 'simit';

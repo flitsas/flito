@@ -173,7 +173,12 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     if (isPdf) {
       fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(r => r.arrayBuffer()).then(async (buf) => {
         const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-        const pdf = await pdfjsLib.getDocument({ data: buf }).promise; const pngs: string[] = [];
+        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
+        // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
+        // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el
+        // workaround oficial del advisory. Aquí se rasteriza a PNG sin capa de texto: el render no
+        // cambia. Aplica a LAS DOS llamadas del archivo. Guardado por `npm run check:pdfjs-eval`.
+        const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise; const pngs: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const pg = await pdf.getPage(i); const vp = pg.getViewport({ scale: 2.0 });
           const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
@@ -194,7 +199,8 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     if (!res.ok) throw new Error(`Error ${res.status}`);
     const buf = await res.arrayBuffer(); const blob = new Blob([buf], { type: 'application/pdf' });
     const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise; const pngs: string[] = [];
+    // CVE-2024-4367 — misma mitigación que el `getDocument` de arriba; ver la nota allí.
+    const pdf = await pdfjsLib.getDocument({ data: buf.slice(0), isEvalSupported: false }).promise; const pngs: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const pg = await pdf.getPage(i); const vp = pg.getViewport({ scale: 2.0 });
       const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;

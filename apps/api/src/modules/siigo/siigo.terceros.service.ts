@@ -24,8 +24,11 @@
 //      existe (HU #11296) y lanza con los motivos nombrados. No se reimplementa aquí.
 
 import { createHash } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
-import { RESPONSABILIDADES_FISCALES_CODIGOS, SIIGO_ID_TIPOS_CODIGOS } from '@operaciones/shared-types';
+import { countDistinct, eq, inArray } from 'drizzle-orm';
+import {
+  RESPONSABILIDADES_FISCALES_CODIGOS, SIIGO_ID_TIPOS_CODIGOS, type ResumenTerceros,
+} from '@operaciones/shared-types';
+import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
 import { clients, siigoTerceros } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -40,7 +43,9 @@ import { motivoLegible } from './siigo.productos.service.js';
 // tercera copia sería el patrón que estas Features llevan corrigiendo toda la iteración.
 import { detalleTecnico, esViolacionDeUnico } from './siigo.redaccion.js';
 import { ejecutarConResiliencia } from './siigo.resiliencia.js';
-import { ClienteNoFacturableError, exigirClienteFacturable } from './siigo.validador-cliente.service.js';
+import {
+  CLIENTE_ACTIVO, ClienteNoFacturableError, exigirClienteFacturable,
+} from './siigo.validador-cliente.service.js';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 const log = loggerFor('siigo.terceros');
@@ -613,7 +618,10 @@ export async function asegurarTercero(clienteId: number): Promise<ResultadoTerce
   //
   // Ahora se intenta armar, y si no se puede se sigue adelante con la identidad. Solo las ramas que
   // ESCRIBEN exigen el armado, y para entonces la hidratación ya tuvo su oportunidad.
-  const ambiente = process.env.SIIGO_AMBIENTE ?? 'pruebas';
+  // Bug #11649: del esquema validado, no de `process.env`. Leer la variable cruda aquí se saltaba
+  // el `z.enum(['pruebas','produccion'])` y daba por bueno cualquier texto — incluido uno con una
+  // errata, que habría particionado los terceros contra un ambiente que no existe.
+  const ambiente = env.SIIGO_AMBIENTE;
   const identidad = identidadDeCliente(cliente);
   let armado = intentarArmar(cliente);
   let huella = armado.ok ? huellaDeTercero(armado.valor) : null;
@@ -947,4 +955,41 @@ export async function vinculoDeCliente(clienteId: number) {
   const [v] = await db.select().from(siigoTerceros)
     .where(eq(siigoTerceros.clientId, clienteId)).limit(1);
   return v ?? null;
+}
+
+/**
+ * La tercera cifra del AC3 de la HU #11299: cuántos clientes tienen tercero vinculado en Siigo.
+ *
+ * **Se cuenta en la base, no en Node.** Traer las filas para medir su longitud sería recorrer el
+ * padrón entero por dos números, y es justo lo que el panel pide al abrirse.
+ *
+ * **`countDistinct` sobre `clients.id` y no `count()`.** Con el `LEFT JOIN`, un cliente con más de
+ * una fila en `siigo_terceros` se contaría dos veces en el total y la tarjeta diría que hay más
+ * clientes de los que hay. Hoy no puede pasar —`idx_siigo_terceros_cliente` es único por
+ * `client_id`—, pero la clave del tercero en Siigo es la pareja identificación + sucursal, así que
+ * «un cliente, una fila» es una decisión de ESTE esquema y no una ley del dominio: el día que se
+ * modelen sucursales por cliente, el conteo tiene que seguir contando clientes.
+ *
+ * **El universo es `CLIENTE_ACTIVO`, importado y no reescrito.** `totalClientes` tiene que ser el
+ * mismo número que `ResumenValidacionClientes.total` porque los dos se pintan en la misma tarjeta;
+ * dos copias del criterio serían dos cifras que se contradicen la primera vez que una cambie.
+ *
+ * **No llama a Siigo** (AC6): lo que se cuenta es el vínculo que guardamos, no el padrón de allá.
+ * Un tercero borrado en Siigo Nube seguiría contando aquí, y eso es lo correcto para esta cifra:
+ * dice cuántos clientes hemos vinculado, que es lo que el panel puede hacer avanzar.
+ */
+export async function resumenTerceros(): Promise<ResumenTerceros> {
+  const [fila] = await db
+    .select({
+      totalClientes: countDistinct(clients.id),
+      conTercero: countDistinct(siigoTerceros.clientId),
+    })
+    .from(clients)
+    .leftJoin(siigoTerceros, eq(siigoTerceros.clientId, clients.id))
+    .where(CLIENTE_ACTIVO);
+
+  // Un agregado sin `GROUP BY` siempre devuelve una fila, incluso con la tabla vacía. El `?? 0` es
+  // para el tipo, no para un caso real: sin él, `totalClientes` sería `number | undefined` y el
+  // front tendría que defenderse de un `undefined` que la consulta no puede producir.
+  return { totalClientes: fila?.totalClientes ?? 0, conTercero: fila?.conTercero ?? 0 };
 }

@@ -166,3 +166,30 @@ export const CLIENTS_COLUMNAS_SIN_PII = [
   'countryCode', 'stateCode', 'cityCode', 'branchOffice',
   'personTypeOrigen', 'facturacionBloqueos',
 ] as const;
+
+/**
+ * Cuántos clientes tienen ya su tercero vinculado en Siigo (HU #11299, AC3).
+ *
+ * Es la **tercera cifra** de la tarjeta de facturabilidad, y va aparte de `ResumenValidacionClientes`
+ * porque responde otra pregunta con otra fuente: aquella mira `clients` y dice si la ficha está
+ * completa; esta mira `siigo_terceros` y dice si el puente con Siigo ya existe. Un cliente puede
+ * estar listo para facturar y no tener tercero, y al revés —vincular no exige la ficha completa—,
+ * así que fundirlas en un solo tipo sugeriría una dependencia entre las dos que no hay.
+ *
+ * No es el lote de §R3-b del diseño de UX (`GET /terceros?clienteIds=`), que es otra cosa: aquello
+ * diría QUIÉN está vinculado, fila por fila, y se descartó. Esto son dos números.
+ */
+export interface ResumenTerceros {
+  /**
+   * Clientes activos. Es EXACTAMENTE el mismo universo que `ResumenValidacionClientes.total` —sale
+   * del mismo criterio compartido en el servidor—, y tiene que serlo: las dos cifras se pintan en
+   * la misma tarjeta, y si contaran carteras distintas se estarían contradiciendo a la vista.
+   */
+  totalClientes: number;
+  /**
+   * Cuántos de esos clientes tienen tercero en Siigo. Cuenta CLIENTES distintos, no filas de
+   * `siigo_terceros`: la clave real del tercero allá es identificación + sucursal, y contar filas
+   * haría que `conTercero` pudiera superar a `totalClientes` sin que nadie entendiera por qué.
+   */
+  conTercero: number;
+}

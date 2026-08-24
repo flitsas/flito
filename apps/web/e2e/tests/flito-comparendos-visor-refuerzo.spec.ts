@@ -10,11 +10,19 @@
 //           AUSENTE. `Number('0.00') === 0` es falsy y no hay ni un monto en cero en los fixtures.
 //   · M8  — `Math.floor` en vez del redondeo de `maximumFractionDigits: 0`: `232100.99` sale
 //           «$ 232.100». Todos los montos del fixture terminan en `.00`, así que nadie lo ve.
-//   · M10 — quitar `timeZone: 'America/Bogota'` de `fechaHoraColombia`. **Este es el importante**:
-//           la máquina de desarrollo está en `-05` y `playwright.config.ts` no fija `timezoneId`,
-//           así que el spec hereda el huso que el AC1 quiere demostrar. Un test que corre en Bogotá
-//           no puede distinguir «formatea en Colombia» de «formatea en la máquina de quien mira», y
-//           en CI —que corre en UTC— la pantalla mentiría con el test en verde.
+//   · M10 — quitar `timeZone: 'America/Bogota'` del formateador de instantes. **Este es el
+//           importante**: la máquina de desarrollo está en `-05` y `playwright.config.ts` no fija
+//           `timezoneId`, así que el spec hereda el huso que el AC1 quiere demostrar. Un test que
+//           corre en Bogotá no puede distinguir «formatea en Colombia» de «formatea en la máquina de
+//           quien mira», y en CI —que corre en UTC— la pantalla mentiría con el test en verde.
+//
+//           **Ojo: la HU #11562 partió esa función en dos** (`formato.ts`). La de siempre se llama
+//           ahora `fechaColombia` —solo el día, la que usa la tabla— y nació una `fechaHoraColombia`
+//           nueva CON hora para el panel de detalle. M10 se puede plantar en cualquiera de las dos,
+//           así que aquí se cubren las dos: el bloque de Tokio de abajo tiene un caso por función. Y
+//           en la mitad con hora el mutante es más grave, no menos: sin `timeZone`, un desfase que
+//           en la tabla solo se nota en los instantes de madrugada desplaza TODAS las horas del
+//           panel.
 //
 // Y cubre los TC del modo A que los tres choques resueltos por el Líder Técnico dejaron sin escribir:
 // el AC6 recorrido **criterio por criterio** (el fallo real nunca es «no se reinicia», es «no se
@@ -438,5 +446,58 @@ test.describe('FLITO — Comparendos · refuerzo QA (HU #11560)', () => {
 
     expect(traza.peticiones.length - antes,
       `teclear identidad no consulta; salieron: ${traza.peticiones.slice(antes).join(' | ')}`).toBe(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// HU #11562 — la MITAD NUEVA de M10: `fechaHoraColombia`, la que sí pinta hora.
+//
+// Vive aparte del bloque de arriba porque hace falta abrir el panel de detalle, que es su único
+// consumidor, y eso pide un mock más. Se mira el `<dl>` de datos de fuente —«Registrado» y «Visto
+// por última vez»—, que es un punto de llamada distinto del que cubre
+// `flito-comparendos-detalle.spec.ts` (allí se mira el timeline): el mutante se planta en la
+// función, pero un formateador mal cableado en UNA celda no se ve desde la otra.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('FLITO — Comparendos · refuerzo QA: el panel con el navegador en Tokio (HU #11562)', () => {
+  test.use({ viewport: { width: 1600, height: 900 }, timezoneId: 'Asia/Tokyo', locale: 'es-CO' });
+
+  test('AC1/TC05-bis — el panel pinta la HORA de Colombia, no la de la máquina', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogosVacios(page);
+    await mockListado(page, { status: 200, body: { items: [FILA], nextCursor: null } });
+
+    // Las DOS direcciones, como en el bloque de la tabla. Un desfase constante no puede satisfacer
+    // las dos a la vez:
+    //   03:12Z → Bogotá 16 ago 22:12 (día ANTERIOR) · Tokio 17 ago 12:12 · UTC 17 ago 03:12
+    //   20:00Z → Bogotá 17 ago 15:00 (mismo día)    · Tokio 18 ago 05:00 · UTC 17 ago 20:00
+    const detalle = {
+      ...FILA,
+      primeraVistoEn: '2026-08-17T03:12:00Z',
+      ultimoVistoEn: '2026-08-17T20:00:00Z',
+      eventos: [],
+    };
+    // Se registra DESPUÉS del listado: en Playwright gana la ruta más reciente, y el glob del
+    // listado también cubre `/registros/:id`.
+    await page.route(`**/api/flito/comparendos/registros/${FILA.id}`, (r: Route) => r.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify(detalle),
+    }));
+
+    await page.goto('/flito/comparendos');
+    await boton(page, `Ver el comparendo ${FILA.numeroComparendo}`).click();
+    const panel = page.getByRole('dialog');
+    await expect(panel).toContainText('EN COBRO COACTIVO');
+
+    // El navegador está de verdad en Tokio: si no, este test no demuestra nada.
+    expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe('Asia/Tokyo');
+
+    const registrado = panel.getByText('Registrado', { exact: true }).locator('xpath=following-sibling::dd[1]');
+    await expect(registrado, '03:12Z son las 22:12 del día 16 en Bogotá').toContainText('22:12');
+    await expect(registrado).toContainText('16 de ago');
+    await expect(registrado, 'en Tokio serían las 12:12 del 17').not.toContainText('12:12');
+
+    const visto = panel.getByText('Visto por última vez', { exact: true }).locator('xpath=following-sibling::dd[1]');
+    await expect(visto, '20:00Z son las 15:00 del 17 en Bogotá').toContainText('15:00');
+    await expect(visto).toContainText('17 de ago');
+    await expect(visto, 'en Tokio serían las 05:00 del 18').not.toContainText('05:00');
   });
 });

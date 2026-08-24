@@ -8,7 +8,7 @@ import { db } from '../../db/client.js';
 import { soatRequests, vehicles, tramitesDigitales, users } from '../../db/schema.js';
 import { appendEventoSafe } from '../vehicles/vehiculo-historial.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { parseExcel, sendExcel } from '../../shared/utils/excel.js';
+import { parseExcel, sendExcel, limitesXlsx, rechazoXlsxAHttp, MIME_XLSX } from '../../shared/utils/excel.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { refreshSoatFromRunt, refreshResultToHttp } from './refresh.service.js';
@@ -21,6 +21,76 @@ const isPolicyPlaceholder = (p: string | null | undefined) => !p || POLICY_PLACE
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/**
+ * Techo de lo que el libro puede ocupar DESCOMPRIMIDO (Bug #11682).
+ *
+ * Los 10 MB de multer acotan lo que viaja por la red, no lo que ocupa en el heap: un xlsx normal
+ * comprime ~12:1 —medido en este repo—, así que un archivo que pasa ese tope y el magic number puede
+ * traer más de 100 MB de `sheet1.xml` dentro. Ese es el archivo con el que se reprodujo el fallo:
+ * 580 000 filas, 10,0 MB en disco y 122 MB por dentro, y `parseExcel` se comía 20,7 s de event
+ * loop y +1418 MB de heap ANTES de mirar nada.
+ *
+ * ── Contra qué se calcula ───────────────────────────────────────────────────────────────────────
+ * NO contra el `--max-old-space-size=4096` del Dockerfile: esa línea es de la ETAPA DE BUILD y su
+ * propio comentario dice que el runtime no la hereda. En producción el API corre bajo PM2 en una
+ * sola instancia fork con `max_memory_restart: '512M'` sobre el RSS (`ecosystem.config.cjs:22`), en
+ * régimen de ~200 MB. Cruzar ese techo no degrada esta petición: PM2 reinicia el proceso entero y se
+ * lleva por delante las peticiones en vuelo de todos los módulos.
+ *
+ * ── Por qué 4 MB ────────────────────────────────────────────────────────────────────────────────
+ *   · Este libro tiene CINCO columnas (VIN, póliza, aseguradora, compra, vence) y ocupa 286 B por
+ *     fila descomprimido —medido con ExcelJS sobre 200 / 1 000 / 5 000 / 20 000 filas—. 4 MB son
+ *     ~14 000 filas: muy por encima de cualquier lote de compras que Operaciones mande de una vez.
+ *   · Medido POR ESTA RUTA con un archivo justo en el techo (14 000 filas): +63 MB de heap y 0,6 s.
+ *     Con 8 MB el coste medido sube a +108 MB por carga.
+ *   · El bucle de abajo hace DOS consultas por fila dentro de una transacción: a 14 000 filas esa
+ *     transacción ya dura más de lo que aguanta cualquier proxy. Un techo mayor no habilitaría
+ *     ninguna carga que hoy termine.
+ *
+ * No se copió el de Conciliación (16 MB) ni el de vehículos (6 MB): el formato y el número de filas
+ * que admite cada flujo son distintos, así que el número también.
+ *
+ * Ninguna de estas rutas limita la CONCURRENCIA, así que el número se elige para que TRES cargas
+ * simultáneas al tope quepan en el presupuesto, no una.
+ */
+export const SOAT_COMPRAS_MAX_DESCOMPRIMIDO = 4 * 1024 * 1024;
+const LIMITES_COMPRAS = limitesXlsx(SOAT_COMPRAS_MAX_DESCOMPRIMIDO);
+
+/**
+ * Multer aparte para la carga de compras. NO se le añade el filtro al `upload` de arriba porque ese
+ * lo comparte `PATCH /:id/purchase`, que sube la evidencia de compra en PDF o imagen: un filtro de
+ * xlsx allí rompería ese flujo.
+ *
+ * Sin el filtro, el content-type que declara el cliente viaja intacto hasta el parser. El criterio
+ * es el mismo que ya usa `flito-conciliacion.routes.ts`; el olfateo real de los bytes va después, en
+ * `parseExcel`, porque multer no puede hacerlo sin el buffer completo (AGENTS.md 17).
+ */
+const uploadXlsx = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4, parts: 6 },
+  fileFilter: (_req, file, cb) => {
+    // El MIME rechazado no se devuelve: es una cadena que escribe el cliente.
+    if (file.mimetype === MIME_XLSX) cb(null, true);
+    else cb(new Error('El archivo debe ser un .xlsx'));
+  },
+});
+
+/** Los rechazos de multer salen como 400 con el motivo, no como el 500 genérico del error handler. */
+function recibirXlsx(req: Request, res: Response, next: NextFunction): void {
+  uploadXlsx.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      const codigo = (err as { code?: string }).code;
+      res.status(codigo === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+        error: codigo === 'LIMIT_FILE_SIZE'
+          ? 'El archivo no puede superar 10 MB'
+          : (err instanceof Error ? err.message : 'Archivo inválido'),
+      });
+      return;
+    }
+    next();
+  });
+}
 const VALID_STATUSES = ['pendiente', 'enviado', 'comprado', 'verificado', 'rechazado'] as const;
 
 router.use(authMiddleware);
@@ -335,10 +405,10 @@ router.patch('/:id/reject', requireRole('admin', 'proveedor'), async (req: Reque
 });
 
 // S3: Bulk purchase from Excel — solo admin
-router.post('/upload-purchases', requireRole('admin'), upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload-purchases', requireRole('admin'), recibirXlsx, async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Archivo requerido' }); return; }
 
-  const rows = await parseExcel(req.file.buffer, (row) => {
+  const parseada = await parseExcel(req.file.buffer, (row) => {
     const vin = row.getCell(1).text?.trim();
     if (!vin) return null;
     return {
@@ -348,7 +418,16 @@ router.post('/upload-purchases', requireRole('admin'), upload.single('file'), as
       purchaseDate: row.getCell(4).text?.trim() || '',
       expiryDate: row.getCell(5).text?.trim() || '',
     };
-  });
+  }, LIMITES_COMPRAS);
+
+  // El libro ni se llegó a abrir: `parseExcel` lo midió por fuera primero (Bug #11682).
+  if (!parseada.ok) {
+    const { status, mensaje } = rechazoXlsxAHttp(parseada.rechazo, LIMITES_COMPRAS);
+    log.warn({ estado: parseada.rechazo.estado }, 'xlsx de compras rechazado sin abrirlo');
+    res.status(status).json({ error: mensaje });
+    return;
+  }
+  const rows = parseada.filas;
 
   // C3: Transacción para bulk update
   const counts = await db.transaction(async (tx) => {

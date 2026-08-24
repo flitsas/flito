@@ -8,9 +8,33 @@ interface FlitUploadBoxProps {
   state: 'idle' | 'uploading' | 'verified' | 'rejected';
   count?: number;
   onFile: (file: File) => void;
+  /**
+   * Filtro del diálogo del sistema (`accept` del `<input type=file>`).
+   *
+   * Hasta la HU #11680 estaba QUEMADO a `.pdf,.png,.jpg,.jpeg`, que es lo que suben los soportes de
+   * bolsas y de trámites; la carga de la boleta de conciliación es un `.xlsx` y con el filtro fijo
+   * el archivo bueno salía en gris en el explorador. Se abre como prop OPCIONAL con ese mismo valor
+   * por defecto: ningún llamador existente cambia de comportamiento.
+   *
+   * No es una validación —`accept` es una sugerencia del diálogo y se puede saltar arrastrando—:
+   * quien decide de verdad es el servidor, que olfatea los bytes.
+   */
+  accept?: string;
+  /**
+   * Segunda línea dentro de la caja, bajo la etiqueta: qué archivo es el bueno («El archivo tal
+   * como lo descargas del portal», «PDF, JPG o PNG · máximo 15 MB»).
+   *
+   * Va DENTRO de la caja y no al lado porque la caja entera es el `<label>` del input: lo que se
+   * escribe fuera no forma parte del nombre accesible del control.
+   */
+  hint?: string;
 }
 
-export default function FlitUploadBox({ label, required, state, count, onFile }: FlitUploadBoxProps) {
+const ACCEPT_POR_DEFECTO = '.pdf,.png,.jpg,.jpeg';
+
+export default function FlitUploadBox(
+  { label, required, state, count, onFile, accept = ACCEPT_POR_DEFECTO, hint }: FlitUploadBoxProps,
+) {
   const color =
     state === 'rejected' ? 'var(--flit-danger)'
     : state === 'verified' ? 'var(--flit-success)'
@@ -34,13 +58,14 @@ export default function FlitUploadBox({ label, required, state, count, onFile }:
           <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
         </svg>
         <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}{required ? ' *' : ''}</p>
+        {hint && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{hint}</p>}
         {state === 'rejected' && <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--flit-danger)' }}>Rechazado — cargar otro</p>}
         {state === 'verified' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-success)' }}>{count} archivo(s)</p>}
         {state === 'uploading' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-blue)' }}>Analizando...</p>}
       </div>
       <input
         type="file"
-        accept=".pdf,.png,.jpg,.jpeg"
+        accept={accept}
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
       />
