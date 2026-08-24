@@ -764,6 +764,31 @@ const PAGINA_ESTADOS_LARGOS = {
   nextCursor: null,
 };
 
+/**
+ * La «Infracción» larga, que existe para probar lo CONTRARIO del resto de este bloque.
+ *
+ * El AC4 de la HU #11777 prohíbe explícitamente generalizarle a esta columna el patrón del estado,
+ * y el motivo es de CONTRATO, no de gusto: `estado_fuente` es `varchar(80)` pero
+ * `descripcion_infraccion` es `text()` SIN cota (apps/api/src/db/schema.ts), así que aquí envolver
+ * no significa «cuatro líneas en el peor caso» sino «las que traiga la fuente». El recorte de la
+ * HU #11713 se queda donde está.
+ *
+ * Va en su propia página y con UNA sola fila, por la misma razón que `FILA_SIN_TIPO`: la tabla es
+ * de layout automático, y una descripción de este largo movería el reparto de anchos que miden los
+ * otros tests de este bloque.
+ */
+const INFRACCION_LARGA = 'Conducir vehiculo sin portar licencia de transito o con esta vencida, '
+  + 'reincidente y con orden de comparendo notificada por aviso en cartelera del organismo';
+
+const FILA_INFRACCION_LARGA = {
+  ...FILA_MULTA,
+  id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  numeroComparendo: '13001000990011',
+  descripcionInfraccion: INFRACCION_LARGA,
+};
+
+const PAGINA_INFRACCION_LARGA = { items: [FILA_INFRACCION_LARGA], nextCursor: null };
+
 /** Las medidas del `<span>` del estado: todo lo que hace falta para saber si algo quedó escondido. */
 async function medidasDelEstado(page: Page, numeroDeFila: string) {
   const td = await celdaDe(page, numeroDeFila, 'Estado en la fuente');
@@ -1061,6 +1086,134 @@ test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #
     // por breakpoint): los mismos 80 caracteres ocupan aquí lo mismo que a 1280 px.
     expect(m.alto, `${m.alto} px con interlínea de ${m.linea} px`)
       .toBeLessThanOrEqual(Math.ceil(m.linea) * 4 + 2);
+  });
+
+  /**
+   * TC-11777-06 · AC4, la mitad NEGATIVA — «la columna Infracción sigue recortada a una línea: NO
+   * se le aplica este patrón».
+   *
+   * Este test nace de un agujero del gate de QA: aplicarle a «Infracción» el
+   * `line-clamp-6 min-w-[22rem] max-w-[22rem] wrap-anywhere` del estado dejaba en verde la suite
+   * ENTERA del módulo —222 tests—, así que el AC4 era cierto por casualidad y nada lo mantenía.
+   * Una cláusula de AC que ningún aserto vigila es una cláusula que se pierde en el siguiente
+   * refactor.
+   */
+  test('AC4 — «Infracción» NO recibe el patrón del estado: sigue a UNA línea y con su recorte', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_INFRACCION_LARGA });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_INFRACCION_LARGA.numeroComparendo)).toBeVisible();
+
+    const td = await celdaDe(page, FILA_INFRACCION_LARGA.numeroComparendo, 'Infracción');
+    const m = await td.locator('span').evaluate((el) => ({
+      alto: el.clientHeight,
+      altoReal: el.scrollHeight,
+      linea: parseFloat(getComputedStyle(el).lineHeight),
+    }));
+
+    // MUTANTE: darle a «Infracción» el patrón de la celda del estado (`line-clamp-6` +
+    // `wrap-anywhere`). Medido con él, el span pasa de 20 px a 80 px de alto y esta cota cae.
+    expect(m.alto, `${m.alto} px con interlínea de ${m.linea} px`)
+      .toBeLessThanOrEqual(Math.ceil(m.linea) + 2);
+
+    // Y el recorte se afirma en positivo, que es lo que el AC4 pide sostener: aquí SÍ se esconde
+    // texto, a propósito, porque `descripcion_infraccion` es `text()` sin cota y el valor entero
+    // vive en el panel de detalle. MUTANTE: quitarle el `line-clamp-1`, con el que este aserto
+    // pasa a false porque ya no hay nada fuera de la caja.
+    expect(m.altoReal > m.alto, `${m.altoReal} px de texto en una caja de ${m.alto} px`).toBe(true);
+  });
+
+  /**
+   * TC-11777-07 · AC3 — «el contenedor desbordado sigue siendo alcanzable con teclado».
+   *
+   * La garantía la da `FlitTable` desde la HU #11604 y es DINÁMICA: el `tabIndex` solo se pone si
+   * `useDesbordaX` mide desbordamiento. Esta HU ensancha la tabla 48 px a propósito, así que el
+   * «sigue» del AC hay que sostenerlo con una medida y no con la fe en el componente compartido.
+   * Ningún spec de comparendos lo miraba.
+   */
+  test('AC3 — a 1280 px la región que desplaza es alcanzable con teclado y desplaza de verdad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_ESTADOS_LARGOS });
+
+    // 1280 px es el caso apretado: donde la columna aparece (`hidden xl:table-cell`) y donde el
+    // ensanche declarado por el AC3 se paga entero.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    const region = page.getByRole('region', { name: 'Comparendos monitoreados' });
+    const medidas = await region.evaluate((el) => ({
+      tabindex: el.getAttribute('tabindex'),
+      desborda: el.scrollWidth > el.clientWidth + 1,
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+
+    // La premisa del AC3: a 1280 px la tabla DESPLAZA. Si algún día dejara de desbordar, el resto
+    // de este test se cumpliría solo —`useDesbordaX` quitaría el `tabIndex` y no habría nada que
+    // desplazar—, así que la premisa se afirma en vez de suponerse.
+    expect(medidas.desborda,
+      `${medidas.scrollWidth} px de tabla en ${medidas.clientWidth} px de contenedor`).toBe(true);
+
+    // MUTANTE: quitar el `tabIndex={desborda ? 0 : undefined}` de `FlitTable`
+    // (src/components/flit/flitPageKit.tsx). Quien no usa ratón se queda sin las columnas de la
+    // derecha, que es justo lo que cerró la HU #11604 y lo que esta HU no puede reabrir.
+    expect(medidas.tabindex, 'el contenedor desbordado tiene que ser alcanzable con teclado').toBe('0');
+
+    // Y alcanzable DE VERDAD: recibe el foco y el teclado lo mueve. Un `tabindex` en el DOM con un
+    // `overflow` que no responde a las flechas sería el atributo sin la función.
+    await region.focus();
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+      .toBe('Comparendos monitoreados');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => region.evaluate((el) => el.scrollLeft),
+      { message: 'con el foco puesto, el teclado desplaza' }).toBeGreaterThan(0);
+  });
+
+  /**
+   * TC-11777-08 · AC2 — «el valor completo se puede seleccionar y copiar desde la propia celda».
+   *
+   * El test de arriba cubre este AC con `innerText().length === 80`, y eso NO basta: `innerText`
+   * devuelve los 80 caracteres igual con un `user-select: none` encima, así que un `select-none`
+   * en la celda dejaba el AC falso con los 27 tests en verde. Se comprueba lo que el AC dice —que
+   * se puede seleccionar— y no un proxy que sobrevive a su propia negación.
+   */
+  test('AC2 — el estado se SELECCIONA de verdad, y lo seleccionado es el valor entero', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA_TIPOS });
+
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA_MULTA.numeroComparendo)).toBeVisible();
+
+    const estado = await celdaDe(page, FILA_TIPO_DESCONOCIDO.numeroComparendo, 'Estado en la fuente');
+    const span = estado.locator('span');
+
+    // MUTANTE: añadir `select-none` al `<span>` del estado. Es el mutante que sobrevivía a los 27
+    // tests del archivo, porque ni `toHaveText` ni `innerText()` dependen de `user-select`.
+    const userSelect = await span.evaluate((el) => getComputedStyle(el).userSelect);
+    expect(userSelect, 'un `select-none` dejaría el AC2 falso sin poner nada rojo').not.toBe('none');
+
+    // Y la selección REAL sobre el nodo, que es la otra mitad: el `user-select` correcto no sirve
+    // de nada si lo que se selecciona llega partido. Lo que entra al portapapeles son los 80
+    // caracteres seguidos —el ajuste de línea es del pintado, no del texto—, y eso es lo que el
+    // operador le cita al organismo.
+    //
+    // MUTANTE: partir el valor en varios nodos con un separador (`.join('\n')` o un `<br>`), que
+    // es lo que haría cualquier «solución» de envolver a mano por trozos.
+    const seleccionado = await span.evaluate((el) => {
+      const rango = document.createRange();
+      rango.selectNodeContents(el);
+      const seleccion = window.getSelection();
+      seleccion?.removeAllRanges();
+      seleccion?.addRange(rango);
+      return window.getSelection()?.toString() ?? '';
+    });
+    expect(seleccionado).toBe(ESTADO_LARGO);
+    expect(seleccionado).toHaveLength(80);
   });
 
   test('AC5 — el `caption` sigue diciendo las TRES advertencias, y no solo llevando `sr-only`', async ({ page }) => {
