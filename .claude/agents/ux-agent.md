@@ -134,6 +134,7 @@ Entregables completos (doc `docs/ux/<modulo>-<flujo>.md`):
 ```
 HANDOFF
   Modo: slim | full
+  Resultado: OK | BLOQUEADO
   Entrega: docs/ux/<archivo>.md | delta PR
   Pantallas: <n> | Requerimientos nuevos de datos: <n | ninguno>
   Siguiente: [architecture-agent si pedí endpoints nuevos | frontend-agent | pregunta al PO]

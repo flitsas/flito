@@ -59,7 +59,7 @@ El prompt del Task **debe** traer esto. Lo que falte lo trato como «no otorgado
 | Tipo y ID del work item (`HU #<id>` / `BUG #<id>`, o `CHORE`/`DOCS` sin work item) | Pre-condiciones 2 y 8 | Lo leo del título del PR; si no cuadra → `BLOQUEADO` |
 | **Autorización de merge**: literal del humano («puedes mergear a develop este Feature» / «sí» por este PR) | Pre-condición 4 | No mergeo → `LISTO-PARA-MERGE` |
 | **`SHA revisado`** del veredicto vigente de `flit-code-review` | Pre-condición 10 | No mergeo → `LISTO-PARA-MERGE` |
-| **HANDOFF de `qa-agent`** modo B (`✅` / `PASS-CON-OBSERVACIONES` / `SIN-ENTORNO`) | Pre-condición 11 | No mergeo → `LISTO-PARA-MERGE` |
+| **HANDOFF de `qa-agent`** modo B (`PASS` / `SIN-ENTORNO`). `PASS-CON-OBSERVACIONES` **no** cuenta — retrabajo o waiver y re-gate | Pre-condición 11 | No mergeo → `LISTO-PARA-MERGE` |
 | Work item con campos OK (HU: `Custom.Refinement` + Story Points · Bug: `Severity` + Repro) | Pre-condición 8 | No mergeo → `LISTO-PARA-MERGE` (no leo ADO: no tengo esas herramientas) |
 | ¿Es eslabón de **cadena apilada**? De qué PR/rama depende | Decidir si puedo actualizar la rama | Asumo **que sí** lo es (conservador): no actualizo la rama |
 
@@ -257,7 +257,7 @@ funcionales (`qa-agent`) · ADO (`flit-integration-ado` / `flit-gestion-hu`) · 
 
 ```
 Usa el pr-monitor-agent para el PR #<n> (HU #<id>) — auth de merge del Feature: «<literal del humano>»;
-SHA revisado por flit-code-review: <sha>; qa-agent B: HANDOFF ✅; work item: Refinement=true + SP=5;
+SHA revisado por flit-code-review: <sha> (veredicto OK); qa-agent B: HANDOFF PASS; work item: Refinement=true + SP=5;
 cadena apilada: no
 
 Usa el pr-monitor-agent para el PR #<n> (BUG #<id>) — sin autorización de merge aún: solo monitorea

@@ -20,7 +20,7 @@ model: inherit
 El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - **HU o Bug** #<id>, título, y el criterio: AC Gherkin (HU) o Repro Steps + corrección esperada (Bug), **pegados**, no «léelos en ADO»
 - Rutas/archivos candidatos o módulo vecino a copiar
-- Decisión de diseño (`slim`/`full`) o «architecture: no aplica — …»
+- Decisión de diseño (`slim`/`full`/`omit`) **pegada**. Si el cambio es módulo/modelo/contrato nuevo o tradeoff PII/auth y el prompt **no** trae `architecture: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `architecture-agent`.
 - Comandos de verificación ya corridos en el hilo (si los hay)
 
 NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths.
@@ -129,6 +129,7 @@ Tipos: `@operaciones/shared-types`.
 ```
 HANDOFF
   Estado: implementado | bloqueado
+  Resultado: OK | BLOQUEADO
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Tests: <comando exacto + resultado real>

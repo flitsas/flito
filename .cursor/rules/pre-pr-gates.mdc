@@ -40,12 +40,14 @@ Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo d
 ## Hard-stop
 
 - **Sin HU o Bug en ADO** → no hay rama ni PR de producto: primero `flit-intake` / `flit-crear-hu`. Rama o título fuera del formato de `convenciones-rama-pr.mdc` → corregir (`git branch -m`, `update_pull_request`) antes de seguir; el check CI `naming` lo bloquea igual.
-- Veredicto `flit-code-review` = **BLOQUEADO**, o `security-agent` = **FAIL**, o `db-review-agent` con hallazgos críticos → **no** llamar `create_pull_request`. Corregir (o pedir corrección) y re-ejecutar el gate.
+- Veredicto `flit-code-review` distinto de **OK**, `security-agent` distinto de **PASS**, o `db-review-agent` distinto de **SANO** (incluye `*-CON-OBSERVACIONES` sin waiver humano explícito en esta sesión, `BLOQUEADO`, `FAIL`, `DEUDA-CRITICA`) → **no** llamar `create_pull_request`. Corregir y re-ejecutar el gate hasta el veredicto limpio. Heurística en `AGENTS.md` («Éxito de una revisión final = limpio»): si merece escribirse, se corrige; si no, es Nota y el veredicto sigue limpio.
 - Prohibido inventar «ya revisado» / «gates cerrados» sin haber ejecutado la skill o invocado el subagente **en este hilo sobre este diff/HEAD** (o citar HANDOFF/veredicto reciente del mismo SHA).
 - **Veredicto vencido:** si la rama recibió commits tras el veredicto (fixes post-review, retrabajo de QA), el gate quedó vencido — re-ejecutar `flit-code-review` sobre el nuevo HEAD antes de abrir el PR o de mergear. Abrir PR o mergear sobre un HEAD sin veredicto vigente = gate no ejecutado.
 - Prohibido imitar `flit-integration-ado` con solo Discussion.
 
 ## Tras gates en verde
+
+«En verde» aquí significa veredicto limpio: `OK` / `PASS` / `SANO`. `*-CON-OBSERVACIONES` no es verde.
 
 Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU o Bug): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`. Cuando el trabajo se mergee, cerrar el work item a `Resolved` con `flit-gestion-hu` — **también si es un Bug**.
 

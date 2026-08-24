@@ -23,7 +23,7 @@ model: inherit
 El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - **HU o Bug** #<id>, título, y el criterio: AC Gherkin (HU) o Repro Steps + corrección esperada (Bug), pegados
 - Rutas/páginas/componentes candidatos o página análoga a copiar
-- Decisión UX (`slim`/`full`) o «ux: no aplica — …»
+- Decisión UX (`slim`/`full`/`omit`) **pegada**. Si el cambio es ruta nueva / `PageSlug` / wizard / bandeja / decisión visual de tabla (p. ej. columna que se recorta) y el prompt **no** trae `ux: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `ux-agent`. El 24 ago David tuvo que decir «pásalo al UX» a destiempo.
 - Comandos de verificación ya corridos (si los hay)
 
 NO releer `AGENTS.md` entero ni ADO completo si el prompt trae AC + paths.
@@ -111,6 +111,7 @@ Tipos cruzados: `@operaciones/shared-types`.
 ```
 HANDOFF
   Estado: implementado | bloqueado
+  Resultado: OK | BLOQUEADO
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Verificación: <comando(s) + salida real>
