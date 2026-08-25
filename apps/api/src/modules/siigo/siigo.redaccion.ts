@@ -144,10 +144,19 @@ export function esViolacionDeUnico(e: unknown): boolean {
 // segundo criterio de enmascarado que pueda divergir del de todo el repositorio.
 //
 // **Lo que NO detecta, dicho antes de que alguien lo dé por cubierto:** un nombre de pila suelto
-// («lo pidió juan»), un nombre en minúsculas, un apodo, una dirección escrita en prosa, y cualquier
-// identificador de menos de siete dígitos. Un detector de nombres sobre prosa española no existe; lo
-// que existe es esta heurística. Por eso el catálogo cerrado de motivos sigue siendo la defensa
-// principal y esto es la segunda línea, no al revés.
+// («lo pidió juan»), un nombre entero en minúsculas, un apodo, una dirección escrita en prosa, y
+// cualquier identificador de menos de siete dígitos. Un detector de nombres sobre prosa española no
+// existe; lo que existe es esta heurística. Por eso el catálogo cerrado de motivos sigue siendo la
+// defensa principal y esto es la segunda línea, no al revés.
+//
+// **Un nombre EN MAYÚSCULAS sí se detecta, y hubo que corregirlo para que fuera cierto** (hallazgo
+// del gate de seguridad de la #11340). Hasta entonces `PALABRA_NOMBRE` exigía minúsculas detrás de
+// la inicial, de forma que «MARIA GOMEZ» salía intacta mientras «Maria Gomez» se enmascaraba. No era
+// un borde: la mayúscula es la forma NORMAL en la que este sistema guarda y pinta los nombres —el
+// ejemplo canónico de `shared/utils/pii.ts` es literalmente `"ANALEANDRA HINCAPIE OSPINA"`—, y el
+// operador tiene la razón social del cliente delante en la fila mientras teclea la nota, así que
+// copiarla es el flujo esperado y no el raro. La lista de huecos de arriba afirmaba lo contrario y
+// era falsa.
 //
 // **Cuando duda, tapa.** Todo error de esta heurística está inclinado a enmascarar de más: dos
 // palabras capitalizadas seguidas se tratan como un nombre salvo que TODAS estén en una lista corta
@@ -159,22 +168,72 @@ const CORREO_EN_TEXTO = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 /**
  * Placa colombiana: tres letras y tres caracteres (`ABC123` de particular, `ABC12D` de moto).
  * AGENTS.md §14 la nombra junto a la cédula y el NIT: identifica al titular por su vehículo.
+ *
+ * **Insensible a mayúsculas** (`i`): quien teclea una nota escribe «placa abc123» tan a menudo como
+ * «ABC123», y sin la bandera el minúsculo salía entero. La forma es lo bastante específica —tres
+ * letras pegadas a dos dígitos y un alfanumérico, todo en la misma palabra— para que la bandera no
+ * arrastre texto operativo: «error 429» y «van 5 intentos» no tienen letras pegadas a los dígitos.
  */
-const PLACA_EN_TEXTO = /\b[A-Z]{3}[ -]?\d{2}[A-Z0-9]\b/g;
+const PLACA_EN_TEXTO = /\b[A-Z]{3}[ -]?\d{2}[A-Z0-9]\b/gi;
 
-/** Palabra con forma de nombre propio. Las siglas en mayúscula (`DIAN`, `CUFE`, `NIT`) quedan fuera. */
-const PALABRA_NOMBRE = '[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+';
-/** Enlaces de un nombre compuesto: «Juan de la Cruz» es UN nombre, no dos palabras sueltas. */
-const NEXO_DE_NOMBRE = '(?:de|del|la|las|los|y|da|di|van|von)';
+/**
+ * Fin de palabra que NO admite el resto de un identificador.
+ *
+ * `\b` no sirve aquí: entre la `J` y el `2` de `FAJ26` no hay frontera de palabra, así que una tira
+ * de mayúsculas sin este freno se comería el prefijo de un código y dejaría `R. F.26` donde el
+ * operador necesita leer `Regla FAJ26`. Se exige que detrás no venga NINGÚN carácter de palabra:
+ * ni letra, ni dígito, ni guion bajo (`INVALID_DIAN_RESOLUTION` queda fuera por la misma razón).
+ */
+const FIN_DE_PALABRA = '(?![\\wÁÉÍÓÚÜÑáéíóúüñ])';
+
+/**
+ * Palabra con forma de nombre propio: `Maria` **o** `MARIA`.
+ *
+ * La segunda alternativa invierte la suposición que tenía este módulo. Antes decía que lo que va
+ * todo en mayúsculas es una sigla (`DIAN`, `CUFE`, `NIT`) y por eso no lo miraba; pero la mayúscula
+ * es también —y sobre todo— cómo se escriben aquí los nombres y las razones sociales. Quedarse con
+ * la suposición vieja hacía falsa la regla que este módulo declara: no tapaba cuando dudaba, es que
+ * ni siquiera dudaba.
+ *
+ * Lo que impide que las siglas se enmascaren no es esta regex, son las DOS condiciones de
+ * `enmascararNombres`: hacen falta al menos DOS palabras seguidas —una sigla suelta como `DIAN`
+ * nunca casa— y basta con que una de ellas sea desconocida para tapar el grupo entero. `{3,}` deja
+ * fuera además los pares de letras (`SA`, `CC`, `EU`), que no forman apellidos.
+ */
+const PALABRA_NOMBRE =
+  `(?:[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+|[A-ZÁÉÍÓÚÜÑ]{3,})${FIN_DE_PALABRA}`;
+
+/**
+ * Enlaces de un nombre compuesto: «Juan de la Cruz» es UN nombre, no dos palabras sueltas.
+ *
+ * **También en mayúsculas**, y no es simetría cosmética: `JUAN DE LA CRUZ` es la forma en que este
+ * sistema guarda ese nombre. Sin las variantes altas, `DE` y `LA` no son ni nexo ni palabra de
+ * nombre —tienen dos letras—, así que rompían la cadena y el nombre entero salía intacto. Se veía
+ * como una incoherencia absurda: `MARIA DEL PILAR RESTREPO` sí se tapaba (porque `DEL` tiene tres
+ * letras y colaba como palabra de nombre) y `JUAN DE LA CRUZ` no.
+ */
+const NEXOS_DE_NOMBRE = ['de', 'del', 'la', 'las', 'los', 'y', 'da', 'di', 'van', 'von'];
+const NEXO_DE_NOMBRE =
+  `(?:${[...NEXOS_DE_NOMBRE, ...NEXOS_DE_NOMBRE.map((n) => n.toUpperCase())].join('|')})`;
 const NOMBRE_EN_TEXTO = new RegExp(
   `${PALABRA_NOMBRE}(?:\\s+(?:${NEXO_DE_NOMBRE}\\s+)*${PALABRA_NOMBRE})+`, 'g',
 );
+
+/** Para no exigirle a un nexo que esté en el catálogo del dominio. Ver `enmascararNombres`. */
+const NEXOS_EN_MINUSCULA = new Set(NEXOS_DE_NOMBRE);
 
 /**
  * Términos del dominio que pueden ir capitalizados sin nombrar a nadie.
  *
  * **Es corta a propósito y su incompletitud es segura**: lo que no esté aquí se enmascara. Ampliarla
  * es una decisión consciente de dejar pasar una pareja de palabras; olvidarla solo cuesta legibilidad.
+ *
+ * El segundo bloque son las siglas y las formas societarias que hasta la corrección de las
+ * mayúsculas no hacían falta —quedaban fuera por la propia regex— y ahora sí: son justo las que
+ * aparecen pegadas a otra palabra en mayúsculas («NOTA CREDITO», «SIIGO NUBE», «NIT SAS»). La
+ * comparación se hace en minúsculas, así que una sola entrada cubre `SAS` y `Sas`. Las de dos
+ * letras (`cc`, `sa`, `eu`) solo sirven para la forma capitalizada: en mayúsculas no las mira nadie,
+ * porque `PALABRA_NOMBRE` exige tres.
  */
 const TERMINOS_NO_PERSONALES = new Set([
   'nota', 'notas', 'crédito', 'credito', 'débito', 'debito', 'factura', 'facturas', 'documento',
@@ -183,6 +242,8 @@ const TERMINOS_NO_PERSONALES = new Set([
   'cliente', 'clientes', 'correo', 'correos', 'emisión', 'emision', 'envío', 'envio', 'error',
   'rechazo', 'regla', 'validación', 'validacion', 'contabilidad', 'operaciones', 'ambiente',
   'producción', 'produccion', 'pruebas', 'sistema', 'soporte', 'mesa', 'ayuda',
+  // Siglas y formas societarias.
+  'dian', 'cufe', 'nit', 'rut', 'cc', 'iva', 'sas', 'ltda', 'sa', 'eu', 'pdf', 'xml', 'api', 'url',
 ]);
 
 /** Una tira de dígitos con sus separadores. `\b` no vale: los separadores son parte del número. */
@@ -216,7 +277,12 @@ function enmascararNumeros(texto: string): string {
 
 function enmascararNombres(texto: string): string {
   return texto.replace(NOMBRE_EN_TEXTO, (bruto: string) => {
-    const capitalizadas = bruto.split(/\s+/).filter((p) => /^[A-ZÁÉÍÓÚÜÑ]/.test(p));
+    const capitalizadas = bruto.split(/\s+/)
+      .filter((p) => /^[A-ZÁÉÍÓÚÜÑ]/.test(p))
+      // Los nexos se descuentan: son estructura del nombre, no identidad, y desde que se admiten en
+      // mayúsculas entran en este filtro. Exigirles estar en el catálogo del dominio habría tapado
+      // «NOTA CREDITO DE LA DIAN» por culpa del `DE` y del `LA`, que no nombran a nadie.
+      .filter((p) => !NEXOS_EN_MINUSCULA.has(p.toLowerCase()));
     const todasDelDominio = capitalizadas
       .every((p) => TERMINOS_NO_PERSONALES.has(p.toLowerCase()));
     return todasDelDominio ? bruto : maskName(bruto);

@@ -270,8 +270,30 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     ['una placa', 'el vehículo WGY45D del titular', 'WGY45D'],
     ['un nombre y apellido', 'lo pidió Ana Ramírez por teléfono', 'Ana Ramírez'],
     ['un nombre compuesto', 'firmó Juan de la Cruz Pérez', 'Juan de la Cruz Pérez'],
+    // ── La forma REAL en la que este sistema escribe los nombres ──────────────────────────────
+    // No son variantes exóticas de las de arriba. La mayúscula es como se guarda y se pinta una
+    // razón social aquí —el ejemplo canónico de `shared/utils/pii.ts` es literalmente
+    // `"ANALEANDRA HINCAPIE OSPINA"`—, y quien opera tiene esa razón social delante, en su fila,
+    // mientras teclea la nota. Hasta el hallazgo del gate de seguridad de la #11340 los ocho casos
+    // de arriba iban todos en Title Case y estos cuatro salían INTACTOS hacia una tabla que no
+    // admite UPDATE ni DELETE: el título del bloque prometía algo que el cuerpo no medía.
+    ['un nombre en MAYÚSCULAS', 'confirmado con MARIA GOMEZ de contabilidad', 'MARIA GOMEZ'],
+    ['un contacto dentro de una razón social',
+      'Cliente TRANSPORTES LA SABANA SAS, contacto ANDRES RUIZ', 'ANDRES RUIZ'],
+    ['un nombre compuesto en MAYÚSCULAS', 'lo autorizó JUAN DE LA CRUZ', 'JUAN DE LA CRUZ'],
+    ['una placa en minúsculas', 'placa abc123 del titular', 'abc123'],
   ])('%s no sale entera', (_caso, texto, dato) => {
     expect(redactarPIIEnTextoLibre(texto)).not.toContain(dato);
+  });
+
+  // `not.toContain` dice que el dato ya no está, no que lo que quedó sirva para operar. Esto ancla
+  // la salida exacta, y de paso que el enmascarado es el canónico del repositorio (`maskName`) y no
+  // un segundo criterio que pueda divergir.
+  it('el nombre en mayúsculas sale como iniciales, igual que en el catálogo canónico', () => {
+    expect(redactarPIIEnTextoLibre('confirmado con MARIA GOMEZ de contabilidad'))
+      .toBe('confirmado con M. G. de contabilidad');
+    expect(redactarPIIEnTextoLibre('ANALEANDRA HINCAPIE OSPINA pidió la corrección'))
+      .toBe('A. H. O. pidió la corrección');
   });
 
   it.each([
@@ -280,6 +302,15 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     ['un conteo y un código HTTP', 'van 5 intentos y Siigo devolvió 429'],
     ['una sigla del dominio', 'la DIAN rechazó el CUFE por duplicado'],
     ['dos términos del dominio seguidos', 'hay que hacer una Nota Crédito en Siigo Nube'],
+    // ── El contrapeso de admitir mayúsculas ───────────────────────────────────────────────────
+    // Tapar de más tiene un precio real: una nota ilegible es una nota que nadie escribe, y la
+    // gente se lleva la explicación a otro sitio peor. Estos cuatro son el texto operativo que
+    // convive con los nombres y que la corrección podía arrastrar sin que nadie lo notara.
+    ['dos siglas del dominio seguidas', 'revisar en SIIGO NUBE el documento'],
+    ['una sigla pegada a un término del dominio', 'la NOTA CREDITO de la DIAN no cuadra'],
+    ['la misma frase con los nexos en mayúsculas', 'la NOTA CREDITO DE LA DIAN no cuadra'],
+    ['un código de regla con dígitos pegados', 'Regla FAJ26 incumplida en la emisión'],
+    ['un código de error en mayúsculas con guion bajo', 'salió INVALID_DIAN_RESOLUTION otra vez'],
   ])('%s se queda tal cual: taparlo dejaría la nota sin lo que la hace útil', (_caso, texto) => {
     expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
   });

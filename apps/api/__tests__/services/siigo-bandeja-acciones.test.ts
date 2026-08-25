@@ -546,6 +546,45 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     expect(escrito).toContain('J. P.');
   });
 
+  // El caso de arriba usa Title Case, que NO es como este sistema escribe los nombres. La razón
+  // social la tiene delante quien opera, en su propia fila (`clienteNombre`), mientras teclea la
+  // nota: copiar de la fila a la nota es el flujo esperado y no el raro. Con el redactor anterior
+  // esta nota llegaba ENTERA al INSERT de `siigo_operaciones`, que prohíbe UPDATE y DELETE por
+  // disparador desde la `0126` — sin rectificación ni supresión posibles (Ley 1581, art. 8 lit. d y e).
+  it('una nota copiada de la fila —MAYÚSCULAS y placa en minúsculas— llega ENMASCARADA al INSERT', async () => {
+    await descartarCaso({
+      ...DESCARTE,
+      nota: 'Cliente TRANSPORTES LA SABANA SAS, confirmó MARIA GOMEZ, placa abc123',
+    });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).not.toContain('MARIA GOMEZ');
+    expect(escrito).not.toContain('SABANA');
+    expect(escrito).not.toContain('abc123');
+    expect(escrito).toContain('M. G.');
+  });
+
+  it('un nombre compuesto en MAYÚSCULAS tampoco se salva por los nexos: «DE» y «LA» no lo parten', async () => {
+    // `MARIA DEL PILAR RESTREPO` sí se tapaba y `JUAN DE LA CRUZ` no, porque `DEL` tiene tres letras
+    // y colaba como palabra de nombre mientras `DE` y `LA`, de dos, rompían la cadena. Una
+    // incoherencia que no se ve leyendo la regex: hay que ejecutarla.
+    await descartarCaso({ ...DESCARTE, nota: 'lo autorizó JUAN DE LA CRUZ' });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).toBe('lo autorizó J. D. L. C.');
+  });
+
+  it('el texto operativo sigue legible: DIAN, CUFE, la regla con dígitos y las dos siglas seguidas', async () => {
+    // El contrapeso de admitir mayúsculas, y es la mitad que se puede romper en silencio: si la
+    // corrección se pasa de frenada, la nota deja de servir para lo único que existe —explicar la
+    // decisión— y quien opera se lleva la explicación a un sitio peor.
+    const NOTA = 'la DIAN rechazó el CUFE por Regla FAJ26; ver NOTA CREDITO en SIIGO NUBE';
+    await descartarCaso({ ...DESCARTE, nota: NOTA });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).toBe(NOTA);
+  });
+
   it('lo mismo por la puerta del correo: la nota del acta pasa por el mismo filtro', async () => {
     await descartarCaso({
       ...DESCARTE, fuente: 'correo', refId: ACTA, nota: 'confirmó la placa ABC123 el titular',
