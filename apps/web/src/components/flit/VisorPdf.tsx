@@ -39,13 +39,13 @@ export default function VisorPdf({ url, nombre }: { url: string; nombre?: string
         // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
         // por construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`.
         pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
-        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
-        // la matriz de fuente de un PDF malicioso acaba concatenada en un `new Function(...)` al
-        // compilar los glifos, y abrir el documento ejecuta JavaScript arbitrario. El fix upstream es
-        // el major 3→6, hoy bloqueado por producto (subiría el suelo a Chrome 125 / Safari 18), así que
-        // se aplica el workaround oficial del advisory. Este visor rasteriza a PNG y no usa capa de
-        // texto, luego apagar el eval no cambia lo que se ve. Guardado por `npm run check:pdfjs-eval`.
-        const doc = await pdfjs.getDocument({ data: datos, isEvalSupported: false }).promise;
+        // pdfjs-dist v6 corrige CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8) EN LA LIBRERÍA: ya no
+        // compila los glifos con `new Function(...)`, que era como un PDF malicioso ejecutaba
+        // JavaScript arbitrario al abrirse. El workaround del advisory que había aquí —`isEvalSupported:
+        // false`— ya no existe en v6 (0 coincidencias en `build/pdf.mjs`, y no está en
+        // `DocumentInitParameters`), así que pasarlo sería seguridad aparente. No lo vuelvas a añadir.
+        // El suelo de navegador que impone v6 está fijado en `docs/adr/ADR-0007`.
+        const doc = await pdfjs.getDocument({ data: datos }).promise;
 
         const salida: string[] = [];
         for (let n = 1; n <= doc.numPages; n += 1) {
@@ -54,7 +54,7 @@ export default function VisorPdf({ url, nombre }: { url: string; nombre?: string
           const viewport = pagina.getViewport({ scale: ANCHO_OBJETIVO / base.width });
           const canvas = document.createElement('canvas');
           canvas.width = viewport.width; canvas.height = viewport.height;
-          await pagina.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+          await pagina.render({ canvas, viewport }).promise;
           salida.push(canvas.toDataURL('image/png'));
         }
         if (token === vigente.current) setPaginas(salida);

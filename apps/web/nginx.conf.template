@@ -12,7 +12,10 @@ server {
     index index.html;
 
     gzip on;
-    gzip_types text/css application/javascript application/json image/svg+xml;
+    # Ojo: `gzip_types` toma MIME TYPES, no extensiones — poner `mjs` aquí no haría nada.
+    # `text/javascript` es el tipo con el que el bloque `types` de /assets/ sirve el worker de
+    # pdf.js (`pdf.worker.min-<hash>.mjs`, HU #11289): sin él ese fichero viajaría sin comprimir.
+    gzip_types text/css application/javascript text/javascript application/json image/svg+xml;
     gzip_min_length 1024;
 
     # API → contenedor api (misma red de compose). Sin URI en proxy_pass para
@@ -32,6 +35,25 @@ server {
 
     # Assets con hash de Vite → cache inmutable (se re-descargan solo si cambia el hash).
     location /assets/ {
+        # MIME de `.mjs` (HU #11289). `mime.types` de nginx:1.27-alpine NO trae `mjs` (verificado:
+        # `grep -c mjs /etc/nginx/mime.types` → 0), así que el worker de pdf.js v6
+        # —`/assets/pdf.worker.min-<hash>.mjs`— saldría como `application/octet-stream`. pdf.js v6 lo
+        # instancia como MÓDULO (`new Worker(src, { type: "module" })`) y ahí el navegador aplica
+        # MIME checking estricto: con octet-stream el worker queda BLOQUEADO y los cinco visores
+        # mueren en «No se pudo abrir el documento». La E2E no lo vería —corre contra el dev server
+        # de Vite, que sirve el MIME correcto—, así que este fallo llegaría a producción con el CI
+        # entero en verde.
+        #
+        # El `include` NO es decorativo: `types` NO se fusiona con el nivel superior, lo REEMPLAZA
+        # («inherited from the previous level if and only if there are no types directives defined on
+        # the current level»). Medido sobre nginx:1.27-alpine: con sólo `types { text/javascript mjs; }`
+        # aquí dentro, nginx arranca sin quejarse y pasa a servir `app.js` y `s.css` de /assets/ como
+        # `application/octet-stream` — es decir, tumba el bundle y los estilos de TODA la aplicación
+        # para arreglar el worker. Dos bloques `types` en el mismo nivel sí acumulan, y por eso la
+        # forma correcta es reponer la tabla por defecto con el `include` y añadir sólo lo que falta.
+        include /etc/nginx/mime.types;
+        types { text/javascript mjs; }
+
         expires 1y;
         add_header Cache-Control "public, immutable";
         try_files $uri =404;

@@ -19,8 +19,10 @@
 // `new URL(spec, import.meta.url)` sale **exit 0** (sólo un `warnOnce`) y deja el string crudo en el
 // bundle → el fallo reaparece en el navegador, que es justo lo que esta HU viene a cerrar. Con el
 // sufijo `?url` sale **exit 1** por `handleInvalidResolvedId` de Rollup: el build se niega a emitir
-// un worker que no existe. Esa diferencia es la red que protegerá a la HU #11289 cuando el salto a
-// pdfjs v6 renombre `pdf.worker.min.js` → `pdf.worker.min.mjs`.
+// un worker que no existe. Esa red YA se cobró su pieza: la HU #11289 subió pdfjs-dist a v6, que
+// renombra `pdf.worker.min.js` → `pdf.worker.min.mjs`, y el único cambio necesario fue el
+// especificador de abajo. Comprobado por mutación: dejándolo en `.js`, `npm run build:web` sale
+// exit 1 en vez de emitir un string muerto.
 //
 // Efecto colateral buscado: Vite emite el worker como asset CON HASH DE CONTENIDO, así que un
 // cambio de versión cambia el nombre del fichero y ninguna caché (navegador, CDN o el service
@@ -35,7 +37,7 @@
 // Este módulo es el ÚNICO sitio del front autorizado a nombrar el fichero del worker; lo vigila
 // `npm run check:pdf-worker`.
 
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 /** URL del worker de pdf.js emitida por el bundler, con hash de contenido, desde `node_modules`. */
 export const PDF_WORKER_SRC = workerUrl;

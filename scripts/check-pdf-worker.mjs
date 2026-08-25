@@ -20,7 +20,7 @@
 //
 // ── Por qué AST y no regex ────────────────────────────────────────────────────────────────────
 //
-// Igual que `scripts/check-pdfjs-eval.mjs`: el formato no debe poder engañar al gate. `pdfjs.Global\
+// El formato no debe poder engañar al gate. `pdfjs.Global\
 // WorkerOptions.workerSrc = x` en una línea o en tres, con `pdfjsLib`, `pdfjs` o `GlobalWorkerOptions`
 // importado suelto, es el mismo hecho. Y al revés: un comentario que MENCIONE la cadena no puede
 // contar como violación.
@@ -65,8 +65,8 @@ const MODULO_ABS = resolve(ROOT, MODULO);
 // propia y completa, no un efecto colateral de la HU del worker.
 const ALIAS_MODULO = new Set(['@/lib/pdfWorker', '@/lib/pdfWorker.ts', '@/lib/pdfWorker.js']);
 
-// `pdf.worker.min.js` hoy; `.mjs` tras el salto a v6 (HU #11289). El sufijo `?url` es obligatorio:
-// es lo que hace que Rollup falle en vez de dejar pasar un string sin resolver.
+// `pdf.worker.min.mjs` desde el salto a v6 (HU #11289); antes era `.js`. El sufijo `?url` es
+// obligatorio: es lo que hace que Rollup falle en vez de dejar pasar un string sin resolver.
 const RE_ESPECIFICADOR = /^pdfjs-dist\/build\/pdf\.worker[.\w-]*\?url$/;
 
 /** Cualquier mención del worker en un literal de cadena fuera del módulo canónico. */
@@ -75,7 +75,7 @@ const RE_NOMBRE_WORKER = /pdf\.worker/;
 /** Carpeta donde vivía la copia manual. Nada que se llame `pdf.worker*` puede volver ahí. */
 const PUBLIC_DIR = 'apps/web/public';
 
-// ── Utilidades de escaneo (mismo molde que check-pdfjs-eval.mjs) ──────────────────────────────
+// ── Utilidades de escaneo ─────────────────────────────────────────────────────────────────────
 
 const ESCANEABLE = /\.(tsx?|jsx?|mjs|cjs)$/;
 

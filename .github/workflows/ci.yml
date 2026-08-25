@@ -65,15 +65,6 @@ jobs:
       - name: Contraste (CommandPalette claro+oscuro · gradientes FLIT · anillo de foco)
         run: npm run check:contraste
 
-      # HU #11289 — CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): pdfjs-dist 3.x ejecuta JS de un
-      # PDF malicioso salvo que cada `getDocument` lleve `isEvalSupported: false`. El salto a v6 está
-      # bloqueado por producto, así que la mitigación es por configuración — y una opción que se
-      # olvida no rompe nada visible: compila y renderiza igual, sólo deja el eval abierto otra vez.
-      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI no ejecuta la suite E2E: desde
-      # la HU #11774 solo corre el spec del visor de PDF (`e2e-visor-pdf`), que no mira esta opción.
-      - name: Mitigación CVE-2024-4367 en pdfjs (web)
-        run: npm run check:pdfjs-eval
-
       # HU #11775 — origen del worker de pdf.js. pdf.js valida el handshake API↔worker en runtime y
       # lanza si las versiones no casan; hasta esa HU el `workerSrc` era la cadena `'/pdf.worker.min.js'`
       # apuntando a una copia manual en `public/`, de modo que subir `pdfjs-dist` sin recopiar el
