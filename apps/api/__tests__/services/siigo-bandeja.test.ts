@@ -220,6 +220,31 @@ describe('AC1 — las tres patas, en una sola consulta paginada', () => {
     expect(item.clienteNombre).toBe('Transportes del Norte SAS');
   });
 
+  // El motivo de la DIAN se entrega en la MISMA fila que la razón social, así que cotejarlo contra
+  // ella no es un extra: es lo que impide entregar nombre e identificación juntos. Importa sobre
+  // todo cuando el cliente es persona natural —su «razón social» ES el nombre del titular— y cuando
+  // el motivo viene en mayúsculas, que es como la DIAN escribe media respuesta y donde la heurística
+  // por forma, a propósito, no mira.
+  it('un motivo que repite la razón social del caso la entrega enmascarada, no entera', async () => {
+    kdb.execute.mockResolvedValue([
+      casoEmision({ fuente: 'dian', ref_id: DIAN, cola_id: null, codigo: 'dian_rechazada' }),
+    ]);
+    kdb.when
+      .select('clients', [{ id: 7, name: 'MARIA GOMEZ RESTREPO' }])
+      .select('siigo_factura_estados_dian', [{
+        id: DIAN,
+        estado: 'rechazada',
+        motivo: 'DOCUMENTO RECHAZADO POR LA DIAN, TITULAR MARIA GOMEZ RESTREPO',
+      }]);
+
+    const item = (await consultarBandeja({ ambiente: 'pruebas', ahora: AHORA })).items[0]!;
+
+    expect(item.detalle).not.toContain('MARIA GOMEZ RESTREPO');
+    expect(item.detalle).toBe('DOCUMENTO RECHAZADO POR LA DIAN, TITULAR M. G. R.');
+    // Y la columna propia sigue intacta: la fila existe para trabajarla, y ahí el nombre es el dato.
+    expect(item.clienteNombre).toBe('MARIA GOMEZ RESTREPO');
+  });
+
   it('mirar la bandeja no gasta ni una petición de la cuota de Siigo', async () => {
     await consultarBandeja({ ambiente: 'pruebas', ahora: AHORA });
     await resumenBandeja({ ambiente: 'pruebas', ahora: AHORA });

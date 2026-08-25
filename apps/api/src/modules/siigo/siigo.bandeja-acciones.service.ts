@@ -669,8 +669,8 @@ async function anotarDescarte(
  * de tener la forma de una placa, así que el detector ya no la ve y pasaría entera.
  *
  * `nombresConocidos` es el mecanismo exacto: el nombre del cliente del caso, que se tapa por
- * coincidencia y no por forma. Es lo que permite que una nota escrita entera en mayúsculas —donde la
- * heurística se apaga a propósito para no mutilar la prosa— siga sin dejar salir la razón social.
+ * coincidencia y no por forma. Es lo que sostiene la protección cuando la nota va en MAYÚSCULAS, que
+ * la heurística no mira —para no mutilar la prosa operativa, que aquí se escribe así a menudo—.
  */
 export function normalizarNota(
   nota: string | null | undefined, nombresConocidos: readonly (string | null | undefined)[] = [],

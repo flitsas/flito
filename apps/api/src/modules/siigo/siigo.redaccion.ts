@@ -143,45 +143,45 @@ export function esViolacionDeUnico(e: unknown): boolean {
 // enmascara con las MISMAS funciones canónicas (`maskDocument`, `maskEmail`, `maskName`): no hay un
 // segundo criterio de enmascarado que pueda divergir del de todo el repositorio.
 //
+// ── DOS MECANISMOS, Y EL PRECISO ES EL PRINCIPAL ───────────────────────────────────────────────
+//
+// **1. Coincidencia con el dato conocido.** La nota se escribe sobre un caso concreto cuyo cliente
+// está en la fila que quien opera tiene delante, así que copiarlo a la nota es el flujo esperado.
+// Cotejar el texto contra ESE valor tapa exactamente lo que se copió, **en cualquier caja**, y sin
+// tocar una sola palabra de texto operativo. No tiene falsos positivos en ninguna dirección: o el
+// nombre está escrito, o no lo está. Es la defensa principal de este módulo.
+//
+// **2. Heurística por forma, solo Title Case.** Dos palabras capitalizadas seguidas se tratan como
+// un nombre salvo que TODAS estén en la lista de términos conocidos. Cubre lo que se teclea de
+// memoria —«lo pidió Ana Ramírez»— y su papel es de segundo orden.
+//
+// ── POR QUÉ LA HEURÍSTICA NO MIRA LAS MAYÚSCULAS ───────────────────────────────────────────────
+//
+// Hubo un tercer mecanismo que sí las miraba, y **se retiró a propósito** tras medirlo. La historia
+// completa, porque el impulso de volver a añadirlo es fuerte y conviene que quien lo tenga sepa lo
+// que ya se probó:
+//
+// La mayúscula es una forma normal de escribir aquí un nombre —el ejemplo canónico de
+// `shared/utils/pii.ts` es literalmente `"ANALEANDRA HINCAPIE OSPINA"`—, así que tratarla como señal
+// parecía obligado. El problema es que también es una forma normal de escribir una NOTA ENTERA: en
+// operación se teclea en altas por costumbre. Medido sobre casos reales, la fracción de mayúsculas
+// de lo que había que tapar (27 %, 55 %, 70 %) y la de lo que había que respetar (17 %, 26 %, 100 %)
+// se solapan enteras, y `CLIENTE PIDIO ANULAR` es formalmente idéntico a `MARIA GOMEZ RESTREPO`.
+// Cualquier umbral que separe los dos —fracción de altas, longitud mínima— parte notas legítimas por
+// un lado y deja pasar nombres por el otro con solo añadir una palabra en minúsculas. Y el error
+// caro no es simétrico: el destino es `siigo_operaciones`, que no admite UPDATE ni DELETE, así que
+// una nota mutilada es la pérdida DEFINITIVA de la única explicación de por qué se dio un caso por
+// perdido —justo lo que el AC5 existe para conservar—.
+//
+// Lo que queda cubierto sin ese mecanismo es lo que motivó el hallazgo: el nombre COPIADO DE LA
+// FILA, que el mecanismo 1 tapa venga como venga escrito.
+//
 // **Lo que NO detecta, dicho antes de que alguien lo dé por cubierto:** un nombre de pila suelto
-// («lo pidió juan»), un nombre entero en minúsculas, un apodo, una dirección escrita en prosa, y
-// cualquier identificador de menos de siete dígitos. Un detector de nombres sobre prosa española no
-// existe; lo que existe es esta heurística. Por eso el catálogo cerrado de motivos sigue siendo la
-// defensa principal y esto es la segunda línea, no al revés.
-//
-// **Un nombre EN MAYÚSCULAS sí se detecta, y hubo que corregirlo para que fuera cierto** (hallazgo
-// del gate de seguridad de la #11340). Hasta entonces `PALABRA_NOMBRE` exigía minúsculas detrás de
-// la inicial, de forma que «MARIA GOMEZ» salía intacta mientras «Maria Gomez» se enmascaraba. No era
-// un borde: la mayúscula es la forma NORMAL en la que este sistema guarda y pinta los nombres —el
-// ejemplo canónico de `shared/utils/pii.ts` es literalmente `"ANALEANDRA HINCAPIE OSPINA"`—, y el
-// operador tiene la razón social del cliente delante en la fila mientras teclea la nota, así que
-// copiarla es el flujo esperado y no el raro. La lista de huecos de arriba afirmaba lo contrario y
-// era falsa.
-//
-// ── DOS MECANISMOS, Y EL ORDEN IMPORTA ─────────────────────────────────────────────────────────
-//
-// **1. Coincidencia con el dato conocido (preciso).** La nota se escribe sobre un caso concreto cuyo
-// cliente ya está en la fila que quien opera tiene delante. Cotejar el texto contra ESE valor tapa
-// exactamente el nombre que se copió de la pantalla, en cualquier caja y sin tocar una sola palabra
-// de texto operativo. No tiene falsos positivos en ninguna dirección: o el nombre está escrito, o no.
-//
-// **2. Heurística por forma (aproximada).** Para lo que una persona teclea de memoria —el contacto
-// de contabilidad, el conductor— no hay dato con el que cotejar, así que se detecta por forma. Es
-// aproximada por definición y su papel es de SEGUNDO orden: cubre lo que el primero no puede saber.
-//
-// **Cuando duda, tapa — pero no cuando la duda es sistemática.** La heurística está inclinada a
-// enmascarar de más: dos palabras capitalizadas seguidas se tratan como un nombre salvo que TODAS
-// estén en la lista de términos conocidos. Esa inclinación tiene un límite descubierto midiendo, no
-// razonando: **una nota escrita ENTERA en mayúsculas es un estilo de escritura, no una pista**.
-// Escribir así es un hábito extendido en operación, y tratar la mayúscula como señal de nombre
-// propio ahí convertía «SE REINTENTO TRES VECES Y SIGUE FALLANDO» en «SE R. T. V. Y. S. F.». Una
-// nota mutilada tampoco se puede reescribir: el AC5 pide el motivo, y la explicación libre es lo
-// único que dice POR QUÉ se dio por perdido un caso. Por eso, en un texto que ya viene todo en
-// altas, la alternativa en mayúsculas se apaga y queda la de Title Case.
-//
-// Ese apagado sería una fuga si la heurística fuera lo único que hay —una nota en altas que nombre
-// al cliente—; no lo es, porque el mecanismo 1 no depende de la caja. **La precisión del primero es
-// lo que compra el derecho a relajar el segundo.**
+// («lo pidió juan»), un nombre entero en minúsculas, un apodo, una dirección escrita en prosa,
+// cualquier identificador de menos de siete dígitos y —decisión explícita, no olvido— **un nombre
+// escrito en MAYÚSCULAS que no sea el del cliente del caso**. Un detector de nombres sobre prosa
+// española no existe; lo que existe es esta heurística. Por eso el catálogo cerrado de motivos sigue
+// siendo la defensa principal del AC5 y esto es la segunda línea, no al revés.
 
 const CORREO_EN_TEXTO = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
@@ -206,67 +206,33 @@ const PLACA_EN_TEXTO = /\b[A-Z]{3}[ -]?\d{2}[A-Z0-9]\b/gi;
  */
 const FIN_DE_PALABRA = '(?![\\wÁÉÍÓÚÜÑáéíóúüñ])';
 
+/** El simétrico, para cuando lo que se busca puede caer en MITAD de otra palabra. */
+const INICIO_DE_PALABRA = '(?<![\\wÁÉÍÓÚÜÑáéíóúüñ])';
+
 /**
- * Palabra con forma de nombre propio: `Maria` **o** `MARIA`.
+ * Palabra con forma de nombre propio: inicial alta y el resto en minúsculas.
  *
- * La segunda alternativa invierte la suposición que tenía este módulo. Antes decía que lo que va
- * todo en mayúsculas es una sigla (`DIAN`, `CUFE`, `NIT`) y por eso no lo miraba; pero la mayúscula
- * es también —y sobre todo— cómo se escriben aquí los nombres y las razones sociales. Quedarse con
- * la suposición vieja hacía falsa la regla que este módulo declara: no tapaba cuando dudaba, es que
- * ni siquiera dudaba.
- *
- * Lo que impide que las siglas se enmascaren no es esta regex, son las DOS condiciones de
- * `enmascararNombres`: hacen falta al menos DOS palabras seguidas —una sigla suelta como `DIAN`
- * nunca casa— y basta con que una de ellas sea desconocida para tapar el grupo entero. `{3,}` deja
- * fuera además los pares de letras (`SA`, `CC`, `EU`), que no forman apellidos.
+ * **Las tiras en mayúsculas quedan fuera a propósito** (`DIAN`, `CUFE`, `MARIA`). Hubo una versión
+ * que las miraba y se retiró midiendo: el razonamiento está en la cabecera del bloque. Lo que tapa
+ * un nombre en altas es el mecanismo de coincidencia, no esta regex.
  */
-const PALABRA_TITULADA = '[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+';
-const PALABRA_EN_ALTAS = '[A-ZÁÉÍÓÚÜÑ]{3,}';
+const PALABRA_NOMBRE = '[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+';
 
 /**
  * Enlaces de un nombre compuesto: «Juan de la Cruz» es UN nombre, no dos palabras sueltas.
  *
- * **También en mayúsculas**, y no es simetría cosmética: `JUAN DE LA CRUZ` es la forma en que este
- * sistema guarda ese nombre. Sin las variantes altas, `DE` y `LA` no son ni nexo ni palabra de
- * nombre —tienen dos letras—, así que rompían la cadena y el nombre entero salía intacto. Se veía
- * como una incoherencia absurda: `MARIA DEL PILAR RESTREPO` sí se tapaba (porque `DEL` tiene tres
- * letras y colaba como palabra de nombre) y `JUAN DE LA CRUZ` no.
+ * Se admiten también en mayúsculas porque quien escribe «Juan De La Cruz» capitaliza los nexos tan a
+ * menudo como no, y sin eso la cadena se rompe y el nombre sale entero.
  */
 const NEXOS_DE_NOMBRE = ['de', 'del', 'la', 'las', 'los', 'y', 'da', 'di', 'van', 'von'];
 const NEXO_DE_NOMBRE =
   `(?:${[...NEXOS_DE_NOMBRE, ...NEXOS_DE_NOMBRE.map((n) => n.toUpperCase())].join('|')})`;
+
 /** Dos o más palabras de nombre seguidas, con sus nexos. Una sola palabra NUNCA casa. */
-function nombresHechosDe(palabra: string): RegExp {
-  const p = `${palabra}${FIN_DE_PALABRA}`;
-  return new RegExp(`${p}(?:\\s+(?:${NEXO_DE_NOMBRE}\\s+)*${p})+`, 'g');
-}
-
-/** Texto normal: `Maria Gomez` y `MARIA GOMEZ` cuentan las dos. */
-const NOMBRE_EN_TEXTO = nombresHechosDe(`(?:${PALABRA_TITULADA}|${PALABRA_EN_ALTAS})`);
-/** Texto ya escrito entero en altas: ahí la mayúscula no distingue nada y solo queda Title Case. */
-const NOMBRE_TITULADO_EN_TEXTO = nombresHechosDe(PALABRA_TITULADA);
-
-/**
- * ¿El texto está escrito ENTERO en mayúsculas?
- *
- * Los dos umbrales salen de medir los casos reales, no de elegir un número redondo. La prosa
- * operativa que hay que respetar viene al 100 % de altas; las notas con un nombre dentro que hay que
- * tapar medían 27 %, 55 % y 70 %. El corte va en 85 % porque el hueco entre 70 y 100 es donde no hay
- * ningún caso, y no porque 85 signifique nada.
- *
- * El suelo de letras es la otra mitad, y protege el caso corto: una nota que dice solo
- * «JOSE PEREZ» también es 100 % de altas, pero con diez letras no hay estilo de escritura que
- * deducir —hay un nombre—. Por debajo del suelo la heurística sigue mirando las mayúsculas.
- */
-const LETRAS_PARA_HABLAR_DE_ESTILO = 20;
-const FRACCION_DE_ALTAS_PARA_ESTILO = 0.85;
-
-function escritoEnteroEnAltas(texto: string): boolean {
-  const letras = texto.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g) ?? [];
-  if (letras.length < LETRAS_PARA_HABLAR_DE_ESTILO) return false;
-  const altas = letras.filter((l) => /[A-ZÁÉÍÓÚÜÑ]/.test(l)).length;
-  return altas / letras.length >= FRACCION_DE_ALTAS_PARA_ESTILO;
-}
+const NOMBRE_EN_TEXTO = new RegExp(
+  `${PALABRA_NOMBRE}${FIN_DE_PALABRA}`
+  + `(?:\\s+(?:${NEXO_DE_NOMBRE}\\s+)*${PALABRA_NOMBRE}${FIN_DE_PALABRA})+`, 'g',
+);
 
 /** Para no exigirle a un nexo que esté en el catálogo del dominio. Ver `enmascararNombres`. */
 const NEXOS_EN_MINUSCULA = new Set(NEXOS_DE_NOMBRE);
@@ -274,31 +240,17 @@ const NEXOS_EN_MINUSCULA = new Set(NEXOS_DE_NOMBRE);
 /**
  * Términos del dominio que pueden ir capitalizados sin nombrar a nadie.
  *
- * **Su incompletitud NO es gratis, y decir lo contrario era la premisa que había que corregir.** El
- * comentario anterior afirmaba que olvidar un término «solo cuesta legibilidad», y eso era cierto
- * mientras la heurística solo miraba Title Case: lo que se perdía era un «Nota Crédito» ilegible de
- * vez en cuando. Al admitir mayúsculas, lo que se perdía pasó a ser prosa operativa entera, y en un
- * destino que no admite UPDATE ni DELETE: una nota mutilada no es un inconveniente de lectura, es la
- * pérdida definitiva de la única explicación de por qué alguien dio un caso por perdido.
+ * **Es corta a propósito y su incompletitud es segura**: lo que no esté aquí se enmascara. Olvidar
+ * un término cuesta un «Nota Crédito» ilegible de vez en cuando; el error contrario es un nombre en
+ * una fila que nadie puede borrar.
  *
- * Por eso la lista tiene ahora dos naturalezas, y conviene no confundirlas:
- *
- *   · **Cerrada y segura** — las palabras funcionales del español (artículos, preposiciones,
- *     conjunciones, negaciones). Son un conjunto finito y ninguna es un apellido, así que añadirlas
- *     no puede ocultar a nadie: un grupo formado SOLO por palabras funcionales no es un nombre.
- *   · **Abierta e incompleta por naturaleza** — los términos del dominio. El espacio de prosa
- *     operativa en mayúsculas no se puede enumerar, así que esta mitad NO es la defensa: lo que
- *     impide que la prosa en altas se enmascare es la regla de estilo de `escritoEnteroEnAltas`, y
- *     esta lista solo recorta el error en el tramo mixto.
- *
- * Ampliarla sigue siendo una decisión consciente de dejar pasar una pareja de palabras.
- *
- * El segundo bloque son las siglas y las formas societarias que hasta la corrección de las
- * mayúsculas no hacían falta —quedaban fuera por la propia regex— y ahora sí: son justo las que
- * aparecen pegadas a otra palabra en mayúsculas («NOTA CREDITO», «SIIGO NUBE», «NIT SAS»). La
- * comparación se hace en minúsculas, así que una sola entrada cubre `SAS` y `Sas`. Las de dos
- * letras (`cc`, `sa`, `eu`) solo sirven para la forma capitalizada: en mayúsculas no las mira nadie,
- * porque `PALABRA_NOMBRE` exige tres.
+ * Que ese balance sea aceptable depende de que la heurística mire SOLO Title Case, y conviene
+ * dejarlo escrito porque durante un tiempo no fue así: mientras miró también las mayúsculas, el
+ * precio de un olvido pasó a ser prosa operativa entera mutilada —«NO APLICA REINTENTO» convertido
+ * en iniciales— y esta lista tuvo que crecer con siglas y palabras funcionales para tapar el
+ * agujero. Nada de eso hace falta ahora: `NOTA CREDITO` o `SOLO LECTURA` no casan con la regex, así
+ * que no hay que enumerarlos. Si alguien vuelve a meter las altas, esta lista volverá a quedarse
+ * corta el primer día — y esa es la señal de que el problema no estaba en la lista.
  */
 const TERMINOS_NO_PERSONALES = new Set([
   'nota', 'notas', 'crédito', 'credito', 'débito', 'debito', 'factura', 'facturas', 'documento',
@@ -307,15 +259,6 @@ const TERMINOS_NO_PERSONALES = new Set([
   'cliente', 'clientes', 'correo', 'correos', 'emisión', 'emision', 'envío', 'envio', 'error',
   'rechazo', 'regla', 'validación', 'validacion', 'contabilidad', 'operaciones', 'ambiente',
   'producción', 'produccion', 'pruebas', 'sistema', 'soporte', 'mesa', 'ayuda',
-  // Siglas y formas societarias.
-  'dian', 'cufe', 'nit', 'rut', 'cc', 'iva', 'sas', 'ltda', 'sa', 'eu', 'pdf', 'xml', 'api', 'url',
-  // Estados y modos que el propio catálogo de errores nombra en mayúsculas dentro de una frase.
-  'solo', 'lectura', 'modo', 'cuenta', 'nube', 'token', 'plan',
-  // Palabras funcionales: el bloque CERRADO. Ninguna es un apellido.
-  'el', 'la', 'lo', 'los', 'las', 'un', 'una', 'unos', 'unas', 'este', 'esta', 'estos', 'estas',
-  'ese', 'esa', 'no', 'ni', 'ya', 'se', 'su', 'sus', 'al', 'del', 'de', 'y', 'o', 'u', 'por', 'para',
-  'con', 'sin', 'que', 'qué', 'pero', 'como', 'cómo', 'cuando', 'cuándo', 'donde', 'dónde', 'hay',
-  'es', 'son', 'está', 'esta', 'están', 'fue', 'hasta', 'desde', 'sobre', 'entre', 'muy', 'más',
 ]);
 
 /** Una tira de dígitos con sus separadores. `\b` no vale: los separadores son parte del número. */
@@ -365,8 +308,14 @@ function escaparParaRegExp(texto: string): string {
  *
  * Sin heurística ninguna: se busca el valor exacto, insensible a mayúsculas y tolerante con los
  * espacios (una razón social copiada de una tabla llega con espacios de más más veces de las que
- * parece). Es el único camino que tapa un nombre escrito dentro de una nota redactada entera en
- * mayúsculas, donde la heurística por forma se apaga a propósito.
+ * parece). Es el único camino que tapa un nombre escrito en MAYÚSCULAS, que la heurística por forma
+ * no mira —y no por descuido: ver la cabecera del bloque—.
+ *
+ * **Con límites de palabra a los dos lados**, y no es teórico: sin ellos un cliente que se llame
+ * `SURA` convierte «quedó en CLAUSURA definitiva» en «quedó en CLAUS. definitiva». El largo mínimo
+ * acota ese daño pero no lo elimina —hay razones sociales cortas de verdad—, así que la frontera se
+ * exige explícitamente. Se usan las mismas clases que la heurística, porque `\b` no sirve con
+ * acentos: la `é` no es carácter de palabra para JavaScript.
  *
  * Lo que NO cubre, dicho aquí: una versión ABREVIADA del nombre («Transportes La Sabana» sin el
  * «SAS», o solo el apellido). Para eso queda la heurística, con su margen de error.
@@ -376,18 +325,15 @@ function enmascararConocidos(texto: string, nombres: readonly (string | null | u
   for (const bruto of nombres) {
     const nombre = (bruto ?? '').trim().replace(/\s+/g, ' ');
     if (nombre.length < LARGO_MINIMO_CONOCIDO) continue;
-    const patron = new RegExp(escaparParaRegExp(nombre).replace(/ /g, '\\s+'), 'gi');
+    const cuerpo = escaparParaRegExp(nombre).replace(/ /g, '\\s+');
+    const patron = new RegExp(`${INICIO_DE_PALABRA}${cuerpo}${FIN_DE_PALABRA}`, 'gi');
     salida = salida.replace(patron, (encontrado) => maskName(encontrado));
   }
   return salida;
 }
 
 function enmascararNombres(texto: string): string {
-  // La regla de estilo se decide sobre el texto que llega AQUÍ, es decir, después de tapar los
-  // nombres conocidos: una razón social ya convertida en iniciales deja de inflar la cuenta de
-  // mayúsculas, y la nota vuelve a parecer lo que es.
-  const patron = escritoEnteroEnAltas(texto) ? NOMBRE_TITULADO_EN_TEXTO : NOMBRE_EN_TEXTO;
-  return texto.replace(patron, (bruto: string) => {
+  return texto.replace(NOMBRE_EN_TEXTO, (bruto: string) => {
     const capitalizadas = bruto.split(/\s+/)
       .filter((p) => /^[A-ZÁÉÍÓÚÜÑ]/.test(p))
       // Los nexos se descuentan: son estructura del nombre, no identidad, y desde que se admiten en
@@ -411,11 +357,11 @@ function enmascararNombres(texto: string): string {
  * quien opera tiene delante en su fila—. Es opcional porque no todos los llamadores tienen un caso
  * detrás, pero cuando se puede pasar hay que pasarlo: es el único mecanismo exacto de los dos.
  *
- * El orden no es casual y ahora tiene una razón más:
+ * El orden no es casual:
  *   1. el correo, porque lleva dentro puntos y dígitos que las otras reglas trocearían;
  *   2. la placa;
- *   3. **los nombres conocidos, ANTES de la heurística**, para que la regla de estilo de
- *      `enmascararNombres` decida sobre un texto del que ya se quitó la razón social;
+ *   3. los nombres conocidos, antes de la heurística, para que esta no vuelva a partir un nombre
+ *      que ya quedó en iniciales;
  *   4. la heurística por forma;
  *   5. los números al final, porque las máscaras que dejan las demás ya no contienen tiras largas
  *      de dígitos.

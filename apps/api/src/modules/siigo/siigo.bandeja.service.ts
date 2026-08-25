@@ -374,6 +374,12 @@ async function hidratar(casos: FilaCaso[], ahora: Date): Promise<SiigoBandejaIte
         caso.fuente === 'dian' ? dian?.motivo ?? ''
           : caso.fuente === 'correo' ? correo?.motivo ?? ''
             : '',
+        // El nombre del cliente de ESTA fila, que se emite veinte líneas más abajo como
+        // `clienteNombre`. Sin pasarlo, un motivo que repita la razón social —lo normal cuando el
+        // cliente es persona natural y su «razón social» ES el nombre del titular— la entrega
+        // entera justo al lado de su identificación, que es la correlación que este bloque dice
+        // estar evitando. Es además la única defensa que queda para un motivo escrito en altas.
+        [cliente?.nombre],
       ) || null,
       estado,
       colaId: caso.colaId ?? cola?.id ?? null,

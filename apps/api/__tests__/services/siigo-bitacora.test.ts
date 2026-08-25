@@ -270,17 +270,6 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     ['una placa', 'el vehículo WGY45D del titular', 'WGY45D'],
     ['un nombre y apellido', 'lo pidió Ana Ramírez por teléfono', 'Ana Ramírez'],
     ['un nombre compuesto', 'firmó Juan de la Cruz Pérez', 'Juan de la Cruz Pérez'],
-    // ── La forma REAL en la que este sistema escribe los nombres ──────────────────────────────
-    // No son variantes exóticas de las de arriba. La mayúscula es como se guarda y se pinta una
-    // razón social aquí —el ejemplo canónico de `shared/utils/pii.ts` es literalmente
-    // `"ANALEANDRA HINCAPIE OSPINA"`—, y quien opera tiene esa razón social delante, en su fila,
-    // mientras teclea la nota. Hasta el hallazgo del gate de seguridad de la #11340 los ocho casos
-    // de arriba iban todos en Title Case y estos cuatro salían INTACTOS hacia una tabla que no
-    // admite UPDATE ni DELETE: el título del bloque prometía algo que el cuerpo no medía.
-    ['un nombre en MAYÚSCULAS', 'confirmado con MARIA GOMEZ de contabilidad', 'MARIA GOMEZ'],
-    ['un contacto dentro de una razón social',
-      'Cliente TRANSPORTES LA SABANA SAS, contacto ANDRES RUIZ', 'ANDRES RUIZ'],
-    ['un nombre compuesto en MAYÚSCULAS', 'lo autorizó JUAN DE LA CRUZ', 'JUAN DE LA CRUZ'],
     ['una placa en minúsculas', 'placa abc123 del titular', 'abc123'],
   ])('%s no sale entera', (_caso, texto, dato) => {
     expect(redactarPIIEnTextoLibre(texto)).not.toContain(dato);
@@ -289,11 +278,10 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
   // `not.toContain` dice que el dato ya no está, no que lo que quedó sirva para operar. Esto ancla
   // la salida exacta, y de paso que el enmascarado es el canónico del repositorio (`maskName`) y no
   // un segundo criterio que pueda divergir.
-  it('el nombre en mayúsculas sale como iniciales, igual que en el catálogo canónico', () => {
-    expect(redactarPIIEnTextoLibre('confirmado con MARIA GOMEZ de contabilidad'))
-      .toBe('confirmado con M. G. de contabilidad');
-    expect(redactarPIIEnTextoLibre('ANALEANDRA HINCAPIE OSPINA pidió la corrección'))
-      .toBe('A. H. O. pidió la corrección');
+  it('el nombre conocido sale como iniciales, igual que en el catálogo canónico', () => {
+    expect(redactarPIIEnTextoLibre(
+      'ANALEANDRA HINCAPIE OSPINA pidió la corrección', ['ANALEANDRA HINCAPIE OSPINA'],
+    )).toBe('A. H. O. pidió la corrección');
   });
 
   it.each([
@@ -318,16 +306,25 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
   });
 
-  // ── La nota escrita ENTERA en mayúsculas ──────────────────────────────────────────────────
+  // ── La prosa operativa en MAYÚSCULAS ──────────────────────────────────────────────────────
   //
-  // Es un hábito extendido en operación, no una rareza. Tratar la mayúscula como señal de nombre
-  // propio ahí devolvía «SE R. T. V. Y. S. F.» y dejaba en una tabla que no admite UPDATE ni DELETE
-  // una explicación ilegible para siempre — que es justo lo que el AC5 existe para conservar.
+  // Escribir la nota en altas es un hábito extendido en operación, no una rareza. La heurística no
+  // mira las mayúsculas justamente por esto: mientras las miró, estas notas salían convertidas en
+  // iniciales hacia una tabla que no admite UPDATE ni DELETE, y una explicación mutilada ahí se
+  // pierde para siempre —que es lo que el AC5 existe para conservar—.
+  //
+  // Las dos primeras son los casos que tumbaron la versión con umbrales: `CLIENTE PIDIO ANULAR` cae
+  // por debajo del suelo de letras que se probó, y la mixta baja de la fracción de altas por una
+  // sola palabra en minúsculas al final. Ninguna de las dos es rara, y por eso no hay umbral.
   it.each([
+    ['una nota corta', 'CLIENTE PIDIO ANULAR'],
+    ['una nota mixta', 'SE REINTENTO TRES VECES Y SIGUE FALLANDO pendiente'],
     ['un parte de reintentos', 'SE REINTENTO TRES VECES Y SIGUE FALLANDO, PASAR A SOPORTE'],
     ['una espera', 'PENDIENTE RESPUESTA DE LA DIAN, NO REINTENTAR TODAVIA'],
     ['un descarte razonado', 'NO APLICA REINTENTO, FACTURA YA EMITIDA EN OTRO LOTE'],
-  ])('%s escrito entero en mayúsculas se queda tal cual: es el estilo, no un nombre', (_c, texto) => {
+    ['un aviso de estado', 'FACTURA YA EMITIDA'],
+    ['un traspaso', 'PASAR A SOPORTE'],
+  ])('%s en mayúsculas se queda tal cual: la heurística no mira las altas', (_c, texto) => {
     expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
   });
 
@@ -352,21 +349,33 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     expect(salida).toContain('T. L. S. S.');
   });
 
-  // Y el hueco que ese apagado deja, escrito para que nadie lo dé por cubierto: un nombre TECLEADO
-  // de memoria dentro de una nota en altas no lo ve nadie —no hay dato con el que cotejarlo y, por
-  // forma, es indistinguible de la prosa operativa que hay que respetar—. Es el precio elegido, y se
-  // paga aquí y no en la legibilidad de todas las notas.
-  it('un nombre tecleado dentro de una nota en altas NO se tapa: el hueco está declarado', () => {
+  // ── EL HUECO ACEPTADO ─────────────────────────────────────────────────────────────────────
+  //
+  // Un nombre TECLEADO de memoria en mayúsculas no lo ve nadie: no hay dato con el que cotejarlo y,
+  // por forma, es indistinguible de la prosa operativa de arriba. **Es una decisión tomada, no un
+  // olvido**: David la aceptó explícitamente cuando el gate la declaró asumible, y el precio de la
+  // alternativa era mutilar 12 de 16 notas operativas cortas de forma irreversible. Esta prueba
+  // existe para que quede visible, y para que quien la vea roja sepa que está cambiando la decisión
+  // y no arreglando un descuido.
+  it('un nombre en MAYÚSCULAS que NO es el del caso pasa entero: el hueco está aceptado', () => {
     const texto = 'SE CONFIRMO CON MARIA GOMEZ DE CONTABILIDAD, NO REINTENTAR';
     expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
-    // La misma frase en minúsculas —donde la mayúscula sí distingue— sigue tapando.
-    expect(redactarPIIEnTextoLibre('se confirmó con MARIA GOMEZ de contabilidad'))
-      .toBe('se confirmó con M. G. de contabilidad');
   });
 
-  // El suelo de letras del criterio de estilo: una nota corta en altas no es un estilo de escritura.
-  it('una nota corta que es solo un nombre en altas sí se tapa: ahí no hay estilo que deducir', () => {
-    expect(redactarPIIEnTextoLibre('JOSE PEREZ')).toBe('J. P.');
+  // Y el contrapeso que hace asumible ese hueco: en cuanto ese mismo nombre ES el del caso —el
+  // flujo que motivó el hallazgo, copiar de la fila—, deja de pasar, venga como venga escrito.
+  it('ese mismo nombre, si es el del caso, SÍ se tapa: la coincidencia no depende de la caja', () => {
+    expect(redactarPIIEnTextoLibre(
+      'SE CONFIRMO CON MARIA GOMEZ DE CONTABILIDAD, NO REINTENTAR', ['Maria Gomez'],
+    )).toBe('SE CONFIRMO CON M. G. DE CONTABILIDAD, NO REINTENTAR');
+  });
+
+  // El límite de palabra del cotejo: una razón social corta no puede mutar subcadenas.
+  it('un nombre conocido corto no parte otra palabra que lo contenga', () => {
+    expect(redactarPIIEnTextoLibre('quedó en CLAUSURA definitiva', ['SURA']))
+      .toBe('quedó en CLAUSURA definitiva');
+    expect(redactarPIIEnTextoLibre('lo pidió SURA por escrito', ['SURA']))
+      .toBe('lo pidió S. por escrito');
   });
 
   // Lo que esta heurística NO ve, escrito para que nadie lo dé por cubierto: un detector de nombres

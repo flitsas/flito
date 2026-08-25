@@ -600,29 +600,29 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     expect(escrito).toContain('J. P.');
   });
 
-  // El caso de arriba usa Title Case, que NO es como este sistema escribe los nombres. La razón
-  // social la tiene delante quien opera, en su propia fila (`clienteNombre`), mientras teclea la
-  // nota: copiar de la fila a la nota es el flujo esperado y no el raro. Con el redactor anterior
-  // esta nota llegaba ENTERA al INSERT de `siigo_operaciones`, que prohíbe UPDATE y DELETE por
+  // El caso de arriba usa Title Case. La razón social que quien opera tiene delante en su fila
+  // (`clienteNombre`) viene en MAYÚSCULAS, y copiar de la fila a la nota es el flujo esperado, no el
+  // raro. Eso lo tapa el cotejo contra el nombre del caso, que no depende de la caja; la placa, su
+  // propia regla. Todo antes del INSERT en `siigo_operaciones`, que prohíbe UPDATE y DELETE por
   // disparador desde la `0126` — sin rectificación ni supresión posibles (Ley 1581, art. 8 lit. d y e).
   it('una nota copiada de la fila —MAYÚSCULAS y placa en minúsculas— llega ENMASCARADA al INSERT', async () => {
-    await descartarCaso({
-      ...DESCARTE,
-      nota: 'Cliente TRANSPORTES LA SABANA SAS, confirmó MARIA GOMEZ, placa abc123',
-    });
+    kdb.when
+      .select('siigo_factura_tramites', [{ companiaId: 7 }])
+      .select('clients', [{ id: 7, name: 'TRANSPORTES LA SABANA SAS' }]);
+
+    await descartarCaso({ ...DESCARTE, nota: 'Cliente TRANSPORTES LA SABANA SAS, placa abc123' });
 
     const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
-    expect(escrito).not.toContain('MARIA GOMEZ');
     expect(escrito).not.toContain('SABANA');
     expect(escrito).not.toContain('abc123');
-    expect(escrito).toContain('M. G.');
+    expect(escrito).toBe('Cliente T. L. S. S., placa a****3');
   });
 
   // ── La nota escrita ENTERA en mayúsculas, que es un hábito y no una rareza ────────────────
   //
-  // Ahí la heurística por forma se apaga a propósito —tratar la mayúscula como señal de nombre
-  // convertía la explicación en iniciales, y una explicación mutilada en `siigo_operaciones` no se
-  // puede reescribir—. Lo que sostiene la protección en ese caso es el otro mecanismo: la razón
+  // La heurística por forma no mira las mayúsculas —tratarlas como señal de nombre convertía la
+  // explicación en iniciales, y una explicación mutilada en `siigo_operaciones` no se puede
+  // reescribir—. Lo que sostiene la protección aquí es el otro mecanismo, el preciso: la razón
   // social del cliente DE ESTE CASO se conoce, se lee de su fila, y se tapa por coincidencia.
   it('en una nota toda en altas se tapa la razón social del caso y el resto se conserva', async () => {
     kdb.when
@@ -663,14 +663,11 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     expect(consultas).toBe(1);
   });
 
-  it('un nombre compuesto en MAYÚSCULAS tampoco se salva por los nexos: «DE» y «LA» no lo parten', async () => {
-    // `MARIA DEL PILAR RESTREPO` sí se tapaba y `JUAN DE LA CRUZ` no, porque `DEL` tiene tres letras
-    // y colaba como palabra de nombre mientras `DE` y `LA`, de dos, rompían la cadena. Una
-    // incoherencia que no se ve leyendo la regex: hay que ejecutarla.
-    await descartarCaso({ ...DESCARTE, nota: 'lo autorizó JUAN DE LA CRUZ' });
+  it('un nombre compuesto en Title Case no se salva por los nexos: «de» y «la» no lo parten', async () => {
+    await descartarCaso({ ...DESCARTE, nota: 'lo autorizó Juan de la Cruz Pérez' });
 
     const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
-    expect(escrito).toBe('lo autorizó J. D. L. C.');
+    expect(escrito).toBe('lo autorizó J. D. L. C. P.');
   });
 
   it('el texto operativo sigue legible: DIAN, CUFE, la regla con dígitos y las dos siglas seguidas', async () => {
