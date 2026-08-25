@@ -38,6 +38,17 @@ const {
   homologar, podarPayload, resolverCampos, FECHA_CENTINELA_NO_NOTIFICADO,
 } = await import('../../src/modules/flito-comparendos/flito-comparendos-merge.js');
 
+/**
+ * El tercer parámetro que `resolverCampos` estrena en la HU #11878. Aquí es inerte a propósito: lo
+ * que este archivo prueba son las FECHAS, y el municipio derivado tiene su propio test
+ * (`flito-comparendos-municipio-resuelto.test.ts`). Se pasa el municipio consultado que ya usaban
+ * estos casos —el `'MEDELLIN'` del helper de abajo— con el catálogo que lo contiene.
+ */
+const CTX_MUNICIPIO = {
+  municipioFuente: 'MEDELLIN' as string | null,
+  catalogoMunicipios: ['MEDELLIN', 'BELLO'] as readonly string[],
+};
+
 // ─────────────────────────── El mapa v4, leído de la migración ──────────────────────────────────
 
 const RUTA_0164 = fileURLToPath(
@@ -265,7 +276,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const acumulador = new Map();
     acumularSimit(acumulador, [{ numeroComparendo: 'C-1' }], candidatosDe(mapa, 'simit'));
 
-    const campos = resolverCampos(acumulador.get('C-1')!, { fechaComparendo: '1900-01-01' });
+    const campos = resolverCampos(acumulador.get('C-1')!, { fechaComparendo: '1900-01-01' }, CTX_MUNICIPIO);
 
     expect(campos.fechaComparendo).toBeNull();
   });
@@ -282,6 +293,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const campos = resolverCampos(
       acumulador.get('C-1')!,
       { fechaComparendo: '1900-01-01', fechaNotificacion: '1900-01-01' },
+      CTX_MUNICIPIO,
     );
 
     expect(campos.fechaComparendo).toBeNull();
@@ -298,6 +310,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const campos = resolverCampos(
       acumulador.get('C-1')!,
       { fechaComparendo: '2026-05-11', fechaNotificacion: '1900-01-02' },
+      CTX_MUNICIPIO,
     );
 
     expect(campos.fechaComparendo).toBe('2026-05-11');
@@ -327,7 +340,7 @@ describe('AC1 · SIMIT prevalece; el municipal solo si SIMIT no trae fecha usabl
       candidatosDe(mapa, 'municipal'),
       'MEDELLIN',
     );
-    return resolverCampos(acumulador.get(numero)!, null);
+    return resolverCampos(acumulador.get(numero)!, null, CTX_MUNICIPIO);
   }
 
   it('**discrepan y gana SIMIT**: el contraste medido coincidía, así que aquí se fuerza que no', async () => {
@@ -360,7 +373,7 @@ describe('AC1 · SIMIT prevalece; el municipal solo si SIMIT no trae fecha usabl
     const acumulador = new Map();
     acumularSimit(acumulador, [{ numeroComparendo: 'C-1' }], candidatosDe(mapa, 'simit'));
 
-    const campos = resolverCampos(acumulador.get('C-1')!, { fechaNotificacion: '2026-03-26' });
+    const campos = resolverCampos(acumulador.get('C-1')!, { fechaNotificacion: '2026-03-26' }, CTX_MUNICIPIO);
 
     expect(campos.fechaNotificacion).toBe('2026-03-26');
   });

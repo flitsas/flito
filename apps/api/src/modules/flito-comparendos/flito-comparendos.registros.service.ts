@@ -60,11 +60,17 @@
 //        entran por la QUERY, y no son una excepción al RN-33 sino su otra mitad: un código de
 //        municipio, un origen de merge y el id de una causal describen al COMPARENDO y a cómo se
 //        gestiona, no a su titular, así que ninguno de los tres convierte la URL en un rastro de
-//        datos personales. `municipio` compara por IGUALDAD contra `municipio_fuente` normalizado
-//        con `normalizarCodigoFuente` —el mismo normalizador con el que el catálogo guardó el
-//        código y con el que el sync lo escribió en el registro—, y NO se valida contra el
-//        catálogo a propósito: un municipio desactivado sigue teniendo comparendos en la base, y no
-//        poder listarlos sería perder de vista deuda viva por un cambio de parametrización.
+//        datos personales. `municipio` compara por IGUALDAD contra **`municipio_comparendo`**
+//        (HU #11878) normalizado con `normalizarCodigoFuente` —el mismo normalizador con el que el
+//        catálogo guardó el código y con el que el sync lo derivó en el registro—, y NO se valida
+//        contra el catálogo a propósito: un municipio desactivado sigue teniendo comparendos en la
+//        base, y no poder listarlos sería perder de vista deuda viva por un cambio de
+//        parametrización.
+//        **Hasta la HU #11878 comparaba contra `municipio_fuente`, y eso era un defecto**, no una
+//        elección: esa columna dice a qué municipio se le PREGUNTÓ y viene `NULL` en todo
+//        comparendo que solo vio el SIMIT, así que filtrar por Medellín escondía comparendos de
+//        Medellín cuyo `organismo` decía exactamente de dónde eran. La columna vieja no cambia de
+//        valor ni de significado; lo que cambió es qué columna responde a esta pregunta.
 //        `sinCausal` es `causal_id IS NULL` y no una comparación contra vacío: la columna es `uuid`
 //        y no tiene cadena vacía que comparar. Que `causalId` y `sinCausal` juntos sean un 400 lo
 //        decide la RUTA (son dos parámetros contradictorios, y eso es validación de entrada); aquí,
@@ -119,6 +125,10 @@ const COLUMNAS_REGISTRO = {
   fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
   organismo: flitoComparendosRegistros.organismo,
   municipioFuente: flitoComparendosRegistros.municipioFuente,
+  // HU #11878. Va JUNTO a la anterior y no en su lugar: son dos hechos distintos —a quién se le
+  // preguntó y de dónde es el comparendo— y quitar la vieja rompería a quien la lee hoy. El filtro
+  // `municipio` sí se mudó a esta.
+  municipioComparendo: flitoComparendosRegistros.municipioComparendo,
   monto: flitoComparendosRegistros.monto,
   estadoFuente: flitoComparendosRegistros.estadoFuente,
   // HU #11712. `id_resolucion` NO sale por aquí y no es un olvido: es un identificador de sistema
@@ -190,6 +200,10 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     fechaNotificacion: f.fechaNotificacion,
     organismo: f.organismo,
     municipioFuente: f.municipioFuente,
+    // HU #11878. `null` es «no se sabe de dónde es» —ningún organismo reconocible, o dos a la vez— y
+    // se publica tal cual: el visor decide cómo pintar la ausencia, y el `organismo` viaja al lado
+    // para que se pueda leer de qué texto no salió.
+    municipioComparendo: f.municipioComparendo,
     monto: f.monto,
     estadoFuente: f.estadoFuente,
     // `null` se publica tal cual: es «no se sabe» y NO «comparendo» (HU #11712). Traducirlo aquí a
@@ -375,11 +389,20 @@ export function condicionesDeFiltro(filtro: ComparendosRegistrosFiltro): SQL[] |
     condiciones.push(eq(flitoComparendosRegistros.estado, filtro.estado));
   }
   if (filtro.municipio !== undefined) {
-    // El mismo normalizador del catálogo (RN-36): lo guardado es el `codigoFuente` con el que se le
-    // preguntó al proveedor —mayúsculas y sin tildes—, así que «Itagüí» tiene que encontrar
-    // «ITAGUI». Se normaliza aquí aunque la ruta ya lo haya hecho: el normalizador es idempotente y
-    // este servicio no puede depender de que su llamador se acuerde.
-    condiciones.push(eq(flitoComparendosRegistros.municipioFuente, normalizarCodigoFuente(filtro.municipio)));
+    // Contra `municipio_comparendo` desde la HU #11878, y NO contra `municipio_fuente`: preguntar
+    // «¿qué comparendos son de Medellín?» no es preguntar «¿a qué municipio se le preguntó?». Con la
+    // columna vieja, los comparendos de Medellín que solo había reportado el SIMIT —`municipio_fuente
+    // IS NULL`— quedaban fuera de su propio filtro, y el operador veía una lista incompleta sin que
+    // nada se lo dijera. Ese es el defecto que esta línea cierra.
+    //
+    // El mismo normalizador del catálogo se conserva (RN-36): lo guardado en la columna nueva es un
+    // `codigoFuente` del catálogo —mayúsculas y sin tildes, lo ponga el escalón 1 o el 2—, así que
+    // «Itagüí» tiene que seguir encontrando «ITAGUI». Se normaliza aquí aunque la ruta ya lo haya
+    // hecho: el normalizador es idempotente y este servicio no puede depender de que su llamador se
+    // acuerde.
+    condiciones.push(eq(
+      flitoComparendosRegistros.municipioComparendo, normalizarCodigoFuente(filtro.municipio),
+    ));
   }
   if (filtro.fuente !== undefined) {
     // `origen_merge`, que es «qué fuentes lo han visto» y no «de qué municipio es» (CF-08). Lo

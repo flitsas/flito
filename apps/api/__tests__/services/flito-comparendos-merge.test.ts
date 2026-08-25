@@ -45,6 +45,20 @@ const {
 const { ComparendosMapaHomologacionVacioError } =
   await import('../../src/modules/flito-comparendos/flito-comparendos.errors.js');
 
+/**
+ * El tercer parámetro de `resolverCampos` (HU #11878), con el municipio que estos casos ya usaban.
+ *
+ * Coincide a propósito con el `municipioFuente: 'BELLO'` del `consolidado` de más abajo: en el
+ * servicio los dos salen de la MISMA const, así que un fixture donde discreparan estaría probando
+ * una combinación que el código no puede producir. Lo que este archivo ejercita del municipio es
+ * solo que el escalón 1 devuelve el consultado; la deducción por organismo y la regla de ambigüedad
+ * viven en `flito-comparendos-municipio-resuelto.test.ts`.
+ */
+const CTX_MUNICIPIO = {
+  municipioFuente: 'BELLO' as string | null,
+  catalogoMunicipios: ['BELLO', 'MEDELLIN', 'ITAGUI'] as readonly string[],
+};
+
 type FilaMapa = {
   version: number; origen: string; sourcePath: string; targetField: string;
   prioridad: number; provisional: boolean;
@@ -629,6 +643,7 @@ describe('resolverCampos — CF-08', () => {
     const campos = resolverCampos(
       consolidado(canonico({ estadoFuente: 'En cobro coactivo' }), canonico({ estadoFuente: 'Notificado' })),
       null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.estadoFuente).toBe('En cobro coactivo');
@@ -643,6 +658,7 @@ describe('resolverCampos — CF-08', () => {
         canonico({ descripcionInfraccion: 'Conducir sin portar la licencia', monto: '999.00' }),
       ),
       null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.descripcionInfraccion).toBe('Conducir sin portar la licencia');
@@ -653,6 +669,7 @@ describe('resolverCampos — CF-08', () => {
     const campos = resolverCampos(
       consolidado(canonico({ estadoFuente: 'Pagado' }), null),
       { placa: 'ABC123', organismo: 'Secretaría de Movilidad de Bello', estadoFuente: 'Notificado' },
+      CTX_MUNICIPIO,
     );
 
     // Dejar de recibir un dato no es recibir que está vacío: ponerlo en `null` borraría información
@@ -667,6 +684,7 @@ describe('resolverCampos — CF-08', () => {
     const campos = resolverCampos(
       consolidado(null, canonico({ estadoFuente: 'Pagado' })),
       { estadoFuente: 'Pendiente de pago' },
+      CTX_MUNICIPIO,
     );
 
     // Si lo guardado tuviera prioridad sobre el municipal, un comparendo que pasó a «Pagado» en el
@@ -907,6 +925,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
     const campos = resolverCampos(
       consolidado(canonico({ numeroResolucion: 'R-1', idResolucion: '115697134' }), canonico()),
       null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.tipoRegistro).toBe('multa');
@@ -921,6 +940,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
     const campos = resolverCampos(
       consolidado(canonico(), canonico({ numeroResolucion: 'RES-2026-4471' })),
       null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.tipoRegistro).toBe('multa');
@@ -934,6 +954,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
     const campos = resolverCampos(
       consolidado(canonico({ estadoFuente: 'En cobro' }), null),
       { numeroResolucion: 'R-VIEJA', idResolucion: null },
+      CTX_MUNICIPIO,
     );
 
     expect(campos.tipoRegistro).toBe('multa');
@@ -942,7 +963,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
   });
 
   it('4. nadie la trae y nunca la hubo → comparendo', () => {
-    const campos = resolverCampos(consolidado(canonico(), canonico()), { placa: 'ABC123' });
+    const campos = resolverCampos(consolidado(canonico(), canonico()), { placa: 'ABC123' }, CTX_MUNICIPIO);
 
     expect(campos.tipoRegistro).toBe('comparendo');
     expect(campos.numeroResolucion).toBeNull();
@@ -953,6 +974,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
   it('la fila que solo tiene `idResolucion` también es multa (el municipal no manda el número)', () => {
     const campos = resolverCampos(
       consolidado(canonico({ idResolucion: '115697134' }), canonico()), null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.tipoRegistro).toBe('multa');
@@ -964,6 +986,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
     const campos = resolverCampos(
       consolidado(canonico({ numeroResolucion: 'R-SIMIT' }), canonico({ numeroResolucion: 'R-UTS' })),
       null,
+      CTX_MUNICIPIO,
     );
 
     expect(campos.numeroResolucion).toBe('R-SIMIT');
@@ -985,6 +1008,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
 
     const campos = resolverCampos(
       consolidado(canonico(), canonico({ numeroResolucion: 'RES-2026-4471' })), null,
+      CTX_MUNICIPIO,
     );
     expect(mienteLaFila(campos)).toBe(false);
     expect(campos.tipoRegistro).toBe('multa');
@@ -1012,6 +1036,7 @@ describe('resolverCampos — promoción monótona a multa (HU #11712)', () => {
           const campos = resolverCampos(
             consolidado(canonico(s ?? {}), canonico(m ?? {})),
             p === null ? null : p,
+            CTX_MUNICIPIO,
           );
           expect(mienteLaFila(campos), `simit=${JSON.stringify(s)} municipal=${JSON.stringify(m)} previo=${JSON.stringify(p)}`)
             .toBe(false);
@@ -1030,7 +1055,7 @@ describe('acumular* — el ítem municipal que ya es multa llega entero al conso
     acumularMunicipal(acumulador, [itemMunicipalMulta()], candidatosDe(mapa, 'municipal'), 'MEDELLIN');
     // La llave ya no lleva la letra del portal (HU #11806): `D99999…901` normaliza a `99999…901`.
     const consolidado = acumulador.get(FABRICADO.numeroMunicipalCanonico)!;
-    const campos = resolverCampos(consolidado, null);
+    const campos = resolverCampos(consolidado, null, CTX_MUNICIPIO);
 
     expect(campos.numeroResolucion).toBe(FABRICADO.numeroResolucionMunicipal);
     expect(campos.tipoRegistro).toBe('multa');

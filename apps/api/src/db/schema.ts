@@ -4397,7 +4397,26 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // Dato de FUENTE (CF-09): lo escribe el sync y ningún endpoint de gestión lo edita.
   fechaNotificacion: date('fecha_notificacion'),
   organismo: varchar('organismo', { length: 120 }),
+  // A qué municipio se le PREGUNTÓ. No cambia de significado con la HU #11878: sigue siendo la
+  // trazabilidad de la corrida —qué fuente devolvió esta fila— y es `null` en todo comparendo que
+  // solo vio el SIMIT, porque a nadie se le preguntó por él.
   municipioFuente: varchar('municipio_fuente', { length: 40 }),
+  // De qué municipio ES el comparendo (HU #11878, migración 0165). Es OTRA pregunta que la de
+  // arriba, y confundirlas es el defecto que esta columna cierra: filtrar por Medellín contra
+  // `municipio_fuente` escondía los comparendos de Medellín que solo había reportado el SIMIT, cuyo
+  // `organismo` («STRIA DE TTOyTTE MEDELLIN») sí decía de dónde eran.
+  //
+  // Lo DERIVA `municipioDelComparendo` (`flito-comparendos-merge.ts`) en dos escalones: el municipio
+  // consultado si lo hay, y si no el `codigo_fuente` del catálogo que aparezca —con límite de
+  // palabra y siendo el ÚNICO que aparece— dentro del organismo ya resuelto. `null` significa «no se
+  // sabe de dónde es», nunca cadena vacía, y ahí caen tanto lo irreconocible como lo AMBIGUO: dos
+  // municipios dentro del mismo texto no se desempatan, se declaran desconocidos.
+  //
+  // SIN FK contra `flito_comparendos_municipios`, igual que `municipio_fuente` y por el mismo
+  // motivo: renombrar un `codigo_fuente` en la parametrización se convertiría en un error de
+  // escritura sobre el histórico. Se re-deriva entera en cada sync (como `tipo_registro`), así que
+  // el catálogo que crece corrige solo lo que antes no supo reconocer.
+  municipioComparendo: varchar('municipio_comparendo', { length: 40 }),
   monto: numeric('monto', { precision: 14, scale: 2 }),
   estadoFuente: varchar('estado_fuente', { length: 80 }),
   // Comparendo o multa, y la resolución que lo convirtió (HU #11712, migración 0160). Las tres son
@@ -4464,8 +4483,14 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // cola, filtrar por municipio sería recorrer la tabla entera y ordenarla para quedarse con 50
   // filas. `origen_merge` no tiene índice a propósito: son tres valores sobre toda la tabla y el
   // planner no lo usaría.
-  municipioCreadoIdx: index('idx_flito_comparendos_municipio_creado')
-    .on(t.municipioFuente, desc(t.createdAt), desc(t.id)),
+  // Desde la HU #11878 el índice del filtro va sobre `municipio_comparendo` y SUSTITUYE al de
+  // `municipio_fuente` (que la 0165 borra), no convive con él: el filtro del listado se mudó de
+  // columna y la vieja ya no aparece en ningún `WHERE` guiado por igualdad —solo en
+  // `condicionAusente`, donde quien guía es `ultimo_sync_run_id IS DISTINCT FROM` y el municipio
+  // entra como `IS NULL OR IN (...)`—. Dos índices con la misma cola sobre la tabla que más crece
+  // del módulo serían escrituras pagadas para un plan que nadie pide.
+  municipioComparendoCreadoIdx: index('idx_flito_comparendos_municipio_comparendo_creado')
+    .on(t.municipioComparendo, desc(t.createdAt), desc(t.id)),
   causalCreadoIdx: index('idx_flito_comparendos_causal_creado')
     .on(t.causalId, desc(t.createdAt), desc(t.id)),
   // `sinCausal=true` necesita un índice PARCIAL propio, y no es una duplicación del anterior: para
