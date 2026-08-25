@@ -28,6 +28,13 @@ const FILA = {
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en zona prohibida',
   fechaComparendo: '2026-07-12',
+  // La NOTIFICACIÓN, que existe en el contrato desde la HU #11794 y entra en la tabla con la
+  // #11795. Es un `YYYY-MM-DD` sin instante, igual que la del comparendo.
+  fechaNotificacion: '2026-08-03',
+  // La fila municipal: `municipioFuente` puesto Y organismo puesto. Las dos cosas a la vez son lo
+  // que hace comprobable que la celda muestra UNO de los dos y no los dos (HU #11795, AC3), y el
+  // organismo es aquí el nombre de la SECRETARÍA, que es la clase de cadena que manda el UTS
+  // municipal (`nombreAutoridadTransito`) y no la que manda SIMIT.
   organismo: 'Secretaría de Movilidad de Medellín',
   municipioFuente: 'ITAGUI',
   monto: '604100.00',
@@ -60,7 +67,16 @@ const FILA_SIMIT = {
   numeroComparendo: '05001000998877',
   placa: null,
   fechaComparendo: null,
+  // Sin notificar, que es el caso mayoritario: SIMIT manda el centinela `01/01/1900` y el mapa v4
+  // (HU #11794) lo publica como `null`. Lo que la tabla tiene que hacer con esto es pintar «—» sin
+  // perder el rótulo «Notificación» y sin aproximarlo con `fechaComparendo`.
+  fechaNotificacion: null,
   municipioFuente: null,
+  // La clase de cadena que manda SIMIT en `organismoTransito`: en la práctica el NOMBRE del
+  // municipio, sin tilde. Medido en payloads reales del 24 ago. Es distinto del organismo de la
+  // fila municipal a propósito: si las dos filas trajeran el mismo texto, ningún aserto podría
+  // distinguir «se pintó el organismo de ESTA fila» de «se pintó el de la otra».
+  organismo: 'Medellin',
   monto: null,
   codigoInfraccion: null,
   descripcionInfraccion: null,
@@ -193,8 +209,11 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     await expect(tabla).toBeVisible();
     // «Estado» era «Estado» hasta la HU #11713, y «Organismo» estaba en esta lista: la primera se
     // renombró a «Monitoreo» y la segunda salió de la tabla (el dato sigue entero en el detalle).
-    for (const columna of ['N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', 'Fecha', 'Infracción',
-      'Municipio', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
+    // Y desde la HU #11795 «Fecha» es «Fechas» y «Municipio» es «Municipio u organismo»: las dos
+    // celdas llevan ahora dos datos rotulados, y una cabecera en singular mentiría en la mitad de
+    // las filas. NINGUNA columna se añadió — el detalle de esas dos vive en su propio spec.
+    for (const columna of ['N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', 'Fechas', 'Infracción',
+      'Municipio u organismo', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
       await expect(tabla.getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
     }
 
@@ -227,15 +246,24 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     await expect(filaSimit).toContainText('SIMIT');
     expect((await filaSimit.innerText()).split('—').length - 1).toBeGreaterThanOrEqual(4);
 
-    // La fecha de NOTIFICACIÓN no se muestra: ninguna fuente la entrega todavía (spike #11501), y
-    // dejar la columna «para cuando llegue» sería prometer un dato que no existe.
+    // REVOCADO por la HU #11795 — aquí decía «La fecha de NOTIFICACIÓN no se muestra: ninguna fuente
+    // la entrega todavía (spike #11501)». El spike se cerró y la HU BACKEND #11794 la persiste, así
+    // que la premisa caducó. Lo que SIGUE siendo cierto, y es lo que este aserto conserva, es que
+    // **no es una columna nueva**: la notificación entró como una segunda línea rotulada dentro de
+    // la celda «Fechas», y no hay ninguna cabecera que hable de ella.
     await expect(tabla.getByRole('columnheader', { name: /notificaci/i })).toHaveCount(0);
+    // La línea sí está, con su rótulo y su valor, en la celda de la fila.
+    await expect(fila).toContainText('Notificación');
+    await expect(fila).toContainText('3 de ago');
     // `estadoFuente` SÍ, desde la HU #11713, y **tal cual lo manda el proveedor**: sin `capitalize`,
     // sin `uppercase` y sin recortar. Es lo que el operador tendría que citarle al organismo.
     await expect(fila).toContainText('EN COBRO COACTIVO');
     // «Organismo» ya no está en la tabla (HU #11713, AC7): quince columnas eran demasiadas y el dato
     // vive entero en el panel de detalle. Se comprueba por los dos caminos —la cabecera y el valor—
     // porque quitar solo uno de los dos es exactamente el arreglo a medias que deja la columna coja.
+    // La HU #11795 NO la repone: sería la quince. Lo que hace es publicar el VALOR dentro de la
+    // celda «Municipio u organismo», y **solo en las filas cuyo `municipioFuente` es `null`** — así
+    // que el organismo de ESTA fila, que sí tiene municipio, sigue sin aparecer en la tabla.
     await expect(tabla.getByRole('columnheader', { name: 'Organismo', exact: true })).toHaveCount(0);
     await expect(tabla.getByText('Secretaría de Movilidad de Medellín')).toHaveCount(0);
     // Y **ninguna columna se llama solo «Estado»** (AC2): con «Estado en la fuente» al lado, las dos
