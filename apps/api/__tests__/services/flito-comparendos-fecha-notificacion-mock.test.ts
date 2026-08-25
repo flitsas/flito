@@ -264,6 +264,35 @@ describe('AC3 · el merge del modo simulado resuelve la fecha como en una corrid
     return acumulador;
   }
 
+  /**
+   * El tercer parámetro de `resolverCampos` (HU #11878), armado **como lo arma el sync**.
+   *
+   * `escribirRegistros` saca `consolidado.municipioFuente ?? existente?.municipioFuente ?? null` a
+   * una const y la usa para las dos cosas —la columna `municipio_fuente` y el primer escalón de la
+   * derivación—. Aquí `existente` es `null` en las tres llamadas, así que la expresión se queda en
+   * su primer término, y ese término lo pone el propio acumulador: `acumularSimit` escribe `null` y
+   * `acumularMunicipal` escribe el `codigo_fuente` consultado. Es decir, cada caso del mock recibe
+   * el municipio que de verdad le corresponde y no uno elegido a mano:
+   *
+   *   · `MOCK-COMPARTIDO-…-0002` → `MEDELLIN`: lo devolvió el UTS de Medellín (además de SIMIT).
+   *   · `MOCK-SIMIT-…-0001`      → `null`: solo lo vio SIMIT, que no consulta por municipio.
+   *   · `MOCK-MEDELLIN-…-0003`   → `MEDELLIN`: solo lo devolvió el UTS de Medellín.
+   *
+   * Derivarlo del consolidado en vez de escribir los tres literales es deliberado: un literal se
+   * quedaría atrás el día que el mock cambie de municipio y el caso pasaría a probar otra cosa sin
+   * ponerse rojo.
+   *
+   * El catálogo es INERTE en este archivo y se deja dicho para que nadie lo lea como una aserción:
+   * `ctx` solo alimenta `municipioComparendo`, que tiene su propio test
+   * (`flito-comparendos-municipio-resuelto.test.ts`); lo que aquí se afirma es `fechaNotificacion`,
+   * que no lo mira. Se pasa el municipio que el mock consulta, que es el que una corrida real
+   * tendría parametrizado.
+   */
+  const ctxDelSync = (consolidado: { municipioFuente: string | null }) => ({
+    municipioFuente: consolidado.municipioFuente ?? null,
+    catalogoMunicipios: [MUNICIPIO] as readonly string[],
+  });
+
   it('**el comparendo COMPARTIDO: SIMIT manda el centinela y el municipio rellena** (CF-08, RN-13)', async () => {
     // El escalón que hasta ahora ninguna corrida simulada podía ejercer. SIMIT trae `01/01/1900`,
     // `homologar` lo vuelve `null` —no es «fecha usable»— y el segundo escalón toma la del municipio.
@@ -273,17 +302,20 @@ describe('AC3 · el merge del modo simulado resuelve la fecha como en una corrid
 
     expect(compartido.simit!.fechaNotificacion).toBeNull();
     expect(compartido.municipal!.fechaNotificacion).toBe(ESPERADO.municipalCanonico);
-    expect(resolverCampos(compartido, null).fechaNotificacion).toBe(ESPERADO.municipalCanonico);
+    expect(resolverCampos(compartido, null, ctxDelSync(compartido)).fechaNotificacion)
+      .toBe(ESPERADO.municipalCanonico);
   });
 
   it('el que solo ve SIMIT conserva su fecha, y el que solo ve el municipio se queda en `null`', async () => {
     const acumulador = await consolidarElMock();
 
-    expect(resolverCampos(acumulador.get(`MOCK-SIMIT-${NIT}-0001`)!, null).fechaNotificacion)
+    const soloSimit = acumulador.get(`MOCK-SIMIT-${NIT}-0001`)!;
+    expect(resolverCampos(soloSimit, null, ctxDelSync(soloSimit)).fechaNotificacion)
       .toBe(ESPERADO.simitCanonico);
     // Centinela del UTS: la columna queda vacía porque el comparendo NO se ha notificado, que es
     // justo lo que el proveedor está diciendo.
-    expect(resolverCampos(acumulador.get(`MOCK-${MUNICIPIO}-${NIT}-0003`)!, null).fechaNotificacion)
+    const soloMunicipal = acumulador.get(`MOCK-${MUNICIPIO}-${NIT}-0003`)!;
+    expect(resolverCampos(soloMunicipal, null, ctxDelSync(soloMunicipal)).fechaNotificacion)
       .toBeNull();
   });
 
