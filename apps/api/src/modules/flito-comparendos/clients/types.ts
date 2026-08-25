@@ -36,6 +36,14 @@ export interface ComparendoCrudoSimit {
   descripcionInfraccion?: string;
   fechaComparendo?: string;
   fechaImposicion?: string;
+  /**
+   * Cuándo se notificó. Grafía real de SIMIT: `DD/MM/YYYY HH:MM:SS` (HU #11794, mapa v4).
+   *
+   * Se declara aunque el índice de abajo ya la admitiera, porque el campo tiene una particularidad
+   * que conviene leer aquí: `01/01/1900` NO es una fecha, es el centinela de «no notificado», y
+   * quien lo persista como fecha guarda un dato falso. El criterio vive en `fechaCanonica`.
+   */
+  fechaNotificacion?: string;
   secretariaNombre?: string;
   organismoTransito?: string;
   valorAPagar?: string | number;
@@ -65,6 +73,14 @@ export interface ComparendoCrudoMunicipal {
   descripcionInfraccion?: string;
   fecha?: string;
   fechaComparendo?: string;
+  /**
+   * Cuándo se notificó, **en la raíz del ítem** de `informacionComparendo` (HU #11794, mapa v4).
+   *
+   * Dos grafías medidas por este mismo camino el 2026-08-24: Medellín en ISO (`2026-07-30`) y Bogotá
+   * en `DD/MM/YYYY` SIN hora (`14/05/2026`). Homologarlas es trabajo del parser, no del mapa. Y el
+   * `01/01/1900` de aquí es el mismo centinela que en SIMIT, solo que el UTS lo escribe sin hora.
+   */
+  fechaNotificacion?: string;
   organismo?: string;
   secretaria?: string;
   valor?: string | number;

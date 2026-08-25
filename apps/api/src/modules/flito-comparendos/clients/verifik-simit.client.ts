@@ -184,6 +184,27 @@ export async function consultarComparendosSimit(
  * real que hacer: el segundo comparendo lo devuelve también el UTS municipal con el MISMO número
  * —es el caso de unicidad— y llega aquí SIN descripción, que es justo el hueco que el municipal
  * debe rellenar sin pisar lo que ya trajo SIMIT.
+ *
+ * ── `fechaNotificacion` (HU #11877) ──────────────────────────────────────────────────────────────
+ *
+ * Los dos ítems la traen, y con las DOS caras del dato, porque `COMPARENDOS_SIMIT_MODE` vale `mock`
+ * POR DEFECTO (`config/env.ts`) y con el módulo apagado en todos los ambientes este payload es el
+ * ÚNICO que se ejecuta de verdad. Sin el campo aquí, la columna salía vacía **por construcción** en
+ * el modo por defecto: ni una demo ni un recorrido manual podían distinguir «el mapeo v4 está roto»
+ * de «el mock no manda el dato», y ninguna prueba que pasara por este camino habría visto una
+ * regresión del mapa.
+ *
+ *   · El **0001** trae fecha de verdad, en la grafía que SIMIT usa de verdad —`DD/MM/YYYY HH:MM:SS`,
+ *     medida el 2026-08-24 sobre el NIT 901789698— y no en ISO: la mitad del riesgo del campo está
+ *     en la grafía, y un mock en ISO ejercitaría una rama del parser que esta fuente no usa.
+ *   · El **0002** trae el CENTINELA `01/01/1900 00:00:00`, que es como SIMIT dice «no notificado».
+ *     Así el modo simulado ejercita también la rama de descarte (`fechaCanonica` → `null`) y no solo
+ *     el camino feliz. Y como es el comparendo COMPARTIDO —y el municipal sí lo trae notificado—, el
+ *     mock ejerce además el segundo escalón de RN-13: SIMIT calla (centinela) y el municipio rellena.
+ *
+ * La fecha del 0001 es POSTERIOR a su `fechaComparendo` (14/05 → 20/05), que es el orden que tienen
+ * los dos hitos en la realidad. Un mock con la notificación antes de la imposición sería un dato que
+ * nadie puede usar para razonar sobre términos.
  */
 function respuestaSimulada(nit: string): RespuestaFuenteSimit {
   const items: ComparendoCrudoSimit[] = [
@@ -193,6 +214,8 @@ function respuestaSimulada(nit: string): RespuestaFuenteSimit {
       codigoInfraccion: 'C29',
       descripcionInfraccion: 'Estacionar un vehículo en sitio prohibido',
       fechaComparendo: '2026-05-14',
+      // Notificado, en la grafía de SIMIT. Canónico esperado: `2026-05-20`.
+      fechaNotificacion: '20/05/2026 00:00:00',
       secretariaNombre: 'Secretaría de Movilidad de Medellín',
       valorAPagar: '604100',
       estado: 'Pendiente de pago',
@@ -203,6 +226,8 @@ function respuestaSimulada(nit: string): RespuestaFuenteSimit {
       codigoInfraccion: 'D02',
       // Sin `descripcionInfraccion`: el hueco que el municipal rellena (CF-08).
       fechaComparendo: '2026-06-02',
+      // El centinela, con hora: «no notificado» dicho por SIMIT. Canónico esperado: `null`.
+      fechaNotificacion: '01/01/1900 00:00:00',
       secretariaNombre: 'Secretaría de Movilidad de Bello',
       valorAPagar: '1160500',
       estado: 'En cobro coactivo',
