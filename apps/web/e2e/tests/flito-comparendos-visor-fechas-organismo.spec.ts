@@ -1,20 +1,33 @@
-// FLITO — Comparendos: las dos celdas rotuladas de la tabla (HU #11795, AC1..AC5).
+// FLITO — Comparendos: las dos celdas de la tabla que llevan más de un dato dentro.
 //
-// La HU mete DOS datos en la tabla y no mete NI UNA columna: «Fecha» pasa a «Fechas» con las dos
-// fechas del comparendo rotuladas dentro de la misma celda, y «Municipio» pasa a «Municipio u
-// organismo» y muestra el organismo —diciendo que lo es— en las filas cuyo `municipioFuente` es
-// `null`. Los dos cambios son el MISMO defecto dos veces: el dato existía, estaba persistido, viajaba
-// en el contrato de la lista, y la tabla no lo enseñaba.
+//   · «Fechas» (HU #11795): las dos fechas del comparendo, ROTULADAS, en una sola celda.
+//   · «Municipio» (HU #11879): un solo dato, SIN rótulo, con el organismo de respaldo.
+//
+// ── Lo que cambió el 25 ago, y por qué este archivo se reescribió a la mitad ─────────────────────
+// La HU #11795 dejó una columna llamada «Municipio u organismo» cuya celda ROTULABA cuál de los dos
+// datos traía. Era la única salida honesta mientras el dato de la tabla fuera `municipioFuente` —el
+// municipio al que se PREGUNTÓ, `null` en toda fila que solo vio el SIMIT—: la celda mostraba de
+// verdad dos cosas distintas según la fila. La HU #11878 acabó con esa premisa publicando
+// `municipioComparendo`, el municipio de donde ES el comparendo, que el SERVIDOR deriva y audita; y
+// la #11879 escribe la consecuencia en pantalla: la cabecera vuelve a ser **«Municipio»**, a secas,
+// y **ninguna celda rotula su contenido**.
+//
+// Los tests del AC3, del AC4 y del esqueleto que este archivo traía de la #11795 AFIRMABAN LO
+// CONTRARIO —los rótulos «Municipio»/«Organismo» dentro de la celda, la fila de SIMIT que NO salía
+// al filtrar, dos barras fantasma en esa celda—. No se dejan «por si acaso»: un test que afirma lo
+// contrario de la decisión vigente no protege nada, bloquea.
 //
 // ── Lo que este archivo tiene que probar y por qué es fácil probarlo mal ─────────────────────────
-// Los dos datos **ya se veían en el panel de detalle antes de esta HU**, así que una aserción sobre
-// el panel no demuestra nada del AC3: estaría verde sin el cambio. Todo lo que afirma el AC3 se
-// afirma aquí sobre la CELDA de la tabla, localizada por el nombre de su cabecera.
+// Los dos datos **ya se veían en el panel de detalle antes de la #11795**, así que una aserción
+// sobre el panel no demuestra nada de la celda: estaría verde sin el cambio. Todo lo que se afirma
+// de la celda se afirma aquí sobre la CELDA de la tabla, localizada por el nombre de su cabecera.
 //
-// Y las aserciones son sobre los RÓTULOS tanto como sobre los valores. Es la diferencia entre esta
-// HU y no hacer nada: «Medellin» ya podría aparecer en una celda por accidente; lo que la enmienda
-// exige es que la celda diga CUÁL de los dos datos está enseñando. Un test que solo mire el valor
-// pasa con una implementación que funda los dos en silencio, que es justo lo prohibido.
+// Y las aserciones de «Municipio» miran la AUSENCIA de rótulo tanto como el valor, y sobre todo QUÉ
+// campo alimenta el valor. Es lo que distingue esta HU de la anterior: la fila que solo reportó el
+// SIMIT tiene `municipioFuente: null` y `municipioComparendo: 'MEDELLIN'`, así que una
+// implementación que se quedara leyendo el campo viejo pintaría el organismo «Medellin» —sin
+// tilde— donde tiene que decir «Medellín». Un fixture que no distinga los dos campos deja el
+// archivo entero sin comprobar la HU (mutación a de las notas de QA).
 //
 // Los datos son SINTÉTICOS. «Medellin», «Bogota D.C.» y «STRIA DE TTOyTTE MEDELLIN» son las tres
 // FORMAS de cadena que las dos fuentes producen —medidas en payloads reales el 24 ago—, no valores
@@ -39,7 +52,12 @@ const BASE = {
   fechaComparendo: '2026-07-12',
   fechaNotificacion: '2026-08-03',
   organismo: null as string | null,
+  // Los DOS campos, siempre, en todos los fixtures y sin excepción (HU #11878): `municipioFuente`
+  // es a quién se le PREGUNTÓ y `municipioComparendo` es de dónde ES el comparendo. Un fixture que
+  // solo trajera uno de los dos dejaría en verde la implementación que lee el otro, que es
+  // exactamente el mutante a).
   municipioFuente: null as string | null,
+  municipioComparendo: null as string | null,
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
   tipoRegistro: 'comparendo',
@@ -61,9 +79,9 @@ const BASE = {
 };
 
 /**
- * Fila MUNICIPAL: tiene los DOS campos a la vez, y esa es toda su razón de ser.
+ * Fila MUNICIPAL: tiene los TRES campos a la vez, y esa es toda su razón de ser.
  *
- * Con `municipioFuente` puesto la celda enseña el municipio traducido por el catálogo y NO el
+ * Con `municipioComparendo` puesto la celda enseña el municipio traducido por el catálogo y NO el
  * organismo. Si faltara el organismo en este fixture, la aserción «la celda no contiene STRIA» sería
  * cierta sin el cambio y no probaría nada: es el mutante «pintar los dos ya que están» el que este
  * fixture existe para cazar.
@@ -77,50 +95,78 @@ const FILA_MUNICIPAL = {
   id: '11111111-1111-4111-8111-111111111111',
   numeroComparendo: '05001000111111',
   municipioFuente: 'MEDELLIN',
+  municipioComparendo: 'MEDELLIN',
   organismo: 'STRIA DE TTOyTTE MEDELLIN',
 };
 
 /**
- * Fila de SIMIT: `municipioFuente` `null` —por construcción, lo escribe el sync con el código de la
- * consulta municipal y aquí no hubo ninguna— y `organismo` poblado.
+ * **LA fila de esta HU**: solo la reportó el SIMIT y su municipio SÍ quedó resuelto.
  *
- * Es LA fila del defecto: enseñaba «—» teniendo el dato guardado en la misma fila del contrato. En
- * SIMIT el `organismoTransito` es en la práctica el nombre del municipio, **sin tilde**.
+ * `municipioFuente` es `null` —por construcción: lo escribe el sync con el código de la consulta
+ * municipal, y aquí no hubo ninguna— y `municipioComparendo` es `'MEDELLIN'`, que el sync dedujo del
+ * texto del organismo contra el catálogo (HU #11878). La celda tiene que decir **«Medellín», CON
+ * tilde**, porque viene del catálogo y no del organismo.
+ *
+ * Es la fila que separa la #11879 de la #11795 y la que caza el mutante a): una implementación que
+ * siguiera leyendo `municipioFuente` pintaría aquí «Medellin» sin tilde —el organismo— y este
+ * fixture es el único del archivo que nota la diferencia.
  */
 const FILA_SIMIT_MEDELLIN = {
   ...BASE,
   id: '22222222-2222-4222-8222-222222222222',
   numeroComparendo: '05001000222222',
   municipioFuente: null,
+  municipioComparendo: 'MEDELLIN',
   organismo: 'Medellin',
   // Sin notificar: el centinela `01/01/1900` de SIMIT llega como `null` desde el mapa v4 (#11794).
   fechaNotificacion: null,
 };
 
-/** El otro valor medido: con punto, sin tilde y con la abreviatura tal cual. */
-const FILA_SIMIT_BOGOTA = {
+/**
+ * Municipio SIN resolver: ni hubo consulta municipal ni el organismo reconoció un municipio del
+ * catálogo (o reconoció dos, que es el otro camino al `null`: la ambigüedad se declara, no se
+ * desempata).
+ *
+ * Es la rama de respaldo: la celda enseña el organismo **tal cual**, «Medellin» sin tilde, sin
+ * rótulo y sin traducir. El catálogo de este spec tiene `'MEDELLIN' → 'Medellín'` cargado, así que
+ * la tilde solo puede aparecer si alguien tradujo el organismo — mutación b).
+ */
+const FILA_SIN_MUNICIPIO = {
   ...BASE,
   id: '33333333-3333-4333-8333-333333333333',
   numeroComparendo: '11001000333333',
   municipioFuente: null,
+  municipioComparendo: null,
+  organismo: 'Medellin',
+};
+
+/** El otro valor medido, en la misma rama: con punto, sin tilde y con la abreviatura tal cual. */
+const FILA_SIN_MUNICIPIO_BOGOTA = {
+  ...BASE,
+  id: '88888888-8888-4888-8888-888888888888',
+  numeroComparendo: '11001000888888',
+  municipioFuente: null,
+  municipioComparendo: null,
   organismo: 'Bogota D.C.',
 };
 
-/** Ni uno ni otro. Es el único caso en el que la celda vuelve a ser un «—» pelado. */
+/** Ni uno ni otro. Es el único caso en el que la celda es un «—» pelado. */
 const FILA_SIN_LUGAR = {
   ...BASE,
   id: '44444444-4444-4444-8444-444444444444',
   numeroComparendo: '11001000444444',
   municipioFuente: null,
+  municipioComparendo: null,
   organismo: null,
 };
 
-/** Municipal con el catálogo caído: el código crudo, con su rótulo, y la tabla se pinta igual. */
+/** Municipal con el catálogo caído: el código crudo, y la tabla se pinta igual. */
 const FILA_ITAGUI = {
   ...BASE,
   id: '55555555-5555-4555-8555-555555555555',
   numeroComparendo: '05360000555555',
   municipioFuente: 'ITAGUI',
+  municipioComparendo: 'ITAGUI',
   organismo: 'STRIA DE TTOyTTE ITAGUI',
 };
 
@@ -132,6 +178,7 @@ const FILA_SIN_FECHAS = {
   fechaComparendo: null,
   fechaNotificacion: null,
   municipioFuente: null,
+  municipioComparendo: 'MEDELLIN',
   organismo: 'Medellin',
 };
 
@@ -151,6 +198,9 @@ const FILA_ORGANISMO_LARGO = {
   id: '77777777-7777-4777-8777-777777777777',
   numeroComparendo: '11001000777777',
   municipioFuente: null,
+  // Sin municipio resuelto: es la ÚNICA rama en la que el organismo se pinta, y por tanto la única
+  // en la que su peor caso llega a la celda. Con el municipio puesto, este fixture no mediría nada.
+  municipioComparendo: null,
   organismo: ORGANISMO_PEOR_CASO,
 };
 
@@ -166,13 +216,15 @@ interface Traza {
 }
 
 /**
- * Mock del listado que **filtra como el backend**: igualdad exacta contra `municipioFuente`, y nada
- * más. Es lo que hace honesto al AC4.
+ * Mock del listado que **filtra como el backend desde la HU #11878**: igualdad exacta contra
+ * `municipioComparendo`, y nada más. Es lo que hace honesto al AC5.
  *
  * Un mock que devolviera siempre la página entera dejaría el test del filtro en verde con cualquier
- * implementación, incluida una que sí «arreglara» la consecuencia contraintuitiva. Aquí la fila de
- * SIMIT con organismo «Medellin» ESTÁ en el conjunto y el filtro por MEDELLIN no la devuelve, que
- * es exactamente lo que el AC4 afirma y lo que RN-36 y el índice de la 0153 sostienen.
+ * implementación. Y uno que siguiera comparando `municipioFuente` —como hasta la #11795— dejaría el
+ * AC5 en ROJO con la implementación correcta, que es la trampa contraria: la fila que solo reportó
+ * el SIMIT tiene `municipioFuente: null` y `municipioComparendo: 'MEDELLIN'`, y el backend la
+ * devuelve. Se compara el mismo campo que compara el servidor (RN-36 y el índice
+ * `(municipio_comparendo, created_at DESC, id DESC)` de la migración 0165).
  */
 async function mockListado(page: Page, items: unknown[]): Promise<Traza> {
   const traza: Traza = { peticiones: [], items };
@@ -180,13 +232,13 @@ async function mockListado(page: Page, items: unknown[]): Promise<Traza> {
     const url = new URL(route.request().url());
     traza.peticiones.push(`${route.request().method()} ${url.pathname}${url.search}`);
     const municipio = url.searchParams.get('municipio');
-    // `q` es fragmento sobre el número, `municipio` es igualdad exacta contra `municipioFuente`.
-    // Los DOS hacen falta: el AC4 necesita otro filtro que también vacíe la lista para probar que
-    // la frase de SIMIT es CONDICIONADA y no incondicional.
+    // `q` es fragmento sobre el número, `municipio` es igualdad exacta contra `municipioComparendo`.
+    // Los DOS hacen falta: el AC5 necesita otro filtro que también vacíe la lista para probar que
+    // la frase del municipio sin determinar es CONDICIONADA y no incondicional.
     const q = url.searchParams.get('q');
     const filtrados = traza.items.filter((i) => {
-      const fila = i as { municipioFuente: string | null; numeroComparendo: string };
-      if (municipio && fila.municipioFuente !== municipio) return false;
+      const fila = i as { municipioComparendo: string | null; numeroComparendo: string };
+      if (municipio && fila.municipioComparendo !== municipio) return false;
       if (q && !fila.numeroComparendo.includes(q)) return false;
       return true;
     });
@@ -227,10 +279,11 @@ async function celdaDe(page: Page, textoDeFila: string, cabecera: string) {
 }
 
 const TH_FECHAS = 'Fechas';
-const TH_LUGAR = 'Municipio u organismo';
+/** Una palabra, desde la HU #11879. Se llamó «Municipio u organismo» mientras la celda rotulaba. */
+const TH_MUNICIPIO = 'Municipio';
 
 const celdaFechas = (page: Page, fila: string) => celdaDe(page, fila, TH_FECHAS);
-const celdaLugar = (page: Page, fila: string) => celdaDe(page, fila, TH_LUGAR);
+const celdaMunicipio = (page: Page, fila: string) => celdaDe(page, fila, TH_MUNICIPIO);
 
 async function abrirVisor(page: Page, items: unknown[], municipiosOk = true) {
   await loginAs(page, OPERACIONES_USER);
@@ -324,85 +377,133 @@ test.describe('FLITO — Comparendos · AC1 · la celda «Fechas» (HU #11795)',
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
-// AC3 — la tabla dice DÓNDE fue también en las filas de SIMIT
+// AC1..AC3 de la HU #11879 — una columna «Municipio», un solo dato, ningún rótulo
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('FLITO — Comparendos · AC3 · la celda «Municipio u organismo» (HU #11795)', () => {
+test.describe('FLITO — Comparendos · la celda «Municipio» (HU #11879)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
 
-  test('AC3 — la cabecera es «Municipio u organismo»; ni «Municipio» ni «Organismo» sueltas', async ({ page }) => {
+  test('AC1 — la cabecera dice «Municipio», a secas; ni «Municipio u organismo» ni «Organismo»', async ({ page }) => {
     await abrirVisor(page, [FILA_MUNICIPAL]);
     const tabla = page.getByRole('table');
 
-    await expect(tabla.getByRole('columnheader', { name: TH_LUGAR, exact: true })).toBeVisible();
-    // Texto exacto, no `contains` (nota 10): «Municipio u organismo» contiene «Municipio».
-    await expect(tabla.getByRole('columnheader', { name: 'Municipio', exact: true })).toHaveCount(0);
-    await expect(page.locator('table thead th').filter({ hasText: /^Municipio$/ })).toHaveCount(0);
+    // Texto EXACTO, no `contains` (nota 1 de QA), y por los dos caminos: el rol —que es lo que oye
+    // un lector— y el selector CSS, que también ve los `th` fuera del árbol accesible.
+    await expect(tabla.getByRole('columnheader', { name: TH_MUNICIPIO, exact: true })).toBeVisible();
+    await expect(page.locator('table thead th').filter({ hasText: /^Municipio$/ })).toHaveCount(1);
+    // La cabecera de la #11795 no puede sobrevivir en ninguna forma: es la que anunciaba una
+    // disyunción que ya no existe. `contains` a propósito aquí, que es lo que caza el renombre a
+    // medias («Municipio u organismo de tránsito» y variantes).
+    await expect(page.locator('table thead th').filter({ hasText: /organismo/i })).toHaveCount(0);
     // Y la columna «Organismo» separada NO vuelve: sería la quince y reabriría la decisión de la
-    // #11713. Lo que entra no es una columna, es un rótulo dentro de una celda que ya existía.
+    // #11713. El organismo entra como VALOR de una celda que ya existía, nunca como columna.
     await expect(tabla.getByRole('columnheader', { name: 'Organismo', exact: true })).toHaveCount(0);
-    await expect(page.locator('table thead th').filter({ hasText: /^Organismo$/ })).toHaveCount(0);
 
-    // El `caption` gana la frase que ninguna cabecera de tres palabras puede dar.
-    await expect(page.locator('table caption'))
-      .toContainText('cuando el comparendo solo lo reportó SIMIT, la celda muestra el organismo');
+    // El `caption` es lo que compensa que la celda no rotule: es el único texto que un lector
+    // anuncia con seguridad al entrar en la tabla, y sirve igual a quien mira y a quien escucha.
+    const caption = page.locator('table caption');
+    await expect(caption).toContainText('«Municipio» es el municipio donde se impuso el comparendo');
+    await expect(caption).toContainText('Cuando no se pudo determinar, la celda muestra el organismo');
+    // Y la frase de la #11795, que hoy sería falsa, no está en ninguna parte de la tabla.
+    await expect(caption).not.toContainText('a qué municipio se consultó');
   });
 
-  test('AC3 — la fila MUNICIPAL enseña su municipio traducido, rotulado, y NO el organismo', async ({ page }) => {
+  test('AC1/AC2 — la fila MUNICIPAL enseña su municipio traducido, SIN rótulo y sin el organismo', async ({ page }) => {
     await abrirVisor(page, [FILA_MUNICIPAL]);
-    const celda = await celdaLugar(page, FILA_MUNICIPAL.numeroComparendo);
+    const celda = await celdaMunicipio(page, FILA_MUNICIPAL.numeroComparendo);
 
-    // Rótulo SIEMPRE, también en el caso común: si solo se rotulara el de SIMIT, un valor desnudo
-    // significaría «municipio» por omisión, que es fundir los dos rótulos por la puerta de atrás.
-    await expect(celda).toHaveText(/^Municipio\s*Medellín$/);
+    // El valor DESNUDO: la celda es exactamente el nombre del municipio, sin una palabra más. Con
+    // anclas, que es lo que hace fallar a un rótulo repuesto (mutación c) — «Municipio Medellín» no
+    // casa con esto.
+    await expect(celda).toHaveText('Medellín');
     // El mutante «pintar los dos ya que están». `STRIA` solo puede venir del organismo de ESTA fila:
     // si aparece, la celda está reponiendo la columna que la #11713 retiró, dentro de otra celda.
     await expect(celda).not.toContainText('STRIA');
     await expect(celda).not.toContainText('Organismo');
+    await expect(celda).not.toContainText('Municipio');
   });
 
-  test('AC3 — la fila de SOLO SIMIT enseña el organismo TAL CUAL, rotulado «Organismo», y ya no «—»', async ({ page }) => {
-    await abrirVisor(page, [FILA_SIMIT_MEDELLIN, FILA_SIMIT_BOGOTA]);
+  test('AC2 — la fila de SOLO SIMIT con municipio resuelto dice «Medellín», CON tilde', async ({ page }) => {
+    // Nota 3 de QA y la razón de ser de la HU: `municipioFuente` es `null` —nadie le preguntó a
+    // Medellín— y `municipioComparendo` es 'MEDELLIN' porque el sync lo dedujo del organismo.
+    await abrirVisor(page, [FILA_SIMIT_MEDELLIN]);
+    const celda = await celdaMunicipio(page, FILA_SIMIT_MEDELLIN.numeroComparendo);
 
-    const medellin = await celdaLugar(page, FILA_SIMIT_MEDELLIN.numeroComparendo);
-    // El rótulo cambia y el valor NO se maquilla: «Medellin» sin tilde, que es lo que dijo la
-    // fuente y lo que el operador puede tener que citarle al organismo. Ni traducido por el catálogo
-    // —que tiene 'MEDELLIN' → 'Medellín' cargado en este mismo test—, ni capitalizado, ni convertido
-    // en municipio. `toHaveText` con anclas: un `contains` de «Medellin» pasaría con «Medellín».
-    await expect(medellin).toHaveText(/^Organismo\s*Medellin$/);
-    // El defecto original, cerrado por los dos caminos que fallan por separado.
+    // **La tilde es la aserción.** Solo puede venir del catálogo ('MEDELLIN' → 'Medellín'), nunca
+    // del organismo, que en este fixture es 'Medellin' pelado. Una implementación que leyera
+    // `municipioFuente` caería aquí, y solo aquí: es la mutación a).
+    await expect(celda).toHaveText('Medellín');
+    // La fila se ve «igual que cualquier otra» (AC2 del work item): ni «—», ni rótulo, ni marca de
+    // que su municipio sea de segunda.
+    await expect(celda).not.toContainText('—');
+    await expect(celda).not.toContainText('Municipio');
+    await expect(celda).not.toContainText('Organismo');
+  });
+
+  test('AC3 — sin municipio resuelto: el organismo TAL CUAL, sin rótulo, sin tilde y sin «—»', async ({ page }) => {
+    await abrirVisor(page, [FILA_SIN_MUNICIPIO, FILA_SIN_MUNICIPIO_BOGOTA]);
+
+    const medellin = await celdaMunicipio(page, FILA_SIN_MUNICIPIO.numeroComparendo);
+    // El valor NO se maquilla: «Medellin» SIN tilde, que es lo que dijo la fuente y lo que el
+    // operador puede tener que citarle al organismo. Ni traducido por el catálogo —que tiene
+    // 'MEDELLIN' → 'Medellín' cargado en este mismo test, y esa es la mutación b)—, ni capitalizado,
+    // ni convertido en municipio. `toHaveText` con la cadena exacta: un `contains` de «Medellin»
+    // pasaría con «Medellín», y un rótulo repuesto pasaría con cualquier `contains`.
+    await expect(medellin).toHaveText('Medellin');
+    // Y ni rastro de los dos rótulos ni del guion: los tres son mutaciones distintas de la misma
+    // decisión, y cada una falla por su cuenta.
     await expect(medellin).not.toContainText('—');
     await expect(medellin).not.toContainText('Municipio');
+    await expect(medellin).not.toContainText('Organismo');
+    // Tampoco un rótulo escondido para quien escucha: sería desambiguar solo a la mitad de la
+    // audiencia, que es la asimetría que la #11795 ya rechazó (con el signo contrario).
+    await expect(medellin.locator('.sr-only')).toHaveCount(0);
 
     // El otro valor medido, con su punto y sin su tilde.
-    const bogota = await celdaLugar(page, FILA_SIMIT_BOGOTA.numeroComparendo);
-    await expect(bogota).toHaveText(/^Organismo\s*Bogota D\.C\.$/);
+    const bogota = await celdaMunicipio(page, FILA_SIN_MUNICIPIO_BOGOTA.numeroComparendo);
+    await expect(bogota).toHaveText('Bogota D.C.');
   });
 
-  test('AC3 — sin ninguno de los dos, un «—» SIN rótulo, con su «Sin dato»', async ({ page }) => {
-    await abrirVisor(page, [FILA_SIN_LUGAR]);
-    const celda = await celdaLugar(page, FILA_SIN_LUGAR.numeroComparendo);
+  test('AC3 — el organismo NO se atenúa: va en el mismo color que un municipio', async ({ page }) => {
+    // Atenuarlo con `--flit-text-muted` sería reponer el rótulo por medio del color —que además
+    // ningún lector anuncia— y perder los 4.5:1: es el gris de los guiones. Se comparan las dos
+    // celdas de la misma tabla, que es lo que hace la aserción independiente del tema.
+    await abrirVisor(page, [FILA_MUNICIPAL, FILA_SIN_MUNICIPIO]);
+    const color = async (numero: string) => (await celdaMunicipio(page, numero))
+      .evaluate((td) => {
+        const nodo = td.querySelector('span') ?? td;
+        return getComputedStyle(nodo).color;
+      });
 
-    // Aquí SÍ se diferencia de la celda «Fechas», a propósito: allí hay dos ranuras que siempre
-    // existen y se sabe qué falta; aquí no se sabe cuál de los dos falta, y escribir «Municipio —»
-    // afirmaría una categoría que nadie puede afirmar. La cabecera ya cubre la celda.
+    expect(await color(FILA_SIN_MUNICIPIO.numeroComparendo),
+      'el organismo está atenuado: es el rótulo repuesto por color')
+      .toBe(await color(FILA_MUNICIPAL.numeroComparendo));
+  });
+
+  test('AC3 — sin ninguno de los dos, un «—» con su «Sin dato»', async ({ page }) => {
+    await abrirVisor(page, [FILA_SIN_LUGAR]);
+    const celda = await celdaMunicipio(page, FILA_SIN_LUGAR.numeroComparendo);
+
+    // El `sr-only` del guion SÍ se queda (a diferencia del rótulo): un guion suelto o se lee
+    // «guion» o no se lee, y en ningún caso significa nada.
     await expect(celda).toHaveText('—Sin dato');
     await expect(celda).not.toContainText('Municipio');
     await expect(celda).not.toContainText('Organismo');
     await expect(celda.getByText('Sin dato')).toHaveCount(1);
   });
 
-  test('AC3 — con el catálogo de municipios CAÍDO se pinta el código crudo, con rótulo, y la tabla se pinta', async ({ page }) => {
-    await abrirVisor(page, [FILA_ITAGUI, FILA_SIMIT_MEDELLIN], false);
+  test('AC3 — con el catálogo de municipios CAÍDO se pinta el código crudo y la tabla se pinta igual', async ({ page }) => {
+    await abrirVisor(page, [FILA_ITAGUI, FILA_SIN_MUNICIPIO], false);
 
-    // La nota 35 vigente, con el rótulo añadido: «ITAGUI» sigue siendo cierto, y el rótulo sigue
-    // diciendo que es un municipio y no un organismo.
-    const itagui = await celdaLugar(page, FILA_ITAGUI.numeroComparendo);
-    await expect(itagui).toHaveText(/^Municipio\s*ITAGUI$/);
+    // La nota 35 vigente del documento madre: «ITAGUI» sigue siendo cierto, y sigue siendo el
+    // municipio del comparendo aunque nadie pueda traducirlo.
+    const itagui = await celdaMunicipio(page, FILA_ITAGUI.numeroComparendo);
+    await expect(itagui).toHaveText('ITAGUI');
     await expect(itagui).not.toContainText('STRIA');
-    // La fila de SIMIT no depende del catálogo para nada y se pinta igual.
-    const simit = await celdaLugar(page, FILA_SIMIT_MEDELLIN.numeroComparendo);
-    await expect(simit).toHaveText(/^Organismo\s*Medellin$/);
+    // La fila sin municipio no depende del catálogo para nada y se pinta igual.
+    const sinMunicipio = await celdaMunicipio(page, FILA_SIN_MUNICIPIO.numeroComparendo);
+    await expect(sinMunicipio).toHaveText('Medellin');
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
   test('AC3 — un organismo de 120 caracteres se lee ENTERO: ni cortado en horizontal ni por el clamp', async ({ page }) => {
@@ -410,7 +511,7 @@ test.describe('FLITO — Comparendos · AC3 · la celda «Municipio u organismo�
       .toHaveLength(120);
     await abrirVisor(page, [FILA_ORGANISMO_LARGO]);
 
-    const celda = await celdaLugar(page, FILA_ORGANISMO_LARGO.numeroComparendo);
+    const celda = await celdaMunicipio(page, FILA_ORGANISMO_LARGO.numeroComparendo);
     const valor = celda.locator('span').last();
     // Medido EN EL NAVEGADOR, que es la exigencia que dejó la #11777: la cuenta a ojo de aquella HU
     // daba tres líneas donde la medida daba cinco, y un `line-clamp` calculado habría recortado un
@@ -436,28 +537,95 @@ test.describe('FLITO — Comparendos · AC3 · la celda «Municipio u organismo�
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
-// AC4 — el filtro por municipio NO cambia (negativo, y contraintuitivo a propósito)
+// AC4 — el panel no puede contradecir a su propia fila, y conserva el organismo aparte
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('FLITO — Comparendos · AC4 · el filtro sigue siendo de `municipioFuente` (HU #11795)', () => {
+test.describe('FLITO — Comparendos · AC4 · el detalle dice lo mismo que la fila (HU #11879)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
 
+  /**
+   * Abre el panel de una fila con el detalle mockeado.
+   *
+   * La ruta del detalle se registra DESPUÉS de la del listado a propósito: `API_REGISTROS` es un
+   * glob que también casa con `/registros/:id`, y Playwright prueba los manejadores en orden
+   * INVERSO al de registro, así que el último gana. Sin esto, el panel recibiría la página del
+   * listado como si fuera un registro.
+   */
+  async function abrirPanel(page: Page, fila: typeof FILA_SIMIT_MEDELLIN) {
+    await abrirVisor(page, [FILA_MUNICIPAL, fila]);
+    await page.route(`**/api/flito/comparendos/registros/${fila.id}`, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...fila, eventos: [] }),
+    }));
+    await page.getByRole('button', { name: `Ver el comparendo ${fila.numeroComparendo}` }).click();
+    const panel = page.getByRole('dialog');
+    await expect(panel).toBeVisible();
+    return panel;
+  }
+
+  test('AC4 — la fila de SIMIT resuelta dice «Medellín» en el panel, no «—», y conserva su organismo', async ({ page }) => {
+    // Nota 10 de QA y §4 del anexo de UX: si esta HU solo tocara la tabla, esta fila diría
+    // «Medellín» en el listado y «Municipio: —» en su propio detalle, abierto ENCIMA de la fila que
+    // afirma lo contrario. El panel leía `municipioFuente`, que aquí es `null`.
+    const panel = await abrirPanel(page, FILA_SIMIT_MEDELLIN);
+    const dl = panel.locator('dl').first();
+
+    // El `<dt>` «Municipio» y su valor, como PAR: afirmar «Medellín» suelto pasaría con el texto en
+    // cualquier otro campo del panel.
+    const municipio = dl.locator('dt').filter({ hasText: /^Municipio$/ });
+    await expect(municipio).toHaveCount(1);
+    await expect(municipio.locator('xpath=following-sibling::dd[1]')).toHaveText('Medellín');
+
+    // Y el organismo sigue siendo un campo APARTE, con su rótulo y su valor tal cual: es lo que el
+    // operador cita cuando reclama, y por eso no se funde con el municipio en ninguna superficie.
+    const organismo = dl.locator('dt').filter({ hasText: /^Organismo$/ });
+    await expect(organismo).toHaveCount(1);
+    await expect(organismo.locator('xpath=following-sibling::dd[1]')).toHaveText('Medellin');
+
+    // La línea de resumen de arriba —la del chip y el origen— dice lo mismo que el `<dl>`: son la
+    // misma verdad dicha dos veces y es donde una de las dos se queda atrás.
+    await expect(panel).toContainText('Municipio: Medellín');
+    await expect(panel).not.toContainText('Municipio: —');
+  });
+
+  test('AC4 — sin municipio resuelto el panel dice MÁS que la tabla: «—» y el organismo entero', async ({ page }) => {
+    // Aquí la tabla enseña el organismo en el lugar del municipio, sin decirlo. El panel es donde
+    // esa ambigüedad se deshace, y por eso la celda no necesita rótulo.
+    const panel = await abrirPanel(page, FILA_SIN_MUNICIPIO);
+    const dl = panel.locator('dl').first();
+
+    const municipio = dl.locator('dt').filter({ hasText: /^Municipio$/ });
+    await expect(municipio.locator('xpath=following-sibling::dd[1]')).toContainText('—');
+    const organismo = dl.locator('dt').filter({ hasText: /^Organismo$/ });
+    await expect(organismo.locator('xpath=following-sibling::dd[1]')).toHaveText('Medellin');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// AC5 — lo que se ve concuerda con lo que filtra (y el copy deja de mentir)
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('FLITO — Comparendos · AC5 · el filtro compara `municipioComparendo` (HU #11879)', () => {
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  // El `select` de la barra, no la cabecera de la tabla: los dos se llaman «Municipio» desde esta
+  // HU, y `getByLabel` solo mira etiquetas de formulario, que es lo que los separa.
   const selMunicipio = (page: Page) => page.getByLabel('Municipio', { exact: true });
 
-  test('AC4 — la fila de SIMIT que dice «Medellin» NO sale al filtrar por MEDELLIN', async ({ page }) => {
-    // Las dos filas dicen «Medellín»/«Medellin» en la celda, y solo una tiene municipio consultado.
-    const traza = await abrirVisor(page, [FILA_MUNICIPAL, FILA_SIMIT_MEDELLIN]);
-    // El fixture SÍ tiene la fila que no debe salir, y se ve antes de filtrar: sin esta línea el
-    // test pasaría porque no hubiera ninguna, que es la trampa clásica de un negativo.
-    await expect(await celdaLugar(page, FILA_SIMIT_MEDELLIN.numeroComparendo))
-      .toHaveText(/^Organismo\s*Medellin$/);
+  test('AC5 — la fila que dice «Medellín» SÍ sale al filtrar por Medellín, aunque solo la reportara SIMIT', async ({ page }) => {
+    // Nota 9 de QA, y la vuelta entera de la consecuencia contraintuitiva de la #11795: entonces
+    // esta fila NO salía. Las dos del fixture enseñan «Medellín» y solo una tuvo consulta municipal.
+    const traza = await abrirVisor(page, [FILA_MUNICIPAL, FILA_SIMIT_MEDELLIN, FILA_SIN_MUNICIPIO]);
+    await expect(await celdaMunicipio(page, FILA_SIMIT_MEDELLIN.numeroComparendo)).toHaveText('Medellín');
 
     await selMunicipio(page).selectOption('MEDELLIN');
     await expect(page.getByText(FILA_MUNICIPAL.numeroComparendo)).toBeVisible();
-
-    // La consecuencia declarada en la enmienda §13: es correcto —esa fila no tiene municipio
-    // consultado, tiene un organismo que lo menciona— y va a llegar reportada como defecto.
-    await expect(page.getByText(FILA_SIMIT_MEDELLIN.numeroComparendo)).toHaveCount(0);
+    // LA aserción de esta HU: la fila de SIMIT está en el resultado.
+    await expect(page.getByText(FILA_SIMIT_MEDELLIN.numeroComparendo)).toBeVisible();
+    // Y el residuo sigue fuera, que es lo que la ayuda del filtro dice y lo que impide leer esto
+    // como «el filtro ahora busca por texto»: esa fila enseña «Medellin» y su municipio es `null`.
+    await expect(page.getByText(FILA_SIN_MUNICIPIO.numeroComparendo)).toHaveCount(0);
 
     // Y la petición NO manda nada nuevo: el esquema del backend es `.strict()`, así que un parámetro
     // de más no es un filtro más ancho, es un 400. Se afirma sobre el conjunto EXACTO de claves.
@@ -466,29 +634,39 @@ test.describe('FLITO — Comparendos · AC4 · el filtro sigue siendo de `munici
     const claves = [...new URL(`http://x${ultima.split(' ')[1]}`).searchParams.keys()];
     expect(claves.sort(), 'la petición ganó un parámetro que el backend no acepta').toEqual(['municipio']);
 
-    // La fila que sí salió sigue rotulada como municipio: no se dedujo nada por el camino.
-    await expect(await celdaLugar(page, FILA_MUNICIPAL.numeroComparendo))
-      .toHaveText(/^Municipio\s*Medellín$/);
+    // Las dos filas que salieron dicen lo mismo en la celda, sin marca de cuál se preguntó: eso es
+    // trazabilidad de la corrida y ya no se pinta en el SPA.
+    await expect(await celdaMunicipio(page, FILA_MUNICIPAL.numeroComparendo)).toHaveText('Medellín');
+    await expect(await celdaMunicipio(page, FILA_SIMIT_MEDELLIN.numeroComparendo)).toHaveText('Medellín');
   });
 
-  test('AC4 — el texto de ayuda del filtro está SIEMPRE visible, no solo tras un vacío', async ({ page }) => {
+  test('AC5 — el texto de ayuda del filtro está SIEMPRE visible y ya no dice lo contrario', async ({ page }) => {
     await abrirVisor(page, [FILA_MUNICIPAL, FILA_SIMIT_MEDELLIN]);
 
-    // Con resultados en pantalla y sin haber tocado nada: la pantalla lo dice ANTES del reporte.
-    const ayuda = page.getByText(/Los comparendos que solo reportó SIMIT no tienen municipio y no salen aquí/);
+    // Con resultados en pantalla y sin haber tocado nada: la ayuda es permanente, no una reacción.
+    const ayuda = page.getByText(/Busca por el municipio donde se impuso el comparendo, lo haya reportado SIMIT o el municipio/);
     await expect(ayuda).toBeVisible();
     // Y enlazado al control, que es lo que hace que un lector lo anuncie al llegar al `select`.
     const descrito = await selMunicipio(page).getAttribute('aria-describedby');
     expect(descrito, 'la ayuda no está enlazada con `aria-describedby`').toBeTruthy();
     // Selector por atributo y no `#id`: los `id` de `useId` llevan dos puntos («:r3:») y en un
     // selector CSS eso no es un identificador.
-    await expect(page.locator(`[id="${descrito}"]`)).toContainText('aunque su organismo lo mencione');
+    const texto = page.locator(`[id="${descrito}"]`);
+    // El residuo, atado a algo VISIBLE: sin el paréntesis, quien lea «no se pudo determinar» se
+    // queda sin saber qué filas son.
+    await expect(texto).toContainText('cuyo municipio no se pudo determinar');
+    await expect(texto).toContainText('en la tabla se les ve el organismo');
+    // Y la frase de la #11795, que hoy le enseñaría al operador a no usar un filtro que funciona.
+    // Se afirma por su fragmento distintivo y no entero: la cadena completa no debe existir en
+    // `apps/web` ni siquiera dentro de una aserción negativa (es la comprobación del §5 del anexo).
+    await expect(texto).not.toContainText('al que se le consultó');
+    await expect(texto).not.toContainText('solo reportó SIMIT');
   });
 
-  test('AC4 — el Vacío B avisa de las filas de SIMIT, y SOLO con el filtro de municipio puesto', async ({ page }) => {
-    // Sin ninguna fila municipal: filtrar por MEDELLIN deja el listado en cero.
-    await abrirVisor(page, [FILA_SIMIT_MEDELLIN]);
-    const frase = page.getByText(/Los comparendos que solo reportó SIMIT no tienen municipio, así que no aparecen con este filtro/);
+  test('AC5 — el Vacío B habla del municipio SIN DETERMINAR, y solo con ese filtro puesto', async ({ page }) => {
+    // Sin ninguna fila de Medellín resuelta: filtrar por MEDELLIN deja el listado en cero.
+    await abrirVisor(page, [FILA_SIN_MUNICIPIO]);
+    const frase = page.getByText(/puede que no se haya podido determinar de dónde son/);
 
     // Antes de filtrar no hay vacío y la frase del vacío no está.
     await expect(frase).toHaveCount(0);
@@ -513,10 +691,10 @@ test.describe('FLITO — Comparendos · AC4 · el filtro sigue siendo de `munici
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
-// AC5 — densidad: CERO columnas nuevas, cero selector, cero preferencia
+// AC6 — densidad y esqueleto: CERO columnas nuevas, cero selector, cero preferencia
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('FLITO — Comparendos · AC5 · la densidad no cambia (HU #11795)', () => {
+test.describe('FLITO — Comparendos · AC6 · la densidad no cambia (HU #11795, #11879)', () => {
   /**
    * Las catorce cabeceras, EN ORDEN y con su texto exacto.
    *
@@ -524,12 +702,12 @@ test.describe('FLITO — Comparendos · AC5 · la densidad no cambia (HU #11795)
    * pasaría después de cambiar una columna por otra. La cuenta sola tampoco vería un renombre.
    */
   const CABECERAS = [
-    'N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', TH_FECHAS, 'Infracción', TH_LUGAR,
+    'N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', TH_FECHAS, 'Infracción', TH_MUNICIPIO,
     'Monto', 'Monitoreo', 'Gestión',
     'Estado en la fuente', 'Origen', 'Registrado', 'Inactivado',
   ];
 
-  test('AC5 — 14 cabeceras con «Inactivado» y 10 por debajo de 1280 px: ni las fechas ni el organismo añadieron columna', async ({ page }) => {
+  test('AC6 — 14 cabeceras con «Inactivado» y 10 por debajo de 1280 px: ni las fechas ni el organismo añadieron columna', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await abrirVisor(page, [FILA_MUNICIPAL]);
     // La cuenta se hace sobre UNA tabla, y se comprueba que es una: un `page.locator('th')` suelto
@@ -548,10 +726,30 @@ test.describe('FLITO — Comparendos · AC5 · la densidad no cambia (HU #11795)
     // Las dos columnas de esta HU son de nivel A: se ven en los DOS anchos, que es donde más falta
     // hacen. Si alguna hubiera bajado a nivel B para «hacer sitio», esto lo vería.
     await expect(tabla.getByRole('columnheader', { name: TH_FECHAS, exact: true })).toBeVisible();
-    await expect(tabla.getByRole('columnheader', { name: TH_LUGAR, exact: true })).toBeVisible();
+    await expect(tabla.getByRole('columnheader', { name: TH_MUNICIPIO, exact: true })).toBeVisible();
   });
 
-  test('AC5 — no hay selector de columnas ni preferencia persistida', async ({ page }) => {
+  test('AC6 — el ancho de la celda «Municipio» no se estrechó: sigue en 11 rem medidos', async ({ page }) => {
+    // La HU #11879 quita un rótulo, no un ancho. Estrechar la columna «porque ahora casi siempre
+    // cabe Medellín» optimizaría el caso común rompiendo el caso que la celda existe para no
+    // esconder: el organismo de respaldo, que sigue admitiendo 120 caracteres.
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await abrirVisor(page, [FILA_MUNICIPAL]);
+    const valor = (await celdaMunicipio(page, FILA_MUNICIPAL.numeroComparendo)).locator('span').first();
+
+    const caja = await valor.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { min: s.minWidth, max: s.maxWidth, ancho: el.clientWidth };
+    });
+    // Los DOS, no solo el techo: en una tabla de layout automático que ya desborda, el `max-w` solo
+    // aprieta la columna contra su mínimo —que con `wrap-anywhere` es UN carácter— y el organismo
+    // vuelve a cortarse en horizontal. Está medido en el documento madre.
+    expect(caja.min, 'la celda perdió su `min-w`: el ancho pasa a ser un deseo').toBe('176px');
+    expect(caja.max, 'la celda perdió su `max-w`').toBe('176px');
+    expect(caja.ancho).toBe(176);
+  });
+
+  test('AC6 — no hay selector de columnas ni preferencia persistida', async ({ page }) => {
     await abrirVisor(page, [FILA_MUNICIPAL, FILA_SIMIT_MEDELLIN]);
 
     // Ningún control ofrece elegir columnas, ni qué fecha ver: sería un patrón nuevo con estado por
@@ -576,7 +774,7 @@ test.describe('FLITO — Comparendos · AC5 · la densidad no cambia (HU #11795)
     }
   });
 
-  test('AC5 — el esqueleto lleva DOS barras en cada una de las dos celdas: la fila no crece de alto', async ({ page }) => {
+  test('AC6 — el esqueleto: DOS barras en «Fechas», UNA en «Municipio», y la fila no salta de alto', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await loginAs(page, OPERACIONES_USER);
     await mockCatalogos(page);
@@ -602,15 +800,23 @@ test.describe('FLITO — Comparendos · AC5 · la densidad no cambia (HU #11795)
       return th.findIndex((t) => t.trim() === cabecera);
     };
     const primeraFila = cargando.locator('tbody tr').first();
-    // DOS barras y no una: con una sola, la fila CRECE de alto al llegar los datos, que es el mismo
-    // defecto que la #11713 corrigió en las cabeceras y el que el esqueleto existe para evitar.
-    for (const cabecera of [TH_FECHAS, TH_LUGAR]) {
-      const i = await indice(cabecera);
-      expect(i, `el esqueleto no tiene la columna «${cabecera}»`).toBeGreaterThanOrEqual(0);
-      await expect(primeraFila.locator('td').nth(i).locator('div'),
-        `«${cabecera}» tiene que llevar dos barras`).toHaveCount(2);
-    }
-    // Y una columna de una sola línea sigue con UNA: sin esto, «dos barras en todas» pasaría.
+    // «Fechas» sigue con DOS barras —rótulo y valor, dos líneas—: con una sola, la fila CRECE de
+    // alto al llegar los datos, que es el defecto que el esqueleto existe para evitar.
+    const iFechas = await indice(TH_FECHAS);
+    expect(iFechas, `el esqueleto no tiene la columna «${TH_FECHAS}»`).toBeGreaterThanOrEqual(0);
+    await expect(primeraFila.locator('td').nth(iFechas).locator('div'),
+      '«Fechas» tiene que llevar dos barras').toHaveCount(2);
+
+    // Y «Municipio» pasa a UNA (HU #11879, nota 8 de QA). Es el olvido que la HU deja si nadie toca
+    // `COLUMNAS_A_DE_DOS_LINEAS`: la celda ya no tiene rótulo, así que con dos barras la fila
+    // fantasma queda MÁS ALTA que la fila con datos y la tabla ENCOGE al cargar — el mismo defecto
+    // con el signo cambiado, y por eso no basta con mirar el alto al final.
+    const iMunicipio = await indice(TH_MUNICIPIO);
+    expect(iMunicipio, `el esqueleto no tiene la columna «${TH_MUNICIPIO}»`).toBeGreaterThanOrEqual(0);
+    await expect(primeraFila.locator('td').nth(iMunicipio).locator('div'),
+      '«Municipio» mide una línea: una sola barra').toHaveCount(1);
+    // Y una columna que siempre midió una línea sigue con UNA: sin esto, «una barra en todas» —que
+    // rompería «Fechas»— no se distinguiría de lo correcto.
     await expect(primeraFila.locator('td').nth(await indice('Placa')).locator('div')).toHaveCount(1);
 
     // El alto de la fila fantasma y el de la fila con datos no se separan más que un pelo. No se

@@ -31,12 +31,15 @@ const FILA = {
   // La NOTIFICACIÓN, que existe en el contrato desde la HU #11794 y entra en la tabla con la
   // #11795. Es un `YYYY-MM-DD` sin instante, igual que la del comparendo.
   fechaNotificacion: '2026-08-03',
-  // La fila municipal: `municipioFuente` puesto Y organismo puesto. Las dos cosas a la vez son lo
-  // que hace comprobable que la celda muestra UNO de los dos y no los dos (HU #11795, AC3), y el
+  // La fila municipal: los TRES campos puestos. Las tres cosas a la vez son lo que hace comprobable
+  // que la celda muestra UNO —el municipio del comparendo— y no los otros dos (HU #11879), y el
   // organismo es aquí el nombre de la SECRETARÍA, que es la clase de cadena que manda el UTS
   // municipal (`nombreAutoridadTransito`) y no la que manda SIMIT.
   organismo: 'Secretaría de Movilidad de Medellín',
+  // A quién se le PREGUNTÓ y de dónde ES el comparendo (HU #11878): dos preguntas distintas que
+  // aquí coinciden, porque la consulta municipal respondió. La fila de SIMIT es la que los separa.
   municipioFuente: 'ITAGUI',
+  municipioComparendo: 'ITAGUI',
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
   // Multa, y con su resolución: la fila de referencia es la que prueba que «Tipo» se traduce y que
@@ -72,6 +75,10 @@ const FILA_SIMIT = {
   // perder el rótulo «Notificación» y sin aproximarlo con `fechaComparendo`.
   fechaNotificacion: null,
   municipioFuente: null,
+  // Y el municipio del comparendo TAMPOCO se pudo determinar (HU #11878): es el residuo —un
+  // organismo que no reconoce ningún municipio del catálogo de este spec, donde solo está ITAGUI—.
+  // Es la fila en la que la celda «Municipio» enseña el organismo, sin rótulo (HU #11879).
+  municipioComparendo: null,
   // La clase de cadena que manda SIMIT en `organismoTransito`: en la práctica el NOMBRE del
   // municipio, sin tilde. Medido en payloads reales del 24 ago. Es distinto del organismo de la
   // fila municipal a propósito: si las dos filas trajeran el mismo texto, ningún aserto podría
@@ -209,11 +216,12 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     await expect(tabla).toBeVisible();
     // «Estado» era «Estado» hasta la HU #11713, y «Organismo» estaba en esta lista: la primera se
     // renombró a «Monitoreo» y la segunda salió de la tabla (el dato sigue entero en el detalle).
-    // Y desde la HU #11795 «Fecha» es «Fechas» y «Municipio» es «Municipio u organismo»: las dos
-    // celdas llevan ahora dos datos rotulados, y una cabecera en singular mentiría en la mitad de
-    // las filas. NINGUNA columna se añadió — el detalle de esas dos vive en su propio spec.
+    // Y desde la HU #11795 «Fecha» es «Fechas»: la celda lleva dos datos rotulados y una cabecera
+    // en singular mentiría en la mitad de las filas. «Municipio» pasó por «Municipio u organismo»
+    // en esa misma HU y VOLVIÓ a llamarse «Municipio» en la #11879, cuando la celda dejó de tener
+    // dos ramas rotuladas. NINGUNA columna se añadió — el detalle de esas dos vive en su propio spec.
     for (const columna of ['N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', 'Fechas', 'Infracción',
-      'Municipio u organismo', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
+      'Municipio', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
       await expect(tabla.getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
     }
 
@@ -261,9 +269,9 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     // «Organismo» ya no está en la tabla (HU #11713, AC7): quince columnas eran demasiadas y el dato
     // vive entero en el panel de detalle. Se comprueba por los dos caminos —la cabecera y el valor—
     // porque quitar solo uno de los dos es exactamente el arreglo a medias que deja la columna coja.
-    // La HU #11795 NO la repone: sería la quince. Lo que hace es publicar el VALOR dentro de la
-    // celda «Municipio u organismo», y **solo en las filas cuyo `municipioFuente` es `null`** — así
-    // que el organismo de ESTA fila, que sí tiene municipio, sigue sin aparecer en la tabla.
+    // Ni la #11795 ni la #11879 la reponen: sería la quince. Lo que hacen es publicar el VALOR
+    // dentro de la celda «Municipio», y **solo en las filas cuyo `municipioComparendo` es `null`**
+    // — así que el organismo de ESTA fila, que sí tiene municipio, sigue sin aparecer en la tabla.
     await expect(tabla.getByRole('columnheader', { name: 'Organismo', exact: true })).toHaveCount(0);
     await expect(tabla.getByText('Secretaría de Movilidad de Medellín')).toHaveCount(0);
     // Y **ninguna columna se llama solo «Estado»** (AC2): con «Estado en la fuente» al lado, las dos
