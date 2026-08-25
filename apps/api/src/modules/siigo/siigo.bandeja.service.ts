@@ -355,19 +355,21 @@ async function hidratar(casos: FilaCaso[], ahora: Date): Promise<SiigoBandejaIte
       // El detalle de la fuente, NO el `error_detalle` de la factura: ese ya está resumido en la
       // guía, y repetirlo daría dos versiones del mismo diagnóstico en la misma fila.
       //
-      // **Enmascarado, y por lo que va AL LADO.** El motivo del rechazo lo escribe
-      // `siigo.motivo-rechazo.service.ts` con el texto que devuelve la DIAN, sin pasar por ninguna
-      // redacción, y esos textos citan con frecuencia el NIT del adquiriente. Hasta esta HU ese campo
-      // solo se leía en la ficha de una factura; aquí sale en una fila que además trae
+      // **Enmascarado, y por lo que va AL LADO.** Este campo sale en una fila que además trae
       // `clienteNombre`, y nombre + identificación juntos son una correlación que
       // `CAMPOS_PII_BANDEJA = ['name']` no declara ante el registro del art. 17. Se enmascara al
       // ENTREGARLO: el operador sigue viendo qué regla se infringió, que es lo que necesita para
       // actuar.
       //
-      // Queda pendiente la ruta de ESCRITURA: `siigo_factura_estados_dian.motivo` se sigue guardando
-      // crudo, y esta línea no lo arregla —solo evita que salga—. Comprobar contra datos reales de
-      // DEV qué trae ese campo y, si trae identificaciones, redactarlo también al escribirlo es una
-      // corrección aparte, que no se pudo verificar desde aquí por no haber acceso a esa base.
+      // **Corrección de una premisa que estuvo escrita aquí**: decía que estos motivos «citan con
+      // frecuencia el NIT del adquiriente». Eso NO está verificado y la evidencia apunta en contra.
+      // `componerMotivo` arma descripciones estáticas del catálogo más `campoLegible`, y
+      // `FORMA_DE_CAMPO` (`siigo.errors.ts`) ya rechaza lo que traiga seis dígitos seguidos, un
+      // arroba o un espacio: por ahí no pasa una identificación. La superficie real es más estrecha
+      // y está en otro sitio —`entradaDesconocida` interpola el `Code` crudo de Siigo pasado solo por
+      // `redactarSecretos`, que es una lista negra de credenciales y no reconoce una cédula—. Se deja
+      // dicho para que quien venga detrás no gaste el viaje en el sitio equivocado; corregir esa ruta
+      // es deuda preexistente y no es de esta HU.
       detalle: redactarPIIEnTextoLibre(
         caso.fuente === 'dian' ? dian?.motivo ?? ''
           : caso.fuente === 'correo' ? correo?.motivo ?? ''
@@ -475,6 +477,33 @@ async function cargar(casos: FilaCaso[]): Promise<Cargas> {
     }])),
     descartes: await cargarDescartes(casos),
   };
+}
+
+/**
+ * La razón social del cliente de una factura. **Para cotejarla contra lo que se teclee sobre ella.**
+ *
+ * No la usa la bandeja para pintar —eso ya lo hace `hidratar` en lote—, sino la redacción de la nota
+ * de un descarte: quien opera tiene esta razón social delante, en su fila, mientras escribe, así que
+ * copiarla a la nota es el flujo esperado. Conocer el valor exacto permite taparlo sin adivinar y
+ * sin tocar el texto que lo rodea, que es lo que ninguna heurística por forma puede prometer.
+ *
+ * Dos consultas y por el camino corto —el primer trámite de la factura, y de ahí su compañía—, no la
+ * hidratación entera: esto corre en una acción de una sola fila que arranca una persona, no en la
+ * consulta de la página. Devuelve `null` si no se puede resolver, y quien llama sigue: no tener con
+ * qué cotejar no puede impedir que se registre una decisión.
+ */
+export async function nombreDeClienteDeFactura(facturaId: string): Promise<string | null> {
+  const [vinculo] = await db.select({ companiaId: flitoTramites.companiaId })
+    .from(siigoFacturaTramites)
+    .innerJoin(flitoTramites, eq(flitoTramites.id, siigoFacturaTramites.tramiteId))
+    .where(eq(siigoFacturaTramites.facturaId, facturaId))
+    .limit(1);
+
+  if (!vinculo || typeof vinculo.companiaId !== 'number') return null;
+
+  const [empresa] = await db.select({ name: clients.name })
+    .from(clients).where(eq(clients.id, vinculo.companiaId)).limit(1);
+  return empresa?.name ?? null;
 }
 
 interface Vinculo {

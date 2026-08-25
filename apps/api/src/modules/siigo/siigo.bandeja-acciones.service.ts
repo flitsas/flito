@@ -41,7 +41,9 @@ import {
   asegurarFilaDadaPorPerdida, descartarDefinitivo, encolar, SiigoColaError,
 } from './facturacion.cola.service.js';
 import { contenidoDeLotes, type ContenidoLote } from './facturacion.lote.repo.js';
-import { descartesVigentes, guiaDelCaso } from './siigo.bandeja.service.js';
+import {
+  descartesVigentes, guiaDelCaso, nombreDeClienteDeFactura,
+} from './siigo.bandeja.service.js';
 import { enviarFacturaPorCorreo, SiigoEnvioError } from './siigo.envio-correo.service.js';
 import { registrarHito } from './siigo.linea-tiempo.service.js';
 import { redactarPIIEnTextoLibre, sanearMensaje } from './siigo.redaccion.js';
@@ -629,7 +631,10 @@ async function anotarDescarte(
   facturaId: string,
   ahora: Date,
 ): Promise<SiigoBandejaDescarte> {
-  const nota = normalizarNota(e.nota);
+  // El nombre del cliente de ESTE caso, que es el que quien opera tiene delante mientras teclea.
+  // Solo se consulta si hay nota: sin texto no hay nada que cotejar y la consulta sobraría.
+  const conocidos = e.nota ? [await nombreDeClienteDeFactura(facturaId)] : [];
+  const nota = normalizarNota(e.nota, conocidos);
   await registrarHito({
     hito: 'marcada_fallido_definitivo',
     facturaId,
@@ -660,11 +665,18 @@ async function anotarDescarte(
  * de 200 caracteres sin redactar al lado lo dejaba sin efecto.
  *
  * El enmascarado va ANTES del recorte, para que decida sobre el texto entero: media cédula cortada
- * por el tope sigue siendo media cédula escrita para siempre.
+ * por el tope sigue siendo media cédula escrita para siempre. Y media PLACA cortada por el tope deja
+ * de tener la forma de una placa, así que el detector ya no la ve y pasaría entera.
+ *
+ * `nombresConocidos` es el mecanismo exacto: el nombre del cliente del caso, que se tapa por
+ * coincidencia y no por forma. Es lo que permite que una nota escrita entera en mayúsculas —donde la
+ * heurística se apaga a propósito para no mutilar la prosa— siga sin dejar salir la razón social.
  */
-export function normalizarNota(nota: string | null | undefined): string | null {
+export function normalizarNota(
+  nota: string | null | undefined, nombresConocidos: readonly (string | null | undefined)[] = [],
+): string | null {
   if (typeof nota !== 'string') return null;
-  const redactada = redactarPIIEnTextoLibre(sanearMensaje(nota.trim()));
+  const redactada = redactarPIIEnTextoLibre(sanearMensaje(nota.trim()), nombresConocidos);
   const limpia = redactada.slice(0, SIIGO_BANDEJA_NOTA_MAX).trim();
   return limpia === '' ? null : limpia;
 }

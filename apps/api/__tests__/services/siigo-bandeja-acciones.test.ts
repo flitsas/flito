@@ -618,6 +618,51 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     expect(escrito).toContain('M. G.');
   });
 
+  // ── La nota escrita ENTERA en mayúsculas, que es un hábito y no una rareza ────────────────
+  //
+  // Ahí la heurística por forma se apaga a propósito —tratar la mayúscula como señal de nombre
+  // convertía la explicación en iniciales, y una explicación mutilada en `siigo_operaciones` no se
+  // puede reescribir—. Lo que sostiene la protección en ese caso es el otro mecanismo: la razón
+  // social del cliente DE ESTE CASO se conoce, se lee de su fila, y se tapa por coincidencia.
+  it('en una nota toda en altas se tapa la razón social del caso y el resto se conserva', async () => {
+    kdb.when
+      .select('siigo_factura_tramites', [{ companiaId: 7 }])
+      .select('clients', [{ id: 7, name: 'TRANSPORTES LA SABANA SAS' }]);
+
+    await descartarCaso({
+      ...DESCARTE,
+      nota: 'CONFIRMADO POR TRANSPORTES LA SABANA SAS, NO REINTENTAR MAS',
+    });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).not.toContain('TRANSPORTES LA SABANA SAS');
+    expect(escrito).toBe('CONFIRMADO POR T. L. S. S., NO REINTENTAR MAS');
+  });
+
+  it('sin cliente que cotejar la nota se registra igual: no tener con qué comparar no bloquea', async () => {
+    // La consulta puede no resolver —un trámite sin compañía, un histórico—. Eso no puede impedir
+    // que se registre una decisión: lo que se pierde es precisión de redacción, no el AC5.
+    kdb.when.select('siigo_factura_tramites', []);
+
+    await descartarCaso({ ...DESCARTE, nota: 'NO REINTENTAR, LO CANCELO EL CLIENTE' });
+
+    const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
+    expect(escrito).toBe('NO REINTENTAR, LO CANCELO EL CLIENTE');
+  });
+
+  it('sin nota no se consulta al cliente: no hay texto contra el que cotejarlo', async () => {
+    // Se cuenta de verdad, con un resolver que se apunta a sí mismo: afirmar «no se consultó»
+    // mirando la respuesta sería una tautología, porque sin nota no hay nada que mirar.
+    let consultas = 0;
+    kdb.when.select('siigo_factura_tramites', () => { consultas += 1; return []; });
+
+    await descartarCaso(DESCARTE);
+    expect(consultas).toBe(0);
+
+    await descartarCaso({ ...DESCARTE, nota: 'lo canceló el cliente' });
+    expect(consultas).toBe(1);
+  });
+
   it('un nombre compuesto en MAYÚSCULAS tampoco se salva por los nexos: «DE» y «LA» no lo parten', async () => {
     // `MARIA DEL PILAR RESTREPO` sí se tapaba y `JUAN DE LA CRUZ` no, porque `DEL` tiene tres letras
     // y colaba como palabra de nombre mientras `DE` y `LA`, de dos, rompían la cadena. Una

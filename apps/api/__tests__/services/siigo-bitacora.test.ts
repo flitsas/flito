@@ -311,8 +311,62 @@ describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
     ['la misma frase con los nexos en mayúsculas', 'la NOTA CREDITO DE LA DIAN no cuadra'],
     ['un código de regla con dígitos pegados', 'Regla FAJ26 incumplida en la emisión'],
     ['un código de error en mayúsculas con guion bajo', 'salió INVALID_DIAN_RESOLUTION otra vez'],
+    // Los dos textos del catálogo de errores que la corrección de las mayúsculas llegó a mutilar.
+    ['un estado de la cuenta en altas', 'la cuenta quedó en modo SOLO LECTURA y no deja emitir'],
+    ['una descripción del catálogo', 'Una URL enviada no es válida.'],
   ])('%s se queda tal cual: taparlo dejaría la nota sin lo que la hace útil', (_caso, texto) => {
     expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // ── La nota escrita ENTERA en mayúsculas ──────────────────────────────────────────────────
+  //
+  // Es un hábito extendido en operación, no una rareza. Tratar la mayúscula como señal de nombre
+  // propio ahí devolvía «SE R. T. V. Y. S. F.» y dejaba en una tabla que no admite UPDATE ni DELETE
+  // una explicación ilegible para siempre — que es justo lo que el AC5 existe para conservar.
+  it.each([
+    ['un parte de reintentos', 'SE REINTENTO TRES VECES Y SIGUE FALLANDO, PASAR A SOPORTE'],
+    ['una espera', 'PENDIENTE RESPUESTA DE LA DIAN, NO REINTENTAR TODAVIA'],
+    ['un descarte razonado', 'NO APLICA REINTENTO, FACTURA YA EMITIDA EN OTRO LOTE'],
+  ])('%s escrito entero en mayúsculas se queda tal cual: es el estilo, no un nombre', (_c, texto) => {
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // El apagado de la heurística sería una fuga si la heurística fuera lo único que hay. No lo es:
+  // el nombre del cliente del caso se tapa por COINCIDENCIA, que no depende de la caja. Esta prueba
+  // es la que sostiene que relajar la heurística no reabre el hallazgo que la trajo.
+  it('en esa misma nota en altas, la razón social conocida SÍ se tapa, y el resto no se toca', () => {
+    const CLIENTE = 'TRANSPORTES LA SABANA SAS';
+    const salida = redactarPIIEnTextoLibre(
+      `NOTA: CONFIRMADO POR ${CLIENTE}, NO REINTENTAR MAS`, [CLIENTE],
+    );
+
+    expect(salida).not.toContain(CLIENTE);
+    expect(salida).toBe('NOTA: CONFIRMADO POR T. L. S. S., NO REINTENTAR MAS');
+  });
+
+  it('la coincidencia no depende de la caja ni de los espacios de más', () => {
+    const salida = redactarPIIEnTextoLibre(
+      'lo confirmó transportes  la   sabana sas por teléfono', ['TRANSPORTES LA SABANA SAS'],
+    );
+    expect(salida).not.toContain('sabana');
+    expect(salida).toContain('T. L. S. S.');
+  });
+
+  // Y el hueco que ese apagado deja, escrito para que nadie lo dé por cubierto: un nombre TECLEADO
+  // de memoria dentro de una nota en altas no lo ve nadie —no hay dato con el que cotejarlo y, por
+  // forma, es indistinguible de la prosa operativa que hay que respetar—. Es el precio elegido, y se
+  // paga aquí y no en la legibilidad de todas las notas.
+  it('un nombre tecleado dentro de una nota en altas NO se tapa: el hueco está declarado', () => {
+    const texto = 'SE CONFIRMO CON MARIA GOMEZ DE CONTABILIDAD, NO REINTENTAR';
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+    // La misma frase en minúsculas —donde la mayúscula sí distingue— sigue tapando.
+    expect(redactarPIIEnTextoLibre('se confirmó con MARIA GOMEZ de contabilidad'))
+      .toBe('se confirmó con M. G. de contabilidad');
+  });
+
+  // El suelo de letras del criterio de estilo: una nota corta en altas no es un estilo de escritura.
+  it('una nota corta que es solo un nombre en altas sí se tapa: ahí no hay estilo que deducir', () => {
+    expect(redactarPIIEnTextoLibre('JOSE PEREZ')).toBe('J. P.');
   });
 
   // Lo que esta heurística NO ve, escrito para que nadie lo dé por cubierto: un detector de nombres
