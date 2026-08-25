@@ -158,6 +158,57 @@ describe('AC4 — el reintento NO puede emitir dos veces', () => {
     expect(r.items[0]!.resultado).toBe('error');
     expect(encolarMock).not.toHaveBeenCalled();
   });
+
+  // ── El estado de la factura, que es la primera puerta del AC4 ──────────────────────────────
+  //
+  // Los dos casos de abajo son LA carrera normal de esta pantalla, no un borde raro: quien opera
+  // selecciona sobre una página que se cargó hace un rato, y entre la carga y el clic el trabajador
+  // avanzó. Las dos comprobaciones de estado tienen que decir cosas DISTINTAS y ninguna puede
+  // encolar, porque la de arriba habla de un documento que ya existe ante la DIAN y la de abajo de
+  // una emisión que todavía está en vuelo. Sin un aserto sobre el resultado exacto de cada una, la
+  // primera puerta se puede borrar entera sin que nada se ponga rojo.
+
+  it('una factura ya `emitida` sale como `ya_enviado`, con «Ya está emitida.», sin reencolar', async () => {
+    // Si esta rama no existiera, la factura caería a la comprobación siguiente y el servidor le
+    // contestaría «la emisión sigue en curso» sobre algo que YA tiene documento ante la DIAN —y
+    // encima la mandaría otra vez a la cola—.
+    kdb.when.select('siigo_facturas', [filaFactura({ estado: 'emitida' })]);
+
+    const item = (await reintentarEmision({ ...REINTENTO, facturaIds: [FACTURA] })).items[0]!;
+
+    expect(item.resultado).toBe('ya_enviado');
+    expect(item.motivo).toBe('Ya está emitida.');
+    expect(item.loteId).toBe(LOTE);
+    // Lo único que separa «se lo contó» de «lo volvió a mandar a emitir».
+    expect(encolarMock).not.toHaveBeenCalled();
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('«ya emitida» cuenta como `yaEstaban` y NO como descarte: pulsar dos veces no es un fallo', async () => {
+    kdb.when.select('siigo_facturas', [filaFactura({ estado: 'emitida' })]);
+
+    const r = await reintentarEmision({ ...REINTENTO, facturaIds: [FACTURA] });
+
+    expect(r.resumen.yaEstaban).toBe(1);
+    expect(r.resumen.descartados).toBe(0);
+    expect(r.resumen.encolados).toBe(0);
+    expect(r.resumen.porResultado.ya_enviado).toBe(1);
+  });
+
+  it('una factura `en_proceso` sale como `ya_en_cola`, con el texto de «sigue en curso», sin reencolar', async () => {
+    // Un trabajador la tiene arrendada ahora mismo: reencolarla sería meter una segunda cita para
+    // una emisión que todavía está en vuelo. Y el mensaje NO puede ser el de «ya está emitida»:
+    // aquí todavía no hay documento ante la DIAN, así que quien opera tiene que volver a mirar.
+    kdb.when.select('siigo_facturas', [filaFactura({ estado: 'en_proceso' })]);
+
+    const item = (await reintentarEmision({ ...REINTENTO, facturaIds: [FACTURA] })).items[0]!;
+
+    expect(item.resultado).toBe('ya_en_cola');
+    expect(item.motivo).toBe('La emisión sigue en curso: no hay nada que reintentar todavía.');
+    expect(item.loteId).toBe(LOTE);
+    expect(encolarMock).not.toHaveBeenCalled();
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
 });
 
 // ── AC3 — lo que no se arregla reintentando ────────────────────────────────
