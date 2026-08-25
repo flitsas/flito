@@ -31,6 +31,66 @@ El merge exige que SIMIT prevalezca y municipal aporte solo campos ausentes. Aú
    - Esto **deroga** la regla provisional anterior («`trim` + conservar case del primer visto,
      comparar case-insensitive en lookup»), que rigió hasta la migración 0158.
 
+   #### Enmienda — HU #11806 · la forma nacional de 20 dígitos
+
+   > **Estado de la enmienda: Propuesta.** Pendiente de aprobación del Líder Técnico. No deroga
+   > nada de lo anterior: lo **acota** añadiendo una forma exacta. Sigue sin recortar, sigue sin
+   > adivinar separadores y sigue sin ser case-insensitive en el lookup.
+
+   Se añade **una sola regla**, después de la normalización de arriba (sin espacios, mayúsculas):
+
+   ```
+   si la cadena encaja EXACTAMENTE con  ^[A-Z]{1,2}[0-9]{20}$   →  la clave son esos 20 dígitos
+   en cualquier otro caso                                        →  la cadena tal cual (lo de antes)
+   ```
+
+   Y la **grafía canónica** de `numero_comparendo` pasa a estar declarada: **los 20 dígitos**, que
+   es la de SIMIT.
+
+   **El argumento no es «la letra sobra». Es CF-07.** El número lo asigna el Estado y es único en el
+   país — por eso el único de la tabla es `(numero_comparendo)` y no `(nit, numero)`. Las dos
+   grafías medidas son `05001` + 15 dígitos (DIVIPOLA de Medellín) y `11001` + 15 (Bogotá): veinte
+   dígitos con la DIVIPOLA delante **ya son la identidad completa**. De ahí la propiedad que hace
+   segura la regla bajo la incertidumbre que la HU declara: **da igual si la `D` del portal es del
+   municipio o del tipo de comparendo**; bajo las dos lecturas decora un identificador que ya es
+   único por sí solo. La regla no apuesta por ninguna de las dos hipótesis.
+
+   **Por qué la canónica es la de 20 y no la prefijada.** Es la única DERIVABLE desde las dos
+   grafías sin saber quién habló: de `05001000000054652201` no hay forma de reconstruir la `D`. Una
+   clave que dependiera de qué fuente contestó primero haría bailar la identidad de la fila entre
+   corridas, y con el pool de paralelismo (RN-17) ese orden no está garantizado — una llave así es
+   un duplicado con otro nombre. Además es la de la fuente que prevalece (CF-08, RN-13) y la que ya
+   está en las filas históricas.
+
+   **No es un recorte**, que es lo que el punto 6 prohíbe: nunca se quita un dígito, solo letras, y
+   solo cuando lo que queda es exactamente la forma nacional de veinte. `D` + 19 y `D` + 21 **no
+   disparan**. El peor caso de esta regla es no fusionar algo que debería — el statu quo, no una
+   regresión.
+
+   **Alcance, declarado.** Solo esa forma. Separadores (`D-05001…`), sufijos, prefijos numéricos y
+   otras longitudes **no se tocan**, y no por olvido: de ninguna de esas formas hay hoy ni un byte
+   medido, y solo hay muestra de tres municipios. Escribir una regla más ancha sería adivinar
+   separadores, que es justo lo que este punto 6 cierra. La muestra que falta la trae `formaNumero`
+   (misma HU): el sync loguea por corrida y por fuente un histograma de FORMAS —`SIMIT|D20`,
+   `MEDELLIN|L1D20`— **sin emitir ni un número**.
+
+   **Reversibilidad.** `numeroComparendo` es `source_path` de la v3 del mapa en los dos orígenes,
+   así que la grafía cruda `D…` sobrevive en `payload_municipal` (RN-25 la conserva). Si algún día
+   la letra resultara ser identidad, se quita la regla y el municipal vuelve a crear su fila en el
+   siguiente sync.
+
+   **Dónde vive.** `numeroCanonico` y `NUMERO_FORMA_NACIONAL` en `flito-comparendos-merge.ts`
+   (RN-26); el filtro `q` de `GET /registros` importa esa MISMA función; la migración
+   `0163_flito_comparendos_clave_negocio_prefijo.sql` declara la grafía en el `COMMENT` de la
+   columna y repara lo persistido con un `UPDATE` guardado por `NOT EXISTS` (sin DDL, sin `DELETE`,
+   sin v4 del `field_map`). La deriva entre el literal del código y el del `.sql` la vigila
+   `flito-comparendos-migracion-0163-paridad.test.ts`.
+
+   **Riesgo residual aceptado.** Muestra de uno para el prefijo, y seis municipios sin medir. Lo
+   mitiga el argumento CF-07 (la regla no depende de POR QUÉ existe la letra) y la reversibilidad de
+   arriba. Filas con las DOS grafías ya persistidas y ambas gestionadas **no se fusionan solas**:
+   son un pendiente humano si la medición previa de la 0163 devuelve `conflicto > 0`.
+
 ## Alternativas consideradas
 
 | Alternativa | Por qué no |

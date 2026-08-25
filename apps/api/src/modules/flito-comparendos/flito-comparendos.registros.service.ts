@@ -97,7 +97,7 @@ import {
   ComparendosCursorInvalidoError,
   ComparendosNoEncontradoError,
 } from './flito-comparendos.errors.js';
-import { placaCanonica } from './flito-comparendos-merge.js';
+import { numeroCanonico, placaCanonica } from './flito-comparendos-merge.js';
 import { normalizarCodigoFuente, normalizarNit } from './flito-comparendos.service.js';
 
 /**
@@ -114,6 +114,9 @@ const COLUMNAS_REGISTRO = {
   codigoInfraccion: flitoComparendosRegistros.codigoInfraccion,
   descripcionInfraccion: flitoComparendosRegistros.descripcionInfraccion,
   fechaComparendo: flitoComparendosRegistros.fechaComparendo,
+  // HU #11794. Sale por la lista blanca como todo lo demás: la columna nueva no se publica por
+  // existir, se publica porque está escrita aquí.
+  fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
   organismo: flitoComparendosRegistros.organismo,
   municipioFuente: flitoComparendosRegistros.municipioFuente,
   monto: flitoComparendosRegistros.monto,
@@ -182,6 +185,9 @@ function registroDto(f: FilaRegistro): ComparendoRegistro {
     codigoInfraccion: f.codigoInfraccion,
     descripcionInfraccion: f.descripcionInfraccion,
     fechaComparendo: f.fechaComparendo,
+    // `null` es «no notificado o no se sabe», y también lo que devuelve todo el histórico anterior a
+    // la 0164 (sin backfill). No se traduce a nada aquí: el visor decide cómo pintar la ausencia.
+    fechaNotificacion: f.fechaNotificacion,
     organismo: f.organismo,
     municipioFuente: f.municipioFuente,
     monto: f.monto,
@@ -410,9 +416,24 @@ export function condicionesDeFiltro(filtro: ComparendosRegistrosFiltro): SQL[] |
     // el que aparece en un correo o en una foto, con el prefijo del organismo por delante o sin él.
     // El precio es que el único de `numero_comparendo` no sirve para esta consulta; con el volumen
     // de 17a no compensa un índice de trigramas, que sería la solución si algún día pesa.
+    const escrito = filtro.q.trim().toUpperCase();
+    // HU #11806, y es la mitad que se olvida: la búsqueda es por contenido, así que normalizar solo
+    // lo GUARDADO no basta. Quien copie `D05001000000054652201` del portal de Medellín teclea algo
+    // MÁS LARGO que la fila, y `%D05001…%` no casa con `05001…` por mucho que la fila exista. Se
+    // pasa por el MISMO `numeroCanonico` del merge —no por una copia— justamente por lo que dice su
+    // docblock: dos implementaciones parecidas se separan y el filtro deja de encontrar filas.
+    //
+    // Y solo se sustituye si la función cambió algo, que con la entrada ya recortada y en mayúsculas
+    // significa una de dos: la forma nacional prefijada, o espacios internos. Las dos son
+    // sustituciones seguras porque lo guardado no puede tener ni prefijo ni espacios. Una `q`
+    // PARCIAL —los tres caracteres del mínimo, un trozo del número— sale igual que entró, y si
+    // `numeroCanonico` devolviera `null` (una `q` de más de 60) tampoco se toca: el filtro sigue
+    // siendo el literal del operador y no una búsqueda que nadie pidió.
+    const canonico = numeroCanonico(escrito);
+    const buscado = canonico !== null && canonico !== escrito ? canonico : escrito;
     condiciones.push(like(
       flitoComparendosRegistros.numeroComparendo,
-      `%${escaparLike(filtro.q.trim().toUpperCase())}%`,
+      `%${escaparLike(buscado)}%`,
     ));
   }
   if (filtro.cursor !== undefined) {

@@ -36,7 +36,7 @@ PR/HU, **o** `Read` de este `SKILL.md` en el mismo turno + seguir plantillas HTM
 - Modo B solo en Discussion cuando `Custom.Commits` quedó vacío (caso #11500 — no repetir)
 - Saltarse Modo A/B «porque es solo un Bug» — el Bug tiene los mismos campos y el mismo trato
 
-**Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto OK / OK-CON-OBSERVACIONES (y sin FAIL/críticos en security/db-review) → no abrir el PR.
+**Hard-gate antes de crear el PR:** aunque el humano diga «crea / abre el PR», el hilo principal **debe** evaluar y ejecutar los gates Pre-PR de `AGENTS.md` (`flit-code-review` siempre; `security-agent` / `db-review-agent` si el diff lo dispara) **antes** de `create_pull_request`. «Crea el PR» autoriza el paso final, no salta la matriz. Ver `.cursor/rules/pre-pr-gates.mdc`. Sin veredicto **OK** / **PASS** / **SANO** (éxito limpio; `*-CON-OBSERVACIONES` sin waiver no cuenta) → no abrir el PR.
 
 ---
 
@@ -241,32 +241,39 @@ Con MCP: `wit_work_item_write` (servidor **`ado`**). Con REST: `json.dumps(patch
 
 ## Pre-condiciones merge (GitHub) — antes de ejecutar el merge
 
-Aplican cuando el hilo principal (o el Líder Técnico) **ejecuta** el merge. El agente solo puede
-mergear si **`baseRefName` es exactamente `develop`** y hay autorización del Feature (o «sí»
-textual por ese PR). Merge a `staging`/`release` → siempre humano (`flit-release`). Ejecución vía
-MCP `github` (`merge_pull_request`, merge commit).
+Aplican cuando el **`pr-monitor-agent`** (o el hilo) **ejecuta** el merge a `develop`. Merge a
+`staging`/`release` → siempre humano (`flit-release`). Ejecución vía MCP `github`
+(`merge_pull_request`, merge commit).
 
-**Quién las verifica en la práctica:** el subagente **`pr-monitor-agent`**, invocado tras cada
-`create_pull_request` (matriz `AGENTS.md`). Él monitorea los checks y ejecuta el merge; las
-condiciones 4, 8, 10 y 11 no puede conocerlas solo, así que el hilo principal se las pasa en el
-prompt — si falta alguna, no mergea y devuelve `LISTO-PARA-MERGE` con el número de la que falta.
+**Quién las verifica:** el subagente **`pr-monitor-agent`**, invocado tras cada
+`create_pull_request` (matriz `AGENTS.md`). Él espera el CI y **mergea**. Las filas de proceso
+(code-review pre-PR, campos ADO, QA post-Resolved) son del hilo principal: **no** se le pegan al
+monitor como freno ni producen un PR verde abandonado.
+
+### Lo que el monitor exige para mergear (GitHub)
 
 | # | Condición | Verificación |
 |---|-----------|----------------|
 | 1 | PR `OPEN` | `state == OPEN` |
-| 2 | Rama origen y título | Flujo HU/Bug: rama `HU/<ID>-<dev>-<desc>` o `BUG/<ID>-…` **y** título `HU <ID>: <descripción>` / `BUG <ID>: …` con el mismo ID (`.cursor/rules/convenciones-rama-pr.mdc`). Sin work item: solo `CHORE/` y `DOCS/` con «sí» humano y **sin** Modo A/B ADO |
+| 2 | Rama origen y título | Flujo HU/Bug: rama `HU/<ID>-<dev>-<desc>` o `BUG/<ID>-…` **y** título `HU <ID>: <descripción>` / `BUG <ID>: …` con el mismo ID (`.cursor/rules/convenciones-rama-pr.mdc`). Sin work item: solo `CHORE/` y `DOCS/` **sin** Modo A/B ADO. El check `naming` cubre esto en CI |
 | 3 | Target | Agente: **solo `develop`**. Humano/LT: también `staging` / `release` (promoción) |
-| 4 | Autorización | «puedes mergear a develop este Feature» (sesión) **o** «sí» textual por este PR |
+| 4 | Autorización a `develop` | Abrir el PR a `develop` en desarrollo **es** la autorización. Opt-out: el humano dijo «no mergees». No se espera un segundo «sí» en el prompt |
 | 5 | CI build/test | check `build + test` → `success` |
 | 6 | Security | checks `dependency-audit` y `secret-scan` → `success` |
-| 6b | Convenciones | check `naming` → `success` (rama, título y trazabilidad HU/Bug). Título mal puesto: corregir con `update_pull_request` y esperar el re-run |
+| 6b | Convenciones | check `naming` → `success`. Título mal puesto: corregir con `update_pull_request` y esperar el re-run |
 | 7 | Sin conflictos | mergeable / no conflict |
-| 8 | Work item en ADO | **HU:** `Custom.Refinement=true` + Story Points. **Bug:** `Severity` + Repro Steps poblados (el tipo Bug no usa `Refinement` ni exige Story Points) — `GET workitem`. Omitir en `CHORE/` y `DOCS/` |
-| 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (avisar si se excede; no bloquea solo) |
-| 10 | HEAD con veredicto vigente | El HEAD a mergear == `SHA revisado` del veredicto de `flit-code-review`; commits post-veredicto (fixes, retrabajo QA) exigen re-review de la skill sobre el nuevo HEAD |
-| 11 | Gate QA invocado (HU o Bug) | `qa-agent` modo B lanzado tras `Resolved` con HANDOFF ✅/PASS-CON-OBSERVACIONES/SIN-ENTORNO; en Bug el alcance es el repro + regresión del módulo. Nunca mergear con qa ❌ ni con FAIL sin retrabajo |
+| 9 | Diff ≤ 800 líneas | `additions + deletions` del PR (**aviso** si se excede; no bloquea solo) |
 
-Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop` de una HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
+Si falla 1–7 → reportar y **no** mergear. Si 1–7 pasan → **mergear**. Tras merge a `develop` de una
+HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar ADO.
+
+### Lo que el hilo gestiona aparte (no retiene el merge)
+
+| # | Condición | Quién | Nota |
+|---|-----------|-------|------|
+| 8 | Work item en ADO | hilo + `flit-gestion-hu` / `flit-crear-hu` | **HU:** `Custom.Refinement` + Story Points. **Bug:** Severity + Repro. Omitir en `CHORE/`/`DOCS/` |
+| 10 | Veredicto `flit-code-review` vigente | hilo, **pre-PR** | No se abre el PR sin `OK`. Commits post-veredicto: re-review **antes del push**, no un PR verde en espera |
+| 11 | Gate QA (`qa-agent` B) | hilo, tras `Resolved` | FAIL = retrabajo. **No** deja un PR a `develop` con CI verde abierto «hasta que llegue el HANDOFF» |
 
 ---
 
@@ -278,7 +285,7 @@ Si falla cualquiera → reportar número y **no** mergear. Tras merge a `develop
 | Crear PR en GitHub | **hilo principal** (rol integración) |
 | Registrar PR en ADO (Modo A) | **hilo principal** (rol integración) |
 | Monitorear checks del PR y triage del CI rojo | **`pr-monitor-agent`** (el hilo principal lo invoca tras abrir el PR) |
-| Ejecutar merge → `develop` | **`pr-monitor-agent`** (o el hilo principal) tras autorización del Feature + precondiciones; o humano |
+| Ejecutar merge → `develop` | **`pr-monitor-agent`** cuando CI verde y sin conflictos; el hilo solo si el subagente no pudo (permisos / `CI-EN-CURSO` que hay que relanzar) |
 | Ejecutar merge → `staging` / `release` | **Siempre humano** (`flit-release`) |
 | Verificar merge + Deploy * + Commits integrado (Modo B) | **hilo principal** o **Líder Técnico** |
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |

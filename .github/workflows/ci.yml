@@ -20,8 +20,9 @@ jobs:
     # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts),
     # por eso NO se necesitan servicios externos en CI.
     env:
-      # @playwright/test está en devDeps de apps/web; CI no corre e2e, así que
-      # evitamos descargar navegadores en el npm ci.
+      # @playwright/test está en devDeps de apps/web; ESTE job no corre e2e, así que evitamos
+      # descargar navegadores en el npm ci. El único que sí los necesita es `e2e-visor-pdf`
+      # (HU #11774), que instala chromium en su propio job.
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +56,8 @@ jobs:
       #     anillo `.flit-focus-light` cumpla sobre el gradiente del drawer. Son los cuatro
       #     gradientes del kit: el mayor sustrato de texto del producto.
       #
-      # Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI NO ejecuta E2E y
+      # Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI no ejecuta la suite
+      # E2E —desde la HU #11774 solo corre el spec del visor de PDF, en el job `e2e-visor-pdf`— y
       # `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser invisible
       # en oscuro —o que un gradiente vuelva a llevar blanco a 1,81— no lo detectaría nadie hasta
       # que lo reporte una persona. Con los gradientes hay además un motivo de más: `axe` no mide
@@ -67,7 +69,8 @@ jobs:
       # PDF malicioso salvo que cada `getDocument` lleve `isEvalSupported: false`. El salto a v6 está
       # bloqueado por producto, así que la mitigación es por configuración — y una opción que se
       # olvida no rompe nada visible: compila y renderiza igual, sólo deja el eval abierto otra vez.
-      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI NO ejecuta E2E.
+      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI no ejecuta la suite E2E: desde
+      # la HU #11774 solo corre el spec del visor de PDF (`e2e-visor-pdf`), que no mira esta opción.
       - name: Mitigación CVE-2024-4367 en pdfjs (web)
         run: npm run check:pdfjs-eval
 
@@ -203,3 +206,59 @@ jobs:
           else
             /tmp/gitleaks git --redact --log-opts="-100" .
           fi
+
+  # HU #11774 — el ÚNICO E2E que corre en el CI de cada PR, y el único del repositorio que abre un
+  # PDF de verdad: sirve un fixture de dos páginas como cuerpo de la respuesta y comprueba que el
+  # visor lo rasteriza (dos `<img>` con `naturalWidth > 0`).
+  #
+  # Por qué merece un job propio y no espera al smoke nocturno: el nocturno no bloquea nada —avisa
+  # al día siguiente, con el cambio ya en `develop`— y lo que este spec vigila es justo lo que la
+  # cadena #11775 (worker `pdf.worker.min.js` con hash en el nombre) y #11289 (salto a pdfjs v6)
+  # están a punto de mover. Un `workerSrc` que deja de resolver no rompe la compilación ni el
+  # typecheck: la pantalla sigue montando y solo enseña «Setting up fake worker failed». Sin este
+  # job, el primero en enterarse sería un usuario.
+  #
+  # Es el único que descarga navegador, por eso va aparte del `build-test` (que conserva su
+  # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD): son ~2 minutos de `playwright install` que no tiene sentido
+  # pagar en los jobs que solo leen fuentes.
+  #
+  # No se necesita `npm run build -w @operaciones/shared-types`: el dev server de Vite resuelve el
+  # paquete por su campo `module` (src/index.ts), no por `dist`. Tampoco hace falta API: el spec
+  # mockea TODO con `page.route`, incluida la respuesta que sirve el PDF (en CI no hay nada
+  # escuchando en el 3005 al que apunta el proxy de Vite).
+  e2e-visor-pdf:
+    name: e2e · visor PDF real
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+        working-directory: .
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # CI='1' → `reuseExistingServer: false`, así que Playwright levanta su propio `npm run dev`
+      # en el 5175 y no hereda ningún server ajeno.
+      - name: E2E del visor de PDF
+        run: npm run test:e2e:visor-pdf
+        env:
+          CI: '1'
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-visor-pdf
+          path: apps/web/playwright-report/
+          retention-days: 7

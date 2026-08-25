@@ -23,7 +23,7 @@ model: inherit
 El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - **HU o Bug** #<id>, título, y el criterio: AC Gherkin (HU) o Repro Steps + corrección esperada (Bug), pegados
 - Rutas/páginas/componentes candidatos o página análoga a copiar
-- Decisión UX (`slim`/`full`) o «ux: no aplica — …»
+- Decisión UX (`slim`/`full`/`omit`) **pegada**. Si el cambio es ruta nueva / `PageSlug` / wizard / bandeja / decisión visual de tabla (p. ej. columna que se recorta) y el prompt **no** trae `ux: slim|full|omit — …` → **no implementes**: HANDOFF `bloqueado` pidiendo `ux-agent`. El 24 ago David tuvo que decir «pásalo al UX» a destiempo.
 - Comandos de verificación ya corridos (si los hay)
 
 NO releer `AGENTS.md` entero ni ADO completo si el prompt trae AC + paths.
@@ -91,8 +91,9 @@ Tipos cruzados: `@operaciones/shared-types`.
 7. **Verifica y pega salida real:**
    - **Obligatorio:** `npm run typecheck -w apps/web`
    - `check:hooks` / `check:bundle` solo si tocaste hooks o peso de chunk
-   - **E2E default:** spec del feature (`npx playwright test e2e/tests/<spec>.spec.ts` o script equivalente del workspace) si el entorno está up
-   - **Smoke completo** (`test:e2e:smoke`): solo HUs de shell/router/login o pedido explícito
+   - **E2E default:** spec **de esta HU** (`npx playwright test e2e/tests/<spec>.spec.ts`) si el entorno está up. No el smoke entero.
+   - **Smoke completo** (`test:e2e:smoke`): solo HUs de shell/router/login o pedido explícito (P1/P5)
+   - Mutantes: no (P2 — eso es `qa-agent`, tope 3)
    - Sin entorno → declarar en HANDOFF; no inventar
 8. Reporta: archivos, `Alcance verificación: filtrado|completo`, salidas, propuesta de commit.
 
@@ -111,6 +112,7 @@ Tipos cruzados: `@operaciones/shared-types`.
 ```
 HANDOFF
   Estado: implementado | bloqueado
+  Resultado: OK | BLOQUEADO
   Archivos: <lista>
   Alcance verificación: filtrado | completo
   Verificación: <comando(s) + salida real>

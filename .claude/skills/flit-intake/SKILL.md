@@ -15,9 +15,11 @@ Lee siempre [`docs/dominio.md`](../../../docs/dominio.md). Si el tema toca una i
 | Situación | Usar intake |
 |---|---|
 | Pedido informal, bullets, “quiero que…”, notas de reunión | **Sí** |
-| Feature/HU ya en ADO con Description + AC Gherkin | **No** → `tech-lead` modo C o implementación |
-| Bug concreto con repro | **No** → `qa-agent` / agente de código |
-| “Implementa el Feature #N” ya refinado | **No** → `flit-modo-desarrollo-auto` |
+| «Hay unos bugs en ADO» / «termina Siigo» / «qué quedó de X» **sin IDs** | **Sí** — normalizar y luego query; **no** codear el primer WI que aparezca |
+| Feature/HU ya en ADO con Description + AC Gherkin | **No** → recargar `flit-modo-desarrollo-auto` (si retoma) o `tech-lead` modo C |
+| Bug concreto con repro e ID | **No** → `flit-gestion-hu` + agente de código |
+| “Implementa el Feature #N” ya refinado | **No** → `flit-modo-desarrollo-auto` **en este turno** |
+| ≥2 Features Active y el pedido no dice cuál es de esta sesión | **No** (aún) → primero `orchestrator-agent` (bloque `DUEÑOS`) |
 
 Si el orchestrator ve un requerimiento nuevo sin ID de ADO, **el primer paso es esta skill** (luego tech-lead A/B).
 
