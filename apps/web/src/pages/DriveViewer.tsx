@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { useBackdropClose } from '../lib/hooks';
+import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import { IconClose } from '../components/flit/icons';
@@ -149,7 +150,9 @@ export default function DriveViewer() {
 
       if (mime.includes('pdf')) {
         const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+        // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
+        // por construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`.
+        pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
         // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
         // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
         // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el

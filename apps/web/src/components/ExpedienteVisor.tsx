@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { resolverValidacionVigentePorDocumento, validacionesVigentesPorDocumento } from '@operaciones/shared-types';
+import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 
 interface CedulaCropperProps {
   fotoCedulaFrontal: string | null;
@@ -172,7 +173,10 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     setDocLoading(true); setDocPages([]);
     if (isPdf) {
       fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(r => r.arrayBuffer()).then(async (buf) => {
-        const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+        // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
+        // por construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`. Aplica a LOS DOS
+        // `GlobalWorkerOptions` del archivo.
+        const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
         // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
         // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
         // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el
@@ -198,7 +202,7 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(bodyData) });
     if (!res.ok) throw new Error(`Error ${res.status}`);
     const buf = await res.arrayBuffer(); const blob = new Blob([buf], { type: 'application/pdf' });
-    const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
     // CVE-2024-4367 — misma mitigación que el `getDocument` de arriba; ver la nota allí.
     const pdf = await pdfjsLib.getDocument({ data: buf.slice(0), isEvalSupported: false }).promise; const pngs: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {

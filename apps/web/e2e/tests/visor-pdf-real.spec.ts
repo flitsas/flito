@@ -20,10 +20,14 @@
 // ── Por qué importa más allá de este spec ─────────────────────────────────────────────────────
 //
 // Es la primera pieza de la cadena #11774 → #11775 (worker con hash en el nombre) → #11289 (salto a
-// pdfjs v6). El `workerSrc` del visor apunta a `/pdf.worker.min.js`, una ruta fija en `public/`: el
-// día que ese fichero se sirva con hash, o cambie de sitio, o el major lo renombre, lo único capaz
-// de ver el fallo es un test que cargue un PDF real y mire el bitmap. Comprobado por mutación (AC2):
-// apuntando `GlobalWorkerOptions.workerSrc` a una ruta inexistente, este spec se pone rojo.
+// pdfjs v6). Cuando se escribió, el `workerSrc` del visor era una ruta fija a una copia manual en
+// `public/`; desde la HU #11775 lo emite el bundler desde `node_modules` con hash de contenido
+// (`src/lib/pdfWorker.ts`) y `npm run check:pdf-worker` impide volver a la cadena literal. Lo que no
+// cambia es por qué este spec sigue siendo necesario: el día que el worker cambie de nombre, de
+// sitio, o el major lo renombre, lo único capaz de ver el fallo es un test que cargue un PDF real y
+// mire el bitmap — un `workerSrc` que no resuelve no rompe ni el typecheck ni el render del HTML.
+// Comprobado por mutación (AC2): apuntando `GlobalWorkerOptions.workerSrc` a una ruta inexistente,
+// este spec se pone rojo.
 //
 // ── Por qué se entra por Derechos de tránsito ─────────────────────────────────────────────────
 //
