@@ -19,6 +19,7 @@
     "check:contraste": "node scripts/check-contraste-paleta.mjs",
     "check:hooks": "node scripts/scan-rules-of-hooks.mjs",
     "check:pdfjs-eval": "node scripts/check-pdfjs-eval.mjs",
+    "check:pdf-worker": "node scripts/check-pdf-worker.mjs",
     "check:exemptions": "node scripts/check-exemptions.mjs",
     "lint": "eslint .",
     "smoke:prod": "bash scripts/smoke-prod.sh",

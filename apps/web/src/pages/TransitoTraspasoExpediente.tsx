@@ -21,6 +21,7 @@ import {
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip from '../components/flit/StatusChip';
 import GradientButton from '../components/flit/GradientButton';
@@ -98,7 +99,9 @@ async function fetchPdfPages(url: string, body: OrgDatos): Promise<{ pages: stri
   const buf = await res.arrayBuffer();
   const blob = new Blob([buf], { type: 'application/pdf' });
   const pdfjsLib = await import('pdfjs-dist');
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+  // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API por
+  // construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`.
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
   // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x la
   // matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los glifos. El
   // fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el workaround
