@@ -270,8 +270,32 @@ export interface ComparendoRegistro {
    */
   fechaNotificacion: string | null;
   organismo: string | null;
-  /** `codigoFuente` del municipio donde se vio, o `null` si solo lo reportó SIMIT. */
+  /**
+   * `codigoFuente` del municipio **al que se le PREGUNTÓ**, o `null` si solo lo reportó SIMIT.
+   *
+   * Es trazabilidad de la corrida —qué fuente devolvió esta fila—, **no de dónde es el comparendo**.
+   * Para eso está {@link municipioComparendo}, y desde la HU #11878 es esa otra la que el filtro
+   * `municipio` compara y la que sale en la columna «Municipio» del Excel. Esta se conserva sin
+   * cambiar de valor ni de significado.
+   */
   municipioFuente: string | null;
+  /**
+   * `codigoFuente` del municipio **de donde ES el comparendo**, o `null` = «no se sabe» (HU #11878).
+   *
+   * Lo deriva el sync en dos escalones y no lo publica ningún proveedor: si se le preguntó a un
+   * municipio y respondió, es ese; si no, se busca en el `organismo` el único `codigoFuente` del
+   * catálogo que aparezca con límite de palabra. Un organismo que no reconozca ninguno —o que
+   * reconozca DOS— deja `null`: la ambigüedad no se desempata, se declara.
+   *
+   * Consecuencia vinculante para el visor: **`null` se pinta como «sin dato», nunca como cadena
+   * vacía ni como «SIMIT»**, y el `organismo` se sigue mostrando al lado aunque este venga vacío —es
+   * el texto del que la deducción salió o dejó de salir—. El histórico se corrige de dos maneras: el
+   * backfill de la migración 0165 para lo ya guardado, y la re-derivación en cada sync para lo que
+   * se vuelva a visitar (así, añadir un municipio al catálogo arregla filas viejas sin migración).
+   *
+   * Dato de FUENTE y de solo lectura (CF-09): no hay endpoint que lo edite.
+   */
+  municipioComparendo: string | null;
   monto: string | null;
   /**
    * Estado que reporta el proveedor, tal cual. Texto libre: no se enumera ni se traduce.
@@ -480,12 +504,17 @@ export interface ComparendosRegistrosQuery {
   /** Fragmento del número de comparendo (mínimo 3 caracteres). */
   q?: string;
   /**
-   * `codigoFuente` del municipio donde se vio el comparendo. Coincidencia EXACTA.
+   * `codigoFuente` del municipio **de donde ES el comparendo**. Coincidencia EXACTA.
+   *
+   * Compara contra {@link ComparendoRegistro.municipioComparendo} desde la HU #11878, no contra
+   * `municipioFuente`: preguntar «¿qué comparendos son de Medellín?» no es preguntar «¿a qué
+   * municipio se le preguntó?», y confundirlas es el defecto que esa HU cierra —los comparendos de
+   * Medellín que solo reportó el SIMIT quedaban fuera de su propio filtro—.
    *
    * Es el valor literal de {@link ComparendosMunicipio.codigoFuente} —«ITAGUI», no «Itagüí»—, que
-   * es lo que el sync guarda en el registro: el código con el que se le preguntó al proveedor, no
-   * el nombre que se le enseña a un humano. La pantalla debe mandar el `codigoFuente` de la opción
-   * elegida en el catálogo, no lo que esa opción muestra.
+   * es lo que el sync deriva y guarda en el registro, no el nombre que se le enseña a un humano. La
+   * pantalla debe mandar el `codigoFuente` de la opción elegida en el catálogo, no lo que esa opción
+   * muestra.
    *
    * Un municipio DESACTIVADO en el catálogo sigue siendo un filtro legítimo: dar de baja la fuente
    * deja de consultarla, no borra los comparendos que ya trajo, y no poder mirarlos sería perder de
@@ -495,10 +524,16 @@ export interface ComparendosRegistrosQuery {
   /**
    * Qué fuentes han visto el comparendo (`origen_merge`), que NO es de qué municipio es.
    *
-   * `fuente=simit` son los que solo ha reportado el SIMIT —esos tienen `municipioFuente` en `null`,
-   * así que combinarlo con `municipio` devuelve una página vacía por construcción, no por error—;
-   * `municipal`, los que solo ha visto el municipio; `ambos`, los que confirman las dos. Es el
-   * filtro con el que se responde «¿qué tiene el SIMIT que el municipio todavía no?».
+   * `fuente=simit` son los que solo ha reportado el SIMIT; `municipal`, los que solo ha visto el
+   * municipio; `ambos`, los que confirman las dos. Es el filtro con el que se responde «¿qué tiene
+   * el SIMIT que el municipio todavía no?».
+   *
+   * **Corrección de la HU #11878:** hasta entonces esta doc afirmaba que `fuente=simit` combinado
+   * con `municipio` devolvía una página vacía «por construcción». **Ya no es cierto, y era
+   * justamente el defecto**: esas filas tienen `municipioFuente` en `null`, pero su
+   * `municipioComparendo` sale del organismo, así que la combinación es hoy la pregunta más útil de
+   * las dos —«¿qué comparendos de Medellín tiene el SIMIT que Medellín todavía no me ha
+   * confirmado?»— y devuelve filas.
    */
   fuente?: ComparendosOrigenMerge;
   /** Id de la causal de gestión asignada (CF-04). Excluyente con {@link sinCausal}. */

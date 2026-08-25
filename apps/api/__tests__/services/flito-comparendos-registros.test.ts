@@ -129,6 +129,11 @@ const fila = (over: Record<string, unknown> = {}) => ({
   fechaNotificacion: '2026-06-19',
   organismo: 'Secretaría de Movilidad de Bello',
   municipioFuente: 'BELLO',
+  // HU #11878. Con el MISMO valor que la de arriba en la fila base porque es el caso corriente —a
+  // Bello se le preguntó y Bello respondió—, y así el caso interesante (una fila que solo vio el
+  // SIMIT y cuyo municipio sale del organismo) hay que pedirlo a mano: vive en
+  // `flito-comparendos-municipio-resuelto.test.ts`, que es donde se prueba el AC4.
+  municipioComparendo: 'BELLO',
   monto: '604100.00',
   estadoFuente: 'PENDIENTE',
   // HU #11712. La fila base es una MULTA con sus dos columnas de resolución puestas —incluida
@@ -308,14 +313,16 @@ function corteDelCursor(w: Consulta_): CorteDelCursor | null {
  * comparendos de otro municipio — que es exactamente el fallo que hay que ver.
  */
 function municipioDelWhere(w: Consulta_): string | null {
-  const m = /"municipio_fuente" = \$(\d+)/.exec(w.sql);
+  // `municipio_comparendo` desde la HU #11878: la columna por la que el filtro pregunta se mudó, y
+  // esta tabla tiene que leer la MISMA que el servicio escribe o dejaría de simular la consulta.
+  const m = /"municipio_comparendo" = \$(\d+)/.exec(w.sql);
   return m ? String(w.params[Number(m[1]) - 1]) : null;
 }
 
 /** ISO y UUID en minúsculas comparan igual como cadena que como `timestamptz` y `uuid`. */
 const menorQue = (op: Comparador, a: string, b: string) => (op === '<' ? a < b : a <= b);
 
-interface FilaPaginable { id: string; createdAt: Date; municipioFuente?: string | null }
+interface FilaPaginable { id: string; createdAt: Date; municipioComparendo?: string | null }
 
 /**
  * Resolver de `keyed-db` que responde una consulta del listado como lo haría PostgreSQL: aplica el
@@ -343,7 +350,7 @@ function tablaEnMemoria<T extends FilaPaginable>(filas: T[]) {
       const w = whereDe(q);
       const municipio = municipioDelWhere(w);
       if (municipio !== null) {
-        visibles = visibles.filter((f) => f.municipioFuente === municipio);
+        visibles = visibles.filter((f) => f.municipioComparendo === municipio);
       }
       const corte = corteDelCursor(w);
       if (corte !== null) {
@@ -464,6 +471,7 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       fechaNotificacion: '2026-06-19',
       organismo: 'Secretaría de Movilidad de Bello',
       municipioFuente: 'BELLO',
+      municipioComparendo: 'BELLO',
       monto: '604100.00',
       estadoFuente: 'PENDIENTE',
       tipoRegistro: 'multa',
@@ -1072,12 +1080,16 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
     return request(await buildApp()).get(`${REGISTROS}${query}`).set('Authorization', await auth());
   }
 
-  it('**`municipio` acota por `municipio_fuente` y por IGUALDAD**, no por parecido', async () => {
+  it('**`municipio` acota por `municipio_comparendo` y por IGUALDAD**, no por parecido', async () => {
     const r = await listar('?municipio=BELLO');
 
     expect(r.status).toBe(200);
     const w = whereDe(listado());
-    expect(w.sql).toContain('"municipio_fuente"');
+    // La columna es la de la HU #11878 y NO `municipio_fuente`: aquella dice a quién se le preguntó,
+    // y filtrar por ella escondía los comparendos de Bello que solo había reportado el SIMIT. El AC4
+    // de esa HU lo demuestra con filas; aquí se fija la columna.
+    expect(w.sql).toContain('"municipio_comparendo"');
+    expect(w.sql).not.toContain('"municipio_fuente"');
     // Un `like` aquí haría que «BELLO» arrastrara «BELLOS AIRES» si algún día existiera.
     expect(w.sql).not.toContain('like');
     expect(w.params).toEqual(['BELLO']);
@@ -1107,7 +1119,7 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
     const w = whereDe(listado());
     expect(w.sql).toContain('"origen_merge"');
     // Y NO por municipio: son dos preguntas distintas sobre la misma fila.
-    expect(w.sql).not.toContain('"municipio_fuente"');
+    expect(w.sql).not.toContain('"municipio_comparendo"');
     expect(w.params).toEqual(['simit']);
   });
 
@@ -1192,7 +1204,7 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
 
     expect(r.status).toBe(200);
     const w = whereDe(listado());
-    for (const columna of ['"estado"', '"numero_comparendo"', '"municipio_fuente"', '"origen_merge"']) {
+    for (const columna of ['"estado"', '"numero_comparendo"', '"municipio_comparendo"', '"origen_merge"']) {
       expect(w.sql).toContain(columna);
     }
     expect(w.sql).toContain('"causal_id" is null');
@@ -1210,7 +1222,7 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
     // Si el filtro se perdiera al pasar de página, la página 2 traería el módulo entero.
     expect(r.status).toBe(200);
     const w = whereDe(listado());
-    expect(w.sql).toContain('"municipio_fuente"');
+    expect(w.sql).toContain('"municipio_comparendo"');
     expect(w.sql).toMatch(/"created_at", .+"id"\) < \(\$\d::timestamptz, \$\d::uuid\)/);
     // Tres parámetros y no cuatro: la tupla nombra cada valor del corte UNA vez, mientras que la
     // forma con `OR` repetía la fecha para el desempate.
@@ -1226,12 +1238,12 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
     // de alta, así que un cursor que se calculara sobre la página sin filtrar —o un filtro que solo
     // se aplicara en la primera— se saltaría filas de BELLO en vez de devolverlas.
     const universo = [
-      fila({ id: idNumero(6), createdAt: AHORA, municipioFuente: 'BELLO' }),
-      fila({ id: idNumero(5), createdAt: AHORA, municipioFuente: 'MEDELLIN' }),
-      fila({ id: idNumero(4), createdAt: ANTES, municipioFuente: 'BELLO' }),
-      fila({ id: idNumero(3), createdAt: ANTES, municipioFuente: 'MEDELLIN' }),
-      fila({ id: idNumero(2), createdAt: HACE_TIEMPO, municipioFuente: 'BELLO' }),
-      fila({ id: idNumero(1), createdAt: HACE_TIEMPO, municipioFuente: 'MEDELLIN' }),
+      fila({ id: idNumero(6), createdAt: AHORA, municipioComparendo: 'BELLO' }),
+      fila({ id: idNumero(5), createdAt: AHORA, municipioComparendo: 'MEDELLIN' }),
+      fila({ id: idNumero(4), createdAt: ANTES, municipioComparendo: 'BELLO' }),
+      fila({ id: idNumero(3), createdAt: ANTES, municipioComparendo: 'MEDELLIN' }),
+      fila({ id: idNumero(2), createdAt: HACE_TIEMPO, municipioComparendo: 'BELLO' }),
+      fila({ id: idNumero(1), createdAt: HACE_TIEMPO, municipioComparendo: 'MEDELLIN' }),
     ];
     kdb.when.select(TABLA, tablaEnMemoria(universo));
     const app = await buildApp();
@@ -1252,7 +1264,7 @@ describe('filtros por municipio, fuente y causal (HU #11555)', () => {
 
     expect(r.status).toBe(200);
     const w = whereDe(listado());
-    expect(w.sql).toContain('"municipio_fuente"');
+    expect(w.sql).toContain('"municipio_comparendo"');
     expect(w.sql).toContain('"nit_monitoreado"');
     expect(w.params).toEqual(['BELLO', 'ambos', '900123456']);
   });

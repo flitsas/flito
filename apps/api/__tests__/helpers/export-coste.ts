@@ -101,6 +101,7 @@ export function fila(i: number, observacion: string | null): Record<string, unkn
     codigoInfraccion: 'C29',
     descripcionInfraccion: `Estacionar en sitio prohibido o en zona de cargue ${i}`,
     municipioFuente: 'BELLO',
+    municipioComparendo: 'BELLO',
     organismo: `Secretaría de Movilidad de Bello ${i}`,
     monto: 604100 + i,
     estado: i % 7 === 0 ? 'Inactivo' : 'Activo',

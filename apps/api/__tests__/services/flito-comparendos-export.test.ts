@@ -143,7 +143,12 @@ const fila = (over: Record<string, unknown> = {}) => ({
   fechaNotificacion: '2026-06-19',
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en sitio prohibido',
+  // HU #11878. La columna «Municipio» del archivo sale de `municipioComparendo` —de dónde ES el
+  // comparendo— y no de `municipioFuente`. Los dos van en la fixture y con el MISMO valor porque
+  // este es el caso corriente; el caso que separa las dos columnas (una fila que solo vio el SIMIT)
+  // lo prueba `flito-comparendos-municipio-resuelto.test.ts`, que es donde vive el AC6.
   municipioFuente: 'BELLO',
+  municipioComparendo: 'BELLO',
   organismo: 'Secretaría de Movilidad de Bello',
   monto: '604100.00',
   estado: 'activo',
@@ -795,7 +800,11 @@ describe('el export filtra igual que el visor', () => {
     // no los aplicados. La fixture del mock devuelve lo mismo se filtre o no, así que ninguna
     // aserción sobre el contenido del archivo puede ver esto: solo el WHERE real lo demuestra.
     expect(sql).toContain('"estado"');
-    expect(sql).toContain('"municipio_fuente"');
+    // `municipio_comparendo` desde la HU #11878: el filtro se mudó de columna dentro de
+    // `condicionesDeFiltro`, que es COMPARTIDA con el listado — y ese es justamente el punto. Si el
+    // export se quedara en la columna vieja, un archivo filtrado por Medellín contendría un conjunto
+    // distinto del que el operador está viendo en la pantalla.
+    expect(sql).toContain('"municipio_comparendo"');
     expect(sql).toContain('"origen_merge"');
     expect(sql).toContain('"causal_id"');
     expect(sql).toContain('"numero_comparendo"');
