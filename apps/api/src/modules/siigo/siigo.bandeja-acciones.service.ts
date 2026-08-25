@@ -37,7 +37,9 @@ import type {
 import { desc, eq, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { siigoColaFacturacion, siigoFacturaEnvios, siigoFacturas } from '../../db/schema.js';
-import { descartarDefinitivo, encolar, SiigoColaError } from './facturacion.cola.service.js';
+import {
+  asegurarFilaDadaPorPerdida, descartarDefinitivo, encolar, SiigoColaError,
+} from './facturacion.cola.service.js';
 import { contenidoDeLotes, type ContenidoLote } from './facturacion.lote.repo.js';
 import { descartesVigentes, guiaDelCaso } from './siigo.bandeja.service.js';
 import { enviarFacturaPorCorreo, SiigoEnvioError } from './siigo.envio-correo.service.js';
@@ -570,17 +572,24 @@ async function descartarCorreo(e: EntradaDescarte): Promise<SiigoBandejaRespuest
 }
 
 /**
- * Crea la fila de cola de una factura fallida que no la tenía (frontera 1 del diseño).
+ * Devuelve la fila de cola sobre la que anotar el descarte, creándola si no existe (frontera 1).
  *
  * Una factura emitida por la vía directa —o anterior a la cola— no tiene fila, y sin ella no hay
- * dónde escribir «deja de reintentarse». `asegurarLote` es un `ON CONFLICT` sobre
- * `(ambiente, estrategia, huella)` y devuelve **el mismo** `lote_id`, así que reencolar el contenido
- * exacto del lote no crea un segundo lote ni una segunda clave de idempotencia: crea la fila que
- * faltaba, o devuelve la que ya estaba.
+ * dónde escribir «deja de reintentarse».
  *
- * `reactivar: false`, y aquí sí importa: si la fila ya estaba `fallido_definitivo`, reactivarla para
- * marcarla acto seguido sería dejarla un instante elegible por el trabajador. La marca se escribe
- * sobre lo que hay.
+ * **La fila que se crea NACE `fallido_definitivo`**, y esa es la única forma de que el par
+ * crear-y-marcar sea seguro sin una transacción que lo envuelva. Antes esto llamaba a `encolar`, que
+ * la insertaba `pendiente` y citada para ahora: durante el hueco hasta `descartarDefinitivo` la fila
+ * era elegible para `tomarLote`, y si el proceso moría en ese hueco se quedaba elegible para
+ * siempre. El razonamiento entero está en `asegurarFilaDadaPorPerdida`, que es donde vive la
+ * escritura —este módulo no escribe en `siigo_cola_facturacion`—.
+ *
+ * La fila que YA existe no se toca aquí: marcarla es trabajo de `descartarDefinitivo`, que lleva la
+ * condición de estado y la del arrendamiento dentro del `UPDATE`. Por eso tampoco hay nada que
+ * «reactivar»: lo que estaba `fallido_definitivo` se queda como está.
+ *
+ * Se sigue exigiendo que el lote tenga contenido aunque para marcar ya no haga falta: cambiarlo
+ * ahora alteraría en silencio qué se puede dar por perdido, y eso es una decisión de producto.
  */
 async function asegurarFilaDeCola(
   loteId: string, e: EntradaDescarte, ahora: Date,
@@ -590,14 +599,8 @@ async function asegurarFilaDeCola(
   if (impedimento) throw new SiigoBandejaError('no_aplica', impedimento);
 
   try {
-    const r = await encolar({
-      tramiteIds: contenido!.tramiteIds,
-      conceptos: contenido!.conceptos,
-      emision: contenido!.emision,
-      ambiente: e.ambiente,
-      usuarioId: e.usuarioId,
-      reactivar: false,
-      ahora,
+    const r = await asegurarFilaDadaPorPerdida({
+      loteId, ambiente: e.ambiente, usuarioId: e.usuarioId, ahora,
     });
     return r.colaId;
   } catch (err) {

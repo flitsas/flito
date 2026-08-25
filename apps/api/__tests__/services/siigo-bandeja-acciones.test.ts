@@ -484,6 +484,60 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
     await expect(descartarCaso(DESCARTE)).rejects.toMatchObject({ codigo: 'ya_emitida' });
   });
 
+  // ── La fila que hay que CREAR para poder marcar (frontera 1) ──────────────────────────────
+  //
+  // Una factura fallida sin fila de cola —emisión directa, o anterior a la cola— no tiene dónde
+  // llevar la marca, así que hay que crearla. Crearla `pendiente` y marcarla en una segunda
+  // sentencia, sin transacción que las una, dejaba un hueco en el que la fila cumplía las TRES
+  // condiciones de `tomarLote` a la vez. Y si el proceso moría en ese hueco —deploy, OOM, corte de
+  // BD— el hueco no se cerraba nunca: la fila se quedaba elegible y el cron la tomaba en los dos
+  // minutos siguientes con certeza. El desenlace de eso es una factura emitida ante la DIAN a partir
+  // de un clic que pedía justo lo contrario.
+  it('la fila que se crea para poder marcar NACE terminal: nunca existe en estado elegible', async () => {
+    // Frontera 1: no hay fila de cola para ese lote, así que el INSERT es el que manda.
+    kdb.when
+      .select('siigo_cola_facturacion', [])
+      .insert('siigo_cola_facturacion', [filaCola({ estado: 'fallido_definitivo' })]);
+
+    await descartarCaso(DESCARTE);
+
+    const insertadas = espia.insertsEn('siigo_cola_facturacion');
+    expect(insertadas).toHaveLength(1);
+    expect(insertadas[0]!.datos.estado).toBe('fallido_definitivo');
+    // `tomarLote` exige `estado IN ('pendiente','error')`. Ninguna escritura de este flujo deja la
+    // fila en ninguno de los dos, así que no hay instante en el que un trabajador pueda tomarla.
+    expect(insertadas.map((m) => m.datos.estado)).not.toContain('pendiente');
+    expect(insertadas.map((m) => m.datos.estado)).not.toContain('error');
+  });
+
+  it('la fila creada no se encola: no pasa por `encolar` ni pide cita para emitir', async () => {
+    // El acto es «dar por perdido». Si esto encolara —aunque fuera un instante— estaría pidiendo la
+    // emisión del documento que alguien acaba de decidir no emitir.
+    kdb.when
+      .select('siigo_cola_facturacion', [])
+      .insert('siigo_cola_facturacion', [filaCola({ estado: 'fallido_definitivo' })]);
+
+    await descartarCaso(DESCARTE);
+
+    expect(encolarMock).not.toHaveBeenCalled();
+    expect(siigoRequestOrThrowMock).not.toHaveBeenCalled();
+  });
+
+  it('la fila que YA estaba dada por perdida no se resucita al ponerle el motivo', async () => {
+    // El caso NORMAL, no el raro: el trabajador la dejó `fallido_definitivo` al agotar su techo y lo
+    // que le falta es la decisión. Ponerle el motivo no puede devolverla a la cola —sería reabrir un
+    // trabajo al ir a cerrarlo—, y ninguna escritura del flujo la deja `pendiente` ni pone los
+    // contadores a cero.
+    await descartarCaso(DESCARTE);
+
+    const escrituras = [
+      ...espia.insertsEn('siigo_cola_facturacion'), ...espia.updatesEn('siigo_cola_facturacion'),
+    ];
+    expect(escrituras.map((m) => m.datos.estado)).not.toContain('pendiente');
+    expect(escrituras.some((m) => m.datos.intentos === 0)).toBe(false);
+    expect(encolarMock).not.toHaveBeenCalled();
+  });
+
   it('un rechazo de la DIAN no se da por perdido: se corrige', async () => {
     await expect(descartarCaso({ ...DESCARTE, fuente: 'dian' }))
       .rejects.toMatchObject({ codigo: 'fuente_no_admite' });
@@ -592,6 +646,26 @@ describe('AC5 — dar por perdido exige motivo y registra quién y cuándo', () 
 
     const escrito = (registrarHitoMock.mock.calls[0]![0] as { detalle: string }).detalle;
     expect(escrito).not.toContain('ABC123');
+  });
+
+  // El enmascarado va ANTES del recorte, y el orden es la propiedad —no un detalle de escritura—.
+  // Al revés, el tope parte el dato y lo que queda ya no tiene la FORMA que el detector busca: media
+  // placa no es una placa para la regex, así que pasa entera y sin enmascarar a una tabla que no
+  // admite UPDATE ni DELETE. El docblock de `normalizarNota` lo afirmaba y no lo comprobaba nadie.
+  it('una placa a caballo del tope se enmascara ANTES de recortar, no después', async () => {
+    const { SIIGO_BANDEJA_NOTA_MAX } = await import('@operaciones/shared-types');
+    const COLA_DE_LA_NOTA = ' placa ABC12D';
+    // La nota se pasa del tope por un carácter: el último de la placa es justo el que cae.
+    const nota = 'x'.repeat(SIIGO_BANDEJA_NOTA_MAX - COLA_DE_LA_NOTA.length + 1) + COLA_DE_LA_NOTA;
+    expect(nota).toHaveLength(SIIGO_BANDEJA_NOTA_MAX + 1);
+
+    const limpia = normalizarNota(nota)!;
+
+    // Recortando primero quedaría `ABC12`, que ya no casa con la forma de una placa y sobrevive al
+    // redactor: la placa entera menos un carácter, escrita para siempre.
+    expect(limpia).not.toContain('ABC12');
+    expect(limpia).toContain('A****');
+    expect(limpia).toHaveLength(SIIGO_BANDEJA_NOTA_MAX);
   });
 
   it('lo que NO es un dato personal se queda: un tope, una fecha y un importe', async () => {

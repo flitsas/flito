@@ -338,6 +338,71 @@ export async function descartarDefinitivo(args: {
   return { estado: 'en_proceso', fila: actual };
 }
 
+/**
+ * Crea la fila de cola de un lote que no la tenía, **naciendo ya dada por perdida**.
+ *
+ * Existe para una sola cosa: dar dónde escribir «deja de reintentarse» a una factura fallida que
+ * nunca pasó por la cola —emisión directa, o anterior a que la cola existiera—. No encola nada, y
+ * por eso no llama a `encolar` ni pasa por `asegurarLote`: el `lote_id` ya lo trae la factura.
+ *
+ * **Nace `fallido_definitivo` y esa es toda la corrección.** Antes esta fila se creaba llamando a
+ * `encolar`, que la insertaba `pendiente` con la cita puesta para AHORA, y solo después —en otra
+ * sentencia, sin transacción que las uniera— se la marcaba. En ese hueco la fila cumplía las tres
+ * condiciones de `tomarLote` (`estado IN ('pendiente','error')`, `proximo_intento_at <= now`,
+ * sin arrendamiento), así que era elegible de inmediato y no en el ciclo siguiente. Dos desenlaces:
+ * si el cron entraba en la ventana, quien pidió darla por perdida recibía un 409 mientras el
+ * documento se emitía ante la DIAN; y si el proceso moría entre las dos sentencias —un deploy, un
+ * OOM, un corte—, la fila se quedaba `pendiente` **para siempre** y el cron la tomaba con certeza en
+ * los dos minutos siguientes. Lo segundo no es una carrera: es determinista y silencioso.
+ *
+ * Las alternativas eran envolver los dos pasos en una transacción —lo que obliga a enhebrar el `tx`
+ * por `encolar`, `asegurarLote`, `descartarDefinitivo` y `registrarOperacion`— o citarla en un
+ * futuro inalcanzable, que deja una fila `pendiente` mintiendo en la bandeja y que cualquier
+ * reactivación devuelve al presente. Nacer terminal no necesita ninguna de las dos: **el estado
+ * inelegible es la primera cosa que la fila es**, y entre el INSERT y cualquier otra sentencia no
+ * hay ningún instante en el que un trabajador pueda verla.
+ *
+ * No deja rastro de «encolado» en la bitácora, y también es a propósito: aquí no se encoló nada. El
+ * hecho que hay que registrar es el descarte, y lo escribe quien llama en `siigo_operaciones` con el
+ * motivo, el autor y la hora.
+ */
+export async function asegurarFilaDadaPorPerdida(args: {
+  loteId: string; ambiente: SiigoAmbiente; usuarioId: number | null; ahora?: Date;
+}): Promise<{ colaId: string; estado: SiigoColaEstado; creada: boolean }> {
+  const ahora = args.ahora ?? new Date();
+
+  const [creada] = await db.insert(siigoColaFacturacion)
+    .values({
+      loteId: args.loteId,
+      ambiente: args.ambiente,
+      // La línea que cierra la ventana. No es un valor inicial cualquiera: es la garantía.
+      estado: 'fallido_definitivo',
+      // Irrelevante mientras el estado sea terminal —`tomarLote` filtra por estado antes que por la
+      // cita—, pero la columna no admite nulo y una fecha inventada confundiría a quien la lea.
+      proximoIntentoAt: ahora,
+      encoladoPor: args.usuarioId,
+      createdAt: ahora,
+      updatedAt: ahora,
+    })
+    // La fila normal ya existe y NO se toca: marcarla es trabajo de `descartarDefinitivo`, cuya
+    // condición de estado y de arrendamiento viaja dentro del `UPDATE`.
+    .onConflictDoNothing({ target: siigoColaFacturacion.loteId })
+    .returning(COLUMNAS);
+
+  if (creada) {
+    const item = aItem(creada as Record<string, unknown>);
+    return { colaId: item.id, estado: item.estado, creada: true };
+  }
+
+  const existente = await filaDeLote(args.loteId);
+  if (!existente) {
+    throw new SiigoColaError(
+      'lote', 'La cola tiene ocupado ese lote con una fila que no se pudo leer. No se marcó nada.',
+    );
+  }
+  return { colaId: existente.id, estado: existente.estado, creada: false };
+}
+
 /** Una fila de la cola por su id. Solo lectura; la escritura sigue viviendo en este archivo. */
 export async function filaDeCola(colaId: string): Promise<SiigoColaItem | null> {
   const [f] = await db.select(COLUMNAS).from(siigoColaFacturacion)
