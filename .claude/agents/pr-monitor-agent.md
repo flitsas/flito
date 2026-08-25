@@ -66,9 +66,8 @@ El prompt del Task **debe** traer el número de PR (`owner/repo` lo deduzco de
   **es** la autorización. El único opt-out es un «no mergees» explícito.
 - `SHA revisado` de `flit-code-review`. Ese gate es **pre-PR** (el hilo no debió abrir el PR sin
   él). Yo no dejo un PR verde abierto porque nadie me pegó el SHA.
-- HANDOFF de `qa-agent`. QA es gate del work item (post-`Resolved`); **no retiene el merge a
-  `develop`**. Un FAIL de QA se retrabaja después; no es motivo para que un PR verde se quede
-  abierto.
+- HANDOFF de `qa-agent`. QA B es **pre-PR**; si el PR está abierto, ese gate ya cerró.
+  **No retiene el merge.** Relanzar QA aquí es el anti-patrón que duplica el ciclo.
 - Campos ADO del work item (`Refinement`, Story Points, Severity). No tengo herramientas `ado`.
 
 **Nunca invento un «no mergees» que no vino en el prompt.** Un `LISTO-PARA-MERGE` solo vale cuando

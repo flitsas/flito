@@ -25,7 +25,9 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 
 NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths (P8).
 `Read`/`Grep` de los archivos nombrados; **prohibido** `Bash` como visor de código.
-Solo consulta ADO si faltan AC o hay duda bloqueante (una pregunta consolidada).
+Solo consulta ADO si faltan AC o hay duda **de producto** (P9: ronda de cierre). Hueco de AC o
+contradicción con el código → HANDOFF `bloqueado` + preguntas. **Prohibido** inventar el AC, ampliar
+alcance, o proponer un Bug/HU extra. Defecto de este cambio → se corrige aquí. Deuda preexistente → Nota.
 
 ## CUÁNDO INVOCAR — HARD-STOP (hilo principal / modo auto)
 

@@ -37,7 +37,8 @@ es la imitación más frecuente (veredicto o plantilla «de memoria»). El ledge
 - «Gates cerrados» / «ya revisado» sin veredicto canónico de `flit-code-review` sobre **este** diff/HEAD
 - Abrir el PR y revisar después
 - Vigilar los checks del PR a mano (`pull_request_read` suelto), relanzar jobs «por si acaso» o mergear sin invocar `pr-monitor-agent` — y peor: cerrar el turno con «avísame cuando el CI pase», o devolver `LISTO-PARA-MERGE` porque el prompt no traía QA/SHA/«sí»
-- Comentario «listo para QA» **sin** lanzar `qa-agent`
+- Comentario «listo para QA» **sin** haber lanzado `qa-agent` B **antes del PR**
+- Lanzar `qa-agent` B **después** de `create_pull_request`, en paralelo al `pr-monitor-agent`
 - Reusar salida de Vitest/Playwright del `backend-agent` / hilo como certificación QA
 - Feature «modo auto» improvisado sin cargar `flit-modo-desarrollo-auto` (salvo pedido explícito de no usarla)
 - Cerrar el ciclo de un **Bug** sin `flit-gestion-hu` (dejarlo en `Active`, o moverlo con `wit_*` suelto)
@@ -49,4 +50,4 @@ Pedido multi-fase / Feature completo → cargar `flit-modo-desarrollo-auto` y/o 
 
 ## QA (participación mínima)
 
-Tras **cada** HU **o Bug** en `Resolved` (AC Gherkin, UI, BACKEND-only, o repro corregido) → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → HU a `Active` + corregir; **sin** Bug/modo C. Modo C solo con pedido explícito del QA. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito del agente) → no declarar la HU «entregada a QA».
+Tras **cada** HU **o Bug** implementada y **antes del PR** (AC Gherkin, UI, BACKEND-only, o repro corregido) → `qa-agent` modo B como gate de desarrollo (A si faltan TCs). FAIL del gate → corregir **sin abrir el PR**; **sin** Bug/modo C. Modo C solo con pedido explícito del QA humano. Ideal: modo A en paralelo cuando la HU está `Active` con AC listos. Sin `HANDOFF` del agente (o `SIN-ENTORNO` explícito) → **no** abrir el PR. Tras el PR **no** se relanza QA B: eso es el `pr-monitor-agent`.

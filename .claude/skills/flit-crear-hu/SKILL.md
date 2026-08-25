@@ -150,7 +150,7 @@ Tras obtener el `id` del `POST`, enviar `PATCH` con:
 ## Crear un **Bug** (mismo contrato, otros campos)
 
 Un Bug es un work item de desarrollo de pleno derecho: se crea aquí y **se trabaja con el mismo
-ciclo que una HU** (`flit-gestion-hu` Active → Resolved → gate `qa-agent`; regla «Paridad HU ↔ Bug»
+ciclo que una HU** (`flit-gestion-hu` Active → impl → qa-agent B pre-PR → PR → merge → Resolved; regla «Paridad HU ↔ Bug»
 de `AGENTS.md`). Vía habitual de radicación desde QA: `qa-agent` **modo C**, con pedido explícito.
 
 `POST $Bug` con JSON Patch. Mapeo verificado contra el proyecto real (2026-08-22):
