@@ -1,0 +1,48 @@
+%!PS-Adobe-3.0
+%
+% Fuente del único fixture binario de los E2E: `soporte-dos-paginas.pdf`.
+%
+% Se versiona el ORIGEN además del PDF porque el PDF es un binario de 8 KB y la afirmación que lo
+% sostiene —«no lleva ningún dato personal»— no se puede revisar en un diff. Con este fichero se
+% lee lo que dice el documento y se regenera byte a byte:
+%
+%   gs -q -dNOPAUSE -dBATCH -dSAFER -sDEVICE=pdfwrite \
+%      -dEmbedAllFonts=true -dSubsetFonts=true -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress \
+%      -sOutputFile=soporte-dos-paginas.pdf soporte-dos-paginas.ps
+%
+% Por qué Ghostscript y no el único PDF que ya había en el repo: `apps/api/templates/ftrunt.pdf`
+% pesa 530 KB (más del doble del tope de 200 KB del AC6) y además es plantilla de la API, no
+% fixture; atarle un E2E la convertiría en intocable.
+%
+% Por qué con fuente EMBEBIDA (subset Type1C, `/FontFile3`): con una base-14 sin embeber, pdf.js 3.x
+% necesita el parámetro `standardFontDataUrl` —que el visor no pasa— y rasterizaría con una fuente
+% de reemplazo. El fixture quedaría dependiendo de una configuración ajena a lo que se quiere medir.
+% Embebido, el camino de compilación de glifos (el mismo del CVE-2024-4367 que mitiga el visor con
+% `isEvalSupported: false`) se ejercita de verdad y el fichero se basta a sí mismo.
+%
+% Dos páginas y no una: el AC1 cuenta los `<img>` que pinta el visor. Con una sola página, un visor
+% que dejara de recorrer `doc.numPages` y pintara siempre la primera seguiría en verde.
+%
+% Ley 1581 / AGENTS.md §14 — texto sintético: sin cédula, sin NIT, sin placa y sin nombre de
+% persona. Tampoco lleva ruta local ni usuario en los metadatos (los escribe Ghostscript: Producer,
+% CreationDate y ModDate, nada más).
+
+/Helvetica findfont 24 scalefont setfont
+72 720 moveto (FLITO - fixture E2E de dos paginas) show
+/Helvetica findfont 14 scalefont setfont
+72 680 moveto (Pagina 1 de 2) show
+72 650 moveto (Documento sintetico. No contiene datos personales.) show
+72 630 moveto (Sin cedula, sin NIT, sin placa, sin nombres de persona.) show
+72 600 moveto (Se usa para comprobar que el visor rasteriza un PDF real.) show
+72 570 moveto (HU 11774 - primer e2e que rasteriza un PDF de verdad.) show
+72 300 moveto (Marca de pagina uno: ALFA) show
+showpage
+/Helvetica findfont 24 scalefont setfont
+72 720 moveto (FLITO - fixture E2E de dos paginas) show
+/Helvetica findfont 14 scalefont setfont
+72 680 moveto (Pagina 2 de 2) show
+72 650 moveto (La segunda pagina existe para que el conteo de <img> muerda:) show
+72 630 moveto (con una sola pagina el spec pasaria sin ver el scroll continuo.) show
+72 600 moveto (El visor pinta cada pagina como PNG con toDataURL.) show
+72 300 moveto (Marca de pagina dos: BRAVO) show
+showpage

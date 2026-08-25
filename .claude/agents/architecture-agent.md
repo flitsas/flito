@@ -27,7 +27,7 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - Comandos de verificación ya corridos en el hilo (si los hay)
 
 NO releer `AGENTS.md` entero ni `flit-azure-devops` completo si el prompt trae AC + paths.
-Solo consulta ADO si faltan AC o hay duda bloqueante (una pregunta consolidada).
+Solo consulta ADO si faltan AC o hay duda de producto (P9: ronda de cierre, no «una pregunta» y seguir). Si el código/spec contradice el pedido → HANDOFF con preguntas, no un diseño que invente el alcance.
 
 ---
 
@@ -151,7 +151,8 @@ Pros | Contras | Esfuerzo S/M/L | Riesgos
 
 ```
 HANDOFF
-  Modo: slim | full
+  Modo: slim | full | omit
+  Resultado: OK | BLOQUEADO
   Decisión recomendada: <opción o patrón vecino>
   ADR: <ruta o "no aplica">
   Archivos: <lista>

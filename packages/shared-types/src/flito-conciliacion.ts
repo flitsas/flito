@@ -55,10 +55,13 @@ export type ConceptoBoleta = (typeof ConceptoBoleta)[keyof typeof ConceptoBoleta
  *   no_pagado        — el SOAT existe pero todavía no está en `pagado`
  *   valor_distinto   — cruzó, pero el valor del portal no es el que FLITO tiene registrado
  *   poliza_duplicada — la póliza aparece en más de un SOAT: hay que corregir el número antes
- *   otra_compania    — la póliza es de un SOAT de otra compañía
- *   ya_conciliada    — ese SOAT ya salió de la bolsa en otra boleta
+ *   otra_compania         — la póliza es de un SOAT de otra compañía
+ *   ya_conciliada         — ese SOAT ya salió de la bolsa en otra boleta
+ *   cobrado_otro_cliente  — la llave `salida:soat:<id>` ya está en el libro de OTRO cliente
+ *                           (Bug #11773). No se concilia ni se adopta ese asiento.
  *
- * Espejo del CHECK `flito_concil_linea_resultado_chk` de la 0157.
+ * Espejo del CHECK `flito_concil_linea_resultado_chk`. La 0157 lo congeló con siete valores; el
+ * octavo lo añade la 0162. No igualar este tipo al CHECK de 0157.
  */
 export const ResultadoCruce = {
   OK: 'ok',
@@ -68,6 +71,7 @@ export const ResultadoCruce = {
   POLIZA_DUPLICADA: 'poliza_duplicada',
   OTRA_COMPANIA: 'otra_compania',
   YA_CONCILIADA: 'ya_conciliada',
+  COBRADO_OTRO_CLIENTE: 'cobrado_otro_cliente',
 } as const;
 
 export type ResultadoCruce = (typeof ResultadoCruce)[keyof typeof ResultadoCruce];
@@ -241,8 +245,9 @@ export type CodigoErrorConciliacion =
  *   valor_distinto   → `valorDeclarado` + `valorSoat` (la diferencia la calcula la pantalla)
  *   poliza_duplicada → `candidatos`
  *   no_pagado        → `soatEstado`
- *   otra_compania    → `companiaSoatNombre`
- *   ya_conciliada    → `boletaAnteriorRef` + `boletaAnteriorFecha`
+ *   otra_compania         → `companiaSoatNombre`
+ *   ya_conciliada         → `boletaAnteriorRef` + `boletaAnteriorFecha`
+ *   cobrado_otro_cliente  → `companiaCobroNombre` (el cliente dueño del asiento, no el de la boleta)
  */
 export interface LineaBoletaDto {
   id: string;
@@ -268,9 +273,15 @@ export interface LineaBoletaDto {
   /** ISO 'YYYY-MM-DD' del pago de la boleta que ya concilió este SOAT. */
   boletaAnteriorFecha: string | null;
   /**
-   * El SOAT ya salió de la bolsa al sellar la liquidación de su trámite: conciliar no volverá a
-   * cobrarlo. No bloquea —la línea cuadra— pero evita que el aviso de éxito anuncie un descuento
-   * que no ocurrió.
+   * Nombre del cliente dueño del asiento `salida:soat:<id>` cuando ese asiento NO es de la
+   * compañía de la boleta (`cobrado_otro_cliente`). `null` en cualquier otro desenlace.
+   */
+  companiaCobroNombre: string | null;
+  /**
+   * El SOAT ya salió de la bolsa de ESTA compañía al sellar la liquidación de su trámite:
+   * conciliar no volverá a cobrarlo. No bloquea —la línea cuadra— pero evita que el aviso de
+   * éxito anuncie un descuento que no ocurrió. Falso si el asiento `automatico` es de otro cliente
+   * (eso es `cobrado_otro_cliente`, y sí bloquea).
    */
   yaDescontadoEnLiquidacion: boolean;
   conciliadaEn: string | null;

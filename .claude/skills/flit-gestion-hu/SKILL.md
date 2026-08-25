@@ -1,10 +1,10 @@
 ---
 name: flit-gestion-hu
 description: |
-  Ciclo Active → Resolved de un work item de desarrollo en Azure DevOps (FLIT - FLITO): **HU (User Story) o Bug, mismo ciclo**. Activar padre + WI, comentario de inicio, cierre Resolved y entrega a QA (HTML + mailto).
+  Ciclo Active → Resolved de un work item de desarrollo en Azure DevOps (FLIT - FLITO): **HU (User Story) o Bug, mismo ciclo**. Activar padre + WI, comentario de inicio, cierre Resolved **tras el merge** y aviso al QA humano (HTML + mailto).
   INVOCACIÓN OBLIGATORIA: cargar esta Skill en CADA HU y en CADA Bug (Active y Resolved). PROHIBIDO imitarla con comentario «usando @flit-gestion-hu» + wit_* sin cargar la skill.
   Un Bug corregido y mergeado que queda en Active es Bug huérfano = fallo de proceso: esta skill lo cierra igual que una HU.
-  Tras Resolved: el hilo DEBE lanzar Agent qa-agent (gate B); HTML no sustituye al agente. FAIL del gate → Active + corregir; modo C solo con pedido explícito del QA.
+  El gate `qa-agent` B es **pre-PR** (matriz AGENTS.md); esta skill **no** lo lanza en el Paso 3. FAIL del gate → corregir antes del PR; modo C solo con pedido explícito del QA humano.
   Triggers — Active, Resolved, implementar HU, corregir bug, cerrar bug, activar bug, Bug Resolved, bug huérfano, flit-gestion-hu, entrega QA, activar HU, cerrar HU, flit-modo-desarrollo-auto pasos 1 y 6.
 ---
 
@@ -23,8 +23,8 @@ skill y se cierra con esta skill.
 |---|---|
 | Empezar desarrollo de una HU (modo auto o suelto) | **Paso 1 — Activación** (Feature padre + HU → `Active` + comentario) |
 | Empezar la corrección de un **Bug** (propio o radicado por QA) | **Paso 1 — Activación** (padre si tiene + Bug → `Active` + comentario) |
-| Build/AC verdes y se va a cerrar técnicamente | **Paso 3 — Cierre** (`Resolved` + comentario entrega QA) |
-| **Bug** corregido, con repro en verde y PR abierto/mergeado | **Paso 3 — Cierre** (`Resolved` + entrega a QA). **Nunca** dejarlo en `Active` |
+| Build/AC verdes, **PR mergeado a `develop`**, se cierra técnicamente | **Paso 3 — Cierre** (`Resolved` + comentario al QA humano) |
+| **Bug** corregido, con repro en verde y PR **mergeado** | **Paso 3 — Cierre** (`Resolved` + aviso a QA). **Nunca** dejarlo en `Active` |
 | Siguiente HU o Bug de la misma ráfaga | **Otra vez Paso 1** — no reutilizar solo el de la primera |
 
 **Cómo contar:** herramienta `Skill` con `skill: flit-gestion-hu` (args: ID de HU/Bug + `inicio|cierre`)
@@ -34,18 +34,20 @@ skill y se cierra con esta skill.
 - Comentario ADO «🤖 usando @flit-gestion-hu» + `wit_*` **sin** haber cargado esta skill en el turno
 - `wit_work_item_write` / `wit_work_item_comment_write` sueltos «de memoria»
 - Activar solo la primera HU del Feature y en las siguientes cambiar estado sin esta skill
-- Dar por cerrada la entrega a QA solo con el comentario HTML (falta el `Agent qa-agent`)
+- Dar por cerrado el ciclo sin `Resolved` **después del merge**
+- Relanzar `qa-agent` B en el Paso 3 (ese gate es pre-PR)
 - **Preguntar al humano «¿paso el Bug a Resolved?» como si el proceso no existiera** — existe: es
   este Paso 3. Se pregunta lo que decide el humano (autorizar la escritura en ADO), no si hay ciclo.
 
-**Orden obligatorio:** (1) cargar esta skill → (2) plantillas + PATCH estado → (3) tras Paso 3,
-el hilo lanza `qa-agent`. El HTML de entrega **notifica**; no certifica.
+**Orden obligatorio:** (1) cargar esta skill → (2) plantillas + PATCH estado. Tras Paso 3
+(`Resolved` post-merge) el comentario **notifica al QA humano** de ambiente; **no** lanza
+`qa-agent` (el modo B ya corrió antes del PR).
 
-**Encadenamiento obligatorio tras Paso 3:** el hilo principal invoca `qa-agent` (matriz `AGENTS.md`).
-Esta skill **no** invoca subagentes; el cierre del Paso 3 debe terminar con la línea de HANDOFF:
+**Encadenamiento tras Paso 3:** `flit-integration-ado` Modo B si aún no se hizo con el merge;
+esta skill **no** invoca subagentes. El cierre termina con:
 
 ```
-HANDOFF → hilo: lanzar qa-agent modo A+B|B sobre <HU|Bug> #<id> (AC Gherkin / repro del Bug, según aplique)
+HANDOFF → hilo: Modo B si falta + devops M1 al tip de ráfaga. No relanzar qa-agent.
 ```
 
 ## HU y Bug — qué cambia (y qué no)
@@ -112,7 +114,7 @@ Para un **Bug**, la misma línea más el reconocimiento de origen y alcance:
 
 ## Paso 3 — Cierre técnico
 
-1. Estado **`Resolved`** solo si el build pasa (y, en Bug, si el repro quedó en verde).
+1. Estado **`Resolved`** solo si el PR está **mergeado** a `develop` y el `qa-agent` B ya pasó **antes** del PR.
 2. Comentario de entrega a QA (Discussion):
 
 **HU:**
@@ -131,20 +133,9 @@ Para un **Bug**, la misma línea más el reconocimiento de origen y alcance:
 <div><a href="mailto:{QA_LEAD_EMAIL}">@{QA_LEAD_NAME}</a> — Por favor proceder con la validación. <a href="mailto:{REPORTER_EMAIL}">@{REPORTER_NAME}</a> (reportó el hallazgo) queda notificado.</div>
 ```
 
-3. **HANDOFF a `qa-agent` — obligatorio** (el hilo principal lo ejecuta con `Agent`/`Task`; esta skill no invoca subagentes):
-   - El Agent post-`Resolved` es el **gate de calidad de desarrollo** (`desarrollo-gate`), no la
-     etapa formal de radicación de defectos en ambiente QA.
-   - HU con AC Gherkin o FRONTEND → `qa-agent` modo A (TCs si faltan) + modo B (ejecución del gate).
-   - HU BACKEND-only → al menos modo B sobre tests del módulo; declarar si se omite E2E.
-   - **Bug** → modo B con alcance = repro del Bug + regresión del módulo tocado. Si no hay TC que
-     cubra el repro, modo A primero para crearlo: un Bug sin test de regresión vuelve.
-   - Sin entorno → **igual invocar** el agente; HANDOFF `SIN-ENTORNO` + comentario «QA pendiente de entorno»; no inventar evidencia.
-   - Si el gate B es **FAIL** → reactivar el work item a `Active`, corregir (backend/frontend);
-     **prohibido** modo C / Bug nuevo / `QA_NOVEDAD` por ese FAIL. Modo C solo si el **QA lo pide
-     explícitamente**. Un FAIL sobre un Bug es re-trabajo del mismo Bug, no un Bug hijo.
-   - **Prohibido** dar por cerrada la HU/Bug en el reporte del Feature sin ese HANDOFF.
-   - **Prohibido** continuar el modo auto al siguiente work item marcando «entregado a QA» si aún
-     no se lanzó el Agent (el comentario HTML solo no basta) o si el gate quedó en FAIL.
+3. **No relanzar `qa-agent`.** El comentario HTML notifica al QA **humano** de ambiente (staging/DEV).
+   El gate de desarrollo (`qa-agent` B) ya corrió en el paso pre-PR. Relanzarlo aquí, en paralelo
+   al `pr-monitor-agent`, es el anti-patrón que duplica el ciclo.
 
 ## Reglas
 
@@ -159,6 +150,6 @@ Para un **Bug**, la misma línea más el reconocimiento de origen y alcance:
 - Las evidencias de tests van a `Custom.Evidences` (rol dev/QA), **no** a Discussion. Si el tipo Bug
   rechaza ese campo en el PATCH, registrar la evidencia en Discussion y **declarar la limitación**;
   nunca descartarla en silencio.
-- El comentario de entrega a QA **notifica** al rol QA; el `qa-agent` modo B del Paso 3 es el
-  **gate de entrega** del ciclo de desarrollo. Hallazgos formales / Bugs nuevos → solo cuando el QA
-  lo pida (modo C), no por el FAIL del gate.
+- El comentario de entrega a QA **notifica** al rol QA humano de ambiente. El `qa-agent` modo B
+  es **pre-PR**, no de este Paso 3. Hallazgos formales / Bugs nuevos → solo cuando el QA humano
+  lo pida (modo C), no por un FAIL de desarrollo ni por una Nota.

@@ -244,8 +244,31 @@ export interface ComparendoRegistro {
   placa: string | null;
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
-  /** `YYYY-MM-DD` (la columna es `date`, sin hora), o `null` si ninguna fuente la trajo. */
+  /**
+   * `YYYY-MM-DD` (la columna es `date`, sin hora), o `null` si ninguna fuente la trajo.
+   *
+   * Desde la HU #11794 **`null` también es lo que se publica cuando la fuente mandó el centinela
+   * `01/01/1900`**, que significa «no notificado» y no «ocurrió en 1900». Es un cambio de salida:
+   * las filas que ya se habían guardado con `1900-01-01` siguen así hasta que un sync las vuelva a
+   * visitar, así que el visor tiene que saber pintar las dos cosas mientras dure esa convivencia.
+   */
   fechaComparendo: string | null;
+  /**
+   * `YYYY-MM-DD` de la NOTIFICACIÓN del comparendo, o `null` (HU #11794).
+   *
+   * `null` significa **«no notificado o no se sabe»**, y las dos cosas caben en el mismo nulo porque
+   * ninguna de las dos fuentes las distingue: el proveedor manda el centinela `01/01/1900` tanto
+   * cuando el comparendo no se ha notificado como cuando no publica la fecha. Ese centinela **no se
+   * persiste**; llega aquí como `null`.
+   *
+   * Y `null` es además lo que devuelve TODO el histórico anterior a la migración 0164, sin backfill:
+   * el dato no está ni en las columnas ni en `payload_*` —la v3 del mapa no lo nombraba y RN-25 lo
+   * podaba—, así que solo se llena en el siguiente sync de cada fila. Consecuencia para el visor: la
+   * ausencia se pinta como «sin dato», nunca como una fecha por defecto.
+   *
+   * Dato de FUENTE y de solo lectura (CF-09): no hay endpoint que lo edite.
+   */
+  fechaNotificacion: string | null;
   organismo: string | null;
   /** `codigoFuente` del municipio donde se vio, o `null` si solo lo reportó SIMIT. */
   municipioFuente: string | null;

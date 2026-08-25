@@ -123,6 +123,10 @@ const fila = (over: Record<string, unknown> = {}) => ({
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en sitio prohibido',
   fechaComparendo: '2026-06-02',
+  // HU #11794. Con valor en la fila base, por lo mismo que la resolución de abajo: el caso del
+  // `null` —el histórico anterior a la 0164, que no tiene backfill— hay que pedirlo, y así no puede
+  // pasar por «no salía porque no había nada».
+  fechaNotificacion: '2026-06-19',
   organismo: 'Secretaría de Movilidad de Bello',
   municipioFuente: 'BELLO',
   monto: '604100.00',
@@ -457,6 +461,7 @@ describe('GET /registros — la forma de lo que devuelve', () => {
       codigoInfraccion: 'C29',
       descripcionInfraccion: 'Estacionar en sitio prohibido',
       fechaComparendo: '2026-06-02',
+      fechaNotificacion: '2026-06-19',
       organismo: 'Secretaría de Movilidad de Bello',
       municipioFuente: 'BELLO',
       monto: '604100.00',
@@ -480,6 +485,22 @@ describe('GET /registros — la forma de lo que devuelve', () => {
     });
     // `null` y no ausente: la pantalla no tiene que distinguir «no vino» de «se acabó».
     expect(r.body.nextCursor).toBeNull();
+  });
+
+  it('**la fila anterior a la 0164 sale con `fechaNotificacion: null`**, sin inventar nada (AC4)', async () => {
+    // El histórico no tiene backfill —el dato no está ni en las columnas ni en `payload_*`, porque
+    // la v3 del mapa no lo nombraba y RN-25 lo podaba— así que se publica el hueco tal cual. `null`
+    // y no ausente: la pantalla no tiene que distinguir «no vino» de «no se sabe», y un valor por
+    // defecto convertiría el histórico en un dato verificado.
+    kdb.when.select(TABLA, [fila({ fechaNotificacion: null })]);
+
+    const r = await request(await buildApp()).get(REGISTROS).set('Authorization', await auth());
+
+    expect(r.status).toBe(200);
+    expect(r.body.items[0]).toHaveProperty('fechaNotificacion');
+    expect(r.body.items[0].fechaNotificacion).toBeNull();
+    // Y la otra fecha sigue saliendo: la fila no viene vacía entera.
+    expect(r.body.items[0].fechaComparendo).toBe('2026-06-02');
   });
 
   it('**el listado no pide los payloads crudos ni los devuelve** (RN-31)', async () => {
@@ -956,6 +977,44 @@ describe('los filtros filtran de verdad', () => {
     await listar('?q=%25_a');
 
     expect(whereDe(listado()).params).toEqual(['%\\%\\_A%']);
+  });
+
+  it('**pegar la grafía del portal de Medellín ENCUENTRA la fila** (HU #11806)', async () => {
+    // El defecto que esta HU cierra por el otro lado. La búsqueda es por CONTENIDO (`%q%`), así que
+    // normalizar solo lo guardado no basta: lo que el operador copia del portal es MÁS LARGO que la
+    // fila, y `%D05001…201%` no casa nunca con `05001…201` por mucho que la fila exista. El
+    // resultado no sería un error, sería una página vacía — que se lee como «esa deuda no está».
+    await listar('?q=D05001000000054652201');
+
+    const w = whereDe(listado());
+    expect(w.sql).toContain('"numero_comparendo"');
+    expect(w.params).toEqual(['%05001000000054652201%']);
+  });
+
+  it('y lo hace con el MISMO `numeroCanonico` del merge, espacios incluidos', async () => {
+    // Copiar de un PDF trae espacios. `numeroCanonico` los quita, igual que se los quitó a lo
+    // guardado; una segunda implementación «parecida» aquí es exactamente lo que su docblock
+    // prohíbe.
+    await listar('?q=D%2005001%20000000054652201');
+
+    expect(whereDe(listado()).params).toEqual(['%05001000000054652201%']);
+  });
+
+  it('**una `q` PARCIAL se deja como está**: no se le inventa una normalización', async () => {
+    // La regla es de forma COMPLETA. Un trozo del número —lo que de verdad teclea quien busca a
+    // ojo— no encaja con `^[A-Z]{1,2}[0-9]{20}$` y tiene que viajar tal cual, o el filtro dejaría
+    // de encontrar por prefijo.
+    await listar('?q=D0500100');
+
+    expect(whereDe(listado()).params).toEqual(['%D0500100%']);
+  });
+
+  it('`D` + 21 dígitos tampoco se toca: la regla no dispara y el filtro busca lo tecleado', async () => {
+    // El mismo guardarraíl que el AC3 del merge, visto desde el filtro: si alguien ensanchara la
+    // regex, aquí se buscaría un número que el operador no escribió.
+    await listar('?q=D999990000001234567890');
+
+    expect(whereDe(listado()).params).toEqual(['%D999990000001234567890%']);
   });
 
   it('`q` de menos de 3 caracteres → 400, no un recorrido de la tabla', async () => {

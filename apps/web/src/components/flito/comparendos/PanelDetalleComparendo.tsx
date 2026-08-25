@@ -205,7 +205,17 @@ export default function PanelDetalleComparendo(
                   valor={alias ? `${detalle.nitMonitoreado} · ${alias}` : detalle.nitMonitoreado}
                 />
                 <Dato etiqueta="Placa" valor={detalle.placa} />
+                {/* Las dos fechas, UNA TRAS OTRA y sin ningún campo intercalado (HU #11795, AC2).
+                    El orden es normativo, no estético: el panel es la superficie donde se comprueba
+                    lo que la tabla resumió, y si en la tabla están en la misma celda y aquí hay tres
+                    campos entre medias, la comprobación obliga a buscar.
+
+                    Rótulos LARGOS —«Fecha del comparendo» / «Fecha de notificación»— y no los cortos
+                    de la tabla: aquí no hay cabecera de columna que dé el contexto. `null` → «—» con
+                    el mismo tratamiento de ausencia que el resto del `<dl>`, que `Dato` ya aplica
+                    porque `fechaLarga` devuelve `SIN_DATO`. */}
                 <Dato etiqueta="Fecha del comparendo" valor={fechaLarga(detalle.fechaComparendo)} />
+                <Dato etiqueta="Fecha de notificación" valor={fechaLarga(detalle.fechaNotificacion)} />
                 <Dato etiqueta="Infracción" valor={infraccion} />
                 <Dato etiqueta="Organismo" valor={detalle.organismo} />
                 <Dato etiqueta="Municipio" valor={municipio} />

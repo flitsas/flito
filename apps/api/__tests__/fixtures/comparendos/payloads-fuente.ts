@@ -14,7 +14,18 @@ export const FABRICADO = {
   placaSimit: 'QWE321',
   documentoInfractor: '800111222',
   organismoSimit: 'Villademo',
+  /**
+   * El número tal y como lo emite el UTS municipal: la letra del portal delante de los veinte
+   * dígitos del número único nacional. La FORMA es la real (medida el 2026-08-20 en Medellín).
+   *
+   * Desde la HU #11806 esta constante es una TRAMPA a propósito y no un literal más: ya no es lo que
+   * se guarda. `numeroCanonico` normaliza esto a `numeroMunicipalCanonico`, así que un test que
+   * espere ver este valor en `numero_comparendo` está afirmando que la regla NO se aplicó. Donde sí
+   * sigue apareciendo intacto es en `payload_municipal`, que es lo que hace reversible la decisión.
+   */
   numeroMunicipal: 'D99999000000099999901',
+  /** Lo que la columna guarda de verdad para `numeroMunicipal`: los veinte dígitos, sin la letra. */
+  numeroMunicipalCanonico: '99999000000099999901',
   placaMunicipal: 'ZYX654',
   nitMunicipal: '800999888',
   direccionMunicipal: 'Calle 99 con Carrera 88 Sur - COMUNA 99',
@@ -157,9 +168,91 @@ export function itemMunicipal(): Record<string, unknown> {
   };
 }
 
+/**
+ * Las TRES grafías de `fechaNotificacion` observadas en respuestas reales del NIT 901789698
+ * (compartidas el 2026-08-24), y el centinela (HU #11794).
+ *
+ * **Estos valores NO son fabricados, al revés que el resto del archivo, y se puede:** una fecha de
+ * notificación no identifica a nadie —es un hito procesal del comparendo, como `fechaComparendo`— y
+ * aquí la FORMA es justamente lo que se prueba. Fabricarlas habría dejado la única aserción que
+ * importa (que `14/05/2026`, sin hora, entra) apoyada en un valor inventado.
+ *
+ * Las tres llegan por el MISMO `source_path` (`fechaNotificacion`, en la raíz del ítem), así que
+ * quien las homologa es el parser y no el mapa. La de Bogotá es la que se cae si alguien hace
+ * obligatoria la hora en la rama con barras.
+ */
+export const FECHA_NOTIFICACION = {
+  /** SIMIT (Verifik): `DD/MM/YYYY HH:MM:SS`. */
+  simit: '14/05/2026 00:00:00',
+  /** UTS Medellín: ISO, sin hora. */
+  medellin: '2026-07-30',
+  /** UTS Bogotá: `DD/MM/YYYY` **SIN HORA**. */
+  bogota: '14/05/2026',
+  /** El centinela de «no notificado», tal y como lo escribe SIMIT. */
+  centinela: '01/01/1900 00:00:00',
+  /** El mismo centinela sin hora, que es como lo escribe el UTS. */
+  centinelaSinHora: '01/01/1900',
+  /** Lo que las tres primeras tienen que producir en la columna, ya canónicas. */
+  canonicoSimit: '2026-05-14',
+  canonicoMedellin: '2026-07-30',
+  canonicoBogota: '2026-05-14',
+} as const;
+
+/**
+ * El ítem de SIMIT de un comparendo que **SÍ está notificado** (HU #11794).
+ *
+ * Va aparte y no como bandera de `itemSimit` a propósito: `itemSimit` trae el CENTINELA desde la HU
+ * #11501 y esa es su gracia —es el caso que obligaba a no mapear el campo—, así que cambiarlo
+ * borraría el escenario de AC2 al ganar el de AC1.
+ */
+export function itemSimitNotificado(i = 0): Record<string, unknown> {
+  return { ...itemSimit(i), fechaNotificacion: FECHA_NOTIFICACION.simit };
+}
+
+/** El ítem del UTS de Medellín: `fechaNotificacion` ISO en la RAÍZ del ítem (HU #11794). */
+export function itemMunicipalNotificadoMedellin(): Record<string, unknown> {
+  return { ...itemMunicipal(), fechaNotificacion: FECHA_NOTIFICACION.medellin };
+}
+
+/**
+ * El ítem del UTS de **Bogotá**: `DD/MM/YYYY` sin hora (HU #11794).
+ *
+ * Es la fixture que muerde. Con la hora obligatoria en el parser, este ítem —y con él la ciudad
+ * entera— homologa `fechaNotificacion: null` y ningún test escrito contra Medellín se entera.
+ */
+export function itemMunicipalNotificadoBogota(): Record<string, unknown> {
+  return { ...itemMunicipal(), fechaNotificacion: FECHA_NOTIFICACION.bogota };
+}
+
 /** El mismo ítem del UTS cuando ya es multa: `nroResolucion` con valor (HU #11712). */
 export function itemMunicipalMulta(): Record<string, unknown> {
   return { ...itemMunicipal(), nroResolucion: FABRICADO.numeroResolucionMunicipal };
+}
+
+/**
+ * **El MISMO comparendo que `itemSimit(i)`, escrito como lo escribe el UTS municipal** (HU #11806).
+ *
+ * Esto es lo que faltaba y por lo que la suite pasaba en verde con el defecto vivo: hasta aquí cada
+ * fuente fabricaba su número por su cuenta —`numeroSimit(i)` frente a `FABRICADO.numeroMunicipal`—,
+ * así que NINGÚN test cruzaba las dos grafías del mismo comparendo. Con dos números que nunca
+ * coinciden, dos filas es el resultado correcto y una fila también lo parecía.
+ *
+ * El número se compone, no se copia: `'D' + numeroSimit(i)` es exactamente la pareja real medida
+ * —veinte dígitos en SIMIT y esos mismos veinte con la letra del portal delante en el municipio—, y
+ * componerlo impide que alguien «arregle» un test cambiando un literal y dejando de cruzar nada.
+ *
+ * El resto del ítem es el de `itemMunicipal()`: la misma envoltura, la misma PII que la poda tira y
+ * el mismo `estadoCuenta.numeroComparendo`, que también lleva la grafía prefijada porque el
+ * proveedor repite el número ahí dentro (y es candidato de prioridad 2 en la v3 del mapa).
+ */
+export function itemMunicipalDeSimit(i = 0): Record<string, unknown> {
+  const numero = `D${numeroSimit(i)}`;
+  const base = itemMunicipal();
+  return {
+    ...base,
+    numeroComparendo: numero,
+    estadoCuenta: { ...(base.estadoCuenta as Record<string, unknown>), numeroComparendo: numero },
+  };
 }
 
 /**

@@ -35,7 +35,9 @@ import {
 } from './facturacion.emision.service.js';
 import { reconciliarHuerfanas } from './facturacion.reconciliacion.service.js';
 import { exigirIntegracionNoFrenada, SiigoIntegracionFrenadaError } from './siigo.freno.service.js';
-import { conceptosDelLote, emisionDelLote, tramitesDelLote } from './facturacion.lote.repo.js';
+import {
+  conceptosDelLote, correoDelLote, emisionDelLote, tramitesDelLote,
+} from './facturacion.lote.repo.js';
 import {
   liberar, registrarDesenlace, tomarLote, type FilaTomada, type InstruccionDesenlace,
 } from './facturacion.cola.service.js';
@@ -463,6 +465,10 @@ async function procesarFila(
     const conceptos = await conceptosDelLote(fila.loteId);
     // A2 — y con qué configuración. Todo nulo = lote anterior a A2: configuración global.
     const emision = await emisionDelLote(fila.loteId);
+    // HU #11708 — y si sale por correo, y a quién. Sale del LOTE por lo mismo que lo anterior: el
+    // envío solo encoló, y deducirlo aquí del ambiente sería volver a la regla fija que esta
+    // historia quitó. Un lote sin elección —los anteriores a la 0161— no manda correo y lo apunta.
+    const correo = await correoDelLote(fila.loteId);
     if (tramiteIds.length === 0) {
       // Un lote sin contenido no se puede facturar y no se va a arreglar solo. Es dato, no red.
       throw new SiigoEmisionError(
@@ -474,6 +480,7 @@ async function procesarFila(
       ambiente: o.ambiente,
       conceptos,
       emision,
+      correo,
       // Sin usuario: quien emite es el trabajador. Quién lo pidió está en `encolado_por` de la fila
       // de cola, que es donde esa pregunta tiene respuesta.
       usuarioId: null,

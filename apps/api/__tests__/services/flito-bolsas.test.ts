@@ -490,6 +490,27 @@ describe('asentarMovimiento — la llave la escriben dos caminos a la vez', () =
     expect(duplicado).toBe(false);
     expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(1);
   });
+
+  it('Bug #11773 · liquidación ajena: llave en B, asentar(A) es duplicado sin INSERT ni throw', async () => {
+    const deB = {
+      ...movimientoPrevio,
+      companiaId: 99,
+      tipo: 'salida',
+      origen: 'automatico',
+      concepto: 'soat',
+      llaveIdempotencia: 'salida:soat:50a70000-0000-4000-8000-00000000000a',
+    };
+    conBolsa('1000000');
+    kdb.when.select('flito_bolsa_movimientos', [deB]);
+
+    const { movimiento, duplicado } = await asentar();
+
+    expect(duplicado).toBe(true);
+    expect(movimiento.id).toBe(MOV_ID);
+    expect(movimiento.companiaId).toBe(99);
+    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas')).toHaveLength(0);
+  });
 });
 
 // ─────────────────────────── AC4 ─────────────────────────────────────────────

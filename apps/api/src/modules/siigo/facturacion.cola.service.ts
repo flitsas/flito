@@ -28,6 +28,7 @@ import { db } from '../../db/client.js';
 import { siigoColaFacturacion } from '../../db/schema.js';
 import { asegurarLote, lotesDeTramites } from './facturacion.lote.repo.js';
 import { huellaDeLote, type EmisionElegida } from './facturacion.armado.js';
+import type { CorreoDelEnvio } from './facturacion.correo.js';
 import { registrarOperacion } from './siigo.operaciones.repo.js';
 import { sanearMensaje } from './siigo.redaccion.js';
 import { OPERACION_ENCOLAR } from './siigo.freno.service.js';
@@ -107,6 +108,14 @@ export interface EntradaEncolado {
   conceptos: readonly ConceptoFacturable[];
   /** La emisión elegida para la empresa de estos trámites (A2). Ausente = configuración global. */
   emision?: EmisionElegida | null;
+  /**
+   * Si la factura sale por correo y a quién (HU #11708). Ausente = no se pidió.
+   *
+   * Viaja con el lote y no con la fila de cola: la cola dice CUÁNDO toca trabajar y el lote dice
+   * QUÉ hay que hacer, y esto es lo segundo. Una fila de cola reintentada cinco veces tiene que
+   * seguir haciendo lo mismo que se pidió el primer día.
+   */
+  correo?: CorreoDelEnvio | null;
   ambiente: SiigoAmbiente;
   usuarioId: number | null;
   /**
@@ -163,6 +172,10 @@ export async function encolar(entrada: EntradaEncolado): Promise<ResultadoEncola
     tramiteIds: ids,
     conceptos,
     emision: entrada.emision,
+    // No entra en la huella (ver `EntradaLote.correo`): la elección del correo no cambia el
+    // documento fiscal, y darle identidad propia al lote sería darle una segunda clave de
+    // idempotencia a la misma factura. Un segundo envío con la casilla cambiada recibe `ya_estaba`.
+    correo: entrada.correo,
     creadoPor: usuarioId,
   });
   if (!loteId) {

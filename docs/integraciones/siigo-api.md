@@ -12,10 +12,18 @@ oficial. Se va ampliando a medida que se revisan nuevas secciones.
 > documentación de forma programática hay que descargar el blueprint desde
 > `/api-description-document`.
 
-**Secciones revisadas:** Autenticación · Convenciones generales · Clientes · Facturas de Venta · Productos · Catálogos
-**Última revisión:** 2026-08-13 — se reconfirmaron contra el blueprint los campos obligatorios de
-`POST /v1/invoices`, el lote asíncrono, los filtros de clientes y `GET /v1/document-types?type=FV`.
-**Pendientes:** Categorías de Inventario · Cotizaciones · Notas Crédito · Facturas de compra · Documento soporte · Recibos de Caja · Recibos de pago · Comprobantes Contables · Reportes · Webhooks
+**Secciones revisadas:** Autenticación · Convenciones generales · Clientes · Facturas de Venta · Notas Crédito · Productos · Catálogos
+**Última revisión:** 2026-08-23 — se leyó por primera vez el grupo **Notas Crédito** completo (§4) y se
+verificaron contra el blueprint las operaciones de **borrado** y **anulación** de facturas (§3), incluida
+la pregunta de si existe una ventana temporal de anulación. HU #11344, AC1.
+**Pendientes:** Categorías de Inventario · Cotizaciones · Facturas de compra · Documento soporte · Recibos de Caja · Recibos de pago · Comprobantes Contables · Reportes · Webhooks
+
+> **Webhooks sigue pendiente, pero un dato ya se puede adelantar** (verificado el 2026-08-23): el
+> catálogo de eventos del grupo `Webhooks` tiene **tres eventos y los tres son de productos**
+> (`products.create`, `products.update`, `products.stock.update`). **No hay ningún evento de facturas
+> ni de notas crédito.** Es decir: si una factura se corrige por fuera —en Siigo Nube o por otra
+> integración—, la API **no lo notifica**; enterarse exige consultar. La `notification_url` del lote
+> asíncrono (§3) es otro mecanismo distinto y solo cubre ese lote.
 
 ---
 
@@ -293,7 +301,41 @@ Se puede crear el tercero en la misma petición enviando el objeto `customer` co
 Obligatorios: `person_type`, `id_type`, `identification`, `name[]`, `address.address`,
 `address.city.{country_code, state_code, city_code}`, `contacts[].first_name`.
 
+### Borrar vs. anular: son dos operaciones distintas
+
+Verificado contra el blueprint el 2026-08-23. Son **dos endpoints separados**, con respuestas
+distintas, y **el blueprint no describe qué hace cada uno más allá de su nombre y su respuesta**:
+
+| Operación | Endpoint | Respuesta documentada |
+|---|---|---|
+| **Borrar** | `DELETE /v1/invoices/{id}` | `{ "id": "63f918c2-…", "deleted": true }` |
+| **Anular** | `POST /v1/invoices/{id}/annul` | `{ "id": "63f918c2-…", "Annul": true }` (mayúscula inicial, así en el blueprint) |
+
+Lo que el blueprint **sí** dice de cada una es una única frase, y es **la misma frase** para las dos
+—cambia solo el verbo—: la lista de facturas a las que **no** se les puede aplicar. Lo que **no**
+dice, y conviene no rellenar:
+
+- **No dice qué efecto contable o electrónico tiene «anular»** frente a «borrar»: ni si el
+  consecutivo se conserva, ni si el documento queda visible en Nube, ni si se comunica algo a la DIAN.
+- **`POST /v1/invoices/{id}/annul` no aparece descrito en ninguna parte como «anulación
+  electrónica ante la DIAN».** El blueprint solo lo llama «Anular Factura». La única mención de
+  *anulación de factura electrónica* en todo el documento está en **otro sitio**: es el motivo de
+  rechazo DIAN **código 2 de las notas crédito** (§4). Es un dato que conviene tener claro antes de
+  diseñar nada: el nombre de este endpoint y el nombre de aquel motivo se parecen, pero son cosas
+  distintas y viven en grupos distintos de la API.
+- **Ninguna de las dos operaciones acepta cuerpo ni parámetros.** El request solo lleva los headers
+  `Authorization` y `Partner-Id`; no hay campo de motivo, de fecha ni de observaciones.
+
+> **Anotación de contexto, no del blueprint:** la pregunta 8 de
+> `docs/features/siigo-facturacion-electronica.md` afirma que «la anulación aplica en ventanas y
+> estados DIAN que la nota crédito no cubre». Contra el blueprint eso **no se sostiene** en su
+> segunda mitad: los estados DIAN en los que aplica la anulación son exactamente los **anteriores**
+> al envío, y es la nota crédito la que exige lo contrario (§4). Sobre las «ventanas», ver más abajo.
+
 ### Restricciones de edición / borrado / anulación
+
+Verificado contra el blueprint: la misma restricción, escrita tres veces con el verbo cambiado, en
+`PUT /v1/invoices/{id}`, `DELETE /v1/invoices/{id}` y `POST /v1/invoices/{id}/annul`.
 
 No se puede **editar, borrar ni anular** una factura que:
 
@@ -301,8 +343,43 @@ No se puede **editar, borrar ni anular** una factura que:
 2. tenga documentos relacionados en Siigo Nube (notas crédito, notas débito, recibos de caja,
    ajustes de cartera) — hay que eliminar primero los relacionados.
 
+> **Consecuencia, y es la que importa para el diseño de la corrección:** una factura **aceptada por la
+> DIAN (con CUFE) no admite ninguna de las tres operaciones.** Ni `PUT`, ni `DELETE`, ni `annul`.
+> Sobre el caso que hay que corregir —una factura ya emitida y aceptada— estos tres endpoints **no
+> tienen nada que ofrecer**, y el blueprint no deja ninguna puerta lateral: no hay parámetro de
+> forzado, ni endpoint alternativo, ni excepción documentada. La vía documentada para ese caso es la
+> del §4, **nota crédito**, que exige justo la condición inversa (que la factura *sí* esté enviada).
+
 En `PUT` son **inmutables**: `document.id`, `customer.identification`, `currency.code`, y
 `number` si la numeración está configurada como manual.
+
+### ¿Existe una ventana temporal de anulación?
+
+**No, según el blueprint: no existe ninguna, o al menos el blueprint no la menciona.** Es una
+respuesta buscada, no una omisión: se recorrió el blueprint completo (362 KB) buscando toda mención
+de plazo, días, meses, vigencia, caducidad y ventana. El resultado, exhaustivo:
+
+| Mención de plazo en el blueprint | Dónde | ¿Aplica a la anulación? |
+|---|---|---|
+| «durante **7 días** la proporción de errores supera el 80 %» | Bloqueo de usuarios API (§1) | No — es el bloqueo por abuso |
+| «no puedes enviar una fecha con más de **10 días** de diferencia respecto a la fecha actual» | `POST /v1/journals` (**Comprobantes contables**) | No — es la fecha de otro comprobante |
+
+No hay ninguna otra. En particular, ni la sección *Anular Factura*, ni *Borrar Factura*, ni el grupo
+de Notas Crédito mencionan plazo alguno.
+
+**Cómo leer esto, con cuidado:** que el blueprint no documente una ventana **no prueba que no
+exista**. La normativa DIAN y el propio comportamiento de Siigo Nube son fuentes distintas de este
+documento, y ninguna de las dos se ha consultado aquí. Lo que queda establecido es más modesto y más
+exacto: **el contrato de la API no expone ninguna ventana temporal**, así que un cliente no puede
+calcularla, y tampoco puede anticipar un rechazo por tiempo. Si Siigo la aplica, se manifestará
+como un error en tiempo de ejecución, no como una precondición verificable.
+
+> **Qué significa para el parámetro `ventanaAnulacionHoras`** de
+> `apps/api/src/modules/siigo/siigo.correcciones.ts`, hoy en «no establecida» (`null`): esta revisión
+> **no lo cambia a un número**, porque el número no existe en la fuente que se revisó. Lo que sí
+> cambia es el motivo por el que sigue en `null`: ya no es «nadie lo ha verificado», es **«verificado
+> contra el blueprint el 2026-08-23: el contrato de la API no la expone»**. Establecerlo exige otra
+> fuente (normativa DIAN, soporte de Siigo o el ambiente de pruebas), no otra lectura de Apiary.
 
 ### Lote asíncrono
 
@@ -333,7 +410,231 @@ documento) y `metadata`.
 
 ---
 
-## 4. Productos
+## 4. Notas Crédito
+
+> Grupo leído **por primera vez** el 2026-08-23 (HU #11344, AC1). Todo lo de esta sección está
+> verificado contra el blueprint salvo lo que aparezca marcado explícitamente como inferencia o como
+> «el blueprint no lo dice».
+
+Definición del blueprint, literal: *«Comprobante que permite registrar las devoluciones parciales o
+totales de una factura de venta.»* Grupo `/v1/credit-notes`.
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| POST | `/v1/credit-notes` | Crear nota crédito |
+| GET | `/v1/credit-notes/{id}` | Consultar una |
+| GET | `/v1/credit-notes` | Listar |
+| GET | `/v1/credit-notes/{id}/pdf` | PDF (base64) |
+| GET | `/v1/document-types?type=NC` | Tipos de comprobante de nota crédito |
+
+### Lo que este grupo NO tiene
+
+Y es tan importante como lo que tiene. **No existe `PUT`, ni `DELETE`, ni `annul` para notas
+crédito.** No es una omisión de esta lectura: la tabla de recursos de la portada del blueprint
+describe `/credit-notes` como *«Crear, consultar una o todas las notas crédito y consultar el PDF de
+una nota crédito»* —compárese con la de `/invoices`, que sí dice *«Crear, editar, enviar por mail,
+**anular**, **borrar** o consultar»*—, y el grupo no documenta ningún otro endpoint.
+
+**Qué NO dice el blueprint sobre eso:** no dice si una nota crédito equivocada puede corregirse o
+reversarse **por algún otro medio** (en Siigo Nube a mano, con otra nota, con un comprobante
+contable). Es un silencio, no una prohibición, y no debe leerse como ninguna de las dos cosas.
+
+### Campos obligatorios de creación
+
+```
+document.id       number  → tipo de comprobante NC, debe existir (GET /v1/document-types?type=NC)
+date              date    → yyyy-MM-dd. En NC electrónicas NO admite fecha anterior a hoy
+items[].code      string  → producto existente y activo
+items[].quantity  number  → máx. 2 decimales
+items[].price     number  → máx. 6 decimales
+payments[].id     number  → medio de pago (GET /v1/payment-types)
+payments[].value  number  → máx. 2 decimales
+reason            number  → motivo de rechazo DIAN. Obligatorio en documentos electrónicos
+invoice           string  → UUID de la factura a la que se aplica. Obligatorio si es electrónica
+```
+
+`invoice` es el `id` (UUID) de la factura de venta, el mismo que devuelve `POST /v1/invoices`. El
+blueprint lo describe en su tabla de campos como *«Codigo del tipo de nota crédito»*, lo cual es un
+error de copiado evidente del propio blueprint: la estructura de datos `CreditNoteIn` lo define como
+*«Identificador de la factura que se le aplicó la Nota Crédito»* y el ejemplo lo usa así.
+
+### Campos opcionales
+
+`number` (consecutivo; si se envía no debe existir en Nube — obligatorio si el tipo de comprobante
+tiene `automatic_number: false`), `cost_center`, `stamp.send` (default `false`; en `true` envía la NC
+a la DIAN), `mail.send` (default `false`), `items[].description`, `items[].discount`,
+`items[].taxes[]`, `payments[].due_date` (obligatorio si la forma de pago maneja vencimiento).
+
+`observations` y `retentions[]` aparecen **solo en la estructura de datos** `CreditNoteIn`, no en la
+tabla de campos de la sección. `retentions` viene anotado allí como *«obligatorio según la
+configuración del tipo de comprobante»*.
+
+### Motivos de rechazo DIAN (`reason`)
+
+Tabla del blueprint, literal:
+
+| Código | Motivo |
+|---|---|
+| 1 | Devolución parcial de los bienes y/o no aceptación parcial del servicio |
+| **2** | **Anulación de factura electrónica** |
+| 3 | Rebaja o descuento parcial o total |
+| 4 | Ajuste de precio |
+| 6 | Descuento comercial por pronto pago |
+| 7 | Descuento comercial por volumen de ventas |
+
+Tres avisos sobre esta tabla:
+
+- **El código 5 no existe en ella.** La tabla salta del 4 al 6. El blueprint no dice por qué.
+- **El blueprint se contradice a sí mismo sobre el rango:** la tabla de campos describe `reason` como
+  *«númerico del 1 al 5»*, mientras la tabla de motivos llega hasta el 7 y omite el 5. No hay forma
+  de resolver la contradicción leyendo; hay que validarla contra el ambiente antes de fijar un enum
+  en nuestro código. **Es el mismo patrón que ya se documentó con `ProductType`** (§5).
+- La estructura `CreditNoteIn` marca `reason` como **`required`** sin condición, mientras la tabla de
+  campos lo marca obligatorio **solo en documentos electrónicos**. Segunda contradicción; misma
+  recomendación.
+
+**El código 2 es el que importa para corregir una factura ya aceptada por la DIAN.** Es la única
+mención de *anulación de factura electrónica* en todo el blueprint, y está aquí, en notas crédito, no
+en `POST /v1/invoices/{id}/annul` (ver §3).
+
+### Restricciones de estado — y son la inversa de las de la factura
+
+Lo más relevante que se encontró, y no está en la sección del grupo sino en la descripción del código
+de error **`invalid_document`**, literal:
+
+> *«En Nota Crédito, debes verificar que `invoice` sea del mismo `electronic_type`. Si se está usando
+> un tipo de comprobante con marcación `electronica` en su definición, esta debe estar `enviada` ante
+> la DIAN si se desea aplicar nota crédito.»*
+
+Es decir, y contrastado con §3:
+
+| | Factura **no** enviada a la DIAN | Factura enviada / aceptada (con CUFE) |
+|---|---|---|
+| `PUT` / `DELETE` / `annul` | **Sí** aplica | **No** aplica |
+| Nota crédito electrónica | **No** aplica (exige que esté enviada) | **Sí** aplica |
+
+Las dos vías son **complementarias, no alternativas**: cada una cubre exactamente el estado que la
+otra excluye. Esto es lectura directa de las dos frases del blueprint, no inferencia sobre el negocio.
+
+El resto de restricciones verificadas:
+
+- **`electronic_type` debe coincidir** entre la nota crédito y la factura (`invalid_document`).
+- **La moneda debe coincidir** con la de la factura de venta (`invalid_currency`).
+- **Fecha:** en NC electrónicas no se admite fecha anterior a la actual (`invalid_date`).
+- **`blocked_transactions`:** la fecha del documento no puede ser menor o igual al bloqueo por fecha
+  configurado en Nube (*Configuración › Transacciones › Procesos*).
+- **Máximo 500 ítems** por nota crédito (`invalid_array`) — el mismo tope que la factura de venta.
+- **El total de `payments` debe cuadrar** con la suma de los totales de ítems
+  (`invalid_total_payments`, con la fórmula de redondeo por ítem documentada en §1).
+- **`invalid_payment`:** la forma de pago debe ser válida **para el comprobante NC**, no basta con que
+  exista.
+- **`warehouse_settings`:** enviar bodega en una nota crédito sin el manejo de bodegas activo falla.
+
+### Ventana temporal
+
+**El blueprint no menciona ninguna ventana temporal para las notas crédito.** Ni plazo máximo desde
+la factura, ni caducidad. La única restricción temporal documentada es la de `date` (no anterior a
+hoy en electrónicas) y el bloqueo por fecha de transacciones de Nube, que es una configuración del
+cliente, no una regla de la API. Ver §3 para el barrido completo de menciones de plazo en el
+documento.
+
+### Nota crédito a una factura que NO existe en Siigo Nube
+
+Caso documentado aparte. Se vuelven **obligatorios**:
+
+- `customer.identification` — el tercero debe existir en Nube y estar activo.
+- `seller` — id de vendedor (`GET /v1/users`).
+- **`invoice_data`**, un objeto que **reemplaza** al campo `invoice`:
+
+| Campo | Obligatoriedad |
+|---|---|
+| `invoice_data.date` | Obligatorio. Debe ser **anterior** a la fecha de la nota crédito |
+| `invoice_data.prefix` | Opcional |
+| `invoice_data.number` | **Obligatorio si `reason` = 2**; opcional en los demás casos |
+| `invoice_data.cufe` | **Obligatorio si `reason` = 2**; opcional en los demás casos. Máx. 200 chars |
+
+Ejemplo del blueprint:
+
+```json
+{
+  "document": { "id": 2379 },
+  "date": "2024-05-24",
+  "reason": "2",
+  "customer": { "identification": "28211179", "branch_office": "0" },
+  "seller": 62,
+  "invoice_data": {
+    "date": "2024-03-20",
+    "prefix": "FV",
+    "number": "458",
+    "cufe": "302580df-838b-4531-b8bf-dd3c9hasdfu8e5"
+  },
+  "items": [ { "code": "Code-1", "description": "Producto de prueba", "quantity": "1", "price": 2000 } ],
+  "payments": [ { "id": "542", "value": 2000 } ]
+}
+```
+
+> **Inferencia, marcada como tal:** este camino parece la vía para anular ante la DIAN una factura que
+> se emitió **fuera** de FLITO/Siigo API. El blueprint **no lo dice** con esas palabras; lo que dice
+> es qué campos se vuelven obligatorios. Que `cufe` y `number` sean obligatorios justo cuando
+> `reason` = 2 es coherente con esa lectura, pero es lectura nuestra.
+
+### Filtros de `GET /v1/credit-notes`
+
+Solo cuatro, y **solo de fechas**: `created_start`, `created_end`, `updated_start`, `updated_end`.
+
+> **No se puede filtrar por factura, por cliente, por número ni por nombre.** El listado de facturas
+> (§3) sí admite `name`, `customer_identification`, `customer_branch_office` y `document_id`; el de
+> notas crédito **no admite ninguno de esos**. Importa por lo mismo que en §3: cualquier
+> reconciliación que necesite encontrar «la nota crédito de esta factura» tendrá que paginar por
+> rango de fechas y **reconocer leyendo** el campo `invoice` de cada resultado.
+
+### Códigos de error aplicables
+
+No hay una lista de errores propia del grupo; los códigos son los generales de §1. Los que el
+blueprint menciona **nombrando explícitamente a la nota crédito** son:
+
+| Código | Qué significa aquí |
+|---|---|
+| `invalid_document` | El `electronic_type` no coincide, o la factura no está enviada a la DIAN |
+| `invalid_currency` | La moneda no coincide con la de la factura de venta |
+| `invalid_date` | Fecha anterior a hoy en NC electrónica, o formato inválido |
+| `invalid_array` | Más de 500 ítems |
+| `invalid_payment` | Forma de pago inválida para el comprobante NC |
+| `warehouse_settings` | Se envió bodega sin el manejo de bodegas activo |
+| `invalid_total_payments` | La suma de `payments[].value` no cuadra con el total de ítems |
+| `blocked_transactions` | La fecha cae dentro del bloqueo de transacciones de Nube |
+
+Aplican además los transversales: `parameter_required`, `parameter_inactive`, `not_found`,
+`duplicated_document`, `invalid_dian_resolution`, `document_settings`, `invalid_amount`,
+`invalid_cost_center`, `requests_limit`.
+
+### Idempotencia
+
+`POST /v1/credit-notes` **sí** admite `Idempotency-Key`, con las mismas reglas que las facturas
+(alfanumérico ≤30 chars). Está en la lista de los cuatro comprobantes que la soportan (§1).
+
+### Respuesta
+
+`CreditNoteOut`: `id` (UUID), `document`, `number`, `name` (`NC-2-22`), `date`,
+`invoice` (`{ id, name }` de la factura afectada), `customer`, `cost_center`, `currency`,
+`retentions[]`, `total`, `seller`, `observations`, `stamp`, `mail`, `items[]`, `payments[]`,
+`metadata`.
+
+Dos detalles del objeto `stamp` de la nota crédito (`StampOutDianNC`), distintos de los de la factura:
+
+- Devuelve **`cude`**, no `cufe`. Son identificadores DIAN distintos y el blueprint usa el nombre
+  correcto en cada uno: la factura devuelve `cufe` (`StampOutDian`), la nota crédito devuelve `cude`.
+  Cualquier código que lea el timbre de una NC esperando `cufe` leerá `undefined`.
+- Trae además `status` (ej. `Accepted`), `observations` y `errors`.
+
+**Lo que el blueprint no dice de la respuesta:** no documenta un endpoint equivalente a
+`GET /v1/invoices/{id}/stamp/errors` para notas crédito, ni un `GET /v1/credit-notes/{id}/xml`. El
+grupo de facturas tiene los dos; el de notas crédito, ninguno. Para el estado del timbre de una NC lo
+único documentado es el objeto `stamp` que devuelve la propia consulta.
+
+---
+
+## 5. Productos
 
 Bienes y/o servicios que la empresa adquiere para uso propio o para comercializar.
 Grupo `/v1/products`.
@@ -443,7 +744,7 @@ el array `components` con `id`, `code` y `name` de cada componente.
 
 ---
 
-## 5. Catálogos
+## 6. Catálogos
 
 Grupo `Catálogos` del blueprint. Son listas de parametrización de la empresa en Siigo Nube:
 cambian poco y se consultan mucho, así que se **cachean** en FLITO (tabla `siigo_catalogos`,

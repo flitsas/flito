@@ -990,3 +990,145 @@ HANDOFF · enmienda 20 ago 2026 (slim)
   Requerimientos nuevos de datos: ninguno
   Siguiente: frontend-agent (#11636 con las tres obligaciones de arriba)
 ```
+
+---
+
+## Enmienda del 24 ago 2026 — el 200 sin veredicto no es una avería (HU #11796 y #11797)
+
+### 17. Corrección de premisa: **el chip nunca dijo «Error»**
+
+Que quede escrito antes que nada, porque el enunciado de la HU parte de lo contrario y alguien va a
+«arreglar» lo que ya está bien: el paso no concluyente **ya se pinta `Ok`**. El backend devuelve
+`ok: true` para el 200 no concluyente —a propósito y con su porqué documentado: el municipio contestó
+y se entendió, marcarlo como caído sería mentir sobre el proveedor y dejar la corrida en `partial`
+para siempre— y la fila lee el chip de `paso.ok`, así que hoy sale verde. **Lo único que suena a
+avería es el copy del `mensaje`.**
+
+No se toca `ok`, no se toca el tono del chip y no se toca el cálculo de `concluyente`. **Esta
+enmienda es de copy y de alias de copy. Nada más.**
+
+### 18. Catálogo de copy del paso, por **forma de la respuesta**
+
+El `mensaje` se persiste en `sync_steps.mensaje`, se conserva y se sirve meses después: es texto de
+producto, no una traza. Y **solo se persiste cuando `concluyente` es false** —los pasos concluyentes
+no llevan mensaje y no van a llevarlo—.
+
+| Forma de la respuesta | Chip | `concluyente` | `mensaje` persistido |
+|---|---|---|---|
+| **200, `itemsLeidos` 0, `codigoEstado` ausente o `null`** (caso MEDELLIN) | **Ok** | `false` | `La consulta salió bien y no trajo registros. Eso no confirma que el NIT esté al día, así que este municipio no cuenta como cobertura: no se inactiva nada de este NIT en esta corrida.` |
+| **200, `itemsLeidos` 0, `codigoEstado` presente** (caso BELLO) | **Ok** | `true` | **ninguno** — el campo va ausente, no vacío |
+| **4xx / 5xx, fallo de transporte, envelope ilegible** | **Error** | `false` | El mensaje de fallo que ya produce `pasoFallido`, **sin suavizar** |
+
+**Por qué cambia el texto del primer caso, y no es cuestión de tono.** El viejo empezaba
+«El UTS respondió sin veredicto (codigoEstado ausente)…»: **nombra al proveedor y cita un campo de su
+envelope**, que es exactamente lo que RN-20 prohíbe, en la misma constante cuyo comentario invoca
+RN-20. Y de paso es lo que lo hace sonar a caída: «respondió sin veredicto» describe una anomalía del
+otro extremo, cuando lo que pasó es una consulta normal con cero resultados. El nuevo dice **forma**
+(«la consulta salió bien y no trajo registros») y **consecuencia** («no cuenta como cobertura: no se
+inactiva nada»), y no menciona al proveedor ni a ninguno de sus campos.
+
+**Por qué el segundo caso NO lleva mensaje: el silencio es el copy.** Un vacío concluyente es el
+resultado normal y bueno —el municipio dijo que no consta nada— y ponerle una frase explicativa
+tendría dos costes: llenaría de párrafos las filas normales de una tabla que puede tener decenas, y
+**diluiría el único mensaje que sí hay que leer**. Que una fila `Ok` lleve texto debajo tiene que
+seguir significando «aquí hay algo que saber». Dicho al revés: no se añade «no hay comparendos» al
+caso BELLO, y si algún día se añade, deja de funcionar el criterio con el que el operador barre la
+tabla con la vista.
+
+**El tercer caso no se ablanda.** Un fallo se dice fallo. Sigue aplicando la decisión 12 —sin eco del
+mensaje del servidor— y RN-20: se describe qué pasó y qué consecuencia tiene, no qué contestó el
+proveedor.
+
+### 19. El histórico **no se reescribe**: se aliasa al pintar
+
+Las corridas ya persistidas llevan el texto viejo, y el texto viejo se queda en la base. Este es,
+**literal y completo**, el valor que hay que reconocer:
+
+```
+El UTS respondió sin veredicto (codigoEstado ausente) y sin comparendos: la respuesta no confirma que el NIT no deba nada, así que este municipio no cuenta como cobertura y no se inactiva nada de este NIT en esta corrida.
+```
+
+Reglas del alias:
+
+- **Coincidencia exacta con la cadena entera.** Ni `includes('UTS')`, ni una expresión regular sobre
+  «sin veredicto», ni comparar por prefijo: un matcher laxo se tragaría cualquier mensaje futuro que
+  case por accidente y lo reemplazaría por un texto que no le corresponde. Una entrada, exacta, y lo
+  que no coincida se pinta **tal cual llegó**.
+- **El alias vive donde lo vean las dos superficies.** La tabla de pasos se pinta en la tarjeta de
+  resultado **y** en el modal de detalle de corrida; si el alias se implementa en una sola, la misma
+  corrida diría dos cosas distintas según dónde se mire. Va al módulo de formato que ambas ya
+  importan.
+- **No se hace `UPDATE` sobre `sync_steps.mensaje`.** Lo persistido es el registro de lo que se le
+  dijo al operador aquel día; reescribirlo es falsear la bitácora por una mejora de redacción. Y no
+  hay ninguna decisión que dependa de ese texto: nadie filtra ni agrega por él.
+- **El alias jamás puede afirmar que el NIT no debe nada en ese municipio.** Es el punto entero: la
+  respuesta no lo confirmó. Cualquier redacción futura que se acerque a «sin deudas», «al día» en
+  afirmativo o «sin comparendos en el municipio» está prohibida aquí, venga del alias o del mensaje
+  nuevo.
+
+### 20. Lo que esta enmienda **no** toca
+
+- **RN-20** — ni una palabra del proveedor en el mensaje: se describe la **forma** de la respuesta y
+  su **consecuencia**. El copy nuevo cumple mejor que el viejo, pero la regla es la misma de siempre.
+- **RN-47** — no se inactiva por ausencia con cobertura incompleta. El mensaje **explica** una
+  decisión que ya estaba tomada en el backend; no la cambia ni la matiza. Si el copy y RN-47 llegaran
+  a contradecirse, el que está mal es el copy.
+- El chip, `paso.ok`, `concluyente`, la ayuda de `partial` (decisión 16) y el contador
+  `nitsSinInactivacion` siguen exactamente igual.
+
+### 21. Los cuatro estados de la fila del paso
+
+| Estado | Qué se ve |
+|---|---|
+| **1 · Ok con mensaje** | Chip `Ok` (`success`) y, debajo y **dentro de la misma celda**, el párrafo en secundario. Nunca en una fila aparte con `colSpan`: una fila de continuación se cuenta como registro en cualquier lector de pantalla |
+| **2 · Ok sin mensaje** | Solo el chip. No hay párrafo vacío, ni un `—`, ni un hueco reservado «por simetría»: la ausencia de texto **es** la información |
+| **3 · Error** | Chip `Error` (`danger`) y el mensaje de fallo debajo, en la misma celda. `HTTP` puede ser `—` si ni siquiera hubo respuesta |
+| **4 · Cargando** | **Mientras la corrida está viva no hay tabla de pasos**: manda la consola con su progreso y su región viva. La tabla aparece entera al desenlace. En el modal de detalle, el estado de carga es el **esqueleto** ya especificado; el error, «reintentar»; y sin `steps` se pinta «Esta corrida no registró pasos.» |
+
+### Notas para QA de esta enmienda
+
+1. La aserción va sobre el **texto exacto persistido en `sync_steps.mensaje`**, comparando la cadena
+   completa. Afirmar sobre el chip **no muerde**: hoy ya sale `Ok` y seguiría verde con el código sin
+   tocar.
+2. Caso MEDELLIN (200, 0 ítems, `codigoEstado` ausente) → `ok: true`, `concluyente: false` y el
+   mensaje **exacto** de la tabla de la decisión 18.
+3. Caso BELLO (200, 0 ítems, `codigoEstado` presente) → `ok: true`, `concluyente: true` y **`mensaje`
+   ausente**. Distinguir ausente de cadena vacía: la fila no debe pintar el `<p>`.
+4. En el mensaje renderizado no aparecen **«UTS»** ni **«codigoEstado»** en ninguno de los dos casos
+   nuevos.
+5. Fixture con el **texto viejo literal** → la pantalla pinta el copy nuevo, y lo pinta igual en la
+   tarjeta de resultado **y** en el modal de detalle de corrida.
+6. Fixture con un mensaje cualquiera que **no** coincida exactamente → se pinta tal cual, sin
+   sustituir.
+7. Ninguna migración ni sentencia toca `sync_steps.mensaje` (revisión del diff de la HU, no solo del
+   test).
+8. Sigue sin inactivarse nada de ese NIT en la corrida (RN-47) y `nitsSinInactivacion` lo cuenta.
+9. **Mutación obligatoria:** dejar en el backend la constante vieja y comprobar que la prueba 2 se
+   pone **roja**. Si sigue verde, la aserción está sobre el chip o sobre un fragmento del texto, y no
+   comprueba lo que su título dice.
+
+---
+
+```
+HANDOFF · enmienda 24 ago 2026 (slim)
+  Modo: slim — enmienda documental, sin pantalla nueva
+  Entrega: docs/ux/flito-comparendos-config-sync.md (mismo archivo, enmendado)
+  Cambios normativos:
+    · Decisión 17 — PREMISA CORREGIDA: el chip del 200 no concluyente NUNCA dijo «Error»; ya sale
+      «Ok» porque el backend devuelve ok:true (RN-47). NO tocar chip, ok, ni concluyente
+    · Decisión 18 — catálogo de copy por forma de respuesta: MEDELLIN (ok, no concluyente) con
+      mensaje nuevo exacto; BELLO (ok, concluyente) SIN mensaje; 4xx/5xx con chip Error sin suavizar
+    · Decisión 19 — el histórico NO se reescribe: alias en el front por coincidencia EXACTA de la
+      cadena completa, en el módulo de formato que comparten la tarjeta de resultado y el modal
+    · Decisión 20 — RN-20 y RN-47 intactas; el copy explica la decisión, no la cambia
+    · Decisión 21 — 4 estados de la fila del paso; el mensaje va DENTRO de la celda del chip
+  Efecto en HU pendientes:
+    · #11796 (BACKEND) — la constante del mensaje pasa a MENSAJE_VACIO_NO_CONCLUYENTE (el nombre
+      viejo citaba el vocabulario del proveedor) y estrena el valor de la decisión 18; sin migración,
+      sin UPDATE
+    · #11797 (FRONTEND) — solo el alias del texto histórico, en un único sitio para las dos
+      superficies; el chip se queda como está
+  Requerimientos nuevos de datos: ninguno
+  Siguiente: backend-agent (#11796) y frontend-agent (#11797); qa-agent con la mutación de la nota 9
+  Pendiente humano: ninguno
+```

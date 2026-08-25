@@ -59,6 +59,27 @@
 //        descubre que hacía falta un campo que se podó, re-mergear desde el JSONB ya no basta y hay
 //        que volver a consultar al proveedor. Se cambia una pérdida de datos recuperable
 //        (re-consulta) por una fuga de datos personales que no lo es.
+//
+// RN-26  La clave de negocio es la MISMA entre fuentes cuando el número es el número único
+//        nacional (HU #11806). Si la cadena ya normalizada encaja ENTERA con
+//        `^[A-Z]{1,2}[0-9]{20}$`, la clave son esos veinte dígitos; en cualquier otro caso, la
+//        cadena tal cual. No se apoya en que «la letra sobre», sino en CF-07: veinte dígitos con la
+//        DIVIPOLA delante ya son la identidad completa, así que la letra decora un identificador
+//        que ya es único, tanto si es del municipio como si es del tipo de comparendo. Alcance
+//        deliberadamente estrecho —separadores, sufijos y otras longitudes NO disparan—, con el
+//        porqué entero y el precedente de ADR-0003 §6 en el docblock de `numeroCanonico`.
+//
+// RN-48  `01/01/1900` es el CENTINELA de «no notificado» de las dos fuentes, NO una fecha, y no se
+//        persiste (HU #11794). El criterio vive en `fechaCanonica` y por tanto vale para las DOS
+//        columnas de fecha: `fecha_notificacion`, que estrena la HU, y `fecha_comparendo`, que hasta
+//        hoy guardaba `1900-01-01` como si fuera un hecho. Ponerlo solo en la columna nueva dejaría
+//        que la misma cadena del mismo proveedor significara «no notificado» en un campo y «ocurrió
+//        en 1900» en el de al lado.
+//
+//        Consecuencia asumida y declarada: **cambia salida ya visible en producción**. No se corrige
+//        con un `UPDATE` en la migración —eso escribiría la decisión de hoy sobre filas que nadie
+//        volvió a medir—, sino en el siguiente sync de cada fila; en las `inactivo`, que ya no se
+//        visitan (CF-10), el `1900-01-01` sobrevive.
 
 import { asc } from 'drizzle-orm';
 import type { ComparendosTipoRegistro } from '@operaciones/shared-types';
@@ -84,6 +105,13 @@ export const CAMPOS_CANONICOS = [
   'codigoInfraccion',
   'descripcionInfraccion',
   'fechaComparendo',
+  // HU #11794. Entra al mapa en la v4 y NO antes: hasta la v3 se dejaba fuera porque el proveedor la
+  // manda con el centinela `01/01/1900`, y sin criterio para el centinela mapearla habria guardado
+  // una fecha del siglo XIX. Lo que la HU cambia no es el nombre del campo, es que el centinela ya
+  // tiene criterio (ver `fechaCanonica`), y con criterio el campo se puede mapear como cualquier
+  // otro. Estar aqui es ademas lo que la mete en la lista blanca de la poda (RN-25): sin esta
+  // entrada, `camposConservables` la seguiria tirando y la columna no se llenaria nunca.
+  'fechaNotificacion',
   'organismo',
   'monto',
   'estadoFuente',
@@ -120,6 +148,8 @@ export interface ComparendoCanonico {
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
   fechaComparendo: string | null;
+  /** `YYYY-MM-DD` de la notificación, o `null` si no la hubo / no se sabe (HU #11794). */
+  fechaNotificacion: string | null;
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
@@ -326,6 +356,10 @@ export function homologar(item: Record<string, unknown>, candidatos: CandidatosP
     // `descripcion_infraccion` es TEXT: no lleva tope de ancho.
     descripcionInfraccion: texto(primerValor(item, candidatos.get('descripcionInfraccion')), null, false),
     fechaComparendo: fechaCanonica(primerValor(item, candidatos.get('fechaComparendo'))),
+    // Por la MISMA normalizadora que la de arriba, y eso es la mitad de la HU #11794: las tres
+    // grafías medidas y el centinela se resuelven en un solo sitio, así que no puede haber una
+    // columna que entienda `14/05/2026` y otra que no.
+    fechaNotificacion: fechaCanonica(primerValor(item, candidatos.get('fechaNotificacion'))),
     organismo: texto(primerValor(item, candidatos.get('organismo')), ANCHO.organismo, false),
     monto: montoCanonico(primerValor(item, candidatos.get('monto'))),
     estadoFuente: texto(primerValor(item, candidatos.get('estadoFuente')), ANCHO.estadoFuente, false),
@@ -356,18 +390,104 @@ function texto(valor: unknown, max: number | null, mayusculas: boolean): string 
 }
 
 /**
+ * La FORMA NACIONAL del número de comparendo, decorada con una o dos letras delante (HU #11806).
+ *
+ * Este literal es la fuente de verdad de la regla y se repite —sin el grupo— en el `UPDATE` de
+ * reparación de la migración `0163`. Que las dos copias digan lo mismo NO se deja a la buena
+ * voluntad: lo vigila `flito-comparendos-migracion-0163-paridad.test.ts`, que compara el `.source`
+ * de esta constante con el literal del `.sql`.
+ *
+ * El grupo es la única diferencia entre las dos escrituras, y existe para extraer los veinte
+ * dígitos SIN recortar por posición: `s.slice(-20)` daría hoy el mismo resultado —el anclaje lo
+ * garantiza— pero sobreviviría a que alguien relajara el `{20}`, y entonces sí recortaría.
+ */
+export const NUMERO_FORMA_NACIONAL = /^[A-Z]{1,2}([0-9]{20})$/;
+
+/**
  * Número de comparendo: la llave de negocio (CF-07).
  *
  * Mayúsculas y sin espacios internos para que el mismo comparendo escrito por dos proveedores sea
  * una sola fila. **No se recorta:** si no cabe en `varchar(60)` se descarta el ítem entero
  * devolviendo `null`. Recortar la llave crearía un comparendo que no existe y, peor, podría colisionar
  * con otro que comparta prefijo — fundiendo dos deudas distintas en una sola fila.
+ *
+ * ── La regla de la forma nacional (HU #11806) ───────────────────────────────────────────────────
+ *
+ * Después de esa normalización, y SOLO si la cadena entera encaja con `^[A-Z]{1,2}[0-9]{20}$`, la
+ * clave son esos veinte dígitos. En cualquier otro caso sale la cadena tal cual, que es lo de
+ * siempre.
+ *
+ * **El argumento no es «la `D` sobra».** Es **CF-07**, que ya es premisa del modelo y está escrita
+ * en `schema.ts`: el número lo asigna el Estado y es ÚNICO EN EL PAÍS — por eso el único de la tabla
+ * es `(numero_comparendo)` y no `(nit, numero)`. Las dos grafías medidas son `05001` + 15 dígitos
+ * (DIVIPOLA de Medellín) y `11001` + 15 (Bogotá): veinte dígitos con la DIVIPOLA delante **ya son la
+ * identidad completa**.
+ *
+ * De ahí sale la propiedad que hace segura la regla bajo la incertidumbre que la HU declara: **da
+ * igual si la `D` es del municipio o del tipo de comparendo.** Bajo las dos lecturas la letra decora
+ * un identificador que ya es único por sí solo; no lo extiende. La regla no apuesta por ninguna de
+ * las dos hipótesis, se apoya en la tercera cosa que sí está verificada. Si mañana se descubre que
+ * la `D` era de «Detección electrónica», la regla sigue siendo correcta.
+ *
+ * **Y no es un recorte**, que es lo que el párrafo de arriba y ADR-0003 §6 prohíben: nunca se quita
+ * un dígito, solo letras, y solo cuando lo que queda es exactamente la forma nacional de veinte.
+ * `D` + 19 dígitos y `D` + 21 **no disparan** y salen intactos, igual que `ABCDE` + 23 dígitos: el
+ * peor caso de la regla es no fusionar algo que debería, y eso es el statu quo, no una regresión.
+ *
+ * ── Alcance, y lo que deliberadamente queda fuera ───────────────────────────────────────────────
+ *
+ * SOLO esa forma. Separadores (`D-05001…`), sufijos, prefijos numéricos y otras longitudes **no se
+ * tocan**, y no por olvido: de ninguna de esas formas hay hoy ni un byte medido, y de los municipios
+ * sembrados solo hay muestra de tres. Escribir una regla más ancha sería adivinar separadores, que
+ * es justo lo que ADR-0003 §6 cierra. La muestra que falta la trae `formaNumero`, que emite la FORMA
+ * de cada número por corrida sin emitir el número.
+ *
+ * La decisión es además **reversible**: `numeroComparendo` es `source_path` de la v3 del mapa en los
+ * dos orígenes, así que la grafía cruda `D…` sobrevive en `payload_municipal` aunque la columna
+ * guarde la de veinte (RN-25 la conserva). Si algún día la letra resultara ser identidad, se quita
+ * la regla y el municipal vuelve a crear su fila en el siguiente sync.
+ *
+ * **Se EXPORTA**, por el mismo motivo que `placaCanonica`: el filtro `q` de `GET /registros` tiene
+ * que normalizar su entrada exactamente igual que se normalizó lo guardado. Con dos
+ * implementaciones parecidas, el día que una cambie el filtro deja de encontrar filas que existen —
+ * y aquí el síntoma sería peor que en la placa, porque lo guardado es MÁS CORTO que lo tecleado y la
+ * búsqueda es por contenido (`%q%`).
  */
-function numeroCanonico(valor: unknown): string | null {
+export function numeroCanonico(valor: unknown): string | null {
   if (typeof valor !== 'string' && typeof valor !== 'number') return null;
   const s = String(valor).replace(/\s+/g, '').toUpperCase();
   if (s === '' || s.length > ANCHO.numeroComparendo) return null;
-  return s;
+  const nacional = NUMERO_FORMA_NACIONAL.exec(s);
+  return nacional === null ? s : nacional[1];
+}
+
+/**
+ * La FORMA de un número, sin el número: `D20`, `L1D20`, `L2D18`, `OTRO`… (HU #11806).
+ *
+ * Existe para responder EN UNA CORRIDA REAL la pregunta que la regla de arriba deja abierta: qué
+ * grafías emiten los municipios de los que no hay ni una muestra. Sin esto, la próxima vez que una
+ * fuente estrene una forma nos enteramos porque un humano cuenta filas duplicadas.
+ *
+ * **Cero PII, y ni siquiera el dato**: emite la longitud del bloque de letras y la del bloque de
+ * dígitos, nunca el valor. No es el debate de si `numero_comparendo` es publicable en un log — es
+ * que el número no sale.
+ *
+ * Se normaliza igual que `numeroCanonico` (mismos espacios, mismas mayúsculas) pero se mide ANTES de
+ * aplicar la regla, a propósito: lo que interesa saber es qué emite el proveedor, no en qué quedó
+ * después de normalizarlo — si midiéramos después, la forma prefijada nunca aparecería y el
+ * histograma no serviría para lo único que se hizo. Los tokens son de cardinalidad acotada (el
+ * número cabe en 60), así que el histograma no puede crecer sin límite.
+ */
+export function formaNumero(valor: unknown): string {
+  if (typeof valor !== 'string' && typeof valor !== 'number') return 'AUSENTE';
+  const s = String(valor).replace(/\s+/g, '').toUpperCase();
+  if (s === '') return 'VACIO';
+  // El descarte por ancho, que ya cuenta `numeroCanonico`, pero aquí como forma propia: si un
+  // proveedor empezara a mandar números largos, la corrida lo diría sin cruzar dos contadores.
+  if (s.length > ANCHO.numeroComparendo) return 'LARGO';
+  const bloques = /^([A-Z]*)([0-9]+)$/.exec(s);
+  if (bloques === null) return 'OTRO';
+  return bloques[1] === '' ? `D${bloques[2].length}` : `L${bloques[1].length}D${bloques[2].length}`;
 }
 
 /**
@@ -387,7 +507,44 @@ export function placaCanonica(valor: unknown): string | null {
 }
 
 /**
- * Fecha → `YYYY-MM-DD`, o `null` si no se entiende.
+ * El valor con el que las dos fuentes dicen **«no notificado»**, no «el 1 de enero de 1900».
+ *
+ * La premisa la dejó escrita la migración 0158 al mirar los payloads reales, y hasta la HU #11794
+ * servía para NO mapear `fechaNotificacion`: sin criterio para el centinela, mapear el campo habría
+ * guardado una fecha del siglo XIX en la columna. Mapearlo obliga a decidir, y lo decidido es
+ * descartarlo.
+ *
+ * Se compara contra la fecha YA NORMALIZADA y no contra la cadena cruda, que es lo que hace que las
+ * cuatro escrituras del mismo centinela —`01/01/1900`, `01/01/1900 00:00:00`, `1900-01-01` y
+ * `01-01-1900`— caigan por igual sin escribir cuatro literales.
+ *
+ * **Lo que NO hace, y conviene no creérselo:** un centinela en prioridad 1 **sí sombrea** al
+ * candidato de prioridad 2. El filtro que elige candidato es `esValorHomologable`, que corre ANTES y
+ * ve una cadena no vacía; para cuando se descubre que es el centinela, `primerValor` ya decidió. Es
+ * exactamente el sombreado residual que documenta `esValorHomologable` para las fechas numéricas, y
+ * se deja igual y por lo mismo: cerrarlo pide un filtro POR CAMPO y no una lista común.
+ *
+ * **Y no es inerte en las dos columnas — ese es el error de lectura que hay que evitar, porque desde
+ * esta HU el criterio del centinela vale para las dos.** Para `fechaNotificacion` sí lo es: la v4 le
+ * da UN solo candidato por origen, así que no hay prioridad 2 a la que sombrear. Para
+ * `fechaComparendo` NO: la v4 sí tiene respaldo de prioridad 2 (`fechaImposicion` en SIMIT, `fecha`
+ * en municipal), de modo que un centinela en prioridad 1 descarta una fecha real que estaba
+ * disponible. Esta HU no lo estrena —antes el centinela también ganaba, solo que se persistía como
+ * `1900-01-01`— pero sí lo vuelve MENOS visible: lo que chirriaba como una fecha de 1900 pasa a ser
+ * una celda vacía, indistinguible de «no hay dato». Anotado y NO resuelto, que es distinto de estar
+ * resuelto.
+ *
+ * **Alcance estrecho a propósito:** SOLO ese día. `1900-01-02` y `1901-01-01` son fechas y se
+ * guardan. No hay ni un byte medido que diga que el proveedor usa un rango como centinela, y una
+ * regla más ancha se tragaría fechas legítimas — el error que sí sería irreversible.
+ *
+ * Se exporta para que la paridad de la migración pueda afirmar que el `.sql` y el código hablan del
+ * mismo literal, en vez de dejar dos copias sueltas del mismo hecho.
+ */
+export const FECHA_CENTINELA_NO_NOTIFICADO = '1900-01-01';
+
+/**
+ * Fecha → `YYYY-MM-DD`, o `null` si no se entiende **o si es el centinela**.
  *
  * Se parsea con expresiones regulares y NO con `new Date(...)`: el constructor interpreta
  * `'2026-06-02'` como medianoche UTC y, al formatearlo en un servidor en `America/Bogota` (UTC-5),
@@ -403,14 +560,43 @@ export function placaCanonica(valor: unknown): string | null {
  * NIT se homologaban con `fechaComparendo: null`. Lo que sigue detrás del día se ignora a
  * propósito: la hora no cabe en un `date` y, si se usara, arrastraría la zona horaria que el
  * párrafo de arriba evita.
+ *
+ * **Y que la hora sea OPCIONAL tampoco es cosmética desde la HU #11794**: las tres grafías medidas
+ * el 2026-08-24 sobre el NIT 901789698 son `DD/MM/YYYY HH:MM:SS` (SIMIT), `YYYY-MM-DD` (UTS
+ * Medellín) y **`DD/MM/YYYY` sin hora (UTS Bogotá)**. Exigir la hora en la rama con barras dejaría
+ * a Bogotá entera en `null`, y el síntoma —una ciudad con la columna llena y otra vacía— no lo ve
+ * ningún test escrito contra Medellín.
+ *
+ * ── El centinela (HU #11794) ─────────────────────────────────────────────────────────────────────
+ *
+ * `01/01/1900` sale `null`, y sale igual **para las dos columnas de fecha**. Que el criterio viva
+ * aquí y no en la línea de `fechaNotificacion` de `homologar` es la decisión: un centinela no cambia
+ * de significado según la columna en la que caiga, y ponerlo solo en la columna nueva dejaría que la
+ * misma cadena del mismo proveedor fuese «no notificado» en un campo y «ocurrió en 1900» en el de al
+ * lado.
+ *
+ * **Esto CAMBIA salida que ya se ve en producción**: un `fechaComparendo` que llegue `01/01/1900`
+ * pasa de guardarse `1900-01-01` a guardarse `null`. Es un AC de la HU y no un efecto colateral. No
+ * hay backfill: las filas ya escritas se corrigen en el siguiente sync que las visite (ver la
+ * cabecera de la migración 0164), y las `inactivo` no se visitan (CF-10).
  */
 function fechaCanonica(valor: unknown): string | null {
+  const fecha = fechaParseada(valor);
+  // Un único punto de descarte, después de normalizar: cubre las cuatro escrituras del centinela sin
+  // repetir literales, y es la línea que hay que borrar para reintroducir el defecto.
+  return fecha === FECHA_CENTINELA_NO_NOTIFICADO ? null : fecha;
+}
+
+/** Las tres gramáticas admitidas, sin opinión sobre el centinela. Ver {@link fechaCanonica}. */
+function fechaParseada(valor: unknown): string | null {
   if (typeof valor !== 'string') return null;
   const s = valor.trim();
 
   const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(s);
   if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
+  // La hora es OPCIONAL (`(?:[T ].*)?`) y ese signo de interrogación es Bogotá: sin él,
+  // `14/05/2026` no encaja y la ciudad entera se queda sin fecha de notificación.
   const local = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[T ].*)?$/.exec(s);
   if (local) return fechaValida(Number(local[3]), Number(local[2]), Number(local[1]));
 
@@ -667,12 +853,33 @@ export interface ConsolidadoComparendo {
 export type AcumuladorNit = Map<string, ConsolidadoComparendo>;
 
 /**
+ * Lo que un `acumular*` cuenta de paso, sin mirar ni un valor.
+ *
+ * Era un `number` pelado —los ítems ignorados— hasta la HU #11806. Ahora viaja también el histograma
+ * de FORMAS (`formaNumero`), que es lo único que puede decirnos, en una corrida de verdad, qué
+ * grafías emiten los municipios de los que no hay muestra. Va en el retorno y no en un parámetro de
+ * salida para que estas funciones sigan siendo puras respecto de todo lo que no sea el acumulador.
+ */
+export interface ConteoAcumulacion {
+  /** Ítems descartados por no traer un número reconocible (la señal del spike #11501). */
+  ignorados: number;
+  /** Forma del número CRUDO → cuántas veces se vio. Nunca lleva el número (RN-25 y Ley 1581). */
+  formas: Map<string, number>;
+}
+
+/** Suma uno al token del histograma. Sale a función para que los dos acumuladores no la copien. */
+function contarForma(formas: Map<string, number>, item: Record<string, unknown>, candidatos: CandidatosPorCampo): void {
+  const forma = formaNumero(primerValor(item, candidatos.get('numeroComparendo')));
+  formas.set(forma, (formas.get(forma) ?? 0) + 1);
+}
+
+/**
  * Suma lo que devolvió SIMIT para un NIT.
  *
  * Gana el PRIMER ítem de cada número: si el proveedor repite un comparendo en la misma respuesta, la
  * segunda copia no aporta nada y sobrescribirla solo haría depender el resultado del orden de la
  * lista. Devuelve cuántos ítems se descartaron por no traer número reconocible, que es justamente la
- * señal que el spike #11501 necesita ver.
+ * señal que el spike #11501 necesita ver, y el histograma de formas de la HU #11806.
  *
  * El payload se PODA aquí (RN-25), en el mismo sitio en que se decide conservarlo. Podar más tarde
  * —al escribir— dejaría el ítem íntegro vivo en el acumulador de toda la corrida y bastaría con que
@@ -680,10 +887,12 @@ export type AcumuladorNit = Map<string, ConsolidadoComparendo>;
  */
 export function acumularSimit(
   acumulador: AcumuladorNit, items: readonly Record<string, unknown>[], candidatos: CandidatosPorCampo,
-): number {
+): ConteoAcumulacion {
   let ignorados = 0;
+  const formas = new Map<string, number>();
   const permitidos = camposConservables(candidatos);
   for (const item of items) {
+    contarForma(formas, item, candidatos);
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
     const previo = acumulador.get(canonico.numeroComparendo);
@@ -703,7 +912,7 @@ export function acumularSimit(
       municipioFuente: null,
     });
   }
-  return ignorados;
+  return { ignorados, formas };
 }
 
 /**
@@ -713,14 +922,20 @@ export function acumularSimit(
  * `municipio_fuente` es una pista de dónde se vio, y cambiarla en cada corrida según el orden en que
  * respondan los UTS —que con el pool de paralelismo no está garantizado— haría bailar el dato sin
  * que nada hubiera cambiado en la realidad.
+ *
+ * Aquí es donde la regla de la forma nacional (HU #11806) hace su trabajo: el ítem de Medellín llega
+ * con la grafía `D` + 20 dígitos y cae sobre la entrada que SIMIT ya creó con los mismos veinte
+ * dígitos, así que rellena huecos en vez de abrir una segunda deuda.
  */
 export function acumularMunicipal(
   acumulador: AcumuladorNit, items: readonly Record<string, unknown>[],
   candidatos: CandidatosPorCampo, codigoFuente: string,
-): number {
+): ConteoAcumulacion {
   let ignorados = 0;
+  const formas = new Map<string, number>();
   const permitidos = camposConservables(candidatos);
   for (const item of items) {
+    contarForma(formas, item, candidatos);
     const canonico = homologar(item, candidatos);
     if (canonico.numeroComparendo === null) { ignorados++; continue; }
     const previo = acumulador.get(canonico.numeroComparendo);
@@ -741,7 +956,7 @@ export function acumularMunicipal(
       municipioFuente: codigoFuente,
     });
   }
-  return ignorados;
+  return { ignorados, formas };
 }
 
 /** Lo que ya había guardado, para no perder campos que esta corrida no trajo (RN-13). */
@@ -760,6 +975,7 @@ export interface CamposResueltos {
   codigoInfraccion: string | null;
   descripcionInfraccion: string | null;
   fechaComparendo: string | null;
+  fechaNotificacion: string | null;
   organismo: string | null;
   monto: string | null;
   estadoFuente: string | null;
@@ -832,6 +1048,31 @@ export function resolverCampos(
   const elegir = (campo: Exclude<CampoCanonico, 'numeroComparendo'>): string | null =>
     simit?.[campo] ?? municipal?.[campo] ?? previo[campo] ?? null;
 
+  /**
+   * Igual que `elegir`, pero el tercer escalón **no puede devolver el centinela** (HU #11794).
+   *
+   * Hace falta, y es el hallazgo de la HU: sin esto, el AC «las filas guardadas con `1900-01-01` se
+   * corrigen en el siguiente sync» sería falso. `01/01/1900` que llega de la fuente se convierte en
+   * `null` en `homologar`, así que los dos primeros escalones se quedan mudos y el `??` cae en
+   * `previo`, que trae el `1900-01-01` de la corrida anterior. Resultado: la fila se re-escribiría a
+   * sí misma con el defecto para siempre, y como la migración tampoco hace backfill, el valor no lo
+   * corregiría NADIE.
+   *
+   * No contradice el tercer escalón de RN-13 («dejar de recibir un dato no es recibir que está
+   * vacío»): eso protege VALORES, y el centinela no lo es —es la forma que tiene el proveedor de
+   * decir que no hay dato—. Conservarlo no conserva información, conserva un error de lectura.
+   *
+   * Y por eso la corrección no depende de que la fuente vuelva a mandar el centinela: basta con que
+   * el sync visite la fila. Lo único que se queda con el `1900-01-01` es lo que ya no se visita (las
+   * filas `inactivo`, CF-10), y eso está declarado en la cabecera de la migración 0164.
+   */
+  const elegirFecha = (campo: 'fechaComparendo' | 'fechaNotificacion'): string | null => {
+    const guardada = previo[campo] ?? null;
+    return simit?.[campo]
+      ?? municipal?.[campo]
+      ?? (guardada === FECHA_CENTINELA_NO_NOTIFICADO ? null : guardada);
+  };
+
   // Los dos de la resolución se resuelven ANTES para poder derivar el tipo de ellos (HU #11712).
   const numeroResolucion = elegir('numeroResolucion');
   const idResolucion = elegir('idResolucion');
@@ -840,7 +1081,12 @@ export function resolverCampos(
     placa: elegir('placa'),
     codigoInfraccion: elegir('codigoInfraccion'),
     descripcionInfraccion: elegir('descripcionInfraccion'),
-    fechaComparendo: elegir('fechaComparendo'),
+    fechaComparendo: elegirFecha('fechaComparendo'),
+    // Los MISMOS tres escalones, sin regla propia (HU #11794): SIMIT prevalece y el municipal solo
+    // llena el hueco (CF-08). Que en la muestra del NIT 901789698 las dos fuentes coincidan en
+    // `30/07/2026` no vuelve inerte la precedencia — la vuelve invisible, que es distinto, y por eso
+    // se prueba con un caso donde SÍ discrepan.
+    fechaNotificacion: elegirFecha('fechaNotificacion'),
     organismo: elegir('organismo'),
     monto: elegir('monto'),
     estadoFuente: elegir('estadoFuente'),

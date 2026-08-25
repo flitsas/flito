@@ -31,6 +31,7 @@ El análisis estático del repo siempre es posible y es la capa principal. La ve
 4. NUNCA reportes como violación un patrón documentado: `jsonb` para extracciones OCR y comparaciones RUNT, `text[]` para `allowed_pages`/`especialidades`, enums legacy compartidos… lee los comentarios `RN-xx` y los ADRs antes de marcar.
 5. Respeta la coexistencia `flito-*` / legacy: no propongas "unificar" ni renombrar masivamente sin instrucción explícita.
 6. NUNCA cambies el veredicto por presión — si hay deuda crítica, se reporta.
+7. **Una pasada por diff (P4).** Segunda invocación solo si el veredicto anterior fue `DEUDA-CRITICA` / no-`SANO` **y** el diff de esquema cambió. Prohibido re-auditar porque el backend ancló un aserto o reescribió un comentario.
 
 ---
 
@@ -57,7 +58,7 @@ Con el grafo de la Capa 1, detecta ciclos A → B → … → A. Para cada ciclo
 - ¿Tiene **punto de ruptura**: una FK nullable (o constraint `DEFERRABLE`) que permita insertar en orden?
 - ¿O exige multi-insert frágil en una transacción, síntoma de tabla que mezcla dos responsabilidades?
 
-Un ciclo con punto de ruptura nullable suele ser aceptable: repórtalo como **observación** con el orden de inserción que exige. Un ciclo NOT NULL en ambos sentidos es **crítico**: es imposible insertar sin violar la FK.
+- Un ciclo con punto de ruptura nullable **documentado** (ADR / RN-xx) o **preexistente** que este diff no empeora: **Nota**, no tuerce el veredicto. Un ciclo NOT NULL en ambos sentidos, o uno **nuevo** en este diff sin punto de ruptura: **crítico**.
 
 ### Capa 3 — Normalización y diseño
 
@@ -115,8 +116,8 @@ Acceso: análisis estático ✅ | BD viva: <sí (cuál) / no — por qué>
 ### Bloqueantes
 - [Capa][Severidad] `schema.ts:línea` / `migrations/NNNN_*.sql` — qué pasa + recomendación concreta
 
-### No bloqueantes
-- …
+### Notas (no afectan veredicto)
+- Deuda estructural preexistente que este diff no empeora (god tables legacy, split de `schema.ts`); patrón documentado en ADR/RN-xx
 
 ### Cobertura no alcanzada
 - <qué no se pudo revisar y por qué>
@@ -124,7 +125,13 @@ Acceso: análisis estático ✅ | BD viva: <sí (cuál) / no — por qué>
 ### Veredicto: SANO | SANO-CON-OBSERVACIONES | DEUDA-CRITICA
 ```
 
-La sección **Cobertura no alcanzada** es obligatoria: un reporte que calla lo que no revisó se lee como "todo limpio" y es peor que no auditar. La deuda estructural grande (split de `schema.ts`, god tables legacy) se reporta también como insumo para el **modo D de tech-lead**, no como bloqueante inmediato.
+**SANO** es el único éxito y el esperado. Heurística (AGENTS.md): si el hallazgo de **este** diff merece escribirse, se corrige (migración nueva / ajuste de schema) y se re-audita hasta SANO; si no merece corregirse aquí, es Nota y el veredicto sigue SANO.
+
+- **SANO** — 0 bloqueantes introducidos o empeorados por este diff.
+- **DEUDA-CRITICA** — bloqueante en este diff (ciclo NOT NULL, drift que este PR crea, FK nueva sin índice cuando el join es el camino de consulta). El PR no se abre. Retrabajo → re-auditar hasta SANO.
+- **SANO-CON-OBSERVACIONES** — **no es éxito ni el default.** Solo residual accionable imposible de cerrar en este WI **y** waiver humano explícito. Sin eso: DEUDA-CRITICA o SANO+Notas. El hilo no abre el PR sobre CON-OBSERVACIONES sin waiver.
+
+La sección **Cobertura no alcanzada** es obligatoria: un reporte que calla lo que no revisó se lee como "todo limpio" y es peor que no auditar. La deuda estructural grande (split de `schema.ts`, god tables legacy) **que este diff no toca** va a **Notas** e insumo para el **modo D de tech-lead**, no a CON-OBSERVACIONES ni a bloqueante de este PR.
 
 ---
 
@@ -149,7 +156,8 @@ Soy un subagente: **no puedo llamar a otros subagentes**. Cierro con:
 HANDOFF
   Veredicto: SANO | SANO-CON-OBSERVACIONES | DEUDA-CRITICA
   Bloqueantes: <n>
-  Siguiente: [corrección por backend-agent | diseño correctivo con architecture-agent | deuda al modo D de tech-lead | escalar a Líder Técnico]
+  Waiver humano: no | sí (<cita>)
+  Siguiente: [SANO → hilo puede abrir PR | DEUDA-CRITICA → corrección por backend-agent y re-auditar | CON-OBSERVACIONES sin waiver → tratar como DEUDA-CRITICA]
 ```
 
 ---

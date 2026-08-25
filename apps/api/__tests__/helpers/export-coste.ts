@@ -94,6 +94,10 @@ export function fila(i: number, observacion: string | null): Record<string, unkn
     placa: `AB${String(i % 1000).padStart(4, '0')}`,
     nitMonitoreado: `9001${String(i % 100000).padStart(5, '0')}`,
     fechaComparendo: '2026-06-02',
+    // HU #11794. Una de cada tres filas sin notificar, que es la forma que tiene el dato real: el
+    // proveedor manda el centinela `01/01/1900` en los comparendos aún no notificados y el merge lo
+    // guarda como `null`. Un literal constante en todas mediría un archivo más barato que el real.
+    fechaNotificacion: i % 3 === 0 ? null : '2026-06-19',
     codigoInfraccion: 'C29',
     descripcionInfraccion: `Estacionar en sitio prohibido o en zona de cargue ${i}`,
     municipioFuente: 'BELLO',
@@ -177,6 +181,45 @@ function sumidero(): { res: Response; bytes: () => number } {
 }
 
 /**
+ * Fuerza una recolección COMPLETA antes de empezar a medir. Sin esto la medición es una moneda al
+ * aire, y está medido (HU #11794, 2026-08-24).
+ *
+ * `rssDeltaMB` es `pico − reposo`, y las dos puntas dependían de dónde estuviera V8 en su ciclo
+ * cuando el test arrancó: con basura acumulada del propio archivo y de los anteriores del mismo
+ * fork, el reposo salía bajo y V8 llegaba al export con presupuesto de sobra, así que no recogía
+ * durante la generación y el pico se disparaba. **El mismo código, corrido cuatro veces seguidas,
+ * daba 145 · 66,6 · 65,7 · 146 MB contra un umbral de 150.** No es ruido de ±5 MB alrededor de un
+ * valor: son dos modos separados por 80 MB, uno de los cuales roza el tope. Un test así no mide el
+ * export, mide el planificador de la recolección — y acaba borrado o «recalibrado» el día que roce
+ * el umbral por el lado malo.
+ *
+ * Con la recolección forzada, las mismas tres corridas dan 67,9 · 68,4 · 68,2 MB: ±0,5 MB, y además
+ * **el número vuelve a parecerse al que este archivo documenta como medido en frío** (93 MB con el
+ * tope en 2 000, un proceso por escenario), que es justo lo que se quería reproducir — el API en
+ * régimen no llega a un export con el heap lleno de basura de otros veintidós archivos de tests.
+ *
+ * No ablanda ninguna aserción: el umbral de 150 MB sigue donde estaba y el margen que queda se mide
+ * de verdad en vez de sortearse. Si el export creciera hasta rozarlo, esto lo diría **todas** las
+ * veces en lugar de una de cada dos.
+ *
+ * El `--expose_gc` se enciende y se apaga aquí porque la suite no arranca con esa bandera y añadirla
+ * al `vitest.config.ts` la pondría en los cientos de archivos que no la necesitan. Si el truco
+ * fallara —otro runtime, otra versión—, la medición sigue: se pierde la estabilidad, no el test.
+ */
+async function recolectarBasura(): Promise<void> {
+  try {
+    const v8 = await import('node:v8');
+    const vm = await import('node:vm');
+    v8.setFlagsFromString('--expose_gc');
+    (vm.runInNewContext('gc') as () => void)();
+    v8.setFlagsFromString('--no-expose_gc');
+  } catch {
+    // Sin `gc()` disponible la medición sigue siendo válida, solo vuelve a ser bimodal. Se prefiere
+    // eso a que el helper reviente y se lleve por delante los dos archivos que lo usan.
+  }
+}
+
+/**
  * Genera `lotes.length` exports **a la vez** y mide lo que le cuesta al proceso.
  *
  * Un lote = un export = un `sendExcel` con su propio sumidero. Con un solo lote esto mide el coste
@@ -202,6 +245,7 @@ function sumidero(): { res: Response; bytes: () => number } {
 export async function medirExports(lotes: Record<string, unknown>[][]): Promise<Medicion> {
   const sumideros = lotes.map(() => sumidero());
 
+  await recolectarBasura();
   const rssReposo = process.memoryUsage().rss;
   let rssPico = rssReposo;
   let heapPico = process.memoryUsage().heapUsed;

@@ -59,6 +59,11 @@ const enviarMock = vi.fn();
 vi.mock('../../src/modules/siigo/facturacion.encolado.service.js', () => ({
   enviarAFacturacion: (...a: unknown[]) => enviarMock(...a),
   TOPE_TRAMITES_ENVIO: 200,
+  SiigoEnvioInvalidoError: class SiigoEnvioInvalidoError extends Error {
+    codigo: string;
+
+    constructor(codigo: string, mensaje: string) { super(mensaje); this.codigo = codigo; }
+  },
 }));
 
 const colaMock = vi.fn();
@@ -518,5 +523,173 @@ describe('GET / — el estado de la cola de unos trámites', () => {
       .set('Authorization', await auth('admin'));
     expect(r.status).toBe(400);
     expect(colaMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── HU #11708 — el correo se elige en el cuerpo del envío ───────────────────
+
+describe('el correo al cliente viaja en la petición de envío', () => {
+  it('lo pedido llega al servicio con las direcciones marcadas como escritas a mano', async () => {
+    // `manual` es lo que distingue después, en el acta, «el cliente tiene mal su ficha» de «quien
+    // envió se equivocó al escribirlo». Sin la procedencia, las dos averías son la misma fila.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: {
+        solicitado: true,
+        destinatarios: [{ correo: 'cartera@cliente.test', origen: 'manual' }],
+      },
+    }));
+  });
+
+  it('sin `correo` en el cuerpo NO se pide correo, y eso es una decisión, no un olvido', async () => {
+    // Antes de esta historia el correo salía siempre en producción. Que la ausencia lo apague en vez
+    // de romper la petición es deliberado: un 400 no factura nada, mientras que un correo que no
+    // salió se reenvía — y además queda acta diciendo que nadie lo pidió.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin')).send({ conceptos: CONCEPTOS, tramiteIds: [A] });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: { solicitado: false, destinatarios: [] },
+    }));
+  });
+
+  it('con la casilla apagada no se guarda ninguna dirección, aunque vengan en el cuerpo', async () => {
+    // Una pantalla que conserva lo escrito mientras se desmarca la casilla es lo normal. Guardarlas
+    // metería datos personales en el lote para un correo que nadie va a mandar, y ese lote acabaría
+    // en la lista de cosas que el derecho de supresión tiene que ir a limpiar sin motivo.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: false, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(202);
+    expect(enviarMock).toHaveBeenCalledWith(expect.objectContaining({
+      correo: { solicitado: false, destinatarios: [] },
+    }));
+  });
+
+  it('una dirección mal escrita se rechaza aquí, y el 400 no repite lo que rechaza', async () => {
+    // La emisión vuelve a validar —es donde el AC5 lo pide— pero decírselo ahora a quien lo escribió
+    // vale más que contárselo media hora después en un acta. Ley 1581: el mensaje de error acaba en
+    // el log de la aplicación, así que no puede llevar la dirección dentro.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, destinatarios: ['esto-no-es-un-correo'] },
+      });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r.body)).not.toContain('esto-no-es-un-correo');
+  });
+
+  it('más direcciones de las que Siigo admite se rechazan antes de encolar nada', async () => {
+    const app = await buildApp();
+    const seis = Array.from({ length: 6 }, (_, i) => `persona${i}@cliente.test`);
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({ conceptos: CONCEPTOS, tramiteIds: [A], correo: { enviar: true, destinatarios: seis } });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+  });
+
+  it('un campo inventado dentro de `correo` es un 400 ruidoso, no un campo ignorado', async () => {
+    // `.strict()`, por lo mismo que en el resto del cuerpo: un campo ignorado deja a quien llama
+    // convencido de que se le hizo caso. Aquí eso sería creer que se eligió a quién mandar.
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A],
+        correo: { enviar: true, ambiente: 'produccion' },
+      });
+
+    expect(r.status).toBe(400);
+    expect(enviarMock).not.toHaveBeenCalled();
+  });
+
+  it('el envío incoherente que rechaza el servicio sale como 400, no como 500', async () => {
+    // La otra mitad de la guarda de multiempresa: el servicio decide y ESTA capa traduce. Sin la
+    // rama en `fallo`, el error se iría al manejador global y quien envía recibiría un 500 con
+    // «error interno» — que dice que el servidor se rompió cuando lo que pasa es que la petición no
+    // es coherente, y manda a mirar los logs en vez de a corregir el envío.
+    const { SiigoEnvioInvalidoError } =
+      await import('../../src/modules/siigo/facturacion.encolado.service.js');
+    enviarMock.mockRejectedValueOnce(new SiigoEnvioInvalidoError(
+      'correo_multiempresa', 'Envía una empresa a la vez para elegir direcciones.',
+    ));
+    const app = await buildApp();
+
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({
+        conceptos: CONCEPTOS,
+        tramiteIds: [A, B],
+        correo: { enviar: true, destinatarios: ['cartera@cliente.test'] },
+      });
+
+    expect(r.status).toBe(400);
+    expect(r.body).toMatchObject({ codigo: 'correo_multiempresa' });
+    expect(JSON.stringify(r.body)).not.toContain('@cliente.test');
+  });
+
+  async function encolarCon(destinatarios: string[]) {
+    const app = await buildApp();
+    const r = await request(app).post('/api/siigo/facturacion')
+      .set('Authorization', await auth('admin'))
+      .send({ conceptos: CONCEPTOS, tramiteIds: [A], correo: { enviar: true, destinatarios } });
+    expect(r.status).toBe(202);
+    return (enviarMock.mock.calls.at(-1)![0] as {
+      correo: { destinatarios: { correo: string }[] };
+    }).correo.destinatarios.map((d) => d.correo);
+  }
+
+  it('la dirección se guarda normalizada: una sola forma por dirección', async () => {
+    // Quitar el `.toLowerCase()` del esquema pone rojo este caso.
+    //
+    // El motivo cambió con el retrabajo de la HU #11708 y conviene no repetir el anterior, que era
+    // falso a medias: la purga ya NO depende de que esto esté normalizado —compara plegando
+    // mayúsculas, porque las filas anteriores a esta normalización están en forma cruda y la tabla
+    // de actas es append-only—. Lo que esta prueba fija es lo otro: que la misma dirección no quede
+    // escrita de dos maneras en dos tablas, que es lo que obliga a que cada consulta acierte con la
+    // forma de cada sitio. Que la purga alcance las dos formas se prueba donde vive el predicado
+    // (`siigo-lote-repo.test.ts` y `siigo-envio-correo.test.ts`), contra el SQL real.
+    expect(await encolarCon(['  Contabilidad@Empresa.COM '])).toEqual(['contabilidad@empresa.com']);
+  });
+
+  it('dos formas de la misma dirección producen UNA sola forma guardada', async () => {
+    // El control del anterior: sin normalizar, estas dos peticiones dejarían dos cadenas distintas
+    // en la columna, y el sistema estaría tratando como dos lo que para el buzón de destino es una
+    // —el mismo criterio con el que `validarDestinatarios` las juzga repetidas—.
+    const tecleadaConMayusculas = await encolarCon(['Contabilidad@Empresa.COM']);
+    const tecleadaEnMinusculas = await encolarCon(['contabilidad@empresa.com']);
+
+    expect(tecleadaConMayusculas).toEqual(tecleadaEnMinusculas);
   });
 });

@@ -51,6 +51,29 @@ export const SIIGO_ENVIO_MOTIVOS_NO_REALIZADO = [
   'demasiados_destinatarios',
   /** Alguna dirección no tiene forma de dirección (AC6). */
   'destinatario_invalido',
+  /**
+   * La misma dirección dos veces en la lista (HU #11708, AC5).
+   *
+   * No es una minucia de higiene: Siigo cuenta las repetidas contra el tope de cinco, y el cliente
+   * recibe el mismo documento dos veces por una lista que alguien pegó mal. Es más barato decirlo
+   * que enviarlo.
+   */
+  'destinatario_repetido',
+  /**
+   * Nadie pidió el correo al enviar (HU #11708, AC2).
+   *
+   * El acta se escribe IGUAL, y ese es el criterio entero: sin ella, «nadie lo pidió» y «se nos
+   * olvidó» son indistinguibles en la bandeja, y el segundo caso es un cliente esperando una
+   * factura que no va a llegar.
+   */
+  'no_solicitado',
+  /**
+   * El ambiente no es productivo, así que no sale correo aunque se pidiera (HU #11708, AC4).
+   *
+   * La elección del envío pasa por el filtro del ambiente, nunca lo sustituye: una casilla marcada
+   * en una pantalla de pruebas no puede mandarle una factura de ensayo a un cliente real.
+   */
+  'ambiente_no_productivo',
 ] as const;
 export type SiigoEnvioMotivoNoRealizado = (typeof SIIGO_ENVIO_MOTIVOS_NO_REALIZADO)[number];
 
@@ -98,6 +121,26 @@ export interface SiigoEnvioResumen {
   ultimo: SiigoEnvioRegistro | null;
   ultimoEnviado: SiigoEnvioRegistro | null;
   envios: SiigoEnvioRegistro[];
+}
+
+/**
+ * Lo que el envío elige sobre el correo al cliente (HU #11708, Feature #11243).
+ *
+ * **Es una elección, no una regla del ambiente.** Antes de esta historia el correo se deducía de
+ * `efectosExternosPermitidos(ambiente)`: en producción salía siempre y fuera de producción nunca,
+ * sin que nadie pudiera decidirlo factura a factura. Ahora se pide en el envío — y sigue pasando por
+ * aquel filtro, que es un Y y no un O: la elección puede apagar el correo en producción, nunca
+ * encenderlo fuera de ella.
+ *
+ * `destinatarios` **vacío no significa «a nadie»**: significa «a quien diga la ficha del cliente»,
+ * que es lo que resuelve `resolverDestinatarios`. Quien quiere que no salga a nadie no marca
+ * `enviar`. Las direcciones que sí se escriben mandan sobre las de la ficha, y por eso se guardan:
+ * la ficha puede haber cambiado entre el envío y la emisión, que ocurre después y en otro proceso.
+ */
+export interface SiigoCorreoElegido {
+  enviar: boolean;
+  /** Direcciones concretas escritas al enviar. Vacío = las que resuelva la ficha del cliente. */
+  destinatarios: string[];
 }
 
 export function esEnvioResultado(v: string): v is SiigoEnvioResultado {

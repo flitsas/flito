@@ -22,7 +22,7 @@
 //      es una pregunta de contabilidad sin responder; aislarla en `resolverDestinatarios` hace que
 //      responderla sea añadir un origen, no rehacer el envío.
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type Column, type SQL } from 'drizzle-orm';
 import {
   SIIGO_ENVIO_MAX_DESTINATARIOS,
   type SiigoDestinatario,
@@ -68,7 +68,8 @@ export class SiigoEnvioError extends Error {
     | 'ambiente_no_productivo'
     | 'cliente_sin_correo'
     | 'demasiados_destinatarios'
-    | 'destinatario_invalido';
+    | 'destinatario_invalido'
+    | 'destinatario_repetido';
 
   constructor(codigo: SiigoEnvioError['codigo'], message: string) {
     super(message);
@@ -118,6 +119,31 @@ export function resolverDestinatarios(ficha: FichaDeContacto): SiigoDestinatario
 }
 
 /**
+ * Los destinatarios que la ficha de un cliente resuelve hoy (HU #11708).
+ *
+ * Es `resolverDestinatarios` con la ficha leída de la base, y existe para que la emisión no tenga
+ * que saber de qué columnas de `clients` sale un correo. La resolución sigue siendo UNA —la función
+ * pura de arriba—: esto solo le acerca la ficha.
+ *
+ * **Se lee en el momento de emitir, no en el del envío.** Entre el clic y el ciclo del cron pasan
+ * minutos y alguien pudo completar el correo que faltaba; leerlo al enviar habría congelado la
+ * ausencia. Lo contrario —direcciones ELEGIDAS a mano— sí se congela, y por eso se guarda con el
+ * lote: aquello fue una decisión de una persona y no puede cambiar sola.
+ *
+ * Un cliente que no existe devuelve lista vacía, que es lo mismo que un cliente sin correo: no hay a
+ * quién mandarle. La emisión lo registra como `cliente_sin_correo`, con lo que la pregunta «¿por qué
+ * no le llegó?» tiene respuesta sin que esta función invente un error.
+ */
+export async function destinatariosDeLaFicha(clienteId: number): Promise<SiigoDestinatario[]> {
+  const [ficha] = await db.select({ email: clients.email, contactEmail: clients.contactEmail })
+    .from(clients)
+    .where(eq(clients.id, clienteId))
+    .limit(1);
+  if (!ficha) return [];
+  return resolverDestinatarios({ email: ficha.email, contactEmail: ficha.contactEmail });
+}
+
+/**
  * ¿Esta lista se puede mandar? (AC6)
  *
  * Devuelve el motivo o `null`. Separada del envío para poder contestar «esto no va a salir» sin
@@ -149,6 +175,29 @@ export function validarDestinatarios(
       mensaje: `La dirección número ${posicion + 1} no tiene forma de dirección de correo.`,
     };
   }
+
+  // La misma dirección dos veces (HU #11708, AC5). Va DESPUÉS del formato a propósito: si la lista
+  // trae basura repetida, lo primero que hay que decir es que no es una dirección, no que se repite.
+  //
+  // Se compara en minúsculas y sin espacios porque para el buzón de destino son la misma: la parte
+  // del dominio es insensible a mayúsculas por norma, y ningún proveedor real distingue el buzón. Si
+  // no se comparara así, dos formas del mismo correo pasarían el filtro y el cliente recibiría el
+  // documento dos veces — y las dos copias contarían contra el tope de cinco de Siigo.
+  //
+  // Se nombran las DOS posiciones y ninguna dirección, por lo mismo que arriba: quien lo lea tiene
+  // que poder mirar su lista y quitar una, y eso se hace con los números.
+  const vistas = new Map<string, number>();
+  for (let i = 0; i < destinatarios.length; i += 1) {
+    const clave = destinatarios[i]!.correo.trim().toLowerCase();
+    const primera = vistas.get(clave);
+    if (primera !== undefined) {
+      return {
+        codigo: 'destinatario_repetido',
+        mensaje: `La dirección número ${i + 1} repite la número ${primera + 1}.`,
+      };
+    }
+    vistas.set(clave, i);
+  }
   return null;
 }
 
@@ -159,9 +208,14 @@ export function validarDestinatarios(
  * las direcciones en el error, pero el ambiente real es de otro y puede echárnoslas de vuelta en el
  * mensaje: si eso pasara, quedarían en una columna que la purga no vacía y que nadie puede editar.
  * Redactar aquí cuesta una línea; descubrirlo dentro de un año no tendría arreglo.
+ *
+ * La arroba se acepta también **codificada como `%40`**: los errores de una API HTTP citan la ruta
+ * que falló, y en una ruta la dirección va percent-encoded (`…?email=CONTA%40EMPRESA.COM`). Es la
+ * misma dirección y para quien la lea después es igual de identificable; sin esa alternativa entraba
+ * entera en la bitácora WORM.
  */
 export function redactarCorreos(texto: string): string {
-  return texto.replace(/[^\s<>()[\]",;:]+@[^\s<>()[\]",;:]+\.[A-Za-z]{2,}/g, '[correo]');
+  return texto.replace(/[^\s<>()[\]",;:]+(?:@|%40)[^\s<>()[\]",;:]+\.[A-Za-z]{2,}/g, '[correo]');
 }
 
 /**
@@ -208,7 +262,20 @@ async function cargarFactura(facturaId: string): Promise<FacturaAEnviar | null> 
   return fila ?? null;
 }
 
-/** Escribe la fila del acta. Es el único sitio del módulo que inserta en esta tabla. */
+/**
+ * Escribe la fila del acta. Es el único sitio del módulo que inserta en esta tabla.
+ *
+ * **Una lista por encima del tope se guarda VACÍA, y no es una decisión de este archivo**: la tabla
+ * lleva desde la migración 0141 un CHECK de `jsonb_array_length(destinatarios) <= 5`, así que el
+ * INSERT moriría y el acta —justo la del caso en que hay algo que arreglar— no llegaría a existir.
+ * Se descubrió escribiendo el AC5 de la HU #11708: el único desenlace que puede traer más
+ * direcciones de las que caben es precisamente «se pidieron más de las que Siigo admite».
+ *
+ * No se pierde lo que importa: `motivo` dice cuántas eran, y quien las escribió las tiene delante en
+ * la pantalla desde la que las escribió. Recortarlas a las cinco primeras habría sido peor —una
+ * lista que nadie pidió, con cinco direcciones elegidas por un `slice`— y guardar cero es además lo
+ * que menos dato personal conserva de una petición que no salió.
+ */
 async function anotarEnvio(campos: {
   facturaId: string;
   origen: SiigoEnvioOrigen;
@@ -218,11 +285,13 @@ async function anotarEnvio(campos: {
   motivo?: string | null;
   solicitadoPor?: number | null;
 }): Promise<SiigoEnvioRegistro> {
+  const cabenEnElActa = campos.destinatarios.length <= SIIGO_ENVIO_MAX_DESTINATARIOS;
+
   const [fila] = await db.insert(siigoFacturaEnvios).values({
     facturaId: campos.facturaId,
     origen: campos.origen,
     resultado: campos.resultado,
-    destinatarios: campos.destinatarios,
+    destinatarios: cabenEnElActa ? campos.destinatarios : [],
     codigo: campos.codigo ?? null,
     motivo: campos.motivo ?? null,
     solicitadoPor: campos.solicitadoPor ?? null,
@@ -258,8 +327,23 @@ function aRegistro(fila: typeof siigoFacturaEnvios.$inferSelect): SiigoEnvioRegi
  */
 export async function enviarFacturaPorCorreo(
   facturaId: string,
-  opciones: { solicitadoPor?: number | null; destinatarios?: SiigoDestinatario[] } = {},
+  opciones: {
+    solicitadoPor?: number | null;
+    destinatarios?: SiigoDestinatario[];
+    /**
+     * Quién originó este envío. Por omisión `reenvio`, que es quien llamaba cuando esto se escribió.
+     *
+     * La emisión lo pasa como `emision` cuando el envío eligió direcciones concretas (HU #11708,
+     * AC3): ahí el `mail: true` de la creación no sirve —Siigo manda a la dirección de la ficha, que
+     * es justo la que se está sustituyendo— y hay que pedirle el correo por su ruta propia. Es el
+     * MISMO envío, con las mismas comprobaciones y el mismo registro; lo único distinto es de dónde
+     * vino. Duplicar esta función para cambiar una palabra habría duplicado también la guarda del
+     * ambiente, y esa es la que no puede tener dos versiones.
+     */
+    origen?: SiigoEnvioOrigen;
+  } = {},
 ): Promise<SiigoEnvioRegistro> {
+  const origen = opciones.origen ?? 'reenvio';
   const f = await cargarFactura(facturaId);
   if (!f) throw new SiigoEnvioError('no_existe', 'La factura no existe.');
 
@@ -296,7 +380,7 @@ export async function enviarFacturaPorCorreo(
   if (problema) {
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'no_realizado',
       destinatarios,
       codigo: problema.codigo,
@@ -332,7 +416,7 @@ export async function enviarFacturaPorCorreo(
 
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'enviado',
       destinatarios,
       solicitadoPor: opciones.solicitadoPor,
@@ -355,7 +439,7 @@ export async function enviarFacturaPorCorreo(
     // AC1 — un envío fallido queda registrado como fallido; no se pierde.
     return anotarEnvio({
       facturaId: f.id,
-      origen: 'reenvio',
+      origen,
       resultado: 'fallido',
       destinatarios,
       codigo: 'siigo_rechazo',
@@ -378,14 +462,27 @@ export async function enviarFacturaPorCorreo(
  */
 export async function registrarEnvioDeEmision(
   facturaId: string,
-  respuesta: { enviado: boolean; destinatarios: SiigoDestinatario[]; motivo?: string | null },
+  respuesta: {
+    enviado: boolean;
+    destinatarios: SiigoDestinatario[];
+    motivo?: string | null;
+    /**
+     * Por qué no salió, con nombre propio (HU #11708).
+     *
+     * Sin él, «nadie lo pidió» (AC2), «este ambiente no manda correo» (AC4) y «la lista de
+     * direcciones no era mandable» (AC5) caían los tres en `emision_sin_correo`, y la bandeja no
+     * podría distinguir lo que no hay que arreglar de lo que sí. El texto del motivo lo explica a
+     * una persona; el código es lo que permite filtrar.
+     */
+    codigo?: string | null;
+  },
 ): Promise<SiigoEnvioRegistro> {
   return anotarEnvio({
     facturaId,
     origen: 'emision',
     resultado: respuesta.enviado ? 'enviado' : 'no_realizado',
     destinatarios: respuesta.destinatarios,
-    codigo: respuesta.enviado ? null : 'emision_sin_correo',
+    codigo: respuesta.enviado ? null : respuesta.codigo ?? 'emision_sin_correo',
     motivo: respuesta.enviado
       ? null
       : respuesta.motivo ?? 'Siigo no envió el correo al crear la factura.',
@@ -420,6 +517,85 @@ export async function resumenEnvios(facturaId: string): Promise<SiigoEnvioResume
 }
 
 /**
+ * Las direcciones del titular, en la forma en que se buscan (Ley 1581).
+ *
+ * Baja a minúsculas y descarta lo vacío. Lo segundo es una guarda de seguridad —un `clients.email`
+ * en blanco no puede convertirse en «purga todo lo que tenga una dirección»— y lo primero es la
+ * mitad de la corrección de la asimetría que abrió la HU #11708: la escritura normaliza
+ * (`facturacion.routes.ts` y `envio-correo.routes.ts` bajan a minúsculas lo que se teclea) y la
+ * consulta llegaba en crudo desde `clients.email`, así que una ficha con `Contabilidad@Empresa.com`
+ * no encontraba la fila que ella misma había producido.
+ *
+ * Descarta además los REPETIDOS, y eso dejó de ser cosmético cuando el flujo de olvido pasó a reunir
+ * las direcciones de siete columnas: un titular con cincuenta filas en `tenedores` que llevan su
+ * mismo correo produciría un `ARRAY[…]` de cincuenta copias en cada una de las dos purgas. Se
+ * descartan DESPUÉS de bajar a minúsculas, porque para el buzón de destino `Contabilidad@Empresa.com`
+ * y `contabilidad@empresa.com` son la misma dirección — el mismo criterio con el que
+ * `validarDestinatarios` juzga los repetidos.
+ */
+export function correosDeBusqueda(correos: string[]): string[] {
+  return [...new Set(correos.map((c) => c.trim().toLowerCase()).filter((c) => c !== ''))];
+}
+
+/**
+ * ¿Esta columna de destinatarios contiene alguna dirección del titular? (Ley 1581)
+ *
+ * **Una sola definición para las dos tablas.** `siigo_factura_envios.destinatarios` y
+ * `siigo_lotes_facturacion.correo_destinatarios` guardan la misma clase de dato con la misma forma
+ * (`[{correo, origen}]`) y las purga el mismo flujo de olvido dentro de la misma transacción. Cuando
+ * cada una traía su copia del predicado, la corrección de una y el olvido de la otra eran un cambio
+ * de una línea — y el titular al que se le contesta que quedó borrado no tiene forma de comprobarlo.
+ *
+ * **Compara en minúsculas los DOS lados, y esa es la corrección.** Antes se comparaba con contención
+ * de jsonb (`@>`), que es byte a byte, contra las direcciones tal como estuvieran en la ficha. Eso
+ * dejaba vivas dos clases de fila y las dos existen de verdad:
+ *
+ *   1. La **tecleada en mayúsculas**: la ficha dice `Contabilidad@Empresa.com`, alguien escribe esa
+ *      misma dirección al enviar y la ruta la guarda en minúsculas. La búsqueda en crudo no la ve.
+ *   2. La **fila antigua en forma cruda**: las actas de la HU #11334 se escribieron sin normalizar
+ *      —y las de `origen: 'compania'` copian `clients.email` tal cual, con sus mayúsculas—, así que
+ *      buscar solo la forma normalizada tampoco las alcanza. Y esa tabla es append-only: no se
+ *      pueden reescribir para uniformarlas, el disparador de la 0141 solo admite la purga.
+ *
+ * Buscar las dos formas de cada dirección habría tapado esos dos casos y ninguno más: basta que la
+ * fila guarde una tercera forma —tecleada distinta de la ficha, antes de que la ruta normalizara—
+ * para que sobreviva. Comparar en minúsculas no tiene ese borde, y para el buzón de destino las tres
+ * son la misma dirección: es el mismo criterio con el que `validarDestinatarios` juzga los repetidos,
+ * y tenerlos distintos era decir que dos direcciones son la misma para rechazarlas y distintas para
+ * borrarlas.
+ *
+ * **También recorta los espacios envolventes del lado GUARDADO** (`btrim`). Hoy los dos caminos de
+ * escritura recortan —los dos esquemas de Zod llevan `.trim()`— así que no hay fila que lo necesite;
+ * pero el criterio de esta función es «la misma dirección para el buzón de destino», y ` a@b.test `
+ * lo es. Cerrarlo cuesta una llamada y evita que un `INSERT` hecho desde otro sitio —el supuesto que
+ * las migraciones 0141 y 0161 contemplan por escrito— reabra el hueco sin que nadie lo note.
+ *
+ * **Precio, explícito:** este predicado no puede usar un índice GIN `jsonb_path_ops`, que solo sirve
+ * a `@>`. La 0161 ya no crea ninguno —se cambió por un btree parcial, que es lo que este camino sí
+ * aprovecha—, pero el de la 0141, `idx_siigo_envios_destinatarios`, sigue en pie y **sin lectores**:
+ * no es parcial, así que paga mantenimiento en cada acta con destinatarios a cambio de nada. Queda
+ * como deuda declarada, a `DROP` en la próxima migración del módulo. Se acepta a sabiendas: el
+ * olvido es una acción de admin,
+ * limitada por `forgetLimiter`, que se ejecuta una vez por titular y recorre estas dos tablas dentro
+ * de una transacción que ya toca otras dieciséis. Un recorrido secuencial de unos cientos de miles
+ * de filas cuesta milisegundos; una dirección que sobrevive al olvido no cuesta nada hasta que
+ * alguien la encuentra. Si la tabla creciera hasta que importe, el sitio de la corrección es un
+ * índice de expresión sobre las direcciones normalizadas, no volver a comparar byte a byte.
+ *
+ * `correos` debe venir de `correosDeBusqueda`. Con la lista vacía devuelve `false` —no «todo»—,
+ * que es lo que impide que un olvido sin direcciones vacíe la tabla entera.
+ */
+export function correoDelTitularEn(columna: Column | SQL, correos: string[]): SQL {
+  if (correos.length === 0) return sql`false`;
+  return sql`EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(${columna}) AS destinatario(valor)
+         WHERE btrim(lower(destinatario.valor ->> 'correo')) = ANY (ARRAY[${sql.join(
+           correos.map((c) => sql`${c}`), sql`, `,
+         )}]::text[]))`;
+}
+
+/**
  * Redacta las direcciones de las actas de un titular, conservando el hecho del envío (Ley 1581).
  *
  * Es la mitad de la tabla que el flujo de olvido sí puede tocar, y la única: el disparador de la
@@ -439,7 +615,10 @@ export async function resumenEnvios(facturaId: string): Promise<SiigoEnvioResume
  *   3. Una segunda ejecución del olvido sobre el mismo documento no encuentra clientes (ya están
  *      anonimizados) y se quedaría sin nada que purgar aunque hubiera actas nuevas.
  *
- * El segundo camino usa contención de jsonb (`@>`), que es lo que el índice GIN de la 0141 acelera.
+ * El segundo camino compara en minúsculas los dos lados (`correoDelTitularEn`), no byte a byte: la
+ * escritura normaliza y las filas anteriores a esa normalización están en forma cruda, así que una
+ * coincidencia exacta dejaba vivas justo las actas más antiguas. El precio —que deja de usar el
+ * índice GIN de la 0141— está razonado en esa función.
  *
  * Devuelve cuántas actas se redactaron. Las ya purgadas se excluyen, y eso no es una optimización:
  * el disparador rechaza volver a purgar una fila redactada, así que sin el filtro una segunda
@@ -454,7 +633,7 @@ export async function purgarDestinatariosDeClientes(
   correos: string[] = [],
   ejecutor: Pick<typeof db, 'select' | 'update'> = db,
 ): Promise<number> {
-  const limpios = correos.map((c) => c.trim()).filter((c) => c !== '');
+  const limpios = correosDeBusqueda(correos);
   if (companiaIds.length === 0 && limpios.length === 0) return 0;
 
   const porCompania = companiaIds.length > 0
@@ -465,11 +644,7 @@ export async function purgarDestinatariosDeClientes(
            AND ft.compania_id IN (${sql.join(companiaIds.map((c) => sql`${c}`), sql`, `)}))`
     : sql`false`;
 
-  const porCorreo = limpios.length > 0
-    ? sql`${siigoFacturaEnvios.destinatarios} @> ANY (ARRAY[${sql.join(
-        limpios.map((c) => sql`${JSON.stringify([{ correo: c }])}::jsonb`), sql`, `,
-      )}])`
-    : sql`false`;
+  const porCorreo = correoDelTitularEn(siigoFacturaEnvios.destinatarios, limpios);
 
   const actas = await ejecutor.select({ id: siigoFacturaEnvios.id })
     .from(siigoFacturaEnvios)

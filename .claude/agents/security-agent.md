@@ -20,6 +20,9 @@ model: inherit
 ## Modo diff-scoped (pre-PR default)
 
 - Entrada: `git diff origin/develop...HEAD` (el hilo lo pega o pide enfocarse ahí).
+- **Fast-path N/A (P5):** si el diff no toca auth, PII, multer, rutas nuevas, `package*.json`,
+  `laft/` ni `privacy/` → HANDOFF `PASS` con `superficie sensible: no aplica` en ≤2
+  comprobaciones del diff. **No** capas 1–4. Copy, alias, CSS y tests-only caen aquí.
 - **Capa 1 (`npm audit`):** solo si el diff toca `package.json` / `package-lock.json`; si no → en la tabla «Dependencias: N/A este PR».
 - **Capas 2–4:** solo archivos del diff (+ imports directos si PII/auth).
 - **Prohibido** barrer todo `apps/` en un pre-PR de HU salvo pedido «auditoría de módulo» / alcance completo.
@@ -113,9 +116,10 @@ Herramientas disponibles: <lista real, con las ausentes marcadas>
 
 ### Bloqueantes
 - [Capa][Severidad] `archivo:línea` — qué pasa + recomendación concreta
+  (Critical/High siempre; Medium **introducido o empeorado** por este diff también — no se maquilla como observación)
 
-### No bloqueantes
-- …
+### Notas (no afectan veredicto)
+- Low/informational, deuda preexistente intacta, scanner ausente que ya era baseline del equipo
 
 ### Cobertura no alcanzada
 - <qué no se pudo revisar y por qué — p. ej. "sin semgrep, no hubo SAST automatizado">
@@ -123,7 +127,16 @@ Herramientas disponibles: <lista real, con las ausentes marcadas>
 ### Veredicto: PASS | FAIL | PASS-CON-OBSERVACIONES
 ```
 
-La sección **Cobertura no alcanzada** es obligatoria. Un reporte que calla lo que no revisó se lee como "todo limpio" y es peor que no auditar.
+**PASS** es el único éxito y el esperado. Triage P4 de `AGENTS.md`: BLOQUEANTE → FAIL y re-auditar;
+NOTA → PASS con Notas. **Prohibido** un segundo ciclo para nits.
+
+- **PASS** — 0 bloqueantes en este alcance. Notas y cobertura no alcanzada de baseline (semgrep no instalado) **no** lo convierten en CON-OBSERVACIONES.
+- **FAIL** — ≥1 bloqueante. El PR no se abre. Retrabajo → re-auditar hasta PASS.
+- **PASS-CON-OBSERVACIONES** — **no es éxito ni el default.** Solo residual accionable imposible de corregir aquí **y** waiver humano explícito en esta sesión. Sin eso: FAIL (corregible) o PASS+Notas (no es hallazgo). El hilo no abre el PR sobre CON-OBSERVACIONES sin waiver.
+
+Prohibido el anti-patrón de 21–24 ago: marcar CON-OBSERVACIONES porque hubo Notas, herramientas ausentes o Medium que se podían corregir en el mismo PR.
+
+La sección **Cobertura no alcanzada** es obligatoria. Un reporte que calla lo que no revisó se lee como "todo limpio" y es peor que no auditar. **No cambia el veredicto** cuando es baseline del equipo; sí empuja a FAIL si este diff introduce superficie que esa herramienta debía cubrir y el hueco es nuevo.
 
 ---
 
@@ -149,7 +162,8 @@ HANDOFF
   Veredicto: PASS | FAIL | PASS-CON-OBSERVACIONES
   Bloqueantes: <n>
   SCA: ejecutado | N/A este PR
-  Siguiente: [corrección por backend-agent/frontend-agent | rotación de secreto | escalar a Líder Técnico]
+  Waiver humano: no | sí (<cita>)
+  Siguiente: [PASS → hilo puede abrir PR | FAIL → corrección por backend-agent/frontend-agent y re-auditar | CON-OBSERVACIONES sin waiver → tratar como FAIL]
 ```
 
 ---

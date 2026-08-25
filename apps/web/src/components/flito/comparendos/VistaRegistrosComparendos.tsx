@@ -330,6 +330,23 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
                     comparendo sí busca por fragmento.
                   </p>
                 )}
+                {/* Solo con el filtro de MUNICIPIO puesto (HU #11795), y condicionada por la misma
+                    razón que la frase de arriba: con cualquier otro filtro esto es ruido.
+
+                    Explica la consecuencia contraintuitiva que la enmienda del 24 ago dejó
+                    declarada: desde que la tabla muestra el organismo en las filas que solo reportó
+                    SIMIT, un operador ve «Medellin» en una celda, filtra por MEDELLIN y esa fila no
+                    aparece. Es correcto —esa fila no tiene municipio consultado, tiene un organismo
+                    que lo menciona— y va a llegar como bug si la pantalla no lo dice. El filtro NO
+                    se amplía a `organismo`: sería un `ILIKE` sin índice sobre texto libre de 120
+                    caracteres, y en el municipal buscaría «MEDELLIN» dentro de «STRIA DE TTOyTTE
+                    MEDELLIN», con lo que el mismo filtro significaría dos cosas según la fuente. */}
+                {criterios.municipio && (
+                  <p>
+                    Los comparendos que solo reportó SIMIT no tienen municipio, así que no aparecen
+                    con este filtro aunque su organismo diga ese mismo nombre.
+                  </p>
+                )}
                 <button
                   type="button"
                   className={flitBtnSecondary}

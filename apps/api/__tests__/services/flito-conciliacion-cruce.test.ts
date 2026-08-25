@@ -14,6 +14,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import ExcelJS from 'exceljs';
+import { readFileSync } from 'node:fs';
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core';
+import type { PgTable } from 'drizzle-orm/pg-core';
+import { ResultadoCruce } from '@operaciones/shared-types';
+import { flitoConciliacionLineas } from '../../src/db/schema.js';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
 
@@ -139,8 +144,10 @@ describe('flito-conciliacion · AC1 y AC2 · los SIETE desenlaces, cada uno con 
       .select('flito_conciliacion_lineas', [
         { soatId: S(8), referencia: 'BOL-000009', fechaPago: '2026-07-30' },
       ])
-      // Y del S1 la liquidación ya reservó la salida de bolsa.
-      .select('flito_bolsa_movimientos', [{ llave: `salida:soat:${S(1)}` }])
+      // Y del S1 la liquidación ya reservó la salida de bolsa — de ESTA compañía.
+      .select('flito_bolsa_movimientos', [{
+        llave: `salida:soat:${S(1)}`, origen: 'automatico', companiaId: COMPANIA,
+      }])
       .insert('flito_conciliacion_boletas', [filaBoleta({ filas: 7 })]);
 
     const boleta = await cargar([
@@ -160,7 +167,7 @@ describe('flito-conciliacion · AC1 y AC2 · los SIETE desenlaces, cada uno con 
     // AC1: el conteo trae LAS SIETE claves, y el total de filas.
     expect(boleta.conteo).toEqual({
       ok: 1, no_encontrada: 1, no_pagado: 1, valor_distinto: 1, poliza_duplicada: 1,
-      otra_compania: 1, ya_conciliada: 1,
+      otra_compania: 1, ya_conciliada: 1, cobrado_otro_cliente: 0,
     });
     expect(boleta.filas).toBe(7);
     expect(boleta.sinCuadrar).toBe(6);
@@ -462,6 +469,117 @@ describe('flito-conciliacion · AC5 · volver a cruzar', () => {
     const { recruzarBoleta } = await import('../../src/modules/flito-conciliacion/flito-conciliacion.service.js');
     await expect(recruzarBoleta(BOLETA_ID))
       .rejects.toMatchObject({ estado: 404, codigo: 'boleta_no_existe' });
+  });
+});
+
+describe('Bug #11773 · cobrado_otro_cliente — la llave en OTRA compañía no se adopta', () => {
+  it('ROJO-antes / VERDE-después: cruce deja de devolver ok y no marca yaDescontadoEnLiquidacion', async () => {
+    // Antes del fix, este mismo fixture devolvía `ok` + `yaDescontadoEnLiquidacion: true` porque el
+    // cruce no miraba `companiaId` del asiento. Después: bloquea, nombra al dueño del asiento y el
+    // detalle no lleva placa ni póliza.
+    kdb.when
+      .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
+      .select('flito_bolsa_movimientos', [{
+        llave: `salida:soat:${S(1)}`,
+        origen: 'automatico',
+        companiaId: OTRA_COMPANIA,
+        companiaNombre: 'OTRO CLIENTE S.A.S.',
+      }]);
+
+    const boleta = await cargar([{ poliza: 'P1', total: 740800 }]);
+    expect(boleta.lineas[0].resultado).toBe('cobrado_otro_cliente');
+    expect(boleta.lineas[0].companiaCobroNombre).toBe('OTRO CLIENTE S.A.S.');
+    expect(boleta.lineas[0].yaDescontadoEnLiquidacion).toBe(false);
+    expect(boleta.sinCuadrar).toBe(1);
+    expect(boleta.conteo.cobrado_otro_cliente).toBe(1);
+    expect(boleta.conteo.ok).toBe(0);
+    expect(boleta.lineas[0].detalle).toBe('Este SOAT ya se descontó de la bolsa de otro cliente.');
+    expect(boleta.lineas[0].detalle).not.toContain('P1');
+    expect(boleta.lineas[0].detalle).not.toContain('ABC123');
+  });
+
+  it('cualquier origen, no solo automatico: un asiento de conciliación ajeno también bloquea', async () => {
+    kdb.when
+      .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
+      .select('flito_bolsa_movimientos', [{
+        llave: `salida:soat:${S(1)}`,
+        origen: 'conciliacion',
+        companiaId: OTRA_COMPANIA,
+        companiaNombre: 'OTRO CLIENTE S.A.S.',
+      }]);
+
+    const boleta = await cargar([{ poliza: 'P1', total: 740800 }]);
+    expect(boleta.lineas[0].resultado).toBe('cobrado_otro_cliente');
+    expect(boleta.lineas[0].yaDescontadoEnLiquidacion).toBe(false);
+  });
+
+  it('el automatico de ESTA compañía sigue en ok con yaDescontadoEnLiquidacion', async () => {
+    kdb.when
+      .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
+      .select('flito_bolsa_movimientos', [{
+        llave: `salida:soat:${S(1)}`, origen: 'automatico', companiaId: COMPANIA,
+      }]);
+
+    const boleta = await cargar([{ poliza: 'P1', total: 740800 }]);
+    expect(boleta.lineas[0].resultado).toBe('ok');
+    expect(boleta.lineas[0].yaDescontadoEnLiquidacion).toBe(true);
+    expect(boleta.lineas[0].companiaCobroNombre).toBeNull();
+  });
+});
+
+describe('Bug #11773 · paridad CHECK 0162 ↔ ResultadoCruce ↔ schema.ts', () => {
+  it('los tres vocabularios enumeran exactamente los mismos valores, incluido cobrado_otro_cliente', () => {
+    const sql0162 = readFileSync(
+      new URL('../../src/db/migrations/0162_flito_concil_resultado_cobrado_otro_cliente.sql', import.meta.url),
+      'utf8',
+    );
+    const lista = sql0162.match(
+      /ADD CONSTRAINT flito_concil_linea_resultado_chk CHECK \(resultado IN\s*\(([^)]+)\)/,
+    );
+    expect(lista, 'no se encontró el CHECK ensanchado en 0162').toBeTruthy();
+    const delSql = new Set([...(lista![1].matchAll(/'([a-z_]+)'/g) ?? [])].map((m) => m[1]));
+    const dialecto = new PgDialect();
+    const chk = getTableConfig(flitoConciliacionLineas as PgTable).checks
+      .find((c) => c.name === 'flito_concil_linea_resultado_chk');
+    expect(chk, 'schema.ts no declara flito_concil_linea_resultado_chk').toBeDefined();
+    const delSchema = new Set(
+      [...dialecto.sqlToQuery(chk!.value).sql.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+    );
+    const delTipo = new Set(Object.values(ResultadoCruce));
+
+    expect(delTipo.has('cobrado_otro_cliente')).toBe(true);
+    expect('cobrado_otro_cliente'.length).toBeLessThanOrEqual(20);
+    expect(delSql).toEqual(delTipo);
+    expect(delSchema).toEqual(delTipo);
+  });
+
+  it('NO se iguala ResultadoCruce al CHECK congelado de 0157', () => {
+    const sql0157 = readFileSync(
+      new URL('../../src/db/migrations/0157_flito_conciliacion_boletas.sql', import.meta.url),
+      'utf8',
+    );
+    const chk0157 = sql0157.match(
+      /flito_concil_linea_resultado_chk CHECK \(resultado IN\s*\(([^)]+)\)/,
+    );
+    expect(chk0157, 'no se encontró el CHECK de resultado en 0157').toBeTruthy();
+    const del0157 = new Set([...(chk0157![1].matchAll(/'([a-z_]+)'/g) ?? [])].map((m) => m[1]));
+    expect(del0157.has('cobrado_otro_cliente')).toBe(false);
+    expect(new Set(Object.values(ResultadoCruce)).has('cobrado_otro_cliente')).toBe(true);
+    expect(del0157).not.toEqual(new Set(Object.values(ResultadoCruce)));
+  });
+
+  it('la 0162 no toca idx_flito_bolsa_mov_llave ni edita 0157, y es 0162 no 0161', () => {
+    const sql0162 = readFileSync(
+      new URL('../../src/db/migrations/0162_flito_concil_resultado_cobrado_otro_cliente.sql', import.meta.url),
+      'utf8',
+    );
+    expect(sql0162).not.toMatch(/DROP INDEX[\s\S]*idx_flito_bolsa_mov_llave/i);
+    expect(sql0162).not.toMatch(/CREATE(?:\s+UNIQUE)?\s+INDEX[\s\S]*idx_flito_bolsa_mov_llave/i);
+    expect(sql0162).not.toMatch(/ALTER INDEX idx_flito_bolsa_mov_llave/i);
+    expect(sql0162).toMatch(/0162_flito_concil_resultado_cobrado_otro_cliente/);
+    expect(sql0162).not.toMatch(/0161_flito_concil/);
+    expect(sql0162).toMatch(/DROP CONSTRAINT IF EXISTS flito_concil_linea_resultado_chk/);
+    expect(sql0162).toMatch(/ADD CONSTRAINT flito_concil_linea_resultado_chk/);
   });
 });
 

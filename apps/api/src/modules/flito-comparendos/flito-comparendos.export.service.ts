@@ -83,6 +83,13 @@ export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] =
   { header: 'Placa', key: 'placa', width: 12 },
   { header: 'NIT monitoreado', key: 'nitMonitoreado', width: 16 },
   { header: 'Fecha del comparendo', key: 'fechaComparendo', width: 18 },
+  // PEGADA a la anterior y no al final del archivo (HU #11794, AC3): las dos fechas del proceso se
+  // leen comparándolas —cuánto tardó en notificarse, si ya corren términos— y con veinte columnas de
+  // por medio esa lectura exige mover una en Excel. Insertar aquí DESPLAZA las columnas siguientes,
+  // que es el mismo riesgo que declaró la HU #11713 al renombrar «Estado»: un consumidor externo que
+  // localice columnas POR POSICIÓN deja de encontrarlas. Se asume, por lo mismo que allí: la única
+  // forma estable de leer este archivo es por el texto de la cabecera.
+  { header: 'Fecha de notificación', key: 'fechaNotificacion', width: 18 },
   { header: 'Código infracción', key: 'codigoInfraccion', width: 14 },
   { header: 'Infracción', key: 'descripcionInfraccion', width: 40 },
   { header: 'Municipio', key: 'municipioFuente', width: 16 },
@@ -118,6 +125,7 @@ const COLUMNAS_CONSULTA = {
   placa: flitoComparendosRegistros.placa,
   nitMonitoreado: flitoComparendosRegistros.nitMonitoreado,
   fechaComparendo: flitoComparendosRegistros.fechaComparendo,
+  fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
   codigoInfraccion: flitoComparendosRegistros.codigoInfraccion,
   descripcionInfraccion: flitoComparendosRegistros.descripcionInfraccion,
   municipioFuente: flitoComparendosRegistros.municipioFuente,
@@ -258,6 +266,9 @@ export async function construirFilasExport(filtro: ComparendosExportRequest): Pr
     placa: f.placa,
     nitMonitoreado: f.nitMonitoreado,
     fechaComparendo: f.fechaComparendo,
+    // `null` va tal cual y la celda sale VACÍA (AC3). No se rellena con `01/01/1900` ni con ningún
+    // texto: una celda vacía es filtrable en Excel, y una fecha de 1900 se sumaría a un promedio.
+    fechaNotificacion: f.fechaNotificacion,
     codigoInfraccion: f.codigoInfraccion,
     descripcionInfraccion: f.descripcionInfraccion,
     municipioFuente: f.municipioFuente,

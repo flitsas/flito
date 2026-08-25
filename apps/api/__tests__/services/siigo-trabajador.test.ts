@@ -45,6 +45,8 @@ const tramitesDelLoteMock = vi.fn();
 const conceptosDelLoteMock = vi.fn();
 /** A2 — y con qué configuración de emisión. Todo nulo = la global, como antes de A2. */
 const emisionDelLoteMock = vi.fn();
+/** HU #11708 — y si la factura sale por correo y a quién. Del lote, no del ambiente. */
+const correoDelLoteMock = vi.fn();
 vi.mock('../../src/modules/siigo/facturacion.lote.repo.js', async (original) => {
   const real = await original<typeof import('../../src/modules/siigo/facturacion.lote.repo.js')>();
   return {
@@ -52,6 +54,7 @@ vi.mock('../../src/modules/siigo/facturacion.lote.repo.js', async (original) => 
     tramitesDelLote: (id: string) => tramitesDelLoteMock(id),
     conceptosDelLote: (id: string) => conceptosDelLoteMock(id),
     emisionDelLote: (id: string) => emisionDelLoteMock(id),
+    correoDelLote: (id: string) => correoDelLoteMock(id),
   };
 });
 
@@ -108,6 +111,7 @@ beforeEach(() => {
   emisionDelLoteMock.mockResolvedValue({
     documentoTipoCodigo: null, vendedorCodigo: null, formaPagoCodigo: null, centroCostoCodigo: null,
   });
+  correoDelLoteMock.mockResolvedValue({ solicitado: false, destinatarios: [] });
   emitirFacturaMock.mockResolvedValue(resultado());
   circuitoAbiertoMock.mockReturnValue(false);
   CICLO.dormir.mockClear();
@@ -376,6 +380,25 @@ describe('el ciclo procesa lo que toma y devuelve lo que no mira', () => {
     expect(tramitesDelLoteMock).toHaveBeenCalledWith('lote-9');
     expect(emitirFacturaMock).toHaveBeenCalledWith([TRAMITE], expect.objectContaining({
       ambiente: 'pruebas', usuarioId: null,
+    }));
+  });
+
+  it('HU #11708 — el correo que se pidió al enviar sale del LOTE y llega a la emisión', async () => {
+    // La elección se hizo minutos antes, en otro proceso. Si el trabajador no la leyera del lote
+    // tendría que deducirla otra vez —y deducirla es exactamente la regla fija que esta historia
+    // quitó—, así que la factura saldría sin el correo que alguien pidió y nadie sabría por qué.
+    tomarLoteMock.mockResolvedValue([fila({ loteId: 'lote-9' })]);
+    correoDelLoteMock.mockResolvedValue({
+      solicitado: true, destinatarios: [{ correo: 'cartera@empresa.test', origen: 'manual' }],
+    });
+
+    await procesarCicloEmision(CICLO);
+
+    expect(correoDelLoteMock).toHaveBeenCalledWith('lote-9');
+    expect(emitirFacturaMock).toHaveBeenCalledWith([TRAMITE], expect.objectContaining({
+      correo: {
+        solicitado: true, destinatarios: [{ correo: 'cartera@empresa.test', origen: 'manual' }],
+      },
     }));
   });
 

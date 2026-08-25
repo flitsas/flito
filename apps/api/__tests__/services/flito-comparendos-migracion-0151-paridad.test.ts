@@ -86,12 +86,21 @@ function camposDelSql(sql: string): string[] {
  *     mapa anterior a la v3, de modo que la 0151 ya los borró como borra todo lo que el mapa no
  *     nombra. El desajuste es solo de listas, no de datos.
  *
+ *   · `fechaNotificacion` (HU #11794, migración 0164). Mismo caso y con una vuelta de tuerca que
+ *     conviene leer, porque es lo que hace imposible el backfill de esa HU: `fechaNotificacion` SÍ
+ *     venía en los payloads crudos del proveedor —la 0158 la nombra explícitamente al explicar por
+ *     qué NO la mapeaba—, y precisamente por no estar en ninguna versión del mapa anterior a la v4,
+ *     la poda la BORRÓ de todo lo ya escrito, aquí y en cada corrida posterior (RN-25). Así que la
+ *     0151 no podó de menos: podó de más, en el sentido bueno. El precio es que el dato histórico no
+ *     está en ninguna parte de donde reconstruirlo, y por eso la 0164 no lleva `UPDATE` y las filas
+ *     viejas se quedan en `null` hasta que un sync las vuelva a visitar.
+ *
  * Y NO se resuelve copiando el bloque de la 0151 a una migración nueva que vuelva a podar: la 0151
  * agrega por claves de PRIMER NIVEL (`jsonb_object_agg`) y es anterior a los `source_path` con
  * punto, así que repetirla hoy BORRARÍA `estadoCuenta.secretaria.*` e `infracciones.0.*`, que la v2
  * persiste legítimamente. Sería destrucción de datos a cambio de cero ganancia de PII.
  */
-const CANONICOS_POSTERIORES_A_0151 = ['numeroResolucion', 'idResolucion'] as const;
+const CANONICOS_POSTERIORES_A_0151 = ['numeroResolucion', 'idResolucion', 'fechaNotificacion'] as const;
 
 /**
  * Las divergencias entre las dos listas, ya clasificadas por dirección.

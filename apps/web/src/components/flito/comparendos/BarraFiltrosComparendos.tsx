@@ -338,7 +338,14 @@ export default function BarraFiltrosComparendos({
             value={criterios.municipio ?? TODAS}
             opciones={[{ valor: TODAS, etiqueta: 'Todos los municipios' }, ...opcionesMunicipio]}
             onChange={(v) => onAplicar({ municipio: v || undefined })}
-            ayuda="Dónde se vio el comparendo, según el catálogo de fuentes."
+            /* HU #11795. Decía «Dónde se vio el comparendo, según el catálogo de fuentes.», y desde
+               que la tabla muestra el organismo en las filas de SIMIT esa frase pasó a ser una
+               trampa: sugiere que la fila cuya celda dice «Organismo · Medellin» saldría al filtrar
+               por MEDELLIN, y no sale. El filtro es igualdad exacta contra `municipioFuente`
+               normalizado (RN-36) y **eso no cambia**: es lo que sostiene el índice
+               `(municipio_fuente, created_at DESC, id DESC)` de la 0153 y el cursor de RN-32.
+               Se dice ANTES de que alguien lo reporte como defecto, no después. */
+            ayuda="El filtro busca por el municipio al que se le consultó. Los comparendos que solo reportó SIMIT no tienen municipio y no salen aquí, aunque su organismo lo mencione."
             mensaje={pieMunicipio.mensaje}
             fallo={pieMunicipio.fallo}
             disabled={bloquear(pieMunicipio, criterios.municipio)}

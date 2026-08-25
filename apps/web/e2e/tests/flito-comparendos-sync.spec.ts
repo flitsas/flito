@@ -2861,3 +2861,255 @@ test.describe('FLITO — Comparendos · historial de corridas (HU #11636)', () =
     });
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// REGIÓN C — el alias del texto histórico del paso (HU #11797). TC94–TC98.
+//
+// El delta de esta HU es UNO y es de presentación: las corridas ya persistidas llevan en
+// `sync_steps.mensaje` el texto que el backend escribía hasta la HU #11796, y ese texto se queda en
+// la base —la bitácora es lo que se le dijo al operador aquel día, y reescribirla por una mejora de
+// redacción es falsearla—. Se aliasa AL PINTAR, por coincidencia exacta de la cadena entera
+// (decisión 19 de la enmienda de UX del 24 ago 2026).
+//
+// Lo que este bloque NO comprueba, y conviene que quede escrito para que nadie lo añada creyendo que
+// falta: el CHIP. La premisa del título de la HU («el paso vacío se ve como error») era falsa y ya
+// estaba medida antes de escribir código: el backend devuelve `ok: true` para el 200 no concluyente
+// por RN-47, así que el chip dice «Ok» desde antes de esta HU. Una aserción sobre el chip pasaría
+// igual con el código sin tocar — es decir, no muerde. Va como no-regresión dentro de TC94, en una
+// línea, y no como TC propio.
+//
+// Las dos superficies se comprueban por separado y a propósito (TC94 y TC95). Hoy las dos reusan
+// `ResultadoSyncComparendos`, pero justamente por eso: el día que alguien copie la tabla en vez de
+// reusarla, el alias se arreglará en un sitio y la misma corrida dirá dos cosas distintas según
+// dónde se la mire. Un solo TC sobre la tarjeta no lo vería.
+//
+// Los tres literales van COPIADOS y no importados de `formato.ts`, por lo mismo que el resto del
+// copy de este archivo: importando la constante, el TC diría «el mensaje es el que diga el código»
+// —una tautología que pasa siempre, incluso con la tabla de alias borrada—.
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * El texto VIEJO, literal y completo, tal como está hoy en `sync_steps.mensaje` de las corridas ya
+ * guardadas. Copiado de la decisión 19; ni un carácter distinto, porque el alias es por igualdad
+ * exacta y una coma de más aquí convertiría estos TCs en verdes que no comprueban nada.
+ */
+const MENSAJE_HISTORICO = 'El UTS respondió sin veredicto (codigoEstado ausente) y sin comparendos: '
+  + 'la respuesta no confirma que el NIT no deba nada, así que este municipio no cuenta como '
+  + 'cobertura y no se inactiva nada de este NIT en esta corrida.';
+
+/** El copy VIGENTE (decisión 18). Es el que emite ya el backend y al que se aliasa el histórico. */
+const MENSAJE_VIGENTE = 'La consulta salió bien y no trajo registros. Eso no confirma que el NIT '
+  + 'esté al día, así que este municipio no cuenta como cobertura: no se inactiva nada de este NIT '
+  + 'en esta corrida.';
+
+/**
+ * El mensaje TRAMPA: comparte con el histórico dos fragmentos enteros —«no cuenta como cobertura» y
+ * «no se inactiva nada de este NIT»— y no es él.
+ *
+ * Es el fixture del AC2 y la razón de que el alias tenga que ser por igualdad exacta. Un
+ * `includes()`, un `startsWith()` o una expresión regular sobre cualquiera de esos dos trozos se lo
+ * tragarían y lo sustituirían por un texto que habla de otra cosa: aquí el municipio SÍ contestó con
+ * veredicto y lo que pasó es otra cosa distinta. Y no es un caso rebuscado — el módulo va a volver a
+ * escribir esas frases, porque son las que describen RN-47.
+ */
+const MENSAJE_PARECIDO = 'Bello quedó fuera del barrido: no cuenta como cobertura en esta corrida y '
+  + 'no se inactiva nada de este NIT.';
+
+const PASO_HISTORICO = {
+  nit: NIT_A,
+  fuente: 'ITAGUI',
+  ok: true,
+  httpStatus: 200,
+  errorCode: null,
+  mensaje: MENSAJE_HISTORICO,
+  itemsLeidos: 0,
+  duracionMs: 900,
+};
+/** El mismo caso, pero de una corrida NUEVA: el copy ya llega hecho del backend (AC3). */
+const PASO_VIGENTE = { ...PASO_HISTORICO, fuente: 'BELLO', mensaje: MENSAJE_VIGENTE, duracionMs: 950 };
+/** El que comparte fragmentos y no coincide (AC2). */
+const PASO_PARECIDO = { ...PASO_HISTORICO, fuente: 'BELLO', mensaje: MENSAJE_PARECIDO };
+/**
+ * El histórico en un paso FALLIDO (AC5). No existe en producción —el texto viejo se escribía en un
+ * paso `Ok`— y por eso es el fixture que hace decidible la regla: un `ok: false` no pasa por la
+ * tabla de alias, así que su mensaje se pinta literal, sea cual sea. Si alguien aplica el alias a
+ * todos los pasos «por simplificar», este es el TC que lo dice.
+ */
+const PASO_FALLIDO_HISTORICO = {
+  ...PASO_HISTORICO, ok: false, httpStatus: 504, errorCode: 'fuente_timeout', itemsLeidos: null,
+  duracionMs: 8_000,
+};
+
+const H_ALIAS = 'run-hist-alias';
+const RUN_HIST_ALIAS = { ...RUN_HIST_COMPLETADA, runId: H_ALIAS, scopeNits: [NIT_A] };
+
+/** Cuántas veces aparece `aguja` en `paja`. Sin regex: la aguja lleva paréntesis y puntos. */
+function veces(paja: string, aguja: string): number {
+  let n = 0;
+  for (let i = paja.indexOf(aguja); i !== -1; i = paja.indexOf(aguja, i + aguja.length)) n += 1;
+  return n;
+}
+
+/**
+ * El barrido del texto viejo, en el radio más ancho que se puede mirar desde fuera.
+ *
+ * `outerHTML` del documento entero y no el texto visible de la tabla, por la misma razón que el
+ * barrido de PII del historial: el texto viejo podría sobrevivir en un `title`, en un `aria-label`,
+ * en un nodo oculto o en un `<template>` — sitios que `innerText` no ve y que un lector de pantalla
+ * o un tooltip sí. «No aparece en el DOM en ninguna forma» es exactamente eso.
+ *
+ * Los dos fragmentos sueltos —«UTS» y «codigoEstado»— se miran aparte y dentro de la zona, que es la
+ * nota 4 de QA de la enmienda: son las dos palabras del vocabulario del proveedor que RN-20 prohíbe
+ * en pantalla, y buscarlas en el documento entero daría rojos por un hash de Vite.
+ */
+async function sinTextoViejo(page: Page, zona: Locator, cuando: string) {
+  const documento = await page.evaluate(() => document.documentElement.outerHTML);
+  expect(documento, `${cuando}: el texto histórico no puede quedar en ninguna parte del DOM`)
+    .not.toContain(MENSAJE_HISTORICO);
+  const marcado = await zona.evaluate((el) => el.outerHTML);
+  expect(marcado, `${cuando}: «UTS» es vocabulario del proveedor (RN-20)`).not.toContain('UTS');
+  expect(marcado, `${cuando}: «codigoEstado» es un campo del contrato, no copy`)
+    .not.toContain('codigoEstado');
+}
+
+test.describe('FLITO — Comparendos · alias del mensaje histórico del paso (HU #11797)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLectura(page, API_REGISTROS, { status: 200, body: { items: [], nextCursor: null } });
+    await mockLectura(page, API_NITS, { status: 200, body: NITS });
+    await mockLectura(page, API_MUNICIPIOS, { status: 200, body: MUNICIPIOS });
+    await mockLectura(page, API_CAUSALES, { status: 200, body: CAUSALES });
+    await mockLectura(page, API_TOKEN, { status: 200, body: TOKEN_CONFIGURADO });
+  });
+
+  // TC94 — AC1 en la TARJETA DE RESULTADO: el paso viene con el texto viejo y la pantalla pinta el
+  // nuevo, palabra por palabra, y el viejo no queda en ninguna parte del documento.
+  //
+  // El chip se afirma en una línea como NO-REGRESIÓN declarada: ya decía «Ok» antes de esta HU
+  // (`ok: true` por RN-47) y esa aserción sola no mordería.
+  test('TC94: en la tarjeta de resultado, el paso guardado con el texto viejo se pinta con el copy nuevo', async ({ page }) => {
+    await mockRuns(page);
+    await mockDisparo(page, {
+      tipo: 'responder',
+      status: 200,
+      body: { ...RUN_COMPLETADA, steps: [PASO_HISTORICO] },
+    });
+
+    await irASincronizacion(page);
+    await esperarConsolaEnReposo(page);
+    await botonSincronizar(page).click();
+
+    const panel = resultado(page);
+    const fila = panel.getByRole('table', { name: /Detalle por fuente/i })
+      .getByRole('row').filter({ hasText: 'ITAGUI' });
+    await expect(fila).toContainText(MENSAJE_VIGENTE);
+    // No-regresión (AC4): el chip ya decía «Ok» antes de esta HU y se queda como está.
+    await expect(fila).toContainText('Ok');
+    await sinTextoViejo(page, panel, 'tarjeta de resultado');
+  });
+
+  // TC95 — AC1 en la OTRA superficie: el modal de detalle del historial, que es donde de verdad se
+  // miran las corridas viejas. Es el TC que se rompe si el alias se implementa dentro del JSX de una
+  // sola pantalla en vez de en el módulo de formato que las dos comparten.
+  test('TC95: en el modal de detalle, la misma corrida guardada dice exactamente lo mismo', async ({ page }) => {
+    await mockRuns(page, {
+      lista: [RUN_HIST_ALIAS],
+      detalle: { [H_ALIAS]: { ...RUN_HIST_ALIAS, steps: [PASO_HISTORICO] } },
+    });
+
+    await irASincronizacion(page);
+    await esperarHistorialCargado(page);
+    await abrirDetalle(page, 0);
+
+    const modal = modalCorrida(page);
+    const fila = modal.getByRole('table', { name: /Detalle por fuente/i })
+      .getByRole('row').filter({ hasText: 'ITAGUI' });
+    await expect(fila).toContainText(MENSAJE_VIGENTE);
+    await expect(fila).toContainText('Ok');
+    await sinTextoViejo(page, modal, 'modal de detalle');
+  });
+
+  // TC96 — AC2: el alias no se traga nada más. Dos mensajes en la misma corrida:
+  //
+  //   · uno que no se parece en nada al histórico (el timeout del municipio), y
+  //   · el TRAMPA, que comparte con él dos frases enteras.
+  //
+  // Los dos tienen que salir literales. El segundo es el que muerde: con un `includes` sobre
+  // cualquiera de los fragmentos compartidos, la pantalla le pondría encima el copy del vacío no
+  // concluyente y le diría al operador que «la consulta salió bien y no trajo registros» sobre un
+  // paso que no fue eso.
+  test('TC96: un mensaje distinto —y uno que solo comparte un fragmento— se pintan literales', async ({ page }) => {
+    await mockRuns(page, {
+      lista: [RUN_HIST_ALIAS],
+      detalle: { [H_ALIAS]: { ...RUN_HIST_ALIAS, steps: [PASO_PARECIDO, STEP_ERROR] } },
+    });
+
+    await irASincronizacion(page);
+    await esperarHistorialCargado(page);
+    await abrirDetalle(page, 0);
+
+    const tabla = modalCorrida(page).getByRole('table', { name: /Detalle por fuente/i });
+    const texto = await tabla.innerText();
+    expect(texto, 'el mensaje que comparte fragmentos NO se sustituye').toContain(MENSAJE_PARECIDO);
+    expect(texto, 'un mensaje cualquiera se muestra tal cual llegó').toContain(STEP_ERROR.mensaje);
+    expect(texto, 'y el copy del vacío no concluyente no se le pone encima a nadie')
+      .not.toContain(MENSAJE_VIGENTE);
+  });
+
+  // TC97 — AC3: la corrida NUEVA. El backend ya manda el copy bueno desde la HU #11796, así que aquí
+  // el alias no tiene nada que hacer — y eso es justo lo que hay que comprobar que hace: nada.
+  //
+  // Se cuentan las APARICIONES, no se afirma que «esté»: los dos fallos que este TC persigue son el
+  // doble mapeo (el mensaje pasa dos veces por la tabla y se concatena consigo mismo) y la fila que
+  // se pinta duplicada. Los dos dejan el texto «visible», así que un `toBeVisible()` los aprobaría.
+  // Y se mira en las DOS superficies por lo mismo que TC94/TC95.
+  test('TC97: una corrida nueva trae el copy hecho y se muestra una sola vez, en las dos superficies', async ({ page }) => {
+    await mockRuns(page, {
+      lista: [RUN_HIST_ALIAS],
+      detalle: { [H_ALIAS]: { ...RUN_HIST_ALIAS, steps: [PASO_VIGENTE] } },
+    });
+    await mockDisparo(page, {
+      tipo: 'responder',
+      status: 200,
+      body: { ...RUN_COMPLETADA, steps: [PASO_VIGENTE] },
+    });
+
+    await irASincronizacion(page);
+    await esperarHistorialCargado(page);
+    await abrirDetalle(page, 0);
+    const enElModal = await modalCorrida(page).innerText();
+    expect(veces(enElModal, MENSAJE_VIGENTE), 'en el modal, una vez y solo una').toBe(1);
+
+    await page.keyboard.press('Escape');
+    await expect(modalCorrida(page)).toHaveCount(0);
+
+    await botonSincronizar(page).click();
+    const panel = resultado(page);
+    await expect(panel.getByText(MENSAJE_VIGENTE)).toBeVisible();
+    const enLaTarjeta = await panel.innerText();
+    expect(veces(enLaTarjeta, MENSAJE_VIGENTE), 'en la tarjeta, una vez y solo una').toBe(1);
+  });
+
+  // TC98 — AC5: un fallo se dice fallo. El paso lleva `ok: false` y, a propósito, EL MISMO texto que
+  // el histórico: si el alias se aplicara a todos los pasos «por simplificar», un error saldría con
+  // el copy tranquilizador del camino feliz —«la consulta salió bien»— sobre una consulta que no
+  // salió bien. El mensaje de un paso fallido no pasa por la tabla de alias y se pinta literal.
+  test('TC98: un paso fallido no pasa por la tabla de alias: chip Error y su mensaje sin tocar', async ({ page }) => {
+    await mockRuns(page, {
+      lista: [RUN_HIST_ALIAS],
+      detalle: { [H_ALIAS]: { ...RUN_HIST_ALIAS, estado: 'partial', steps: [PASO_FALLIDO_HISTORICO] } },
+    });
+
+    await irASincronizacion(page);
+    await esperarHistorialCargado(page);
+    await abrirDetalle(page, 0);
+
+    const fila = modalCorrida(page).getByRole('table', { name: /Detalle por fuente/i })
+      .getByRole('row').filter({ hasText: 'ITAGUI' });
+    await expect(fila).toContainText('Error');
+    await expect(fila, 'el mensaje del fallo se pinta literal, sin suavizar').toContainText(MENSAJE_HISTORICO);
+    expect(await fila.innerText(), 'y sin el copy del camino feliz encima').not.toContain(MENSAJE_VIGENTE);
+  });
+});

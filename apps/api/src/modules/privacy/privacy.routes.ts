@@ -13,8 +13,10 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { purgarDestinatariosDeClientes } from '../siigo/siigo.envio-correo.service.js';
+import { purgarDestinatariosDeLotes } from '../siigo/facturacion.lote.repo.js';
 import { anonimizarTercerosDeClientes } from '../siigo/siigo.terceros.service.js';
 import { hmacCedula, normalizeDocument } from '../../shared/utils/crypto.js';
+import { matchDocumentoCompradorJsonb, matchDocumentoNormalizado } from './privacy.match-doc.js';
 import { deletePhoto } from '../../services/storage.js';
 import { logger } from '../../shared/logger.js';
 import crypto from 'crypto';
@@ -99,9 +101,11 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   const docHashHmac = hmacCedula(docNormalized); // Buffer 32 bytes — match para driver_profile.cedula_hash
 
   // Helper: match por documento aceptando cualquier formato de escritura ("1.036.640.908", " 1036640908 ", "CC1036640908").
-  // Aplica el mismo `normalizeDocument` (solo dígitos) en SQL para no fallar silenciosamente el derecho al olvido.
+  // Aplica el mismo `normalizeDocument` (solo dígitos) en SQL. La clase es `'[^0-9]'`, no `'\D'`:
+  // en `sql\`...\`` `\D` se cocina a `D` y el olvido solo alcanzaría dígitos puros (Bug #11776).
   // Excluye registros ya anonimizados (NOT LIKE 'ANON-%') para idempotencia segura.
-  const matchByDoc = (col: any) => sql`regexp_replace(${col}, '\D', '', 'g') = ${docNormalized} AND ${col} NOT LIKE 'ANON-%'`;
+  const matchByDoc = (col: Parameters<typeof matchDocumentoNormalizado>[0]) =>
+    matchDocumentoNormalizado(col, docNormalized);
 
   // ===== Pre-tx: capturar driverUserIds + S3 keys (necesarios para tx en alcohol/incidents y para cleanup). =====
   const driverRows = await db.select({
@@ -151,14 +155,61 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
   const summary = await db.transaction(async (tx) => {
     const stats: Record<string, number> = {};
 
-    // Las direcciones del titular ANTES de anonimizarlas: después ya no se pueden conocer, y la
-    // purga de las actas de envío (paso 15) las necesita para alcanzar los correos que se
-    // escribieron a mano en la factura de otra empresa — que la búsqueda por compañía no ve.
-    const correosDelTitular = (await tx.select({
+    // ===== Las direcciones del titular, ANTES de anonimizar nada =====
+    //
+    // Las purgas del módulo Siigo (pasos 15 y 15b) buscan por dos caminos, y el segundo es la
+    // dirección: es el único que alcanza los correos escritos a mano en la factura de OTRA empresa
+    // —los que la búsqueda por compañía no ve, porque está indexada por el dueño de la factura y no
+    // por el titular del dato—. Ese camino vale exactamente lo que valga esta lista.
+    //
+    // **Se leen TODAS las tablas donde este mismo flujo reconoce que el titular tiene correo**, no
+    // solo su ficha de cliente. El titular que ejerce el derecho puede no ser cliente de nadie —es
+    // justo el caso que motiva el segundo camino— y entonces `clients` no devuelve ni una fila: la
+    // rama por dirección se apagaba entera y sus direcciones sobrevivían en las dos tablas del
+    // módulo mientras el resumen decía que se le había olvidado. Que este flujo anonimice el correo
+    // de esas otras tablas (pasos 5, 6, 9, 13, 14 y 15) y a la vez no lo use para buscar era la
+    // contradicción: se reconocía el dato como suyo para borrarlo aquí y no para alcanzarlo allá.
+    //
+    // **El orden no es estilo, es la corrección entera.** `matchByDoc` compara contra el documento
+    // CRUDO y excluye `NOT LIKE 'ANON-%'`; en cuanto cada UPDATE escribe `docHash`, ese mismo SELECT
+    // devuelve cero filas. Capturar debajo de cualquiera de esos UPDATE es capturar nada, y no se
+    // nota: el resumen no cambia ni una cifra porque la rama por compañía sigue devolviendo lo suyo.
+    // Por eso van todas aquí arriba, juntas, y hay un caso de prueba por cada tabla.
+    const fichaDelTitular = await tx.select({
       email: clients.email, contactEmail: clients.contactEmail,
-    }).from(clients).where(matchByDoc(clients.document)))
-      .flatMap((c) => [c.email, c.contactEmail])
-      .filter((c): c is string => typeof c === 'string' && c.trim() !== '');
+    }).from(clients).where(matchByDoc(clients.document));
+
+    const correosLaft = await tx.select({ email: laftCounterparties.email })
+      .from(laftCounterparties).where(matchByDoc(laftCounterparties.docNumber));
+    const correosValidaciones = await tx.select({ email: tramitesValidaciones.email })
+      .from(tramitesValidaciones).where(matchByDoc(tramitesValidaciones.documento));
+    const correosTenedores = await tx.select({ email: tenedores.email })
+      .from(tenedores).where(matchByDoc(tenedores.documento));
+    const correosPropietarios = await tx.select({ email: propietariosCarga.email })
+      .from(propietariosCarga).where(matchByDoc(propietariosCarga.documento));
+    const correosDestinatarios = await tx.select({ email: destinatariosCarga.email })
+      .from(destinatariosCarga).where(matchByDoc(destinatariosCarga.documento));
+
+    // El comprador del trámite digital vive en JSONB, con el mismo filtro que usa su UPDATE (paso 5).
+    const correosComprador = await tx.execute(sql`
+      SELECT comprador->>'email' AS email
+        FROM tramites_digitales
+       WHERE ${matchDocumentoCompradorJsonb(docNormalized)}
+    `) as unknown as Array<{ email: string | null }>;
+
+    // `correosDeBusqueda` normaliza y descarta vacíos y repetidos al otro lado; aquí basta con no
+    // colar nulos ni cadenas en blanco. Con la lista vacía las dos purgas dejan el predicado por
+    // dirección en `false` —nunca en «todo»—, que es lo que impide que un titular sin ningún correo
+    // convierta el olvido en una purga sin criterio.
+    const correosDelTitular = [
+      ...fichaDelTitular.flatMap((c) => [c.email, c.contactEmail]),
+      ...correosLaft.map((r) => r.email),
+      ...correosValidaciones.map((r) => r.email),
+      ...correosTenedores.map((r) => r.email),
+      ...correosPropietarios.map((r) => r.email),
+      ...correosDestinatarios.map((r) => r.email),
+      ...correosComprador.map((r) => r.email),
+    ].filter((c): c is string => typeof c === 'string' && c.trim() !== '');
 
     // 1. clients: por documento
     const cli = await tx.update(clients).set({
@@ -220,8 +271,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
             ),
             '{telefono}', 'null'::jsonb
           )
-      WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized}
-        AND (comprador->>'documento') NOT LIKE 'ANON-%'
+      WHERE ${matchDocumentoCompradorJsonb(docNormalized)}
       RETURNING id
     `);
     stats.tramites_digitales = (tram as unknown as Array<unknown>).length;
@@ -320,7 +370,7 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       titularPagoCuentaAuthTag: null,
       titularPagoCuentaAadNonce: null,
       titularPagoCuentaKeyVersion: null,
-    }).where(sql`regexp_replace(${manifiestos.titularPagoDoc}, '\D', '', 'g') = ${docNormalized} AND ${manifiestos.titularPagoDoc} NOT LIKE 'ANON-%'`).returning({ id: manifiestos.id });
+    }).where(matchByDoc(manifiestos.titularPagoDoc)).returning({ id: manifiestos.id });
     stats.manifiestos = man.length;
 
     // 13. tenedores: documento + nombre + dirección + telefono + email + notas.
@@ -363,6 +413,15 @@ router.post('/forget', forgetLimiter, requireRole('admin'), async (req: Request,
       cli.map((c) => c.id), correosDelTitular, tx,
     );
 
+    // 15b. siigo_lotes_facturacion: las direcciones ELEGIDAS al enviar (HU #11708). Desde esa
+    // historia el lote puede guardar direcciones para que la emisión —que ocurre después y en otro
+    // proceso— sepa a quién mandar la factura. Es el segundo sitio del módulo con datos personales y
+    // el olvido tiene que alcanzarlo: una copia fuera de la purga convertiría esta respuesta en
+    // mentira. Se busca igual que las actas, por compañía Y por dirección.
+    stats.siigo_lotes_facturacion = await purgarDestinatariosDeLotes(
+      cli.map((c) => c.id), correosDelTitular, tx,
+    );
+
     // 16. siigo_terceros: la identificación del titular, en la tabla del vínculo con Siigo.
     stats.siigo_terceros = await anonimizarTercerosDeClientes(cli.map((c) => c.id), docHash, tx);
 
@@ -400,19 +459,22 @@ router.get('/preview/:docNumber', previewLimiter, async (req: Request, res: Resp
   const docHashHmac = hmacCedula(docNormalized);
 
   // Mismo helper que en POST /forget — match por documento normalizado, excluye ya anonimizados.
-  const matchByDocPreview = (col: any) => sql`regexp_replace(${col}, '\D', '', 'g') = ${docNormalized} AND ${col} NOT LIKE 'ANON-%'`;
+  // Una sola definición (`matchDocumentoNormalizado`): si preview y forget divergieran, uno
+  // contaría filas que el otro no anonimiza (Bug #11776).
+  const matchByDocPreview = (col: Parameters<typeof matchDocumentoNormalizado>[0]) =>
+    matchDocumentoNormalizado(col, docNormalized);
 
   // Conteos paralelos por tabla (14 SELECT count).
   const [cli, veh, soat, tram, cp, bo, drv, trv, man, ten, prop, dest] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(clients).where(matchByDocPreview(clients.document)),
     db.select({ c: sql<number>`count(*)::int` }).from(vehicles).where(matchByDocPreview(vehicles.ownerDocument)),
-    db.execute(sql`SELECT count(*)::int AS c FROM soat_requests s INNER JOIN vehicles v ON s.vehicle_id = v.id WHERE regexp_replace(v.owner_document, '\D', '', 'g') = ${docNormalized} AND v.owner_document NOT LIKE 'ANON-%'`),
-    db.execute(sql`SELECT count(*)::int AS c FROM tramites_digitales WHERE regexp_replace(comprador->>'documento', '\D', '', 'g') = ${docNormalized} AND (comprador->>'documento') NOT LIKE 'ANON-%'`),
+    db.execute(sql`SELECT count(*)::int AS c FROM soat_requests s INNER JOIN vehicles v ON s.vehicle_id = v.id WHERE ${matchDocumentoNormalizado(sql`v.owner_document`, docNormalized)}`),
+    db.execute(sql`SELECT count(*)::int AS c FROM tramites_digitales WHERE ${matchDocumentoCompradorJsonb(docNormalized)}`),
     db.select({ c: sql<number>`count(*)::int` }).from(laftCounterparties).where(matchByDocPreview(laftCounterparties.docNumber)),
     db.select({ c: sql<number>`count(*)::int` }).from(laftBeneficialOwners).where(matchByDocPreview(laftBeneficialOwners.docNumber)),
     db.select({ c: sql<number>`count(*)::int` }).from(driverProfile).where(eq(driverProfile.cedulaHash, docHashHmac)),
     db.select({ c: sql<number>`count(*)::int` }).from(tramitesValidaciones).where(matchByDocPreview(tramitesValidaciones.documento)),
-    db.select({ c: sql<number>`count(*)::int` }).from(manifiestos).where(sql`regexp_replace(${manifiestos.titularPagoDoc}, '\D', '', 'g') = ${docNormalized} AND ${manifiestos.titularPagoDoc} NOT LIKE 'ANON-%'`),
+    db.select({ c: sql<number>`count(*)::int` }).from(manifiestos).where(matchByDocPreview(manifiestos.titularPagoDoc)),
     db.select({ c: sql<number>`count(*)::int` }).from(tenedores).where(matchByDocPreview(tenedores.documento)),
     db.select({ c: sql<number>`count(*)::int` }).from(propietariosCarga).where(matchByDocPreview(propietariosCarga.documento)),
     db.select({ c: sql<number>`count(*)::int` }).from(destinatariosCarga).where(matchByDocPreview(destinatariosCarga.documento)),
