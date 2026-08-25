@@ -79,7 +79,11 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_conciliacion', to: '/flito/conciliacion',       section: 'finanzas',      label: 'Conciliación',            keywords: 'conciliacion boleta soat portal excel cruce poliza bolsa pse comprobante financiera cuadre recaudo' },
   // Facturación electrónica: va en Finanzas porque su dueño es contabilidad —es quien firma la
   // confirmación de cada concepto—, aunque el dominio técnico sea la integración con Siigo.
-  { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
+  // Dos entradas, y la existente se RENOMBRA: dos opciones llamadas «Facturación electrónica» en el
+  // mismo grupo es una trampa —nadie sabría cuál abrir—. Ninguna lleva `roles`: el slug ya restringe,
+  // y repetir la regla la pondría en dos sitios que pueden divergir.
+  { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica · Parametrización', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
+  { page: 'siigo_operacion', to: '/siigo/operacion',               section: 'finanzas',      label: 'Facturación electrónica · Operación', keywords: 'siigo facturacion electronica dian bandeja fallidos reintento correo rechazo linea de tiempo operacion pendiente detenido' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },

@@ -26,6 +26,7 @@ const FlitoConciliacion = lazy(() => import('./pages/FlitoConciliacion'));
 const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBoleta'));
 const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
 const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
+const SiigoOperacion = lazy(() => import('./pages/SiigoOperacion'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
@@ -175,6 +176,10 @@ function AppRoutes() {
         <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
         <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />
+        {/* Slug PROPIO (`siigo_operacion`, ya en `permissions.ts`): parametrizar es decidir cómo se
+            factura y se toca una vez; operar es empujar facturas todos los días. Unirlas obligaría a
+            conceder la operación diaria a quien solo debe parametrizar. */}
+        <Route path="/siigo/operacion" element={<ProtectedRoute page="siigo_operacion"><Lazy><SiigoOperacion /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />
