@@ -16,14 +16,24 @@
 //     mano: se leen del propio mock (ver `clavesDelMock`), y si alguien cambia el mock SIN tocar el
 //     mapa, este test se pone rojo por el otro lado.
 //
+//     **Contra qué se comprueba esa cobertura cambió en la HU #11877**: contra el mapa VIGENTE de la
+//     cadena de migraciones, no contra la v2 de este archivo. El módulo lee la versión MÁXIMA y no
+//     hereda (RN-11), así que exigirle la cobertura a una versión histórica era pedirle cuentas a
+//     quien ya no decide nada — y se rompía sola en cuanto el mock estrenaba un campo que la v2 no
+//     podía mapear, que es exactamente lo que pasó con `fechaNotificacion`.
+//
 //   · **«Restaurar» `comparendo` como candidato de `numeroComparendo` en SIMIT**, que es lo que hacía
 //     la v1 y lo que haría cualquiera que compare las dos versiones sin leer la cabecera del `.sql`.
 //     En el payload real ese campo es el BOOLEANO `true`; como `primerValor` devuelve el primer
 //     candidato no nulo, un `true` SOMBREA a los siguientes y el ítem entero se descarta por «número
 //     irreconocible». No es un respaldo: es un apagón silencioso de la ingesta.
 //
-//   · **Mapear `fechaNotificacion`**, que en la captura real trae el centinela `01/01/1900`. Una
-//     fecha centinela homologada es peor que un `NULL`: se ve como un dato.
+//   · **Mapear `fechaNotificacion` EN LA v2**, que en la captura real trae el centinela `01/01/1900`.
+//     Una fecha centinela homologada es peor que un `NULL`: se ve como un dato. Sigue siendo cierto
+//     **de la v2**, y por eso el test se queda: cuando se escribió no había criterio para el
+//     centinela. La v4 sí lo tiene (`fechaCanonica` lo descarta, HU #11794) y por eso ella sí la
+//     mapea. Las dos afirmaciones conviven porque hablan de versiones distintas; lo que estaría mal
+//     es «arreglar» la v2 añadiéndole la fila, que además es historial ya aplicado.
 //
 //   · **Añadir cualquier ruta de persona.** Esta tabla ES la lista blanca de la poda RN-25
 //     (`camposConservables` se deriva de ella), así que nombrar aquí `infractor.*`, `nombres`,
@@ -42,82 +52,36 @@ import { fileURLToPath } from 'node:url';
 // El guarda de ADR-DB-001 tal como lo aplica el runner, no una reimplementación: es literalmente lo
 // que abortaría el `db:apply`.
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
+// El extractor, el podador y el cálculo del mapa VIGENTE viven en un helper desde la HU #11877.
+// Aquí estaba la tercera copia del mismo parser; tres copias son tres oportunidades de que una se
+// quede atrás y su archivo pase por vacuidad.
+import {
+  filasSembradas, mapaVigenteSembrado, podarComentarios, rutaMigracion, type FilaFieldMap,
+} from '../helpers/field-map-sql.js';
 
 const ARCHIVO = '0158_flito_comparendos_field_map_v2.sql';
-const RUTA = fileURLToPath(new URL(`../../src/db/migrations/${ARCHIVO}`, import.meta.url));
+const RUTA = rutaMigracion(ARCHIVO);
 const RUTA_MOCK = fileURLToPath(
   new URL('../../src/modules/flito-comparendos/clients/uts-municipal.client.ts', import.meta.url),
 );
 
 const sql0158 = readFileSync(RUTA, 'utf8');
 
-/**
- * Quita los comentarios `--` sin comerse los `--` que vivan DENTRO de una cadena SQL.
- *
- * Aquí importa más que en las paridades hermanas: la cabecera de la 0158 es larguísima y explica en
- * prosa **lo que el archivo NO hace** —por qué `comparendo` no se mapea, por qué `fechaNotificacion`
- * se deja fuera, qué campos son del infractor—. Sin podarla, el texto que dice «no se mapea
- * `infractor`» alimentaría la búsqueda de `infractor` y volvería verde justo el test que existe para
- * detectarlo. Es el mismo podador de la paridad de la 0154 y por el mismo motivo.
- */
-function podarComentarios(texto: string): string {
-  let salida = '';
-  let enCadena = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (!enCadena && c === '-' && texto[i + 1] === '-') {
-      while (i < texto.length && texto[i] !== '\n') i++;
-      salida += '\n';
-      continue;
-    }
-    if (c === "'") enCadena = !enCadena;
-    salida += c;
-  }
-  return salida;
-}
-
+// El podador es el del helper. Aquí importa más que en las paridades hermanas: la cabecera de la
+// 0158 es larguísima y explica en prosa **lo que el archivo NO hace** —por qué `comparendo` no se
+// mapea, por qué `fechaNotificacion` se deja fuera, qué campos son del infractor—. Sin podarla, el
+// texto que dice «no se mapea `infractor`» alimentaría la búsqueda de `infractor` y volvería verde
+// justo el test que existe para detectarlo.
 const CUERPO = podarComentarios(sql0158);
 
 // ─────────────────────────── Lectura de las filas sembradas ─────────────────────────────────────
 
-interface FilaSembrada {
-  version: number;
-  origen: string;
-  sourcePath: string;
-  targetField: string;
-  prioridad: number;
-  provisional: boolean;
-}
-
-/**
- * Las tuplas del `INSERT ... VALUES`, tal como están escritas.
- *
- * Extractor ESTRICTO a propósito: una tupla con forma que no se entienda tiene que hacer fallar el
- * guardarraíl de abajo, no ignorarse en silencio. Un extractor permisivo da verde sobre un eje que
- * ya dejó de mirar, que es la forma más común de que un test de este tipo mienta.
- */
-function filasSembradas(): FilaSembrada[] {
-  const tupla = /\(\s*(\d+)\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\d+)\s*,\s*(true|false)\s*,\s*(?:NULL|'(?:[^']*)')\s*\)/gi;
-  const filas: FilaSembrada[] = [];
-  for (const m of CUERPO.matchAll(tupla)) {
-    filas.push({
-      version: Number(m[1]),
-      origen: m[2],
-      sourcePath: m[3],
-      targetField: m[4],
-      prioridad: Number(m[5]),
-      provisional: m[6].toLowerCase() === 'true',
-    });
-  }
-  return filas;
-}
-
-const FILAS = filasSembradas();
+const FILAS = filasSembradas(CUERPO);
 const SIMIT = FILAS.filter((f) => f.origen === 'simit');
 const MUNICIPAL = FILAS.filter((f) => f.origen === 'municipal');
 
 /** Los `source_path` sembrados para un origen. */
-const rutasDe = (filas: FilaSembrada[]): string[] => filas.map((f) => f.sourcePath);
+const rutasDe = (filas: FilaFieldMap[]): string[] => filas.map((f) => f.sourcePath);
 
 /**
  * Los nombres de campo que emite HOY el mock del UTS, leídos del cliente y no copiados aquí.
@@ -149,10 +113,14 @@ describe('migración 0158 — los extractores leen los archivos', () => {
     expect(MUNICIPAL).toHaveLength(18);
   });
 
-  it('el mock del UTS declara sus 8 campos y se leen del cliente, no de aquí', () => {
-    expect(CLAVES_MOCK).toHaveLength(8);
+  it('el mock del UTS declara sus 9 campos y se leen del cliente, no de aquí', () => {
+    // Nueve desde la HU #11877, que le añadió `fechaNotificacion`: sin ese campo el modo simulado
+    // —que es el DEFECTO— dejaba la columna vacía por construcción y la funcionalidad no era
+    // comprobable por ningún camino que se ejecutara de verdad.
+    expect(CLAVES_MOCK).toHaveLength(9);
     expect(CLAVES_MOCK).toContain('numero');
     expect(CLAVES_MOCK).toContain('valor');
+    expect(CLAVES_MOCK).toContain('fechaNotificacion');
   });
 });
 
@@ -175,11 +143,30 @@ describe('la 0158 siembra la v2 completa y no provisional', () => {
     }
   });
 
-  it('**el mapa cubre TODOS los campos que emite el mock del UTS** (CF-08 sigue vivo)', () => {
-    // La razón de ser de este archivo. Si alguien poda los respaldos de prioridad baja porque «no
-    // aparecen en el payload real», el modo mock —que es el DEFECTO— homologa a NULL en silencio.
+  it('**el mapa VIGENTE cubre TODOS los campos que emite el mock del UTS** (CF-08 sigue vivo)', () => {
+    // La razón de ser de este archivo, con el ancla corregida en la HU #11877.
+    //
+    // La invariante es la misma y sigue siendo la buena: si alguien poda los respaldos de prioridad
+    // baja porque «no aparecen en el payload real», el modo mock —que es el DEFECTO— homologa a NULL
+    // en silencio. Lo que estaba mal era contra QUÉ se evaluaba. El módulo NO lee la v2: lee la
+    // versión MÁXIMA y **no hereda** (RN-11), así que quien tiene que cubrir el mock es el mapa
+    // vigente, no la versión que estaba vigente el día que se escribió este archivo.
+    //
+    // Y la diferencia no es teórica: la #11877 añadió `fechaNotificacion` al mock del UTS —la v4 la
+    // mapea desde la #11794; la v2 no podía, porque el criterio del centinela no existía— y este
+    // test se puso rojo afirmando algo que ya no era el contrato de nadie. Anclarlo aquí lo vuelve
+    // permanente: cubra el mock la versión que lo tenga que cubrir.
+    //
+    // Lo que la v2 sí tiene que seguir diciendo se vigila abajo, intacto: en ELLA `fechaNotificacion`
+    // no se mapea. Las dos cosas son ciertas a la vez porque hablan de versiones distintas.
+    const vigente = mapaVigenteSembrado();
+    const rutasVigentes = rutasDe(vigente.filas.filter((f) => f.origen === 'municipal'));
+
     for (const clave of CLAVES_MOCK) {
-      expect(rutasDe(MUNICIPAL), `el mock emite \`${clave}\` y la v2 no lo mapea`).toContain(clave);
+      expect(
+        rutasVigentes,
+        `el mock emite \`${clave}\` y la v${vigente.version} (${vigente.archivos.join(', ')}) no lo mapea`,
+      ).toContain(clave);
     }
   });
 
