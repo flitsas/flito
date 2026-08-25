@@ -26,7 +26,7 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - Paths de páginas análogas si ya se conocen
 
 NO releer `AGENTS.md` entero ni ADO completo si el prompt trae AC + paths.
-Solo consulta ADO si faltan AC o hay duda bloqueante (una pregunta).
+Solo consulta ADO si faltan AC o hay duda de producto (P9). Densidad de tabla, vacío vs error, copy: **preguntar** si el pedido no lo cierra. No inventar alcance ni HUs extra.
 
 ---
 

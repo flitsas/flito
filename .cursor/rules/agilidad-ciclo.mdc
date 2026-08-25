@@ -1,9 +1,9 @@
 ---
-description: Tope de tiempo del ciclo por HU — tests de este WI, mutantes ≤3, M1 al tip, Nota ≠ retrabajo. Manda sobre «correr el módulo entero».
+description: Tope de tiempo del ciclo por HU — tests de este WI, mutantes ≤3, M1 al tip, Nota ≠ retrabajo, vacíos cerrados antes de codear. Manda sobre «correr el módulo entero».
 alwaysApply: true
 ---
 
-# Agilidad del ciclo — P1–P8
+# Agilidad del ciclo — P1–P9
 
 Fuente: `AGENTS.md` § «Proporcionalidad del ciclo». Esta regla **prevalece** sobre la costumbre
 de glob del módulo, mutar en dos capas o relanzar un gate por una Nota.
@@ -12,11 +12,14 @@ de glob del módulo, mutar en dos capas o relanzar un gate por una Nota.
 |---|---|---|
 | **P1** | Tests = archivos `*.test.ts` / spec **de este WI** (lista explícita) | Prohibido `__tests__/services/flito-comparendos` y equivalentes (~786 seriales ≠ filtrado) |
 | **P2** | Mutantes: tope **3**, solo `qa-agent` B, mismos paths P1 | El impl **no** muta; prohibido >3 o mutar la suite del módulo |
-| **P3** | QA re-ejecuta P1 (re-run propio) | No copia stdout del impl; no corre el directorio del módulo |
+| **P3** | QA re-ejecuta P1 (re-run propio) **antes del PR** | No copia stdout del impl; no corre el directorio del módulo; no se lanza en paralelo al `pr-monitor` |
 | **P4** | Hallazgo → BLOQUEANTE (re-gate) o NOTA (PR, veredicto limpio) | Prohibido segundo backend/qa/db-review para «anclar» una Nota |
 | **P5** | Gate que no dispara, no se ejecuta | Copy/CSS/tests-only → security N/A; M1 **una vez al tip**, no por HU |
 | **P6** | Migración nueva = ese SQL, dos veces, BD ya migrada | Prohibido `CREATE DATABASE` + `db:apply` de las N históricas |
 | **P7** | Test ajeno rojo (RSS/`export-coste`) se declara | No se convierte en el trabajo de esta HU; no medir GC |
 | **P8** | Task con AC + paths → `Read` e implementar | Prohibido Bash como visor de código; no re-leer `AGENTS.md` |
+| **P9** | Cerrar vacíos **antes** de HUs/código (ronda de cierre; corte = ítems del pedido) | Prohibido «máximo una pregunta» y seguir; prohibido HU/Bug de hallazgo en desarrollo |
 
 `*-CON-OBSERVACIONES` no es éxito. Un nit es **Nota + OK/PASS**, no un loop.
+El PR abierto = desarrollo verificado; tras el PR solo `pr-monitor-agent`. Detalle de P9:
+`.cursor/rules/planeacion-cierre-vacios.mdc`.

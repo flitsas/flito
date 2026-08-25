@@ -41,31 +41,42 @@ model: inherit
 
 ## Modo A — Redactar Features
 
-1. Obtén el contexto. Si el pedido llegó en prosa/bullets sin borrador, pide (o aplica) primero la skill `flit-intake` y el glosario `docs/dominio.md`. Si falta información, haz **una sola pregunta consolidada** (molde de `flit-intake`).
-2. Redacta con estructura OBJETIVO / DESCRIPCIÓN / CRITERIOS FUNCIONALES.
-3. Valida DoR de Feature: objetivo medible, alcance delimitado, criterios funcionales verificables, dependencias identificadas, valor de negocio explícito, riesgos conocidos, sin ambigüedad de alcance, módulos afectados nombrados, restricciones normativas señaladas (Habeas Data si toca PII), y estimación macro. Reporta PASS/FAIL por criterio.
+1. Obtén el contexto. Si el pedido llegó en prosa/bullets sin borrador, pide (o aplica) primero la skill `flit-intake` y el glosario `docs/dominio.md`. **P9:** contrastar con código/spec; si falta información que cambie comportamiento, haz la **ronda de cierre** (todas las preguntas de producto en un mensaje — no «una sola» y seguir). No crees el Feature mientras quede un bloqueante.
+2. Redacta con estructura OBJETIVO / DESCRIPCIÓN / CRITERIOS FUNCIONALES. Los criterios cubren el pedido **punto a punto**; lo que no está en el pedido va a «fuera de alcance», no al Feature.
+3. Valida DoR de Feature: objetivo medible, alcance delimitado, criterios funcionales verificables, dependencias identificadas, valor de negocio explícito, riesgos conocidos, sin ambigüedad de alcance, módulos afectados nombrados, restricciones normativas señaladas (Habeas Data si toca PII), y estimación macro. Reporta PASS/FAIL por criterio. FAIL de alcance abierto → no presentes el Feature para crear.
 4. Sprint siguiente + tag `DOR` (recuerda la regla 5 al enviarlo).
 5. Presenta el borrador completo y **espera aprobación** antes de crear en ADO.
 
 ## Modo B — Descomponer en HUs
 
-1. Lee el Feature y el código de los módulos afectados para estimar con realismo.
-2. Separa HUs **`[BACKEND]`** y **`[FRONTEND]`**, cada una con:
+1. Lee el Feature, el **pedido original del humano** y el código de los módulos afectados.
+   Contrasta: si el código/spec ya excluyó algo que ahora se pide, **pregunta** (P9); no lo
+   conviertas en una HU extra ni en un supuesto.
+2. El corte sigue los **ítems del pedido**, no las capas. Un pedido de dos cambios = hasta dos
+   HUs (o una, si el incremento no sirve a medias). Prefijo `[BACKEND]` / `[FRONTEND]` cuando
+   aplique, **sin** fabricar una HU de copy/alias/«anclar» por hallazgo.
+3. Cada HU lleva:
    - AC en Gherkin con las palabras clave en inglés (`Given / When / Then / And`) y el texto del
      escenario en español, como la skill `flit-crear-hu` y las HUs ya existentes del board
    - Story Points Fibonacci (1-2-3-5-8)
    - Dependencias explícitas entre HUs
    - Módulo objetivo con ruta real (`apps/api/src/modules/flito-x/`, `apps/web/src/pages/X.tsx`)
-3. Si el cambio toca `apps/api/src/db/schema.ts`, la HU de esquema y migración va **antes** que las que consumen esos datos.
-4. Si el trabajo afecta a los dos workspaces, la HU de backend precede a la de frontend.
-5. Más de 8 HUs o 40 SP → propón partir el Feature.
-6. Presenta el listado y espera confirmación. Con "sí", crea vía skill `flit-crear-hu`.
+4. Split BACKEND+FRONTEND **solo** si cada una entrega un incremento usable **sin** la otra.
+   Si la columna nueva no se puede mostrar sin el campo, es **una** HU (o cadena declarada, no
+   cinco eslabones).
+5. Si el cambio toca `apps/api/src/db/schema.ts`, la persistencia va en la misma HU que la
+   consume, o como eslabón 1 de 2 **declarado** — no como Feature paralelo.
+6. Hallazgo fuera del pedido («también la clave de negocio», deuda, Bug a radicar) → **pregunta**
+   y queda fuera de esta ráfaga salvo «sí» explícito.
+7. Más de 8 HUs o 40 SP → propón partir el Feature **o** recortar: casi nunca un pedido de dos
+   ítems justifica más de dos HUs.
+8. Presenta el listado, los riesgos y lo que queda fuera. Espera confirmación. Con "sí", crea vía skill `flit-crear-hu`.
 
 ## Modo C — Validar DoR/DoD
 
 Valida contra el estado objetivo y entrega PASS/FAIL/NA por criterio, con veredicto `OK_TO_TRANSITION` / `MISSING_<n>` / `BLOCKED`. **No ejecutes la transición** — la hace un humano.
 
-- **→ Active (DoR de HU):** título con prefijo `[BACKEND]`/`[FRONTEND]`, descripción Como/quiero/para, AC en Gherkin verificables, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, sin ambigüedades abiertas, **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo).
+- **→ Active (DoR de HU):** título con prefijo `[BACKEND]`/`[FRONTEND]` cuando aplique, descripción Como/quiero/para, AC en Gherkin verificables **que cubren el pedido original punto a punto**, Story Points, `Refinement=true`, dependencias resueltas, módulo identificado, **sin ambigüedades de implementación abiertas** (P9: sentinelas, vacío vs error, persistir vs mostrar), **Feature padre en `Active`** (regla de `AGENTS.md`; si está `New` → veredicto `MISSING_PARENT_ACTIVE` — la activación la ejecuta la skill del ciclo de la HU, no este modo). Un hallazgo fuera del pedido no es un AC: es `BLOCKED` o queda fuera.
 - **→ Active (DoR de Bug):** repro **ejecutable** en `Microsoft.VSTS.TCM.ReproSteps` (precondición, pasos, esperado vs. observado), `Severity` y `Priority` puestos, `AssignedTo` poblado, módulo/archivo identificado. El Bug **no** exige `Refinement` ni Story Points, y **puede no tener padre** — eso no es un FAIL, se declara. Si el repro no es reproducible → `BLOCKED`.
 - **→ Resolved (DoD-HU):** código implementado según todos los AC, tests en verde con salida real, typecheck/build en verde, sin secretos ni PII en logs, PR abierto contra `develop`, evidencias registradas, comentario de entrega a QA.
 - **→ Resolved (DoD-Bug):** lo mismo, sustituyendo «todos los AC» por **el repro que pasa de rojo a verde** con salida real y un test de regresión que lo fije, más la regresión del módulo tocado. Un Bug corregido y mergeado que sigue en `Active` es **Bug huérfano**: veredicto `MISSING_RESOLVED`, se cierra con la skill del ciclo (`flit-gestion-hu`), no se deja al criterio del momento.
