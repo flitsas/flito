@@ -153,19 +153,18 @@ export default function DriveViewer() {
         // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
         // por construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`.
         pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
-        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
-        // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
-        // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el
-        // workaround oficial del advisory. La vista previa rasteriza a PNG sin capa de texto, luego el
-        // render no cambia. Guardado por `npm run check:pdfjs-eval`.
-        const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
+        // pdfjs-dist v6 corrige CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8) EN LA LIBRERÍA: ya no
+        // compila los glifos con `new Function(...)`. La opción `isEvalSupported` que había aquí como
+        // workaround del advisory ya no existe en v6 (0 coincidencias en `build/pdf.mjs`, y no está en
+        // `DocumentInitParameters`), así que pasarla sería seguridad aparente. No la vuelvas a añadir.
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
         const pages: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const pg = await pdf.getPage(i);
           const vp = pg.getViewport({ scale: 2.0 });
           const c = document.createElement('canvas');
           c.width = vp.width; c.height = vp.height;
-          await pg.render({ canvasContext: c.getContext('2d')!, viewport: vp }).promise;
+          await pg.render({ canvas: c, viewport: vp }).promise;
           pages.push(c.toDataURL('image/png'));
         }
         setPreviewFile({ name: file.name, data: '', mimeType: mime, pages });
