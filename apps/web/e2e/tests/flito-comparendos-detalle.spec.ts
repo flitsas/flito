@@ -39,6 +39,9 @@ const FILA = {
   codigoInfraccion: 'C29',
   descripcionInfraccion: 'Estacionar en zona prohibida',
   fechaComparendo: '2026-07-12',
+  // HU #11794 en el contrato, HU #11795 en el panel: va PEGADA a la del comparendo, sin ningún campo
+  // intercalado, y con el rótulo LARGO porque aquí no hay cabecera de columna que dé el contexto.
+  fechaNotificacion: '2026-08-03',
   organismo: 'Secretaría de Movilidad de Medellín',
   municipioFuente: 'ITAGUI',
   monto: '604100.00',
@@ -695,6 +698,60 @@ test.describe('FLITO — Comparendos · detalle y gestión (HU #11562)', () => {
 
     // Un guion solo no se lee: cada ausencia lleva su «Sin dato» para el lector de pantalla.
     await expect(panel(page).getByText('Sin dato')).toHaveCount(5);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+  // HU #11795 · AC2 — las dos fechas, con su nombre largo y PEGADAS
+  // ───────────────────────────────────────────────────────────────────────────────────────────────
+
+  /** Los `<dt>` del `<dl>` de fuente, en el ORDEN en que están en el DOM. */
+  const rotulosDeFuente = (page: Page) => panel(page)
+    .getByRole('region', { name: 'Datos de la fuente' }).locator('dt');
+
+  test('HU #11795 · AC2 — «Fecha de notificación» va INMEDIATAMENTE después de «Fecha del comparendo»', async ({ page }) => {
+    await abrirLista(page);
+    await boton(page, `Ver el comparendo ${FILA.numeroComparendo}`).click();
+    await expect(panel(page)).toContainText('EN COBRO COACTIVO');
+
+    // La aserción es sobre el ORDEN, no sobre la mera presencia: con tres campos entre medias los
+    // dos rótulos seguirían estando y la comprobación que el panel existe para permitir —contrastar
+    // lo que la tabla resumió en una celda— obligaría a buscar por la pantalla.
+    const rotulos = (await rotulosDeFuente(page).allInnerTexts()).map((t) => t.split('\n')[0].trim());
+    const iComparendo = rotulos.indexOf('Fecha del comparendo');
+    const iNotificacion = rotulos.indexOf('Fecha de notificación');
+    expect(iComparendo, '«Fecha del comparendo» no está en el <dl> de fuente').toBeGreaterThanOrEqual(0);
+    expect(iNotificacion - iComparendo, 'las dos fechas tienen que ir pegadas, sin campos en medio').toBe(1);
+
+    // Rótulos LARGOS y no los cortos de la tabla: aquí no hay cabecera de columna que dé contexto.
+    expect(rotulos).not.toContain('Notificación');
+
+    // Y los valores no contradicen a la tabla: la misma fecha, en el formato largo del panel.
+    const valores = panel(page)
+      .getByRole('region', { name: 'Datos de la fuente' }).locator('dd');
+    await expect(valores.nth(iNotificacion)).toHaveText('3 de agosto de 2026');
+    await expect(valores.nth(iComparendo)).toHaveText('12 de julio de 2026');
+  });
+
+  test('HU #11795 · AC2 — sin notificar, el rótulo SIGUE y el valor es «—» (nunca 1900)', async ({ page }) => {
+    const traza = await abrirLista(page);
+    // Lo que devuelve todo el histórico anterior a la migración 0164 y lo que el mapa v4 publica
+    // cuando la fuente manda el centinela `01/01/1900`.
+    traza.detalle = { status: 200, body: { ...DETALLE, fechaNotificacion: null } };
+    await boton(page, `Ver el comparendo ${FILA.numeroComparendo}`).click();
+    await expect(panel(page)).toContainText('EN COBRO COACTIVO');
+
+    const rotulos = (await rotulosDeFuente(page).allInnerTexts()).map((t) => t.split('\n')[0].trim());
+    const i = rotulos.indexOf('Fecha de notificación');
+    // La aserción que MUERDE: una implementación que oculte la fila entera cuando no hay dato pasa
+    // cualquier test que solo mire el valor.
+    expect(i, 'el rótulo desaparece cuando el valor falta').toBeGreaterThanOrEqual(0);
+    expect(rotulos.indexOf('Fecha del comparendo'), 'y siguen pegadas').toBe(i - 1);
+
+    const dd = panel(page).getByRole('region', { name: 'Datos de la fuente' }).locator('dd').nth(i);
+    await expect(dd).toHaveText('—Sin dato');
+    // Ni el centinela ni ninguna de sus formas, y **nunca aproximada** con la del comparendo.
+    await expect(panel(page)).not.toContainText('1900');
+    await expect(dd).not.toContainText('julio');
   });
 
   // ───────────────────────────────────────────────────────────────────────────────────────────────

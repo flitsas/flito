@@ -157,14 +157,25 @@ corrida diría «gestionada anoche» siendo mentira. Dos salidas:
 > índice parcial y un cursor distinto del de RN-32: otra HU, no un ajuste de esta.
 
 **4. `municipioFuente` es `null` cuando el comparendo solo lo reportó SIMIT** (comentario del
-contrato, línea 228). No es un dato faltante: es información. La celda dice «—» y el detalle lo
-explica; no se rellena con el municipio del organismo ni con nada deducido.
+contrato, línea 228). No es un dato faltante: es información. ~~La celda dice «—» y el detalle lo
+explica; no se rellena con el municipio del organismo ni con nada deducido.~~
+**Revocado el 24 ago 2026** — solo lo que dice la celda. **Sigue vigente, y es lo importante, la
+prohibición de deducir**: `municipioFuente` no se rellena con nada derivado del organismo, ni en el
+cliente ni en el sync, y el campo persistido no cambia. Lo que **no** se cumple es que la celda se
+quede en «—» teniendo `organismo` en la misma fila del contrato: la muestra **rotulada como
+organismo**, que no es deducir sino publicar un campo con su nombre verdadero. Razonamiento en la
+enmienda del 24 ago 2026, Parte II.
 
 ### Lo que esta pantalla NO muestra, y por qué queda escrito
 
-- **Fecha de notificación.** No existe en el esquema y depende del spike #11501. No se pinta, no se
-  deja la columna vacía «para cuando llegue» y no se aproxima con `fechaComparendo`. Si el spike la
-  trae, es una columna nueva con su HU.
+- ~~**Fecha de notificación.** No existe en el esquema y depende del spike #11501. No se pinta, no
+  se deja la columna vacía «para cuando llegue» y no se aproxima con `fechaComparendo`. Si el spike
+  la trae, es una columna nueva con su HU.~~
+  **Revocado el 24 ago 2026 (HU #11795)** — solo la parte de que no se muestra. El spike #11501
+  está **Resolved** y la HU BACKEND #11794 la persiste con el mapa v4, así que la premisa —«no
+  existe en el esquema»— caducó. **Sigue vigente, y es lo importante, la prohibición de aproximar**:
+  `fechaNotificacion` no se deduce de `fechaComparendo` ni de nada. Lo que **no** se cumple es el
+  final de la frase: no es «una columna nueva». Razonamiento en la enmienda del 24 ago 2026.
 - **`payload_simit` / `payload_municipal`.** No salen por el API (contrato, líneas 206-210). No hay
   «ver respuesta cruda» en el detalle.
 - **Cualquier dato del infractor** (nombre, cédula, dirección). No está en el esquema y no se pide.
@@ -313,14 +324,16 @@ Ruta `/flito/comparendos`. Es la pantalla ancla del módulo.
 │  ⓘ El NIT y la placa se buscan exactos y no viajan en la dirección del navegador.      │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌─ FlitTable ────────────────────────────────────────────────────────────────────────────┐
-│ N.º COMPARENDO │ PLACA  │ NIT MONITOREADO │ FECHA    │ INFRACCIÓN      │ MUNICIPIO │…  │
-├────────────────┼────────┼─────────────────┼──────────┼─────────────────┼───────────┼───┤
-│ 11001000123456 │ ABC123 │ 900123456       │ 12 jul   │ C29 · Estacionar│ Medellín  │…  │
-│ ↑ botón que abre el detalle                          │ en zona prohib. │           │   │
-│ 05001000998877 │ —      │ 900123456       │ 3 jul    │ D02 · Sin SOAT  │ —         │…  │
-│ 76001000445566 │ XYZ987 │ 830009988       │ 28 jun   │ — · —           │ Cali      │…  │
-└────────────────┴────────┴─────────────────┴──────────┴─────────────────┴───────────┴───┘
+┌─ FlitTable ─────────────────────────────────────────────────────────────────────────────────┐
+│ N.º COMPARENDO │ PLACA  │ NIT MONITOREADO │ FECHAS             │ INFRACCIÓN      │ MUNICIPIO U ORG. │…  │
+├────────────────┼────────┼─────────────────┼────────────────────┼─────────────────┼──────────────────┼───┤
+│ 11001000123456 │ ABC123 │ 900123456       │ Comparendo   12 jul│ C29 · Estacionar│ Municipio        │…  │
+│ ↑ botón que abre el detalle                │ Notificación  3 ago│ en zona prohib. │ Medellín         │   │
+│ 05001000998877 │ —      │ 900123456       │ Comparendo    3 jul│ D02 · Sin SOAT  │ Organismo        │…  │
+│                │        │                 │ Notificación     — │                 │ Medellin         │   │
+│ 76001000445566 │ XYZ987 │ 830009988       │ Comparendo   28 jun│ — · —           │ Municipio        │…  │
+│                │        │                 │ Notificación 15 jul│                 │ Cali             │   │
+└────────────────┴────────┴─────────────────┴────────────────────┴─────────────────┴──────────────────┴───┘
    …continúa a la derecha (mismo scroll horizontal de FlitTable):
    ┌───────────┬──────────┬──────────────┬─────────────┬────────────┬─────────────┐
    │   MONTO   │ ORIGEN   │   ESTADO     │  REGISTRADO │ INACTIVADO*│  GESTIÓN    │
@@ -330,6 +343,8 @@ Ruta `/flito/comparendos`. Es la pantalla ancla del módulo.
    │ $ 604.100 │ Municipal│ ○ Inactivo   │ 12 may      │  28 jun    │ Pagado      │
    └───────────┴──────────┴──────────────┴─────────────┴────────────┴─────────────┘
    * «Inactivado» solo se pinta con el filtro Inactivos puesto (ver «Columnas»).
+   ** Las dos celdas rotuladas («Fechas», «Municipio u organismo») son del 24 ago 2026 (HU #11795):
+      el texto normativo está en la enmienda del 24 ago, no en este dibujo.
 
 ┌─ PaginacionCursor ─────────────────────────────────────────────────────────────────────┐
 │  50 comparendos en esta página · página 2            [← Anterior]  [Siguiente →]       │
@@ -351,13 +366,13 @@ sirve para reconocer la fila y decidir si se abre; abajo va lo que se lee cuando
 | **A · añadida el 21 ago 2026 (HU #11713), posición 2** | Tipo | `tipoRegistro` | «Comparendo» / «Multa», **texto plano**. `null` → «—», NUNCA «Comparendo» |
 | **A** | Placa | `placa` | La primera pregunta operativa es «¿de qué vehículo?». `null` → «—» (hay comparendos sin placa) |
 | **A** | NIT monitoreado | `nitMonitoreado` | Es el eje del módulo: de qué empresa vigilada salió esta consulta. Con alias del catálogo si lo hay |
-| **A** | Fecha | `fechaComparendo` | Ordena la conversación con el organismo. `null` → «—»: hay fuentes que no la traen |
+| **A** | ~~Fecha~~ **Fechas** | `fechaComparendo` + `fechaNotificacion` | Ordena la conversación con el organismo. `null` → «—»: hay fuentes que no la traen. **Renombrada el 24 ago 2026 (HU #11795)**: una sola celda con **dos líneas rotuladas** («Comparendo», «Notificación»). Ninguna columna se llama solo «Fecha» — ver la enmienda del 24 ago |
 | **A** | Infracción | `codigoInfraccion` + `descripcionInfraccion` | Una sola columna: el código sin descripción no dice nada y la descripción sin código no se puede citar. Descripción a **una línea** con recorte |
-| **A** | Municipio | `municipioFuente` → nombre | Decide quién gestiona. `null` = solo lo vio SIMIT |
+| **A** | ~~Municipio~~ **Municipio u organismo** | `municipioFuente` → nombre; si es `null`, `organismo` | Decide quién gestiona. **Renombrada el 24 ago 2026**: `municipioFuente` es el municipio al que se **preguntó**, y en las filas que solo vio SIMIT es `null`; en ese caso la celda muestra `organismo` **con el rótulo «Organismo»**, nunca fundido con el otro. Los dos a la vez, jamás. `—` solo si faltan los dos — ver la enmienda del 24 ago, Parte II |
 | **A** | Monto | `monto` | Es el criterio de prioridad. Alineado a la derecha, cifras tabulares |
 | **A** | ~~Estado~~ **Monitoreo** | `estado` | `StatusChip`. La distinción activo/inactivo cambia por completo cómo se lee la fila. **Renombrada el 21 ago 2026 (HU #11713)**: con «Estado en la fuente» en la misma tabla, dos rótulos que empiezan por la misma palabra se oyen casi iguales |
 | **A** | Gestión | `causalId` → nombre de la causal | Responde «¿esto ya lo miró alguien?», que es la razón de abrir la pantalla |
-| **B · colapsa por debajo de 1280 px** | ~~Organismo~~ | `organismo` | ~~Contexto útil, rara vez decisivo: casi siempre se deduce del municipio.~~ **RETIRADA de la tabla el 21 ago 2026 (HU #11713)**, por decisión del supervisor sobre el aviso de UX de que quince columnas son demasiadas. El dato no se pierde: está entero en el panel de detalle. Sigue en el export |
+| **B · colapsa por debajo de 1280 px** | ~~Organismo~~ | `organismo` | ~~Contexto útil, rara vez decisivo: casi siempre se deduce del municipio.~~ **RETIRADA de la tabla el 21 ago 2026 (HU #11713)**, por decisión del supervisor sobre el aviso de UX de que quince columnas son demasiadas. El dato no se pierde: está entero en el panel de detalle. Sigue en el export. **Precisión del 24 ago 2026: la columna NO vuelve** —sería la quince—, pero desde esa fecha el **valor** se ve en la celda «Municipio u organismo» **de las filas sin `municipioFuente`**, rotulado como organismo |
 | **B** | Origen | `origenMerge` | «SIMIT» / «Municipal» / «Ambos». Importa cuando algo no cuadra, no en la lectura normal |
 | **B** | Registrado | `primeraVistoEn` | Antigüedad en el sistema. Se distingue de la fecha del comparendo y por eso no van juntas |
 | **B · condicional** | Inactivado | `inactivadoEn` | **Solo se pinta con el filtro «Inactivos»**: en la vista de activos es una columna de guiones por definición (`null` mientras está activo) |
@@ -716,6 +731,7 @@ Se abre desde el número de comparendo. Es un `FlitModal wide` (ver «Decisiones
 ║  │   (el NIT con el que se preguntó, no el del infractor)                  │   ║
 ║  │ Placa                        │ ABC123                                   │   ║
 ║  │ Fecha del comparendo         │ 12 de julio de 2026                      │   ║
+║  │ Fecha de notificación        │ 3 de agosto de 2026                      │   ║
 ║  │ Infracción                   │ C29 — Estacionar en zona prohibida       │   ║
 ║  │ Organismo                    │ Secretaría de Movilidad de Medellín      │   ║
 ║  │ Municipio                    │ Medellín                                 │   ║
@@ -945,10 +961,10 @@ escritura que esta pantalla consume.
 | `numeroComparendo` | N.º comparendo |
 | `placa` | Placa |
 | `nitMonitoreado` | NIT monitoreado |
-| `fechaComparendo` | Fecha |
+| `fechaComparendo` + `fechaNotificacion` | ~~Fecha~~ **Fechas** (24 ago 2026, #11795) — dos líneas rotuladas: «Comparendo» y «Notificación» |
 | infracción | Infracción |
-| `organismo` | ~~Organismo~~ — **fuera de la tabla desde la #11713**; sigue en el detalle y en el export |
-| `municipioFuente` | Municipio |
+| `organismo` | ~~Organismo~~ — **fuera de la tabla como columna desde la #11713**; sigue en el detalle y en el export. Desde el **24 ago 2026** se pinta **dentro de la celda «Municipio u organismo»**, con el rótulo «Organismo», **solo** cuando `municipioFuente` es `null`. Se muestra **tal cual** lo manda la fuente: sin tildes añadidas, sin `capitalize` |
+| `municipioFuente` | Rótulo de línea «Municipio»; cabecera de la columna **«Municipio u organismo»** (24 ago 2026). Traducido por el catálogo; si falló, el código crudo |
 | `monto` | Monto |
 | `origenMerge` | Origen |
 | `estado` | ~~Estado~~ **Monitoreo** (#11713) |
@@ -976,7 +992,9 @@ escritura que esta pantalla consume.
 |---|---|
 | Subtítulo de la página | «Lo que SIMIT y los municipios reportan de los NIT que se vigilan. Los datos vienen de la fuente y no se editan aquí: lo único que se registra es la causal y la observación de gestión.» |
 | Bajo los filtros de identidad | «El NIT y la placa se buscan exactos y no viajan en la dirección del navegador.» |
-| ~~Ayuda de la columna Estado (`aria-describedby` de la cabecera)~~ → **`<caption>` de la tabla** (#11713) | «Comparendos monitoreados. “Monitoreo” dice si las fuentes siguen reportándolo —“inactivo” no significa pagado—. “Estado en la fuente” es lo que dice el proveedor, sin normalizar, y puede venir vacío. “Tipo” distingue el comparendo de la multa, que es su etapa siguiente.» |
+| ~~Ayuda de la columna Estado (`aria-describedby` de la cabecera)~~ → **`<caption>` de la tabla** (#11713) | «Comparendos monitoreados. “Monitoreo” dice si las fuentes siguen reportándolo —“inactivo” no significa pagado—. “Estado en la fuente” es lo que dice el proveedor, sin normalizar, y puede venir vacío. “Tipo” distingue el comparendo de la multa, que es su etapa siguiente. **“Municipio u organismo” dice a qué municipio se consultó; cuando el comparendo solo lo reportó SIMIT, la celda muestra el organismo que lo impuso, rotulado como tal.**» (última frase: 24 ago 2026) |
+| Bajo el filtro de municipio, **siempre visible** (24 ago 2026) | «El filtro busca por el municipio al que se le consultó. Los comparendos que solo reportó SIMIT no tienen municipio y no salen aquí, aunque su organismo lo mencione.» |
+| En el **Vacío B**, solo si el filtro de municipio está puesto (24 ago 2026) | «Los comparendos que solo reportó SIMIT no tienen municipio, así que no aparecen con este filtro aunque su organismo diga ese mismo nombre.» |
 | Junto a «Estado en la fuente», en el detalle | «Lo que reporta el proveedor, tal cual. No está normalizado.» |
 | Junto a «NIT monitoreado», en el detalle | «El NIT con el que se preguntó, no el del infractor.» |
 | Junto al botón de exportar | «Se exporta el conjunto filtrado, hasta 5.000 filas.» |
@@ -1156,14 +1174,20 @@ anteriores]` si existe.
 29. Placa con 2 caracteres → «La placa debe tener al menos 3 caracteres.».
 
 **Columnas y formato**
-30. Una fila con `placa: null`, `municipioFuente: null` y `monto: null` pinta «—» en las tres, sin
-    romper el alto de la fila.
+30. ~~Una fila con `placa: null`, `municipioFuente: null` y `monto: null` pinta «—» en las tres, sin
+    romper el alto de la fila.~~ **Corregida el 24 ago 2026 — no ejecutar tal cual: para el municipio
+    su resultado esperado depende ahora de `organismo`.** En su lugar: `placa: null` y `monto: null`
+    pintan «—»; la celda «Municipio u organismo» pinta «—» **solo si `municipioFuente` Y `organismo`
+    son los dos `null`**, y con `organismo` presente pinta el rótulo «Organismo» y su valor. En los
+    dos casos, sin romper el alto de la fila.
 31. `monto: "604100.00"` se pinta «$ 604.100».
 32. **No hay fila de totales** en el pie de la tabla.
 33. `estado: 'inactivo'` pinta el chip «Inactivo»; la fila **no** se atenúa.
 34. La columna «Inactivado» solo existe con el filtro «Inactivos» puesto.
 35. `municipioFuente: 'ITAGUI'` se pinta «Itagüí» con el catálogo cargado, y «ITAGUI» si
-    `GET /municipios` falló — **y en los dos casos la tabla se pinta**.
+    `GET /municipios` falló — **y en los dos casos la tabla se pinta**. Desde el 24 ago 2026, en los
+    dos casos con el rótulo de línea **«Municipio»** delante. Y el catálogo **no** se le aplica al
+    `organismo`: «Medellin» se queda «Medellin».
 36. ~~`estadoFuente` **no** aparece en ninguna columna de la tabla.~~ **REVOCADO el 21 ago 2026
     (HU #11713) — no ejecutar: su resultado esperado es hoy el contrario.** Lo que se comprueba en su
     lugar: `estadoFuente` **sí** es columna de nivel B, rotulada «Estado en la fuente», con el texto
@@ -1173,7 +1197,10 @@ anteriores]` si existe.
 36c. «Tipo» es columna de nivel A en posición 2, en **texto plano y sin `StatusChip`**;
     `tipoRegistro: null` → «—» y **nunca** «Comparendo»; un tipo desconocido se pinta crudo;
     `numeroResolucion` **no** se pinta en la tabla.
-36d. «Organismo» **ya no** es columna de la tabla (sigue en el detalle y en el export).
+36d. «Organismo» **ya no** es columna de la tabla (sigue en el detalle y en el export): **no existe
+     ningún `th` con ese texto**, tampoco después del 24 ago 2026. Lo que sí existe desde esa fecha
+     es el **rótulo de línea** «Organismo» dentro de la celda «Municipio u organismo», y solo en las
+     filas sin `municipioFuente`.
 36e. A **1280 px** el encabezado tiene **14** cabeceras con el filtro «Inactivos» puesto y a
     **1279 px** tiene **10**, con las de nivel B fuera del árbol accesible. El **esqueleto** tiene el
     mismo número de columnas que la tabla llena en cada uno de los dos anchos.
@@ -1335,11 +1362,18 @@ equivocado sin que nadie se entere.
 en `apps/web`. El texto del vacío ya explica de dónde salen los datos; el botón entra con la HU que
 traiga esa pantalla.
 
-**11. Diferido: filtros por rango de fechas, por municipio y por causal.** `RangoFechas` está listo
-para el primero, pero **el API no acepta ninguno de los tres** (`registrosQuerySchema` es `.strict()`
-y solo admite `estado`, `q`, `limit`, `cursor`). Diseñarlos hoy sería diseñar contra datos que no
-existen. **Son un insumo para architecture-agent** si producto los pide: cada uno necesita índice y
-contrato, no solo un campo en la barra.
+**11. ~~Diferido: filtros por rango de fechas, por municipio y por causal.~~** ~~`RangoFechas` está
+listo para el primero, pero **el API no acepta ninguno de los tres** (`registrosQuerySchema` es
+`.strict()` y solo admite `estado`, `q`, `limit`, `cursor`). Diseñarlos hoy sería diseñar contra
+datos que no existen.~~ **Caducado en parte, comprobado el 24 ago 2026:** el filtro de **municipio**
+y el de **causal** existen desde la HU #11555 (RN-36: entran por la **query** porque no identifican a
+nadie; `municipio` compara por **igualdad** contra `municipio_fuente` normalizado con
+`normalizarCodigoFuente`, sostenido por el índice `(municipio_fuente, created_at DESC, id DESC)` de
+la migración 0153). **Sigue diferido el rango de fechas.** Y sigue vigente lo que importa: cada
+filtro nuevo necesita índice y contrato, no solo un campo en la barra — **es un insumo para
+architecture-agent**, no un ajuste de frontend. Consecuencia declarada del filtro de municipio: no
+alcanza a las filas sin `municipioFuente` aunque su organismo nombre ese municipio (enmienda del
+24 ago, Parte II, sección 13).
 
 **12. Diferido: ordenar por columna.** El orden lo fija el cursor (`created_at DESC, id DESC`) y es
 lo que hace que la paginación sea correcta. Un orden distinto exige un cursor distinto, es decir,
@@ -1375,4 +1409,465 @@ HANDOFF
              frontend-agent puede implementar YA el visor y el panel de detalle: no dependen de
              ningún endpoint nuevo salvo el slug de permiso.
              Pregunta al PO: decisión 13 (¿la lista necesita el «cuándo» de la gestión?).
+```
+
+
+---
+
+## Enmienda del 24 ago 2026 — la fecha de notificación entra en la tabla y las filas de SIMIT dicen dónde fue (HU #11795 + hallazgo del 24 ago)
+
+Dos correcciones en una sola enmienda, y no por ahorrar archivo: **son el mismo defecto dos veces**.
+En los dos casos el dato **existe, está persistido y viaja en el contrato de la lista**, y la tabla no
+lo muestra porque una decisión anterior —correcta con lo que se sabía entonces— dijo que no. Separarlas
+en dos enmiendas del mismo día sobre el mismo documento obligaría a leer las dos para entender el
+alto de una fila, que es lo único que las dos comparten como coste.
+
+Cada parte revoca **en sitio** lo que contradice, tachado y con remisión aquí, por el mismo motivo que
+la enmienda del 21 ago: lo que se decidió un día y se revocó otro es parte del expediente, y borrarlo
+hace que la misma discusión vuelva dentro de tres meses.
+
+- **Parte I — fecha de notificación** (secciones 1 a 6). HU **#11795**, con la #11794 de backend como
+  precondición.
+- **Parte II — municipio y organismo** (secciones 7 a 13). **Entra como AC3 y AC4 de la HU #11795** (ampliada de 3 a 5 puntos el 24 ago 2026): sale del
+  reporte de David sobre el NIT 901789698. **No necesita backend**: `organismo` ya sale en
+  `COLUMNAS_REGISTRO` de `flito-comparendos.registros.service.ts` y ya llega a cada fila de la lista.
+
+---
+
+# Parte I · La fecha de notificación (HU #11795)
+
+Esta spec dijo dos veces que la fecha de notificación no se pinta, y las dos veces tenía razón con lo
+que se sabía entonces. Ya no. El spike **#11501 está cerrado** y la **HU BACKEND #11794** persiste
+`fechaNotificacion` con el mapa v4.
+
+### 1 · Revocación del bullet de «Lo que esta pantalla NO muestra»
+
+El bullet decía: *«Fecha de notificación. No existe en el esquema y depende del spike #11501. No se
+pinta, no se deja la columna vacía "para cuando llegue" y no se aproxima con `fechaComparendo`. Si el
+spike la trae, es una columna nueva con su HU.»* Queda así:
+
+> - ~~**Fecha de notificación.** No existe en el esquema y depende del spike #11501. No se pinta, no
+>   se deja la columna vacía «para cuando llegue» y no se aproxima con `fechaComparendo`. Si el spike
+>   la trae, es una columna nueva con su HU.~~
+>   **Revocado el 24 ago 2026 (HU #11795)** — solo la parte de que no se muestra. El spike #11501
+>   está **Resolved** y la HU BACKEND #11794 la persiste con el mapa v4, así que la premisa —«no
+>   existe en el esquema»— caducó. **Sigue vigente, y es lo importante, la prohibición de aproximar**:
+>   `fechaNotificacion` no se deduce de `fechaComparendo` ni de nada. Lo que **no** se cumple es el
+>   final de la frase: no es «una columna nueva». Razonamiento en la enmienda del 24 ago 2026.
+
+Nótese qué se revoca y qué no. Cuando se escribió el bullet, «no existe» era un hecho de esquema y
+«sería una columna nueva» era una previsión de diseño hecha sin mirar cómo había quedado la tabla
+después de la #11713. La primera cambió sola; la segunda estaba equivocada y se corrige abajo.
+
+**Por qué el dato importa lo suficiente para ocupar sitio de nivel A:** un comparendo notificado y uno
+sin notificar se gestionan distinto, y hoy esa diferencia solo se ve abriendo el panel fila por fila
+—exactamente el argumento que subió `estadoFuente` de nivel C a nivel B el 21 ago—.
+
+### 2 · Decisión: **no hay columna nueva**. «Fecha» pasa a llamarse «Fechas» y lleva dos líneas
+
+La columna existente de nivel A se **renombra** y **agrupa las dos fechas del comparendo en una sola
+celda**, cada una en su línea y con su nombre delante:
+
+```
+┌ Fechas ─────────────────┐
+│ Comparendo    12 jul 2026│
+│ Notificación   3 ago 2026│
+└─────────────────────────┘
+```
+
+**Ninguna columna puede llamarse solo «Fecha».** Es el mismo criterio literal que la decisión 2 del
+21 ago aplicó a «Estado»: con dos fechas en la misma celda, «Fecha» deja de identificar el dato, y un
+lector de pantalla en modo tabla anunciaría «Fecha… 12 jul 2026» dos veces seguidas para dos hechos
+distintos. **«Fechas», en plural, y cada línea rotulada.**
+
+**Por qué una columna extra no cabe.** La tabla ya absorbió «Tipo» y «Estado en la fuente» en la
+#11713 y para hacerles sitio hubo que **retirar «Organismo»**; el argumento con el que se retiró
+—quince columnas convierten una tabla en una hoja de cálculo ilegible— sigue en pie y una columna
+número quince lo reabre a los tres días. A eso se suma que desde la **#11777** «Estado en la fuente»
+se muestra entero a **14 rem**, o sea que el `overflow-x-auto` ya desplaza antes de 1280 px. Una
+columna nueva de nivel A empujaría a la derecha justo lo que el 21 ago se decidió no empujar.
+
+**Y por qué las dos fechas caben juntas sin trampa:** responden la **misma** pregunta operativa
+—«¿cuándo?»— sobre el **mismo** hecho, y ninguna se lee sin la otra (una notificación sin su
+comparendo no dice nada). El coste es **una línea más de alto por fila**, que en esta tabla ya está
+pagada: desde la #11777 la celda de estado envuelve a 14 rem y las filas son de varias líneas.
+
+**Sigue siendo UNA columna de nivel A y no colapsa.** No baja a nivel B, no se parte en dos, y las
+etiquetas de línea son **texto real en el DOM**: ni `title` —invisible al teclado y en táctil, ya
+descartado para la infracción— ni `sr-only`, porque quien ve la pantalla tiene exactamente el mismo
+problema de ambigüedad que quien la escucha.
+
+**«Registrado» (`primeraVistoEn`) NO se muda a esta celda.** Es una fecha, pero no es del comparendo:
+es cuándo lo vio nuestro sistema por primera vez. Esta spec ya lo separó a propósito («se distingue
+de la fecha del comparendo y por eso no van juntas») y esa razón no ha cambiado. Se queda en nivel B.
+
+**El export no hereda el rótulo.** «Fechas» es una agrupación de **pantalla**. En el `.xlsx` cada
+fecha es su propia columna con su propio nombre —`Fecha del comparendo` ya existe con ese texto
+exacto— porque en Excel se filtra por columna y una celda con dos líneas es un dato que no se puede
+filtrar. Si la notificación llega al archivo, va pegada a la del comparendo y con el rótulo
+`Fecha de notificación`; **eso no lo decide esta HU**.
+
+**Los tres sitios de este documento que dicen «Fecha» se corrigen en sitio:** la fila de la tabla de
+niveles, el catálogo de copy (`fechaComparendo` → Fecha) y el bullet revocado de arriba.
+
+### 3 · Ausencia: `—`, y nunca 1900
+
+- `fechaNotificacion: null` se pinta **`—`**, igual que toda ausencia del módulo (`SIN_DATO`), con su
+  `<span class="sr-only">Sin dato</span>` como ya hace el resto.
+- **Nunca `01/01/1900`.** Ese centinela es lo que manda SIMIT «para comparendos no notificados» y es
+  la razón por la que las migraciones 0158/0160 excluían el campo. **Normalizarlo es trabajo del mapa
+  v4 (HU #11794), en un solo sitio**: el visor **no** lo vuelve a filtrar. Una segunda normalización
+  en el cliente taparía una regresión del backend y haría que nadie se entere nunca. Si alguna vez se
+  ve «1 de enero de 1900» en pantalla, el defecto está en el mapa y se arregla allí.
+- **Nunca se aproxima** la notificación con `fechaComparendo` —lo único que el bullet revocado
+  conserva íntegro— ni se deriva de ningún otro campo. Es la misma regla que impide derivar
+  `tipoRegistro` de `numeroResolucion`: derivar en el cliente lo que el servidor no afirmó convierte
+  una ausencia en un dato verificado que nadie va a revisar.
+- **Nunca una línea sin etiqueta.** Si falta el valor falta el valor, no el rótulo.
+
+### 4 · Detalle (`PanelDetalleComparendo.tsx`): las dos, pegadas
+
+En el `<dl>` de DATOS DE LA FUENTE, con los rótulos **largos** y **una tras otra, sin ningún campo
+intercalado**:
+
+```
+│ Placa                        │ ABC123                                   │
+│ Fecha del comparendo         │ 12 de julio de 2026                      │
+│ Fecha de notificación        │ 3 de agosto de 2026                      │
+│ Infracción                   │ C29 — Estacionar en zona prohibida       │
+```
+
+Pegadas porque el panel es la superficie donde se comprueba lo que la tabla resumió: si en la tabla
+están en la misma celda y en el detalle hay tres campos entre medias, la comprobación obliga a
+buscar. `null` → `—`, con el mismo tratamiento de ausencia que el resto del `<dl>`. Rótulos largos y
+no «Comparendo» / «Notificación»: en el detalle no hay cabecera de columna que dé el contexto.
+
+### 5 · Lo que NO entra, y por qué queda escrito
+
+- **Selector de columnas.** No. Es un patrón nuevo, guarda estado por usuario y ninguna pantalla de
+  FLITO lo tiene (regla 3). Ya se descartó el 21 ago y esta HU no aporta ningún argumento nuevo.
+- **Preferencia persistida** de qué fecha mostrar. Tampoco: es el selector de columnas disfrazado de
+  ajuste, con el agravante de que dos operadores verían tablas distintas discutiendo la misma fila.
+- **«Organismo» no vuelve a la tabla como columna.** Salió el 21 ago por decisión del supervisor y
+  sigue entero en el detalle y en el export. Que aquí se ahorre una columna no es una plaza libre
+  para reponerlo: el ahorro es precisamente lo que permite que la notificación entre sin volver a
+  quince. La Parte II hace que el **valor** se vea en ciertas filas; **la columna no vuelve**.
+- **Filtrar u ordenar por fecha de notificación.** No. Ordenar exigiría índice y cursor nuevos
+  (RN-32): otra HU, no un ajuste de esta.
+
+### 6 · Los cuatro estados de la celda «Fechas»
+
+| Estado | Qué se ve |
+|---|---|
+| **1 · Ambas** | Dos líneas: `Comparendo  12 jul 2026` y `Notificación  3 ago 2026`. Valor en primario, rótulo en secundario y un punto tipográfico menor |
+| **2 · Solo comparendo** | `Comparendo  12 jul 2026` y `Notificación  —`. **La segunda línea se pinta igual**: quitarla dejaría filas de distinto alto en la misma tabla y se leería como un fallo de pintado, no como una ausencia. `—` con `sr-only` «Sin dato» |
+| **3 · Ninguna** | `Comparendo  —` y `Notificación  —`. **No** se colapsa a un solo `—`: la celda mantiene su forma para que el ojo compare filas por posición |
+| **4 · Cargando** | En las ocho filas fantasma, la celda lleva **dos barras apiladas**, no una. Una sola barra haría que la fila **creciera de alto** al llegar los datos, que es el mismo defecto que la #11713 corrigió en las cabeceras. El rótulo de la columna sale de `COLUMNAS_A`, que ya es fuente única |
+
+Los cuatro estados de la **lista** (cargando, error, vacío A/B, lleno) no cambian: esta parte no toca
+la consulta ni sus respuestas.
+
+---
+
+# Parte II · Mirando la tabla, una fila de SIMIT no dice dónde fue el comparendo (HU #11795, AC3-AC4)
+
+### 7 · Qué se comprobó, que es más fino que el reporte
+
+El reporte del 24 ago fue: *«la respuesta del SIMIT también trae el nombre del municipio y no lo
+muestras cuando la consulta es por simit; ese campo se llama `organismoTransito`»*. Comprobado en el
+código, el diagnóstico se corrige en un punto que cambia la solución entera:
+
+| Afirmación | Veredicto |
+|---|---|
+| «No se captura» | **Falso.** El mapa v3 lo trae con prioridad 1: `(3, 'simit', 'organismoTransito' → 'organismo')` |
+| «No se guarda» | **Falso.** Vive en `flito_comparendos_registros.organismo`, `varchar(120)` |
+| «No se muestra» | **Falso en el detalle y en el archivo.** Se pinta en `PanelDetalleComparendo.tsx:210` y es la columna «Organismo» del `.xlsx` |
+| «No se muestra **en la tabla**» | **Cierto, y es todo el defecto.** «Organismo» salió de la tabla en la #11713 para hacer sitio a «Tipo» y «Estado en la fuente» |
+
+Y la columna que sí está —«Municipio»— **no llena ese hueco, porque no es ese dato**: muestra
+`municipioFuente`, que es **el municipio al que se le PREGUNTÓ**, lo escribe el sync con el
+`codigoFuente` de la consulta municipal y en las filas que solo vio SIMIT es `null` por construcción
+(`flito-comparendos-merge.ts`: «`municipioFuente` no está porque no lo trae ningún proveedor — lo pone
+el sync»). Resultado práctico: **una fila de SIMIT enseña `—` en «Municipio» teniendo el dato del
+organismo guardado y a mano en la misma fila del contrato.**
+
+**Los datos reales sobre los que se decide** (NIT 901789698, payloads compartidos el 24 ago):
+
+| Fuente | Campo | Valor |
+|---|---|---|
+| SIMIT, comparendo de Bogotá | `organismoTransito` | `Bogota D.C.` |
+| SIMIT, dos comparendos de Medellín | `organismoTransito` | `Medellin` |
+| UTS municipal, el mismo comparendo | `estadoCuenta.secretaria.nombreAutoridadTransito` | `STRIA DE TTOyTTE MEDELLIN` |
+
+**Esa asimetría es la que decide el diseño y hay que dejarla escrita.** En SIMIT el `organismoTransito`
+es, en la práctica, el **nombre del municipio**; en el municipal es el **nombre de la secretaría**. No
+son la misma clase de cadena, no vienen sin tildes ni acentos de la misma manera y no miden lo mismo
+—hasta 120 caracteres el campo—. **La celda tiene que seguir siendo legible con las dos**, y ninguna
+de las dos puede quedar disfrazada de la otra.
+
+### 8 · Revocación de la última frase del requerimiento 4
+
+El requerimiento 4 decía: *«`municipioFuente` es `null` cuando el comparendo solo lo reportó SIMIT.
+No es un dato faltante: es información. La celda dice «—» y el detalle lo explica; no se rellena con
+el municipio del organismo ni con nada deducido.»* Queda así:
+
+> **4. `municipioFuente` es `null` cuando el comparendo solo lo reportó SIMIT** (comentario del
+> contrato, línea 228). No es un dato faltante: es información. ~~La celda dice «—» y el detalle lo
+> explica; no se rellena con el municipio del organismo ni con nada deducido.~~
+> **Revocado el 24 ago 2026** — solo lo que dice la celda. **Sigue vigente, y es lo importante, la
+> prohibición de deducir**: `municipioFuente` no se rellena, ni en el cliente ni en el servidor, con
+> nada derivado del organismo; el campo persistido no cambia. Lo que **no** se cumple es que la celda
+> se quede en «—» teniendo `organismo` en la misma fila: muestra el organismo **diciendo que es el
+> organismo**. Razonamiento en la enmienda del 24 ago 2026.
+
+**Qué se revoca y qué no, porque aquí está toda la diferencia.** La prohibición se escribió contra
+**inventar `municipioFuente`** —convertir «Medellin» en el código `MEDELLIN` y pintarlo como si a ese
+municipio se le hubiera preguntado— y eso **sigue prohibido**. Mostrar el organismo **rotulado como
+organismo** no es deducir nada: es publicar en la tabla un campo que el contrato ya trae, con su
+nombre verdadero. La frase confundía «no deducir el dato» con «no mostrar el otro dato», y solo lo
+segundo se cae.
+
+### 9 · Decisión: una sola columna, dos rótulos posibles, nunca fundidos
+
+La columna existente de nivel A **no se duplica y no se parte**. Se renombra y su celda pasa a llevar
+**el rótulo de lo que está mostrando, siempre**:
+
+```
+┌ Municipio u organismo ─┐   ┌ Municipio u organismo ─┐   ┌ Municipio u organismo ─┐
+│ Municipio              │   │ Organismo              │   │ —                      │
+│ Medellín               │   │ Medellin               │   │                        │
+└────────────────────────┘   └────────────────────────┘   └────────────────────────┘
+   municipioFuente             municipioFuente = null        los dos en null
+   = 'MEDELLIN'                organismo = 'Medellin'
+```
+
+**Regla de contenido, en una línea:** la celda muestra `municipioFuente` traducido por el catálogo si
+lo hay; **si y solo si** `municipioFuente` es `null`, muestra `organismo`; si tampoco hay organismo,
+`—`.
+
+**Nunca las dos a la vez.** Una fila municipal tiene los dos campos, y pintarlos juntos sería reponer
+la columna «Organismo» dentro de otra celda: la misma información, la misma anchura y ninguna de las
+dos decisiones de la #11713 respetada. El organismo de esas filas está donde la #11713 lo dejó —el
+detalle y el export— y ahí se queda.
+
+**Ninguna columna puede llamarse solo «Municipio».** Es el criterio literal de la decisión 2 del
+21 ago («Estado» → «Monitoreo») y el de la sección 2 de esta misma enmienda («Fecha» → «Fechas»): una
+cabecera que **afirma una categoría** sobre una celda que a veces contiene otra es una cabecera que
+miente en la mitad de las filas, y un lector de pantalla en modo tabla lo dice en voz alta —anuncia
+la cabecera al cambiar de celda— «Municipio… Medellin» para una fila cuyo municipio **no se sabe**.
+
+**«Municipio u organismo», con la «u» y no con una barra.** «Municipio / organismo» se anuncia como
+«municipio barra organismo» en unos lectores y se come el separador en otros, y en los dos casos deja
+de leerse como la disyunción que es. La «u» —no «o», por la o inicial de «organismo»— es español
+correcto, es una sola sílaba de coste y dice exactamente lo que la columna hace.
+
+### 10 · Cómo se distingue, que es lo que impide que se fundan
+
+- **El rótulo va PRIMERO, en su propia línea, encima del valor.** Es la única posición que
+  desambigua antes de leer: con el rótulo debajo —el patrón del alias del NIT y del «cuándo/quién» de
+  la gestión— el ojo lee «Medellin», concluye «municipio», y el rótulo llega tarde a corregir una
+  conclusión ya tomada. Aquí el rótulo **no es un complemento del valor: es lo que dice qué es el
+  valor**, y por eso se comporta como el de la celda «Fechas» y no como una segunda línea.
+- **Rótulo en `--flit-text-secondary`, un punto tipográfico menor; valor en `--flit-text-primary`.**
+  Exactamente la misma pareja visual que la celda «Fechas», para que las dos celdas rotuladas de la
+  tabla se lean con la misma gramática y no como dos inventos.
+- **Texto real en el DOM.** Ni `title` —no lo ve el teclado, no existe en táctil— ni `sr-only`: quien
+  ve la pantalla tiene el mismo problema de ambigüedad que quien la escucha. Ya es la conclusión de
+  la infracción, del estado de la fuente y de la celda «Fechas».
+- **Nunca una línea con valor sin su rótulo.** Ni siquiera en la fila municipal, que es el caso
+  común: si solo se rotulara el caso de SIMIT, un valor **desnudo** significaría «municipio» por
+  omisión, que es fundir los dos rótulos en silencio por la puerta de atrás y además haría que las
+  filas tuvieran estructuras distintas dentro de la misma columna.
+- **El valor se pinta TAL CUAL viene, y el organismo no se maquilla.** «Medellin» sin tilde y
+  «Bogota D.C.» se pintan así: son lo que dijo la fuente, y el operador puede tener que citárselos.
+  Ni `capitalize`, ni `uppercase`, ni tildes puestas por nosotros. Es la misma regla que la #11713 y
+  la #11777 fijaron para `estadoFuente`, y por el mismo motivo. **`municipioFuente` sí se traduce**
+  —«ITAGUI» → «Itagüí»— porque ahí la traducción la hace **nuestro catálogo**, que es un dato, no una
+  suposición; si el catálogo no cargó, se pinta el código crudo y la tabla se pinta igual (nota 35).
+- **La celda deja de ser `whitespace-nowrap` y envuelve.** `municipioFuente` es `varchar(40)` y
+  cabía; `organismo` es **`varchar(120)`** y «STRIA DE TTOyTTE MEDELLIN» no es el peor caso. Se aplica
+  el tratamiento que la #11777 ya dejó medido y escrito para «Estado en la fuente»: `wrap-anywhere`
+  —no `break-words`— con `min-w` **y** `max-w` (los dos: el techo solo, en una tabla de layout
+  automático que ya desborda, aprieta la columna contra su mínimo, que con `wrap-anywhere` es un
+  carácter), y un `line-clamp` **de airbag**, holgado por encima del peor caso **medido**, no
+  calculado. **Punto de partida 11 rem, con la obligación de medir de la #11777**: si los 120
+  caracteres del contrato se cortan en horizontal, la cifra está mal, no el criterio.
+
+**Lo que esta celda le cuesta a la tabla, dicho junto con la Parte I:** una línea más por fila en
+«Fechas» y una línea más por fila en «Municipio u organismo». Es el coste que se acepta a cambio de
+**no** añadir ninguna columna, y está pagado por donde ya iba la tabla: desde la #11777 una celda de
+estado puede medir cuatro líneas, y el alias del NIT y la segunda línea de «Gestión» ya rompían el
+alto uniforme. **La tabla sigue en 14 columnas con «Inactivado» puesto y 10 por debajo de 1280 px.**
+
+### 11 · Los cuatro estados de la celda «Municipio u organismo»
+
+| Estado | Qué se ve |
+|---|---|
+| **1 · Fila municipal** (`municipioFuente` con valor) | `Municipio` / `Medellín`. El nombre sale del catálogo; si `GET /municipios` falló, el código crudo `MEDELLIN` **y la tabla se pinta igual** |
+| **2 · Fila de SIMIT** (`municipioFuente: null`, `organismo` con valor) | `Organismo` / `Medellin`, tal cual lo mandó la fuente. **El rótulo cambia; el valor no se traduce, no se completa y no se convierte en municipio** |
+| **3 · Sin ninguno de los dos** | Un `—` **sin rótulo**, con su `sr-only` «Sin dato». Y aquí **sí** se diferencia de la celda «Fechas», a propósito: allí hay dos ranuras que siempre existen y la ausencia se rotula porque se sabe **qué** falta; aquí no se sabe cuál de los dos falta, y escribir «Municipio —» afirmaría una categoría que nadie puede afirmar. La cabecera ya cubre la celda |
+| **4 · Cargando** | En las ocho filas fantasma, **dos barras apiladas**: una corta arriba (rótulo) y una más larga debajo (valor). Con una sola barra la fila **crece de alto** al llegar los datos, que es el defecto que el esqueleto existe para evitar. Como en «Fechas», la cabecera sale de `COLUMNAS_A`, que es fuente única de los dos encabezados |
+
+Los cuatro estados de la **lista** no cambian: esta parte no toca la consulta ni sus respuestas.
+
+### 12 · Lo que NO entra, con su motivo
+
+- **La columna «Organismo» separada NO vuelve.** Sería la **quince** y reabriría a los tres días la
+  decisión del supervisor de la #11713, con el mismo argumento que sigue siendo cierto —quince
+  columnas convierten la tabla en una hoja de cálculo— y con el agravante de que a 1280 px el
+  `overflow-x-auto` ya desplaza desde la #11777. Lo que entra no es una columna: es un rótulo dentro
+  de una celda que ya existía.
+- **El municipio NO se deduce del organismo, como dato.** No se convierte «Medellin» en el
+  `codigoFuente` `MEDELLIN`, no se busca en el catálogo de municipios, no se normaliza con
+  `normalizarCodigoFuente` para «ver si coincide» y **no se escribe nada en `municipioFuente`**, ni
+  en el cliente ni en el sync. La prohibición del requerimiento 4 era contra **inventar** el campo y
+  **sigue entera**: el campo persistido no cambia con esta enmienda, ni una fila. Lo que se muestra
+  es el organismo diciendo que es el organismo.
+- **El export no cambia.** El `.xlsx` ya tiene «Municipio» y «Organismo» como **columnas separadas**
+  y eso es lo correcto allí: en Excel se filtra y se ordena **por columna**, así que dos columnas con
+  su nombre valen más que una celda de dos líneas que no se puede filtrar. Es el mismo razonamiento
+  de la sección 2 con «Fechas», y es la **inversa** del renombre a «Monitoreo» de la #11713: allí las
+  dos superficies mostraban el mismo dato único y tenían que llamarlo igual; aquí el archivo tiene
+  dos datos y la pantalla tiene una celda, y forzar el mismo rótulo estropearía uno de los dos.
+- **La cabecera de la tabla no se vuelve pulsable** ni sugiere orden o filtro por esta columna: nada
+  de eso cambia (decisiones 11 y 12).
+
+### 13 · La consecuencia contraintuitiva, que alguien reportará como defecto
+
+**El filtro de municipio sigue operando sobre `municipioFuente` y solo sobre él.** Es igualdad exacta
+contra el código normalizado (`normalizarCodigoFuente`, RN-36), y **eso no se toca**: es lo que
+sostiene el índice `(municipio_fuente, created_at DESC, id DESC)` de la migración 0153 y el cursor de
+RN-32.
+
+> **Por lo tanto: una fila de SIMIT cuya celda dice «Organismo · Medellin» NO aparece al filtrar por
+> municipio «MEDELLIN».** Es correcto —esa fila no tiene municipio consultado, tiene un organismo que
+> lo menciona— y es contraintuitivo hasta el punto de que va a llegar como bug. Queda declarado aquí,
+> y la pantalla lo dice en dos sitios en vez de esperar al reporte:
+
+1. **Texto de ayuda bajo el filtro de municipio**, siempre visible:
+   «El filtro busca por el municipio al que se le consultó. Los comparendos que solo reportó SIMIT no
+   tienen municipio y no salen aquí, aunque su organismo lo mencione.»
+2. **Vacío B**, y **solo cuando el filtro de municipio está puesto**, una línea más en el bloque que
+   ya repite los filtros aplicados:
+   «Los comparendos que solo reportó SIMIT no tienen municipio, así que no aparecen con este filtro
+   aunque su organismo diga ese mismo nombre.»
+   Se pinta condicionada, igual que la explicación de la búsqueda exacta del NIT y la placa solo se
+   pinta si había NIT o placa: con otro filtro, esa frase es ruido.
+3. **El `caption` `sr-only` de la tabla** gana una frase, que es donde la #11713 ya puso las
+   advertencias que ninguna cabecera de once caracteres podía dar:
+   «"Municipio u organismo" dice a qué municipio se consultó; cuando el comparendo solo lo reportó
+   SIMIT, la celda muestra el organismo que lo impuso, rotulado como tal.»
+
+**Lo que NO se hace con esa consecuencia:** ampliar el filtro para que también busque en `organismo`.
+Sería un `ILIKE` sobre un texto libre de 120 caracteres sin índice que lo sostenga, mezclaría en un
+mismo resultado «a quién le preguntamos» con «quién impuso el comparendo» —las dos preguntas que esta
+sección entera existe para no confundir— y en el municipal buscaría «MEDELLIN» dentro de «STRIA DE
+TTOyTTE MEDELLIN», con lo que el mismo filtro significaría dos cosas distintas según la fuente. Si
+producto lo quiere, es **requerimiento para architecture-agent**: contrato, índice y HU propia.
+
+---
+
+### 14 · Notas para QA (añadir a la sección «Notas para QA»)
+
+**Fechas (HU #11795)**
+
+1. La cabecera de esa columna dice **«Fechas»** y **no existe** ningún `th` cuyo texto sea exactamente
+   `Fecha`. La aserción es sobre el texto exacto, no `contains`: `Fechas` contiene `Fecha`.
+2. Fila con las dos fechas → en la celda se leen **los dos rótulos** (`Comparendo`, `Notificación`) y
+   los dos valores formateados en corto.
+3. `fechaNotificacion: null` → la etiqueta **«Notificación» existe igualmente** y su valor es `—`. Es
+   la aserción que muerde: una implementación que oculte la línea pasa cualquier test que solo mire
+   el valor.
+4. `fechaNotificacion: null` → en el DOM de la fila **no aparece `1900`** en ninguna forma
+   (`01/01/1900`, `1 ene 1900`, `1900-01-01`).
+5. Fixture con `fechaNotificacion: '1900-01-01'` → **la prueba del mapa v4 (#11794) es la que debe
+   estar en rojo**, no la del visor: el front pinta lo que le llegue y esa es la decisión.
+6. Ambas `null` → dos líneas, dos `—`, y la fila conserva el mismo número de celdas.
+7. Estado de carga → la celda de «Fechas» tiene **dos** barras fantasma; comprobar además que el alto
+   de la fila fantasma y el de la fila con datos no difieren.
+8. Panel de detalle → «Fecha de notificación» aparece **inmediatamente después** de «Fecha del
+   comparendo» (aserción sobre el orden de los `<dt>`, no sobre su mera presencia).
+9. **Mutación obligatoria:** cambiar el rótulo `Notificación` por una cadena vacía y comprobar que la
+   prueba 3 se pone roja. Si sigue verde, la aserción está sobre el valor y no sobre la etiqueta.
+
+**Municipio u organismo**
+
+10. La cabecera dice **«Municipio u organismo»** y **no existe** ningún `th` cuyo texto sea exactamente
+    `Municipio`. Texto exacto, no `contains`.
+11. Fila con `municipioFuente: 'MEDELLIN'` y `organismo: 'STRIA DE TTOyTTE MEDELLIN'` → la celda
+    muestra el rótulo **`Municipio`** y el valor **`Medellín`** (catálogo cargado), y **no contiene**
+    la cadena `STRIA`. Es la aserción que impide que alguien pinte los dos «ya que están».
+12. Fila con `municipioFuente: null` y `organismo: 'Medellin'` → la celda muestra el rótulo
+    **`Organismo`** y el valor **`Medellin`**, **sin tilde**: ni traducido por el catálogo, ni
+    capitalizado, ni convertido en «Medellín».
+13. La misma fila del punto 12 → la celda **no** contiene el rótulo `Municipio` **ni** el guion
+    `—`. Es la comprobación de que el defecto original está cerrado.
+14. Fila con `municipioFuente: null` y `organismo: 'Bogota D.C.'` → se lee `Bogota D.C.` tal cual,
+    con el punto y sin tilde.
+15. Fila con `municipioFuente: null` y `organismo: null` → un solo `—`, **sin ningún rótulo** en la
+    celda, y con el `sr-only` «Sin dato».
+16. `municipioFuente: 'ITAGUI'` con el catálogo caído → rótulo `Municipio` y valor `ITAGUI`, **y la
+    tabla se pinta** (es la nota 35 vigente, con el rótulo añadido).
+17. Estado de carga → la celda tiene **dos** barras fantasma; el alto de la fila fantasma y el de la
+    fila con datos no difieren.
+18. Un `organismo` de **120 caracteres** (el peor caso del contrato) **se lee entero** en la celda:
+    no queda cortado en horizontal ni recortado por el `line-clamp`. Comprobación del mismo tipo que
+    la #11777 exigió: **medida en el navegador**, `scrollWidth` contra `clientWidth`, no a ojo.
+19. La tabla sigue teniendo **14** cabeceras con «Inactivado» puesto y **10** por debajo de 1280 px:
+    ni las fechas ni el organismo añadieron ninguna columna. «Organismo» **no** es un `th`.
+20. Filtrar por municipio `MEDELLIN` **no** devuelve la fila del punto 12, aunque su celda diga
+    «Medellin». **Y la petición no manda nada nuevo**: el esquema del backend es `.strict()`.
+21. Con el filtro de municipio puesto y cero resultados → el Vacío B incluye la frase de las filas de
+    SIMIT; **sin** ese filtro puesto, esa frase **no** aparece.
+22. El texto de ayuda del filtro de municipio está visible **siempre**, no solo tras un vacío.
+23. El panel de detalle y el `.xlsx` **no cambian**: «Organismo» y «Municipio» siguen siendo dos
+    campos y dos columnas separadas, con sus rótulos de hoy.
+24. **Mutación obligatoria (una por decisión, y hay tres):**
+    - **a.** Cambiar el rótulo `Organismo` de la celda por una cadena vacía → **la prueba 12 se pone
+      roja**. Si sigue verde, la aserción mira el valor y no la etiqueta, que es justo lo que esta
+      enmienda prohíbe.
+    - **b.** Invertir la condición (pintar `organismo` **también** cuando hay `municipioFuente`) →
+      **la prueba 11 se pone roja**.
+    - **c.** Traducir el organismo con el catálogo de municipios (`'Medellin'` → `'Medellín'`) → **la
+      prueba 12 se pone roja**. Es la mutación que corresponde a «no se deduce el municipio del
+      organismo».
+
+---
+
+```
+HANDOFF · enmienda 24 ago 2026 v2 (slim)
+  Modo: slim — enmienda documental, sin pantalla nueva
+  Entrega: docs/ux/flito-comparendos-visor.md (mismo archivo, enmendado)
+  Cambios normativos — Parte I (fechas, HU #11795):
+    · Revocado el bullet «Fecha de notificación» de «Lo que esta pantalla NO muestra» (spike #11501
+      cerrado; #11794 la persiste). SIGUE vigente la prohibición de aproximarla con fechaComparendo
+    · La columna «Fecha» pasa a «Fechas» y muestra DOS líneas rotuladas (Comparendo / Notificación)
+      en una sola celda de nivel A. NO hay columna nueva
+    · Ausencia = «—» con sr-only; el centinela 01/01/1900 lo normaliza el mapa v4 (#11794), NO el
+      front; la línea nunca se queda sin etiqueta
+    · Detalle: «Fecha del comparendo» y «Fecha de notificación» pegadas, sin campos intercalados
+    · Esqueleto: DOS barras en la celda de Fechas, o la fila crece de alto al llegar los datos
+  Cambios normativos — Parte II (municipio/organismo, AC3 y AC4 de la HU #11795):
+    · Revocada la frase «no se rellena con el municipio del organismo ni con nada deducido» SOLO en
+      lo que dice la celda. La prohibición de DEDUCIR municipioFuente sigue entera
+    · La columna «Municipio» pasa a «Municipio u organismo». Muestra municipioFuente; si es null,
+      muestra `organismo` CON el rótulo «Organismo». Nunca los dos. Rótulo SIEMPRE, encima del valor
+    · El organismo se pinta TAL CUAL (sin tildes, sin capitalize); municipioFuente sí se traduce con
+      el catálogo, porque eso es un dato nuestro y no una suposición
+    · La celda envuelve: `organismo` es varchar(120). Tratamiento medido de la #11777
+      (wrap-anywhere + min-w Y max-w + line-clamp de airbag); 11 rem de partida, con obligación de MEDIR
+    · Cerrado: «Organismo» NO vuelve como columna (sería la quince, #11713); NO se deduce el
+      municipio del organismo; el export NO cambia (dos columnas separadas, se filtra por columna)
+    · CONSECUENCIA DECLARADA: el filtro de municipio sigue operando solo sobre municipioFuente, así
+      que una fila de SIMIT que dice «Organismo · Medellin» NO sale al filtrar por MEDELLIN. Se
+      anuncia en el ayuda del filtro, en el Vacío B condicionado y en el caption
+  Coste conjunto: dos líneas más de alto por fila. CERO columnas nuevas: 14 / 10 se mantienen
+  Requerimientos nuevos de datos:
+    · Parte I — 1: `fechaNotificacion` en `ComparendoRegistro` y en el detalle (lo entrega #11794)
+    · Parte II — NINGUNO. `organismo` ya sale en COLUMNAS_REGISTRO y ya llega en cada fila
+  Siguiente:
+    · La Parte II NO necesita work item nuevo: es AC3 (celda) y AC4 (el filtro no cambia) de #11795
+    · frontend-agent (#11795), después de que #11794 esté en develop
+    · qa-agent: 24 notas, con tres mutaciones nombradas obligatorias en la Parte II
+  Pendiente humano: ninguno
 ```
