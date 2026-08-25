@@ -138,8 +138,26 @@ export default function PanelDetalleComparendo(
     onGestionado(nuevo);
   };
 
-  const municipio = detalle?.municipioFuente
-    ? catalogos.municipios[detalle.municipioFuente] ?? detalle.municipioFuente
+  /**
+   * El municipio del COMPARENDO (HU #11879), que es el mismo que pinta su fila en la tabla.
+   *
+   * Leía `municipioFuente` —el municipio al que se PREGUNTÓ— hasta esta HU, y eso ya no se sostiene
+   * desde que la tabla pinta `municipioComparendo`: una fila que solo reportó el SIMIT decía
+   * «Medellín» en el listado y «Municipio: —» en su propio detalle, abierto ENCIMA de la fila que
+   * afirmaba lo contrario. No es una inconsistencia cosmética: es la pantalla desmintiéndose a sí
+   * misma sobre el dato por el que además se filtra.
+   *
+   * Esta constante alimenta los DOS sitios donde el panel nombra el municipio —la línea de resumen
+   * de arriba y el `<dt>` «Municipio» del `<dl>`— y por eso está aquí arriba: son la misma verdad
+   * dicha dos veces, y separarlas es cómo una de las dos se queda atrás.
+   *
+   * **`municipioFuente` deja de pintarse en el SPA y NO gana un campo propio.** Es trazabilidad de
+   * la corrida, no un hecho del comparendo, y un tercer campo con la palabra «municipio» en este
+   * mismo `<dl>` recrearía aquí la confusión que la #11879 cierra en la tabla. Si producto lo quiere
+   * visible es otra HU, con su rótulo propio («Municipio consultado»).
+   */
+  const municipio = detalle?.municipioComparendo
+    ? catalogos.municipios[detalle.municipioComparendo] ?? detalle.municipioComparendo
     : null;
   const alias = detalle ? catalogos.alias[detalle.nitMonitoreado] : undefined;
   const infraccion = detalle
@@ -217,6 +235,12 @@ export default function PanelDetalleComparendo(
                 <Dato etiqueta="Fecha del comparendo" valor={fechaLarga(detalle.fechaComparendo)} />
                 <Dato etiqueta="Fecha de notificación" valor={fechaLarga(detalle.fechaNotificacion)} />
                 <Dato etiqueta="Infracción" valor={infraccion} />
+                {/* Los dos siguen siendo DOS `<dt>` separados, y aquí no hay respaldo ni fusión de
+                    ningún tipo (HU #11879): el panel existe justamente para desambiguar lo que la
+                    tabla resume. En la fila cuyo municipio no se pudo determinar, la tabla enseña el
+                    organismo en el lugar del municipio y el panel dice MÁS —«Municipio: —» y
+                    «Organismo: STRIA DE TTOyTTE MEDELLIN»—, que es lo que el operador cita cuando
+                    reclama. El organismo, entero y TAL CUAL: sin recortar y sin maquillar. */}
                 <Dato etiqueta="Organismo" valor={detalle.organismo} />
                 <Dato etiqueta="Municipio" valor={municipio} />
                 <Dato etiqueta="Monto" valor={pesos(detalle.monto)} />

@@ -333,18 +333,28 @@ export default function VistaRegistrosComparendos({ nav }: { nav: NavComparendos
                 {/* Solo con el filtro de MUNICIPIO puesto (HU #11795), y condicionada por la misma
                     razón que la frase de arriba: con cualquier otro filtro esto es ruido.
 
-                    Explica la consecuencia contraintuitiva que la enmienda del 24 ago dejó
-                    declarada: desde que la tabla muestra el organismo en las filas que solo reportó
-                    SIMIT, un operador ve «Medellin» en una celda, filtra por MEDELLIN y esa fila no
-                    aparece. Es correcto —esa fila no tiene municipio consultado, tiene un organismo
-                    que lo menciona— y va a llegar como bug si la pantalla no lo dice. El filtro NO
-                    se amplía a `organismo`: sería un `ILIKE` sin índice sobre texto libre de 120
-                    caracteres, y en el municipal buscaría «MEDELLIN» dentro de «STRIA DE TTOyTTE
-                    MEDELLIN», con lo que el mismo filtro significaría dos cosas según la fuente. */}
+                    Lo que decía hasta la HU #11879 —«los comparendos que solo reportó SIMIT no
+                    tienen municipio, así que no aparecen con este filtro»— era la consecuencia
+                    contraintuitiva de la #11795 y es FALSO desde la #11878: el filtro compara
+                    `municipioComparendo`, que el sync deriva del organismo cuando no hubo consulta
+                    municipal, y esas filas SÍ salen.
+
+                    Queda un residuo distinto y más pequeño, que es lo que la frase nueva nombra: las
+                    filas cuyo municipio no se pudo determinar —organismo que no reconoce ningún
+                    municipio del catálogo, o que reconoce dos—. Se dicen aquí porque el operador que
+                    filtra por un municipio que sabe que existe merece saber por qué no las ve, y
+                    porque en la tabla son reconocibles: son las que muestran el organismo en el
+                    lugar del municipio.
+
+                    El filtro NO se amplía a `organismo`: sería un `ILIKE` sin índice sobre texto
+                    libre de 120 caracteres, y buscaría «MEDELLIN» dentro de «STRIA DE TTOyTTE
+                    MEDELLIN», con lo que el mismo filtro significaría dos cosas según la fuente. Esa
+                    deducción la hace el sync UNA vez, la persiste y la audita. */}
                 {criterios.municipio && (
                   <p>
-                    Los comparendos que solo reportó SIMIT no tienen municipio, así que no aparecen
-                    con este filtro aunque su organismo diga ese mismo nombre.
+                    Si sabes que hay comparendos de ese municipio, puede que no se haya podido
+                    determinar de dónde son: en la tabla esas filas muestran el organismo en el lugar
+                    del municipio.
                   </p>
                 )}
                 <button
