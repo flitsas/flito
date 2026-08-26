@@ -32,7 +32,7 @@ Declarar «ayuda: N/A — …» en el cuerpo del PR. No inventar una ficha para 
 - **Copy / a11y** menor que no cambia el flujo ni los nombres de controles que cita la ficha
 - Ramas **CHORE/** y **DOCS/**
 - **Bug** que no cambia lo que se ve o se hace (infra, test, tipo interno)
-- Módulo **sin ficha aún** (el `.md` no existe; el índice muestra «Ficha pendiente»). No redactar las 18 en esta skill: eso es alcance de las HUs de contenido
+- Módulo **sin ficha aún** (el `.md` no existe; el índice muestra «Ficha pendiente»). Las 12 de **Gestión** ya están publicadas (HU #11894). No redactar finanzas/Siigo aquí: eso es la HU de contenido pendiente.
 
 ## Dónde viven
 
@@ -44,6 +44,8 @@ Declarar «ayuda: N/A — …» en el cuerpo del PR. No inventar una ficha para 
 | Renderer | `apps/web/src/lib/ayudaMarkdown.ts` + `components/ayuda/AyudaMarkdown.tsx` |
 
 Un archivo por clave del catálogo. Prefijo `_` no es ficha. Ausencia = pendiente, no error.
+
+**Gestión publicada (HU #11894):** `flito_tramites`, `soat`, `flito_impuestos`, `flito_derechos`, `flito_revisiones`, `flito_compuerta`, `flito_tablero`, `flito_bitacora`, `flito_logistica`, `flito_logistica_ruta`, `flito_comparendos`, `clients`. Finanzas y Administración siguen pendientes.
 
 `siigo_credenciales` se lista solo si `user.role === 'admin'`. **No** aliasar a `siigo_parametrizacion`.
 

@@ -8,34 +8,41 @@ import {
 test.describe('FLITO — Ayuda · índice', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('AC3 — proveedor solo ve SOAT; sin .md es Ficha pendiente, no error', async ({ page }) => {
+  test('AC3 — proveedor solo ve SOAT publicado (HU #11894); no error', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
     await expect(page.getByRole('heading', { name: 'Ayuda FLITO', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: /ficha pendiente de SOAT/i })).toBeVisible();
-    await expect(page.getByText('Ficha pendiente').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de SOAT' })).toBeVisible();
+    await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
 
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Impuestos/i })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Bolsas/i })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
     await expect(page.getByText(/no se pudo cargar el índice/i)).toHaveCount(0);
 
-    await page.getByRole('link', { name: /ficha pendiente de SOAT/i }).click();
+    await page.getByRole('link', { name: 'Abrir ficha de SOAT' }).click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/soat$/);
-    await expect(page.getByText('Esta ficha está pendiente.')).toBeVisible();
-    await expect(page.getByText(/no es un error/i)).toBeVisible();
+    await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toBeVisible();
     await expect(page.getByText(/no se pudo cargar esta ficha/i)).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).toHaveAttribute('href', '/flito/soat');
   });
 
-  test('AC3 — gestor de impuestos solo ve Impuestos; mensajero solo Mi ruta', async ({ page }) => {
+  test('AC3 — gestor de impuestos solo ve Impuestos publicado (HU #11894)', async ({ page }) => {
     await abrirAyuda(page, GESTOR_IMPUESTOS_USER);
-    await expect(page.getByRole('link', { name: /Impuestos/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Impuestos' })).toBeVisible();
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Comparendos/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Clientes/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Compuerta/ })).toHaveCount(0);
+  });
 
+  test('AC3 — mensajero solo ve Mi ruta publicada (HU #11894)', async ({ page }) => {
     await abrirAyuda(page, MENSAJERO_USER);
-    await expect(page.getByRole('link', { name: /Mi ruta/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Mi ruta' })).toBeVisible();
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toHaveCount(0);
   });
@@ -43,19 +50,21 @@ test.describe('FLITO — Ayuda · índice', () => {
   test('AC3 — financiera no ve SOAT ni Credenciales; sí ve Bolsas y parametrización', async ({ page }) => {
     await abrirAyuda(page, FINANCIERA_USER);
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Bolsas/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Parametrización/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Clientes y proveedores' })).toBeVisible();
+    await expect(page.getByRole('link', { name: /ficha pendiente de Bolsas/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /ficha pendiente de Facturación electrónica · Parametrización/i })).toBeVisible();
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /Credenciales/ })).toHaveCount(0);
   });
 
-  test('AC4 — índice lleno; ficha pendiente es vacío, no error', async ({ page }) => {
-    await abrirAyuda(page, PROVEEDOR_USER);
+  test('AC4 — índice lleno; ficha de Finanzas sin .md sigue siendo vacío, no error (HU #11894)', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
     await expect(page.getByRole('navigation', { name: 'Capítulos de ayuda' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /ficha pendiente de SOAT/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /ficha pendiente de Bolsas/i })).toBeVisible();
 
-    await page.getByRole('link', { name: /ficha pendiente de SOAT/i }).click();
+    await page.getByRole('link', { name: /ficha pendiente de Bolsas/i }).click();
+    await expect(page.getByText('Esta ficha está pendiente.')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
   });
@@ -83,12 +92,12 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: 'Volver al índice' }).first()).toBeVisible();
   });
 
-  test('AC4 — admin ve Compuerta, Tablero FLITO y Credenciales en el índice', async ({ page }) => {
+  test('AC4 — admin ve Compuerta y Tablero FLITO publicados; Credenciales sigue pendiente', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
-    await expect(page.getByRole('link', { name: /Compuerta de entrega/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Tablero FLITO/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Compuerta de entrega' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Tablero FLITO' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Administración', exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Credenciales/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Mi ruta/ })).toBeVisible();
+    await expect(page.getByRole('link', { name: /ficha pendiente de Facturación electrónica · Credenciales/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Mi ruta' })).toBeVisible();
   });
 });
