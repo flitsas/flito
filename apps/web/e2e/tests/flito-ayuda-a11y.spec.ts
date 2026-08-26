@@ -1,7 +1,7 @@
 // Ayuda FLITO — accesibilidad (HU #11893, AC5).
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, abrirAyuda, PROVEEDOR_USER, CONDUCTOR_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, abrirAyuda, PROVEEDOR_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/ayuda-fixtures';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 import { aHex, contraste, fondoPintado, tintaEfectiva } from '../helpers/pixeles';
 
@@ -24,26 +24,23 @@ async function ratioDe(page: Page, texto: Locator, fondoDe?: Locator): Promise<n
 test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('AC5 — índice lleno: headings, axe y contraste del badge', async ({ page }) => {
+  test('AC5 — índice lleno: headings, axe y contraste (SOAT publicado)', async ({ page }) => {
     await abrirAyuda(page, PROVEEDOR_USER);
     await expect(page.getByRole('heading', { level: 1, name: 'Ayuda FLITO' })).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'Gestión' })).toBeVisible();
-    const fila = page.getByRole('link', { name: /ficha pendiente de SOAT/i });
+    const fila = page.getByRole('link', { name: 'Abrir ficha de SOAT' });
     await expect(fila).toBeVisible();
     await fila.focus();
     await expect(fila).toBeFocused();
-
-    const badge = page.getByText('Ficha pendiente', { exact: true }).first();
-    expect(await ratioDe(page, badge)).toBeGreaterThanOrEqual(MINIMO);
     expect(await ratioDe(page, fila.getByText('SOAT', { exact: true }), fila)).toBeGreaterThanOrEqual(MINIMO);
-
-    await sinViolacionesGraves(page, 'índice lleno');
+    await sinViolacionesGraves(page, 'índice lleno SOAT publicado');
   });
 
-  test('AC5 — ficha pendiente: Volver al índice e Ir a la pantalla', async ({ page }) => {
+  test('AC5 — ficha publicada SOAT: Volver al índice e Ir a la pantalla', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/soat');
-    await expect(page.getByText('Esta ficha está pendiente.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Qué es' })).toBeVisible();
+    await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
     const volver = page.getByRole('link', { name: 'Volver al índice' }).first();
     const ir = page.getByRole('link', { name: 'Ir a la pantalla SOAT' });
     await expect(volver).toBeVisible();
@@ -52,18 +49,39 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await expect(ir).toBeFocused();
     expect(await ratioDe(page, ir)).toBeGreaterThanOrEqual(MINIMO);
     expect(await ratioDe(page, volver)).toBeGreaterThanOrEqual(MINIMO);
-    await sinViolacionesGraves(page, 'ficha pendiente');
+    await sinViolacionesGraves(page, 'ficha publicada SOAT');
   });
 
-  test('AC5 — NoAccess y ficha inexistente: axe + foco en h1', async ({ page }) => {
+  test('AC5 — ficha pendiente (Bolsas): badge, Volver e Ir a la pantalla', async ({ page }) => {
+    await abrirAyuda(page, FINANCIERA_USER);
+    const fila = page.getByRole('link', { name: /ficha pendiente de Bolsas/i });
+    await expect(fila).toBeVisible();
+    const badge = page.getByText('Ficha pendiente', { exact: true }).first();
+    expect(await ratioDe(page, badge)).toBeGreaterThanOrEqual(MINIMO);
+
+    await fila.click();
+    await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
+    await expect(page.getByText('Esta ficha está pendiente.')).toBeVisible();
+    const volver = page.getByRole('link', { name: 'Volver al índice' }).first();
+    const ir = page.getByRole('link', { name: 'Ir a la pantalla Bolsas' });
+    await expect(volver).toBeVisible();
+    await expect(ir).toBeVisible();
+    await ir.focus();
+    await expect(ir).toBeFocused();
+    expect(await ratioDe(page, ir)).toBeGreaterThanOrEqual(MINIMO);
+    expect(await ratioDe(page, volver)).toBeGreaterThanOrEqual(MINIMO);
+    await sinViolacionesGraves(page, 'ficha pendiente Bolsas');
+  });
+
+  test('AC5 — NoAccess: axe no se corre (CTA del shell); ficha inexistente: axe + vacío', async ({ page }) => {
     await abrirAyuda(page, CONDUCTOR_USER);
     const h1 = page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i });
     await expect(h1).toBeVisible();
     await expect(h1).toBeFocused();
     await expect(page.getByRole('link', { name: 'Volver al tablero' })).toBeVisible();
-    // NoAccess es el patrón del shell (CTA preexistente). No se corre axe aquí: el contraste
-    // de ese botón no es de esta HU. El vacío «ficha no existe» sí es superficie nueva.
+  });
 
+  test('AC5 — ficha inexistente: axe + Volver al índice', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/privacy');
     await expect(page.getByText('Esta ficha no existe.')).toBeVisible();

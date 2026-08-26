@@ -49,6 +49,26 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     expect(modo).toMatch(/Skill flit-ayuda-flito/);
   });
 
+  test('HU #11894 AC5 — las 12 fichas de gestión existen en disco; Finanzas aún no', () => {
+    const gestion = [
+      'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones',
+      'flito_compuerta', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+      'flito_logistica_ruta', 'flito_comparendos', 'clients',
+    ];
+    const pendientes = [
+      'flito_bolsas', 'flito_conciliacion', 'finanzas_reporte_costos',
+      'siigo_parametrizacion', 'siigo_operacion', 'siigo_credenciales',
+    ];
+    for (const c of gestion) {
+      const md = leer(`apps/web/src/content/ayuda/${c}.md`);
+      expect(md.length, c).toBeGreaterThan(0);
+      expect(md).toContain('## Qué es');
+    }
+    for (const c of pendientes) {
+      expect(() => leer(`apps/web/src/content/ayuda/${c}.md`), c).toThrow();
+    }
+  });
+
   test('AC6 — el catálogo lista 18 claves y no aliasa credenciales a parametrización', () => {
     const catalogo = leer('apps/web/src/content/ayuda/catalogo.ts');
     const claves = [
