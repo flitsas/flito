@@ -28,6 +28,7 @@ const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBole
 const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
 const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
 const SiigoOperacion = lazy(() => import('./pages/SiigoOperacion'));
+const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
@@ -192,6 +193,10 @@ function AppRoutes() {
             factura y se toca una vez; operar es empujar facturas todos los días. Unirlas obligaría a
             conceder la operación diaria a quien solo debe parametrizar. */}
         <Route path="/siigo/operacion" element={<ProtectedRoute page="siigo_operacion"><Lazy><SiigoOperacion /></Lazy></ProtectedRoute>} />
+        {/* Credenciales de la integración (HU #11890). Slug PROPIO `siigo_credenciales`, que solo
+            tiene `admin` —el router del API exige `admin` en las cuatro operaciones—: quien
+            parametriza u opera facturas no administra las llaves del servidor. */}
+        <Route path="/siigo/credenciales" element={<ProtectedRoute page="siigo_credenciales"><Lazy><SiigoCredenciales /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />

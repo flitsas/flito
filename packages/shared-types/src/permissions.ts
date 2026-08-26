@@ -128,13 +128,23 @@ export const PAGES = {
   // facturas todos los días, y el reporte de costos es otro trabajo con otra audiencia. Unirlas
   // obligaría a conceder la operación diaria a quien solo debe parametrizar, o al revés.
   siigo_operacion: 'Facturación electrónica — Operación',
+  // Facturación electrónica (HU #11890): las CREDENCIALES de la integración — con qué usuario se
+  // conecta FLITO a Siigo en cada ambiente, y la prueba de conexión.
+  //
+  // Clave PROPIA, y **NO se añade a ninguna fila de `ROLE_DEFAULT_PAGES`**: `admin` la obtiene por
+  // `Object.keys(PAGES)` y nadie más debe tenerla. El precedente literal es `flito_comparendos`:
+  // `credenciales.routes.ts` monta `authMiddleware, requireRole('admin')` sobre las CUATRO
+  // operaciones —listar incluida—, así que conceder la página a `financiera` o a `auditor` sería
+  // regalarles una pantalla que responde 403 en cada petición. El permiso de página y la autoridad
+  // del router son dos puertas distintas, y aquí solo se puede abrir una.
+  siigo_credenciales: 'Facturación electrónica — Credenciales',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
   // del catálogo de fichas). `admin` lo obtiene por `Object.keys(PAGES)`, pero el gate de ruta
   // NO usa `hasPage(..., 'flito_ayuda')` — eso dejaría la pantalla solo al admin.
-  // NO se crea aquí `siigo_credenciales`: esa clave de catálogo de ayuda se lista solo si
-  // `user.role === 'admin'` y el PageSlug lo añade otra HU.
+  // La clave `siigo_credenciales` de su catálogo de ayuda se lista solo si `user.role === 'admin'`;
+  // el PageSlug lo añadió la HU #11890, justo encima.
   flito_ayuda: 'Ayuda FLITO',
 } as const satisfies Record<string, string>;
 
@@ -151,7 +161,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
-  { label: 'Administración', pages: ['users', 'privacy'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales'] },
 ];
 
 // ============================================================================
