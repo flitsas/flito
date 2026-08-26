@@ -9,6 +9,11 @@
 > derivada de `hasPage` sobre el catálogo (no un permiso que alguien conceda a mano); tono **usted**;
 > no copiar LaftManual (PDF). El rol `operaciones` no existe: el operador FLITO es `admin`.
 
+> **Anexo HU #11901.** Búsqueda de capítulos en el índice:
+> [`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md). Revoca **solo** «No hay búsqueda,
+> filtros ni paginación». El gate derivado y los 4 estados del índice no cambian; el vacío
+> de filtro es **subestado del lleno**.
+
 ---
 
 ## Contexto y roles
@@ -207,6 +212,9 @@ manifiesto estático del catálogo, **no** requiere que el `.md` exista.
 
 Grupos vacíos: **no se renderizan**. `proveedor` ve un solo grupo (Gestión) con una sola fila (SOAT).
 
+**HU #11901:** en estado **Lleno**, campo «Buscar capítulos» bajo el header. Wireframe del control
+y copy: [`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md).
+
 ### Estados (4) + copy
 
 | Estado | Cuándo | Qué se ve | Copy (usted) | Control |
@@ -220,11 +228,18 @@ Grupos vacíos: **no se renderizan**. `proveedor` ve un solo grupo (Gestión) co
 antes del índice. Título: **No tienes acceso a Ayuda FLITO**. Cuerpo actual de `NoAccess`. Enlace
 **Volver al tablero**.
 
+**Subestado del lleno (HU #11901):** ≥1 capítulo visible y el filtro no pega → **no** es este Vacío
+ni el Error. Copy y control en [`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md). El Vacío de
+la tabla sigue siendo solo el de permiso (0 capítulos en la intersección).
+
 ### Acciones y validaciones
 
 - Clic / Enter en la fila → navega a la ficha. **También** si está pendiente: el detalle explica el
   pendiente; no es un error en el índice.
-- No hay búsqueda, filtros ni paginación (máximo 18 filas, casi siempre menos).
+- ~~No hay búsqueda, filtros ni paginación (máximo 18 filas, casi siempre menos).~~
+  **Revocado por HU #11901** — hay búsqueda en el índice
+  ([`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md)). Sigue **sin** filtros de grupo,
+  **sin** paginación y **sin** búsqueda en la ficha.
 - No hay acciones de administración (publicar, editar Markdown) en la UI.
 
 ### Permiso y comportamiento por rol
@@ -403,6 +418,8 @@ Límites honestos. Una viñeta por cosa que la gente espera y la pantalla no cub
 10. `/flito/ayuda/privacy` (fuera de los 18) → «Esta ficha no existe», no la guía de Privacidad.
 11. Contraste y foco: badge pendiente, **Reintentar**, enlace de fila, **Ir a la pantalla**.
 12. No hay «¿Cómo se usa?» en SOAT, Impuestos, Bolsas ni el resto del catálogo.
+
+Búsqueda de capítulos (HU #11901): notas en [`docs/ux/flito-ayuda-buscar.md`](flito-ayuda-buscar.md).
 
 ---
 
