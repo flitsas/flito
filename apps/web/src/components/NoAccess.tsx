@@ -7,14 +7,14 @@ import { PAGES, PageSlug } from '../lib/permissions';
  * Se renderiza dentro del Layout (conserva la navegación), explica qué pasó y ofrece salida.
  * Accesibilidad: el encabezado recibe foco al montar y se anuncia vía aria-live.
  */
-export default function NoAccess({ page }: { page: PageSlug }) {
+export default function NoAccess({ page, label }: { page?: PageSlug; label?: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     headingRef.current?.focus();
-  }, [page]);
+  }, [page, label]);
 
-  const label = PAGES[page];
+  const nombre = label ?? (page ? PAGES[page] : 'esta sección');
 
   return (
     <div
@@ -48,7 +48,7 @@ export default function NoAccess({ page }: { page: PageSlug }) {
           tabIndex={-1}
           className="text-xl font-semibold flit-tone-primary outline-none"
         >
-          No tienes acceso a {label}
+          No tienes acceso a {nombre}
         </h1>
 
         <p className="mt-3 flit-tone-secondary">

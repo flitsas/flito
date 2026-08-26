@@ -1,4 +1,5 @@
-import type { PageSlug } from '../../lib/permissions';
+import type { PageSlug, UserRole } from '../../lib/permissions';
+import { puedeVerAyudaFlito } from '../../lib/ayudaFlito';
 
 // Catálogo único de navegación. Antes vivía en Layout.tsx pero ahora lo consumen
 // CommandPalette y FlitSidebar. Single source of truth.
@@ -41,8 +42,19 @@ export const SECTION_LABEL: Record<NavItem['section'], string> = {
   admin:         'Administración',
 };
 
+/** Visibilidad de un ítem: permiso de página + `roles` opcional. `flito_ayuda` usa el helper derivado. */
+export function navItemPermitido(
+  it: NavItem,
+  user: { role: UserRole; allowedPages?: string[] | null } | null,
+  allowed: Set<PageSlug>,
+): boolean {
+  if (it.page === 'flito_ayuda') return puedeVerAyudaFlito(user);
+  return allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)));
+}
+
 export const NAV_ITEMS: NavItem[] = [
   { page: 'dashboard',   to: '/',                                section: 'general',       label: 'Tablero',                 keywords: 'dashboard inicio home resumen' },
+  { page: 'flito_ayuda', to: '/flito/ayuda',                     section: 'general',       label: 'Ayuda FLITO',             keywords: 'ayuda manual guia ficha como se usa flito' },
   { page: 'vehicles',    to: '/vehicles',                        section: 'gestion',       label: 'Vehículos',               keywords: 'placa vin runt cargar' },
     { page: 'clients',      to: '/clients',      section: 'gestion', label: 'Clientes y proveedores', keywords: 'empresa nit razon social tarifas proveedores soat parametrizacion autogestion' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
