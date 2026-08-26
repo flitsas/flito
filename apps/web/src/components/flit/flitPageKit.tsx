@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 
 export const flitInp =
-  'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
+  'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
 
 export const flitPillWrap: CSSProperties = {
   background: 'var(--flit-bg-app)',
@@ -13,7 +13,9 @@ export function flitPillBtn(active: boolean): CSSProperties {
   return active
     // `--flit-blue` es color de SUPERFICIE: como texto sobre el blanco de la pill activa daba 4,49
     // (bug #11604). La variante tinta sube a 5,61 sin mover el azul de marca.
-    ? { background: '#fff', color: 'var(--flit-blue-ink)', boxShadow: 'var(--flit-shadow-card)' }
+    // `#fff` en línea NO seguía el tema (HU #11899): la pill activa se quedaba blanca sobre el
+    // grupo ya oscuro. El token es la misma superficie de tarjeta que usa el resto del kit.
+    ? { background: 'var(--flit-bg-card)', color: 'var(--flit-blue-ink)', boxShadow: 'var(--flit-shadow-card)' }
     : { color: 'var(--flit-text-muted)' };
 }
 
@@ -56,7 +58,7 @@ export function FlitTable({ children, label }: { children: ReactNode; label?: st
   const desborda = useDesbordaX(scrollRef);
   return (
     <div
-      className="overflow-hidden bg-white"
+      className="overflow-hidden bg-flit-card"
       style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
     >
       <div
@@ -103,7 +105,7 @@ export function FlitField({ label, children }: { label: string; children: ReactN
 
 export const flitBtnPrimary = 'flit-focus inline-flex h-10 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-50';
 export const flitBtnPrimaryStyle = { background: 'var(--flit-gradient-primary)' } as const;
-export const flitBtnSecondary = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-5 text-sm font-medium disabled:opacity-50';
+export const flitBtnSecondary = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-5 text-sm font-medium disabled:opacity-50';
 export const flitBtnSecondaryStyle = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' } as const;
 /**
  * Variante compacta del secundario, para acciones que viven DENTRO de una celda junto a datos.
@@ -112,12 +114,12 @@ export const flitBtnSecondaryStyle = { borderColor: 'var(--flit-border-input)', 
  * relleno: a la altura normal el botón manda más que el dato que acompaña y descuadra el alto de la
  * fila. Se usa el mismo `flitBtnSecondaryStyle`.
  */
-export const flitBtnSecondarySm = 'flit-focus inline-flex h-7 items-center rounded-[999px] border bg-white px-3 text-xs font-medium disabled:opacity-50';
+export const flitBtnSecondarySm = 'flit-focus inline-flex h-7 items-center rounded-[999px] border bg-flit-card px-3 text-xs font-medium disabled:opacity-50';
 
 export function FlitCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`bg-white p-5 ${className}`}
+      className={`bg-flit-card p-5 ${className}`}
       style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
     >
       {children}

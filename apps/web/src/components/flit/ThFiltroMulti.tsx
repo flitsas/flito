@@ -8,7 +8,7 @@
 
 export type OpcionFiltro = { value: string; label: string };
 
-const cls = 'mt-1 block w-full max-w-[12rem] rounded-md border bg-white px-1.5 py-1 text-[11px] font-normal normal-case outline-none';
+const cls = 'mt-1 block w-full max-w-[12rem] rounded-md border bg-flit-card px-1.5 py-1 text-[11px] font-normal normal-case outline-none';
 const estilo = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' };
 
 export default function ThFiltroMulti({
@@ -29,7 +29,7 @@ export default function ThFiltroMulti({
       <summary className={`${cls} cursor-pointer list-none`} style={estilo}>
         {seleccion.length ? `${seleccion.length} seleccionado(s)` : placeholder}
       </summary>
-      <div className="absolute z-20 mt-1 max-h-60 w-56 overflow-auto rounded-md border bg-white p-1 shadow-lg" style={{ borderColor: 'var(--flit-border-input)' }}>
+      <div className="absolute z-20 mt-1 max-h-60 w-56 overflow-auto rounded-md border bg-flit-card p-1 shadow-lg" style={{ borderColor: 'var(--flit-border-input)' }}>
         {opciones.length === 0 && (
           <p className="px-2 py-1 text-[11px] font-normal normal-case" style={{ color: 'var(--flit-text-muted)' }}>{vacio}</p>
         )}

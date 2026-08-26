@@ -20,8 +20,10 @@ import { IconChevronDown } from './icons';
 // con el drawer, para que las tres navegaciones no puedan divergir.
 //
 // Dos piezas del proyecto que estaban escritas y sin consumidor entran en uso:
-//   · `.flit-shell-nav` (index.css) — vidrio blanco 94% + blur + shadow-card,
-//     con su propio override de [data-theme='dark'];
+//   · `.flit-shell-nav` (index.css) — superficie de tarjeta + blur + shadow-card.
+//     Fue vidrio blanco al 94 % con un override aparte para el tema oscuro hasta
+//     la HU #11899: hoy es `var(--flit-bg-card)`, que trae los dos temas, y el
+//     override se borró para no dejar dos fuentes de verdad del mismo fondo;
 //   · el view-transition name `floating-nav`.
 //
 // Al bajar por la página el dock se condensa a solo iconos; al subir se
@@ -106,9 +108,13 @@ export default function FlitNavBar() {
           const lit = isRouteSection || isOpen;
 
           const shared = `flit-focus group relative flex ${pillH} items-center gap-2 whitespace-nowrap rounded-flit-pill px-3 text-sm transition-all duration-200 ease-out motion-reduce:transition-none`;
-          // `flit-nav-pill` solo existe para que el tema oscuro pueda alcanzar
-          // estos textos (ver index.css); el módulo activo va sobre gradiente y
-          // ya es blanco en ambos temas.
+          // `flit-nav-pill` existía para que un parche `[data-theme='dark']` de
+          // index.css pudiera repintar estos textos, porque los tokens FLIT no
+          // tenían par oscuro. Desde la HU #11899 lo tienen: `text-flit-secondary`
+          // y `hover:bg-flit-app` ya siguen el tema y el parche se borró. La clase
+          // se conserva como gancho —sin regla propia— porque nombrar la pill
+          // sigue siendo útil para alcanzarla desde CSS o desde un test.
+          // El módulo activo va sobre gradiente y ya es blanco en ambos temas.
           const tone = lit
             ? 'font-semibold text-white'
             : 'flit-nav-pill font-medium text-flit-secondary hover:bg-flit-app hover:text-flit-ink';
