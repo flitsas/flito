@@ -30,7 +30,7 @@ export default function FlitAcordeon({
 
   return (
     <section
-      className="overflow-hidden bg-white"
+      className="overflow-hidden bg-flit-card"
       style={{
         borderRadius: 'var(--flit-radius-card)',
         boxShadow: 'var(--flit-shadow-card)',

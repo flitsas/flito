@@ -99,9 +99,33 @@ ese gate esté verde en oscuro, C3 no está cerrado.
 |---|---|---|
 | Fondos | `--flit-bg-app`, `--flit-bg-modal`, `--flit-bg-card`, `--flit-bg-table-header` | Superficie de página, modal, tabla, cabecera |
 | Texto | `--flit-text-primary`, `--flit-text-secondary`, `--flit-text-muted`, `--flit-text-brand-title`, `--flit-blue-text` | Sobre los fondos de arriba, ≥ 4.5:1 |
-| Bordes | `--flit-border-soft`, `--flit-border-input`, `--flit-border-focus` | Gráficos ≥ 3:1 contra la superficie adyacente |
+| Bordes · **foco y control** | `--flit-border-focus` | Gráficos **≥ 3:1** contra la superficie adyacente. Es el indicador de foco: SC 1.4.11 aplica de lleno y **no se relaja** |
+| Bordes · **separadores** | `--flit-border-soft`, `--flit-border-input` | Par oscuro obligatorio, pero **sin umbral 3:1** — ver la enmienda de abajo |
 | Sombras | `--flit-shadow-card`, `--flit-shadow-modal`, `--flit-shadow-button` | Pueden oscurecerse; no son texto |
 | Topbar | hoy `rgba(234, 242, 255, 0.85)` **hardcodeado** | Debe pasar a token (p. ej. `--flit-bg-app` con alfa) para C3 |
+
+#### Enmienda del 26 ago 2026 — los separadores no llevan el 3:1 (decisión PO)
+
+La fila «Bordes» pedía ≥ 3:1 para los tres tokens. Al implementar la HU #11899 se midió que
+`--flit-border-soft` y `--flit-border-input` dan **1,13–1,35 en el tema CLARO de hoy**, o sea que el
+umbral **ya se incumplía antes de esta ráfaga** y llegar a 3:1 obligaría a repintar el borde de
+todas las tarjetas de FLITO en los dos temas — un cambio visible que nadie pidió.
+
+**Decisión del PO (David, 26 ago 2026):** SC 1.4.11 cubre indicadores de estado y bordes de
+**control**, no separadores decorativos. Se separan las dos familias:
+
+- `--flit-border-focus` — **≥ 3:1 real en claro y en oscuro**. Requisito duro, no se toca. Es el
+  indicador de foco y SC 1.4.11 le aplica de lleno.
+- `--flit-border-soft` / `--flit-border-input` — **eximidos por nombre, no por categoría.**
+  `--flit-border-input` es el borde de un control (input, select, `flitBtnSecondary`) y aun así
+  entra en la exención: lo que decide no es si el token pinta un control, sino que su valor CLARO
+  ya incumplía y que subirlo repinta pantallas que nadie pidió tocar. Llevan par oscuro obligatorio
+  y una invariante nombrada
+  en lugar del 3:1: **no desaparecer** (≥ 1,1) **y no regresar** (oscuro ≥ claro). El gate la mide e
+  imprime los cinco ratios; la constante está señalizada en `scripts/check-contraste-paleta.mjs`
+  para el día que se decida subirlos.
+
+Subir los separadores a 3:1 queda como **deuda con nombre**, no como incumplimiento silencioso.
 
 ### Qué NO se toca en esta ráfaga
 

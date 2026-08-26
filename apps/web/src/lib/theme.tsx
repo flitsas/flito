@@ -27,14 +27,27 @@ function readStoredTheme(): ThemeMode {
   return 'system';
 }
 
-function applyDocumentTheme(mode: ThemeMode): void {
+/**
+ * Escribe en <html> el tema YA RESUELTO. Nunca quita el atributo.
+ *
+ * Hasta la HU #11899 el modo `system` hacía `removeAttribute('data-theme')` y confiaba en que
+ * `prefers-color-scheme` resolviera por CSS. Para Aura funcionaba —`tokens.css` tiene un gemelo
+ * `@media` de su bloque oscuro—, pero NADA de lo que se selecciona por `[data-theme='dark']`
+ * llegaba a dispararse: el dock, la ⌘K y, desde esta HU, todas las superficies del kit FLIT. Como
+ * `system` es además el valor por defecto de quien nunca tocó el toggle, el resultado era el
+ * síntoma que se reportaba como «en algunos dispositivos el tema no cambia»: SO en oscuro,
+ * preferencia sin tocar, atributo ausente, kit en claro (AC2 de la #11899).
+ *
+ * Quitar el atributo tampoco era gratis al revés: sin él no hay forma de distinguir «claro
+ * elegido» de «sin preferencia», que es lo que el gate de contraste y los e2e necesitan leer.
+ *
+ * El mismo cálculo vive en el bootstrap inline de `apps/web/index.html`, que corre antes del
+ * primer paint. Están duplicados a propósito (uno no puede importar al otro sin bloquear el
+ * render), así que tienen que decir lo mismo: si se toca uno, se toca el otro.
+ */
+function applyDocumentTheme(mode: ThemeMode, systemPref: ResolvedTheme): void {
   if (typeof document === 'undefined') return;
-  const root = document.documentElement;
-  if (mode === 'system') {
-    root.removeAttribute('data-theme');
-  } else {
-    root.setAttribute('data-theme', mode);
-  }
+  document.documentElement.setAttribute('data-theme', mode === 'system' ? systemPref : mode);
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -42,9 +55,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [systemPref, setSystemPref] = useState<ResolvedTheme>(() => readSystemPreference());
 
   // Sync DOM whenever theme changes.
+  //
+  // `systemPref` está en las dependencias desde la #11899 y no es cosmético: en modo `system` el
+  // atributo lleva el valor RESUELTO, así que un cambio de esquema del SO con la app abierta tiene
+  // que reescribirlo. Con `[theme]` a secas, el listener de `matchMedia` de abajo actualizaba el
+  // estado de React (y con él `resolvedTheme`) mientras el DOM se quedaba con el tema anterior:
+  // los componentes que leen el hook y el CSS que lee el atributo discreparían.
   useEffect(() => {
-    applyDocumentTheme(theme);
-  }, [theme]);
+    applyDocumentTheme(theme, systemPref);
+  }, [theme, systemPref]);
 
   // Listen for OS-level theme changes (only matters when theme === 'system').
   useEffect(() => {

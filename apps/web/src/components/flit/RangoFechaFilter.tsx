@@ -14,7 +14,7 @@ export default function RangoFechaFilter({ rango, onChange, loading, descripcion
   const hoy = fechaHoyColombia();
 
   return (
-    <div className="flex flex-col gap-3 rounded-[14px] border bg-white p-4" style={{ borderColor: 'var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
+    <div className="flex flex-col gap-3 rounded-[14px] border bg-flit-card p-4" style={{ borderColor: 'var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Rango de ingreso</p>
