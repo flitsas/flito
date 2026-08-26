@@ -12,6 +12,14 @@
 > Modo **slim**: solo se especifica lo que cambia. El resto de la tabla —columnas, orden, niveles
 > A/B, permisos, filtros, paginación, los cuatro estados de la página— sigue tal cual está escrito en
 > el documento del visor.
+>
+> **Enmienda del 26 ago 2026 (A′, spec `docs/ux/shell-tema-y-responsive.md`).** Esta columna **ya no
+> es nivel B: es nivel A** (siempre visible, también `< 1280 px`). El `min-w` / `max-w` 14 rem, el
+> texto entero, `wrap-anywhere`, el airbag `line-clamp-6`, sin `title` ni `text-transform` y el
+> `<td>` mudo **siguen**. Lo único que se cae es `hidden xl:table-cell` / `CeldaB`. El argumento de
+> #11713 de no empujar una A a la derecha **se relaja solo para esta columna** — no para Origen,
+> Registrado ni Inactivado, que siguen B. La alternativa 4 de más abajo queda revocada como
+> descarte; el recorte de la celda que esta HU cerró no se reabre.
 
 ---
 
@@ -21,7 +29,7 @@
 |---|---|
 | Página | `/flito/comparendos`, pestaña **Registros** |
 | Componente | `apps/web/src/components/flito/comparendos/TablaComparendos.tsx` |
-| Celda | Columna **«Estado en la fuente»** (nivel B), hoy en la línea ~225 |
+| Celda | Columna **«Estado en la fuente»** (~~nivel B~~ **nivel A desde el 26 ago 2026**), hoy en la línea ~225 |
 | Slug / permiso | `flito_comparendos`, **sin cambios**. Solo `admin` (el router exige `requireRole('admin')`). Ni un condicional de rol nuevo |
 | Endpoints | **Ninguno nuevo.** `estadoFuente` ya viaja en `ComparendoRegistro` desde la HU #11712 |
 | Export | **Sin cambios.** Un `.xlsx` no tiene recorte tipográfico; el problema es solo de pantalla |
@@ -61,7 +69,7 @@ es el estado de 80 caracteres.
 | 1 | **`line-clamp-2` a 11 rem** | 0 | ~50 de 80 caracteres | **Descartada.** Es la peor de todas: sigue habiendo recorte, sigue sin anunciarse y sigue sin `title`. Muestra más y **miente igual**. El PO pidió el estado completo, no más estado |
 | 2 | **Envolver sin ningún límite a 11 rem** | 0 | 4 líneas (~100 px) | **Descartada como está**, pero es la base de la elegida. Le faltan dos cosas: un techo por si el contrato del campo cambia, y qué hacer con una palabra de 80 caracteres sin espacios (rompe el ancho de la columna) |
 | 3 | **Ensanchar a 21 rem con `line-clamp-2`** | +10 rem | 2 líneas, alto casi estable | **Descartada.** 10 rem es casi lo que costaba «Organismo», la columna que la #11713 retiró para hacer sitio a esta. Reabrir esa negociación por una línea de alto es cambiar el recurso escaso por el abundante |
-| 4 | **Subir la columna de nivel B a nivel A** | +0, pero empuja | idéntico | **Descartada, y no resuelve nada.** El recorte lo causa el ancho de la celda, no el breakpoint. Además empujaría a la derecha columnas de nivel A dentro de un scroll que ya desplaza — el argumento con el que la #11713 la puso al principio del bloque B, palabra por palabra |
+| 4 | **Subir la columna de nivel B a nivel A** | +0, pero empuja | idéntico | ~~**Descartada, y no resuelve nada.** El recorte lo causa el ancho de la celda, no el breakpoint. Además empujaría a la derecha columnas de nivel A dentro de un scroll que ya desplaza — el argumento con el que la #11713 la puso al principio del bloque B, palabra por palabra~~ **Revocado el 26 ago 2026 (A′).** El PO sube **solo esta** columna a A. El recorte de texto que esta HU cerró seguía siendo independiente del breakpoint (14 rem / entero **siguen**). Lo que #11713 no quería —empujar A a la derecha— **se acepta solo aquí**. Origen / Registrado / Inactivado no heredan este sí. |
 | 5 | **Revelación progresiva accesible** (botón «ver estado completo» + popover) | 0 | completo, oculto por defecto | **Descartada por tres motivos independientes.** Para cumplir a11y hace falta un `<button>` real por fila: **+50 paradas de tabulador** en una tabla que fija *una por fila* (#11562, AC1 y AC8). No existe patrón de popover en `components/flit/` — sería inventar uno (regla 3). Y **esconde por defecto justo el dato que el PO llama vital**: convierte un problema de lectura en un problema de descubrimiento |
 | 6 | **Fila expandible (acordeón)** | 0 | completo | **Descartada.** Patrón nuevo, estado por fila, y compite con el panel de detalle: dos maneras de abrir la misma fila es cómo se aprende a no usar ninguna |
 | 7 | **Chip con el estado** | +padding | idéntico | **Descartada.** La decisión 9 del visor prohíbe darle tono cromático a `estadoFuente` —no está enumerado, y el proveedor que mañana escriba «PAGADO PARCIAL» caería en el color de «PAGADO»—. Y un chip no acorta el texto: lo alarga con su relleno |
@@ -141,10 +149,11 @@ avisar, y en ese caso el valor completo sigue estando en el panel de detalle. Es
       se entere. Si algún día actúa, el valor entero sigue en el panel de detalle.
     · Sigue SIN `title` y SIN transformación de texto: las dos prohibiciones de la #11713 siguen
       vigentes y por las mismas razones. */}
-<CeldaB>
+{/* 26 ago 2026 (A′): CeldaB → Celda. El span (14 rem, entero) no se toca. */}
+<Celda>
   {/* line-clamp-4 → line-clamp-6 y + min-w-[14rem]: ver la corrección medida de arriba. */}
   <span className="line-clamp-6 min-w-[14rem] max-w-[14rem] wrap-anywhere">{c.estadoFuente ?? SIN_DATO}</span>
-</CeldaB>
+</Celda>
 ```
 
 ### La alineación vertical de la fila
@@ -169,7 +178,7 @@ tiene margen de sobra sobre las 3 que salen del cálculo, y la prueba mide lo qu
 
 | Viewport | Qué pasa |
 |---|---|
-| **< 1280 px** | La columna **no existe** (`hidden xl:table-cell`, sin cambios). El valor vive entero en el panel de detalle. Esta HU no toca el móvil ni la tablet |
+| **< 1280 px** | ~~La columna **no existe** (`hidden xl:table-cell`, sin cambios). El valor vive entero en el panel de detalle. Esta HU no toca el móvil ni la tablet~~ **Revocado el 26 ago 2026 (A′):** la columna **existe** (nivel A). El valor sigue entero a 14 rem; también sigue en el detalle. Origen / Registrado / Inactivado son quienes ahora no existen bajo 1280 |
 | **1280 px justos** | La columna aparece (`xl:` es `min-width: 1280px`). La tabla ya desplazaba en horizontal y ahora desplaza **48 px más** (11 rem → 14 rem). El contenedor de `FlitTable` es `tabIndex=0` cuando desborda (`useDesbordaX`), así que ese ancho extra **sigue siendo alcanzable con teclado**: no hace falta nada nuevo |
 | **1920 px** | Sobra sitio: los 48 px salen del espacio libre y **ninguna otra columna pierde contenido** (layout automático con `w-full`). El `max-w-[14rem]` **no crece** con el viewport, así que un estado de 80 caracteres sigue ocupando 3 líneas: el alto de fila **no depende del viewport**, que es justo lo que descartó la alternativa 11 |
 | **80 caracteres sin un solo espacio** | `wrap-anywhere` parte la palabra donde toque. La columna queda acotada a `14 rem + px-4 × 2` = **16 rem** y el reparto del resto de columnas no se mueve. Sin esa clase, o la columna se ensancha ~672 px y descuadra la tabla, o el `overflow: hidden` del clamp corta el texto **en horizontal y sin aviso** — el defecto que esta HU viene a cerrar, reaparecido de lado |
