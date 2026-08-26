@@ -18,8 +18,12 @@ describe('AC1 — el contenedor de Ayuda FLITO no es un permiso concedible', () 
     expect(enGrupos).not.toContain('flito_ayuda');
   });
 
-  it('esta HU no crea el PageSlug `siigo_credenciales`', () => {
-    expect(PAGES).not.toHaveProperty('siigo_credenciales');
+  // Era una aserción de ALCANCE de la #11893 («esta HU no crea el PageSlug»), no una regla de
+  // dominio: declaraba que la ficha de ayuda nombraba una clave que todavía no existía. La HU
+  // #11890 la creó, así que la afirmación se invierte en vez de borrarse — lo que hay que
+  // sostener ahora es que la ficha del catálogo ya no apunta al vacío.
+  it('el PageSlug `siigo_credenciales` que nombra su ficha ya existe (HU #11890)', () => {
+    expect(PAGES).toHaveProperty('siigo_credenciales');
   });
 
   it('admin la tiene por Object.keys(PAGES), sin escribirla a mano en otra fila', () => {

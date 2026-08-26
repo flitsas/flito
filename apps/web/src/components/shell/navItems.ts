@@ -143,4 +143,19 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'users',       to: '/users',                           section: 'admin',         label: 'Usuarios',                keywords: 'admin usuarios roles permisos' },
   { page: 'drive',       to: '/drive',                           section: 'admin',         label: 'Google Drive',            keywords: 'archivos drive folder' },
   { page: 'privacy',     to: '/privacy',                         section: 'admin',         label: 'Privacidad y datos',      keywords: 'ley 1581 forget anonimizar' },
+  // Credenciales de Siigo (HU #11890) — en `admin` y NO en `finanzas`, donde viven las otras dos
+  // pantallas del módulo, por dos motivos que no son de gusto:
+  //
+  //   1. El backend YA promete esta ruta por escrito, dos veces: `siigo.diagnostico.service.ts` y
+  //      `siigo.catalogos.service.ts` dicen «Regístralas en **Administración › Integración con
+  //      Siigo**». Con `section: 'admin'` y este `label`, lo que el usuario lee en el mensaje es
+  //      exactamente lo que ve en el menú — sin tocar ni una cadena del API.
+  //   2. La sección Finanzas la puebla `financiera`, que NO puede usar esta pantalla (el router
+  //      exige `admin` entero). Un ítem visible solo para `admin` entre los suyos invita a pedir
+  //      «acceso a esa de ahí» y a conceder un permiso roto.
+  //
+  // Sin campo `roles`: el slug ya restringe, y repetir la regla la pondría en dos sitios que pueden
+  // divergir. Las `keywords` traen «siigo» y «facturacion electronica» para que el Command Palette
+  // siga ofreciendo las tres pantallas juntas, que es lo único que se pierde al cambiar de sección.
+  { page: 'siigo_credenciales', to: '/siigo/credenciales',        section: 'admin',         label: 'Integración con Siigo',   keywords: 'siigo credenciales access key llave token integracion facturacion electronica dian ambiente pruebas produccion conexion probar cifrado' },
 ];
