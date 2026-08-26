@@ -4,7 +4,8 @@ import type { PageSlug } from '../../lib/permissions';
 // en el índice. El orden de cada grupo es el de NAV_ITEMS cuando el ítem existe; si no hay
 // ítem de menú (Compuerta, Tablero FLITO, Credenciales), al final del grupo.
 //
-// Esta HU NO publica los 18 `.md`. Ausencia de archivo = «Ficha pendiente», no error.
+// Las 18 están publicadas (Gestión #11894; Finanzas y Administración #11895). Ausencia de
+// archivo = «Ficha pendiente», no error.
 //
 // `siigo_credenciales` NO es un PageSlug en este worktree (lo añade otra HU). En el catálogo
 // se lista solo si `user.role === 'admin'`. Prohibido aliasarla a `siigo_parametrizacion`:
