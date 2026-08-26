@@ -1,7 +1,7 @@
 // Usuarios y atajos para los E2E de Ayuda FLITO (HU #11893).
 // No muta helpers/auth.ts: los roles que ya viven ahí se reexportan; los que faltan se definen aquí.
 
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import {
   loginAs,
   ADMIN_USER,
@@ -70,4 +70,11 @@ export const SIN_CATALOGO = [
 export async function abrirAyuda(page: Page, user: Parameters<typeof loginAs>[1]) {
   await loginAs(page, user);
   await page.goto('/flito/ayuda');
+}
+
+/** Campo de búsqueda del índice (HU #11901). No vive en la ficha ni en la URL. */
+export async function buscarCapitulos(page: Page, consulta: string) {
+  const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+  await expect(campo).toBeVisible();
+  await campo.fill(consulta);
 }

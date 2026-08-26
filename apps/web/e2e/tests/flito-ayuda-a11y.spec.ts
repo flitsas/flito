@@ -1,7 +1,7 @@
 // Ayuda FLITO — accesibilidad (HU #11893, AC5).
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, abrirAyuda, PROVEEDOR_USER, FINANCIERA_USER, CONDUCTOR_USER } from '../helpers/ayuda-fixtures';
+import { loginAs, abrirAyuda, PROVEEDOR_USER, FINANCIERA_USER, CONDUCTOR_USER, OPERACIONES_USER } from '../helpers/ayuda-fixtures';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 import { aHex, contraste, fondoPintado, tintaEfectiva } from '../helpers/pixeles';
 
@@ -100,5 +100,54 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await expect(reintentar).toBeFocused();
     expect(await ratioDe(page, page.getByRole('heading', { name: 'No se pudo cargar el índice de ayuda.' }))).toBeGreaterThanOrEqual(MINIMO);
     await sinViolacionesGraves(page, 'índice en error');
+  });
+});
+
+test.describe('FLITO — Ayuda · AC6 búsqueda (HU #11901)', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('TC-11901-11 AC6 — label «Buscar capítulos», type=search, foco visible', async ({ page }) => {
+    await abrirAyuda(page, PROVEEDOR_USER);
+    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    await expect(campo).toBeVisible();
+    await expect(campo).toHaveAttribute('type', 'search');
+    const etiqueta = page.locator('label').filter({ has: campo }).locator('span');
+    await expect(etiqueta).toHaveText('Buscar capítulos');
+    expect(await ratioDe(page, etiqueta)).toBeGreaterThanOrEqual(MINIMO);
+    await campo.focus();
+    await expect(campo).toBeFocused();
+    const fila = page.getByRole('link', { name: 'Abrir ficha de SOAT' });
+    await fila.focus();
+    await expect(fila).toBeFocused();
+    await sinViolacionesGraves(page, 'índice lleno con buscador');
+  });
+
+  test('TC-11901-12 AC6 — 0 coincidencias: contraste copy/campo, aria-live polite, axe', async ({ page }) => {
+    await abrirAyuda(page, OPERACIONES_USER);
+    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    await campo.fill('zzz-sin-capitulo-11901');
+    const mensaje = page.getByText('Ningún capítulo coincide con su búsqueda.');
+    await expect(mensaje).toBeVisible();
+    await expect(mensaje).toHaveAttribute('aria-live', 'polite');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    const limpiar = page.getByRole('button', { name: 'Limpiar búsqueda' });
+    await expect(limpiar).toBeVisible();
+    await limpiar.focus();
+    await expect(limpiar).toBeFocused();
+    expect(await ratioDe(page, campo)).toBeGreaterThanOrEqual(MINIMO);
+    expect(await ratioDe(page, mensaje)).toBeGreaterThanOrEqual(MINIMO);
+    expect(await ratioDe(page, limpiar)).toBeGreaterThanOrEqual(MINIMO);
+    await sinViolacionesGraves(page, 'índice lleno · 0 coincidencias');
+  });
+
+  test('TC-11901-13 AC6 — coincidencia: contraste de fila filtrada y controles con nombre', async ({ page }) => {
+    await abrirAyuda(page, PROVEEDOR_USER);
+    const campo = page.getByRole('searchbox', { name: 'Buscar capítulos' });
+    await campo.fill('Cargar factura');
+    const fila = page.getByRole('link', { name: 'Abrir ficha de SOAT' });
+    await expect(fila).toBeVisible();
+    expect(await ratioDe(page, fila.getByText('SOAT', { exact: true }), fila)).toBeGreaterThanOrEqual(MINIMO);
+    await expect(page.getByRole('button', { name: 'Limpiar búsqueda' })).toBeVisible();
+    await sinViolacionesGraves(page, 'índice lleno · filtro SOAT');
   });
 });

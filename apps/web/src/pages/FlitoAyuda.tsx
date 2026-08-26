@@ -11,14 +11,17 @@ import {
   puedeEnlazarFichaAyuda,
   puedeVerEntradaAyuda,
 } from '../lib/ayudaFlito';
-import { existeFichaMd, leerFichaMd, verificarBundleAyuda } from '../content/ayuda/cargarFichas';
+import { leerFichaMd, leerFichasMd, verificarBundleAyuda } from '../content/ayuda/cargarFichas';
 import { GRUPO_AYUDA_LABEL, type AyudaGrupo, type EntradaAyuda } from '../content/ayuda/catalogo';
+import { entradaCoincideBusqueda } from '../lib/ayudaBusqueda';
 import NoAccess from '../components/NoAccess';
 import AyudaMarkdown from '../components/ayuda/AyudaMarkdown';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import StatusChip from '../components/flit/StatusChip';
-import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import {
+  FlitCard, FlitEmpty, FlitField, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
+} from '../components/flit/flitPageKit';
 import { isValidPage } from '../lib/permissions';
 
 const GRUPOS_ORDEN: AyudaGrupo[] = ['gestion', 'finanzas', 'administracion'];
@@ -79,7 +82,9 @@ function Indice() {
   const [estado, setEstado] = useState<EstadoCarga>('cargando');
   const [error, setError] = useState('');
   const [nonce, setNonce] = useState(0);
-  const [presentes, setPresentes] = useState<ReadonlySet<string>>(new Set());
+  const [cuerpos, setCuerpos] = useState<ReadonlyMap<string, string | null>>(() => new Map());
+  const [consulta, setConsulta] = useState('');
+  const inputBuscarRef = useRef<HTMLInputElement>(null);
 
   const capitulos = useMemo(() => capitulosVisibles(user), [user]);
 
@@ -87,10 +92,12 @@ function Indice() {
     let cancel = false;
     setEstado('cargando');
     setError('');
+    const slugs = capitulos.map((c) => c.clave);
     verificarBundleAyuda()
-      .then(() => {
+      .then(() => leerFichasMd(slugs))
+      .then((map) => {
         if (cancel) return;
-        setPresentes(new Set(capitulos.filter((c) => existeFichaMd(c.clave)).map((c) => c.clave)));
+        setCuerpos(map);
         setEstado('listo');
       })
       .catch((e) => {
@@ -103,9 +110,19 @@ function Indice() {
 
   const reintentar = useCallback(() => setNonce((n) => n + 1), []);
 
+  const filtrados = useMemo(
+    () => capitulos.filter((c) => entradaCoincideBusqueda(c, cuerpos.get(c.clave), consulta)),
+    [capitulos, cuerpos, consulta],
+  );
+
   const agrupados = useMemo(() => GRUPOS_ORDEN
-    .map((grupo) => ({ grupo, items: capitulos.filter((c) => c.grupo === grupo) }))
-    .filter((g) => g.items.length > 0), [capitulos]);
+    .map((grupo) => ({ grupo, items: filtrados.filter((c) => c.grupo === grupo) }))
+    .filter((g) => g.items.length > 0), [filtrados]);
+
+  const limpiarBusqueda = useCallback(() => {
+    setConsulta('');
+    inputBuscarRef.current?.focus();
+  }, []);
 
   if (estado === 'cargando') {
     return (
@@ -145,31 +162,68 @@ function Indice() {
   return (
     <div className="space-y-6">
       <PageHeaderCard title="Ayuda FLITO" subtitle="Guías de las pantallas que usted ya puede abrir." />
-      <nav aria-label="Capítulos de ayuda" className="space-y-6">
-        {agrupados.map(({ grupo, items }) => (
-          <section key={grupo} aria-labelledby={`ayuda-grupo-${grupo}`}>
-            <h2
-              id={`ayuda-grupo-${grupo}`}
-              className="mb-2 text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: 'var(--flit-text-muted)' }}
-            >
-              {GRUPO_AYUDA_LABEL[grupo]}
-            </h2>
-            <div
-              className="overflow-hidden bg-white"
-              style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
-            >
-              <ul>
-                {items.map((entrada, idx) => (
-                  <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
-                    <FilaCapitulo entrada={entrada} pendiente={!presentes.has(entrada.clave)} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-        ))}
-      </nav>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[240px] max-w-xl flex-1">
+          <FlitField label="Buscar capítulos">
+            <input
+              ref={inputBuscarRef}
+              id="ayuda-buscar-capitulos"
+              type="search"
+              className={flitInp}
+              placeholder="Buscar capítulos…"
+              value={consulta}
+              onChange={(e) => setConsulta(e.target.value)}
+              aria-label="Buscar capítulos"
+              autoComplete="off"
+            />
+          </FlitField>
+        </div>
+        {consulta !== '' && (
+          <button
+            type="button"
+            className={flitBtnSecondary}
+            style={flitBtnSecondaryStyle}
+            onClick={limpiarBusqueda}
+          >
+            Limpiar búsqueda
+          </button>
+        )}
+      </div>
+      {agrupados.length === 0 ? (
+        <p
+          className="text-sm font-semibold"
+          style={{ color: 'var(--flit-text-primary)' }}
+          aria-live="polite"
+        >
+          Ningún capítulo coincide con su búsqueda.
+        </p>
+      ) : (
+        <nav aria-label="Capítulos de ayuda" className="space-y-6">
+          {agrupados.map(({ grupo, items }) => (
+            <section key={grupo} aria-labelledby={`ayuda-grupo-${grupo}`}>
+              <h2
+                id={`ayuda-grupo-${grupo}`}
+                className="mb-2 text-xs font-semibold uppercase tracking-[0.18em]"
+                style={{ color: 'var(--flit-text-muted)' }}
+              >
+                {GRUPO_AYUDA_LABEL[grupo]}
+              </h2>
+              <div
+                className="overflow-hidden bg-white"
+                style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
+              >
+                <ul>
+                  {items.map((entrada, idx) => (
+                    <li key={entrada.clave} style={idx > 0 ? { borderTop: '1px solid var(--flit-border-soft)' } : undefined}>
+                      <FilaCapitulo entrada={entrada} pendiente={cuerpos.get(entrada.clave) == null} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }
