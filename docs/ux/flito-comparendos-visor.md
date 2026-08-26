@@ -15,6 +15,9 @@
 > · `docs/ux/flito-comparendos-municipio.md` (**HU #11879, 25 ago 2026**) — la columna vuelve a
 >   llamarse **«Municipio»**, su celda pinta `municipioComparendo` y **ninguna celda rotula**. Revoca
 >   las §§9, 10, 11 y 13 de la enmienda del 24 ago y sus notas de QA 10-24.
+> · `docs/ux/shell-tema-y-responsive.md` (**26 ago 2026, A′**) — «Estado en la fuente» **pasa de B a
+>   A** (visible también `< 1280`). Origen / Registrado / Inactivado siguen B. No selector. No cards.
+>   Organismo no vuelve.
 
 ---
 
@@ -241,7 +244,7 @@ Quien necesite sumar, exporta.
 | Qué es | Estado de **monitoreo**: `activo` / `inactivo` | Lo que dice el **proveedor**, texto libre |
 | Qué significa `inactivo` | «Las fuentes dejaron de reportarlo con cobertura completa» (CF-10) | — |
 | Qué **no** significa | **Ni pagado ni resuelto** | — |
-| En la interfaz | `StatusChip` + tooltip de columna + copy explícito | Texto plano, sin chip y sin color. ~~Solo en el detalle.~~ **Desde la #11713 también en una columna de NIVEL B de la tabla** — ver el bloque fechado del 21 ago 2026 al final de «Columnas y jerarquía» |
+| En la interfaz | `StatusChip` + tooltip de columna + copy explícito | Texto plano, sin chip y sin color. ~~Solo en el detalle.~~ ~~**Desde la #11713 también en una columna de NIVEL B de la tabla** — ver el bloque fechado del 21 ago 2026 al final de «Columnas y jerarquía»~~ **Desde el 26 ago 2026 es columna de NIVEL A** (A′): visible también bajo 1280 px. El 21 ago la había subido de C a B. Ver el bloque fechado de esa fecha al final de «Columnas y prioridad visual» |
 
 **No se le asigna tono cromático a `estadoFuente` bajo ningún concepto.** No está enumerado; cualquier
 mapa de colores sería una lista de valores observados un martes, y el proveedor que mañana escriba
@@ -391,7 +394,7 @@ sirve para reconocer la fila y decidir si se abre; abajo va lo que se lee cuando
 | **B** | Origen | `origenMerge` | «SIMIT» / «Municipal» / «Ambos». Importa cuando algo no cuadra, no en la lectura normal |
 | **B** | Registrado | `primeraVistoEn` | Antigüedad en el sistema. Se distingue de la fecha del comparendo y por eso no van juntas |
 | **B · condicional** | Inactivado | `inactivadoEn` | **Solo se pinta con el filtro «Inactivos»**: en la vista de activos es una columna de guiones por definición (`null` mientras está activo) |
-| ~~**C · solo en el detalle**~~ → **B** | Estado en la fuente | `estadoFuente` | ~~Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él.~~ **Revocado el 21 ago 2026 (HU #11713):** es columna de nivel B, la primera del bloque. El razonamiento está en el bloque fechado al final de esta sección. **Se muestra ENTERO desde la HU #11777** (24 ago 2026), envolviendo a 14 rem: ver `docs/ux/flito-comparendos-estado-fuente.md` |
+| ~~**C · solo en el detalle**~~ → ~~**B**~~ → **A · 26 ago 2026** | Estado en la fuente | `estadoFuente` | ~~Texto libre, no comparable entre filas: en columna es ruido y **sugeriría** que se puede filtrar por él.~~ ~~**Revocado el 21 ago 2026 (HU #11713):** es columna de nivel B, la primera del bloque.~~ **Revocado el 26 ago 2026 (A′, `docs/ux/shell-tema-y-responsive.md`):** pasa a **nivel A** — visible también `< 1280 px`. El 21 ago la había subido de C a B; el PO la llama relevante al reducir. **Se muestra ENTERO desde la HU #11777** (24 ago 2026), envolviendo a 14 rem: ver `docs/ux/flito-comparendos-estado-fuente.md`. Origen / Registrado / Inactivado **siguen B**. Organismo no vuelve. No selector. |
 | **C** | Observación | `observacion` | Texto largo. En una celda o se recorta hasta ser inútil o rompe el alto de la fila |
 | **C** | Visto por última vez | `ultimoVistoEn` | Es «cuándo corrió el último sync que lo tocó», no un hecho del comparendo |
 | **C** | Última corrida | `ultimoSyncRunId` | Puente al detalle de la corrida; identificador técnico |
@@ -425,6 +428,8 @@ filtrable, ni «Municipio», ni «Origen», ni «Gestión», y nadie ha deducido
 inclinó la balanza es que la pregunta «¿esto en qué va?» es la que hace abrir la pantalla, y hoy se
 responde abriendo el panel fila por fila. Va al nivel **B**, que es exactamente lo que el nivel B
 significa: útil, no decisivo, y disponible entero en el detalle cuando la pantalla es estrecha.
+> **Revocado el 26 ago 2026 (A′):** deja de ser B y pasa a A. El razonamiento de por qué salió del
+> detalle **sigue**; lo que caduca es el colapso por ancho. Ver el bloque fechado de esa fecha.
 
 **Y va la PRIMERA del bloque B, tras «Gestión» — no pegada a «Monitoreo».** Ponerla al lado haría
 más evidente el contraste entre los dos estados, que es lo que la decisión 5 pide, pero empujaría
@@ -478,6 +483,27 @@ línea con `line-clamp-1` por la misma razón que la infracción: el alto de la 
 > eso «Infracción» conserva su `line-clamp-1`. Lo demás de esta frase **sigue vigente**: sin
 > `capitalize`, sin `uppercase`, sin `title` y `<td>` mudo. Razonamiento completo en
 > `docs/ux/flito-comparendos-estado-fuente.md`.
+
+---
+
+#### Enmienda del 26 ago 2026 — «Estado en la fuente» pasa de B a A (A′)
+
+Pedido informal del PO (David), firmado en `docs/ux/shell-tema-y-responsive.md`. **Radicado el 26 ago
+2026 como Feature #11898, HU #11900** (la parte del visor). Se corrige en sitio, tachado y con
+remisión, igual que el 21 y el 24 ago.
+
+**Qué cambia.** `estadoFuente` deja el bloque B y entra en el A: se pinta **siempre**, también por
+debajo de 1280 px. En código: la celda deja `CeldaB` / `hidden xl:table-cell` y usa `Celda`. El
+esqueleto de carga replica **11** columnas A en `<xl` (antes 10).
+
+**Qué no cambia.** Origen, Registrado e Inactivado (condicional) siguen B (`hidden xl:table-cell`).
+No hay selector de columnas ni preferencia persistida (descarte 7 **vigente**). No hay cards. 
+«Organismo» no vuelve como columna (#11713 / #11879). El tratamiento de la celda de #11777 —14 rem
+`min-w`/`max-w`, entero, `wrap-anywhere`, airbag, sin `title` ni `text-transform`, `<td>` mudo—
+**sigue**. El argumento de #11713 de no empujar A a la derecha **se relaja solo para esta columna**.
+
+**Conteo.** Con filtro Inactivos a ≥ 1280: **14** (igual). Bajo 1280: **11 A** (antes 10). La nota de
+QA 36e de más abajo queda revocada en el «10».
 
 ---
 
@@ -983,7 +1009,7 @@ escritura que esta pantalla consume.
 | `monto` | Monto |
 | `origenMerge` | Origen |
 | `estado` | ~~Estado~~ **Monitoreo** (#11713) |
-| `estadoFuente` | Estado en la fuente (#11713, nivel B) |
+| `estadoFuente` | Estado en la fuente (#11713; ~~nivel B~~ **nivel A desde el 26 ago 2026**, A′) |
 | `tipoRegistro` | Tipo (#11713, nivel A) |
 | `primeraVistoEn` | Registrado |
 | `inactivadoEn` | Inactivado |
@@ -1206,10 +1232,11 @@ anteriores]` si existe.
     `municipioComparendo`, no `municipioFuente`. Y el catálogo **no** se le aplica al `organismo`:
     «Medellin» se queda «Medellin».
 36. ~~`estadoFuente` **no** aparece en ninguna columna de la tabla.~~ **REVOCADO el 21 ago 2026
-    (HU #11713) — no ejecutar: su resultado esperado es hoy el contrario.** Lo que se comprueba en su
-    lugar: `estadoFuente` **sí** es columna de nivel B, rotulada «Estado en la fuente», con el texto
-    **tal cual** lo manda el proveedor (ni `capitalize` ni `uppercase` ni recorte en el DOM), a una
-    línea con `line-clamp-1`, **sin `title`**, y `null` → «—».
+    (HU #11713) — no ejecutar: su resultado esperado es hoy el contrario.** ~~Lo que se comprueba en su
+    lugar: `estadoFuente` **sí** es columna de nivel B~~ **Revocado el 26 ago 2026 (A′): es columna
+    de nivel A**, rotulada «Estado en la fuente», visible también a **1279 px**, con el texto
+    **tal cual** lo manda el proveedor (ni `capitalize` ni `uppercase` ni recorte en el DOM), entero
+    a 14 rem (#11777), **sin `title`**, y `null` → «—».
 36b. La columna del monitoreo se llama **«Monitoreo»** y **ninguna** columna se llama solo «Estado».
 36c. «Tipo» es columna de nivel A en posición 2, en **texto plano y sin `StatusChip`**;
     `tipoRegistro: null` → «—» y **nunca** «Comparendo»; un tipo desconocido se pinta crudo;
@@ -1219,9 +1246,11 @@ anteriores]` si existe.
      el 24 ago es el rótulo de línea «Organismo» dentro de la celda.~~ **Revocado el 25 ago 2026
      (#11879): no hay rótulo.** Lo que se ve es el **valor** del organismo, desnudo, en las filas sin
      `municipioComparendo`.
-36e. A **1280 px** el encabezado tiene **14** cabeceras con el filtro «Inactivos» puesto y a
-    **1279 px** tiene **10**, con las de nivel B fuera del árbol accesible. El **esqueleto** tiene el
-    mismo número de columnas que la tabla llena en cada uno de los dos anchos.
+36e. A **1280 px** el encabezado tiene **14** cabeceras con el filtro «Inactivos» puesto. A
+    **1279 px** tiene **11** (las A, **incluido** «Estado en la fuente»). ~~**10**, con las de nivel B
+    fuera del árbol~~ **Revocado el 26 ago 2026 (A′):** de B solo quedan Origen, Registrado e
+    Inactivado fuera del árbol bajo `xl`. El **esqueleto** tiene el mismo número de columnas que la
+    tabla llena en cada uno de los dos anchos.
 36f. La petición del listado **no** manda `tipo` ni `estadoFuente`: el esquema del backend es
     `.strict()` y sería un 400.
 37. Una descripción de infracción de 200 caracteres se recorta a una línea y **no** se pone en un
