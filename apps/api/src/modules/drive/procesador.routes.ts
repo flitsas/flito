@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { downloadFile } from '../../services/googleDrive.js';
+import {
+  analizarPdfDeDrive, etiquetaTipoTramite, extraccionDeCuenta, ProcesadorError, type CuentaCobro,
+} from './procesador.service.js';
 import { env } from '../../config/env.js';
 import https from 'https';
 import crypto from 'crypto';
@@ -12,6 +14,7 @@ import { db } from '../../db/client.js';
 import { procesamientoCuentas } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { loggerFor } from '../../shared/logger.js';
+import { registrarDesdeExtraccion } from '../flito-derechos/flito-derechos.service.js';
 
 const log = loggerFor('drive-procesador');
 
@@ -53,22 +56,6 @@ const processLimiter = rateLimit({ windowMs: 300000, max: 5, keyGenerator: userO
 
 const processingFiles = new Set<string>();
 
-type TipoTramiteCuenta = 'PRENDA' | 'MATRICULA_INICIAL' | 'OTRO' | '';
-
-interface CuentaCobro {
-  pagina: number;
-  placa: string;
-  propietario: string;
-  cedula: string;
-  vehiculo: string;
-  tipoTramite: TipoTramiteCuenta;
-  fechaTramite: string;
-  organismo: string;
-  marca: string;
-  valorTotal: number;
-  radicado: string;
-}
-
 // Nombre compuesto del trámite (igual a la línea de detalle del modelo
 // 00-REINTEGROS CLIENTES): "{fecha} {placa} {organismo} {marca} MATRICULA
 // MATRICULA INICIAL [Prenda] NORMAL". Se usa como nombre de descarga del PDF
@@ -89,22 +76,6 @@ function safeDownloadName(base: string, ext: string): string {
   const clean = base.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 180);
   return `${clean || 'tramite'}.${ext}`;
 }
-
-function normalizarTipoTramite(raw: unknown): TipoTramiteCuenta {
-  const t = String(raw ?? '').toUpperCase().replace(/\s+/g, '_');
-  if (t.includes('PRENDA') || t.includes('GRAVAMEN') || t.includes('GARANTIA')) return 'PRENDA';
-  if (t.includes('MATRICULA_INICIAL') || t === 'MATRICULA_INICIAL' || t === 'MI') return 'MATRICULA_INICIAL';
-  if (t === 'OTRO') return 'OTRO';
-  return '';
-}
-
-function etiquetaTipoTramite(t: TipoTramiteCuenta): string {
-  if (t === 'PRENDA') return 'PRENDA';
-  if (t === 'MATRICULA_INICIAL') return 'MATRICULA INICIAL';
-  if (t === 'OTRO') return 'OTRO';
-  return '';
-}
-
 
 // POST /procesar-cuentas — Procesa un PDF de Drive, separa por placa, genera Excel
 router.post('/procesar-cuentas', processLimiter, async (req: Request, res: Response) => {
@@ -130,121 +101,20 @@ router.post('/procesar-cuentas', processLimiter, async (req: Request, res: Respo
       for (const d of dirs) { const ts = parseInt(d); if (!isNaN(ts) && ahora - ts > 24 * 60 * 60 * 1000) await rm(path.join(baseDir, d), { recursive: true, force: true }).catch(() => {}); }
     } catch {}
 
-    // 1. Descargar PDF de Drive
-    const { buffer, name } = await downloadFile(fileId);
-
-    if (!name?.toLowerCase().endsWith('.pdf')) { res.status(400).json({ error: 'El archivo debe ser PDF' }); return; }
-
-    // 2. Cargar PDF con pdf-lib
-    const { PDFDocument } = await import('pdf-lib');
-    const srcDoc = await PDFDocument.load(buffer);
-    const totalPages = srcDoc.getPageCount();
+    // 1-3. Descarga, OCR página a página y agrupación por placa: son idénticos a lo que hace la
+    //       pestaña del Drive en Derechos de tránsito, así que viven en el servicio compartido
+    //       (HU #11010). Lo que sigue —Excel, ZIP y ficheros en disco— sí es propio de esta pantalla.
+    const analizado = await analizarPdfDeDrive(fileId);
+    const { name, srcDoc, totalPaginas: totalPages, cuentas, paginasPorPlaca } = analizado;
 
     if (totalPages === 0) { res.json({ ok: true, archivoOriginal: name, totalPaginas: 0, cuentasDetectadas: 0, placasUnicas: 0, valorTotal: 0, cuentas: [], archivos: [], excelFile: null, outputDir: null }); return; }
-    const MAX_PAGES = 150;
-    if (totalPages > MAX_PAGES) { res.status(400).json({ error: `PDF tiene ${totalPages} páginas. Máximo soportado: ${MAX_PAGES}` }); return; }
-
-    // 3. Para cada página, extraer como PDF individual y hacer OCR con Claude (paralelizado por chunks)
-    const cuentas: CuentaCobro[] = [];
-    const paginasPorPlaca = new Map<string, number[]>();
-
-    const procesarPagina = async (i: number): Promise<void> => {
-      const singleDoc = await PDFDocument.create();
-      const [copiedPage] = await singleDoc.copyPages(srcDoc, [i]);
-      singleDoc.addPage(copiedPage);
-      const singleBytes = await singleDoc.save();
-      const b64 = Buffer.from(singleBytes).toString('base64');
-
-      const ocrBody = JSON.stringify({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 500,
-        messages: [{ role: 'user', content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-          { type: 'text', text: `Analiza esta pagina de un PDF de tramites vehiculares colombianos.
-
-PRIMERO determina que tipo de pagina es:
-- TIPO A: "CUENTA DE COBRO" individual — tiene encabezado "CUENTA DE COBRO", logo de alcaldia, UN solo vehiculo con su placa, conceptos desglosados (matricula, expedicion, etc), y un TOTAL A PAGAR al final.
-- TIPO B: Pagina de RESUMEN o PORTADA — tiene una LISTA o TABLA con MULTIPLES placas, o dice "TOTAL PAGOS", "CONCESIONARIO", o es un listado tipo Excel con columnas FECHA/PLACA/VALOR.
-- TIPO C: Pagina en blanco, indice, o cualquier otra cosa que NO sea una cuenta de cobro individual.
-
-Si es TIPO B o TIPO C, responde inmediatamente: {"placa":"","valorTotal":0}
-NO extraigas datos de paginas de resumen aunque tengan placas listadas.
-
-Si es TIPO A (cuenta de cobro individual), extrae CARACTER POR CARACTER:
-
-1. PLACA: formato colombiano 3 letras + 3 numeros (ej: QTP701). Aparece junto a la descripcion del vehiculo en la seccion de datos, o en el campo CEDULA/NIT seguido del numero. NO es el radicado.
-2. PROPIETARIO: campo "NOMBRE O RAZON SOCIAL".
-3. CEDULA: numero de documento del propietario (solo digitos).
-4. VEHICULO: descripcion del vehiculo (marca, clase, tipo, modelo).
-5. VALOR TOTAL: el numero en "TOTAL A PAGAR" al final de la cuenta. Numero entero sin puntos ni comas.
-6. RADICADO: "RADICADO DE TRAMITE" en la parte superior.
-7. TIPO TRAMITE: lee las LINEAS DE CONCEPTOS / desglose de cobro:
-   - Si hay PRENDA, INSCRIPCION DE PRENDA, GARANTIA MOBILIARIA o GRAVAMEN (prenda) → "PRENDA"
-   - Si solo MATRICULA INICIAL (sin prenda en conceptos) → "MATRICULA_INICIAL"
-   - Si ninguno aplica claramente → "OTRO" o ""
-8. FECHA TRAMITE: la fecha del tramite / fecha de la cuenta de cobro, en formato YYYY-MM-DD (ej: 2026-05-23). Si solo hay fecha de expedicion, usa esa.
-9. ORGANISMO: el organismo o secretaria de transito (municipio) que emite la cuenta — aparece junto al logo de la alcaldia o en el encabezado (ej: PALMIRA, MEDELLIN, BELLO). Solo el nombre del municipio en MAYUSCULAS.
-10. MARCA: la marca del vehiculo en MAYUSCULAS (ej: TESLA, CHEVROLET, RENAULT). Extraela de la descripcion del vehiculo.
-
-PRECISION:
-- Placa = exactamente 6 caracteres: 3 letras + 3 numeros
-- NO confundir O con 0, I con 1, S con 5, B con 8
-- El TOTAL A PAGAR es de UNA sola cuenta, NO de un lote completo. Valores tipicos: 100.000 a 500.000 pesos
-- Si el valor supera 1.000.000, probablemente es una pagina de resumen → responder {"placa":"","valorTotal":0}
-
-Responde SOLO JSON sin markdown:
-{"placa":"ABC123","propietario":"NOMBRE","cedula":"123456","vehiculo":"CAMIONETA MARCA 2026","valorTotal":236700,"radicado":"1005504347","tipoTramite":"MATRICULA_INICIAL","fechaTramite":"2026-05-23","organismo":"PALMIRA","marca":"TESLA"}` },
-        ] }],
-      });
-
-      const ocrResult: any = await new Promise((resolve, reject) => {
-        const rq = https.request({
-          method: 'POST', hostname: 'api.anthropic.com', path: '/v1/messages',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY || '', 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(ocrBody) },
-        }, (r2) => { let d = ''; r2.on('data', (c: string) => d += c); r2.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } }); });
-        rq.setTimeout(60000, () => rq.destroy(new Error('Timeout')));
-        rq.on('error', reject); rq.write(ocrBody); rq.end();
-      });
-
-      const ocrText = ocrResult?.content?.[0]?.text || '';
-      let datos: any = null;
-      try { datos = JSON.parse(ocrText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); } catch {}
-
-      // Descartar páginas de resumen mal parseadas: cuentas individuales en Colombia
-      // están en el rango 50k–5M; valores fuera de ese rango son agregados o ruido OCR.
-      const valor = Number(datos?.valorTotal) || 0;
-      const VALOR_MAX_INDIVIDUAL = 5_000_000;
-      if (datos?.placa && valor > 0 && valor <= VALOR_MAX_INDIVIDUAL) {
-        const placa = datos.placa.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        cuentas.push({
-          pagina: i + 1, placa, propietario: datos.propietario || '', cedula: datos.cedula || '',
-          vehiculo: datos.vehiculo || '', tipoTramite: normalizarTipoTramite(datos.tipoTramite),
-          fechaTramite: String(datos.fechaTramite || '').trim(),
-          organismo: String(datos.organismo || '').trim(),
-          marca: String(datos.marca || '').trim(),
-          valorTotal: valor, radicado: datos.radicado || '',
-        });
-
-        if (!paginasPorPlaca.has(placa)) paginasPorPlaca.set(placa, []);
-        paginasPorPlaca.get(placa)!.push(i);
-      }
-    };
-
-    const CONCURRENCY = 5;
-    for (let chunkStart = 0; chunkStart < totalPages; chunkStart += CONCURRENCY) {
-      const chunkEnd = Math.min(chunkStart + CONCURRENCY, totalPages);
-      const tasks: Promise<void>[] = [];
-      for (let i = chunkStart; i < chunkEnd; i++) tasks.push(procesarPagina(i));
-      await Promise.all(tasks);
-      if (chunkEnd < totalPages) await new Promise(r => setTimeout(r, 500));
-    }
-
-    cuentas.sort((a, b) => a.pagina - b.pagina);
 
     // 4. Generar PDFs individuales por placa
     const outputDir = path.join(process.cwd(), 'uploads', 'cuentas-cobro', Date.now().toString());
     await mkdir(outputDir, { recursive: true });
 
     const archivosGenerados: { placa: string; archivo: string; paginas: number }[] = [];
+    const { PDFDocument } = await import('pdf-lib');
 
     for (const [placa, paginas] of paginasPorPlaca) {
       const placaDoc = await PDFDocument.create();
@@ -286,6 +156,35 @@ Responde SOLO JSON sin markdown:
         archive.finalize();
       });
     }
+
+    // 4c. Persistir el derecho de trámite de cada placa (HU #10952). El Excel, los PDF por placa y
+    //     el ZIP de arriba NO se tocan: alguien los usa hoy. Esto se suma encima, reusando la
+    //     lectura que ya se hizo página a página en vez de volver a gastar OCR.
+    const persistencia = { registrados: 0, enRevision: 0, pendientes: 0, duplicados: 0, fallidos: 0 };
+    for (const a of archivosGenerados) {
+      const cuenta = cuentaPorPlaca.get(a.placa);
+      if (!cuenta) continue;
+      try {
+        const { readFile } = await import('fs/promises');
+        const buffer = await readFile(path.join(outputDir, a.archivo));
+        const r = await registrarDesdeExtraccion(
+          { originalname: `${a.placa}.pdf`, mimetype: 'application/pdf', buffer, size: buffer.length },
+          extraccionDeCuenta(cuenta),
+          { origen: 'drive', organismoCodigo: null },
+          { userId: (req as any).user!.sub, username: (req as any).user!.username, role: (req as any).user!.role },
+        );
+        persistencia.registrados += r.registrados.length;
+        persistencia.enRevision += r.enRevision.length;
+        persistencia.pendientes += r.pendientes.length;
+        persistencia.duplicados += r.duplicados.length;
+      } catch (e) {
+        // Una placa que no se pudo persistir no invalida el procesamiento: el Excel y los PDF ya
+        // están generados y son el entregable histórico de este endpoint.
+        persistencia.fallidos += 1;
+        log.warn({ placa: a.placa, err: (e as Error).message }, 'no se pudo persistir el derecho de trámite');
+      }
+    }
+    log.info({ ...persistencia, placas: archivosGenerados.length }, 'derechos de trámite persistidos desde cuentas de cobro');
 
     // 5. Generar Excel resumen
     const ExcelJS = (await import('exceljs')).default;
@@ -372,7 +271,15 @@ Responde SOLO JSON sin markdown:
     });
   } catch (e: any) {
     log.error({ err: e.message, registroId: registro.id }, 'procesamiento cuentas falló');
-    await db.update(procesamientoCuentas).set({ estado: 'error', error: e.message }).where(eq(procesamientoCuentas.id, registro.id)).catch(() => {});
+    // Anotar el fallo no puede tapar el fallo: `.catch()` solo cubre rechazos, y si el `update`
+    // lanza en síncrono la petición se quedaría sin respuesta.
+    try {
+      await db.update(procesamientoCuentas).set({ estado: 'error', error: e.message })
+        .where(eq(procesamientoCuentas.id, registro.id));
+    } catch { /* el registro de auditoría es secundario */ }
+    // Un PDF que no lo es, o con demasiadas páginas, es un error del usuario (400), no del
+    // servidor: antes se respondía antes de entrar aquí y ahora lo lanza el servicio compartido.
+    if (e instanceof ProcesadorError) { res.status(e.status).json({ error: e.message }); return; }
     res.status(500).json({ error: e.message });
   } finally {
     processingFiles.delete(fileId);

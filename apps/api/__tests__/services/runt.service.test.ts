@@ -69,24 +69,30 @@ describe('consultarVehiculoRunt', () => {
     await expect(consultarVehiculoRunt('ABC123', undefined)).rejects.toThrow(/Documento/);
   });
 
-  it('placa + documento → llama CEA y retorna data', async () => {
+  // La pasarela de Kyverum sustituye al proxy CEA, que dejó de existir. Se comprueba el host, la
+  // ruta y la forma del header: el CEA autenticaba con `x-internal-key` y la pasarela responde 401
+  // si no llega `Authorization: Bearer`, así que enviarlo mal es exactamente el fallo que hubo.
+  it('placa + documento → llama a la pasarela RUNT con Bearer y retorna data', async () => {
     mockHttpsResponse(200, { ok: true, data: { placa: 'ABC123' } });
     const { consultarVehiculoRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarVehiculoRunt('abc-123', undefined, '1040326572', 'CC');
     expect(r.ok).toBe(true);
     expect(httpsRequestMock).toHaveBeenCalled();
     const callArgs = httpsRequestMock.mock.calls[0][0] as any;
-    expect(callArgs.headers['x-internal-key']).toBe('test-runt-internal-key-12345');
+    expect(callArgs.hostname).toBe('runt.kyverum.com');
+    expect(callArgs.path).toBe('/v1/vehiculos:consultar');
+    expect(callArgs.headers.Authorization).toBe('Bearer test-runt-internal-key-12345');
+    expect(callArgs.headers['x-internal-key']).toBeUndefined();
   });
 
-  it('vin solo (sin documento) → llama CEA con vin sanitizado', async () => {
+  it('vin solo (sin documento) → llama a la pasarela con vin sanitizado', async () => {
     mockHttpsResponse(200, { ok: true });
     const { consultarVehiculoRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarVehiculoRunt(undefined, 'wXy12-34');
     expect(r.ok).toBe(true);
   });
 
-  it('CEA responde 500 → ok:false', async () => {
+  it('pasarela responde 500 → ok:false', async () => {
     mockHttpsResponse(500, 'error html');
     const { consultarVehiculoRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarVehiculoRunt('ABC123', undefined, '123456');
@@ -94,7 +100,17 @@ describe('consultarVehiculoRunt', () => {
     expect(r.message).toMatch(/Error comunicando/);
   });
 
-  it('CEA error de red → ok:false con mensaje', async () => {
+  // El motivo real en vez del genérico: un 401 por llave mal configurada y un servicio caído piden
+  // cosas distintas, y taparlos con el mismo texto fue lo que hizo indescifrable el 502.
+  it('pasarela rechaza con error.message → ese mensaje llega al llamante', async () => {
+    mockHttpsResponse(401, { error: { code: 'UNAUTHORIZED', message: 'Falta la API key.' } });
+    const { consultarVehiculoRunt } = await import('../../src/modules/runt/runt.service.js');
+    const r = await consultarVehiculoRunt('ABC123', undefined, '123456');
+    expect(r.ok).toBe(false);
+    expect(r.message).toBe('Falta la API key.');
+  });
+
+  it('error de red → ok:false con mensaje', async () => {
     mockHttpsError(new Error('ECONNREFUSED'));
     const { consultarVehiculoRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarVehiculoRunt('ABC123', undefined, '123456');
@@ -109,14 +125,18 @@ describe('consultarPersonaRunt', () => {
     await expect(consultarPersonaRunt('')).rejects.toThrow(/Documento/);
   });
 
-  it('documento → llama CEA persona', async () => {
-    mockHttpsResponse(200, { ok: true, data: { nombres: 'Juan' } });
+  it('documento → llama a la pasarela de personas con Bearer', async () => {
+    mockHttpsResponse(200, { ok: true, persona: { nombres: 'Juan' } });
     const { consultarPersonaRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarPersonaRunt('1040326572', 'CC');
     expect(r.ok).toBe(true);
+    const callArgs = httpsRequestMock.mock.calls[0][0] as any;
+    expect(callArgs.hostname).toBe('runt.kyverum.com');
+    expect(callArgs.path).toBe('/v1/personas:consultar');
+    expect(callArgs.headers.Authorization).toBe('Bearer test-runt-internal-key-12345');
   });
 
-  it('CEA responde string (no JSON) → ok:false', async () => {
+  it('pasarela responde string (no JSON) → ok:false', async () => {
     mockHttpsResponse(200, 'plain text');
     const { consultarPersonaRunt } = await import('../../src/modules/runt/runt.service.js');
     const r = await consultarPersonaRunt('1040326572');

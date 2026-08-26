@@ -44,6 +44,38 @@ export const MENSAJERO_USER = {
   allowedPages: ['flito_logistica_ruta'],
 };
 
+// Finanzas — dueña de las bolsas prepago (Feature #11120). Sus páginas salen de los defaults del
+// rol, así que `allowedPages` va vacío a propósito: el test comprueba el permiso real, no uno
+// concedido a mano.
+export const FINANCIERA_USER = {
+  id: 10,
+  username: 'e2e_financiera',
+  name: 'Financiera E2E',
+  role: 'financiera' as const,
+  allowedPages: [] as string[],
+};
+
+// FLITO Impuestos — gestor atado a un organismo de tránsito. `allowedPages` vacío a propósito: sus
+// páginas salen de los defaults del rol, así que el test comprueba el permiso real y no uno
+// concedido a mano. Su frontera de datos (el organismo) la aplica el servidor, no la UI.
+export const GESTOR_IMPUESTOS_USER = {
+  id: 11,
+  username: 'e2e_gestor_impuestos',
+  name: 'Gestor Impuestos E2E',
+  role: 'gestor_impuestos' as const,
+  allowedPages: [] as string[],
+};
+
+// Conductor — el rol más acotado del sistema. Sirve de control negativo: si un módulo se le
+// escapa a este, se le escapa a cualquiera.
+export const CONDUCTOR_USER = {
+  id: 12,
+  username: 'e2e_conductor',
+  name: 'Conductor E2E',
+  role: 'conductor' as const,
+  allowedPages: [] as string[],
+};
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>

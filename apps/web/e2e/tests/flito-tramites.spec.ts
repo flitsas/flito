@@ -10,34 +10,43 @@ const PROVEEDORES = [
   { id: '22222222-2222-2222-2222-222222222222', nombre: 'Aseguradora Beta', activo: true },
 ];
 
+// Fechas relativas para que el semáforo de antigüedad sea determinista: recién ingresado,
+// claramente atrasado, y sin fecha conocida.
+const haceDias = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
 const TRAMITES = [
   {
+    fechaCreacion: haceDias(0),
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000001', idFlit: 'FLIT-1001', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: '900111', secretariaEmparejada: true,
     transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
     companiaNombre: 'Concesionario Norte', organismoNombre: 'STT Manizales',
     vehiculo: { vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' },
-    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' },
+    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', correo: 'ana.perez@acme.co' },
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' }],
     soat: { id: 's1', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
+    excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
     listoParaEntregar: false,
   },
   {
+    fechaCreacion: haceDias(10),
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000002', idFlit: 'FLIT-1002', estado: 'Asignado', asignado: true,
     tipoTramite: 'Traspaso', ciudad: 'Pereira', empresaExiste: true, empresaNit: '900222', secretariaEmparejada: true,
     transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
     companiaNombre: 'Concesionario Sur', organismoNombre: 'STT Pereira',
     vehiculo: { vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid' },
-    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' },
+    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', correo: null },
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' }],
     soat: { id: 's2', estado: 'pagado', proveedorSoatNombre: 'Seguros Alfa', valorPagado: 450000 },
+    excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
     listoParaEntregar: true,
   },
   {
+    fechaCreacion: null, // trámite del que no se conoce la fecha (AC5)
     tramiteId: 'aaaaaaaa-0000-0000-0000-000000000003', idFlit: 'FLIT-1003', estado: 'Asignado', asignado: true,
     tipoTramite: 'Matricula', ciudad: 'Armenia', empresaExiste: false, empresaNit: '900333', secretariaEmparejada: true,
     transitoNombre: 'STT Armenia', facturaVentaFlitId: null,
@@ -46,6 +55,7 @@ const TRAMITES = [
     compradorPrincipal: { nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' },
     compradores: [{ nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' }],
     soat: { id: 's3', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
+    excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i3', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
     listoParaEntregar: false,
@@ -74,7 +84,8 @@ test.describe('FLITO — Trámites unificado', () => {
     await mockLista(page);
 
     await page.goto('/flito/tramites');
-    await expect(page.getByRole('heading', { name: 'Trámites', exact: true })).toBeVisible();
+    // El título real de la página es «Gestión Trámites»; la aserción anterior buscaba «Trámites» exacto.
+    await expect(page.getByRole('heading', { name: 'Gestión Trámites', exact: true })).toBeVisible();
     await expect(page.getByText('FLIT-1001')).toBeVisible();
     await expect(page.getByText('FLIT-1002')).toBeVisible();
     await expect(page.getByText('ABC123')).toBeVisible();
@@ -150,6 +161,126 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await expect.poll(() => body).not.toBeNull();
     expect(body).toMatchObject({ nombre: 'ACME SAS', nit: '900333' });
+  });
+
+  // ── HU #10960 — fechas e indicadores de antigüedad ──────────────────────────
+
+  test('la columna Creado muestra la fecha y el semáforo de antigüedad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByRole('columnheader', { name: 'Creado', exact: true })).toBeVisible();
+
+    // Recién ingresado (hoy) frente a claramente atrasado (10 días).
+    const fila1001 = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
+    await expect(fila1001.getByText('Hoy', { exact: true })).toBeVisible();
+    const fila1002 = page.getByRole('row').filter({ hasText: 'FLIT-1002' });
+    await expect(fila1002.getByText('10 días', { exact: true })).toBeVisible();
+  });
+
+  test('un trámite sin fecha conocida no pinta indicador de antigüedad', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    const fila1003 = page.getByRole('row').filter({ hasText: 'FLIT-1003' });
+    await expect(fila1003).toBeVisible();
+    // Ni "Hoy" ni "N días": sobre un dato que no existe no se inventa un semáforo.
+    await expect(fila1003.getByText(/^(Hoy|\d+ días?)$/)).toHaveCount(0);
+  });
+
+  test('el correo del responsable tiene columna propia y se puede escribir desde ella', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByRole('columnheader', { name: 'Correo' })).toBeVisible();
+
+    const conCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
+    await expect(conCorreo.getByRole('link', { name: 'ana.perez@acme.co' }))
+      .toHaveAttribute('href', 'mailto:ana.perez@acme.co');
+
+    // En columna propia el hueco sí hay que nombrarlo: una celda vacía no se distingue de un
+    // fallo de carga, al contrario que cuando el dato colgaba de la ficha del comprador.
+    const sinCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1002' });
+    await expect(sinCorreo.getByRole('link', { name: /@/ })).toHaveCount(0);
+    await expect(sinCorreo.getByText('Sin correo')).toBeVisible();
+  });
+
+  test('cambiar el orden recarga el listado desde el servidor', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+
+    const urls: string[] = [];
+    await page.route(/\/api\/flito\/tramites\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        items: TRAMITES, total: TRAMITES.length, page: 1, pageSize: 50,
+      }) });
+    });
+
+    await page.goto('/flito/tramites');
+    await expect(page.getByText('FLIT-1001')).toBeVisible();
+
+    await page.getByLabel('Orden').selectOption('antiguos');
+    await expect.poll(() => urls.some((u) => u.includes('orden=antiguos'))).toBe(true);
+  });
+
+  test('el filtro inteligente de recién llegados pone las cuatro condiciones', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const urls: string[] = [];
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\?/, (route) => {
+      urls.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }) });
+    });
+
+    await page.goto('/flito/tramites');
+    await page.locator('summary').filter({ hasText: 'Vista' }).click();
+    await page.getByRole('button', { name: /Recién llegados sin gestionar/ }).click();
+
+    // Cuatro condiciones. El orden cuenta tanto como los filtros: sin `antiguos`, lo que lleva más
+    // esperando se queda en la última página, que es justo lo contrario de lo que se busca.
+    const ultima = () => urls.at(-1) ?? '';
+    await expect.poll(ultima).toContain('estados=Asignado');
+    await expect.poll(ultima).toContain('soat=pendiente');
+    await expect.poll(ultima).toContain('impuesto=pendiente');
+    await expect.poll(ultima).toContain('orden=antiguos');
+  });
+
+  // Los comprobantes de los tres conceptos, desde la pantalla donde se despacha. Antes había que
+  // salir al reporte de costos (rol financiera) o a la tabla de derechos para ver si el papel
+  // estaba cargado, y quien entrega es justo quien tiene que comprobarlo.
+  test('el visor de soportes trae SOAT, impuesto y derecho de tránsito del trámite', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\/.*\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+        { id: 's1', origen: 'soat', tipo: 'factura_soat', nombreArchivo: 'soat.pdf', url: '/api/files?key=a', subidoEn: '2026-07-01T00:00:00Z' },
+        { id: 's2', origen: 'impuesto', tipo: 'recibo_impuesto', nombreArchivo: 'impuesto.pdf', url: '/api/files?key=b', subidoEn: '2026-07-02T00:00:00Z' },
+        { id: 's3', origen: 'derecho', tipo: 'derecho_tramite', nombreArchivo: 'recibo.pdf', url: '/api/files?key=c', subidoEn: '2026-07-03T00:00:00Z' },
+      ]) }));
+
+    await page.goto('/flito/tramites');
+    await page.getByRole('row').filter({ hasText: 'FLIT-1002' }).getByRole('button', { name: 'Ver soportes' }).click();
+
+    await expect(page.getByText('Documentos de FLIT-1002')).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'SOAT' }).filter({ hasText: 'soat.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Impuesto' }).filter({ hasText: 'impuesto.pdf' })).toBeVisible();
+    await expect(page.getByRole('button').filter({ hasText: 'Derecho de tránsito' }).filter({ hasText: 'recibo.pdf' })).toBeVisible();
+  });
+
+  test('un trámite sin ningún documento lo dice en vez de abrir un visor vacío', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    await page.route(/\/api\/flito\/tramites\/.*\/soportes/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
+    await page.goto('/flito/tramites');
+    await page.getByRole('row').filter({ hasText: 'FLIT-1001' }).getByRole('button', { name: 'Ver soportes' }).click();
+
+    await expect(page.getByText(/no tiene ningún documento cargado todavía/)).toBeVisible();
   });
 
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {

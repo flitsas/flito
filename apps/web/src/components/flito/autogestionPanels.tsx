@@ -33,7 +33,7 @@ function Interruptor({ label, checked, onChange }: { label: string; checked: boo
 interface Vigencia { id: string; modalidad: ModalidadOrganismo; desde: string; hasta: string | null; motivo: string | null; actorNombre: string | null; creadoEn: string }
 
 // Modal de gestión de modalidad de un organismo: cambio de modalidad (con motivo y vigencias),
-// parámetros OCR/SLA y marca de diferencia de valor (D-5).
+// parámetros OCR/ANS y marca de diferencia de valor (D-5).
 export function GestionOrganismo({ organismo, editable, onClose, onCambio }: {
   organismo: Organismo; editable: boolean; onClose: () => void; onCambio: () => void;
 }) {
@@ -44,7 +44,7 @@ export function GestionOrganismo({ organismo, editable, onClose, onCambio }: {
   );
 }
 
-// Panel reutilizable (sin envoltura de modal) de modalidad + OCR/SLA + vigencias de un organismo.
+// Panel reutilizable (sin envoltura de modal) de modalidad + OCR/ANS + vigencias de un organismo.
 // Se embebe en la acción "Editar" del organismo (fusiona el antiguo botón "Gestionar").
 export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
   organismo: Organismo; editable: boolean; onCambio: () => void;
@@ -104,15 +104,17 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
         </div>
 
         <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Parámetros de OCR / SLA</p>
+          <p className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Parámetros de OCR / ANS</p>
           <div className="grid grid-cols-2 gap-3">
             <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} disabled={!editable} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
-            <FlitField label="SLA en horas"><input className={flitInp} type="number" min="1" value={sla} disabled={!editable} onChange={(e) => setSla(e.target.value)} /></FlitField>
+            <FlitField label="ANS pactado con el organismo (horas)"><input className={flitInp} type="number" min="1" value={sla} disabled={!editable} onChange={(e) => setSla(e.target.value)} /></FlitField>
           </div>
           <Interruptor label="Marcar diferencia de valor de impuestos (D-5)" checked={diferencia} onChange={editable ? setDiferencia : () => {}} />
           <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Al conciliar el recibo, si el valor pagado difiere del liquidado más allá de la tolerancia de la compañía, se marca para revisión (no bloquea el pago). Actívalo solo donde el valor liquidado sea de fuente fiable.
           </p>
+          {/* La bolsa dejó de configurarse aquí: ya no es un interruptor por organismo, sino una
+              bolsa que agrupa varias secretarías y varios conceptos. Se define en Finanzas → Bolsas. */}
           {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={guardando} onClick={guardarParams}>Guardar parámetros</button>}
         </div>
 

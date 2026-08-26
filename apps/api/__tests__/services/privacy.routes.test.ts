@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import { CLIENTS_COLUMNAS_PII, CLIENTS_COLUMNAS_SIN_PII } from '@operaciones/shared-types';
 import { chain } from '../helpers/db.js';
 import { testToken } from '../helpers/auth.js';
 
@@ -30,6 +31,39 @@ vi.mock('../../src/services/storage.js', () => ({
   deletePhoto: deletePhotoMock,
 }));
 
+/**
+ * Con qué direcciones se llamó a cada purga del módulo Siigo.
+ *
+ * Las funciones REALES siguen ejecutándose contra la transacción falsa —esto envuelve, no
+ * sustituye—: lo que se añade es poder ver el argumento. Sin él, la rama «por dirección» del olvido
+ * solo se puede afirmar mirando el resumen de la respuesta, que es el número que devuelve el mock
+ * del UPDATE y no dice NADA sobre qué se buscó.
+ */
+const correosPasadosAActas: string[][] = [];
+const correosPasadosALotes: string[][] = [];
+
+vi.mock('../../src/modules/siigo/siigo.envio-correo.service.js', async (original) => {
+  const real = await original<typeof import('../../src/modules/siigo/siigo.envio-correo.service.js')>();
+  return {
+    ...real,
+    purgarDestinatariosDeClientes: (companias: number[], correos: string[] = [], ejecutor?: never) => {
+      correosPasadosAActas.push([...correos]);
+      return real.purgarDestinatariosDeClientes(companias, correos, ejecutor);
+    },
+  };
+});
+
+vi.mock('../../src/modules/siigo/facturacion.lote.repo.js', async (original) => {
+  const real = await original<typeof import('../../src/modules/siigo/facturacion.lote.repo.js')>();
+  return {
+    ...real,
+    purgarDestinatariosDeLotes: (companias: number[], correos: string[] = [], ejecutor?: never) => {
+      correosPasadosALotes.push([...correos]);
+      return real.purgarDestinatariosDeLotes(companias, correos, ejecutor);
+    },
+  };
+});
+
 vi.mock('express-rate-limit', () => ({
   default: () => (_req: any, _res: any, next: any) => next(),
 }));
@@ -41,6 +75,8 @@ vi.mock('../../src/shared/redis.js', () => ({
 }));
 
 beforeEach(() => {
+  correosPasadosAActas.length = 0;
+  correosPasadosALotes.length = 0;
   selectMock.mockReset();
   transactionMock.mockReset();
   executeMock.mockReset().mockResolvedValue([{ '?column?': 1 }]);
@@ -78,6 +114,131 @@ function buildTxMock(opts: {
           }),
         }),
       })),
+    };
+    return cb(tx);
+  };
+}
+
+/**
+ * Transacción falsa que sabe de TABLAS y de ORDEN (HU #11708).
+ *
+ * `buildTxMock` responde lo mismo a todo el mundo, y por eso la rama del olvido que busca POR
+ * DIRECCIÓN nunca se ejercitaba: el `SELECT` de las direcciones del titular devolvía `{ id: 1 }`
+ * —una fila sin `email` ni `contactEmail`—, así que `correosDelTitular` salía vacío y las dos purgas
+ * degradaban a solo-compañía sin que ningún test lo notara.
+ *
+ * Esta versión añade las dos cosas que hacen falta para que el orden IMPORTE:
+ *
+ *   1. Enruta por nombre de tabla, de modo que el `SELECT` sobre cualquiera de las tablas donde el
+ *      titular tiene correo puede devolver direcciones de verdad.
+ *   2. **Recuerda qué tablas ya se anonimizaron.** En producción, cada `UPDATE` de este flujo
+ *      escribe el documento como `docHash` (que empieza por `ANON-`), y `matchByDoc` compara contra
+ *      el documento CRUDO y excluye explícitamente `NOT LIKE 'ANON-%'`. O sea: después de ese
+ *      UPDATE, ese mismo `SELECT` devuelve cero filas. Sin simularlo, mover la captura de las
+ *      direcciones a después del UPDATE seguía verde aquí y degradaba en silencio allá — y no en una
+ *      tabla, sino en cada una de las seis de las que este flujo saca correos.
+ */
+function buildTxPorTabla(opts: {
+  /** Lo que `SELECT email, contact_email FROM clients WHERE <doc del titular>` devuelve. */
+  fichaDelTitular?: Array<{ email: string | null; contactEmail: string | null }>;
+  /**
+   * Correos del titular en las OTRAS tablas que este flujo anonimiza, por nombre de tabla
+   * (`laft_counterparties`, `tramites_validaciones`, `tenedores`, `propietarios_carga`,
+   * `destinatarios_carga`). Cada uno se sirve como una fila `{ email }`.
+   */
+  correosPorTabla?: Record<string, Array<string | null>>;
+  /** Correo del comprador en `tramites_digitales`, que se lee con `execute` porque vive en JSONB. */
+  correosDeComprador?: Array<string | null>;
+  /** Filas que devuelve el SELECT de cada tabla. Por omisión, una. */
+  filasPorTabla?: Record<string, number>;
+  /**
+   * SQL renderizado (PgDialect) de cada `where` y de cada `execute`. Bug #11776: afirmar el
+   * patrón de `regexp_replace` contra el SQL que Drizzle manda, no contra el fuente.
+   */
+  capturarSql?: string[];
+} = {}) {
+  const ficha = opts.fichaDelTitular ?? [];
+  const correosPorTabla = opts.correosPorTabla ?? {};
+  const correosDeComprador = opts.correosDeComprador ?? [];
+
+  return async (cb: any) => {
+    const { getTableName } = await import('drizzle-orm');
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialecto = new PgDialect();
+    const nombre = (t: unknown): string => {
+      try { return getTableName(t as never); } catch { return '__expr__'; }
+    };
+    // El estado que hace que el ORDEN se note: en cuanto una tabla queda anonimizada, el documento
+    // del titular ya no existe en su forma cruda y ningún `matchByDoc` vuelve a encontrarla.
+    const anonimizadas = new Set<string>();
+
+    /** Filas afectadas por un UPDATE. Llevan `id` porque quien llama las usa como llave. */
+    const filasAfectadas = (tabla: string): unknown[] => {
+      const n = opts.filasPorTabla?.[tabla] ?? 1;
+      return Array.from({ length: n }, (_, i) => ({ id: i + 1, userId: i + 1 }));
+    };
+
+    /** Filas que devuelve un SELECT. Una tabla ya anonimizada devuelve cero, como en la BD. */
+    const filasLeidas = (tabla: string): unknown[] => {
+      if (anonimizadas.has(tabla)) return [];
+      if (tabla === 'clients') return ficha;
+      const correos = correosPorTabla[tabla];
+      if (correos) return correos.map((email) => ({ email }));
+      return filasAfectadas(tabla);
+    };
+
+    const tx = {
+      select: vi.fn(() => {
+        let tabla = '__sin_from__';
+        const c: any = {};
+        for (const m of ['where', 'leftJoin', 'innerJoin', 'limit', 'offset', 'orderBy', 'groupBy']) {
+          c[m] = () => c;
+        }
+        c.from = (t: unknown) => { tabla = nombre(t); return c; };
+        c.where = (cond?: unknown) => {
+          if (cond !== undefined && opts.capturarSql) {
+            try { opts.capturarSql.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* fragmento no serializable */ }
+          }
+          return c;
+        };
+        c.then = (res: any, rej: any) => Promise.resolve().then(() => filasLeidas(tabla)).then(res, rej);
+        return c;
+      }),
+      // `tramites_digitales` se lee y se escribe con SQL crudo, porque el comprador vive en JSONB.
+      // Se distingue la lectura de la escritura por el SQL generado, no por el orden de llamada: así
+      // el caso sigue diciendo la verdad aunque alguien reordene la transacción.
+      execute: vi.fn().mockImplementation(async (consulta: unknown) => {
+        const texto = ((): string => {
+          try { return dialecto.sqlToQuery(consulta as never).sql; } catch { return ''; }
+        })();
+        opts.capturarSql?.push(texto);
+        if (/^\s*SELECT\b/i.test(texto.trim())) {
+          return anonimizadas.has('tramites_digitales')
+            ? [] : correosDeComprador.map((email) => ({ email }));
+        }
+        anonimizadas.add('tramites_digitales'); // el UPDATE del paso 5 escribe `docHash`
+        return [{ id: 1 }];
+      }),
+      update: vi.fn((t: unknown) => {
+        const tabla = nombre(t);
+        const c: any = {};
+        c.set = () => c;
+        c.where = (cond?: unknown) => {
+          if (cond !== undefined && opts.capturarSql) {
+            try { opts.capturarSql.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* fragmento no serializable */ }
+          }
+          return c;
+        };
+        c.returning = () => {
+          // El UPDATE sí devuelve las filas que tocó —con su `id`, que es lo que la ruta usa como
+          // lista de compañías—; lo que cambia es que a partir de aquí ningún `matchByDoc` vuelve a
+          // encontrarlas. Ese matiz es el que hace que la rama por compañía siga funcionando cuando
+          // la captura se mueve: por eso el resumen NO delata el fallo y hacen falta los otros casos.
+          anonimizadas.add(tabla);
+          return Promise.resolve(filasAfectadas(tabla));
+        };
+        return c;
+      }),
     };
     return cb(tx);
   };
@@ -255,6 +416,63 @@ describe('POST /forget — flujo principal', () => {
     expect(auditEntry.detail).toMatch(/s3_deleted:/);
   });
 
+  // HU #11292 — los datos fiscales de Siigo añadieron columnas de PII a `clients`.
+  //
+  // Un borrado que deja el correo y el teléfono del contacto en columnas nuevas mientras anonimiza
+  // el resto de la ficha no es un borrado: es un borrado aparente, que es justo lo que la Ley 1581
+  // castiga. Esta prueba existe para que la próxima columna de PII que alguien añada a `clients` no
+  // se cuele sin pasar por aquí.
+  it('el derecho al olvido también limpia el contacto fiscal de Siigo', async () => {
+    let anonimizacionClients: Record<string, unknown> | undefined;
+    selectMock.mockImplementation(() => chain([]));
+    transactionMock.mockImplementationOnce(async (cb: any) => {
+      let primeraTabla = true;
+      const tx = {
+        select: vi.fn(() => chain([{ id: 1 }])),
+        execute: vi.fn().mockResolvedValue([{ id: 1 }]),
+        update: vi.fn(() => ({
+          set: (payload: Record<string, unknown>) => {
+            // `clients` es la primera tabla que anonimiza el handler.
+            if (primeraTabla) { anonimizacionClients = payload; primeraTabla = false; }
+            return { where: () => ({ returning: () => Promise.resolve([{ id: 1 }]) }) };
+          },
+        })),
+      };
+      return cb(tx);
+    });
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '900123456', reason: 'titular ejerce derecho al olvido' });
+    expect(r.status).toBe(200);
+
+    // Cada columna declarada como PII tiene que aparecer en el borrado. `name` y `document` no van
+    // a null —se sustituyen por el marcador y por el hash— así que basta con que estén.
+    for (const campo of CLIENTS_COLUMNAS_PII) {
+      expect(Object.keys(anonimizacionClients ?? {})).toContain(campo);
+    }
+    // Los códigos fiscales NO se tocan: no identifican a nadie y borrarlos rompería la
+    // trazabilidad contable de las facturas ya emitidas.
+    for (const campo of ['personType', 'idType', 'branchOffice', 'fiscalResponsibilities']) {
+      expect(anonimizacionClients).not.toHaveProperty(campo);
+    }
+  });
+
+  // El canario de verdad: que las dos listas cubran la tabla ENTERA.
+  //
+  // Sin esto, la prueba de arriba solo verifica las columnas que alguien se acordó de listar, y una
+  // columna de PII añadida mañana pasaría en verde sin borrarse nunca. Contrastarlas contra el
+  // esquema real obliga a clasificar cada columna nueva: o es dato personal y se borra, o se
+  // declara que no lo es. Por omisión no se puede quedar.
+  it('toda columna de clients está clasificada como PII o como no-PII', async () => {
+    const { getTableColumns } = await import('drizzle-orm');
+    const { clients } = await import('../../src/db/schema.js');
+    const clasificadas = new Set<string>([...CLIENTS_COLUMNAS_PII, ...CLIENTS_COLUMNAS_SIN_PII]);
+    const sinClasificar = Object.keys(getTableColumns(clients)).filter((col) => !clasificadas.has(col));
+    expect(sinClasificar).toEqual([]);
+  });
+
   it('docHash es determinístico (mismo doc → mismo hash)', async () => {
     selectMock.mockImplementation(() => chain([]));
     transactionMock.mockImplementation(buildTxMock());
@@ -279,6 +497,158 @@ describe('POST /forget — flujo principal', () => {
     const r2 = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
       .send({ docNumber: '1036a', reason: 'derecho al olvido formal' });
     expect(r1.body.docHash).toBe(r2.body.docHash);
+  });
+});
+
+describe('POST /forget — el olvido alcanza las direcciones del módulo Siigo (HU #11708)', () => {
+  /** La ficha del titular. Las mayúsculas son deliberadas: es como la teclea quien la registra. */
+  const FICHA = [{ email: 'Contabilidad@Empresa.com', contactEmail: 'cartera@empresa.com' }];
+
+  async function olvidar(tx: (cb: any) => Promise<any>) {
+    selectMock.mockImplementation(() => chain([]));
+    transactionMock.mockImplementationOnce(tx);
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    return request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '900123456', reason: 'titular ejerce derecho al olvido' });
+  }
+
+  it('purga también las direcciones ELEGIDAS al enviar, no solo las de las actas', async () => {
+    // Desde la HU #11708 el lote de facturación guarda las direcciones que alguien escribió en el
+    // envío, porque la emisión ocurre después y en otro proceso. Es el segundo sitio del módulo con
+    // datos personales: si el olvido no lo alcanzara, al titular se le respondería que se le olvidó
+    // mientras una copia sigue viva en una tabla que nadie mira.
+    const r = await olvidar(buildTxPorTabla({ fichaDelTitular: FICHA }));
+
+    expect(r.status).toBe(200);
+    expect(r.body.summary.siigo_lotes_facturacion).toBeGreaterThan(0);
+    // Y las actas se siguen redactando: esta historia añadió una tabla, no sustituyó a la otra.
+    expect(r.body.summary.siigo_factura_envios).toBeGreaterThan(0);
+  });
+
+  it('la rama POR DIRECCIÓN se ejercita de verdad: las dos purgas reciben las direcciones del titular', async () => {
+    // El caso que faltaba. Buscar solo por la compañía de la factura deja fuera las actas cuyo
+    // trámite no tiene empresa resuelta (`compania_id` es NULLABLE) y las direcciones del titular
+    // escritas a mano en la factura de OTRA empresa — que es justo cuando el titular del dato no es
+    // el cliente al que se factura. Si esta lista llega vacía, las dos purgas degradan a
+    // solo-compañía y el resumen sigue diciendo que se purgó algo.
+    await olvidar(buildTxPorTabla({ fichaDelTitular: FICHA }));
+
+    expect(correosPasadosAActas).toEqual([['Contabilidad@Empresa.com', 'cartera@empresa.com']]);
+    expect(correosPasadosALotes).toEqual([['Contabilidad@Empresa.com', 'cartera@empresa.com']]);
+  });
+
+  it('las direcciones se capturan ANTES de anonimizar la ficha, o no se capturan nunca', async () => {
+    // El orden de dos líneas, y es todo lo que separa esto de una purga que miente. `matchByDoc`
+    // compara contra el documento CRUDO y excluye `NOT LIKE 'ANON-%'`; el paso 1 de la transacción
+    // escribe `document = docHash`, que empieza por `ANON-`. Capturar después es capturar cero
+    // filas: la rama por dirección se apagaría en silencio y el resumen no cambiaría ni una cifra,
+    // porque la rama por compañía sigue devolviendo lo suyo.
+    //
+    // La transacción falsa lo reproduce: en cuanto `clients` recibe su UPDATE, ese mismo SELECT
+    // devuelve vacío. Mover la lectura de `clients` debajo del `tx.update(clients)` pone rojo este
+    // caso Y el de «la rama POR DIRECCIÓN se ejercita de verdad», que compara la lista completa.
+    // Los dos, no uno: son la misma afirmación mirada por el tamaño y por el contenido.
+    const tx = buildTxPorTabla({ fichaDelTitular: FICHA });
+    const r = await olvidar(tx);
+
+    expect(r.status).toBe(200);
+    expect(correosPasadosAActas[0]).toHaveLength(2);
+    expect(correosPasadosAActas[0]).toContain('Contabilidad@Empresa.com');
+    expect(correosPasadosALotes[0]).toHaveLength(2);
+  });
+
+  it('un titular sin correo en NINGUNA de las seis tablas no convierte el olvido en una purga sin criterio', async () => {
+    // El control de todos los casos anteriores: cuando de verdad no hay direcciones que buscar, la
+    // lista llega vacía y las purgas se quedan con la compañía. Sin este caso, «llega vacío» y «no se
+    // capturó» serían el mismo resultado y los de arriba no distinguirían nada.
+    //
+    // Y es el borde que importa hacia el otro lado: con la lista vacía, `correoDelTitularEn` deja el
+    // predicado por dirección en `false` —nunca en «todo»—, así que reunir correos de seis tablas no
+    // puede degenerar en vaciar las dos tablas del módulo para todo el mundo. Se pone en blanco cada
+    // una de las seis, no solo la ficha: un null y un `'   '` por en medio, que es lo que de verdad
+    // trae una columna opcional.
+    await olvidar(buildTxPorTabla({
+      fichaDelTitular: [{ email: null, contactEmail: '   ' }],
+      correosPorTabla: {
+        laft_counterparties: [null],
+        tramites_validaciones: ['   '],
+        tenedores: [null],
+        propietarios_carga: ['  '],
+        destinatarios_carga: [null],
+      },
+      correosDeComprador: [null],
+    }));
+
+    expect(correosPasadosAActas).toEqual([[]]);
+    expect(correosPasadosALotes).toEqual([[]]);
+  });
+
+  // ===== El titular que NO es cliente de nadie (bloqueante de la auditoría de seguridad) =====
+
+  /** El correo del titular en cada tabla que no es su ficha de cliente. Uno distinto por tabla. */
+  const CORREOS_POR_TABLA: Record<string, string[]> = {
+    laft_counterparties: ['contraparte@empresa.test'],
+    tramites_validaciones: ['validacion@empresa.test'],
+    tenedores: ['tenedor@empresa.test'],
+    propietarios_carga: ['propietario@empresa.test'],
+    destinatarios_carga: ['destinatario@empresa.test'],
+  };
+  const CORREO_COMPRADOR = 'comprador@empresa.test';
+
+  it('el titular que no es cliente de nadie también aporta direcciones: no se queda sin rama POR DIRECCIÓN', async () => {
+    // El bloqueante. La petición solo admite `docNumber` y `reason`: no hay forma de aportar una
+    // dirección desde fuera, así que la rama por dirección vale exactamente lo que valga lo que este
+    // flujo sepa leer. Y leía SOLO `clients`.
+    //
+    // El caso que eso deja fuera es justamente el que motiva la rama: la dirección tecleada a mano en
+    // la factura de OTRA empresa es, por definición, de alguien que no es el cliente de esos
+    // trámites. Si esa persona no tiene ficha, `clients` devuelve cero filas, `porCorreo` se evalúa a
+    // `false` y sus direcciones sobreviven en las dos tablas del módulo mientras la respuesta dice
+    // que se le olvidó. Y no es hipotético: este mismo flujo reconoce que tiene correo y se lo
+    // anonimiza en las cinco tablas de abajo.
+    await olvidar(buildTxPorTabla({
+      fichaDelTitular: [], // no es cliente: su ficha no existe
+      correosPorTabla: CORREOS_POR_TABLA,
+      correosDeComprador: [CORREO_COMPRADOR],
+    }));
+
+    expect(correosPasadosAActas[0]).toEqual([
+      'contraparte@empresa.test',
+      'validacion@empresa.test',
+      'tenedor@empresa.test',
+      'propietario@empresa.test',
+      'destinatario@empresa.test',
+      CORREO_COMPRADOR,
+    ]);
+    expect(correosPasadosALotes[0]).toEqual(correosPasadosAActas[0]);
+  });
+
+  // Un caso por tabla, y no uno solo con todas: lo que hay que impedir es que la captura vuelva a
+  // caer debajo de UN `UPDATE`, y con un único caso agregado no se sabría cuál se movió. Cada uno
+  // deja sola a su tabla, así que si su lectura se mueve debajo de su UPDATE la lista llega vacía.
+  for (const [tabla, correos] of Object.entries(CORREOS_POR_TABLA)) {
+    it(`la dirección del titular en ${tabla} se lee ANTES del UPDATE que la borra`, async () => {
+      await olvidar(buildTxPorTabla({
+        fichaDelTitular: [],
+        correosPorTabla: { [tabla]: correos },
+      }));
+
+      expect(correosPasadosAActas).toEqual([correos]);
+      expect(correosPasadosALotes).toEqual([correos]);
+    });
+  }
+
+  it('la dirección del comprador en tramites_digitales se lee ANTES del UPDATE que la borra', async () => {
+    // La sexta, y la única que no es una columna: el comprador vive en JSONB y su UPDATE (paso 5)
+    // pone `email` en null con el mismo filtro. Vale lo mismo que las otras cinco.
+    await olvidar(buildTxPorTabla({
+      fichaDelTitular: [],
+      correosDeComprador: [CORREO_COMPRADOR],
+    }));
+
+    expect(correosPasadosAActas).toEqual([[CORREO_COMPRADOR]]);
+    expect(correosPasadosALotes).toEqual([[CORREO_COMPRADOR]]);
   });
 });
 
@@ -369,3 +739,78 @@ describe('GET /preview/:docNumber', () => {
     expect(auditMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Bug #11776 — el SQL que forget/preview mandan de verdad', () => {
+  function patronDe(sqlTexto: string): string {
+    const m = sqlTexto.match(
+      /regexp_replace\([\s\S]*?,\s*(?:'((?:\\'|[^'])*)'|\$(\d+))\s*,\s*''\s*,\s*'g'\)/,
+    );
+    if (!m) throw new Error(`sin regexp_replace en: ${sqlTexto}`);
+    return m[1] ?? '';
+  }
+
+  it('SELECT de correos (HU #11708) y UPDATE de las tablas renderizan [^0-9], nunca D', async () => {
+    const capturarSql: string[] = [];
+    selectMock.mockImplementation(() => chain([]));
+    transactionMock.mockImplementationOnce(buildTxPorTabla({
+      fichaDelTitular: [{ email: 'titular@empresa.test', contactEmail: null }],
+      capturarSql,
+    }));
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).post('/api/privacy/forget').set('Authorization', `Bearer ${token}`)
+      .send({ docNumber: '1036640908', reason: 'titular ejerce derecho al olvido' });
+    expect(r.status).toBe(200);
+
+    const conReplace = capturarSql.filter((s) => s.includes('regexp_replace'));
+    expect(conReplace.length).toBeGreaterThan(1);
+
+    const selectComprador = conReplace.find((s) => /^\s*SELECT\b/i.test(s.trim()));
+    const updateComprador = conReplace.find((s) => /^\s*UPDATE\b/i.test(s.trim()));
+    expect(selectComprador, 'SELECT de correos del comprador JSONB').toBeTruthy();
+    expect(updateComprador, 'UPDATE paso 5 tramites_digitales').toBeTruthy();
+    expect(patronDe(selectComprador!)).toBe(patronDe(updateComprador!));
+    expect(patronDe(selectComprador!)).toBe('[^0-9]');
+
+    for (const s of conReplace) {
+      expect(patronDe(s), s).toBe('[^0-9]');
+      expect(s).not.toMatch(/regexp_replace\([^,]+,\s*'D'\s*,/);
+    }
+  });
+
+  it('preview renderiza el mismo patrón no-dígitos (JSONB + soat)', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialecto = new PgDialect();
+    const sqls: string[] = [];
+    executeMock.mockImplementation(async (q: unknown) => {
+      sqls.push(dialecto.sqlToQuery(q as never).sql);
+      return [{ c: 0 }];
+    });
+    selectMock.mockImplementation(() => {
+      const c = chain([{ c: 0 }]);
+      const orig = c.where;
+      (c as { where: (cond?: unknown) => unknown }).where = (cond?: unknown) => {
+        if (cond !== undefined) {
+          try { sqls.push(dialecto.sqlToQuery(cond as never).sql); } catch { /* */ }
+        }
+        return orig();
+      };
+      return c;
+    });
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const app = await buildApp();
+    const r = await request(app).get('/api/privacy/preview/1036640908')
+      .set('Authorization', `Bearer ${token}`);
+    expect(r.status).toBe(200);
+
+    const conReplace = sqls.filter((s) => s.includes('regexp_replace'));
+    expect(conReplace.length).toBeGreaterThan(0);
+    for (const s of conReplace) {
+      expect(patronDe(s), s).toBe('[^0-9]');
+      expect(s).not.toMatch(/regexp_replace\([^,]+,\s*'D'\s*,/);
+    }
+  });
+});
+

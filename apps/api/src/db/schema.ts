@@ -1,11 +1,15 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, uuid, customType, smallint, doublePrecision, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, time, integer, bigint, date, pgEnum, index, uniqueIndex, jsonb, numeric, bigserial, smallserial, uuid, customType, smallint, doublePrecision, primaryKey, check } from 'drizzle-orm/pg-core';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({
   dataType() { return 'bytea'; },
 });
-import { sql } from 'drizzle-orm';
+import { sql, desc } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
-import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta } from '@operaciones/shared-types';
+import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, ExtraccionDerechoTramite } from '@operaciones/shared-types';
+// Certificación de impuestos contra el RUNT (Feature #11159): detalle por campo en columna jsonb.
+import type { ComparacionCampo } from '@operaciones/shared-types';
+// Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
+import type { SiigoDestinatario } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -95,9 +99,38 @@ export const clients = pgTable('clients', {
   flitoCarpetaStorage: varchar('flito_carpeta_storage', { length: 300 }),
   // Tolerancia (en pesos) entre valor liquidado y pagado antes de marcar para revisión.
   flitoToleranciaValorImpuesto: numeric('flito_tolerancia_valor_impuesto', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Siigo (Feature #11241, HU #11292): lo que exige para crear el tercero. Nada de esto es
+  // obligatorio para crear un cliente en FLITO; su ausencia solo impide facturarlo.
+  // `documentType` sigue siendo texto libre a propósito: cerrarlo rompería filas existentes.
+  personType: varchar('person_type', { length: 10 }),
+  idType: varchar('id_type', { length: 10 }),
+  checkDigit: smallint('check_digit'),
+  fiscalResponsibilities: text('fiscal_responsibilities').array().notNull().default(sql`'{}'::text[]`),
+  countryCode: varchar('country_code', { length: 2 }),
+  stateCode: varchar('state_code', { length: 5 }),
+  cityCode: varchar('city_code', { length: 10 }),
+  commercialName: varchar('commercial_name', { length: 200 }),
+  // La clave real del tercero en Siigo es (identificación, sucursal), no la identificación sola.
+  branchOffice: integer('branch_office').notNull().default(0),
+  contactFirstName: varchar('contact_first_name', { length: 100 }),
+  contactLastName: varchar('contact_last_name', { length: 100 }),
+  contactEmail: varchar('contact_email', { length: 150 }),
+  phoneIndicative: varchar('phone_indicative', { length: 10 }),
+  phoneNumber: varchar('phone_number', { length: 10 }),
+  // Para poder auditar la derivación masiva de la 0132 y no pisar lo que clasificó una persona.
+  personTypeOrigen: varchar('person_type_origen', { length: 20 }).notNull().default('sin_derivar'),
+  // Rastro de quién convirtió `city` —texto libre— en códigos de Siigo (HU #11294). El texto
+  // original NO se toca: es la prueba de qué decía la ficha cuando alguien decidió la equivalencia.
+  cityTextoOrigen: varchar('city_texto_origen', { length: 100 }),
+  cityConfirmadaPor: integer('city_confirmada_por').references(() => users.id),
+  cityConfirmadaEn: timestamp('city_confirmada_en', { withTimezone: true }),
+  // Lo que la migración encontró y bloquea facturar. Vacío NO significa facturable: el veredicto
+  // completo lo calcula el informe de la HU #11296, que mira además dirección, contacto y ciudad.
+  facturacionBloqueos: text('facturacion_bloqueos').array().notNull().default(sql`'{}'::text[]`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentIdx: index('idx_clients_document').on(t.document),
+  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice),
 }));
 
 export const vehicles = pgTable('vehicles', {
@@ -289,6 +322,24 @@ export const organismosTransitoConfig = pgTable('organismos_transito_config', {
   // conciliación de recibos para este organismo. Apagada por defecto (fuente de valorLiquidado
   // no fiable en general); se enciende donde la consulta oficial sí lo es. No bloquea el pago.
   flitoDiferenciaValorActiva: boolean('flito_diferencia_valor_activa').notNull().default(false),
+  // HU #10950: pista opcional que se concatena al prompt genérico de derechos de tránsito. Existe
+  // porque cada organismo emite el recibo en un formato distinto: en vez de un extractor por
+  // organismo, una línea de configuración desambigua las etiquetas raras ("VALOR NETO A PAGAR").
+  flitoOcrPromptHint: text('flito_ocr_prompt_hint'),
+  // HU #10952: carpeta de Drive donde el organismo publica sus recibos de derecho de trámite.
+  // Es por organismo y no una sola global porque cada secretaría publica en su propio Drive.
+  flitoDriveFolderId: varchar('flito_drive_folder_id', { length: 120 }),
+  flitoDriveActivo: boolean('flito_drive_activo').notNull().default(false),
+  /**
+   * OBSOLETA desde el ajuste 0124: SIN LECTORES ni escritores.
+   *
+   * Marcaba si el organismo operaba con saldo prepago de FLIT, cuando una bolsa era una secretaría.
+   * Ahora cualquier secretaría puede entrar en una bolsa y quien lo decide es
+   * `flitoBolsaTransitoCobertura`. La columna se conserva —mismo criterio que con
+   * `flito_reglas_proveedor_soat`: borrar datos en el cambio que retira su último lector es
+   * innecesariamente irreversible— y su DROP irá en una migración posterior.
+   */
+  flitoLlevaBolsa: boolean('flito_lleva_bolsa').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -571,8 +622,35 @@ export const procesamientoCuentas = pgTable('procesamiento_cuentas', {
   directorioSalida: varchar('directorio_salida', { length: 255 }),
   estado: varchar('estado', { length: 20 }).notNull().default('procesando'),
   error: text('error'),
+  // HU #10952: idempotencia de la sincronización con Drive. El scope de Drive es de solo lectura,
+  // así que no se puede marcar el archivo en el origen: se lleva aquí. La fecha de modificación
+  // acompaña al id porque un mismo archivo puede reemplazarse en Drive conservando su id.
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }),
+  driveModifiedTime: timestamp('drive_modified_time', { withTimezone: true }),
+  /**
+   * Quién tocó el archivo en el Drive por última vez (HU del cron). Se persiste, no se consulta en
+   * vivo: el registro tiene que sobrevivir al archivo, y si mañana lo borran de la carpeta esta es la
+   * única forma de saber quién lo había subido.
+   */
+  modificadoPor: varchar('modificado_por', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Estados de un procesamiento. Texto libre en la columna, no enum, así que añadir uno no exige
+ * ALTER TYPE.
+ *
+ * `omitido` lo escribe el arranque del cron sobre los consolidados que ya estaban en la carpeta el
+ * día que se encendió: se dan por vistos sin gastar OCR en histórico que nadie pidió. Es distinto de
+ * no tener registro, que significa «no se ha mirado nunca».
+ */
+export const ESTADO_PROCESAMIENTO = {
+  PROCESANDO: 'procesando',
+  COMPLETADO: 'completado',
+  ERROR: 'error',
+  OMITIDO: 'omitido',
+} as const;
+export type EstadoProcesamiento = (typeof ESTADO_PROCESAMIENTO)[keyof typeof ESTADO_PROCESAMIENTO];
 
 // === LAFT — Política de Prevención LA/FT/FPADM (FLIT SAS) =====================
 
@@ -1307,7 +1385,7 @@ export const roadIncidents = pgTable('road_incidents', {
   vehicleId: integer('vehicle_id').references(() => vehicles.id, { onDelete: 'set null' }),
   conductorId: integer('conductor_id').references(() => users.id, { onDelete: 'set null' }),
   fecha: date('fecha').notNull(),
-  hora: varchar('hora', { length: 8 }),
+  hora: time('hora'),
   lugarTexto: varchar('lugar_texto', { length: 300 }),
   lat: numeric('lat', { precision: 9, scale: 6 }),
   lng: numeric('lng', { precision: 9, scale: 6 }),
@@ -1417,7 +1495,7 @@ export const alcoholTests = pgTable('alcohol_tests', {
   fechaHora: timestamp('fecha_hora', { withTimezone: true }).notNull().defaultNow(),
   tipo: alcoholTestTipoEnum('tipo').notNull(),
   valorMg: numeric('valor_mg', { precision: 4, scale: 2 }).notNull(),
-  gradoAlcohol: integer('grado_alcohol').notNull().default(0),
+  gradoAlcohol: smallint('grado_alcohol').notNull().default(0),
   resultado: alcoholResultadoEnum('resultado').notNull(),
   equipoSerial: varchar('equipo_serial', { length: 60 }),
   equipoCalibracionFecha: date('equipo_calibracion_fecha'),
@@ -1438,7 +1516,7 @@ export const emergencyContacts = pgTable('emergency_contacts', {
   email: varchar('email', { length: 150 }),
   direccion: varchar('direccion', { length: 300 }),
   observaciones: text('observaciones'),
-  prioridad: integer('prioridad').notNull().default(100),
+  prioridad: smallint('prioridad').notNull().default(100),
   activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1481,6 +1559,14 @@ export const monedaRndcEnum = pgEnum('moneda_rndc', ['COP', 'USD']);
 export const tenedorTipoEnum = pgEnum('tenedor_tipo', ['propietario', 'poseedor', 'tenedor']);
 export const tipoDocRndcEnum = pgEnum('tipo_doc_rndc', ['CC', 'CE', 'NIT', 'PAS', 'TI', 'RC']);
 export const remesaEstadoEnum = pgEnum('remesa_estado', ['borrador', 'activa', 'cumplida', 'anulada']);
+
+// Declarado aquí y no junto a los demás enums RNDC (más abajo) porque `remesas` y
+// `manifiestos` lo referencian y pgTable se evalúa al cargar el módulo: dejarlo después
+// daría ReferenceError por TDZ.
+export const rndcEstadoEnvioEnum = pgEnum('rndc_estado_envio', [
+  'no_aplica', 'pendiente_envio', 'enviando', 'aceptado',
+  'error_envio', 'fallido_temporal', 'fallido_definitivo', 'cancelado_pre_envio',
+]);
 export const manifiestoEstadoEnum = pgEnum('manifiesto_estado', [
   'borrador', 'listo', 'radicado_rndc', 'aceptado', 'rechazado', 'cumplido', 'anulado',
 ]);
@@ -1592,7 +1678,7 @@ export const remesas = pgTable('remesas', {
   cantidadEntregada: numeric('cantidad_entregada', { precision: 14, scale: 3 }),
   pesoKg: numeric('peso_kg', { precision: 14, scale: 3 }),
   fechaCargue: date('fecha_cargue').notNull(),
-  horaCargue: varchar('hora_cargue', { length: 8 }),
+  horaCargue: time('hora_cargue'),
   fechaDescargePactada: date('fecha_descargue_pactada'),
   valorFlete: numeric('valor_flete', { precision: 15, scale: 2 }).notNull().default('0'),
   valorAnticipo: numeric('valor_anticipo', { precision: 15, scale: 2 }).notNull().default('0'),
@@ -1605,7 +1691,7 @@ export const remesas = pgTable('remesas', {
   cumplidoEvidenciaKeys: text('cumplido_evidencia_keys').array().notNull().default(sql`'{}'::text[]`),
   observaciones: text('observaciones'),
   // Estado envío RNDC (Fase 4.2)
-  estadoEnvio: varchar('estado_envio', { length: 30 }).notNull().default('no_aplica'),
+  estadoEnvio: rndcEstadoEnvioEnum('estado_envio').notNull().default('no_aplica'),
   intentosEnvio: smallint('intentos_envio').notNull().default(0),
   ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
   proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }),
@@ -1654,7 +1740,7 @@ export const manifiestos = pgTable('manifiestos', {
   aceptadoAt: timestamp('aceptado_at', { withTimezone: true }),
   cumplidoAt: timestamp('cumplido_at', { withTimezone: true }),
   // Estado envío RNDC (Fase 4.2)
-  estadoEnvio: varchar('estado_envio', { length: 30 }).notNull().default('no_aplica'),
+  estadoEnvio: rndcEstadoEnvioEnum('estado_envio').notNull().default('no_aplica'),
   intentosEnvio: smallint('intentos_envio').notNull().default(0),
   ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
   proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }),
@@ -1684,10 +1770,7 @@ export const rndcOpTipoEnum = pgEnum('rndc_op_tipo', [
 export const rndcOpResultadoEnum = pgEnum('rndc_op_resultado', [
   'ok', 'error_negocio', 'error_tecnico', 'timeout',
 ]);
-export const rndcEstadoEnvioEnum = pgEnum('rndc_estado_envio', [
-  'no_aplica', 'pendiente_envio', 'enviando', 'aceptado',
-  'error_envio', 'fallido_temporal', 'fallido_definitivo', 'cancelado_pre_envio',
-]);
+// rndcEstadoEnvioEnum se declara arriba, junto a remesaEstadoEnum (lo usan remesas y manifiestos).
 export const outboxEstadoEnum = pgEnum('outbox_estado', [
   'pendiente', 'enviado', 'error', 'fallido_definitivo',
 ]);
@@ -1718,7 +1801,7 @@ export const rndcOperaciones = pgTable('rndc_operaciones', {
 
 // Credenciales cifradas AES-256-GCM. AAD vincula cipher a esta fila vía aad_nonce UUID.
 export const rndcCredenciales = pgTable('rndc_credenciales', {
-  id: serial('id').primaryKey(),
+  id: smallserial('id').primaryKey(),
   empresaNit: varchar('empresa_nit', { length: 20 }).notNull(),
   habilitadorNit: varchar('habilitador_nit', { length: 20 }).notNull(),
   numNit: varchar('num_nit', { length: 20 }).notNull(),
@@ -2442,6 +2525,12 @@ export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
 // SOAT anclado al VIN (RN-01: un SOAT por VIN — `vin` UNIQUE lo hace por construcción).
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * true = este SOAT existe por un desbloqueo excepcional, pese a que la compañía autogestiona el
+   * suyo (HU #10980). La marca va aquí y no en el trámite porque la cola consulta
+   * `flito_soat → clients` sin pasar por `flito_tramites`.
+   */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   vin: varchar('vin', { length: 17 }).notNull().unique(),
   vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
@@ -2450,17 +2539,52 @@ export const flitoSoat = pgTable('flito_soat', {
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
   proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
   proveedorSobrescrito: boolean('proveedor_sobrescrito').notNull().default(false),
+  /**
+   * true = la gestión de este SOAT la asume Operaciones en vez de un proveedor (HU #11152,
+   * Feature #11150). Es la contingencia: no hay proveedor que atienda el caso, o el que lo tenía
+   * no puede.
+   *
+   * NO confundir con `excepcionAutogestion` ni con `clients.soatAutogestionable`: esos dicen que la
+   * COMPAÑÍA se lo gestiona sola y el SOAT ni siquiera debería estar en la cola. Este dice quién
+   * dentro de FLITO lo trabaja, y es lo único que decide si el proveedor lo sigue viendo — no el
+   * valor de `proveedorSoatId`, que se conserva para poder devolvérselo.
+   */
+  gestionOperaciones: boolean('gestion_operaciones').notNull().default(false),
+  gestionOperacionesMotivo: text('gestion_operaciones_motivo'),
+  gestionOperacionesPorId: integer('gestion_operaciones_por_id').references(() => users.id),
+  gestionOperacionesEn: timestamp('gestion_operaciones_en', { withTimezone: true }),
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),
   valorPagado: numeric('valor_pagado', { precision: 14, scale: 2 }),
   motivoRechazo: text('motivo_rechazo'),
   extraccion: jsonb('extraccion').$type<ExtraccionSoat>(),
+  /**
+   * Número de póliza NORMALIZADO (solo A-Z0-9, mayúsculas) — Feature #11623, migración 0157.
+   *
+   * Promovido desde `extraccion->'numeroPoliza'->>'valor'`, que es donde lo dejó el OCR y donde no
+   * se puede indexar ni comparar. La copia NO sustituye a `extraccion`: aquella es la prueba de lo
+   * que se leyó del documento, con su confianza; esta es la llave operativa con la que una boleta
+   * de pago externo cruza contra el SOAT.
+   *
+   * Nullable: un SOAT `pendiente` todavía no tiene póliza, y el OCR puede no haberla leído. La
+   * escriben el backfill de la 0157 (una vez) y `pagarEnTx` (en cada pago), los dos con
+   * `polizaParaColumna` de shared-types para que digan exactamente lo mismo.
+   *
+   * Cuasi-PII: no viaja en path ni en query (AGENTS.md 14).
+   */
+  numeroPoliza: varchar('numero_poliza', { length: 60 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_soat_estado').on(t.estado),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
+  // NO único a propósito (ADR-0006 §8): lo crea la migración, y una póliza reexpedida o un `0` que
+  // el OCR leyó como `O` haría fallar el `CREATE UNIQUE INDEX` en el despliegue, parando la cadena
+  // entera por un dato viejo. El duplicado se resuelve en el cruce, delante de quien puede
+  // arreglarlo (`poliza_duplicada`). Parcial: los SOAT pendientes no tienen póliza.
+  polizaIdx: index('idx_flito_soat_numero_poliza').on(t.numeroPoliza)
+    .where(sql`${t.numeroPoliza} IS NOT NULL`),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
@@ -2488,6 +2612,10 @@ export const flitoTramites = pgTable('flito_tramites', {
   // Id S3 de la factura de venta en FLIT (campo `factura`). Vacío = aún sin factura → no se solicita impuesto.
   facturaVentaFlitId: varchar('factura_venta_flit_id', { length: 120 }),
   fechaAprobacion: timestamp('fecha_aprobacion', { withTimezone: true }),
+  // Fecha en que el trámite nació EN FLIT (HU #10959). `createdAt` de abajo es cuándo lo ingirió el
+  // sync: en la primera corrida masiva todos los históricos comparten esa fecha, así que no sirve
+  // para medir antigüedad. Nullable porque el reporte solo empezó a traerla en 2026-07.
+  fechaCreacionFlit: timestamp('fecha_creacion_flit', { withTimezone: true }),
   // Payload completo de FLIT para trazabilidad/depuración.
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),
@@ -2499,6 +2627,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   estadoIdx: index('idx_flito_tramites_estado').on(t.estado),
   flitEstadoIdx: index('idx_flito_tramites_flit_estado').on(t.flitEstado),
   companiaNitIdx: index('idx_flito_tramites_compania_nit').on(t.companiaNit),
+  // Orden cronológico y filtros de antigüedad (HU #10959): antes se ordenaba por created_at sin índice.
+  fechaCreacionFlitIdx: index('idx_flito_tramites_fecha_creacion_flit').on(t.fechaCreacionFlit),
+  createdAtIdx: index('idx_flito_tramites_created_at').on(t.createdAt),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada
@@ -2514,11 +2645,16 @@ export const flitoTramiteHistorial = pgTable('flito_tramite_historial', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   tramiteIdx: index('idx_flito_tramite_historial_tramite').on(t.tramiteId, t.createdAt),
+  // Reconstruir cuándo un trámite entró a un estado (HU #10959) exige filtrar por campo, no solo
+  // por trámite: sin esto, «lleva N días en Borrador» recorre todo el historial de la fila.
+  campoIdx: index('idx_flito_tramite_historial_campo').on(t.tramiteId, t.campo, t.createdAt),
 }));
 
 // Impuesto, uno por trámite (tramite_id UNIQUE).
 export const flitoImpuestos = pgTable('flito_impuestos', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** true = creado por un desbloqueo excepcional pese a que la compañía autogestiona (HU #10980). */
+  excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
   tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id),
   estado: flitoImpuestoEstadoEnum('estado').notNull().default('pendiente'),
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
@@ -2532,6 +2668,15 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   // ciclo con flito_soportes, igual que en el modelo original).
   facturaVentaSoporteId: uuid('factura_venta_soporte_id'),
   extraccionFacturaVenta: jsonb('extraccion_factura_venta').$type<ExtraccionFacturaVenta>(),
+  /**
+   * Gemelo del de `flito_soat` (HU #11152 trae la columna; #11155 la usa). Aquí pesa más: el
+   * destinatario del impuesto no es un proveedor sino el gestor de `organismo_codigo`, así que esta
+   * bandera es lo ÚNICO que puede sacarlo de su cola y evitar que se pague dos veces.
+   */
+  gestionOperaciones: boolean('gestion_operaciones').notNull().default(false),
+  gestionOperacionesMotivo: text('gestion_operaciones_motivo'),
+  gestionOperacionesPorId: integer('gestion_operaciones_por_id').references(() => users.id),
+  gestionOperacionesEn: timestamp('gestion_operaciones_en', { withTimezone: true }),
   enviadoPorId: integer('enviado_por_id').references(() => users.id),
   enviadoEn: timestamp('enviado_en', { withTimezone: true }),
   pagadoEn: timestamp('pagado_en', { withTimezone: true }),
@@ -2542,6 +2687,61 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
+}));
+
+/**
+ * Certificación de un impuesto contra el RUNT (Feature #11159, HU #11164).
+ *
+ * Una fila por INTENTO exitoso de certificación, no una por impuesto: recertificar (RN-10) apaga la
+ * anterior con `vigente = false` y escribe otra. El historial completo importa porque el certificado
+ * es evidencia frente a una auditoría, y «cuándo se verificó y contra qué respondió el RUNT» es
+ * justo lo que se le pregunta a una evidencia.
+ *
+ * `snapshot_runt` guarda la respuesta cruda para poder regenerar el certificado sin volver a
+ * consultar (RN-11: el PDF se genera en caliente, pero desde este snapshot, no desde el RUNT). Es la
+ * razón por la que la certificación se persiste aunque el PDF no.
+ *
+ * Los intentos FALLIDOS no se persisten: una discrepancia o un error de servicio no dejan fila
+ * (RN-06, RN-07). El registro conserva su certificación anterior, si la tenía.
+ */
+export const flitoImpuestoCertificaciones = pgTable('flito_impuesto_certificaciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  impuestoId: uuid('impuesto_id').notNull().references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
+  /** Solo una certificación vigente por impuesto — lo garantiza un índice único parcial en la migración. */
+  vigente: boolean('vigente').notNull().default(true),
+  /**
+   * Con qué se identificó el vehículo ante el RUNT. El documento NO es un dato decorativo: es la
+   * prueba de propiedad (RN-02) —que el RUNT respondiera OK a la pareja placa+documento es lo que
+   * certifica que ese documento es el del propietario registrado—, y por eso viaja al certificado.
+   *
+   * Cuando FLITO no conoce el documento del titular, la consulta va por VIN y `documentoConsultado`
+   * queda nulo (migración 0123). Un CHECK exige que al menos uno de los dos esté presente: sin eso
+   * el certificado no diría con qué se le preguntó al RUNT y dejaría de ser auditable.
+   */
+  placaConsultada: varchar('placa_consultada', { length: 10 }).notNull(),
+  documentoConsultado: varchar('documento_consultado', { length: 30 }),
+  vinConsultado: varchar('vin_consultado', { length: 17 }),
+  /** Código RUNT del tipo de documento que resolvió la consulta ('C', 'E', …). Lo devuelve el RUNT. */
+  tipoDocPropietario: varchar('tipo_doc_propietario', { length: 5 }),
+  /**
+   * Nombre del propietario SEGÚN FLITO, congelado al certificar (HU #11167).
+   *
+   * No se compara con nada —el RUNT no devuelve al propietario—, pero sí se imprime en el
+   * certificado, y lo que el certificado imprime no puede cambiar después de emitido. Nullable: las
+   * certificaciones anteriores a la migración 0122 no lo tienen.
+   */
+  propietarioNombre: varchar('propietario_nombre', { length: 200 }),
+  /** Resultado por campo (`ComparacionCampo[]`): qué se comparó, con qué valores y si bloqueaba. */
+  campos: jsonb('campos').$type<ComparacionCampo[]>().notNull(),
+  /** Respuesta cruda del RUNT. Contiene PII → sujeto a la política de retención de privacidad. */
+  snapshotRunt: jsonb('snapshot_runt'),
+  certificadoPorId: integer('certificado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  // Se copia el nombre además del id: si el usuario se borra, el certificado debe seguir diciendo
+  // quién lo emitió. Mismo criterio que `flito_soportes.subido_por_nombre`.
+  certificadoPorNombre: varchar('certificado_por_nombre', { length: 150 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  impuestoIdx: index('idx_flito_imp_cert_impuesto').on(t.impuestoId, t.createdAt),
 }));
 
 // Comprador(es) del vehículo. Múltiple propietario → varias filas (orden 0 = principal).
@@ -2570,6 +2770,19 @@ export const flitoSoportes = pgTable('flito_soportes', {
   tamanoBytes: bigint('tamano_bytes', { mode: 'number' }).notNull(),
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   impuestoId: uuid('impuesto_id').references(() => flitoImpuestos.id, { onDelete: 'cascade' }),
+  // HU #10950: soporte del derecho de tránsito. Nullable como los otros dos: un soporte cuelga de
+  // exactamente uno de los tres flujos (o de ninguno, mientras espera en la cola de revisión).
+  derechoId: uuid('derecho_id').references(() => flitoDerechosTramite.id, { onDelete: 'cascade' }),
+  // HU #11335: el PDF y el XML de la factura electrónica. CUARTA clave foránea nullable del mismo
+  // patrón, y no un `tramiteId`: esta tabla nunca ha tenido esa columna, y el trámite se alcanza
+  // desde `siigo_factura_tramites`, que además sabe qué facturas siguen vivas. Es una FK HACIA
+  // `siigo_facturas`, no una columna sobre ella (AC7).
+  siigoFacturaId: uuid('siigo_factura_id').references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  // Feature #11623: QUINTA clave foránea nullable del mismo patrón — el comprobante PSE de la boleta
+  // que se conciló (CF-06). La referencia es un thunk, así que da igual que la tabla se declare más
+  // abajo en este archivo: mismo caso que `siigoFacturaId`.
+  conciliacionBoletaId: uuid('conciliacion_boleta_id')
+    .references(() => flitoConciliacionBoletas.id, { onDelete: 'cascade' }),
   subidoPorId: integer('subido_por_id').references(() => users.id),
   subidoPorNombre: varchar('subido_por_nombre', { length: 150 }).notNull(),
   subidoEn: timestamp('subido_en', { withTimezone: true }).notNull().defaultNow(),
@@ -2578,6 +2791,27 @@ export const flitoSoportes = pgTable('flito_soportes', {
   descartado: boolean('descartado').notNull().default(false),
 }, (t) => ({
   hashIdx: index('idx_flito_soportes_hash').on(t.hash),
+  // AC3 — un solo documento de cada tipo por factura. La garantía es de la base y no del servicio:
+  // entre el «¿ya está?» y el INSERT de un barrido periódico cabe otro ciclo.
+  facturaTipoUq: uniqueIndex('idx_flito_soportes_factura_tipo').on(t.siigoFacturaId, t.tipo)
+    .where(sql`${t.siigoFacturaId} IS NOT NULL AND ${t.descartado} = false`),
+  // Calcado del anterior, por el mismo motivo: un solo comprobante VIVO de cada tipo por boleta.
+  boletaTipoUq: uniqueIndex('idx_flito_soportes_boleta_tipo').on(t.conciliacionBoletaId, t.tipo)
+    .where(sql`${t.conciliacionBoletaId} IS NOT NULL AND ${t.descartado} = false`),
+  // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
+  // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
+  // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales
+  // de arriba y —las dos FK son CASCADE— desaparecer con la factura llevándose el comprobante PSE
+  // de una boleta ya conciliada.
+  //
+  // Las tres FK viejas (soat/impuesto/derecho) siguen SIN excluirse entre sí, igual que las dejó la
+  // 0139: es una regla vigente desde mucho antes y cambiarla no es alcance de este Feature.
+  excluyenteChk: check('flito_soportes_factura_excluyente_chk',
+    sql`(${t.siigoFacturaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL
+              AND ${t.conciliacionBoletaId} IS NULL))
+     AND (${t.conciliacionBoletaId} IS NULL
+          OR (${t.soatId} IS NULL AND ${t.impuestoId} IS NULL AND ${t.derechoId} IS NULL))`),
 }));
 
 // Cola de revisión OCR (CA-06/CA-07). Los gestores no la resuelven (RN-04/RN-05).
@@ -2598,6 +2832,111 @@ export const flitoRevisiones = pgTable('flito_revisiones', {
   resueltoIdx: index('idx_flito_revisiones_resuelto').on(t.resuelto),
 }));
 
+// ── FLITO Derechos de tránsito (HU #10950) ───────────────────────────────────
+// Lo que el organismo cobra por radicar el trámite. A diferencia del SOAT (anclado al VIN, RN-01),
+// el derecho se paga POR TRÁMITE: cada radicación tiene el suyo, así que `tramite_id` es UNIQUE.
+// No hay máquina de estados: el recibo llega ya pagado, el registro es la prueba de cuánto se pagó.
+export const flitoDerechosTramite = pgTable('flito_derechos_tramite', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  companiaId: integer('compania_id').references(() => clients.id),
+  valor: numeric('valor', { precision: 14, scale: 2 }),
+  fechaPago: date('fecha_pago'),
+  numeroRadicado: varchar('numero_radicado', { length: 40 }),
+  // Concepto leído del recibo ("MATRICULA INICIAL", "PRENDA"…). Se guarda como texto crudo: cada
+  // organismo lo rotula distinto y normalizarlo perdería la evidencia de qué decía el documento.
+  tipoTramiteRecibo: varchar('tipo_tramite_recibo', { length: 60 }),
+  origen: varchar('origen', { length: 20 }).notNull(),
+  // `origen` dice el CANAL ('manual' | 'drive'); estas tres dicen el DOCUMENTO. Con los consolidados
+  // del Drive —un PDF de trece páginas por día— saber que vino «del Drive» no permite volver al
+  // papel: hacen falta el archivo y la página.
+  archivoOrigen: varchar('archivo_origen', { length: 255 }),
+  // El barrido que lo produjo, que ya guarda nombre, fileId, quién lo subió y cuándo, y que
+  // sobrevive al borrado del archivo en el Drive. Null en carga manual, que no tiene barrido.
+  procesamientoId: integer('procesamiento_id').references(() => procesamientoCuentas.id, { onDelete: 'set null' }),
+  paginas: jsonb('paginas').$type<number[]>(),
+  // Sin FK dura hacia flito_soportes: evita el ciclo (soportes ya referencia esta tabla), igual que
+  // flito_impuestos.factura_venta_soporte_id.
+  soporteId: uuid('soporte_id'),
+  extraccion: jsonb('extraccion').$type<ExtraccionDerechoTramite>(),
+  // Discrepancias que no bloquean pero deben quedar trazadas (p.ej. el tipo del recibo no coincide
+  // con el del trámite). Lista de strings.
+  advertencias: jsonb('advertencias').$type<string[]>(),
+  registradoPorId: integer('registrado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_derechos_organismo').on(t.organismoCodigo),
+  companiaIdx: index('idx_flito_derechos_compania').on(t.companiaId),
+  procesamientoIdx: index('idx_flito_derechos_procesamiento').on(t.procesamientoId),
+}));
+
+/**
+ * Cambios de estado de SOAT e impuestos — el equivalente de `flito_tramite_historial` para los dos
+ * conceptos, que hasta ahora no tenían ninguno y cuyo rastro vivía disperso en `audit_logs`, en
+ * texto libre y sin campos de estado.
+ *
+ * Una sola tabla para ambos, discriminados por `concepto`: comparten los mismos cuatro estados y las
+ * mismas transiciones, así que dos tablas gemelas serían dos veces el mismo código.
+ *
+ * Sin FK hacia `flito_soat`/`flito_impuestos`: una FK apunta a UNA tabla y este historial sirve a
+ * dos. La integridad la da `concepto` más el filtro de los lectores.
+ */
+export const flitoEstadoHistorial = pgTable('flito_estado_historial', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** 'soat' | 'impuesto'. */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  registroId: uuid('registro_id').notNull(),
+  /** Null en el alta: antes de existir no había estado del que venir. */
+  estadoAnterior: varchar('estado_anterior', { length: 30 }),
+  estadoNuevo: varchar('estado_nuevo', { length: 30 }).notNull(),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => users.id, { onDelete: 'set null' }),
+  // Se copia el correo además del id: si el usuario se borra, el historial debe seguir diciendo
+  // quién lo hizo. Mismo criterio que `flito_soportes.subido_por_nombre`.
+  usuarioEmail: varchar('usuario_email', { length: 150 }),
+  /** 'usuario' | 'sistema' | 'auditoria'. El último marca lo reconstruido desde `audit_logs`. */
+  origen: varchar('origen', { length: 20 }).notNull().default('usuario'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  registroIdx: index('idx_flito_estado_historial_registro').on(t.concepto, t.registroId, t.createdAt),
+}));
+
+// SIN LECTOR. Fue el buffer de recibos cuya placa aún no correspondía a ningún trámite, que un
+// reintento cruzaba solo cuando el trámite llegaba desde FLIT. Se retiró por decisión de negocio: la
+// bandeja acumulaba comprobantes que en la práctica no llegaban a cruzar, y mantener archivos
+// huérfanos en el almacenamiento costaba más que lo que aportaba. Ahora lo que no cruza se descarta
+// con un aviso que dice qué recibo y con qué placa.
+//
+// La definición se queda deliberadamente, igual que se hizo con `flito_reglas_proveedor_soat`: borrar
+// datos de una tabla viva en el mismo cambio que quita su único lector es innecesariamente
+// irreversible. El DROP va en una migración posterior, cuando esté mergeado y verificado.
+export const flitoDerechosPendientes = pgTable('flito_derechos_pendientes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** 'derecho' | 'soat' | 'impuesto'. La bandeja sirve a los tres conceptos (HU #10982). */
+  concepto: varchar('concepto', { length: 20 }).notNull().default('derecho'),
+  /** Null cuando el recibo no permitió leerla: el archivo se guarda igual, lo resuelve una persona. */
+  placa: varchar('placa', { length: 10 }),
+  soporteId: uuid('soporte_id').notNull().references(() => flitoSoportes.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }),
+  valor: numeric('valor', { precision: 14, scale: 2 }),
+  fechaPago: date('fecha_pago'),
+  numeroRadicado: varchar('numero_radicado', { length: 40 }),
+  tipoTramiteRecibo: varchar('tipo_tramite_recibo', { length: 60 }),
+  extraccion: jsonb('extraccion').$type<ExtraccionDerechoTramite>(),
+  origen: varchar('origen', { length: 20 }).notNull(),
+  intentos: integer('intentos').notNull().default(1),
+  ultimoIntentoEn: timestamp('ultimo_intento_en', { withTimezone: true }).notNull().defaultNow(),
+  resuelto: boolean('resuelto').notNull().default(false),
+  resueltoTramiteId: uuid('resuelto_tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // El reintento barre solo los no resueltos; el índice por placa es el que usa ese barrido.
+  pendientePlacaIdx: index('idx_flito_derechos_pendientes_placa').on(t.placa, t.resuelto),
+  pendienteConceptoIdx: index('idx_flito_pendientes_concepto').on(t.concepto, t.resuelto),
+}));
+
 // Regla de enrutamiento a proveedor SOAT por ámbito (compañía 10 / organismo 20 / global 30).
 export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -2616,6 +2955,77 @@ export const flitoReglasProveedorSoat = pgTable('flito_reglas_proveedor_soat', {
 export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', ['generado', 'recogido', 'clasificado', 'en_acta', 'despachado', 'entregado', 'novedad', 'devuelto']);
 export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado', ['generada', 'despachada', 'entregada', 'devuelta']);
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
+
+/**
+ * Tarifa negociada con una compañía gestora (HU #10963). Sustituye a las constantes quemadas
+ * `COSTOS_FIJOS.tramiteDigital` y `COSTOS_FIJOS.logistica`, que eran iguales para todos los clientes.
+ *
+ * `tipoTramite` NULL = tarifa genérica del concepto, la que se usa cuando no hay una específica.
+ * Se guarda normalizado (mayúsculas, sin espacios) porque en `flito_tramites.tipoTramite` es texto
+ * libre de FLIT. La unicidad real la impone `idx_flito_tarifas_unica`, con COALESCE sobre el tipo:
+ * en un índice único normal NULL no colisiona con NULL y habría varias tarifas genéricas.
+ */
+export const flitoTarifasCompania = pgTable('flito_tarifas_compania', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  concepto: varchar('concepto', { length: 30 }).notNull(),
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  actualizadoPorId: integer('actualizado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaConceptoIdx: index('idx_flito_tarifas_compania_concepto').on(t.companiaId, t.concepto),
+}));
+
+/**
+ * Liquidación SELLADA de un trámite (HU #10965). Sellar es congelar: si mañana cambia la tarifa de
+ * la compañía o la tasa del GMF, un trámite ya liquidado sigue mostrando lo que se cobró.
+ *
+ * Los valores son nullable a propósito: NULL = «no aplica» (p. ej. logística de una compañía que la
+ * autogestiona), y NO cero. Es la misma distinción que la compuerta mantiene deliberadamente para
+ * poder calcular la base del 4x1000.
+ *
+ * `tramiteId` es UNIQUE: hay una liquidación vigente o ninguna. El reverso borra la fila y deja el
+ * snapshot en `flitoLiquidacionEventos`, así que el historial no se pierde.
+ */
+export const flitoLiquidaciones = pgTable('flito_liquidaciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().unique().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  estado: varchar('estado', { length: 20 }).notNull(),
+  valorSoat: numeric('valor_soat', { precision: 14, scale: 2 }),
+  valorImpuesto: numeric('valor_impuesto', { precision: 14, scale: 2 }),
+  valorDerecho: numeric('valor_derecho', { precision: 14, scale: 2 }),
+  valorTramiteDigital: numeric('valor_tramite_digital', { precision: 14, scale: 2 }),
+  valorLogistica: numeric('valor_logistica', { precision: 14, scale: 2 }),
+  baseGmf: numeric('base_gmf', { precision: 14, scale: 2 }).notNull(),
+  tasaGmf: numeric('tasa_gmf', { precision: 6, scale: 5 }).notNull().default('0.004'),
+  valorGmf: numeric('valor_gmf', { precision: 14, scale: 2 }).notNull(),
+  total: numeric('total', { precision: 14, scale: 2 }).notNull(),
+  detalle: jsonb('detalle'),
+  liquidadoPorId: integer('liquidado_por_id').references(() => users.id),
+  liquidadoEn: timestamp('liquidado_en', { withTimezone: true }).notNull().defaultNow(),
+  facturadoPorId: integer('facturado_por_id').references(() => users.id),
+  facturadoEn: timestamp('facturado_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  estadoIdx: index('idx_flito_liquidaciones_estado').on(t.estado),
+}));
+
+/** Bitácora append-only de la liquidación: liquidar, reversar y facturar. */
+export const flitoLiquidacionEventos = pgTable('flito_liquidacion_eventos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  accion: varchar('accion', { length: 20 }).notNull(),
+  motivo: text('motivo'),
+  usuarioId: integer('usuario_id').references(() => users.id),
+  snapshot: jsonb('snapshot'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tramiteIdx: index('idx_flito_liquidacion_eventos_tramite').on(t.tramiteId, t.createdAt),
+}));
 
 // Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
@@ -2723,4 +3133,1437 @@ export const flitoLogisticaEventos = pgTable('flito_logistica_documento_eventos'
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   documentoIdx: index('idx_flito_log_eventos_documento').on(t.documentoId, t.createdAt),
+}));
+
+/**
+ * Auditoría de los desbloqueos excepcionales de autogestión (HU #10980), y única sede del caso de
+ * LOGÍSTICA — que no tiene registro propio que marcar y resuelve su frontera por EXISTS sobre aquí.
+ *
+ * Un trámite no puede tener dos excepciones vivas del mismo concepto (índice parcial), pero sí
+ * acumular varias revocadas: el histórico de por qué se desbloqueó y por qué se deshizo.
+ */
+export const flitoExcepcionesAutogestion = pgTable('flito_excepciones_autogestion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  /** 'soat' | 'impuesto' | 'logistica'. */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  motivo: text('motivo').notNull(),
+  creadoPorId: integer('creado_por_id').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  revocadoEn: timestamp('revocado_en', { withTimezone: true }),
+  revocadoPorId: integer('revocado_por_id').references(() => users.id),
+  revocadoMotivo: text('revocado_motivo'),
+}, (t) => ({
+  excepcionTramiteIdx: index('idx_flito_excepciones_tramite').on(t.tramiteId),
+}));
+
+// ── FLITO Bolsas (HU #11121) ─────────────────────────────────────────────────
+
+/**
+ * Bolsa prepago del cliente: UNA por compañía (Feature #11120 §3). El consumo se reparte entre
+ * organismos por movimiento, no abriendo una bolsa por OT.
+ *
+ * `saldo` está denormalizado a propósito. Sumar el libro entero en cada lectura se vuelve caro con
+ * el histórico de un año; la consistencia la da el lock de esta fila (`FOR UPDATE`) mientras se
+ * escribe el movimiento.
+ *
+ * Puede quedar NEGATIVO: si el organismo aprobó, el gasto ya ocurrió y bloquear el descuento
+ * desalinearía el sistema de la realidad. Lo que hace el saldo negativo es disparar la alerta.
+ */
+export const flitoBolsas = pgTable('flito_bolsas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // RESTRICT y no CASCADE: es un libro contable, no configuración. Borrar un cliente no puede
+  // llevarse por delante su saldo ni su histórico. Mismo criterio que flito_liquidaciones.
+  companiaId: integer('compania_id').notNull().unique().references(() => clients.id, { onDelete: 'restrict' }),
+  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Base del nivel de riesgo (HU #11125). NULL mientras no haya recargas: ahí no hay porcentaje que
+  // calcular, y es lo que distingue «sin recargas» de «agotada».
+  ultimaRecargaValor: numeric('ultima_recarga_valor', { precision: 14, scale: 2 }),
+  ultimaRecargaEn: timestamp('ultima_recarga_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Libro append-only de la bolsa. Nada se edita ni se borra: una corrección es otro movimiento
+ * (HU #11123), igual que `flito_liquidacion_eventos`.
+ *
+ * `valor` es siempre positivo y la dirección la da `tipo`: guardar las salidas en negativo obligaría
+ * a recordar el signo en cada suma del extracto.
+ */
+export const flitoBolsaMovimientos = pgTable('flito_bolsa_movimientos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** 'entrada' | 'salida'. */
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  /** 'recarga' | 'automatico' | 'manual'. */
+  origen: varchar('origen', { length: 20 }).notNull(),
+  // Las cuatro siguientes son NULL en una recarga: el dinero entra sin pasar por un organismo ni por
+  // un trámite. Las llenan las salidas automáticas de la HU #11122.
+  concepto: varchar('concepto', { length: 30 }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
+  /** Periodo contable 'YYYY-MM' al que se imputa; lo usa el cierre mensual (HU #11126). */
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  // RESTRICT: una entrada de dinero no puede quedarse sin su comprobante.
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  // Anti doble cobro de las salidas automáticas (HU #11122). NULL en lo que registra una persona:
+  // dos recargas iguales el mismo día son dos recargas, no un duplicado.
+  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  // Movimiento que este ajuste corrige (HU #11123). Corregir no es un UPDATE del valor —el libro es
+  // append-only—, sino un movimiento nuevo que apunta al original.
+  corrigeMovimientoId: uuid('corrige_movimiento_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaIdx: index('idx_flito_bolsa_mov_compania').on(t.companiaId, t.createdAt),
+  periodoIdx: index('idx_flito_bolsa_mov_periodo').on(t.companiaId, t.periodo),
+  // Extracto por organismo (bolsa simbólica, HU #11124). Parcial: las recargas no tienen organismo.
+  organismoIdx: index('idx_flito_bolsa_mov_organismo')
+    .on(t.organismoCodigo, t.concepto)
+    .where(sql`${t.organismoCodigo} IS NOT NULL`),
+  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble cobro de las salidas
+  // automáticas (HU #11122), y si el esquema no la conoce, el próximo `db:generate` emitiría un
+  // DROP INDEX que la borraría antes de que la HU que la usa llegue a producción.
+  llaveIdx: uniqueIndex('idx_flito_bolsa_mov_llave')
+    .on(t.llaveIdempotencia)
+    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+  // «¿Qué correcciones tiene este movimiento?» sin barrer el libro entero (HU #11123). Parcial: la
+  // inmensa mayoría de los movimientos no corrigen nada.
+  corrigeIdx: index('idx_flito_bolsa_mov_corrige')
+    .on(t.corrigeMovimientoId)
+    .where(sql`${t.corrigeMovimientoId} IS NOT NULL`),
+}));
+
+/**
+ * Cierre mensual de la bolsa de un cliente (HU #11126, Feature #11120 §8).
+ *
+ * Cerrar es congelar: los movimientos del periodo dejan de admitir altas y correcciones, y el saldo
+ * final pasa a ser el saldo inicial del mes siguiente. El disparo es MANUAL —Financiera cierra
+ * cuando ha conciliado, no el día 30 a medianoche—, así que no hay cron.
+ *
+ * Los totales se copian en vez de recalcularse al leer, igual que `flito_liquidaciones` sella sus
+ * valores: un reporte de cierre de hace un año debe seguir diciendo lo que dijo, aunque después
+ * entren movimientos rezagados imputados a otro periodo.
+ */
+export const flitoBolsaCierres = pgTable('flito_bolsa_cierres', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsas.id, { onDelete: 'restrict' }),
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** Periodo contable 'YYYY-MM' que se cierra. */
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  /** Saldo final del cierre anterior; cero en el primero. */
+  saldoInicial: numeric('saldo_inicial', { precision: 14, scale: 2 }).notNull(),
+  totalEntradas: numeric('total_entradas', { precision: 14, scale: 2 }).notNull(),
+  totalSalidas: numeric('total_salidas', { precision: 14, scale: 2 }).notNull(),
+  saldoFinal: numeric('saldo_final', { precision: 14, scale: 2 }).notNull(),
+  movimientos: integer('movimientos').notNull(),
+  observaciones: text('observaciones'),
+  cerradoPorId: integer('cerrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  cerradoPorNombre: varchar('cerrado_por_nombre', { length: 150 }).notNull(),
+  cerradoEn: timestamp('cerrado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Un cliente no puede cerrar dos veces el mismo periodo (AC4), y sobre todo dos cierres
+  // simultáneos no pueden producir dos reportes distintos del mismo mes.
+  periodoUnico: uniqueIndex('uq_flito_bolsa_cierre_periodo').on(t.companiaId, t.periodo),
+  companiaIdx: index('idx_flito_bolsa_cierres_compania').on(t.companiaId, t.periodo),
+}));
+
+/**
+ * Pago de FLIT a un Organismo de Tránsito (HU #11124, Feature #11120 §4.1).
+ *
+ * La «bolsa simbólica» del organismo no tiene saldo propio: es una vista agregada sobre
+ * `flito_bolsa_movimientos` que dice cuánto se le cobró al cliente por cuenta de ese organismo. Esta
+ * tabla es el otro lado de la conciliación —cuánto se le ha pagado— y lo único que se persiste del
+ * estado de cuenta.
+ *
+ * Estos pagos NO tocan la bolsa del cliente: es dinero que sale de FLIT hacia el organismo, no del
+ * saldo prepago. Mezclarlos descuadraría el saldo del cliente contra sus propios movimientos.
+ */
+export const flitoOrganismoPagos = pgTable('flito_organismo_pagos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_organismo_pagos_organismo').on(t.organismoCodigo, t.fecha),
+}));
+
+// ── FLITO Bolsa de Tránsito (HU #11161; remodelada en el ajuste 0124) ────────
+
+/**
+ * Bolsa que FLIT precarga para que se paguen trámites ante las secretarías. Es la inversa de la del
+ * cliente: aquí FLIT pone el dinero y otro lo gasta.
+ *
+ * NO está atada a una secretaría ni a un concepto. Una bolsa cubre las parejas (secretaría,
+ * concepto) que diga `flitoBolsaTransitoCobertura` —«Bolsa de mi sector» puede cubrir Medellín,
+ * Envigado y Sabaneta solo para impuestos—, y se identifica por su nombre.
+ *
+ * `saldo` puede ser NEGATIVO y eso no es un estado inválido: es el PRÉSTAMO. Si se siguió pagando
+ * después de agotar el saldo, el gasto ya ocurrió; la siguiente carga lo neta sumando, sin que la
+ * deuda necesite tabla ni columna propia.
+ *
+ * Denormalizado por la misma razón que `flito_bolsas.saldo`, y con la misma garantía: el lock de
+ * esta fila (`FOR UPDATE`) mientras se escribe el movimiento.
+ */
+export const flitoBolsasTransito = pgTable('flito_bolsas_transito', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Cómo la llama quien la creó. Único: es el identificador humano de la bolsa. */
+  nombre: varchar('nombre', { length: 120 }).notNull().unique(),
+  saldo: numeric('saldo', { precision: 14, scale: 2 }).notNull().default('0'),
+  // Base del nivel de alerta. NULL mientras no haya cargas: distingue «sin cargas» de «agotada».
+  ultimaCargaValor: numeric('ultima_carga_valor', { precision: 14, scale: 2 }),
+  ultimaCargaEn: timestamp('ultima_carga_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Qué paga cada bolsa: el producto de sus secretarías por sus conceptos.
+ *
+ * El índice único sobre (organismo, concepto) es la pieza central del modelo, no una validación
+ * defensiva: garantiza que al sellar una liquidación exista UNA sola bolsa candidata para cada
+ * concepto, y por eso el descuento no tiene que preguntarle a nadie a dónde va el dinero. Una
+ * secretaría puede repetirse entre bolsas mientras no repita concepto.
+ */
+export const flitoBolsaTransitoCobertura = pgTable('flito_bolsa_transito_cobertura', {
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** 'derecho' | 'soat' | 'impuesto' (`ConceptoBolsaTransito`). */
+  concepto: varchar('concepto', { length: 20 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.bolsaId, t.organismoCodigo, t.concepto] }),
+  // Se declara aquí y no solo en el SQL: si el esquema no la conoce, el próximo `db:generate`
+  // emitiría un DROP INDEX y el modelo quedaría sin su única garantía de enrutamiento.
+  parUnicoIdx: uniqueIndex('uq_bolsa_transito_cobertura').on(t.organismoCodigo, t.concepto),
+  bolsaIdx: index('idx_bolsa_transito_cobertura_bolsa').on(t.bolsaId),
+}));
+
+/**
+ * Libro append-only de la bolsa de tránsito. Mismo criterio que `flito_bolsa_movimientos`: nada se
+ * edita ni se borra, el valor va siempre positivo y la dirección la da `tipo`.
+ *
+ * `organismoCodigo` y `concepto` son el DESGLOSE de la salida, no la identidad de la bolsa: dicen
+ * qué se pagó y ante quién. Una carga no lleva ninguno de los dos —el dinero entra a la bolsa
+ * entera— y por eso ambos son nullables.
+ */
+export const flitoBolsaTransitoMovimientos = pgTable('flito_bolsa_transito_movimientos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bolsaId: uuid('bolsa_id').notNull().references(() => flitoBolsasTransito.id, { onDelete: 'restrict' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 })
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  /** Concepto que produjo la salida. NULL en las cargas. */
+  concepto: varchar('concepto', { length: 20 }),
+  /** 'entrada' | 'salida'. */
+  tipo: varchar('tipo', { length: 10 }).notNull(),
+  /** 'carga' | 'automatico'. */
+  origen: varchar('origen', { length: 20 }).notNull(),
+  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'set null' }),
+  valor: numeric('valor', { precision: 14, scale: 2 }).notNull(),
+  saldoResultante: numeric('saldo_resultante', { precision: 14, scale: 2 }).notNull(),
+  periodo: varchar('periodo', { length: 7 }).notNull(),
+  fecha: date('fecha').notNull(),
+  observacion: text('observacion'),
+  soporteId: uuid('soporte_id').references(() => flitoSoportes.id, { onDelete: 'restrict' }),
+  registradoPorId: integer('registrado_por_id').references(() => users.id, { onDelete: 'set null' }),
+  registradoPorNombre: varchar('registrado_por_nombre', { length: 150 }).notNull(),
+  llaveIdempotencia: varchar('llave_idempotencia', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  organismoIdx: index('idx_flito_org_mov_organismo').on(t.organismoCodigo, t.createdAt),
+  bolsaIdx: index('idx_flito_bolsa_transito_mov_bolsa').on(t.bolsaId, t.createdAt),
+  // Se declara aquí y no solo en el SQL: es la ÚNICA protección anti doble consumo del sellado, y si
+  // el esquema no la conoce, el próximo `db:generate` emitiría un DROP INDEX que la borraría.
+  llaveIdx: uniqueIndex('idx_flito_org_mov_llave')
+    .on(t.llaveIdempotencia)
+    .where(sql`${t.llaveIdempotencia} IS NOT NULL`),
+  // «¿Qué consumió este trámite?» sin barrer el libro entero; lo usa el reverso de la liquidación.
+  tramiteIdx: index('idx_flito_org_mov_tramite')
+    .on(t.tramiteId)
+    .where(sql`${t.tramiteId} IS NOT NULL`),
+}));
+
+// ============================================================================
+// FLITO Conciliación de boletas (Feature #11623) — migración 0157
+// ============================================================================
+//
+// RN-01: una boleta agrupa varios pagos de UN solo cliente y de UN solo concepto. El MVP solo
+// admite 'soat'; el módulo se llama Conciliación (genérico) porque impuestos vendrá después.
+// RN-02: una boleta solo mueve dinero si TODAS sus líneas cuadran (CF-02). No hay conciliación
+// parcial: media boleta conciliada obligaría a llevar dos verdades sobre el mismo pago externo.
+// RN-03: el valor que se descuenta sale SIEMPRE de `flito_soat.valor_pagado`, nunca del Excel. El
+// Excel solo VALIDA — si el valor del portal no coincide, la línea no cuadra y la boleta se para.
+//
+// Diseño y tradeoffs: docs/adr/ADR-0006-flito-conciliacion-boletas-soat.md
+
+/** Boleta: un pago hecho en el portal externo, con su Excel y su comprobante. */
+export const flitoConciliacionBoletas = pgTable('flito_conciliacion_boletas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Referencia legible ('BOL-000123'). Existe para dos cosas concretas: la trazabilidad del reporte
+  // de costos (CF-05) y la observación del movimiento de bolsa, que necesita decir de qué boleta
+  // salió el dinero SIN escribir la placa ni la póliza en texto libre.
+  referencia: varchar('referencia', { length: 20 }).notNull().unique()
+    .default(sql`('BOL-' || lpad(nextval('flito_conciliacion_boleta_seq')::text, 6, '0'))`),
+  // RESTRICT y no CASCADE: es un documento contable. Mismo criterio que `flito_bolsas.compania_id`.
+  companiaId: integer('compania_id').notNull().references(() => clients.id, { onDelete: 'restrict' }),
+  /** 'soat' (`ConceptoBoleta`). Acotado por CHECK en la base: ensancharlo es un ALTER de una línea. */
+  concepto: varchar('concepto', { length: 20 }).notNull().default('soat'),
+  /** 'cargada' | 'conciliada' | 'descartada' (`EstadoBoleta`). */
+  estado: varchar('estado', { length: 20 }).notNull().default('cargada'),
+  archivoNombre: varchar('archivo_nombre', { length: 300 }).notNull(),
+  /** SHA-256 del .xlsx. Es la idempotencia de la CARGA, no la del dinero. */
+  archivoHash: varchar('archivo_hash', { length: 64 }).notNull(),
+  filas: integer('filas').notNull(),
+  /** Suma de la columna «Total a Pagar» del portal: lo que el portal dice que se pagó. */
+  totalDeclarado: numeric('total_declarado', { precision: 14, scale: 2 }).notNull(),
+  /** Suma de `flito_soat.valor_pagado` de las líneas que cruzaron: lo que FLITO cree que se pagó. */
+  totalCruzado: numeric('total_cruzado', { precision: 14, scale: 2 }),
+  /**
+   * Fecha del pago en el portal (PSE), no la de la carga. Es la que se imputa al periodo contable:
+   * un pago del 30 que se carga el 2 pertenece al mes del pago.
+   */
+  fechaPago: date('fecha_pago').notNull(),
+  // RESTRICT explícito (ADR-0005): quién cargó y quién concilió son la prueba de un acto que movió
+  // dinero. Un `set null` dejaría filas que dicen «esta boleta la concilió nadie».
+  cargadaPorId: integer('cargada_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  cargadaPorNombre: varchar('cargada_por_nombre', { length: 150 }).notNull(),
+  conciliadaEn: timestamp('conciliada_en', { withTimezone: true }),
+  conciliadaPorId: integer('conciliada_por_id').references(() => users.id, { onDelete: 'restrict' }),
+  conciliadaPorNombre: varchar('conciliada_por_nombre', { length: 150 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  companiaIdx: index('idx_flito_concil_boleta_compania').on(t.companiaId, t.createdAt),
+  estadoIdx: index('idx_flito_concil_boleta_estado').on(t.estado),
+  // El mismo archivo no se carga dos veces. Parcial sobre `descartada` para que rehacer una boleta
+  // mal cargada no exija renombrar el .xlsx.
+  hashUq: uniqueIndex('idx_flito_concil_boleta_hash').on(t.archivoHash)
+    .where(sql`${t.estado} <> 'descartada'`),
+  // Los CHECK van AQUÍ y no solo en el `.sql`, siguiendo el precedente de
+  // `flito_comparendos_gestion_auditoria_chk` (0156, más arriba en este archivo). No es simetría
+  // estética: en la 0157 estos CHECK son INLINE dentro de un `CREATE TABLE IF NOT EXISTS`, así que
+  // NO se auto-reparan — si la tabla naciera por cualquier otra vía sin ellos, la migración se
+  // saltaría el CREATE y la tabla se quedaría permanentemente sin restricciones y en silencio.
+  // El test de paridad de la 0157 compara estas expresiones con las del archivo, una a una.
+  conceptoChk: check('flito_concil_boleta_concepto_chk', sql`${t.concepto} IN ('soat')`),
+  estadoChk: check('flito_concil_boleta_estado_chk',
+    sql`${t.estado} IN ('cargada','conciliada','descartada')`),
+  filasChk: check('flito_concil_boleta_filas_chk', sql`${t.filas} > 0`),
+  totalChk: check('flito_concil_boleta_total_chk', sql`${t.totalDeclarado} > 0`),
+  // El sello de la conciliación es una sola cosa: o están los tres campos o no está ninguno.
+  selloChk: check('flito_concil_boleta_sello_chk',
+    sql`(${t.conciliadaEn} IS NULL) = (${t.conciliadaPorId} IS NULL)
+       AND (${t.conciliadaEn} IS NULL) = (${t.conciliadaPorNombre} IS NULL)`),
+  // Y el estado no puede mentir sobre el sello.
+  estadoSelloChk: check('flito_concil_boleta_estado_sello_chk',
+    sql`${t.estado} <> 'conciliada' OR ${t.conciliadaEn} IS NOT NULL`),
+}));
+
+/** Una fila del Excel del portal, con el SOAT que le encontró el cruce (o el motivo de que no). */
+export const flitoConciliacionLineas = pgTable('flito_conciliacion_lineas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // CASCADE: una línea es PERTENENCIA de su boleta, no tiene existencia propia. El borrado de una
+  // boleta solo se admite en estado 'cargada'; una conciliada no se borra.
+  boletaId: uuid('boleta_id').notNull()
+    .references(() => flitoConciliacionBoletas.id, { onDelete: 'cascade' }),
+  /** Fila del Excel (1 = primera fila de datos). Es lo que el usuario ve en pantalla. */
+  filaNumero: integer('fila_numero').notNull(),
+  /** Póliza YA NORMALIZADA (`normalizarPoliza`). Cuasi-PII: no viaja nunca en path ni en query. */
+  numeroPolizaNorm: varchar('numero_poliza_norm', { length: 60 }).notNull(),
+  valorDeclarado: numeric('valor_declarado', { precision: 14, scale: 2 }).notNull(),
+  /**
+   * SOAT con el que cruzó la fila. NULL cuando no cruzó.
+   *
+   * `set null` y no `restrict` (ADR-0006 §1.1 proponía `restrict`): una línea CONCILIADA ya está
+   * protegida por `flito_concil_linea_sello_chk`, que exige `soat_id IS NOT NULL` en cuanto hay
+   * sello — así que borrar un SOAT conciliado falla igual, y lo que `set null` permite es solo lo
+   * que debe permitirse: deshacerse de un SOAT que aparece en una línea que nunca movió dinero.
+   */
+  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'set null' }),
+  /** `ResultadoCruce`. Solo 'ok' deja conciliar; cualquier otro para la boleta entera (CF-02). */
+  resultado: varchar('resultado', { length: 24 }).notNull(),
+  /** Motivo legible. SIN placa ni póliza en claro: el dato ya está en sus propias columnas. */
+  detalle: text('detalle'),
+  movimientoBolsaId: uuid('movimiento_bolsa_id')
+    .references(() => flitoBolsaMovimientos.id, { onDelete: 'restrict' }),
+  movimientoTransitoId: uuid('movimiento_transito_id')
+    .references(() => flitoBolsaTransitoMovimientos.id, { onDelete: 'restrict' }),
+  /** Se sella al conciliar. Es lo que hace única la conciliación de un SOAT (índice de abajo). */
+  conciliadaEn: timestamp('conciliada_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Único y no simple: además de ordenar el detalle, impide que un reprocesamiento duplique filas.
+  filaUq: uniqueIndex('idx_flito_concil_linea_fila').on(t.boletaId, t.filaNumero),
+  // Una póliza no se repite DENTRO de una boleta: dos filas con la misma póliza son el mismo pago
+  // contado dos veces. Se afirma en la base y no solo al leer el Excel porque de aquí salen dos
+  // salidas de bolsa por el mismo SOAT.
+  polizaUq: uniqueIndex('idx_flito_concil_linea_poliza').on(t.boletaId, t.numeroPolizaNorm),
+  soatIdx: index('idx_flito_concil_linea_soat').on(t.soatId).where(sql`${t.soatId} IS NOT NULL`),
+  // LA restricción que protege el dinero: un SOAT se concilia como MUCHO una vez, en toda la base.
+  // Va sobre un uuid, así que —a diferencia de un UNIQUE sobre la póliza— no puede fallar por datos
+  // heredados: al crearse, la tabla está vacía.
+  soatUnicaIdx: uniqueIndex('idx_flito_concil_linea_soat_unica').on(t.soatId)
+    .where(sql`${t.soatId} IS NOT NULL AND ${t.conciliadaEn} IS NOT NULL`),
+  // Mismos CHECK que el `.sql`, por el motivo de arriba: son inline en un `CREATE TABLE IF NOT
+  // EXISTS` que no los repara si la tabla ya existe.
+  resultadoChk: check('flito_concil_linea_resultado_chk',
+    sql`${t.resultado} IN ('ok','no_encontrada','no_pagado','valor_distinto','poliza_duplicada','otra_compania','ya_conciliada','cobrado_otro_cliente')`),
+  // La póliza se guarda YA normalizada: escribir el valor crudo es un 23514 inmediato en vez de una
+  // fila que no cruzará nunca con nada.
+  polizaNormChk: check('flito_concil_linea_poliza_norm_chk',
+    sql`${t.numeroPolizaNorm} ~ '^[A-Z0-9]{1,60}$'`),
+  // Solo una línea que cruzó puede quedar conciliada.
+  selloChk: check('flito_concil_linea_sello_chk',
+    sql`${t.conciliadaEn} IS NULL OR (${t.soatId} IS NOT NULL AND ${t.resultado} = 'ok')`),
+  // Y solo una conciliada puede tener movimiento — LOS DOS movimientos, no solo el del libro del
+  // cliente. Con el de tránsito fuera del CHECK, una línea con su salida de tránsito asentada y
+  // `conciliada_en` en NULL sería un estado legal; des-sellarla así la saca del índice parcial
+  // `idx_flito_concil_linea_soat_unica` y libera el SOAT para conciliarse otra vez en otra boleta,
+  // con el dinero de tránsito ya descontado y sin contramovimiento (doble descuento, CF-04).
+  movChk: check('flito_concil_linea_mov_chk',
+    sql`(${t.movimientoBolsaId} IS NULL AND ${t.movimientoTransitoId} IS NULL)
+           OR ${t.conciliadaEn} IS NOT NULL`),
+}));
+
+// ============================================================================
+// Siigo API — facturación electrónica de trámites (Feature #11239)
+// ============================================================================
+
+/**
+ * Credenciales de Siigo API cifradas con AES-256-GCM (HU #11247).
+ *
+ * Mismo esquema probado en `rndcCredenciales`: el cipher viaja con su IV, su authTag y un
+ * `aadNonce` propio que entra en los datos asociados. Eso ata el ciphertext a ESTA fila: copiar
+ * el cipher a otra fila, o alterar el nonce, hace fallar la verificación de integridad en vez de
+ * devolver un texto plano equivocado.
+ *
+ * El `username` va en claro a propósito: no es el secreto y hace falta para poder listar y
+ * distinguir credenciales sin descifrar nada. El secreto es `access_key`.
+ *
+ * Solo puede haber UNA credencial activa por ambiente. Se garantiza con un índice único parcial
+ * —no solo por convención de código— porque dos activas harían que la credencial usada dependiera
+ * del orden de las filas.
+ */
+export const siigoCredenciales = pgTable('siigo_credenciales', {
+  id: smallserial('id').primaryKey(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  username: varchar('username', { length: 150 }).notNull(),
+  accessKeyCipher: bytea('access_key_cipher').notNull(),
+  accessKeyIv: bytea('access_key_iv').notNull(),
+  accessKeyAuthTag: bytea('access_key_auth_tag').notNull(),
+  aadNonce: uuid('aad_nonce').notNull(),
+  keyVersion: smallint('key_version').notNull().default(1),
+  activo: boolean('activo').notNull().default(true),
+  notas: text('notas'),
+  // Rastro durable del descifrado fallido. Un log se rota y se pierde; esta columna sobrevive y
+  // explica en la propia pantalla por qué la credencial dejó de estar activa.
+  descifradoFallidoEn: timestamp('descifrado_fallido_en', { withTimezone: true }),
+  descifradoFallidoMotivo: varchar('descifrado_fallido_motivo', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // Una sola credencial activa por ambiente. Parcial: las desactivadas son historial y pueden
+  // repetirse cuantas veces se reconfigure.
+  ambienteActivoIdx: uniqueIndex('idx_siigo_credenciales_ambiente_activo')
+    .on(t.ambiente)
+    .where(sql`${t.activo}`),
+}));
+
+/**
+ * Bitácora WORM de las llamadas a Siigo API (HU #11251).
+ *
+ * Append-only de verdad: disparadores en la base prohíben UPDATE y DELETE, y el rol de la
+ * aplicación solo tiene SELECT e INSERT. Una factura electrónica respalda una venta ante la DIAN;
+ * si el registro de lo que se envió se pudiera editar, no probaría nada.
+ *
+ * `operacion` es texto y no un enum porque el catálogo crecerá con las Features 11 a 15, y un enum
+ * obligaría a una migración por cada operación nueva.
+ */
+export const siigoOperaciones = pgTable('siigo_operaciones', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  operacion: varchar('operacion', { length: 40 }).notNull(),
+  metodo: varchar('metodo', { length: 10 }),
+  ruta: varchar('ruta', { length: 300 }),
+  entidadTipo: varchar('entidad_tipo', { length: 20 }),
+  entidadId: varchar('entidad_id', { length: 60 }),
+  intento: smallint('intento').notNull().default(1),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** 'real' o 'mock': distingue una prueba de una operación productiva. */
+  modo: varchar('modo', { length: 10 }).notNull().default('real'),
+  /** Ya saneado: nunca contiene el access_key ni la cabecera de autorización. */
+  requestBody: jsonb('request_body'),
+  responseBody: jsonb('response_body'),
+  statusHttp: smallint('status_http'),
+  resultado: varchar('resultado', { length: 20 }).notNull(),
+  codigo: varchar('codigo', { length: 60 }),
+  mensaje: text('mensaje'),
+  duracionMs: integer('duracion_ms'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+}, (t) => ({
+  entidadIdx: index('idx_siigo_op_entidad').on(t.entidadTipo, t.entidadId, t.createdAt),
+  createdAtIdx: index('idx_siigo_op_created_at').on(t.createdAt),
+  resultadoIdx: index('idx_siigo_op_resultado').on(t.resultado, t.createdAt),
+}));
+
+/**
+ * Mapeo de cada concepto facturable al producto que lo representa en Siigo (HU #11282).
+ *
+ * Es la tabla que hace que el AC3 sea cierto: el armado de la factura lee de aquí la clasificación
+ * tributaria, los impuestos y la unidad de medida, así que cambiarlos es editar configuración y no
+ * desplegar. En el servicio de armado no puede aparecer ninguna condición sobre un concepto
+ * concreto — si la ves, es un bug de diseño, no un atajo.
+ *
+ * `ambiente` forma parte de la identidad de la fila. El `codigoProducto` y los ids de `impuestos`
+ * pertenecen a UNA empresa de Siigo, y pruebas y producción son empresas distintas con ids
+ * distintos (docs/integraciones/siigo-api.md §Notas, punto 6). Sin ambiente en la llave, configurar
+ * contra pruebas dejaría escrito un código que en producción es otro producto — y eso ya es una
+ * factura mal emitida ante la DIAN. Además la HU #11285 exige que al cambiar de ambiente NO se
+ * hereden confirmaciones del otro, cosa imposible con una sola fila por concepto.
+ *
+ * `tipoTramite` NULL = configuración genérica; con tipo de trámite, precedencia sobre la genérica.
+ * Misma convención ya probada en `flitoTarifasCompania`.
+ *
+ * NO modela retenciones (AC7): no está confirmado si ReteICA, ReteIVA o autorretención aplican a
+ * las facturas de FLIT. Incorporarlas sería añadir columnas aquí, no rehacer el modelo.
+ */
+export const siigoMapeoConceptos = pgTable('siigo_mapeo_conceptos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  concepto: varchar('concepto', { length: 30 }).notNull(),
+  /** NULL = configuración genérica del concepto. Normalizado en mayúsculas. */
+  tipoTramite: varchar('tipo_tramite', { length: 60 }),
+  /** `code` de POST /v1/products: alfanumérico, sin espacios, ≤30. NULL = sin mapear todavía. */
+  codigoProducto: varchar('codigo_producto', { length: 30 }),
+  nombreProducto: varchar('nombre_producto', { length: 200 }),
+  /** gravado | exento | excluido. NULL = SIN DECLARAR, que no es lo mismo que excluido. */
+  clasificacionTributaria: varchar('clasificacion_tributaria', { length: 12 }),
+  /** `[{ id, nombre?, porcentaje? }]` con ids de GET /v1/taxes de ESTA empresa de Siigo. */
+  impuestos: jsonb('impuestos').notNull().default(sql`'[]'::jsonb`),
+  unidadMedida: varchar('unidad_medida', { length: 20 }),
+  /** Dinero que FLIT recauda y traslada (SOAT, impuesto, derecho), no ingreso propio. */
+  ingresoParaTerceros: boolean('ingreso_para_terceros').notNull().default(false),
+  /**
+   * AC6 — GMF. `false` con `lineaPropiaPendiente = true` significa «sin decidir», NO «se absorbe».
+   * Quien arme la factura debe mirar el pendiente antes de actuar.
+   */
+  facturaLineaPropia: boolean('factura_linea_propia').notNull().default(false),
+  lineaPropiaPendiente: boolean('linea_propia_pendiente').notNull().default(false),
+  confirmadoContabilidad: boolean('confirmado_contabilidad').notNull().default(false),
+  /** Quién y cuándo confirmó. NO se limpian al revertir: el AC4 pide que el rastro sobreviva. */
+  confirmadoPorId: integer('confirmado_por_id').references(() => users.id),
+  confirmadoEn: timestamp('confirmado_en', { withTimezone: true }),
+  confirmacionRevertidaEn: timestamp('confirmacion_revertida_en', { withTimezone: true }),
+  /** Nombres de los campos que tumbaron la confirmación. Nunca valores. */
+  confirmacionRevertidaPor: varchar('confirmacion_revertida_por', { length: 300 }),
+  activo: boolean('activo').notNull().default(true),
+  notas: text('notas'),
+  /**
+   * Última comprobación del código de producto contra Siigo (HU #11283).
+   *
+   * Es un dato CON FECHA, no una propiedad permanente: alguien puede inactivar el producto en Siigo
+   * Nube sin tocar FLITO, y entonces una fila «válida» deja de serlo sin que nadie se entere hasta
+   * la primera factura rechazada. `no_verificable` NO es lo mismo que `no_existe`: significa que
+   * Siigo no respondió y el dato puede estar perfecto.
+   *
+   * Deliberadamente separado de `confirmadoContabilidad`: son dos afirmaciones de dos responsables
+   * distintos. Contabilidad firma el tratamiento tributario; la validación comprueba que el
+   * producto existe. Colapsarlas haría que revalidar tumbara firmas contables.
+   */
+  validacionEstado: varchar('validacion_estado', { length: 20 }).notNull().default('sin_validar'),
+  /** Texto accionable. Nunca el mensaje crudo de Siigo, ni SQL, ni la clave del cortacircuitos. */
+  validacionMensaje: varchar('validacion_mensaje', { length: 300 }),
+  /** Fecha del último INTENTO. Con `no_verificable` hubo intento y no hubo respuesta. */
+  validadoEn: timestamp('validado_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // Una sola fila viva por ambiente + concepto + tipo. El COALESCE evita varias genéricas del mismo
+  // concepto (NULL no colisiona con NULL). Parcial: las desactivadas son historial.
+  unicoActivoIdx: uniqueIndex('idx_siigo_mapeo_unico_activo')
+    .on(t.ambiente, t.concepto, sql`COALESCE(${t.tipoTramite}, '')`)
+    .where(sql`${t.activo}`),
+  ambienteConceptoIdx: index('idx_siigo_mapeo_ambiente_concepto').on(t.ambiente, t.concepto),
+  // Lo que busca la pantalla tras una revalidación son las EXCEPCIONES, no el total.
+  validacionNovedadIdx: index('idx_siigo_mapeo_validacion_novedad')
+    .on(t.ambiente, t.validacionEstado)
+    .where(sql`${t.validacionEstado} IN ('no_existe', 'inactivo', 'no_verificable')`),
+}));
+
+/**
+ * Copia local de los catálogos de Siigo (HU #11281).
+ *
+ * Siigo permite 100 peticiones por minuto por empresa. Resolver el nombre de un vendedor o de una
+ * forma de pago cada vez que se pinta una pantalla de parametrización agotaría esa cuota con
+ * consultas que devuelven siempre lo mismo. Por eso se cachean aquí y se leen de local.
+ *
+ * Única por (`ambiente`, `tipo`, `codigo`). Dos razones distintas: el identificador de Siigo solo es
+ * único DENTRO de su catálogo —el id 1253 puede ser un grupo de inventario y también una forma de
+ * pago— y `pruebas` y `produccion` son EMPRESAS DISTINTAS en Siigo, cada una con sus propios
+ * identificadores. Sin `ambiente` en la llave, sincronizar producción pisaría los códigos que
+ * coincidieran con los de pruebas e inactivaría el resto del catálogo del otro ambiente por no
+ * haber venido en la respuesta.
+ *
+ * NO hay borrado. Un elemento que deja de venir de Siigo se marca `activo = false` y conserva su
+ * fila: una factura emitida el año pasado referencia un centro de costo que quizá ya no existe, y
+ * sin la fila no habría forma de explicar esa parametrización.
+ *
+ * Datos personales: del catálogo de vendedores (`/v1/users`) se guarda SOLO el nombre. Siigo
+ * devuelve además `identification` y `email`, que son datos personales bajo la Ley 1581 y no hacen
+ * falta para elegir un vendedor, así que no se persisten (ver `siigo.catalogos.service.ts`).
+ */
+export const siigoCatalogos = pgTable('siigo_catalogos', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** 'pruebas' | 'produccion'. Empresas distintas en Siigo: sus catálogos no se mezclan. */
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** 'document_type' | 'user' | 'payment_type' | 'tax' | 'account_group' | 'cost_center'. */
+  tipo: varchar('tipo', { length: 30 }).notNull(),
+  /** Identificador de Siigo como texto: hay catálogos con código alfanumérico. */
+  codigo: varchar('codigo', { length: 60 }).notNull(),
+  nombre: varchar('nombre', { length: 200 }).notNull(),
+  descripcion: varchar('descripcion', { length: 300 }),
+  activo: boolean('activo').notNull().default(true),
+  /** Atributos propios del catálogo (porcentaje del impuesto, si maneja vencimiento…). Sin PII. */
+  atributos: jsonb('atributos'),
+  sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull().defaultNow(),
+  /** Momento en que dejó de venir de Siigo. Null mientras siga activo. */
+  inactivadoEn: timestamp('inactivado_en', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Es también el índice contra el que resuelve el ON CONFLICT del upsert: si estas columnas y el
+  // `target` del upsert dejan de coincidir, la sincronización falla entera en Postgres.
+  ambienteTipoCodigoUq: uniqueIndex('idx_siigo_catalogos_ambiente_tipo_codigo')
+    .on(t.ambiente, t.tipo, t.codigo),
+  // La lectura real de la parametrización: «los elementos activos de este catálogo en este
+  // ambiente, por nombre».
+  ambienteTipoActivoIdx: index('idx_siigo_catalogos_ambiente_tipo_activo')
+    .on(t.ambiente, t.tipo, t.activo, t.nombre),
+}));
+
+/**
+ * Catálogo oficial de países, departamentos y ciudades de Siigo (HU #11293).
+ *
+ * Vive aparte de `siigoCatalogos` por una diferencia de fondo: los seis catálogos de aquella tabla
+ * se sincronizan llamando a la API, y este **no existe como servicio** — Siigo lo publica como un
+ * .xlsx. Meterlo allí obligaría a decir «sincronizado» cuando nadie llamó a Siigo, y a compartir
+ * columnas que aquí no significan nada: el listado no depende de la cuenta, así que no tiene
+ * ambiente. Se carga desde `src/db/data/siigo-ciudades.json`.
+ */
+export const siigoCiudades = pgTable('siigo_ciudades', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  /** Ojo: el listado oficial trae `Co`, no `CO`. Se guarda tal cual lo publica Siigo. */
+  countryCode: varchar('country_code', { length: 2 }).notNull(),
+  countryName: varchar('country_name', { length: 80 }).notNull(),
+  stateCode: varchar('state_code', { length: 5 }).notNull(),
+  stateName: varchar('state_name', { length: 80 }).notNull(),
+  cityCode: varchar('city_code', { length: 10 }).notNull(),
+  cityName: varchar('city_name', { length: 80 }).notNull(),
+  /** `cityName` sin tildes y en minúsculas: un LIKE sobre una función no usa índice. */
+  cityBusqueda: varchar('city_busqueda', { length: 80 }).notNull(),
+  /** false = dejó de venir en el listado. No se borra: un cliente antiguo puede referenciarla. */
+  activo: boolean('activo').notNull().default(true),
+  version: varchar('version', { length: 20 }),
+  cargadoEn: timestamp('cargado_en', { withTimezone: true }).notNull().defaultNow(),
+  actualizadoEn: timestamp('actualizado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // La clave es la TERNA, no el código de ciudad: el listado trae `05001` dos veces —Medellín en
+  // Colombia y Chachapollas en Perú—. Un único sobre `cityCode` habría perdido una de las dos.
+  // Es también el target del ON CONFLICT del upsert: si dejan de coincidir, la carga falla entera.
+  ternaUq: uniqueIndex('idx_siigo_ciudades_terna').on(t.countryCode, t.stateCode, t.cityCode),
+  cascadaIdx: index('idx_siigo_ciudades_cascada').on(t.countryCode, t.stateCode),
+  busquedaIdx: index('idx_siigo_ciudades_busqueda').on(t.cityBusqueda),
+}));
+
+/**
+ * Parámetros operativos del ambiente (migración 0148; antes «configuración global de emisión»).
+ *
+ * **Ya no dice con qué nacen las facturas.** Hasta el 2026-08-13 guardaba el tipo de comprobante, el
+ * vendedor, la forma de pago y el centro de costo con los que se emitía TODO un ambiente. Se retiró:
+ * los cuatro se eligen en cada envío, por empresa, y quedan como snapshot inmutable en
+ * `siigoLotesFacturacion`. Una configuración global significaba que cambiar el vendedor de una
+ * empresa lo cambiaba para todas.
+ *
+ * Con ella se fueron las cuatro columnas que sostenían preguntas de negocio abiertas —retenciones,
+ * moneda, numeración y plazo de vencimiento—, porque esas preguntas se respondieron y una respuesta
+ * no necesita una palanca. Están en la 0148 con su respuesta.
+ *
+ * Quedan dos valores, y siguen en tabla y no en una variable `SIIGO_*` a propósito: son por
+ * ambiente, quedan historiados y admiten `CHECK`. No hay pantalla ni endpoint que los escriba —se
+ * cambian con una migración—, así que el historial se conserva pero ya nadie inserta filas nuevas.
+ */
+export const siigoConfigEmision = pgTable('siigo_config_emision', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Desde cuándo se factura. No hay histórico: lo anterior no se emite (pregunta 13, respondida). */
+  historicoDesde: date('historico_desde').notNull().defaultNow(),
+  /** Minutos tras los cuales una factura `en_proceso` se considera huérfana y se reconcilia. */
+  arrendamientoEnProcesoMin: integer('arrendamiento_en_proceso_min').notNull().default(15),
+  /** false = fila histórica. */
+  vigente: boolean('vigente').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  // AC1 — una sola vigente por ambiente. Parcial: las apagadas son historial y se repiten.
+  vigenteUq: uniqueIndex('idx_siigo_config_emision_vigente')
+    .on(t.ambiente)
+    .where(sql`${t.vigente}`),
+  // DESC igual que en la migración 0130: la consulta real es «lo más reciente primero», y una
+  // deriva de dirección entre `schema.ts` y la base es de las que no se notan hasta que alguien
+  // regenera algo a partir del esquema.
+  historialIdx: index('idx_siigo_config_emision_historial').on(t.ambiente, desc(t.createdAt)),
+}));
+
+/**
+ * Lote de facturación: el conjunto de trámites que se factura junto (HU #11323, Feature #11242).
+ *
+ * **Su identidad es determinista y sale de lo que contiene.** Con un id aleatorio, dos encolados
+ * del mismo trámite producirían dos lotes, dos claves de idempotencia distintas y **dos facturas
+ * DIAN reales** — la misma carrera que el `UNIQUE` sobre `idempotencyKey` evita un nivel más abajo,
+ * pero fuera de su alcance. Reencolar el mismo conjunto devuelve el lote que ya existía.
+ */
+export const siigoLotesFacturacion = pgTable('siigo_lotes_facturacion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Solo 'por_tramite' (D-1 diferida). Consolidar exige migración, es decir, una decisión. */
+  estrategia: varchar('estrategia', { length: 30 }).notNull().default('por_tramite'),
+  /**
+   * sha256 hex de los ids de trámite Y los conceptos, ambos ORDENADOS: ni el orden de selección en
+   * la pantalla ni el de los conceptos cambian la identidad del lote (A1, migración 0146).
+   */
+  huella: varchar('huella', { length: 64 }).notNull(),
+  /** Conceptos elegidos al enviar, ordenados. Vacío = lote anterior a A1 (todos los aplicables). */
+  conceptos: text('conceptos').array().notNull().default(sql`'{}'::text[]`),
+  /**
+   * Snapshot INMUTABLE de la emisión elegida al enviar (A2). Entra en la huella: cambiar el vendedor
+   * cambia la factura, así que cambia la identidad del lote.
+   *
+   * **`null` = lote encolado antes del 2026-08-13, al que le falta con qué emitir.** Hasta la 0148
+   * significaba «usar la configuración global vigente»; esa configuración se retiró y ya no hay nada
+   * detrás, así que `prepararEmision` rechaza el lote y pide reenviar los trámites. No se puso
+   * `NOT NULL` para no tener que inventarle un vendedor a esos lotes en una migración — se prefiere
+   * una fila que falla ruidosamente al emitir sobre una que emite con datos que nadie eligió.
+   *
+   * `centroCostoCodigo` es la excepción: ahí `null` sigue siendo legítimo, porque solo es obligatorio
+   * cuando el comprobante lo exige (`cost_center_mandatory` de `/v1/document-types`).
+   */
+  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
+  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
+  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
+  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  /**
+   * Si al enviar se pidió que la factura saliera por correo (HU #11708, migración 0161).
+   *
+   * **No entra en la huella**, y esa es la diferencia con los cuatro campos de arriba. El vendedor
+   * cambia el DOCUMENTO que ve la DIAN; el correo solo dice qué hacer con él después. Meterlo en la
+   * identidad del lote le daría dos claves de idempotencia al mismo documento fiscal —y con ellas la
+   * posibilidad de dos facturas ante la DIAN— para expresar una diferencia que la DIAN no ve. Un
+   * segundo envío con la casilla cambiada recibe `ya_estaba`, y el correo se pide con el reenvío.
+   */
+  correoSolicitado: boolean('correo_solicitado').notNull().default(false),
+  /**
+   * Direcciones elegidas al enviar. **Vacío = las de la ficha del cliente, no «a nadie»**: quien no
+   * quiere que salga no marca `correoSolicitado`.
+   *
+   * DATO PERSONAL en una tabla que no tenía ninguno. Se guarda porque la emisión ocurre después y en
+   * otro proceso, y para entonces la ficha pudo cambiar. La contrapartida no es opcional: el flujo
+   * de supresión de `privacy.routes.ts` la vacía con `purgarDestinatariosDeLotes`, igual que redacta
+   * las actas. Toda dirección que este programa guarda tiene que estar al alcance de la purga.
+   */
+  correoDestinatarios: jsonb('correo_destinatarios').$type<SiigoDestinatario[]>().notNull().default([]),
+  creadoPor: integer('creado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Es también la garantía del AC1: entre un SELECT y un INSERT cabe otra petición, así que la
+  // idempotencia del encolado no puede vivir en el servicio.
+  naturalUq: uniqueIndex('idx_siigo_lotes_natural').on(t.ambiente, t.estrategia, t.huella),
+}));
+
+/**
+ * La factura electrónica (HU #11323).
+ *
+ * Una factura aceptada por la DIAN **no se puede deshacer**, así que toda la unicidad de este
+ * módulo la impone la base de datos y nunca el código.
+ *
+ * El `UNIQUE` de la clave de idempotencia es **por ambiente**, no global. Global parece más seguro
+ * y es lo contrario: `pruebas` y `produccion` son empresas distintas de Siigo, así que un lote
+ * ensayado en pruebas dejaría su clave ocupada y la emisión real del mismo lote fallaría para
+ * siempre.
+ */
+export const siigoFacturas = pgTable('siigo_facturas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  loteId: uuid('lote_id').notNull().references(() => siigoLotesFacturacion.id),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  /** Pregunta 9 abierta (¿una sola empresa emisora?). Registrarlo ahora es gratis; después, imposible. */
+  empresaEmisoraNit: varchar('empresa_emisora_nit', { length: 20 }),
+  /** Derivada del lote, estable, NUNCA aleatoria. El contrato exige alfanumérico ≤30. */
+  idempotencyKey: varchar('idempotency_key', { length: 30 }).notNull(),
+
+  siigoInvoiceId: varchar('siigo_invoice_id', { length: 60 }),
+  numero: varchar('numero', { length: 60 }),
+  comprobanteNombre: varchar('comprobante_nombre', { length: 120 }),
+  cufe: varchar('cufe', { length: 200 }),
+  publicUrl: text('public_url'),
+  /** `numeric` llega como CADENA por drizzle. No compararlo con un número sin convertir. */
+  totalSiigo: numeric('total_siigo', { precision: 14, scale: 2 }),
+
+  estado: varchar('estado', { length: 20 }).notNull().default('en_proceso'),
+  /** Reloj del arrendamiento: sin esto, un worker caído bloquea la clave para siempre. */
+  enProcesoDesde: timestamp('en_proceso_desde', { withTimezone: true }),
+  intentos: integer('intentos').notNull().default(0),
+  errorCode: varchar('error_code', { length: 80 }),
+  errorDetalle: text('error_detalle'),
+  enviadaEn: timestamp('enviada_en', { withTimezone: true }),
+
+  /**
+   * Marca APARTE del estado. Una factura emitida cuyo total no cuadra con la liquidación sigue
+   * estando emitida —el documento existe ante la DIAN— y además necesita que alguien la mire.
+   * Como estado se habría perdido la primera mitad.
+   */
+  requiereRevision: boolean('requiere_revision').notNull().default(false),
+  revisionMotivo: text('revision_motivo'),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  idemUq: uniqueIndex('idx_siigo_facturas_idem').on(t.ambiente, t.idempotencyKey),
+  enProcesoIdx: index('idx_siigo_facturas_en_proceso').on(t.enProcesoDesde),
+  estadoIdx: index('idx_siigo_facturas_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+  // Migración 0149. **No es para el JOIN de la reconciliación**, que entra por `id` —la primaria— y
+  // desde esa única fila alcanza el lote por la primaria del lote: ese camino no lo toca. Está
+  // porque `lote_id` era una clave foránea SIN índice, y sin él cualquier comprobación de integridad
+  // sobre `siigo_lotes_facturacion` recorre esta tabla entera, que solo crece.
+  loteIdx: index('idx_siigo_facturas_lote').on(t.loteId),
+}));
+
+/**
+ * Qué trámites cubre cada factura (HU #11323).
+ *
+ * **N:1 desde el primer día** aunque hoy siempre tenga una sola fila: es lo que permitirá habilitar
+ * la facturación consolidada sin migrar `siigoFacturas`.
+ *
+ * `activo` es un espejo de «su factura no está fallida», mantenido por un disparador. Existe porque
+ * el predicado de un índice parcial no admite subconsultas, y comprobarlo en el servicio no sirve:
+ * entre el SELECT y el INSERT caben dos peticiones, y el resultado de esa carrera son dos facturas
+ * DIAN sobre el mismo trámite.
+ */
+export const siigoFacturaTramites = pgTable('siigo_factura_tramites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id),
+  /** Se guarda para poder explicar una factura vieja aunque la liquidación cambie después. */
+  liquidacionId: uuid('liquidacion_id').references(() => flitoLiquidaciones.id, { onDelete: 'set null' }),
+  /** Qué concepto cubre. `null` = factura anterior a A1, que cubría todos los aplicables. */
+  concepto: varchar('concepto', { length: 30 }),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_factura_tramites_factura').on(t.facturaId),
+  // Parcial a propósito: una factura `fallida` NO ocupa el trámite, porque el reintento legítimo
+  // tiene que poder volver a facturarlo.
+  //
+  // Por (trámite, concepto) desde A1 (D-5): lo que impide es emitir DOS VECES el mismo concepto del
+  // mismo trámite —dos documentos ante la DIAN, irreversibles—, no facturar mañana otro concepto.
+  // El COALESCE cubre las filas históricas con `concepto` NULL, que en un índice único serían todas
+  // distintas entre sí y dejarían sin protección justo a los datos que ya existen.
+  vivoUq: uniqueIndex('idx_siigo_factura_tramites_vivo')
+    .on(t.tramiteId, sql`COALESCE(${t.concepto}, '*')`).where(sql`${t.activo}`),
+}));
+
+/**
+ * Qué trámites contiene un lote (HU #11327, migración 0144).
+ *
+ * La huella del lote lo IDENTIFICA —sha256 del conjunto ordenado— pero no se puede invertir: sirve
+ * para reconocer «esto ya se encoló», no para saber qué hay dentro. Mientras el único que emitía era
+ * quien acababa de elegir los trámites daba igual; el trabajador de la cola toma una fila con un
+ * `loteId` y nada más, así que sin esta tabla no puede saber qué facturar.
+ *
+ * La pertenencia se guarda en el LOTE y no en la cola a propósito: la cola dice cuándo toca
+ * trabajar, el lote dice sobre qué. Duplicarla en la cola daría dos definiciones del mismo conjunto.
+ */
+export const siigoLoteTramites = pgTable('siigo_lote_tramites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  loteId: uuid('lote_id').notNull()
+    .references(() => siigoLotesFacturacion.id, { onDelete: 'cascade' }),
+  // RESTRICT explícito: un trámite que se encoló para facturar no se borra dejando el lote
+  // apuntando al vacío. El SQL ya lo dice; declararlo aquí evita que `schema.ts` y la migración
+  // discrepen, que es una deriva que este repo ya pagó una vez.
+  tramiteId: uuid('tramite_id').notNull()
+    .references(() => flitoTramites.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Idempotencia del alta: `asegurarLote` se repite en cada emisión y en cada encolado del mismo
+  // conjunto, y tiene que poder repetirse sin duplicar la pertenencia.
+  parUq: uniqueIndex('idx_siigo_lote_tramites_par').on(t.loteId, t.tramiteId),
+  tramiteIdx: index('idx_siigo_lote_tramites_tramite').on(t.tramiteId),
+}));
+
+/**
+ * La cola de emisión: qué queda por facturar y cuándo le toca (HU #11327, migración 0144).
+ *
+ * **Eje APARTE de `siigoFacturas`**, que responde «¿qué le pasó al documento?» y por eso no tiene ni
+ * puede tener un estado `pendiente`: su fila nace cuando se reserva la clave de idempotencia, y
+ * reservar la clave ya es estar en proceso. Lo que está pendiente es el trámite.
+ *
+ * **Lo que esta tabla NO garantiza.** No impide la doble factura —eso son la reserva de la clave, el
+ * índice de trámites vivos y el `Idempotency-Key`—: impide el TRABAJO duplicado, que dos instancias
+ * gasten cuota intentando lo mismo. Y lo impide con el arrendamiento, que no es un quinto estado
+ * sino una propiedad de la fila: al vencer vuelve a ser elegible sola, sin que nadie limpie nada
+ * detrás de un proceso caído.
+ */
+export const siigoColaFacturacion = pgTable('siigo_cola_facturacion', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // RESTRICT: la fila de cola es el rastro de que alguien pidió facturar esto.
+  loteId: uuid('lote_id').notNull()
+    .references(() => siigoLotesFacturacion.id, { onDelete: 'restrict' }),
+  /** Denormalizado del lote: la sentencia que selecciona Y BLOQUEA no debe alcanzar a otra tabla. */
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  estado: varchar('estado', { length: 24 }).notNull().default('pendiente'),
+  /** Desenlaces de red: Siigo contestó y rechazó. Son los que gastan el techo. */
+  intentos: integer('intentos').notNull().default(0),
+  maxIntentos: integer('max_intentos').notNull().default(5),
+  /** Ciclos SIN desenlace. Techo propio: un Siigo lento no puede dar una factura por perdida. */
+  esperas: integer('esperas').notNull().default(0),
+  maxEsperas: integer('max_esperas').notNull().default(20),
+  /** NOT NULL: una fila sin cita deja de facturarse en silencio, sin que nadie reciba un error. */
+  proximoIntentoAt: timestamp('proximo_intento_at', { withTimezone: true }).notNull().defaultNow(),
+  ultimoIntentoAt: timestamp('ultimo_intento_at', { withTimezone: true }),
+  /** Arrendamiento, no estado. Las dos columnas van juntas o no van (lo afirma un CHECK). */
+  tomadoPor: varchar('tomado_por', { length: 120 }),
+  tomadoEn: timestamp('tomado_en', { withTimezone: true }),
+  /** La factura que produjo el trabajo. La cola la LEE del resultado; nunca escribe en facturas. */
+  facturaId: uuid('factura_id').references(() => siigoFacturas.id, { onDelete: 'restrict' }),
+  desenlace: varchar('desenlace', { length: 20 }),
+  errorCode: varchar('error_code', { length: 80 }),
+  errorDetalle: text('error_detalle'),
+  encoladoPor: integer('encolado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // Reencolar el mismo conjunto NO crea una segunda fila, y lo garantiza el índice: entre un SELECT
+  // y un INSERT cabe otra petición.
+  loteUq: uniqueIndex('idx_siigo_cola_lote').on(t.loteId),
+  // La consulta del trabajador, exactamente. Parcial: lo terminado es la mayor parte de la tabla con
+  // el tiempo y no se vuelve a mirar nunca.
+  listaIdx: index('idx_siigo_cola_lista').on(t.ambiente, t.proximoIntentoAt, t.createdAt)
+    .where(sql`${t.estado} IN ('pendiente', 'error')`),
+  estadoIdx: index('idx_siigo_cola_estado').on(t.ambiente, t.estado, desc(t.createdAt)),
+  facturaIdx: index('idx_siigo_cola_factura').on(t.facturaId)
+    .where(sql`${t.facturaId} IS NOT NULL`),
+}));
+
+/**
+ * Historial del estado ante la DIAN (HU #11330, Feature #11243).
+ *
+ * **Eje distinto del `estado` de `siigoFacturas`.** Aquel responde «¿consiguió FLITO emitirla?»;
+ * este, «¿qué dice la autoridad tributaria del documento que ya existe?». Metidos en el mismo
+ * campo, una factura `anulada` dejaría de constar como `emitida`, cuando el documento existe ante
+ * la DIAN y existirá siempre. Por eso esta HU **no añade una sola columna a `siigoFacturas`**.
+ *
+ * **Append-only.** El estado vigente es la última fila, no un campo que se sobrescribe: «¿cuándo
+ * pasó a rechazada y por qué?» es la pregunta que se hace cuando algo va mal, y un campo
+ * sobrescrito no la puede responder. Los disparadores de la migración `0137` prohíben el `DELETE` y
+ * limitan el `UPDATE` a que `verificadoEn` avance.
+ *
+ * Se escribe por una sola puerta —`aplicarEstadoDian()`— y nunca directamente.
+ */
+export const siigoFacturaEstadosDian = pgTable('siigo_factura_estados_dian', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull()
+    .references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  /**
+   * Orden total. No sobra teniendo `createdAt`: el `now()` de PostgreSQL es la hora de INICIO DE LA
+   * TRANSACCIÓN, así que dos filas de la misma transacción comparten instante y el desempate por
+   * un uuid aleatorio sería aleatorio también. «La última fila» se decide por aquí, nunca por fecha.
+   */
+  secuencia: bigserial('secuencia', { mode: 'number' }).notNull(),
+  estado: varchar('estado', { length: 20 }).notNull(),
+  /** El CUFE observado. Se repite en cada fila: prueba que se habla del mismo documento. */
+  cufe: varchar('cufe', { length: 200 }),
+  /** Da sentido a `rechazada`. Sin él, el historial dice que algo falló y no dice qué. */
+  motivo: text('motivo'),
+  /** `emision | sondeo | webhook | manual`. Ver `siigo-estado-dian.ts`. */
+  fuente: varchar('fuente', { length: 12 }).notNull(),
+  /** Respuesta cruda YA SANEADA. Nunca contiene la clave con la que se factura. */
+  payload: jsonb('payload'),
+  registradoPor: integer('registrado_por').references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * Cuándo se confirmó por última vez que el estado seguía siendo este. **Única columna mutable**,
+   * y solo hacia adelante: confirmar que una factura sigue aceptada no es un hecho nuevo del
+   * documento, es una observación nuestra. Si cada sondeo escribiera una fila, un mes de consultas
+   * cada quince minutos dejaría ~2900 filas idénticas y el historial dejaría de ser legible.
+   */
+  verificadoEn: timestamp('verificado_en', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // UNIQUE y no un índice normal: un `bigserial` se puede sobrescribir o reiniciar, y dos filas de
+  // la misma factura con el mismo número volverían ambigua «la última».
+  secuenciaUq: uniqueIndex('idx_siigo_estado_dian_secuencia').on(t.facturaId, desc(t.secuencia)),
+  facturaFechaIdx: index('idx_siigo_estado_dian_factura_fecha').on(t.facturaId, desc(t.createdAt)),
+  // Parcial: las aceptadas y anuladas son la mayoría de la tabla y no hay nada que volver a preguntar.
+  pendientesIdx: index('idx_siigo_estado_dian_pendientes').on(t.verificadoEn)
+    .where(sql`${t.estado} = 'en_validacion'`),
+}));
+
+/**
+ * La corrección de una factura ya emitida, hecha por fuera y registrada aquí (HU #11343).
+ *
+ * **Tabla nueva con clave foránea, sin una sola columna sobre `siigoFacturas`.** No es estética: la
+ * Feature #11242 tiene que poder seguir evolucionando su fila sin arrastrar a nadie, y una factura
+ * corregida **sigue existiendo ante la DIAN** — el documento no desaparece de la historia porque
+ * alguien lo haya anulado después.
+ *
+ * **Append-only por disparador**, como `siigoOperaciones`. Lo que afirma que una factura se corrigió
+ * no puede reescribirse; si se pudiera, no probaría nada. Este módulo no expone actualización ni
+ * borrado, y no por olvido: la base los prohíbe.
+ *
+ * `tipo` **no incluye `nota_credito`**, y esa ausencia es la decisión: no se sabe si corregir una
+ * factura emitida es una nota crédito (pregunta 8, abierta). Ver la migración `0140`.
+ */
+export const siigoFacturaCorrecciones = pgTable('siigo_factura_correcciones', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id),
+  tipo: varchar('tipo', { length: 20 }).notNull(),
+  /** Solo 'manual'. El ejecutor que actúa contra Siigo es la HU #11344, bloqueada. */
+  ejecutor: varchar('ejecutor', { length: 20 }).notNull().default('manual'),
+  /** Sin identificador no se puede verificar en Siigo, y una corrección no verificable es un rumor. */
+  documentoSiigo: varchar('documento_siigo', { length: 100 }).notNull(),
+  motivo: text('motivo').notNull(),
+  /** Cuándo se hizo EN SIIGO. `createdAt` es cuándo se anotó en FLITO. */
+  fechaCorreccion: date('fecha_correccion').notNull(),
+  registradoPor: integer('registrado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_correcciones_factura').on(t.facturaId, desc(t.createdAt)),
+}));
+
+/**
+ * Acta de entrega por correo de cada factura (HU #11334, migración 0141).
+ *
+ * El correo lo envía **Siigo**, no FLITO: esto no es una cola de salida y no toca
+ * `notification_outbox`. Lo que se guarda es qué le pedimos a Siigo y qué contestó.
+ *
+ * Append-only con una única puerta: se pueden vaciar los `destinatarios` por un derecho de
+ * supresión (Ley 1581) conservando el hecho del envío. Cualquier otro UPDATE y todo DELETE mueren
+ * en el disparador — ver el encabezado de la migración.
+ */
+export const siigoFacturaEnvios = pgTable('siigo_factura_envios', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  facturaId: uuid('factura_id').notNull().references(() => siigoFacturas.id, { onDelete: 'cascade' }),
+  /** 'emision' = el correo que Siigo mandó solo al crear; 'reenvio' = lo pidió una persona. */
+  origen: varchar('origen', { length: 12 }).notNull(),
+  resultado: varchar('resultado', { length: 16 }).notNull(),
+  /** [{ correo, origen }]. La procedencia es lo que hace auditable la resolución de destinatarios. */
+  destinatarios: jsonb('destinatarios').$type<SiigoDestinatario[]>().notNull().default([]),
+  destinatariosPurgadosEn: timestamp('destinatarios_purgados_en', { withTimezone: true }),
+  codigo: varchar('codigo', { length: 60 }),
+  motivo: text('motivo'),
+  /** NULL cuando lo originó la emisión: ahí no hay una persona que lo pidiera. */
+  solicitadoPor: integer('solicitado_por').references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  facturaIdx: index('idx_siigo_envios_factura').on(t.facturaId, desc(t.createdAt)),
+}));
+
+/**
+ * Vínculo entre un cliente de FLITO y su tercero en Siigo (HU #11297, migración 0143).
+ *
+ * La clave del tercero EN SIIGO es la pareja (identificación, sucursal): una identificación puede
+ * repetirse allá si la sucursal es distinta. El índice único va sobre las dos.
+ */
+/**
+ * Lo último que se usó al facturarle a un cliente (A2, migración 0147).
+ *
+ * **Recuerda, no parametriza.** Se escribe sola al enviar y solo sirve para precargar el diálogo
+ * del envío siguiente. Con qué configuración salió cada factura vive en el lote, que es inmutable.
+ */
+export const siigoEmisionCliente = pgTable('siigo_emision_cliente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: integer('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  ambiente: varchar('ambiente', { length: 12 }).notNull(),
+  documentoTipoCodigo: varchar('documento_tipo_codigo', { length: 60 }),
+  vendedorCodigo: varchar('vendedor_codigo', { length: 60 }),
+  formaPagoCodigo: varchar('forma_pago_codigo', { length: 60 }),
+  centroCostoCodigo: varchar('centro_costo_codigo', { length: 60 }),
+  actualizadoPor: integer('actualizado_por').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  // `pruebas` y `produccion` son empresas distintas de Siigo: un vendedor de una no significa nada
+  // en la otra, y precargar el diálogo de producción con un código de pruebas sería un rechazo que
+  // nadie entendería.
+  clienteAmbienteUq: uniqueIndex('idx_siigo_emision_cliente').on(t.clientId, t.ambiente),
+}));
+
+export const siigoTerceros = pgTable('siigo_terceros', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  clientId: integer('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+  /** Lo único que no podemos reconstruir por nuestra cuenta si se pierde. */
+  siigoCustomerId: varchar('siigo_customer_id', { length: 60 }).notNull(),
+  /** Copia de la pareja en el momento del vínculo: permite detectar una discrepancia posterior. */
+  identificacion: varchar('identificacion', { length: 50 }).notNull(),
+  sucursal: integer('sucursal').notNull().default(0),
+  /** Hash del objeto EXACTO enviado. Responde «¿cambió?» sin guardar una copia de los datos. */
+  huella: varchar('huella', { length: 64 }).notNull(),
+  sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  parejaUq: uniqueIndex('idx_siigo_terceros_identificacion_sucursal').on(t.identificacion, t.sucursal),
+  clienteUq: uniqueIndex('idx_siigo_terceros_cliente').on(t.clientId),
+  /** Y un tercero tiene UN cliente: sin esto, dos clientes pueden acabar facturando contra el mismo. */
+  customerUq: uniqueIndex('idx_siigo_terceros_customer').on(t.siigoCustomerId),
+}));
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FLITO — Monitoreo de comparendos (Feature #11492, 17a). Migración 0150.
+//
+// Módulo `flito-comparendos`: inventario multi-NIT de comparendos traídos de SIMIT (Verifik) y de
+// los municipales (UTS), que se compara entre corridas de sync para detectar altas y bajas.
+//
+// NO es el gate SIMIT del traspaso, ni el pre-vuelo, ni el incidente PESV `comparendo`: aquellos
+// responden «¿este vehículo puede traspasarse hoy?» con una consulta que caduca; este lleva un
+// histórico. Ver docs/dominio.md y ADR-0001..0003.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const flitoComparendosEstadoEnum = pgEnum('flito_comparendos_estado', ['activo', 'inactivo']);
+export const flitoComparendosSyncEstadoEnum = pgEnum('flito_comparendos_sync_estado', [
+  'running', 'completed', 'partial', 'failed',
+]);
+// El cuarto valor, `gestion`, lo añade la migración 0154 (HU #11556) y va AL FINAL: el orden de
+// `pg_enum` es el orden de comparación del tipo, y un `ADD VALUE ... BEFORE/AFTER` reordenaría algo
+// que nadie pidió reordenar. Los tres primeros los escribe el sync; `gestion` lo escribe una
+// persona desde el endpoint de gestión (HU #11557), y es el único que no viene de una corrida.
+export const flitoComparendosEventoTipoEnum = pgEnum('flito_comparendos_evento_tipo', [
+  'primera_llegada', 'inactivacion', 'reaparicion', 'gestion',
+]);
+export const flitoComparendosOrigenMergeEnum = pgEnum('flito_comparendos_origen_merge', [
+  'simit', 'municipal', 'ambos',
+]);
+// Comparendo o multa (HU #11712, migración 0160). Los dos endpoints devuelven las dos cosas en la
+// misma lista y lo que las distingue es la resolución: sin resolución sigue siendo comparendo, con
+// resolución ya es multa. Es un enum y no un booleano porque un booleano no sabe decir «no se
+// sabe», que es exactamente lo que hay que decir del histórico anterior a la 0160 —y no es un
+// `varchar` con CHECK porque cuesta lo mismo y pierde la unión tipada en TypeScript.
+export const flitoComparendosTipoRegistroEnum = pgEnum('flito_comparendos_tipo_registro', [
+  'comparendo', 'multa',
+]);
+
+/**
+ * NITs a monitorear (CF-01). Catálogo propio y no una vista de `clients`: se monitorean empresas
+ * que pueden no ser clientes nuestros, y un cliente puede no monitorearse.
+ */
+export const flitoComparendosNits = pgTable('flito_comparendos_nits', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nit: varchar('nit', { length: 20 }).notNull(),
+  alias: varchar('alias', { length: 120 }),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  nitUq: uniqueIndex('uq_flito_comparendos_nits_nit').on(t.nit),
+}));
+
+/**
+ * Municipios fuente (CF-02). `codigoFuente` es el valor literal que viaja en `?fuente=` a UTS;
+ * `nombre` es para la pantalla de 17b. Separados porque el proveedor espera 'ITAGUI' y a un humano
+ * se le muestra 'Itagüí': con una sola columna, corregir la ortografía rompería la integración.
+ */
+export const flitoComparendosMunicipios = pgTable('flito_comparendos_municipios', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  codigoFuente: varchar('codigo_fuente', { length: 40 }).notNull(),
+  nombre: varchar('nombre', { length: 80 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  fuenteUq: uniqueIndex('uq_flito_comparendos_municipios_fuente').on(t.codigoFuente),
+}));
+
+/** Causales de gestión (CF-04). Catálogo de 17a; quien las asigna a un comparendo es 17b. */
+export const flitoComparendosCausales = pgTable('flito_comparendos_causales', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  orden: smallint('orden').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  nombreUq: uniqueIndex('uq_flito_comparendos_causales_nombre').on(t.nombre),
+}));
+
+/**
+ * Token Verifik SIMIT cifrado en reposo (CF-03, ADR-0002). Mismo esquema que `siigoCredenciales`.
+ *
+ * Singleton lógico: una sola fila activa, garantizada por índice único PARCIAL y no por convención
+ * —con dos activas, el token usado dependería del orden de las filas—. Las inactivas son el
+ * historial de rotación, de donde sale el «quién/cuándo» que pide el CF-03.
+ */
+export const flitoComparendosTokenSimit = pgTable('flito_comparendos_token_simit', {
+  id: smallserial('id').primaryKey(),
+  tokenCipher: bytea('token_cipher').notNull(),
+  tokenIv: bytea('token_iv').notNull(),
+  tokenAuthTag: bytea('token_auth_tag').notNull(),
+  aadNonce: uuid('aad_nonce').notNull(),
+  keyVersion: smallint('key_version').notNull().default(1),
+  activo: boolean('activo').notNull().default(true),
+  // Rastro durable del descifrado fallido (patrón de `siigoCredenciales`): un log se rota y se
+  // pierde; estas columnas sobreviven y explican por qué el token dejó de servir.
+  descifradoFallidoEn: timestamp('descifrado_fallido_en', { withTimezone: true }),
+  descifradoFallidoMotivo: varchar('descifrado_fallido_motivo', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdBy: integer('created_by').references(() => users.id),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: integer('updated_by').references(() => users.id),
+}, (t) => ({
+  unActivo: uniqueIndex('uq_flito_comparendos_token_activo').on(t.activo).where(sql`${t.activo}`),
+}));
+
+/**
+ * Mapa versionable fuente → canónico (ADR-0003). Es tabla y no if/else en el servicio para que
+ * renombrar un campo del proveedor sea una fila con su fecha y su nota, no un despliegue.
+ *
+ * El merge lee la versión MÁXIMA. La v1 que siembra la 0150 nace `provisional=true` porque se
+ * dedujo sin payloads reales; la HU #11501 la verifica y siembra la v2.
+ *
+ * `prioridad` (menor gana) ordena los candidatos de un mismo `targetField` dentro de un origen: el
+ * diseño los lista en orden de preferencia y sin esta columna ese orden se perdía al insertar.
+ */
+export const flitoComparendosFieldMap = pgTable('flito_comparendos_field_map', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  version: integer('version').notNull(),
+  origen: varchar('origen', { length: 20 }).notNull(), // 'simit' | 'municipal'
+  sourcePath: varchar('source_path', { length: 120 }).notNull(),
+  targetField: varchar('target_field', { length: 60 }).notNull(),
+  prioridad: smallint('prioridad').notNull().default(0),
+  provisional: boolean('provisional').notNull().default(true),
+  notas: text('notas'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  verOrigPath: uniqueIndex('uq_flito_comparendos_field_map').on(t.version, t.origen, t.sourcePath),
+}));
+
+/**
+ * Registro consolidado: canónico tipado (lo que 17b filtra y exporta) + payload crudo de cada
+ * fuente (la red para re-mergear si la homologación v1 resultó equivocada, sin volver a llamar al
+ * proveedor).
+ *
+ * Unicidad por `numeroComparendo` y no por (nit, numero): el número lo asigna el Estado y es único
+ * en el país (CF-07). La placa no es llave — un vehículo acumula comparendos.
+ */
+export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  numeroComparendo: varchar('numero_comparendo', { length: 60 }).notNull(),
+  nitMonitoreado: varchar('nit_monitoreado', { length: 20 }).notNull(),
+  // Campos de FUENTE: los escribe el sync y nadie más. No hay endpoint que los edite (CF-09).
+  placa: varchar('placa', { length: 10 }),
+  codigoInfraccion: varchar('codigo_infraccion', { length: 20 }),
+  descripcionInfraccion: text('descripcion_infraccion'),
+  fechaComparendo: date('fecha_comparendo'),
+  // Cuándo se NOTIFICÓ el comparendo (HU #11794, migración 0164). Columna propia y no un dato
+  // derivable: las dos fuentes la publican —en tres grafías distintas— y de ella cuelga el conteo de
+  // términos del proceso. Un dato que no es columna no se puede filtrar ni ordenar, y el payload
+  // crudo viene podado a la lista blanca del `field_map` (RN-25).
+  //
+  // `null` significa «no notificado o no se sabe», y las dos cosas caben en el mismo nulo a
+  // propósito: ninguna de las dos fuentes distingue «todavía no se notificó» de «no publico la
+  // fecha». Lo que NO cabe es `1900-01-01`: ese valor es el CENTINELA con el que el proveedor dice
+  // «no notificado» (premisa documentada en la 0158), y persistirlo guardaría una fecha del siglo
+  // XIX como si fuera un hecho. Lo descarta `fechaCanonica`, para esta columna Y para
+  // `fecha_comparendo` — el mismo centinela con el mismo criterio.
+  //
+  // Dato de FUENTE (CF-09): lo escribe el sync y ningún endpoint de gestión lo edita.
+  fechaNotificacion: date('fecha_notificacion'),
+  organismo: varchar('organismo', { length: 120 }),
+  municipioFuente: varchar('municipio_fuente', { length: 40 }),
+  monto: numeric('monto', { precision: 14, scale: 2 }),
+  estadoFuente: varchar('estado_fuente', { length: 80 }),
+  // Comparendo o multa, y la resolución que lo convirtió (HU #11712, migración 0160). Las tres son
+  // nullable y SIN default, y eso es la afirmación principal de la HU: `null` significa «no se
+  // sabe», que es todo lo que sabemos del histórico anterior a la 0160 —sus payloads ya fueron
+  // podados y ninguna versión del mapa nombraba la resolución, así que el dato no está en ninguna
+  // parte—. Un `default 'comparendo'` no sería optimismo transitorio: las filas `inactivo` ya no
+  // las visita ningún sync (CF-10), así que nadie volvería a corregirlo nunca.
+  //
+  // `tipoRegistro` lo DERIVA `resolverCampos` de las otras dos, y NO es un campo del `field_map`:
+  // si lo fuera, una fila de una tabla de texto elegiría el valor de una columna `enum` y el INSERT
+  // reventaría con un `22P02` a mitad de corrida, matando el NIT entero.
+  //
+  // `idResolucion` es columna propia y no un candidato más de `numeroResolucion` porque es un
+  // identificador de SISTEMA del proveedor (`115697134`) y no un número legible: como respaldo del
+  // número acabaría pintado en la columna «N.º resolución». Se guarda porque viene nulo mientras es
+  // comparendo y con valor cuando ya es multa, así que es la otra mitad de la señal del tipo. No se
+  // publica en el API.
+  tipoRegistro: flitoComparendosTipoRegistroEnum('tipo_registro'),
+  numeroResolucion: varchar('numero_resolucion', { length: 60 }),
+  idResolucion: varchar('id_resolucion', { length: 60 }),
+  origenMerge: flitoComparendosOrigenMergeEnum('origen_merge').notNull(),
+  vistoEnSimit: boolean('visto_en_simit').notNull().default(false),
+  vistoEnMunicipal: boolean('visto_en_municipal').notNull().default(false),
+  payloadSimit: jsonb('payload_simit'),
+  payloadMunicipal: jsonb('payload_municipal'),
+  // Estado de monitoreo: lo mantiene el sync comparando corridas.
+  estado: flitoComparendosEstadoEnum('estado').notNull().default('activo'),
+  primeraVistoEn: timestamp('primera_visto_en', { withTimezone: true }).notNull().defaultNow(),
+  ultimoVistoEn: timestamp('ultimo_visto_en', { withTimezone: true }).notNull().defaultNow(),
+  inactivadoEn: timestamp('inactivado_en', { withTimezone: true }),
+  ultimoSyncRunId: uuid('ultimo_sync_run_id'),
+  // Gestión operativa: columnas de 17a, escritura de 17b.
+  causalId: uuid('causal_id').references(() => flitoComparendosCausales.id),
+  observacion: text('observacion'),
+  // Auditoría de la gestión (HU #11556, migración 0154). `updated_at` NO sirve para esto: lo
+  // reescribe el sync en cada corrida, así que no distingue una fila gestionada ayer por una
+  // persona de una que el sync tocó hace diez minutos. Las dos son nullable y sin default: `null`
+  // significa «nadie la ha gestionado», que es lo que vale para todo el histórico anterior.
+  //
+  // `integer` y no `uuid` porque `users.id` es `serial`: una FK hereda el tipo de a quien apunta.
+  // Y `onDelete: 'restrict'` porque esto es auditoría — un `set null` dejaría la fila diciendo que
+  // se gestionó en una fecha y por nadie. Un usuario que gestionó comparendos no se borra, se
+  // desactiva. La cláusula está afirmada contra la 0154 en un test de paridad, porque degradarla
+  // deja un esquema válido y una auditoría falseada.
+  gestionActualizadaEn: timestamp('gestion_actualizada_en', { withTimezone: true }),
+  gestionActualizadaPor: integer('gestion_actualizada_por')
+    .references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  numeroUq: uniqueIndex('uq_flito_comparendos_numero').on(t.numeroComparendo),
+  nitIdx: index('idx_flito_comparendos_nit').on(t.nitMonitoreado),
+  placaIdx: index('idx_flito_comparendos_placa').on(t.placa),
+  estadoIdx: index('idx_flito_comparendos_estado').on(t.estado),
+  // Purga por retención (HU #11511, migración 0152). Ninguno de los de arriba cubre el filtro de la
+  // purga —`WHERE ultimo_visto_en < corte ORDER BY ultimo_visto_en LIMIT n`, hasta 20 veces por
+  // pasada, más el `count(*)` del dryRun y del freno—, que sin índice es un recorrido secuencial de
+  // la tabla que más crece del módulo.
+  ultimoVistoIdx: index('idx_flito_comparendos_ultimo_visto').on(t.ultimoVistoEn),
+  // Filtros del listado (HU #11555, migración 0153). Los dos primeros llevan detrás las MISMAS
+  // columnas del cursor y en el MISMO orden (`created_at DESC, id DESC`, RN-32): con la IGUALDAD
+  // delante, el índice entrega la página ya ordenada y el plan pierde el nodo de `Sort`. Sin esa
+  // cola, filtrar por municipio sería recorrer la tabla entera y ordenarla para quedarse con 50
+  // filas. `origen_merge` no tiene índice a propósito: son tres valores sobre toda la tabla y el
+  // planner no lo usaría.
+  municipioCreadoIdx: index('idx_flito_comparendos_municipio_creado')
+    .on(t.municipioFuente, desc(t.createdAt), desc(t.id)),
+  causalCreadoIdx: index('idx_flito_comparendos_causal_creado')
+    .on(t.causalId, desc(t.createdAt), desc(t.id)),
+  // `sinCausal=true` necesita un índice PARCIAL propio, y no es una duplicación del anterior: para
+  // que un índice entregue el orden ya hecho, su primera columna tiene que estar fijada por una
+  // IGUALDAD, y `causal_id IS NULL` no lo es. Medido sobre 200.000 filas (AC5 de la #11555), el
+  // índice de arriba no evita el `Sort` ni forzando el plan a mano —`Index Only Scan` + `Sort`,
+  // 25,7 ms—, y sin forzar nada el planner elige `Seq Scan` + `top-N heapsort`: 43 ms y 6.343
+  // buffers. Con este parcial la misma consulta baja a 0,14 ms y 7 buffers.
+  //
+  // Sacar `causal_id` del cuerpo al `WHERE` es lo que lo hace posible: dentro del índice ya no hay
+  // más que filas sin causal, así que `(created_at DESC, id DESC)` manda desde la primera columna.
+  // Y sale más barato de mantener que el índice completo de la causal (6,8 MB contra 12 MB) porque
+  // solo indexa la parte de la tabla que le toca.
+  sinCausalCreadoIdx: index('idx_flito_comparendos_sin_causal_creado')
+    .on(desc(t.createdAt), desc(t.id))
+    .where(sql`${t.causalId} is null`),
+  // El sello de la gestión es una sola cosa (HU #11557, migración 0156): o están la fecha y el
+  // autor, o no está ninguno de los dos. Una fecha sin autor diría que la fila se gestionó y no fue
+  // nadie —el mismo daño que el `ON DELETE RESTRICT` de arriba impide por el otro lado (ADR-0005)—
+  // y un autor sin fecha sería la mitad de una auditoría. La escritura las pone siempre juntas,
+  // también al vaciar la causal y la observación; esto es lo que lo sostiene desde la base.
+  gestionAuditoriaChk: check(
+    'flito_comparendos_gestion_auditoria_chk',
+    sql`(${t.gestionActualizadaEn} is null) = (${t.gestionActualizadaPor} is null)`,
+  ),
+  // El tipo y la resolución no pueden contradecirse (HU #11712, migración 0160): o la fila no dice
+  // nada de las tres (el histórico), o dice el tipo y ese tipo es `multa` exactamente cuando hay
+  // alguna de las dos resoluciones. El merge lo cumple por construcción —deriva el tipo del valor
+  // que acaba de resolver—, y esto es lo que lo sostiene desde la base para el día que haya un
+  // segundo camino de escritura.
+  //
+  // Las dos piezas que parecen adorno hacen trabajos DISTINTOS, y confundirlas es fácil (verificado
+  // contra PostgreSQL 16): la PRIMERA rama está para **admitir el histórico**, no para cerrar un
+  // hueco —sin ella, `tipo_registro IS NOT NULL` da FALSE y el CHECK rechaza toda fila sin tipo, que
+  // al aplicar la 0160 son TODAS: el `ADD CONSTRAINT` moriría al validar—. Lo que cierra el hueco de
+  // la evaluación a NULL es la guarda `is not null` de la SEGUNDA rama: la comparación desnuda
+  // `(NULL = 'multa') = (…)` evalúa a NULL y un CHECK que evalúa a NULL PASA, así que sin ella se
+  // colaría la fila peor —sin tipo y con número de resolución—; con ella, `FALSE AND NULL` es FALSE.
+  tipoResolucionChk: check(
+    'flito_comparendos_tipo_resolucion_chk',
+    sql`(${t.tipoRegistro} is null and ${t.numeroResolucion} is null and ${t.idResolucion} is null) or (${t.tipoRegistro} is not null and (${t.tipoRegistro} = 'multa') = (${t.numeroResolucion} is not null or ${t.idResolucion} is not null))`,
+  ),
+}));
+
+/**
+ * Timeline (CF-11): llegada, desaparición, reaparición. Responde «¿desde cuándo arrastramos esto?»,
+ * que el estado actual no puede contar.
+ *
+ * El único (registro, tipo, run) es el anti-spam como candado de base: la regla «sin eventos
+ * redundantes» aplicada solo en el servicio se rompe con el primer reintento de una corrida.
+ */
+export const flitoComparendosEventos = pgTable('flito_comparendos_eventos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  registroId: uuid('registro_id').notNull()
+    .references(() => flitoComparendosRegistros.id, { onDelete: 'cascade' }),
+  tipo: flitoComparendosEventoTipoEnum('tipo').notNull(),
+  syncRunId: uuid('sync_run_id'),
+  detalle: jsonb('detalle'), // sin token; NIT/placa redactados según pii-audit
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  regIdx: index('idx_flito_comparendos_eventos_reg').on(t.registroId, t.createdAt),
+  regTipoRunUq: uniqueIndex('uq_flito_comparendos_evento_reg_tipo_run')
+    .on(t.registroId, t.tipo, t.syncRunId),
+}));
+
+/** Una corrida por disparo de sync (CF-05). */
+export const flitoComparendosSyncRuns = pgTable('flito_comparendos_sync_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  estado: flitoComparendosSyncEstadoEnum('estado').notNull().default('running'),
+  scopeNits: jsonb('scope_nits').notNull().$type<string[]>(),
+  resumen: jsonb('resumen'),
+  iniciadoPor: integer('iniciado_por').references(() => users.id),
+  iniciadoEn: timestamp('iniciado_en', { withTimezone: true }).notNull().defaultNow(),
+  finalizadoEn: timestamp('finalizado_en', { withTimezone: true }),
+}, (t) => ({
+  // Purga por retención (HU #11511, migración 0152): candidatos por antigüedad, heartbeat de la
+  // última corrida ok y listado de corridas recientes. La tabla no tenía más índice que su PK.
+  iniciadoIdx: index('idx_flito_comparendos_sync_runs_iniciado').on(t.iniciadoEn),
+}));
+
+/**
+ * Un paso por par (NIT, fuente). No es telemetría: es la condición del CF-10. Solo se inactiva por
+ * ausencia a los NIT con SIMIT ok y TODOS sus municipios activos ok en la corrida — sin el detalle
+ * por paso, un timeout se leería como «el comparendo ya no existe».
+ */
+export const flitoComparendosSyncSteps = pgTable('flito_comparendos_sync_steps', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  runId: uuid('run_id').notNull()
+    .references(() => flitoComparendosSyncRuns.id, { onDelete: 'cascade' }),
+  nit: varchar('nit', { length: 20 }).notNull(),
+  fuente: varchar('fuente', { length: 40 }).notNull(), // 'simit' | codigoFuente del municipio
+  ok: boolean('ok').notNull(),
+  httpStatus: smallint('http_status'),
+  errorCode: varchar('error_code', { length: 60 }),
+  mensaje: text('mensaje'), // sin PII ni token
+  itemsLeidos: integer('items_leidos'),
+  duracionMs: integer('duracion_ms'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  runIdx: index('idx_flito_comparendos_sync_steps_run').on(t.runId),
 }));

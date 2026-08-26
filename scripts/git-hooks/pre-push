@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Gate local de seguridad pre-push — FLITO (ver AGENTS.md, sección Git flow)
+#
+#   1. Secretos (gitleaks)      — BLOQUEA el push si hay hallazgos en los commits que suben.
+#   2. Dependencias (npm audit) — BLOQUEA con Critical; High/Moderate solo avisan
+#      (CI «dependency-audit» ya bloquea el merge con High+; cuando la deuda actual
+#      se remedie, este gate debe subir de "critical" a "high").
+#   3. Nombre de rama           — solo AVISA: renombrar aquí sigue siendo barato, y el
+#      check «naming» de CI bloquea el PR si el nombre no cumple la convención.
+#
+# gitleaks se auto-provisiona en ~/.local/bin la primera vez (misma versión que CI).
+# Escape manual documentado: git push --no-verify
+
+set -uo pipefail
+
+red() { printf '\033[31m%s\033[0m\n' "$*"; }
+yel() { printf '\033[33m%s\033[0m\n' "$*"; }
+grn() { printf '\033[32m%s\033[0m\n' "$*"; }
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT" || exit 1
+FAIL=0
+ZERO="0000000000000000000000000000000000000000"
+
+# --- 1. Secretos (gitleaks) ---------------------------------------------------
+
+GITLEAKS_VERSION=8.24.3
+GITLEAKS_BIN="$(command -v gitleaks || true)"
+[ -z "$GITLEAKS_BIN" ] && [ -x "$HOME/.local/bin/gitleaks" ] && GITLEAKS_BIN="$HOME/.local/bin/gitleaks"
+
+if [ -z "$GITLEAKS_BIN" ]; then
+  yel "[pre-push] gitleaks no encontrado; instalando v${GITLEAKS_VERSION} en ~/.local/bin …"
+  mkdir -p "$HOME/.local/bin"
+  tmp="$(mktemp -d)"
+  if curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o "$tmp/gitleaks.tar.gz" \
+    && tar -xzf "$tmp/gitleaks.tar.gz" -C "$HOME/.local/bin" gitleaks; then
+    GITLEAKS_BIN="$HOME/.local/bin/gitleaks"
+  fi
+  rm -rf "$tmp"
+fi
+
+if [ -z "$GITLEAKS_BIN" ]; then
+  red "[pre-push] BLOQUEADO: no se pudo provisionar gitleaks (¿sin red?)."
+  red "           Instálalo manualmente o, en emergencia: git push --no-verify"
+  exit 1
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue # borrado de rama
+  if [ "$remote_sha" = "$ZERO" ]; then
+    LOG_OPTS="-100 $local_sha" # rama nueva: últimos 100 commits
+  else
+    LOG_OPTS="$remote_sha..$local_sha"
+  fi
+  if ! "$GITLEAKS_BIN" git --redact --log-opts="$LOG_OPTS" .; then
+    red "[pre-push] BLOQUEADO: gitleaks encontró posibles secretos en $local_ref."
+    red "           Falso positivo → justifícalo y añade la regla a .gitleaks.toml."
+    red "           Secreto real → NO debe salir del repo; si ya subió, rótalo."
+    FAIL=1
+  fi
+done
+
+# --- 2. Dependencias (npm audit) ----------------------------------------------
+
+if [ -f package-lock.json ]; then
+  audit_file="$(mktemp)"
+  npm audit --omit=dev --json >"$audit_file" 2>/dev/null || true
+  read -r CRIT HIGH <<<"$(node -e "
+    try {
+      const v = JSON.parse(require('fs').readFileSync('$audit_file', 'utf8')).metadata?.vulnerabilities ?? {};
+      console.log((v.critical ?? 0) + ' ' + (v.high ?? 0));
+    } catch { console.log('0 0'); }
+  ")"
+  rm -f "$audit_file"
+
+  if [ "$CRIT" -gt 0 ]; then
+    red "[pre-push] BLOQUEADO: $CRIT vulnerabilidad(es) Critical en dependencias de producción."
+    red "           Detalle: npm audit --omit=dev · Remedia antes de subir (npm audit fix)."
+    FAIL=1
+  elif [ "$HIGH" -gt 0 ]; then
+    yel "[pre-push] AVISO: $HIGH vulnerabilidad(es) High en dependencias de producción."
+    yel "           El push pasará, pero CI (dependency-audit) bloqueará el merge. Remedia: npm audit fix."
+  fi
+fi
+
+# --- 3. Convención de nombre de rama ------------------------------------------
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ -f scripts/check-naming.mjs ] && [ "$BRANCH" != "HEAD" ]; then
+  if ! node scripts/check-naming.mjs --branch "$BRANCH" >/dev/null 2>&1; then
+    node scripts/check-naming.mjs --branch "$BRANCH" --warn-only
+    yel "[pre-push] El check «naming» de CI bloqueará el PR. Renombra antes de abrirlo:"
+    yel "           git branch -m HU/<ID>-<desarrollador>-<descripcion-breve>"
+    yel "           git push origin :\"$BRANCH\" && git push -u origin HEAD   # si ya estaba en remoto"
+  fi
+fi
+
+# --- Veredicto ----------------------------------------------------------------
+
+if [ "$FAIL" -eq 1 ]; then
+  red "[pre-push] Push detenido por el gate de seguridad. Escape manual: git push --no-verify"
+  exit 1
+fi
+grn "[pre-push] Gate de seguridad OK."
+exit 0

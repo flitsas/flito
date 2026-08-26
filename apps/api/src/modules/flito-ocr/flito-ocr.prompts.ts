@@ -94,3 +94,29 @@ Campos:
 
 Devuelve EXCLUSIVAMENTE este JSON:
 {"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"valorVehiculo":{"valor":null,"confianza":null}}`;
+
+// ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
+// Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a
+// pagar"), no posicional: lo mismo que hace que un único prompt de SOAT sirva para todas las
+// aseguradoras. Lo que varía por organismo se resuelve fuera del prompt — umbral de confianza
+// (organismos_transito_config.flito_umbral_ocr) y, si el formato es rebelde, una pista concatenada
+// (flito_ocr_prompt_hint). El organismo NO se detecta para elegir estrategia: se lee para
+// CONTRASTARLO con el esperado, y una discrepancia es señal de revisión, no de parseo.
+export const PROMPT_DERECHO_TRAMITE = `Extrae los datos de este RECIBO / CUENTA DE COBRO de DERECHOS DE TRÁMITE emitido por un organismo de tránsito (secretaría de movilidad / alcaldía) colombiano.
+
+Es el documento con el que se paga al organismo por radicar un trámite vehicular (matrícula inicial, traspaso, inscripción de prenda, etc.). Suele llevar el escudo del municipio, los datos del vehículo, un desglose de conceptos y un total al final.
+
+Campos:
+- placa: la placa del vehículo del trámite. Formato 3 letras + 3 dígitos (autos, ej. QTP701) o 3 letras + 2 dígitos + 1 letra (motos). Transcribe tal cual.
+    * NO confundas la placa con el RADICADO ni con la cédula/NIT del propietario.
+- valorTotal: el valor total que se paga al organismo. Búscalo como "TOTAL A PAGAR", "VALOR TOTAL", "TOTAL LIQUIDACIÓN" o "NETO A PAGAR".
+    * CRÍTICO: es el TOTAL FINAL de ESTA cuenta, la suma de todos sus conceptos. NO tomes un concepto suelto (matrícula, expedición, especies venales) ni un subtotal intermedio.
+    * CRÍTICO: si el documento es un RESUMEN o CONSOLIDADO de varias placas (una tabla con muchas placas y un gran total), NO es una cuenta individual: responde placa=null y valorTotal=null.
+    * Entero en pesos, sin puntos de miles, sin comas, sin "$".
+- fechaPago: la fecha en que se pagó o se expidió la cuenta de cobro (ISO YYYY-MM-DD). Si hay varias fechas, prefiere la de pago; si solo hay fecha de expedición o de liquidación, usa esa.
+- numeroRadicado: el número de radicado del trámite ("RADICADO", "RADICADO DE TRÁMITE", "No. RADICADO"). Transcribe exacto.
+- organismo: el municipio u organismo de tránsito que emite la cuenta, tal como aparece junto al escudo o en el encabezado (ej. "MEDELLÍN", "PALMIRA", "BELLO"). Solo el nombre, en mayúsculas.
+- tipoTramite: el CONCEPTO del cobro, leído de las líneas de detalle. Devuelve el texto del concepto principal tal como está escrito (ej. "MATRICULA INICIAL", "INSCRIPCION DE PRENDA", "TRASPASO"). Si hay varios conceptos, el que da nombre al trámite (no las especies venales ni el sistematizado).
+
+Devuelve EXCLUSIVAMENTE este JSON:
+{"placa":{"valor":null,"confianza":null},"valorTotal":{"valor":null,"confianza":null},"fechaPago":{"valor":null,"confianza":null},"numeroRadicado":{"valor":null,"confianza":null},"organismo":{"valor":null,"confianza":null},"tipoTramite":{"valor":null,"confianza":null}}`;

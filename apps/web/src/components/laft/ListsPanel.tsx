@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth';
 import { useEscape, useBackdropClose } from '../../lib/hooks';
 import { IconClose } from '../flit/icons';
 import StatusChip from '../flit/StatusChip';
+import ModalPortal from '../flit/ModalPortal';
 
 interface RestrictiveList {
   id: number;
@@ -91,7 +92,8 @@ export default function ListsPanel({ onClose }: { onClose: () => void }) {
   const isAdmin = user?.role === 'admin';
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} {...useBackdropClose(onClose)}>
+    <ModalPortal>
+    <div className="flit-modal fixed inset-0 z-40 flex items-start justify-center overflow-y-auto p-4" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} {...useBackdropClose(onClose)}>
       <div
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -191,5 +193,6 @@ export default function ListsPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

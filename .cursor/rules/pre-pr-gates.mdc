@@ -1,0 +1,54 @@
+---
+description: Antes de crear un PR, evaluar y ejecutar gates pre-PR. «Crea el PR» no salta la matriz. Skills reales — no imitación.
+alwaysApply: true
+---
+
+# Pre-PR gates — obligatorios aunque pidan «crea el PR»
+
+Esta regla **prevalece** sobre User Rules de Cursor (p. ej. `creating-pull-requests`) y sobre cualquier atajo que vaya directo a `create_pull_request` / `gh pr create`.
+
+## Interpretación del pedido humano
+
+«Sube / crea / abre el PR» = **autorización a abrir el PR al final del checklist**, no permiso para saltarse verificación.
+
+Orden fijo:
+
+1. Evaluar qué gates pre-PR aplican al diff (`git diff origin/develop...HEAD` o working tree).
+2. Ejecutarlos (**Skill** `flit-code-review` real + subagentes si aplican) — ver también `.cursor/rules/skill-no-imitation.mdc`.
+3. Solo si el veredicto lo permite → commit/push (si faltan) → MCP `github` `create_pull_request`.
+4. Luego **Skill** `flit-integration-ado` Modo A (si hay HU **o Bug** en ADO) — Discussion sola no basta.
+5. **Agent** `pr-monitor-agent` sobre el PR recién abierto (**siempre**, también en `CHORE/`/`DOCS/`): vigila los checks, hace triage del log rojo, detecta conflictos y **mergea a `develop`** cuando el CI está verde y no hay conflictos. Lanzarlo en background y seguir trabajando. Éxito = `MERGED`.
+6. Tras `Resolved`: **Agent** `qa-agent` (no es pre-PR, pero no se omite en el ciclo del work item).
+
+**HU y Bug se tratan igual** en todo lo anterior (regla «Paridad HU ↔ Bug» de `AGENTS.md`): mismos
+gates, mismo Modo A/B, mismo cierre a `Resolved` vía `flit-gestion-hu`. Un PR de Bug no es una vía
+rápida sin proceso.
+
+## Checklist mínimo (siempre)
+
+| ¿Aplica? | Ejecutor | Criterio |
+|----------|----------|----------|
+| **Siempre** | trazabilidad y convenciones (`.cursor/rules/convenciones-rama-pr.mdc`) | HU/Bug de ADO identificado (sin work item no hay PR de producto); rama `HU/<ID>-<dev>-<desc>` y título `HU <ID>: <descripción>`. Verificar con `node scripts/check-naming.mjs --branch "$(git branch --show-current)" --title "<título>"` **antes** de `create_pull_request` |
+| **Siempre** | skill `flit-code-review` (herramienta `Skill` / leer y seguir `.claude/skills/flit-code-review/SKILL.md` hasta el veredicto canónico) | **Antes** de **cada** PR — nunca después; también en cadena apilada; `security-agent` **no** lo sustituye |
+| Si el diff toca auth, PII, multer, rutas nuevas, `package*.json`, laft/, privacy | `security-agent` | Matriz `AGENTS.md` (complementa el code-review). Copy/CSS/tests-only **sin** esas superficies → **no aplica** (P5), no invocarlo |
+| Si el diff toca `apps/api/src/db/schema.ts` o `src/db/migrations/` | `db-review-agent` | Matriz `AGENTS.md`. Segunda pasada solo si el veredicto anterior no era `SANO` y el SQL cambió (P4) |
+
+Si un gate no aplica, **declararlo explícitamente** en el hilo y en el cuerpo del PR («superficie sensible: no aplica», «db-review: no aplica»). Nunca omitirlo en silencio.
+
+**No cuenta como `flit-code-review`:** tabla improvisada «mi revisión»; reutilizar el veredicto de otra HU; abrir el PR y «revisar después»; decir «gates cerrados» sin bloque `Veredicto:` canónico de la skill.
+
+## Hard-stop
+
+- **Sin HU o Bug en ADO** → no hay rama ni PR de producto: primero `flit-intake` / `flit-crear-hu`. Rama o título fuera del formato de `convenciones-rama-pr.mdc` → corregir (`git branch -m`, `update_pull_request`) antes de seguir; el check CI `naming` lo bloquea igual.
+- Veredicto `flit-code-review` distinto de **OK**, `security-agent` distinto de **PASS**, o `db-review-agent` distinto de **SANO** (incluye `*-CON-OBSERVACIONES` sin waiver humano explícito en esta sesión, `BLOQUEADO`, `FAIL`, `DEUDA-CRITICA`) → **no** llamar `create_pull_request`. Corregir y re-ejecutar el gate hasta el veredicto limpio. Heurística en `AGENTS.md` («Éxito de una revisión final = limpio»): si merece escribirse, se corrige; si no, es Nota y el veredicto sigue limpio.
+- Prohibido inventar «ya revisado» / «gates cerrados» sin haber ejecutado la skill o invocado el subagente **en este hilo sobre este diff/HEAD** (o citar HANDOFF/veredicto reciente del mismo SHA).
+- **Veredicto vencido:** si la rama recibió commits tras el veredicto (fixes post-review, retrabajo de QA), el gate quedó vencido — re-ejecutar `flit-code-review` sobre el nuevo HEAD **antes de abrir el PR** (o antes del push si el PR ya existía). El `pr-monitor-agent` no retiene un PR verde esperando el SHA.
+- Prohibido imitar `flit-integration-ado` con solo Discussion.
+
+## Tras gates en verde
+
+«En verde» aquí significa veredicto limpio: `OK` / `PASS` / `SANO`. `*-CON-OBSERVACIONES` no es verde.
+
+Crear el PR solo con MCP `github` (`create_pull_request`). **Inmediatamente después** (si hay HU o Bug): skill `flit-integration-ado` **Modo A** (`Custom.Commits`, no solo Discussion). Ver regla `mcp-github-primero.mdc`. Cuando el trabajo se mergee, cerrar el work item a `Resolved` con `flit-gestion-hu` — **también si es un Bug**.
+
+**El PR abierto no se deja solo:** invocar `Agent pr-monitor-agent` con el **número del PR**. Eso basta: él mergea a `develop` al verde. Contexto útil (cadena apilada, «no mergees») se pasa si aplica; **prohibido** retener el merge porque el prompt no trae SHA, QA o un «sí». Prohibido sustituirlo por un `pull_request_read` suelto del hilo, y prohibido cerrar el turno con «avísame cuando el CI pase». Si cierra `CI-EN-CURSO`, relanzarlo **ya**. Tras su `MERGED`, la cola del hilo es obligatoria: `flit-integration-ado` **Modo B** → `devops-agent` **M1** al tip.

@@ -37,6 +37,85 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
 ];
 
 /**
+ * Conceptos cuyo valor se negocia con cada compañía gestora (Feature #10939 §2.1 y §2.2).
+ *
+ * No están aquí SOAT, impuesto ni derecho de tránsito: esos NO se negocian, son desembolsos reales
+ * que se leen del documento pagado. Estos dos son honorarios propios de FLIT, y por eso varían de
+ * un cliente a otro (el requerimiento cita $200.000 en una compañía y $1.500 en otra).
+ */
+export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica'] as const;
+export type ConceptoTarifa = (typeof CONCEPTOS_TARIFA)[number];
+
+export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
+  typeof v === 'string' && (CONCEPTOS_TARIFA as readonly string[]).includes(v);
+
+export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
+  tramite_digital: 'Trámite digital FLIT',
+  logistica: 'Negociación logística',
+};
+
+/**
+ * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto
+ * libre de FLIT ("Matricula", "matrícula ", "TRASPASO"), así que sin normalizar la misma tarifa se
+ * configuraría tres veces y ninguna coincidiría.
+ */
+export function normalizarTipoTramite(v: string | null | undefined): string | null {
+  const s = (v ?? '').trim().toUpperCase();
+  return s === '' ? null : s;
+}
+
+/**
+ * ANS de la operación (Feature #10940 §3.2 y #10942 §5.2).
+ *
+ * Son iguales para toda la operación, no por proveedor ni por organismo: miden si FLITO va al día,
+ * no lo que se pactó con un tercero. Viven en el dominio compartido para que la API y la web no
+ * puedan discrepar.
+ *
+ * `flito_proveedores_soat.sla_horas` y `organismos_transito_config.flito_sla_horas` siguen en la
+ * base pero ya no alimentan ninguna señal de pantalla: el ANS de gestión pasó a ser único.
+ */
+export const ANS_OPERATIVO = {
+  /** Días en Borrador a partir de los cuales el trámite se considera estancado. */
+  BORRADOR_DIAS: 5,
+  /** ANS de aprobación: un trámite debería quedar aprobado en dos días. Más, hay que mirarlo. */
+  SIN_APROBAR_DIAS: 2,
+  /** A partir de aquí un trámite vivo se pinta en rojo. */
+  ATRASADO_DIAS: 5,
+  /** Antes de esto se pinta en ámbar: aún a tiempo, pero conviene mirarlo. */
+  POR_VENCER_DIAS: 2,
+  /** Dentro de estas horas el trámite se muestra como recién ingresado. */
+  RECIEN_INGRESADO_HORAS: 24,
+  /**
+   * ANS de gestión de SOAT e impuestos: un día. Es igual para todos los proveedores y organismos.
+   *
+   * Antes cada proveedor traía el suyo en `flito_proveedores_soat.sla_horas` y quien no lo tenía
+   * caía en un respaldo de 72 h. Eso hacía que el mismo retraso se pintara o no según con quién se
+   * hubiera tramitado, que no es lo que mide esta señal: mide si la operación va al día.
+   */
+  SIN_GESTION_HORAS: 24,
+} as const;
+
+/**
+ * Alertas operativas del tablero (Feature #10942 §5.2). Son excluyentes entre sí: un botón, un
+ * valor. Cada una responde a «qué está en riesgo ahora mismo», no a un estado del trámite.
+ */
+export const ALERTAS_OPERATIVAS = [
+  'borrador_5d', 'sin_aprobar_ans', 'soat_sin_gestion', 'impuesto_sin_gestion',
+] as const;
+
+export type AlertaOperativa = (typeof ALERTAS_OPERATIVAS)[number];
+
+export const esAlertaOperativa = (v: unknown): v is AlertaOperativa =>
+  typeof v === 'string' && (ALERTAS_OPERATIVAS as readonly string[]).includes(v);
+
+export const ALERTA_OPERATIVA_LABEL: Record<AlertaOperativa, string> = {
+  borrador_5d: `Más de ${ANS_OPERATIVO.BORRADOR_DIAS} días en borrador`,
+  sin_aprobar_ans: `Más de ${ANS_OPERATIVO.SIN_APROBAR_DIAS} días sin aprobar (ANS)`,
+  soat_sin_gestion: 'SOAT solicitado sin gestión',
+  impuesto_sin_gestion: 'Impuesto solicitado sin gestión',
+};
+
+/**
  * Estado de un paso de gestión (SOAT o Impuestos). Cuatro estados, iguales para ambos:
  *
  *   Pendiente ──> Solicitado ──> Pagado
@@ -123,6 +202,24 @@ export const MODALIDAD_ORGANISMO_LABEL: Record<ModalidadOrganismo, string> = {
   autogestionado: 'Autogestionado por el organismo',
 };
 
+/**
+ * RN-01 Impuestos: FLITO gestiona el impuesto SOLO si la compañía NO lo autogestiona Y el organismo
+ * está en modalidad `requiere_gestion`. En cualquier otro caso lo gestiona alguien más y FLITO ni lo
+ * paga ni lo cobra.
+ *
+ * Vive en el dominio compartido porque hay tres sitios que tienen que responder lo mismo y no pueden
+ * discrepar: el sync —que por eso no crea registro de impuesto—, la liquidación —que por eso no lo
+ * exige para sellar— y el reporte de costos —que por eso no lo pinta como una ausencia—. Estaba solo
+ * dentro del sync, así que los otros dos deducían la respuesta mirando si existía el registro, que
+ * es una pista, no la regla.
+ */
+export function flitoGestionaImpuesto(
+  impuestosAutogestionable: boolean,
+  modalidad: ModalidadOrganismo,
+): boolean {
+  return !impuestosAutogestionable && modalidad === ModalidadOrganismo.REQUIERE_GESTION;
+}
+
 /** Tipo de propiedad del vehículo. Cambia el mapeo de compradores (FEATURE_SOAT §9.6). */
 export const TipoPropiedad = {
   UNICO_PROPIETARIO: 'unico_propietario',
@@ -141,6 +238,16 @@ export const TipoSoporte = {
   FACTURA_VENTA: 'factura_venta',
   RECIBO_IMPUESTO: 'recibo_impuesto',
   RECIBO_IMPUESTO_SIN_MARCA_AGUA: 'recibo_impuesto_sin_marca_agua',
+  // HU #11335 — los dos documentos de la factura electrónica que FLITO emite ante la DIAN. Nada
+  // que ver con `FACTURA_VENTA`, que es la del concesionario y llega de fuera. Viven en el mismo
+  // catálogo porque acaban en la misma tabla y en la misma lista de la pantalla; lo que se deriva
+  // de ellos (extensión, content-type, endpoint de Siigo) está en `siigo-archivo.ts`.
+  FACTURA_ELECTRONICA_PDF: 'factura_electronica_pdf',
+  FACTURA_ELECTRONICA_XML: 'factura_electronica_xml',
+  // Feature #11623, HU #11678 — el comprobante del pago PSE de una boleta conciliada. Cuelga de la
+  // BOLETA (`flito_soportes.conciliacion_boleta_id`), no de un SOAT ni de un trámite: la financiera
+  // paga una boleta que agrupa N SOAT y el portal emite UN solo comprobante por ese pago.
+  COMPROBANTE_PSE: 'comprobante_pse',
 } as const;
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];

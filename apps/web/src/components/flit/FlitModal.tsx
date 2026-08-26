@@ -1,6 +1,7 @@
-import { useRef, type ReactNode } from 'react';
+import { useRef, type ReactNode, type RefObject } from 'react';
 import { useEscape, useBackdropClose, useFocusTrap } from '../../lib/hooks';
 import { IconClose } from './icons';
+import ModalPortal from './ModalPortal';
 
 // FlitModal — modal del prototipo FLIT (p.9): overlay azulado desenfocado,
 // contenedor claro `#EEF5FF`, radio amplio, cierre X arriba a la derecha.
@@ -12,16 +13,53 @@ interface FlitModalProps {
   children: ReactNode;
   /** Modal ancho (pasaporte, tablas). Default compacto. */
   wide?: boolean;
+  /**
+   * Casi toda la pantalla, para contenido que se lee mal en poco espacio: un PDF a 448 px de ancho
+   * no se puede leer sin hacer zoom. El cuerpo pierde el scroll propio y lo gestiona el hijo, que
+   * es quien sabe cuánto mide. Gana sobre `wide`.
+   */
+  full?: boolean;
+  /**
+   * Dónde dejar el foco al cerrar si el elemento que abrió el modal **ya no está en el DOM**
+   * (HU #11562, AC8). Opcional: sin él, el comportamiento es el de siempre.
+   *
+   * Lo necesita cualquier modal que cambie la lista que hay debajo — gestionar un comparendo puede
+   * sacar su fila del filtro puesto, y `.focus()` sobre esa fila desmontada no hace nada y deja el
+   * foco en `<body>`. Apunta al encabezado de la lista (`tabIndex={-1}`).
+   */
+  restoreFocusRef?: RefObject<HTMLElement | null>;
 }
 
-export default function FlitModal({ title, onClose, children, wide = false }: FlitModalProps) {
+export default function FlitModal(
+  { title, onClose, children, wide = false, full = false, restoreFocusRef }: FlitModalProps,
+) {
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEscape(onClose);
-  // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar.
-  useFocusTrap(dialogRef);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  // Con un modal abierto encima de otro —el visor de documentos sobre el detalle de un SOAT—, Esc
+  // cerraba LOS DOS: el listener está en `window`, así que llegaba a todos los modales montados.
+  // Solo lo atiende el de más arriba, que se decide por el orden en el DOM: los portales se cuelgan
+  // de <body> en el orden en que se abren, y con el mismo z-index gana el último, que es también el
+  // que se ve encima. Cerrar el visor devuelve al detalle, que es lo que espera quien pulsa Esc.
+  useEscape(() => {
+    const abiertos = document.querySelectorAll('[data-flit-modal]');
+    if (abiertos.length === 0 || abiertos[abiertos.length - 1] === overlayRef.current) onClose();
+  });
+  // A11y (WCAG 2.4.3): foco entra al diálogo, se atrapa y se restaura al cerrar — al disparador si
+  // sigue ahí, y si no al respaldo que le pasen (nunca a <body>).
+  useFocusTrap(dialogRef, true, restoreFocusRef);
   return (
+    // Colgado de <body>: dentro de `<main>` —que es un item flex— ningún z-index basta para pasar
+    // por encima de la barra de navegación, y la cabecera con el botón de cerrar quedaba tapada en
+    // cuanto el modal crecía. Ver ModalPortal.
+    <ModalPortal>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
+      ref={overlayRef}
+      // Marca de «hay un modal abierto aquí», para que Esc solo cierre el de más arriba.
+      data-flit-modal=""
+      // `flit-modal` repone el color de tinta que se pierde al colgar del <body>: fuera de
+      // `.flit-app` el texto sin color propio heredaba el del tema Aura, que en oscuro es casi
+      // blanco, sobre un modal cuyo fondo es claro pase lo que pase.
+      className="flit-modal fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4 sm:p-6"
       style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
       {...useBackdropClose(onClose)}
     >
@@ -32,7 +70,12 @@ export default function FlitModal({ title, onClose, children, wide = false }: Fl
         aria-label={title}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`flit-focus my-auto w-full max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`}
+        className={
+          'flit-focus my-auto flex w-full flex-col '
+          + (full
+            ? 'h-[calc(100dvh-3rem)] max-w-[min(96rem,96vw)] overflow-hidden'
+            : `max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'}`)
+        }
         style={{
           background: 'var(--flit-bg-modal)',
           borderRadius: 'var(--flit-radius-xl)',
@@ -52,8 +95,9 @@ export default function FlitModal({ title, onClose, children, wide = false }: Fl
             <IconClose className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className={full ? 'min-h-0 flex-1 px-6 py-4' : 'px-6 py-5'}>{children}</div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

@@ -1,0 +1,73 @@
+-- 0159_flito_conciliacion_pages_grants.sql
+-- Feature #11623 — Conciliación de recaudo SOAT. HU #11680 (la pantalla de conciliación tiene
+-- página propia en el catálogo de permisos).
+-- Autor: equipo FLITO. Motivo: hasta esta HU la conciliación era API pura (carga, cuadre,
+-- comprobante) sin vista. La pantalla trae un slug propio, `flito_conciliacion`, y el catálogo de
+-- páginas vive en CÓDIGO (`packages/shared-types/src/permissions.ts`). Lo único que el código NO
+-- puede hacer por sí solo —y es exactamente lo que hace este archivo— es otorgar la página a los
+-- administradores que YA EXISTEN en la base (AC1: «sin intervención manual»).
+--
+-- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner ya envuelve cada archivo con `sql.begin()`).
+-- Idempotente en el sentido fuerte: la segunda pasada no cambia NI UNA FILA (ver abajo).
+--
+-- ============================================================================
+-- POR QUÉ SOLO `admin`, Y POR QUÉ ESO NO ES UNA OMISIÓN
+-- ============================================================================
+--
+-- El router del módulo aplica UNA sola constante de rol a TODAS sus rutas (las nueve; no hay una
+-- sola que se salga de ella):
+--
+--     apps/api/src/modules/flito-conciliacion/flito-conciliacion.routes.ts
+--       router.use(authMiddleware);
+--       const CONCILIACION = requireRole('admin', 'financiera');
+--       router.post('/boletas', CONCILIACION, …)   ← y así las nueve
+--
+-- Es decir, el backend le responde algo distinto de 403 a exactamente dos roles: `admin` y
+-- `financiera`. `auditor` —que en el resto de FLITO sí lee— queda fuera a propósito (CF-08): su
+-- lectura del comprobante va por la ruta suya de `/flito/soat` que entregó la HU #11678.
+--
+-- Y de esos dos, aquí solo se toca `admin`. `financiera` recibe la página por
+-- `ROLE_DEFAULT_PAGES.financiera`, y `getEffectivePages` une rol ∪ usuario, así que ya la tiene sin
+-- escribir nada en su fila. Materializársela en `allowed_pages` tendría el efecto lateral que
+-- argumentan los precedentes 0131 y 0136: el permiso dejaría de depender del rol, y un usuario que
+-- mañana pase de `financiera` a otro rol CONSERVARÍA la página —`PATCH /users` solo reemplaza
+-- `allowedPages` si el llamador lo envía—. No sería una fuga de datos (el router seguiría
+-- devolviéndole 403 en todas las rutas), pero sí un menú con una opción que revienta al abrirla.
+--
+-- Para el propio `admin` esto es defensa en profundidad, igual que en 0131/0136/0155:
+-- `ROLE_DEFAULT_PAGES.admin` es `Object.keys(PAGES)`, así que un admin ya ve la página por rol sin
+-- que nadie le escriba nada en `allowed_pages`. Lo que se materializa aquí es el caso en que
+-- alguien restrinja a un admin por `allowed_pages`: que no se le caiga la pantalla sin querer.
+--
+-- ============================================================================
+-- LA FORMA DEL UPDATE: `array_append`, NO `array_agg(DISTINCT …)`
+-- ============================================================================
+--
+-- Se copia la forma de `0155_flito_comparendos_pages_grants.sql`, que es el precedente más reciente
+-- de la familia y el que ya zanjó la discusión: `array_agg(DISTINCT p) FROM unnest(...)` (0131,
+-- 0136, 0044) no solo añade el slug, además **reordena alfabéticamente y deduplica el arreglo
+-- entero** de cada admin que actualiza. Es un efecto lateral que nadie pidió sobre datos de
+-- usuarios reales. `array_append` (0022, 0029, 0036, 0155) toca lo mínimo: pega el slug al final y
+-- deja el resto del arreglo exactamente como estaba.
+--
+-- La guarda `AND NOT (... = ANY(...))` es lo que hace la migración idempotente de verdad: en la
+-- segunda pasada el `WHERE` no selecciona ninguna fila (todos los admin ya tienen el slug), así que
+-- el `UPDATE` reporta `UPDATE 0` y no reescribe `allowed_pages` de nadie. Sin ella, `array_append`
+-- duplicaría el slug.
+--
+-- El `SET` LEE `allowed_pages` para escribirlo: un `SET allowed_pages = ARRAY['flito_conciliacion']`
+-- concedería la página y borraría de paso los permisos personalizados de cada admin.
+--
+-- El slug literal `flito_conciliacion` tiene que coincidir EXACTAMENTE con la clave de `PAGES` en
+-- `packages/shared-types/src/permissions.ts`. Un error de tecleo aquí no falla: concede en silencio
+-- un permiso que no existe, y nadie se entera hasta que alguien abre la pantalla y no la ve.
+--
+-- No hay `GRANT` en este archivo pese al nombre (que sigue la convención de la familia
+-- `*_pages_grants.sql`): esta HU no crea ninguna tabla ni secuencia. Las de conciliación ya las
+-- otorgó `0157_flito_conciliacion_boletas.sql` a `operaciones_app`.
+
+UPDATE users
+   SET allowed_pages = array_append(COALESCE(allowed_pages, ARRAY[]::text[]), 'flito_conciliacion')
+ WHERE role = 'admin'
+   -- Idempotente: a quien ya la tiene no lo selecciona, así que la segunda pasada es UPDATE 0.
+   AND NOT ('flito_conciliacion' = ANY(COALESCE(allowed_pages, ARRAY[]::text[])));

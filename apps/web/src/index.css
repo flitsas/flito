@@ -147,6 +147,38 @@
   --color-primary-700: #5b6b75;
 }
 
+/* ============================================================
+   Tokens FLIT expuestos como utilities. Los `--flit-*` viven en
+   flit-tokens.css y hasta ahora solo se consumían con style={{}}
+   inline, lo que impedía aplicar variantes (hover:, focus-visible:,
+   aria-[current=page]:) sobre los colores de marca. Bloque ADITIVO:
+   no altera ningún token existente, solo los hace alcanzables desde
+   clases. Prefijo `flit-` → cero colisión con la paleta Aura.
+   Se mapea el set completo aunque el dock consuma solo una parte:
+   con `inline` Tailwind no emite nada para las utilities que nadie
+   usa, así que las entradas de más no pesan en el CSS final.
+   ============================================================ */
+@theme inline {
+  --color-flit-cyan: var(--flit-cyan);
+  --color-flit-blue: var(--flit-blue);
+  --color-flit-navy: var(--flit-blue-dark);
+  --color-flit-blue-text: var(--flit-blue-text);
+  --color-flit-green: var(--flit-green);
+  --color-flit-app: var(--flit-bg-app);
+  --color-flit-card: var(--flit-bg-card);
+  --color-flit-ink: var(--flit-text-primary);
+  --color-flit-secondary: var(--flit-text-secondary);
+  --color-flit-muted: var(--flit-text-muted);
+  --color-flit-soft: var(--flit-border-soft);
+  --color-flit-warning: var(--flit-warning);
+  --color-flit-danger: var(--flit-danger);
+
+  --radius-flit-md: var(--flit-radius-md);
+  --radius-flit-lg: var(--flit-radius-lg);
+  --radius-flit-card: var(--flit-radius-card);
+  --radius-flit-pill: var(--flit-radius-pill);
+}
+
 /* ====== Body & root ====== */
 html {
   -webkit-font-smoothing: antialiased;
@@ -200,6 +232,38 @@ body {
    legacy muertas (0 usos en src/ tras la migración FLIT). */
 
 /* ============================================================
+   Movimiento de la navegación.
+   OJO: `animate-in` / `fade-in` / `slide-in-from-bottom-2` son de
+   `tailwindcss-animate`, que NO está instalado en este proyecto —
+   sus usos actuales son no-ops silenciosos. Este keyframe sí
+   existe; usar esta clase y no aquéllas.
+   ============================================================ */
+/* Paneles del dock inferior: nacen desde abajo, no desde arriba. */
+@keyframes flit-panel-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.flit-panel-up {
+  animation: flit-panel-up var(--flit-duration-base, 180ms) var(--flit-ease, ease-out) both;
+  transform-origin: bottom center;
+}
+
+/* El dock reutiliza `.flit-shell-nav`, que SÍ invierte su fondo en tema oscuro.
+   Los tokens de texto FLIT no tienen variante dark, así que sin esto los
+   módulos quedan navy sobre navy: ilegibles. Solo cubre el dock; el hueco
+   general de dark mode en `--flit-*` es harina de otro costal. */
+[data-theme='dark'] .flit-nav-capsule .flit-nav-pill {
+  color: rgba(255, 255, 255, 0.78);
+}
+[data-theme='dark'] .flit-nav-capsule .flit-nav-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flit-panel-up { animation: none; }
+}
+
+/* ============================================================
    Named View Transitions — elementos persistentes vs. página.
    La nav lateral (antes FloatingNav, hoy shell FLIT) usa el VT name
    `floating-nav` cuando hay un elemento persistente con
@@ -229,7 +293,16 @@ body {
 .flit-shell-muted { color: var(--flit-text-muted); }
 .flit-shell-primary { color: var(--flit-text-primary); }
 .flit-shell-secondary { color: var(--flit-text-secondary); }
-.flit-shell-accent { color: var(--flit-blue); }
+/* Bug #11767 — era --flit-blue (#4F74C9), que en el kit es un color de SUPERFICIE: cumple el 3:1
+   de elementos gráficos, no el 4,5:1 de texto. Y esta regla sólo pinta TEXTO (la tecla ↵ del ítem
+   activo, a 10px). El #11720 lo dio por bueno en 4,49 «sobre el fondo claro que ese kbd tenía»,
+   pero ese fondo era el `bg-white` que ese mismo bug demostró muerto: lo que pinta la tecla es
+   `.flit-shell-sunken` (#EAF2FF), y ahí #4F74C9 se queda en 3,99.
+   --flit-blue-text es el token que el kit creó para esto y se eligió midiendo contra ESTE fondo
+   (--flit-bg-app): 4,64 sobre la tecla. La distinción superficie/tinta es la misma que ya resolvió
+   el Bug #11604 con los tokens `-ink`. El tema oscuro no se ve afectado: tiene su propio override
+   más abajo (#8fb0f0). */
+.flit-shell-accent { color: var(--flit-blue-text); }
 .flit-shell-nav {
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid var(--flit-border-soft);
@@ -256,9 +329,92 @@ body {
   border: 1px solid var(--flit-border-soft);
   box-shadow: var(--flit-shadow-card);
 }
+/* Bug #11767 — el `::placeholder` del buscador en tema CLARO.
+   Nadie lo pintaba: hasta el retrabajo del #11720 el input llevaba `placeholder:flit-shell-muted`,
+   que NO es una utilidad de Tailwind y jamás generó regla, así que decidía el preflight
+   (`color-mix(in oklab, currentcolor 50%, transparent)`). Y `currentcolor` ahí es la tinta del
+   input —`flit-shell-primary`, #162744—, que al 50 % sobre la barra #EAF2FF compone #808DA1: 2,98,
+   el peor punto de toda la paleta. Un placeholder «gris claro» que en realidad es el texto a media
+   tinta: se ve pálido porque está a medias, no porque alguien eligiera ese gris.
+   --flit-text-muted es justo el token para esto y su valor se eligió midiendo contra este mismo
+   fondo (Bug #11604): 4,55 sobre la barra, el mismo ratio con el que ya se leen a su lado el icono
+   de la lupa y las teclas. `opacity: 1` neutraliza el reset de Firefox del preflight.
+   El tema oscuro tiene su propia regla (0,2,1) y le gana a ésta (0,1,1): no se toca. */
+.flit-shell-palette ::placeholder {
+  color: var(--flit-text-muted);
+  opacity: 1;
+}
 [data-theme='dark'] .flit-shell-palette {
   background: rgba(22, 39, 68, 0.96);
+  border-color: rgba(240, 238, 233, 0.14);
 }
+
+/* Bug #11720 — la paleta invierte su fondo (regla de arriba) pero su texto no: seguía usando
+   los tokens FLIT de tema claro, que son invariantes a propósito. El ítem activo pintaba
+   --flit-text-primary (#162744) sobre un panel que compone a #162743: ratio 1,00, el mismo
+   color. La opción seleccionada era literalmente invisible en oscuro.
+   Mismo patrón acotado que `.flit-nav-pill` de aquí arriba: se parchea la superficie que
+   invierte, sin abrir un tema oscuro FLIT completo.
+
+   RETRABAJO — lo que sigue está medido sobre el PÍXEL PINTADO, no recompuesto a mano:
+   `apps/web/e2e/tests/command-palette-oscuro.spec.ts` abre la paleta en oscuro y lee lo que
+   quedó en pantalla. Dos afirmaciones de la versión anterior de este comentario eran falsas y
+   dejaron pasar una regresión que el gate estático dio por buena:
+
+     · «los `kbd` traen `bg-white`, que una regla de clase no ganaría» → `bg-white` es una
+       utilidad de Tailwind y vive en @layer utilities: CUALQUIER regla sin capa le gana, así
+       que `bg-white` no pintaba nada ni en claro ni en oscuro. Lo que pintaba las teclas era
+       `.flit-shell-palette .flit-shell-sunken` (0,3,0) —las cinco llevan también esa clase—,
+       que le gana a `.flit-shell-palette kbd` (0,2,1). La regla del `kbd` estaba MUERTA.
+     · «el peor caso queda en 4,73» → esos 4,73 daban por hecho que las teclas caen sobre el
+       panel. En el DOM las cinco cuelgan de una barra `.flit-shell-sunken`, del ítem activo o
+       del panel, así que apilaban un segundo velo claro: el peor caso real era 4,26 y AA se
+       incumplía en la tecla «esc» del buscador y en las dos del pie (Bug #11720, retrabajo).
+
+   La cadena de superficies, de fuera adentro: `.flit-app` (#EAF2FF — el shell NO invierte en
+   oscuro y es lo que hay bajo el overlay) → overlay → panel → barra o ítem activo → tecla.
+   Son cuatro capas translúcidas: cada una que ACLARA se suma a la anterior, y por eso el orden
+   importa. Las superficies van primero y los colores de texto después. */
+[data-theme='dark'] .flit-shell-palette .flit-shell-sunken {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(240, 238, 233, 0.14);
+}
+/* La tecla OSCURECE en vez de aclarar, y ese es el arreglo de fondo: un velo blanco sobre una
+   barra que ya es un velo blanco se acumula, y entonces el contraste de la tecla depende de
+   dónde caiga —barra, panel o ítem activo—, que es justo lo que nadie estaba mirando.
+   Oscureciendo, el peor caso deja de estar en la tecla más apilada y las cinco quedan entre
+   5,3 y 6,4 sin mover ni una tinta. Es además lo que hace el tema claro, donde la tecla
+   (#EAF2FF) es más OSCURA que el panel (blanco): aquí se recupera esa misma jerarquía.
+   El segundo selector no es redundante: las cinco teclas llevan `flit-shell-sunken`, y sin
+   nombrar esa clase esta regla vuelve a perder la cascada y a quedarse muerta. El primero
+   cubre una tecla que llegue sin ella. */
+[data-theme='dark'] .flit-shell-palette kbd,
+[data-theme='dark'] .flit-shell-palette kbd.flit-shell-sunken {
+  background: rgba(0, 0, 0, 0.14);
+  border-color: rgba(240, 238, 233, 0.14);
+}
+/* El placeholder del buscador no lo pintaba `placeholder:flit-shell-muted` —no es una utilidad
+   de Tailwind y nunca generó regla—, sino el preflight, que usa currentColor al 50 %: blanco a
+   medias sobre la barra, 4,41. El gate lo daba por `muted` y por bueno, y axe no mira los
+   placeholders. En tema CLARO quedó fuera de alcance («deuda previa, se reporta aparte») y esa
+   deuda es el Bug #11767, ya cerrado: su regla vive arriba, sin prefijo de tema. */
+[data-theme='dark'] .flit-shell-palette ::placeholder {
+  color: #93a0b5;
+  opacity: 1;
+}
+/* Fondos compuestos con el peor caso detrás del panel: panel #1b2b48 · barra hundida #24334f ·
+   tecla sobre la barra #1f2c44 · ítem activo #1c325c. El píxel real cae a ±1 por canal de esos
+   valores (el 4 % que deja pasar el panel depende de qué haya detrás de la paleta).
+   El peor de los 15 puntos queda en 4,78 — mínimo AA para texto normal: 4,5. */
+[data-theme='dark'] .flit-shell-palette .flit-shell-muted { color: #93a0b5; }
+[data-theme='dark'] .flit-shell-palette .flit-shell-secondary { color: #a9b4c6; }
+[data-theme='dark'] .flit-shell-palette .flit-shell-primary { color: #ffffff; }
+/* El acento solo pinta texto en el `kbd` ↵ del ítem activo. Sobre el oscuro de arriba, --flit-blue
+   se quedaría en 3,2; con la tecla ya oscurecida, este hex llega a 6,4 sobre ella.
+   (Aquel «--flit-blue daba 4,49 sobre el fondo claro que ese kbd tenía» era falso y lo corrigió el
+   Bug #11767: los 4,49 se medían contra el `bg-white` MUERTO, no contra el #EAF2FF que pinta de
+   verdad, donde daba 3,99. En claro el acento es ahora --flit-blue-text.) */
+[data-theme='dark'] .flit-shell-palette .flit-shell-accent { color: #8fb0f0; }
 
 /* Componentes FLIT — sustitutos Aura en BatchValidator, ExpedienteVisor, etc. */
 .flit-tone-muted { color: var(--flit-text-muted); }

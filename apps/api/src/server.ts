@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { startReconciler, stopReconciler } from './modules/soat/reconciler.js';
 import { startPurger, stopPurger } from './modules/soat/purge.js';
+import { startDerechosDriveCron, stopDerechosDriveCron } from './modules/flito-derechos/flito-derechos-drive.cron.js';
 import { startReviewCron, stopReviewCron } from './modules/laft/review.cron.js';
 import { startLaftSyncCron, stopLaftSyncCron } from './modules/laft/sync/sync.cron.js';
 import { startEmployeesRekycCron, stopEmployeesRekycCron } from './modules/laft/employees/employees-rekyc.cron.js';
@@ -10,6 +11,7 @@ import { startDocumentAlertsCron, stopDocumentAlertsCron } from './modules/fleet
 import { startScheduleCron, stopScheduleCron } from './modules/maintenance/schedule.cron.js';
 import { startDriverAlertsCron, stopDriverAlertsCron } from './modules/drivers/documents.cron.js';
 import { startRndcRetryCron, stopRndcRetryCron } from './modules/rndc/retry.cron.js';
+import { startSiigoDianCron, stopSiigoDianCron } from './modules/siigo/siigo.dian.cron.js';
 import { startRetentionCron, stopRetentionCron } from './modules/privacy/retention.cron.js';
 import { startJornadaAutocloseCron, stopJornadaAutocloseCron } from './modules/jornadas/autoclose.cron.js';
 import { startPesvRecordatoriosCron, stopPesvRecordatoriosCron } from './modules/pesv/recordatorios.cron.js';
@@ -20,6 +22,11 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startFlitSync, stopFlitSync } from './modules/flito-sync/flito-sync.cron.js';
+import { startSiigoArchivoCron, stopSiigoArchivoCron } from './modules/siigo/siigo.archivo.cron.js';
+import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.cola.cron.js';
+import {
+  startComparendosPurgaCron, stopComparendosPurgaCron,
+} from './modules/flito-comparendos/flito-comparendos-purga.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -43,6 +50,7 @@ const server = app.listen(env.PORT, () => {
     // Encender solo después de Ola D (privacy/forget completo + cifrado PII estables).
     startRetentionCron();
     startJornadaAutocloseCron();
+    startDerechosDriveCron();
     startPesvRecordatoriosCron();
     startPesvRetencionCron();
     // LAFT v2 F3: cron AROS trimestral (10-Ene/Abr/Jul/Oct, configurable vía laft_parametros).
@@ -54,6 +62,26 @@ const server = app.listen(env.PORT, () => {
     startValidacionStaleCron();
     // FLITO: sincronización desde FLIT (noop si SYNC_HABILITADO=false).
     startFlitSync();
+    // FLITO/Siigo (Bug #11649): estado efectivo de los tres crons, en UNA línea y SIEMPRE, encendidos
+    // o apagados. Cada cron ya registra el suyo, pero el operador tendría que deducir el conjunto
+    // leyendo tres líneas o —peor— notando que faltan: «no aparece nada» es indistinguible de «el
+    // log se perdió», y estos tres emiten documentos irreversibles ante la DIAN. Va antes de
+    // arrancarlos para que la línea exista incluso si uno falla al levantar.
+    log.info(
+      { siigoCrons: env.SIIGO_CRONS, ambiente: env.SIIGO_AMBIENTE, modo: env.SIIGO_MODE },
+      env.SIIGO_CRONS === 'on'
+        ? 'crons de Siigo ENCENDIDOS (archivo, sondeo DIAN y cola de emisión)'
+        : 'crons de Siigo APAGADOS: no se archivará, ni se sondeará la DIAN, ni se vaciará la cola de emisión. Poner SIIGO_CRONS=on para habilitarlos',
+    );
+    // FLITO: archiva el PDF y el XML de las facturas que la DIAN ya aceptó (HU #11335).
+    startSiigoArchivoCron();
+    // FLITO: sondeo del estado ante la DIAN.
+    startSiigoDianCron();
+    // FLITO: vacía la cola de emisión y rescata las facturas huérfanas (HU #11327).
+    startSiigoColaCron();
+    // FLITO: purga por retención de comparendos (HU #11511, Ley 1581). Consume
+    // COMPARENDOS_RETENTION_MONTHS. Noop si COMPARENDOS_PURGA_CRON_ENABLED!=1.
+    startComparendosPurgaCron();
   }
 });
 
@@ -86,7 +114,12 @@ function shutdown(signal: string) {
   stopAnthropicHealthCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
+  stopDerechosDriveCron();
   stopFlitSync();
+  stopSiigoArchivoCron();
+  stopSiigoDianCron();
+  stopSiigoColaCron();
+  stopComparendosPurgaCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');

@@ -1,0 +1,23 @@
+# CODEOWNERS — GitHub solicita automáticamente review de estos owners
+# cuando un PR toca las rutas listadas. Complemento del check humano
+# (precondición #4 de merge en flit-integration-ado).
+
+# Reglas del equipo y gates de calidad
+/AGENTS.md                      @davidchica-flit
+/eslint.config.mjs              @davidchica-flit
+/.gitleaks.toml                 @davidchica-flit
+/scripts/git-hooks/             @davidchica-flit
+
+# Esquema y migraciones de base de datos (el archivo más conflictivo del repo)
+/apps/api/src/db/schema.ts      @davidchica-flit
+/apps/api/src/db/migrations/    @davidchica-flit
+
+# Superficie PII / regulatoria (Ley 1581 Habeas Data, SARLAFT)
+/apps/api/src/modules/laft/     @davidchica-flit
+/apps/api/src/modules/privacy/  @davidchica-flit
+/apps/web/src/pages/Laft        @davidchica-flit
+/apps/web/src/pages/Privacy.tsx @davidchica-flit
+/apps/web/src/pages/PesvLogPii.tsx @davidchica-flit
+
+# CI/CD
+/.github/workflows/             @davidchica-flit

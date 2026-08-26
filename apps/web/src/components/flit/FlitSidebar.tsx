@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
-import { effectivePages } from '../../lib/permissions';
 import { FLIT_PRODUCT_NAME } from '../../lib/flitBrand';
-import {
-  NAV_ITEMS, SECTION_LABEL, SECTION_ORDER, activeSectionForPath, type NavItem,
-} from '../shell/navItems';
-import {
-  IconHome, IconClipboard, IconRoad, IconTruck, IconWrench, IconShield,
-  IconPackage, IconScale, IconCog, IconClose, IconDot, IconChevronDown,
-  type IconProps,
-} from './icons';
+import { SECTION_LABEL, SECTION_ORDER, type NavItem } from '../shell/navItems';
+import { useNavSections } from '../shell/useNavSections';
+import { SECTION_ICON } from '../shell/sectionMeta';
+import { IconShield, IconClose, IconDot, IconChevronDown } from './icons';
+import ModalPortal from './ModalPortal';
 
 // FlitSidebar — drawer de navegación MOBILE (off-canvas, gradiente FLIT).
 // Decisión PO 2026-06-12: el rail fijo desktop se eliminó; en lg+ la navegación
@@ -20,19 +16,6 @@ import {
 // La navegación se filtra por permisos con EXACTAMENTE la misma lógica que
 // CommandPalette/FlitNavBar (effectivePages → NAV_ITEMS.filter). No se altera
 // `allowedPages` ni `ProtectedRoute`.
-
-const SECTION_ICON: Record<NavItem['section'], ComponentType<IconProps>> = {
-  general: IconHome,
-  gestion: IconClipboard,
-  transito: IconRoad,
-  flota: IconTruck,
-  mantenimiento: IconWrench,
-  pesv: IconShield,
-  rndc: IconPackage,
-  laft: IconScale,
-  finanzas: IconScale,
-  admin: IconCog,
-};
 
 const SIDEBAR_OPEN_KEY = 'flit-sidebar-open-sections';
 
@@ -55,25 +38,8 @@ interface FlitSidebarProps {
 
 export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
   const { user } = useAuth();
-  const { pathname } = useLocation();
-  const allowed = useMemo(() => effectivePages(user), [user]);
-
-  const visibleItems = useMemo(
-    () => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))),
-    [allowed],
-  );
-
-  // Agrupar items permitidos por sección, respetando SECTION_ORDER.
-  const grouped = useMemo(() => {
-    return SECTION_ORDER
-      .map((section) => ({ section, items: visibleItems.filter((it) => it.section === section) }))
-      .filter((g) => g.items.length > 0);
-  }, [visibleItems]);
-
-  const routeSection = useMemo(
-    () => activeSectionForPath(pathname, visibleItems),
-    [pathname, visibleItems],
-  );
+  // Mismo filtrado por permisos que la barra horizontal y la CommandPalette.
+  const { grouped, routeSection } = useNavSections();
 
   const [openSections, setOpenSections] = useState<Set<NavItem['section']>>(() => {
     // Admin: todas las secciones visibles por defecto (superusuario debe ver el catálogo
@@ -131,7 +97,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
           type="button"
           onClick={onClose}
           aria-label="Cerrar menú"
-          className="flit-focus-light ml-auto grid h-9 w-9 place-items-center rounded-lg text-white/85 hover:bg-white/15 lg:hidden"
+          className="flit-focus-light ml-auto grid h-9 w-9 place-items-center rounded-lg text-white hover:bg-white/15 lg:hidden"
         >
           <IconClose className="h-5 w-5" />
         </button>
@@ -151,17 +117,17 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => toggleSection(section)}
-                className="flit-focus-light flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-white/90 transition-colors hover:bg-white/10"
+                className="flit-focus-light flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-white transition-colors hover:bg-white/10"
               >
                 <SectionIcon className="h-4 w-4 shrink-0" />
                 <span className="flex-1 text-[10px] font-semibold uppercase tracking-[0.18em]">
                   {SECTION_LABEL[section]}
                 </span>
-                <span className="tabular-nums text-[10px] text-white/50" aria-hidden="true">
+                <span className="tabular-nums text-[10px] text-white" aria-hidden="true">
                   {items.length}
                 </span>
                 <IconChevronDown
-                  className={`h-4 w-4 shrink-0 text-white/70 transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
+                  className={`h-4 w-4 shrink-0 text-white transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
                 />
               </button>
               <div
@@ -178,7 +144,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
                         to={it.to}
                         end={it.to === '/'}
                         onClick={onClose}
-                        className="flit-focus-light group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
+                        className="flit-focus-light group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white transition-colors hover:bg-white/10 aria-[current=page]:bg-white/20 aria-[current=page]:font-semibold aria-[current=page]:text-white"
                       >
                         <IconDot className="h-3 w-3 shrink-0 opacity-70 group-aria-[current=page]:opacity-100" />
                         <span className="truncate">{it.label}</span>
@@ -193,7 +159,7 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
       </div>
 
       {/* Pie legal */}
-      <div className="px-5 py-4 text-[10px] leading-relaxed text-white/65">
+      <div className="px-5 py-4 text-[10px] leading-relaxed text-white">
         ISO 27001 · Decreto 1079/2015
       </div>
     </nav>
@@ -203,24 +169,28 @@ export default function FlitSidebar({ open, onClose }: FlitSidebarProps) {
     <>
       {/* Drawer mobile (en lg+ la navegación es FlitNavBar) */}
       {open && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
-          <button
-            type="button"
-            aria-label="Cerrar menú"
-            onClick={onClose}
-            className="absolute inset-0 bg-[rgba(22,39,68,0.45)] backdrop-blur-sm"
-          />
-          <div
-            className="absolute inset-y-0 left-0 w-[min(84vw,300px)] shadow-2xl"
-            style={{
-              background: 'var(--flit-gradient-sidebar)',
-              borderTopRightRadius: 'var(--flit-radius-xl)',
-              borderBottomRightRadius: 'var(--flit-radius-xl)',
-            }}
-          >
-            {content}
+        <ModalPortal>
+          {/* Sin `flit-modal` a propósito: esa clase repone la tinta OSCURA de las superficies
+              claras, y este drawer es el gradiente de marca con texto blanco. */}
+          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menú de navegación">
+            <button
+              type="button"
+              aria-label="Cerrar menú"
+              onClick={onClose}
+              className="absolute inset-0 bg-[rgba(22,39,68,0.45)] backdrop-blur-sm"
+            />
+            <div
+              className="absolute inset-y-0 left-0 w-[min(84vw,300px)] shadow-2xl"
+              style={{
+                background: 'var(--flit-gradient-sidebar)',
+                borderTopRightRadius: 'var(--flit-radius-xl)',
+                borderBottomRightRadius: 'var(--flit-radius-xl)',
+              }}
+            >
+              {content}
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </>
   );

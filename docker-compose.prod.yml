@@ -110,6 +110,15 @@ services:
       S3_ENDPOINT: minio
       S3_PORT: '9000'
       S3_USE_SSL: 'false'
+      # La clave del Drive se lee de donde la monta el volumen de abajo, NO de la ruta del host:
+      # el contenedor no ve el sistema de ficheros del VPS.
+      GOOGLE_DRIVE_KEY_PATH: /run/secrets/service-account.json
+    # La cuenta de servicio de Google vive en el HOST y se inyecta en solo lectura. La ruta de
+    # dentro es distinta a propósito: deja claro que es un secreto montado y no parte de la imagen.
+    # `:ro` porque la API solo la lee; y el fichero del host debe ser legible por el uid del
+    # usuario `node` del contenedor (ver USER node en apps/api/Dockerfile).
+    volumes:
+      - ${GOOGLE_DRIVE_KEY_HOST_PATH:-/var/www/operaciones/service-account.json}:/run/secrets/service-account.json:ro
     ports:
       - '127.0.0.1:${API_PORT:-4052}:${API_PORT:-4052}'
     depends_on:

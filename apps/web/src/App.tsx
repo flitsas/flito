@@ -21,11 +21,16 @@ const FlitoBitacora = lazy(() => import('./pages/FlitoBitacora'));
 const FlitoCompuerta = lazy(() => import('./pages/FlitoCompuerta'));
 const FlitoLogistica = lazy(() => import('./pages/FlitoLogistica'));
 const FlitoRuta = lazy(() => import('./pages/FlitoRuta'));
+const FlitoBolsas = lazy(() => import('./pages/FlitoBolsas'));
+const FlitoConciliacion = lazy(() => import('./pages/FlitoConciliacion'));
+const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBoleta'));
+const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
+const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
-const FlitoParametrizacion = lazy(() => import('./pages/FlitoParametrizacion'));
+const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
 const Clients = lazy(() => import('./pages/Clients'));
 const TaxReader = lazy(() => import('./pages/TaxReader'));
@@ -155,12 +160,21 @@ function AppRoutes() {
         <Route path="/flito/tablero" element={<ProtectedRoute page="flito_tablero"><Lazy><FlitoTablero /></Lazy></ProtectedRoute>} />
         <Route path="/flito/soat" element={<ProtectedRoute page="soat"><Lazy><FlitoSoat /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />
         <Route path="/flito/compuerta" element={<ProtectedRoute page="flito_compuerta"><Lazy><FlitoCompuerta /></Lazy></ProtectedRoute>} />
-        <Route path="/flito/parametrizacion" element={<ProtectedRoute page="flito_parametrizacion"><Lazy><FlitoParametrizacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
         <Route path="/flito/logistica" element={<ProtectedRoute page="flito_logistica"><Lazy><FlitoLogistica /></Lazy></ProtectedRoute>} />
         <Route path="/flito/ruta" element={<ProtectedRoute page="flito_logistica_ruta"><Lazy><FlitoRuta /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/bolsas" element={<ProtectedRoute page="flito_bolsas"><Lazy><FlitoBolsas /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/comparendos" element={<ProtectedRoute page="flito_comparendos"><Lazy><FlitoComparendos /></Lazy></ProtectedRoute>} />
+        {/* Conciliación: las DOS rutas comparten `PageSlug`. Son el mismo trabajo y la misma
+            persona; partirlo obligaría a conceder dos permisos para una sola tarea. El detalle va en
+            ruta propia —con el uuid opaco en el path— porque el reporte de costos tiene que poder
+            enlazar a una boleta, y un modal no es enlazable. */}
+        <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
+        <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />

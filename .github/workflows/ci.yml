@@ -20,8 +20,9 @@ jobs:
     # Los tests mockean Postgres/Redis (drizzle chain + env de __tests__/setup.ts),
     # por eso NO se necesitan servicios externos en CI.
     env:
-      # @playwright/test está en devDeps de apps/web; CI no corre e2e, así que
-      # evitamos descargar navegadores en el npm ci.
+      # @playwright/test está en devDeps de apps/web; ESTE job no corre e2e, así que evitamos
+      # descargar navegadores en el npm ci. El único que sí los necesita es `e2e-visor-pdf`
+      # (HU #11774), que instala chromium en su propio job.
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
@@ -42,13 +43,38 @@ jobs:
 
       # OPS-13 — gate de Rules of Hooks: falla si un hook se llama tras un early
       # return o dentro de un condicional (clase de bug de #147 = pantalla blanca).
-      # Sólo lee fuentes (sin build) → falla rápido. No reemplaza
-      # eslint-plugin-react-hooks (pendiente CI de tom, OPS-12).
+      # Sólo lee fuentes (sin build) → falla rápido. Complementa el
+      # eslint-plugin-react-hooks del job `lint` (OPS-12).
       - name: Rules of Hooks scan (web)
         run: npm run check:hooks
 
-      # Typecheck = lint (no hay ESLint configurado). El build de API es `tsc`,
-      # el de web es `tsc --noEmit && vite build`.
+      # Contraste, DOS invariantes distintas en el mismo script:
+      #   · Bug #11720 (oscuro) · Bug #11767 (claro) — la CommandPalette en LOS DOS temas. El
+      #     claro es el de por defecto y estuvo sin cubrir hasta el #11767: se medía sólo el
+      #     minoritario.
+      #   · Bug #11766 — que todo punto de todo `--flit-gradient-*` admita texto blanco, y que el
+      #     anillo `.flit-focus-light` cumpla sobre el gradiente del drawer. Son los cuatro
+      #     gradientes del kit: el mayor sustrato de texto del producto.
+      #
+      # Va aquí, junto al resto de guardas que solo leen fuentes, porque el CI no ejecuta la suite
+      # E2E —desde la HU #11774 solo corre el spec del visor de PDF, en el job `e2e-visor-pdf`— y
+      # `axe` no es dependencia del repo: sin este paso, que el ítem activo vuelva a ser invisible
+      # en oscuro —o que un gradiente vuelva a llevar blanco a 1,81— no lo detectaría nadie hasta
+      # que lo reporte una persona. Con los gradientes hay además un motivo de más: `axe` no mide
+      # un fondo `background-image`, lo marca `incomplete`, así que ni ejecutando E2E saltaría.
+      - name: Contraste (CommandPalette claro+oscuro · gradientes FLIT · anillo de foco)
+        run: npm run check:contraste
+
+      # HU #11289 — CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): pdfjs-dist 3.x ejecuta JS de un
+      # PDF malicioso salvo que cada `getDocument` lleve `isEvalSupported: false`. El salto a v6 está
+      # bloqueado por producto, así que la mitigación es por configuración — y una opción que se
+      # olvida no rompe nada visible: compila y renderiza igual, sólo deja el eval abierto otra vez.
+      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI no ejecuta la suite E2E: desde
+      # la HU #11774 solo corre el spec del visor de PDF (`e2e-visor-pdf`), que no mira esta opción.
+      - name: Mitigación CVE-2024-4367 en pdfjs (web)
+        run: npm run check:pdfjs-eval
+
+      # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
       - name: Build API (tsc)
         run: npm run build:api
 
@@ -63,3 +89,176 @@ jobs:
       # (imports estáticos pesados, pérdida de code-splitting).
       - name: Bundle budget (web)
         run: npm run check:bundle
+
+  # Gate de lint — ESLint flat config (eslint.config.mjs). Son ERROR (= check
+  # rojo) max-lines (800 global; techos congelados por archivo legacy) y
+  # react-hooks/rules-of-hooks. La deuda preexistente reporta como warnings
+  # sin bloquear; endurecimiento gradual documentado en AGENTS.md.
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+  # Gate de seguridad SCA — precondición de merge #6 de flit-integration-ado.
+  # Falla con cualquier vulnerabilidad High o Critical en dependencias de
+  # producción (tolerancia 0 según security-agent; una excepción aprobada se
+  # documenta en el PR y se registra, acotada a un advisory, en
+  # scripts/dependency-audit.mjs).
+  dependency-audit:
+    name: dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+
+      - name: npm audit (dependencias de producción)
+        run: node scripts/dependency-audit.mjs
+
+      # HU #11289 — función de forzado sobre las exenciones del gate anterior: falla si alguna
+      # entrada de EXEMPTIONS ya no aparece en el audit. Sin esto, una exención sobrevive a la
+      # actualización que la vuelve innecesaria y enmascara advisories futuros del mismo URL.
+      # Que hoy pdfjs-dist siga en 3.x es justo lo que la mantiene legítima; cuando suba a v6 este
+      # paso se pondrá rojo hasta que se borre la entrada.
+      - name: Exenciones vigentes (sin zombis)
+        run: npm run check:exemptions
+
+  # Gate de trazabilidad — convenciones de rama y título del PR
+  # (.cursor/rules/convenciones-rama-pr.mdc). Todo desarrollo va ligado a una HU
+  # o un Bug de Azure DevOps: sin eso no hay trazabilidad del proyecto.
+  # El título llega por env y no interpolado en `run:` — un título de PR es
+  # entrada de usuario y en el shell sería inyección de comandos.
+  naming:
+    name: naming
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Convenciones de rama y título del PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF" --depth=100
+          # La lista de cambios solo alimenta la guarda «CHORE/DOCS no toca producto».
+          # Si no se puede calcular, se sigue validando rama y título.
+          if ! git diff --name-only "origin/$BASE_REF...HEAD" >/tmp/naming-changed.txt; then
+            echo "::warning::No se pudo calcular el diff contra $BASE_REF; se omite la guarda de rutas de producto."
+            : >/tmp/naming-changed.txt
+          fi
+          node scripts/check-naming.mjs \
+            --branch "$HEAD_REF" \
+            --title "$PR_TITLE" \
+            --files-from /tmp/naming-changed.txt
+
+  # Gate de secretos — precondición de merge #6 de flit-integration-ado.
+  # Escanea los commits del PR (o los últimos 100 en push) con gitleaks.
+  # Se usa el binario directo y no la action oficial: la action exige licencia
+  # para organizaciones; el binario es MIT. Un hallazgo real = check rojo =
+  # merge bloqueado + rotación del secreto.
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tar.gz
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+
+      - name: Scan de secretos (gitleaks)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=100
+            /tmp/gitleaks git --redact --log-opts="origin/${{ github.base_ref }}..HEAD" .
+          else
+            /tmp/gitleaks git --redact --log-opts="-100" .
+          fi
+
+  # HU #11774 — el ÚNICO E2E que corre en el CI de cada PR, y el único del repositorio que abre un
+  # PDF de verdad: sirve un fixture de dos páginas como cuerpo de la respuesta y comprueba que el
+  # visor lo rasteriza (dos `<img>` con `naturalWidth > 0`).
+  #
+  # Por qué merece un job propio y no espera al smoke nocturno: el nocturno no bloquea nada —avisa
+  # al día siguiente, con el cambio ya en `develop`— y lo que este spec vigila es justo lo que la
+  # cadena #11775 (worker `pdf.worker.min.js` con hash en el nombre) y #11289 (salto a pdfjs v6)
+  # están a punto de mover. Un `workerSrc` que deja de resolver no rompe la compilación ni el
+  # typecheck: la pantalla sigue montando y solo enseña «Setting up fake worker failed». Sin este
+  # job, el primero en enterarse sería un usuario.
+  #
+  # Es el único que descarga navegador, por eso va aparte del `build-test` (que conserva su
+  # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD): son ~2 minutos de `playwright install` que no tiene sentido
+  # pagar en los jobs que solo leen fuentes.
+  #
+  # No se necesita `npm run build -w @operaciones/shared-types`: el dev server de Vite resuelve el
+  # paquete por su campo `module` (src/index.ts), no por `dist`. Tampoco hace falta API: el spec
+  # mockea TODO con `page.route`, incluida la respuesta que sirve el PDF (en CI no hay nada
+  # escuchando en el 3005 al que apunta el proxy de Vite).
+  e2e-visor-pdf:
+    name: e2e · visor PDF real
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install (workspaces)
+        run: npm ci
+        working-directory: .
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # CI='1' → `reuseExistingServer: false`, así que Playwright levanta su propio `npm run dev`
+      # en el 5175 y no hereda ningún server ajeno.
+      - name: E2E del visor de PDF
+        run: npm run test:e2e:visor-pdf
+        env:
+          CI: '1'
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-visor-pdf
+          path: apps/web/playwright-report/
+          retention-days: 7

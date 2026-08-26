@@ -12,7 +12,10 @@ concurrency:
 
 jobs:
   e2e-smoke:
-    name: playwright smoke (6 specs)
+    # El número va a mano: nada lo valida. Al añadir o quitar un spec de `test:e2e:smoke`
+    # (apps/web/package.json) hay que moverlo aquí, o el nombre del run miente.
+    # 14 → 15 en la HU #11774 (visor-pdf-real.spec.ts).
+    name: playwright smoke (15 specs)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

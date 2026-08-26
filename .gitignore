@@ -15,3 +15,19 @@ dist/
 *.log
 uploads/
 service-account*.json
+
+# Worktrees de agentes y estado local de Claude Code. Un worktree es una COPIA COMPLETA del repo
+# dentro del propio repo: sin esta regla, un `git add .` intenta versionar el árbol entero otra vez.
+.claude/worktrees/
+
+# Salidas de Playwright. Están ignoradas en apps/web, pero correr `npx playwright test` desde la
+# raíz las deja aquí: las trazas llevan cabeceras HTTP y un volcado de localStorage, donde vive el
+# JWT de la sesión. Sin esta regla, un `git add .` versiona un token válido.
+test-results/
+playwright-report/
+
+# Muestras reales que se usan para probar el OCR y los flujos de SOAT a mano: reportes con nombre
+# de titular y PDFs nombrados por placa. Son datos personales de verdad (Ley 1581), no fixtures.
+# Sin esta regla dependían de que nadie escribiera `git add -A` en todo el repo — y meterlos en la
+# historia de Git no se deshace borrándolos después.
+docs/ejemplos/

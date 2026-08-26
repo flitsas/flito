@@ -9,6 +9,7 @@ import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
 import { IconClose } from '../components/flit/icons';
+import ModalPortal from '../components/flit/ModalPortal';
 
 interface Incident {
   id: number; tipo: string; fecha: string; gravedad: string; estado: string;
@@ -347,7 +348,8 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
   const ya = !!detail.data.investigacionCerradaAt;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-stretch justify-end" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
+    <ModalPortal>
+    <div className="flit-modal fixed inset-0 z-40 flex items-stretch justify-end" style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }} onClick={onClose}>
       <div className="h-full w-full max-w-2xl overflow-y-auto" style={{ background: 'var(--flit-bg-modal)', borderLeft: '1px solid var(--flit-border-soft)' }} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4" style={{ background: 'var(--flit-bg-modal)', borderBottom: '1px solid var(--flit-border-soft)' }}>
           <div>
@@ -462,5 +464,6 @@ function CausaRaizDrawer({ incidentId, onClose, onSaved }: { incidentId: number;
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

@@ -44,21 +44,42 @@ export const SECTION_LABEL: Record<NavItem['section'], string> = {
 export const NAV_ITEMS: NavItem[] = [
   { page: 'dashboard',   to: '/',                                section: 'general',       label: 'Tablero',                 keywords: 'dashboard inicio home resumen' },
   { page: 'vehicles',    to: '/vehicles',                        section: 'gestion',       label: 'Vehículos',               keywords: 'placa vin runt cargar' },
-  { page: 'clients',     to: '/clients',                         section: 'gestion',       label: 'Clientes',                keywords: 'empresa nit razon social' },
+    { page: 'clients',      to: '/clients',      section: 'gestion', label: 'Clientes y proveedores', keywords: 'empresa nit razon social tarifas proveedores soat parametrizacion autogestion' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
   // FLITO — vista unificada de despacho (SOAT + Impuestos + entrega en una sola pantalla) y sus
   // herramientas, todas bajo el desplegable «Gestión» (§correcciones-UX P2.3). Reemplaza el SOAT y
-  // la Lectura de Impuestos legacy. Las colas de gestor SOAT/Impuestos solo se muestran a los gestores
-  // (proveedor / gestor_impuestos); admin/operaciones usan Trámites.
+  // la Lectura de Impuestos legacy.
+  //
+  // Las colas de SOAT e Impuestos las ven su gestor (proveedor / gestor_impuestos) Y Operaciones
+  // (HU #11151). Antes eran exclusivas del gestor y Operaciones trabajaba desde Trámites; con la
+  // contingencia del Feature #11150, Operaciones puede asumir la gestión cuando no hay proveedor o
+  // el gestor no puede atender, y necesita entrar a la cola. El permiso de página ya lo tenía —
+  // `ROLE_DEFAULT_PAGES.admin` es todo el catálogo—, lo que faltaba era la entrada de menú.
   { page: 'flito_tramites', to: '/flito/tramites',               section: 'gestion',       label: 'Gestión Trámites',        keywords: 'flito tramites gestion unificado solicitar soat impuestos entregar lote despacho cola factura venta' },
+  { page: 'flito_derechos', to: '/flito/derechos',               section: 'gestion',       label: 'Derechos de tránsito',     keywords: 'flito derecho tramite cuenta cobro organismo recibo valor radicado carga masiva zip consolidado pendientes' },
   { page: 'flito_revisiones', to: '/flito/revisiones',           section: 'gestion',       label: 'Revisiones OCR',          keywords: 'flito revision ocr cola confirmar campos umbral' },
-  { page: 'flito_parametrizacion', to: '/flito/parametrizacion', section: 'gestion',       label: 'Parametrización',         keywords: 'flito parametrizacion proveedores reglas soat enrutamiento' },
   { page: 'flito_bitacora', to: '/flito/bitacora',               section: 'gestion',       label: 'Bitácora',                keywords: 'flito auditoria rastro movimientos audit log' },
+  // Comparendos monitoreados (Feature #11495): SIN `roles`, a diferencia de SOAT e Impuestos. Ese
+  // campo restringe DENTRO de quienes ya tienen el slug, y aquí el slug no se lo da por defecto
+  // ningún rol (`ROLE_DEFAULT_PAGES` no se toca): repetir la regla en dos sitios solo crea dos
+  // sitios que pueden divergir.
+  { page: 'flito_comparendos', to: '/flito/comparendos',         section: 'gestion',       label: 'Comparendos',             keywords: 'comparendo simit multa infraccion placa nit transito monitoreo' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
-  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT (gestor)',           roles: ['proveedor'],         keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado' },
-  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos (gestor)',      roles: ['gestor_impuestos'],  keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion' },
+  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin'],        keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia' },
+  { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
+  // Bolsas: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
+  // recarga, ajusta y cierra el periodo—, aunque el dominio sea FLITO. «prepago» se conserva en las
+  // keywords: dejó de ser el nombre visible, pero es como muchos siguen buscándolo.
+  { page: 'flito_bolsas', to: '/flito/bolsas',                   section: 'finanzas',      label: 'Bolsas',                  keywords: 'bolsa saldo prepago recarga movimiento manual cierre periodo extracto organismo secretaria transito conciliacion riesgo alerta financiera' },
+  // Conciliación de boletas SOAT (Feature #11623): va en Finanzas —lo pide el AC1 y además espeja a
+  // Bolsas, que también es dominio FLITO con dueño financiero—. Sin `roles`: el slug ya es exclusivo
+  // de `admin` + `financiera`, y repetir la regla aquí la pondría en dos sitios que pueden divergir.
+  { page: 'flito_conciliacion', to: '/flito/conciliacion',       section: 'finanzas',      label: 'Conciliación',            keywords: 'conciliacion boleta soat portal excel cruce poliza bolsa pse comprobante financiera cuadre recaudo' },
+  // Facturación electrónica: va en Finanzas porque su dueño es contabilidad —es quien firma la
+  // confirmación de cada concepto—, aunque el dominio técnico sea la integración con Siigo.
+  { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },

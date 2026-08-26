@@ -124,14 +124,14 @@ export default function Login() {
           <h1 className="text-4xl xl:text-5xl font-bold leading-[1.1]">
             Tu flota, bajo control.
           </h1>
-          <p className="text-base xl:text-lg text-white/85 leading-relaxed">
+          <p className="text-base xl:text-lg text-white leading-relaxed">
             Gestión integral de trámites, SOAT, manifiestos RNDC y cumplimiento PESV
             en una sola plataforma.
           </p>
         </div>
 
         {/* Footer legal */}
-        <footer className="flex items-center gap-3 text-xs text-white/75">
+        <footer className="flex items-center gap-3 text-xs text-white">
           <IconShield className="w-4 h-4 shrink-0" />
           <span>ISO 27001 · Decreto 1079/2015 · © {year} {FLIT_LEGAL_NAME}</span>
         </footer>

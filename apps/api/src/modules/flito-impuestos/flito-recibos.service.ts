@@ -14,6 +14,7 @@ import {
   auditLogs, clients, flitoImpuestos, flitoRevisiones, flitoSoportes, flitoTramites,
   organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
+import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import {
   CampoImpuesto, EstadoImpuesto, FlujoRevision, MotivoRevision, type ExtraccionImpuesto,
 } from '@operaciones/shared-types';
@@ -64,14 +65,15 @@ export interface ResultadoRecibos { conciliados: ItemRecibo[]; enRevision: ItemR
 
 // Datos de un impuesto candidato para conciliar/archivar.
 interface Candidato {
-  impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string;
-  placa: string | null; companiaId: number; document: string | null; carpeta: string | null; valorLiquidado: string | null;
+  impuestoId: string; estado: string; organismoCodigo: string; tramiteIdFlit: string; tramiteId: string;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
+  placa: string | null; companiaId: number; carpeta: string | null; valorLiquidado: string | null;
   // D-5 (Fase 7): activación de diferencia de valor por organismo + tolerancia de la compañía.
   diferenciaActiva: boolean; tolerancia: string;
 }
 const SELECT_CAND = {
   impuestoId: flitoImpuestos.id, estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
-  tramiteIdFlit: flitoTramites.idFlit, placa: vehicles.plate, companiaId: clients.id, document: clients.document,
+  tramiteIdFlit: flitoTramites.idFlit, tramiteId: flitoTramites.id, placa: vehicles.plate, companiaId: clients.id,
   carpeta: clients.flitoCarpetaStorage, valorLiquidado: flitoImpuestos.valorLiquidado,
   diferenciaActiva: organismosTransitoConfig.flitoDiferenciaValorActiva,
   tolerancia: clients.flitoToleranciaValorImpuesto,
@@ -130,7 +132,10 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
   const extraccion = await extraerReciboImpuesto(docDe(archivo, umbral));
   const placa = extraccion[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
   if (!placa) {
-    res.noAsociados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: 'El recibo no permitió leer la placa, así que no se pudo asociar a ningún trámite.' });
+    // Sin placa no hay llave de cruce. Se descarta con el aviso: el fichero original sigue en manos
+    // de quien lo cargó, así que se puede reintentar con una copia legible.
+    res.noAsociados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: null,
+      detalle: 'El recibo no permitió leer la placa, así que no se pudo asociar. Se descarta: vuelve a cargarlo con una copia legible.' });
     return;
   }
 
@@ -139,8 +144,10 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
   if (!candidato) {
     // ¿Es la segunda copia (la otra marca) de un pago ya conciliado? Se adjunta, no se rechaza.
     if (await adjuntarComplemento(archivo, placa, tipo, organismoCodigo, hash, ctx, res)) return;
+    // Se descarta con el aviso. La bandeja de pendientes que antes lo guardaba se retiró: acumulaba
+    // recibos que no llegaban a cruzar, y el fichero original sigue en manos de quien lo cargó.
     res.noAsociados.push({ archivo: archivo.originalname, placa, idFlit: null, registroId: null,
-      detalle: `El recibo dice placa ${placa}, pero no hay ningún impuesto en gestión con esa placa en este organismo. No va a revisión: no hay trámite con qué compararlo.` });
+      detalle: `El recibo dice placa ${placa}, pero no hay ningún impuesto en gestión con esa placa en este organismo. Se descarta: vuelve a cargarlo cuando el impuesto esté en gestión.` });
     return;
   }
 
@@ -172,10 +179,18 @@ async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, si
 async function buscarCandidato(placa: string, estado: EstadoImpuesto, organismoCodigo: string | null): Promise<Candidato | null> {
   const conds = [
     eq(flitoImpuestos.estado, estado),
-    eq(clients.impuestosAutogestionable, false),
+    // Misma frontera que la cola: la autogestión deja fuera, salvo el desbloqueo excepcional
+    // (HU #10980). Si no, un recibo de un trámite desbloqueado no cruzaría con su impuesto.
+    sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false) OR ${flitoImpuestos.excepcionAutogestion})`,
     sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarLlave(placa)}`,
   ];
-  if (organismoCodigo) conds.push(eq(flitoImpuestos.organismoCodigo, organismoCodigo));
+  // `organismoCodigo` solo viene cuando quien carga es el gestor de ese organismo; para Operaciones
+  // es null y no se acota nada. Añadir aquí la bandera cubre de una vez los dos usos de esta
+  // función: la conciliación de un recibo limpio y el complemento con marca de agua sobre un pagado.
+  if (organismoCodigo) {
+    conds.push(eq(flitoImpuestos.organismoCodigo, organismoCodigo));
+    conds.push(eq(flitoImpuestos.gestionOperaciones, false));
+  }
   const [r] = await fromCandidatos().where(and(...conds)).orderBy(desc(flitoImpuestos.pagadoEn)).limit(1);
   return r ?? null;
 }
@@ -220,6 +235,15 @@ async function conciliar(tx: Tx, cand: Candidato, extraccion: ExtraccionImpuesto
   await auditEnTx(tx, ctx, cand.impuestoId,
     `Pago conciliado (solicitado→pagado). Valor pagado ${valorPagado ?? '—'}, liquidado ${cand.valorLiquidado ?? '—'}, ` +
     `recibo ${extraccion[CampoImpuesto.NUMERO_RECIBO]?.valor ?? '—'}. Soporte ${soporteId}. Trámite ${cand.tramiteIdFlit}.${notaDiferencia}`);
+
+  // El estado de partida sale del candidato, no se asume `solicitado`: la conciliación también
+  // alcanza a los que estaban `con_novedad`, y el historial debe decir de dónde vino de verdad.
+  await registrarCambio(tx, {
+    concepto: 'impuesto', registroId: cand.impuestoId,
+    estadoAnterior: cand.estado, estadoNuevo: EstadoImpuesto.PAGADO,
+    motivo: `Pago conciliado. Valor ${valorPagado ?? '—'}.${notaDiferencia}`,
+    usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  });
 }
 
 /**
@@ -253,7 +277,7 @@ async function insertarSoporte(tx: Tx, impuestoId: string, archivo: ArchivoSubid
 }
 
 async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<string> {
-  const carpeta = carpetaDe({ id: cand.companiaId, document: cand.document, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
+  const carpeta = carpetaDe({ id: cand.companiaId, flitoCarpetaStorage: cand.carpeta }, 'impuestos/recibos');
   return uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, archivo.buffer, archivo.mimetype);
 }
 
@@ -285,3 +309,6 @@ function esSinMarcaDeAgua(ruta: string, defecto: boolean): boolean {
   if (/con[\s_-]*marca|marca[\s_-]*de[\s_-]*agua|con[\s_-]*agua|pagad/.test(t)) return false;
   return defecto;
 }
+
+// ─────────────────────────── Reintento de pendientes ─────────────────────────
+

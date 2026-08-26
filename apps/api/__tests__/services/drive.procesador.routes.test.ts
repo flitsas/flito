@@ -90,6 +90,9 @@ describe('POST /procesar-cuentas — validaciones early', () => {
     insertMock.mockReturnValueOnce({
       values: () => ({ returning: () => Promise.resolve([{ id: 1 }]) }),
     });
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => Promise.resolve(undefined) }),
+    });
     downloadFileMock.mockResolvedValueOnce({ buffer: Buffer.from('x'), name: 'documento.docx' });
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -120,6 +123,9 @@ describe('POST /procesar-cuentas — validaciones early', () => {
   it('PDF > 150 páginas → 400', async () => {
     insertMock.mockReturnValueOnce({
       values: () => ({ returning: () => Promise.resolve([{ id: 1 }]) }),
+    });
+    updateMock.mockReturnValueOnce({
+      set: () => ({ where: () => Promise.resolve(undefined) }),
     });
     downloadFileMock.mockResolvedValueOnce({ buffer: Buffer.from('%PDF'), name: 'enorme.pdf' });
     pdfLoadMock.mockResolvedValueOnce({ getPageCount: () => 200 });

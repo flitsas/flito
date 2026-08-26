@@ -110,7 +110,7 @@ async function buildApp() {
 const auth = async (role: string) => `Bearer ${await testToken({ sub: 7, username: 'gestor@x.io', role: role as never })}`;
 const UUID = '00000000-0000-0000-0000-000000000001';
 
-const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, soatAutogestionable: false };
+const soatEnAdquisicion = { soat: { id: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', proveedorSoatId: null, extraccion: null, pagadoEn: null }, dentroDeFrontera: true };
 const datosCarga = [{ soatId: UUID, vin: '9BWZZZ377VT004251', estado: 'solicitado', placa: 'QTQ100', companiaId: 1, document: '900', carpeta: null, umbralOcr: null }];
 const extraccionCruza = {
   [CampoSoat.PLACA]: campo('QTQ100', 0.95), [CampoSoat.VIN]: campo('9BWZZZ377VT004251', 0.95),
@@ -171,7 +171,7 @@ describe('flito-soat carga factura — reglas del flujo', () => {
   });
 
   it('SOAT que no está En adquisición → 400 (no hay factura que cargar)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ soat: { ...soatEnAdquisicion.soat, estado: 'pagado' }, soatAutogestionable: false }]));
+    selectMock.mockReturnValueOnce(chain([{ soat: { ...soatEnAdquisicion.soat, estado: 'pagado' }, dentroDeFrontera: true }]));
     const r = await request(await buildApp()).post(`/api/flito/soat/${UUID}/factura`)
       .set('Authorization', await auth('admin')).attach('archivo', Buffer.from('%PDF'), 'f.pdf');
     expect(r.status).toBe(400);
@@ -183,12 +183,14 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     selectMock.mockReturnValueOnce(chain([]));                  // facturaDuplicada → no
     extraerMock.mockResolvedValueOnce(extraccionCruza);
 
-    // Transacción: insert soporte(returning), pagarEnTx{ select count, update, insert audit }.
+    // Transacción: insert soporte(returning), pagarEnTx{ select count, update, insert audit +
+    // historial de estado }. Solo el primero se lee; el resto responde vacío por respaldo, para que
+    // añadir una escritura más a la transacción no rompa este test por algo que no comprueba.
     const txSelect = vi.fn().mockReturnValueOnce(chain([{ n: 1 }]));
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     const txInsert = vi.fn()
       .mockReturnValueOnce(chain([{ id: 'sop-nuevo' }])) // soporte returning
-      .mockReturnValueOnce(chain([]));                    // audit
+      .mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ select: txSelect, update: txUpdate, insert: txInsert }));
 
     selectMock.mockReturnValueOnce(chain([])); // detalle → buscarConAcceso vacío → null → responde {id}
@@ -199,7 +201,10 @@ describe('flito-soat carga factura — reglas del flujo', () => {
     expect(r.status).toBe(200);
     expect(uploadMock).toHaveBeenCalledTimes(1);   // se archivó (CA-11: storage antes de pagar)
     expect(txUpdate).toHaveBeenCalledTimes(1);      // pasó a Pagado
-    expect(txInsert).toHaveBeenCalledTimes(2);      // soporte + bitácora de pago
+    // soporte + bitácora de pago + historial de estado. El historial entra en la MISMA transacción
+    // a propósito: un SOAT en `pagado` sin la fila que cuenta cuándo pasó es el agujero que el
+    // historial viene a tapar, así que o entran los tres o no entra ninguno.
+    expect(txInsert).toHaveBeenCalledTimes(3);
   });
 
   it('factura que cruza pero con baja confianza → revisión (CA-06), NO paga', async () => {

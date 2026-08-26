@@ -6,12 +6,30 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import {
+  ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
+  TOPE_LOTE_CERTIFICACION,
+} from '@operaciones/shared-types';
+import { ApiError, api, errorMessage } from '../lib/api';
+import {
+  AccionCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
+  type CertificacionCola, type ResultadoIntento, type ResultadoLote,
+} from '../components/flit/CertificacionRunt';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
+import HistorialEstados from '../components/flit/HistorialEstados';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import AntiguedadPill from '../components/flit/AntiguedadPill';
+import ThFiltroMulti from '../components/flit/ThFiltroMulti';
+import ChipSinGestion from '../components/flit/ChipSinGestion';
+import RangoFechas from '../components/flit/RangoFechas';
+import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+import Paginacion from '../components/flit/Paginacion';
+import VisorSoportes from '../components/flit/VisorSoportes';
+import ModalFacturaVenta, { nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
+import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -19,11 +37,23 @@ import {
 
 interface ImpuestoItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
+  marca: string | null; linea: string | null;
+  tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
-  tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
+  tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
   estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /** true = lo gestiona Operaciones por contingencia, en vez del gestor del organismo. El impuesto
+   *  se sigue pagando ante el mismo organismo: lo que cambia es quién lo tramita. */
+  gestionOperaciones: boolean;
+  /** Certificación vigente contra el RUNT, o null si el registro no está certificado (HU #11168). */
+  certificacion: CertificacionCola | null;
+}
+interface ColaImpuestos { items: ImpuestoItem[]; total: number; page: number; pageSize: number }
+interface FacetasImpuestos {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
 }
 
 const TONO: Record<EstadoImpuesto, ChipTone> = {
@@ -38,6 +68,25 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
 ];
 const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
 
+/**
+ * Traduce el fallo de un intento de certificación al desenlace que se le muestra al gestor.
+ *
+ * Se lee el `code` del cuerpo, NO el texto del mensaje ni el código HTTP a secas: tres de los cinco
+ * desenlaces comparten el 409, y distinguirlos por el texto ataría la interfaz a unas cadenas que
+ * cambian sin avisar. Si el `code` no viene —un 500 inesperado, un proxy que se interpone— se cae a
+ * `error_servicio`, que es el desenlace cuya recomendación (reintentar más tarde) no hace daño en
+ * ningún caso.
+ */
+function aResultadoIntento(e: unknown): ResultadoIntento {
+  const cuerpo = e instanceof ApiError ? (e.rawDetails as Record<string, unknown> | null) : null;
+  const code = typeof cuerpo?.code === 'string' ? cuerpo.code as ResultadoCertificacion : null;
+  return {
+    code: code ?? ResultadoCertificacion.ERROR_SERVICIO,
+    mensaje: errorMessage(e),
+    campos: Array.isArray(cuerpo?.campos) ? cuerpo.campos as ResultadoIntento['campos'] : undefined,
+  };
+}
+
 export default function FlitoImpuestos() {
   const { user } = useAuth();
   const esOperaciones = puedeOperar(user?.role);
@@ -46,30 +95,170 @@ export default function FlitoImpuestos() {
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoImpuesto | 'todos'>(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
-  const [buscar, setBuscar] = useState('');
-  const [data, setData] = useState<ImpuestoItem[] | null>(null);
+  const [texto, setTexto] = useState('');
+  // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
+  // pulsación. Se espera a que el usuario deje de escribir.
+  const buscar = useDebounce(texto, 300);
+  const [data, setData] = useState<ColaImpuestos | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [cargaRecibos, setCargaRecibos] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
+  const [facetas, setFacetas] = useState<FacetasImpuestos | null>(null);
+  const [companiasSel, setCompaniasSel] = useState<string[]>([]);
+  const [organismosSel, setOrganismosSel] = useState<string[]>([]);
+  const [solicitadoDesde, setSolicitadoDesde] = useState('');
+  const [solicitadoHasta, setSolicitadoHasta] = useState('');
+  const [pagadoDesde, setPagadoDesde] = useState('');
+  const [pagadoHasta, setPagadoHasta] = useState('');
+  const [soloEstancado, setSoloEstancado] = useState(false);
+  const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
+  const [preset, setPreset] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
+
+  const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado || !!gestionSel;
+
+  const limpiarFiltros = () => {
+    setCompaniasSel([]); setOrganismosSel([]);
+    setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
+    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
+  };
+
+  /**
+   * Las dos vistas de la cola. Igual que en SOAT: el gestor no ve «listos para enviar» porque los
+   * Pendiente quedan fuera de su frontera (CA-10) y le devolvería siempre una lista vacía.
+   *
+   * «Listos para enviar» filtra por estado; la precondición de la factura de venta se ve en la
+   * propia fila, que ya la marca. Filtrarla en servidor exigiría un campo que la cola no expone
+   * como filtro, y prometer más precisión de la que hay es peor que no filtrar.
+   */
+  const PRESETS: Array<Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>> = [
+    ...(esGestor ? [] : [{
+      nombre: 'Listos para enviar',
+      descripcion: 'Pendientes; la fila marca si les falta la factura de venta.',
+      filtros: { estado: EstadoImpuesto.PENDIENTE as EstadoImpuesto | 'todos', estancado: false },
+    }]),
+    {
+      nombre: 'Sin gestión',
+      descripcion: 'Solicitados que superaron el ANS de su organismo.',
+      filtros: { estado: EstadoImpuesto.SOLICITADO, estancado: true },
+    },
+  ];
+
+  const aplicarPreset = (p: Preset<{ estado: EstadoImpuesto | 'todos'; estancado: boolean }>) => {
+    limpiarFiltros();
+    setEstado(p.filtros.estado);
+    setSoloEstancado(p.filtros.estancado);
+    setPreset(p.nombre);
+  };
+
+  // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel]);
+
   useEffect(() => {
-    setError(null); setData(null); setSeleccion(new Set());
+    setError(null); setSeleccion(new Set());
     const q = new URLSearchParams();
     if (estado !== 'todos') q.set('estado', estado);
     if (buscar.trim()) q.set('buscar', buscar.trim());
-    api.get<ImpuestoItem[]>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
-  }, [estado, buscar, recarga]);
+    if (companiasSel.length) q.set('companias', companiasSel.join(','));
+    if (organismosSel.length) q.set('organismos', organismosSel.join(','));
+    if (solicitadoDesde) q.set('solicitadoDesde', solicitadoDesde);
+    if (solicitadoHasta) q.set('solicitadoHasta', solicitadoHasta);
+    if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
+    if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
+    if (soloEstancado) q.set('estancado', 'si');
+    if (gestionSel) q.set('gestion', gestionSel);
+    q.set('page', String(page));
+    api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel, page, recarga]);
 
-  const filas = data ?? [];
-  const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoImpuesto.PENDIENTE), [filas]);
+  useEffect(() => {
+    api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
+  }, []);
+
+  /**
+   * Si una recarga deja fuera el impuesto que se estaba viendo —un traspaso que lo saca de la vista
+   * filtrada, un cambio de filtros—, el detalle se cierra de verdad. Sin esto `detalleId` sobrevive
+   * apuntando a una fila ausente, y el modal resucita solo en cuanto esa fila vuelve a entrar en la
+   * vista, mucho después de que el usuario lo diera por cerrado.
+   */
+  useEffect(() => {
+    if (!data || detalleId === null) return;
+    if (!data.items.some((i) => i.id === detalleId)) setDetalleId(null);
+  }, [data, detalleId]);
+
+  const filas = data?.items ?? [];
+  const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  // Quién puede DESCARGAR depende solo del rol; qué filas ofrecen CERTIFICAR depende además del
+  // estado. No es lo mismo: un impuesto ya pagado no se certifica, pero su certificado sigue siendo
+  // la evidencia que hay que poder enseñar.
+  const puedeDescargarCert = esOperaciones || esGestor;
+  const puedeCertificarFila = (f: ImpuestoItem) =>
+    puedeDescargarCert && ESTADOS_IMPUESTO_CERTIFICABLES.includes(f.estado);
+
+  /**
+   * Qué filas puede marcar ESTE usuario, para cualquiera de las dos acciones masivas.
+   *
+   * Antes eran solo los Pendientes de Operaciones. Certificar aplica a los Solicitados y también al
+   * gestor del organismo, así que la casilla tiene que aparecer en las dos clases de fila (HU
+   * #11169). Qué acción se ofrece lo decide después la barra, mirando lo seleccionado.
+   */
+  const puedeEnviarFila = (f: ImpuestoItem) => esOperaciones && f.estado === EstadoImpuesto.PENDIENTE;
+  const seleccionables = useMemo(
+    () => filas.filter((f) => puedeEnviarFila(f) || puedeCertificarFila(f)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filas, esOperaciones, esGestor],
+  );
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
   const toggle = (id: string) => setSeleccion((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
+
+  /**
+   * Certificación contra el RUNT (HU #11168).
+   *
+   * `certificandoId` bloquea SOLO la fila en curso y no la tabla entera: la consulta puede tardar
+   * decenas de segundos (90 s de timeout en backend) y dejar la pantalla inservible todo ese rato
+   * sería peor que el problema que resuelve. Como el botón de esa fila queda deshabilitado, la misma
+   * certificación no se puede lanzar dos veces (AC7).
+   */
+  const [certificandoId, setCertificandoId] = useState<string | null>(null);
+  const [resultadoCert, setResultadoCert] = useState<{ resultado: ResultadoIntento; placa: string | null } | null>(null);
+
+  const certificar = async (f: ImpuestoItem) => {
+    setCertificandoId(f.id);
+    try {
+      const r = await api.post<{ code: string; certificacion: CertificacionCola }>(`/flito/impuestos/${f.id}/certificar`);
+      // Se parchea la fila con lo que devolvió el backend en vez de recargar la cola: AC2 pide que el
+      // estado se vea sin recargar, y una recarga completa reordenaría o repaginaría la tabla bajo el
+      // cursor de alguien que lleva un minuto esperando.
+      setData((d) => d && ({
+        ...d,
+        items: d.items.map((i) => i.id === f.id ? { ...i, certificacion: r.certificacion } : i),
+      }));
+    } catch (e) {
+      setResultadoCert({ resultado: aResultadoIntento(e), placa: f.placa });
+    } finally {
+      setCertificandoId(null);
+    }
+  };
+
+  const descargarCertificado = async (f: ImpuestoItem) => {
+    try {
+      await api.download(`/flito/impuestos/${f.id}/certificado`, `certificado-runt-${f.placa ?? f.idFlit}.pdf`);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -94,61 +283,144 @@ export default function FlitoImpuestos() {
             ))}
           </FlitPillGroup>
           <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, trámite, comprador…"
-            value={buscar} onChange={(e) => setBuscar(e.target.value)} />
+            value={texto} onChange={(e) => setTexto(e.target.value)} />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3">
+          <ThFiltroMulti seleccion={companiasSel} onCambio={setCompaniasSel} placeholder="Compañía"
+            vacio="Sin compañías en la cola"
+            opciones={(facetas?.companias ?? []).map((c) => ({ value: String(c.id), label: c.nombre }))} />
+          {/* Al gestor no se le ofrece: ya está atado a su organismo y elegir otro solo vaciaría la cola. */}
+          {!esGestor && (
+            <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
+              vacio="Sin organismos en la cola"
+              opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
+          )}
+
+          {/* Al gestor tampoco: dentro de su frontera todo lo gestiona él, así que solo tendría
+              una opción con resultados y otra siempre vacía. */}
+          {!esGestor && (
+            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+              Gestiona
+              <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
+                onChange={(e) => setGestionSel(e.target.value as '' | 'operaciones' | 'organismo')}>
+                <option value="">Cualquiera</option>
+                <option value="operaciones">Operaciones</option>
+                <option value="organismo">El organismo</option>
+              </select>
+            </label>
+          )}
+
+          <FiltrosInteligentes presets={PRESETS} activo={preset}
+            onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
+
+          <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
+            onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
+          <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
+            onCambio={(r) => { setPagadoDesde(r.desde); setPagadoHasta(r.hasta); }} />
+
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+            <input type="checkbox" checked={soloEstancado} onChange={(e) => setSoloEstancado(e.target.checked)} />
+            Solo sin gestión
+          </label>
+
+          {(hayFiltros || !!texto) && (
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={limpiarFiltros}>Limpiar filtros</button>
+          )}
         </div>
       </FlitCard>
 
       {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
 
-      {esOperaciones && seleccion.size > 0 && (
-        <BarraEnvio ids={[...seleccion]} onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
+      {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
+          Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
+      {seleccion.size > 0 && (
+        <BarraSeleccion
+          filasSeleccionadas={filas.filter((f) => seleccion.has(f.id))}
+          puedeEnviarFila={puedeEnviarFila}
+          puedeCertificarFila={puedeCertificarFila}
+          onListo={() => { setSeleccion(new Set()); refrescar(); }}
+          onError={setError}
+        />
       )}
 
       {data && filas.length === 0 && (
-        <FlitCard><FlitEmpty>No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.</FlitEmpty></FlitCard>
+        <FlitCard>
+          <FlitEmpty>
+            {hayFiltros || texto.trim()
+              ? 'Ningún impuesto coincide con los filtros.'
+              : 'No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+          </FlitEmpty>
+        </FlitCard>
       )}
 
       {filas.length > 0 && (
         <FlitCard>
+          <div className="mb-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
           <FlitTable>
             <thead>
               <FlitTr>
-                {esOperaciones && seleccionables.length > 0 && (
+                {seleccionables.length > 0 && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar todos los pendientes"
+                    <input type="checkbox" aria-label="Seleccionar todos los que admiten acción masiva"
                       checked={seleccion.size > 0 && seleccion.size === seleccionables.length}
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
-                <FlitTh>Placa</FlitTh><FlitTh>Trámite</FlitTh><FlitTh>Compañía</FlitTh>
-                <FlitTh>Organismo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh><FlitTh />
+                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                <FlitTh>Compañía</FlitTh>
+                <FlitTh>Organismo</FlitTh><FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
+                <FlitTh>Solicitado</FlitTh><FlitTh>Fecha pago</FlitTh>
+                <FlitTh>Liquidado</FlitTh><FlitTh>Pagado</FlitTh>
+                <FlitTh />
               </FlitTr>
             </thead>
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {esOperaciones && seleccionables.length > 0 && (
+                  {seleccionables.length > 0 && (
                     <td className="px-3 py-2">
-                      {f.estado === EstadoImpuesto.PENDIENTE && (
+                      {seleccionables.some((s) => s.id === f.id) && (
                         <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
                           checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 font-medium">
-                    {f.placa ?? '—'}
-                    <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.vin}</div>
-                  </td>
-                  <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</td>
+                  <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
+                    accion={(
+                      <AccionCertificacion
+                        certificacion={f.certificacion}
+                        puedeDescargar={puedeDescargarCert}
+                        puedeCertificar={puedeCertificarFila(f)}
+                        cargando={certificandoId === f.id}
+                        onCertificar={() => certificar(f)}
+                        onDescargar={() => descargarCertificado(f)}
+                      />
+                    )} />
+                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                  <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   <td className="px-3 py-2 text-sm">{f.organismoNombre ?? f.organismoCodigo}</td>
+                  <CeldaGestion imp={f} />
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
-                      {f.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
                       {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
                     </div>
                   </td>
+                  <td className="px-3 py-2 text-sm">
+                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
+                    {/* Ya pagado: los días desde la solicitud dejan de ser señal de riesgo y solo
+                        ensucian. El chip de sin gestión ya desaparece al pagar. */}
+                    {f.enviadoEn && f.estado !== EstadoImpuesto.PAGADO && (
+                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorLiquidado)}</td>
                   <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
                   <td className="px-3 py-2">
@@ -158,12 +430,22 @@ export default function FlitoImpuestos() {
               ))}
             </tbody>
           </FlitTable>
+          <div className="mt-3">
+            <Paginacion total={data!.total} page={data!.page} totalPaginas={totalPaginas} sustantivo="impuestos"
+              onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+          </div>
         </FlitCard>
+      )}
+
+      {resultadoCert && (
+        <ModalResultadoCertificacion resultado={resultadoCert.resultado} placa={resultadoCert.placa}
+          onClose={() => setResultadoCert(null)} />
       )}
 
       {detalle && (
         <DetalleImpuesto imp={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
-          onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }} />
+          onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
+          onTraspaso={refrescar} />
       )}
 
       {cargaRecibos && (
@@ -173,40 +455,146 @@ export default function FlitoImpuestos() {
   );
 }
 
-function BarraEnvio({ ids, onEnviado, onError }: { ids: string[]; onEnviado: () => void; onError: (m: string) => void }) {
-  const [enviando, setEnviando] = useState(false);
-  const enviar = async () => {
-    setEnviando(true);
-    try { await api.post('/flito/impuestos/enviar', { ids }); onEnviado(); }
+/**
+ * Acciones masivas sobre la selección (HU #11169).
+ *
+ * Una sola mecánica de selección para dos acciones que no aplican a los mismos registros: enviar
+ * (Pendientes) y certificar (Solicitados). La barra decide cuál ofrecer mirando lo marcado. La
+ * alternativa —apagar las casillas de otros estados en cuanto se marca la primera— habría hecho que
+ * la interfaz se moviera sola bajo el cursor.
+ *
+ * Una acción se ofrece solo si aplica a TODA la selección. Habilitarla para el subconjunto que sí
+ * encaja sería peor que deshabilitarla: el usuario pulsaría creyendo que actúa sobre los 4 que marcó
+ * y actuaría sobre 2, sin enterarse hasta ver el resultado.
+ *
+ * El envío conserva sus DOS destinos (HU #11158). A diferencia de SOAT aquí no hay selector: el
+ * gestor lo determina el organismo del trámite, así que «al gestor» no admite elección y los dos
+ * destinos van como botones explícitos que dicen a dónde va cada uno.
+ */
+function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onError }: {
+  filasSeleccionadas: ImpuestoItem[];
+  puedeEnviarFila: (f: ImpuestoItem) => boolean;
+  puedeCertificarFila: (f: ImpuestoItem) => boolean;
+  onListo: () => void;
+  onError: (m: string) => void;
+}) {
+  const [enviando, setEnviando] = useState<'gestor' | 'operaciones' | null>(null);
+  const [certificando, setCertificando] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoLote | null>(null);
+
+  const ids = filasSeleccionadas.map((f) => f.id);
+  const todosEnviables = ids.length > 0 && filasSeleccionadas.every(puedeEnviarFila);
+  const todosCertificables = ids.length > 0 && filasSeleccionadas.every(puedeCertificarFila);
+  const mezclado = !todosEnviables && !todosCertificables;
+  // El tope se lee de la constante que el backend usa para rechazar. Repetir el 10 aquí garantiza
+  // que un día los dos números digan cosas distintas.
+  const sobreElTope = todosCertificables && ids.length > TOPE_LOTE_CERTIFICACION;
+  const ocupado = enviando !== null || certificando;
+
+  const enviar = async (aOperaciones: boolean) => {
+    setEnviando(aOperaciones ? 'operaciones' : 'gestor');
+    try {
+      await api.post('/flito/impuestos/enviar', aOperaciones ? { ids, gestionOperaciones: true } : { ids });
+      onListo();
+    }
     catch (e) { onError(errorMessage(e)); }
-    finally { setEnviando(false); }
+    finally { setEnviando(null); }
   };
+
+  const certificarLote = async () => {
+    setCertificando(true);
+    try { setResultado(await api.post<ResultadoLote>('/flito/impuestos/certificar', { ids })); }
+    catch (e) { onError(errorMessage(e)); }
+    finally { setCertificando(false); }
+  };
+
+  const placaDe = (id: string) => filasSeleccionadas.find((f) => f.id === id)?.placa ?? null;
+
   return (
-    <FlitCard>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando} onClick={enviar}>
-          {enviando ? 'Enviando…' : 'Enviar al gestor'}
-        </button>
-      </div>
-    </FlitCard>
+    <>
+      <FlitCard>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
+
+          {todosEnviables && (
+            <>
+              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={ocupado} onClick={() => enviar(false)}>
+                {enviando === 'gestor' ? 'Enviando…' : 'Enviar al gestor'}
+              </button>
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={ocupado} onClick={() => enviar(true)}>
+                {enviando === 'operaciones' ? 'Enviando…' : 'Gestionar en Operaciones'}
+              </button>
+            </>
+          )}
+
+          {todosCertificables && (
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              disabled={ocupado || sobreElTope} onClick={certificarLote}
+              // Con concurrencia 2 y 90 s de timeout por consulta, un lote lleno puede tardar
+              // minutos. Sin este aviso la pantalla parece colgada (AC3).
+              title={certificando ? 'Consultando el RUNT registro a registro. Puede tardar varios minutos.' : undefined}>
+              {certificando ? `Certificando ${ids.length}… consultando RUNT` : `Certificar (${ids.length})`}
+            </button>
+          )}
+
+          {sobreElTope && (
+            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              Máximo {TOPE_LOTE_CERTIFICACION} por lote. Seleccionaste {ids.length}.
+            </span>
+          )}
+
+          {mezclado && (
+            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              La selección mezcla estados con acciones distintas. Filtra por un estado para operar en bloque.
+            </span>
+          )}
+        </div>
+      </FlitCard>
+
+      {resultado && (
+        <ModalResultadoLote resultado={resultado} placaDe={placaDe}
+          onClose={() => { setResultado(null); onListo(); }} />
+      )}
+    </>
   );
 }
 
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar';
+/**
+ * Quién gestiona el impuesto. Va en columna propia y no sobre la de organismo: el organismo se
+ * sigue viendo en los dos casos, porque el impuesto se paga ante él igual. El distintivo lleva
+ * texto y no solo color.
+ */
+function CeldaGestion({ imp }: { imp: ImpuestoItem }) {
+  return (
+    <td className="px-3 py-2 text-sm">
+      {imp.gestionOperaciones
+        ? <StatusChip tone="warning">Operaciones</StatusChip>
+        : <span style={{ color: 'var(--flit-text-secondary)' }}>Gestor del organismo</span>}
+    </td>
+  );
+}
 
-function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, onCambio }: {
+type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
+
+function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, onCambio, onTraspaso }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
-  onClose: () => void; onCambio: () => void;
+  onClose: () => void; onCambio: () => void; onTraspaso: () => void;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
   const [estadoDestino, setEstadoDestino] = useState<EstadoImpuesto>(EstadoImpuesto.PENDIENTE);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Visor de los recibos de ESTE impuesto, encima del detalle.
+  const [verSoportes, setVerSoportes] = useState(false);
+  // Visor de la factura de venta (modal): blob url + nombre para descargar.
+  const [factura, setFactura] = useState<{ url: string; nombre: string } | null>(null);
 
   const enGestion = imp.estado === EstadoImpuesto.SOLICITADO;
   const rechazado = imp.estado === EstadoImpuesto.CON_NOVEDAD;
+  // El traspaso de gestión solo tiene sentido mientras el impuesto está en gestión y sin pagar:
+  // sobre uno Pagado no queda nada que gestionar, y uno Pendiente aún no se ha enviado a nadie.
+  const traspasable = enGestion || rechazado;
 
   const ejecutar = async (fn: () => Promise<unknown>) => {
     setEnviando(true); setError(null);
@@ -215,28 +603,51 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
     finally { setEnviando(false); }
   };
 
-  // Factura de venta: viene de FLIT. Ver/descargar via presigned (el endpoint redirige; se sigue el
-  // redirect y se abre el blob). Integración FLIT (Fase 8).
+  /**
+   * El traspaso de gestión no cierra el detalle: quien lo asume suele querer seguir en el mismo
+   * impuesto, y ver ahí mismo que ya lo gestiona Operaciones es la confirmación de que funcionó.
+   * Si el traspaso lo saca de la vista filtrada, la fila desaparece y el detalle se cierra solo.
+   */
+  const traspasar = async (ruta: string) => {
+    setEnviando(true); setError(null);
+    try {
+      await api.post(`/flito/impuestos/${imp.id}/${ruta}`, { motivo });
+      setAccion('idle'); setMotivo(''); onTraspaso();
+    }
+    catch (e) { setError(errorMessage(e)); }
+    finally { setEnviando(false); }
+  };
+
+  /**
+   * Factura de venta: viene de FLIT y la sirve la API. Integración FLIT (Fase 8).
+   *
+   * Antes se abría con `window.open(URL.createObjectURL(blob))`. Una URL `blob:` no lleva nombre,
+   * así que el navegador guardaba el archivo con un identificador interno y SIN extensión: no abría
+   * con doble clic y había que renombrarlo a mano. Ahora se muestra en el visor, que descarga con
+   * un nombre de verdad y en `.pdf`.
+   */
   const verFactura = async () => {
     setError(null);
     try {
       const blob = await api.get<Blob>(`/flito/impuestos/${imp.id}/factura-venta`);
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+      setFactura({ url: URL.createObjectURL(blob), nombre: nombreFacturaVenta(imp.idFlit) });
     } catch (e) { setError(errorMessage(e)); }
   };
+  const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
 
   return (
     <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={TONO[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
-          {imp.estancado && <StatusChip tone="warning">SLA vencido</StatusChip>}
+          {imp.estancado && <ChipSinGestion desde={imp.enviadoEn} />}
           {imp.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
+          <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />
           <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
           <div>
@@ -247,8 +658,28 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
                 : <span style={{ color: 'var(--flit-warning)' }}>Sin factura en FLIT</span>}
             </dd>
           </div>
+          {/* El recibo del organismo se carga desde esta pantalla, pero para verlo había que irse
+              al reporte de costos, en el que el gestor del organismo no entra. Es la evidencia del
+              pago: se mira desde donde se gestiona. */}
+          <div>
+            <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Soporte</dt>
+            <dd className="text-sm">
+              <button type="button" className="font-semibold underline" style={{ color: 'var(--flit-blue-text)' }}
+                onClick={() => setVerSoportes(true)}>Ver soporte</button>
+            </dd>
+          </div>
           <Dato k="Enviado por" v={imp.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(imp.enviadoEn)} />
         </dl>
+
+        {verSoportes && (
+          <VisorSoportes ruta={`/flito/impuestos/${imp.id}/soportes`} titulo={`Impuesto ${imp.placa ?? imp.vin}`}
+            vacio="Este impuesto no tiene ningún recibo cargado todavía."
+            onClose={() => setVerSoportes(false)} />
+        )}
+
+        {factura && <ModalFacturaVenta url={factura.url} nombre={factura.nombre} onCerrar={cerrarFactura} />}
+
+        <HistorialEstados concepto="impuesto" registroId={imp.id} />
 
         {imp.motivoRechazo && <p className="rounded-md bg-red-50 p-2 text-red-700">Motivo de rechazo: {imp.motivoRechazo}</p>}
         {soloLectura && <div className="rounded-md bg-blue-50 p-2 text-blue-800">Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
@@ -262,10 +693,26 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
             {rechazado && esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
+            {esOperaciones && traspasable && !imp.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
+            )}
+            {esOperaciones && traspasable && imp.gestionOperaciones && (
+              <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al gestor</button>
+            )}
             {esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}
           </div>
+        )}
+
+        {/* Devolver no pide destinatario: el gestor sale del organismo del trámite, que no cambia. */}
+        {(accion === 'asumir' || accion === 'devolver') && (
+          <FormMotivo etiqueta={accion === 'asumir'
+            ? 'Motivo para asumirlo en Operaciones (mín. 5 caracteres)'
+            : 'Motivo de la devolución al gestor (mín. 5 caracteres)'}
+            motivo={motivo} setMotivo={setMotivo} enviando={enviando} minLen={5}
+            onCancelar={() => { setAccion('idle'); setMotivo(''); }}
+            onConfirmar={() => traspasar(accion === 'asumir' ? 'asumir-operaciones' : 'devolver-gestor')} />
         )}
 
         {(accion === 'rechazar' || accion === 'reactivar') && (

@@ -20,6 +20,15 @@ WORKDIR /app
 # @playwright/test está en devDeps de apps/web; no se necesitan navegadores.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
+# V8 dimensiona el old-space según la RAM total de la máquina: por debajo de ~15 GB
+# el tope queda en ~2 GB. El chequeo de tipos de apps/api necesita ~1.6 GB de heap
+# —2108 archivos y 3.4 M líneas de .d.ts, de las que `googleapis` aporta el 95 % por
+# el barrel de services/googleDrive.ts— así que en un equipo de 16 GB nominales
+# (14.9 GiB reales) el build muere con «heap out of memory» (exit 134), mientras que
+# en CI, con más RAM, pasa. Este tope explícito quita esa dependencia del hardware.
+# Solo aplica a la etapa de build; el runtime no lo hereda.
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # Manifests primero → capa de npm ci cacheable mientras no cambien deps.
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -58,6 +67,9 @@ COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/shared-types/dist packages/shared-types/dist
 # SQL plano de migraciones (db-apply.js las lee de src/db/migrations en runtime).
 COPY apps/api/src/db/migrations apps/api/src/db/migrations
+# Catálogo de ubicaciones de Siigo (HU #11293). Mismo motivo que las migraciones: `tsc` no copia
+# archivos que no sean código, y siigo.ciudades.service.js lo lee de src/db/data en runtime.
+COPY apps/api/src/db/data apps/api/src/db/data
 # Modelo Tesseract (eng.traineddata.gz): flito-ocr-local lo carga de vendor/tesseract.
 COPY apps/api/vendor apps/api/vendor
 

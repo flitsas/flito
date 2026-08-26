@@ -8,6 +8,7 @@ import {
   flitInp, FlitCard, FlitEmpty, FlitTable, FlitTh, FlitTr,
   flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
+import ModalPortal from '../components/flit/ModalPortal';
 
 interface DriveFile {
   id: string;
@@ -149,7 +150,12 @@ export default function DriveViewer() {
       if (mime.includes('pdf')) {
         const pdfjsLib = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-        const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
+        // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
+        // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el
+        // workaround oficial del advisory. La vista previa rasteriza a PNG sin capa de texto, luego el
+        // render no cambia. Guardado por `npm run check:pdfjs-eval`.
+        const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise;
         const pages: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const pg = await pdf.getPage(i);
@@ -431,8 +437,9 @@ export default function DriveViewer() {
       )}
 
       {(previewFile || previewLoading) && (
+        <ModalPortal>
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          className="flit-modal fixed inset-0 z-40 flex items-center justify-center p-4"
           style={{ background: 'rgba(22, 39, 68, 0.45)', backdropFilter: 'blur(6px)' }}
           {...previewBackdrop}
         >
@@ -468,6 +475,7 @@ export default function DriveViewer() {
             </div>
           </div>
         </div>
+        </ModalPortal>
       )}
     </div>
   );

@@ -22,7 +22,8 @@ export default function TramiteWizardShell({ w }: { w: TramiteWizardApi }) {
     <div className="flex flex-col gap-5 lg:flex-row lg:gap-6">
       {/* Sidebar lateral de pasos (FlitWizardSidebar) */}
       <aside className="shrink-0 lg:w-60">
-        {/* Offset sticky = topbar + FlitNavBar + 1rem de margen (antes top-20 = 64px + 16px). */}
+        {/* Offset sticky = topbar + --flit-navbar-height (0px desde que la
+            navegación es un dock al pie) + 1rem de margen. */}
         <div className={`${FLIT_CARD} lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height)_+_1rem)]`}>
           <button onClick={w.closeWizard} aria-label="Volver a la lista" className="flit-focus mb-4 inline-flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--flit-text-secondary)' }}>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /></svg>

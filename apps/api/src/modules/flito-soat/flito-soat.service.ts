@@ -9,7 +9,8 @@
 
 import { createHash } from 'crypto';
 import JSZip from 'jszip';
-import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   auditLogs,
@@ -24,7 +25,9 @@ import {
   users,
   vehicles,
 } from '../../db/schema.js';
-import {
+import { aIso } from '../../shared/utils/fecha-rango.js';
+import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
+import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
@@ -32,6 +35,7 @@ import {
   EstadoSoat,
   FlujoRevision,
   MotivoRevision,
+  polizaParaColumna,
   TipoPropiedad,
   type ExtraccionSoat,
 } from '@operaciones/shared-types';
@@ -61,6 +65,13 @@ export async function contextoSoat(user: { sub: number; username: string; role: 
 
 const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
 
+/**
+ * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
+ * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ */
+const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
+  OR ${flitoSoat.excepcionAutogestion})`;
+
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 
 export interface SoatColaItem {
@@ -76,38 +87,100 @@ export interface SoatColaItem {
   organismoNombre: string | null;
   proveedorSoatId: string | null;
   proveedorSoatNombre: string | null;
+  /**
+   * true = lo gestiona Operaciones por contingencia (HU #11152/#11153). `proveedorSoatId` puede
+   * seguir viniendo lleno: es de quién se retomó, no quién lo trabaja. La interfaz necesita los dos
+   * para poder decir «Operaciones, retomado de X».
+   */
+  gestionOperaciones: boolean;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
+  /**
+   * Datos del trámite, homologados con las demás tablas (tipo, aprobación, creación).
+   *
+   * Son `null` cuando el SOAT sirve a VARIOS trámites y no coinciden. Un SOAT es por VIN, no por
+   * trámite (RN-01), así que preguntarle «su» tipo puede no tener respuesta; elegir el primero
+   * sería mentir con aspecto de dato. Hoy los 51 SOAT sirven a un trámite cada uno, pero el modelo
+   * permite lo contrario y la columna tiene que decirlo cuando pase.
+   */
+  tipoTramite: string | null;
+  fechaAprobacion: string | null;
+  fechaCreacion: string | null;
   enviadoPorNombre: string | null;
   enviadoEn: string | null;
+  /** Fecha de pago. Ya se leía de BD para el detalle; la cola la necesita para el orden cronológico. */
+  pagadoEn: string | null;
   valorPagado: number | null;
   estancado: boolean;
   motivoRechazo: string | null;
   creadoEn: string;
 }
 
+export interface FiltrosCola {
+  estados?: EstadoSoat[];
+  buscar?: string;
+  /** Multiselect. Vacío = sin acotar. */
+  companias?: number[];
+  organismos?: string[];
+  proveedores?: string[];
+  /**
+   * Quién gestiona. Solo tiene efecto útil para Operaciones y auditoría: la frontera del gestor ya
+   * excluye lo de Operaciones, así que para él «proveedor» es redundante y «operaciones» vacío.
+   */
+  gestion?: 'operaciones' | 'proveedor';
+  /** Rangos yyyy-mm-dd, inclusivos por día. */
+  solicitadoDesde?: string; solicitadoHasta?: string;
+  pagadoDesde?: string; pagadoHasta?: string;
+  /** true = solo lo que superó el SLA de su proveedor. */
+  estancado?: boolean;
+  page?: number; pageSize?: number;
+}
+
+export interface ColaSoatPaginada {
+  items: SoatColaItem[]; total: number; page: number; pageSize: number;
+}
+
 /**
- * Cola de SOAT con las 3 fronteras innegociables:
- *   1. Compañías que autogestionan SOAT se excluyen SIEMPRE (CA-01) — filtro en la consulta.
- *   2. Un gestor solo ve lo de su proveedor (CA-09) — filtro aquí, no en la UI.
- *   3. Un gestor NUNCA ve los Pendiente — se intersecta lo pedido con lo permitido.
+ * «Estancado» en SQL, para poder filtrar y contar por él.
+ *
+ * Es la misma regla que `estaEstancado()` aplica en JavaScript al ensamblar la fila; conviven
+ * porque la pastilla se pinta desde el objeto ya ensamblado y el filtro tiene que ocurrir en la
+ * consulta. Si una cambia, la otra debe cambiar con ella.
+ *
+ * `make_interval` y no `sla_horas || ' hours'`: la concatenación deja el tipo del parámetro
+ * ambiguo y Postgres la rechaza en tiempo de ejecución.
  */
-export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string): Promise<SoatColaItem[]> {
-  const conds = [eq(clients.soatAutogestionable, false)];
+const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
+  AND ${flitoSoat.enviadoEn} IS NOT NULL
+  AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS}))`;
+
+/**
+ * Condiciones de la cola, en un solo sitio. Las comparten la página y el conteo: si difieren, el
+ * total y las filas dejan de cuadrar sin que nada avise.
+ *
+ * Devuelve `null` cuando la frontera del gestor hace que no pueda ver NADA — distinto de «sin
+ * filtros», que sería devolver una lista vacía de condiciones y traerlo todo.
+ */
+function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
+  const conds = [FRONTERA_AUTOGESTION_SOAT];
 
   if (esGestor(ctx)) {
-    if (!ctx.proveedorSoatId) return []; // sin proveedor no hay frontera que aplicar → nada
+    if (!ctx.proveedorSoatId) return null; // sin proveedor no hay frontera que aplicar → nada
+    // Lo asumido por Operaciones desaparece de su cola. La condición va aquí, en las condiciones
+    // COMPARTIDAS por la página, el conteo y las facetas: si viviera solo en la consulta de filas,
+    // el total y los valores de los filtros seguirían contándolo y nadie lo notaría.
+    conds.push(eq(flitoSoat.gestionOperaciones, false));
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
-    const visibles = estados?.length
-      ? estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
+    const visibles = f.estados?.length
+      ? f.estados.filter((e) => (ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(e))
       : [EstadoSoat.SOLICITADO];
-    if (visibles.length === 0) return [];
+    if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
-  } else if (estados?.length) {
-    conds.push(inArray(flitoSoat.estado, estados));
+  } else if (f.estados?.length) {
+    conds.push(inArray(flitoSoat.estado, f.estados));
   }
 
-  const termino = buscar?.trim();
+  const termino = f.buscar?.trim();
   if (termino) {
     const term = termino.toUpperCase();
     const termNoSep = `%${term.replace(/[\s-]/g, '')}%`;
@@ -123,12 +196,57 @@ export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string
     );
   }
 
-  const rows = await db
-    .select({
+  if (f.companias?.length) conds.push(inArray(flitoSoat.companiaId, f.companias));
+  if (f.organismos?.length) conds.push(inArray(flitoSoat.organismoCodigo, f.organismos));
+  // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
+  // la condición de la frontera sigue vigente y el resultado sería vacío.
+  if (f.proveedores?.length) conds.push(inArray(flitoSoat.proveedorSoatId, f.proveedores));
+  if (f.gestion === 'operaciones') conds.push(eq(flitoSoat.gestionOperaciones, true));
+  else if (f.gestion === 'proveedor') conds.push(eq(flitoSoat.gestionOperaciones, false));
+
+  // Rangos inclusivos por día: `hasta` suma un día para no dejar fuera esa jornada.
+  if (f.solicitadoDesde) conds.push(sql`${flitoSoat.enviadoEn} >= ${f.solicitadoDesde}::date`);
+  if (f.solicitadoHasta) conds.push(sql`${flitoSoat.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
+  if (f.pagadoDesde) conds.push(sql`${flitoSoat.pagadoEn} >= ${f.pagadoDesde}::date`);
+  if (f.pagadoHasta) conds.push(sql`${flitoSoat.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+
+  if (f.estancado) conds.push(EXPR_ESTANCADO);
+
+  return conds;
+}
+
+/** Los joins de la cola, compartidos por la página y el conteo. */
+function conJoinsCola<Q extends PgSelect>(q: Q) {
+  return q
+    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
+    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
+    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+}
+
+/**
+ * Cola de SOAT con las 3 fronteras innegociables:
+ *   1. Compañías que autogestionan SOAT se excluyen SIEMPRE (CA-01) — filtro en la consulta.
+ *   2. Un gestor solo ve lo de su proveedor (CA-09) — filtro aquí, no en la UI.
+ *   3. Un gestor NUNCA ve los Pendiente — se intersecta lo pedido con lo permitido.
+ */
+export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatPaginada> {
+  const page = Math.max(1, Math.floor(f.page ?? 1));
+  const pageSize = Math.min(200, Math.max(1, Math.floor(f.pageSize ?? 50)));
+
+  const conds = condicionesCola(ctx, f);
+  if (conds === null) return { items: [], total: 0, page, pageSize };
+  const where = and(...conds);
+
+  const [countRows, rows] = await Promise.all([
+    conJoinsCola(db.select({ total: sql<number>`count(*)::int` }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.select({
       id: flitoSoat.id,
       vin: flitoSoat.vin,
       estado: flitoSoat.estado,
       proveedorSoatId: flitoSoat.proveedorSoatId,
+      gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn,
       pagadoEn: flitoSoat.pagadoEn,
       valorPagado: flitoSoat.valorPagado,
@@ -142,21 +260,55 @@ export async function cola(ctx: SoatCtx, estados?: EstadoSoat[], buscar?: string
       proveedorSoatNombre: flitoProveedoresSoat.nombre,
       proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
-    })
-    .from(flitoSoat)
-    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
-    .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
-    .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
-    .where(and(...conds))
-    .orderBy(asc(flitoSoat.createdAt)); // prioridad por antigüedad
+    }).from(flitoSoat).$dynamic()).where(where)
+      // Prioridad por antigüedad. El desempate por id es lo que evita que una fila salga en dos
+      // páginas (o en ninguna) cuando varias comparten el mismo instante de creación.
+      .orderBy(asc(flitoSoat.createdAt), asc(flitoSoat.id))
+      .limit(pageSize).offset((page - 1) * pageSize),
+  ]);
 
-  return ensamblarCola(rows);
+  return {
+    items: await ensamblarCola(rows as ColaRow[]),
+    total: Number(countRows[0]?.total ?? 0),
+    page,
+    pageSize,
+  };
+}
+
+export interface FacetasCola {
+  companias: { id: number; nombre: string }[];
+  organismos: { codigo: string; nombre: string | null }[];
+  proveedores: { id: string; nombre: string }[];
+}
+
+/**
+ * Valores disponibles para los filtros. Se calculan sobre el universo que el usuario PUEDE ver, no
+ * sobre la tabla entera: ofrecerle a un gestor filtrar por un proveedor ajeno sería contarle que
+ * existe.
+ */
+export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
+  const conds = condicionesCola(ctx, {});
+  if (conds === null) return { companias: [], organismos: [], proveedores: [] };
+  const where = and(...conds);
+
+  const [companias, organismos, proveedores] = await Promise.all([
+    conJoinsCola(db.selectDistinct({ id: clients.id, nombre: clients.name }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.selectDistinct({ codigo: organismosTransitoConfig.codigo, nombre: organismosTransitoConfig.alias }).from(flitoSoat).$dynamic()).where(where),
+    conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
+  ]);
+
+  return {
+    companias: (companias as { id: number; nombre: string }[]).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    organismos: (organismos as { codigo: string; nombre: string | null }[]).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+    // Los SOAT sin proveedor asignado producen una fila nula en el DISTINCT: no es un proveedor.
+    proveedores: (proveedores as { id: string | null; nombre: string | null }[])
+      .filter((p): p is { id: string; nombre: string } => !!p.id && !!p.nombre)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre)),
+  };
 }
 
 type ColaRow = {
-  id: string; vin: string; estado: string; proveedorSoatId: string | null; enviadoEn: Date | null;
+  id: string; vin: string; estado: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
   pagadoEn: Date | null; valorPagado: string | null; motivoRechazo: string | null; createdAt: Date;
   placa: string | null; marca: string | null; linea: string | null; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
@@ -166,7 +318,15 @@ type ColaRow = {
 async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
   const ids = rows.map((r) => r.id);
   const tramites = ids.length
-    ? await db.select({ id: flitoTramites.id, soatId: flitoTramites.soatId, idFlit: flitoTramites.idFlit, tipoPropiedad: flitoTramites.tipoPropiedad })
+    ? await db.select({
+        id: flitoTramites.id, soatId: flitoTramites.soatId, idFlit: flitoTramites.idFlit,
+        tipoPropiedad: flitoTramites.tipoPropiedad,
+        tipoTramite: flitoTramites.tipoTramite,
+        fechaAprobacion: flitoTramites.fechaAprobacion,
+        // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila: en la carga
+        // masiva inicial todos los históricos comparten el mismo día.
+        fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+      })
         .from(flitoTramites).where(inArray(flitoTramites.soatId, ids))
     : [];
   const tramiteIds = tramites.map((t) => t.id);
@@ -199,22 +359,47 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       organismoNombre: r.organismoNombre,
       proveedorSoatId: r.proveedorSoatId,
       proveedorSoatNombre: r.proveedorSoatNombre,
+      gestionOperaciones: r.gestionOperaciones,
       compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
       tramitesFlit: ts.map((t) => t.idFlit),
+      tipoTramite: comun(ts, (t) => t.tipoTramite),
+      fechaAprobacion: aIso(comun(ts, (t) => t.fechaAprobacion)),
+      fechaCreacion: aIso(comun(ts, (t) => t.fechaCreacion)),
       enviadoPorNombre: r.enviadoPorNombre,
       enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
+      pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
-      estancado: estaEstancado(r.estado, r.enviadoEn, r.proveedorSlaHoras),
+      estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo,
       creadoEn: r.createdAt.toISOString(),
     };
   });
 }
 
+/**
+ * El valor que comparten TODOS los trámites de un SOAT, o null si discrepan.
+ *
+ * Un SOAT es por VIN y puede servir a varios trámites (RN-01). Cuando eso pasa, «el tipo de
+ * trámite» de ese SOAT no existe: devolver el del primero pondría en la columna un dato con
+ * aspecto de cierto que depende del orden de la consulta. Null es la respuesta honesta, y la
+ * pantalla lo rotula «varios».
+ */
+function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
+  if (items.length === 0) return null;
+  const primero = leer(items[0]);
+  if (primero === null) return null;
+  const iguales = items.every((t) => {
+    const v = leer(t);
+    // Las fechas no se comparan con ===: dos Date del mismo instante son objetos distintos.
+    return v instanceof Date && primero instanceof Date ? v.getTime() === primero.getTime() : v === primero;
+  });
+  return iguales ? primero : null;
+}
+
 /** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
-function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number | null): boolean {
-  if (estado !== EstadoSoat.SOLICITADO || !slaHoras || !enviadoEn) return false;
-  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > slaHoras;
+function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
+  if (estado !== EstadoSoat.SOLICITADO || !enviadoEn) return false;
+  return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
 // ───────────────────────────── Detalle + acceso (404-no-403) ────────────────
@@ -227,14 +412,22 @@ function estaEstancado(estado: string, enviadoEn: Date | null, slaHoras: number 
  */
 export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect | null> {
   const [soat] = await db
-    .select({ soat: flitoSoat, soatAutogestionable: clients.soatAutogestionable })
+    .select({ soat: flitoSoat, dentroDeFrontera: FRONTERA_AUTOGESTION_SOAT })
     .from(flitoSoat)
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(eq(flitoSoat.id, id))
     .limit(1);
   if (!soat) return null;
-  if (soat.soatAutogestionable) return null;
+  // La misma frontera que la cola: autogestionado queda fuera, salvo que se desbloqueara. Antes
+  // aquí se miraba solo la bandera del cliente, así que un SOAT desbloqueado entraba en la cola y
+  // luego daba 404 al abrirlo o al enviarlo (HU #11021).
+  if (!soat.dentroDeFrontera) return null;
   if (esGestor(ctx)) {
+    // Lo que asumió Operaciones sale de su alcance aunque siga apuntando a su proveedor: el
+    // proveedor se conserva a propósito (HU #11153), así que la bandera es lo único que decide.
+    // Va aquí y no solo en la cola porque esta función es la que sostiene el 404-no-403 del
+    // detalle, el historial, el rechazo y la carga de factura.
+    if (soat.soat.gestionOperaciones) return null;
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
   }
@@ -248,6 +441,7 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
   const rows = await db
     .select({
       id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, proveedorSoatId: flitoSoat.proveedorSoatId,
+      gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn, pagadoEn: flitoSoat.pagadoEn, valorPagado: flitoSoat.valorPagado,
       motivoRechazo: flitoSoat.motivoRechazo, createdAt: flitoSoat.createdAt,
       placa: vehicles.plate, marca: vehicles.brand, linea: vehicles.model,
@@ -274,12 +468,23 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
 export interface ResultadoEnvio { enviados: string[]; yaEnviados: string[] }
 
 /**
+ * A quién se envía. Son excluyentes y la ruta lo valida antes de llegar aquí; si aun así llegaran
+ * los dos, `gestionOperaciones` gana, para que ninguna fila acabe con las dos formas de gestión a
+ * la vez (AC6). Eso es una red de seguridad, no el contrato.
+ */
+export interface DestinoEnvio {
+  proveedorSoatId?: string;
+  /** true = lo asume Operaciones por contingencia; el SOAT queda sin proveedor (HU #11152). */
+  gestionOperaciones?: boolean;
+}
+
+/**
  * Envía SOAT al gestor: Pendiente → En adquisición. Solo Operaciones. La atomicidad es
  * obligatoria (CA-04): con dos usuarios despachando la misma cola, leer-luego-escribir deja
  * que ambos envíen el mismo registro. `SELECT ... FOR UPDATE OF s SKIP LOCKED` hace que el
- * segundo no vea la fila que el primero bloqueó. El proveedor se fija en el mismo movimiento.
+ * segundo no vea la fila que el primero bloqueó. El destino se fija en el mismo movimiento.
  */
-export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatId?: string): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
 
   const enviados = await db.transaction(async (tx) => {
@@ -292,19 +497,42 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, proveedorSoatI
       .where(and(
         inArray(flitoSoat.id, ids),
         eq(flitoSoat.estado, EstadoSoat.PENDIENTE),
-        eq(clients.soatAutogestionable, false),
+        FRONTERA_AUTOGESTION_SOAT,
       ))
       .for('update', { of: flitoSoat, skipLocked: true });
     const idsEnviados = locked.map((r) => r.id);
     if (idsEnviados.length === 0) return [];
 
+    const ahora = new Date();
+    // El proveedor se pone a null explícitamente y no se deja "como estaba": desde Pendiente ya
+    // debería serlo, pero una reversa desde En adquisición devuelve el SOAT a Pendiente sin
+    // limpiarlo, y ese resto convertiría a este envío en un registro con proveedor Y contingencia.
+    const aDestino = destino.gestionOperaciones
+      ? {
+          gestionOperaciones: true,
+          gestionOperacionesPorId: ctx.userId,
+          gestionOperacionesEn: ahora,
+          proveedorSoatId: null,
+          proveedorSobrescrito: false,
+        }
+      : { proveedorSoatId: destino.proveedorSoatId, proveedorSobrescrito: true };
+
     await tx.update(flitoSoat).set({
       estado: EstadoSoat.SOLICITADO,
       enviadoPorId: ctx.userId,
-      enviadoEn: new Date(),
-      updatedAt: new Date(),
-      ...(proveedorSoatId ? { proveedorSoatId, proveedorSobrescrito: true } : {}),
+      enviadoEn: ahora,
+      updatedAt: ahora,
+      ...aDestino,
     }).where(inArray(flitoSoat.id, idsEnviados));
+
+    // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
+    // historial cuenta lo que pasó, no lo que se intentó.
+    const motivo = destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor';
+    await registrarCambios(tx, idsEnviados.map((sid) => ({
+      concepto: 'soat' as const, registroId: sid,
+      estadoAnterior: EstadoSoat.PENDIENTE, estadoNuevo: EstadoSoat.SOLICITADO,
+      motivo, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    })));
 
     return idsEnviados;
   });
@@ -324,24 +552,40 @@ export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promis
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (soat.estado !== EstadoSoat.SOLICITADO) throw new SoatError(400, 'Solo se puede rechazar un SOAT en adquisición');
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del rechazo es obligatorio');
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: EstadoSoat.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  // En transacción con el historial: un estado sin su fila de historial es justo el agujero que el
+  // historial viene a tapar, así que o entran los dos o no entra ninguno.
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.CON_NOVEDAD, motivoRechazo: motivo.trim(), updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: EstadoSoat.CON_NOVEDAD,
+      motivo: `Rechazo: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /** Devuelve un SOAT rechazado a la cola (CA-08). Solo Operaciones, solo desde Rechazado. */
-export async function reactivar(id: string, motivo: string): Promise<typeof flitoSoat.$inferSelect> {
+export async function reactivar(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (soat.estado !== EstadoSoat.CON_NOVEDAD) {
     throw new SoatError(400, `Solo un SOAT rechazado vuelve a Pendiente. Este está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`);
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo de la corrección es obligatorio');
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: EstadoSoat.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.PENDIENTE, enviadoPorId: null, enviadoEn: null, motivoRechazo: null, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: EstadoSoat.PENDIENTE,
+      motivo: `Reactivación: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /**
@@ -349,7 +593,7 @@ export async function reactivar(id: string, motivo: string): Promise<typeof flit
  * inmutable: solo Operaciones lo mueve, con justificación (≥5) y rastro. Reversar un pagado es
  * lo único que devuelve un VIN a la cola, por eso no está en ningún camino automático.
  */
-export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string): Promise<typeof flitoSoat.$inferSelect> {
+export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
@@ -358,10 +602,19 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
-  const [updated] = await db.update(flitoSoat)
-    .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, id)).returning();
-  return updated;
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
+    // de `pagado`, así que el motivo va literal al historial.
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
+      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 /**
@@ -384,6 +637,109 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
     .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
     .where(eq(flitoSoat.id, id)).returning();
   return { soat: updated, anterior };
+}
+
+// ─────────────────── Traspaso de gestión: Operaciones ↔ proveedor (HU #11153) ─
+
+/**
+ * Estados en los que el traspaso tiene sentido: el registro ya salió a gestión y todavía no se
+ * pagó. `pendiente` no ha salido —para eso está el destino del envío (HU #11152)— y `pagado` ya
+ * consumió el dinero, así que cambiarle el gestor no describe nada real.
+ */
+const ESTADOS_TRASPASO_GESTION: readonly EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD];
+
+const MOTIVO_MINIMO = 5;
+
+/** Mensaje según por qué el estado no admite traspaso: el usuario necesita saber cuál de los dos es. */
+function noAdmiteTraspaso(estado: EstadoSoat): SoatError {
+  if (estado === EstadoSoat.PAGADO) {
+    return new SoatError(400, 'Este SOAT ya está pagado: su gestión no se traspasa. Si hay que rehacerlo, primero reversarlo con justificación.');
+  }
+  return new SoatError(400, `Este SOAT aún no se ha enviado a gestión (está en "${ESTADO_SOAT_LABEL[estado]}"). Elige el destino al enviarlo.`);
+}
+
+function exigirMotivo(motivo: string, accion: string): string {
+  const limpio = motivo?.trim() ?? '';
+  if (limpio.length < MOTIVO_MINIMO) throw new SoatError(400, `${accion} exige un motivo que explique el porqué`);
+  return limpio;
+}
+
+/**
+ * Operaciones asume la gestión de un SOAT que ya está con un proveedor (contingencia).
+ *
+ * NO cambia el estado ni toca `enviadoEn`: el SOAT lleva el tiempo que lleva en adquisición, y
+ * reiniciarlo escondería el retraso que justamente motivó la contingencia. Tampoco borra
+ * `proveedorSoatId` — se conserva para poder devolvérselo de un clic y para que el reporte por
+ * proveedor siga contando de quién se retomó. Quien decide la visibilidad es la bandera.
+ *
+ * Alternativa descartada: reutilizar `cambiarProveedor()`. RN-05 prohíbe cambiar de proveedor sobre
+ * un SOAT En adquisición porque dejaría el registro con un gestor sin acceso; esa prohibición sigue
+ * en pie. Esto es otra operación: no reasigna entre terceros, retira el caso de los terceros.
+ */
+export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
+  const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
+  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  const limpio = exigirMotivo(motivo, 'Asumir la gestión en Operaciones');
+  if (soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT ya lo gestiona Operaciones');
+  if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat).set({
+      gestionOperaciones: true,
+      gestionOperacionesMotivo: limpio,
+      gestionOperacionesPorId: ctx.userId,
+      gestionOperacionesEn: ahora,
+      updatedAt: ahora,
+    }).where(eq(flitoSoat.id, id)).returning();
+
+    // El estado no cambia, así que anterior y nuevo coinciden. El historial deja de ser solo de
+    // transiciones y pasa a ser de eventos del registro — que es lo que el detalle ya muestra.
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
+      motivo: `Gestión asumida por Operaciones${soat.proveedorSoatId ? ` (retomada del proveedor ${soat.proveedorSoatId})` : ''}: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
+}
+
+/**
+ * Devuelve al proveedor un SOAT que gestionaba Operaciones. Limpia las marcas de contingencia: las
+ * columnas describen la situación ACTUAL, y el rastro de lo que pasó vive en el historial.
+ */
+export async function devolverAlGestor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
+  const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
+  if (!soat) throw new SoatError(404, 'El SOAT no existe');
+  const limpio = exigirMotivo(motivo, 'Devolver la gestión al proveedor');
+  if (!soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT no lo gestiona Operaciones: no hay nada que devolver');
+  if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
+
+  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
+    .where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
+  if (!prov) throw new SoatError(404, 'El proveedor no existe');
+
+  const ahora = new Date();
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat).set({
+      gestionOperaciones: false,
+      gestionOperacionesMotivo: null,
+      gestionOperacionesPorId: null,
+      gestionOperacionesEn: null,
+      proveedorSoatId,
+      proveedorSobrescrito: true,
+      updatedAt: ahora,
+    }).where(eq(flitoSoat.id, id)).returning();
+
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
+      motivo: `Gestión devuelta al proveedor ${proveedorSoatId}: ${limpio}`,
+      usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
+  });
 }
 
 // ═══════════════════════ Carga de factura → Pagado (Fase 3, RN-03) ═══════════
@@ -472,14 +828,32 @@ async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: Es
   if (Number(n) === 0) throw new SoatError(400, 'No se puede marcar pagado un SOAT sin factura cargada');
 
   const valorTotal = extraccion[CampoSoat.VALOR_TOTAL]?.valor ?? null;
+  // La póliza sube de `extraccion` a su columna en el mismo `set()` que el estado (Feature #11623):
+  // son el mismo hecho, y separarlos dejaría SOAT pagados sin la llave con la que se concilian.
+  // `polizaParaColumna` es la misma normalización que el backfill de la 0157, para que un SOAT
+  // pagado hoy y uno migrado ayer se puedan comparar entre sí.
+  //
+  // Cuando no hay póliza legible NO se escribe nada: la columna se deja como esté. Poner `null`
+  // aquí borraría una corrección hecha a mano —el OCR no es la única fuente que puede tener razón—
+  // y esta transición no es el sitio para decidir eso. En la práctica el caso es raro: la póliza es
+  // un campo requerido para llegar a `pagado` (CAMPOS_REQUERIDOS_SOAT).
+  const numeroPoliza = polizaParaColumna(extraccion[CampoSoat.NUMERO_POLIZA]?.valor);
   await tx.update(flitoSoat).set({
     estado: EstadoSoat.PAGADO,
     extraccion,
     valorPagado: valorTotal, // numeric acepta el string ya normalizado a pesos enteros
+    ...(numeroPoliza ? { numeroPoliza } : {}),
     pagadoEn: new Date(),
     motivoRechazo: null,
     updatedAt: new Date(),
   }).where(eq(flitoSoat.id, soatId));
+
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soatId,
+    estadoAnterior, estadoNuevo: EstadoSoat.PAGADO,
+    motivo: `Pago confirmado por factura. Valor ${valorTotal ?? '—'}.`,
+    usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  });
 
   const noExigidosSinLeer = CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR.filter((c) => !extraccion[c]?.confiable);
   await auditEnTx(tx, ctx, soatId,
@@ -507,13 +881,14 @@ export async function marcarPagado(soatId: string, extraccion: ExtraccionSoat, c
 // Datos de un SOAT necesarios para leer y archivar su factura: llave, compañía (carpeta S3) y umbral.
 interface DatosCarga {
   soatId: string; vin: string; placa: string | null; estado: EstadoSoat;
-  companiaId: number; document: string | null; carpeta: string | null; umbralOcr: string | null;
+  // `document` NO se trae (HU #11770): la carpeta se nombra con el id de la compañía, no con su NIT.
+  companiaId: number; carpeta: string | null; umbralOcr: string | null;
 }
 
 async function datosCargaPorId(id: string): Promise<DatosCarga | null> {
   const [r] = await db.select({
     soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
-    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    companiaId: clients.id, carpeta: clients.flitoCarpetaStorage,
     umbralOcr: flitoProveedoresSoat.umbralOcr,
   }).from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
@@ -532,7 +907,7 @@ async function facturaDuplicada(hash: string): Promise<boolean> {
 
 /** Sube la factura a S3 y devuelve su storage_key. Va ANTES de tocar la BD (CA-11). */
 async function archivarFactura(datos: DatosCarga, archivo: ArchivoSubido): Promise<string> {
-  const carpeta = carpetaDe({ id: datos.companiaId, document: datos.document, flitoCarpetaStorage: datos.carpeta }, 'soat/facturas');
+  const carpeta = carpetaDe({ id: datos.companiaId, flitoCarpetaStorage: datos.carpeta }, 'soat/facturas');
   return uploadEntityDocument(carpeta, datos.soatId, archivo.originalname, archivo.buffer, archivo.mimetype);
 }
 
@@ -618,17 +993,20 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
 
   const conds = [
     eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
-    eq(clients.soatAutogestionable, false),
+    FRONTERA_AUTOGESTION_SOAT,
     or(...llave)!,
   ];
   if (esGestor(ctx)) {
     if (!ctx.proveedorSoatId) return null;
+    // Misma frontera que la cola: un comprobante del gestor no cruza con lo que asumió Operaciones,
+    // así que se informa como no asociado y ni siquiera se archiva.
+    conds.push(eq(flitoSoat.gestionOperaciones, false));
     conds.push(eq(flitoSoat.proveedorSoatId, ctx.proveedorSoatId));
   }
 
   const [r] = await db.select({
     soatId: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, placa: vehicles.plate,
-    companiaId: clients.id, document: clients.document, carpeta: clients.flitoCarpetaStorage,
+    companiaId: clients.id, carpeta: clients.flitoCarpetaStorage,
     umbralOcr: flitoProveedoresSoat.umbralOcr,
   }).from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
@@ -663,8 +1041,12 @@ export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatC
 
       const datos = await buscarEnAdquisicion(placaLeida, vinLeido, ctx);
       if (!datos) {
+        // Se DESCARTA: ni archivo ni registro. Hubo una etapa en que se guardaba en una bandeja para
+        // que un reintento lo cruzara al aparecer el SOAT, y se retiró por decisión de negocio —los
+        // comprobantes huérfanos se acumulaban sin llegar a cruzar—. Lo que queda es el aviso, con la
+        // placa leída, para poder volver a subirlo cuando el SOAT exista.
         res.noAsociados.push({ archivo: archivo.originalname, placa: placaLeida, soatId: null,
-          detalle: 'No cruza con ningún SOAT en adquisición. No se guardó.' });
+          detalle: 'No cruza con ningún SOAT en adquisición. Se descarta: vuelve a cargarlo cuando el SOAT exista.' });
         continue;
       }
 
@@ -707,3 +1089,6 @@ async function expandir(archivos: ArchivoSubido[]): Promise<ArchivoSubido[]> {
   }
   return salida;
 }
+
+// ─────────────────────────── Reintento de pendientes ─────────────────────────
+

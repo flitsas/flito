@@ -1,10 +1,14 @@
 // Spec 7/7 — Accesibilidad WCAG 2.2 AA del módulo Diagnóstico.
 //
 // El repo NO tiene `@axe-core/playwright` instalado. Para mantener "NO instalar
-// deps", inyectamos `axe.min.js` vía CDN con `page.addScriptTag` cuando la
-// variable de entorno PESV_A11Y_AXE_CDN=1 está activa (por defecto OFF en CI
-// air-gapped, ON en local con red). Los chequeos de teclado/foco/aria/regiones
+// deps", `axe.min.js` se inyecta desde fuera: `QA_AXE_PATH=/ruta/axe.min.js` lo
+// toma de disco (determinista, sin red) y `QA_AXE_CDN=1` —o el alias heredado
+// PESV_A11Y_AXE_CDN=1— lo descarga. Los chequeos de teclado/foco/aria/regiones
 // live se ejecutan SIEMPRE, no dependen de axe.
+//
+// Sin ninguna de esas fuentes, estos tests **fallan** con un mensaje de entorno
+// (HU #11650). Antes pasaban en verde tras un `console.warn`, que es peor que
+// omitirlos: un `skip` al menos sale en el resumen.
 //
 // Cubre 4 vistas:
 //   - lista                       (/pesv/diagnostico)
@@ -29,43 +33,10 @@ import {
 
 const DIAG_ID = 77;
 
-const AXE_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js';
-const USE_AXE = process.env.PESV_A11Y_AXE_CDN === '1';
-
-async function runAxe(page: Page): Promise<{ ran: boolean; violations: Array<{ id: string; impact: string; nodes: number }> }> {
-  if (!USE_AXE) return { ran: false, violations: [] };
-  try {
-    await page.addScriptTag({ url: AXE_CDN });
-  } catch {
-    return { ran: false, violations: [] };
-  }
-  const result = await page.evaluate(async () => {
-    // @ts-expect-error inyectado via CDN
-    const r = await window.axe.run(document, {
-      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
-    });
-    return {
-      violations: r.violations.map((v: { id: string; impact?: string; nodes: unknown[] }) => ({
-        id: v.id,
-        impact: v.impact ?? 'minor',
-        nodes: v.nodes.length,
-      })),
-    };
-  });
-  return { ran: true, violations: result.violations };
-}
-
-function expectNoSeriousCritical(result: Awaited<ReturnType<typeof runAxe>>, scope: string) {
-  if (!result.ran) {
-    console.warn(`[a11y] axe-core no disponible (PESV_A11Y_AXE_CDN=${process.env.PESV_A11Y_AXE_CDN ?? 'unset'}); chequeos heurísticos sólo en ${scope}.`);
-    return;
-  }
-  const seriousOrCritical = result.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-  if (seriousOrCritical.length > 0) {
-    console.error(`[a11y] violaciones serias/críticas en ${scope}:`, seriousOrCritical);
-  }
-  expect(seriousOrCritical, `violaciones a11y serias/críticas en ${scope}`).toEqual([]);
-}
+// HU #11650 — la carga de axe y el veredicto viven en el helper compartido. Deja de aplicar lo
+// que dice la cabecera sobre degradar en silencio: sin axe estos tests FALLAN con un mensaje de
+// entorno. `PESV_A11Y_AXE_CDN=1` se sigue honrando; los 4 puntos de llamada no cambian.
+import { correrAxe as runAxe, esperarSinViolacionesGraves as expectNoSeriousCritical } from '../helpers/axe';
 
 test.describe('PESV Diagnóstico · A11y WCAG 2.2 AA', () => {
   test.beforeEach(async ({ page }) => {

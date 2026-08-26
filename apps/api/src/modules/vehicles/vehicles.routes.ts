@@ -5,7 +5,8 @@ import multer from 'multer';
 import { db } from '../../db/client.js';
 import { vehicles, soatRequests } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
-import { parseExcel, sendExcel } from '../../shared/utils/excel.js';
+import { sendExcel, limitesXlsx, rechazoXlsxAHttp, bufferParaExcelJS, MIME_XLSX } from '../../shared/utils/excel.js';
+import { medirXlsx } from '../../shared/utils/xlsx-zip.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { normalizeDocument } from '../../shared/utils/crypto.js';
 import { loggerFor } from '../../shared/logger.js';
@@ -15,7 +16,74 @@ import { parseFechaRangoQuery, createdInRangeCondition } from '../../shared/util
 const log = loggerFor('vehicles');
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/**
+ * Techo de lo que el libro puede ocupar DESCOMPRIMIDO (Bug #11682).
+ *
+ * Los 10 MB de multer acotan lo que viaja por la red, no lo que ocupa en el heap: un xlsx normal
+ * comprime ~12:1 —medido en este repo—, así que un archivo que pasa ese tope y el magic number puede
+ * traer más de 100 MB de `sheet1.xml` dentro. Ese es el archivo con el que se reprodujo el fallo:
+ * 580 000 filas, 10,0 MB en disco y 122 MB por dentro. Esta ruta se comía 32,5 s de event loop y
+ * +2553 MB de heap ANTES de mirar nada, y con el heap a 512 MB mataba el proceso con
+ * `FATAL ERROR: Ineffective mark-compacts near heap limit`, que ningún `try/catch` atrapa.
+ *
+ * ── Contra qué se calcula ───────────────────────────────────────────────────────────────────────
+ * NO contra el `--max-old-space-size=4096` del Dockerfile: esa línea es de la ETAPA DE BUILD y su
+ * propio comentario dice que el runtime no la hereda. En producción el API corre bajo PM2 en una
+ * sola instancia fork con `max_memory_restart: '512M'` sobre el RSS (`ecosystem.config.cjs:22`), en
+ * régimen de ~200 MB. Cruzar ese techo no degrada esta petición: PM2 reinicia el proceso entero y se
+ * lleva por delante las peticiones en vuelo de todos los módulos.
+ *
+ * ── Por qué 6 MB ────────────────────────────────────────────────────────────────────────────────
+ *   · El formato ancho es el de RUNT: 36 columnas, 2 375 B por fila descomprimido —medido con
+ *     ExcelJS sobre 200 / 1 000 / 5 000 / 20 000 filas—. 6 MB son ~2 500 filas de ese formato, o
+ *     ~21 000 del formato simple de nueve columnas.
+ *   · Medido POR ESTA RUTA con un archivo justo en el techo (2 500 filas RUNT): +42 MB de heap y
+ *     0,7 s. Tres a la vez son ~130 MB sobre los ~200 MB de régimen: caben bajo los 512 MB de PM2.
+ *     Con 12 MB el coste medido sube a +111 MB por carga y tres simultáneas lo cruzan.
+ *   · 2 500 filas ya es el techo OPERATIVO de esta ruta por otro motivo: el bucle de abajo hace un
+ *     INSERT secuencial por fila. Si Operaciones necesitara cargar más vehículos de una tacada,
+ *     lo que habría que cambiar no es este número, es ese bucle.
+ *
+ * No se copió el de Conciliación (16 MB): allí el archivo es el reporte del portal, con un tope de
+ * negocio de 500 filas y 25 KB reales. Aquí el formato y el volumen son otros.
+ *
+ * Ninguna de estas rutas limita la CONCURRENCIA, así que el número se elige para que TRES cargas
+ * simultáneas al tope quepan en el presupuesto, no una.
+ */
+export const VEHICULOS_CARGA_MAX_DESCOMPRIMIDO = 6 * 1024 * 1024;
+const LIMITES_CARGA = limitesXlsx(VEHICULOS_CARGA_MAX_DESCOMPRIMIDO);
+
+/**
+ * Sin `fileFilter`, el content-type que declara el cliente viaja intacto hasta el parser. El criterio
+ * es el mismo que ya usa `flito-conciliacion.routes.ts`; el olfateo real de los bytes va después, con
+ * `medirXlsx`, porque multer no puede hacerlo sin el buffer completo (AGENTS.md 17).
+ */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4, parts: 6 },
+  fileFilter: (_req, file, cb) => {
+    // El MIME rechazado no se devuelve: es una cadena que escribe el cliente.
+    if (file.mimetype === MIME_XLSX) cb(null, true);
+    else cb(new Error('El archivo debe ser un .xlsx'));
+  },
+});
+
+/** Los rechazos de multer salen como 400/413 con el motivo, no como el 500 del error handler. */
+function recibirXlsx(req: Request, res: Response, next: (e?: unknown) => void): void {
+  upload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      const codigo = (err as { code?: string }).code;
+      res.status(codigo === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+        error: codigo === 'LIMIT_FILE_SIZE'
+          ? 'El archivo no puede superar 10 MB'
+          : (err instanceof Error ? err.message : 'Archivo inválido'),
+      });
+      return;
+    }
+    next();
+  });
+}
 
 function parseId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -152,14 +220,24 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 });
 
 // Bulk upload from Excel (auto-detect RUNT format or simple format)
-router.post('/upload', requireRole('admin'), upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', requireRole('admin'), recibirXlsx, async (req: Request, res: Response) => {
   if (!req.file) {
     res.status(400).json({ error: 'Archivo requerido' });
     return;
   }
 
+  // ANTES de abrir el libro: `load` descomprime y materializa el archivo entero en el heap, así que
+  // un tope mirado sobre el libro ya cargado llega tarde (Bug #11682). Ver shared/utils/xlsx-zip.ts.
+  const medida = await medirXlsx(req.file.buffer, LIMITES_CARGA);
+  if (medida.estado !== 'ok') {
+    const { status, mensaje } = rechazoXlsxAHttp(medida, LIMITES_CARGA);
+    log.warn({ estado: medida.estado }, 'xlsx de carga masiva rechazado sin abrirlo');
+    res.status(status).json({ error: mensaje });
+    return;
+  }
+
   const workbook = new (await import('exceljs')).default.Workbook();
-  await workbook.xlsx.load(req.file.buffer as any);
+  await workbook.xlsx.load(bufferParaExcelJS(req.file.buffer));
   const sheet = workbook.worksheets[0];
   if (!sheet) { res.status(400).json({ error: 'Hoja vacía' }); return; }
 

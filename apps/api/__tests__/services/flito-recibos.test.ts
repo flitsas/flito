@@ -112,7 +112,10 @@ describe('recibos — flujo', () => {
     expect(extraerMock).not.toHaveBeenCalled();
   });
 
-  it('placa que no cruza con ningún en gestión (ni pagado) → noAsociado', async () => {
+  it('placa que no cruza con ningún en gestión (ni pagado) → se DESCARTA', async () => {
+    // La HU #10982 lo archivaba en una bandeja para que un reintento lo cruzara al llegar el impuesto
+    // desde FLIT. Se retiró: la bandeja acumulaba recibos que no llegaban a cruzar. El aviso queda, y
+    // el fichero original sigue en manos de quien lo cargó, así que se puede reintentar.
     selectMock.mockReturnValueOnce(chain([]));  // dedup hash
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([]));  // candidato EN_GESTION
@@ -120,6 +123,7 @@ describe('recibos — flujo', () => {
     const r = await request(await buildApp()).post('/api/flito/impuestos/recibos').set('Authorization', await auth('admin')).attach('archivos', Buffer.from('%PDF'), 'QTQ100.pdf');
     expect(r.status).toBe(200);
     expect(r.body.noAsociados).toHaveLength(1);
+    expect(r.body.noAsociados[0].detalle).toMatch(/se descarta/i);
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
@@ -128,7 +132,10 @@ describe('recibos — flujo', () => {
     extraerMock.mockResolvedValueOnce(reciboOk);
     selectMock.mockReturnValueOnce(chain([candidato]));  // candidato EN_GESTION
     selectMock.mockReturnValueOnce(chain([]));           // dedup por número de recibo
-    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValueOnce(chain([])); // soporte + audit
+    // El primero devuelve el soporte; los demás (bitácora, historial de estado) no se leen. Con
+    // `mockReturnValue` de respaldo, añadir una escritura más a la transacción no vuelve a romper
+    // este test por una razón que no tiene que ver con lo que comprueba.
+    const txInsert = vi.fn().mockReturnValueOnce(chain([{ id: 'sop1' }])).mockReturnValue(chain([]));
     const txUpdate = vi.fn().mockReturnValue(chain([]));
     transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ insert: txInsert, update: txUpdate }));
 

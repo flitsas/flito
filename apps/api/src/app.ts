@@ -7,8 +7,10 @@ import { sql } from 'drizzle-orm';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
+import { metricsAuth } from './shared/middleware/metricsAuth.js';
+import { esUuid } from './shared/utils/uuid.js';
 import { registry } from './shared/metrics.js';
-import { apiLimiter, authLimiter } from './shared/middleware/rateLimiter.js';
+import { apiLimiter, authLimiter, metricsLimiter } from './shared/middleware/rateLimiter.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import usersRoutes from './modules/users/users.routes.js';
 import vehiclesRoutes from './modules/vehicles/vehicles.routes.js';
@@ -21,13 +23,35 @@ import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-pa
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
+import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
+import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
 import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
 import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
 import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
+import flitoBolsasRoutes from './modules/flito-bolsas/flito-bolsas.routes.js';
+import flitoComparendosRoutes from './modules/flito-comparendos/flito-comparendos.routes.js';
+import flitoConciliacionRoutes from './modules/flito-conciliacion/flito-conciliacion.routes.js';
 import finanzasRoutes from './modules/finanzas/finanzas.routes.js';
+import siigoCredencialesRoutes from './modules/siigo/credenciales.routes.js';
+import siigoCompuertaRoutes from './modules/siigo/compuerta.routes.js';
+import siigoMapeoConceptosRoutes from './modules/siigo/mapeo-conceptos.routes.js';
+import siigoParametrizacionRoutes from './modules/siigo/parametrizacion.routes.js';
+import siigoCiudadesRoutes from './modules/siigo/ciudades.routes.js';
+import siigoValidadorClienteRoutes from './modules/siigo/validador-cliente.routes.js';
+import siigoCiudadesMapeoRoutes from './modules/siigo/ciudades-mapeo.routes.js';
+import siigoLineaTiempoRoutes from './modules/siigo/linea-tiempo.routes.js';
+import siigoFrenoRoutes from './modules/siigo/freno.routes.js';
+import siigoCorreccionesRoutes from './modules/siigo/correcciones.routes.js';
+import siigoEnviosRoutes from './modules/siigo/envio-correo.routes.js';
+import siigoFacturacionTramitesRoutes from './modules/siigo/facturacion-tramites.routes.js';
+import siigoFacturacionRoutes from './modules/siigo/facturacion.routes.js';
+import siigoTercerosRoutes from './modules/siigo/terceros.routes.js';
+import siigoProductosRoutes from './modules/siigo/productos.routes.js';
+import siigoElegibilidadRoutes from './modules/siigo/elegibilidad.routes.js';
+import siigoReconciliacionRoutes from './modules/siigo/reconciliacion.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -151,8 +175,28 @@ export function createApp() {
   app.use(express.json({ limit: '5mb' }));
 
   // Request ID for traceability (ISO 27001 A.8.15)
+  //
+  // Bug #11622 — la cabecera se VALIDA, no solo se rellena. Con `|| randomUUID()` bastaba con que
+  // el cliente mandara `X-Request-Id: x` (truthy) para que ese valor llegara intacto al INSERT de
+  // `pii_access_log`, cuya columna `request_id` es `uuid`: PostgreSQL respondía 22P02, el `catch`
+  // best-effort de `logPiiAccess` se lo tragaba y el acceso a datos personales quedaba entregado
+  // SIN la fila que exige el art. 17 de la Ley 1581. Es decir: un usuario autenticado podía
+  // suprimir su propio rastro desde una cabecera, en los 15 puntos de llamada del helper.
+  //
+  // Esta validación es la mitad del arreglo y no vale sola: `logPiiAccess` sanea otra vez antes de
+  // insertar, y ahí se cierra además la MISMA cadena por `X-Forwarded-For` (22001 sobre un
+  // `varchar(45)`), que este middleware no toca. Quien venga a evaluar si el helper debe seguir
+  // fallando abierto tiene el inventario completo —lo cerrado y lo no auditado— en el `catch` de
+  // `shared/pii-audit.ts`, no aquí.
+  //
+  // Se DESCARTA el valor no-UUID en vez de conservarlo aparte (p. ej. en `req.clientRequestId`):
+  // hoy nadie hace eco de esta cabecera al cliente —`errorHandler` solo la escribe en el log del
+  // servidor y ninguna respuesta la devuelve como header—, así que sobrescribir no rompe ninguna
+  // correlación existente. Guardar el valor crudo del cliente para loguearlo sería meter texto
+  // arbitrario y no acotado en la traza, que es justo lo contrario de lo que este id sirve.
   app.use((req, _res, next) => {
-    req.headers['x-request-id'] = req.headers['x-request-id'] || crypto.randomUUID();
+    const entrante = req.headers['x-request-id'];
+    req.headers['x-request-id'] = esUuid(entrante) ? entrante : crypto.randomUUID();
     next();
   });
 
@@ -175,13 +219,43 @@ export function createApp() {
   app.use('/api/flito/sync', flitoSyncRoutes);
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
+  app.use('/api/flito/derechos', flitoDerechosRoutes);
+  app.use('/api/flito/liquidacion', flitoLiquidacionRoutes);
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/flito/tramites', flitoTramitesRoutes);
   app.use('/api/flito/tablero', flitoTableroRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
   app.use('/api/flito/logistica', flitoLogisticaRoutes);
+  app.use('/api/flito/bolsas', flitoBolsasRoutes);
+  app.use('/api/flito/conciliacion', flitoConciliacionRoutes);
+  // Monitoreo de comparendos (Feature #11492). Módulo propio: no es el gate SIMIT del traspaso ni
+  // el incidente PESV `comparendo` — ver ADR-0001.
+  app.use('/api/flito/comparendos', flitoComparendosRoutes);
   app.use('/api/finanzas', finanzasRoutes);
+  app.use('/api/siigo/credenciales', siigoCredencialesRoutes);
+  app.use('/api/siigo/compuerta', siigoCompuertaRoutes);
+  app.use('/api/siigo/mapeo-conceptos', siigoMapeoConceptosRoutes);
+  app.use('/api/siigo/parametrizacion', siigoParametrizacionRoutes);
+  app.use('/api/siigo/ciudades', siigoCiudadesRoutes);
+  app.use('/api/siigo/clientes', siigoValidadorClienteRoutes);
+  app.use('/api/siigo/clientes-ciudades', siigoCiudadesMapeoRoutes);
+  app.use('/api/siigo/linea-tiempo', siigoLineaTiempoRoutes);
+  app.use('/api/siigo/freno', siigoFrenoRoutes);
+  app.use('/api/siigo/correcciones', siigoCorreccionesRoutes);
+  app.use('/api/siigo/envios', siigoEnviosRoutes);
+  // Dos routers sobre el MISMO prefijo, y es deliberado: `facturacion-tramites` sirve
+  // `GET /tramites` (qué le pasó a la factura de cada trámite, HU #11337) y `facturacion` sirve
+  // `POST /` y `GET /` (encolar y estado de la cola, HU #11328). Son dos caras de la misma
+  // sustantiva y separarlas en dos prefijos obligaría a la pantalla a conocer dos URL para hablar de
+  // lo mismo. Express prueba el primero y, al no casar ninguna de sus rutas, pasa al segundo; el
+  // orden importa solo en que ninguno debe declarar un patrón que trague las rutas del otro.
+  app.use('/api/siigo/facturacion', siigoFacturacionTramitesRoutes);
+  app.use('/api/siigo/facturacion', siigoFacturacionRoutes);
+  app.use('/api/siigo/productos', siigoProductosRoutes);
+  app.use('/api/siigo/terceros', siigoTercerosRoutes);
+  app.use('/api/siigo/elegibilidad', siigoElegibilidadRoutes);
+  app.use('/api/siigo/reconciliacion', siigoReconciliacionRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma
@@ -312,10 +386,15 @@ export function createApp() {
     }
   });
 
-  // PESV-07: métricas Prometheus. FUERA de /api a propósito → nginx solo proxya
-  // /api/ al dominio público, así que /metrics queda accesible solo en el host
-  // (Prometheus scrapea localhost:3005/metrics). No expone secretos.
-  app.get('/metrics', async (_req, res) => {
+  // PESV-07: métricas Prometheus. FUERA de /api a propósito, pero eso NO la protege:
+  // el vhost del subdominio de API sí enruta la raíz al servicio, así que la ruta es
+  // alcanzable desde internet en los tres ambientes (Bug #11599). Lo que la cierra es
+  // `metricsAuth`, en el código y no en nginx. No expone secretos ni PII, pero sí
+  // contadores de negocio (pesv_*, tram_*), versión de Node y datos del proceso.
+  // El limiter va ANTES del guard: frena el barrido de tokens en la puerta, y los 401 que
+  // sí pasen quedan registrados por `metricsAuth` (hasta el Bug #11599 esta ruta no tenía
+  // ni freno ni traza porque `apiLimiter` solo cubre `/api`).
+  app.get('/metrics', metricsLimiter, metricsAuth, async (_req, res) => {
     try {
       res.setHeader('Content-Type', registry.contentType);
       res.send(await registry.metrics());

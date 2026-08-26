@@ -49,43 +49,6 @@ export async function modalidadVigente(organismoCodigo: string): Promise<Modalid
 }
 
 /**
- * Resuelve a qué proveedor le toca un SOAT, por especificidad: compañía gana a
- * organismo, organismo gana al global (prioridad ASC). Puede devolver null si nadie
- * configuró una regla aplicable — y eso es información, no un fallo: el registro queda
- * visible para Operaciones sin proveedor, en vez de caer en la cola de uno al azar.
- * Ignora proveedores inactivos.
- */
-export async function resolverProveedor(
-  companiaId: number,
-  organismoCodigo: string,
-): Promise<ProveedorSoatRow | null> {
-  const candidatas = await db
-    .select({ prioridad: flitoReglasProveedorSoat.prioridad, proveedor: flitoProveedoresSoat })
-    .from(flitoReglasProveedorSoat)
-    .innerJoin(
-      flitoProveedoresSoat,
-      eq(flitoReglasProveedorSoat.proveedorSoatId, flitoProveedoresSoat.id),
-    )
-    .where(
-      or(
-        and(
-          eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.COMPANIA),
-          eq(flitoReglasProveedorSoat.companiaId, companiaId),
-        ),
-        and(
-          eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.ORGANISMO),
-          eq(flitoReglasProveedorSoat.organismoCodigo, organismoCodigo),
-        ),
-        eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.GLOBAL),
-      ),
-    )
-    .orderBy(asc(flitoReglasProveedorSoat.prioridad));
-
-  const aplicable = candidatas.find((c) => c.proveedor.activo !== false);
-  return aplicable?.proveedor ?? null;
-}
-
-/**
  * Umbral de OCR aplicable a una extracción. Global por defecto, sobrescribible por
  * proveedor (SOAT §6) o por organismo (Impuestos §6.2): la calidad de los documentos
  * varía y un umbral único obligaría a calibrar al peor de todos. RN-04/CA-06.
@@ -99,13 +62,65 @@ export function umbralPara(sobrescritura: number | string | null | undefined): n
  * Carpeta destino (prefijo lógico S3) de una compañía. Sin carpeta parametrizada NO se
  * inventa una silenciosa bajo el nombre: se usa una carpeta de excepción explícita,
  * porque un archivo en un lugar que nadie configuró es un archivo que nadie va a encontrar.
+ *
+ * ── La raíz de excepción se nombra con el `id`, NUNCA con el documento (HU #11770) ──
+ *
+ * Lo que devuelve esta función es el PREFIJO de la clave del objeto, y `firmarDescargaEntidad`
+ * (`services/storage.ts`) mete la clave ENTERA en el query string del enlace de descarga
+ * (`/api/files?key=…`): de ahí pasa a los logs de acceso de nginx, al historial del navegador y a la
+ * cabecera `Referer` de la siguiente navegación. `clients.document` es el NIT de la empresa, pero
+ * con un cliente persona natural es una CÉDULA — un dato personal viajando en una URL. Es el mismo
+ * vector que el Bug #11694 cerró por el otro extremo (el nombre del archivo, que era el SUFIJO de la
+ * clave); aquel dejó el prefijo como estaba y esto lo cierra.
+ *
+ * **Por qué `clients.id` y no otra cosa.** A la raíz solo se le piden dos cosas: ser estable en el
+ * tiempo (una compañía no puede cambiar de carpeta y perder de vista lo ya archivado) y ser única
+ * por compañía (dos clientes no pueden compartir carpeta). La PK `serial` de `clients` cumple las
+ * dos —no se recicla, no se edita— y no dice nada de la persona: es un correlativo interno que solo
+ * resuelve quien ya tiene acceso a la base. El nombre queda descartado por lo mismo que el documento
+ * (una persona natural se llama como se llama), y un hash del documento queda descartado porque no
+ * se puede leer al depurar y no protege más que un entero opaco.
+ *
+ * **`document` sale del parámetro a propósito**, no solo de la expresión: si el dato no llega, no
+ * puede volver a colarse aquí dentro por descuido.
+ *
+ * `id` admite además `` `factura-${string}` `` por un único llamador: `siigo.archivo-documentos`
+ * archiva facturas que no llegan a ninguna compañía y les da una identidad derivada de la propia
+ * factura para que el documento no acabe en una carpeta llamada `null`. El tipo es esa plantilla y
+ * no `string` a secas **a propósito**: con `string` abierto, `{ id: compania.document }` volvería a
+ * compilar sin una queja y la puerta que esta HU cierra quedaría entornada. Lo señaló el gate de
+ * seguridad, y tenía razón: la primera versión de este cambio ensanchaba `id` a `number | string`.
+ *
+ * Aun así, **el tipo no es el guardián**: el *excess property check* de TypeScript no se aplica a
+ * variables, así que un llamador que pase un objeto ya construido con `document` dentro compila
+ * igual. Lo que sostiene la garantía es la expresión de abajo más el test de
+ * `flito-parametrizacion.service.test.ts`, cuyo fixture SÍ trae la cédula y afirma que no aparece.
+ *
+ * **Solo aplica a claves NUEVAS.** Las ya escritas viven en `flito_soportes.storage_key` y
+ * equivalentes; reescribirlas exigiría migración más copia de objetos en MinIO y ni aun así
+ * desharía lo ya registrado en los logs. Tienen que seguir descargándose exactamente igual, y
+ * siguen: ni la firma ni `GET /api/files` asumen formato de clave.
+ *
+ * **Lo que esto NO cubre** (anotado, fuera del alcance de la HU #11770): `flitoCarpetaStorage` es
+ * texto libre —`carpetaStorage: z.string().max(300)` en `flito-parametrizacion.routes.ts`, sin
+ * validación de forma— y su valor entra en la clave igual que la raíz de excepción.
+ *
+ * Y el problema no es solo que «alguien podría teclear un NIT»: la convención vigente ya pone ahí el
+ * identificador comercial del cliente —`FLIT/Clientes/Tesla`, `FLIT/Clientes/Bancolombia` en el
+ * seed—, y con un cliente **persona natural** esa carpeta se llamará como la persona. Un nombre es
+ * dato personal bajo la Ley 1581 igual que una cédula. O sea que el camino manual no es un residuo
+ * teórico: es el uso previsto.
+ *
+ * Cerrarlo obliga a decidir qué se hace con las carpetas ya parametrizadas, así que es una decisión
+ * de alcance que no se toma aquí. Relacionado: `CLIENTS_COLUMNAS_SIN_PII`
+ * (`packages/shared-types/src/siigo-terceros.ts`) clasifica hoy este campo como **no personal**, lo
+ * que lo dejaría exento del flujo de supresión. Las dos cosas se deciden juntas.
  */
 export function carpetaDe(
-  compania: Pick<CompaniaRow, 'id' | 'document' | 'flitoCarpetaStorage'>,
+  compania: Pick<CompaniaRow, 'flitoCarpetaStorage'> & { id: number | `factura-${string}` },
   subcarpeta: string,
 ): string {
-  const raiz =
-    compania.flitoCarpetaStorage?.trim() || `_sin-carpeta-configurada/${compania.document ?? compania.id}`;
+  const raiz = compania.flitoCarpetaStorage?.trim() || `_sin-carpeta-configurada/${compania.id}`;
   return `${raiz}/${subcarpeta}`;
 }
 

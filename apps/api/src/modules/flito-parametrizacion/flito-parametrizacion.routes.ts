@@ -20,12 +20,16 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import {
   AmbitoReglaProveedor,
+  CONCEPTOS_TARIFA,
   EstadoImpuesto,
   ModalidadOrganismo,
   ORGANISMOS_TRANSITO,
   PRIORIDAD_POR_AMBITO,
 } from '@operaciones/shared-types';
 import { modalidadVigente } from './flito-parametrizacion.service.js';
+import {
+  actualizarTarifa, crearTarifa, eliminarTarifa, listarTarifas, TarifaError,
+} from './flito-tarifas.service.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -33,6 +37,11 @@ router.use(authMiddleware);
 // Lectura: operaciones + auditoría (solo lectura). Escritura: solo operaciones.
 const LECTURA = requireRole('admin', 'auditor');
 const ESCRITURA = requireRole('admin');
+// Las TARIFAS son la parte comercial del cliente: las negocia Finanzas, así que también las escribe.
+// El resto de la parametrización (umbrales de OCR, SLA, modalidad, autogestión) sigue siendo solo de
+// Operaciones — RN-04: un gestor que pudiera mover su propio umbral colaría sus facturas sin revisar.
+const ESCRITURA_TARIFAS = requireRole('admin', 'financiera');
+const LECTURA_TARIFAS = requireRole('admin', 'auditor', 'financiera');
 
 // ───────────────────────────────── Compañías (sobre `clients`) ──────────────
 
@@ -183,6 +192,10 @@ async function organismoDto(codigo: string) {
     umbralOcr: org.flitoUmbralOcr === null ? null : Number(org.flitoUmbralOcr),
     slaHoras: org.flitoSlaHoras,
     diferenciaValorActiva: org.flitoDiferenciaValorActiva,
+    // Derechos de trámite (HU #10950/#10952): pista de OCR y carpeta de Drive del organismo.
+    ocrPromptHint: org.flitoOcrPromptHint,
+    driveFolderId: org.flitoDriveFolderId,
+    driveActivo: org.flitoDriveActivo,
   };
 }
 
@@ -274,6 +287,12 @@ const actualizarOrganismoSchema = z.object({
   slaHoras: z.number().int().min(1).nullable().optional(),
   // D-5 (Fase 7): activa/desactiva la marca de diferencia de valor de impuestos por organismo.
   diferenciaValorActiva: z.boolean().optional(),
+  // HU #10950: pista que se concatena al prompt genérico de derechos de trámite. Cadena vacía = quitar.
+  ocrPromptHint: z.string().max(500).nullable().optional(),
+  // HU #10952: carpeta de Drive del organismo y su interruptor. Configurar no es activar: se puede
+  // dejar la carpeta puesta con la sincronización apagada mientras se valida.
+  driveFolderId: z.string().max(120).nullable().optional(),
+  driveActivo: z.boolean().optional(),
 });
 
 router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Response) => {
@@ -286,6 +305,9 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (cambios.umbralOcr !== undefined) set.flitoUmbralOcr = cambios.umbralOcr === null ? null : String(cambios.umbralOcr);
   if (cambios.slaHoras !== undefined) set.flitoSlaHoras = cambios.slaHoras;
   if (cambios.diferenciaValorActiva !== undefined) set.flitoDiferenciaValorActiva = cambios.diferenciaValorActiva;
+  if (cambios.ocrPromptHint !== undefined) set.flitoOcrPromptHint = cambios.ocrPromptHint?.trim() || null;
+  if (cambios.driveFolderId !== undefined) set.flitoDriveFolderId = cambios.driveFolderId?.trim() || null;
+  if (cambios.driveActivo !== undefined) set.flitoDriveActivo = cambios.driveActivo;
   if (Object.keys(set).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
 
   // Igual que en el cambio de modalidad: crea la config si el organismo del catálogo no estaba sembrado.
@@ -294,77 +316,77 @@ router.patch('/organismos/:codigo', ESCRITURA, async (req: Request, res: Respons
   if (!updated) { res.status(404).json({ error: 'El organismo no existe' }); return; }
 
   const detalleDif = cambios.diferenciaValorActiva === undefined ? '' : `; diferencia de valor ${cambios.diferenciaValorActiva ? 'activada' : 'desactivada'}`;
-  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}` });
+  const detalleDrive = cambios.driveActivo === undefined ? '' : `; sincronización Drive ${cambios.driveActivo ? 'activada' : 'desactivada'}`;
+  await audit(req, { action: 'update', resource: 'flito_organismo', resourceId: codigo, detail: `Parámetros OCR/SLA organismo ${codigo}${detalleDif}${detalleDrive}` });
   res.json(await organismoDto(codigo));
 });
 
-// ───────────────────────────────── Reglas de enrutamiento ───────────────────
+// Las reglas de enrutamiento de proveedor se retiraron en la HU #10979: el proveedor se elige al
+// enviar el SOAT al gestor, que es cuando alguien mira la carga de cada uno. La tabla
+// `flito_reglas_proveedor_soat` se deja en la base a propósito —borrar datos en el mismo cambio que
+// quita su único lector es innecesariamente irreversible— y su DROP irá en una migración posterior.
 
-router.get('/reglas-proveedor-soat', LECTURA, async (_req: Request, res: Response) => {
-  const filas = await db
-    .select({
-      id: flitoReglasProveedorSoat.id,
-      ambito: flitoReglasProveedorSoat.ambito,
-      companiaId: flitoReglasProveedorSoat.companiaId,
-      companiaNombre: clients.name,
-      organismoCodigo: flitoReglasProveedorSoat.organismoCodigo,
-      organismoNombre: organismosTransitoConfig.alias,
-      proveedorSoatId: flitoReglasProveedorSoat.proveedorSoatId,
-      proveedorSoatNombre: flitoProveedoresSoat.nombre,
-      prioridad: flitoReglasProveedorSoat.prioridad,
-    })
-    .from(flitoReglasProveedorSoat)
-    .leftJoin(clients, eq(flitoReglasProveedorSoat.companiaId, clients.id))
-    .leftJoin(organismosTransitoConfig, eq(flitoReglasProveedorSoat.organismoCodigo, organismosTransitoConfig.codigo))
-    .leftJoin(flitoProveedoresSoat, eq(flitoReglasProveedorSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .orderBy(asc(flitoReglasProveedorSoat.prioridad));
-  res.json(filas);
+// ───────────────────────────────── Tarifas por compañía ────────────────────
+//
+// El valor negociado del trámite digital y de la logística. Antes eran constantes iguales para
+// todos los clientes; el requerimiento cita $200.000 en una compañía y $1.500 en otra.
+
+const tarifaCrearSchema = z.object({
+  companiaId: z.number().int().positive(),
+  concepto: z.enum(CONCEPTOS_TARIFA),
+  // Vacío o ausente = tarifa genérica del concepto.
+  tipoTramite: z.string().trim().max(60).optional().nullable(),
+  valor: z.number().nonnegative(),
+  activo: z.boolean().optional(),
+});
+const tarifaEditarSchema = z.object({
+  valor: z.number().nonnegative().optional(),
+  activo: z.boolean().optional(),
+}).refine((d) => d.valor !== undefined || d.activo !== undefined, { message: 'Nada que actualizar' });
+
+/** TarifaError es de negocio (400); cualquier otra cosa sube y la maneja el error handler. */
+function tarifaFallo(res: Response, e: unknown): void {
+  if (e instanceof TarifaError) { res.status(400).json({ error: e.message }); return; }
+  throw e;
+}
+
+router.get('/tarifas', LECTURA_TARIFAS, async (req: Request, res: Response) => {
+  const companiaId = Number(req.query.companiaId) || undefined;
+  res.json(await listarTarifas(companiaId));
 });
 
-const crearReglaSchema = z.object({
-  ambito: z.enum([AmbitoReglaProveedor.COMPANIA, AmbitoReglaProveedor.ORGANISMO, AmbitoReglaProveedor.GLOBAL]),
-  companiaId: z.number().int().positive().nullable().optional(),
-  organismoCodigo: z.string().max(5).nullable().optional(),
-  proveedorSoatId: z.string().uuid(),
+router.post('/tarifas', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+  const parsed = tarifaCrearSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  try {
+    const t = await crearTarifa(parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'create', resource: 'flito_tarifa', resourceId: t.id,
+      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor} para ${t.companiaNombre ?? t.companiaId}`,
+    });
+    res.status(201).json(t);
+  } catch (e) { tarifaFallo(res, e); }
 });
 
-router.post('/reglas-proveedor-soat', ESCRITURA, async (req: Request, res: Response) => {
-  const parsed = crearReglaSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  const { ambito, companiaId, organismoCodigo, proveedorSoatId } = parsed.data;
-
-  if (ambito === AmbitoReglaProveedor.COMPANIA && !companiaId) { res.status(400).json({ error: 'Una regla por compañía necesita una compañía' }); return; }
-  if (ambito === AmbitoReglaProveedor.ORGANISMO && !organismoCodigo) { res.status(400).json({ error: 'Una regla por organismo necesita un organismo' }); return; }
-
-  const [proveedor] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
-  if (!proveedor) { res.status(404).json({ error: 'El proveedor no existe' }); return; }
-
-  // Una segunda regla global haría el enrutamiento dependiente del orden de inserción,
-  // que es una forma elegante de decir "impredecible".
-  if (ambito === AmbitoReglaProveedor.GLOBAL) {
-    const [yaExiste] = await db.select({ id: flitoReglasProveedorSoat.id }).from(flitoReglasProveedorSoat)
-      .where(eq(flitoReglasProveedorSoat.ambito, AmbitoReglaProveedor.GLOBAL)).limit(1);
-    if (yaExiste) { res.status(409).json({ error: 'Ya existe una regla global. Solo puede haber una: edítala en vez de crear otra.' }); return; }
-  }
-
-  const [creada] = await db.insert(flitoReglasProveedorSoat).values({
-    ambito,
-    companiaId: ambito === AmbitoReglaProveedor.COMPANIA ? companiaId! : null,
-    organismoCodigo: ambito === AmbitoReglaProveedor.ORGANISMO ? organismoCodigo! : null,
-    proveedorSoatId,
-    prioridad: PRIORIDAD_POR_AMBITO[ambito],
-  }).returning();
-
-  await audit(req, { action: 'create', resource: 'flito_regla_proveedor_soat', resourceId: creada.id, detail: `Regla ${ambito} → proveedor ${proveedorSoatId}` });
-  res.status(201).json(creada);
+router.patch('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+  const parsed = tarifaEditarSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  try {
+    const t = await actualizarTarifa(req.params.id, parsed.data, req.user?.sub ?? null);
+    await audit(req, {
+      action: 'update', resource: 'flito_tarifa', resourceId: t.id,
+      detail: `Tarifa ${t.concepto}${t.tipoTramite ? ` (${t.tipoTramite})` : ' (genérica)'} = ${t.valor}, activa=${t.activo}`,
+    });
+    res.json(t);
+  } catch (e) { tarifaFallo(res, e); }
 });
 
-router.delete('/reglas-proveedor-soat/:id', ESCRITURA, async (req: Request, res: Response) => {
-  const id = req.params.id;
-  const [deleted] = await db.delete(flitoReglasProveedorSoat).where(eq(flitoReglasProveedorSoat.id, id)).returning();
-  if (!deleted) { res.status(404).json({ error: 'La regla no existe' }); return; }
-  await audit(req, { action: 'delete', resource: 'flito_regla_proveedor_soat', resourceId: id, detail: `Regla ${deleted.ambito} eliminada` });
-  res.status(204).end();
+router.delete('/tarifas/:id', ESCRITURA_TARIFAS, async (req: Request, res: Response) => {
+  try {
+    await eliminarTarifa(req.params.id);
+    await audit(req, { action: 'delete', resource: 'flito_tarifa', resourceId: req.params.id, detail: 'Tarifa eliminada' });
+    res.status(204).end();
+  } catch (e) { tarifaFallo(res, e); }
 });
 
 export default router;

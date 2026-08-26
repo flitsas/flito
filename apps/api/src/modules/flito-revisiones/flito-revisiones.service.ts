@@ -7,15 +7,17 @@
 // propio campo (`confirmadoPor`, `confirmadoEn`). Los gestores NO resuelven esta cola: si el gestor
 // que cargó la factura pudiera resolver su propia revisión, el umbral de OCR no serviría de nada.
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
-  CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
+  CampoDerechoTramite, CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
   FlujoRevision,
-  type CampoExtraido, type ExtraccionFacturaVenta, type ExtraccionImpuesto, type ExtraccionSoat,
+  type CampoExtraido, type ExtraccionDerechoTramite, type ExtraccionFacturaVenta,
+  type ExtraccionImpuesto, type ExtraccionSoat,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
+import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -27,7 +29,7 @@ export class RevisionError extends Error {
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type Extraccion = ExtraccionSoat | ExtraccionImpuesto | ExtraccionFacturaVenta;
+type Extraccion = ExtraccionSoat | ExtraccionImpuesto | ExtraccionFacturaVenta | ExtraccionDerechoTramite;
 
 async function auditEnTx(tx: Tx, ctx: RevisionCtx, resource: string, resourceId: string, detail: string, action: 'update' | 'delete' = 'update'): Promise<void> {
   await tx.insert(auditLogs).values({ userId: ctx.userId, userEmail: ctx.username, action, resource, resourceId, detail });
@@ -105,6 +107,7 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
 export function camposEsperados(modulo: FlujoRevision): string[] {
   if (modulo === FlujoRevision.SOAT) return Object.values(CampoSoat);
   if (modulo === FlujoRevision.FACTURA_VENTA) return Object.values(CampoFacturaVenta);
+  if (modulo === FlujoRevision.DERECHOS) return Object.values(CampoDerechoTramite);
   return Object.values(CampoImpuesto);
 }
 
@@ -152,6 +155,8 @@ export async function resolver(id: string, registroId: string, campos: Record<st
 
   if (revision.modulo === FlujoRevision.SOAT) {
     await resolverSoat(revision.id, revision.soporteId, registroId, extraccion as ExtraccionSoat, motivo, ctx);
+  } else if (revision.modulo === FlujoRevision.DERECHOS) {
+    await resolverDerecho(revision.id, revision.soporteId, revision.motivo, registroId, extraccion as ExtraccionDerechoTramite, motivo, ctx);
   } else if (revision.modulo === FlujoRevision.FACTURA_VENTA) {
     await resolverFacturaVenta(revision.id, revision.soporteId, revision.motivo, registroId, extraccion as ExtraccionFacturaVenta, motivo, ctx);
   } else {
@@ -200,6 +205,25 @@ async function resolverFacturaVenta(revisionId: string, soporteId: string, motiv
     }).where(eq(flitoImpuestos.id, impuestoId));
     await auditEnTx(tx, ctx, 'flito_impuesto', impuestoId,
       `Factura de venta atada a mano. Revisión ${revisionId} (${motivoOriginal}). Soporte ${soporteId}. ${motivo.trim()}`);
+  });
+}
+
+/**
+ * Resuelve un recibo de derecho de tránsito. Aquí `registroId` es el **trámite** elegido (no un
+ * registro previo): el caso típico de esta cola es justo el contrario al de SOAT/impuestos — el
+ * documento llega bien leído pero la placa tiene varios trámites vivos, y lo que aporta la persona
+ * es decidir a cuál corresponde el pago. El registro del derecho nace de esa decisión.
+ */
+async function resolverDerecho(revisionId: string, soporteId: string, motivoOriginal: string, tramiteId: string, extraccion: ExtraccionDerechoTramite, motivo: string, ctx: RevisionCtx): Promise<void> {
+  const derechoId = await registrarDesdeRevision(tramiteId, extraccion, soporteId, ctx);
+
+  // La placa ya quedó asociada: sus pendientes dejan de reintentarse contra un trámite que ya pagó.
+  const placa = extraccion[CampoDerechoTramite.PLACA]?.valor;
+
+  await db.transaction(async (tx) => {
+    await auditEnTx(tx, ctx, 'flito_derecho_tramite', derechoId,
+      `Derecho de tránsito registrado a mano desde la cola de revisión ${revisionId} (${motivoOriginal}). ` +
+      `Soporte ${soporteId}. ${motivo.trim()}`);
   });
 }
 
@@ -255,10 +279,36 @@ export async function descartar(id: string, motivo: string, ctx: RevisionCtx): P
   });
 }
 
-/** Storage key del soporte para servir su archivo (visor PDF de la cola). null si no existe. */
+/** Forma de un uuid, sin exigir versión ni variante: traduce un 22P02 en un 404. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Storage key del soporte para servir su archivo (visor PDF de la cola). null si no existe.
+ *
+ * **HU #11678, AC7 — el comprobante de una boleta NO sale por aquí.** Esta función resuelve
+ * cualquier soporte por su id, y la sirven dos rutas genéricas abiertas a `admin` y `auditor`
+ * (`GET /flito/revisiones/soporte/:id/archivo` y `GET /flito/derechos/soporte/:id`). Eso venía
+ * siendo aceptable mientras lo que colgaba de la tabla eran facturas y recibos de los flujos que
+ * esos dos roles ya ven; deja de serlo cuando cuelga un COMPROBANTE DE PAGO de la financiera, que
+ * el Feature #11623 reserva a Administración y Financiera —y que el AC5 de esta HU le niega
+ * expresamente a `auditor`—.
+ *
+ * El guarda es una condición y no una lista de tipos permitidos a propósito: la pregunta que hay
+ * que responder es «¿este soporte tiene dueño en otro módulo?», y `conciliacion_boleta_id` es esa
+ * respuesta. No cambia el comportamiento de una sola fila existente —hoy todas la tienen en NULL—,
+ * y el comprobante se sirve por las dos rutas donde el dueño es parte de la dirección:
+ * `…/conciliacion/boletas/:id/comprobante` y `GET /flito/soat/:id/soportes`.
+ */
 export async function storageKeySoporte(soporteId: string): Promise<{ storageKey: string; nombreArchivo: string; contentType: string } | null> {
+  // Un id que no tiene forma de uuid no es «no existe»: comparado contra una columna `uuid` es un
+  // 22P02, o sea un 500. Mismo guarda que `storageKeySoporteDeBolsa`, su gemela: endurecer una sola
+  // de las dos deja la otra devolviendo errores de servidor por una entrada mal formada.
+  if (!UUID_RE.test(soporteId)) return null;
+
   const [s] = await db.select({
     storageKey: flitoSoportes.storageKey, nombreArchivo: flitoSoportes.nombreArchivo, contentType: flitoSoportes.contentType,
-  }).from(flitoSoportes).where(eq(flitoSoportes.id, soporteId)).limit(1);
+  }).from(flitoSoportes)
+    .where(and(eq(flitoSoportes.id, soporteId), isNull(flitoSoportes.conciliacionBoletaId)))
+    .limit(1);
   return s ?? null;
 }

@@ -7,15 +7,17 @@
 // en la BD para no traer toda la tabla a memoria.
 
 import { and, count, eq, isNotNull, notInArray, sql } from 'drizzle-orm';
-import {
-  EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
+import { ANS_OPERATIVO,
+  ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
+  type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   clients, flitoImpuestos, flitoProveedoresSoat, flitoRevisiones, flitoSoat, flitoTramites,
-  organismosTransitoConfig,
+  organismosTransitoConfig, vehicles,
 } from '../../db/schema.js';
 import { listar as listarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
+import { condicionAlerta } from '../flito-tramites/flito-tramites.service.js';
 
 export interface TableroResumen {
   soat: Record<string, number>;
@@ -24,6 +26,31 @@ export interface TableroResumen {
   estancados: { soat: number; impuestos: number };
   diferenciasDeValor: number;
   compuertaHabilitados: number;
+  /** Alertas operativas (Feature #10942). Cada conteo es el total del listado con esa alerta. */
+  alertas: Record<AlertaOperativa, number>;
+}
+
+/**
+ * Conteo de cada alerta operativa.
+ *
+ * Reutiliza `condicionAlerta()` del servicio de trámites en vez de reescribir el predicado: así la
+ * tarjeta del tablero y la tabla filtrada no pueden discrepar (AC4). Los joins son los mismos que
+ * usa el COUNT del listado, porque las condiciones referencian el proveedor SOAT y el organismo.
+ */
+async function contarAlertas(): Promise<Record<AlertaOperativa, number>> {
+  const conteos = await Promise.all(ALERTAS_OPERATIVAS.map(async (alerta) => {
+    const [r] = await db.select({ n: sql<number>`count(distinct ${flitoTramites.id})::int` })
+      .from(flitoTramites)
+      .leftJoin(clients, eq(flitoTramites.companiaId, clients.id))
+      .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+      .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+      .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
+      .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+      .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+      .where(condicionAlerta(alerta));
+    return [alerta, Number(r?.n ?? 0)] as const;
+  }));
+  return Object.fromEntries(conteos) as Record<AlertaOperativa, number>;
 }
 
 async function contarSoat(): Promise<Record<string, number>> {
@@ -56,28 +83,30 @@ async function diferenciasDeValor(): Promise<number> {
   return Number(r.n);
 }
 
-/** SLA vencido. El cálculo del vencimiento vive en SQL (intervalo por horas de SLA). */
+/**
+ * Solicitudes que pasaron el ANS de gestión (HU #11024).
+ *
+ * El ANS es único, así que el `INNER JOIN` con el proveedor y con el organismo deja de hacer falta
+ * para medir: antes un SOAT sin proveedor asignado, o un impuesto de un organismo sin ANS puesto,
+ * no se contaban nunca — justo los que menos vigilados están.
+ */
 async function contarEstancados(): Promise<{ soat: number; impuestos: number }> {
   const [soat] = await db.select({ n: count() }).from(flitoSoat)
-    .innerJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .where(and(
       eq(flitoSoat.estado, EstadoSoat.SOLICITADO),
       eq(clients.soatAutogestionable, false),
-      isNotNull(flitoProveedoresSoat.slaHoras),
       isNotNull(flitoSoat.enviadoEn),
-      sql`${flitoSoat.enviadoEn} < NOW() - (${flitoProveedoresSoat.slaHoras} || ' hours')::interval`,
+      sql`${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
     ));
 
   const [impuestos] = await db.select({ n: count() }).from(flitoImpuestos)
-    .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
     .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .where(and(
       eq(flitoImpuestos.estado, EstadoImpuesto.SOLICITADO),
       eq(clients.impuestosAutogestionable, false),
-      isNotNull(organismosTransitoConfig.flitoSlaHoras),
       isNotNull(flitoImpuestos.enviadoEn),
-      sql`${flitoImpuestos.enviadoEn} < NOW() - (${organismosTransitoConfig.flitoSlaHoras} || ' hours')::interval`,
+      sql`${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS})`,
     ));
 
   return { soat: Number(soat.n), impuestos: Number(impuestos.n) };
@@ -93,6 +122,9 @@ export async function resumen(): Promise<TableroResumen> {
     diferenciasDeValor(),
     contarEstancados(),
   ]);
+  // Las alertas van en una tanda aparte, no dentro del Promise.all de arriba: son 4 consultas más y
+  // juntarlas dispararía diez simultáneas contra el pool para pintar una sola pantalla.
+  const alertas = await contarAlertas();
 
   return {
     soat,
@@ -101,5 +133,6 @@ export async function resumen(): Promise<TableroResumen> {
     estancados,
     diferenciasDeValor: diferencias,
     compuertaHabilitados: habilitados.length,
+    alertas,
   };
 }

@@ -73,7 +73,9 @@ describe('solicitarSoat — deduplica por SOAT (RN-01) y clasifica', () => {
     const r = await solicitarSoat(['t1', 't2', 't3'], 'prov1', ctx);
     expect(r).toMatchObject({ autogestionados: 1, sinRegistro: 1, enviados: 1 });
     expect(enviarSoatMock.mock.calls[0][0]).toEqual(['soat-C']);
-    expect(enviarSoatMock.mock.calls[0][2]).toBe('prov1'); // proveedor fijado
+    // El destino pasó de string a objeto con la HU #11152 (proveedor | Operaciones). Desde Gestión
+    // Trámites el proveedor sigue siendo obligatorio y nunca se marca contingencia.
+    expect(enviarSoatMock.mock.calls[0][2]).toEqual({ proveedorSoatId: 'prov1' });
   });
 });
 
@@ -121,10 +123,13 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       soatEstado: null, soatValorPagado: null, soatExtraccion: null,
       impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
       sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: 'Tránsito X', organismoCodigo: '11001',
+      fechaCreacionFlit: new Date('2026-06-20T10:00:00Z'), creadoEn: new Date('2026-07-01T00:00:00Z'),
       vin: 'VIN123', marca: 'Renault', linea: 'Logan', tipoVehiculo: 'automovil',
-      soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null, soatMotivoRechazo: null,
+      soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null,
+      soatPagadoEn: null, soatMotivoRechazo: null,
       impuestoId: null, impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
-      impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoMotivoRechazo: null,
+      impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoPagadoEn: null, impuestoSlaHoras: null,
+      impuestoMotivoRechazo: null,
     };
     selectMock
       .mockReturnValueOnce(chain([{ total: 1 }]))  // count (paginación)
@@ -132,7 +137,8 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
       .mockReturnValueOnce(chain([         // compradores
         { tramiteId: 't1', nombreCompleto: 'B', numeroDocumento: '2', correo: null, celular: null, direccion: null, orden: 1, porcentajeParticipacion: null },
         { tramiteId: 't1', nombreCompleto: 'A', numeroDocumento: '1', correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null },
-      ]));
+      ]))
+      .mockReturnValueOnce(chain([]));   // excepciones de autogestión (HU #10980)
     const { items: [f] } = await listar();
     expect(f.organismoNombre).toBe('Tránsito X');
     expect(f.vehiculo).toMatchObject({ marca: 'Renault', linea: 'Logan' });

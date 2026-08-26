@@ -4,11 +4,16 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { esAlertaOperativa } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
 import {
-  crearEmpresaDesdeTramite, crearTramiteDemo, entregar, facetas, historial, listar, solicitarAmbos,
-  solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
+  desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
+} from '../flito-excepciones/flito-excepciones.service.js';
+import {
+  crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
+  solicitarAmbos, solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
@@ -33,12 +38,23 @@ const lista = (v: unknown): string[] | undefined => {
   const s = str(v);
   return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
 };
+/** Fecha de calendario, o nada. Un texto suelto en un `::date` es un 500 que se puede evitar. */
+const fecha = (v: unknown): string | undefined =>
+  typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
+
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const q = req.query;
   const filtros: FiltrosListado = {
     buscar: str(q.buscar), estados: lista(q.estados), transitos: lista(q.transitos), ciudades: lista(q.ciudades),
     empresas: lista(q.empresas), soat: lista(q.soat), impuesto: lista(q.impuesto),
     autogestion: q.autogestion === 'si' || q.autogestion === 'no' ? q.autogestion : undefined,
+    // Un orden desconocido no es motivo para fallar: se ignora y manda el default.
+    orden: esOrdenListado(q.orden) ? q.orden : undefined,
+    // Igual que el orden: una alerta desconocida se ignora en vez de tumbar la petición.
+    alerta: esAlertaOperativa(q.alerta) ? q.alerta : undefined,
+    // Solo se aceptan como 'yyyy-mm-dd': lo demás se ignora en vez de llegar a un cast de Postgres.
+    creadoDesde: fecha(q.creadoDesde), creadoHasta: fecha(q.creadoHasta),
+    aprobadoDesde: fecha(q.aprobadoDesde), aprobadoHasta: fecha(q.aprobadoHasta),
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
   res.json(await listar(filtros));
@@ -52,6 +68,22 @@ router.get('/facetas', LECTURA, async (_req: Request, res: Response) => {
 // GET /:id/historial — auditoría de cambios del trámite (campo por campo). Operaciones/Auditoría.
 router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   res.json(await historial(req.params.id));
+});
+
+/**
+ * GET /:id/soportes — los documentos del trámite: SOAT, impuesto, derecho de tránsito y logística.
+ *
+ * Quien despacha desde esta pantalla es quien tiene que comprobar que el papel existe antes de
+ * entregar, y hasta ahora la única forma de verlo era irse al reporte de costos —que solo alcanza
+ * el rol financiera— o a la tabla de derechos. Es la misma lista que sirve finanzas; lo único
+ * propio de aquí es el rol que entra.
+ */
+router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
+  const soportes = await soportesDeTramite(req.params.id);
+  if (!soportes) { res.status(404).json({ error: 'El trámite no existe' }); return; }
+  // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
+  res.set('Cache-Control', 'no-store');
+  res.json(soportes);
 });
 
 // POST /crear-empresa — crea la empresa (cliente) de un trámite con empresa inexistente y re-vincula
@@ -128,6 +160,49 @@ router.post('/entregar', OPERACIONES, async (req: Request, res: Response) => {
   const r = await entregar(parsed.data.tramiteIds, ctxDe(req.user!));
   await audit(req, { action: 'update', resource: 'flito_tramite', detail: `Entrega en lote: ${r.entregados} entregados, ${r.noHabilitados.length} no habilitados` });
   res.json(r);
+});
+
+// ─────────────────── Desbloqueo excepcional de autogestión ──────────────────
+//
+// Solo Operaciones: decidir qué gestiona FLITO no es una decisión financiera ni del gestor.
+
+const excepcionSchema = z.object({
+  concepto: z.enum(['soat', 'impuesto', 'logistica']),
+  motivo: z.string().min(MOTIVO_MINIMO, `El motivo es obligatorio (mínimo ${MOTIVO_MINIMO} caracteres)`),
+});
+
+router.post('/:id/desbloquear-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = excepcionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
+  try {
+    const ctx = ctxDe(req.user!);
+    const e = await desbloquear(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
+    await audit(req, {
+      action: 'update', resource: 'flito_tramite', resourceId: req.params.id,
+      detail: `Desbloqueo excepcional de ${parsed.data.concepto}: ${parsed.data.motivo.trim()}`,
+    });
+    res.status(201).json(e);
+  } catch (err) {
+    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
+});
+
+router.post('/:id/revocar-autogestion', OPERACIONES, async (req: Request, res: Response) => {
+  const parsed = excepcionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }); return; }
+  try {
+    const ctx = ctxDe(req.user!);
+    await revocar(req.params.id, parsed.data.concepto, parsed.data.motivo, ctx);
+    await audit(req, {
+      action: 'update', resource: 'flito_tramite', resourceId: req.params.id,
+      detail: `Revocado el desbloqueo de ${parsed.data.concepto}: ${parsed.data.motivo.trim()}`,
+    });
+    res.status(204).end();
+  } catch (err) {
+    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
+    throw err;
+  }
 });
 
 export default router;

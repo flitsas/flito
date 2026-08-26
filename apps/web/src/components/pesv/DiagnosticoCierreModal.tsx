@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import { errorMessage } from '../../lib/api';
 import { CloseIcon } from './shared';
 import { makeFocusTrapHandler, SpinnerIcon, ChevronRightIcon } from './diagnostico-helpers';
+import ModalPortal from '../flit/ModalPortal';
 
 export interface PreflightBloqueo {
   estandarId: number;
@@ -174,11 +175,12 @@ export default function DiagnosticoCierreModal({
   const canConfirm = !!preflight && !hasBlocks && accepted && !submitting;
 
   return (
+    <ModalPortal>
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="cierre-modal-title"
-      className="fixed inset-0 z-40 flex items-center justify-center p-6"
+      className="flit-modal fixed inset-0 z-40 flex items-center justify-center p-6"
       onKeyDown={handleKeyDown}
     >
       <div
@@ -333,7 +335,7 @@ export default function DiagnosticoCierreModal({
             type="button"
             onClick={handleConfirm}
             disabled={!canConfirm}
-            className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ background: 'var(--flit-gradient-danger)', boxShadow: 'var(--flit-shadow-button)' }}
           >
             {submitting && <SpinnerIcon />}
@@ -342,5 +344,6 @@ export default function DiagnosticoCierreModal({
         </footer>
       </div>
     </div>
+    </ModalPortal>
   );
 }

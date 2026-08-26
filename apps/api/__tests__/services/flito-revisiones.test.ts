@@ -26,7 +26,7 @@ const marcarPagadoMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../src/modules/flito-soat/flito-soat.service.js', () => ({ marcarPagado: marcarPagadoMock }));
 
 const {
-  confirmar, camposEsperados, listar, resolver, descartar,
+  confirmar, camposEsperados, listar, resolver, descartar, storageKeySoporte,
 } = await import('../../src/modules/flito-revisiones/flito-revisiones.service.js');
 const { default: revisionesRoutes } = await import('../../src/modules/flito-revisiones/flito-revisiones.routes.js');
 
@@ -192,5 +192,37 @@ describe('rutas — la cola es de Operaciones; los gestores no entran', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ registroId: '00000000-0000-0000-0000-000000000001', campos: {}, motivo: 'x' });
     expect(res.status).toBe(403);
+  });
+});
+
+// ── HU #11678 — la puerta genérica de soportes (AC7 y su Low) ───────────────
+//
+// `storageKeySoporte` la sirven DOS rutas abiertas a `admin` y `auditor`
+// (`GET /flito/revisiones/soporte/:id/archivo` y `GET /flito/derechos/soporte/:id`). Desde que un
+// COMPROBANTE DE PAGO cuelga de `flito_soportes`, resolver «cualquier soporte por su id» dejó de ser
+// aceptable: el AC5 le niega ese archivo a `auditor`.
+
+describe('storageKeySoporte — pertenencia y forma del id', () => {
+  beforeEach(() => { selectMock.mockReset(); });
+
+  it('un id que no es uuid → null, y ni siquiera consulta: sería un 22P02 (500), no un 404', async () => {
+    expect(await storageKeySoporte('no-soy-un-uuid')).toBeNull();
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('el where excluye los soportes de una boleta: el comprobante PSE no sale por aquí', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    let condicion: unknown = null;
+    selectMock.mockImplementation(() => {
+      const c = chain([]) as unknown as Record<string, unknown>;
+      const original = c.where as (v: unknown) => unknown;
+      c.where = (cond: unknown) => { condicion = cond; return original.call(c, cond); };
+      return c;
+    });
+
+    await storageKeySoporte('11111111-1111-4111-8111-111111111111');
+
+    const { sql: texto } = new PgDialect().sqlToQuery(condicion as never);
+    expect(texto).toContain('"conciliacion_boleta_id" is null');
   });
 });
