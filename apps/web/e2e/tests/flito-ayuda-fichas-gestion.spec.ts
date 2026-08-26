@@ -1,5 +1,5 @@
 // Ayuda FLITO — fichas de gestión publicadas (HU #11894, AC1–AC5).
-// Las de Finanzas/Administración siguen pendientes (alcance de #11895).
+// Las de Finanzas/Administración las publica HU #11895 (spec `flito-ayuda-fichas-finanzas.spec.ts`).
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,15 +31,6 @@ const FICHAS_GESTION = [
   { clave: 'clients', etiqueta: 'Clientes y proveedores', to: '/clients' },
 ] as const;
 
-const FICHAS_AUN_PENDIENTES = [
-  { clave: 'flito_bolsas', etiqueta: 'Bolsas' },
-  { clave: 'flito_conciliacion', etiqueta: 'Conciliación' },
-  { clave: 'finanzas_reporte_costos', etiqueta: 'Reporte de costos' },
-  { clave: 'siigo_parametrizacion', etiqueta: 'Facturación electrónica · Parametrización' },
-  { clave: 'siigo_operacion', etiqueta: 'Facturación electrónica · Operación' },
-  { clave: 'siigo_credenciales', etiqueta: 'Facturación electrónica · Credenciales' },
-] as const;
-
 function leerFicha(clave: string): string {
   return readFileSync(resolve(raiz, `apps/web/src/content/ayuda/${clave}.md`), 'utf8');
 }
@@ -52,7 +43,7 @@ function seccion(md: string, titulo: string): string {
 test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('TC-11894-01 AC1 — admin: las 12 de Gestión publicadas; Finanzas sigue pendiente', async ({ page }) => {
+  test('TC-11894-01 AC1 — admin: las 12 de Gestión publicadas; Finanzas también (HU #11895)', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
     await expect(page.getByRole('heading', { name: 'Gestión', exact: true })).toBeVisible();
 
@@ -62,9 +53,8 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     }
 
     await expect(page.getByRole('heading', { name: 'Finanzas', exact: true })).toBeVisible();
-    for (const f of FICHAS_AUN_PENDIENTES) {
-      await expect(page.getByRole('link', { name: `Ficha pendiente de ${f.etiqueta}` })).toBeVisible();
-    }
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Bolsas' })).toBeVisible();
+    await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
   });
 
   test('TC-11894-02 AC1 — cada ficha de Gestión abre plantilla (6 h2), sin vacío pendiente ni img', async ({ page }) => {
@@ -99,9 +89,6 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
       expect(md).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
       expect(md).not.toMatch(/\|[-:]+\|/);
     }
-    for (const f of FICHAS_AUN_PENDIENTES) {
-      expect(existsSync(resolve(raiz, `apps/web/src/content/ayuda/${f.clave}.md`)), f.clave).toBe(false);
-    }
   });
 
   test('TC-11894-04 AC1 — proveedor ve SOAT publicado (ya no es ficha pendiente)', async ({ page }) => {
@@ -116,14 +103,15 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });
 
-  test('TC-11894-05 AC1 — mensajero ve Mi ruta publicada; financiera ve Clientes publicado y Bolsas pendiente', async ({ page }) => {
+  test('TC-11894-05 AC1 — mensajero ve Mi ruta publicada; financiera ve Clientes y Bolsas publicados', async ({ page }) => {
     await abrirAyuda(page, MENSAJERO_USER);
     await expect(page.getByRole('link', { name: 'Abrir ficha de Mi ruta' })).toBeVisible();
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
 
     await abrirAyuda(page, FINANCIERA_USER);
     await expect(page.getByRole('link', { name: 'Abrir ficha de Clientes y proveedores' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Ficha pendiente de Bolsas' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Abrir ficha de Bolsas' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ficha pendiente de Bolsas' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: /SOAT/ })).toHaveCount(0);
   });
 

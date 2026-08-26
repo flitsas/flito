@@ -52,16 +52,17 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await sinViolacionesGraves(page, 'ficha publicada SOAT');
   });
 
-  test('AC5 — ficha pendiente (Bolsas): badge, Volver e Ir a la pantalla', async ({ page }) => {
+  test('AC5 — ficha publicada Bolsas (Financiera): badge pendiente ausente; Volver e Ir a la pantalla', async ({ page }) => {
     await abrirAyuda(page, FINANCIERA_USER);
-    const fila = page.getByRole('link', { name: /ficha pendiente de Bolsas/i });
+    await expect(page.getByText('Ficha pendiente', { exact: true })).toHaveCount(0);
+    const fila = page.getByRole('link', { name: 'Abrir ficha de Bolsas' });
     await expect(fila).toBeVisible();
-    const badge = page.getByText('Ficha pendiente', { exact: true }).first();
-    expect(await ratioDe(page, badge)).toBeGreaterThanOrEqual(MINIMO);
+    expect(await ratioDe(page, fila.getByText('Bolsas', { exact: true }), fila)).toBeGreaterThanOrEqual(MINIMO);
 
     await fila.click();
     await expect(page).toHaveURL(/\/flito\/ayuda\/flito_bolsas$/);
-    await expect(page.getByText('Esta ficha está pendiente.')).toBeVisible();
+    await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Qué es' })).toBeVisible();
     const volver = page.getByRole('link', { name: 'Volver al índice' }).first();
     const ir = page.getByRole('link', { name: 'Ir a la pantalla Bolsas' });
     await expect(volver).toBeVisible();
@@ -70,7 +71,7 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await expect(ir).toBeFocused();
     expect(await ratioDe(page, ir)).toBeGreaterThanOrEqual(MINIMO);
     expect(await ratioDe(page, volver)).toBeGreaterThanOrEqual(MINIMO);
-    await sinViolacionesGraves(page, 'ficha pendiente Bolsas');
+    await sinViolacionesGraves(page, 'ficha publicada Bolsas');
   });
 
   test('AC5 — NoAccess: axe no se corre (CTA del shell); ficha inexistente: axe + vacío', async ({ page }) => {
@@ -81,7 +82,7 @@ test.describe('FLITO — Ayuda · AC5 accesibilidad', () => {
     await expect(page.getByRole('link', { name: 'Volver al tablero' })).toBeVisible();
   });
 
-  test('AC5 — ficha inexistente: axe + Volver al índice', async ({ page }) => {
+  test('AC5 — ficha inexistente: axe + Volver al índice (el catálogo de 18 no tiene pendientes)', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/privacy');
     await expect(page.getByText('Esta ficha no existe.')).toBeVisible();
