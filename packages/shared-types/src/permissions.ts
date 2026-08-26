@@ -128,6 +128,14 @@ export const PAGES = {
   // facturas todos los días, y el reporte de costos es otro trabajo con otra audiencia. Unirlas
   // obligaría a conceder la operación diaria a quien solo debe parametrizar, o al revés.
   siigo_operacion: 'Facturación electrónica — Operación',
+  // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
+  // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
+  // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
+  // del catálogo de fichas). `admin` lo obtiene por `Object.keys(PAGES)`, pero el gate de ruta
+  // NO usa `hasPage(..., 'flito_ayuda')` — eso dejaría la pantalla solo al admin.
+  // NO se crea aquí `siigo_credenciales`: esa clave de catálogo de ayuda se lista solo si
+  // `user.role === 'admin'` y el PageSlug lo añade otra HU.
+  flito_ayuda: 'Ayuda FLITO',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;

@@ -284,6 +284,7 @@ contra el proyecto real el 2026-08-22 sobre los Bugs #11518, #11599, #11604, #11
 | Post-deploy, salud de ambientes/crons, rollback | `devops-agent` |
 | Monitoreo del PR abierto (checks CI, conflictos) y merge a `develop` | `pr-monitor-agent` |
 | Revisión de diff pre-PR | skill `flit-code-review` |
+| Ficha de ayuda in-app (delta o N/A) | skill `flit-ayuda-flito` |
 | Promoción develop→staging→release | skill `flit-release` |
 | ADO (conexión) | skill `flit-azure-devops` |
 | ADO (crear HU o Bug / ciclo del work item / PR ↔ ADO / feature completo) | skills `flit-crear-hu` / `flit-gestion-hu` / `flit-integration-ado` / `flit-modo-desarrollo-auto` |
@@ -318,6 +319,7 @@ el hilo principal es quien encadena.
 | Implementar `apps/web` | HU **o Bug** FRONTEND, o diff en páginas/componentes; E2E del spec por defecto | `frontend-agent` | 4 estados / permisos rotos |
 | Pre-PR (siempre, **cada** PR) | Antes de `create_pull_request` (aunque el humano diga «crea el PR»); `security-agent` **no** lo sustituye | **Skill** `flit-code-review` | PR sin checklist / veredicto inventado |
 | Pre-PR (calidad del WI) | Tras impl P1 y **antes** del PR (Gherkin, UI, BACKEND-only **o** corrección de Bug). Alcance = P1. Re-run propio; mutantes ≤3 (P2). FAIL → corregir **antes** de abrir el PR; **sin** Bug nuevo. El PR **es** el desarrollo verificado | `qa-agent` **modo B** (A si aún faltan TCs) | PR abierto sin verificación de AC / QA lanzado *después* del PR en paralelo al monitor |
+| Pre-PR (ayuda in-app) | HU FRONTEND o Bug que cambia el comportamiento visible de un módulo **con ficha** en `apps/web/src/content/ayuda/` | **Skill** `flit-ayuda-flito` | PR sin delta de ayuda (gate duro). N/A (declarar, no bloquea): BACKEND-only, copy/a11y, CHORE/DOCS, Bug que no cambia lo que se ve/hace, módulos sin ficha aún |
 | Pre-PR (sensible) | Auth, PII, multer, rutas nuevas, `package*.json`, laft/privacy — modo **diff-scoped**; ∥ `db-review` si ambos aplican | `security-agent` | Riesgo de seguridad |
 | Pre-PR (esquema) | Toca `schema.ts` o `src/db/migrations/` — en paralelo con security si ambos aplican | `db-review-agent` | Drift / FKs / índices |
 | Ciclo ADO Active→Resolved | Activar al empezar; **`Resolved` tras el merge** (el PR ya trajo QA B). Plantillas | **Skill** `flit-gestion-hu` | Estados huérfanos / **Bugs huérfanos** / plantillas rotas |

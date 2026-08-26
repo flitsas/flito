@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { hasPage, PageSlug } from './lib/permissions';
+import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import Layout from './components/Layout';
 import NoAccess from './components/NoAccess';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
@@ -101,6 +102,7 @@ const TramitesMetricas = lazy(() => import('./pages/admin/TramitesMetricas'));
 const PublicManifiesto = lazy(() => import('./pages/PublicManifiesto'));
 const PublicTramiteVerify = lazy(() => import('./pages/PublicTramiteVerify'));
 const PublicTramitePortal = lazy(() => import('./pages/PublicTramitePortal'));
+const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
 
 function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
   const { user, loading } = useAuth();
@@ -109,6 +111,14 @@ function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: 
   if (!user) return <Navigate to="/login" />;
   if (page && !hasPage(user, page)) return <NoAccess page={page} />;
 
+  return <>{children}</>;
+}
+
+// Ayuda FLITO: el gate es la intersección con el catálogo, NO hasPage('flito_ayuda').
+// ProtectedRoute page="flito_ayuda" dejaría la pantalla solo a admin.
+function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!puedeVerAyudaFlito(user)) return <NoAccess page="flito_ayuda" />;
   return <>{children}</>;
 }
 
@@ -167,6 +177,8 @@ function AppRoutes() {
         <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
         <Route path="/flito/logistica" element={<ProtectedRoute page="flito_logistica"><Lazy><FlitoLogistica /></Lazy></ProtectedRoute>} />
         <Route path="/flito/ruta" element={<ProtectedRoute page="flito_logistica_ruta"><Lazy><FlitoRuta /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/ayuda" element={<AyudaFlitoGate><Lazy><FlitoAyuda /></Lazy></AyudaFlitoGate>} />
+        <Route path="/flito/ayuda/:slug" element={<AyudaFlitoGate><Lazy><FlitoAyuda /></Lazy></AyudaFlitoGate>} />
         <Route path="/flito/bolsas" element={<ProtectedRoute page="flito_bolsas"><Lazy><FlitoBolsas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/comparendos" element={<ProtectedRoute page="flito_comparendos"><Lazy><FlitoComparendos /></Lazy></ProtectedRoute>} />
         {/* Conciliación: las DOS rutas comparten `PageSlug`. Son el mismo trabajo y la misma

@@ -2,7 +2,7 @@
 name: flit-modo-desarrollo-auto
 description: |
   Modo auto por Feature (FLIT - FLITO): cadena apilada. Cargar ESTA Skill al arrancar el Feature — no improvisar el ciclo.
-  Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu (Active) → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Agent qa-agent B + Skill flit-code-review ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → monitor CI + merge al verde → Skill flit-gestion-hu Resolved (comentario al QA humano; NO relanzar qa-agent) → Modo B → devops M1 una vez al tip.
+  Por CADA HU **o Bug** (mismo ciclo — paridad de AGENTS.md): Skill flit-gestion-hu (Active) → architecture/ux slim|full si aplica → Agent backend/frontend (prompt denso; NUNCA codear la HU/Bug en el hilo) → verificación P1 (archivos de este WI, no glob del módulo; impl no muta) → Agent qa-agent B + Skill flit-code-review + Skill flit-ayuda-flito (si aplica) ANTES del PR (+ security diff-scoped ∥ db-review si disparan) → PR → Skill flit-integration-ado Modo A → monitor CI + merge al verde → Skill flit-gestion-hu Resolved (comentario al QA humano; NO relanzar qa-agent) → Modo B → devops M1 una vez al tip.
   Ledger obligatorio por work item. PROHIBIDO imitar skills con comentarios ADO branded / wit_* sueltos, y PROHIBIDO dejar un Bug mergeado sin Resolved. Triggers — modo auto, feature completo, sin interrupción, sigue con la siguiente historia, corrige los bugs, flit-modo-desarrollo-auto.
 ---
 
@@ -22,6 +22,7 @@ Esta skill **orquesta**; no duplica la lógica de las otras. La **matriz de invo
 - `architecture-agent` / `ux-agent` — diseño previo cuando aplica (paso 2c)
 - `backend-agent` / `frontend-agent` — implementación (paso 3); el hilo principal no «codea de paso» una HU completa
 - `flit-code-review` — revisión del diff antes del PR (paso 4b) (**Skill en cada HU**)
+- `flit-ayuda-flito` — delta de ficha in-app o N/A declarado (paso 4b); gate duro si el módulo ya tiene ficha
 - `security-agent` / `db-review-agent` — gates pre-PR cuando el diff lo dispara (paso 4b)
 - `qa-agent` — TCs (A, en `Active`) + gate B **pre-PR** (**Agent en cada HU que aplique**); **prohibido** modo C por FAIL del gate; **prohibido** relanzarlo tras el PR
 - `flit-integration-ado` — Modo A al abrir PR y Modo B post-merge (**Skill; `Custom.Commits` obligatorio**)
@@ -311,11 +312,12 @@ Con el diff (`git diff origin/develop...HEAD`), **antes** de abrir PR (**cada HU
 
 1. **`Agent qa-agent` modo B** (re-run P1; mutantes ≤3). `FAIL` → corregir; **no** abrir PR; **no** Bug.
 2. **`Skill flit-code-review`** (veredicto canónico). `BLOQUEADO` → corregir; no abrir PR.
-3. **`security-agent` (diff-scoped)** si superficie sensible (P5: no en copy/CSS/tests-only). `FAIL` → corregir **en el mismo hilo**.
-4. **`db-review-agent`** si toca `schema.ts` o migraciones. Críticos → corregir vía backend. No re-auditar por una Nota.
-5. 1+2 y, si aplican, 3+4: lanzar en el mismo turno lo que sea independiente (QA ∥ code-review; security ∥ db-review).
-6. Si un gate no aplica → declararlo en el cuerpo del PR.
-7. Hallazgo de **este** diff → se corrige aquí (veredicto limpio). Deuda preexistente → Nota (P4/P9), nunca Bug.
+3. **`Skill flit-ayuda-flito`** si HU FRONTEND o Bug cambia el comportamiento visible de un módulo **con ficha**. Sin delta de ayuda → **no** abrir PR. N/A (declarar): BACKEND-only, copy/a11y, CHORE/DOCS, Bug que no cambia lo que se ve/hace, módulos sin ficha aún.
+4. **`security-agent` (diff-scoped)** si superficie sensible (P5: no en copy/CSS/tests-only). `FAIL` → corregir **en el mismo hilo**.
+5. **`db-review-agent`** si toca `schema.ts` o migraciones. Críticos → corregir vía backend. No re-auditar por una Nota.
+6. 1+2+3 y, si aplican, 4+5: lanzar en el mismo turno lo que sea independiente (QA ∥ code-review; security ∥ db-review).
+7. Si un gate no aplica → declararlo en el cuerpo del PR.
+8. Hallazgo de **este** diff → se corrige aquí (veredicto limpio). Deuda preexistente → Nota (P4/P9), nunca Bug.
 
 Los checks CI `dependency-audit` y `secret-scan` siguen siendo gates de merge.
 
@@ -398,8 +400,8 @@ pendientes.
 3. **Nunca `Resolved` antes del merge** ni con CI remoto ya fallido. CI remoto `pending` no
    bloquea la siguiente HU en cadena; sí obliga a seguir el `pr-monitor` hasta `MERGED` o rojo.
    `Resolved` es el Paso 3 **después** de `MERGED`.
-4. **Nunca abrir el PR sin el paso 4b en verde** — `qa-agent` B, `flit-code-review` y, cuando
-   aplique, `security-agent` y/o `db-review-agent`. Un «crea el PR» del humano **no** salta el 4b.
+4. **Nunca abrir el PR sin el paso 4b en verde** — `qa-agent` B, `flit-code-review`, `flit-ayuda-flito`
+   (si aplica) y, cuando aplique, `security-agent` y/o `db-review-agent`. Un «crea el PR» del humano **no** salta el 4b.
 5. **Nunca commitear secretos** ni `.env`.
 6. **Una rama por HU, siempre ligada a un work item.** Sin HU o Bug en ADO no hay rama ni PR.
    Nombre `HU/<ID>-<desarrollador>-<desc>` y título `HU <ID>: <descripción>` — formato estricto de
@@ -451,6 +453,7 @@ Estas preguntas **sí** (P9). Distinto de «qué sigue» / «puedo mergear» (pr
 - [ ] Mínimo local P1 en verde (archivos de este WI, no glob del módulo); CI = gate de suite completa
 - [ ] **Agent** `qa-agent` modo B **antes del PR** con HANDOFF (`PASS` / `FAIL` / `SIN-ENTORNO`). `FAIL` → retrabajo, **no** abrir PR, **sin** modo C
 - [ ] **Skill** `flit-code-review` con veredicto **OK** **antes** del PR (único éxito; `OK-CON-OBSERVACIONES` = retrabajo o waiver, no abre el PR), cargada **en este turno** (no reusada de HUs previas) y amarrada al `SHA revisado`
+- [ ] **Skill** `flit-ayuda-flito` si el diff cambia UI de un módulo con ficha (delta o N/A declarado). Gate duro: sin delta no se abre el PR
 - [ ] `security-agent` (diff-scoped) si superficie sensible (o "no aplica"); ∥ `db-review` si ambos aplican
 - [ ] `db-review-agent` si esquema/migraciones (o "no aplica")
 - [ ] Commit sin archivos colados (`git status --short` limpio)
