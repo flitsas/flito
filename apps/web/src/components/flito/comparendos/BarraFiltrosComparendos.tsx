@@ -338,14 +338,28 @@ export default function BarraFiltrosComparendos({
             value={criterios.municipio ?? TODAS}
             opciones={[{ valor: TODAS, etiqueta: 'Todos los municipios' }, ...opcionesMunicipio]}
             onChange={(v) => onAplicar({ municipio: v || undefined })}
-            /* HU #11795. Decía «Dónde se vio el comparendo, según el catálogo de fuentes.», y desde
-               que la tabla muestra el organismo en las filas de SIMIT esa frase pasó a ser una
-               trampa: sugiere que la fila cuya celda dice «Organismo · Medellin» saldría al filtrar
-               por MEDELLIN, y no sale. El filtro es igualdad exacta contra `municipioFuente`
-               normalizado (RN-36) y **eso no cambia**: es lo que sostiene el índice
-               `(municipio_fuente, created_at DESC, id DESC)` de la 0153 y el cursor de RN-32.
-               Se dice ANTES de que alguien lo reporte como defecto, no después. */
-            ayuda="El filtro busca por el municipio al que se le consultó. Los comparendos que solo reportó SIMIT no tienen municipio y no salen aquí, aunque su organismo lo mencione."
+            /* HU #11879. La frase anterior decía que el filtro buscaba por el municipio al que se
+               le consultó y que las filas de SIMIT quedaban fuera por carecer de municipio. Era
+               cierta con la #11795 y es FALSA desde la #11878: esas filas ya salen, porque el
+               filtro compara `municipioComparendo`, que el sync deriva. Dejarla escrita sería peor
+               que no haberla escrito nunca: le enseña al operador a no usar un filtro que ya
+               funciona. No se cita literal a propósito —el texto viejo no debe poder encontrarse
+               con un `grep` en `apps/web`—; está en el histórico de git y en el §5 del anexo.
+
+               La frase nueva hace DOS trabajos. Dice lo que ahora sí ocurre —las filas de SIMIT
+               entran— y sigue cubriendo el residuo, que es pequeño pero existe por construcción: un
+               organismo que no reconoce ningún municipio del catálogo, o que reconoce dos (la
+               ambigüedad no se desempata, se declara). El paréntesis es lo que ata ese residuo a
+               algo VISIBLE: quien lea «no se pudo determinar» sin más se queda sin saber qué filas
+               son; con el paréntesis las reconoce en la tabla a simple vista.
+
+               Lo que NO cambia y conviene no reabrir: el filtro sigue siendo igualdad exacta contra
+               un `codigoFuente` normalizado (RN-36) —ahora `municipioComparendo`—, y esa exactitud
+               es lo que sostiene el índice `(municipio_comparendo, created_at DESC, id DESC)` de la
+               migración 0165 y el cursor de RN-32. Que ahora acierte más no lo convierte en una
+               búsqueda por texto. Y el índice de la 0153 al que este comentario invocaba
+               —`(municipio_fuente, …)`— ya no existe: la 0165 lo borró. */
+            ayuda="Busca por el municipio donde se impuso el comparendo, lo haya reportado SIMIT o el municipio. Los pocos cuyo municipio no se pudo determinar —en la tabla se les ve el organismo— no salen aquí."
             mensaje={pieMunicipio.mensaje}
             fallo={pieMunicipio.fallo}
             disabled={bloquear(pieMunicipio, criterios.municipio)}

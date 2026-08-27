@@ -86,6 +86,10 @@ import type { ComparendosTipoRegistro } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoComparendosFieldMap } from '../../db/schema.js';
 import { ComparendosMapaHomologacionVacioError } from './flito-comparendos.errors.js';
+// El MISMO normalizador con el que el catálogo guardó el `codigo_fuente` y con el que el filtro del
+// listado normaliza lo que teclea el operador (HU #11878). Con una copia parecida aquí, el día que
+// una de las dos cambiara, el municipio derivado dejaría de casar con el filtro que lo busca.
+import { normalizarCodigoFuente } from './flito-comparendos.service.js';
 import { leerRuta } from './clients/fuente-http.js';
 import type { ComparendosOrigenFuente } from './clients/types.js';
 
@@ -98,6 +102,15 @@ import type { ComparendosOrigenFuente } from './clients/types.js';
  * texto, y aceptar cualquier valor significaría escribir en una propiedad cuyo nombre lo decide una
  * fila de la base. `municipioFuente` no está porque no lo trae ningún proveedor — lo pone el sync
  * con el `codigoFuente` del municipio al que se le preguntó.
+ *
+ * `municipioComparendo` tampoco está, y por el MISMO motivo que `tipoRegistro` (HU #11878): no lo
+ * publica ningún proveedor, sale de NUESTRO catálogo de municipios cruzado con el organismo ya
+ * resuelto (`municipioDelComparendo`). Si fuera `target_field`, el valor de una columna con la que
+ * el listado FILTRA lo elegiría una fila de una tabla de texto libre —bastaría un `source_path`
+ * apuntado a cualquier cadena del proveedor para que el municipio dejara de venir del catálogo—, y
+ * además se resolvería por origen, antes de los tres escalones de RN-13: el municipio podría salir
+ * de SIMIT y el organismo del municipal en la misma fila, contradiciéndose. Derivarlo al final de
+ * `resolverCampos` hace imposibles las dos cosas.
  */
 export const CAMPOS_CANONICOS = [
   'numeroComparendo',
@@ -983,6 +996,12 @@ export interface CamposResueltos {
   idResolucion: string | null;
   /** Derivado de las dos líneas de arriba, nunca homologado ni elegido. Ver `tipoDeRegistro`. */
   tipoRegistro: ComparendosTipoRegistro;
+  /**
+   * De qué municipio ES el comparendo (HU #11878). Derivado igual que `tipoRegistro` y por el mismo
+   * motivo: no lo publica nadie. Se calcula sobre el `organismo` YA RESUELTO por los tres escalones
+   * de RN-13, así que municipio y organismo no pueden contradecirse dentro de la misma fila.
+   */
+  municipioComparendo: string | null;
 }
 
 /**
@@ -1025,6 +1044,80 @@ export function tipoDeRegistro(
 }
 
 /**
+ * El límite de palabra con el que un `codigo_fuente` se busca dentro del organismo (HU #11878).
+ *
+ * **`\b` NO sirve y no es una preferencia de estilo:** los códigos del catálogo admiten espacios
+ * (`SANTA FE DE ANTIOQUIA`), y `\b` colocado alrededor de una alternativa con espacios no delimita
+ * el TÉRMINO, delimita cada trozo. Lo que se quiere es «el código, y a los lados algo que no sea
+ * alfanumérico o el borde del texto», que es exactamente esto.
+ *
+ * Se exporta para que la paridad con la migración 0165 compare el literal del código con el literal
+ * del `.sql`, en vez de dejar dos copias sueltas del mismo criterio.
+ */
+export const LIMITE_PALABRA_MUNICIPIO = { antes: '(^|[^A-Z0-9])', despues: '([^A-Z0-9]|$)' } as const;
+
+/**
+ * De qué municipio ES el comparendo, que **no** es a qué municipio se le preguntó (HU #11878).
+ *
+ * Función pura, sin I/O: recibe el catálogo ya cargado. Vive aquí y no en el servicio del sync por
+ * lo mismo que `tipoDeRegistro` — es criterio de negocio y se prueba con una tabla de casos.
+ *
+ * ── Los dos escalones ────────────────────────────────────────────────────────────────────────────
+ *
+ *   1. **`municipioFuente !== null` → ese, y FIN.** Ni se mira el organismo. Si a Medellín se le
+ *      preguntó y Medellín devolvió la fila, no hay nada que deducir: el hecho vence a la
+ *      heurística, y así una discrepancia entre el catálogo y cómo se escribe el organismo nunca
+ *      puede empeorar un dato que ya era cierto.
+ *   2. **Si no, se lee el ORGANISMO.** `null` → `null`. Si hay texto, se normaliza con
+ *      `normalizarCodigoFuente` (el mismo del catálogo y del filtro) y se busca cada `codigo` con
+ *      límite de palabra explícito.
+ *
+ * ── Por qué la ambigüedad cae a `null` ───────────────────────────────────────────────────────────
+ *
+ * **Exactamente un código distinto casa → ese. Cero, o dos o más → `null`.** Sin desempate por
+ * longitud ni «gana el primero»: los dos serían una decisión inventada sobre un texto libre del
+ * proveedor, y el precio de equivocarse es enseñarle a un operador un comparendo de otro municipio
+ * (o esconderle el suyo) sin que nada lo delate. `null` es el lado seguro y además el que ya
+ * significa «no se sabe» en esta tabla.
+ *
+ * Cuenta CÓDIGOS DISTINTOS y no coincidencias: un catálogo con la misma fila repetida —que el único
+ * de `codigo_fuente` impide hoy— no convertiría un acierto en ambigüedad.
+ *
+ * ── El catálogo entra COMPLETO, no solo `activo = true` ──────────────────────────────────────────
+ *
+ * Desactivar una fuente deja de consultarla; no borra de dónde eran los comparendos que ya trajo. Es
+ * el mismo argumento con el que `condicionAusente` no acota por los municipios activos y con el que
+ * el filtro del listado no valida su `municipio` contra el catálogo: perder de vista deuda viva por
+ * un cambio de parametrización sería el peor de los desenlaces posibles.
+ *
+ * ── Por qué NO se escapa el código antes de meterlo en la regex ──────────────────────────────────
+ *
+ * Porque `codigo_fuente` está validado en la RUTA del catálogo contra `^[A-Z0-9 _-]+$`, así que no
+ * puede contener metacaracteres: ni `.`, ni `*`, ni `(`, ni `\`. **Si esa validación se relaja, esto
+ * se rompe en silencio** —un código con `.` empezaría a casar de más, y nadie vería un error, solo
+ * municipios mal atribuidos—. Queda escrito aquí a propósito: es la premisa de la que depende, y el
+ * `-` va al final de la clase de caracteres allí por la misma razón.
+ */
+export function municipioDelComparendo(
+  municipioFuente: string | null, organismo: string | null, catalogo: readonly string[],
+): string | null {
+  // Escalón 1. El municipio consultado manda y corta la evaluación aquí (AC1).
+  if (municipioFuente !== null) return municipioFuente;
+  // Escalón 2. Sin organismo no hay nada de donde deducir; no es un error, es no saber.
+  if (organismo === null) return null;
+
+  const texto = normalizarCodigoFuente(organismo);
+  const casados = new Set<string>();
+  for (const codigo of catalogo) {
+    const patron = new RegExp(`${LIMITE_PALABRA_MUNICIPIO.antes}${codigo}${LIMITE_PALABRA_MUNICIPIO.despues}`);
+    if (patron.test(texto)) casados.add(codigo);
+  }
+  // Uno y solo uno. Cero es «no reconocible» y dos o más es «ambiguo»: las dos cosas se saben con la
+  // misma honestidad, y las dos son `null`.
+  return casados.size === 1 ? [...casados][0]! : null;
+}
+
+/**
  * Decide el valor final de cada campo: **SIMIT → municipal → lo que ya había** (RN-13, CF-08).
  *
  * Los tres escalones, en ese orden exacto, y cada uno responde a una pregunta distinta:
@@ -1037,9 +1130,21 @@ export function tipoDeRegistro(
  *      congelado para siempre en la fila. Y estar al final, en vez de no estar, es lo que impide que
  *      una corrida en la que ninguna fuente reportó el campo lo ponga en `null`: dejar de recibir un
  *      dato no es recibir que está vacío.
+ *
+ * ── El tercer parámetro (HU #11878) ─────────────────────────────────────────────────────────────
+ *
+ * `ctx` es REQUERIDO y no opcional con default, y esa es una decisión y no una omisión: un
+ * `ctx = { municipioFuente: null, catalogoMunicipios: [] }` por defecto compilaría en el próximo
+ * llamador que se olvidara de pasarlo y devolvería `municipioComparendo: null` para SIEMPRE, sin un
+ * solo error. Un parámetro requerido convierte ese olvido en un fallo de compilación.
+ *
+ * `ctx.municipioFuente` es el MISMO valor que se escribe en la columna `municipio_fuente` —el
+ * llamador lo saca a una const y la usa para las dos cosas—, porque si la columna vieja y la
+ * derivación leyeran expresiones distintas podrían discrepar dentro de la misma fila.
  */
 export function resolverCampos(
   consolidado: ConsolidadoComparendo, existente: CanonicoExistente | null,
+  ctx: { municipioFuente: string | null; catalogoMunicipios: readonly string[] },
 ): CamposResueltos {
   const simit = consolidado.simit;
   const municipal = consolidado.municipal;
@@ -1076,6 +1181,10 @@ export function resolverCampos(
   // Los dos de la resolución se resuelven ANTES para poder derivar el tipo de ellos (HU #11712).
   const numeroResolucion = elegir('numeroResolucion');
   const idResolucion = elegir('idResolucion');
+  // Y el organismo ANTES que el municipio, por el mismo motivo (HU #11878): el municipio se deduce
+  // del organismo YA RESUELTO entre las dos fuentes y el histórico, nunca del que trajo un origen
+  // suelto. Así la fila no puede decir «Medellín» al lado de un organismo de Bello.
+  const organismo = elegir('organismo');
 
   return {
     placa: elegir('placa'),
@@ -1087,13 +1196,18 @@ export function resolverCampos(
     // `30/07/2026` no vuelve inerte la precedencia — la vuelve invisible, que es distinto, y por eso
     // se prueba con un caso donde SÍ discrepan.
     fechaNotificacion: elegirFecha('fechaNotificacion'),
-    organismo: elegir('organismo'),
+    organismo,
     monto: elegir('monto'),
     estadoFuente: elegir('estadoFuente'),
     numeroResolucion,
     idResolucion,
     // Derivado, nunca elegido: es lo que hace que el CHECK de la 0160 se cumpla por construcción.
     tipoRegistro: tipoDeRegistro(numeroResolucion, idResolucion),
+    // Ídem (HU #11878), y se re-deriva ENTERO en cada corrida: no hay escalón «lo que ya había». Es
+    // deliberado y lo sostiene una premisa del catálogo —no hay endpoint que borre municipios, solo
+    // crece—, así que re-derivar solo puede reconocer más, nunca menos. Y es lo que hace que añadir
+    // un municipio a la parametrización arregle el histórico que se visita, sin migración.
+    municipioComparendo: municipioDelComparendo(ctx.municipioFuente, organismo, ctx.catalogoMunicipios),
   };
 }
 

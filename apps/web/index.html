@@ -17,19 +17,38 @@
          crossorigin obligatorio: las fuentes se piden en modo CORS anónimo. -->
     <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
     <script>
-      // Aura — anti-flash theme bootstrap. Debe ejecutarse ANTES del primer paint.
+      // Anti-flash theme bootstrap. Debe ejecutarse ANTES del primer paint.
       // Inline en <head> para que aplique data-theme antes del CSS y evite flash.
+      //
+      // HU #11899 — el atributo se escribe SIEMPRE, resuelto a 'light' o 'dark'.
+      // Antes, con la preferencia en 'system' (que es el DEFECTO cuando nadie ha
+      // tocado el toggle) no se seteaba nada y se dejaba que `prefers-color-scheme`
+      // resolviera por CSS. Eso funcionaba para Aura, que tiene un gemelo @media de
+      // sus tokens, y NO para nada de lo que se selecciona por `[data-theme='dark']`:
+      // el dock, la ⌘K y —desde esta HU— todo el kit FLIT. De ahí el síntoma que se
+      // reportaba como «en algunos dispositivos no cambia el tema»: eran los que
+      // tenían el SO en oscuro y la preferencia sin tocar.
+      //
+      // Este script y `applyDocumentTheme()` en src/lib/theme.tsx tienen que resolver
+      // IGUAL: son la misma decisión tomada dos veces (aquí antes del primer paint,
+      // allí en cada cambio). Si una de las dos vuelve a quitar el atributo, vuelve el
+      // parpadeo o vuelve el bug.
       (function () {
+        var resuelto = null;
         try {
           var stored = localStorage.getItem('aura-theme');
-          if (stored === 'light' || stored === 'dark') {
-            document.documentElement.setAttribute('data-theme', stored);
-          }
-          // Si stored === 'system' o no existe, no setear data-theme y dejar
-          // que `prefers-color-scheme` resuelva nativamente.
+          if (stored === 'light' || stored === 'dark') resuelto = stored;
         } catch (e) {
-          // localStorage bloqueado — fallback al esquema del SO via CSS.
+          // localStorage bloqueado (modo privado, cookies de terceros): no es motivo
+          // para quedarse sin tema. Se cae al esquema del SO, igual que 'system'.
         }
+        if (resuelto === null) {
+          resuelto =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', resuelto);
       })();
     </script>
   </head>

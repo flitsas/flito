@@ -45,25 +45,30 @@ Clasificar cada pedazo como:
 - **Técnico sugerido** — APIs, tablas (hipótesis; no compromiso)
 - **Fuera de alcance** — lo que el humano mencionó pero no pide ahora
 
-### 3. Pregunta consolidada (si hace falta)
+### 3. Ronda de cierre (obligatoria si hay vacío)
 
-Máximo **una** pregunta, con este molde:
+Contrastar el pedido con código y spec del módulo (`Read`/`Grep`). Si la spec o una RN **ya
+excluyó** lo que se pide, si vacío vs error no está definido, si hay que persistir o solo
+mostrar, si hay sentinelas, PII o densidad UX — eso **cambia el producto**.
+
+Todas las preguntas que cambian código/AC/alcance van en **un** mensaje (no «máximo una» y
+seguir con supuestos). Molde:
 
 ```
-Ambiguo:
+Ronda de cierre (bloquea HUs y código hasta respuesta):
+- Pregunta 1: …
+- Pregunta 2: …
+Riesgos / advertencias:
 - …
-
-Asumo por defecto (si no respondes):
+Asumo por defecto SOLO lo que no cambia comportamiento (si no respondes, avanzo con esto):
 - …
-
-Si avanzamos con esos supuestos:
-- el borrador servirá para tech-lead modo A/B
-- NO se crea nada en ADO ni se escribe código
-
-Bloquea código/ADO hasta respuesta: sí | no
+Fuera de alcance (no se convierte en HU/Bug de esta ráfaga sin un «sí»):
+- …
 ```
 
 Si no hay ambigüedad que cambie alcance o DoR, **no preguntes**: entrega el borrador.
+Si hay bloqueante y el humano no responde → **parar**. Prohibido inventar la respuesta, una HU
+extra o un Bug. Detalle: `.cursor/rules/planeacion-cierre-vacios.mdc` (P9).
 
 ### 4. Entregar el paquete de intake
 
@@ -80,26 +85,29 @@ Salida obligatoria (markdown en el chat; opcionalmente un borrador bajo `docs/fe
 <1 párrafo>
 
 ### Alcance propuesto
-- In:
+- In:  <!-- 1:1 con los ítems del pedido; no añadir «también habría que» -->
 - Out:
 
 ### Criterios funcionales verificables (borrador)
-- …  <!-- aún NO es Gherkin; frases observables -->
+- …  <!-- aún NO es Gherkin; frases observables; un criterio por ítem del pedido -->
 
 ### Reglas y supuestos
 - …
 
 ### Riesgos / dependencias
 - PII / Habeas Data: sí|no|revisar
-- Integraciones externas:
+- Integraciones externas (vacío vs error, timeouts, sentinelas):
+- Contraste con spec/código existente (¿algo ya excluyó esto a propósito?):
 - Dependencias de Features/HUs existentes:
 
 ### Ambigüedades abiertas
-- … | ninguna
+- … | ninguna  <!-- si hay alguna que cambie código → no handoff a crear HUs -->
 
 ### Handoff sugerido
 - Siguiente: tech-lead-agent modo A (Feature) | modo B (si ya hay Feature padre #…)
-- ¿Listo para refinar a Gherkin/SP? sí | no (faltan respuestas)
+- ¿Listo para refinar a Gherkin/SP? sí | no (faltan respuestas de la ronda de cierre)
+- Corte propuesto: **1 HU por ítem del pedido** (o 1 sola si van juntas). Split BACKEND/FRONTEND
+  solo si cada una entrega un incremento usable sin la otra.
 ```
 
 ## Qué está prohibido

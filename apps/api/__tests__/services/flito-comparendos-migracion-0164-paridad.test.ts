@@ -37,9 +37,13 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { flitoComparendosRegistros } from '../../src/db/schema.js';
+// El extractor y el podador viven en un helper desde la HU #11877: estaban duplicados aquí y en
+// `flito-comparendos-fecha-notificacion.test.ts`, y un parser copiado es un parser que se desincroniza.
+import {
+  filasDeMigracion, filasSembradas, podarComentarios, rutaMigracion, type FilaFieldMap,
+} from '../helpers/field-map-sql.js';
 // El guarda de ADR-DB-001 tal como lo aplica el runner, no una reimplementación.
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 
@@ -53,30 +57,11 @@ const { CAMPOS_CANONICOS, FECHA_CENTINELA_NO_NOTIFICADO } =
   await import('../../src/modules/flito-comparendos/flito-comparendos-merge.js');
 
 const ARCHIVO = '0164_flito_comparendos_fecha_notificacion.sql';
-const ruta = (nombre: string) =>
-  fileURLToPath(new URL(`../../src/db/migrations/${nombre}`, import.meta.url));
 
 const TABLA = 'flito_comparendos_registros';
 const COLUMNA = 'fecha_notificacion';
 
-const sql0164 = readFileSync(ruta(ARCHIVO), 'utf8');
-
-/** Quita los `--` que no vivan dentro de una cadena SQL. El mismo podador de las paridades. */
-function podarComentarios(texto: string): string {
-  let salida = '';
-  let enCadena = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (!enCadena && c === '-' && texto[i + 1] === '-') {
-      while (i < texto.length && texto[i] !== '\n') i++;
-      salida += '\n';
-      continue;
-    }
-    if (c === "'") enCadena = !enCadena;
-    salida += c;
-  }
-  return salida;
-}
+const sql0164 = readFileSync(rutaMigracion(ARCHIVO), 'utf8');
 
 // La cabecera de la 0164 explica EN PROSA lo que el archivo no hace —«ni un UPDATE», «sin
 // backfill»—. Sin podarla, el texto que dice «no hay UPDATE» alimentaría la búsqueda de `UPDATE` y
@@ -86,31 +71,13 @@ const COMPACTO = CUERPO.replace(/\s+/g, ' ').trim();
 
 // ─────────────────────────── Lectura de las filas sembradas ─────────────────────────────────────
 
-interface FilaSembrada {
-  version: number; origen: string; sourcePath: string; targetField: string;
-  prioridad: number; provisional: boolean;
-}
-
-/** Extractor ESTRICTO: una tupla con forma que no se entienda tiene que hacer fallar el guardarraíl. */
-function filasSembradas(sql: string): FilaSembrada[] {
-  const tupla = /\(\s*(\d+)\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\d+)\s*,\s*(true|false)\s*,\s*(?:NULL|'(?:[^']*)')\s*\)/gi;
-  return [...podarComentarios(sql).matchAll(tupla)].map((m) => ({
-    version: Number(m[1]),
-    origen: m[2],
-    sourcePath: m[3],
-    targetField: m[4],
-    prioridad: Number(m[5]),
-    provisional: m[6].toLowerCase() === 'true',
-  }));
-}
-
 const FILAS = filasSembradas(sql0164);
 const SIMIT = FILAS.filter((f) => f.origen === 'simit');
 const MUNICIPAL = FILAS.filter((f) => f.origen === 'municipal');
 /** La v3, leída del `.sql` de la 0160: es la cobertura que la v4 no puede perder. */
-const FILAS_V3 = filasSembradas(readFileSync(ruta('0160_flito_comparendos_tipo_registro.sql'), 'utf8'));
+const FILAS_V3 = filasDeMigracion('0160_flito_comparendos_tipo_registro.sql');
 
-const rutasDe = (filas: FilaSembrada[]): string[] => filas.map((f) => f.sourcePath);
+const rutasDe = (filas: FilaFieldMap[]): string[] => filas.map((f) => f.sourcePath);
 
 // ─────────────────────────── Guardarraíl: ¿los extractores leyeron algo? ────────────────────────
 
@@ -309,14 +276,14 @@ describe('AC4 · la 0158, la 0160 y la 0163 no se tocan', () => {
     // La salida fácil para «arreglar» el mapa es editar la migración donde ya estaba escrito. En un
     // ambiente que ya la corrió, ese cambio no se ejecuta nunca y el `.sql` pasa a mentir sobre lo
     // que hay en la base.
-    const v2 = filasSembradas(readFileSync(ruta('0158_flito_comparendos_field_map_v2.sql'), 'utf8'));
+    const v2 = filasDeMigracion('0158_flito_comparendos_field_map_v2.sql');
     expect(v2.length).toBeGreaterThan(0);
     expect(new Set(v2.map((f) => f.version))).toEqual(new Set([2]));
     expect(new Set(FILAS_V3.map((f) => f.version))).toEqual(new Set([3]));
   });
 
   it('la 0163 sigue sin tocar el `field_map`: no hay v4 escondida ahí', () => {
-    const sql0163 = readFileSync(ruta('0163_flito_comparendos_clave_negocio_prefijo.sql'), 'utf8');
+    const sql0163 = readFileSync(rutaMigracion('0163_flito_comparendos_clave_negocio_prefijo.sql'), 'utf8');
     expect(filasSembradas(sql0163)).toEqual([]);
     expect(podarComentarios(sql0163).toUpperCase()).not.toContain('FLITO_COMPARENDOS_FIELD_MAP');
   });

@@ -6,8 +6,14 @@
 // leyendo el CSS. Ese gate salió VERDE sobre una pantalla que incumplía: componía las teclas
 // sobre el panel cuando en el DOM las cinco cuelgan de una barra `.flit-shell-sunken`, del ítem
 // activo o del panel, y ponía bajo el overlay el fondo oscuro del `body` cuando lo que hay ahí es
-// `.flit-app`, que es claro. Un gate que se equivoca de padre no protege nada, y hasta esta
-// corrección no había NINGÚN test que abriera la paleta.
+// `.flit-app`. Un gate que se equivoca de padre no protege nada, y hasta esta corrección no había
+// NINGÚN test que abriera la paleta.
+//
+// (Aquel `.flit-app` era CLARO en los dos temas cuando se escribió esto. Con la HU #11899 el
+// shell invierte y el sustrato bajo el overlay es el par oscuro de `--flit-bg-app`; el gate
+// estático se extendió para resolver los tokens POR TEMA en el mismo cambio. El modelo de capas
+// no varía —es la misma cadena—, sólo los hex, y por eso este spec sigue midiendo el píxel: es la
+// única forma de enterarse si el modelo y la pantalla vuelven a separarse.)
 //
 // Este spec es el contrapeso: no reconstruye la cadena, la abre de verdad y lee el color que el
 // compositor dejó en pantalla. Si el modelo del gate y la pantalla vuelven a separarse, manda

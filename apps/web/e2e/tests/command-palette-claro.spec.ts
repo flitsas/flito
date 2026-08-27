@@ -42,9 +42,11 @@ async function abrirPaletaEnClaro(page: Page): Promise<void> {
   await loginAs(page, ADMIN_USER);
   await page.route('**/api/flito/tablero', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TABLERO_VACIO) }));
-  // `light` EXPLÍCITO, no `system`: con `system` el ThemeProvider quita `data-theme` y el tema
-  // depende del `prefers-color-scheme` del runner. Fijarlo antes del goto evita además medir
-  // durante el parpadeo inicial.
+  // `light` EXPLÍCITO, no `system`. El motivo escrito aquí antes —«con `system` el ThemeProvider
+  // quita `data-theme`»— dejó de ser cierto con la HU #11899: hoy el atributo se escribe SIEMPRE,
+  // resuelto a `light` o `dark`. Lo que sigue en pie es la razón de fondo: en `system` el tema lo
+  // decide el `prefers-color-scheme` del runner, así que este spec mediría el tema que le toque a
+  // la máquina en vez del que dice medir. Fijarlo antes del goto evita además el parpadeo inicial.
   await page.evaluate(() => localStorage.setItem('aura-theme', 'light'));
   await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');

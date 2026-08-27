@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { hasPage, PageSlug } from './lib/permissions';
+import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import Layout from './components/Layout';
 import NoAccess from './components/NoAccess';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
@@ -26,6 +27,8 @@ const FlitoConciliacion = lazy(() => import('./pages/FlitoConciliacion'));
 const FlitoConciliacionBoleta = lazy(() => import('./pages/FlitoConciliacionBoleta'));
 const FlitoComparendos = lazy(() => import('./pages/FlitoComparendos'));
 const SiigoParametrizacion = lazy(() => import('./pages/SiigoParametrizacion'));
+const SiigoOperacion = lazy(() => import('./pages/SiigoOperacion'));
+const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
@@ -100,6 +103,7 @@ const TramitesMetricas = lazy(() => import('./pages/admin/TramitesMetricas'));
 const PublicManifiesto = lazy(() => import('./pages/PublicManifiesto'));
 const PublicTramiteVerify = lazy(() => import('./pages/PublicTramiteVerify'));
 const PublicTramitePortal = lazy(() => import('./pages/PublicTramitePortal'));
+const FlitoAyuda = lazy(() => import('./pages/FlitoAyuda'));
 
 function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: PageSlug }) {
   const { user, loading } = useAuth();
@@ -108,6 +112,14 @@ function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: 
   if (!user) return <Navigate to="/login" />;
   if (page && !hasPage(user, page)) return <NoAccess page={page} />;
 
+  return <>{children}</>;
+}
+
+// Ayuda FLITO: el gate es la intersección con el catálogo, NO hasPage('flito_ayuda').
+// ProtectedRoute page="flito_ayuda" dejaría la pantalla solo a admin.
+function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!puedeVerAyudaFlito(user)) return <NoAccess page="flito_ayuda" />;
   return <>{children}</>;
 }
 
@@ -166,6 +178,8 @@ function AppRoutes() {
         <Route path="/flito/bitacora" element={<ProtectedRoute page="flito_bitacora"><Lazy><FlitoBitacora /></Lazy></ProtectedRoute>} />
         <Route path="/flito/logistica" element={<ProtectedRoute page="flito_logistica"><Lazy><FlitoLogistica /></Lazy></ProtectedRoute>} />
         <Route path="/flito/ruta" element={<ProtectedRoute page="flito_logistica_ruta"><Lazy><FlitoRuta /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/ayuda" element={<AyudaFlitoGate><Lazy><FlitoAyuda /></Lazy></AyudaFlitoGate>} />
+        <Route path="/flito/ayuda/:slug" element={<AyudaFlitoGate><Lazy><FlitoAyuda /></Lazy></AyudaFlitoGate>} />
         <Route path="/flito/bolsas" element={<ProtectedRoute page="flito_bolsas"><Lazy><FlitoBolsas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/comparendos" element={<ProtectedRoute page="flito_comparendos"><Lazy><FlitoComparendos /></Lazy></ProtectedRoute>} />
         {/* Conciliación: las DOS rutas comparten `PageSlug`. Son el mismo trabajo y la misma
@@ -175,6 +189,14 @@ function AppRoutes() {
         <Route path="/flito/conciliacion" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacion /></Lazy></ProtectedRoute>} />
         <Route path="/flito/conciliacion/:boletaId" element={<ProtectedRoute page="flito_conciliacion"><Lazy><FlitoConciliacionBoleta /></Lazy></ProtectedRoute>} />
         <Route path="/siigo/parametrizacion" element={<ProtectedRoute page="siigo_parametrizacion"><Lazy><SiigoParametrizacion /></Lazy></ProtectedRoute>} />
+        {/* Slug PROPIO (`siigo_operacion`, ya en `permissions.ts`): parametrizar es decidir cómo se
+            factura y se toca una vez; operar es empujar facturas todos los días. Unirlas obligaría a
+            conceder la operación diaria a quien solo debe parametrizar. */}
+        <Route path="/siigo/operacion" element={<ProtectedRoute page="siigo_operacion"><Lazy><SiigoOperacion /></Lazy></ProtectedRoute>} />
+        {/* Credenciales de la integración (HU #11890). Slug PROPIO `siigo_credenciales`, que solo
+            tiene `admin` —el router del API exige `admin` en las cuatro operaciones—: quien
+            parametriza u opera facturas no administra las llaves del servidor. */}
+        <Route path="/siigo/credenciales" element={<ProtectedRoute page="siigo_credenciales"><Lazy><SiigoCredenciales /></Lazy></ProtectedRoute>} />
         <Route path="/finanzas/reporte-costos" element={<ProtectedRoute page="finanzas_reporte_costos"><Lazy><FinanzasReporteCostos /></Lazy></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute page="users"><Lazy><Users /></Lazy></ProtectedRoute>} />
         <Route path="/transito" element={<ProtectedRoute page="transito"><Lazy><TransitoBandeja /></Lazy></ProtectedRoute>} />

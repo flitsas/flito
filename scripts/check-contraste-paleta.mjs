@@ -188,25 +188,132 @@ function ganadora(css, archivo, selectores, propiedad, { obligatorio = true } = 
   );
 }
 
-// Los tokens `--flit-*` son colores planos declarados una sola vez. Se resuelven porque la
-// regresión más probable de este gate no es un hex raro: es que alguien devuelva una de estas
-// reglas a `var(--flit-bg-app)` o `var(--flit-text-primary)` — que es exactamente el estado
-// que causó el bug. Sin resolverlos, el gate moriría con un error de parseo en vez de decir
-// «esto da 1,00», y un fallo ilegible se acaba silenciando.
+// ── Tokens `--flit-*`, resueltos POR TEMA ────────────────────────────────────────────────
+// Hasta la HU #11899 esto era una línea: los `--flit-*` se declaraban UNA vez, así que bastaba
+// buscar la primera aparición del nombre en el archivo y devolverla. Esa comodidad se convirtió
+// en una trampa en cuanto el kit tuvo par oscuro, y conviene entender por qué antes de tocar nada:
+//
+//   `resolverVar` hacía `match()` sobre el archivo entero → siempre encontraba la declaración de
+//   `:root`, la CLARA. Con `medirTema('oscuro')` eso significa componer los 15 puntos de la
+//   paleta sobre `#EAF2FF`, un sustrato que ya no se pinta en ninguna pantalla. El gate saldría
+//   VERDE midiendo una quimera — el mismo error de MODELO que la cabecera de este archivo llama
+//   «equivocarse de PADRE» y que ya dejó pasar una regresión una vez.
+//
+// Por eso ahora se resuelve por tema: `:root` para claro, `:root[data-theme='dark']` para oscuro,
+// con encadenado de `var()` (un token puede referenciar a otro). La prueba de que funciona es
+// observable en la salida: la línea «Fondos compuestos» del tema OSCURO tiene que dar hexes
+// distintos a los del tema claro. Si salen iguales, el resolvedor volvió a anclarse al `:root`.
 const flitTokens = readFileSync(FLIT_TOKENS_CSS, 'utf8');
-function resolverVar(valor) {
-  const ref = valor.match(/var\(\s*(--[\w-]+)\s*\)/);
-  if (!ref) return valor;
-  for (const css of [flitTokens, tokens, index]) {
-    const decl = sinComentarios(css).match(new RegExp(`${ref[1]}\\s*:\\s*([^;]+)`));
-    if (decl) return decl[1].trim();
+
+const TEMAS = ['claro', 'oscuro'];
+const SELECTOR_DE_TEMA = { claro: ':root', oscuro: ":root[data-theme='dark']" };
+
+/** Cuerpo (todas las declaraciones) del bloque de tokens de un tema. Vacío si el bloque no está. */
+function cuerpoDelTema(tema) {
+  return reglas(flitTokens)
+    .filter((r) => r.selectores.includes(SELECTOR_DE_TEMA[tema]))
+    .map((r) => r.cuerpo)
+    .join(';');
+}
+const CUERPO = Object.fromEntries(TEMAS.map((t) => [t, cuerpoDelTema(t)]));
+
+function declaracionEn(cuerpo, nombre) {
+  const m = cuerpo.match(new RegExp(`(?:^|;)\\s*${nombre}\\s*:\\s*([^;]+)`));
+  return m ? m[1].trim() : null;
+}
+
+// Los tokens que la HU #11899 obliga a redefinir bajo `[data-theme='dark']`.
+//
+// Esta lista es el corazón del AC8, y el motivo es de diseño de gate, no de gusto: si un token de
+// esta lista NO aparece en el bloque oscuro, el gate NO puede caer al valor de `:root` y seguir
+// midiendo. Caería en el absurdo de medir tinta clara sobre fondo claro —12:1, verde— sobre una
+// pantalla que en oscuro pintaría el fondo oscuro de Aura debajo. Aprobar por omisión es
+// exactamente la avería que este archivo existe para no tener.
+//
+// `umbral` dice CÓMO se mide cada familia; `null` = sólo se comprueba que el par exista (sombras y
+// velos: no son texto ni indicador, no tienen ratio que exigir, pero sin par oscuro una sombra
+// navy translúcida sobre fondo navy simplemente no existe).
+const PARES_OBLIGATORIOS = [
+  '--flit-bg-app',
+  '--flit-bg-modal',
+  '--flit-bg-card',
+  '--flit-bg-table-header',
+  '--flit-bg-topbar',
+  '--flit-bg-hover',
+  '--flit-text-primary',
+  '--flit-text-secondary',
+  '--flit-text-muted',
+  '--flit-text-brand-title',
+  '--flit-blue-text',
+  '--flit-muted',
+  '--flit-draft',
+  '--flit-border-soft',
+  '--flit-border-input',
+  '--flit-border-focus',
+  '--flit-shadow-card',
+  '--flit-shadow-modal',
+  '--flit-shadow-button',
+  // `--flit-shadow-desborde` (HU #11900) NO está en esta lista, y no por olvido: se mide con
+  // UMBRAL más abajo, en AVISO_DESBORDE. Esta lista es la de presencia —«tiene par oscuro»— y un
+  // token que sólo declara eso no está medido. La medida con umbral además la subsume: sin par
+  // oscuro, `tokenFlit` cae al valor CLARO y ese navy sobre las superficies oscuras da 1,07 sobre
+  // tarjeta y 1,00 sobre cabecera —medido borrando el par—, o sea que el gate se pone rojo igual,
+  // pero diciendo el número en vez de una ausencia. A 1,00 la franja literalmente desaparece.
+];
+const OBLIGATORIOS = new Set(PARES_OBLIGATORIOS);
+
+/** Señal de «este token debía tener par oscuro y no lo tiene». No es un crash: se reporta y se mide. */
+class ParOscuroAusente extends Error {
+  constructor(token) {
+    super(`Falta el par oscuro de ${token}.`);
+    this.token = token;
   }
-  throw new Error(`No se pudo resolver ${ref[1]}: no está declarado en los CSS de tokens.`);
+}
+
+function tokenFlit(nombre, tema) {
+  const propio = declaracionEn(CUERPO[tema], nombre);
+  if (propio !== null) return propio;
+  if (tema === 'oscuro' && OBLIGATORIOS.has(nombre)) throw new ParOscuroAusente(nombre);
+  // Radios, tipografía, motion, marca y tokens `-ink`: un solo valor para los dos temas, a
+  // propósito (#11766 no se reabre). Caer a `:root` aquí es correcto, no una omisión.
+  return declaracionEn(CUERPO.claro, nombre);
+}
+
+/**
+ * Sustituye los `var()` de un valor, encadenando: un token puede referenciar a otro (las paradas
+ * de `--flit-gradient-*` son `var(--flit-*-ink)`), y la sustitución se repite hasta que no queda
+ * ninguno. El tope de vueltas es contra un ciclo `A: var(--B); B: var(--A)`, que colgaría el CI.
+ */
+function resolverVar(valor, tema = 'claro') {
+  let actual = valor;
+  for (let vuelta = 0; vuelta < 8; vuelta++) {
+    const ref = actual.match(/var\(\s*(--[\w-]+)\s*\)/);
+    if (!ref) return actual;
+    let decl = null;
+    if (ref[1].startsWith('--flit-')) {
+      decl = tokenFlit(ref[1], tema);
+    } else {
+      // Tokens Aura. No se resuelven por tema aquí: nada de lo que este gate mide cuelga de
+      // `--color-*`, y fingir que se soportan sería peor que no tocarlos.
+      for (const css of [tokens, index]) {
+        const d = sinComentarios(css).match(new RegExp(`${ref[1]}\\s*:\\s*([^;]+)`));
+        if (d) {
+          decl = d[1].trim();
+          break;
+        }
+      }
+    }
+    if (decl === null) {
+      throw new Error(`No se pudo resolver ${ref[1]}: no está declarado en los CSS de tokens.`);
+    }
+    actual = actual.replace(ref[0], decl);
+  }
+  throw new Error(`var() encadenado más de 8 niveles en "${valor}": ¿hay un ciclo entre tokens?`);
 }
 
 /** Acepta `#rrggbb`, `rgba(r, g, b, a)` o un `var(--token)` que resuelva a uno de los dos. */
-function parsear(valorCrudo, etiqueta) {
-  const valor = resolverVar(valorCrudo);
+function parsear(valorCrudo, etiqueta, tema = 'claro') {
+  const valor = resolverVar(valorCrudo, tema);
   const hex = valor.match(/#[0-9a-f]{3,6}/i);
   if (hex) return { color: rgb(hex[0]), alfa: 1 };
   const fn = valor.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)/i);
@@ -214,10 +321,10 @@ function parsear(valorCrudo, etiqueta) {
   return { color: [+fn[1], +fn[2], +fn[3]], alfa: fn[4] === undefined ? 1 : +fn[4] };
 }
 
-const leer = (css, archivo, selectores, propiedad, opciones) => {
+const leer = (css, archivo, selectores, propiedad, opciones, tema = 'claro') => {
   const decl = ganadora(css, archivo, selectores, propiedad, opciones);
   if (!decl) return null;
-  return parsear(decl.valor, `${decl.selector} { ${propiedad} }`);
+  return parsear(decl.valor, `${decl.selector} { ${propiedad} }`, tema);
 };
 
 const PALETA = '.flit-shell-palette';
@@ -242,16 +349,20 @@ function medirTema(tema) {
     return [...new Set(lista)];
   };
   const enIndex = (selectores, propiedad, opciones) =>
-    leer(index, INDEX_CSS, selectores, propiedad, opciones);
+    leer(index, INDEX_CSS, selectores, propiedad, opciones, tema);
 
   // ── Superficies ────────────────────────────────────────────────────────────────────────
-  // Lo que hay DETRÁS del overlay no es el `body` sino el shell de la app, y el shell no invierte
-  // en oscuro: `.flit-app` pinta --flit-bg-app (#EAF2FF) en los dos temas. Tomar el
-  // `--color-surface` oscuro del body daba un panel 0,3 más oscuro del que se pinta —el body
-  // queda tapado por un shell `min-h-screen`— y con él todos los ratios salían regalados.
-  // Peor caso admitido: detrás del panel puede haber una tarjeta blanca en vez del fondo de la
-  // app; son ~0,02 de ratio, dentro del margen con el que se eligieron las tintas.
-  const pagina = leer(flitTokens, FLIT_TOKENS_CSS, ['.flit-app'], 'background');
+  // Lo que hay DETRÁS del overlay no es el `body` sino el shell de la app: `.flit-app`. Tomar el
+  // `--color-surface` del body daba un panel más oscuro del que se pinta —el body queda tapado por
+  // un shell `min-h-screen`— y con él todos los ratios salían regalados.
+  //
+  // El `tema` del final de esta llamada no es adorno. Hasta la HU #11899 aquí había escrito «el
+  // shell NO invierte en oscuro: `.flit-app` pinta #EAF2FF en los dos temas», y era verdad. Desde
+  // que `--flit-bg-app` tiene par oscuro deja de serlo, y resolverlo sin tema dejaría este gate
+  // componiendo la paleta oscura sobre un celeste que ya no existe: verde sobre una quimera.
+  // Peor caso admitido: detrás del panel puede haber una tarjeta en vez del fondo de la app; son
+  // ~0,02 de ratio, dentro del margen con el que se eligieron las tintas.
+  const pagina = leer(flitTokens, FLIT_TOKENS_CSS, ['.flit-app'], 'background', undefined, tema);
   const overlay = enIndex(variantes('.flit-shell-overlay', { enPaleta: false }), 'background');
   // El panel lleva DOS clases con fondo propio —`flit-shell-palette` y `flit-shell-sunken`— y en
   // claro tienen la MISMA especificidad: decide el orden en index.css. Si alguien las reordena,
@@ -349,7 +460,212 @@ function medirTema(tema) {
   return { fallos, total: CASOS.length };
 }
 
-const TEMAS = ['claro', 'oscuro'];
+// ── Pares `--flit-*` del kit, tema a tema (HU #11899 · AC7/AC8) ──────────────────────────
+// Tercera invariante del archivo, y la que faltaba. Las dos anteriores miran el shell
+// (CommandPalette) y los gradientes; NINGUNA miraba las superficies del PRODUCTO —el fondo de
+// página, la tarjeta, el modal, la cabecera de tabla— ni las tintas que caen encima.
+//
+// Eso tuvo una consecuencia incómoda que conviene dejar escrita: `npm run check:contraste` estaba
+// VERDE el día antes de esta HU, con el kit entero congelado en tema claro y un modal celeste con
+// tinta Aura casi blanca encima. El gate no mentía, es que no miraba ahí. Un par que no está en
+// esta lista no está medido, y un par no medido no existe (spec, § Notas para QA, punto 4).
+//
+// Qué hace este bloque, en orden:
+//   1. comprueba que CADA token obligatorio tenga declaración propia en `:root[data-theme='dark']`.
+//      Sin ella no se mide con el valor claro «por si acaso»: se reporta ✗ nombrando el token. Es
+//      el mutante del AC8 —revertir el bloque oscuro— y tiene que salir rojo POR MEDICIÓN, no por
+//      una excepción de lookup;
+//   2. compone las seis superficies de cada tema (cuatro opacas + topbar y hover, que son velos);
+//   3. mide texto × superficie a 4,5:1 y foco × superficie a 3:1, en LOS DOS temas.
+//
+// Lo que NO se hace, y es la diferencia entre un gate de contraste y un gate de diferencia:
+// no se compara el hex oscuro contra el claro para ver «si cambió». Comparar sólo detecta el
+// mutante que borra el bloque; no detecta un par oscuro coherente y a la vez ilegible —pongamos
+// `--flit-bg-app: #0B1220` con `--flit-text-primary: #101827`, los dos bien oscuros, 1,2:1—.
+// Aquí se mide el ratio, así que ese segundo mutante también sale rojo.
+// Mínimo WCAG 2.x AA para elementos gráficos e indicadores de foco (SC 1.4.11). Lo comparten el
+// anillo `.flit-focus-light` sobre el gradiente del drawer y `--flit-border-focus` sobre las
+// superficies del kit: es el mismo criterio, así que es la misma constante.
+const MINIMO_NO_TEXTO = 3;
+
+let fallosPares = 0;
+const sinPar = PARES_OBLIGATORIOS.filter((t) => declaracionEn(CUERPO.oscuro, t) === null);
+
+console.log(`\n── Pares --flit-* del kit ${'─'.repeat(48)}`);
+if (CUERPO.oscuro.trim() === '') {
+  console.log(`✗ No hay bloque ${SELECTOR_DE_TEMA.oscuro} en ${FLIT_TOKENS_CSS}.`);
+}
+for (const token of sinPar) {
+  fallosPares++;
+  console.log(`✗ ${token.padEnd(26)} SIN par oscuro — se quedaría en el valor de :root (claro)`);
+}
+if (sinPar.length === 0) {
+  console.log(`✓ Los ${PARES_OBLIGATORIOS.length} tokens del kit declaran par oscuro en ${SELECTOR_DE_TEMA.oscuro}.`);
+} else {
+  console.error(
+    `\n✗ ${sinPar.length} token(s) del kit sin par oscuro: ${sinPar.join(', ')}.`
+      + '\n  Con el kit siguiendo el tema, un token sin par se queda en su valor CLARO mientras la'
+      + '\n  página de debajo ya invirtió: es el modal celeste con tinta clara que esta HU cerró.'
+      + '\n  El gate no cae a :root a propósito — aprobar por omisión es peor que no medir.'
+      + `\n  Se declaran en ${FLIT_TOKENS_CSS}, bloque ${SELECTOR_DE_TEMA.oscuro}.`,
+  );
+  process.exit(1);
+}
+
+/** Superficies reales de cada tema, ya compuestas: cuatro opacas y dos velos. */
+function superficiesDe(tema) {
+  const plano = (token) => parsear(`var(${token})`, token, tema).color;
+  const app = plano('--flit-bg-app');
+  const card = plano('--flit-bg-card');
+  // El topbar es un velo con `backdrop-filter` sobre el fondo de página; el hover del shell, un
+  // velo sobre la tarjeta. Se componen porque lo que lee el ojo es el resultado, no el token.
+  const topbarTok = parsear('var(--flit-bg-topbar)', '--flit-bg-topbar', tema);
+  const hoverTok = parsear('var(--flit-bg-hover)', '--flit-bg-hover', tema);
+  return [
+    ['app', app],
+    ['modal', plano('--flit-bg-modal')],
+    ['tarjeta', card],
+    ['cabecera', plano('--flit-bg-table-header')],
+    ['topbar', opaco(topbarTok, app)],
+    ['hover', opaco(hoverTok, card)],
+  ];
+}
+
+// Texto: 4,5:1 (SC 1.4.3). `--flit-text-brand-title` se mide SÓLO sobre tarjeta y no por descuido:
+// su valor claro (#526FB8) da 4,31 sobre --flit-bg-app y 4,43 sobre --flit-bg-modal, o sea que ya
+// incumplía antes de esta HU en cuanto salía de una tarjeta. Ese es justo el hallazgo que llevó al
+// Bug #11604 a crear `--flit-blue-text` (4,64 sobre el fondo de página) para el texto azul que NO
+// vive dentro de una tarjeta. Hoy el token de título de marca tiene CERO consumidores en
+// apps/web/src; medirlo sobre las seis superficies pondría el gate rojo por una deuda del tema
+// claro que esta HU no está autorizada a mover, y bajarle el umbral sería mentir. Se mide donde
+// se usaría.
+const TINTAS = [
+  ['--flit-text-primary', null],
+  ['--flit-text-secondary', null],
+  ['--flit-text-muted', null],
+  ['--flit-blue-text', null],
+  ['--flit-muted', null],
+  ['--flit-draft', null],
+  ['--flit-text-brand-title', ['tarjeta']],
+];
+
+// Indicador de foco: 3:1 (SC 1.4.11). Éste sí es un elemento gráfico con umbral propio, y es el
+// que pinta `.flit-focus` / `.flit-focus-inset` sobre cualquiera de las cuatro superficies opacas.
+const FOCO = ['--flit-border-focus'];
+
+// Aviso de DESBORDE horizontal de `FlitTable` (HU #11900): 3:1, el mismo umbral y el mismo motivo
+// que el foco. La spec firmada se lo asigna POR SU NOMBRE —§Pantalla 1, «No es un control; es un
+// indicador gráfico (≥ 3:1)»— y el hard-stop de la ráfaga repite «gráficos/foco ≥ 3:1, en claro y
+// en oscuro».
+//
+// Se mide contra DOS superficies y no contra una: la franja es `inset-y-0`, así que cruza la
+// tarjeta y también la cabecera de la tabla. Medir sólo sobre la tarjeta dejaría sin comprobar el
+// tramo que se pinta sobre `--flit-bg-table-header`.
+//
+// Y se mide el extremo opaco del degradado, que es donde el aviso tiene que leerse: el píxel del
+// borde derecho vale exactamente `opaco(token, superficie)`. El degradado se apaga hacia la
+// izquierda por diseño; lo que el AC7 pide ver es el borde.
+//
+// Por qué NO se le aplicó la exención de los separadores (que es la salida fácil y sería mentira):
+// aquella exención del 26 ago 2026 protege dos tokens cuyo valor CLARO ya incumplía antes de la
+// ráfaga y cuya subida repintaría el borde de todas las tarjetas del producto. Éste es un token
+// NUEVO: no hay deuda previa que proteger ni pantalla que se deforme. Su primer valor
+// —rgba(22,39,68,0.26) / rgba(0,0,0,0.55)— fallaba además la invariante de respaldo de aquel
+// precedente, porque el oscuro separaba MENOS que el claro (1,36 < 1,70).
+const AVISO_DESBORDE = [['--flit-shadow-desborde', ['tarjeta', 'cabecera']]];
+
+// `--flit-border-soft` y `--flit-border-input` son SEPARADORES, y aquí hay que ser exacto para no
+// vender una comprobación que no se hace: sus valores CLAROS dan 1,27 y 1,35 sobre tarjeta, muy
+// por debajo del 3:1 — y son los del producto de hoy, anteriores a esta HU. Subirlos repintaría el
+// borde de todas las tarjetas de FLITO, que es un cambio visual que nadie pidió.
+// OJO con la procedencia, porque la primera versión de este comentario la citaba mal: la spec
+// firmada NO los dejaba fuera — su tabla «Qué se redefine» los listaba con el mismo ≥ 3:1 que el
+// resto. Lo que los exime es la DECISIÓN DEL PO del 26 ago 2026, recogida en la enmienda
+// «los separadores no llevan el 3:1» de docs/ux/shell-tema-y-responsive.md y en el AC7 de la
+// HU #11899. La exención alcanza a estos dos tokens aunque `--flit-border-input` sea el borde de
+// un control: se eximen por nombre, no por categoría. `--flit-border-focus` NO entra —es el
+// indicador de foco, SC 1.4.11 aplica de lleno— y se mide arriba contra 3:1.
+// Lo que sí se puede exigir sin inventarse un umbral es que el par oscuro haga el MISMO trabajo:
+// separar al menos tanto como separa el claro, y no desaparecer contra su superficie. Eso es lo
+// que se mide. El día que se decida subir los separadores a 3:1, el sitio es esta constante.
+const SEPARADORES = [
+  ['--flit-border-soft', ['app', 'tarjeta']],
+  ['--flit-border-input', ['app', 'modal', 'tarjeta']],
+];
+const MINIMO_SEPARADOR = 1.1;
+
+const medidasSeparador = { claro: new Map(), oscuro: new Map() };
+
+for (const tema of TEMAS) {
+  const superficies = superficiesDe(tema);
+  const porNombre = new Map(superficies);
+  console.log(
+    `\n── Kit, tema ${tema.toUpperCase()} ${'─'.repeat(60 - tema.length)}\n`
+    + `Superficies — ${superficies.map(([n, c]) => `${n} ${hex(c)}`).join(' · ')}\n`,
+  );
+
+  const medir = (token, nombres, minimo, etiqueta) => {
+    const tinta = parsear(`var(${token})`, token, tema);
+    for (const nombre of nombres) {
+      const bg = porNombre.get(nombre);
+      const fg = opaco(tinta, bg);
+      const r = ratio(fg, bg);
+      const ok = r >= minimo;
+      if (!ok) fallosPares++;
+      console.log(
+        `${ok ? '✓' : '✗'} ${token.padEnd(24)} ${etiqueta} ${nombre.padEnd(9)} `
+        + `${hex(fg)} sobre ${hex(bg)} → ${r.toFixed(2)} (mín ${minimo})`,
+      );
+    }
+  };
+
+  for (const [token, soloEn] of TINTAS) {
+    medir(token, soloEn ?? superficies.map(([n]) => n), MINIMO, 'texto sobre');
+  }
+  for (const token of FOCO) {
+    medir(token, ['app', 'modal', 'tarjeta', 'cabecera'], MINIMO_NO_TEXTO, 'foco  sobre');
+  }
+  for (const [token, nombres] of AVISO_DESBORDE) {
+    medir(token, nombres, MINIMO_NO_TEXTO, 'aviso sobre');
+  }
+  for (const [token, nombres] of SEPARADORES) {
+    const tinta = parsear(`var(${token})`, token, tema);
+    for (const nombre of nombres) {
+      const bg = porNombre.get(nombre);
+      const r = ratio(opaco(tinta, bg), bg);
+      medidasSeparador[tema].set(`${token} ${nombre}`, r);
+      const ok = r >= MINIMO_SEPARADOR;
+      if (!ok) fallosPares++;
+      console.log(
+        `${ok ? '✓' : '✗'} ${token.padEnd(24)} borde sobre ${nombre.padEnd(9)} `
+        + `${hex(opaco(tinta, bg))} sobre ${hex(bg)} → ${r.toFixed(2)} (mín ${MINIMO_SEPARADOR}, separador)`,
+      );
+    }
+  }
+}
+
+// No regresión de los separadores entre temas: el par oscuro no puede separar PEOR que el claro.
+console.log('');
+for (const [clave, rClaro] of medidasSeparador.claro) {
+  const rOscuro = medidasSeparador.oscuro.get(clave);
+  const ok = rOscuro >= rClaro;
+  if (!ok) fallosPares++;
+  console.log(
+    `${ok ? '✓' : '✗'} ${clave.padEnd(38)} oscuro ${rOscuro.toFixed(2)} ≥ claro ${rClaro.toFixed(2)}`,
+  );
+}
+
+if (fallosPares > 0) {
+  console.error(
+    `\n✗ ${fallosPares} comprobación(es) de los pares --flit-* en rojo.`
+      + '\n  Los hex se cambian en apps/web/src/styles/flit-tokens.css y en NINGÚN otro sitio: los'
+      + '\n  consumidores del kit ya leen el token, así que repintarlos uno a uno no arregla nada y'
+      + '\n  además reabre la divergencia que la HU #11899 cerró.'
+      + '\n  Ojo con la dirección del arreglo: aclarar una tinta para salvar un punto puede hundir'
+      + '\n  otro que cae sobre una superficie más clara (las seis se listan arriba con su hex).',
+  );
+}
+
 const resultados = TEMAS.map((tema) => ({ tema, ...medirTema(tema) }));
 const fallos = resultados.reduce((n, r) => n + r.fallos, 0);
 
@@ -552,13 +868,38 @@ for (const { token, paradas } of rampas) {
   );
 }
 
+// Hard-stop de la spec firmada (docs/ux/shell-tema-y-responsive.md, § Hard-stops): PROHIBIDO
+// `--flit-cyan` (#4FD4CC) como parada de un gradiente que sirve de fondo a texto blanco. Es el
+// peor punto histórico del sistema —1,81:1— y el motivo por el que el Bug #11766 movió los cuatro
+// ramos al nivel `-ink`.
+//
+// El bucle de ratios de aquí arriba ya lo cazaría hoy, así que esta comprobación parece de más.
+// No lo es, y la diferencia importa: aquélla prohíbe el NÚMERO mientras el umbral valga 4,5; ésta
+// prohíbe el COLOR. Sobreviven cosas distintas — un texto que dejara de ser blanco puro, un
+// umbral de texto grande (3:1), un muestreo distinto — y la prohibición de la spec es por color.
+const CIAN_PROHIBIDO = rgb('#4FD4CC');
+let paradasCian = 0;
+for (const { token, paradas } of rampas) {
+  for (const parada of paradas) {
+    if (!parada.color.every((c, i) => c === CIAN_PROHIBIDO[i])) continue;
+    paradasCian++;
+    fallosGradiente++;
+    console.log(
+      `✗ ${token.padEnd(26)} parada en #4FD4CC al ${parada.pos.toFixed(0)}% — prohibido como fondo`
+        + ' de texto blanco (spec § Hard-stops). Usa --flit-cyan-ink.',
+    );
+  }
+}
+if (paradasCian === 0) {
+  console.log(`✓ ${'#4FD4CC'.padEnd(26)} no aparece como parada en ninguno de los ${GRADIENTES.length} gradientes.`);
+}
+
 // ── Acoplamiento: el anillo de foco del drawer (SC 1.4.11) ───────────────────────────────
 // `.flit-focus-light` tiene un único consumidor, FlitSidebar, y la superficie que pinta ese
 // componente es --flit-gradient-sidebar (FlitSidebar.tsx:185). Se comprueba aparte de la lista de
 // arriba porque su mínimo es otro —3:1, indicador de foco, no texto— y porque es la trampa de
 // #11766: la regla es navy desde #11604 y lo es PORQUE el gradiente era claro. Si el gradiente se
 // oscurece, ese arreglo se invierte y el anillo deja de cumplir sin que nada avise. Aquí avisa.
-const MINIMO_NO_TEXTO = 3;
 const anillo = leer(flitTokens, FLIT_TOKENS_CSS, ['.flit-focus-light:focus-visible'], 'box-shadow');
 const rampaDrawer = rampas.find((r) => r.token === '--flit-gradient-sidebar');
 const peorAnillo = peorDelGradiente(rampaDrawer.paradas, (fondo) => sobre(anillo.color, anillo.alfa, fondo));
@@ -569,9 +910,9 @@ console.log(
     + `${peorAnillo.pos.toFixed(0).padStart(3)}% (${hex(peorAnillo.fondo)}) — anillo ${hex(sobre(anillo.color, anillo.alfa, peorAnillo.fondo))} sobre el gradiente del drawer, mínimo ${MINIMO_NO_TEXTO}`,
 );
 
-if (fallos + fallosGradiente > 0) {
+if (fallos + fallosGradiente + fallosPares > 0) {
   console.error(
-    `\n✗ ${fallos + fallosGradiente} comprobación(es) de contraste en rojo.`
+    `\n✗ ${fallos + fallosGradiente + fallosPares} comprobación(es) de contraste en rojo.`
       + '\n  Si lo que falla son los gradientes: la salida de arriba dice en qué % del recorrido y'
       + '\n  con qué color compuesto, así que no hay que remedir a mano. Y no se arregla repintando'
       + '\n  los consumidores —son más de cien y casi todos escriben el gradiente en línea—: se'
@@ -585,6 +926,8 @@ if (fallos + fallosGradiente > 0) {
   process.exit(1);
 }
 console.log(
-  `\n✓ Contraste OK: CommandPalette en tema ${TEMAS.join(' y ')} (${resultados[0].total} puntos)`
+  `\n✓ Contraste OK: CommandPalette en tema ${TEMAS.join(' y ')} (${resultados[0].total} puntos),`
+    + ` los pares --flit-* del kit (${PARES_OBLIGATORIOS.length} tokens con par oscuro, medidos en`
+    + ` los dos temas), el aviso de desborde de FlitTable con umbral ${MINIMO_NO_TEXTO}:1`
     + ` y los ${GRADIENTES.length} gradientes FLIT + su anillo de foco.`,
 );

@@ -128,7 +128,7 @@ export default function FlitOrganismoCombobox({
         aria-controls={listboxId}
         onClick={() => !disabled && setOpen((o) => !o)}
         onKeyDown={onKeyDown}
-        className="flit-focus flex w-full items-center justify-between gap-2 rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-left text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow disabled:cursor-not-allowed disabled:opacity-50"
+        className="flit-focus flex w-full items-center justify-between gap-2 rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-4 py-2.5 text-left text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className={`min-w-0 truncate ${!selected && !allowEmpty ? 'text-[color:var(--flit-text-muted)]' : ''}`}>
           {triggerLabel}
@@ -162,7 +162,7 @@ export default function FlitOrganismoCombobox({
 
       {open && (
         <div
-          className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border bg-white shadow-lg"
+          className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border bg-flit-card shadow-lg"
           style={{ borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' }}
         >
           <div className="border-b p-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
@@ -178,7 +178,7 @@ export default function FlitOrganismoCombobox({
               onKeyDown={onKeyDown}
               placeholder={placeholder}
               autoComplete="off"
-              className="flit-focus w-full rounded-lg border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none"
+              className="flit-focus w-full rounded-lg border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none"
             />
           </div>
           <ul

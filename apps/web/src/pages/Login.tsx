@@ -13,7 +13,9 @@ const SESSION_END_MESSAGE: Record<SessionEndReason, string> = {
 // =============================================================
 //   LOGIN — Patrón FLIT (prototipo PDF p.1)
 //   Pantalla partida: panel visual izquierdo con gradiente de marca
-//   (turquesa→azul) + tarjeta blanca de formulario a la derecha.
+//   (turquesa→azul, isla de marca que NO sigue el tema) + tarjeta de formulario
+//   a la derecha, que sí lo sigue. Sin toggle en esta pantalla: la preferencia ya
+//   persiste en `aura-theme` y el login la lee (HU #11899, AC5).
 //   Inputs con icono lineal a la izquierda, CTA pastilla con
 //   gradiente. Tokens scoped en styles/flit-tokens.css (.flit-auth).
 //   Lógica de auth conservada: useAuth, banner sesión, toast error,
@@ -137,7 +139,8 @@ export default function Login() {
         </footer>
       </aside>
 
-      {/* ===== PANEL DERECHO — tarjeta blanca de formulario. ===== */}
+      {/* ===== PANEL DERECHO — tarjeta de formulario. Sigue el tema (HU #11899): blanca en claro,
+             navy en oscuro. El panel IZQUIERDO no: es isla de marca, igual que el drawer. ===== */}
       <main className="relative flex items-center justify-center px-5 py-10 sm:px-8">
         <div className="w-full max-w-[420px] flex flex-col gap-6">
           {/* Header de marca SOLO mobile (el panel izq está oculto en mobile). */}
@@ -152,7 +155,7 @@ export default function Login() {
 
           {/* Tarjeta del formulario */}
           <section
-            className="bg-white p-7 sm:p-9"
+            className="bg-flit-card p-7 sm:p-9"
             style={{
               borderRadius: 'var(--flit-radius-card)',
               boxShadow: 'var(--flit-shadow-card)',
@@ -217,7 +220,7 @@ export default function Login() {
                     onChange={(e) => setUsername(e.target.value)}
                     required
                     placeholder="nombre.usuario"
-                    className="flit-focus w-full bg-white pl-11 pr-4 text-base outline-none transition-shadow"
+                    className="flit-focus w-full bg-flit-card pl-11 pr-4 text-base outline-none transition-shadow"
                     style={{
                       height: 'var(--flit-input-height)',
                       borderRadius: 'var(--flit-radius-input)',
@@ -249,7 +252,7 @@ export default function Login() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     placeholder="••••••••"
-                    className="flit-focus w-full bg-white pl-11 pr-12 text-base outline-none transition-shadow"
+                    className="flit-focus w-full bg-flit-card pl-11 pr-12 text-base outline-none transition-shadow"
                     style={{
                       height: 'var(--flit-input-height)',
                       borderRadius: 'var(--flit-radius-input)',
@@ -263,7 +266,7 @@ export default function Login() {
                     aria-label={showPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                     aria-pressed={showPass}
                     className="flit-focus absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center
-                               w-9 h-9 rounded-lg transition-colors hover:bg-black/5"
+                               w-9 h-9 rounded-lg transition-colors hover:bg-[color:var(--flit-bg-hover)]"
                     style={{ color: 'var(--flit-text-muted)' }}
                   >
                     {showPass ? <IconEyeOff className="w-[18px] h-[18px]" /> : <IconEye className="w-[18px] h-[18px]" />}

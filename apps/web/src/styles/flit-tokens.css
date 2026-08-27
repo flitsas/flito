@@ -7,6 +7,20 @@
    con los tokens Aura `--color-*`). Se consumen mediante dos scopes:
      · `.flit-auth` — pantalla de login (Fase FLIT-LOGIN).
      · `.flit-app`  — AppShell del sistema (Fase FLIT-FOUNDATION/SHELL).
+
+   TEMA (HU #11899). Hasta esta HU el kit era INVARIANTE: `--flit-bg-app` valía #EAF2FF con el
+   tema en claro y con el tema en oscuro, y sólo Aura (`--color-*`) y dos parches sueltos del
+   shell invertían. Eso es lo que producía el síntoma que nadie sabía nombrar —un modal celeste
+   con tinta Aura casi blanca encima— y lo que obligó a parchear el dock y la ⌘K a mano.
+   Desde el 26 ago 2026 las superficies, las tintas y los bordes tienen PAR OSCURO
+   (`:root[data-theme='dark']`, más abajo) y el kit sigue el tema como lo sigue Aura.
+
+   Consecuencia para quien lea comentarios viejos: la frase «las superficies FLIT son de valor
+   FIJO» y el Hallazgo 5 de docs/ux/paleta-accesible-kit-flit.md («los ratios del claro valen en
+   oscuro porque FLIT no invierte») quedaron REVOCADOS por la spec firmada
+   docs/ux/shell-tema-y-responsive.md. Cualquier ratio nuevo hay que medirlo en LOS DOS temas, y
+   eso lo hace `npm run check:contraste`.
+
    El tema Aura del resto de la app NO se altera: la migración es gradual.
    ============================================================= */
 
@@ -16,6 +30,17 @@
   --flit-bg-modal: #EEF5FF;
   --flit-bg-card: #FFFFFF;
   --flit-bg-table-header: #F4F6FA;
+  /* Topbar. Vivía HARDCODEADO en FlitTopbar.tsx (`background: 'rgba(234, 242, 255, 0.85)'`), que es
+     --flit-bg-app al 85 % escrito a mano: con el kit invariante daba igual, pero un hex en línea no
+     tiene par oscuro que valga y la barra se quedaba celeste con el resto de la app ya invertido
+     (HU #11899, AC1). El alfa se conserva porque encima va `backdrop-filter: blur(8px)`: sin
+     translucidez el desenfoque no se ve. NO se usa `color-mix()`: `check-contraste-paleta.mjs`
+     todavía no sabe parsearlo y un token que el gate no entiende es un token sin medir. */
+  --flit-bg-topbar: rgba(234, 242, 255, 0.85);
+  /* Velo de hover del shell (dock, ⌘K, menús). Era un par de reglas divergentes en index.css
+     —`rgba(22,39,68,.06)` en la regla base y `rgba(255,255,255,.08)` en un `[data-theme='dark']`
+     aparte—, o sea DOS fuentes de verdad para el mismo efecto. Aquí es una sola con su par. */
+  --flit-bg-hover: rgba(22, 39, 68, 0.06);
 
   /* Marca */
   --flit-cyan: #4FD4CC;
@@ -128,6 +153,26 @@
   --flit-shadow-card: 0 8px 24px rgba(22, 39, 68, 0.08);
   --flit-shadow-modal: 0 24px 60px rgba(22, 39, 68, 0.18);
   --flit-shadow-button: 0 10px 22px rgba(79, 116, 201, 0.22);
+  /* Franja de aviso de DESBORDE horizontal (HU #11900): la parada opaca del degradado que
+     `FlitTable` pinta contra su borde derecho cuando la tabla no cabe entera. No es una
+     `box-shadow` como sus tres hermanas —es un color—, pero vive en esta vecindad porque hace lo
+     mismo: teñir un borde para decir que hay contenido detrás.
+
+     ES UN INDICADOR GRÁFICO Y LLEVA 3:1 (SC 1.4.11), medido en los dos temas contra las dos
+     superficies sobre las que se pinta de verdad —la tarjeta y la cabecera de tabla, porque la
+     franja es `inset-y-0` y cruza también el encabezado—. La primera versión de este token valía
+     0,26 de alfa y se defendió aquí diciendo que «un degradado no tiene un borde con el que medir
+     un ratio»: es FALSO y el gate de QA lo desmintió midiéndolo. El píxel del extremo derecho es
+     el color del token ya compuesto sobre la superficie, y contra ella se mide como cualquier
+     otro: daba 1,70 en claro y 1,36 en oscuro. La spec firmada le pone 3:1 por su nombre
+     (§Pantalla 1, «No es un control; es un indicador gráfico (≥ 3:1)»), y la exención de los
+     separadores de la HU #11899 NO alcanza aquí: aquélla protegía un valor CLARO que ya incumplía
+     antes de la ráfaga y cuya subida repintaba todas las tarjetas del producto. Este token es
+     nuevo: no hay nada previo que proteger.
+
+     Que se vea es su FUNCIÓN, no un efecto secundario: la franja existe para que quien mira la
+     pantalla —no solo quien tabuló hasta la región— sepa que faltan columnas a la derecha. */
+  --flit-shadow-desborde: rgba(22, 39, 68, 0.58);
 
   /* Tipografía */
   --flit-font: 'Inter Variable', Inter, Poppins, Montserrat, system-ui, -apple-system,
@@ -137,6 +182,102 @@
   --flit-duration-fast: 120ms;
   --flit-duration-base: 180ms;
   --flit-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* =============================================================
+   PAR OSCURO — HU #11899 (Feature #11898), spec docs/ux/shell-tema-y-responsive.md.
+
+   POR QUÉ UN SELECTOR DE ATRIBUTO Y NO UN `@media`
+   Aura tiene las dos formas en tokens.css: `:root[data-theme='dark']` y un gemelo
+   `@media (prefers-color-scheme: dark)` para cuando el bootstrap de <head> no llega a correr.
+   Aquí sólo la primera, y a propósito:
+
+     · desde esta HU el atributo `data-theme` está SIEMPRE puesto —bootstrap de index.html y
+       `applyDocumentTheme()` de lib/theme.tsx escriben `light` o `dark` resuelto, también en modo
+       `system`, que es justo lo que antes lo BORRABA y dejaba estas reglas sin disparar (AC2)—,
+       así que el gemelo no cubriría ningún caso que este selector no cubra ya;
+     · y sobre todo: `scripts/check-contraste-paleta.mjs` descarta las at-rules (`reglas()` salta
+       todo selector que empiece por `@`). Un par metido en un `@media` sería un par INVISIBLE
+       para el gate, es decir un par sin medir con apariencia de medido. El gemelo Aura se deja
+       como está —no es trabajo de esta HU ni duplicarlo ni borrarlo—, pero FLIT no lo copia.
+
+   LA FAMILIA
+   Navy frío, la del kit (`--flit-blue-dark` #162744), no el cream de Aura. La jerarquía de
+   superficies es la MISMA que en claro, dada la vuelta: la página es la más oscura, la tarjeta
+   la más clara, el modal en medio y la cabecera de tabla un escalón por encima de la tarjeta
+   (en claro es un escalón por debajo del blanco: mismo salto, signo opuesto).
+
+   LOS NÚMEROS NO SE ELIGEN AQUÍ NI SE COPIAN DE UN COMENTARIO: los mide
+   `npm run check:contraste`, que desde esta HU resuelve cada token POR TEMA y enumera los pares
+   texto × superficie (≥ 4,5:1) y foco × superficie (≥ 3:1) en claro y en oscuro. Si mueves un
+   hex de aquí, el gate responde con el número nuevo; si borras el bloque, el gate falla nombrando
+   el par que quedó en claro (AC8) en vez de aprobar por omisión.
+   ============================================================= */
+:root[data-theme='dark'] {
+  /* Fondos — página < modal < tarjeta < cabecera de tabla, de más oscuro a más claro. */
+  --flit-bg-app: #0F1B2E;
+  --flit-bg-modal: #16253C;
+  --flit-bg-card: #1E2F4C;
+  /* Entre la página y la tarjeta, igual que en claro: allí #F4F6FA cae entre #EAF2FF y el
+     blanco. La cabecera se pinta SOBRE la tarjeta, así que es un escalón hacia el fondo, no
+     hacia la luz. Se probó al revés (#27395A, más clara que la tarjeta) y el gate lo tumbó:
+     --flit-text-muted se quedaba en 4,36 sobre ella. */
+  --flit-bg-table-header: #18273F;
+  --flit-bg-topbar: rgba(15, 27, 46, 0.85);
+  /* En claro el velo de hover OSCURECE la superficie; en oscuro tiene que ACLARARLA, o el hover
+     no se ve. Es la misma inversión que el Bug #11720 descubrió a mano para las teclas de la ⌘K,
+     ahora en un token en vez de en un parche por selector. */
+  --flit-bg-hover: rgba(255, 255, 255, 0.08);
+
+  /* Texto. `muted` conserva el #93A0B5 que el Bug #11720 midió sobre el píxel real de la paleta
+     en oscuro: ese hex ya estaba validado contra este mismo sustrato, así que reabsorberlo como
+     token en vez de reinventar otro gris evita que la ⌘K y el resto del kit vuelvan a divergir. */
+  --flit-text-primary: #E9EFF9;
+  --flit-text-secondary: #BCC8DA;
+  /* #93A0B5 era el hex que el Bug #11720 midió sobre el píxel de la ⌘K en oscuro, y sobre las
+     dos superficies de esa pantalla sigue cumpliendo (6,5 y 5,1). Pero el kit tiene seis
+     superficies, no dos: sobre el velo de hover del shell se quedaba en 3,95 y sobre la
+     cabecera de tabla en 4,36. Es exactamente la lección del Bug #11604 —un gris elegido
+     contra UN fondo—, repetida en el otro tema. #A1AEC2 es el mismo matiz frío un paso más
+     claro y pasa en las seis (4,66 en la peor). */
+  --flit-text-muted: #A1AEC2;
+  --flit-text-brand-title: #9DBCF7;
+  /* Mismo hex que el título de marca: en oscuro no hace falta separarlos. En CLARO sí hicieron
+     falta dos (Bug #11604) porque #526FB8 pasaba sobre tarjeta blanca y se quedaba en 4,31 sobre
+     --flit-bg-app; aquí los dos cumplen sobre las cuatro superficies. */
+  --flit-blue-text: #9DBCF7;
+
+  /* Estado en tono apagado — mismo criterio que en claro: `--flit-muted` acompaña a
+     `--flit-text-muted` y `--flit-draft` a `--flit-text-secondary`. Sin par, los chips en tono
+     apagado se quedaban en tinta clara-sobre-clara. Los tokens `-ink` NO se tocan (siguen siendo
+     tinta para texto sobre su propio tinte y sobre los gradientes; #11766 vigente). */
+  --flit-muted: #A1AEC2;
+  --flit-draft: #BCC8DA;
+
+  /* Bordes. `soft` e `input` son separadores: su trabajo es el mismo en los dos temas y el gate
+     comprueba que el par oscuro separe AL MENOS tanto como el claro (que hoy vale 1,27 y 1,35
+     sobre tarjeta — muy por debajo de 3:1, deuda anterior a esta HU y fuera de su alcance: subirlo
+     repintaría el borde de todas las tarjetas del producto).
+     `--flit-border-focus` es otra cosa: es INDICADOR DE FOCO (SC 1.4.11) y sí se gatea a 3:1
+     contra las cuatro superficies, en los dos temas. */
+  --flit-border-soft: #3A4E78;
+  --flit-border-input: #48598A;
+  --flit-border-focus: #7C9DE8;
+
+  /* Sombras: sobre fondo oscuro una sombra navy translúcida no existe. Negro y más alfa. No son
+     texto ni indicador, así que no llevan umbral. */
+  --flit-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --flit-shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.62);
+  --flit-shadow-button: 0 10px 22px rgba(0, 0, 0, 0.45);
+  /* El velo de desborde INVIERTE, como `--flit-bg-hover` de aquí arriba y por la misma razón: en
+     claro oscurece la superficie, en oscuro tiene que ACLARARLA. Y aquí no es una preferencia
+     estética sino aritmética — con la tarjeta oscura en #1E2F4C, el NEGRO PURO da 1,57 contra
+     ella: ningún velo oscuro, con ninguna alfa, puede llegar al 3:1 que pide SC 1.4.11. Es lo que
+     tumbó el primer intento de este token (rgba(0,0,0,0.55) → 1,36). Blanco al 42 % deja el borde
+     en ~#7C86 sobre tarjeta y sube a >3 sobre las dos superficies; los números exactos los imprime
+     `npm run check:contraste`, que desde la #11900 lo mide con umbral en vez de comprobar solo que
+     el par exista. */
+  --flit-shadow-desborde: rgba(255, 255, 255, 0.42);
 }
 
 /* Scopes — solo aplican familia tipográfica + fondo base. */
@@ -149,14 +290,19 @@
 
 /*
  * Los modales cuelgan de <body> (ver ModalPortal), es decir FUERA de `.flit-app`, así que no
- * heredaban el color de arriba sino el del tema Aura (`--color-text-primary`). Y ahí estaba el
- * fallo: las superficies FLIT son de valor FIJO —`--flit-bg-modal` es #EEF5FF pase lo que pase—
- * pero el color del tema Aura SÍ cambia con el tema. En tema oscuro eso dejaba texto casi blanco
- * (#f0eee9) sobre un modal claro: ilegible, y solo en el texto que no llevaba color propio, que es
- * por lo que aparecía en unos sitios sí y en otros no.
+ * heredaban el color de arriba sino el del tema Aura (`--color-text-primary`).
  *
- * Se arregla en el scope y no etiqueta por etiqueta: vale para todos los modales de la app, y no
- * hay que acordarse de ponerle color a cada `<span>` nuevo.
+ * El diagnóstico original decía: «las superficies FLIT son de valor FIJO —`--flit-bg-modal` es
+ * #EEF5FF pase lo que pase— pero el color del tema Aura SÍ cambia con el tema», y por eso en
+ * oscuro quedaba texto casi blanco (#f0eee9) sobre un modal claro. La MITAD de esa frase dejó de
+ * ser cierta con la HU #11899: `--flit-bg-modal` ya tiene par oscuro, así que Aura y FLIT
+ * invierten JUNTOS y la causa raíz desaparece — no queda una superficie clara bajo una tinta
+ * clara. Se conserva el escrito porque explica por qué existe esta clase y porque el desajuste
+ * volvería en cuanto alguien dejara sin par oscuro una de las dos capas.
+ *
+ * El scope sigue haciendo falta igual: repone la tinta FLIT en un árbol que cuelga del <body>, y
+ * lo hace de una vez para todos los modales en vez de etiqueta por etiqueta, así que no hay que
+ * acordarse de ponerle color a cada `<span>` nuevo.
  */
 .flit-modal {
   font-family: var(--flit-font);
@@ -165,10 +311,22 @@
 
 /* Anillo de foco azul FLIT consistente (WCAG 2.2 — foco visible).
    El alfa era 0,28: un halo de 1,42:1 contra el blanco del input, muy por debajo del 3:1 que pide
-   SC 1.4.11 para indicadores de foco. Subir el alfa a 0,85 conserva el carácter de halo azul (no
-   es un borde sólido) y lo lleva a 3,44 sobre blanco, 3,22 sobre la cabecera de tabla y 3,13 sobre
-   --flit-bg-app, que son las tres superficies donde se pinta. Solo cambia la opacidad: ningún
-   token de marca se mueve.
+   SC 1.4.11 para indicadores de foco. Se subió a 0,85 (3,44 sobre blanco, 3,22 sobre la cabecera
+   de tabla, 3,13 sobre --flit-bg-app) conservando el carácter de halo.
+
+   HU #11899 — el color pasa a `var(--flit-border-focus)` y el rgba() hardcodeado desaparece. Dos
+   motivos, y el segundo es el que importa:
+
+     · con el hex escrito a mano, el anillo NO tenía par oscuro. Sobre las superficies nuevas
+       (#0F1B2E … #27395A) ese azul de tema claro se hunde y el foco deja de verse justo en el
+       tema donde más se nota;
+     · y `check-contraste-paleta.mjs` sólo puede medir lo que sale de un token: un rgba() suelto
+       en una `box-shadow` es exactamente el tipo de valor que el gate no ata a nada. Con `var()`
+       el anillo se mide contra las cuatro superficies en LOS DOS temas, que es el trato del AC7.
+
+   Se pierde el alfa —el token es sólido— y el anillo gana contraste en vez de perderlo: 4,49
+   sobre blanco contra los 3,44 de antes. El «halo» sigue siendo un `box-shadow` de 3px sin
+   desenfoque, así que a la vista es el mismo anillo, un punto más saturado.
 
    Dos detalles de aplicación, ambos comprobados en pantalla:
 
@@ -187,10 +345,10 @@
 .flit-focus:focus-visible {
   outline: none;
   border-color: var(--flit-border-focus);
-  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.85);
+  box-shadow: 0 0 0 3px var(--flit-border-focus);
 }
 .flit-focus:focus-visible:not([role='dialog']) {
-  box-shadow: 0 0 0 3px rgba(79, 116, 201, 0.85) !important;
+  box-shadow: 0 0 0 3px var(--flit-border-focus) !important;
 }
 
 /* Foco sobre superficies con gradiente (drawer del sidebar en <lg).
@@ -240,7 +398,9 @@
    «foco visible». Se usa `outline` con offset NEGATIVO porque el outline se pinta por encima del
    contenido del elemento (a diferencia de un box-shadow `inset`, que las celdas taparían con su
    propio fondo). Sólido --flit-border-focus: 4,49 sobre blanco y 4,14 sobre la cabecera de tabla,
-   holgado sobre el 3:1 de SC 1.4.11. */
+   holgado sobre el 3:1 de SC 1.4.11. Desde la HU #11899 ese token tiene par oscuro y las cuatro
+   superficies del kit se miden en los dos temas en `npm run check:contraste`: este anillo y el
+   `.flit-focus` de arriba dejan de depender de que alguien recuerde remedirlos. */
 .flit-focus-inset:focus-visible {
   outline: 3px solid var(--flit-border-focus);
   outline-offset: -3px;

@@ -31,12 +31,15 @@ const FILA = {
   // La NOTIFICACIÓN, que existe en el contrato desde la HU #11794 y entra en la tabla con la
   // #11795. Es un `YYYY-MM-DD` sin instante, igual que la del comparendo.
   fechaNotificacion: '2026-08-03',
-  // La fila municipal: `municipioFuente` puesto Y organismo puesto. Las dos cosas a la vez son lo
-  // que hace comprobable que la celda muestra UNO de los dos y no los dos (HU #11795, AC3), y el
+  // La fila municipal: los TRES campos puestos. Las tres cosas a la vez son lo que hace comprobable
+  // que la celda muestra UNO —el municipio del comparendo— y no los otros dos (HU #11879), y el
   // organismo es aquí el nombre de la SECRETARÍA, que es la clase de cadena que manda el UTS
   // municipal (`nombreAutoridadTransito`) y no la que manda SIMIT.
   organismo: 'Secretaría de Movilidad de Medellín',
+  // A quién se le PREGUNTÓ y de dónde ES el comparendo (HU #11878): dos preguntas distintas que
+  // aquí coinciden, porque la consulta municipal respondió. La fila de SIMIT es la que los separa.
   municipioFuente: 'ITAGUI',
+  municipioComparendo: 'ITAGUI',
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
   // Multa, y con su resolución: la fila de referencia es la que prueba que «Tipo» se traduce y que
@@ -72,6 +75,10 @@ const FILA_SIMIT = {
   // perder el rótulo «Notificación» y sin aproximarlo con `fechaComparendo`.
   fechaNotificacion: null,
   municipioFuente: null,
+  // Y el municipio del comparendo TAMPOCO se pudo determinar (HU #11878): es el residuo —un
+  // organismo que no reconoce ningún municipio del catálogo de este spec, donde solo está ITAGUI—.
+  // Es la fila en la que la celda «Municipio» enseña el organismo, sin rótulo (HU #11879).
+  municipioComparendo: null,
   // La clase de cadena que manda SIMIT en `organismoTransito`: en la práctica el NOMBRE del
   // municipio, sin tilde. Medido en payloads reales del 24 ago. Es distinto del organismo de la
   // fila municipal a propósito: si las dos filas trajeran el mismo texto, ningún aserto podría
@@ -209,11 +216,12 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     await expect(tabla).toBeVisible();
     // «Estado» era «Estado» hasta la HU #11713, y «Organismo» estaba en esta lista: la primera se
     // renombró a «Monitoreo» y la segunda salió de la tabla (el dato sigue entero en el detalle).
-    // Y desde la HU #11795 «Fecha» es «Fechas» y «Municipio» es «Municipio u organismo»: las dos
-    // celdas llevan ahora dos datos rotulados, y una cabecera en singular mentiría en la mitad de
-    // las filas. NINGUNA columna se añadió — el detalle de esas dos vive en su propio spec.
+    // Y desde la HU #11795 «Fecha» es «Fechas»: la celda lleva dos datos rotulados y una cabecera
+    // en singular mentiría en la mitad de las filas. «Municipio» pasó por «Municipio u organismo»
+    // en esa misma HU y VOLVIÓ a llamarse «Municipio» en la #11879, cuando la celda dejó de tener
+    // dos ramas rotuladas. NINGUNA columna se añadió — el detalle de esas dos vive en su propio spec.
     for (const columna of ['N.º comparendo', 'Tipo', 'Placa', 'NIT monitoreado', 'Fechas', 'Infracción',
-      'Municipio u organismo', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
+      'Municipio', 'Monto', 'Monitoreo', 'Gestión', 'Estado en la fuente', 'Origen', 'Registrado']) {
       await expect(tabla.getByRole('columnheader', { name: columna, exact: true })).toBeVisible();
     }
 
@@ -261,9 +269,9 @@ test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
     // «Organismo» ya no está en la tabla (HU #11713, AC7): quince columnas eran demasiadas y el dato
     // vive entero en el panel de detalle. Se comprueba por los dos caminos —la cabecera y el valor—
     // porque quitar solo uno de los dos es exactamente el arreglo a medias que deja la columna coja.
-    // La HU #11795 NO la repone: sería la quince. Lo que hace es publicar el VALOR dentro de la
-    // celda «Municipio u organismo», y **solo en las filas cuyo `municipioFuente` es `null`** — así
-    // que el organismo de ESTA fila, que sí tiene municipio, sigue sin aparecer en la tabla.
+    // Ni la #11795 ni la #11879 la reponen: sería la quince. Lo que hacen es publicar el VALOR
+    // dentro de la celda «Municipio», y **solo en las filas cuyo `municipioComparendo` es `null`**
+    // — así que el organismo de ESTA fila, que sí tiene municipio, sigue sin aparecer en la tabla.
     await expect(tabla.getByRole('columnheader', { name: 'Organismo', exact: true })).toHaveCount(0);
     await expect(tabla.getByText('Secretaría de Movilidad de Medellín')).toHaveCount(0);
     // Y **ninguna columna se llama solo «Estado»** (AC2): con «Estado en la fuente» al lado, las dos
@@ -1373,14 +1381,87 @@ test.describe('FLITO — Comparendos · «Tipo» y «Estado en la fuente» (HU #
   });
 });
 
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// HU #11900, AC7 · «hay más a la derecha», y que se VEA
+//
+// `useDesbordaX` ya medía el desborde, pero lo único que hacía con la medida era dar `tabindex` al
+// contenedor: la tabla que no cabe se anunciaba SOLO a quien ya había tabulado hasta ella. Quien
+// mira la pantalla veía una fila cortada sin saber que faltaban columnas — y subir «Estado en la
+// fuente» a nivel A (misma HU) hace desbordar más anchos, así que el aviso deja de ser un detalle.
+//
+// El AC pide las dos mitades y aquí se prueban las dos: con desborde se pinta, sin desborde no. Un
+// indicador siempre visible no indica nada.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+test.describe('FLITO — Comparendos · la affordance de desborde de FlitTable (HU #11900, AC7)', () => {
+  const affordance = (page: Page) => page.locator('[data-desborde="true"]');
+
+  /** ¿Desborda de verdad? Es la premisa de cada mitad del AC y se afirma, no se supone. */
+  const desborda = (page: Page) => page.getByRole('region', { name: 'Comparendos monitoreados' })
+    .evaluate((el) => ({ desborda: el.scrollWidth > el.clientWidth + 1, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+
+  test('a 1279 px la tabla desborda y el borde derecho lo dice, sin robarle el foco a nadie', async ({ page }) => {
+    await page.setViewportSize({ width: 1279, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA });
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA.numeroComparendo)).toBeVisible();
+
+    const medidas = await desborda(page);
+    expect(medidas.desborda, `${medidas.scrollWidth} px de tabla en ${medidas.clientWidth} px`).toBe(true);
+
+    await expect(affordance(page)).toHaveCount(1);
+    await expect(affordance(page)).toBeVisible();
+
+    // Es sombra, no interfaz: ni se anuncia ni se puede clicar. Lo segundo no es cosmético — un
+    // panel opaco de 32 px sobre el borde derecho se comería el arrastre del scroll.
+    await expect(affordance(page)).toHaveAttribute('aria-hidden', 'true');
+    expect(await affordance(page).evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
+
+    // Y el color sale del token, que es lo que le da par oscuro: un rgba() escrito en el
+    // componente se quedaría en su valor claro sobre la tarjeta oscura, o sea invisible.
+    expect(await affordance(page).evaluate((el) => getComputedStyle(el).backgroundImage))
+      .toContain('gradient');
+
+    // El anillo de foco de teclado SIGUE: la affordance se suma, no sustituye (AC7 lo dice con
+    // todas las letras). Si alguien «simplificara» quitando el tabindex, esto lo vería.
+    await expect(page.getByRole('region', { name: 'Comparendos monitoreados' }))
+      .toHaveAttribute('tabindex', '0');
+  });
+
+  test('con sitio de sobra la tabla cabe entera y NO se pinta ninguna affordance', async ({ page }) => {
+    // Ancho deliberadamente grande: el punto del test es que la tabla quepa. Si algún día la tabla
+    // creciera tanto que ni aquí cabe, la premisa de abajo lo dice en vez de dejar pasar un verde.
+    await page.setViewportSize({ width: 2400, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCatalogos(page);
+    await mockListado(page, { status: 200, body: PAGINA });
+    await page.goto('/flito/comparendos');
+    await expect(page.getByText(FILA.numeroComparendo)).toBeVisible();
+
+    const medidas = await desborda(page);
+    expect(medidas.desborda, `${medidas.scrollWidth} px de tabla en ${medidas.clientWidth} px`).toBe(false);
+
+    // La otra mitad del AC7, y la que convierte esto en un indicador: sin desborde no hay sombra.
+    await expect(affordance(page)).toHaveCount(0);
+    // Y sin parada de tabulador, que es la regla que ya existía y que comparte la misma medida.
+    await expect(page.getByRole('region', { name: 'Comparendos monitoreados' }))
+      .not.toHaveAttribute('tabindex', '0');
+  });
+});
+
 test.describe('FLITO — Comparendos · el reparto A/B y el esqueleto (HU #11713, AC6)', () => {
   /**
    * Los dos anchos que importan son 1280 y 1279: `xl` de Tailwind es `min-width: 1280px`, así que el
    * píxel de diferencia es la frontera exacta. Se prueban los DOS porque un `lg:` en lugar de un
    * `xl:` pasaría cualquier test escrito solo a 1600.
    *
-   * A 1280 son **catorce** cabeceras (diez de nivel A + tres de B + «Inactivado», que solo existe
-   * con el filtro «Inactivos» puesto) y a 1279 son **diez**.
+   * A 1280 son **catorce** cabeceras y a 1279 son **once**.
+   *
+   * El segundo número era diez hasta la HU #11900, que subió «Estado en la fuente» de nivel B a
+   * nivel A: once de A (las diez de siempre más esa) + dos de B + «Inactivado», que solo existe con
+   * el filtro «Inactivos» puesto. El primero NO cambia y es la mitad del aserto que lo demuestra:
+   * la columna se MOVIÓ de bloque, no se añadió ninguna.
    */
   const ANCHO = { xl: 1280, previo: 1279 };
 
@@ -1391,7 +1472,7 @@ test.describe('FLITO — Comparendos · el reparto A/B y el esqueleto (HU #11713
     await expect(page.getByText(FILA_SIMIT.numeroComparendo)).toBeVisible();
   }
 
-  test('a 1280 px hay 14 cabeceras y a 1279 px hay 10; el nivel B sale del árbol accesible', async ({ page }) => {
+  test('a 1280 px hay 14 cabeceras y a 1279 px hay 11; el nivel B sale del árbol accesible', async ({ page }) => {
     await page.setViewportSize({ width: ANCHO.xl, height: 900 });
     await loginAs(page, OPERACIONES_USER);
     await mockCatalogos(page);
@@ -1405,17 +1486,29 @@ test.describe('FLITO — Comparendos · el reparto A/B y el esqueleto (HU #11713
     }
 
     await page.setViewportSize({ width: ANCHO.previo, height: 900 });
-    // **`toHaveCount(10)` sobre el ROL**: lo que se afirma es que las cuatro de nivel B salieron del
+    // **`toHaveCount(11)` sobre el ROL**: lo que se afirma es que las TRES de nivel B salieron del
     // árbol accesible, no solo que no se ven. Una columna «oculta» con `opacity: 0` o `visibility`
     // mal elegida seguiría anunciándose a un lector de pantalla y este aserto la vería.
-    await expect(tabla.getByRole('columnheader')).toHaveCount(10);
+    await expect(tabla.getByRole('columnheader')).toHaveCount(11);
     // El mismo hecho por el otro camino, con un selector CSS que SÍ encuentra los nodos ocultos: sin
-    // esta línea, un encabezado borrado del DOM daría el mismo 10 de arriba.
-    for (const b of ['Estado en la fuente', 'Origen', 'Registrado', 'Inactivado']) {
+    // esta línea, un encabezado borrado del DOM daría el mismo 11 de arriba.
+    for (const b of ['Origen', 'Registrado', 'Inactivado']) {
       const th = page.locator('table thead th').filter({ hasText: new RegExp(`^${b}$`) });
       await expect(th).toHaveCount(1);
       await expect(th).toBeHidden();
     }
+    // HU #11900, AC4 — «Estado en la fuente» es nivel A: a 1279 px se VE, y esa es la columna que
+    // esta HU mueve. Se afirma por los dos caminos que las otras tres usan al revés: visible para
+    // el rol (está en el árbol accesible) y NO oculta para el selector CSS (no es un `th` con
+    // `display: none` que alguien dejó puesto). Reponerle el `hidden xl:table-cell` —el mutante que
+    // la spec nombra— falla aquí, no en un aserto de cuenta que podría cuadrar por otro lado.
+    const estadoFuente = tabla.getByRole('columnheader', { name: 'Estado en la fuente', exact: true });
+    await expect(estadoFuente).toBeVisible();
+    await expect(page.locator('table thead th').filter({ hasText: /^Estado en la fuente$/ })).toHaveCount(1);
+    // Y su CELDA también: una cabecera de nivel A con la celda todavía en `CeldaB` desalinearía la
+    // fila entera — el defecto clásico de subir media columna.
+    await expect(page.locator('table tbody tr').first().locator('td:visible')).toHaveCount(11);
+    await expect(page.getByRole('cell', { name: FILA.estadoFuente, exact: true })).toBeVisible();
     // «Tipo» es de nivel A: se ve en los DOS anchos. Es la columna que dice qué es la fila, y a
     // 1279 px —un portátil de 13"— es cuando más falta hace.
     await expect(tabla.getByRole('columnheader', { name: 'Tipo', exact: true })).toBeVisible();
@@ -1456,7 +1549,11 @@ test.describe('FLITO — Comparendos · el reparto A/B y el esqueleto (HU #11713
       // Este es el defecto que la HU arregla: el esqueleto pintaba nueve cabeceras en duro y ni una
       // de nivel B, así que a ≥1280 px el encabezado SALTABA de nueve a trece en cuanto llegaban los
       // datos — justo el salto que el esqueleto existe para evitar.
-      expect(delEsqueleto).toBe(ancho === ANCHO.xl ? 14 : 10);
+      // HU #11900, AC6: bajo 1280 el esqueleto pasa de 10 a 11 columnas, y no porque este número se
+      // haya reescrito a mano, sino porque el esqueleto deriva de las MISMAS constantes que las
+      // cabeceras (`COLUMNAS_A` / `COLUMNAS_B`). El aserto de abajo —esqueleto contra tabla llena—
+      // es el que lo prueba; éste solo fija la cuenta esperada.
+      expect(delEsqueleto).toBe(ancho === ANCHO.xl ? 14 : 11);
       // Y cada fila fantasma trae tantas celdas visibles como cabeceras visibles: una columna nueva
       // no puede dejar el esqueleto con una celda de menos y las filas desalineadas.
       const celdas = await cargando.locator('tbody tr').first().locator('td:visible').count();

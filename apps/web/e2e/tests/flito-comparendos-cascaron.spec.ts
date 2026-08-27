@@ -24,6 +24,8 @@ const FILA = {
   fechaComparendo: '2026-07-12',
   organismo: 'Secretaría de Movilidad de Medellín',
   municipioFuente: 'MEDELLIN',
+  // De dónde ES el comparendo (HU #11878): lo que pinta la celda «Municipio» desde la #11879.
+  municipioComparendo: 'MEDELLIN',
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
   origenMerge: 'ambos',
@@ -51,6 +53,7 @@ const FILA_SIN_FECHA = {
   placa: null,
   fechaComparendo: null,
   municipioFuente: null,
+  municipioComparendo: null,
   estado: 'inactivo',
 };
 

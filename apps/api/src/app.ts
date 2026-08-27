@@ -52,6 +52,7 @@ import siigoTercerosRoutes from './modules/siigo/terceros.routes.js';
 import siigoProductosRoutes from './modules/siigo/productos.routes.js';
 import siigoElegibilidadRoutes from './modules/siigo/elegibilidad.routes.js';
 import siigoReconciliacionRoutes from './modules/siigo/reconciliacion.routes.js';
+import siigoBandejaRoutes from './modules/siigo/bandeja.routes.js';
 import batchRoutes from './modules/soat/batch.routes.js';
 import tramitesRoutes from './modules/tramites/tramites.routes.js';
 import identidadRoutes from './modules/tramites/identidad.routes.js';
@@ -256,6 +257,10 @@ export function createApp() {
   app.use('/api/siigo/terceros', siigoTercerosRoutes);
   app.use('/api/siigo/elegibilidad', siigoElegibilidadRoutes);
   app.use('/api/siigo/reconciliacion', siigoReconciliacionRoutes);
+  // La bandeja de fallidos (HU #11340). Ruta propia y no bajo `/facturacion`: reúne emisiones,
+  // rechazos de la DIAN y correos, que son tres Features distintas, y colgarla de una sola sugeriría
+  // que solo mira esa.
+  app.use('/api/siigo/bandeja', siigoBandejaRoutes);
   app.use('/api/soat', batchRoutes);
   app.use('/api/tramites', tramitesRoutes);
   app.use('/api/tramites', firmaRoutes); // TRAM-INNOV-B3: /:id/firma/solicitar + /:id/firma

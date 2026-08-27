@@ -45,7 +45,7 @@ export default function FiltrosInteligentes<F>({ presets, activo, onAplicar, onQ
         <span>{activo ?? 'Todo'}</span>
       </summary>
 
-      <div className="absolute z-30 mt-1 w-80 rounded-lg border bg-white p-2 shadow-lg"
+      <div className="absolute z-30 mt-1 w-80 rounded-lg border bg-flit-card p-2 shadow-lg"
         style={{ borderColor: 'var(--flit-border-input)' }}>
         {presets.map((p) => {
           const puesto = p.nombre === activo;

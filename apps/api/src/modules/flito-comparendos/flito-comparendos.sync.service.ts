@@ -308,6 +308,13 @@ interface ContextoCorrida {
   modo: ComparendosSyncModo;
   mapa: MapaHomologacion;
   municipios: readonly string[];
+  /**
+   * El catálogo COMPLETO de municipios (activos y no), para derivar `municipio_comparendo`
+   * (HU #11878). No es `municipios` con otro nombre: aquella es a quién se le PREGUNTA en esta
+   * corrida y por eso solo lleva los activos; esta es con qué se RECONOCE de dónde es un comparendo,
+   * y desactivar una fuente no borra de dónde eran los suyos. Se lee una vez por corrida.
+   */
+  catalogoMunicipios: readonly string[];
   /** Token descifrado, UNA vez por corrida (RN-17). `undefined` en modo simulado: no hace falta. */
   token?: Redacted<string>;
   concurrencia: number;
@@ -337,6 +344,12 @@ async function correrSync(
   // Orden deliberado: todo lo que puede decir «esta corrida no se puede hacer» ocurre ANTES del
   // INSERT del `sync_run`. Así una precondición fallida no deja corridas fantasma en el histórico.
   const mapa = await cargarMapaHomologacion();
+  // El catálogo entero, una vez por corrida y DENTRO del lock: es dato de escritura (alimenta
+  // `municipio_comparendo`), no de alcance, así que no tiene por qué leerse antes de saber si esta
+  // corrida se va a hacer. Un catálogo vacío no es un error como sí lo es un mapa vacío (RN-12):
+  // significa que ningún organismo se va a reconocer y el escalón 2 devuelve `null` para todos, que
+  // es lo mismo que había antes de la HU #11878.
+  const catalogo = await catalogoMunicipios();
   // El token se descifra aquí y no dentro del adapter: una vez por corrida en vez de una por NIT
   // (RN-17). En modo simulado ni se pide — un entorno sin credenciales debe poder ejercer el sync.
   const token = modo === 'real' ? await obtenerTokenSimit() : undefined;
@@ -344,7 +357,9 @@ async function correrSync(
   const iniciadoEn = new Date();
   const runId = await crearRun(nits, opciones.actorId, iniciadoEn);
 
-  const ctx: ContextoCorrida = { runId, modo, mapa, municipios, token, concurrencia };
+  const ctx: ContextoCorrida = {
+    runId, modo, mapa, municipios, catalogoMunicipios: catalogo, token, concurrencia,
+  };
 
   log.info({
     runId, modo, nits: nits.length, municipios: municipios.length,
@@ -532,6 +547,22 @@ async function resolverScope(filtro: readonly string[] | undefined): Promise<str
   if (desconocidos.length > 0) throw new ComparendosFiltroNitsInvalidoError(desconocidos);
 
   return pedidos;
+}
+
+/**
+ * El catálogo ENTERO de códigos de municipio, activos y no (HU #11878).
+ *
+ * Es la lista con la que `municipioDelComparendo` reconoce el organismo, y por eso NO filtra por
+ * `activo`: dar de baja una fuente deja de consultarla, no cambia de dónde eran los comparendos que
+ * ya trajo. Filtrar aquí haría que desactivar Medellín vaciara el municipio de sus comparendos en el
+ * siguiente sync —el dato se re-deriva entero en cada corrida—, que es justamente el fallo que esta
+ * HU cierra por el otro lado.
+ */
+async function catalogoMunicipios(): Promise<string[]> {
+  const filas = await db.select({ codigoFuente: flitoComparendosMunicipios.codigoFuente })
+    .from(flitoComparendosMunicipios)
+    .orderBy(flitoComparendosMunicipios.codigoFuente);
+  return filas.map((f) => f.codigoFuente);
 }
 
 /** Municipios a los que se les pregunta. Sin activos, la corrida es solo SIMIT (no es un error). */
@@ -871,6 +902,14 @@ type FilaExistente = {
   // puerta a que el valor viejo pesara sobre el valor nuevo y las dos columnas se contradijeran.
   numeroResolucion: string | null;
   idResolucion: string | null;
+  // `municipio_comparendo` TAMPOCO se lee (HU #11878), por el mismo motivo que `tipo_registro`: se
+  // RE-DERIVA entera en cada corrida a partir del municipio consultado y del organismo ya resuelto.
+  // Un tercer escalón que conservara el valor viejo congelaría para siempre lo que se dedujo con el
+  // catálogo de ayer, y la premisa que hace segura la re-derivación es justo la contraria: el
+  // catálogo de municipios solo CRECE —no hay endpoint que borre municipios—, así que volver a
+  // deducir solo puede reconocer más de lo que reconoció la vez anterior. `municipio_fuente` sí se
+  // lee, y ahí no hay contradicción: ese es un HECHO de una corrida pasada (a quién se le preguntó)
+  // y no una deducción.
 };
 
 /**
@@ -923,13 +962,22 @@ async function escribirRegistros(
       const existente = existentes.get(consolidado.numero) ?? null;
       const vistoEnSimit = (existente?.vistoEnSimit ?? false) || consolidado.simit !== null;
       const vistoEnMunicipal = (existente?.vistoEnMunicipal ?? false) || consolidado.municipal !== null;
-      const campos = resolverCampos(consolidado, existente);
+      // El municipio CONSULTADO, en UNA sola expresión (HU #11878). Sale a una const y no se repite
+      // inline porque lo usan dos cosas —la columna `municipio_fuente` y la derivación de
+      // `municipio_comparendo`, cuyo primer escalón es exactamente este valor—, y dos copias de la
+      // misma cadena de `??` es lo único que podría hacer que la columna vieja y la nueva
+      // discreparan dentro de la misma fila sin que nada lo avisara.
+      //
+      // Se conserva lo ya guardado si esta corrida no lo trajo: es la pista de dónde se vio y no un
+      // dato que el SIMIT pueda contradecir.
+      const municipioFuente = consolidado.municipioFuente ?? existente?.municipioFuente ?? null;
+      const campos = resolverCampos(consolidado, existente, {
+        municipioFuente, catalogoMunicipios: ctx.catalogoMunicipios,
+      });
 
       const comun = {
         ...campos,
-        // El municipio se conserva si esta corrida no lo trajo: es la pista de dónde se vio y no un
-        // dato que el SIMIT pueda contradecir.
-        municipioFuente: consolidado.municipioFuente ?? existente?.municipioFuente ?? null,
+        municipioFuente,
         origenMerge: origenMerge(vistoEnSimit, vistoEnMunicipal),
         vistoEnSimit,
         vistoEnMunicipal,

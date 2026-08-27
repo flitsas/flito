@@ -303,6 +303,28 @@ export async function consultarComparendosMunicipales(
  * que es el caso de unicidad del CF-07— y trae la `descripcion` que allí faltaba, para que el merge
  * de la HU #11500 rellene el hueco sin pisar nada. El segundo solo existe en el municipio, y su
  * número incluye el `codigoFuente` para que se vea de qué UTS salió.
+ *
+ * ── `fechaNotificacion` (HU #11877) ──────────────────────────────────────────────────────────────
+ *
+ * Igual que en Verifik, y por el mismo motivo: `mock` es el modo POR DEFECTO, así que un payload
+ * simulado sin el campo dejaba la columna vacía por construcción y volvía la funcionalidad no
+ * comprobable en el único camino que se ejecuta hoy.
+ *
+ * La clave va en la RAÍZ del ítem —que es donde la trae el UTS real, y por donde la nombra la fila
+ * `municipal / fechaNotificacion` del mapa v4 (migración 0164)— y NO dentro de `estadoCuenta`.
+ * Ponerla en otro sitio haría un mock que se homologa a `null` por una razón distinta de la que se
+ * quiere ejercitar.
+ *
+ *   · El **0002** —el COMPARTIDO— llega notificado en ISO (`YYYY-MM-DD`), que es la grafía medida en
+ *     Medellín el 2026-08-24. Y es el ítem que SIMIT manda con el centinela: entre los dos, el modo
+ *     simulado ejerce el segundo escalón de RN-13 —el municipio rellena lo que SIMIT no trae usable—
+ *     sin que haga falta ninguna corrida real.
+ *   · El **0003** trae el centinela `01/01/1900` **sin hora**, que es como lo escribe el UTS (la
+ *     grafía con hora es la de SIMIT). Coincide además con su `estado: 'Pendiente de pago'`: un
+ *     comparendo que todavía no se ha notificado.
+ *
+ * Las fechas de notificación van DESPUÉS de la del comparendo (02/06 → 10/06), que es el orden real
+ * de los dos hitos.
  */
 function respuestaSimulada(nit: string, ctx: ContextoFuente): RespuestaFuenteMunicipal {
   const items: ComparendoCrudoMunicipal[] = [
@@ -312,6 +334,8 @@ function respuestaSimulada(nit: string, ctx: ContextoFuente): RespuestaFuenteMun
       codigo: 'D02',
       descripcion: 'Conducir sin portar la licencia de tránsito',
       fecha: '2026-06-02',
+      // Notificado, en ISO y en la raíz: la grafía y la ruta del UTS de Medellín.
+      fechaNotificacion: '2026-06-10',
       organismo: `Secretaría de Movilidad de ${ctx.fuente}`,
       valor: '1160500',
       estado: 'Notificado',
@@ -322,6 +346,8 @@ function respuestaSimulada(nit: string, ctx: ContextoFuente): RespuestaFuenteMun
       codigo: 'B01',
       descripcion: 'Transitar por sitios restringidos',
       fecha: '2026-06-21',
+      // El centinela SIN hora, que es la escritura del UTS. Canónico esperado: `null`.
+      fechaNotificacion: '01/01/1900',
       organismo: `Secretaría de Movilidad de ${ctx.fuente}`,
       valor: '232100',
       estado: 'Pendiente de pago',

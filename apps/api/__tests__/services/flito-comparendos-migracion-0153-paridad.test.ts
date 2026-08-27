@@ -56,6 +56,20 @@ const INDICES_0153 = [
   'idx_flito_comparendos_sin_causal_creado',
 ] as const;
 
+/**
+ * El de la 0153 que ya NO existe: la 0165 lo borró (HU #11878).
+ *
+ * El filtro por municipio se mudó de `municipio_fuente` a `municipio_comparendo`, así que este
+ * índice se quedó sin su único consumidor y su sustituto vive en la 0165 con su propia paridad. La
+ * 0153 se conserva intacta —es historial aplicado, y editarla haría que el `.sql` mintiera sobre lo
+ * que hay en cualquier ambiente que ya la corrió—, de modo que este archivo tiene que declarar los
+ * TRES y esperar solo DOS en `schema.ts`. Que esté aquí y no borrado del array es lo que permite
+ * seguir afirmando la retirada en vez de dejar de mirar.
+ */
+const RETIRADO_POR_0165 = 'idx_flito_comparendos_municipio_creado';
+/** Los de la 0153 que siguen vivos, que son los que tienen que estar en los dos sitios. */
+const INDICES_VIGENTES = INDICES_0153.filter((n) => n !== RETIRADO_POR_0165);
+
 type ColumnaIndexada = { columna: string; direccion: 'ASC' | 'DESC' };
 
 type IndiceNormalizado = {
@@ -176,7 +190,7 @@ describe('migración 0153 — los índices del SQL y los de schema.ts no pueden 
     expect(delSql.every((i) => i.columnas.length > 0)).toBe(true);
   });
 
-  describe.each(INDICES_0153)('%s', (nombre) => {
+  describe.each(INDICES_VIGENTES)('%s', (nombre) => {
     it('está declarado en los dos sitios', () => {
       expect(buscar(delSql, nombre), `falta en ${RUTA_MIGRACION}`).toBeDefined();
       expect(buscar(delSchema, nombre), 'falta en apps/api/src/db/schema.ts').toBeDefined();
@@ -226,6 +240,25 @@ describe('migración 0153 — los índices del SQL y los de schema.ts no pueden 
         expect(parciales, `predicados parciales en ${lado.nombre}`)
           .toEqual(['idx_flito_comparendos_sin_causal_creado: causal_id is null']);
       }
+    });
+  });
+
+  // ── El índice que la 0165 retiró (HU #11878) ──────────────────────────────────────────────────
+  //
+  // Un índice que desaparece de `schema.ts` sin que nadie lo afirme se lee como un descuido: la
+  // paridad de arriba se quedaría diciendo «falta en schema.ts» y el arreglo evidente —volver a
+  // declararlo— reintroduciría un índice que ya no sirve a nadie. Estas dos aserciones convierten la
+  // ausencia en una decisión escrita.
+  describe(`${RETIRADO_POR_0165} — retirado por la 0165`, () => {
+    it('la 0153 lo sigue creando: es historial aplicado y no se edita', () => {
+      expect(buscar(delSql, RETIRADO_POR_0165), `falta en ${RUTA_MIGRACION}`).toBeDefined();
+    });
+
+    it('**y `schema.ts` ya NO lo declara**: su columna dejó de ser la del filtro', () => {
+      expect(buscar(delSchema, RETIRADO_POR_0165)).toBeUndefined();
+      // Con su sustituto en el sitio, para que la ausencia no pueda confundirse con haberse quedado
+      // sin índice para el filtro por municipio.
+      expect(buscar(delSchema, 'idx_flito_comparendos_municipio_comparendo_creado')).toBeDefined();
     });
   });
 });

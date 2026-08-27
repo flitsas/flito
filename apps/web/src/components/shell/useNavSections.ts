@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../lib/auth';
 import { effectivePages } from '../../lib/permissions';
-import { NAV_ITEMS, SECTION_ORDER, activeSectionForPath, type NavItem } from './navItems';
+import { NAV_ITEMS, SECTION_ORDER, activeSectionForPath, navItemPermitido, type NavItem } from './navItems';
 
 // Filtrado y agrupación de la navegación. Estaba duplicado en FlitNavBar y
 // FlitSidebar; al extraerlo, cualquier variante de la barra hereda EXACTAMENTE
@@ -29,11 +29,9 @@ export function useNavSections(): NavSections {
 
   const allowed = useMemo(() => effectivePages(user), [user]);
 
-  // Doble filtro: permiso de página + `roles` opcional del ítem.
+  // Doble filtro: permiso de página + `roles` opcional del ítem. `flito_ayuda` usa el helper derivado.
   const visibleItems = useMemo(
-    () => NAV_ITEMS.filter(
-      (it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role))),
-    ),
+    () => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed)),
     [allowed, user],
   );
 

@@ -111,7 +111,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio }: {
     // el comportamiento de siempre, no un fallo.
     <details className="relative" name="flit-rango-fechas">
       <summary
-        className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-white px-3 text-sm"
+        className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border bg-flit-card px-3 text-sm"
         style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
         aria-label={etiqueta}
       >
@@ -119,7 +119,7 @@ export default function RangoFechas({ etiqueta, valor, onCambio }: {
         <span className="tabular-nums">{resumen}</span>
       </summary>
 
-      <div className="absolute z-30 mt-1 w-72 rounded-lg border bg-white p-3 shadow-lg"
+      <div className="absolute z-30 mt-1 w-72 rounded-lg border bg-flit-card p-3 shadow-lg"
         style={{ borderColor: 'var(--flit-border-input)' }}>
         <div className="mb-2 flex flex-wrap gap-1">
           {atajos.map(([txt, r]) => (

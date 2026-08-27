@@ -44,12 +44,12 @@ export default function KpiCard({ to, ariaLabel, label, value, hint, chip, child
       <Link
         to={to}
         aria-label={ariaLabel ?? label}
-        className="flit-focus flex flex-col bg-white p-6 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]"
+        className="flit-focus flex flex-col bg-flit-card p-6 transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]"
         style={CARD_STYLE}
       >
         {inner}
       </Link>
     );
   }
-  return <div className="flex flex-col bg-white p-6" style={CARD_STYLE}>{inner}</div>;
+  return <div className="flex flex-col bg-flit-card p-6" style={CARD_STYLE}>{inner}</div>;
 }

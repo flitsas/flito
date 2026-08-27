@@ -19,7 +19,9 @@ export default function FlitWizardSidebar({ steps, current }: FlitWizardSidebarP
           ? { background: 'var(--flit-success)', color: '#fff', borderColor: 'var(--flit-success)' }
           : active
             ? { background: 'var(--flit-blue)', color: '#fff', borderColor: 'var(--flit-blue)' }
-            : { background: '#fff', color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-input)' };
+            // Paso PENDIENTE: superficie de tarjeta, no blanco fijo (HU #11899). Los pasos hecho y
+            // activo van sobre color de marca con tinta blanca y no cambian con el tema.
+            : { background: 'var(--flit-bg-card)', color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-input)' };
         const labelColor = active ? 'var(--flit-blue)' : done ? 'var(--flit-success)' : 'var(--flit-text-muted)';
         return (
           <li key={i} className="flex shrink-0 items-center gap-3 lg:items-stretch" aria-current={active ? 'step' : undefined}>

@@ -247,7 +247,7 @@ Aplican cuando el **`pr-monitor-agent`** (o el hilo) **ejecuta** el merge a `dev
 
 **Quién las verifica:** el subagente **`pr-monitor-agent`**, invocado tras cada
 `create_pull_request` (matriz `AGENTS.md`). Él espera el CI y **mergea**. Las filas de proceso
-(code-review pre-PR, campos ADO, QA post-Resolved) son del hilo principal: **no** se le pegan al
+(code-review y QA B pre-PR, campos ADO) son del hilo principal: **no** se le pegan al
 monitor como freno ni producen un PR verde abandonado.
 
 ### Lo que el monitor exige para mergear (GitHub)
@@ -273,7 +273,7 @@ HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar AD
 |---|-----------|-------|------|
 | 8 | Work item en ADO | hilo + `flit-gestion-hu` / `flit-crear-hu` | **HU:** `Custom.Refinement` + Story Points. **Bug:** Severity + Repro. Omitir en `CHORE/`/`DOCS/` |
 | 10 | Veredicto `flit-code-review` vigente | hilo, **pre-PR** | No se abre el PR sin `OK`. Commits post-veredicto: re-review **antes del push**, no un PR verde en espera |
-| 11 | Gate QA (`qa-agent` B) | hilo, tras `Resolved` | FAIL = retrabajo. **No** deja un PR a `develop` con CI verde abierto «hasta que llegue el HANDOFF» |
+| 11 | Gate QA (`qa-agent` B) | hilo, **pre-PR** | FAIL = retrabajo **antes** de abrir el PR. El monitor **no** espera QA: si el PR existe, QA ya debió pasar |
 
 ---
 
@@ -291,7 +291,7 @@ HU **o de un Bug** → Modo B (Deploy DEV). Docs/chore: merge listo; no tocar AD
 | Smoke post-Deploy (M1) | **`devops-agent`** (hilo principal lo invoca tras Modo B) |
 | Evidencias unitarias (`Custom.Evidences`) | rol de desarrollo / tester / **`qa-agent`** |
 | Estado `Resolved` en HU **o Bug** | quien implementó, vía **Skill `flit-gestion-hu`** — el hilo principal **solo avisa** si falta, pero no cierra el ciclo dejándolo pendiente |
-| TCs y certificación funcional | **`qa-agent`** tras Resolved (matriz `AGENTS.md`) — también en Bugs |
+| TCs y certificación funcional | **`qa-agent` B pre-PR** (matriz `AGENTS.md`) — también en Bugs |
 
 ---
 

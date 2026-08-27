@@ -292,6 +292,19 @@ dónde está. **Recomiendo mandar los dos arreglos en el mismo PR.**
 
 ## Hallazgo 5 — Modo oscuro
 
+> **REVOCADO el 26 ago 2026.** El PO firmó tema **C3** (toda la app autenticada + login: pares
+> `--flit-*` + migrar `bg-white` del kit). Contrato, descartes y prerrequisito `data-theme` siempre:
+> `docs/ux/shell-tema-y-responsive.md`.
+>
+> Lo que **deja de ser cierto** de este hallazgo: «los ratios calculados arriba valen en ambos temas,
+> porque texto y fondo son ambos invariantes». En C3 FLIT **deja de ser invariante**. Hay que medir
+> el oscuro (`check:contraste` en los dos temas). Los números de #11604 **siguen valiendo para el
+> tema claro**; no se reabren.
+>
+> El texto histórico de abajo se conserva: es el expediente de por qué #11604 no abrió el dark mode
+> FLIT y de los parches acotados de dock / ⌘K. No se implementa «no dar pares». Los parches de
+> paleta (#11720 / #11767) se reabsorben a tokens en C3.
+
 **Sí existe tema oscuro** (`lib/theme.tsx`, toggle en el topbar, `:root[data-theme='dark']`
 en `styles/tokens.css:125`), pero:
 
@@ -300,9 +313,10 @@ en `styles/tokens.css:125`), pero:
 > fijo: `--flit-bg-app` es `#EAF2FF` en claro y en oscuro.
 
 Es una decisión deliberada (está documentada en el comentario de `flit-tokens.css:101-111`
-a raíz de un bug de modales). **Consecuencia buena para nosotros:** los ratios
+a raíz de un bug de modales). ~~**Consecuencia buena para nosotros:** los ratios
 calculados arriba valen en ambos temas, porque texto y fondo son ambos invariantes.
-No hacen falta pares oscuros para cerrar #11604.
+No hacen falta pares oscuros para cerrar #11604.~~ **Esa consecuencia queda revocada el 26 ago
+2026 (C3):** ver el recuadro al inicio de este hallazgo.
 
 **Excepción — dos superficies del shell sí invierten:**
 
@@ -389,7 +403,7 @@ tocan**: ya consumen `--flit-text-muted` y se arreglan solos con el token.
 | `/flito/comparendos`, `/flito/soat`, `/flito/bitacora`, `/flito/tramites`, `/flito/derechos`, `/flito/impuestos`, `/dashboard`, `/work-orders`, `/vehicles`, `/rndc/*`, `/pesv/diagnostico`, `/clients`, `/tramite/*` | Texto de `StatusChip`: **verde lima → verde bosque** en `success`; naranja y rojo un escalón más oscuros; azul `active` más profundo | **Lo más visible de la propuesta** |
 | Pantallas con `FlitPillGroup` (`FlitoSoat`, `FlitoImpuestos`, `FlitoDerechos`, `FlitoRevisiones`, `FlitoLogistica`, `FlitoBitacora`, `Clients`, `WorkOrders`, `BarraFiltrosComparendos`) | Pill inactiva y pill activa un punto más oscuras | Imperceptible |
 | Títulos (`PageHeaderCard`, `FlitModal`, `FlitAcordeon`) y paginación | Azul de título/link un punto más profundo | Casi imperceptible |
-| `CommandPalette` en tema oscuro | **Sin cambio: sigue rota** (Hallazgo 5, fuera de alcance salvo que el LT la incluya) | — |
+| `CommandPalette` en tema oscuro | ~~**Sin cambio: sigue rota** (Hallazgo 5, fuera de alcance salvo que el LT la incluya)~~ **Revocado el 26 ago 2026 (C3):** entra en los pares / reabsorción de parches. Ver `docs/ux/shell-tema-y-responsive.md` | — |
 
 ---
 
@@ -417,9 +431,11 @@ tocan**: ya consumen `--flit-text-muted` y se arreglan solos con el token.
    debe verse sobre fondo blanco **y** sobre `--flit-bg-app`.
 4. Abrir el drawer en <lg y tabular: anillo navy visible sobre el gradiente en toda su
    extensión (arriba cian, abajo azul).
-5. Verificar en tema oscuro que las pantallas FLIT se ven **idénticas** al claro
+5. ~~Verificar en tema oscuro que las pantallas FLIT se ven **idénticas** al claro
    (invariante por diseño). La `CommandPalette` seguirá fallando: **es esperado**, no
-   es regresión de este cambio.
+   es regresión de este cambio.~~ **Revocado el 26 ago 2026 (C3):** el invariante ya no
+   aplica. Oscuro se mide; ⌘K deja de ser “esperado roto” y entra en los pares / reabsorción
+   de parches. Ver `docs/ux/shell-tema-y-responsive.md`.
 6. Regresión visual: comparar `StatusChip` `success` antes/después es el único punto
    donde una diferencia grande es intencional, no un fallo.
 
@@ -438,9 +454,9 @@ tocan**: ya consumen `--flit-text-muted` y se arreglan solos con el token.
 - **Patrón nuevo justificado:** el sufijo `*-ink` es el único concepto que se añade al
   sistema. Se justifica porque el kit hoy no distingue "color de superficie" de "color
   de texto" y esa es literalmente la causa raíz de cinco de los siete fallos medidos.
-- **Fuera de alcance, declarado:** (a) migrar los 252 usos de semánticos como texto,
-  (b) el tema oscuro de `CommandPalette`, (c) `scrollable-region-focusable` de
-  `flitPageKit.tsx:23`, que es de `frontend-agent`.
+- **Fuera de alcance, declarado (para #11604):** (a) migrar los 252 usos de semánticos como texto,
+  (b) ~~el tema oscuro de `CommandPalette`~~ **revocado el 26 ago 2026 — entra en C3**,
+  (c) `scrollable-region-focusable` de `flitPageKit.tsx:23`, que es de `frontend-agent`.
 
 ---
 

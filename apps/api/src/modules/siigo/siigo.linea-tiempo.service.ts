@@ -207,19 +207,40 @@ export const HITOS_SIN_LLAMADA = [
 
 export type HitoSinLlamada = (typeof HITOS_SIN_LLAMADA)[number];
 
+/**
+ * Sobre qué se apunta el hito. Por omisión, la factura.
+ *
+ * La bandeja de fallidos (HU #11340) necesita apuntar sobre la FILA DE COLA —«esta fila de trabajo se
+ * dio por perdida»— y sobre el ACTA DE ENVÍO —«este correo se abandona»—, que son entidades distintas
+ * de la factura y con ciclos distintos: una factura puede tener varias actas de envío, y darlas por
+ * perdidas de una en una es justo lo que hace falta. Apuntar los tres sobre la factura los volvería
+ * indistinguibles, y «¿esta fila está descartada?» dejaría de tener respuesta.
+ *
+ * Los tipos son texto y no un enum porque `siigo_operaciones.entidad_tipo` es `varchar(20)` sin
+ * enumeración a propósito (ver el esquema): el catálogo crece con cada Feature.
+ */
+export type EntidadHito = 'factura' | 'siigo_cola' | 'factura_envio';
+
 export async function registrarHito(datos: {
   hito: HitoSinLlamada;
   facturaId: string;
   ambiente: string;
   usuarioId?: number | null;
   detalle?: string;
+  /** Sobre qué se apunta. Por omisión la factura, que es lo que lee la línea de tiempo. */
+  entidadTipo?: EntidadHito;
+  /** El id de esa entidad. Por omisión el de la factura. */
+  entidadId?: string;
+  /** Código estable para la interfaz: el motivo del descarte, sin la nota. */
+  codigo?: string | null;
 }): Promise<void> {
   await registrarOperacion({
     operacion: datos.hito,
-    entidadTipo: 'factura',
-    entidadId: datos.facturaId,
+    entidadTipo: datos.entidadTipo ?? 'factura',
+    entidadId: datos.entidadId ?? datos.facturaId,
     ambiente: datos.ambiente,
     resultado: 'ok',
+    codigo: datos.codigo ?? null,
     // Sin método ni ruta: no hubo petición. Dejarlos vacíos es la diferencia visible entre un hito
     // nuestro y una llamada a Siigo.
     mensaje: datos.detalle ?? null,

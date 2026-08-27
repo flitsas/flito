@@ -17,7 +17,7 @@ vi.mock('../../src/db/client.js', () => ({
 
 const { registrarOperacion, consultarBitacora, sanearCuerpo, contarPorResultado, marcaDeOperacion } =
   await import('../../src/modules/siigo/siigo.operaciones.repo.js');
-const { sanearMensaje, MARCA_SQL_OMITIDO } =
+const { sanearMensaje, redactarPIIEnTextoLibre, MARCA_SQL_OMITIDO } =
   await import('../../src/modules/siigo/siigo.redaccion.js');
 
 /** Captura los valores del INSERT. */
@@ -250,6 +250,145 @@ describe('la redacción alcanza también al mensaje', () => {
     const espia = espiarInsert();
     await registrarOperacion({ operacion: 'auth', ambiente: 'pruebas', resultado: 'ok' });
     expect((espia.mock.calls[0]![0] as Record<string, unknown>).mensaje).toBeNull();
+  });
+});
+
+// ── Lo que escribe una PERSONA (HU #11340) ─────────────────────────────────────────────────────
+//
+// `sanearMensaje` entiende volcados de SQL y parejas `clave=valor`: lo que escribe una MÁQUINA. La
+// nota de un descarte la escribe una persona, y ahí no hay ninguna marca que cortar. `maskPII` del
+// catálogo canónico tampoco sirve tal cual —decide por el NOMBRE DE LA CLAVE, y un texto libre no
+// tiene claves—, así que lo que falta es la DETECCIÓN; el enmascarado se delega en las mismas
+// funciones canónicas para no abrir un segundo criterio.
+describe('redactarPIIEnTextoLibre — la PII que teclea una persona', () => {
+  it.each([
+    ['una cédula', 'lo autorizó la cédula 79123456', '79123456'],
+    ['una cédula con puntos', 'la cédula 1.036.640.908 no coincide', '1.036.640.908'],
+    ['un NIT con dígito de verificación', 'el NIT 900.123.456-7 está mal', '900.123.456-7'],
+    ['un teléfono', 'llamar al 3003427829', '3003427829'],
+    ['un correo', 'escribió ana.hincapie@yahoo.es', 'ana.hincapie@yahoo.es'],
+    ['una placa', 'el vehículo WGY45D del titular', 'WGY45D'],
+    ['un nombre y apellido', 'lo pidió Ana Ramírez por teléfono', 'Ana Ramírez'],
+    ['un nombre compuesto', 'firmó Juan de la Cruz Pérez', 'Juan de la Cruz Pérez'],
+    ['una placa en minúsculas', 'placa abc123 del titular', 'abc123'],
+  ])('%s no sale entera', (_caso, texto, dato) => {
+    expect(redactarPIIEnTextoLibre(texto)).not.toContain(dato);
+  });
+
+  // `not.toContain` dice que el dato ya no está, no que lo que quedó sirva para operar. Esto ancla
+  // la salida exacta, y de paso que el enmascarado es el canónico del repositorio (`maskName`) y no
+  // un segundo criterio que pueda divergir.
+  it('el nombre conocido sale como iniciales, igual que en el catálogo canónico', () => {
+    expect(redactarPIIEnTextoLibre(
+      'ANALEANDRA HINCAPIE OSPINA pidió la corrección', ['ANALEANDRA HINCAPIE OSPINA'],
+    )).toBe('A. H. O. pidió la corrección');
+  });
+
+  it.each([
+    ['una fecha', 'la resolución venció el 30-06-2026'],
+    ['un importe con marca', 'se cobró por fuera $1.250.000'],
+    ['un conteo y un código HTTP', 'van 5 intentos y Siigo devolvió 429'],
+    ['una sigla del dominio', 'la DIAN rechazó el CUFE por duplicado'],
+    ['dos términos del dominio seguidos', 'hay que hacer una Nota Crédito en Siigo Nube'],
+    // ── El contrapeso de admitir mayúsculas ───────────────────────────────────────────────────
+    // Tapar de más tiene un precio real: una nota ilegible es una nota que nadie escribe, y la
+    // gente se lleva la explicación a otro sitio peor. Estos cuatro son el texto operativo que
+    // convive con los nombres y que la corrección podía arrastrar sin que nadie lo notara.
+    ['dos siglas del dominio seguidas', 'revisar en SIIGO NUBE el documento'],
+    ['una sigla pegada a un término del dominio', 'la NOTA CREDITO de la DIAN no cuadra'],
+    ['la misma frase con los nexos en mayúsculas', 'la NOTA CREDITO DE LA DIAN no cuadra'],
+    ['un código de regla con dígitos pegados', 'Regla FAJ26 incumplida en la emisión'],
+    ['un código de error en mayúsculas con guion bajo', 'salió INVALID_DIAN_RESOLUTION otra vez'],
+    // Los dos textos del catálogo de errores que la corrección de las mayúsculas llegó a mutilar.
+    ['un estado de la cuenta en altas', 'la cuenta quedó en modo SOLO LECTURA y no deja emitir'],
+    ['una descripción del catálogo', 'Una URL enviada no es válida.'],
+  ])('%s se queda tal cual: taparlo dejaría la nota sin lo que la hace útil', (_caso, texto) => {
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // ── La prosa operativa en MAYÚSCULAS ──────────────────────────────────────────────────────
+  //
+  // Escribir la nota en altas es un hábito extendido en operación, no una rareza. La heurística no
+  // mira las mayúsculas justamente por esto: mientras las miró, estas notas salían convertidas en
+  // iniciales hacia una tabla que no admite UPDATE ni DELETE, y una explicación mutilada ahí se
+  // pierde para siempre —que es lo que el AC5 existe para conservar—.
+  //
+  // Las dos primeras son los casos que tumbaron la versión con umbrales: `CLIENTE PIDIO ANULAR` cae
+  // por debajo del suelo de letras que se probó, y la mixta baja de la fracción de altas por una
+  // sola palabra en minúsculas al final. Ninguna de las dos es rara, y por eso no hay umbral.
+  it.each([
+    ['una nota corta', 'CLIENTE PIDIO ANULAR'],
+    ['una nota mixta', 'SE REINTENTO TRES VECES Y SIGUE FALLANDO pendiente'],
+    ['un parte de reintentos', 'SE REINTENTO TRES VECES Y SIGUE FALLANDO, PASAR A SOPORTE'],
+    ['una espera', 'PENDIENTE RESPUESTA DE LA DIAN, NO REINTENTAR TODAVIA'],
+    ['un descarte razonado', 'NO APLICA REINTENTO, FACTURA YA EMITIDA EN OTRO LOTE'],
+    ['un aviso de estado', 'FACTURA YA EMITIDA'],
+    ['un traspaso', 'PASAR A SOPORTE'],
+  ])('%s en mayúsculas se queda tal cual: la heurística no mira las altas', (_c, texto) => {
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // El apagado de la heurística sería una fuga si la heurística fuera lo único que hay. No lo es:
+  // el nombre del cliente del caso se tapa por COINCIDENCIA, que no depende de la caja. Esta prueba
+  // es la que sostiene que relajar la heurística no reabre el hallazgo que la trajo.
+  it('en esa misma nota en altas, la razón social conocida SÍ se tapa, y el resto no se toca', () => {
+    const CLIENTE = 'TRANSPORTES LA SABANA SAS';
+    const salida = redactarPIIEnTextoLibre(
+      `NOTA: CONFIRMADO POR ${CLIENTE}, NO REINTENTAR MAS`, [CLIENTE],
+    );
+
+    expect(salida).not.toContain(CLIENTE);
+    expect(salida).toBe('NOTA: CONFIRMADO POR T. L. S. S., NO REINTENTAR MAS');
+  });
+
+  it('la coincidencia no depende de la caja ni de los espacios de más', () => {
+    const salida = redactarPIIEnTextoLibre(
+      'lo confirmó transportes  la   sabana sas por teléfono', ['TRANSPORTES LA SABANA SAS'],
+    );
+    expect(salida).not.toContain('sabana');
+    expect(salida).toContain('T. L. S. S.');
+  });
+
+  // ── EL HUECO ACEPTADO ─────────────────────────────────────────────────────────────────────
+  //
+  // Un nombre TECLEADO de memoria en mayúsculas no lo ve nadie: no hay dato con el que cotejarlo y,
+  // por forma, es indistinguible de la prosa operativa de arriba. **Es una decisión tomada, no un
+  // olvido**: David la aceptó explícitamente cuando el gate la declaró asumible, y el precio de la
+  // alternativa era mutilar 12 de 16 notas operativas cortas de forma irreversible. Esta prueba
+  // existe para que quede visible, y para que quien la vea roja sepa que está cambiando la decisión
+  // y no arreglando un descuido.
+  it('un nombre en MAYÚSCULAS que NO es el del caso pasa entero: el hueco está aceptado', () => {
+    const texto = 'SE CONFIRMO CON MARIA GOMEZ DE CONTABILIDAD, NO REINTENTAR';
+    expect(redactarPIIEnTextoLibre(texto)).toBe(texto);
+  });
+
+  // Y el contrapeso que hace asumible ese hueco: en cuanto ese mismo nombre ES el del caso —el
+  // flujo que motivó el hallazgo, copiar de la fila—, deja de pasar, venga como venga escrito.
+  it('ese mismo nombre, si es el del caso, SÍ se tapa: la coincidencia no depende de la caja', () => {
+    expect(redactarPIIEnTextoLibre(
+      'SE CONFIRMO CON MARIA GOMEZ DE CONTABILIDAD, NO REINTENTAR', ['Maria Gomez'],
+    )).toBe('SE CONFIRMO CON M. G. DE CONTABILIDAD, NO REINTENTAR');
+  });
+
+  // El límite de palabra del cotejo: una razón social corta no puede mutar subcadenas.
+  it('un nombre conocido corto no parte otra palabra que lo contenga', () => {
+    expect(redactarPIIEnTextoLibre('quedó en CLAUSURA definitiva', ['SURA']))
+      .toBe('quedó en CLAUSURA definitiva');
+    expect(redactarPIIEnTextoLibre('lo pidió SURA por escrito', ['SURA']))
+      .toBe('lo pidió S. por escrito');
+  });
+
+  // Lo que esta heurística NO ve, escrito para que nadie lo dé por cubierto: un detector de nombres
+  // sobre prosa española no existe. Por eso el catálogo cerrado de motivos sigue siendo la defensa
+  // principal, y esto la segunda línea.
+  it('un nombre de pila suelto en minúsculas pasa: el hueco está declarado, no negado', () => {
+    expect(redactarPIIEnTextoLibre('lo pidió juan')).toBe('lo pidió juan');
+  });
+
+  it('cuando duda, tapa: dos palabras capitalizadas desconocidas se tratan como un nombre', () => {
+    // El precio del error es un término del dominio ilegible; el del error contrario, una cédula en
+    // una fila que nadie puede borrar.
+    expect(redactarPIIEnTextoLibre('revisar en Portal Terceros')).toBe('revisar en P. T.');
   });
 });
 
