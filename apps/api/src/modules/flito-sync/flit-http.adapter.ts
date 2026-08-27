@@ -26,8 +26,49 @@ export interface ItemFlit {
   fechaCreacion?: string | null;
   /** También nuevos en el reporte; aún sin uso en FLITO, viajan en `raw`. */
   modelo?: string; tipo?: string;
+  /**
+   * Datos técnicos del vehículo (HU #11906). Medido contra el reporte real el 2026-08-27 (2733
+   * items): las tres claves vienen SIEMPRE y siempre como cadena. Se tipan opcionales igual que el
+   * resto de este `interface` porque describe JSON de un tercero, no una promesa nuestra: el que
+   * afirma que el valor puede faltar y aun así el mapeo no rompe es `TramiteFlit`, con su `null`.
+   */
+  cilindraje?: string; carroceria?: string; tipoServicio?: string;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+
+/**
+ * Ancho de las columnas de `vehicles` donde aterrizan los tres datos técnicos (migración 0166).
+ *
+ * Se exporta para que el test de paridad los contraste con `getTableConfig(vehicles)` en vez de
+ * dejarlos como números sueltos: un guardián que se separa de su columna no protege de nada.
+ */
+export const MAX_DATOS_VEHICULO = { cilindraje: 10, carroceria: 60, tipoServicio: 30 } as const;
+
+/**
+ * `s()` + tope de longitud. Lo que no cabe en la columna se DESCARTA a `null` con un warn; no se
+ * trunca.
+ *
+ * Los dos motivos, en orden de importancia:
+ *   1. Truncar cambia el dato. Un cilindraje recortado es OTRO cilindraje, y saldría en la cola con
+ *      el mismo aspecto de dato bueno que los demás. Es el argumento ya escrito para
+ *      `owner_document` en `titularDe()` (flito-sync.service.ts).
+ *   2. Dejarlo pasar entero sería un `22001 value too long` DENTRO de la transacción de ese trámite
+ *      —el sync envuelve uno por transacción con try/catch—, así que ese trámite se caería del sync
+ *      en esa corrida y en todas las siguientes, con el único rastro en un `log.error`.
+ *
+ * El `log.warn` lleva el id del trámite, el campo y la longitud; NO el valor, para que un campo mal
+ * alineado por el proveedor (una dirección donde debía ir la carrocería) no acabe en el log.
+ */
+function acotado(v: unknown, campo: keyof typeof MAX_DATOS_VEHICULO, idFlit: string): string | null {
+  const valor = s(v);
+  if (valor === null) return null;
+  const max = MAX_DATOS_VEHICULO[campo];
+  if (valor.length > max) {
+    log.warn({ idFlit, campo, longitud: valor.length, max }, 'valor de FLIT más largo que su columna: se descarta');
+    return null;
+  }
+  return valor;
+}
 
 export function aTramite(it: ItemFlit): TramiteFlit {
   const nombre = `${it.nombres ?? ''} ${it.apellidos ?? ''}`.trim();
@@ -46,6 +87,11 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     organismoCodigo: s(it.codigoSecretaria),
     fechaAprobacion: s(it.fecha_aprobacion ?? null),
     fechaCreacionFlit: s(it.fechaCreacion ?? null),
+    // HU #11906. Vacío o ausente → null, que es lo que la cola pinta como «—» (AC2): sin error y sin
+    // inventar un valor. `tipo` y `modelo` siguen SIN mapear: esta HU no los pide.
+    cilindraje: acotado(it.cilindraje, 'cilindraje', it.Id),
+    carroceria: acotado(it.carroceria, 'carroceria', it.Id),
+    tipoServicio: acotado(it.tipoServicio, 'tipoServicio', it.Id),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',

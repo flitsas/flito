@@ -33,6 +33,11 @@ import {
 
 interface SoatItem {
   id: string; vin: string; placa: string | null; marca: string | null; linea: string | null;
+  /** Datos técnicos que FLIT trae del vehículo (HU #11906). `string` a propósito y NO number: la
+      fuente es texto siempre, `"0"` significa eléctrico (`vehicles/ocr.routes.ts:76`) y un futuro
+      «220 CC» se rompería en silencio al parsearlo. Llegan `null` cuando FLIT no los mandó; el «—»
+      lo pinta esta página, no el backend. */
+  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
   estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
   organismoNombre: string | null; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
   /** true = lo gestiona Operaciones por contingencia. El proveedor puede seguir viniendo: es de
@@ -58,6 +63,9 @@ const TONO: Record<EstadoSoat, ChipTone> = {
 };
 const pesos = (v: number | null) => v === null ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
+/** Un dato de texto de FLIT, tal cual llega. Ausente —`null` o vacío— se pinta «—» (HU #11906, AC2):
+    un hueco en blanco se confunde con un fallo de carga, y esto no lo es. No transforma el valor. */
+const dato = (v: string | null) => (v && v.trim() ? v : '—');
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 const ESTADOS_OPERACIONES: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
@@ -305,6 +313,7 @@ export default function FlitoSoat() {
                     </td>
                   )}
                   <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
+                    cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
                     multiplePropietario={f.esMultiplePropietario} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
@@ -410,10 +419,11 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
  * aquí depende de que no exista. El precio, ~10 líneas duplicadas del kit, se acepta y se declara.
  *
  * Si el kit cambia el vehículo, esta celda NO lo hereda: es justo lo que la HU #11905 pide, y el
- * eslabón 2 (HU #11906) añade aquí cilindraje, carrocería y tipo de servicio sin tocar el kit.
+ * eslabón 2 (HU #11906) añadió aquí cilindraje, carrocería y tipo de servicio sin tocar el kit.
  */
-function CeldaVehiculoSoat({ placa, vin, marca, linea, multiplePropietario }: {
+function CeldaVehiculoSoat({ placa, vin, marca, linea, cilindraje, carroceria, tipoServicio, multiplePropietario }: {
   placa: string | null; vin: string | null; marca: string | null; linea: string | null;
+  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
   multiplePropietario: boolean;
 }) {
   const vehiculo = [marca, linea].filter(Boolean).join(' ');
@@ -423,6 +433,16 @@ function CeldaVehiculoSoat({ placa, vin, marca, linea, multiplePropietario }: {
       {/* El VIN en monoespaciado: son diecisiete caracteres que se comparan de un vistazo. */}
       <div className="font-mono text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{vin ?? '—'}</div>
       {vehiculo && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vehiculo}</div>}
+      {/* HU #11906 — cilindraje, carrocería y tipo de servicio en UNA línea dentro de esta celda, no
+          en tres columnas nuevas: serían 13 columnas, más ancha que antes de la HU #11905, que vino
+          justo a aligerarla. Las tres ranuras se pintan SIEMPRE y en orden fijo, con rótulo corto;
+          la que falta dice «—» en su sitio y la línea no se colapsa, porque `— · — · —` con rótulos
+          dice QUÉ falta y sin ellos no diría nada.
+          Los valores se pintan tal como llegan: nada de `parseInt` ni separador de miles sobre el
+          cilindraje (ver el comentario de `SoatItem`). */}
+      <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        Cil. {dato(cilindraje)} · Carr. {dato(carroceria)} · Serv. {dato(tipoServicio)}
+      </div>
       {/* Mismo tratamiento tipográfico que tenía como `extra` del trámite: ni más ni menos énfasis. */}
       {multiplePropietario && (
         <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Múltiple propietario</div>

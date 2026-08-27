@@ -41,6 +41,22 @@ export interface TramiteFlit {
    * fecha y mienten sobre su antigüedad. Null si el reporte no la trae (es un campo reciente).
    */
   fechaCreacionFlit: string | null;
+  /**
+   * Datos técnicos del vehículo que el reporte SÍ trae (HU #11906). Medido contra el reporte real
+   * (2733 items): las tres claves vienen SIEMPRE y siempre como cadena; lo que varía es que el
+   * valor llegue vacío (10 en `cilindraje`, 14 en `carroceria`, 0 en `tipoServicio`).
+   *
+   * Por eso son `string | null` NO opcionales, y no van al bloque «Solo mock» de abajo: `marca` y
+   * `linea` están ahí porque el reporte real NO las trae, que es otra cosa. Marcar estas tres como
+   * opcionales repetiría ese error al revés — dejaría creer que la clave puede faltar cuando lo que
+   * puede faltar es el valor, y eso ya lo dice el `null`.
+   *
+   * `null` = FLIT no lo trajo. El adaptador normaliza vacío → null y descarta a null (con warn) lo
+   * que no quepa en su columna, en vez de truncarlo.
+   */
+  cilindraje: string | null;
+  carroceria: string | null;
+  tipoServicio: string | null;
   tipoPropiedad: string;
   compradores: CompradorFlit[];
   valorImpuestoLiquidado: number | null;
