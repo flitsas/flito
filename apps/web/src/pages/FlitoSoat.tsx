@@ -18,7 +18,11 @@ import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
-import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+// Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
+// trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
+// archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
+// cambio se queda aquí y no allí. El vehículo lo pinta `CeldaVehiculoSoat`, local a esta página.
+import { CeldaFechas } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
@@ -279,7 +283,10 @@ export default function FlitoSoat() {
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
-                {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                {/* Rótulos literales y NO `ENCABEZADOS_COMUNES.slice(1)`: atar los encabezados de
+                    esta cola a una posición dentro de un array de otras tres pantallas los cambiaría
+                    en silencio el día que alguien lo reordene. */}
+                <FlitTh>Vehículo</FlitTh><FlitTh>Fechas</FlitTh>
                 <FlitTh>Compañía</FlitTh>
                 <FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
@@ -297,12 +304,8 @@ export default function FlitoSoat() {
                       )}
                     </td>
                   )}
-                  {/* `varios`: un SOAT sin tipo NO es un dato que falte, es que sirve a varios
-                      trámites y no coinciden. La celda común lo distingue. */}
-                  <CeldaTramite idFlit={f.tramitesFlit.join(', ') || null} tipoTramite={f.tipoTramite}
-                    varios={f.tramitesFlit.length > 1}
-                    extra={f.esMultiplePropietario ? 'Múltiple propietario' : null} />
-                  <CeldaVehiculo placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea} />
+                  <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
+                    multiplePropietario={f.esMultiplePropietario} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   <CeldaGestion soat={f} />
@@ -396,6 +399,39 @@ function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
 }
 
 /**
+ * El vehículo, en la versión de esta cola: lo mismo que pinta `CeldaVehiculo` de
+ * `components/flit/columnasComunes` MÁS «Múltiple propietario».
+ *
+ * Es una copia local a propósito (HU #11905). Ese aviso es un atributo del SOAT
+ * (`esMultiplePropietario`), no del trámite: viajaba como `extra` de `CeldaTramite` solo porque esa
+ * columna era la que tenía sitio, y al retirarla se habría perdido un dato que ningún AC pidió
+ * quitar. La alternativa —añadir una prop a la celda compartida— dejaría el aislamiento de las otras
+ * tres tablas (impuestos, derechos, reporte de costos) dependiendo de que nadie pase el argumento;
+ * aquí depende de que no exista. El precio, ~10 líneas duplicadas del kit, se acepta y se declara.
+ *
+ * Si el kit cambia el vehículo, esta celda NO lo hereda: es justo lo que la HU #11905 pide, y el
+ * eslabón 2 (HU #11906) añade aquí cilindraje, carrocería y tipo de servicio sin tocar el kit.
+ */
+function CeldaVehiculoSoat({ placa, vin, marca, linea, multiplePropietario }: {
+  placa: string | null; vin: string | null; marca: string | null; linea: string | null;
+  multiplePropietario: boolean;
+}) {
+  const vehiculo = [marca, linea].filter(Boolean).join(' ');
+  return (
+    <td className="px-4 py-2 align-top">
+      <div className="text-sm font-semibold">{placa ?? '—'}</div>
+      {/* El VIN en monoespaciado: son diecisiete caracteres que se comparan de un vistazo. */}
+      <div className="font-mono text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{vin ?? '—'}</div>
+      {vehiculo && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vehiculo}</div>}
+      {/* Mismo tratamiento tipográfico que tenía como `extra` del trámite: ni más ni menos énfasis. */}
+      {multiplePropietario && (
+        <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Múltiple propietario</div>
+      )}
+    </td>
+  );
+}
+
+/**
  * Quién gestiona el SOAT. Reutiliza la columna del proveedor en vez de añadir una nueva: la cola ya
  * va ancha. En los que Operaciones retomó se dice de quién, que es el dato que hace útil el botón
  * de devolver. El distintivo lleva texto y no solo color.
@@ -462,7 +498,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
           <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
           <Dato k="Gestiona" v={soat.gestionOperaciones
             ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
-            : soat.proveedorSoatNombre ?? '—'} /><Dato k="Trámites FLIT" v={soat.tramitesFlit.join(', ') || '—'} />
+            : soat.proveedorSoatNombre ?? '—'} />
           <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />
           {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
