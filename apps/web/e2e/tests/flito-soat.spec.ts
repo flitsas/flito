@@ -31,7 +31,7 @@ const SOAT = [
   },
   {
     id: 's3', vin: 'VIN0000000000003', placa: 'PAG777', marca: 'Mazda', linea: 'CX-30',
-    estado: 'pagado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
+    estado: 'pagado', esMultiplePropietario: true, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
     compradores: [{ nombreCompleto: 'Sara Ríos', numeroDocumento: '30303030', orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: ['FLIT-1003'], enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
@@ -223,17 +223,96 @@ test.describe('FLITO — Portal SOAT', () => {
     await expect(alta).toContainText('Sistema');
   });
 
-  test('la cola enseña tipo de trámite y las dos fechas, como las demás tablas', async ({ page }) => {
+  // HU #11905 — la cola dejó de girar sobre el trámite (RN-01: el SOAT es por VIN). Este test venía
+  // afirmando lo contrario («la cola enseña tipo de trámite…») y se invierte, no se borra: lo que
+  // sigue siendo verdad —el vehículo y las dos fechas— es justo la segunda mitad del AC1.
+  test('la cola enseña vehículo y las dos fechas, y ya no el trámite', async ({ page }) => {
+    // El fixture SIGUE trayendo el trámite porque la API sigue enviándolo: esta HU es solo de UI.
+    // Sin esta guarda, vaciar el mock dejaría el test verde sin probar absolutamente nada.
+    expect(SOAT[1].tramitesFlit).toContain('FLIT-1002');
+    expect(SOAT[1].tipoTramite).toBe('Traspaso');
+
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.goto('/flito/soat');
 
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    // El conteo va PRIMERO y es lo que ancla el aserto: «no está la columna Trámite» se cumple
+    // también con la tabla sin cargar, vacía o en error, y ese es el falso verde barato de esta HU.
+    await expect(tabla.getByRole('columnheader')).toHaveCount(10);
+    await expect(tabla.getByRole('columnheader', { name: 'Trámite' })).toHaveCount(0);
+
     const fila = page.getByRole('row').filter({ hasText: 'XYZ789' });
-    await expect(fila).toContainText('Traspaso');
-    await expect(fila).toContainText('FLIT-1002');
+    await expect(fila).not.toContainText('FLIT-1002');
+    await expect(fila).not.toContainText('Traspaso');
+    // `toHaveCount` cuenta nodos aunque estén ocultos: mata al mutante «esconderlo con hidden o
+    // sr-only», que `toBeVisible()` dejaría pasar. El AC1 dice que no lo ve NADIE, tampoco un lector.
+    await expect(tabla.getByText('FLIT-1002')).toHaveCount(0);
+
+    // Lo que sí sigue: el vehículo y las dos fechas, que son la segunda cláusula del AC1.
+    await expect(fila).toContainText('XYZ789');
+    await expect(fila).toContainText('VIN0000000000002');
+    await expect(fila).toContainText('Creado');
     // Un SOAT sin aprobar lo dice, en vez de un guion que se confunde con «no llegó la fecha».
     await expect(page.getByRole('row').filter({ hasText: 'ABC123' })).toContainText('Sin aprobar');
+
+    // «Múltiple propietario» NO se va con la columna: es un atributo del SOAT que viajaba en la
+    // celda del trámite solo porque allí había sitio. Sin este aserto, borrar el bloque de
+    // `CeldaVehiculoSoat` no pondría rojo a nadie.
+    await expect(page.getByRole('row').filter({ hasText: 'PAG777' })).toContainText('Múltiple propietario');
+    await expect(fila).not.toContainText('Múltiple propietario');
   });
+
+  // HU #11905 (AC2). Acotado al <dl> de la ficha y NO al diálogo entero. En ESTE test el aserto
+  // laxo también pasaría —el historial no está mockeado y se carga plegado y perezoso—, así que el
+  // acotado no lo exige el mock: lo exige producción. El historial real dice «Alta desde FLIT
+  // (trámite FLIT-1002)» (flito-sync.service.ts:336) y un aserto sobre el diálogo entero saldría
+  // rojo por un motivo que el AC no prohíbe; «arreglarlo» borrando esa traza destruiría
+  // trazabilidad.
+  test('el detalle ya no enseña los trámites FLIT, y conserva el resto de la ficha', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'XYZ789' }).getByRole('button', { name: 'Ver' }).click();
+
+    const ficha = page.getByRole('dialog').locator('dl');
+    await expect(ficha).toBeVisible();
+    await expect(ficha).not.toContainText('Trámites FLIT');
+    await expect(ficha).not.toContainText('FLIT-1002');
+
+    // «Gestiona» comparte renglón físico en el JSX con el dato que se fue: borrar la línea entera
+    // en vez del elemento se lo lleva por delante, y es el error más probable de toda la HU.
+    await expect(ficha).toContainText('Gestiona');
+    await expect(ficha).toContainText('Seguros Alfa');
+    await expect(ficha).toContainText('Enviado por');
+    await expect(ficha).toContainText('Valor pagado');
+    await expect(ficha.getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+  });
+
+  // HU #11905 (AC3). Los tres roles en bucle, porque el mutante que hay que matar es una «vista
+  // privilegiada» del tipo `{esOperaciones && <CeldaTramite …/>}`: probar solo con el gestor la
+  // dejaría viva, y probar solo con admin dejaría viva la inversa.
+  for (const caso of [
+    // 10 columnas: admin es el único que ve la casilla de selección (`puedeOperar`), y solo mientras
+    // haya algún Pendiente en la página. Auditoría y el gestor se quedan en 9.
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
+  ]) {
+    test(`${caso.rol} tampoco ve la columna Trámite: no hay vista privilegiada`, async ({ page }) => {
+      await loginAs(page, caso.usuario);
+      await mock(page);
+      await page.goto('/flito/soat');
+
+      const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+      await expect(tabla.getByRole('columnheader')).toHaveCount(caso.columnas);
+      await expect(tabla.getByRole('columnheader', { name: 'Trámite' })).toHaveCount(0);
+      await expect(tabla.getByText('FLIT-1002')).toHaveCount(0);
+      // Y el vehículo sigue ahí para los tres: la columna que se va no se lleva a su vecina.
+      await expect(tabla.getByRole('columnheader', { name: 'Vehículo' })).toHaveCount(1);
+      await expect(page.getByRole('row').filter({ hasText: 'XYZ789' })).toContainText('VIN0000000000002');
+    });
+  }
 
   test('el filtro inteligente «listos para enviar» no se le ofrece al gestor', async ({ page }) => {
     // Los Pendiente quedan fuera de su frontera (CA-09): el preset le devolvería siempre una lista
