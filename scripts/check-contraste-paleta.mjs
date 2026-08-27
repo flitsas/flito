@@ -253,6 +253,12 @@ const PARES_OBLIGATORIOS = [
   '--flit-shadow-card',
   '--flit-shadow-modal',
   '--flit-shadow-button',
+  // `--flit-shadow-desborde` (HU #11900) NO está en esta lista, y no por olvido: se mide con
+  // UMBRAL más abajo, en AVISO_DESBORDE. Esta lista es la de presencia —«tiene par oscuro»— y un
+  // token que sólo declara eso no está medido. La medida con umbral además la subsume: sin par
+  // oscuro, `tokenFlit` cae al valor CLARO y ese navy sobre las superficies oscuras da 1,07 sobre
+  // tarjeta y 1,00 sobre cabecera —medido borrando el par—, o sea que el gate se pone rojo igual,
+  // pero diciendo el número en vez de una ausencia. A 1,00 la franja literalmente desaparece.
 ];
 const OBLIGATORIOS = new Set(PARES_OBLIGATORIOS);
 
@@ -547,6 +553,27 @@ const TINTAS = [
 // que pinta `.flit-focus` / `.flit-focus-inset` sobre cualquiera de las cuatro superficies opacas.
 const FOCO = ['--flit-border-focus'];
 
+// Aviso de DESBORDE horizontal de `FlitTable` (HU #11900): 3:1, el mismo umbral y el mismo motivo
+// que el foco. La spec firmada se lo asigna POR SU NOMBRE —§Pantalla 1, «No es un control; es un
+// indicador gráfico (≥ 3:1)»— y el hard-stop de la ráfaga repite «gráficos/foco ≥ 3:1, en claro y
+// en oscuro».
+//
+// Se mide contra DOS superficies y no contra una: la franja es `inset-y-0`, así que cruza la
+// tarjeta y también la cabecera de la tabla. Medir sólo sobre la tarjeta dejaría sin comprobar el
+// tramo que se pinta sobre `--flit-bg-table-header`.
+//
+// Y se mide el extremo opaco del degradado, que es donde el aviso tiene que leerse: el píxel del
+// borde derecho vale exactamente `opaco(token, superficie)`. El degradado se apaga hacia la
+// izquierda por diseño; lo que el AC7 pide ver es el borde.
+//
+// Por qué NO se le aplicó la exención de los separadores (que es la salida fácil y sería mentira):
+// aquella exención del 26 ago 2026 protege dos tokens cuyo valor CLARO ya incumplía antes de la
+// ráfaga y cuya subida repintaría el borde de todas las tarjetas del producto. Éste es un token
+// NUEVO: no hay deuda previa que proteger ni pantalla que se deforme. Su primer valor
+// —rgba(22,39,68,0.26) / rgba(0,0,0,0.55)— fallaba además la invariante de respaldo de aquel
+// precedente, porque el oscuro separaba MENOS que el claro (1,36 < 1,70).
+const AVISO_DESBORDE = [['--flit-shadow-desborde', ['tarjeta', 'cabecera']]];
+
 // `--flit-border-soft` y `--flit-border-input` son SEPARADORES, y aquí hay que ser exacto para no
 // vender una comprobación que no se hace: sus valores CLAROS dan 1,27 y 1,35 sobre tarjeta, muy
 // por debajo del 3:1 — y son los del producto de hoy, anteriores a esta HU. Subirlos repintaría el
@@ -597,6 +624,9 @@ for (const tema of TEMAS) {
   }
   for (const token of FOCO) {
     medir(token, ['app', 'modal', 'tarjeta', 'cabecera'], MINIMO_NO_TEXTO, 'foco  sobre');
+  }
+  for (const [token, nombres] of AVISO_DESBORDE) {
+    medir(token, nombres, MINIMO_NO_TEXTO, 'aviso sobre');
   }
   for (const [token, nombres] of SEPARADORES) {
     const tinta = parsear(`var(${token})`, token, tema);
@@ -898,5 +928,6 @@ if (fallos + fallosGradiente + fallosPares > 0) {
 console.log(
   `\n✓ Contraste OK: CommandPalette en tema ${TEMAS.join(' y ')} (${resultados[0].total} puntos),`
     + ` los pares --flit-* del kit (${PARES_OBLIGATORIOS.length} tokens con par oscuro, medidos en`
-    + ` los dos temas) y los ${GRADIENTES.length} gradientes FLIT + su anillo de foco.`,
+    + ` los dos temas), el aviso de desborde de FlitTable con umbral ${MINIMO_NO_TEXTO}:1`
+    + ` y los ${GRADIENTES.length} gradientes FLIT + su anillo de foco.`,
 );

@@ -153,6 +153,26 @@
   --flit-shadow-card: 0 8px 24px rgba(22, 39, 68, 0.08);
   --flit-shadow-modal: 0 24px 60px rgba(22, 39, 68, 0.18);
   --flit-shadow-button: 0 10px 22px rgba(79, 116, 201, 0.22);
+  /* Franja de aviso de DESBORDE horizontal (HU #11900): la parada opaca del degradado que
+     `FlitTable` pinta contra su borde derecho cuando la tabla no cabe entera. No es una
+     `box-shadow` como sus tres hermanas —es un color—, pero vive en esta vecindad porque hace lo
+     mismo: teñir un borde para decir que hay contenido detrás.
+
+     ES UN INDICADOR GRÁFICO Y LLEVA 3:1 (SC 1.4.11), medido en los dos temas contra las dos
+     superficies sobre las que se pinta de verdad —la tarjeta y la cabecera de tabla, porque la
+     franja es `inset-y-0` y cruza también el encabezado—. La primera versión de este token valía
+     0,26 de alfa y se defendió aquí diciendo que «un degradado no tiene un borde con el que medir
+     un ratio»: es FALSO y el gate de QA lo desmintió midiéndolo. El píxel del extremo derecho es
+     el color del token ya compuesto sobre la superficie, y contra ella se mide como cualquier
+     otro: daba 1,70 en claro y 1,36 en oscuro. La spec firmada le pone 3:1 por su nombre
+     (§Pantalla 1, «No es un control; es un indicador gráfico (≥ 3:1)»), y la exención de los
+     separadores de la HU #11899 NO alcanza aquí: aquélla protegía un valor CLARO que ya incumplía
+     antes de la ráfaga y cuya subida repintaba todas las tarjetas del producto. Este token es
+     nuevo: no hay nada previo que proteger.
+
+     Que se vea es su FUNCIÓN, no un efecto secundario: la franja existe para que quien mira la
+     pantalla —no solo quien tabuló hasta la región— sepa que faltan columnas a la derecha. */
+  --flit-shadow-desborde: rgba(22, 39, 68, 0.58);
 
   /* Tipografía */
   --flit-font: 'Inter Variable', Inter, Poppins, Montserrat, system-ui, -apple-system,
@@ -249,6 +269,15 @@
   --flit-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
   --flit-shadow-modal: 0 24px 60px rgba(0, 0, 0, 0.62);
   --flit-shadow-button: 0 10px 22px rgba(0, 0, 0, 0.45);
+  /* El velo de desborde INVIERTE, como `--flit-bg-hover` de aquí arriba y por la misma razón: en
+     claro oscurece la superficie, en oscuro tiene que ACLARARLA. Y aquí no es una preferencia
+     estética sino aritmética — con la tarjeta oscura en #1E2F4C, el NEGRO PURO da 1,57 contra
+     ella: ningún velo oscuro, con ninguna alfa, puede llegar al 3:1 que pide SC 1.4.11. Es lo que
+     tumbó el primer intento de este token (rgba(0,0,0,0.55) → 1,36). Blanco al 42 % deja el borde
+     en ~#7C86 sobre tarjeta y sube a >3 sobre las dos superficies; los números exactos los imprime
+     `npm run check:contraste`, que desde la #11900 lo mide con umbral en vez de comprobar solo que
+     el par exista. */
+  --flit-shadow-desborde: rgba(255, 255, 255, 0.42);
 }
 
 /* Scopes — solo aplican familia tipográfica + fondo base. */
