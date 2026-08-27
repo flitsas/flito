@@ -8,7 +8,11 @@ Administrador. El Auditor, el Proveedor, el Gestor de Impuestos y el Mensajero n
 
 ## Cómo se entra
 
-En el menú lateral, sección **Gestión**, ítem **Comparendos**.
+En el menú de navegación, sección **Gestión**, ítem **Comparendos**.
+
+En pantalla ancha el menú es la barra al pie; si la ventana es estrecha, la barra deja solo los iconos y el nombre de cada sección aparece al pasar el cursor por encima. En pantallas pequeñas, use el botón de menú de la barra superior.
+
+También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «comparendos».
 
 ## Pasos
 
@@ -23,7 +27,7 @@ En el menú lateral, sección **Gestión**, ítem **Comparendos**.
 - Cargando: el visor muestra la espera del listado; la exportación, **Preparando el archivo…**.
 - Error: avisos al fallar la búsqueda, el sync o la configuración.
 - Vacío: el visor explica que no hay registros (y ofrece **Ir a la sincronización** cuando aplica) o que el filtro no arroja nada.
-- Lleno: tabla de registros consolidados (activo o inactivo según las fuentes) y paneles de detalle.
+- Lleno: tabla de registros consolidados (activo o inactivo según las fuentes) y paneles de detalle. Si la tabla no cabe a lo ancho, el borde derecho se sombrea para avisar de que hay más columnas: desplácela en horizontal o use el tabulador para entrar en ella.
 
 ## Qué no hace
 

@@ -698,6 +698,11 @@ test.describe('FLITO — Comparendos · AC6 · la densidad no cambia (HU #11795,
   /**
    * Las catorce cabeceras, EN ORDEN y con su texto exacto.
    *
+   * La lista NO cambia con la HU #11900 y eso es información, no casualidad: «Estado en la fuente»
+   * sube de nivel B a nivel A quedándose en el MISMO sitio del encabezado —la última de A, justo
+   * antes de Origen—, así que el orden a ≥1280 px es idéntico. Lo que cambia es cuántas se ven por
+   * debajo de 1280, y eso se afirma más abajo.
+   *
    * Se afirma la lista entera y no solo la cuenta, que es la diferencia entre este test y uno que
    * pasaría después de cambiar una columna por otra. La cuenta sola tampoco vería un renombre.
    */
@@ -707,7 +712,7 @@ test.describe('FLITO — Comparendos · AC6 · la densidad no cambia (HU #11795,
     'Estado en la fuente', 'Origen', 'Registrado', 'Inactivado',
   ];
 
-  test('AC6 — 14 cabeceras con «Inactivado» y 10 por debajo de 1280 px: ni las fechas ni el organismo añadieron columna', async ({ page }) => {
+  test('AC6 — 14 cabeceras con «Inactivado» y 11 por debajo de 1280 px: ni las fechas ni el organismo añadieron columna', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await abrirVisor(page, [FILA_MUNICIPAL]);
     // La cuenta se hace sobre UNA tabla, y se comprueba que es una: un `page.locator('th')` suelto
@@ -722,7 +727,11 @@ test.describe('FLITO — Comparendos · AC6 · la densidad no cambia (HU #11795,
       .toEqual(CABECERAS);
 
     await page.setViewportSize({ width: 1279, height: 900 });
-    await expect(tabla.getByRole('columnheader')).toHaveCount(10);
+    // Once desde la HU #11900, no diez: «Estado en la fuente» pasó de nivel B a nivel A y bajo
+    // 1280 px se pinta. Sigue sin haber ninguna columna NUEVA —el 14 de arriba no se mueve—, que
+    // es lo que este test vigila desde la #11795: la columna cambió de bloque, no de existencia.
+    await expect(tabla.getByRole('columnheader')).toHaveCount(11);
+    await expect(tabla.getByRole('columnheader', { name: 'Estado en la fuente', exact: true })).toBeVisible();
     // Las dos columnas de esta HU son de nivel A: se ven en los DOS anchos, que es donde más falta
     // hacen. Si alguna hubiera bajado a nivel B para «hacer sitio», esto lo vería.
     await expect(tabla.getByRole('columnheader', { name: TH_FECHAS, exact: true })).toBeVisible();

@@ -61,9 +61,36 @@ de un admin con nombre), `condensed = true` aunque `scrollY = 0`. El condensado 
 existiendo y se **suma**: a 1920 con scroll abajo también son iconos.
 
 El nombre de cada módulo **permanece en el DOM** (`sr-only` ya lo hace hoy al condensar). Tooltip /
-`title` en el trigger para quien ve solo el icono. Un panel abierto **fuerza expansión** (ya existe).
+`title` en el trigger para quien ve solo el icono. Un panel abierto **fuerza expansión** (ya existe)
+— ~~sin matices~~, **ver la enmienda de abajo**.
 
 Rail lateral desktop **NO se reabre.** Decisión PO 2026-06-12 **vigente**.
+
+#### Enmienda del 26 ago 2026 (HU #11900) — la expansión por panel abierto NO deshace el condensado por ancho
+
+Este párrafo decía «un panel abierto **fuerza expansión** (ya existe)» sin distinguir de QUÉ
+condensado hablaba, y esa frase, leída literal, choca con el «una fila **siempre**» del párrafo
+anterior. Al implementarla se midió el choque, y no es teórico: a 1100 px la fila expandida del
+admin necesita **1381 px** y el hueco disponible es **1068 px**, así que forzar la expansión al
+abrir un módulo devuelve exactamente lo que esta HU existe para matar — dos coordenadas `y` y un
+dock de **104 px de alto** (dos filas) con un panel abierto encima, tapando el `main`.
+
+**Queda así:**
+
+- La expansión de cortesía al abrir un panel deshace el condensado por **scroll**, que es el que ya
+  existía y para el que se escribió («navegar entre iconos sueltos es desorientador» cuando el
+  usuario acaba de bajar por la página).
+- **Nunca** deshace el condensado por **ancho**. Si el dock está condensado porque los nombres no
+  caben, abrir un panel lo deja condensado: el sitio no aparece por abrir un menú.
+- La compensación no es teórica: el panel abierto muestra los nombres completos de **sus** ítems,
+  que es lo que el usuario está mirando en ese momento. Lo que no se puede es partir el dock.
+
+«Una fila siempre» es la regla dura de esta sección; la expansión por panel es una cortesía. Cuando
+chocan, gana la regla dura.
+
+Lo fija un TC —`el panel abierto NO deshace el condensado por ancho` en
+`apps/web/e2e/tests/shell-navbar.spec.ts`—, y no como adorno: sin él, la próxima HU que lea el
+párrafo de arriba sin esta enmienda «restaurará» el comportamiento y ningún test se lo impedirá.
 
 ### 4 · Comparendos A′ — solo «Estado en la fuente» sube a A
 
@@ -352,7 +379,9 @@ Ningún endpoint nuevo. `estadoFuente` ya viaja en `ComparendoRegistro`.
 3. `light` no se ensucia con reglas dark huérfanas.
 4. `check:contraste` verde en **los dos** temas. Un par oscuro que no esté en el gate no existe.
 5. Dock a 1440+ arriba de página: una fila **con nombres**. A 1100 y a 1280: una fila de **iconos**,
-   sin wrap. Tooltip o `sr-only` anuncia el módulo. Panel abierto expande.
+   sin wrap. Tooltip o `sr-only` anuncia el módulo. Panel abierto expande **solo si lo que
+   condensaba era el scroll**: a 1100 px el panel se abre con el dock en iconos y sigue en UNA fila
+   (enmienda de la §3, HU #11900). Un dock de dos filas con un panel abierto es un fallo, no el AC.
 6. `<lg`: hamburguesa + drawer con gradiente de marca (isla), 10 secciones de un admin, scroll-y.
 7. Comparendos a 1440 / 1279 / 1024 / 390: «Estado en la fuente» **en el árbol** en los cuatro.
    Origen/Registrado **fuera** del árbol bajo 1280. Inactivado solo con filtro Inactivos y ≥ 1280.

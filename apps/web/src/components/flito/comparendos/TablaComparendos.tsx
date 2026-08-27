@@ -23,6 +23,8 @@
 // La tabla gana dos datos y no gana ninguna columna: «Fecha» pasa a «Fechas» con las dos fechas
 // rotuladas en la misma celda, y la celda del lugar pasa a mostrar el organismo en las filas cuyo
 // municipio faltaba. **Sigue en 14 columnas con «Inactivado» puesto y 10 por debajo de 1280 px.**
+// (El segundo número lo cambia la #11900 — ver abajo. El primero no: subir una columna de B a A no
+// añade ninguna, solo la mueve de bloque.)
 //
 // ── HU #11879 · la columna vuelve a llamarse «Municipio», y NINGUNA celda rotula ─────────────────
 // La #11795 dejó una cabecera que anunciaba una DISYUNCIÓN —«Municipio u organismo»— y una celda que
@@ -40,6 +42,18 @@
 // ancho de la celda no se toca: el peor caso sigue siendo un organismo de `varchar(120)`. Lo que sí
 // baja es el ALTO de la fila, una línea, y por eso el esqueleto pasa de dos barras a una en esa
 // celda. Todo esto está escrito en `docs/ux/flito-comparendos-municipio.md`.
+//
+// ── HU #11900 · «Estado en la fuente» sube a nivel A ─────────────────────────────────────────────
+// Una sola columna cambia de bloque: la que el PO llamó relevante para decidir si se abre una fila.
+// **11 columnas por debajo de 1280 px** (antes 10) y **14 con «Inactivado» a ≥1280 px** (igual: no
+// se añade ninguna columna, se mueve una de bloque). El esqueleto sigue el cambio SOLO porque
+// deriva de estas mismas constantes — que es exactamente para lo que la #11713 las unificó.
+//
+// Lo que esta HU NO hace, y conviene leerlo antes de «completar» el cambio: las otras tres B siguen
+// en B, «Organismo» sigue sin ser columna, no hay selector de columnas, no hay cards bajo 1280 y no
+// hay preferencia persistida. El coste declarado es +14 rem de desplazamiento horizontal bajo 1280;
+// se acepta a cambio de que la affordance de desborde de `FlitTable` (misma HU) anuncie que hay más
+// a la derecha. Está escrito en `docs/ux/shell-tema-y-responsive.md` §4.
 
 import type { ReactNode } from 'react';
 import type { ComparendoRegistro } from '@operaciones/shared-types';
@@ -143,18 +157,33 @@ const COLUMNAS_A = [
   // y es la palabra que `docs/dominio.md` ya usa para esto.
   'Monitoreo',
   'Gestión',
+  // Nivel A desde la HU #11900; hasta entonces era la PRIMERA de `COLUMNAS_B`. El PO la llamó
+  // relevante para decidir si se abre una fila, y bajo 1280 px el `hidden xl:table-cell` la
+  // borraba del árbol: quien trabaja en un portátil de 1366 no la tenía, y sin selector de
+  // columnas ni aviso, tampoco sabía que existía.
+  //
+  // Va la ÚLTIMA de A —y no pegada a «Monitoreo», que es donde el contraste entre las dos se
+  // vería mejor— por el mismo argumento con el que la #11713 la dejó en B: mide 14 rem, y pegarla
+  // empujaría esa distancia a la derecha DOS columnas de nivel A dentro de un `overflow-x-auto`
+  // que a 1280 px ya desplaza. Al final de A no le cuesta un píxel a ninguna de las que ya
+  // estaban, y queda en el mismo sitio donde el ojo la buscaba hasta ayer: justo antes de Origen.
+  //
+  // Es la ÚNICA B que sube: la spec del 26 ago 2026 relaja «no empujar A a la derecha» solo para
+  // esta columna. Origen, Registrado e Inactivado siguen en B y «Organismo» no vuelve.
+  'Estado en la fuente',
 ] as const;
 
 /**
  * Nivel B: se colapsa por debajo de 1280 px. «Organismo» SALIÓ de la tabla en la HU #11713 —quince
- * columnas eran demasiadas y el dato está entero en el panel de detalle—; su sitio lo ocupa «Estado
- * en la fuente».
+ * columnas eran demasiadas y el dato está entero en el panel de detalle— y no vuelve.
  *
- * «Estado en la fuente» va aquí y no pegada a «Monitoreo», que es donde el contraste entre las dos
- * se vería mejor: pegarla empujaría ~11 rem a la derecha una columna de nivel A dentro de un
- * `overflow-x-auto` que a 1280 px ya desplaza.
+ * «Estado en la fuente» estuvo aquí desde la #11713 y salió a nivel A en la #11900 (arriba está el
+ * porqué). Lo que queda es lo que se lee UNA VEZ ABIERTA la fila y no sirve para reconocerla:
+ * `origen` dice qué fuente la trajo, `primeraVistoEn` cuándo se vio por primera vez e
+ * `inactivadoEn` cuándo dejó de reportarse. Los tres siguen enteros en el panel de detalle, que es
+ * lo que justifica esconderlos y no, por ejemplo, recortarlos.
  */
-const COLUMNAS_B = ['Estado en la fuente', 'Origen', 'Registrado'] as const;
+const COLUMNAS_B = ['Origen', 'Registrado'] as const;
 
 /** Condicional: solo con el filtro «Inactivos» puesto. Cierra el bloque B. */
 const COLUMNA_B_INACTIVADO = 'Inactivado';
@@ -473,9 +502,14 @@ export default function TablaComparendos({ items, catalogos, mostrarInactivado, 
                       (apps/api/src/db/schema.ts:4388) NUNCA actúa. Existe para que ampliar la
                       columna en la base no convierta una fila en quince líneas sin que nadie se
                       entere; si algún día actuara, el valor completo sigue en el panel de detalle. */}
-              <CeldaB>
+              {/* `Celda` y no `CeldaB` desde la HU #11900: sin `hidden xl:table-cell`, la columna
+                  se pinta en TODOS los anchos. Lo único que cambia es el nivel; el tratamiento de
+                  la #11777 que sigue debajo —14 rem, texto entero, `wrap-anywhere`, el airbag del
+                  clamp, sin `title` y sin `text-transform`— NO se toca, y el `<td>` sigue mudo
+                  (nada de `sr-only` por celda: la cabecera ya identifica el dato). */}
+              <Celda>
                 <span className="line-clamp-6 min-w-[14rem] max-w-[14rem] wrap-anywhere">{c.estadoFuente ?? SIN_DATO}</span>
-              </CeldaB>
+              </Celda>
               <CeldaB clase="whitespace-nowrap">{etiquetaOrigen(c.origenMerge)}</CeldaB>
               <CeldaB clase="whitespace-nowrap">{fechaColombia(c.primeraVistoEn)}</CeldaB>
               {mostrarInactivado && (
