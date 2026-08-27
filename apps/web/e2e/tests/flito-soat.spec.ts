@@ -9,6 +9,10 @@ const PROVEEDORES = [{ id: 'p1', nombre: 'Seguros Alfa', activo: true }];
 const SOAT = [
   {
     id: 's1', vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix',
+    // HU #11906 — los tres datos del vehículo que trae FLIT. Valores reales del reporte FLIT: el
+    // cilindraje viaja como texto, y estas cuatro cifras son las que delatan un `toLocaleString`
+    // colado («1.598»).
+    cilindraje: '1598', carroceria: 'SEDAN', tipoServicio: 'Particular',
     estado: 'pendiente', esMultiplePropietario: false, companiaNombre: 'Concesionario Norte',
     organismoNombre: 'STT Manizales', proveedorSoatId: null, proveedorSoatNombre: null,
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', orden: 0, porcentajeParticipacion: null }],
@@ -20,6 +24,10 @@ const SOAT = [
   },
   {
     id: 's2', vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid',
+    // Valores distintos a los de s1 a propósito: es la fila que ven los tres roles (el gestor solo
+    // ve Solicitado), y con los tres registros iguales una celda que pintara siempre el mismo
+    // vehículo pasaría el test. La carrocería es la más larga que manda FLIT, 23 caracteres.
+    cilindraje: '220', carroceria: 'DOBLE CABINA CON PLATON', tipoServicio: 'Publico',
     estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', orden: 0, porcentajeParticipacion: null }],
@@ -31,6 +39,9 @@ const SOAT = [
   },
   {
     id: 's3', vin: 'VIN0000000000003', placa: 'PAG777', marca: 'Mazda', linea: 'CX-30',
+    // AC2: FLIT omite dos de los tres. `null` viaja como `null` —el backend no lo convierte— y es
+    // la interfaz la que pone «—». Con los tres registros completos este caso no existiría.
+    cilindraje: null, carroceria: 'SUV', tipoServicio: null,
     estado: 'pagado', esMultiplePropietario: true, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
     compradores: [{ nombreCompleto: 'Sara Ríos', numeroDocumento: '30303030', orden: 0, porcentajeParticipacion: null }],
@@ -313,6 +324,80 @@ test.describe('FLITO — Portal SOAT', () => {
       await expect(page.getByRole('row').filter({ hasText: 'XYZ789' })).toContainText('VIN0000000000002');
     });
   }
+
+  // HU #11906 (AC1) — cilindraje, carrocería y tipo de servicio llegan de FLIT y se ven en la fila
+  // del vehículo. En bucle por los tres roles porque el AC los nombra a los tres: `LECTURA` los
+  // cubre en la API y aquí no hay ni un condicional de rol, así que el mutante a matar es
+  // exactamente el que lo introdujera.
+  for (const caso of [
+    // El conteo de columnas viaja con el aserto y NO cambia respecto a la HU #11905: los tres datos
+    // van DENTRO de la celda del vehículo. Si esto sube a 11/12, alguien metió columnas nuevas y la
+    // tabla volvió a ser más ancha que antes de la #11905.
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
+  ]) {
+    test(`${caso.rol} ve cilindraje, carrocería y tipo de servicio junto al vehículo`, async ({ page }) => {
+      // Guarda del fixture: si alguien vacía estos tres campos del mock, el test de abajo se volvería
+      // una comprobación de «—» que pasaría con la celda rota.
+      expect(SOAT[1].cilindraje).toBe('220');
+      expect(SOAT[1].carroceria).toBe('DOBLE CABINA CON PLATON');
+      expect(SOAT[1].tipoServicio).toBe('Publico');
+
+      await loginAs(page, caso.usuario);
+      await mock(page);
+      await page.goto('/flito/soat');
+
+      const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+      await expect(tabla.getByRole('columnheader')).toHaveCount(caso.columnas);
+
+      // XYZ789 es la única fila que ven los tres: al gestor la cola le abre en Solicitado.
+      const fila = page.getByRole('row').filter({ hasText: 'XYZ789' });
+      await expect(fila).toContainText('Cil. 220 · Carr. DOBLE CABINA CON PLATON · Serv. Publico');
+      // Y en la misma celda que el vehículo, no en una columna aparte ni en otra fila.
+      await expect(fila.getByRole('cell').filter({ hasText: 'VIN0000000000002' })).toContainText('Serv. Publico');
+    });
+  }
+
+  test('el cilindraje se pinta tal como llega, sin formatearlo como número', async ({ page }) => {
+    // La columna es `varchar` a propósito: «0» significa vehículo eléctrico y un futuro «220 CC» se
+    // rompería en silencio al parsearlo. Un `toLocaleString` colado convertiría 1598 en «1.598».
+    expect(SOAT[0].cilindraje).toBe('1598');
+
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+
+    const fila = page.getByRole('row').filter({ hasText: 'ABC123' });
+    await expect(fila).toContainText('Cil. 1598 · Carr. SEDAN · Serv. Particular');
+    await expect(fila).not.toContainText('1.598');
+    await expect(fila).not.toContainText('1,598');
+  });
+
+  // HU #11906 (AC2) — FLIT omite alguno de los tres.
+  test('lo que FLIT no manda se pinta «—» en su sitio, y la cola no da error', async ({ page }) => {
+    expect(SOAT[2].cilindraje).toBeNull();
+    expect(SOAT[2].tipoServicio).toBeNull();
+    expect(SOAT[2].carroceria).toBe('SUV');
+
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+
+    // La línea NO se colapsa: las tres ranuras siguen ahí y el rótulo dice cuál falta. Sin rótulos,
+    // esta fila diría «— · — · —» y no informaría de qué es lo que no llegó.
+    const fila = page.getByRole('row').filter({ hasText: 'PAG777' });
+    await expect(fila).toContainText('Cil. — · Carr. SUV · Serv. —');
+    // Cadena vacía en vez de «—» dejaría «Cil.  · Carr. SUV · Serv.», que parece un renderizado roto.
+    await expect(fila).not.toContainText('Cil. · Carr.');
+
+    // Y no se muestra error: ni el mensaje rojo de la página ni el estado de error de la tabla.
+    await expect(page.locator('p.text-red-600')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    // El resto de la fila sigue entera: un campo ausente no se lleva por delante a sus vecinos.
+    await expect(fila).toContainText('Múltiple propietario');
+    await expect(fila).toContainText('VIN0000000000003');
+  });
 
   test('el filtro inteligente «listos para enviar» no se le ofrece al gestor', async ({ page }) => {
     // Los Pendiente quedan fuera de su frontera (CA-09): el preset le devolvería siempre una lista

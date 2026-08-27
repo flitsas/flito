@@ -177,6 +177,14 @@ export const vehicles = pgTable('vehicles', {
   horasOpMes: integer('horas_op_mes'),
   rendimientoIdeal: numeric('rendimiento_ideal', { precision: 8, scale: 2 }),
   color: varchar('color', { length: 30 }),
+  // Datos técnicos que FLIT trae en el reporte de trámites y que el sync persiste en CADA corrida
+  // (HU #11906, migración 0166). Viven en `vehicles` y NO en `flito_soat` porque `resolverSoat()`
+  // hace `return` sin actualizar campos cuando el SOAT ya existe: ahí, un SOAT sincronizado antes
+  // de esta HU no se completaría jamás. `upsertVehiculo()` corre para todos los trámites siempre.
+  // Los tres son TEXTO —no integer, no enum— a propósito; el porqué está en la 0166.
+  cilindraje: varchar('cilindraje', { length: 10 }),
+  carroceria: varchar('carroceria', { length: 60 }),
+  tipoServicio: varchar('tipo_servicio', { length: 30 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({

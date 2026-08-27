@@ -80,6 +80,14 @@ export interface SoatColaItem {
   placa: string | null;
   marca: string | null;
   linea: string | null;
+  /**
+   * Datos técnicos que trae FLIT y que el sync guarda en `vehicles` (HU #11906). Viajan como `null`
+   * cuando FLIT no los trajo: el «—» lo pinta la interfaz, no el backend. Salen del `innerJoin` con
+   * `vehicles` que la cola ya hacía, así que no cuestan una consulta más.
+   */
+  cilindraje: string | null;
+  carroceria: string | null;
+  tipoServicio: string | null;
   estado: EstadoSoat;
   tipoPropiedad: TipoPropiedad;
   esMultiplePropietario: boolean;
@@ -255,6 +263,9 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       placa: vehicles.plate,
       marca: vehicles.brand,
       linea: vehicles.model,
+      cilindraje: vehicles.cilindraje,
+      carroceria: vehicles.carroceria,
+      tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name,
       organismoNombre: organismosTransitoConfig.alias,
       proveedorSoatNombre: flitoProveedoresSoat.nombre,
@@ -268,7 +279,11 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
   ]);
 
   return {
-    items: await ensamblarCola(rows as ColaRow[]),
+    // SIN cast a `ColaRow[]`, y es deliberado: `$dynamic()` relaja qué métodos se pueden encadenar,
+    // pero conserva el tipo de la proyección, así que el compilador SÍ compara este `select` contra
+    // `ColaRow`. Un `as ColaRow[]` aquí lavaría el tipo y dejaría a la cola sin esa comparación:
+    // quitar una columna de la proyección compilaría igual y la API devolvería el campo `undefined`.
+    items: await ensamblarCola(rows),
     total: Number(countRows[0]?.total ?? 0),
     page,
     pageSize,
@@ -310,7 +325,9 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
 type ColaRow = {
   id: string; vin: string; estado: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
   pagadoEn: Date | null; valorPagado: string | null; motivoRechazo: string | null; createdAt: Date;
-  placa: string | null; marca: string | null; linea: string | null; companiaNombre: string;
+  placa: string | null; marca: string | null; linea: string | null;
+  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
+  companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
   enviadoPorNombre: string | null;
 };
@@ -352,6 +369,9 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
     const esMultiple = ts.some((t) => t.tipoPropiedad === TipoPropiedad.MULTIPLE_PROPIETARIO);
     return {
       id: r.id, vin: r.vin, placa: r.placa, marca: r.marca, linea: r.linea,
+      // Pass-through puro, junto a marca/línea: son del vehículo, no del trámite, así que no pasan
+      // por `comun()` — no hay nada que reconciliar entre varios trámites del mismo SOAT.
+      cilindraje: r.cilindraje, carroceria: r.carroceria, tipoServicio: r.tipoServicio,
       estado: r.estado as EstadoSoat,
       tipoPropiedad: esMultiple ? TipoPropiedad.MULTIPLE_PROPIETARIO : TipoPropiedad.UNICO_PROPIETARIO,
       esMultiplePropietario: esMultiple,
@@ -445,6 +465,11 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
       enviadoEn: flitoSoat.enviadoEn, pagadoEn: flitoSoat.pagadoEn, valorPagado: flitoSoat.valorPagado,
       motivoRechazo: flitoSoat.motivoRechazo, createdAt: flitoSoat.createdAt,
       placa: vehicles.plate, marca: vehicles.brand, linea: vehicles.model,
+      // Por simetría con la cola. `detalle()` también alimenta `ensamblarCola`, así que si faltaran
+      // aquí el TypeScript no compilaría — la misma red que protege a `cola()` desde que su llamada
+      // dejó de ir con `as ColaRow[]`. Lo que esto evita es un detalle que dice «—» de un vehículo
+      // cuya fila en la cola sí muestra el dato.
+      cilindraje: vehicles.cilindraje, carroceria: vehicles.carroceria, tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name, organismoNombre: organismosTransitoConfig.alias,
       proveedorSoatNombre: flitoProveedoresSoat.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,

@@ -23,7 +23,7 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 - Cargando: la tabla aún no aparece.
 - Error: mensaje en rojo sobre la tarjeta.
 - Vacío: **No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.** Con filtros: **Ningún SOAT coincide con los filtros.**
-- Lleno: tabla **Pólizas SOAT** con compañía, quién gestiona, estado, solicitado, pagado y valor. Una fila asumida muestra el chip **Operaciones**.
+- Lleno: tabla **Pólizas SOAT** con compañía, quién gestiona, estado, solicitado, pagado y valor. Junto a la placa y el VIN, cada fila le muestra también los datos del vehículo que llegan de FLIT: **cilindraje**, **carrocería** y **tipo de servicio**. El dato que FLIT no envía aparece como **—** y no es un error. Una fila asumida muestra el chip **Operaciones**.
 
 ## Qué no hace
 

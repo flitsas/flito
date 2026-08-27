@@ -196,24 +196,79 @@ function titularDe(tf: TramiteFlit): { nombre: string | null; documento: string 
   };
 }
 
+/**
+ * El `SET` del UPDATE de `upsertVehiculo()`, aparte para poder afirmarlo sin base de datos.
+ *
+ * **No es un helper de conveniencia: es la política de escritura del sync sobre `vehicles`.** Todo
+ * campo que FLIT pueda dejar vacío se escribe SOLO si trae valor, y por eso son spreads
+ * condicionales y no asignaciones. Una asignación directa convierte «FLIT no me lo mandó esta vez»
+ * en un `SET columna = NULL`, es decir, en borrar el dato que ya teníamos.
+ *
+ * `plate` es la excepción y ya lo era: FLIT siempre la trae y es la clave por la que el resto del
+ * sistema reconoce el vehículo.
+ *
+ * `updatedAt` lo pone `upsertVehiculo`, no esta función, para que el valor sea comparable en test.
+ *
+ * El retorno se tipa contra el esquema (`vehicles.$inferInsert`) y NO como `Record<string, unknown>`:
+ * al extraer el objeto del `.set()` se perdía la comprobación de nombres de columna que drizzle hacía
+ * cuando iba inline, y un `cilindaje:` mal escrito habría compilado y no habría escrito nada.
+ */
+export function setVehiculoDesdeFlit(tf: TramiteFlit): Partial<typeof vehicles.$inferInsert> {
+  const titular = titularDe(tf);
+  return {
+    plate: tf.placa,
+    ...(tf.marca ? { brand: tf.marca } : {}),
+    ...(tf.linea ? { model: tf.linea } : {}),
+    // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
+    // propietario que ya conocíamos (p. ej. el que dejó el OCR de la tarjeta de propiedad).
+    ...(titular.nombre ? { ownerName: titular.nombre } : {}),
+    ...(titular.documento ? { ownerDocument: titular.documento } : {}),
+    // Misma política que el propietario, y a propósito (HU #11906): un reporte con el campo vacío no
+    // borra el cilindraje / la carrocería / el tipo de servicio que ya conocíamos. Dos reglas
+    // opuestas en la misma función serían una trampa para el siguiente que la lea.
+    ...(tf.cilindraje ? { cilindraje: tf.cilindraje } : {}),
+    ...(tf.carroceria ? { carroceria: tf.carroceria } : {}),
+    ...(tf.tipoServicio ? { tipoServicio: tf.tipoServicio } : {}),
+  };
+}
+
+/**
+ * Alta o actualización del vehículo del trámite, por VIN.
+ *
+ * **Es el único punto del sync que corre para TODOS los trámites en TODAS las corridas**: se llama
+ * desde `sincronizarUno` sin guarda previa, antes de que el estado, la compañía y el organismo
+ * decidan nada. Por eso es aquí donde aterrizan el cilindraje, la carrocería y el tipo de servicio de
+ * FLIT (HU #11906) y no en `flito_soat`: `resolverSoat()` sale sin actualizar campos cuando el SOAT
+ * ya existe, así que un SOAT sincronizado antes de esa HU no se completaría nunca. Guardarlo aquí es
+ * lo que hace que el AC3 (el próximo sync completa el histórico) se cumpla solo, sin backfill.
+ *
+ * Las dos ramas escriben con reglas DISTINTAS y a propósito: el UPDATE delega en
+ * `setVehiculoDesdeFlit` (spreads condicionales: un vacío no borra), y el INSERT asigna los tres tal
+ * cual, porque en una fila nueva no hay nada previo que preservar y `null` es la forma correcta de
+ * decir «FLIT no lo trajo».
+ *
+ * RIESGO ASUMIDO, escrito para que nadie lo descubra en producción: los campos que FLIT puede dejar
+ * vacíos se escriben **solo cuando traen valor**. La consecuencia es que si FLIT *corrige* un dato a
+ * vacío —un cilindraje que estaba mal y ahora no se sabe—, FLITO conserva el viejo indefinidamente y
+ * no hay forma de distinguirlo de un dato vivo. Se acepta porque la alternativa (pisar siempre)
+ * borra con cada reporte incompleto lo que ya sabíamos, que es exactamente lo que el bloque del
+ * propietario existe para impedir. Y no queda rastro: `registrarDiferencias` solo lleva historial de
+ * `flito_tramites`, no de `vehicles`; corregir un valor a vacío es hoy trabajo manual sobre la fila.
+ */
 async function upsertVehiculo(tx: Tx, tf: TramiteFlit, companiaId: number | null): Promise<number> {
   const [existente] = await tx.select({ id: vehicles.id }).from(vehicles).where(eq(vehicles.vin, tf.vin)).limit(1);
   const titular = titularDe(tf);
-  // El titular solo se escribe cuando FLIT lo trae: un reporte sin comprador no puede borrar el
-  // propietario que ya conocíamos (p. ej. el que dejó el OCR de la tarjeta de propiedad).
-  const propietario = {
-    ...(titular.nombre ? { ownerName: titular.nombre } : {}),
-    ...(titular.documento ? { ownerDocument: titular.documento } : {}),
-  };
-  const set = { plate: tf.placa, ...(tf.marca ? { brand: tf.marca } : {}), ...(tf.linea ? { model: tf.linea } : {}), ...propietario, updatedAt: new Date() };
   if (existente) {
-    await tx.update(vehicles).set(set).where(eq(vehicles.id, existente.id));
+    await tx.update(vehicles).set({ ...setVehiculoDesdeFlit(tf), updatedAt: new Date() }).where(eq(vehicles.id, existente.id));
     return existente.id;
   }
   const [creado] = await tx.insert(vehicles)
     .values({
       vin: tf.vin, plate: tf.placa, brand: tf.marca ?? null, model: tf.linea ?? null, clientId: companiaId,
       ownerName: titular.nombre, ownerDocument: titular.documento,
+      // En el alta sí van los tres tal cual: no hay nada previo que preservar, y `null` es la forma
+      // correcta de decir «FLIT no lo trajo» en una fila nueva.
+      cilindraje: tf.cilindraje, carroceria: tf.carroceria, tipoServicio: tf.tipoServicio,
     })
     .returning({ id: vehicles.id });
   return creado.id;
