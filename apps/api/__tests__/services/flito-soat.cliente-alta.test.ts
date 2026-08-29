@@ -575,6 +575,49 @@ describe('AC4 — RN-01: un VIN, un SOAT', () => {
     expect(r.status).toBe(409);
     expect(r.body.codigo).toBe('vin_ya_tiene_soat');
   });
+
+  /**
+   * El texto de esa carrera es DELIBERADAMENTE el del vehículo ajeno, y hace falta fijarlo.
+   *
+   * Lo pidió `security-agent` en la #11914 y lo cerró la #11915: los tres caminos que acaban en «no
+   * puedes con este VIN» —el SOAT de otra compañía, la ficha de `vehicles` de otra compañía y la
+   * carrera perdida contra el UNIQUE— comparten ahora código, cuerpo y frase. Con frases distintas,
+   * dos intentos sondeando VINes separaban «ese vehículo ya tiene SOAT» de «ese vehículo existe en
+   * FLITO sin SOAT», que son dos hechos sobre la cartera de otra empresa.
+   *
+   * **El precio, escrito para que se vea:** cuando el choque es con una fila de la MISMA compañía
+   * —dos pestañas del mismo cliente radicando a la vez—, la frase «no figura a nombre de su
+   * compañía» es falsa para esa persona. Se acepta porque el servidor NO SABE de quién es la fila
+   * ganadora sin una consulta más, y esa consulta convertiría una carrera perdida en un oráculo
+   * («¿es mía?» es exactamente la pregunta que el recorte tapa). El caso es raro —hay que perder una
+   * carrera de milisegundos— y el desenlace no miente en lo que importa: no se puede radicar.
+   *
+   * Este test existe para que quien vaya a «arreglar el copy» sepa que era una decisión y no un
+   * descuido. Si algún día se cambia, se cambia junto con `MENSAJE_VEHICULO_AJENO` y las dos ramas
+   * de `verificarRn01`, o el oráculo vuelve.
+   */
+  it('**la carrera perdida dice EXACTAMENTE lo mismo que el vehículo ajeno** (decisión de seguridad, no descuido)', async () => {
+    const app = await buildApp();
+
+    escenario();
+    kdb.when.insert('flito_soat', () => { throw Object.assign(new Error('duplicate key'), { code: '23505' }); });
+    const carrera = await alta(app, await auth('cliente', siguienteUsuario()));
+
+    // El otro camino: el VIN ya tiene SOAT y es de otra compañía.
+    escenario({ flito_soat: [{ id: 'cccc', estado: 'pagado', companiaId: 999 }] });
+    const ajeno = await alta(app, await auth('cliente', siguienteUsuario()));
+
+    // Indistinguibles: mismo estado, mismo código, mismo cuerpo, misma frase.
+    expect(carrera.status).toBe(ajeno.status);
+    expect(carrera.body).toEqual(ajeno.body);
+    expect(carrera.body.error).toBe(ajeno.body.error);
+    // Y ninguno de los dos deja escapar el id ni el estado de la fila ganadora.
+    expect(carrera.body).toMatchObject({ propia: false });
+    expect(carrera.body.id).toBeUndefined();
+    expect(carrera.body.estado).toBeUndefined();
+    // La frase NO distingue «tiene SOAT» de «existe sin SOAT», que es el oráculo que se cerró.
+    expect(carrera.body.error).not.toMatch(/tiene un SOAT|no puede tener dos/i);
+  });
 });
 
 // ───────────────────────────── AC5 — las guardas del canal ───────────────────

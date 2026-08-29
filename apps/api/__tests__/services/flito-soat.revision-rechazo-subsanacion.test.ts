@@ -117,12 +117,13 @@ function filaAcceso(over: Record<string, unknown> = {}) {
  * FOR UPDATE SKIP LOCKED` de `enviarAlGestor`, que proyecta `{ id }`. Con una sola forma registrada,
  * el bloqueo devolvería `undefined` como id y la validación fallaría por el mock y no por el código.
  */
-function escenario(opciones: { soat?: Record<string, unknown>; causales?: unknown[]; companiaUsuario?: number | null; bloqueo?: unknown[] } = {}) {
+function escenario(opciones: { soat?: Record<string, unknown>; causales?: unknown[]; companiaUsuario?: number | null; bloqueo?: unknown[]; cas?: unknown[] } = {}) {
   kdb.when.scenario({
     users: [{ c: opciones.companiaUsuario === undefined ? COMPANIA : opciones.companiaUsuario, s: null }],
     clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
     // Lo que devuelve el `SELECT … FOR UPDATE SKIP LOCKED`: vacío = otro admin ganó la carrera.
     flito_soat: opciones.bloqueo ?? [{ id: SOAT_ID }],
+    flito_estado_historial: [],
     flito_soat_causales_rechazo: opciones.causales ?? [{ id: CAUSAL_ID, nombre: CAUSAL_NOMBRE, activo: true, orden: 1 }],
     flito_compradores: [],
     flito_soportes: [],
@@ -130,6 +131,9 @@ function escenario(opciones: { soat?: Record<string, unknown>; causales?: unknow
     flito_soat_solicitud: [],
   });
   kdb.when.selectOnce('flito_soat', [filaAcceso(opciones.soat)]);
+  // Lo que devuelve el `.returning()` del compare-and-swap de `moverEstado()`: UNA fila = la
+  // transición se aplicó; vacío = otro la movió entre la lectura y la escritura, y es un 409.
+  kdb.when.update('flito_soat', opciones.cas ?? [{ id: SOAT_ID }]);
 }
 
 beforeEach(() => {
@@ -438,6 +442,8 @@ describe('AC3 — el Cliente ve el rechazo y reenvía la misma fila', () => {
     const [where] = sqlDe(update);
     expect(where.sql).toContain('"id" =');
     expect(where.params).toContain(SOAT_ID);
+    // Y el estado de partida EN EL MISMO `where`: ver el bloque de la carrera, más abajo.
+    expect(where.params).toContain('rechazada');
   });
 
   it('**ni el VIN ni el vehículo se tocan, aunque el cuerpo los mande** (sería un alta encubierta)', async () => {
@@ -671,5 +677,117 @@ describe('la cola del admin puede filtrar por los estados del canal', () => {
     const raro = await request(app).get('/api/flito/soat?estado=no_existe').set('Authorization', await auth('admin', siguienteUsuario()));
     expect(raro.status).toBe(200);
     expect(sqlDeLosSelect().some((q) => q.params.includes('no_existe'))).toBe(false);
+  });
+});
+
+
+// ───────── El bloqueante de `db-review`: la carrera entre dos revisores ──────
+
+describe('la transición es un compare-and-swap, no un UPDATE ciego (bloqueante db-review)', () => {
+  // Lo que se prueba aquí NO se ve en el resultado de una petición aislada. En READ COMMITTED, un
+  // `UPDATE … WHERE id = X` reevalúa su condición contra la versión ya commiteada por el otro, y
+  // `id = X` sigue siendo cierto pase lo que pase con el estado: el segundo revisor espera el lock y
+  // APLICA IGUAL. El interleaving concreto que eso permitía —A valida y la fila queda `solicitado`
+  // con proveedor y en la cola del gestor; B, que leyó `pendiente_revision`, la deja `rechazada`
+  // encima— dejaba además una fila de historial diciendo que venía de `pendiente_revision`. El
+  // historial no quedaba incompleto: quedaba FALSO.
+  //
+  // Los tests anteriores no lo cubrían, y conviene decir por qué: solo ejercitan el caso en que la
+  // primera petición YA commiteó, que es justo el único que la lectura previa sí atrapa.
+  //
+  // Se mide de las dos maneras, porque cada una caza un mutante distinto:
+  //   · el `where` renderizado — muere si alguien quita el predicado de estado;
+  //   · el `.returning()` vacío — muere si alguien deja de comprobar cuántas filas se movieron.
+
+  it('**rechazar: el `where` del UPDATE lleva el estado de partida, no solo el id**', async () => {
+    escenario();
+    await rechazar(await buildApp(), await auth('admin', siguienteUsuario()), {
+      causalId: CAUSAL_ID, observacion: 'La factura está cortada.',
+    });
+
+    const [update] = espia.updatesEn('flito_soat');
+    const [where] = sqlDe(update);
+    expect(where.sql).toContain('"id" =');
+    expect(where.sql).toContain('"estado" =');
+    expect(where.params).toContain(SOAT_ID);
+    // Sin este parámetro el UPDATE es ciego y el bloqueante vuelve.
+    expect(where.params).toContain('pendiente_revision');
+    // `origen` va también: es inmutable, así que no cierra ninguna carrera, pero hace que el
+    // statement no dependa de la lectura previa para ninguno de los dos hechos que le importan.
+    expect(where.params).toContain('cliente');
+  });
+
+  it('**rechazar: si otro revisor ganó la carrera → 409 y la transacción NO escribe nada**', async () => {
+    // `cas: []` es exactamente lo que Postgres devuelve cuando el `WHERE` ya no casa: cero filas
+    // movidas. Con el UPDATE ciego, este mismo escenario respondía 200 y dejaba la causal escrita
+    // encima de un SOAT que ya estaba en otro estado.
+    escenario({ cas: [] });
+    const r = await rechazar(await buildApp(), await auth('admin', siguienteUsuario()), {
+      causalId: CAUSAL_ID, observacion: 'La factura está cortada.',
+    });
+
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('estado_no_permite');
+    // Ni la causal encima de la del otro, ni una fila de historial que mienta sobre el estado previo.
+    expect(espia.updatesEn('flito_soat_solicitud')).toHaveLength(0);
+    expect(espia.insertsEn('flito_estado_historial')).toHaveLength(0);
+  });
+
+  it('**subsanar: el `where` del UPDATE exige `rechazada`**', async () => {
+    escenario({ soat: { estado: 'rechazada' } });
+    await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    const [update] = espia.updatesEn('flito_soat');
+    const [where] = sqlDe(update);
+    expect(where.sql).toContain('"estado" =');
+    expect(where.params).toContain('rechazada');
+    expect(where.params).toContain(SOAT_ID);
+  });
+
+  it('**subsanar: carrera perdida → 409, y ni el propietario ni la factura se tocan**', async () => {
+    escenario({ soat: { estado: 'rechazada' }, cas: [] });
+    const r = await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()), { archivo: PDF });
+
+    expect(r.status).toBe(409);
+    // El CAS es el PRIMER statement de la transacción, y de ahí que no haya nada más escrito. Con el
+    // UPDATE al final —donde estaba— este mismo caso terminaba en `reenvios` subido dos veces y dos
+    // filas de historial, o en un 23505 contra `idx_flito_soportes_soat_factura_venta` (dos facturas
+    // de venta vivas) que sale como 500 en vez de como 409.
+    expect(espia.updatesEn('flito_compradores')).toHaveLength(0);
+    expect(espia.updatesEn('flito_soportes')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soportes')).toHaveLength(0);
+    expect(espia.updatesEn('flito_soat_solicitud')).toHaveLength(0);
+    expect(espia.insertsEn('flito_estado_historial')).toHaveLength(0);
+
+    // Lo que SÍ pasó, y queda escrito para que nadie lo lea como un fallo: el archivo ya se había
+    // subido al bucket antes de abrir la transacción (CA-11, para no tener una llamada de red
+    // dentro). Una carrera perdida deja ese objeto huérfano. Es el mismo tradeoff que el alta ya
+    // documenta y no se compensa con un borrado: un `delete` en el camino de error puede fallar él
+    // mismo, y el objeto no es alcanzable —ninguna fila de `flito_soportes` lo referencia—.
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('**el historial escribe el estado que el CAS COMPROBÓ, no el que trajo la lectura previa**', async () => {
+    escenario();
+    await rechazar(await buildApp(), await auth('admin', siguienteUsuario()), {
+      causalId: CAUSAL_ID, observacion: 'La factura está cortada.',
+    });
+
+    // Con el `estadoAnterior` sacado de la lectura previa, una carrera dejaba escrito un estado que
+    // ya era falso. Ahora o el CAS pasó —y entonces era `pendiente_revision`— o esta fila no existe.
+    const historial = espia.ultimoInsertEn('flito_estado_historial');
+    expect(historial.estadoAnterior).toBe('pendiente_revision');
+    expect(historial.estadoNuevo).toBe('rechazada');
+  });
+
+  it('no-regresión: `validarSolicitud` ya estaba protegida y lo sigue estando por otra vía', async () => {
+    // La asimetría que encontró `db-review`: validar hereda el `FOR UPDATE … SKIP LOCKED` MÁS el
+    // `eq(estado, estadoOrigen)` de `enviarAlGestor`, así que su carrera se cierra con el bloqueo de
+    // fila y no con un CAS. Se afirma aquí para que quien unifique las tres transiciones mañana no
+    // le quite a validar la protección creyendo que le falta.
+    escenario({ bloqueo: [] });
+    const r = await validar(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.status).toBe(409);
+    expect(espia.updatesEn('flito_soat')).toHaveLength(0);
   });
 });

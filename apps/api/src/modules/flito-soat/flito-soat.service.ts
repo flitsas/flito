@@ -88,9 +88,14 @@ const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
  * El valor de `flito_soat.origen` que marca las filas del canal Cliente (Feature #11912).
  *
  * En una constante y no repartido en literales para que un `grep ORIGEN_CLIENTE` encuentre TODAS las
- * decisiones que dependen de la puerta por la que entró la fila: la frontera de autogestión, la
- * lectura del propietario en la cola, el bloque de revisión del detalle y las tres transiciones del
- * canal (validar, rechazar, subsanar), que solo aplican a estas filas.
+ * decisiones que dependen de la puerta por la que entró la fila: la frontera de autogestión (justo
+ * debajo), la lectura del propietario en la cola, el bloque de revisión del detalle y las tres
+ * transiciones del canal (validar, rechazar, subsanar), que solo aplican a estas filas.
+ *
+ * La frase de arriba estuvo aquí siendo FALSA: la frontera conservaba el literal crudo `= 'cliente'`
+ * y el grep no la encontraba. Interpolar la constante en el `sql` la trae al redil y además la pasa
+ * como PARÁMETRO ENLAZADO en vez de inline, que es lo que AGENTS.md pide de cualquier valor que
+ * entre en una consulta — aunque este sea una constante de compilación y no pudiera ser otra cosa.
  */
 export const ORIGEN_CLIENTE = 'cliente';
 
@@ -111,7 +116,7 @@ export const ORIGEN_CLIENTE = 'cliente';
  */
 const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
   OR ${flitoSoat.excepcionAutogestion}
-  OR ${flitoSoat.origen} = 'cliente')`;
+  OR ${flitoSoat.origen} = ${ORIGEN_CLIENTE})`;
 
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 

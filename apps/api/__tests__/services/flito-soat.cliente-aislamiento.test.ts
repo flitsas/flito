@@ -206,10 +206,17 @@ describe('frontera de autogestión — la tercera condición del canal Cliente',
     selectMock.mockImplementationOnce(() => chainEspia([]));
     await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('admin'));
 
-    const { sql } = aSql(wheres[0]);
+    const { sql, params } = aSql(wheres[0]);
     // Sin esta condición, una compañía con «autogestiona SOAT» y «SOAT sin trámite» encendidos a la
     // vez —combinación válida y esperada— radicaría solicitudes que no vería nadie.
-    expect(sql).toContain(`"flito_soat"."origen" = 'cliente'`);
+    //
+    // El valor va como PARÁMETRO ENLAZADO y no inline desde la HU #11915, que sustituyó el literal
+    // crudo por la constante `ORIGEN_CLIENTE` —hasta entonces la frase del docblock prometía que un
+    // `grep ORIGEN_CLIENTE` encontraba esta frontera, y era falsa—. Se comprueban las dos mitades:
+    // la columna en el SQL y el valor entre los parámetros. Con solo la columna, la condición
+    // podría comparar contra cualquier cosa.
+    expect(sql).toContain('"flito_soat"."origen" =');
+    expect(params).toContain('cliente');
     // Y las dos que ya estaban siguen ahí: es un OR que se AÑADE, no un reemplazo.
     expect(sql).toContain('"clients"."soat_autogestionable"');
     expect(sql).toContain('"flito_soat"."excepcion_autogestion"');

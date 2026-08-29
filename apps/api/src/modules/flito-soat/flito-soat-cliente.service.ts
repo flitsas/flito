@@ -866,8 +866,24 @@ export interface ResultadoTransicion {
  *      §5). Para el `cliente` aplica además la frontera por compañía; para el `admin` no filtra
  *      nada, que es lo correcto: revisa las de todas.
  *   2. `origen = 'cliente'` — ver la cabecera del módulo. Un SOAT de trámite no entra por aquí.
- *   3. El estado de partida — es lo que hace que una acción no se pueda aplicar dos veces, y lo que
- *      convierte un doble clic en un 409 en vez de en una segunda transición.
+ *   3. El estado de partida — para poder decir en qué estado SÍ está, que es lo que la pantalla
+ *      necesita para redactar su mensaje.
+ *
+ * ── Lo que esta función NO es, y la frase que hubo que corregir aquí (db-review de la #11915) ────
+ *
+ * **No es la autoridad sobre la carrera, y decía que lo era.** Este bloque afirmaba que el estado de
+ * partida «convierte un doble clic en un 409 en vez de en una segunda transición»; no lo hace,
+ * porque la guarda y la escritura son dos viajes distintos a la base. Entre el `SELECT` de aquí y el
+ * `UPDATE` de allá cabe otra petición entera: en READ COMMITTED el UPDATE reevalúa su `WHERE` contra
+ * la versión ya commiteada por el otro, y un `where id = X` sigue siendo cierto pase lo que pase con
+ * el estado. El interleaving concreto que eso permitía: A valida (la fila queda `solicitado`, con
+ * proveedor y `enviado_en`) y commitea; B, que había leído `pendiente_revision` un instante antes,
+ * espera el lock y **aplica igual** — quedaba un SOAT `rechazada` con proveedor y ya en la cola del
+ * gestor, y una fila de historial diciendo `estadoAnterior: 'pendiente_revision'` cuando el estado
+ * real anterior era `solicitado`. El historial no quedaba incompleto: quedaba FALSO.
+ *
+ * Quien decide es `moverEstado()`, aquí debajo. Esto se queda porque sigue haciendo falta para las
+ * otras dos guardas y para el MENSAJE: un CAS solo sabe decir «no pude», no «está en Solicitado».
  */
 async function solicitudEnEstado(
   id: string, estadoEsperado: EstadoSoat, ctx: SoatCtx,
@@ -886,6 +902,63 @@ async function solicitudEnEstado(
       { estado: soat.estado });
   }
   return soat;
+}
+
+/** El ejecutor de una transacción de drizzle (no hay alias exportado; mismo truco que `flito-sync`). */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * La carrera perdida, con el MISMO contrato en las tres transiciones: 409 y «recarga la pantalla».
+ *
+ * Un solo sitio para que las tres digan lo mismo. `validarSolicitud` ya lo daba —lo hereda del
+ * `SKIP LOCKED` de `enviarAlGestor`—, y el rechazo y la subsanación no; esa asimetría dentro de la
+ * misma HU es la que encontró `db-review-agent`.
+ */
+const carreraPerdida = () => fallo(409, CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE,
+  'Otra persona acaba de mover esta solicitud. Recarga la pantalla para ver cómo quedó.');
+
+/**
+ * Mueve el estado **solo si sigue siendo el que se leyó**: compare-and-swap en un solo viaje.
+ *
+ * ── Por qué esto y no mover `solicitudEnEstado()` dentro de la transacción con `FOR UPDATE` ──────
+ *
+ * Las dos formas cierran la carrera y se eligió esta. `buscarConAcceso()` es una función COMPARTIDA
+ * —la usan el detalle, el historial, los soportes, la carga de factura y el rechazo del gestor— que
+ * consulta con el `db` de módulo y hace `innerJoin` con `clients`; para bloquear desde ella habría
+ * que parametrizarle el ejecutor y añadirle un `for('update', { of: flitoSoat })`, es decir, tocar
+ * la puerta de acceso de medio módulo para arreglar dos funciones. El radio de ese cambio es mayor
+ * que el del fallo. El CAS, en cambio, es local, no toma bloqueos explícitos y hace que la condición
+ * y la escritura sean **el mismo statement**, que es la única forma de que no quepa nada entre ellas.
+ *
+ * ── Qué va en el `WHERE`, y por qué las tres ────────────────────────────────────────────────────
+ *
+ *   · `id` — la fila.
+ *   · `estado = desde` — **la que cierra el bloqueante**. Sin ella el UPDATE es ciego: `id = X` sigue
+ *     siendo cierto después de que otro haya movido la fila.
+ *   · `origen = 'cliente'` — inmutable (solo la escribe el INSERT del alta), así que no hay carrera
+ *     que cerrar aquí; va igualmente para que el statement no dependa de la lectura previa para
+ *     NINGUNO de los dos hechos que le importan. Cuesta cero y quita un acoplamiento.
+ *
+ * ── Y por qué `.returning()` y no el contador de filas del driver ───────────────────────────────
+ *
+ * `rowCount` viene con la forma que le dé el driver y cambia entre `postgres.js` y `pg`. La fila
+ * devuelta no: si vuelve una, se movió; si vuelve ninguna, alguien ganó la carrera. Es además lo que
+ * ya hacen `rechazar()`, `reactivar()` y `reversar()` en el módulo hermano.
+ *
+ * Devuelve `false` en vez de lanzar para que quien llama decida —lanzar desde aquí escondería el
+ * `throw` dentro de un helper de dos líneas—, pero **el único desenlace correcto es lanzar**: la
+ * transacción tiene que revertirse entera, y por eso esta llamada va la PRIMERA de cada `tx`.
+ */
+async function moverEstado(tx: Tx, id: string, desde: EstadoSoat, hacia: EstadoSoat, ahora: Date): Promise<boolean> {
+  const filas = await tx.update(flitoSoat)
+    .set({ estado: hacia, updatedAt: ahora })
+    .where(and(
+      eq(flitoSoat.id, id),
+      eq(flitoSoat.estado, desde),
+      eq(flitoSoat.origen, ORIGEN_CLIENTE),
+    ))
+    .returning({ id: flitoSoat.id });
+  return filas.length === 1;
 }
 
 /**
@@ -986,7 +1059,10 @@ export interface EntradaRechazo {
 export async function rechazarSolicitud(
   id: string, entrada: EntradaRechazo, ctx: SoatCtx,
 ): Promise<ResultadoTransicion> {
-  const soat = await solicitudEnEstado(id, EstadoSoat.PENDIENTE_REVISION, ctx);
+  // No se guarda lo que devuelve: desde el CAS, el estado de partida que se ESCRIBE es el que la
+  // base confirmó, no el que trajo esta lectura. Esta llamada sigue aquí por las otras dos guardas
+  // (404 y `no_es_del_canal`) y por el mensaje, que necesita saber en qué estado está de verdad.
+  await solicitudEnEstado(id, EstadoSoat.PENDIENTE_REVISION, ctx);
 
   const observacion = entrada.observacion?.trim() ?? '';
   if (!observacion) {
@@ -1009,9 +1085,12 @@ export async function rechazarSolicitud(
 
   const ahora = new Date();
   await db.transaction(async (tx) => {
-    await tx.update(flitoSoat)
-      .set({ estado: EstadoSoat.RECHAZADA, updatedAt: ahora })
-      .where(eq(flitoSoat.id, id));
+    // PRIMERO y condicionado: si otro admin ya movió la fila, aquí se corta y la transacción entera
+    // se revierte — sin causal escrita encima de la suya y sin una fila de historial que mienta
+    // sobre el estado del que venía.
+    if (!await moverEstado(tx, id, EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA, ahora)) {
+      throw carreraPerdida();
+    }
 
     await tx.update(flitoSoatSolicitud).set({
       causalRechazoId: causal.id,
@@ -1033,7 +1112,8 @@ export async function rechazarSolicitud(
     await registrarCambio(tx, {
       concepto: ConceptoHistorial.SOAT,
       registroId: id,
-      estadoAnterior: soat.estado as EstadoSoat,
+      // Idem: lo que el CAS comprobó, no lo que la lectura previa trajo.
+      estadoAnterior: EstadoSoat.PENDIENTE_REVISION,
       estadoNuevo: EstadoSoat.RECHAZADA,
       motivo: `Rechazo de la solicitud: ${causal.nombre}`,
       usuarioId: ctx.userId,
@@ -1051,14 +1131,15 @@ export async function rechazarSolicitud(
  * ── Editable: el propietario ─────────────────────────────────────────────────────────────────────
  *
  * Son los seis campos que una persona TECLEA en el alta, y por tanto los únicos en los que puede
- * haberse equivocado. Dos de las seis causales sembradas hablan justo de ellos («Datos del
- * propietario incompletos», «no coinciden con la factura»), así que sin poder editarlos la
- * subsanación no podría atender ni un tercio de los rechazos.
+ * haberse equivocado. Dos de las CINCO causales sembradas hablan justo de ellos —«Los datos del
+ * propietario no coinciden con la factura de venta» y «Faltan datos de contacto del propietario»—,
+ * así que sin poder editarlos la subsanación no podría atender dos de cada cinco rechazos.
  *
  * ── Editable: la factura de venta (opcional) ─────────────────────────────────────────────────────
  *
- * Otras tres causales son sobre el adjunto (ilegible, incompleta, no corresponde). Va como opcional
- * porque un rechazo por datos del propietario no obliga a volver a subir un PDF que estaba bien.
+ * Otras dos son sobre el adjunto —«Factura de venta ilegible» y «La factura de venta no corresponde
+ * al vehículo»—, y la quinta («Se necesita otro documento») acaba casi siempre en lo mismo. Va como
+ * opcional porque un rechazo por datos del propietario no obliga a volver a subir un PDF correcto.
  *
  * ── NO editable: el VIN. Esta es la decisión que sostiene la RN-01 ───────────────────────────────
  *
@@ -1123,7 +1204,9 @@ export async function subsanarSolicitud(
   // cerró el canal no debe poder reabrir por la puerta de atrás lo que ya no puede abrir por la
   // principal. Además es de donde sale la carpeta de storage del adjunto nuevo.
   const canal = await canalDeLaCompania(ctx);
-  const soat = await solicitudEnEstado(id, EstadoSoat.RECHAZADA, ctx);
+  // Igual que en el rechazo: se llama por las guardas y por el mensaje, no por el estado — ese lo
+  // fija el CAS de la transacción.
+  await solicitudEnEstado(id, EstadoSoat.RECHAZADA, ctx);
 
   // Antes de subir nada, por lo mismo que en el alta: un adjunto que no es un PDF no debe dejar un
   // objeto huérfano en el bucket.
@@ -1142,6 +1225,17 @@ export async function subsanarSolicitud(
 
   const ahora = new Date();
   await db.transaction(async (tx) => {
+    // ── El CAS va PRIMERO, y el orden aquí importa más que en el rechazo ─────────────────────────
+    //
+    // Si otro reenvío ganó la carrera, se corta antes de tocar nada. Ponerlo al final —donde estaba
+    // el UPDATE ciego— tenía dos desenlaces malos y ninguno era un 409 limpio: dos filas de
+    // historial y `reenvios` subido dos veces, o un 23505 contra el índice único parcial de la
+    // factura de venta (`idx_flito_soportes_soat_factura_venta`) al insertar la segunda viva, que
+    // sale como 500.
+    if (!await moverEstado(tx, id, EstadoSoat.RECHAZADA, EstadoSoat.PENDIENTE_REVISION, ahora)) {
+      throw carreraPerdida();
+    }
+
     // El propietario, sobre la MISMA fila de `flito_compradores` que creó el alta. El `where` va por
     // `soat_id`, que es el padre de esta rama de la tabla (`flito_compradores_padre_chk`): una
     // solicitud del canal tiene exactamente un propietario y `tramite_id IS NULL`.
@@ -1175,12 +1269,9 @@ export async function subsanarSolicitud(
       });
     }
 
-    // UPDATE y no INSERT: la misma fila, el mismo id y el mismo VIN (AC3). Ni `vin` ni `vehiculoId`
-    // aparecen en este `set`, y esa ausencia es la RN-01 — ver `EntradaSubsanacion`.
-    await tx.update(flitoSoat)
-      .set({ estado: EstadoSoat.PENDIENTE_REVISION, updatedAt: ahora })
-      .where(eq(flitoSoat.id, id));
-
+    // El estado ya lo movió el CAS de arriba. Lo que sigue valiendo decir aquí: fue un UPDATE y no
+    // un INSERT —la misma fila, el mismo id y el mismo VIN (AC3)— y ni `vin` ni `vehiculoId`
+    // aparecen en su `set`, que es la RN-01 (ver `EntradaSubsanacion`).
     await tx.update(flitoSoatSolicitud).set({
       causalRechazoId: null,
       observacionRechazo: null,
@@ -1196,7 +1287,10 @@ export async function subsanarSolicitud(
     await registrarCambio(tx, {
       concepto: ConceptoHistorial.SOAT,
       registroId: id,
-      estadoAnterior: soat.estado as EstadoSoat,
+      // El estado de partida es el que el CAS acaba de COMPROBAR, no el que trajo la lectura previa.
+      // Con la lectura, una carrera dejaba escrito un `estadoAnterior` que ya era falso; con la
+      // constante, o el CAS pasó —y entonces era `rechazada`— o esta línea no se ejecuta.
+      estadoAnterior: EstadoSoat.RECHAZADA,
       estadoNuevo: EstadoSoat.PENDIENTE_REVISION,
       motivo: archivo
         ? 'Subsanación del cliente: datos del propietario y factura de venta'
