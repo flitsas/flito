@@ -205,7 +205,7 @@ test.describe('FLITO — Portal SOAT', () => {
       return route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify([
-          { id: 3, estadoAnterior: 'solicitado', estadoNuevo: 'pagado', motivo: 'Pago confirmado por factura. Valor 740800.', usuario: 'Gestor Alfa', origen: 'usuario', creadoEn: '2026-04-05T15:00:00Z' },
+          { id: 3, estadoAnterior: 'solicitado', estadoNuevo: 'pagado', motivo: 'Pago confirmado por factura.', usuario: 'Gestor Alfa', origen: 'usuario', creadoEn: '2026-04-05T15:00:00Z' },
           { id: 2, estadoAnterior: 'pendiente', estadoNuevo: 'solicitado', motivo: 'Envío al gestor', usuario: 'Operaciones E2E', origen: 'usuario', creadoEn: '2026-04-02T12:00:00Z' },
           { id: 1, estadoAnterior: null, estadoNuevo: 'pendiente', motivo: 'Alta desde FLIT (trámite FLIT-1002).', usuario: null, origen: 'sistema', creadoEn: '2026-04-01T09:00:00Z' },
         ]),

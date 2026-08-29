@@ -220,7 +220,16 @@ export interface FiltrosCola {
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
-  /** true = solo lo que superó el SLA de su proveedor. */
+  /**
+   * true = solo lo que superó el ANS OPERATIVO de FLIT (`ANS_OPERATIVO.SIN_GESTION_HORAS`), que es
+   * una constante global.
+   *
+   * Decía «el SLA de su proveedor» y era falso: ni `EXPR_ESTANCADO` ni `estaEstancado()` leen
+   * `flito_proveedores_soat.sla_horas`. La frase importa más de lo que parece desde el Feature
+   * #11912 — si este filtro discriminara por el SLA del proveedor sería un oráculo sobre un dato
+   * que el `cliente` no recibe, y habría que ignorárselo como a `gestion` y `proveedores`
+   * (`filtrosPermitidos`). No lo es, y por eso se le deja.
+   */
   estancado?: boolean;
   page?: number; pageSize?: number;
 }
@@ -244,13 +253,53 @@ const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
   AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS}))`;
 
 /**
+ * Los filtros que este actor tiene derecho a APLICAR, que no es lo mismo que los que puede pedir.
+ *
+ * Quitarle un campo al DTO no basta si queda un filtro que particiona la cola por ese campo: con dos
+ * peticiones —`?gestion=operaciones` y `?gestion=proveedor`— el `cliente` reconstruía
+ * `gestionOperaciones` fila a fila, y con `?proveedores=<uuid>` hacía lo mismo con
+ * `proveedorSoatId`. Un filtro es un ORÁCULO: responde sí/no sobre un campo oculto, y repetido es el
+ * campo entero. Es la misma clase de fuga que `facetasCola` tenía con la lista de proveedores.
+ *
+ * Se ignoran —no dan 400— por la filosofía que ya sigue el resto de esta función: un valor que no
+ * aplica se descarta, no tumba la pantalla de quien está trabajando. Y un 400 sería, además, otro
+ * oráculo: confirmaría que el campo existe.
+ *
+ * ── Los otros nueve filtros, revisados uno a uno (por qué NO están aquí) ─────────────────────────
+ *
+ * El criterio es único: un filtro solo es oráculo si distingue por un campo que el cliente NO
+ * recibe. Los que particionan por algo que ya está en su DTO no le dicen nada nuevo.
+ *
+ *   · `estados`, `companias`, `organismos` — `estado`, `companiaNombre` y `organismoNombre` viajan
+ *     en su fila. Además su compañía ya está fijada por la frontera: pedir otra da vacío.
+ *   · `buscar` — cruza placa, VIN y los compradores, que también viajan en su fila.
+ *   · `solicitadoDesde/Hasta`, `pagadoDesde/Hasta` — `enviadoEn` y `pagadoEn` están en su DTO
+ *     (decisión de producto: el ANS es de FLIT, no del proveedor).
+ *   · `estancado` — se calcula con `estado` + `enviadoEn` + la constante global `ANS_OPERATIVO`, los
+ *     tres visibles para él, y la propia bandera `estancado` viaja en la fila.
+ *   · `page`/`pageSize` — no discriminan por ningún campo.
+ *
+ * Y no hay filtro por `valorPagado` ni por `extraccion`, los otros dos campos que el DTO le quita:
+ * si mañana se añade uno, entra en esta lista.
+ */
+function filtrosPermitidos(ctx: SoatCtx, f: FiltrosCola): FiltrosCola {
+  if (!esCliente(ctx)) return f;
+  return { ...f, gestion: undefined, proveedores: undefined };
+}
+
+/**
  * Condiciones de la cola, en un solo sitio. Las comparten la página y el conteo: si difieren, el
  * total y las filas dejan de cuadrar sin que nada avise.
  *
  * Devuelve `null` cuando la frontera del gestor hace que no pueda ver NADA — distinto de «sin
  * filtros», que sería devolver una lista vacía de condiciones y traerlo todo.
+ *
+ * El saneo de filtros va DENTRO y no en la ruta, por la misma razón por la que la frontera vive
+ * aquí: esta función la comparten la página, el conteo y las facetas, así que un solo `const` cubre
+ * las tres. En la ruta habría que acordarse tres veces —y las facetas ni siquiera pasan por ella.
  */
-function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
+function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
+  const f = filtrosPermitidos(ctx, filtros);
   const conds = [FRONTERA_AUTOGESTION_SOAT];
 
   if (esGestor(ctx)) {
@@ -301,7 +350,8 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
   if (f.companias?.length) conds.push(inArray(flitoSoat.companiaId, f.companias));
   if (f.organismos?.length) conds.push(inArray(flitoSoat.organismoCodigo, f.organismos));
   // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
-  // la condición de la frontera sigue vigente y el resultado sería vacío.
+  // la condición de la frontera sigue vigente y el resultado sería vacío. Para el `cliente` sí sería
+  // una fuga, y por eso los dos llegan aquí ya vacíos (`filtrosPermitidos`).
   if (f.proveedores?.length) conds.push(inArray(flitoSoat.proveedorSoatId, f.proveedores));
   if (f.gestion === 'operaciones') conds.push(eq(flitoSoat.gestionOperaciones, true));
   else if (f.gestion === 'proveedor') conds.push(eq(flitoSoat.gestionOperaciones, false));
@@ -857,7 +907,13 @@ export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatC
     await registrarCambio(tx, {
       concepto: 'soat', registroId: id,
       estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
-      motivo: `Gestión asumida por Operaciones${soat.proveedorSoatId ? ` (retomada del proveedor ${soat.proveedorSoatId})` : ''}: ${limpio}`,
+      // SIN el uuid del proveedor del que se retomó (antes: «(retomada del proveedor <uuid>)»). Ese
+      // dato es de la operación, y el historial es de las pocas cosas que un lector EXTERNO llega a
+      // pedir: metido en la frase viajaba fuera del DTO que se lo quita. No se pierde —`audit()` lo
+      // sigue anotando con el uuid en la ruta, y la columna `proveedor_soat_id` no se toca— y para
+      // el lector interno la frase decía un uuid, que no es lo que una persona lee: el nombre lo
+      // pinta el detalle.
+      motivo: `Gestión asumida por Operaciones: ${limpio}`,
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     });
     return updated;
@@ -894,7 +950,9 @@ export async function devolverAlGestor(id: string, proveedorSoatId: string, moti
     await registrarCambio(tx, {
       concepto: 'soat', registroId: id,
       estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
-      motivo: `Gestión devuelta al proveedor ${proveedorSoatId}: ${limpio}`,
+      // Sin el uuid del proveedor, por lo mismo que en `asumirEnOperaciones`: `audit()` lo conserva
+      // y la columna dice a quién se devolvió. Aquí sobraba incluso para quien es de la casa.
+      motivo: `Gestión devuelta al proveedor: ${limpio}`,
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     });
     return updated;
@@ -1010,7 +1068,12 @@ async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: Es
   await registrarCambio(tx, {
     concepto: 'soat', registroId: soatId,
     estadoAnterior, estadoNuevo: EstadoSoat.PAGADO,
-    motivo: `Pago confirmado por factura. Valor ${valorTotal ?? '—'}.`,
+    // SIN el importe (antes: «Valor <valorTotal>»). Es el camino feliz —toda transición a `pagado`
+    // pasa por aquí—, así que era el más eficaz de los tres: `valorPagado` se quita del DTO del
+    // cliente y volvía a salir, en texto, por el historial. Vive en su columna (`valor_pagado`, que
+    // se escribe cuatro líneas más arriba) y en `audit_logs`, que es interno y no se sirve a nadie
+    // de fuera. Para admin, proveedor y auditoría el importe sigue en el detalle y en la bitácora.
+    motivo: 'Pago confirmado por factura.',
     usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
 

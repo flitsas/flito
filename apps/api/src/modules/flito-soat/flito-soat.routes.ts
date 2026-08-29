@@ -136,9 +136,10 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
-  // El `cliente` no recibe el nombre —ni el correo corporativo— del empleado de FLIT que movió su
-  // solicitud: es dato personal de un trabajador entregado a otra empresa. Ver `OpcionesHistorial`.
-  res.json(await historialDe('soat', req.params.id, { omitirUsuario: ctx.role === 'cliente' }));
+  // Al `cliente` se le sirve la línea de tiempo SIN el empleado que la movió (dato personal de un
+  // trabajador) y SIN el motivo (texto libre escrito para lectores internos, que además arrastraba
+  // el importe pagado y el uuid del proveedor). El porqué de cada recorte, en `OpcionesHistorial`.
+  res.json(await historialDe('soat', req.params.id, { lectorExterno: ctx.role === 'cliente' }));
 });
 
 /**

@@ -20,11 +20,21 @@
 // de «el campo no viene» puede pasar sin comprobar nada. Por eso los asertos de B2 se hacen sobre
 // `Object.keys()` del objeto que la RUTA SERIALIZA —la respuesta HTTP—, con un mock que devuelve
 // deliberadamente la fila completa con todos los campos internos rellenos: si la proyección
-// desaparece, esos campos aparecen en la respuesta y el test cae. Comprobado con siete mutantes, uno
+// desaparece, esos campos aparecen en la respuesta y el test cae. Comprobado con ONCE mutantes, uno
 // por corrección: `sinCamposInternos` sin borrar nada, `guardiaCanalCliente` sustituido por `next()`,
-// el patrón `:id` convertido en prefijo laxo, el `registrarAccesoSoat` de la cola quitado, el
-// `omitirUsuario` del historial ignorado, el filtro por tipo de los soportes anulado y las facetas
-// volviendo a consultar proveedores. Los siete mueren aquí.
+// el patrón `:id` convertido en prefijo laxo, el `registrarAccesoSoat` de la cola quitado, el recorte
+// del historial ignorado, el filtro por tipo de los soportes anulado, las facetas volviendo a
+// consultar proveedores, el `motivo` del historial sirviéndose verbatim, las tres plantillas
+// devueltas a su forma con importe y uuid, y —en `flito-soat.cliente-aislamiento.test.ts`— el saneo
+// de los filtros `gestion`/`proveedores` desactivado. Los once mueren.
+//
+// ── Segunda ronda (los dos bloqueantes que atravesaban la proyección) ────────────────────────────
+//
+// La proyección del DTO no valía por sí sola: el `motivo` del historial devolvía en texto libre tres
+// de los cinco campos quitados —el importe en TODA transición a `pagado`, el uuid del proveedor en
+// los dos traspasos—, y los filtros `?gestion=` y `?proveedores=` eran un ORÁCULO que reconstruía
+// esos mismos campos fila a fila. Se cierran las dos puntas: la plantilla deja de escribirlos (se
+// mide aquí, sobre lo que el servicio INSERTA) y el campo entero se calla para el lector externo.
 //
 // Y la contraparte, que es el requisito duro de esta corrección: los 11 roles internos no cambian de
 // comportamiento. Cada afirmación de negación tiene su pareja de no-regresión con un rol interno.
@@ -378,9 +388,17 @@ describe('B2 — el detalle y su volcado de OCR', () => {
   });
 });
 
-describe('B2 — el historial no entrega nombres ni correos de empleados de FLIT', () => {
+describe('B2 — el historial no entrega nombres, correos NI el motivo interno', () => {
+  /**
+   * El motivo es el REAL, el que escribe `marcarPagado()` en toda transición a `pagado`: hasta la
+   * segunda ronda de seguridad llevaba el importe dentro, así que el `valorPagado` que el DTO le
+   * quitaba al cliente volvía a salir por aquí, en texto y por el camino feliz. La plantilla ya no
+   * lo mete —y esa mitad se prueba abajo, sobre el servicio— pero el texto libre que un empleado
+   * escribe a mano no lo sanea ninguna plantilla: por eso el campo entero se calla.
+   */
   const FILA_HISTORIAL = {
-    id: 1, estadoAnterior: 'pendiente', estadoNuevo: 'solicitado', motivo: 'Envío al gestor',
+    id: 1, estadoAnterior: 'solicitado', estadoNuevo: 'pagado',
+    motivo: 'Pago confirmado por factura. Valor 412300.',
     origen: 'usuario', usuarioNombre: 'Ana Gómez', usuarioEmail: 'ana.gomez@flit.com.co',
     creadoEn: new Date('2026-08-01T10:00:00Z'),
   };
@@ -396,27 +414,115 @@ describe('B2 — el historial no entrega nombres ni correos de empleados de FLIT
     selectMock.mockReturnValueOnce(chain([FILA_HISTORIAL]));
   };
 
-  it('cliente: el actor es la EMPRESA, no la persona; ni el nombre ni el correo salen', async () => {
+  it('cliente: el actor es la EMPRESA, y el motivo interno NO viaja (ni el importe que lleva dentro)', async () => {
     encolar(true);
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/historial`)
       .set('Authorization', await auth('cliente'));
 
     expect(r.status).toBe(200);
     expect(r.body[0].usuario).toBe(AUTOR_INTERNO_ANONIMO);
-    // El correo corporativo tampoco se cuela por ningún otro campo de la respuesta.
+    expect(r.body[0].motivo).toBeNull();
+    // Lo que se persigue no es «el campo va vacío», es que el IMPORTE no salga por ninguna rendija
+    // de esta respuesta. `valorPagado` está fuera del DTO; si el motivo lo reintroduce, da igual.
+    expect(JSON.stringify(r.body)).not.toContain('412300');
+    // El correo corporativo y el nombre tampoco se cuelan por ningún otro campo.
     expect(JSON.stringify(r.body)).not.toContain('ana.gomez@flit.com.co');
     expect(JSON.stringify(r.body)).not.toContain('Ana Gómez');
-    // Y lo que sí es suyo sigue estando: qué pasó y por qué.
-    expect(r.body[0]).toMatchObject({ estadoAnterior: 'pendiente', estadoNuevo: 'solicitado', motivo: 'Envío al gestor' });
+    // Y la línea de tiempo sigue siendo suya: qué pasó, desde dónde y cuándo.
+    expect(r.body[0]).toMatchObject({
+      estadoAnterior: 'solicitado', estadoNuevo: 'pagado', origen: 'usuario',
+      creadoEn: '2026-08-01T10:00:00.000Z',
+    });
   });
 
-  it('admin: sigue viendo quién movió cada estado (no-regresión)', async () => {
+  it('admin: sigue viendo quién movió cada estado Y por qué (no-regresión)', async () => {
     encolar(false);
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/historial`)
       .set('Authorization', await auth('admin'));
 
     expect(r.status).toBe(200);
     expect(r.body[0].usuario).toBe('Ana Gómez');
+    // El motivo NO se recorta para los internos: el historial es su herramienta de diagnóstico.
+    expect(r.body[0].motivo).toBe('Pago confirmado por factura. Valor 412300.');
+  });
+});
+
+describe('B2 — las plantillas del historial dejan de escribir datos internos en la frase', () => {
+  /**
+   * La otra punta del mismo bloqueante, y hace falta APARTE: callar el campo protege al cliente de
+   * HOY, pero mientras la plantilla siga metiendo el importe en la frase, el dato queda ESCRITO en
+   * `flito_estado_historial` y basta con que mañana alguien sirva ese campo a alguien de fuera —o
+   * exporte la tabla— para que vuelva a salir. Se mide sobre lo que el servicio ESCRIBE en la fila
+   * del historial, no sobre lo que la ruta responde: es la única forma de distinguir las dos mitades.
+   *
+   * `marcarPagado` es el camino feliz: TODA transición a `pagado` pasa por aquí.
+   */
+  it('`marcarPagado` no escribe el importe en el motivo del historial', async () => {
+    const { db } = await import('../../src/db/client.js');
+    const { marcarPagado } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+
+    const insertados: Record<string, unknown>[] = [];
+    const tx = {
+      select: vi.fn()
+        .mockReturnValueOnce(chain([{ id: SOAT_ID, vin: 'VIN0001', estado: 'solicitado' }])) // el SOAT
+        .mockReturnValueOnce(chain([{ id: 'sop-1' }]))                                        // su factura
+        .mockReturnValueOnce(chain([{ n: 1 }])),                                              // el recuento de CA-11
+      update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }),
+      insert: () => ({ values: (v: Record<string, unknown>) => { insertados.push(v); return Promise.resolve(undefined); } }),
+    };
+    (db.transaction as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementation((cb: (t: unknown) => Promise<unknown>) => cb(tx));
+
+    await marcarPagado(
+      SOAT_ID,
+      { valorTotal: { valor: '412300', confiable: true }, numeroPoliza: { valor: '999', confiable: true } } as never,
+      { userId: 1, username: 'ana@flit.com.co', role: 'admin', proveedorSoatId: null, companiaId: null },
+    );
+
+    const fila = insertados.find((v) => 'estadoNuevo' in v);
+    expect(fila?.estadoNuevo).toBe('pagado');
+    expect(fila?.motivo).toBe('Pago confirmado por factura.');
+    expect(String(fila?.motivo)).not.toContain('412300');
+
+    // Y no se ha perdido: la bitácora interna —que no se sirve a nadie de fuera— lo sigue guardando
+    // con la póliza y la aseguradora. El importe además está en su columna, `valor_pagado`.
+    const bitacora = insertados.find((v) => 'detail' in v);
+    expect(String(bitacora?.detail)).toContain('412300');
+  });
+
+  /**
+   * Los otros dos: el uuid del proveedor. Menos frecuentes que el pago, pero escriben en la misma
+   * tabla y su frase viajaba con `proveedorSoatId` dentro — el campo que el DTO del cliente quita.
+   */
+  it('los traspasos de gestión no escriben el uuid del proveedor en el motivo', async () => {
+    const { db } = await import('../../src/db/client.js');
+    const { asumirEnOperaciones, devolverAlGestor } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+    const PROV = '11111111-1111-1111-1111-111111111111';
+
+    const insertados: Record<string, unknown>[] = [];
+    const tx = {
+      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: SOAT_ID }]) }) }) }),
+      insert: () => ({ values: (v: Record<string, unknown>) => { insertados.push(v); return Promise.resolve(undefined); } }),
+    };
+    (db.transaction as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementation((cb: (t: unknown) => Promise<unknown>) => cb(tx));
+    const ctx = { userId: 1, username: 'u', role: 'admin', proveedorSoatId: null, companiaId: null };
+
+    // Asumir: el SOAT está con un proveedor y en un estado que admite traspaso.
+    selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: false, proveedorSoatId: PROV }]));
+    await asumirEnOperaciones(SOAT_ID, 'el proveedor no responde', ctx);
+
+    // Devolver: ya lo gestiona Operaciones y el proveedor destino existe.
+    selectMock.mockReturnValueOnce(chain([{ id: SOAT_ID, estado: 'solicitado', gestionOperaciones: true, proveedorSoatId: null }]));
+    selectMock.mockReturnValueOnce(chain([{ id: PROV }]));
+    await devolverAlGestor(SOAT_ID, PROV, 'ya puede retomarlo', ctx);
+
+    const motivos = insertados.filter((v) => 'estadoNuevo' in v).map((v) => String(v.motivo));
+    expect(motivos).toEqual([
+      'Gestión asumida por Operaciones: el proveedor no responde',
+      'Gestión devuelta al proveedor: ya puede retomarlo',
+    ]);
+    for (const m of motivos) expect(m).not.toContain(PROV);
   });
 });
 

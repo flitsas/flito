@@ -103,17 +103,44 @@ export const AUTOR_INTERNO_ANONIMO = 'FLITO';
 
 export interface OpcionesHistorial {
   /**
-   * true → el actor sale como `AUTOR_INTERNO_ANONIMO` en vez de con su nombre o su correo.
+   * true → quien lee esta respuesta NO es de FLIT, así que la fila se sirve recortada: el actor sale
+   * como `AUTOR_INTERNO_ANONIMO` y `motivo` sale `null`.
    *
-   * Lo enciende `GET /flito/soat/:id/historial` cuando quien pregunta es el rol `cliente`: cada fila
-   * llevaba el nombre —o, si el usuario ya no existe, el CORREO CORPORATIVO— del empleado de FLIT
-   * que tocó el registro, y eso es dato personal de trabajadores entregado a una empresa tercera.
-   * Los 11 roles internos no pasan por aquí y ven exactamente lo de siempre.
+   * Lo enciende `GET /flito/soat/:id/historial` cuando quien pregunta es el rol `cliente`. Es UN
+   * interruptor y no dos porque la pregunta que responde es una sola —«¿esto lo lee alguien de
+   * fuera?»— y el día que se añada un tercer campo interno a `ItemHistorial` conviene que se recorte
+   * por el mismo sitio, sin que nadie tenga que acordarse de encender un flag nuevo.
+   *
+   * ── Por qué el ACTOR se sustituye y el MOTIVO se calla ──────────────────────────────────────────
+   *
+   * `usuario` traía el nombre —o, si el usuario ya no existe, el CORREO CORPORATIVO— del empleado de
+   * FLIT que tocó el registro: dato personal de un trabajador entregado a una empresa tercera. Se
+   * sustituye porque el hueco tiene respuesta honesta: lo movió FLITO.
+   *
+   * `motivo` no la tiene. Es TEXTO LIBRE escrito por un empleado para lectores internos, y además lo
+   * componen las plantillas de `flito-soat.service.ts`, que hasta esta corrección metían ahí el
+   * importe pagado y el uuid del proveedor —tres de los cinco campos que el DTO del cliente quita—.
+   * Vaciar las plantillas era necesario pero no suficiente: lo que un gestor escribe a mano en un
+   * rechazo o en una reversa («se lo quitamos a X porque no responde») no lo sanea ninguna plantilla.
+   *
+   * ── La alternativa que se descartó, y por qué ───────────────────────────────────────────────────
+   *
+   * Se valoró servirle al cliente un motivo ACOTADO A UN CATÁLOGO de códigos en vez de callarlo. Se
+   * descarta porque ese catálogo ya existe y no es este: lo que el cliente tiene que poder leer es
+   * la causal de rechazo de SU solicitud, y eso vive en `flito_soat_causales_rechazo` +
+   * `flito_soat_solicitud.observacion_rechazo`, que sirve la HU #11915 por su propia ruta. Inventar
+   * aquí un segundo catálogo daría dos maneras de responder la misma pregunta y ninguna completa;
+   * además obligaría a codificar los ~8 puntos de llamada de `registrarCambio` para una audiencia
+   * que hoy no lee ninguno.
+   *
+   * Lo que el cliente conserva es la línea de tiempo entera: qué estado, desde cuál, cuándo y que lo
+   * movió FLITO. Y el motivo del rechazo del gestor le sigue llegando por `motivoRechazo` en el DTO
+   * del detalle, que es decisión de producto tomada (lo necesita la #11915 para subsanar).
    *
    * Cuando la HU #11914 deje al `cliente` radicar, sus PROPIAS acciones aparecerán en este historial
    * y habrá que distinguirlas: la fila guarda `usuario_id`, así que se resuelve ahí, no aquí.
    */
-  omitirUsuario?: boolean;
+  lectorExterno?: boolean;
 }
 
 /**
@@ -122,7 +149,8 @@ export interface OpcionesHistorial {
  *
  * La consulta es la MISMA para todos y lo que cambia es la proyección: el `leftJoin` con `users` se
  * conserva porque esta función también sirve a impuestos y partirla en dos daría dos consultas que
- * mantener. El nombre no sale del proceso — que es lo que el art. 17 de la Ley 1581 protege.
+ * mantener. Ni el nombre ni el motivo salen del proceso cuando quien lee es de fuera — ver
+ * `OpcionesHistorial`.
  */
 export async function historialDe(
   concepto: ConceptoHistorial, registroId: string, opciones: OpcionesHistorial = {},
@@ -149,8 +177,9 @@ export async function historialDe(
     id: f.id,
     estadoAnterior: f.estadoAnterior,
     estadoNuevo: f.estadoNuevo,
-    motivo: f.motivo,
-    usuario: opciones.omitirUsuario ? AUTOR_INTERNO_ANONIMO : (f.usuarioNombre ?? f.usuarioEmail),
+    // Los dos recortes van juntos y a la vista, no repartidos: son la misma decisión.
+    motivo: opciones.lectorExterno ? null : f.motivo,
+    usuario: opciones.lectorExterno ? AUTOR_INTERNO_ANONIMO : (f.usuarioNombre ?? f.usuarioEmail),
     origen: f.origen,
     creadoEn: f.creadoEn.toISOString(),
   }));

@@ -133,6 +133,73 @@ describe('cola SOAT — el trío de regresión del aislamiento por compañía (A
   });
 });
 
+describe('filtros que el `cliente` no puede APLICAR — el oráculo de `gestion` y `proveedores`', () => {
+  // Segunda ronda de seguridad (ALTO/MEDIO): quitar un campo del DTO no basta si queda un filtro que
+  // particiona la cola por ese campo. `?gestion=operaciones` y `?gestion=proveedor` reconstruyen
+  // `gestionOperaciones` fila a fila con dos peticiones, y `?proveedores=<uuid>` hace lo mismo con
+  // `proveedorSoatId`. Se mide sobre el SQL —igual que el aislamiento— porque el oráculo ES la
+  // consulta: comparar las filas devueltas dependería del mock y no probaría nada.
+
+  /** El SQL de los dos WHERE de la cola (conteo y página) para este rol y esta query. */
+  async function sqlDeLaCola(rol: 'cliente' | 'admin' | 'proveedor', query: string) {
+    selectMock.mockReset(); wheres.length = 0;
+    // `contextoSoat` consulta `users` para `cliente` y `proveedor`; para `admin` no consulta nada.
+    if (rol !== 'admin') selectMock.mockImplementationOnce(() => chainEspia([{ c: 7, p: 'prov-1' }]));
+    selectMock.mockImplementationOnce(() => chainEspia([{ total: 0 }]));
+    selectMock.mockImplementationOnce(() => chainEspia([]));
+    await request(await buildApp()).get(`/api/flito/soat${query}`).set('Authorization', await auth(rol));
+    return (rol === 'admin' ? wheres : wheres.slice(1)).map(aSql);
+  }
+
+  it('cliente: pedir `?gestion=…` produce EXACTAMENTE la misma consulta que no pedirlo', async () => {
+    const sinFiltro = await sqlDeLaCola('cliente', '');
+    const conOperaciones = await sqlDeLaCola('cliente', '?gestion=operaciones');
+    const conProveedor = await sqlDeLaCola('cliente', '?gestion=proveedor');
+
+    // Idéntico SQL y parámetros: no hay diferencia observable, así que no hay oráculo. Es más fuerte
+    // que «no contiene la columna»: un filtro colado por otra vía también rompería esta igualdad.
+    expect(conOperaciones).toEqual(sinFiltro);
+    expect(conProveedor).toEqual(sinFiltro);
+    for (const { sql } of conOperaciones) expect(sql).not.toContain('"flito_soat"."gestion_operaciones"');
+  });
+
+  it('cliente: `?proveedores=<uuid>` tampoco entra en la consulta (ni el uuid en los parámetros)', async () => {
+    const sinFiltro = await sqlDeLaCola('cliente', '');
+    const conProveedores = await sqlDeLaCola('cliente', '?proveedores=11111111-1111-1111-1111-111111111111');
+
+    expect(conProveedores).toEqual(sinFiltro);
+    for (const { sql, params } of conProveedores) {
+      expect(sql).not.toContain('"flito_soat"."proveedor_soat_id"');
+      expect(params).not.toContain('11111111-1111-1111-1111-111111111111');
+    }
+  });
+
+  it('admin: los dos filtros siguen funcionando igual que antes (no-regresión)', async () => {
+    const conGestion = await sqlDeLaCola('admin', '?gestion=operaciones');
+    expect(conGestion[0].sql).toContain('"flito_soat"."gestion_operaciones"');
+
+    const conProveedores = await sqlDeLaCola('admin', '?proveedores=11111111-1111-1111-1111-111111111111');
+    expect(conProveedores[0].sql).toContain('"flito_soat"."proveedor_soat_id"');
+    expect(conProveedores[0].params).toContain('11111111-1111-1111-1111-111111111111');
+  });
+
+  it('gestor: sigue pudiendo pedirlos (para él son ruido, no una fuga) — no-regresión', async () => {
+    const conGestion = await sqlDeLaCola('proveedor', '?gestion=operaciones');
+    // Su frontera (`gestion_operaciones = false`) y el filtro pedido conviven, como siempre: el
+    // resultado es vacío, que es lo que ya pasaba antes de esta corrección.
+    expect(conGestion[0].sql).toContain('"flito_soat"."gestion_operaciones"');
+  });
+
+  it('los filtros que SÍ puede aplicar siguen llegando a la consulta', async () => {
+    // La contraparte obligatoria: si el saneo se pasara de largo, el cliente perdería su pantalla.
+    // `estado` y `pagadoDesde` particionan por campos que su propia fila ya lleva.
+    const conEstado = await sqlDeLaCola('cliente', '?estado=pagado&pagadoDesde=2026-08-01');
+    expect(conEstado[0].sql).toContain('"flito_soat"."estado"');
+    expect(conEstado[0].sql).toContain('"flito_soat"."pagado_en"');
+    expect(conEstado[0].params).toContain('pagado');
+  });
+});
+
 describe('frontera de autogestión — la tercera condición del canal Cliente', () => {
   it('lo que nació del canal Cliente entra en la cola aunque la compañía autogestione', async () => {
     selectMock.mockImplementationOnce(() => chainEspia([{ total: 0 }]));
