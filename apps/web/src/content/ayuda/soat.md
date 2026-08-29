@@ -4,7 +4,7 @@ Cola FLITO de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a **Pag
 
 ## Para quién
 
-Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**). Administrador (ve toda la cola, envía al gestor y puede asumir por contingencia). Auditor (solo lectura: **Solo lectura · Auditoría observa, no ejecuta acciones.**). Cliente (usuario de una compañía: ve únicamente los SOAT de **su** compañía y solo los consulta; no envía al gestor ni carga facturas).
+Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**). Administrador (ve toda la cola, envía al gestor y puede asumir por contingencia). Auditor (solo lectura: **Solo lectura · Auditoría observa, no ejecuta acciones.**). Cliente (usuario de una compañía: ve únicamente los SOAT de **su** compañía. Si su compañía tiene abierto el canal **SOAT sin trámite**, además puede solicitar el SOAT de un vehículo que todavía no tiene trámite en FLIT; no envía al gestor ni carga facturas).
 
 ## Cómo se entra
 
@@ -12,18 +12,19 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 
 ## Pasos
 
-1. Filtre con las pastillas **Todos**, **Pendiente**, **Solicitado**, **Con novedad** o **Pagado**. El Proveedor no ve **Todos** ni **Pendiente**.
+1. Filtre con las pastillas **Todos**, **Pendiente**, **Solicitado**, **Con novedad** o **Pagado**. El Proveedor no ve **Todos** ni **Pendiente**. El Cliente ve además **Pendiente de revisión** y **Rechazada**, que son los dos estados de las solicitudes que él mismo radica.
 2. Busque placa, VIN o comprador. Use **Compañía**, **Organismo**, **Proveedor**, **Listos para enviar** o **Sin gestión**, y **Solo sin gestión** si hace falta.
 3. Como Administrador, seleccione filas **Pendiente**, elija **Enviar a** (**Gestionado por Operaciones** o un proveedor) y pulse **Enviar al gestor** o **Enviar a Operaciones**.
 4. En una fila, pulse **Ver**. En adquisición, **Cargar factura** (un archivo) o, desde el encabezado, **Cargar facturas (masivo)**.
 5. Según el caso: **Rechazar**, **Reactivar**, **Reversar**, **Cambiar proveedor**, **Asumir en Operaciones** o **Devolver al proveedor**. **Ver soporte** abre el documento ya cargado.
+6. Como Cliente, si su compañía tiene el canal abierto, pulse **Solicitar SOAT** en el encabezado: se abre el formulario de la solicitud (placa y VIN, datos del propietario y la factura de venta en PDF). Si el canal está apagado, en lugar del botón verá una tarjeta que lo explica; la cola sigue funcionando igual.
 
 ## Estados
 
 - Cargando: la tabla aún no aparece.
 - Error: mensaje en rojo sobre la tarjeta.
 - Vacío: **No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.** Con filtros: **Ningún SOAT coincide con los filtros.**
-- Lleno: tabla **Pólizas SOAT** con compañía, quién gestiona, estado, solicitado, pagado y valor. Junto a la placa y el VIN, cada fila le muestra también los datos del vehículo que llegan de FLIT: **cilindraje**, **carrocería** y **tipo de servicio**. El dato que FLIT no envía aparece como **—** y no es un error. Una fila asumida muestra el chip **Operaciones**.
+- Lleno: tabla **Pólizas SOAT** con compañía, quién gestiona, estado, solicitado, pagado y valor. Junto a la placa y el VIN, cada fila le muestra también los datos del vehículo que llegan de FLIT: **cilindraje**, **carrocería** y **tipo de servicio**. El dato que FLIT no envía aparece como **—** y no es un error. Una fila asumida muestra el chip **Operaciones**. Las solicitudes que llegan por el canal **SOAT sin trámite** aparecen con el estado **Pendiente de revisión** hasta que Operaciones las valida, o **Rechazada** si se devolvieron para corregir; esos dos estados solo existen en ese canal.
 
 ## Qué no hace
 
@@ -31,3 +32,4 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 - No liquida, no **Factura** en sentido FLITO (congelar liquidación) ni hace **emisión electrónica**.
 - No gestiona impuestos, derechos de tránsito ni comparendos.
 - El Proveedor no ve ni envía los **Pendiente**; esa frontera la resuelve el Administrador.
+- Esta versión todavía no incluye la revisión de las solicitudes del canal **SOAT sin trámite**: validarlas o rechazarlas desde aquí llega en una entrega posterior.

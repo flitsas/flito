@@ -228,12 +228,15 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     }
   });
 
-  it('un vehículo que YA existe se actualiza sin borrar lo que el RUNT no trajo', async () => {
-    escenario({ vehicles: [{ id: VEHICULO_ID }] });
+  it('un vehículo que YA existe **y es de SU compañía** se actualiza sin borrar lo que el RUNT no trajo', async () => {
+    // La ficha dice de quién es, y eso ahora es parte del caso: la versión anterior de esta prueba
+    // no lo decía, y por ese hueco pasó en verde la escritura entre compañías.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
     // El RUNT no reporta cilindraje ni tipo de servicio en esta consulta.
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ cilindraje: null, tipoServicio: null }));
 
-    await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
 
     // No hay INSERT de vehículo: se reusó el que había (`vehiculo_id` es UNIQUE en `flito_soat`).
     expect(espia.insertsEn('vehicles')).toHaveLength(0);
@@ -243,6 +246,126 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     // `null`, el alta borraría el cilindraje que dejó, por ejemplo, el OCR de la tarjeta.
     expect(Object.keys(set)).not.toContain('cilindraje');
     expect(Object.keys(set)).not.toContain('tipoServicio');
+    // Y no se reescribe el dueño de una ficha que ya lo tiene, ni siquiera con el mismo valor.
+    expect(Object.keys(set)).not.toContain('clientId');
+  });
+});
+
+// ───────── La ficha de `vehicles` es COMPARTIDA: no se escribe sobre la de otra compañía ─────────
+//
+// Bloqueante del `security-agent`, y el motivo por el que la RN-01 no bastaba: `verificarRn01` mira
+// `flito_soat.vin` y esto mira `vehicles.vin`, que son conjuntos distintos. Un vehículo puede existir
+// en `vehicles` SIN fila en `flito_soat` —es el caso mayoritario: el sync crea el vehículo para todo
+// trámite y solo crea el SOAT con trámite asignado—, así que para ese VIN no saltaba ni la RN-01 ni
+// el UNIQUE de `vehiculo_id`, y el alta sobrescribía la ficha ajena con lo que teclea quien radica.
+
+describe('tenencia del vehículo — la ficha de otra compañía no se toca', () => {
+  it('**VIN de un vehículo de OTRA compañía → 409 `propia: false` y CERO escrituras sobre `vehicles`**', async () => {
+    // Ojo al escenario: NO hay fila en `flito_soat` para ese VIN, así que la RN-01 pasa limpia. Es
+    // exactamente el caso que se colaba.
+    escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('vin_ya_tiene_soat');
+    expect(r.body.propia).toBe(false);
+    // Ni un UPDATE: ni el titular, ni la cédula, ni la placa, ni la marca de la ficha ajena.
+    expect(espia.updatesEn('vehicles')).toHaveLength(0);
+    expect(espia.insertsEn('vehicles')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    // Y el recorte de siempre: no se le dice de quién es ni en qué estado está.
+    expect(r.body.id).toBeUndefined();
+    expect(r.body.estado).toBeUndefined();
+  });
+
+  it('la guarda corta ANTES del RUNT y ANTES de subir el PDF (ni consulta cara ni objeto huérfano)', async () => {
+    escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
+
+    await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('**una ficha SIN dueño se adopta** para la compañía que radica, y queda anotado', async () => {
+    // `clientId === null` es lo que dejan la vía legacy (que se alimenta de placa) y el OCR de la
+    // tarjeta de propiedad. Dejarlo en null mantendría el agujero abierto para esa fila: el
+    // siguiente que radicara con ese VIN volvería a encontrarla sin dueño.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: null }] });
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
+
+    const set = espia.updatesEn('vehicles').at(-1)!.datos;
+    expect(set.clientId).toBe(COMPANIA);
+
+    // El rastro que faltaba: tocar una ficha que ya existía no quedaba escrito en ninguna parte,
+    // porque el `audit()` de la ruta anota el SOAT nuevo con SU uuid.
+    const rastro = espia.insertsEn('audit_logs').at(-1)!.datos;
+    expect(rastro).toMatchObject({ action: 'update', resource: 'vehicles', resourceId: String(VEHICULO_ID) });
+    expect(String(rastro.detail)).toMatch(/no tenía dueño/);
+    // Sin placa, VIN ni documento en la bitácora (AGENTS.md §14).
+    for (const pii of ['JNH38H', '9FKRG2222T2042405', '1020304050']) {
+      expect(String(rastro.detail)).not.toContain(pii);
+    }
+  });
+
+  it('**la CARRERA: la ficha aparece ajena entre la comprobación previa y el UPDATE**', async () => {
+    // Sin este caso, la guarda de DENTRO de la transacción no está probada: en todos los demás
+    // escenarios la comprobación previa corta antes, y borrarla del código dejaría la suite verde
+    // (mutante comprobado). Aquí la previa ve la fila libre y la de dentro la ve de otra compañía,
+    // que es lo que ocurre cuando dos altas del mismo VIN se cruzan.
+    escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
+    kdb.when.selectOnce('vehicles', []); // la comprobación previa: todavía no hay ficha
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(409);
+    expect(r.body.propia).toBe(false);
+    // Lo que decide es la lectura de dentro de la transacción: sin ella, esto sería un UPDATE sobre
+    // la ficha ajena y un 201.
+    expect(espia.updatesEn('vehicles')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('una ficha cuyo dueño llega VACÍO se trata como sin dueño, no como ajena', async () => {
+    // Fija la comparación LAXA del predicado. `null` y `undefined` significan aquí lo mismo —«nadie
+    // reclama esta ficha»— y el doble de drizzle del repo devuelve la fila entera que el test
+    // registró, sin recortarla a las claves del `select`: con el estricto, esta fila se clasificaba
+    // como AJENA y el alta moría con un 409 sobre un vehículo de nadie.
+    escenario({ vehicles: [{ id: VEHICULO_ID }] }); // sin `clientId` en la fila
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
+    // Y la MISMA laxitud en la otra decisión que se toma sobre ese hecho: se adopta. Si `adopta`
+    // comparara estricto, la ficha pasaría la guarda pero seguiría sin dueño para el siguiente.
+    expect(espia.updatesEn('vehicles').at(-1)!.datos.clientId).toBe(COMPANIA);
+  });
+
+  it('la preconsulta aplica la MISMA guarda: no deja llenar el formulario para fallar al final', async () => {
+    escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
+
+    const r = await request(await buildApp()).post('/api/flito/soat/cliente/preconsulta')
+      .set('Authorization', await auth('cliente', siguienteUsuario()))
+      .send({ placa: 'JNH38H', vin: '9FKRG2222T2042405' });
+
+    expect(r.status).toBe(409);
+    expect(r.body.propia).toBe(false);
+  });
+
+  it('los dos «no es suyo» son INDISTINGUIBLES: mismo código y mismo texto', async () => {
+    // Si cada uno tuviera su frase, dos intentos separarían «ese vehículo tiene SOAT» de «existe sin
+    // SOAT» — información sobre la cartera ajena a fuerza de sondear VINes.
+    escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
+    const sinSoat = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    escenario({ flito_soat: [{ id: 'eeee', estado: 'pagado', companiaId: 999 }], vehicles: [] });
+    const conSoat = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(sinSoat.status).toBe(conSoat.status);
+    expect(sinSoat.body.codigo).toBe(conSoat.body.codigo);
+    expect(sinSoat.body.error).toBe(conSoat.body.error);
   });
 });
 

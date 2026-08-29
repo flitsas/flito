@@ -36,6 +36,7 @@ import { createHash, randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
+  auditLogs,
   clients,
   flitoCompradores,
   flitoSoat,
@@ -322,17 +323,78 @@ async function verificarRn01(vin: string, companiaId: number): Promise<void> {
     .from(flitoSoat).where(eq(flitoSoat.vin, vin)).limit(1);
   if (!existente) return;
 
-  if (existente.companiaId !== companiaId) {
-    throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
-      'Este vehículo ya está registrado en FLITO con un SOAT. Un vehículo no puede tener dos (RN-01).',
-      { propia: false });
-  }
+  // Mismo código, mismo cuerpo recortado y MISMO TEXTO que el vehículo ajeno sin SOAT: los dos son
+  // «no es de su compañía» y distinguirlos sería contarle cuál de los dos es.
+  if (existente.companiaId !== companiaId) throw vehiculoAjeno();
 
   throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
     existente.estado === EstadoSoat.RECHAZADA
       ? 'Esta solicitud ya existe y fue rechazada. Corríjala desde su detalle: se subsana la misma solicitud, no se crea otra.'
       : 'Este vehículo ya tiene un SOAT en FLITO. Un vehículo no puede tener dos (RN-01).',
     { propia: true, id: existente.id, estado: existente.estado });
+}
+
+/**
+ * Lo ÚNICO que se le dice a quien radica sobre un vehículo que no es de su compañía.
+ *
+ * Es el MISMO texto para los dos casos que lo producen —el VIN ya tiene SOAT de otra compañía, y el
+ * VIN ya tiene ficha en `vehicles` a nombre de otra compañía— y eso es deliberado: si cada uno
+ * tuviera su frase, dos intentos distinguirían «ese vehículo tiene SOAT» de «ese vehículo existe sin
+ * SOAT», que es información sobre la cartera ajena obtenida a fuerza de sondear VINs. Un solo texto
+ * y un solo código los vuelve indistinguibles.
+ */
+const MENSAJE_VEHICULO_AJENO =
+  'Este vehículo ya está registrado en FLITO y no figura a nombre de su compañía. Si es suyo, escríbanos para revisarlo.';
+
+const vehiculoAjeno = () => fallo(
+  409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT, MENSAJE_VEHICULO_AJENO, { propia: false },
+);
+
+/**
+ * ¿Esta ficha de `vehicles` es de OTRA compañía?
+ *
+ * ── El agujero que cierra, que NO lo tapaba la RN-01 ────────────────────────────────────────────
+ *
+ * `verificarRn01` mira `flito_soat.vin`; esto mira `vehicles.vin`, y son conjuntos distintos: un
+ * vehículo puede existir en `vehicles` SIN fila en `flito_soat`, y de hecho es el caso mayoritario
+ * —`upsertVehiculo()` del sync corre para todos los trámites, mientras que `resolverSoat()` solo
+ * corre con el trámite asignado y con compañía y organismo emparejados—. Para uno de esos VIN, la
+ * RN-01 no encuentra nada y el UNIQUE de `flito_soat.vehiculo_id` tampoco salta, porque el vehículo
+ * ajeno no tiene SOAT: sin esta comprobación, el alta hacía UPDATE sobre la ficha de otra compañía y
+ * le sobrescribía titular, cédula, placa, marca, línea, año y clase con lo que teclea quien radica.
+ *
+ * `clientId` vacío NO es ajeno: ver la decisión escrita en `upsertVehiculoRunt`.
+ *
+ * Un solo predicado para las dos llamadas —la previa y la de dentro de la transacción— para que
+ * quien lo cambie no pueda cambiarlo en un sitio y olvidarse del otro.
+ *
+ * ── Por qué `!= null` y no `!== null` ───────────────────────────────────────────────────────────
+ *
+ * Comparación LAXA a propósito: cubre `null` y `undefined` con la misma regla, porque aquí los dos
+ * significan lo mismo —«nadie reclama esta ficha»— y tratarlos distinto no tiene sentido en el
+ * dominio. En producción la diferencia no existe (el `select` proyecta la columna y PostgreSQL
+ * devuelve `null`), pero fuera de producción sí: el doble de drizzle del repo devuelve la fila
+ * ENTERA que el test registró, sin recortarla a las claves del `select`, así que una fila de prueba
+ * sin `clientId` llega con `undefined`. Con el estricto, esa fila se clasificaba como AJENA y el
+ * alta se cortaba con un 409 sobre un vehículo que no era de nadie — un fallo que solo aparece en
+ * las pruebas, y que además contradecía lo que este mismo bloque promete.
+ */
+function esDeOtraCompania(fila: { clientId?: number | null } | undefined, companiaId: number): boolean {
+  return !!fila && fila.clientId != null && fila.clientId !== companiaId;
+}
+
+/**
+ * Tenencia del vehículo, comprobada ANTES del RUNT y antes de subir el archivo.
+ *
+ * La autoridad está dentro de la transacción (`upsertVehiculoRunt`), donde la fila se lee otra vez y
+ * no puede cambiar bajo los pies; esto es la versión temprana, por lo mismo que la RN-01 se mira dos
+ * veces: para no dejar un objeto huérfano en el bucket ni gastar una consulta al RUNT por un alta
+ * que ya se sabe que no va a entrar.
+ */
+async function verificarTenenciaVehiculo(vin: string, companiaId: number): Promise<void> {
+  const [ficha] = await db.select({ clientId: vehicles.clientId })
+    .from(vehicles).where(eq(vehicles.vin, vin)).limit(1);
+  if (esDeOtraCompania(ficha, companiaId)) throw vehiculoAjeno();
 }
 
 /**
@@ -450,6 +512,10 @@ export async function preconsulta(placa: string, vin: string, ctx: SoatCtx): Pro
   const placaNorm = normalizarId(placa);
   const vinNorm = normalizarId(vin);
   await verificarRn01(vinNorm, canal.companiaId);
+  // La misma guarda de tenencia que el alta, y en el mismo sitio: si la preconsulta fuera más laxa,
+  // el formulario dejaría llenar los diez campos y adjuntar el PDF para fallar al final. No entrega
+  // información de más — el 409 es idéntico al de la RN-01 ajena, sin id y sin estado.
+  await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
   const { datos, organismoCodigo } = await consultarRunt(placaNorm, vinNorm);
 
   const [organismo] = await db.select({ alias: organismosTransitoConfig.alias })
@@ -485,6 +551,31 @@ export async function preconsulta(placa: string, vin: string, ctx: SoatCtx): Pro
  * `vin IS NULL` —posible por la vía legacy, que se alimenta de placa— no se encuentra por VIN y
  * produce una segunda fila con la misma placa. El sync ya vive con esto; este canal no lo empeora
  * ni lo arregla.
+ *
+ * ── La ficha ajena NO se toca (bloqueante del `security-agent`) ──────────────────────────────────
+ *
+ * `vehicles` es una tabla COMPARTIDA por todas las compañías y la búsqueda por VIN no las separa.
+ * Antes de este guarda, radicar con el VIN de un vehículo de otra compañía sobrescribía SU ficha con
+ * lo que teclea quien radica —`ownerName` y `ownerDocument` son campos libres del formulario—, y la
+ * solicitud quedaba apuntando a esa fila. Además de la mezcla de datos, sustituir el titular y la
+ * cédula de la ficha de un tercero sin su intervención rompe el principio de veracidad de la Ley
+ * 1581. Ahora es un 409 recortado y no un UPDATE.
+ *
+ * ── Qué se hace con `clientId === null`, que era el hueco sin decidir ────────────────────────────
+ *
+ * **Se ADOPTA para la compañía que radica**, y es una decisión, no el camino por omisión:
+ *
+ *   · Bloquear negaría un alta legítima: una ficha sin dueño es lo que dejan la vía legacy (que se
+ *     alimenta de placa) y el OCR de la tarjeta de propiedad, y el vehículo puede ser perfectamente
+ *     de quien radica — que además llega con el RUNT confirmando el vehículo y con la factura de
+ *     venta adjunta, y cuya solicitud nace en `pendiente_revision` para que una persona la valide.
+ *   · Dejarla en `null` mantendría el agujero ABIERTO para esa fila: el siguiente que radicara con
+ *     ese VIN, de cualquier compañía, volvería a encontrarla sin dueño y a sobrescribirla. Adoptar
+ *     es lo que hace que la comprobación de arriba signifique algo la segunda vez.
+ *
+ * Es la misma regla que ya aplica la rama del INSERT, que escribe `clientId` sin preguntar; la
+ * diferencia es que aquí queda ANOTADA (`audit_logs`, `resource: 'vehicles'`), porque tocar una
+ * ficha que ya existía es un cambio sobre datos de alguien y el rastro de `flito_soat` no lo cuenta.
  */
 async function upsertVehiculoRunt(
   tx: Pick<typeof db, 'select' | 'insert' | 'update'>,
@@ -492,17 +583,30 @@ async function upsertVehiculoRunt(
   datos: DatosRuntCanal,
   propietario: PropietarioSolicitud,
   companiaId: number,
+  ctx: SoatCtx,
+  soatId: string,
 ): Promise<number> {
   // `vehicles.year` es integer y el RUNT manda el año-modelo como texto. Un valor que no sea un año
   // se descarta en vez de escribir un `NaN` que Postgres rechazaría con un 22P02.
   const anio = Number(datos.modelo);
   const year = Number.isInteger(anio) && anio > 1900 && anio < 2200 ? anio : null;
 
-  const [existente] = await tx.select({ id: vehicles.id }).from(vehicles)
+  // `clientId` viaja en la proyección porque es lo que decide si esta fila se puede tocar. Se relee
+  // DENTRO de la transacción —no basta con la comprobación previa— porque entre aquella y este
+  // UPDATE cabe otra petición entera.
+  const [existente] = await tx.select({ id: vehicles.id, clientId: vehicles.clientId }).from(vehicles)
     .where(eq(vehicles.vin, entrada.vin)).limit(1);
 
+  if (esDeOtraCompania(existente, companiaId)) throw vehiculoAjeno();
+
   if (existente) {
+    // `== null` por lo mismo que el predicado de tenencia, y tiene que ser la MISMA laxitud: si aquí
+    // se comparara estricto, una ficha cuyo dueño llega vacío no sería «ajena» —así que el alta
+    // seguiría— pero tampoco se adoptaría, y volvería a quedar sin dueño para el siguiente. Las dos
+    // decisiones se toman sobre el mismo hecho y tienen que leerlo igual.
+    const adopta = existente.clientId == null;
     await tx.update(vehicles).set({
+      ...(adopta ? { clientId: companiaId } : {}),
       plate: entrada.placa,
       ...(datos.marca ? { brand: datos.marca } : {}),
       ...(datos.linea ? { model: datos.linea } : {}),
@@ -514,6 +618,16 @@ async function upsertVehiculoRunt(
       ownerDocument: propietario.numeroDocumento,
       updatedAt: new Date(),
     }).where(eq(vehicles.id, existente.id));
+
+    // El rastro que faltaba: `audit()` anota la creación del SOAT con SU uuid, así que la
+    // modificación de una ficha de `vehicles` que ya existía no quedaba escrita en ninguna parte.
+    // Sin placa, sin VIN y sin documento: los identificadores del vehículo son cuasi-PII y esta
+    // tabla se exporta entera (AGENTS.md §14).
+    await tx.insert(auditLogs).values({
+      userId: ctx.userId, userEmail: ctx.username, action: 'update', resource: 'vehicles',
+      resourceId: String(existente.id),
+      detail: `Alta de solicitud SOAT del canal Cliente (${soatId}): ficha del vehículo actualizada con los datos del RUNT${adopta ? ' y asignada a la compañía que radica (no tenía dueño)' : ''}`,
+    });
     return existente.id;
   }
 
@@ -564,6 +678,8 @@ export async function crearSolicitud(
   const placa = normalizarId(entrada.placa);
   const vin = normalizarId(entrada.vin);
   await verificarRn01(vin, canal.companiaId);
+  // Y la ficha de `vehicles`, que es OTRO conjunto: hay vehículos sin SOAT que sí tienen dueño.
+  await verificarTenenciaVehiculo(vin, canal.companiaId);
 
   const { datos, organismoCodigo } = await consultarRunt(placa, vin);
 
@@ -576,7 +692,7 @@ export async function crearSolicitud(
 
   try {
     await db.transaction(async (tx) => {
-      const vehiculoId = await upsertVehiculoRunt(tx, { placa, vin }, datos, entrada.propietario, canal.companiaId);
+      const vehiculoId = await upsertVehiculoRunt(tx, { placa, vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId);
 
       await tx.insert(flitoSoat).values({
         id: soatId,
