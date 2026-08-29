@@ -12,12 +12,14 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 
 ## Pasos
 
-1. Filtre con las pastillas **Todos**, **Pendiente**, **Solicitado**, **Con novedad** o **Pagado**. El Proveedor no ve **Todos** ni **Pendiente**. El Cliente ve además **Pendiente de revisión** y **Rechazada**, que son los dos estados de las solicitudes que él mismo radica.
+1. Filtre con las pastillas **Todos**, **Pendiente**, **Solicitado**, **Con novedad** o **Pagado**. El Proveedor no ve **Todos** ni **Pendiente**. El Administrador y el Cliente ven además **Pendiente de revisión** y **Rechazada**, que son los dos estados de las solicitudes del canal **SOAT sin trámite**.
 2. Busque placa, VIN o comprador. Use **Compañía**, **Organismo**, **Proveedor**, **Listos para enviar** o **Sin gestión**, y **Solo sin gestión** si hace falta.
 3. Como Administrador, seleccione filas **Pendiente**, elija **Enviar a** (**Gestionado por Operaciones** o un proveedor) y pulse **Enviar al gestor** o **Enviar a Operaciones**.
 4. En una fila, pulse **Ver**. En adquisición, **Cargar factura** (un archivo) o, desde el encabezado, **Cargar facturas (masivo)**.
-5. Según el caso: **Rechazar**, **Reactivar**, **Reversar**, **Cambiar proveedor**, **Asumir en Operaciones** o **Devolver al proveedor**. **Ver soporte** abre el documento ya cargado.
-6. Como Cliente, si su compañía tiene el canal abierto, pulse **Solicitar SOAT** en el encabezado: se abre el formulario de la solicitud (placa y VIN, datos del propietario y la factura de venta en PDF). Si el canal está apagado, en lugar del botón verá una tarjeta que lo explica; la cola sigue funcionando igual.
+5. Según el caso: **Rechazar**, **Reactivar**, **Reversar**, **Cambiar proveedor**, **Asumir en Operaciones** o **Devolver al proveedor**. **Ver soporte** abre el documento ya cargado. En una solicitud del canal **SOAT sin trámite** no aparecen **Reversar** ni **Cambiar proveedor**: esas filas se resuelven validándolas o rechazándolas.
+6. Como Administrador, en una solicitud en **Pendiente de revisión**: pulse **Validar** y elija a quién se envía (**Gestionado por Operaciones** o un proveedor) — la solicitud pasa a **Solicitado**, igual que cuando envía al gestor un SOAT de trámite. O pulse **Rechazar** y elija una **causal** de la lista y escriba una **observación**: las dos son obligatorias, y el Cliente las lee tal cual, así que escriba la observación pensando en que la lee su empresa cliente.
+7. Como Cliente, si su compañía tiene el canal abierto, pulse **Solicitar SOAT** en el encabezado: se abre el formulario de la solicitud (placa y VIN, datos del propietario y la factura de venta en PDF). Si el canal está apagado, en lugar del botón verá una tarjeta que lo explica; la cola sigue funcionando igual.
+8. Como Cliente, si le rechazaron una solicitud, ábrala con **Ver**: verá la **causal** y la **observación** de Operaciones. Pulse **Corregir y reenviar** para arreglar lo señalado y enviarla de nuevo — es la **misma** solicitud, no una nueva, y vuelve a **Pendiente de revisión**.
 
 ## Estados
 
@@ -32,4 +34,6 @@ En el menú lateral, sección **Gestión**, ítem **SOAT**. La ruta de esta cola
 - No liquida, no **Factura** en sentido FLITO (congelar liquidación) ni hace **emisión electrónica**.
 - No gestiona impuestos, derechos de tránsito ni comparendos.
 - El Proveedor no ve ni envía los **Pendiente**; esa frontera la resuelve el Administrador.
-- Esta versión todavía no incluye la revisión de las solicitudes del canal **SOAT sin trámite**: validarlas o rechazarlas desde aquí llega en una entrega posterior.
+- **Rechazar** (del gestor, que deja el SOAT **Con novedad**) y **Rechazar** una solicitud en revisión no son lo mismo: distinto momento, distinto responsable y distinto estado.
+- Una solicitud **Rechazada** no es una negación en firme: significa «corrija y reenvíe». Quien radica puede corregirla y volver a enviarla cuantas veces haga falta.
+- Al corregir y reenviar no se puede cambiar la **placa** ni el **VIN**: si esos datos están mal, la solicitud correcta es otra y se radica de nuevo.
