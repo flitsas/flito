@@ -579,7 +579,13 @@ function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
   return iguales ? primero : null;
 }
 
-/** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
+/**
+ * Solicitado hace más del ANS OPERATIVO de FLIT (`ANS_OPERATIVO.SIN_GESTION_HORAS`, 24 h), la misma
+ * constante global que usa `EXPR_ESTANCADO` en SQL. NO es el SLA del proveedor: ese vive en
+ * `flito_proveedores_soat.sla_horas` y esta función no lo lee. La distinción importa —si
+ * dependiera del proveedor, el filtro `estancado` le diría a un `cliente` con qué ANS tiene FLITO
+ * contratado a su gestor, que es justo lo que la proyección por rol le oculta (Feature #11912).
+ */
 function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
   if (estado !== EstadoSoat.SOLICITADO || !enviadoEn) return false;
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
