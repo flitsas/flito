@@ -31,8 +31,26 @@ import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondary
 
 const COLA = '/flito/soat';
 
-/** Fecha larga y legible; solo se usa cuando de verdad hay fecha. */
-const fechaLarga = (iso: string) => new Date(iso).toLocaleDateString('es-CO', { dateStyle: 'short' });
+/**
+ * La fecha de vencimiento, rotulada en español. Solo se llama cuando de verdad hay fecha.
+ *
+ * ── Se parte por componentes y NO se pasa la cadena a `new Date()` ───────────────────────────────
+ *
+ * `new Date('2027-02-01')` interpreta el literal como medianoche **UTC**, y Colombia va cinco horas
+ * por detrás: `toLocaleDateString` devolvería `31/1/2027`. Es decir, el modal restaría un día a la
+ * vigencia de una póliza — justo el dato por el que el usuario decide si tiene que comprar otra.
+ * Con `new Date(año, mes - 1, día)` la fecha se construye en la zona local y el día es el que el
+ * servidor mandó.
+ *
+ * El formato es largo («1 de febrero de 2027») y no `dd/MM/yyyy`: es una fecha de calendario dentro
+ * de una frase, y es la razón por la que el servidor la normaliza a `yyyy-mm-dd` en vez de reenviar
+ * el texto crudo de la pasarela.
+ */
+function fechaLarga(iso: string): string {
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  return new Date(anio, mes - 1, dia)
+    .toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 interface ComunProps {
   placa: string;

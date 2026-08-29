@@ -58,15 +58,33 @@ export interface FalloCanal {
   id?: string;
   estado?: EstadoSoat;
   /**
-   * Fecha de vencimiento del SOAT vigente (AC3), **si el servidor la manda**.
+   * Fecha de vencimiento del SOAT vigente (AC3), en `yyyy-mm-dd`. Solo en el `409 soat_vigente`.
    *
-   * Hoy no la manda —el 409 de `SOAT_VIGENTE` viaja sin `datos`—, así que el modal siempre cae en
-   * su variante sin fecha, que es un caso real y previsto (el RUNT reporta vigencia por estado tan
-   * a menudo como por fecha). Se lee igualmente para que el día que llegue no haya que tocar la
-   * pantalla, y **nunca se interpola vacía**: sin fecha se cambia la frase, no se escribe «—» en
-   * medio de ella.
+   * **AUSENTE, nunca `null` ni cadena vacía.** El servidor la omite cuando el RUNT reporta la
+   * vigencia por estado y no por fecha, que es un caso frecuente y legítimo y no un fallo. Por eso
+   * el modal tiene dos redacciones enteras y no una con un hueco: sin fecha se cambia la frase, no
+   * se escribe «—» en medio de una oración.
+   *
+   * Ya llega normalizada por el servidor (`fechaVencimientoSoatRunt`), que traduce el `dd/MM/yyyy`
+   * de la pasarela: la pantalla NO parsea formatos de la pasarela, solo rotula una fecha de
+   * calendario.
    */
   fechaVencimiento?: string;
+  /**
+   * El organismo que el RUNT reporta, en el `422 organismo_no_catalogado`. **Tres estados, y los
+   * tres significan cosas distintas — no se colapsan:**
+   *
+   *   · `string` → el RUNT lo reporta y FLITO no lo tiene catalogado. Copy con el nombre.
+   *   · `null`   → **el RUNT no reporta organismo.** La clave viaja igualmente para poder afirmarlo.
+   *                Es la otra variante del copy, y es una afirmación sobre el RUNT, no sobre la API.
+   *   · ausente  → el servidor no mandó la clave (una versión anterior a este contrato). No se sabe
+   *                nada del RUNT, así que la pantalla no afirma nada: usa el `mensaje` del servidor.
+   *
+   * Sale como CAMPO y no de las comillas del mensaje. Sacarlo del texto ataba una redacción a una
+   * expresión regular: el día que alguien corrigiera la frase, la pantalla dejaría de encontrarlo y
+   * ningún test se enteraría. Ese parseo existió durante un PR y está borrado a propósito.
+   */
+  organismoNombre?: string | null;
 }
 
 const CODIGOS: ReadonlySet<string> = new Set(Object.values(CodigoErrorSolicitudSoat));
@@ -90,7 +108,7 @@ export function leerFallo(e: unknown): FalloCanal {
   const codigo = typeof cuerpo.codigo === 'string' && CODIGOS.has(cuerpo.codigo)
     ? cuerpo.codigo as CodigoErrorSolicitudSoat
     : null;
-  return {
+  const fallo: FalloCanal = {
     status: e.status,
     codigo,
     mensaje: e.message,
@@ -101,8 +119,20 @@ export function leerFallo(e: unknown): FalloCanal {
     id: cuerpo.propia === true && typeof cuerpo.id === 'string' ? cuerpo.id : undefined,
     estado: cuerpo.propia === true && typeof cuerpo.estado === 'string'
       ? cuerpo.estado as EstadoSoat : undefined,
-    fechaVencimiento: typeof cuerpo.fechaVencimiento === 'string' ? cuerpo.fechaVencimiento : undefined,
   };
+
+  // Los dos campos de abajo se AÑADEN solo si vienen, en vez de asignarles `undefined`: para
+  // `organismoNombre` la diferencia entre «la clave llegó valiendo null» y «la clave no llegó» ES el
+  // contrato —una dice algo del RUNT y la otra no dice nada—, y `{ k: undefined }` las iguala ante
+  // el operador `in` y ante cualquier comprobación de presencia.
+  if (typeof cuerpo.fechaVencimiento === 'string' && cuerpo.fechaVencimiento.trim()) {
+    fallo.fechaVencimiento = cuerpo.fechaVencimiento;
+  }
+  if ('organismoNombre' in cuerpo) {
+    const n = cuerpo.organismoNombre;
+    fallo.organismoNombre = typeof n === 'string' && n.trim() ? n : null;
+  }
+  return fallo;
 }
 
 // ───────────────────────────── Catálogo de tipo de documento ─────────────────────────────────────

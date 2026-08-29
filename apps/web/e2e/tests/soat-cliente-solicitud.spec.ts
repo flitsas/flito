@@ -240,12 +240,20 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     await expect(page.getByText('No pudimos consultar el RUNT.')).toHaveCount(0);
   });
 
-  test('organismo fuera de catálogo — tercer texto, y los bloques 2 y 3 NO se montan', async ({ page }) => {
+  test('organismo fuera de catálogo — el nombre sale del CAMPO, no de las comillas del mensaje', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
-    const f = falloCanal(422, 'organismo_no_catalogado',
-      'El organismo de tránsito que reporta el RUNT («STT DE PUEBLO CHICO») no está en el catálogo de FLITO. Escríbenos para habilitarlo.');
-    await page.route(RE_PRECONSULTA, (route) => json(route, f.status, f.cuerpo));
+    // El corazón de este test: el CAMPO y el TEXTO dicen organismos DISTINTOS.
+    //
+    // Es la única forma de matar al mutante que vuelve a sacar el nombre de las `«…»` del mensaje —y
+    // hubo una versión de esta pantalla que lo hacía—. Con el mismo nombre en los dos sitios, un
+    // `/«([^»]+)»/` pasaría este test tan verde como la lectura del campo. Aquí, si alguien vuelve al
+    // parseo, la pantalla escribe «SALIDO DEL MENSAJE» y el aserto negativo lo caza.
+    await page.route(RE_PRECONSULTA, (route) => json(route, 422, {
+      error: 'El organismo de tránsito que reporta el RUNT («SALIDO DEL MENSAJE») no está en el catálogo de FLITO.',
+      codigo: 'organismo_no_catalogado',
+      organismoNombre: 'STT DE PUEBLO CHICO',
+    }));
 
     await page.goto('/flito/soat/solicitud');
     await page.getByLabel('Placa').fill(PLACA);
@@ -253,10 +261,34 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('Todavía no atendemos el organismo de tránsito de este vehículo.')).toBeVisible();
-    await expect(page.getByText(/STT DE PUEBLO CHICO/)).toBeVisible();
-    // Afirmar solo el mensaje deja vivo el mutante que pinta la ficha igual y SÍ deja enviar.
+    await expect(page.getByText(`El RUNT lo reporta en STT DE PUEBLO CHICO, que aún no está habilitado en FLITO. Escríbale a su contacto en FLIT con la placa ${PLACA}.`)).toBeVisible();
+    await expect(page.getByText(/SALIDO DEL MENSAJE/)).toHaveCount(0);
+
+    // Afirmar solo el mensaje deja vivo el mutante que pinta la ficha igual y SÍ deja avanzar.
     await expect(page.getByLabel('Número de documento')).toHaveCount(0);
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enviar la solicitud' })).toHaveCount(0);
+  });
+
+  test('organismo `null` — se afirma que el RUNT no lo reporta, que es OTRA cosa', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    // La clave VIAJA valiendo `null`: el servidor está afirmando algo del RUNT, no callándose. Es lo
+    // que separa esta redacción de la de arriba, y por eso el contrato manda la clave siempre.
+    await page.route(RE_PRECONSULTA, (route) => json(route, 422, {
+      error: 'El organismo de tránsito que reporta el RUNT no está en el catálogo de FLITO.',
+      codigo: 'organismo_no_catalogado',
+      organismoNombre: null,
+    }));
+
+    await page.goto('/flito/soat/solicitud');
+    await page.getByLabel('Placa').fill(PLACA);
+    await page.getByLabel('VIN').fill(VIN);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+
+    await expect(page.getByText('El RUNT no reporta el organismo de tránsito de este vehículo, y sin ese dato no podemos radicar la solicitud.')).toBeVisible();
+    // Mata al mutante que colapsa `null` y «hay nombre» en una sola frase con un hueco.
+    await expect(page.getByText(/lo reporta en/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Enviar la solicitud' })).toHaveCount(0);
   });
 
@@ -309,9 +341,34 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
     expect(altas).toHaveLength(0);
   });
 
+  test('con fechaVencimiento se rotula en español y NO se corre un día por la zona horaria', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    // `yyyy-mm-dd` ya normalizado por el servidor. El día 1 es el que caza el fallo: pasar la cadena
+    // a `new Date()` la lee como medianoche UTC y Colombia va cinco horas por detrás, así que el
+    // modal habría escrito «31 de enero» — un día MENOS de vigencia en el dato por el que el usuario
+    // decide si tiene que comprar otra póliza.
+    await page.route(RE_PRECONSULTA, (route) => json(route, 409, {
+      error: 'El RUNT reporta que este vehículo ya tiene un SOAT vigente.',
+      codigo: 'soat_vigente',
+      fechaVencimiento: '2027-02-01',
+    }));
+
+    await page.goto('/flito/soat/solicitud');
+    await page.getByLabel('Placa').fill(PLACA);
+    await page.getByLabel('VIN').fill(VIN);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+
+    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
+    await expect(modal.getByText(`Según el RUNT, la póliza del vehículo ${PLACA} está vigente hasta el 1 de febrero de 2027.`)).toBeVisible();
+    await expect(modal.getByText(/31 de enero/)).toHaveCount(0);
+  });
+
   test('sin fecha de vencimiento no se interpola un hueco vacío', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
+    // `fechaVencimiento` AUSENTE —no `null`, no cadena vacía—: es como el servidor dice «el RUNT
+    // reporta la vigencia por estado». No es un caso degradado: es la otra redacción del modal.
     await page.route(RE_PRECONSULTA, (route) => json(route, 409, { error: 'vigente', codigo: 'soat_vigente' }));
 
     await page.goto('/flito/soat/solicitud');
@@ -321,9 +378,12 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
 
     const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
     await expect(modal.getByText(`Según el RUNT, el vehículo ${PLACA} tiene una póliza SOAT vigente.`)).toBeVisible();
-    // «vigente hasta el .» es lo que sale de rellenar una frase con una fecha que no llegó.
+    // «vigente hasta el .» es lo que sale de rellenar una frase con una fecha que no llegó, y
+    // «hasta el Invalid Date» lo que sale de rotularla igual. Los tres asertos negativos cubren las
+    // tres formas de romperlo.
     await expect(modal.getByText(/hasta el/)).toHaveCount(0);
     await expect(modal.getByText('—')).toHaveCount(0);
+    await expect(modal.getByText(/Invalid Date|NaN/)).toHaveCount(0);
   });
 
   test('«Consultar otro vehículo» limpia los campos y devuelve el foco a Placa', async ({ page }) => {

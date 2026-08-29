@@ -204,6 +204,60 @@ export function soatVigenteSegunRunt(respuestaRunt: unknown): boolean {
   return checks.find((c) => c.key === 'soat')?.status === 'ok';
 }
 
+/**
+ * La fecha hasta la que el RUNT dice que la póliza está vigente, en `yyyy-mm-dd`, o `null`.
+ *
+ * ── Por qué es una función aparte de `soatVigenteSegunRunt` ─────────────────────────────────────
+ *
+ * Son dos preguntas distintas y conviene que no se mezclen: aquella decide SI bloquea —y esa REGLA
+ * se delega entera en `derivePreflightChecks`, que ya la sabe leer por estado y por fecha—, y esta
+ * solo copia un dato para que el modal pueda decir hasta cuándo. Fundirlas obligaría a que la regla
+ * devolviera una estructura, y el día que el pre-vuelo cambie su forma se llevaría por delante al
+ * canal.
+ *
+ * **No se saca del `message` del check**, que es donde ya está escrita («SOAT vigente hasta …»):
+ * parsear la prosa de otro módulo es exactamente el modo de fallo que este campo viene a quitarle a
+ * la pantalla. Se leen los mismos alias que lee el pre-vuelo (`fechaVencimSoat` / `fechaVencimiento`)
+ * sobre el mismo objeto.
+ *
+ * ── Y por qué normaliza a `yyyy-mm-dd` ──────────────────────────────────────────────────────────
+ *
+ * El RUNT manda `dd/MM/yyyy` casi siempre e ISO a veces. `yyyy-mm-dd` es la forma en la que este
+ * producto pasa fechas de CALENDARIO por la API, y es la que la web sabe rotular en español; pasar
+ * el texto crudo dejaría el modal escribiendo «vigente hasta el 01/02/2027» en una pantalla donde
+ * todo lo demás dice «1 de febrero de 2027». Normalizar no es inventar: es el mismo día.
+ *
+ * Lo que NO hace, y es la mitad del contrato: si el RUNT no manda fecha —reporta la vigencia solo
+ * por estado, que es un caso frecuente y legítimo— o manda algo que no es una fecha, devuelve `null`
+ * y el 409 sale SIN el campo. Ninguna fecha por defecto, ningún «hoy + un año».
+ */
+export function fechaVencimientoSoatRunt(data: unknown): string | null {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const bruto = Array.isArray(d.soat) ? d.soat[0] : d.soat;
+  const soat = (bruto ?? null) as Record<string, unknown> | null;
+  const valor = alias(soat, ['fechaVencimSoat', 'fechaVencimiento']);
+  if (!valor) return null;
+
+  // ISO (con o sin hora): se queda con el día.
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(valor);
+  if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  // `dd/MM/yyyy` y `dd-MM-yyyy`, que es como la manda la pasarela.
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(valor.trim());
+  if (dmy) return fechaValida(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+
+  return null;
+}
+
+/** `yyyy-mm-dd` si los tres números son un día del calendario; `null` si no. */
+function fechaValida(anio: number, mes: number, dia: number): string | null {
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31 || anio < 1900 || anio > 2200) return null;
+  const d = new Date(Date.UTC(anio, mes - 1, dia));
+  // Rechaza el 31 de febrero y compañía: `Date` los desborda al mes siguiente en silencio.
+  if (d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
+  return `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
 // ───────────────────────────── Guardas del alta ─────────────────────────────
 
 /** La compañía del `cliente`, con el flag del canal y la carpeta de storage ya resueltos. */
@@ -330,8 +384,15 @@ async function consultarRunt(placa: string, vin: string): Promise<ResultadoRunt>
       'El RUNT no tiene registrado un vehículo con esa placa y ese VIN. Revisa los datos.');
   }
   if (soatVigenteSegunRunt(respuesta)) {
+    // La fecha viaja como campo propio y SOLO si el RUNT la trajo: el modal tiene dos redacciones —
+    // con fecha y sin ella— y la de sin fecha no es un caso degradado, es la que corresponde cuando
+    // la pasarela reporta la vigencia por estado. Interpolar un hueco vacío sería peor que no
+    // decirlo. Es el vehículo por el que pregunta su propia compañía, así que no hay frontera que
+    // cruzar aquí: lo único que se le devuelve es lo que el RUNT acaba de responderle.
+    const fechaVencimiento = fechaVencimientoSoatRunt(respuesta.data);
     throw fallo(409, CodigoErrorSolicitudSoat.SOAT_VIGENTE,
-      'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.');
+      'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.',
+      fechaVencimiento ? { fechaVencimiento } : undefined);
   }
 
   const datos = extraerDatosCanal(respuesta.data);
@@ -355,8 +416,15 @@ async function resolverOrganismo(nombre: string | null): Promise<string> {
       .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
     if (fila) return fila.codigo;
   }
+  // `organismoNombre` va como CAMPO y no solo dentro de la frase. La pantalla necesita el dato para
+  // componer su propio texto («El RUNT lo reporta en X, que aún no está habilitado»), y sacarlo de
+  // las comillas del mensaje ata una redacción a una expresión regular: el día que alguien corrija
+  // la frase, la UI deja de encontrarlo sin que ningún test se entere. `null` cuando el RUNT no
+  // reporta organismo —que es la OTRA variante del copy— y la clave viaja igualmente, para que
+  // «no vino» se distinga de «no lo mandaron».
   throw fallo(422, CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
-    `El organismo de tránsito que reporta el RUNT${nombre ? ` («${nombre}»)` : ''} no está en el catálogo de FLITO. Escríbenos para habilitarlo.`);
+    `El organismo de tránsito que reporta el RUNT${nombre ? ` («${nombre}»)` : ''} no está en el catálogo de FLITO. Escríbenos para habilitarlo.`,
+    { organismoNombre: nombre ?? null });
 }
 
 // ───────────────────────────── Preconsulta ──────────────────────────────────

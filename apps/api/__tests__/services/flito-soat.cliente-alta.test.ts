@@ -290,6 +290,28 @@ describe('AC2 — el RUNT falla o el organismo no está en el catálogo: no se c
     nadaEscrito();
   });
 
+  it('**el 422 lleva `organismoNombre` como CAMPO, no escondido entre las comillas del mensaje**', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    // Con el valor exacto: la pantalla compone su propia frase («El RUNT lo reporta en X…») y no
+    // puede depender de una expresión regular sobre la prosa del servidor, que se reescribe el día
+    // que alguien mejore el texto y deja de encontrar el dato SIN que nada falle.
+    expect(r.body.organismoNombre).toBe('STRIA TTO DE MARTE');
+  });
+
+  it('el RUNT sin organismo → la clave viaja igual, con `null`: «no vino» no es «no lo mandaron»', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('organismo_no_catalogado');
+    expect(Object.keys(r.body)).toContain('organismoNombre');
+    expect(r.body.organismoNombre).toBeNull();
+  });
+
   it('organismo del catálogo pero SIN configurar en esta instalación → 422, no un 500 de la FK', async () => {
     // La segunda comprobación, la que mucha gente se salta: `flito_soat.organismo_codigo` tiene FK a
     // `organismos_transito_config`. Sin este paso, el INSERT muere con un 23503 y el cliente recibe
@@ -308,17 +330,53 @@ describe('AC2 — el RUNT falla o el organismo no está en el catálogo: no se c
 describe('AC3 — el RUNT dice que ya tiene SOAT vigente: bloqueo con código propio', () => {
   it('**SOAT vigente por fecha → 409 `soat_vigente`, sin fila y sin compra**', async () => {
     escenario();
-    const dentroDeUnAnio = new Date(Date.now() + 365 * 24 * 3600 * 1000);
+    const dentroDeUnAnio = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, {
-      estadoSoat: 'VIGENTE', fechaVencimSoat: dentroDeUnAnio.toISOString().slice(0, 10),
+      estadoSoat: 'VIGENTE', fechaVencimSoat: dentroDeUnAnio,
     }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(409);
     // Código PROPIO y distinguible del 409 de RN-01: el front pinta dos cosas distintas.
     expect(r.body.codigo).toBe('soat_vigente');
+    // El RUNT también responde en ISO según el tipo de consulta: esa rama tiene que pasar el día
+    // intacto, no caerse al `null` de «no se pudo leer».
+    expect(r.body.fechaVencimiento).toBe(dentroDeUnAnio);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
     expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('**el 409 lleva `fechaVencimiento` en `yyyy-mm-dd` cuando el RUNT la trae**', async () => {
+    escenario();
+    // Formato real de la pasarela: `dd/MM/yyyy`. Sale normalizado, que es como este producto pasa
+    // fechas de calendario por la API y lo que la web sabe rotular en español.
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2027' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('soat_vigente');
+    expect(r.body.fechaVencimiento).toBe('2027-02-01');
+  });
+
+  it('el RUNT que reporta vigencia SOLO por estado → 409 SIN el campo (no se inventa una fecha)', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('soat_vigente');
+    // Ausente, no `null` ni cadena vacía: el modal elige entre DOS redacciones y la de sin fecha es
+    // una frase entera, no una con un hueco.
+    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
+  });
+
+  it('una «fecha» que no lo es se descarta: el campo se omite en vez de viajar rota', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '31/02/2027' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(409);
+    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
   });
 
   it('SOAT VENCIDO → sí se crea (el bloqueo no puede ser «siempre»)', async () => {

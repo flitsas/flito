@@ -444,7 +444,6 @@ function BandaFalloRunt({ fallo, placa, onReintentar, botonRef }: {
   fallo: FalloCanal; placa: string; onReintentar: () => void;
   botonRef: RefObject<HTMLButtonElement>;
 }) {
-  const organismo = nombreOrganismo(fallo);
   const catalogo = fallo.codigo === CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO;
   const sinRegistro = fallo.codigo === CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO;
 
@@ -455,9 +454,7 @@ function BandaFalloRunt({ fallo, placa, onReintentar, botonRef }: {
       : 'No pudimos consultar el RUNT.';
 
   const cuerpo = catalogo
-    ? (organismo
-      ? `El RUNT lo reporta en ${organismo}, que aún no está habilitado en FLITO. Escríbale a su contacto en FLIT con la placa ${placa}.`
-      : 'El RUNT no reporta el organismo de tránsito de este vehículo, y sin ese dato no podemos radicar la solicitud.')
+    ? cuerpoOrganismo(fallo, placa)
     : sinRegistro
       ? 'Verifique los dos datos en la tarjeta de propiedad. Si son correctos y el vehículo es nuevo, es posible que el RUNT todavía no lo haya indexado.'
       : 'El servicio no respondió. Vuelva a intentarlo en unos minutos; la placa y el VIN siguen escritos aquí.';
@@ -479,18 +476,23 @@ function BandaFalloRunt({ fallo, placa, onReintentar, botonRef }: {
 }
 
 /**
- * El nombre del organismo que el RUNT reportó, para el texto del 422.
+ * El cuerpo del 422 de organismo, elegido por el CAMPO `organismoNombre` y no por el texto.
  *
- * **Se lee del mensaje del servidor y eso es una concesión consciente**, no el patrón: el
- * discriminador sigue siendo `codigo` y esto es solo el hueco de una frase. El backend compone
- * `…que reporta el RUNT («NOMBRE») no está…` y solo pone el paréntesis cuando el RUNT SÍ reportó un
- * nombre, así que la ausencia de `«…»` significa exactamente «el RUNT no lo reporta», que es la otra
- * variante del copy. Si el mensaje cambiara, se cae a esa variante —una frase correcta— y no a un
- * hueco vacío. Lo limpio sería que el 422 trajera `organismoNombre` en su cuerpo: queda pedido.
+ * Los tres estados del campo son tres cosas distintas y por eso hay tres salidas:
+ *
+ *   · **nombre** → se nombra: es lo que le permite al usuario reconocer su organismo y citarlo
+ *     cuando escriba a FLIT.
+ *   · **`null`** → el servidor AFIRMA que el RUNT no lo reporta, así que la pantalla puede
+ *     afirmarlo también. Sin ese dato no hay a qué proveedor mandar el caso y no se puede radicar.
+ *   · **ausente** → nadie ha afirmado nada sobre el RUNT (un servidor anterior a este contrato). Se
+ *     usa el mensaje del servidor tal cual: es correcto y no inventa una afirmación que no se tiene.
  */
-function nombreOrganismo(fallo: FalloCanal): string | null {
-  const m = /«([^»]+)»/.exec(fallo.mensaje);
-  return m ? m[1] : null;
+function cuerpoOrganismo(fallo: FalloCanal, placa: string): string {
+  if (fallo.organismoNombre === undefined) return fallo.mensaje;
+  if (fallo.organismoNombre === null) {
+    return 'El RUNT no reporta el organismo de tránsito de este vehículo, y sin ese dato no podemos radicar la solicitud.';
+  }
+  return `El RUNT lo reporta en ${fallo.organismoNombre}, que aún no está habilitado en FLITO. Escríbale a su contacto en FLIT con la placa ${placa}.`;
 }
 
 // ───────────────────────────── Validación ────────────────────────────────────────────────────────
