@@ -310,3 +310,56 @@ export const PRIORIDAD_POR_AMBITO: Record<AmbitoReglaProveedor, number> = {
   organismo: 20,
   global: 30,
 };
+
+// ── Canal Cliente: catálogos que la pantalla de alta y la API tienen que compartir ────────────────
+// (Feature #11912, HU #11914 — ADR-0008 §6)
+
+/**
+ * Tipos de documento del propietario, catálogo RUNT (AC1 de la HU #11914).
+ *
+ * Vive en shared-types y no en `apps/api/src/modules/runt/runt-tipo-doc.ts` porque lo necesitan LOS
+ * DOS lados: el `z.enum` del alta y el desplegable del formulario. `runt-tipo-doc.ts` sigue siendo
+ * el que TRADUCE cada uno al código de la pasarela (`CC → C`, `PPT → Y`…); esto es solo el catálogo
+ * de lo que el producto ofrece, y un test de la API afirma que los ocho valores de aquí tienen
+ * traducción allí — si alguien añade uno sin mapearlo, la consulta saldría con el tipo en blanco.
+ *
+ * El orden es el del refinamiento y es el que la pantalla pinta.
+ */
+export const TIPOS_DOCUMENTO_RUNT = ['CC', 'CE', 'TI', 'PAS', 'PPT', 'NIT', 'RC', 'PT'] as const;
+
+export type TipoDocumentoRunt = (typeof TIPOS_DOCUMENTO_RUNT)[number];
+
+/**
+ * Códigos de error del alta del canal Cliente. Van en el cuerpo (`{ error, codigo }`) JUNTO al
+ * estado HTTP, no en su lugar.
+ *
+ * **Por qué existen, y por qué en shared-types.** Los AC2, AC3 y AC4 piden tres desenlaces que el
+ * formulario tiene que distinguir para poder responder distinto: reintentar (el RUNT falló), pintar
+ * un modal («ya tiene SOAT vigente») o mandar al detalle de la solicitud que ya existe (RN-01). Tres
+ * respuestas distintas del mismo `409`/`422` no se pueden separar por el estado HTTP, y separarlas
+ * comparando el TEXTO del mensaje es lo que rompe la próxima vez que alguien corrija una tilde.
+ *
+ * Ninguno de estos códigos lleva dato del vehículo ni del propietario: son constantes, y el mensaje
+ * que los acompaña es el que se le enseña a una persona.
+ */
+export const CodigoErrorSolicitudSoat = {
+  /** El usuario `cliente` no tiene compañía (el CHECK de la 0168 lo impide; esto es la red). */
+  SIN_COMPANIA: 'sin_compania',
+  /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
+  CANAL_DESACTIVADO: 'canal_desactivado',
+  /** El RUNT no respondió o respondió un fallo (AC2) → el formulario puede reintentar. */
+  RUNT_NO_DISPONIBLE: 'runt_no_disponible',
+  /** El RUNT respondió, pero no tiene ese vehículo registrado (AC2). */
+  RUNT_SIN_REGISTRO: 'runt_sin_registro',
+  /** El organismo que reporta el RUNT no cruza con el catálogo de FLITO (AC2). */
+  ORGANISMO_NO_CATALOGADO: 'organismo_no_catalogado',
+  /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
+  SOAT_VIGENTE: 'soat_vigente',
+  /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
+  VIN_YA_TIENE_SOAT: 'vin_ya_tiene_soat',
+  /** El adjunto no es un PDF por CONTENIDO, no solo por extensión (AC5). */
+  ARCHIVO_NO_PDF: 'archivo_no_pdf',
+} as const;
+
+export type CodigoErrorSolicitudSoat =
+  (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];

@@ -341,6 +341,21 @@ function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
         sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft JOIN ${flitoCompradores} fc ON fc.tramite_id = ft.id
               WHERE ft.soat_id = ${flitoSoat.id}
                 AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
+        // La MISMA búsqueda por el OTRO padre de `flito_compradores` (Feature #11912, HU #11914).
+        //
+        // Sin esta rama, buscar por propietario devuelve MENOS FILAS DE LAS QUE HAY, en verde: una
+        // solicitud del canal Cliente tiene `tramite_id IS NULL`, así que no entra por el JOIN de
+        // arriba y el EXISTS da FALSE — el admin que filtra por el nombre del propietario para
+        // revisarla no la encuentra y nada le dice que falta. Es el peor modo de fallo de una
+        // pantalla de revisión, y por eso la auditoría de esquema lo puso como carga de esta HU.
+        //
+        // Dos EXISTS y no un LEFT JOIN con un OR dentro: cada uno usa su índice
+        // (`idx_flito_compradores_tramite` / `idx_flito_compradores_soat`), y las dos ramas se leen
+        // por separado — la del trámite puede tener VARIOS compradores por SOAT y la del canal tiene
+        // exactamente uno.
+        sql`EXISTS (SELECT 1 FROM ${flitoCompradores} fc
+              WHERE fc.soat_id = ${flitoSoat.id}
+                AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
       )!,
     );
   }

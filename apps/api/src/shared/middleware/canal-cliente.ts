@@ -78,9 +78,9 @@ export interface RutaCliente {
  * el shell (`components/shell/*`, `App.tsx`) no pide nada al API, la ayuda in-app es markdown del
  * bundle y `/flito/parametrizacion/proveedores-soat` está detrás de `if (!esOperaciones) return`.
  *
- * **Crece con las HUs #11914 (radicar) y #11915 (subsanar/revisión)**, que son las que le dan al
- * canal sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe
- * con su `porque` o no se escribe.
+ * **Creció con la HU #11914 (radicar) y crecerá con la #11915 (subsanar/revisión)**, que son las que
+ * le dan al canal sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se
+ * escribe con su `porque` o no se escribe.
  *
  * Fuera a propósito, aunque el `cliente` las use:
  *   · `POST /api/auth/login` — no pasa por `authMiddleware` (todavía no hay usuario); este guarda no
@@ -117,6 +117,18 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
   {
     metodo: 'GET', patron: '/api/flito/soat/:id/soportes',
     porque: 'El visor de documentos del detalle. Los de origen interno se filtran en la consulta.',
+  },
+  // ── Las DOS rutas de ESCRITURA del canal (HU #11914). Son las primeras de esta lista que no son
+  // una lectura, y por eso llevan encima tres cosas que las de arriba no necesitan: `requireRole
+  // ('cliente')` en su propio router, un rate limit propio (`soatClienteLimiter`) y validación del
+  // MIME REAL del adjunto. Esta entrada solo dice que el rol puede ALCANZARLAS.
+  {
+    metodo: 'POST', patron: '/api/flito/soat/cliente/preconsulta',
+    porque: 'Paso 1 del alta: sin el RUNT no hay marca, línea, organismo ni bloqueo por SOAT vigente, y el formulario no podría empezar.',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/soat/cliente',
+    porque: 'Radicar la solicitud. Es la razón de ser del canal; sin ella el rol solo mira.',
   },
 ];
 

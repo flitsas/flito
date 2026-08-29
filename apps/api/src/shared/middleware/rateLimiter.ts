@@ -139,3 +139,38 @@ export const pesvUploadLimiter = rateLimit({
   message: { error: 'Demasiadas evidencias subidas. Espere 15 minutos.' },
   store: makeStore('rl:pesv-up:'),
 });
+
+/**
+ * Canal Cliente de SOAT: 20 peticiones / 15 min / usuario (Feature #11912, HU #11914, AC5).
+ *
+ * ── Por qué el alta necesita freno propio, y no le basta el `apiLimiter` ────────────────────────
+ *
+ * `apiLimiter` es 500/15min POR IP y está pensado para una plantilla que trabaja desde la oficina.
+ * Estas dos rutas son otra cosa: las llama un principal EXTERNO —el primer rol que entra desde fuera
+ * de la operación— y cada llamada dispara una consulta al RUNT (servicio de pago, por pasarela) y,
+ * en el alta, además una subida de hasta 15 MB a MinIO y una escritura en cinco tablas. Una cuenta
+ * de cliente comprometida podía quemar 500 consultas al RUNT y llenar el bucket antes de que nadie
+ * mirara.
+ *
+ * ── Por qué UN limitador para las DOS rutas y no uno por ruta ───────────────────────────────────
+ *
+ * Comparten llave (`soat-cliente:<sub>`), así que comparten contador, y eso es lo que se busca: el
+ * flujo real es preconsultar y radicar: 2 peticiones por solicitud. 20 son diez solicitudes en
+ * quince minutos, muy por encima de lo que una persona teclea y muy por debajo de lo que sirve para
+ * enumerar placas contra el RUNT. Dos contadores separados dejarían la preconsulta —que es la
+ * llamada CARA y la que se puede usar para sondear— con su propio presupuesto entero.
+ *
+ * `userOrIpKey` y no la IP pelada: el canal es autenticado y varios usuarios de la misma compañía
+ * salen por la misma IP corporativa. Frenar por IP castigaría a la compañía por lo que hace una
+ * cuenta.
+ */
+export const soatClienteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-cliente:'),
+  handler: frenoConRastro('soat-cliente'),
+  message: { error: 'Demasiadas solicitudes de SOAT. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-cliente:'),
+});
