@@ -25,7 +25,13 @@ vi.mock('../../src/db/client.js', () => ({
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 
-beforeEach(() => { selectMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset(); });
+beforeEach(async () => {
+  selectMock.mockReset(); updateMock.mockReset(); transactionMock.mockReset();
+  // La bitácora se afirma en AC1/AC2 (desde la HU #11913 es ella, y no la frase del historial,
+  // quien guarda el uuid del proveedor): sin limpiarla, `.at(-1)` podría ser de otra prueba.
+  const { audit } = await import('../../src/shared/middleware/audit.js');
+  (audit as unknown as ReturnType<typeof vi.fn>).mockClear();
+});
 
 const SOAT_ID = '00000000-0000-0000-0000-000000000001';
 const PROVEEDOR_ID = '00000000-0000-0000-0000-0000000000aa';
@@ -212,7 +218,9 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
   it('AC1 — asumir marca la contingencia, conserva estado, fecha de envío y proveedor de origen', async () => {
     selectMock.mockReturnValueOnce(chain([soatEn()]));
     selectMock.mockReturnValue(chain([])); // el detalle de la respuesta
-    const { sets, inserts } = montarTx();
+    // La fila que devuelve el `returning()` conserva su proveedor, como en la base: el traspaso no
+    // toca esa columna. La ruta lee de ahí el uuid que anota en la bitácora (AC8).
+    const { sets, inserts } = montarTx([{ id: SOAT_ID }], { id: SOAT_ID, proveedorSoatId: PROVEEDOR_ID });
 
     const r = await asumir('admin', { motivo: 'el proveedor no responde desde el lunes' });
 
@@ -227,15 +235,27 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
     expect(sets[0]).not.toHaveProperty('enviadoEn');
     expect(sets[0]).not.toHaveProperty('proveedorSoatId');
 
-    // AC8 — el historial dice de quién se retomó.
     expect(historial(inserts)[0]).toMatchObject({
       concepto: 'soat',
       estadoAnterior: 'solicitado',
       estadoNuevo: 'solicitado',
       usuarioId: USER_ID,
     });
-    expect(historial(inserts)[0].motivo).toContain(PROVEEDOR_ID);
+    // El historial conserva la explicación de la persona, que es lo que nadie más guarda.
     expect(historial(inserts)[0].motivo).toContain('el proveedor no responde desde el lunes');
+
+    // ── AC8 — «de quién se retomó», después de la corrección de seguridad de la HU #11913 ────────
+    //
+    // El uuid del proveedor SALE de la frase del historial. No se pierde el dato: sigue en la
+    // COLUMNA `proveedor_soat_id` —que este mismo test comprueba arriba que el traspaso no toca— y
+    // en la bitácora, que es donde se audita. Estaba en los tres sitios, y el historial es el único
+    // de los tres que un lector EXTERNO llega a pedir (`GET /:id/historial`, abierto al rol
+    // `cliente` desde el Feature #11912): un identificador de proveedor metido en una frase viaja
+    // fuera del DTO que precisamente se lo quita a ese rol. Mismo criterio que con el importe del
+    // pago: que el dato viva en su columna y no también en un texto.
+    const { audit } = await import('../../src/shared/middleware/audit.js');
+    const detalleAuditado = (audit as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1]?.detail as string;
+    expect(detalleAuditado).toContain(PROVEEDOR_ID);
   });
 
   it('AC2 — devolver limpia las marcas y asigna el proveedor de destino', async () => {
@@ -255,7 +275,13 @@ describe('flito-soat — asumir y devolver la gestión (HU #11153)', () => {
       proveedorSoatId: PROVEEDOR_DESTINO,
       proveedorSobrescrito: true,
     });
-    expect(historial(inserts)[0].motivo).toContain(PROVEEDOR_DESTINO);
+    // El destino ya está afirmado arriba, en la columna que lo guarda. La frase del historial no lo
+    // repite desde la HU #11913 (ver AC8, más arriba); la bitácora sí lo anota.
+    expect(historial(inserts)[0].motivo).toContain('el proveedor ya puede retomarlo');
+    expect(historial(inserts)[0].motivo).not.toContain(PROVEEDOR_DESTINO);
+    const { audit } = await import('../../src/shared/middleware/audit.js');
+    const detalleAuditado = (audit as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1]?.detail as string;
+    expect(detalleAuditado).toContain(PROVEEDOR_DESTINO);
   });
 
   it('AC3 — un SOAT Con novedad también se puede asumir, y conserva su estado', async () => {

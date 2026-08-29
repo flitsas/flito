@@ -205,6 +205,18 @@ export function createApp() {
   app.use('/api/auth/login', authLimiter);
   app.use('/api', apiLimiter);
 
+  // ── Dónde está la frontera del rol `cliente` (Feature #11912) ───────────────────────────────
+  //
+  // No hay un `app.use` de negación aquí, y no es un olvido: en esta aplicación la autenticación
+  // NO vive en `app.ts` —cada router monta `authMiddleware`—, así que un middleware colocado en
+  // esta lista vería `req.user === undefined` y no podría decidir nada sin verificar el JWT por
+  // segunda vez en cada petición de toda la API.
+  //
+  // La negación por defecto para `cliente` —el primer principal externo a FLIT— se aplica desde el
+  // final de `authMiddleware`, que es el único punto donde la autenticación termina, con la
+  // allowlist de `shared/middleware/canal-cliente.ts`. Un router nuevo montado en esta lista nace
+  // CERRADO para ese rol; para abrirle una ruta hay que escribirla allí con su motivo.
+
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
   app.use('/api/files', filesRoutes); // descargas por token HMAC firmado — pública (el token es la auth)

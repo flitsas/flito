@@ -23,9 +23,9 @@
 //
 // Se midieron los CINCO consumidores de `GET /clients` que hay en la aplicación, campo por campo:
 //
-//   · `pages/Clients.tsx` — el listado: nombre, tipo y número de documento, ciudad, teléfono, correo
-//     y los cuatro interruptores de autogestión. (`notes` y `active` están declarados en su
-//     interfaz y NO los lee nadie; ver abajo.)
+//   · `pages/Clients.tsx` — el listado: nombre, tipo y número de documento, ciudad, teléfono, correo,
+//     los cuatro interruptores de autogestión y —desde el Feature #11912— el de «SOAT sin trámite».
+//     (`notes` y `active` están declarados en su interfaz y NO los lee nadie; ver abajo.)
 //   · `components/clientes/FichaFiscal.tsx` — `/clients?limit=500`, y de ahí sale la ficha entera:
 //     tipo de persona, tipo y número de identificación, dígito de verificación, responsabilidades
 //     fiscales, dirección, país/departamento/ciudad, nombre comercial, sucursal, nombre y los cinco
@@ -33,7 +33,7 @@
 //   · `pages/FlitoBolsas.tsx` y `pages/FlitoConciliacion.tsx` — solo `id` y `name`.
 //   · `pages/RndcRemesaForm.tsx` — `id`, `name` y `document`.
 //
-// La unión son las 26 columnas de `COLUMNAS_LISTADO`, de las 36 que tiene la tabla. El recorte no es
+// La unión son las 27 columnas de `COLUMNAS_LISTADO`, de las 37 que tiene la tabla. El recorte no es
 // cosmético aunque sea de diez columnas: tres de ellas son personales —`notes` (texto libre, que es
 // donde acaba cualquier cosa), `city_texto_origen` (la ubicación que tenía la ficha antes de
 // confirmarse) y `flito_carpeta_storage` (que se deriva del NIT)— y las otras siete son internas
@@ -67,6 +67,11 @@ export const COLUMNAS_LISTADO = {
   address: clients.address,
   city: clients.city,
   soatAutogestionable: clients.soatAutogestionable,
+  // Feature #11912. Sale por AQUÍ y no por `/flito/parametrizacion/companias` porque `Clients.tsx`
+  // pinta su columna en la misma tabla: cruzar dos rutas para una casilla dejaba a `financiera` —que
+  // ve esta pantalla pero NO entra a parametrización (`requireRole('admin','auditor')`)— con un «—»
+  // permanente que no distingue «apagado» de «no lo puedo leer».
+  soatSinTramite: clients.soatSinTramite,
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
   logisticaPermiteParcial: clients.logisticaPermiteParcial,
@@ -113,6 +118,10 @@ const COLUMNAS_IMPERSONALES = new Set<ClaveListado>([
   'id',
   'documentType',
   'soatAutogestionable',
+  // Parametrización, como sus vecinas: dice qué canal tiene abierto la compañía, no quién es. Va
+  // clasificada aquí Y en `CLIENTS_COLUMNAS_SIN_PII` (`shared-types/siigo-terceros.ts`), que son dos
+  // canarios distintos: aquel cubre la tabla entera, este solo lo que esta ruta entrega.
+  'soatSinTramite',
   'impuestosAutogestionable',
   'logisticaAutogestionable',
   'logisticaPermiteParcial',

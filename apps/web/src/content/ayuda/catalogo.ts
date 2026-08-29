@@ -55,7 +55,10 @@ export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
 
 export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', resumen: 'Cómo despachar SOAT, impuestos y entregas.', to: '/flito/tramites', permiso: 'flito_tramites' },
-  { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', resumen: 'Cola de pólizas del proveedor.', to: '/flito/soat', permiso: 'soat' },
+  // La ficha describe `/flito/soat`, y desde el Feature #11912 esa pantalla tiene llave propia:
+  // `flito_soat`, no la `soat` del módulo legacy (`/soat`, `Soat.tsx`). Dejar `permiso: 'soat'`
+  // ataría la ayuda de una pantalla al permiso de OTRA (ADR-0008 §4).
+  { clave: 'soat', grupo: 'gestion', etiqueta: 'SOAT', resumen: 'Cola de pólizas del proveedor.', to: '/flito/soat', permiso: 'flito_soat' },
   { clave: 'flito_impuestos', grupo: 'gestion', etiqueta: 'Impuestos', resumen: 'Cola de recibos del gestor de impuestos.', to: '/flito/impuestos', permiso: 'flito_impuestos' },
   { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos de tránsito', resumen: 'Lo que el organismo cobra por radicar.', to: '/flito/derechos', permiso: 'flito_derechos' },
   { clave: 'flito_revisiones', grupo: 'gestion', etiqueta: 'Revisiones OCR', resumen: 'Cola de confirmación de campos leídos.', to: '/flito/revisiones', permiso: 'flito_revisiones' },

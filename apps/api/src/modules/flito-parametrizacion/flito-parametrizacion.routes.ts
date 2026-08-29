@@ -51,6 +51,11 @@ function companiaDto(c: typeof clients.$inferSelect) {
     nombre: c.name,
     nit: c.document,
     soatAutogestionable: c.soatAutogestionable,
+    // Feature #11912 — «SOAT sin trámite»: el canal por el que un usuario `cliente` de esta compañía
+    // le pide a FLITO un SOAT sin que haya trámite digital abierto. Campo APARTE y no derivado de
+    // `soatAutogestionable`: son dos preguntas distintas y las dos encendidas a la vez es una
+    // combinación válida (AC3).
+    soatSinTramite: c.soatSinTramite,
     impuestosAutogestionable: c.impuestosAutogestionable,
     logisticaAutogestionable: c.logisticaAutogestionable,
     logisticaPermiteParcial: c.logisticaPermiteParcial,
@@ -66,6 +71,7 @@ router.get('/companias', LECTURA, async (_req: Request, res: Response) => {
 
 const actualizarCompaniaSchema = z.object({
   soatAutogestionable: z.boolean().optional(),
+  soatSinTramite: z.boolean().optional(),
   impuestosAutogestionable: z.boolean().optional(),
   logisticaAutogestionable: z.boolean().optional(),
   logisticaPermiteParcial: z.boolean().optional(),
@@ -82,6 +88,9 @@ router.patch('/companias/:id', ESCRITURA, async (req: Request, res: Response) =>
   const cambios = parsed.data;
   const set: Partial<typeof clients.$inferInsert> = {};
   if (cambios.soatAutogestionable !== undefined) set.soatAutogestionable = cambios.soatAutogestionable;
+  // Cada bandera se escribe SOLA. Un `set.soatSinTramite = false` colgado del `if` de la autogestión
+  // sería justo lo que el AC3 prohíbe: apagar una y que se apague la otra.
+  if (cambios.soatSinTramite !== undefined) set.soatSinTramite = cambios.soatSinTramite;
   if (cambios.impuestosAutogestionable !== undefined) set.impuestosAutogestionable = cambios.impuestosAutogestionable;
   if (cambios.logisticaAutogestionable !== undefined) set.logisticaAutogestionable = cambios.logisticaAutogestionable;
   if (cambios.logisticaPermiteParcial !== undefined) set.logisticaPermiteParcial = cambios.logisticaPermiteParcial;

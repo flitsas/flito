@@ -76,6 +76,22 @@ export const CONDUCTOR_USER = {
   allowedPages: [] as string[],
 };
 
+// FLITO — Cliente (Feature #11912): el primer rol EXTERNO a la operación. Una sola página
+// (`flito_soat`) y sin `dashboard`, así que es también el primer usuario que ejercita `rutaInicio`.
+//
+// `companiaId` va en el fixture aunque hoy la interfaz no lo lea: la compañía es su frontera de
+// datos —el servidor la aplica, no la UI— y un Cliente de prueba sin ella no existe en producción.
+// `allowedPages` vacío a propósito: sus permisos salen de los defaults del rol, que es lo que hay
+// que comprobar, y no de una concesión a mano.
+export const CLIENTE_USER = {
+  id: 13,
+  username: 'e2e_cliente',
+  name: 'Cliente E2E',
+  role: 'cliente' as const,
+  allowedPages: [] as string[],
+  companiaId: 1,
+};
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>

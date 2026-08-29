@@ -39,16 +39,20 @@ interface SoatItem {
       lo pinta esta página, no el backend. */
   cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
   estado: EstadoSoat; esMultiplePropietario: boolean; companiaNombre: string;
-  organismoNombre: string | null; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
-  /** true = lo gestiona Operaciones por contingencia. El proveedor puede seguir viniendo: es de
-      quién se retomó, no quién lo trabaja (HU #11152/#11153). */
-  gestionOperaciones: boolean;
+  organismoNombre: string | null;
+  /** Los cinco campos OPCIONALES son los que el backend NO le manda al rol `cliente` (Feature
+      #11912): con qué proveedor tiene FLITO contratada la adquisición, si el caso lo retomó
+      Operaciones, qué empleado lo despachó y cuánto pagó FLITO por la póliza. `?` y no `| null`
+      porque la diferencia es real y conviene que se note: no llegan vacíos, no llegan. Lo que los
+      pinta va detrás de `!esCliente`; el `?` es la red por si alguna vez se olvida una guarda. */
+  proveedorSoatId?: string | null; proveedorSoatNombre?: string | null;
+  gestionOperaciones?: boolean;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
   /** Datos del trámite. Null cuando el SOAT sirve a varios que no coinciden (es por VIN, RN-01). */
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
-  enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
-  valorPagado: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  enviadoPorNombre?: string | null; enviadoEn: string | null; pagadoEn: string | null;
+  valorPagado?: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
 interface ColaSoat { items: SoatItem[]; total: number; page: number; pageSize: number }
@@ -58,10 +62,17 @@ interface FacetasSoat {
   proveedores: { id: string; nombre: string }[];
 }
 
+// Los dos últimos son del canal Cliente (Feature #11912) y hoy solo los pinta esta cola cuando el
+// admin la mira: quien los ESCRIBE es la #11914 (alta) y la #11915 (revisión). Se completan aquí
+// porque el `Record<EstadoSoat, …>` exhaustivo lo exige, y esa exigencia es justo la red que impide
+// que un estado nuevo salga en blanco. `pendiente_revision` va en `warning` —espera acción de
+// Operaciones, como el `pendiente` de la pantalla de trámites— y `rechazada` en `danger`, junto a
+// `con_novedad`, que es el otro «esto volvió sin resolverse».
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  pendiente_revision: 'warning', rechazada: 'danger',
 };
-const pesos = (v: number | null) => v === null ? '—'
+const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
 /** Un dato de texto de FLIT, tal cual llega. Ausente —`null` o vacío— se pinta «—» (HU #11906, AC2):
     un hueco en blanco se confunde con un fallo de carga, y esto no lo es. No transforma el valor. */
@@ -76,6 +87,11 @@ export default function FlitoSoat() {
   const esOperaciones = puedeOperar(user?.role);
   const esGestor = user?.role === 'proveedor';
   const soloLectura = user?.role === 'auditor';
+  // Usuario de una compañía cliente (Feature #11912). No ve nada de la trastienda: ni con qué
+  // proveedor trabaja FLITO, ni quién lo despachó, ni lo que FLITO pagó por la póliza. El backend
+  // ya no se lo manda —esa es la garantía—; esto es lo que evita que la pantalla pinte columnas
+  // vacías de datos que para él no existen.
+  const esCliente = user?.role === 'cliente';
 
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
@@ -220,14 +236,16 @@ export default function FlitoSoat() {
           <ThFiltroMulti seleccion={organismosSel} onCambio={setOrganismosSel} placeholder="Organismo"
             vacio="Sin organismos en la cola"
             opciones={(facetas?.organismos ?? []).map((o) => ({ value: o.codigo, label: o.nombre ?? o.codigo }))} />
-          {/* Al gestor no se le ofrece: ya está atado a su proveedor y elegir otro solo vaciaría la cola. */}
-          {!esGestor && (
+          {/* Al gestor no se le ofrece: ya está atado a su proveedor y elegir otro solo vaciaría la
+              cola. Al cliente tampoco: los nombres de los proveedores son justo lo que el backend le
+              quita de cada fila, y `facetasCola` se los devuelve vacíos. */}
+          {!esGestor && !esCliente && (
             <ThFiltroMulti seleccion={proveedoresSel} onCambio={setProveedoresSel} placeholder="Proveedor"
               vacio="Sin proveedores en la cola"
               opciones={(facetas?.proveedores ?? []).map((p) => ({ value: p.id, label: p.nombre }))} />
           )}
 
-          {!esGestor && (
+          {!esGestor && !esCliente && (
             <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
               Gestiona
               <select className={`${flitInp} max-w-[11rem]`} value={gestionSel}
@@ -296,9 +314,11 @@ export default function FlitoSoat() {
                     en silencio el día que alguien lo reordene. */}
                 <FlitTh>Vehículo</FlitTh><FlitTh>Fechas</FlitTh>
                 <FlitTh>Compañía</FlitTh>
-                <FlitTh>Gestiona</FlitTh><FlitTh>Estado</FlitTh>
+                {!esCliente && <FlitTh>Gestiona</FlitTh>}
+                <FlitTh>Estado</FlitTh>
                 <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
-                <FlitTh>Valor</FlitTh><FlitTh />
+                {!esCliente && <FlitTh>Valor</FlitTh>}
+                <FlitTh />
               </FlitTr>
             </thead>
             <tbody>
@@ -317,7 +337,7 @@ export default function FlitoSoat() {
                     multiplePropietario={f.esMultiplePropietario} />
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
-                  <CeldaGestion soat={f} />
+                  {!esCliente && <CeldaGestion soat={f} />}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
@@ -333,7 +353,7 @@ export default function FlitoSoat() {
                     )}
                   </td>
                   <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>
+                  {!esCliente && <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>}
                   <td className="px-3 py-2">
                     <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setDetalleId(f.id)}>Ver</button>
                   </td>
@@ -350,6 +370,7 @@ export default function FlitoSoat() {
 
       {detalle && (
         <DetalleSoat soat={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
+          esCliente={esCliente}
           proveedores={proveedores} onClose={() => setDetalleId(null)}
           onCambio={() => { setDetalleId(null); refrescar(); }} />
       )}
@@ -474,8 +495,8 @@ function CeldaGestion({ soat }: { soat: SoatItem }) {
 
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura' | 'asumir' | 'devolver';
 
-function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, onClose, onCambio }: {
-  soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
+function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, onClose, onCambio }: {
+  soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean; esCliente: boolean;
   proveedores: Proveedor[]; onClose: () => void; onCambio: () => void;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
@@ -516,11 +537,16 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, proveedores, 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
           <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
           <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
-          <Dato k="Gestiona" v={soat.gestionOperaciones
-            ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
-            : soat.proveedorSoatNombre ?? '—'} />
-          <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} /><Dato k="Enviado" v={fecha(soat.enviadoEn)} />
-          <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />
+          {/* Los tres datos de la trastienda. No se pintan «—» para el cliente: se omiten, porque el
+              backend no se los manda y una fila vacía sugiere un dato que existe y no cargó. */}
+          {!esCliente && (
+            <Dato k="Gestiona" v={soat.gestionOperaciones
+              ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
+              : soat.proveedorSoatNombre ?? '—'} />
+          )}
+          {!esCliente && <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} />}
+          <Dato k="Enviado" v={fecha(soat.enviadoEn)} />
+          {!esCliente && <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />}
           {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
               reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
               SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}

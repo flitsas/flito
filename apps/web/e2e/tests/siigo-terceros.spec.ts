@@ -213,7 +213,7 @@ async function mockFichaFiscal(page: Page, pedidos: number[]) {
       ? route.fulfill(json([{
         id: CARGA_RAPIDA.clienteId, name: CARGA_RAPIDA.nombre, document: '901222333',
         documentType: 'NIT', phone: null, email: null, address: null, city: 'Km 5 vía Cota',
-        soatAutogestionable: false, impuestosAutogestionable: false,
+        soatAutogestionable: false, soatSinTramite: false, impuestosAutogestionable: false,
         logisticaAutogestionable: false, logisticaPermiteParcial: false,
         personType: null, idType: null, checkDigit: null, fiscalResponsibilities: [],
         countryCode: null, stateCode: null, cityCode: null, commercialName: null, branchOffice: 0,

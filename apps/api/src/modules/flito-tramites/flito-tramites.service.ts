@@ -22,7 +22,9 @@ import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impu
 
 export interface TramitesCtx { userId: number; username: string; role: string }
 
-const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null });
+// Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
+// activa la frontera del gestor ni la del canal Cliente (Feature #11912).
+const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
 const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, transitoCodigo: null });
 
 export interface Comprador {
@@ -583,6 +585,9 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
 
   const porTramite = new Map<string, Comprador[]>();
   for (const c of compradoresRows) {
+    // Nullable desde el Feature #11912: `flito_compradores` cuelga del trámite O del SOAT del canal
+    // Cliente. La consulta ya filtró por trámite, así que aquí no cae ninguna fila del canal.
+    if (!c.tramiteId) continue;
     const lista = porTramite.get(c.tramiteId) ?? [];
     lista.push({
       nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, correo: c.correo,

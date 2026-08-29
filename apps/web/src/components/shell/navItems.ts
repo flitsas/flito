@@ -78,7 +78,12 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_comparendos', to: '/flito/comparendos',         section: 'gestion',       label: 'Comparendos',             keywords: 'comparendo simit multa infraccion placa nit transito monitoreo' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
-  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin'],        keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia' },
+  // Portal SOAT de FLITO. Slug `flito_soat` —el propio, no la `soat` del módulo legacy (ADR-0008
+  // §4)— y `cliente` en `roles`. Las DOS cosas hacen falta: `navItemPermitido` exige permiso Y rol,
+  // así que con el slug solo el menú del Cliente saldría VACÍO, que es el AC1 en rojo por la puerta
+  // de atrás. `auditor` sigue fuera de `roles`, exactamente como hasta hoy: tiene el permiso para
+  // entrar por URL pero nunca tuvo la entrada de menú, y esta HU no le cambia nada.
+  { page: 'flito_soat',     to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin', 'cliente'], keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia cliente solicitud' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
   // Bolsas: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
