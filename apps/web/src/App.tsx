@@ -32,6 +32,7 @@ const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
+const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
@@ -196,6 +197,19 @@ function AppRoutes() {
             regla que nombre al rol (una lista negra que habría que recordar con cada rol nuevo).
             `admin`, `proveedor` y `auditor` conservan las dos llaves: para ellos no cambia nada. */}
         <Route path="/flito/soat" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoat /></Lazy></ProtectedRoute>} />
+        {/* Canal Cliente (HU #11914) — el alta y su subsanación son SUB-rutas del MISMO slug
+            `flito_soat`, sin `PageSlug` nuevo y sin entrada de menú: quien puede ver la cola de su
+            compañía es quien puede pedir un SOAT para ella, y el alta no estrena permiso.
+            Y hay una segunda razón, medida: `FlitSidebar.tsx:145` pone `end={it.to === '/'}`, así
+            que para `/flito/soat` el `NavLink` NO es exacto y una sub-ruta mantiene «SOAT» con
+            `aria-current="page"`. Una ruta hermana (`/flito/solicitud`) apagaría el único ítem del
+            menú del Cliente y lo dejaría «en ninguna parte» de su propia navegación.
+            La capacidad de radicar —el flag «SOAT sin trámite» de la compañía— NO se resuelve aquí:
+            la pantalla la lee de `/auth/me` y el servidor la revalida en cada escritura. Un gate de
+            router no distinguiría «no tienes el permiso» de «tu compañía no tiene el canal», que es
+            justo lo que el AC5 pide separar. */}
+        <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/soat/solicitud/:id" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />

@@ -92,6 +92,15 @@ export const CLIENTE_USER = {
   companiaId: 1,
 };
 
+// El mismo Cliente, pero con el canal ENCENDIDO (HU #11914). `puedeSolicitarSoat` lo calcula el
+// servidor en `/auth/me` a partir de `clients.soat_sin_tramite`; es lo que decide si aparece el botón
+// «Solicitar SOAT» y si el formulario se monta o lo sustituye la tarjeta del AC5.
+//
+// Son DOS sesiones y no un campo que se cambia sobre la marcha a propósito: el AC5 se comprueba con
+// la de arriba —la que NO tiene el canal— y todo lo demás con esta. Con una sola, el aserto negativo
+// del AC5 pasaría por vacío el día que alguien invirtiera el valor por defecto.
+export const CLIENTE_CON_CANAL = { ...CLIENTE_USER, puedeSolicitarSoat: true };
+
 export async function loginAs(page: Page, user = ADMIN_USER) {
   // /me responde 200 con el user — necesario para que useAuth() considere la sesión válida.
   await page.route('**/api/auth/me', async (route) =>

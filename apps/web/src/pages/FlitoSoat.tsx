@@ -6,9 +6,12 @@
 
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
-import { useAuth } from '../lib/auth';
+import { puedeSolicitarSoat, useAuth } from '../lib/auth';
+import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
+import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import HistorialEstados from '../components/flit/HistorialEstados';
@@ -81,6 +84,25 @@ const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO'
 
 const ESTADOS_OPERACIONES: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
 const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
+/**
+ * Los SEIS estados, en orden de recorrido (HU #11914).
+ *
+ * Hasta esta HU el Cliente caía en `ESTADOS_OPERACIONES`, que **no incluye `pendiente_revision` ni
+ * `rechazada`** — precisamente sus dos estados propios. Con la cola paginada, encontrar una
+ * rechazada entre las páginas era cuestión de suerte, y el AC4 exige que llegue a ella: sin esta
+ * pastilla no hay camino desde la cola hasta la subsanación.
+ *
+ * Y son los seis, no los dos suyos: el aislamiento del Cliente es **por compañía, no por origen**
+ * (`condicionesCola`), así que en su cola conviven los SOAT que nacieron de trámites de FLIT con los
+ * que él radica. Ofrecerle solo dos filtros dejaría fuera la mayoría de sus filas.
+ *
+ * No hace falta además una columna «Origen»: `pendiente_revision` y `rechazada` SOLO existen en el
+ * canal Cliente (ADR-0008 §8), así que el estado ya dice de dónde viene cada fila.
+ */
+const ESTADOS_CLIENTE: EstadoSoat[] = [
+  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA, EstadoSoat.PENDIENTE,
+  EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
+];
 
 export default function FlitoSoat() {
   const { user } = useAuth();
@@ -92,8 +114,13 @@ export default function FlitoSoat() {
   // ya no se lo manda —esa es la garantía—; esto es lo que evita que la pantalla pinte columnas
   // vacías de datos que para él no existen.
   const esCliente = user?.role === 'cliente';
+  // La capacidad de radicar (HU #11914). Sale de `/auth/me`, así que resuelve ANTES que la cola y el
+  // botón no parpadea de «puedo» a «no puedo». No es la frontera: los dos endpoints del canal la
+  // vuelven a comprobar y responden 403.
+  const puedeSolicitar = puedeSolicitarSoat(user);
+  const { state: estadoNavegacion } = useLocation();
 
-  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : ESTADOS_OPERACIONES;
+  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_OPERACIONES;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
   const [texto, setTexto] = useState('');
   // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
@@ -193,6 +220,16 @@ export default function FlitoSoat() {
     api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setProveedores).catch(() => setProveedores([]));
   }, [esOperaciones]);
 
+  // Llegada desde el modal del AC4 con «Ver la solicitud» (HU #11914). El uuid viaja en el ESTADO de
+  // navegación y NO en la URL: el detalle de esta cola es un modal y no tiene dirección propia, y
+  // meter identificadores en el query sería el primer paso para meter también la placa. Si esa fila
+  // no está en la página cargada no se abre nada y el Cliente aterriza en su cola, que es un destino
+  // correcto; lo que no puede pasar es que se pierda el intento en silencio con un error.
+  useEffect(() => {
+    const pedido = (estadoNavegacion as { verSoatId?: string } | null)?.verSoatId;
+    if (pedido) setDetalleId(pedido);
+  }, [estadoNavegacion]);
+
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoSoat.PENDIENTE), [filas]);
@@ -207,13 +244,37 @@ export default function FlitoSoat() {
     <div className="space-y-4">
       <PageHeaderCard
         title="SOAT"
-        subtitle="Cola de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a Pagado con una factura validada."
-        actions={(esOperaciones || esGestor) && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
-            Cargar facturas (masivo)
-          </button>
+        // El subtítulo de siempre es vocabulario de Operaciones —«cola de adquisición», «RN-01»— y le
+        // habla al Cliente de un proceso que él no ejecuta. Se ramifica solo para él; el de
+        // Operaciones no se toca.
+        subtitle={esCliente
+          ? 'Sus solicitudes de SOAT y las pólizas de su compañía.'
+          : 'Cola de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a Pagado con una factura validada.'}
+        actions={(
+          <>
+            {(esOperaciones || esGestor) && (
+              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
+                Cargar facturas (masivo)
+              </button>
+            )}
+            {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU #11914).
+                Es un `<Link>` con aspecto de botón y no un `onClick`: tiene que poder abrirse en
+                otra pestaña y salir en el historial. Y no se pinta si la compañía no tiene el canal:
+                ofrecer un botón que abre una pantalla que explica que no se puede es justo el patrón
+                que el AC5 pide evitar. */}
+            {esCliente && puedeSolicitar && (
+              <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+                Solicitar SOAT
+              </Link>
+            )}
+          </>
         )}
       />
+
+      {/* AC5 — tarjeta NEUTRA, no una banda de error: que la compañía no tenga el canal no es un
+          fallo del usuario ni del sistema, es una opción comercial de su empresa. La cola de abajo
+          sigue funcionando igual. */}
+      {esCliente && !puedeSolicitar && <TarjetaCanalDeshabilitado />}
 
       <FlitCard>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -276,7 +337,24 @@ export default function FlitoSoat() {
         </div>
       </FlitCard>
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {/* Estado 2 de los cuatro. Hasta la HU #11914 la banda no traía salida: el único camino era
+          recargar la página, y para un rol EXTERNO eso es un callejón. El botón reusa el `refrescar`
+          que ya existía y no inventa nada. */}
+      {error && (
+        <FlitCard>
+          <div className="space-y-2">
+            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+              {esCliente ? 'No pudimos cargar sus solicitudes.' : error}
+            </p>
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={refrescar}>Reintentar</button>
+          </div>
+        </FlitCard>
+      )}
+
+      {/* Estado 1 — cargando. Antes la pantalla se veía vacía un instante y el vacío decía «no hay
+          SOAT», que es una afirmación distinta de «todavía no sé». El esqueleto ya trae
+          `role="status"` y `aria-busy`. */}
+      {!data && !error && <PageContentSkeleton />}
 
       {esOperaciones && seleccion.size > 0 && (
         <BarraEnvio ids={[...seleccion]} proveedores={proveedores}
@@ -288,7 +366,27 @@ export default function FlitoSoat() {
           <FlitEmpty>
             {hayFiltros || texto.trim()
               ? 'Ningún SOAT coincide con los filtros.'
-              : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
+              // El vacío sin filtros se ramifica por rol (HU #11914). El texto de Operaciones manda
+              // a «Sincroniza desde el Tablero», un sitio al que la HU #11913 le quitó el acceso al
+              // Cliente a propósito: era la PRIMERA frase que leía el primer usuario del rol nuevo y
+              // le mandaba a una pantalla que para él no existe. El de Operaciones no se toca.
+              : esCliente
+                ? (
+                  <>
+                    <p>Todavía no hay ningún SOAT de su compañía en FLITO.</p>
+                    {puedeSolicitar && (
+                      <p className="mt-2">
+                        Solicite el primero con la placa y el VIN del vehículo.
+                        <span className="mt-3 block">
+                          <Link to="/flito/soat/solicitud" className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
+                            Solicitar SOAT
+                          </Link>
+                        </span>
+                      </p>
+                    )}
+                  </>
+                )
+                : 'No hay SOAT en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.'}
           </FlitEmpty>
         </FlitCard>
       )}
@@ -565,7 +663,12 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             onClose={() => setVerSoportes(false)} />
         )}
 
-        <HistorialEstados concepto="soat" registroId={soat.id} />
+        {/* El historial es el REGISTRO INTERNO de la operación —quién movió qué y cuándo— y hasta la
+            HU #11914 se pintaba para todo el mundo, incluido el Cliente. El backend ya se lo recorta
+            (la #11913 le quitó el actor y el motivo), pero la pantalla tampoco debe ofrecérselo: lo
+            que él necesita no es la línea de tiempo de la operación sino la causal de SU rechazo,
+            que es otra cosa y va en su propio bloque (`CorreccionSolicitud`). */}
+        {!esCliente && <HistorialEstados concepto="soat" registroId={soat.id} />}
 
         {soat.compradores.length > 0 && (
           <div>
