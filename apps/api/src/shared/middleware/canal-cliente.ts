@@ -78,9 +78,10 @@ export interface RutaCliente {
  * el shell (`components/shell/*`, `App.tsx`) no pide nada al API, la ayuda in-app es markdown del
  * bundle y `/flito/parametrizacion/proveedores-soat` está detrás de `if (!esOperaciones) return`.
  *
- * **Creció con la HU #11914 (radicar) y crecerá con la #11915 (subsanar/revisión)**, que son las que
- * le dan al canal sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se
- * escribe con su `porque` o no se escribe.
+ * **Creció con la HU #11914 (radicar) y con la #11915 (subsanar)**, que son las que le dan al canal
+ * sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe con su
+ * `porque` o no se escribe. La #11915 añadió UNA —la subsanación— y dejó fuera las tres de la
+ * revisión, que son de Operaciones; el bloque del final de la lista dice por qué de cada una.
  *
  * Fuera a propósito, aunque el `cliente` las use:
  *   · `POST /api/auth/login` — no pasa por `authMiddleware` (todavía no hay usuario); este guarda no
@@ -130,6 +131,19 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
     metodo: 'POST', patron: '/api/flito/soat/cliente',
     porque: 'Radicar la solicitud. Es la razón de ser del canal; sin ella el rol solo mira.',
   },
+  // ── La TERCERA ruta de escritura del canal (HU #11915). Cierra el ciclo que la #11914 dejó a
+  // medias: hasta aquí el `cliente` podía radicar y ver, pero no responder a un rechazo.
+  {
+    metodo: 'PATCH', patron: '/api/flito/soat/:id/solicitud',
+    porque: 'Subsanar y reenviar una solicitud RECHAZADA (AC3). Sin esta entrada el botón «Reenviar la solicitud» —que ya existe en el front— responde 403 y el rechazo se convierte en un callejón sin salida: el Cliente ve por qué se le devolvió y no tiene forma de corregirlo. La ruta edita la MISMA fila (mismo id, mismo VIN, ni placa ni VIN en el cuerpo) y solo desde `rechazada`; la pertenencia la resuelve `buscarConAcceso()` con 404-no-403 y lleva el rate limit del canal más la validación del MIME real del adjunto.',
+  },
+  // Fuera a propósito, aunque sean del mismo Feature: `GET /api/flito/soat/causales-rechazo`,
+  // `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/rechazar-solicitud`. Las tres son
+  // de Operaciones (AC4) y al `cliente` se le niegan DOS veces —aquí por no estar, y en su router por
+  // `requireRole('admin')`—. La del catálogo tampoco se le abre aunque sea una lectura sin PII: recibe
+  // el nombre de SU causal ya resuelto dentro de su detalle, así que la lista completa de lo que FLITO
+  // rechaza no le hace falta para nada, y una entrada de menos aquí es una decisión de exposición
+  // menos que justificar.
 ];
 
 const escapar = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

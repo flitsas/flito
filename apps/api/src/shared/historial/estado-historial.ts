@@ -134,11 +134,22 @@ export interface OpcionesHistorial {
    * que hoy no lee ninguno.
    *
    * Lo que el cliente conserva es la línea de tiempo entera: qué estado, desde cuál, cuándo y que lo
-   * movió FLITO. Y el motivo del rechazo del gestor le sigue llegando por `motivoRechazo` en el DTO
-   * del detalle, que es decisión de producto tomada (lo necesita la #11915 para subsanar).
+   * movió FLITO.
    *
-   * Cuando la HU #11914 deje al `cliente` radicar, sus PROPIAS acciones aparecerán en este historial
-   * y habrá que distinguirlas: la fila guarda `usuario_id`, así que se resuelve ahí, no aquí.
+   * ── Corrección de una frase que estuvo aquí y era FALSA (HU #11915) ─────────────────────────────
+   *
+   * Decía que «el motivo del rechazo del gestor le sigue llegando por `motivoRechazo` en el DTO del
+   * detalle … lo necesita la #11915 para subsanar». **No lo necesita, y creerlo lleva a escribir el
+   * rechazo del canal en la columna equivocada.** `flito_soat.motivo_rechazo` es el rechazo del
+   * GESTOR, el que lleva a `con_novedad` (`rechazar()` en `flito-soat.service.ts`): otro actor, otro
+   * estado destino y otra audiencia. El rechazo del ADMIN sobre una solicitud del canal va a
+   * `flito_soat_solicitud` —causal del catálogo general + observación— y le llega al Cliente por el
+   * bloque `solicitud` del detalle, con su propia proyección por rol. La HU #11915 no lee ni escribe
+   * `motivo_rechazo` en ninguna parte.
+   *
+   * Desde la HU #11914 el `cliente` radica, así que sus PROPIAS acciones ya aparecen en este
+   * historial y habrá que distinguirlas cuando la pantalla quiera hacerlo: la fila guarda
+   * `usuario_id`, así que se resuelve ahí, no aquí.
    */
   lectorExterno?: boolean;
 }

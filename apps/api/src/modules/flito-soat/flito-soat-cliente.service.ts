@@ -1,4 +1,4 @@
-// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914.
+// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914 (alta) y #11915 (revisión).
 // Diseño y tradeoffs: docs/adr/ADR-0008-flito-soat-canal-cliente.md
 //
 // ── Qué hace ─────────────────────────────────────────────────────────────────────────────────────
@@ -17,11 +17,26 @@
 // `buscarConAcceso()` viven allí y este módulo los importa — un endpoint del canal que se saltara
 // esa puerta se saltaría el aislamiento por compañía.
 //
+// ── El ciclo completo del canal, y dónde acaba ───────────────────────────────────────────────────
+//
+//   POST /cliente              (#11914) — nace en `pendiente_revision`.
+//   POST /:id/validar          (#11915) — el ADMIN la manda a `solicitado`, REUSANDO
+//                                         `enviarAlGestor()` con otro estado de partida (AC1).
+//   POST /:id/rechazar-solicitud (#11915) — el ADMIN la manda a `rechazada` con causal del catálogo
+//                                         general MÁS observación, las dos obligatorias (AC2).
+//   PATCH /:id/solicitud       (#11915) — el CLIENTE corrige y reenvía la MISMA fila, que vuelve a
+//                                         `pendiente_revision` (AC3).
+//
+// De ahí en adelante el SOAT es indistinguible de uno nacido de trámite: `solicitado → pagado` por
+// el OCR de la factura (RN-03) es la vía de siempre y no la toca nadie de aquí.
+//
 // ── Lo que este módulo NO hace ───────────────────────────────────────────────────────────────────
 //
-// No valida, no rechaza y no subsana: eso es la HU #11915 y entra por `POST /:id/validar`,
-// `POST /:id/rechazar-solicitud` y `PATCH /:id/solicitud`. Tampoco toca el ciclo del SOAT nacido de
-// trámite, que sigue exactamente igual (AC5).
+// No toca el ciclo del SOAT nacido de TRÁMITE, que sigue exactamente igual: las tres transiciones de
+// arriba exigen `origen = 'cliente'` y responden 409 sobre cualquier otra fila. Y no es una
+// comprobación decorativa: un `cliente` ve en su cola todos los SOAT de su compañía —también los
+// que creó el sync— y un `admin` los ve todos, así que sin ese guarda la ruta de validar sería una
+// segunda puerta a `solicitado` que se salta `POST /enviar` y su destino explícito.
 //
 // ── El payload crudo del RUNT no se persiste (ADR-0008 §1.6) ────────────────────────────────────
 //
@@ -33,20 +48,23 @@
 // el peor rasgo del precedente a una tabla que nace limpia.
 
 import { createHash, randomUUID } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   auditLogs,
   clients,
   flitoCompradores,
   flitoSoat,
+  flitoSoatCausalesRechazo,
   flitoSoatSolicitud,
   flitoSoportes,
   organismosTransitoConfig,
   vehicles,
 } from '../../db/schema.js';
 import {
+  type CausalRechazoSoat,
   CodigoErrorSolicitudSoat,
+  ESTADO_SOAT_LABEL,
   EstadoSoat,
   resolverCodigoOrganismoFlit,
   TipoSoporte,
@@ -59,7 +77,10 @@ import { extraerVehiculoRunt, runtSinRegistro } from '../flito-impuestos/certifi
 import { derivePreflightChecks } from '../tramites/preflight.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
-import type { SoatCtx } from './flito-soat.service.js';
+import {
+  buscarConAcceso, enviarAlGestor, ORIGEN_CLIENTE,
+  type DestinoEnvio, type SoatCtx,
+} from './flito-soat.service.js';
 
 /**
  * Error del canal con CÓDIGO además de estado HTTP.
@@ -594,8 +615,25 @@ async function upsertVehiculoRunt(
   // `clientId` viaja en la proyección porque es lo que decide si esta fila se puede tocar. Se relee
   // DENTRO de la transacción —no basta con la comprobación previa— porque entre aquella y este
   // UPDATE cabe otra petición entera.
+  //
+  // ── `FOR UPDATE`: la relectura no solo tiene que ser autoritativa, tiene que ser ESTABLE ────────
+  //
+  // Cierre de la carga LOW que la auditoría de seguridad de la HU #11914 dejó para la #11915. Sin el
+  // bloqueo, esta lectura y el UPDATE de abajo son dos instantes distintos: entre ellos cabe el sync
+  // de trámites —`upsertVehiculo()` escribe `client_id` sobre la misma fila— asignándole la ficha a
+  // OTRA compañía. Este alta ya había leído `client_id IS NULL`, así que la clasificaría como
+  // adoptable y le sobrescribiría titular, cédula y placa a una ficha que, para cuando se escribe,
+  // ya tiene dueño. `FOR UPDATE` serializa las dos escrituras: la que llega segunda espera y relee.
+  //
+  // La carrera GRANDE —dos altas del mismo VIN— no depende de esto: la cierra el UNIQUE de
+  // `flito_soat.vin`, que es la base y no el servicio (RN-01). Esto cierra la que quedaba, que es
+  // contra un escritor que no pasa por esa constraint.
+  //
+  // `FOR UPDATE` y no `SKIP LOCKED`: aquí no se despacha una cola en la que saltarse una fila
+  // ocupada sea correcto (eso es `enviarAlGestor`), sino que se lee la única fila que importa. Con
+  // `SKIP LOCKED` el alta la vería como inexistente y crearía una SEGUNDA ficha con el mismo VIN.
   const [existente] = await tx.select({ id: vehicles.id, clientId: vehicles.clientId }).from(vehicles)
-    .where(eq(vehicles.vin, entrada.vin)).limit(1);
+    .where(eq(vehicles.vin, entrada.vin)).for('update').limit(1);
 
   if (esDeOtraCompania(existente, companiaId)) throw vehiculoAjeno();
 
@@ -701,7 +739,7 @@ export async function crearSolicitud(
         // Los dos valores que definen el canal. `pendiente_revision` y NO `pendiente`: esa es la
         // razón de que el estado exista (ADR-0008 §2), porque `POST /enviar` filtra por `pendiente`
         // y despacharía al gestor una solicitud que nadie ha validado.
-        origen: 'cliente',
+        origen: ORIGEN_CLIENTE,
         estado: EstadoSoat.PENDIENTE_REVISION,
         // La compañía del USUARIO, no un campo del formulario: el cliente no elige para quién
         // radica.
@@ -761,16 +799,413 @@ export async function crearSolicitud(
     // entera, y quien decide es el UNIQUE de la base. Se traduce al mismo 409 que la comprobación
     // previa para que el formulario reciba una sola respuesta a una sola pregunta.
     if ((e as { code?: string })?.code === UNIQUE_VIOLATION) {
-      // Sin `propia`: la carrera la pierde quien llega segundo y no se ha leído la fila ganadora.
+      // `propia: false`: la carrera la pierde quien llega segundo y no se ha leído la fila ganadora.
       // Decir «no es tuya» sería mentir la mitad de las veces, y consultarla ahora para saberlo
-      // convertiría una carrera perdida en una consulta más. `propia: false` es lo prudente: el
-      // front enseña el mensaje y no ofrece abrir nada.
-      throw fallo(409, CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT,
-        'Este vehículo ya tiene un SOAT en FLITO. Un vehículo no puede tener dos (RN-01).',
-        { propia: false });
+      // convertiría una carrera perdida en una consulta más. Es lo prudente: el front enseña el
+      // mensaje y no ofrece abrir nada.
+      //
+      // ── Y el TEXTO es el mismo que el del vehículo ajeno, no uno propio ──────────────────────────
+      //
+      // Cierre de la segunda carga LOW de la auditoría de la #11914. Con una frase distinta, este
+      // 409 era distinguible del de `vehiculoAjeno()`, y esa diferencia es un ORÁCULO: sondeando
+      // VINes, dos intentos separaban «ese vehículo ya tiene SOAT» de «ese vehículo existe en FLITO
+      // sin SOAT», que son dos hechos sobre la cartera de otra compañía. Los tres caminos que
+      // acaban en «no es tuyo y no puedes» —VIN con SOAT ajeno, ficha de `vehicles` ajena y carrera
+      // perdida— comparten ahora código, cuerpo y frase, así que ninguno responde una pregunta que
+      // los otros dos no respondan.
+      throw vehiculoAjeno();
     }
     throw e;
   }
 
   return { id: soatId, estado: EstadoSoat.PENDIENTE_REVISION };
+}
+
+// ═════════════════ Revisión del admin, rechazo y subsanación (HU #11915) ═════
+
+/**
+ * El catálogo de causales, tal como lo ofrece la pantalla del rechazo (AC2).
+ *
+ * Solo las ACTIVAS: una causal desactivada es una que el negocio retiró, y ofrecerla volvería a
+ * escribirla en solicitudes nuevas. El nombre de una causal ya usada sí sigue viajando —lo resuelve
+ * el `LEFT JOIN` del detalle contra la tabla, sin pasar por esta lista—, así que desactivar una no
+ * deja rechazos viejos sin rótulo.
+ *
+ * Por `orden` y, a igualdad, por nombre. El desempate no es cosmético: sin él, dos causales con el
+ * mismo `orden` bailan entre peticiones y el desplegable cambia de forma sin que nada cambie. Mismo
+ * criterio que `listarCausales()` de comparendos, que es el precedente de este catálogo.
+ */
+export async function listarCausalesRechazo(): Promise<CausalRechazoSoat[]> {
+  const filas = await db
+    .select({
+      id: flitoSoatCausalesRechazo.id,
+      nombre: flitoSoatCausalesRechazo.nombre,
+      activo: flitoSoatCausalesRechazo.activo,
+      orden: flitoSoatCausalesRechazo.orden,
+    })
+    .from(flitoSoatCausalesRechazo)
+    .where(eq(flitoSoatCausalesRechazo.activo, true))
+    .orderBy(asc(flitoSoatCausalesRechazo.orden), asc(flitoSoatCausalesRechazo.nombre));
+  return filas.map((f) => ({ ...f, orden: Number(f.orden) }));
+}
+
+/** Lo que devuelven las tres transiciones: lo mínimo para que la pantalla repinte y recargue. */
+export interface ResultadoTransicion {
+  id: string;
+  estado: EstadoSoat;
+}
+
+/**
+ * Las TRES guardas que preceden a cualquier transición del canal, en un solo sitio.
+ *
+ * Están juntas porque separarlas es cómo se olvida una: las tres rutas nuevas necesitan exactamente
+ * lo mismo —que la fila exista para quien pregunta, que sea del canal y que esté en el estado desde
+ * el que la transición tiene sentido— y con tres copias bastaba con que una se escribiera al revés.
+ *
+ *   1. `buscarConAcceso()` — 404 y NO 403, que es el contrato que sostiene el aislamiento (ADR-0008
+ *      §5). Para el `cliente` aplica además la frontera por compañía; para el `admin` no filtra
+ *      nada, que es lo correcto: revisa las de todas.
+ *   2. `origen = 'cliente'` — ver la cabecera del módulo. Un SOAT de trámite no entra por aquí.
+ *   3. El estado de partida — es lo que hace que una acción no se pueda aplicar dos veces, y lo que
+ *      convierte un doble clic en un 409 en vez de en una segunda transición.
+ */
+async function solicitudEnEstado(
+  id: string, estadoEsperado: EstadoSoat, ctx: SoatCtx,
+): Promise<typeof flitoSoat.$inferSelect> {
+  const soat = await buscarConAcceso(id, ctx);
+  if (!soat) {
+    throw fallo(404, CodigoErrorSolicitudSoat.SOLICITUD_NO_ENCONTRADA, 'La solicitud no existe.');
+  }
+  if (soat.origen !== ORIGEN_CLIENTE) {
+    throw fallo(409, CodigoErrorSolicitudSoat.NO_ES_DEL_CANAL,
+      'Este SOAT nació de un trámite, no de una solicitud del canal Cliente: su ciclo no pasa por esta acción.');
+  }
+  if (soat.estado !== estadoEsperado) {
+    throw fallo(409, CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE,
+      `Esta acción solo aplica a una solicitud en "${ESTADO_SOAT_LABEL[estadoEsperado]}", y esta está en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}".`,
+      { estado: soat.estado });
+  }
+  return soat;
+}
+
+/**
+ * AC1 — el admin VALIDA: `pendiente_revision` → `solicitado`, el MISMO estado al que llega un SOAT
+ * de trámite cuando Operaciones lo envía al gestor.
+ *
+ * ── Reúso de verdad, no un `update` paralelo ─────────────────────────────────────────────────────
+ *
+ * Lo pide la HU con estas palabras y es la decisión cara de esta función: se llama a
+ * `enviarAlGestor()` —la misma función, el mismo `FOR UPDATE ... SKIP LOCKED`, la misma asignación
+ * de destino, la misma fila de historial— pasándole `estadoOrigen: 'pendiente_revision'`. Lo único
+ * que cambia entre las dos puertas es de qué estado se parte.
+ *
+ * Un `UPDATE ... SET estado = 'solicitado'` escrito aquí habría sido más corto y habría divergido en
+ * la primera corrección que alguien hiciera en una sola de las dos copias: el día que el envío gane
+ * una columna —como ya ganó `proveedor_sobrescrito` y las tres de `gestion_operaciones`—, las
+ * solicitudes validadas llegarían al gestor a medio poblar y la cola las mostraría distintas sin que
+ * nada fallara.
+ *
+ * ── Por qué `enviados.length === 0` es un 409 y no un 200 vacío ──────────────────────────────────
+ *
+ * `enviarAlGestor` no lanza: devuelve `yaEnviados` para poder despachar 200 registros y contar los
+ * que se quedaron fuera. Sobre UNO, quedarse fuera solo puede significar que otro admin ganó la
+ * carrera —el `SKIP LOCKED` se saltó la fila que aquel bloqueó—, y eso es exactamente lo que el 409
+ * cuenta. Responder 200 dejaría a la pantalla creyendo que validó algo que no validó.
+ */
+export async function validarSolicitud(
+  id: string, destino: DestinoEnvio, ctx: SoatCtx,
+): Promise<ResultadoTransicion> {
+  // El destino es OBLIGATORIO y es UNO. Lo valida además el `refine` de la ruta —igual que el de
+  // `POST /enviar`, de donde está calcado— y se repite aquí porque la regla no es de la ruta: un
+  // `solicitado` sin proveedor y sin contingencia es un SOAT en la cola de NADIE, sin ANS con el que
+  // medirlo. Es exactamente por lo que la HU #10979 hizo obligatorio el proveedor en el envío
+  // masivo, y validar una solicitud desemboca en el mismo sitio.
+  if (Boolean(destino.proveedorSoatId) === Boolean(destino.gestionOperaciones)) {
+    throw fallo(400, CodigoErrorSolicitudSoat.DESTINO_REQUERIDO,
+      'Elige el proveedor al que se envía, o marca que la gestiona Operaciones. Una de las dos, no ambas.');
+  }
+  await solicitudEnEstado(id, EstadoSoat.PENDIENTE_REVISION, ctx);
+
+  const { enviados } = await enviarAlGestor([id], ctx, destino, {
+    estadoOrigen: EstadoSoat.PENDIENTE_REVISION,
+    motivo: destino.gestionOperaciones
+      ? 'Solicitud validada: pasa a gestión de Operaciones'
+      : 'Solicitud validada: pasa al gestor',
+  });
+  if (enviados.length === 0) {
+    throw fallo(409, CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE,
+      'Otra persona acaba de mover esta solicitud. Recarga la pantalla para ver cómo quedó.');
+  }
+
+  // El satélite guarda QUIÉN revisó y CUÁNDO. Va fuera de la transacción de `enviarAlGestor` y no
+  // dentro, y es un tradeoff consciente: meterlo dentro exigiría abrirle a esa función un `hook` de
+  // escritura arbitraria —o duplicarla— para un dato que no participa de ninguna regla. Si esta
+  // segunda escritura fallara, la solicitud quedaría validada y en la cola del gestor, que es su
+  // estado correcto, con el revisor sin anotar; el historial de `enviarAlGestor` sí lo tiene, con su
+  // usuario y su instante, así que el rastro no se pierde en ningún caso.
+  await db.update(flitoSoatSolicitud).set({
+    revisadoPorId: ctx.userId,
+    revisadoPorNombre: ctx.username,
+    revisadoEn: new Date(),
+    updatedAt: new Date(),
+  }).where(eq(flitoSoatSolicitud.soatId, id));
+
+  return { id, estado: EstadoSoat.SOLICITADO };
+}
+
+/** Lo que el admin escribe al rechazar. Las DOS obligatorias (AC2). */
+export interface EntradaRechazo {
+  causalId: string;
+  observacion: string;
+}
+
+/**
+ * AC2 — el admin RECHAZA: `pendiente_revision` → `rechazada`, con causal del catálogo general Y
+ * observación. Sin una de las dos, **el estado no cambia y no se escribe nada**.
+ *
+ * ── El orden de las comprobaciones ES el AC ──────────────────────────────────────────────────────
+ *
+ * «No se escribe nada» no es una consecuencia de que falle el UPDATE: es que las cuatro guardas
+ * —acceso, canal, estado, y las dos entradas— corren ANTES de abrir la transacción. Un rechazo que
+ * validara la causal dentro de la transacción cumpliría el AC por accidente (el ROLLBACK) y dejaría
+ * de cumplirlo el día que alguien moviera una escritura fuera.
+ *
+ * ── Por qué la causal se comprueba contra la TABLA y con `activo = true` ─────────────────────────
+ *
+ * Un uuid cualquiera pasaría el `z.string().uuid()` de la ruta y llegaría hasta la FK, que respondería
+ * 23503 → 500. El AC pide «causal válida del catálogo», y válida incluye VIGENTE: una causal
+ * desactivada es una que el negocio retiró, y aceptarla por id —cuando la pantalla ya no la ofrece—
+ * convertiría el catálogo en una lista de sugerencias.
+ *
+ * ── Lo que NO se escribe: `flito_soat.motivo_rechazo` ────────────────────────────────────────────
+ *
+ * Esa columna es el rechazo del GESTOR (`POST /:id/rechazar`, destino `con_novedad`): otro actor,
+ * otro estado y otra audiencia. Mezclarlos haría ilegible el historial de una fila que pase por los
+ * dos, y es el error que el ADR-0008 §1.2 previene con la tabla satélite.
+ */
+export async function rechazarSolicitud(
+  id: string, entrada: EntradaRechazo, ctx: SoatCtx,
+): Promise<ResultadoTransicion> {
+  const soat = await solicitudEnEstado(id, EstadoSoat.PENDIENTE_REVISION, ctx);
+
+  const observacion = entrada.observacion?.trim() ?? '';
+  if (!observacion) {
+    throw fallo(400, CodigoErrorSolicitudSoat.OBSERVACION_REQUERIDA,
+      'El rechazo exige una observación que explique qué hay que corregir.');
+  }
+
+  const [causal] = await db
+    .select({ id: flitoSoatCausalesRechazo.id, nombre: flitoSoatCausalesRechazo.nombre })
+    .from(flitoSoatCausalesRechazo)
+    .where(and(
+      eq(flitoSoatCausalesRechazo.id, entrada.causalId),
+      eq(flitoSoatCausalesRechazo.activo, true),
+    ))
+    .limit(1);
+  if (!causal) {
+    throw fallo(400, CodigoErrorSolicitudSoat.CAUSAL_INVALIDA,
+      'La causal de rechazo no está en el catálogo, o ya no está activa.');
+  }
+
+  const ahora = new Date();
+  await db.transaction(async (tx) => {
+    await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.RECHAZADA, updatedAt: ahora })
+      .where(eq(flitoSoat.id, id));
+
+    await tx.update(flitoSoatSolicitud).set({
+      causalRechazoId: causal.id,
+      observacionRechazo: observacion,
+      revisadoPorId: ctx.userId,
+      revisadoPorNombre: ctx.username,
+      revisadoEn: ahora,
+      updatedAt: ahora,
+    }).where(eq(flitoSoatSolicitud.soatId, id));
+
+    // En la MISMA transacción que el estado, como el resto del módulo: un estado sin su fila de
+    // historial es justo el agujero que `registrarCambio` existe para tapar.
+    //
+    // El motivo lleva el NOMBRE de la causal y NO la observación. La causal es un valor de catálogo
+    // —lo mismo para todas las solicitudes que la usen— mientras que la observación es texto libre
+    // escrito sobre un caso concreto y puede nombrar al propietario o su documento; el historial se
+    // le sirve al `cliente` (con recortes, `historialDe(..., lectorExterno)`) y a auditoría, así que
+    // no es sitio para PII que ya vive en su columna y que el detalle entrega con proyección.
+    await registrarCambio(tx, {
+      concepto: ConceptoHistorial.SOAT,
+      registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat,
+      estadoNuevo: EstadoSoat.RECHAZADA,
+      motivo: `Rechazo de la solicitud: ${causal.nombre}`,
+      usuarioId: ctx.userId,
+      usuarioEmail: ctx.username,
+      origen: 'usuario',
+    });
+  });
+
+  return { id, estado: EstadoSoat.RECHAZADA };
+}
+
+/**
+ * Lo que el CLIENTE puede corregir al subsanar, y por qué esta lista es tan corta (AC3).
+ *
+ * ── Editable: el propietario ─────────────────────────────────────────────────────────────────────
+ *
+ * Son los seis campos que una persona TECLEA en el alta, y por tanto los únicos en los que puede
+ * haberse equivocado. Dos de las seis causales sembradas hablan justo de ellos («Datos del
+ * propietario incompletos», «no coinciden con la factura»), así que sin poder editarlos la
+ * subsanación no podría atender ni un tercio de los rechazos.
+ *
+ * ── Editable: la factura de venta (opcional) ─────────────────────────────────────────────────────
+ *
+ * Otras tres causales son sobre el adjunto (ilegible, incompleta, no corresponde). Va como opcional
+ * porque un rechazo por datos del propietario no obliga a volver a subir un PDF que estaba bien.
+ *
+ * ── NO editable: el VIN. Esta es la decisión que sostiene la RN-01 ───────────────────────────────
+ *
+ * Cambiar el VIN convertiría la subsanación en un ALTA ENCUBIERTA: la fila conserva su `id`, su
+ * `vehiculo_id` y su historial, pero pasaría a hablar de OTRO vehículo — uno para el que nadie
+ * comprobó la RN-01 (¿ya tiene SOAT?), nadie consultó el RUNT (¿existe?, ¿tiene SOAT vigente?, ¿qué
+ * organismo?), nadie comprobó la tenencia (¿la ficha de `vehicles` es de otra compañía?) y cuyo
+ * `organismo_codigo` —que decide a qué proveedor acaba yendo el caso— seguiría siendo el del
+ * vehículo viejo. El UNIQUE de `flito_soat.vin` ni siquiera saltaría si el VIN nuevo no tuviera
+ * SOAT. Un vehículo equivocado no se subsana: se abandona esa solicitud y se radica la correcta.
+ *
+ * ── NO editable: la placa ────────────────────────────────────────────────────────────────────────
+ *
+ * Por lo mismo, en menor grado: placa y VIN se consultaron al RUNT COMO PAREJA y la placa vive en
+ * `vehicles`, que es una tabla compartida entre compañías. Dejar que la subsanación la reescriba
+ * reabriría —por otra puerta— el camino de escritura sobre ficha ajena que el bloqueante de la
+ * #11914 cerró.
+ *
+ * ── NO se toca `vehicles.owner_name` / `owner_document` ──────────────────────────────────────────
+ *
+ * El alta los escribe; la subsanación no. Es deliberado y tiene coste: si el cliente corrige el
+ * nombre del propietario, la ficha del vehículo conserva el viejo. Se acepta porque la fuente de
+ * verdad del propietario PARA ESTA SOLICITUD es `flito_compradores` —es lo que leen la cola, el
+ * detalle y la búsqueda por propietario, y es lo que el admin revisa—, mientras que `vehicles` es
+ * una tabla compartida cuya escritura desde este canal acaba de ser un bloqueante de seguridad.
+ * Ampliarla a una segunda ruta no es alcance de esta HU, y queda dicho en vez de descubierto.
+ */
+export interface EntradaSubsanacion {
+  propietario: PropietarioSolicitud;
+}
+
+/**
+ * AC3 — el CLIENTE subsana: `rechazada` → `pendiente_revision`, sobre LA MISMA FILA.
+ *
+ * Mismo `id`, mismo VIN, mismo `vehiculo_id`, mismo historial. **Cero INSERT en `flito_soat`**: esa
+ * es la mitad del AC y es lo que el índice `flito_soat.vin UNIQUE` habría impedido de todas formas,
+ * pero con un 500 en vez de con un ciclo.
+ *
+ * ── Qué se limpia del rechazo, y por qué TODO ────────────────────────────────────────────────────
+ *
+ * Causal, observación, revisor y fecha de revisión se ponen a `null` en el mismo movimiento. Son las
+ * cuatro caras del mismo hecho —«esta solicitud fue devuelta»— y ese hecho deja de ser cierto en el
+ * instante en que vuelve a la cola de revisión. Dejar la causal y borrar solo el estado le pondría
+ * al admin una solicitud «pendiente de revisión» con un rechazo pegado que ya no aplica, y al cliente
+ * una pantalla que sigue pidiéndole que corrija lo que acaba de corregir. Lo que pasó no se pierde:
+ * el historial guarda las dos transiciones con su motivo y `reenvios` cuenta las vueltas.
+ *
+ * ── El adjunto: la anterior se DESCARTA, no se borra ─────────────────────────────────────────────
+ *
+ * `idx_flito_soportes_soat_factura_venta` es único sobre `soat_id` con `descartado = false`, así que
+ * insertar la nueva sin descartar la vieja moriría con 23505. Se marca `descartado = true` y se
+ * inserta: la vieja sigue existiendo —es la que el admin vio cuando rechazó, y sin ella no se puede
+ * auditar por qué lo hizo— y solo la nueva queda viva.
+ */
+export async function subsanarSolicitud(
+  id: string,
+  entrada: EntradaSubsanacion,
+  archivo: ArchivoSolicitud | null,
+  ctx: SoatCtx,
+): Promise<ResultadoTransicion> {
+  // El canal tiene que seguir encendido: subsanar es radicar otra vez, y una compañía a la que se le
+  // cerró el canal no debe poder reabrir por la puerta de atrás lo que ya no puede abrir por la
+  // principal. Además es de donde sale la carpeta de storage del adjunto nuevo.
+  const canal = await canalDeLaCompania(ctx);
+  const soat = await solicitudEnEstado(id, EstadoSoat.RECHAZADA, ctx);
+
+  // Antes de subir nada, por lo mismo que en el alta: un adjunto que no es un PDF no debe dejar un
+  // objeto huérfano en el bucket.
+  let subido: { storageKey: string; hash: string } | null = null;
+  if (archivo) {
+    await verificarPdfReal(archivo);
+    const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+    // Fuera de la transacción (CA-11): una llamada de red dentro la mantendría abierta lo que tarde
+    // el bucket. La clave se nombra con el id del SOAT, que ya existe — no hace falta generarlo.
+    const storageKey = await uploadEntityDocument(
+      carpetaDe({ id: canal.companiaId, flitoCarpetaStorage: canal.carpetaStorage }, 'soat/facturas-venta'),
+      id, archivo.originalname, archivo.buffer, archivo.mimetype,
+    );
+    subido = { storageKey, hash };
+  }
+
+  const ahora = new Date();
+  await db.transaction(async (tx) => {
+    // El propietario, sobre la MISMA fila de `flito_compradores` que creó el alta. El `where` va por
+    // `soat_id`, que es el padre de esta rama de la tabla (`flito_compradores_padre_chk`): una
+    // solicitud del canal tiene exactamente un propietario y `tramite_id IS NULL`.
+    await tx.update(flitoCompradores).set({
+      nombreCompleto: entrada.propietario.nombreCompleto,
+      numeroDocumento: entrada.propietario.numeroDocumento,
+      tipoDocumento: entrada.propietario.tipoDocumento,
+      correo: entrada.propietario.correo ?? null,
+      celular: entrada.propietario.celular ?? null,
+      direccion: entrada.propietario.direccion ?? null,
+    }).where(eq(flitoCompradores.soatId, id));
+
+    if (subido && archivo) {
+      await tx.update(flitoSoportes)
+        .set({ descartado: true })
+        .where(and(
+          eq(flitoSoportes.soatId, id),
+          eq(flitoSoportes.tipo, TipoSoporte.FACTURA_VENTA),
+          eq(flitoSoportes.descartado, false),
+        ));
+      await tx.insert(flitoSoportes).values({
+        tipo: TipoSoporte.FACTURA_VENTA,
+        nombreArchivo: archivo.originalname,
+        contentType: archivo.mimetype,
+        storageKey: subido.storageKey,
+        hash: subido.hash,
+        tamanoBytes: archivo.size,
+        soatId: id,
+        subidoPorId: ctx.userId,
+        subidoPorNombre: ctx.username,
+      });
+    }
+
+    // UPDATE y no INSERT: la misma fila, el mismo id y el mismo VIN (AC3). Ni `vin` ni `vehiculoId`
+    // aparecen en este `set`, y esa ausencia es la RN-01 — ver `EntradaSubsanacion`.
+    await tx.update(flitoSoat)
+      .set({ estado: EstadoSoat.PENDIENTE_REVISION, updatedAt: ahora })
+      .where(eq(flitoSoat.id, id));
+
+    await tx.update(flitoSoatSolicitud).set({
+      causalRechazoId: null,
+      observacionRechazo: null,
+      revisadoPorId: null,
+      revisadoPorNombre: null,
+      revisadoEn: null,
+      // `+ 1` en SQL y no `fila.reenvios + 1` leído antes: dos reenvíos simultáneos de la misma
+      // solicitud no pueden pisarse el contador si lo incrementa la base.
+      reenvios: sql`${flitoSoatSolicitud.reenvios} + 1`,
+      updatedAt: ahora,
+    }).where(eq(flitoSoatSolicitud.soatId, id));
+
+    await registrarCambio(tx, {
+      concepto: ConceptoHistorial.SOAT,
+      registroId: id,
+      estadoAnterior: soat.estado as EstadoSoat,
+      estadoNuevo: EstadoSoat.PENDIENTE_REVISION,
+      motivo: archivo
+        ? 'Subsanación del cliente: datos del propietario y factura de venta'
+        : 'Subsanación del cliente: datos del propietario',
+      usuarioId: ctx.userId,
+      usuarioEmail: ctx.username,
+      origen: 'usuario',
+    });
+  });
+
+  return { id, estado: EstadoSoat.PENDIENTE_REVISION };
 }
