@@ -136,6 +136,29 @@ export const EstadoSoat = {
   SOLICITADO: 'solicitado',
   CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
+  /**
+   * Los DOS estados del canal Cliente (Feature #11912, ADR-0008 §2). Solo los alcanza un SOAT con
+   * `origen = 'cliente'`: el que nace del sync de trámites sigue entrando en `pendiente` y su ciclo
+   * no cambia en nada.
+   *
+   *   pendiente_revision ── un cliente radicó la solicitud y Operaciones aún no la ha revisado.
+   *                         NO es `pendiente`: `POST /enviar` filtra por `pendiente`, así que un
+   *                         admin despachando la cola enviaría al gestor solicitudes sin validar.
+   *   rechazada          ── Operaciones la devolvió con causal y observación; el cliente subsana y
+   *                         vuelve a `pendiente_revision`.
+   *
+   * Van al MISMO enum (`flito_soat_estado`) y no a una columna aparte de la tabla satélite, para
+   * que una fila tenga un solo estado y `POST /enviar` siga siendo correcto sin tocarlo.
+   *
+   * Quien los ESCRIBE es la HU #11914 (alta) y la #11915 (revisión). La #11913 solo los declara —y
+   * eso ya obliga al compilador a completar cada `Record<EstadoSoat, X>`, que es la red que impide
+   * que una pantalla pinte un estado en blanco.
+   *
+   * El gestor del proveedor NO los ve, y no por una regla nueva: `ESTADOS_SOAT_VISIBLES_GESTOR` es
+   * una lista blanca que sigue siendo `['solicitado', 'pagado']`.
+   */
+  PENDIENTE_REVISION: 'pendiente_revision',
+  RECHAZADA: 'rechazada',
 } as const;
 
 export type EstadoSoat = (typeof EstadoSoat)[keyof typeof EstadoSoat];
@@ -145,11 +168,17 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
   solicitado: 'Solicitado',
   con_novedad: 'Con novedad',
   pagado: 'Pagado',
+  pendiente_revision: 'Pendiente de revisión',
+  rechazada: 'Rechazada',
 };
 
 /**
  * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
  * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
+ *
+ * Los dos estados del canal Cliente NO entran aquí, y es decisión escrita (ADR-0008 §2 y riesgo
+ * abierto 1): ampliar esta lista cambia el contador de auditoría del sync, que no es alcance del
+ * Feature #11912.
  */
 export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
@@ -159,7 +188,12 @@ export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
   return (ESTADOS_SOAT_BLOQUEAN_REENCOLADO as readonly string[]).includes(estado);
 }
 
-/** Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6. */
+/**
+ * Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6.
+ *
+ * Es una LISTA BLANCA, y por eso los dos estados del canal Cliente quedan fuera sin escribir nada:
+ * el gestor no ve lo que un cliente radicó hasta que Operaciones lo valida y pasa a `solicitado`.
+ */
 export const ESTADOS_SOAT_VISIBLES_GESTOR: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
 ];

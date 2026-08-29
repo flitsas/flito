@@ -81,7 +81,13 @@ type Resultado =
 
 // Semáforo de estados (SOAT e impuestos): pendiente naranja, solicitado azul, con novedad rojo,
 // pagado verde. La autogestión (sin registro) se pinta aparte en gris.
-const TONO_SOAT: Record<EstadoSoat, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
+// `pendiente_revision` y `rechazada` (canal Cliente, Feature #11912) no nacen de un trámite y por
+// tanto no deberían asomar por esta pantalla; se completan porque el `Record` es exhaustivo, y con
+// los mismos tonos que la cola SOAT para que un estado no cambie de color según dónde se mire.
+const TONO_SOAT: Record<EstadoSoat, ChipTone> = {
+  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  pendiente_revision: 'warning', rechazada: 'danger',
+};
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 
 const pesos = (v: number | null) => v === null ? null

@@ -24,7 +24,9 @@ function mockRes() {
 describe('getEffectivePages — unión rol + allowedPages', () => {
   it('proveedor sin allowedPages → solo defaults del rol', () => {
     const pages = getEffectivePages({ role: 'proveedor' });
-    expect(pages.sort()).toEqual(['dashboard', 'soat'].sort());
+    // `flito_soat` se SUMÓ a `soat` en el Feature #11912 (portal FLITO con slug propio). Que las dos
+    // sigan aquí es el AC4 por el lado del gestor: no pierde ninguna de las pantallas que abría.
+    expect(pages.sort()).toEqual(['dashboard', 'soat', 'flito_soat'].sort());
   });
 
   it('proveedor con allowedPages extra → defaults ∪ custom, sin duplicar', () => {
@@ -124,11 +126,16 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const shared = await import('@operaciones/shared-types');
     const valid = new Set<string>(shared.USER_ROLES);
     for (const r of shared.ALL_ROLES) expect(valid.has(r)).toBe(true);
-    // 8 base + `gestor_impuestos` + `mensajero` (FLITO) + `financiera`. El antiguo `operaciones` se fusionó en `admin`.
-    expect(shared.USER_ROLES).toHaveLength(11);
+    // 8 base + `gestor_impuestos` + `mensajero` (FLITO) + `financiera` + `cliente` (#11912).
+    // El antiguo `operaciones` se fusionó en `admin`.
+    expect(shared.USER_ROLES).toHaveLength(12);
     expect(shared.ALL_ROLES).toContain('auditor');
+    // AC4 de la HU #11913: el catálogo que el producto OFRECE no incluye `operaciones`. El valor
+    // sigue existiendo en el enum de Postgres (quitarlo obligaría a recrear el tipo) y eso no lo
+    // vuelve asignable: `z.enum(ALL_ROLES)` del alta de usuarios sale de aquí.
     expect(shared.ALL_ROLES).not.toContain('operaciones');
     expect(shared.ALL_ROLES).toContain('gestor_impuestos');
+    expect(shared.ALL_ROLES).toContain('cliente');
   });
 
   it('catálogo PAGES idéntico entre API, web y la fuente única', async () => {
@@ -158,7 +165,9 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const pages = getEffectivePages({ role: 'auditor' }).sort();
     expect(pages).toEqual([
       'dashboard', 'laft_audit_plan', 'laft_dashboard', 'laft_manual', 'laft_oficial',
-      'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+      // #11912: `flito_soat` se SUMA a `soat`, no la sustituye. El auditor lee exactamente las
+      // mismas pantallas que antes de la HU #11913.
+      'flito_tramites', 'soat', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
       // HU #10967: el reporte consolida datos que el auditor ya ve uno a uno.
       'finanzas_reporte_costos',
       // HU #11287: ver la parametrización que respalda una factura emitida es parte de auditar.
@@ -179,5 +188,39 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     // Gestor de impuestos: portal acotado.
     const gi = getEffectivePages({ role: 'gestor_impuestos' }).sort();
     expect(gi).toEqual(['dashboard', 'flito_impuestos'].sort());
+  });
+
+  // ── AC1 y AC4 de la HU #11913, sobre el catálogo y no sobre la pantalla ──────────────────────
+  //
+  // Estas tres afirmaciones son la RED de toda la cadena del Feature #11912: si alguien devuelve
+  // `ROLE_DEFAULT_PAGES.cliente` a `['soat']` —que es lo que decía el refinamiento y de lo que el
+  // ADR-0008 §4 se aparta a propósito—, el `cliente` entra al legado `Soat.tsx` y las dos primeras
+  // fallan. No hay ninguna regla en el router que nombre al rol: el AC4 se cumple por construcción,
+  // y esto es lo que lo comprueba.
+  it('cliente → SOLO el portal FLITO; ni dashboard ni el SOAT legado (AC1/AC4)', () => {
+    const pages = getEffectivePages({ role: 'cliente' });
+    expect(pages).toEqual(['flito_soat']);
+    expect(pages).not.toContain('soat');
+    expect(pages).not.toContain('dashboard');
+    expect(pages).not.toContain('users');
+    expect(pages).not.toContain('clients');
+  });
+
+  it('cliente con allowedPages inventadas → sigue sin el legado (la unión no lo cuela)', () => {
+    // Un admin no puede concederle `soat` sin saberlo: la página existe, así que `isValidPage` la
+    // deja pasar. Lo que esta prueba fija es que no se la da NADIE por defecto — la concesión a mano
+    // es una decisión explícita y auditada, no el estado inicial del rol.
+    const pages = getEffectivePages({ role: 'cliente', allowedPages: ['no_existe'] });
+    expect(pages).toEqual(['flito_soat']);
+  });
+
+  it('el portal FLITO tiene slug PROPIO y `soat` deja de estar en dos grupos', async () => {
+    const shared = await import('@operaciones/shared-types');
+    expect(shared.PAGES).toHaveProperty('flito_soat');
+    const grupos = shared.PAGE_GROUPS.filter((g) => g.pages.includes('soat')).map((g) => g.label);
+    expect(grupos).toEqual(['Operaciones']);
+    const flito = shared.PAGE_GROUPS.find((g) => g.label === 'FLITO (SOAT e Impuestos)')!;
+    expect(flito.pages).toContain('flito_soat');
+    expect(flito.pages).not.toContain('soat');
   });
 });

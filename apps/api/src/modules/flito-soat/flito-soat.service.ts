@@ -48,29 +48,57 @@ export interface SoatCtx {
   username: string;
   role: string;
   proveedorSoatId: string | null;
+  /**
+   * La compañía del usuario `cliente` (Feature #11912). `null` para el resto de roles — y también
+   * para un `cliente` al que le falte, que es el usuario que la base ya no debería permitir (CHECK
+   * `users_cliente_compania_chk`) y que aquí acaba en «no ve nada», nunca en «lo ve todo».
+   */
+  companiaId: number | null;
 }
 
 /**
  * Resuelve la atadura de visibilidad del gestor desde la BD (no del JWT): §9.3. Un cambio de
  * proveedor de un gestor surte efecto sin re-emitir token. Para el resto de roles es null.
+ *
+ * Lo mismo, y por lo mismo, con la compañía del `cliente` (Feature #11912): se lee de
+ * `users.compania_id` en cada petición y NO viaja en el token, así que moverle la compañía a alguien
+ * surte efecto sin re-emitírselo. Es una consulta más, y solo para dos de los doce roles.
  */
 export async function contextoSoat(user: { sub: number; username: string; role: string }): Promise<SoatCtx> {
   let proveedorSoatId: string | null = null;
+  let companiaId: number | null = null;
   if (user.role === 'proveedor') {
     const [u] = await db.select({ p: users.flitoProveedorSoatId }).from(users).where(eq(users.id, user.sub)).limit(1);
     proveedorSoatId = u?.p ?? null;
+  } else if (user.role === 'cliente') {
+    const [u] = await db.select({ c: users.companiaId }).from(users).where(eq(users.id, user.sub)).limit(1);
+    companiaId = u?.c ?? null;
   }
-  return { userId: user.sub, username: user.username, role: user.role, proveedorSoatId };
+  return { userId: user.sub, username: user.username, role: user.role, proveedorSoatId, companiaId };
 }
 
 const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
+/** Usuario de una compañía cliente (Feature #11912): ve lo de su compañía y nada más. */
+const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
 
 /**
  * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
  * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ *
+ * La TERCERA condición es del canal Cliente (Feature #11912) y no cubre un caso de borde: los dos
+ * flags de la compañía son independientes, así que la primera que encienda «autogestiona SOAT» y
+ * «SOAT sin trámite» a la vez radicaría solicitudes que no vería NADIE —tampoco el admin que tiene
+ * que revisarlas—. Autogestionar es comprarse el SOAT de sus trámites; lo que pide por este canal se
+ * lo está pidiendo a FLITO explícitamente, así que la frontera no le aplica.
+ *
+ * NO se reutiliza `excepcion_autogestion` para conseguir el mismo efecto: esa bandera significa «se
+ * desbloqueó ESTE SOAT pese a que la compañía autogestiona» (HU #10980), y ponerla en cada alta del
+ * canal la volvería mentira en el 100% de las filas, además de contaminar el informe que la usa.
+ * Una tercera condición explícita dice lo que pasa; una bandera reutilizada lo esconde.
  */
 const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
-  OR ${flitoSoat.excepcionAutogestion})`;
+  OR ${flitoSoat.excepcionAutogestion}
+  OR ${flitoSoat.origen} = 'cliente')`;
 
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 
@@ -184,6 +212,17 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
       : [EstadoSoat.SOLICITADO];
     if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
+  } else if (esCliente(ctx)) {
+    // Aislamiento por compañía (Feature #11912), simétrico al del gestor y en el MISMO sitio: estas
+    // condiciones las comparten la página, el conteo y las facetas, así que una sola rama cubre las
+    // tres. Escribirlo en la consulta de filas dejaría el total y los valores de los filtros
+    // contando lo ajeno — que es contarle al cliente que existe.
+    //
+    // Sin compañía no hay frontera que aplicar → NADA, igual que el gestor sin proveedor. El fallo
+    // por defecto es «no ve nada»; devolver una lista vacía de condiciones sería traerlo todo.
+    if (!ctx.companiaId) return null;
+    conds.push(eq(flitoSoat.companiaId, ctx.companiaId));
+    if (f.estados?.length) conds.push(inArray(flitoSoat.estado, f.estados));
   } else if (f.estados?.length) {
     conds.push(inArray(flitoSoat.estado, f.estados));
   }
@@ -204,6 +243,8 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
     );
   }
 
+  // Se AÑADE a la condición de arriba, no la sustituye: un `cliente` que pida ver otra compañía
+  // obtiene la intersección, es decir, vacío. Mismo razonamiento que el filtro de proveedores.
   if (f.companias?.length) conds.push(inArray(flitoSoat.companiaId, f.companias));
   if (f.organismos?.length) conds.push(inArray(flitoSoat.organismoCodigo, f.organismos));
   // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
@@ -353,6 +394,10 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
 
   const compsPorTramite = new Map<string, typeof compradores>();
   for (const c of compradores) {
+    // `tramiteId` es nullable desde el Feature #11912 (la tabla cuelga de dos padres). Esta consulta
+    // filtró por `tramite_id IN (…)`, así que el descarte no puede ocurrir; está escrito para que el
+    // compilador lo compruebe en vez de creérselo.
+    if (!c.tramiteId) continue;
     const arr = compsPorTramite.get(c.tramiteId) ?? [];
     arr.push(c); compsPorTramite.set(c.tramiteId, arr);
   }
@@ -450,6 +495,16 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
     if (soat.soat.gestionOperaciones) return null;
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
+  }
+  if (esCliente(ctx)) {
+    // La otra mitad del aislamiento por compañía (Feature #11912). Va aquí y no solo en la cola
+    // porque esta es la función que sostiene el 404-no-403: cubre de una vez el detalle, el
+    // historial, los soportes y la descarga. Un endpoint futuro del canal que olvide filtrar por
+    // compañía no puede filtrarse por accidente — o pasa por aquí, o no ve nada.
+    //
+    // 404 y no 403, por lo mismo que con el gestor: un 403 ya es un dato (confirma que el id
+    // existe). Sin compañía, `ctx.companiaId` es null y la comparación falla siempre.
+    if (soat.soat.companiaId !== ctx.companiaId) return null;
   }
   return soat.soat;
 }

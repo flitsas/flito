@@ -133,7 +133,10 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
   test('TC-11894-07 AC2 — gestor: deep-link a SOAT es NoAccess, no la ficha publicada', async ({ page }) => {
     await loginAs(page, GESTOR_IMPUESTOS_USER);
     await page.goto('/flito/ayuda/soat');
-    await expect(page.getByRole('heading', { name: /no tienes acceso a soat/i })).toBeVisible();
+    // El nombre de la página lo pone `PAGES[entrada.permiso]`, y desde el Feature #11912 esa ficha
+    // cuelga de `flito_soat` («FLITO — SOAT») y no de la `soat` del módulo legacy: lo que se niega
+    // sigue siendo lo mismo, solo que ahora la frase nombra la pantalla correcta.
+    await expect(page.getByRole('heading', { name: /no tienes acceso a flito — soat/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Qué es', exact: true })).toHaveCount(0);
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });

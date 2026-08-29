@@ -255,7 +255,14 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
     : [];
   const principalPorTramite = new Map<string, typeof compradores[number]>();
-  for (const c of compradores) if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
+  // El `continue` no es defensivo de más: desde el Feature #11912 `flito_compradores` cuelga de dos
+  // padres y `tramiteId` es nullable. Aquí la consulta ya filtró por `tramite_id IN (…)`, así que
+  // ninguna fila del canal Cliente puede entrar; la guarda es lo que hace verdad esa frase para el
+  // compilador en vez de taparlo con un `!`.
+  for (const c of compradores) {
+    if (!c.tramiteId) continue;
+    if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
+  }
 
   // Una sola consulta para toda la página, igual que los compradores. Un LEFT JOIN en `fromCola`
   // habría servido, pero el índice único parcial ya garantiza como mucho una vigente por impuesto y

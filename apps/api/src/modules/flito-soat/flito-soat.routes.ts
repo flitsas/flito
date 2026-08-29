@@ -38,10 +38,17 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-const LECTURA = requireRole('admin', 'proveedor', 'auditor');
+// `cliente` entra en LECTURA y en NINGUNA de las otras dos constantes (Feature #11912): ve la cola,
+// el detalle, el historial y los soportes —siempre acotados a su compañía por `contextoSoat()` →
+// `condicionesCola()` / `buscarConAcceso()`— y no puede mover nada. Las acciones de su canal
+// (radicar, subsanar) son rutas propias en un módulo aparte y llegan en la HU #11914.
+const LECTURA = requireRole('admin', 'proveedor', 'auditor', 'cliente');
 const OPERACIONES = requireRole('admin');
 const OPS_O_GESTOR = requireRole('admin', 'proveedor');
 
+// Los estados que el filtro de la cola acepta. Los dos del canal Cliente (`pendiente_revision`,
+// `rechazada`) NO se añaden aquí en esta HU: quien los escribe y los ofrece como filtro es la
+// #11915, que es la que rehace la cola del admin. Un estado desconocido se ignora, no da 400.
 const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD] as const;
 
 function handleError(res: Response, e: unknown): void {

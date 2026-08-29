@@ -58,8 +58,15 @@ interface FacetasSoat {
   proveedores: { id: string; nombre: string }[];
 }
 
+// Los dos últimos son del canal Cliente (Feature #11912) y hoy solo los pinta esta cola cuando el
+// admin la mira: quien los ESCRIBE es la #11914 (alta) y la #11915 (revisión). Se completan aquí
+// porque el `Record<EstadoSoat, …>` exhaustivo lo exige, y esa exigencia es justo la red que impide
+// que un estado nuevo salga en blanco. `pendiente_revision` va en `warning` —espera acción de
+// Operaciones, como el `pendiente` de la pantalla de trámites— y `rechazada` en `danger`, junto a
+// `con_novedad`, que es el otro «esto volvió sin resolverse».
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  pendiente_revision: 'warning', rechazada: 'danger',
 };
 const pesos = (v: number | null) => v === null ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
