@@ -112,6 +112,27 @@ async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]
  */
 const ROLES_COMPROBANTE_PSE: readonly string[] = ['admin', 'financiera', 'proveedor'];
 
+/**
+ * Qué documentos de un SOAT puede ver una compañía CLIENTE (Feature #11912).
+ *
+ * Está VACÍA, y una lista vacía es la respuesta correcta hoy, no un hueco: los únicos soportes que
+ * cuelgan de un SOAT son la FACTURA DE LA ASEGURADORA o del proveedor —el precio al que FLITO
+ * compra, con su enlace ya firmado— y el comprobante del pago PSE de la boleta, que además ya está
+ * fuera por `ROLES_COMPROBANTE_PSE`. Ninguno de los dos es del cliente.
+ *
+ * **Es una allowlist y no un `if (rol === cliente) return []`** justamente porque la HU #11916 va a
+ * dejarle descargar SU PÓLIZA cuando el SOAT esté `pagado`: ese día se añade aquí el tipo de la
+ * póliza y la puerta se abre de una línea, en el sitio donde se ve lo que se abre. Con el atajo,
+ * abrirla exigiría rehacer esta decisión desde cero — o, peor, quitar el `if` entero.
+ *
+ * Mismo gesto que `ROLES_COMPROBANTE_PSE`, unas líneas más arriba: se enumera quién SÍ, nunca quién
+ * no, para que lo que se añada mañana quede fuera por defecto.
+ */
+export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly string[] = [];
+
+/** El rol del canal Cliente. Mismo literal que `shared/middleware/canal-cliente.ts`. */
+const ROL_CLIENTE = 'cliente';
+
 /** Lo que la ruta sabe del actor y esta consulta necesita para decidir qué bloques devuelve. */
 export interface ActorSoporte {
   rol: string;
@@ -136,11 +157,18 @@ export interface ActorSoporte {
 export async function soportesDeSoat(
   soatId: string, actor: ActorSoporte,
 ): Promise<SoporteVista[]> {
+  // `null` = sin recorte por tipo (los 11 roles internos: ven lo de siempre). Para el `cliente` es
+  // la allowlist, y si está vacía la consulta ni se emite — no se lee lo que no se va a devolver, el
+  // mismo criterio que ya aplica la línea de abajo con el comprobante PSE.
+  const tiposVisibles = actor.rol === ROL_CLIENTE ? TIPOS_SOPORTE_VISIBLES_CLIENTE : null;
   const [propios, conciliacion] = await Promise.all([
-    porRegistro(flitoSoportes.soatId, soatId, 'soat'),
+    tiposVisibles !== null && tiposVisibles.length === 0
+      ? Promise.resolve([] as SoporteVista[])
+      : porRegistro(flitoSoportes.soatId, soatId, 'soat'),
     ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
-  return ordenar([...propios, ...conciliacion]);
+  const visibles = tiposVisibles === null ? propios : propios.filter((s) => tiposVisibles.includes(s.tipo));
+  return ordenar([...visibles, ...conciliacion]);
 }
 
 /** Comprobantes del impuesto (el recibo del organismo). */

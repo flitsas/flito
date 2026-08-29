@@ -92,10 +92,41 @@ export interface ItemHistorial {
 }
 
 /**
+ * Cómo se nombra al actor cuando quien lee no tiene derecho a su identidad (Feature #11912).
+ *
+ * Es el NOMBRE DE LA EMPRESA, no un `null`. Un null habría hecho que la interfaz pintara «Usuario
+ * desconocido» (`HistorialEstados.tsx`), que es falso: el usuario se conoce y está registrado, lo
+ * que pasa es que quien mira no tiene por qué saber cuál. «FLITO» dice la verdad completa que le
+ * corresponde a una empresa cliente: esto lo movió su proveedor de servicio.
+ */
+export const AUTOR_INTERNO_ANONIMO = 'FLITO';
+
+export interface OpcionesHistorial {
+  /**
+   * true → el actor sale como `AUTOR_INTERNO_ANONIMO` en vez de con su nombre o su correo.
+   *
+   * Lo enciende `GET /flito/soat/:id/historial` cuando quien pregunta es el rol `cliente`: cada fila
+   * llevaba el nombre —o, si el usuario ya no existe, el CORREO CORPORATIVO— del empleado de FLIT
+   * que tocó el registro, y eso es dato personal de trabajadores entregado a una empresa tercera.
+   * Los 11 roles internos no pasan por aquí y ven exactamente lo de siempre.
+   *
+   * Cuando la HU #11914 deje al `cliente` radicar, sus PROPIAS acciones aparecerán en este historial
+   * y habrá que distinguirlas: la fila guarda `usuario_id`, así que se resuelve ahí, no aquí.
+   */
+  omitirUsuario?: boolean;
+}
+
+/**
  * Historial de un registro, del cambio más reciente al más antiguo — el orden en que se consulta:
  * lo que se quiere saber es qué pasó ÚLTIMO, y solo después cómo se llegó ahí.
+ *
+ * La consulta es la MISMA para todos y lo que cambia es la proyección: el `leftJoin` con `users` se
+ * conserva porque esta función también sirve a impuestos y partirla en dos daría dos consultas que
+ * mantener. El nombre no sale del proceso — que es lo que el art. 17 de la Ley 1581 protege.
  */
-export async function historialDe(concepto: ConceptoHistorial, registroId: string): Promise<ItemHistorial[]> {
+export async function historialDe(
+  concepto: ConceptoHistorial, registroId: string, opciones: OpcionesHistorial = {},
+): Promise<ItemHistorial[]> {
   const filas = await db.select({
     id: flitoEstadoHistorial.id,
     estadoAnterior: flitoEstadoHistorial.estadoAnterior,
@@ -119,7 +150,7 @@ export async function historialDe(concepto: ConceptoHistorial, registroId: strin
     estadoAnterior: f.estadoAnterior,
     estadoNuevo: f.estadoNuevo,
     motivo: f.motivo,
-    usuario: f.usuarioNombre ?? f.usuarioEmail,
+    usuario: opciones.omitirUsuario ? AUTOR_INTERNO_ANONIMO : (f.usuarioNombre ?? f.usuarioEmail),
     origen: f.origen,
     creadoEn: f.creadoEn.toISOString(),
   }));

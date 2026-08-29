@@ -11,6 +11,7 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
+import { registrarAccesoSoat } from './flito-soat.pii.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
@@ -82,11 +83,17 @@ const fecha = (v: unknown): string | undefined => {
 };
 
 // GET / — cola con las 3 fronteras, filtrada y paginada.
+//
+// Deja rastro en `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16): cada fila trae el nombre y la
+// CÉDULA del propietario, y desde el Feature #11912 quien barre esta lista puede ser una empresa
+// tercera. El registro va DESPUÉS de la consulta y con `await`, como en `clients.routes.ts`:
+// `filas` no se sabe antes, y esperar cuesta una inserción best-effort a cambio de que el rastro
+// esté escrito antes de que la respuesta salga.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const estados = lista(req.query.estado)
     ?.filter((s): s is EstadoSoat => (ESTADOS as readonly string[]).includes(s));
-  res.json(await cola(ctx, {
+  const pagina = await cola(ctx, {
     estados, buscar: str(req.query.buscar),
     companias: numeros(req.query.companias),
     organismos: lista(req.query.organismos),
@@ -98,7 +105,9 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     estancado: req.query.estancado === 'si',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
-  }));
+  });
+  await registrarAccesoSoat(req, { accion: 'search', filas: pagina.items.length });
+  res.json(pagina);
 });
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el usuario puede ver.
@@ -111,7 +120,10 @@ router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
 router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
+  // El 404 NO se registra, y la diferencia importa: un id que no existe —o que está fuera de la
+  // frontera— no entregó datos de nadie. Anotarlo llenaría el registro de accesos que no ocurrieron.
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  await registrarAccesoSoat(req, { accion: 'read', soatId: req.params.id, filas: 1 });
   res.json(d);
 });
 
@@ -124,7 +136,9 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
-  res.json(await historialDe('soat', req.params.id));
+  // El `cliente` no recibe el nombre —ni el correo corporativo— del empleado de FLIT que movió su
+  // solicitud: es dato personal de un trabajador entregado a otra empresa. Ver `OpcionesHistorial`.
+  res.json(await historialDe('soat', req.params.id, { omitirUsuario: ctx.role === 'cliente' }));
 });
 
 /**

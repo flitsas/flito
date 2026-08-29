@@ -2697,8 +2697,16 @@ export const flitoSoatCausalesRechazo = pgTable('flito_soat_causales_rechazo', {
  */
 export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   soatId: uuid('soat_id').primaryKey().references(() => flitoSoat.id, { onDelete: 'cascade' }),
-  // Quién la radicó. El id puede quedar en NULL si el usuario se borra; el nombre es el rastro
-  // durable, mismo patrón que `flitoSoportes.subidoPorNombre`.
+  // Quién la radicó. El NOMBRE es el rastro durable —mismo patrón que
+  // `flitoSoportes.subidoPorNombre`— y por eso es `NOT NULL`: sobrevive a lo que le pase a la fila
+  // de `users`.
+  //
+  // La FK NO lleva `ON DELETE`, así que PostgreSQL aplica NO ACTION: borrar en duro un usuario que
+  // radicó una solicitud FALLA con 23503, no deja este id en NULL. La versión anterior de este
+  // comentario —y la prosa gemela de la migración 0167, que no se reescribe porque ya está aplicada
+  // y su sha256 registrado en `_kyverum_applied_migrations`— decía lo contrario. Que la columna
+  // admita NULL no es consecuencia de ningún borrado; quien la escribe es la HU #11914, y siempre
+  // con el usuario que radica.
   solicitadoPorId: integer('solicitado_por_id').references(() => users.id),
   solicitadoPorNombre: varchar('solicitado_por_nombre', { length: 150 }).notNull(),
   solicitadoEn: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),

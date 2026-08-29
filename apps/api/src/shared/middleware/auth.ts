@@ -6,6 +6,7 @@ import { getRedis } from '../redis.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { loggerFor } from '../logger.js';
+import { guardiaCanalCliente } from './canal-cliente.js';
 import type { UserRole } from '@operaciones/shared-types';
 
 const log = loggerFor('auth');
@@ -161,7 +162,17 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
         ? payload.transitoCodigo.trim()
         : undefined,
     };
-    next();
+    // Negación por defecto para el rol `cliente` (Feature #11912). Va AQUÍ, y no como un `app.use`
+    // en `app.ts`, porque este es el único punto de la aplicación en el que la autenticación
+    // TERMINA: cada router monta `authMiddleware` por su cuenta, así que un middleware montado antes
+    // de los routers vería `req.user === undefined` y tendría que verificar el JWT una segunda vez
+    // en cada petición para saber a quién está mirando. El porqué completo —y la allowlist con el
+    // motivo de cada entrada— están en `canal-cliente.ts`.
+    //
+    // Para los 11 roles internos esto es un `next()` y nada más: `guardiaCanalCliente` sale por su
+    // primera línea sin tocar nada. Lo que se consigue poniéndolo aquí es que un router NUEVO nazca
+    // CERRADO para el `cliente` sin que su autor tenga que saber que este rol existe.
+    guardiaCanalCliente(req, res, next);
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }

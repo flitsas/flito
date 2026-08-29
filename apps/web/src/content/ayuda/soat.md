@@ -4,7 +4,7 @@ Cola FLITO de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a **Pag
 
 ## Para quién
 
-Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**). Administrador (ve toda la cola, envía al gestor y puede asumir por contingencia). Auditor (solo lectura: **Solo lectura · Auditoría observa, no ejecuta acciones.**).
+Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**). Administrador (ve toda la cola, envía al gestor y puede asumir por contingencia). Auditor (solo lectura: **Solo lectura · Auditoría observa, no ejecuta acciones.**). Cliente (usuario de una compañía: ve únicamente los SOAT de **su** compañía y solo los consulta; no envía al gestor ni carga facturas).
 
 ## Cómo se entra
 

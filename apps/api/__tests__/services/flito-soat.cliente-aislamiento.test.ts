@@ -21,7 +21,13 @@ import { testToken } from '../helpers/auth.js';
 const selectMock = vi.fn();
 
 vi.mock('../../src/db/client.js', () => ({
-  db: { select: selectMock, update: vi.fn(), insert: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
+  // `insert` devuelve un chain utilizable porque desde la HU #11913 la cola registra el acceso a PII
+  // (`logPiiAccess`): con un `vi.fn()` pelado el helper falla, lo atrapa su propio catch —es
+  // best-effort— y la salida de la suite se llena de ERROR que no son de esta prueba.
+  db: {
+    select: selectMock, update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn(),
+    insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+  },
   getPoolStats: vi.fn(),
 }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));

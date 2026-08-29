@@ -152,6 +152,59 @@ export interface SoatColaItem {
   creadoEn: string;
 }
 
+/**
+ * Los campos del DTO que son de la OPERACIÓN, no del cliente (Feature #11912, corrección de
+ * seguridad de la HU #11913).
+ *
+ * El aislamiento por compañía decide QUÉ FILAS ve el `cliente`; esta lista decide QUÉ CAMPOS de esas
+ * filas. Son dos preguntas distintas y hasta aquí solo estaba respondida la primera: la forma de la
+ * respuesta se diseñó para lectores internos —Operaciones, el gestor del proveedor, auditoría— y se
+ * servía tal cual a una empresa tercera. Cada uno se va por un motivo propio:
+ *
+ *   · `proveedorSoatNombre` / `proveedorSoatId` — con qué proveedor tiene FLITO contratada la
+ *     adquisición. El id se va con el nombre: es un pseudónimo estable que agrupa las filas por
+ *     proveedor, así que dejarlo sería esconder la palabra y publicar el hecho.
+ *   · `gestionOperaciones` — la otra mitad de lo mismo: dice si el caso lo trabaja FLITO o un
+ *     tercero. Ocultar quién es el tercero y publicar que lo hay responde media pregunta.
+ *   · `valorPagado` — lo que FLITO pagó por la póliza, frente a lo que le factura al cliente.
+ *   · `enviadoPorNombre` — nombre del EMPLEADO de FLIT que la despachó; dato personal de un
+ *     trabajador entregado a otra empresa.
+ *
+ * `proveedorSlaHoras` no está en esta lista porque no está en el DTO: se consulta (`ColaRow`) y no
+ * se emite. Se deja escrito porque el informe de seguridad lo daba por expuesto y quien venga a
+ * revisarlo merece saber que se comprobó, no que se olvidó.
+ *
+ * La proyección se aplica en `ensamblarCola`, que es por donde pasan las DOS lecturas —la cola y el
+ * detalle—. Aplicarla en cada ruta habría dejado la del detalle a un olvido de distancia.
+ */
+const CAMPOS_SOLO_INTERNOS = [
+  'proveedorSoatId', 'proveedorSoatNombre', 'gestionOperaciones', 'enviadoPorNombre', 'valorPagado',
+] as const satisfies readonly (keyof SoatColaItem)[];
+type CampoSoloInterno = (typeof CAMPOS_SOLO_INTERNOS)[number];
+
+/** La fila tal como la ve una compañía cliente: sin nada de lo de arriba. */
+export type SoatColaItemCliente = Omit<SoatColaItem, CampoSoloInterno>;
+
+/** Lo que la cola devuelve: la fila entera, o la del cliente. Nunca «la entera con nulls». */
+export type SoatColaItemSalida = SoatColaItem | SoatColaItemCliente;
+
+/**
+ * Quita los campos internos, recorriendo la LISTA DE ARRIBA y no una copia escrita a mano.
+ *
+ * Una desestructuración (`const { proveedorSoatId: _p, …, ...visible } = item`) se lee mejor, pero
+ * serían DOS listas: quien añadiera un campo a `CAMPOS_SOLO_INTERNOS` sin tocar la desestructuración
+ * seguiría entregándolo, y el compilador no diría nada —las comprobaciones de propiedades de más
+ * solo aplican a literales—. Recorriendo la constante, el tipo y el borrado no pueden separarse.
+ *
+ * El `satisfies readonly (keyof SoatColaItem)[]` de la constante es la otra mitad: renombrar un
+ * campo del DTO rompe la compilación AQUÍ en vez de dejar una cadena que ya no borra nada.
+ */
+function sinCamposInternos(item: SoatColaItem): SoatColaItemCliente {
+  const visible: Record<string, unknown> = { ...item };
+  for (const campo of CAMPOS_SOLO_INTERNOS) delete visible[campo];
+  return visible as SoatColaItemCliente;
+}
+
 export interface FiltrosCola {
   estados?: EstadoSoat[];
   buscar?: string;
@@ -173,7 +226,7 @@ export interface FiltrosCola {
 }
 
 export interface ColaSoatPaginada {
-  items: SoatColaItem[]; total: number; page: number; pageSize: number;
+  items: SoatColaItemSalida[]; total: number; page: number; pageSize: number;
 }
 
 /**
@@ -324,7 +377,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
     // pero conserva el tipo de la proyección, así que el compilador SÍ compara este `select` contra
     // `ColaRow`. Un `as ColaRow[]` aquí lavaría el tipo y dejaría a la cola sin esa comparación:
     // quitar una columna de la proyección compilaría igual y la API devolvería el campo `undefined`.
-    items: await ensamblarCola(rows),
+    items: await ensamblarCola(rows, ctx),
     total: Number(countRows[0]?.total ?? 0),
     page,
     pageSize,
@@ -350,7 +403,13 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
   const [companias, organismos, proveedores] = await Promise.all([
     conJoinsCola(db.selectDistinct({ id: clients.id, nombre: clients.name }).from(flitoSoat).$dynamic()).where(where),
     conJoinsCola(db.selectDistinct({ codigo: organismosTransitoConfig.codigo, nombre: organismosTransitoConfig.alias }).from(flitoSoat).$dynamic()).where(where),
-    conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
+    // Los proveedores NO se consultan para el `cliente`, y no es un filtro cosmético del desplegable:
+    // esta lista son los nombres de los proveedores de SUS PROPIOS SOAT, es decir, exactamente el
+    // dato que `CAMPOS_SOLO_INTERNOS` acaba de quitar de cada fila. Servirlo aquí lo devolvería
+    // entero por la puerta de al lado, y encima ordenado. No se lee lo que no se va a devolver.
+    esCliente(ctx)
+      ? Promise.resolve([] as { id: string | null; nombre: string | null }[])
+      : conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
   ]);
 
   return {
@@ -373,7 +432,14 @@ type ColaRow = {
   enviadoPorNombre: string | null;
 };
 
-async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
+/**
+ * Arma las filas del DTO y las PROYECTA según quién pregunta.
+ *
+ * `ctx` es obligatorio y no tiene valor por defecto, por lo mismo que `actor` en `soportesDeSoat`:
+ * un opcional haría que la fila completa se sirviera por olvido, que es exactamente cómo se coló
+ * este bloqueante. Exigirlo obliga a cada llamador nuevo a decidir a quién está sirviendo.
+ */
+async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaItemSalida[]> {
   const ids = rows.map((r) => r.id);
   const tramites = ids.length
     ? await db.select({
@@ -408,7 +474,7 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
     arr.push(t); tramitesPorSoat.set(t.soatId, arr);
   }
 
-  return rows.map((r) => {
+  const completas: SoatColaItem[] = rows.map((r) => {
     const ts = tramitesPorSoat.get(r.id) ?? [];
     const comps = ts.flatMap((t) => compsPorTramite.get(t.id) ?? []).sort((a, b) => a.orden - b.orden);
     const esMultiple = ts.some((t) => t.tipoPropiedad === TipoPropiedad.MULTIPLE_PROPIETARIO);
@@ -439,6 +505,8 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       creadoEn: r.createdAt.toISOString(),
     };
   });
+
+  return esCliente(ctx) ? completas.map(sinCamposInternos) : completas;
 }
 
 /**
@@ -509,7 +577,16 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
   return soat.soat;
 }
 
-export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem & { extraccion: unknown; pagadoEn: string | null }) | null> {
+/**
+ * El detalle de un SOAT, proyectado para quien pregunta.
+ *
+ * `extraccion` es el volcado del OCR de la FACTURA DE LA ASEGURADORA —valor, número de factura,
+ * identificación del proveedor— y por eso viaja solo para los lectores internos: omitir
+ * `valorPagado` y mandar el mismo importe dentro de este objeto sería una proyección de adorno.
+ * Ninguna pantalla lo lee hoy (comprobado por grep en `apps/web`), así que quitarlo del canal del
+ * cliente no rompe nada.
+ */
+export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & { extraccion?: unknown; pagadoEn: string | null }) | null> {
   const soat = await buscarConAcceso(id, ctx); // valida la frontera del gestor (404-no-403)
   if (!soat) return null;
 
@@ -538,9 +615,11 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
     .where(eq(flitoSoat.id, id))
     .limit(1);
 
-  const [item] = await ensamblarCola(rows);
+  const [item] = await ensamblarCola(rows, ctx);
   if (!item) return null;
-  return { ...item, extraccion: soat.extraccion, pagadoEn: soat.pagadoEn ? soat.pagadoEn.toISOString() : null };
+  const pagadoEn = soat.pagadoEn ? soat.pagadoEn.toISOString() : null;
+  if (esCliente(ctx)) return { ...item, pagadoEn };
+  return { ...item, extraccion: soat.extraccion, pagadoEn };
 }
 
 // ───────────────────────────── Envío atómico (CA-04) ────────────────────────
