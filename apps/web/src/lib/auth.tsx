@@ -10,6 +10,29 @@ interface User {
   role: UserRole;
   allowedPages: string[];
   transitoCodigo?: string | null;
+  /**
+   * Capacidad de interfaz del canal Cliente (Feature #11912, HU #11914): ¿la compañía de este
+   * usuario tiene encendido «SOAT sin trámite»?
+   *
+   * La calcula el servidor en `GET /auth/me` (`auth.routes.ts:157`) y vale `false` para todo rol
+   * que no sea `cliente`, sin JOIN. Viaja aquí y no en el sobre de la cola por dos motivos: `/me`
+   * resuelve ANTES de que la cola termine —así el botón «Solicitar SOAT» no parpadea de «puedo» a
+   * «no puedo»— y es una capacidad del usuario, no una propiedad de una página de resultados. El
+   * precedente exacto es `transitoCodigo`, aquí arriba.
+   *
+   * **No es la frontera de seguridad y no debe tratarse como tal.** Los dos endpoints del canal
+   * vuelven a comprobar el flag y responden `403`; esta bandera solo decide qué se pinta. El caso
+   * del `/me` viejo —el flag se apaga mientras se llena el formulario— lo resuelve la pantalla
+   * leyendo ese 403, no este booleano.
+   *
+   * `?` y no `| null`: un `/me` anterior a esta HU no la trae, y ausente significa «no».
+   */
+  puedeSolicitarSoat?: boolean;
+}
+
+/** ¿Este usuario puede radicar una solicitud del canal Cliente? Por capacidad, nunca por rol. */
+export function puedeSolicitarSoat(user: { puedeSolicitarSoat?: boolean } | null | undefined): boolean {
+  return user?.puedeSolicitarSoat === true;
 }
 
 interface AuthContextType {

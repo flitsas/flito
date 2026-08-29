@@ -4,7 +4,7 @@ import argon2 from 'argon2';
 import { SignJWT } from 'jose';
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { users } from '../../db/schema.js';
+import { clients, users } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import { authMiddleware, blacklistToken } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -106,6 +106,29 @@ router.post('/login', async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * ¿Este usuario puede radicar una solicitud de SOAT sin trámite? (Feature #11912, HU #11914)
+ *
+ * **Es una CAPACIDAD DE INTERFAZ, no una frontera.** Sirve para que la pantalla no pinte un botón
+ * que va a fallar y para la tarjeta del AC5; quien decide de verdad son los dos endpoints del canal,
+ * que vuelven a leer el flag en cada petición y responden 403 — y así un `/me` viejo en una pestaña
+ * abierta no concede nada.
+ *
+ * Se calcula en el servidor y no se deriva en la web de `role === 'cliente'`, porque el flag es de la
+ * COMPAÑÍA y el navegador no la conoce. Viaja en `/me` y no en el sobre de la cola por lo mismo que
+ * `transitoCodigo`: es un dato de ámbito del usuario, resuelve antes de que la cola termine y evita
+ * que el botón parpadee de «puedo» a «no puedo».
+ *
+ * `false` para los otros once roles SIN consultar nada: ninguno tiene compañía, y un JOIN aquí lo
+ * pagarían todos los logins del producto por un dato que solo usa uno.
+ */
+async function puedeSolicitarSoat(user: { role: string; companiaId: number | null }): Promise<boolean> {
+  if (user.role !== 'cliente' || !user.companiaId) return false;
+  const [compania] = await db.select({ sinTramite: clients.soatSinTramite })
+    .from(clients).where(eq(clients.id, user.companiaId)).limit(1);
+  return compania?.sinTramite === true;
+}
+
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   const [user] = await db.select({
     id: users.id,
@@ -114,6 +137,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     role: users.role,
     allowedPages: users.allowedPages,
     transitoCodigo: users.transitoCodigo,
+    companiaId: users.companiaId,
   }).from(users).where(eq(users.id, req.user!.sub)).limit(1);
 
   if (!user) {
@@ -121,8 +145,17 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     return;
   }
 
+  // `companiaId` se saca del objeto y NO se devuelve: la web no lo usa —el aislamiento lo aplica el
+  // servidor en cada consulta— y publicarlo solo añadiría un identificador interno a una respuesta
+  // que ya viaja a un tercero. Lo que sale es el booleano derivado.
+  const { companiaId, ...publico } = user;
+
   // Devuelve allowedPages "efectivas" (rol defaults + custom) para que el frontend filtre UI directamente.
-  res.json({ ...user, allowedPages: getEffectivePages(user) });
+  res.json({
+    ...publico,
+    allowedPages: getEffectivePages(user),
+    puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId }),
+  });
 });
 
 // VUL-07: Endpoint logout con revocación de token (Redis-backed con fallback in-memory).

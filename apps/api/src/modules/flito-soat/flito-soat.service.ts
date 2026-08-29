@@ -341,6 +341,21 @@ function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
         sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft JOIN ${flitoCompradores} fc ON fc.tramite_id = ft.id
               WHERE ft.soat_id = ${flitoSoat.id}
                 AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
+        // La MISMA búsqueda por el OTRO padre de `flito_compradores` (Feature #11912, HU #11914).
+        //
+        // Sin esta rama, buscar por propietario devuelve MENOS FILAS DE LAS QUE HAY, en verde: una
+        // solicitud del canal Cliente tiene `tramite_id IS NULL`, así que no entra por el JOIN de
+        // arriba y el EXISTS da FALSE — el admin que filtra por el nombre del propietario para
+        // revisarla no la encuentra y nada le dice que falta. Es el peor modo de fallo de una
+        // pantalla de revisión, y por eso la auditoría de esquema lo puso como carga de esta HU.
+        //
+        // Dos EXISTS y no un LEFT JOIN con un OR dentro: cada uno usa su índice
+        // (`idx_flito_compradores_tramite` / `idx_flito_compradores_soat`), y las dos ramas se leen
+        // por separado — la del trámite puede tener VARIOS compradores por SOAT y la del canal tiene
+        // exactamente uno.
+        sql`EXISTS (SELECT 1 FROM ${flitoCompradores} fc
+              WHERE fc.soat_id = ${flitoSoat.id}
+                AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
       )!,
     );
   }
@@ -397,6 +412,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       id: flitoSoat.id,
       vin: flitoSoat.vin,
       estado: flitoSoat.estado,
+      origen: flitoSoat.origen,
       proveedorSoatId: flitoSoat.proveedorSoatId,
       gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn,
@@ -473,7 +489,13 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
 }
 
 type ColaRow = {
-  id: string; vin: string; estado: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
+  id: string; vin: string; estado: string;
+  /**
+   * De qué puerta salió la fila (`tramite` | `cliente`). NO viaja al DTO: se consulta porque decide
+   * POR QUÉ PADRE hay que leer al propietario (ver `ensamblarCola`). Añadirlo a la respuesta sería
+   * publicar un detalle de implementación que ninguna pantalla pide.
+   */
+  origen: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
   pagadoEn: Date | null; valorPagado: string | null; motivoRechazo: string | null; createdAt: Date;
   placa: string | null; marca: string | null; linea: string | null;
   cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
@@ -508,6 +530,34 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
     : [];
 
+  /**
+   * El propietario de las filas del canal Cliente (Feature #11912, HU #11914).
+   *
+   * `flito_compradores` cuelga de DOS padres desde la 0167, con un CHECK que exige uno y solo uno.
+   * Una fila del canal tiene `tramite_id IS NULL` y su propietario cuelga de `soat_id`, así que la
+   * consulta de arriba —que filtra por `tramite_id IN (…)`— no lo encuentra NUNCA. Sin esta segunda
+   * lectura, quien radica la solicitud abre su única pantalla y ve la fila SIN el propietario que
+   * acaba de teclear, y el admin que la revisa, lo mismo. El dato está guardado; simplemente no
+   * salía por ninguna parte.
+   *
+   * **Se consulta solo si hay filas del canal en esta página**, y de ahí que `origen` esté en la
+   * proyección: una cola de puro trámite —que es el 100% de lo que hay hoy— no paga ni una consulta
+   * más. `origen` es fiable para decidirlo porque el ÚNICO escritor de `flito_compradores.soat_id`
+   * es el alta del canal, y esa escribe las dos cosas en la misma transacción.
+   */
+  const idsCanal = rows.filter((r) => r.origen === 'cliente').map((r) => r.id);
+  const propietariosCanal = idsCanal.length
+    ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.soatId, idsCanal)).orderBy(asc(flitoCompradores.orden))
+    : [];
+  const propsPorSoat = new Map<string, typeof propietariosCanal>();
+  for (const c of propietariosCanal) {
+    // Mismo descarte defensivo que el de `tramiteId` de abajo: la consulta filtró por
+    // `soat_id IN (…)`, así que no puede ocurrir; está para que lo compruebe el compilador.
+    if (!c.soatId) continue;
+    const arr = propsPorSoat.get(c.soatId) ?? [];
+    arr.push(c); propsPorSoat.set(c.soatId, arr);
+  }
+
   const compsPorTramite = new Map<string, typeof compradores>();
   for (const c of compradores) {
     // `tramiteId` es nullable desde el Feature #11912 (la tabla cuelga de dos padres). Esta consulta
@@ -526,7 +576,12 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
 
   const completas: SoatColaItem[] = rows.map((r) => {
     const ts = tramitesPorSoat.get(r.id) ?? [];
-    const comps = ts.flatMap((t) => compsPorTramite.get(t.id) ?? []).sort((a, b) => a.orden - b.orden);
+    // Las dos vías se UNEN en vez de excluirse: el CHECK de la 0167 garantiza que una fila de
+    // `flito_compradores` cuelga de un solo padre, pero unirlas aquí hace que la columna
+    // «propietario» diga lo mismo venga la fila de donde venga, sin un `if` por origen que alguien
+    // tendría que mantener el día que aparezca un tercer camino.
+    const comps = [...(propsPorSoat.get(r.id) ?? []), ...ts.flatMap((t) => compsPorTramite.get(t.id) ?? [])]
+      .sort((a, b) => a.orden - b.orden);
     const esMultiple = ts.some((t) => t.tipoPropiedad === TipoPropiedad.MULTIPLE_PROPIETARIO);
     return {
       id: r.id, vin: r.vin, placa: r.placa, marca: r.marca, linea: r.linea,
@@ -648,7 +703,8 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
 
   const rows = await db
     .select({
-      id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, proveedorSoatId: flitoSoat.proveedorSoatId,
+      id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, origen: flitoSoat.origen,
+      proveedorSoatId: flitoSoat.proveedorSoatId,
       gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn, pagadoEn: flitoSoat.pagadoEn, valorPagado: flitoSoat.valorPagado,
       motivoRechazo: flitoSoat.motivoRechazo, createdAt: flitoSoat.createdAt,

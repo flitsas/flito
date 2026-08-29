@@ -2646,6 +2646,13 @@ export const flitoSoat = pgTable('flito_soat', {
 }, (t) => ({
   estadoIdx: index('idx_flito_soat_estado').on(t.estado),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
+  // Migración 0169 (HU #11914), por la auditoría de esquema. Desde la HU #11913 `compania_id` es el
+  // PREDICADO OBLIGATORIO del aislamiento del rol `cliente` —lo aplican `condicionesCola()`, que
+  // comparten la página, el conteo y las facetas, y `buscarConAcceso()`— y era la única
+  // `compania_id` del esquema sin índice, mientras `flito_derechos`, `flito_logistica_actas` y
+  // `flito_bolsa_movimientos` ya tenían el suyo. Sin él, cada pantalla del canal Cliente recorre
+  // `flito_soat` entera y descarta lo ajeno DESPUÉS de haberlo leído.
+  companiaIdx: index('idx_flito_soat_compania').on(t.companiaId),
   // NO único a propósito (ADR-0006 §8): lo crea la migración, y una póliza reexpedida o un `0` que
   // el OCR leyó como `O` haría fallar el `CREATE UNIQUE INDEX` en el despliegue, parando la cadena
   // entera por un dato viejo. El duplicado se resuelve en el cruce, delante de quien puede

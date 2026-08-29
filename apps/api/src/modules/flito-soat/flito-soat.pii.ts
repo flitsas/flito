@@ -95,3 +95,44 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
     motivo: motivo.slice(0, MOTIVO_MAX),
   });
 }
+
+// ── Canal Cliente: la preconsulta al RUNT (Feature #11912, HU #11914) ────────────────────────────
+
+/**
+ * Columnas personales que devuelve `POST /cliente/preconsulta`.
+ *
+ * Es una lista DISTINTA de `CAMPOS_PII_SOAT` y no una copia por descuido: aquí no se lee ninguna
+ * fila de FLITO —la solicitud todavía no existe—, se consulta el RUNT y se devuelve lo que responde.
+ * Placa y VIN siempre; el nombre del propietario solo cuando el RUNT lo trae, y por eso el registro
+ * lo declara caso a caso en vez de afirmar siempre que se accedió a él.
+ *
+ * `numero_documento` NO está: la preconsulta no recibe ni devuelve el documento del propietario. El
+ * cliente lo teclea después, en el alta, y esa ruta es una MUTACIÓN —queda en `audit_logs`, no aquí,
+ * por la misma división que explica la cabecera de este archivo.
+ */
+export const CAMPOS_PII_PRECONSULTA = ['placa', 'vin'] as const;
+const CAMPO_PROPIETARIO = 'nombre_completo';
+
+/**
+ * Deja constancia de una preconsulta del canal Cliente.
+ *
+ * La consulta es a un registro NACIONAL sobre un vehículo que puede no ser de quien pregunta, y
+ * quien pregunta es una empresa tercera: es exactamente el caso que el artículo 17 de la Ley 1581
+ * quiere poder reconstruir. Va con `await` y sin identificar la placa en el motivo, por lo mismo que
+ * el resto del archivo: la placa es uno de los campos que este registro protege y no puede acabar
+ * guardada como el MOTIVO de su propia consulta.
+ */
+export async function registrarAccesoRuntCliente(
+  req: Request,
+  opciones: { conPropietario: boolean },
+): Promise<void> {
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_SOAT,
+    resourceId: null,
+    accion: 'read',
+    camposAccedidos: opciones.conPropietario
+      ? [...CAMPOS_PII_PRECONSULTA, CAMPO_PROPIETARIO]
+      : [...CAMPOS_PII_PRECONSULTA],
+    motivo: 'Preconsulta RUNT del canal Cliente (alta de solicitud de SOAT)'.slice(0, MOTIVO_MAX),
+  });
+}

@@ -22,6 +22,7 @@ import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
+import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
 import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
@@ -230,6 +231,12 @@ export function createApp() {
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   app.use('/api/flito/sync', flitoSyncRoutes);
+  // Las dos rutas de ESCRITURA del canal Cliente (Feature #11912, HU #11914) van en su propio router
+  // y montadas ANTES: el recurso es el mismo (`flito_soat`) y por eso comparten base, pero el router
+  // del módulo tiene el techo de líneas congelado y estas rutas traen consigo su rate limit, su
+  // validación de MIME real y su `requireRole('cliente')`. Primero el específico: hoy ningún patrón
+  // del router de abajo casa con `/cliente`, y si mañana alguien añadiera uno, gana este.
+  app.use('/api/flito/soat', flitoSoatClienteRoutes);
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/derechos', flitoDerechosRoutes);
