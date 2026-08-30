@@ -9,8 +9,8 @@
 //
 // Todas las URLs son enlaces firmados y con caducidad (`/api/files?...`): el storage no se expone.
 
-import { and, eq, isNotNull } from 'drizzle-orm';
-import { TipoSoporte } from '@operaciones/shared-types';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { EstadoSoat, TipoSoporte } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
   flitoConciliacionLineas, flitoDerechosTramite, flitoImpuestos, flitoLogisticaActas,
@@ -38,18 +38,29 @@ function ordenar(soportes: SoporteVista[]): SoporteVista[] {
  * Soportes de `flito_soportes` que cuelgan de un registro concreto (SOAT, impuesto o derecho).
  *
  * Los descartados en la cola de revisión no son evidencia de nada: quedan fuera.
+ *
+ * `tipos` acota la lectura a los tipos que el actor puede ver (`null` = sin recorte, los once roles
+ * internos). Va en la CONSULTA y no solo en un filtro posterior por la razón que la HU #11913 dejó
+ * escrita para el comprobante PSE: no se lee lo que no se va a devolver. Quien llama sigue filtrando
+ * además en memoria, y esa redundancia es deliberada — así la garantía no depende de que este
+ * `where` siga aquí, y se puede afirmar sin una base de datos real.
  */
 async function porRegistro(
   columna: typeof flitoSoportes.soatId | typeof flitoSoportes.impuestoId
     | typeof flitoSoportes.derechoId | typeof flitoSoportes.siigoFacturaId,
   registroId: string,
   origen: string,
+  tipos: readonly string[] | null = null,
 ): Promise<SoporteVista[]> {
   const filas = await db.select({
     id: flitoSoportes.id, tipo: flitoSoportes.tipo, nombreArchivo: flitoSoportes.nombreArchivo,
     storageKey: flitoSoportes.storageKey, subidoEn: flitoSoportes.subidoEn,
   }).from(flitoSoportes)
-    .where(and(eq(columna, registroId), eq(flitoSoportes.descartado, false)));
+    .where(and(
+      eq(columna, registroId),
+      eq(flitoSoportes.descartado, false),
+      ...(tipos === null ? [] : [inArray(flitoSoportes.tipo, [...tipos])]),
+    ));
   return filas.map((f) => ({
     id: f.id, origen, tipo: f.tipo, nombreArchivo: f.nombreArchivo,
     url: firmarDescargaEntidad(f.storageKey), subidoEn: f.subidoEn.toISOString(),
@@ -112,30 +123,103 @@ async function comprobanteDeConciliacion(soatId: string): Promise<SoporteVista[]
  */
 const ROLES_COMPROBANTE_PSE: readonly string[] = ['admin', 'financiera', 'proveedor'];
 
+/** Una entrada de la allowlist del canal Cliente: qué tipo, desde qué estado, y por qué. */
+export interface SoporteVisibleCliente {
+  tipo: TipoSoporte;
+  /**
+   * `null` = visible siempre que el cliente pueda ver la solicitud. Un estado = **solo** ahí.
+   *
+   * Es la mitad que sostiene el AC3 de la #11916 («sin `pagado` no hay descarga»): sin este campo,
+   * abrir la póliza habría sido añadir un tipo a una lista plana, y la condición de estado habría
+   * acabado en un `if` de la ruta —lejos de la lista, donde nadie la ve al revisar qué se abrió—.
+   */
+  soloEn: EstadoSoat | null;
+  /** Qué se rompe si se quita. Mismo gesto que `RutaCliente.porque` en `canal-cliente.ts`. */
+  porque: string;
+}
+
 /**
- * Qué documentos de un SOAT puede ver una compañía CLIENTE (Feature #11912).
+ * Qué documentos de un SOAT puede ver una compañía CLIENTE, y desde qué estado (Feature #11912,
+ * HU #11916 AC2/AC3).
  *
- * Está VACÍA, y una lista vacía es la respuesta correcta hoy, no un hueco: los únicos soportes que
- * cuelgan de un SOAT son la FACTURA DE LA ASEGURADORA o del proveedor —el precio al que FLITO
- * compra, con su enlace ya firmado— y el comprobante del pago PSE de la boleta, que además ya está
- * fuera por `ROLES_COMPROBANTE_PSE`. Ninguno de los dos es del cliente.
+ * La #11913 la dejó VACÍA y escribió que la #11916 abriría la póliza «de una línea, en el sitio
+ * donde se ve lo que se abre». Esto es esa línea. Sigue siendo una **allowlist** —se enumera lo que
+ * SÍ, nunca lo que no—, igual que `ROLES_COMPROBANTE_PSE` unas líneas más arriba, para que un tipo
+ * de soporte nuevo quede fuera por defecto sin que nadie tenga que acordarse.
  *
- * **Es una allowlist y no un `if (rol === cliente) return []`** justamente porque la HU #11916 va a
- * dejarle descargar SU PÓLIZA cuando el SOAT esté `pagado`: ese día se añade aquí el tipo de la
- * póliza y la puerta se abre de una línea, en el sitio donde se ve lo que se abre. Con el atajo,
- * abrirla exigiría rehacer esta decisión desde cero — o, peor, quitar el `if` entero.
+ * ── El hecho medido que hay que saber antes de tocar esta lista ──────────────────────────────────
  *
- * Mismo gesto que `ROLES_COMPROBANTE_PSE`, unas líneas más arriba: se enumera quién SÍ, nunca quién
- * no, para que lo que se añada mañana quede fuera por defecto.
+ * **En este sistema la póliza y «la factura del proveedor» son LA MISMA FILA.** No hay un
+ * `TipoSoporte.POLIZA`: el documento que el gestor sube por `POST /:id/factura` es
+ * `factura_soat`, el prompt del OCR lo llama «PÓLIZA/FACTURA DE SOAT» y de él se extraen número de
+ * póliza, aseguradora, vigencia y prima. La propia HU #11916 lo nombra así en su descripción («el
+ * OCR de la factura-póliza») y su AC2 pide el PDF de «la póliza cargada por OCR». Por eso abrir
+ * `factura_soat` **es** el AC2, y no una ampliación de alcance.
+ *
+ * **Y la consecuencia que hay que asumir con los ojos abiertos:** ese PDF trae la PRIMA TOTAL, que
+ * es el mismo dato que la #11913 quitó del DTO del cliente (`CAMPOS_SOLO_INTERNOS.valorPagado`,
+ * «lo que FLITO pagó por la póliza, frente a lo que le factura al cliente»). El campo sigue fuera
+ * de la respuesta JSON; el importe entra por el documento. Es una decisión de producto ya tomada
+ * —el SOAT es del vehículo del cliente y su póliza es suya—, no un descuido de esta lista, y queda
+ * escrita aquí para que quien la revise no tenga que deducirla. Si un día se quisiera lo contrario,
+ * lo que hace falta es un documento distinto para el cliente, no un filtro más.
+ *
+ * ── Lo que NO entra, y por qué ───────────────────────────────────────────────────────────────────
+ *
+ *   · `comprobante_pse` — el pago de la boleta con la que FLITO concilia. Ya está fuera dos veces:
+ *     por `ROLES_COMPROBANTE_PSE`, que tampoco gana `cliente` (ADR-0008 §6), y por no estar aquí.
+ *   · `factura_electronica_pdf` / `_xml`, `recibo_impuesto*` — no cuelgan de un SOAT, así que hoy
+ *     no pueden aparecer en esta lista; están nombrados para que quien ate uno a `soat_id` mañana
+ *     tenga que venir a decidirlo aquí en vez de que se cuele.
  */
-export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly string[] = [];
+export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly SoporteVisibleCliente[] = [
+  {
+    tipo: TipoSoporte.FACTURA_SOAT,
+    soloEn: EstadoSoat.PAGADO,
+    porque: 'Es la póliza (AC2). Antes de `pagado` no hay nada que descargar y el AC3 lo prohíbe '
+      + 'expresamente: el documento existe en la fila desde que el gestor lo sube, pero mientras el '
+      + 'OCR no lo haya validado no es la prueba de nada — puede acabar descartado en la cola de '
+      + 'revisión y ser sustituido por otro.',
+  },
+  {
+    tipo: TipoSoporte.FACTURA_VENTA,
+    soloEn: null,
+    porque: 'Es SU PROPIO adjunto: la única forma de que un `factura_venta` cuelgue de un `soat_id` '
+      + 'es que lo subiera el propio cliente al radicar (`POST /cliente`) o al subsanar (`PATCH '
+      + '/:id/solicitud`) — la del flujo de trámite cuelga de `flito_impuestos`, nunca de un SOAT. '
+      + 'Sin esta entrada, la pantalla de corregir un rechazo no puede responder «¿qué factura '
+      + 'tengo cargada?», que es la carga que la #11914 dejó declarada. No trae ningún dato de la '
+      + 'operación: lo escribió él. Sin `soloEn` porque el momento en que hace falta es justo '
+      + 'cuando la solicitud NO está pagada.',
+  },
+];
 
 /** El rol del canal Cliente. Mismo literal que `shared/middleware/canal-cliente.ts`. */
 const ROL_CLIENTE = 'cliente';
 
+/**
+ * Los tipos que este cliente puede ver AHORA, resueltos contra el estado de la solicitud.
+ *
+ * Se recorre la lista y no se escribe una segunda copia de la regla: el día que una entrada gane un
+ * `soloEn`, la puerta se cierra sin tocar nada más.
+ */
+function tiposVisiblesCliente(estadoSoat: string): readonly string[] {
+  return TIPOS_SOPORTE_VISIBLES_CLIENTE
+    .filter((s) => s.soloEn === null || s.soloEn === estadoSoat)
+    .map((s) => s.tipo);
+}
+
 /** Lo que la ruta sabe del actor y esta consulta necesita para decidir qué bloques devuelve. */
 export interface ActorSoporte {
   rol: string;
+  /**
+   * El estado del SOAT que se está mirando, tal como lo devolvió la consulta que ya autorizó el
+   * acceso (`detalle()` → `buscarConAcceso()`). **Obligatorio**, por lo mismo que `rol`: un campo
+   * opcional habría dejado que el llamador siguiente se olvidara de decir en qué estado está la
+   * fila, y el AC3 se apoya entero en ese dato. No se vuelve a leer de la base porque sería una
+   * segunda lectura del mismo hecho, que además podría discrepar de la que autorizó.
+   */
+  estadoSoat: string;
 }
 
 /**
@@ -153,18 +237,24 @@ export interface ActorSoporte {
  * más sensible de la lista se incluyera por olvido —que es exactamente cómo se coló el bloqueante—;
  * exigirlo obliga a cada llamador nuevo a decidir a quién está sirviendo. Y la consulta ni se emite
  * cuando el rol no tiene derecho: no se lee lo que no se va a devolver.
+ *
+ * Desde la HU #11916 `actor` lleva además el ESTADO del SOAT, y por la misma razón: para el
+ * `cliente` la lista de tipos depende de él (la póliza solo en `pagado`, AC2/AC3). Los otros once
+ * roles no lo miran — su recorte por tipo sigue siendo `null`, «lo de siempre».
  */
 export async function soportesDeSoat(
   soatId: string, actor: ActorSoporte,
 ): Promise<SoporteVista[]> {
   // `null` = sin recorte por tipo (los 11 roles internos: ven lo de siempre). Para el `cliente` es
-  // la allowlist, y si está vacía la consulta ni se emite — no se lee lo que no se va a devolver, el
-  // mismo criterio que ya aplica la línea de abajo con el comprobante PSE.
-  const tiposVisibles = actor.rol === ROL_CLIENTE ? TIPOS_SOPORTE_VISIBLES_CLIENTE : null;
+  // la allowlist RESUELTA CONTRA EL ESTADO, y si en este estado no le toca ningún tipo la consulta
+  // ni se emite — no se lee lo que no se va a devolver, el mismo criterio que ya aplica la línea de
+  // abajo con el comprobante PSE. Esa rama no es teórica: basta con vaciar la lista, o con que un
+  // día todas las entradas lleven `soloEn`.
+  const tiposVisibles = actor.rol === ROL_CLIENTE ? tiposVisiblesCliente(actor.estadoSoat) : null;
   const [propios, conciliacion] = await Promise.all([
     tiposVisibles !== null && tiposVisibles.length === 0
       ? Promise.resolve([] as SoporteVista[])
-      : porRegistro(flitoSoportes.soatId, soatId, 'soat'),
+      : porRegistro(flitoSoportes.soatId, soatId, 'soat', tiposVisibles),
     ROLES_COMPROBANTE_PSE.includes(actor.rol) ? comprobanteDeConciliacion(soatId) : [],
   ]);
   const visibles = tiposVisibles === null ? propios : propios.filter((s) => tiposVisibles.includes(s.tipo));

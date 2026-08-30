@@ -527,36 +527,59 @@ describe('B2 — las plantillas del historial dejan de escribir datos internos e
 });
 
 describe('B2 — los soportes de origen interno no se sirven al `cliente`', () => {
+  // ── Lo que la HU #11916 cambió aquí, y por qué el cambio ES el AC y no una regresión ────────────
+  //
+  // Este bloque afirmaba «lista VACÍA, y la consulta de soportes ni se emite». Era la verdad
+  // mientras `TIPOS_SOPORTE_VISIBLES_CLIENTE` estaba vacía —y la #11913 escribió que la #11916
+  // sería quien la abriera—. El AC2 le da al cliente DOS tipos: la póliza (`factura_soat`), y solo
+  // con el SOAT en `pagado`, y la factura de venta que él mismo subió. La lista deja de ser vacía,
+  // así que la consulta sí se emite; lo que no cambia es que va ACOTADA por tipo en el `where`.
+  //
+  // Lo que este bloque sigue guardando: la póliza no sale antes de `pagado`, el comprobante del pago
+  // PSE sigue fuera (su consulta ni se emite) y el `admin` no pierde nada.
   const SOPORTE_INTERNO = {
     id: 'sop-1', tipo: 'factura_soat', nombreArchivo: 'factura-aseguradora.pdf',
     storageKey: 'flito/soat/factura.pdf', subidoEn: new Date('2026-08-05T10:00:00Z'),
   };
 
-  const encolar = (rolCliente: boolean) => {
+  const encolar = (rolCliente: boolean, estado = 'pagado') => {
     if (rolCliente) selectMock.mockReturnValueOnce(chain([{ c: 7 }]));
     selectMock.mockReturnValueOnce(chain([{
-      soat: { id: SOAT_ID, companiaId: 7, estado: 'pagado', gestionOperaciones: false, proveedorSoatId: null, pagadoEn: null, extraccion: null },
+      soat: { id: SOAT_ID, companiaId: 7, estado, gestionOperaciones: false, proveedorSoatId: null, pagadoEn: null, extraccion: null },
       dentroDeFrontera: true,
     }]));
-    selectMock.mockReturnValueOnce(chain([FILA_COLA]));
+    selectMock.mockReturnValueOnce(chain([{ ...FILA_COLA, estado }]));
     selectMock.mockReturnValueOnce(chain([]));
   };
 
-  it('cliente: lista vacía, y la consulta de soportes ni se emite', async () => {
-    encolar(true);
-    // Encoladas A PROPÓSITO y nunca consumidas: si el filtro por tipo desapareciera, la consulta se
-    // emitiría y el `cliente` recibiría la factura de la aseguradora. Así el mutante cae en el
-    // aserto, no en un timeout por falta de mock.
+  it('cliente con el SOAT EN ADQUISICIÓN: la póliza no sale (AC3 de la #11916)', async () => {
+    encolar(true, 'solicitado');
+    // El mock devuelve la factura de la aseguradora aunque la consulta la excluya —el doble no
+    // filtra por `where`—, así que una respuesta vacía prueba el recorte en memoria; que la consulta
+    // tampoco la habría traído lo prueba el filtro por tipo del `where`, medido en
+    // `flito-soat.poliza-cliente.test.ts`.
     selectMock.mockReturnValueOnce(chain([SOPORTE_INTERNO]));
-    selectMock.mockReturnValueOnce(chain([]));
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
       .set('Authorization', await auth('cliente'));
 
     expect(r.status).toBe(200);
     expect(r.body).toEqual([]);
-    // contextoSoat + buscarConAcceso + detalle + trámites. Ninguna más: la factura de la aseguradora
-    // no se lee para descartarla después.
-    expect(selectMock).toHaveBeenCalledTimes(4);
+    // contextoSoat + buscarConAcceso + detalle + trámites + soportes del registro. La SEXTA —el
+    // comprobante PSE de la boleta— sigue sin emitirse: ese bloque no es suyo en ningún estado.
+    expect(selectMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('cliente con el SOAT PAGADO: recibe su póliza (AC2 de la #11916)', async () => {
+    encolar(true, 'pagado');
+    selectMock.mockReturnValueOnce(chain([SOPORTE_INTERNO]));
+    const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
+      .set('Authorization', await auth('cliente'));
+
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveLength(1);
+    expect(r.body[0]).toMatchObject({ origen: 'soat', tipo: 'factura_soat' });
+    // Y abrir la póliza no abrió el otro bloque: la del comprobante PSE sigue sin emitirse.
+    expect(selectMock).toHaveBeenCalledTimes(5);
   });
 
   it('admin: sigue recibiendo la factura de la aseguradora con su enlace firmado (no-regresión)', async () => {
