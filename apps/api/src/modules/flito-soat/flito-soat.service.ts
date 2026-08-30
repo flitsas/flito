@@ -19,6 +19,8 @@ import {
   flitoProveedoresSoat,
   flitoRevisiones,
   flitoSoat,
+  flitoSoatCausalesRechazo,
+  flitoSoatSolicitud,
   flitoSoportes,
   flitoTramites,
   organismosTransitoConfig,
@@ -31,6 +33,7 @@ import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
+  ESTADOS_SOAT_CANAL_CLIENTE,
   ESTADOS_SOAT_VISIBLES_GESTOR,
   EstadoSoat,
   FlujoRevision,
@@ -82,6 +85,21 @@ const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
 const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
 
 /**
+ * El valor de `flito_soat.origen` que marca las filas del canal Cliente (Feature #11912).
+ *
+ * En una constante y no repartido en literales para que un `grep ORIGEN_CLIENTE` encuentre TODAS las
+ * decisiones que dependen de la puerta por la que entró la fila: la frontera de autogestión (justo
+ * debajo), la lectura del propietario en la cola, el bloque de revisión del detalle y las tres
+ * transiciones del canal (validar, rechazar, subsanar), que solo aplican a estas filas.
+ *
+ * La frase de arriba estuvo aquí siendo FALSA: la frontera conservaba el literal crudo `= 'cliente'`
+ * y el grep no la encontraba. Interpolar la constante en el `sql` la trae al redil y además la pasa
+ * como PARÁMETRO ENLAZADO en vez de inline, que es lo que AGENTS.md pide de cualquier valor que
+ * entre en una consulta — aunque este sea una constante de compilación y no pudiera ser otra cosa.
+ */
+export const ORIGEN_CLIENTE = 'cliente';
+
+/**
  * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
  * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
  *
@@ -98,7 +116,7 @@ const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
  */
 const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
   OR ${flitoSoat.excepcionAutogestion}
-  OR ${flitoSoat.origen} = 'cliente')`;
+  OR ${flitoSoat.origen} = ${ORIGEN_CLIENTE})`;
 
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 
@@ -545,7 +563,7 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
    * más. `origen` es fiable para decidirlo porque el ÚNICO escritor de `flito_compradores.soat_id`
    * es el alta del canal, y esa escribe las dos cosas en la misma transacción.
    */
-  const idsCanal = rows.filter((r) => r.origen === 'cliente').map((r) => r.id);
+  const idsCanal = rows.filter((r) => r.origen === ORIGEN_CLIENTE).map((r) => r.id);
   const propietariosCanal = idsCanal.length
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.soatId, idsCanal)).orderBy(asc(flitoCompradores.orden))
     : [];
@@ -689,6 +707,82 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
 }
 
 /**
+ * El bloque de REVISIÓN de una solicitud del canal Cliente (Feature #11912, HU #11915).
+ *
+ * Es lo que el AC3 pide que el Cliente pueda ver de su solicitud rechazada —la causal, la
+ * observación y cuándo se revisó— y lo mismo que el admin necesita al abrirla. Viaja como bloque
+ * ANIDADO y no como campos sueltos del DTO de la cola por dos razones que conviene no perder:
+ *
+ *   · La cola no lo necesita. `SoatColaItem` lo sirven la página, el conteo y las facetas; meterle
+ *     cinco campos que solo tienen valor en el 0,x % de las filas obligaría a un LEFT JOIN más en la
+ *     consulta caliente para que 99 de cada 100 filas lo recibieran en null.
+ *   · `null` significa «esta fila no es del canal». Un bloque presente o ausente dice eso sin que la
+ *     pantalla tenga que mirar `origen`, que además NO viaja al DTO a propósito.
+ */
+export interface RevisionSolicitud {
+  /** El NOMBRE de la causal, resuelto contra el catálogo: la pantalla del Cliente no lo vuelve a pedir. */
+  causalNombre: string | null;
+  observacion: string | null;
+  revisadoEn: string | null;
+  /** Cuántas veces se subsanó y se volvió a enviar. */
+  reenvios: number;
+  solicitadoEn: string;
+  /**
+   * Quién la revisó. **Solo para lectores internos**, por lo mismo que `enviadoPorNombre` está en
+   * `CAMPOS_SOLO_INTERNOS`: es el nombre de un EMPLEADO de FLIT, y entregárselo a la empresa tercera
+   * que radicó la solicitud es un dato personal de un trabajador saliendo de la operación. El
+   * Cliente ve la causal, la observación y la fecha —lo que necesita para corregir—, no la persona.
+   */
+  revisadoPorNombre?: string | null;
+}
+
+/**
+ * Lee el satélite de una solicitud y lo proyecta según quién pregunta.
+ *
+ * Vive aquí y no en `flito-soat-cliente.service.ts` para no invertir la dependencia entre los dos
+ * módulos: aquel importa de este (`SoatCtx`, `buscarConAcceso`, `enviarAlGestor`), y si `detalle()`
+ * importara de vuelta una función suya el ciclo estaría hecho.
+ *
+ * **Al GESTOR no se le sirve nunca, en ningún estado.** No es una precaución de más: una solicitud
+ * validada entra en su cola en `solicitado` y él la abre con todo derecho, así que sin este corte
+ * recibiría el revisor, la fecha de radicación y el contador de reenvíos — es decir, cuántas veces
+ * FLITO le devolvió la solicitud a su cliente. Es la misma razón por la que el ADR-0008 §1.2 sacó
+ * estos campos de `flito_soat`: la fila entera de esa tabla sí le llega. La consulta ni se emite.
+ */
+async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<RevisionSolicitud | null> {
+  if (esGestor(ctx)) return null;
+
+  const [r] = await db
+    .select({
+      solicitadoEn: flitoSoatSolicitud.solicitadoEn,
+      revisadoPorNombre: flitoSoatSolicitud.revisadoPorNombre,
+      revisadoEn: flitoSoatSolicitud.revisadoEn,
+      causalNombre: flitoSoatCausalesRechazo.nombre,
+      observacion: flitoSoatSolicitud.observacionRechazo,
+      reenvios: flitoSoatSolicitud.reenvios,
+    })
+    .from(flitoSoatSolicitud)
+    // LEFT y no INNER: una solicitud sin rechazar no tiene causal, y un INNER la haría desaparecer
+    // entera del detalle — que es justo la fila que el admin está a punto de validar.
+    .leftJoin(flitoSoatCausalesRechazo, eq(flitoSoatSolicitud.causalRechazoId, flitoSoatCausalesRechazo.id))
+    .where(eq(flitoSoatSolicitud.soatId, soatId))
+    .limit(1);
+  if (!r) return null;
+
+  const visible: RevisionSolicitud = {
+    causalNombre: r.causalNombre,
+    observacion: r.observacion,
+    revisadoEn: r.revisadoEn ? r.revisadoEn.toISOString() : null,
+    reenvios: Number(r.reenvios),
+    solicitadoEn: r.solicitadoEn.toISOString(),
+  };
+  // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
+  // el admin ve lleno y el cliente ve vacío es el mismo objeto con menos datos; la clave ausente
+  // dice que ese campo no es suyo.
+  return esCliente(ctx) ? visible : { ...visible, revisadoPorNombre: r.revisadoPorNombre };
+}
+
+/**
  * El detalle de un SOAT, proyectado para quien pregunta.
  *
  * `extraccion` es el volcado del OCR de la FACTURA DE LA ASEGURADORA —valor, número de factura,
@@ -697,7 +791,7 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
  * Ninguna pantalla lo lee hoy (comprobado por grep en `apps/web`), así que quitarlo del canal del
  * cliente no rompe nada.
  */
-export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & { extraccion?: unknown; pagadoEn: string | null }) | null> {
+export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & { extraccion?: unknown; pagadoEn: string | null; solicitud?: RevisionSolicitud | null }) | null> {
   const soat = await buscarConAcceso(id, ctx); // valida la frontera del gestor (404-no-403)
   if (!soat) return null;
 
@@ -730,8 +824,14 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
   const [item] = await ensamblarCola(rows, ctx);
   if (!item) return null;
   const pagadoEn = soat.pagadoEn ? soat.pagadoEn.toISOString() : null;
-  if (esCliente(ctx)) return { ...item, pagadoEn };
-  return { ...item, extraccion: soat.extraccion, pagadoEn };
+  // La consulta al satélite se emite SOLO para las filas del canal (Feature #11912): las de trámite
+  // —el 100 % de lo que hay hoy— no tienen fila allí, así que preguntarlo sería una consulta más por
+  // cada apertura de detalle para recibir siempre vacío. `origen` es fiable para decidirlo porque el
+  // único escritor de `flito_soat_solicitud` es este canal, y escribe las dos cosas en la misma
+  // transacción.
+  const solicitud = soat.origen === ORIGEN_CLIENTE ? await revisionDeSolicitud(id, ctx) : null;
+  if (esCliente(ctx)) return { ...item, pagadoEn, solicitud };
+  return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud };
 }
 
 // ───────────────────────────── Envío atómico (CA-04) ────────────────────────
@@ -750,13 +850,37 @@ export interface DestinoEnvio {
 }
 
 /**
+ * Lo que cambia entre las DOS puertas que llegan a `solicitado` (Feature #11912, HU #11915).
+ *
+ * La cola de trámite parte de `pendiente`; la validación de una solicitud del canal Cliente parte de
+ * `pendiente_revision`. Todo lo demás —el bloqueo, la asignación de destino, el `enviado_por`, el
+ * historial— es EXACTAMENTE lo mismo, y por eso se parametriza el estado de partida en vez de
+ * escribir un segundo `update` que mañana diverja (ADR-0008 §6, precisión de `#6`).
+ */
+export interface OpcionesEnvio {
+  /** Estado de PARTIDA exigido. Por defecto `pendiente`, que es la cola del flujo de trámite. */
+  estadoOrigen?: EstadoSoat;
+  /** Texto del historial. Por defecto, el del envío desde la cola. */
+  motivo?: string;
+}
+
+/**
  * Envía SOAT al gestor: Pendiente → En adquisición. Solo Operaciones. La atomicidad es
  * obligatoria (CA-04): con dos usuarios despachando la misma cola, leer-luego-escribir deja
  * que ambos envíen el mismo registro. `SELECT ... FOR UPDATE OF s SKIP LOCKED` hace que el
  * segundo no vea la fila que el primero bloqueó. El destino se fija en el mismo movimiento.
+ *
+ * Desde la HU #11915 la usa TAMBIÉN la validación del admin sobre una solicitud del canal Cliente,
+ * con `estadoOrigen: 'pendiente_revision'`. Es reúso de verdad y no una copia: el `SKIP LOCKED` que
+ * impide el doble envío, la limpieza del proveedor y la fila de historial son los mismos, así que
+ * una solicitud validada y un SOAT despachado desde la cola llegan a `solicitado` idénticos — que es
+ * lo que el AC1 pide para que el proveedor la vea en su cola sin saber por qué puerta entró.
  */
-export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(
+  ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}, opciones: OpcionesEnvio = {},
+): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
+  const estadoOrigen = opciones.estadoOrigen ?? EstadoSoat.PENDIENTE;
 
   const enviados = await db.transaction(async (tx) => {
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
@@ -767,7 +891,7 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: Desti
       .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
       .where(and(
         inArray(flitoSoat.id, ids),
-        eq(flitoSoat.estado, EstadoSoat.PENDIENTE),
+        eq(flitoSoat.estado, estadoOrigen),
         FRONTERA_AUTOGESTION_SOAT,
       ))
       .for('update', { of: flitoSoat, skipLocked: true });
@@ -798,10 +922,11 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: Desti
 
     // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
     // historial cuenta lo que pasó, no lo que se intentó.
-    const motivo = destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor';
+    const motivo = opciones.motivo
+      ?? (destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor');
     await registrarCambios(tx, idsEnviados.map((sid) => ({
       concepto: 'soat' as const, registroId: sid,
-      estadoAnterior: EstadoSoat.PENDIENTE, estadoNuevo: EstadoSoat.SOLICITADO,
+      estadoAnterior: estadoOrigen, estadoNuevo: EstadoSoat.SOLICITADO,
       motivo, usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
 
@@ -869,6 +994,31 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
   if (soat.estado === estadoDestino) throw new SoatError(400, 'El SOAT ya está en ese estado');
+
+  // ── Los dos estados del canal Cliente quedan FUERA de la reversa, en los dos sentidos ───────────
+  //
+  // Es la puerta de al lado por la que se saltaba entera la revisión de la HU #11915, y estaba
+  // abierta: la reversa NO comprobaba el estado de partida, así que un admin podía llevar una
+  // solicitud en `pendiente_revision` a `pendiente` — y `pendiente` es justo lo que filtra
+  // `POST /enviar`, de modo que la siguiente pasada de la cola la despachaba al gestor SIN QUE NADIE
+  // la hubiera validado. El AC1 dice que a `solicitado` solo se llega revisando; esto lo hace
+  // verdad en el único sitio donde vale, que es el servicio y no el botón.
+  //
+  // El sentido contrario lo prohíbe el ADR-0008 §8 por escrito: devolver a `pendiente_revision` un
+  // SOAT ya validado dejaría al gestor sin la fila de su cola y al cliente con una solicitud que
+  // creía resuelta. Se comprueba aquí y no solo en el `z.enum` de la ruta porque ese enum alimenta
+  // también el selector de la pantalla, y basta con que alguien añada allí los dos estados nuevos
+  // «para que la pill funcione» para abrir el destino sin darse cuenta.
+  //
+  // Salir de estos estados NO se queda sin camino: `POST /:id/validar` y
+  // `POST /:id/rechazar-solicitud` son las dos únicas salidas de `pendiente_revision`, y de
+  // `rechazada` se sale subsanando. La reversa es la excepción manual del ciclo de TRÁMITE.
+  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(soat.estado as EstadoSoat)) {
+    throw new SoatError(400, `Una solicitud del canal Cliente en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}" no se reversa: se valida o se rechaza desde la revisión.`);
+  }
+  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(estadoDestino)) {
+    throw new SoatError(400, `"${ESTADO_SOAT_LABEL[estadoDestino]}" es un estado del canal Cliente y no es un destino de reversa.`);
+  }
 
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }

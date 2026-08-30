@@ -5,12 +5,13 @@
 // los Pendiente; Auditoría es solo lectura.
 
 import { puedeOperar } from '../lib/permissions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
+import BloqueRevision from '../components/flito/soat-cliente/BloqueRevision';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
@@ -82,8 +83,36 @@ const pesos = (v: number | null | undefined) => v === null || v === undefined ? 
 const dato = (v: string | null) => (v && v.trim() ? v : '—');
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
-const ESTADOS_OPERACIONES: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
+/**
+ * Los estados a los que el admin puede REVERSAR un SOAT, y NADA MÁS (HU #11915).
+ *
+ * Hasta esta HU esta lista alimentaba dos cosas a la vez: las pastillas de la cola Y el selector
+ * «Estado destino» de la reversa. Añadirle los dos estados del canal Cliente —que es lo que hacía
+ * falta para que el admin pudiera FILTRAR por «Pendiente de revisión»— le habría abierto de paso la
+ * posibilidad de reversar cualquier SOAT a `pendiente_revision` o a `rechazada`, que es justo lo que
+ * el ADR-0008 §8 prohíbe por escrito: devolver a `pendiente_revision` un SOAT ya validado deja al
+ * gestor sin la fila y al cliente con una solicitud que creía resuelta. El servicio ya lo niega
+ * (`reversar()`), pero la pantalla tampoco debe OFRECERLO.
+ *
+ * De ahí las dos listas separadas y el nombre nuevo: fundirlas otra vez tendría que costarle a
+ * alguien escribir «destino de reversa» donde se lee «pastillas», y eso ya no se hace sin querer.
+ */
+const ESTADOS_DESTINO_REVERSA: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
 const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
+/**
+ * Las pastillas del admin: los SEIS estados, en orden de RECORRIDO (HU #11915).
+ *
+ * `pendiente_revision` va primero porque es el trabajo del día que esta HU le crea; después el ciclo
+ * de siempre (pendiente → solicitado → pagado → con novedad) y al final `rechazada`, que es lo que
+ * está esperando al cliente y no a Operaciones.
+ *
+ * Sin esta pastilla el admin no tenía forma de encontrar lo que la HU le manda revisar salvo paginar:
+ * la #11914 se la dio al Cliente (`ESTADOS_CLIENTE`) y dejó al revisor sin ella.
+ */
+const ESTADOS_ADMIN: EstadoSoat[] = [
+  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO,
+  EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.RECHAZADA,
+];
 /**
  * Los SEIS estados, en orden de recorrido (HU #11914).
  *
@@ -120,7 +149,7 @@ export default function FlitoSoat() {
   const puedeSolicitar = puedeSolicitarSoat(user);
   const { state: estadoNavegacion } = useLocation();
 
-  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_OPERACIONES;
+  const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
   const [estado, setEstado] = useState<EstadoSoat | 'todos'>(esGestor ? EstadoSoat.SOLICITADO : 'todos');
   const [texto, setTexto] = useState('');
   // Antes se consultaba en cada tecla; con la cola paginada eso es una consulta con COUNT por
@@ -148,6 +177,12 @@ export default function FlitoSoat() {
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'proveedor'>('');
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+
+  // Respaldo de foco del detalle (HU #11915). Validar o rechazar cierra el modal y refresca la cola,
+  // y la fila SALE de la vista cuando el admin está filtrando justo por «Pendiente de revisión»: el
+  // botón «Ver» que abrió el modal deja de existir y `useFocusTrap` no tiene a dónde devolver el
+  // foco. Apunta al grupo de pastillas, que es donde ese trabajo continúa.
+  const refPills = useRef<HTMLDivElement>(null);
 
   // Los multiselect se serializan a una clave para las dependencias de los efectos.
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(','); const provKey = proveedoresSel.join(',');
@@ -278,14 +313,16 @@ export default function FlitoSoat() {
 
       <FlitCard>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <FlitPillGroup>
-            {!esGestor && (
-              <FlitPillButton active={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
-            )}
-            {estadosDisponibles.map((e) => (
-              <FlitPillButton key={e} active={estado === e} onClick={() => setEstado(e)}>{ESTADO_SOAT_LABEL[e]}</FlitPillButton>
-            ))}
-          </FlitPillGroup>
+          <div ref={refPills} tabIndex={-1} className="flit-focus rounded-[999px]">
+            <FlitPillGroup>
+              {!esGestor && (
+                <FlitPillButton active={estado === 'todos'} onClick={() => setEstado('todos')}>Todos</FlitPillButton>
+              )}
+              {estadosDisponibles.map((e) => (
+                <FlitPillButton key={e} active={estado === e} onClick={() => setEstado(e)}>{ESTADO_SOAT_LABEL[e]}</FlitPillButton>
+              ))}
+            </FlitPillGroup>
+          </div>
           <input className={`${flitInp} max-w-xs`} placeholder="Buscar placa, VIN, comprador…"
             value={texto} onChange={(e) => setTexto(e.target.value)} />
         </div>
@@ -468,7 +505,7 @@ export default function FlitoSoat() {
 
       {detalle && (
         <DetalleSoat soat={detalle} esOperaciones={esOperaciones} esGestor={esGestor} soloLectura={soloLectura}
-          esCliente={esCliente}
+          esCliente={esCliente} restoreFocusRef={refPills}
           proveedores={proveedores} onClose={() => setDetalleId(null)}
           onCambio={() => { setDetalleId(null); refrescar(); }} />
       )}
@@ -593,9 +630,10 @@ function CeldaGestion({ soat }: { soat: SoatItem }) {
 
 type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'proveedor' | 'factura' | 'asumir' | 'devolver';
 
-function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, onClose, onCambio }: {
+function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, proveedores, restoreFocusRef, onClose, onCambio }: {
   soat: SoatItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean; esCliente: boolean;
-  proveedores: Proveedor[]; onClose: () => void; onCambio: () => void;
+  proveedores: Proveedor[]; restoreFocusRef?: RefObject<HTMLElement | null>;
+  onClose: () => void; onCambio: () => void;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -608,6 +646,17 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
 
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
   const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
+  // Las dos guardas del canal Cliente (HU #11915), nombradas por ESTADO y nunca por rol: la pregunta
+  // es por la FILA, no por quien la mira. `pendiente_revision` y `rechazada` solo existen en el
+  // canal (ADR-0008 §8), así que el estado ya dice de dónde viene la solicitud.
+  const enRevision = soat.estado === EstadoSoat.PENDIENTE_REVISION;
+  const rechazadaCliente = soat.estado === EstadoSoat.RECHAZADA;
+  const esFilaDelCanal = enRevision || rechazadaCliente;
+  // El bloque de revisión: los lectores INTERNOS siempre que la fila sea del canal —el auditor lo ve
+  // en solo lectura, que es su trabajo—; el Cliente solo cuando hay algo que corregir. Al gestor no
+  // le llega: los dos estados están fuera de su lista blanca y `GET /:id` le responde 404.
+  const verRevision = esFilaDelCanal
+    && (esOperaciones || soloLectura || (esCliente && rechazadaCliente));
   // El traspaso de gestión solo tiene sentido mientras el SOAT está en gestión y sin pagar: en
   // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
   const traspasable = enAdquisicion || rechazado;
@@ -625,7 +674,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
   });
 
   return (
-    <FlitModal title={`SOAT · ${soat.placa ?? soat.vin}`} onClose={onClose} wide>
+    <FlitModal title={`SOAT · ${soat.placa ?? soat.vin}`} onClose={onClose} wide restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip tone={TONO[soat.estado]}>{ESTADO_SOAT_LABEL[soat.estado]}</StatusChip>
@@ -703,10 +752,18 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             {rechazado && esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
-            {esOperaciones && (
+            {/* Las dos acciones heredadas se condicionan ADEMÁS a que la fila no sea del canal
+                (HU #11915). «Reversar» se pintaba sin ninguna condición de estado, y llevar una
+                `pendiente_revision` a `pendiente` la mete en el alcance de `POST /enviar` —que
+                filtra por `pendiente`—: sería despachar al gestor una solicitud que nadie validó,
+                el AC1 saltado por la puerta de al lado. El servicio ya lo niega desde esta HU; la
+                pantalla no debe ofrecer algo por lo que el admin vaya a recibir un error.
+                «Cambiar proveedor» no rompe nada, pero elegir gestor para una solicitud que aún no
+                ha entrado en gestión es una acción sin sentido en ese punto del ciclo. */}
+            {esOperaciones && !esFilaDelCanal && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}
-            {esOperaciones && !enAdquisicion && (
+            {esOperaciones && !enAdquisicion && !esFilaDelCanal && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
             )}
             {esOperaciones && traspasable && !soat.gestionOperaciones && (
@@ -728,7 +785,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
             <FlitField label="Estado destino">
               <select className={flitInp} value={estadoDestino} onChange={(e) => setEstadoDestino(e.target.value as EstadoSoat)}>
-                {ESTADOS_OPERACIONES.map((e) => <option key={e} value={e}>{ESTADO_SOAT_LABEL[e]}</option>)}
+                {ESTADOS_DESTINO_REVERSA.map((e) => <option key={e} value={e}>{ESTADO_SOAT_LABEL[e]}</option>)}
               </select>
             </FlitField>
             <FormMotivo etiqueta="Motivo de la reversa (mín. 5 caracteres)" motivo={motivo} setMotivo={setMotivo}
@@ -757,6 +814,21 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
               onCancelar={() => { setAccion('idle'); setMotivo(''); }}
               onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/devolver-gestor`, { proveedorSoatId, motivo }))} />
           </div>
+        )}
+
+        {/* Al FINAL y después del historial, no arriba: lo primero que hay que hacer es LEER la
+            factura de venta («Ver soporte», más arriba), y poner los dos botones antes que el
+            soporte invita a validar sin abrirlo. Y no en un modal aparte: el visor de soportes ya se
+            abre encima de este modal, y un tercer nivel es el que rompe la pila. */}
+        {verRevision && accion === 'idle' && (
+          <BloqueRevision
+            soatId={soat.id}
+            estado={soat.estado}
+            esCliente={esCliente}
+            puedeRevisar={esOperaciones && !soloLectura && enRevision}
+            proveedores={proveedores}
+            onCambio={onCambio}
+          />
         )}
 
         {accion === 'proveedor' && (

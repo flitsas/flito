@@ -198,6 +198,31 @@ export const ESTADOS_SOAT_VISIBLES_GESTOR: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
 ];
 
+/**
+ * Los dos estados que SOLO existen en el canal Cliente (Feature #11912, HU #11915).
+ *
+ * Nombrados una vez y no repetidos como literales, porque de esta lista dependen tres reglas que
+ * tienen que decir lo mismo o el ciclo se abre por la costura:
+ *
+ *   1. **`reversar()` no sale de ellos.** Sin esa guarda, un admin lleva una solicitud de
+ *      `pendiente_revision` a `pendiente` y `POST /enviar` la despacha al gestor sin que nadie la
+ *      haya validado — el AC1 saltado por la puerta de al lado.
+ *   2. **`reversar()` no entra en ellos.** Lo prohíbe el ADR-0008 §8: devolver a `pendiente_revision`
+ *      un SOAT ya validado deja al gestor sin la fila y al cliente con una solicitud que creía
+ *      resuelta.
+ *   3. **La pantalla no puede ofrecerlos como destino de reversa.** `ESTADOS_OPERACIONES` de
+ *      `FlitoSoat.tsx` alimenta a la vez las pills de la cola Y el selector «Estado destino» de la
+ *      reversa; añadir ahí los dos estados para que la pill funcione abriría el destino sin que
+ *      nadie lo decidiera. La UI necesita las dos listas separadas, y esta es la que dice cuáles no
+ *      son destino.
+ *
+ * NO es lo mismo que «estados que el gestor no ve»: eso ya lo dice `ESTADOS_SOAT_VISIBLES_GESTOR`,
+ * que es una lista blanca y responde otra pregunta.
+ */
+export const ESTADOS_SOAT_CANAL_CLIENTE: readonly EstadoSoat[] = [
+  'pendiente_revision', 'rechazada',
+];
+
 /** Estado de Impuestos: mismos cuatro estados que SOAT (ver EstadoSoat). */
 export const EstadoImpuesto = {
   PENDIENTE: 'pendiente',
@@ -359,7 +384,57 @@ export const CodigoErrorSolicitudSoat = {
   VIN_YA_TIENE_SOAT: 'vin_ya_tiene_soat',
   /** El adjunto no es un PDF por CONTENIDO, no solo por extensión (AC5). */
   ARCHIVO_NO_PDF: 'archivo_no_pdf',
+
+  // ── Revisión, rechazo y subsanación (HU #11915) ────────────────────────────────────────────────
+  //
+  // Se suman a los ocho de arriba en vez de estrenar un segundo catálogo: son el MISMO canal, los
+  // sirven las mismas rutas y el cliente HTTP de la web ya sabe leer `codigo` de esta lista
+  // (`apps/web/src/lib/soatCliente.ts` valida contra `Object.values(...)`). Un catálogo aparte
+  // obligaría a duplicar esa validación y a decidir en cada `catch` cuál de los dos mirar.
+
+  /** El id no existe, o no es de la compañía de quien pregunta (404-no-403 de `buscarConAcceso`). */
+  SOLICITUD_NO_ENCONTRADA: 'solicitud_no_encontrada',
+  /**
+   * La fila existe pero NO nació del canal (`origen = 'tramite'`).
+   *
+   * No es un caso teórico: un `cliente` ve en su cola TODOS los SOAT de su compañía, también los que
+   * creó el sync de trámites, y un `admin` los ve todos. Validar, rechazar o subsanar por estas
+   * rutas un SOAT de trámite metería el ciclo del canal en un flujo que no lo tiene (AC1).
+   */
+  NO_ES_DEL_CANAL: 'no_es_del_canal',
+  /** La transición no aplica desde el estado en el que está la fila (AC1, AC2, AC3). */
+  ESTADO_NO_PERMITE: 'estado_no_permite',
+  /** La causal no está en el catálogo general, o está desactivada (AC2). */
+  CAUSAL_INVALIDA: 'causal_invalida',
+  /** El rechazo llegó sin observación, o con una en blanco (AC2). */
+  OBSERVACION_REQUERIDA: 'observacion_requerida',
+  /**
+   * Validar llegó sin destino, o con los dos.
+   *
+   * No es una formalidad del formulario: un `solicitado` sin proveedor y sin contingencia es un SOAT
+   * en la cola de NADIE y sin ANS con el que medirlo — lo mismo que la HU #10979 arregló haciendo
+   * obligatorio el proveedor en el envío masivo.
+   */
+  DESTINO_REQUERIDO: 'destino_requerido',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * Una causal del catálogo de rechazo, tal como la sirve `GET /flito/soat/causales-rechazo`
+ * (Feature #11912, HU #11915).
+ *
+ * Catálogo GENERAL: no hay causales por compañía, ni aquí ni en la tabla. Lo dice el AC2 y es además
+ * el precedente del repo (`flito_comparendos_causales`).
+ *
+ * `activo` viaja aunque el endpoint solo devuelva las activas, y no es redundante: el detalle de un
+ * rechazo YA REGISTRADO tiene que poder rotular una causal que se desactivó después, y sin el campo
+ * la pantalla no distinguiría «esta causal ya no se ofrece» de «esta causal no existe».
+ */
+export interface CausalRechazoSoat {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  orden: number;
+}

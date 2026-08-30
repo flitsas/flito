@@ -1,18 +1,17 @@
 // FLITO — canal Cliente: subsanar una solicitud RECHAZADA (HU #11914, segunda mitad del AC4).
 //
-// ── El reparto entre HUs, escrito para que se lea en el PR ───────────────────────────────────────
+// ── El reparto entre HUs ─────────────────────────────────────────────────────────────────────────
 //
-// Lo que entrega la **#11914** es esto: la ruta `/flito/soat/solicitud/:id`, la vista que la sirve
-// con sus cuatro estados y el enlace que llega desde el modal del AC4. Lo que **NO** entrega, porque
-// es de la **#11915** (ADR-0008 §6-§7):
+// La **#11914** entregó esta pantalla: la ruta `/flito/soat/solicitud/:id`, la vista con sus cuatro
+// estados y el enlace que llega desde el modal del AC4. Las dos piezas que le faltaban las entregó
+// la **#11915**, y ya están:
 //
-//   · `PATCH /flito/soat/:id/solicitud` — el endpoint al que apunta «Reenviar la solicitud». Hoy no
-//     existe y **tampoco está en la allowlist del canal** (`canal-cliente.ts`), así que un `cliente`
-//     que lo llame recibe un 403. El botón se escribe contra el contrato del ADR para que la #11915
-//     solo tenga que encender el servidor; hasta entonces este camino se queda sin destino.
-//   · La **causal y la observación** del rechazo, que viven en la satélite `flito_soat_solicitud` y
-//     hoy no salen por ninguna parte. El bloque «Por qué se rechazó» se pinta **solo si llegan**: en
-//     cuanto el detalle traiga `solicitud`, aparece sin tocar esta pantalla.
+//   · `PATCH /flito/soat/:id/solicitud` — el endpoint al que apunta «Reenviar la solicitud». Existe
+//     e **está inscrito en la allowlist del canal** (`canal-cliente.ts`). Hasta la #11915 no existía
+//     y un `cliente` que lo llamara recibía un 403; esta nota lo decía y sobrevivió al cambio que la
+//     volvió falsa, que es exactamente cómo se pudren estos comentarios.
+//   · La **causal y la observación** del rechazo, que viven en la satélite `flito_soat_solicitud`.
+//     El detalle ya las trae en `solicitud`, así que el bloque «Por qué se rechazó» se llena.
 //
 // ── Y lo que NO se reutiliza, aunque esté a mano ────────────────────────────────────────────────
 //

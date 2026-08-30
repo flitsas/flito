@@ -47,10 +47,18 @@ const LECTURA = requireRole('admin', 'proveedor', 'auditor', 'cliente');
 const OPERACIONES = requireRole('admin');
 const OPS_O_GESTOR = requireRole('admin', 'proveedor');
 
-// Los estados que el filtro de la cola acepta. Los dos del canal Cliente (`pendiente_revision`,
-// `rechazada`) NO se añaden aquí en esta HU: quien los escribe y los ofrece como filtro es la
-// #11915, que es la que rehace la cola del admin. Un estado desconocido se ignora, no da 400.
-const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD] as const;
+// Los estados que el filtro de la cola acepta.
+//
+// Los dos del canal Cliente entran en la HU #11915, que es la que da al admin una cola de revisión.
+// **Sin ellos aquí, añadir la pill solo en la interfaz falla EN SILENCIO y en la peor dirección**:
+// un estado desconocido se ignora —no da 400, por la filosofía de «un filtro roto no tumba la
+// pantalla de quien trabaja»—, así que el admin pulsa «Pendiente de revisión», el filtro se descarta
+// y la cola le devuelve TODO presentándoselo como el resultado del filtro. En una pantalla de
+// revisión, ver de más creyendo que se ve de menos es el modo de fallo que hay que evitar primero.
+const ESTADOS = [
+  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
+  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA,
+] as const;
 
 function handleError(res: Response, e: unknown): void {
   if (e instanceof SoatError) { res.status(e.status).json({ error: e.message }); return; }
@@ -223,6 +231,12 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 });
 
 // POST /:id/reversar — reversa manual (RN-06). Solo Operaciones, motivo ≥5.
+//
+// El enum NO gana los dos estados del canal Cliente aunque `ESTADOS` (arriba) sí los tenga: son dos
+// preguntas distintas y confundirlas es lo que abre la puerta. Aquella lista dice «por qué estados se
+// puede FILTRAR»; esta dice «a qué estados se puede REVERSAR», y el ADR-0008 §8 prohíbe
+// `pendiente_revision` como destino. La defensa de verdad está en `reversar()`, que además comprueba
+// el estado de PARTIDA: este `z.enum` protege una ruta, y el servicio protege la regla.
 const reversarSchema = z.object({
   estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),
