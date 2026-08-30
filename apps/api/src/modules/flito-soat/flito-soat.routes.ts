@@ -166,6 +166,13 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * cuando el rol es `auditor`. Desde que esta lista incluye el comprobante del pago PSE de la boleta,
  * eso son dos preguntas distintas: «¿es tuyo este SOAT?» la responde `detalle()`, y «¿tienes derecho
  * a ESTE bloque?» la responde `soportesDeSoat` con el rol. Auditoría sigue viendo todo lo demás.
+ *
+ * **Y desde la HU #11916 viaja también el ESTADO, que es la tercera pregunta** («¿ya hay algo que
+ * enseñar?»): para el `cliente`, la póliza solo sale con el SOAT en `pagado` (AC2/AC3). El estado
+ * sale del detalle que acaba de autorizar el acceso y no de una segunda lectura: son el mismo hecho,
+ * y dos lecturas podrían discrepar entre sí. Esta ruta sigue sirviendo al canal Cliente sin ninguna
+ * entrada nueva en `canal-cliente.ts` — `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde
+ * la #11913, y el archivo se descarga por `GET /api/files?…`, que es público y va firmado.
  */
 router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
@@ -173,7 +180,7 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role }));
+  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, estadoSoat: d.estado }));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.

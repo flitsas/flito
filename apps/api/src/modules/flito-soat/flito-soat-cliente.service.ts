@@ -910,9 +910,14 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 /**
  * La carrera perdida, con el MISMO contrato en las tres transiciones: 409 y «recarga la pantalla».
  *
- * Un solo sitio para que las tres digan lo mismo. `validarSolicitud` ya lo daba —lo hereda del
+ * Un solo sitio para que las tres digan lo mismo. `validarSolicitud` ya daba el 409 —lo hereda del
  * `SKIP LOCKED` de `enviarAlGestor`—, y el rechazo y la subsanación no; esa asimetría dentro de la
  * misma HU es la que encontró `db-review-agent`.
+ *
+ * «Un solo sitio» fue una promesa a medias hasta la #11916: `validarSolicitud` repetía el literal en
+ * vez de llamar aquí, así que las tres decían lo mismo por coincidencia y no por construcción. Ahora
+ * las TRES llaman a este helper, y por eso el test de la #11916 compara los tres cuerpos entre sí en
+ * vez de comparar cada uno contra un texto escrito a mano.
  */
 const carreraPerdida = () => fallo(409, CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE,
   'Otra persona acaba de mover esta solicitud. Recarga la pantalla para ver cómo quedó.');
@@ -1005,10 +1010,11 @@ export async function validarSolicitud(
       ? 'Solicitud validada: pasa a gestión de Operaciones'
       : 'Solicitud validada: pasa al gestor',
   });
-  if (enviados.length === 0) {
-    throw fallo(409, CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE,
-      'Otra persona acaba de mover esta solicitud. Recarga la pantalla para ver cómo quedó.');
-  }
+
+  // Llama al helper y no repite el literal: su docblock promete «un solo sitio para que las tres
+  // digan lo mismo» y esa frase era falsa en la letra —esta rama tenía su propia copia del texto, y
+  // dos copias divergen en cuanto alguien mejore una—. Corregido en la #11916.
+  if (enviados.length === 0) throw carreraPerdida();
 
   // El satélite guarda QUIÉN revisó y CUÁNDO. Va fuera de la transacción de `enviarAlGestor` y no
   // dentro, y es un tradeoff consciente: meterlo dentro exigiría abrirle a esa función un `hook` de

@@ -17,6 +17,7 @@ import express from 'express';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { testToken } from '../helpers/auth.js';
+import { ligadoA, renderizar } from '../helpers/sql-ligado.js';
 
 const selectMock = vi.fn();
 
@@ -206,20 +207,22 @@ describe('frontera de autogestión — la tercera condición del canal Cliente',
     selectMock.mockImplementationOnce(() => chainEspia([]));
     await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('admin'));
 
-    const { sql, params } = aSql(wheres[0]);
+    const q = renderizar(wheres[0]);
     // Sin esta condición, una compañía con «autogestiona SOAT» y «SOAT sin trámite» encendidos a la
     // vez —combinación válida y esperada— radicaría solicitudes que no vería nadie.
     //
     // El valor va como PARÁMETRO ENLAZADO y no inline desde la HU #11915, que sustituyó el literal
     // crudo por la constante `ORIGEN_CLIENTE` —hasta entonces la frase del docblock prometía que un
-    // `grep ORIGEN_CLIENTE` encontraba esta frontera, y era falsa—. Se comprueban las dos mitades:
-    // la columna en el SQL y el valor entre los parámetros. Con solo la columna, la condición
-    // podría comparar contra cualquier cosa.
-    expect(sql).toContain('"flito_soat"."origen" =');
-    expect(params).toContain('cliente');
+    // `grep ORIGEN_CLIENTE` encontraba esta frontera, y era falsa—.
+    //
+    // La aserción es POSICIONAL desde la #11916. Antes eran dos líneas sueltas —`sql` contiene
+    // `"origen" =` y `params` contiene `'cliente'`— que son ciertas a la vez aunque la comparación
+    // ligue OTRO valor a esa columna: `toContain` mira el conjunto de parámetros, no el que
+    // corresponde al `$N` de esta comparación. `ligadoA` lee el marcador y va a su posición.
+    expect(ligadoA(q, '"flito_soat"."origen"')).toBe('cliente');
     // Y las dos que ya estaban siguen ahí: es un OR que se AÑADE, no un reemplazo.
-    expect(sql).toContain('"clients"."soat_autogestionable"');
-    expect(sql).toContain('"flito_soat"."excepcion_autogestion"');
+    expect(q.sql).toContain('"clients"."soat_autogestionable"');
+    expect(q.sql).toContain('"flito_soat"."excepcion_autogestion"');
   });
 });
 

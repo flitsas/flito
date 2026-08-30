@@ -117,7 +117,12 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
   },
   {
     metodo: 'GET', patron: '/api/flito/soat/:id/soportes',
-    porque: 'El visor de documentos del detalle. Los de origen interno se filtran en la consulta.',
+    porque: 'El visor de documentos del detalle, y desde la HU #11916 la DESCARGA de la póliza: la '
+      + 'lista trae el enlace firmado con el que la SPA la pinta. Sigue sin ser una puerta abierta —'
+      + 'qué documentos entran lo decide `TIPOS_SOPORTE_VISIBLES_CLIENTE` (allowlist por tipo Y por '
+      + 'estado, la póliza solo en `pagado`) y la pertenencia la resuelve `buscarConAcceso()` con '
+      + '404-no-403. El archivo en sí baja por `GET /api/files?…`, que no pasa por este guarda '
+      + 'porque su token HMAC firmado ES su autenticación.',
   },
   // ── Las DOS rutas de ESCRITURA del canal (HU #11914). Son las primeras de esta lista que no son
   // una lectura, y por eso llevan encima tres cosas que las de arriba no necesitan: `requireRole
