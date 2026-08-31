@@ -304,11 +304,12 @@ test.describe('FLITO — Portal SOAT', () => {
   // privilegiada» del tipo `{esOperaciones && <CeldaTramite …/>}`: probar solo con el gestor la
   // dejaría viva, y probar solo con admin dejaría viva la inversa.
   for (const caso of [
-    // 10 columnas: admin es el único que ve la casilla de selección (`puedeOperar`), y solo mientras
-    // haya algún Pendiente en la página. Auditoría y el gestor se quedan en 9.
+    // 10 columnas para quien puede DESCARGAR SOPORTES: la casilla de selección ya no cuelga de
+    // «hay algún Pendiente» sino del permiso (HU #11910, AC7). El gestor la gana —los comprobantes
+    // de sus SOAT son suyos— y Auditoría sigue en 9, que es lo que ese AC exige.
     { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
     { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
-    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
   ]) {
     test(`${caso.rol} tampoco ve la columna Trámite: no hay vista privilegiada`, async ({ page }) => {
       await loginAs(page, caso.usuario);
@@ -330,12 +331,12 @@ test.describe('FLITO — Portal SOAT', () => {
   // cubre en la API y aquí no hay ni un condicional de rol, así que el mutante a matar es
   // exactamente el que lo introdujera.
   for (const caso of [
-    // El conteo de columnas viaja con el aserto y NO cambia respecto a la HU #11905: los tres datos
-    // van DENTRO de la celda del vehículo. Si esto sube a 11/12, alguien metió columnas nuevas y la
-    // tabla volvió a ser más ancha que antes de la #11905.
+    // El conteo de columnas viaja con el aserto: los tres datos van DENTRO de la celda del vehículo.
+    // Si esto sube a 11/12, alguien metió columnas nuevas y la tabla volvió a ser más ancha que antes
+    // de la HU #11905. El 10 del gestor es de la #11910 (gana la casilla), no una columna de datos.
     { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
     { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
-    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 9 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
   ]) {
     test(`${caso.rol} ve cilindraje, carrocería y tipo de servicio junto al vehículo`, async ({ page }) => {
       // Guarda del fixture: si alguien vacía estos tres campos del mock, el test de abajo se volvería

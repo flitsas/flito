@@ -28,11 +28,24 @@ const app = express();
 app.use(express.json());
 app.use('/api/flito/impuestos', impuestosRoutes);
 
-// buscarConAcceso: 1) impuesto+autogestion, 2) trámite con la factura de FLIT y su id de FLIT.
-function mockAcceso(facturaVentaFlitId: string | null, idFlit = 'FLIT-2001') {
+// buscarConAcceso: 1) impuesto+autogestion, 2) trámite con la factura de FLIT.
+//
+// La segunda fila trae PLACA y ORGANISMO desde la HU #11910: el nombre de descarga dejó de ser
+// `factura-venta-<idFlit>.pdf` y pasó a ser `PLACA-ORGANISMO.<ext>` (AC5), el mismo con el que la
+// factura aparece dentro del ZIP. `idFlit` se sigue leyendo y ya no decide el nombre.
+function mockAcceso(
+  facturaVentaFlitId: string | null,
+  idFlit = 'FLIT-2001',
+  vehiculo: { placa?: string | null; organismoAlias?: string | null; organismoCodigo?: string | null } = {},
+) {
   selectMock
     .mockReturnValueOnce(chain([{ imp: { id: 'i1', tramiteId: 't1', organismoCodigo: '05001', estado: 'pendiente' }, dentroDeFrontera: true }]))
-    .mockReturnValueOnce(chain([{ facturaVentaFlitId, idFlit }]));
+    .mockReturnValueOnce(chain([{
+      facturaVentaFlitId, idFlit,
+      placa: vehiculo.placa === undefined ? 'ASD123' : vehiculo.placa,
+      organismoAlias: vehiculo.organismoAlias === undefined ? 'Medellín' : vehiculo.organismoAlias,
+      organismoCodigo: vehiculo.organismoCodigo === undefined ? '05001' : vehiculo.organismoCodigo,
+    }]));
 }
 
 /** Respuesta de S3 tal como llega de verdad: sin tipo útil y con el cuerpo del PDF. */
@@ -57,15 +70,20 @@ describe('GET /:id/factura-venta — la sirve la API, en PDF y con nombre', () =
     expect(res.headers['content-type']).toContain('application/pdf');
   });
 
-  // Es el fallo que se venía a corregir: sin nombre con extensión, el navegador guarda el id de S3
-  // a secas y el archivo no abre con doble clic.
-  it('el nombre de descarga lleva el id del trámite y termina en .pdf', async () => {
-    mockAcceso('fac-123', 'FLIT-9876');
+  // El fallo original que se vino a corregir sigue cubierto —sin extensión el navegador guarda el id
+  // de S3 a secas y el archivo no abre con doble clic—, pero el nombre ES OTRO desde la HU #11910:
+  // `PLACA-ORGANISMO.<ext>` (AC5), el mismo con el que la factura aparece dentro del ZIP. Con dos
+  // convenciones, quien baja un ZIP y luego una factura suelta no puede emparejarlas en su carpeta.
+  it('el nombre de descarga es `PLACA-ORGANISMO.pdf`, en mayúsculas y sin tildes', async () => {
+    mockAcceso('fac-123', 'FLIT-9876', { placa: 'asd123', organismoAlias: 'Medellín' });
     obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-123?sig=abc');
     mockS3();
     const token = await testToken({ role: 'admin' });
     const res = await request(app).get('/api/flito/impuestos/i1/factura-venta').set('Authorization', `Bearer ${token}`);
-    expect(res.headers['content-disposition']).toBe('inline; filename="factura-venta-FLIT-9876.pdf"');
+    expect(res.headers['content-disposition']).toBe('inline; filename="ASD123-MEDELLIN.pdf"');
+    // Y el id de FLIT ya no viaja en la cabecera: era el único texto libre del origen que llegaba a
+    // una cabecera HTTP.
+    expect(res.headers['content-disposition']).not.toContain('FLIT-9876');
   });
 
   // Si lo que hay guardado NO es un PDF, se dice la verdad en vez de rotularlo como tal: un `.pdf`
@@ -116,22 +134,26 @@ describe('GET /:id/factura-venta — la sirve la API, en PDF y con nombre', () =
   });
 });
 
-describe('POST /facturas-venta/zip — descarga varias en un zip', () => {
-  it('body inválido (ids vacío) → 400', async () => {
+/**
+ * `POST /facturas-venta/zip` — RETIRADA en la HU #11910.
+ *
+ * Lo que hacía lo hace ahora `POST /soportes/zip` (`flito-soportes-zip.test.ts`), y la vieja no se
+ * conserva «por si acaso»: exportaba facturas con datos personales SIN cuota, SIN rastro en
+ * `pii_access_log` y con un `catch {}` mudo que hacía desaparecer documentos sin dejar constancia.
+ * Además escribía las cabeceras y hacía `pipe` antes del bucle, así que una selección sin soportes
+ * producía un ZIP válido y vacío de 22 bytes.
+ *
+ * El aserto se queda AQUÍ y no solo en la suite nueva: este archivo es el que cubría el endpoint, y
+ * un test de retirada que viva únicamente en el archivo del sustituto no se lee cuando alguien viene
+ * a preguntarse qué pasó con el original.
+ */
+describe('POST /facturas-venta/zip — retirada (HU #11910)', () => {
+  it('la ruta ya NO existe: 404, no un zip', async () => {
     const token = await testToken({ role: 'admin' });
-    const res = await request(app).post('/api/flito/impuestos/facturas-venta/zip').set('Authorization', `Bearer ${token}`).send({ ids: [] });
-    expect(res.status).toBe(400);
-  });
-
-  it('operaciones: responde un zip (application/zip)', async () => {
-    mockAcceso('fac-1');
-    obtenerUrlFacturaMock.mockResolvedValue('https://flit-bucket.s3/fac-1.pdf');
-    mockS3();
-    const token = await testToken({ role: 'admin' });
-    const res = await request(app).post('/api/flito/impuestos/facturas-venta/zip').set('Authorization', `Bearer ${token}`)
+    const res = await request(app).post('/api/flito/impuestos/facturas-venta/zip')
+      .set('Authorization', `Bearer ${token}`)
       .send({ ids: ['00000000-0000-0000-0000-000000000001'] });
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toContain('application/zip');
-    vi.unstubAllGlobals();
+    expect(res.status).toBe(404);
+    expect(String(res.headers['content-type'] ?? '')).not.toContain('application/zip');
   });
 });

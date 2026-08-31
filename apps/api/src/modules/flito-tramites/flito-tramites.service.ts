@@ -19,6 +19,7 @@ import { flitoDerechosTramite } from '../../db/schema.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
+import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
 export interface TramitesCtx { userId: number; username: string; role: string }
 
@@ -641,6 +642,61 @@ export async function facetas(): Promise<FacetasTramites> {
   ]);
   const vals = (rows: { v: string | null }[]) => rows.map((r) => r.v).filter((v): v is string => !!v).sort();
   return { estados: vals(estados), tramites: vals(tramites), ciudades: vals(ciudades), transitos: vals(transitos) };
+}
+
+/**
+ * Los trámites del lote, con sus TRES anclas, para el ZIP mixto de soportes (HU #11910, AC4).
+ *
+ * ── Por qué aquí no hay predicado de frontera y eso es correcto ──────────────────────────────────
+ *
+ * Esta pantalla es de Operaciones: `listar()` no aplica ninguna frontera —ni proveedor ni organismo—
+ * porque quien despacha ve el parque entero. La frontera de ESTA superficie es el ROL, y la aplica la
+ * ruta con `requireRole('admin')`. Es la diferencia que obliga a que sean tres rutas y no un endpoint
+ * parametrizado: unificarlas exigiría un `requireRole` con la unión de los tres roles y empujar la
+ * comprobación al cuerpo del handler, que es donde se olvida.
+ *
+ * ── Las tres anclas, y una que NO es la que parece ───────────────────────────────────────────────
+ *
+ * `facturaVentaFlitId` sale de `flito_tramites` —es la factura que emite FLIT, en su S3—, `impuestoId`
+ * del registro de impuesto del trámite y `soatId` de la columna del propio trámite. Ojo con el
+ * homónimo: el `factura_venta` que cuelga de `soat_id` en `flito_soportes` es OTRA cosa (el adjunto
+ * que sube el cliente al radicar) y no entra por ninguna de las tres — el catálogo del ZIP es
+ * `TipoSoporteZip`, no `TipoSoporte`.
+ *
+ * `leftJoin` en los tres casos: un trámite sin impuesto, sin SOAT o sin factura SALE igual, solo que
+ * sin esa ancla. Un `innerJoin` lo borraría del lote en silencio.
+ *
+ * El organismo se lee del `leftJoin` con la configuración —`flito_tramites.organismo_codigo` es
+ * nullable cuando el cruce por nombre no encontró la secretaría—, así que el nombre puede caer a
+ * `SIN-ORGANISMO`, que es lo que el AC5 prevé.
+ */
+export async function registrosZipTramites(ids: string[]): Promise<RegistroZip[]> {
+  if (ids.length === 0) return [];
+  const filas = await db.select({
+    id: flitoTramites.id,
+    createdAt: flitoTramites.createdAt,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: flitoTramites.organismoCodigo,
+    soatId: flitoTramites.soatId,
+    impuestoId: flitoImpuestos.id,
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+  }).from(flitoTramites)
+    .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
+    .where(inArray(flitoTramites.id, ids));
+
+  return filas.map((f) => ({
+    registroId: f.id,
+    placa: f.placa,
+    organismoAlias: f.organismoAlias,
+    organismoCodigo: f.organismoCodigo,
+    createdAt: f.createdAt,
+    soatId: f.soatId,
+    impuestoId: f.impuestoId,
+    facturaVentaFlitId: f.facturaVentaFlitId,
+  }));
 }
 
 /**

@@ -16,11 +16,15 @@ import {
   COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
 } from '../../shared/export/cola-flito-excel.js';
 import { CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat } from './flito-soat.pii.js';
-import { EstadoSoat } from '@operaciones/shared-types';
+import {
+  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, resolverEntradasZip,
+  ZipError, zipSoportesLimiter,
+} from '../../shared/soportes/soportes-zip.js';
+import { EstadoSoat, TipoSoporteZip } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor,
-  reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
+  reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
 import {
   construirFilasExportSoat, nombreArchivoExportSoat,
@@ -280,6 +284,92 @@ router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res
       return;
     }
 
+    handleError(res, e);
+  }
+});
+
+/**
+ * POST /soportes/zip — los comprobantes de los SOAT marcados, en un ZIP (HU #11910, AC2).
+ *
+ * ── Sin `tipos` en el cuerpo, y es una decisión ──────────────────────────────────────────────────
+ *
+ * Esta superficie tiene UN solo tipo: el comprobante que sube el gestor (`factura_soat`). Un campo
+ * `tipos` con un único valor posible sería una perilla que solo puede estar en una posición, y
+ * mañana alguien la usaría para pedir otra cosa. Las otras dos rutas sí lo llevan porque allí el
+ * usuario elige.
+ *
+ * ── El PSE de conciliación NO puede salir por aquí, y no hace falta un filtro que lo diga ────────
+ *
+ * El comprobante del pago PSE cuelga de `conciliacion_boleta_id`, y el CHECK
+ * `flito_soportes_factura_excluyente_chk` obliga a que entonces `soat_id` sea NULL. Una consulta
+ * `where soat_id IN (…) AND tipo = 'factura_soat'` no puede devolverlo ni por el ancla ni por el
+ * tipo. Añadir un `NOT tipo = 'comprobante_pse'` defensivo sugeriría que el ancla no basta —y quien
+ * lo leyera podría quitar el otro—; lo que sí hay es un test que fija las dos garantías.
+ *
+ * ── Roles: `OPS_O_GESTOR` (admin + proveedor), no `LECTURA` ──────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor` y `cliente`. El AC7 dice expresamente que auditoría no descarga, y el
+ * canal Cliente tiene su propia puerta con su propia allowlist (`TIPOS_SOPORTE_VISIBLES_CLIENTE`):
+ * una descarga masiva por ids no pasa por ella. Los dos reciben 403.
+ *
+ * ── El orden de la respuesta ─────────────────────────────────────────────────────────────────────
+ *
+ * Validar → tope de registros → frontera por LOTE → resolver entradas (409/422 aquí) → rastro PII y
+ * bitácora → cabeceras y archivo. El 409 del AC6 depende entero de que las cabeceras no se hayan
+ * escrito todavía; el molde del que sale esta ruta hacía `pipe` antes del bucle y por eso entregaba
+ * un ZIP vacío de 22 bytes. Y es el mismo orden el que permite que las cifras del aviso parcial
+ * (`X-Soportes-*`) quepan en la cabecera: `entradas` ya está resuelto antes del primer byte.
+ *
+ * Va declarada antes de `/:id` por costumbre del router.
+ */
+const zipSoportesSchema = z.object({
+  // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
+  // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
+  ids: z.array(z.string().uuid()).min(1),
+}).strict();
+
+router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Request, res: Response) => {
+  const parsed = zipSoportesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const ctx = await contextoSoat(req.user!);
+
+  try {
+    comprobarTopeRegistrosZip(parsed.data.ids);
+    const registros = await registrosZipSoat(parsed.data.ids, ctx);
+    const entradas = await resolverEntradasZip(registros, [TipoSoporteZip.FACTURA_SOAT]);
+
+    // El rastro va ANTES del primer byte: la placa de cada registro sale en el nombre de su entrada
+    // y los documentos llevan dentro el nombre y el documento del titular. Una vez empezado el
+    // archivo ya no hay forma de anotar nada con la certeza de que se llegó a anotar.
+    //
+    // `filas` = las entradas RESUELTAS, no los ids pedidos. Los ids que la frontera dejó fuera no se
+    // cuentan aquí ni en ninguna parte: ese número es un oráculo de pertenencia.
+    await registrarAccesoSoat(req, {
+      accion: 'export',
+      archivo: 'zip_soportes',
+      campos: CAMPOS_PII_ZIP_SOPORTES,
+      filas: entradas.length,
+    });
+    await audit(req, {
+      action: 'export', resource: 'flito_soat',
+      detail: `Descarga zip de comprobantes SOAT: ${entradas.length} documento(s)`,
+    });
+
+    await emitirZipSoportes(res, entradas);
+  } catch (e) {
+    // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
+    // causa real: se relanza al manejador global, que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+    // UN solo `instanceof` para los tres desenlaces del ZIP: con uno por clase, añadir un código
+    // nuevo y olvidarse en una de las tres rutas lo devuelve a la rama genérica —sin `codigo`— y la
+    // pantalla enseña «avisa a soporte». Ya pasó con el tope de registros.
+    if (e instanceof ZipError) {
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
     handleError(res, e);
   }
 });

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
+import { CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
@@ -168,6 +169,15 @@ export function createApp() {
       return cb(null, false);
     },
     credentials: true,
+    // HU #11910 — sin esto, un navegador CROSS-ORIGIN no puede leer estas cabeceras aunque el
+    // servidor las mande: `fetch` solo expone las seis de la lista segura de CORS y descarta las
+    // demás EN SILENCIO, sin error en consola ni en red. El aviso «marqué 5 y solo 2 tenían soporte»
+    // se quedaría en el genérico y nadie sabría por qué.
+    //
+    // Hoy no es load-bearing —el front va same-origin por el proxy de Vite en desarrollo y por nginx
+    // en producción—, y por eso se deja escrito: es una defensa contra el día que un cliente entre
+    // por `corsOrigins`, que existe precisamente para eso.
+    exposedHeaders: [CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros],
   }));
 
   // F6: Limite mayor para validacion biometrica (3 fotos base64) — debe ir ANTES del global

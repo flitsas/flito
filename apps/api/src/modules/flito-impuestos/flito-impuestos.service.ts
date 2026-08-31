@@ -17,6 +17,7 @@ import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -222,6 +223,54 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
   return conds;
 }
 
+/**
+ * TODOS los estados del enum, derivados y no escritos a mano (HU #11910). Un estado nuevo entra aquí
+ * solo; una lista literal se quedaría corta en silencio.
+ */
+const ESTADOS_IMPUESTO_TODOS: readonly EstadoImpuesto[] = Object.values(EstadoImpuesto);
+
+/**
+ * Los impuestos del lote que ESTE actor puede ver, para el ZIP de soportes (HU #11910).
+ *
+ * Gemelo de `registrosZipSoat` y con el mismo razonamiento en las tres decisiones que importan:
+ *
+ *   · **Una consulta por LOTE**, con `condicionesColaImpuestos` + `conJoinsColaImpuestos`, y no una
+ *     llamada a `buscarConAcceso` por id (N×2 consultas para 100 ids).
+ *   · **`estados: [...todos]` no es «traerlo todo»**: el defecto de la PANTALLA del gestor es
+ *     `solicitado`, y el recibo solo existe cuando el impuesto ya está `pagado`. Con la lista
+ *     completa, la intersección con `ESTADOS_VISIBLES_GESTOR` que hay dentro devuelve exactamente lo
+ *     que `buscarConAcceso` deja pasar.
+ *   · **Los ids que no vuelven no se distinguen** de los que no tienen documento: el ZIP no responde
+ *     por id, y publicar cuántos quedaron fuera lo convertiría en un oráculo de pertenencia.
+ *
+ * Trae DOS anclas porque esta superficie ofrece dos tipos (AC3): el impuesto —de donde cuelga el
+ * recibo— y la factura de venta de FLIT, que no está en `flito_soportes` sino en el trámite.
+ */
+export async function registrosZipImpuestos(ids: string[], ctx: ImpuestoCtx): Promise<RegistroZip[]> {
+  if (ids.length === 0) return [];
+  const conds = condicionesColaImpuestos(ctx, { estados: [...ESTADOS_IMPUESTO_TODOS] });
+  if (conds === null) return []; // gestor sin organismo → nada, nunca la tabla entera
+  const filas = await conJoinsColaImpuestos(db.select({
+    id: flitoImpuestos.id,
+    createdAt: flitoImpuestos.createdAt,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: organismosTransitoConfig.codigo,
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+  }).from(flitoImpuestos).$dynamic())
+    .where(and(...conds, inArray(flitoImpuestos.id, ids)));
+
+  return filas.map((f) => ({
+    registroId: f.id,
+    placa: f.placa,
+    organismoAlias: f.organismoAlias,
+    organismoCodigo: f.organismoCodigo,
+    createdAt: f.createdAt,
+    impuestoId: f.id,
+    facturaVentaFlitId: f.facturaVentaFlitId,
+  }));
+}
+
 /** Cola de impuestos con las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor). */
 export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = {}): Promise<ColaImpuestosPaginada> {
   const page = Math.max(1, Math.floor(f.page ?? 1));
@@ -396,18 +445,43 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
  * Factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
  * Devuelve null si el impuesto no es accesible o su trámite aún no trae factura. Integración FLIT.
  *
- * Viene acompañada del id de FLIT del trámite, que no es adorno: es el nombre con el que se
- * descarga el archivo. Nombrarlo por el id de la factura —un identificador de S3 que no aparece en
- * ninguna pantalla— deja al usuario con una carpeta de ficheros que no puede emparejar con nada.
+ * ── Qué viene con ella, y por qué CAMBIÓ en la HU #11910 ─────────────────────────────────────────
+ *
+ * Traía el `idFlit` porque era el nombre con el que se descargaba el archivo. Ahora trae **la placa
+ * y el organismo**, porque el AC5 unifica el nombre de la descarga individual con el de las entradas
+ * del ZIP: `PLACA-ORGANISMO`. El `idFlit` se queda —lo sigue leyendo quien lo necesite para
+ * trazabilidad— pero ya no decide el nombre.
+ *
+ * Los tres salen de los joins que la cola ya hace (`vehicles`, `organismos_transito_config`), así que
+ * es la misma lectura de antes con tres columnas más y ningún viaje adicional. Son `leftJoin`: el
+ * organismo del trámite es nullable y la placa del vehículo también, y su ausencia tiene que llegar
+ * hasta `SIN-ORGANISMO`/`SIN-PLACA`, no borrar la factura de la respuesta.
  */
 export async function facturaVentaFlitConAcceso(
   id: string, ctx: ImpuestoCtx,
-): Promise<{ facturaId: string; idFlit: string | null } | null> {
+): Promise<{
+  facturaId: string; idFlit: string | null;
+  placa: string | null; organismoAlias: string | null; organismoCodigo: string | null;
+} | null> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) return null;
-  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId, idFlit: flitoTramites.idFlit })
-    .from(flitoTramites).where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
-  return t?.facturaVentaFlitId ? { facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null } : null;
+  const [t] = await db.select({
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    idFlit: flitoTramites.idFlit,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: flitoTramites.organismoCodigo,
+  }).from(flitoTramites)
+    .leftJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
+  return t?.facturaVentaFlitId
+    ? {
+      facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null,
+      placa: t.placa ?? null, organismoAlias: t.organismoAlias ?? null,
+      organismoCodigo: t.organismoCodigo ?? null,
+    }
+    : null;
 }
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {

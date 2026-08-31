@@ -45,6 +45,16 @@ import { ANS_OPERATIVO,
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+
+/**
+ * TODOS los estados del enum, derivados y no escritos a mano (HU #11910).
+ *
+ * `Object.values` a propósito: un estado nuevo del catálogo entra aquí solo, y una lista literal se
+ * habría quedado corta en silencio — con el efecto de que el ZIP dejaría fuera registros que el
+ * actor sí puede ver, sin que nada lo dijera.
+ */
+const ESTADOS_SOAT_TODOS: readonly EstadoSoat[] = Object.values(EstadoSoat);
 
 export interface SoatCtx {
   userId: number;
@@ -445,6 +455,55 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
     .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+}
+
+/**
+ * Los SOAT del lote que ESTE actor puede ver, para el ZIP de soportes (HU #11910).
+ *
+ * ── Por qué una consulta por LOTE y no `buscarConAcceso` id a id ─────────────────────────────────
+ *
+ * El zip anterior llamaba a la función de acceso una vez por id: N×2 consultas para 100 ids, y en el
+ * ZIP mixto de Trámites eso serían tres rondas de cien. El predicado que aplica la frontera ya está
+ * escrito y ya es compartido —`condicionesCola` + `conJoinsCola`, exportados por la HU #11909—, así
+ * que el lote entra en un solo `IN`.
+ *
+ * ── `estados: [...ESTADOS]` no es «traerlo todo», es lo contrario ────────────────────────────────
+ *
+ * `condicionesCola` con el filtro vacío acota al gestor a `solicitado` —el defecto de su PANTALLA—,
+ * y el comprobante de SOAT solo existe cuando el registro ya está `pagado`: heredar ese defecto
+ * habría dejado al gestor sin poder descargar nunca lo que él mismo subió. Pasando la lista completa
+ * de estados, la intersección con `ESTADOS_SOAT_VISIBLES_GESTOR` que hay dentro devuelve exactamente
+ * lo que `buscarConAcceso` deja pasar (`solicitado` + `pagado`), que es la frontera correcta para una
+ * descarga. Para admin y auditoría la lista completa es, en efecto, sin recorte por estado.
+ *
+ * ── Los ids que no vuelven NO se distinguen ──────────────────────────────────────────────────────
+ *
+ * No se comprueba existencia ni se informa de descartes. Un id inexistente, uno de otro proveedor y
+ * uno sin soporte producen el MISMO resultado: el archivo no está, y si no queda ninguno sale el
+ * mismo 409. Contar «3 de 40 quedaron fuera» convertiría el ZIP en un oráculo de pertenencia.
+ */
+export async function registrosZipSoat(ids: string[], ctx: SoatCtx): Promise<RegistroZip[]> {
+  if (ids.length === 0) return [];
+  const conds = condicionesCola(ctx, { estados: [...ESTADOS_SOAT_TODOS] });
+  if (conds === null) return []; // gestor sin proveedor → nada, nunca la tabla entera
+  const filas = await conJoinsCola(db.select({
+    id: flitoSoat.id,
+    createdAt: flitoSoat.createdAt,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: organismosTransitoConfig.codigo,
+  }).from(flitoSoat).$dynamic())
+    .where(and(...conds, inArray(flitoSoat.id, ids)));
+
+  return filas.map((f) => ({
+    registroId: f.id,
+    placa: f.placa,
+    organismoAlias: f.organismoAlias,
+    organismoCodigo: f.organismoCodigo,
+    createdAt: f.createdAt,
+    // La única ancla de esta superficie: el AC2 pide el comprobante del SOAT y nada más.
+    soatId: f.id,
+  }));
 }
 
 /**
