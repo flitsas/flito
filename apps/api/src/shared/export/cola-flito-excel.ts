@@ -10,8 +10,12 @@
 // Lo que NO vive aquí: de dónde sale cada valor. Eso es de cada módulo —el SOAT lee la ciudad de sus
 // trámites y reconcilia, el impuesto la tiene 1:1— y por eso cada uno tiene su
 // `*.export.service.ts`. Aquí solo está lo que el archivo TIENE que compartir para no divergir: qué
-// columnas hay, cómo se llaman, cómo se sella el nombre del archivo y qué error corta el export.
+// columnas hay, cómo se llaman, cómo se sella el nombre del archivo, qué error corta el export y
+// —desde la corrección del gate de seguridad— la CUOTA, que es compartida por el mismo motivo que el
+// tope: lo que se está racionando es el heap de UN proceso. Ver `exportColaLimiter` al final.
 
+import rateLimit from 'express-rate-limit';
+import { makeStore, userOrIpKey } from '../middleware/rateLimiter.js';
 import { TZ_COLOMBIA } from '../utils/fecha-rango.js';
 
 /**
@@ -180,3 +184,68 @@ export class ExportColaDemasiadoGrandeError extends Error {
     this.name = 'ExportColaDemasiadoGrandeError';
   }
 }
+
+/**
+ * La cuota del export de las DOS colas: 5 por minuto y usuario, en UNA sola bolsa compartida.
+ *
+ * ── Por qué una y no una por cola (corrección del gate de seguridad de la HU #11909) ─────────────
+ *
+ * La primera versión de esta HU le dio una bolsa a cada router, con el argumento de que «son dos
+ * colas y dos pantallas, así que descargar la de impuestos no puede frenar la de SOAT». Ese
+ * argumento es el CONTRARIO del que sostiene `FLITO_COLA_EXPORT_MAX_FILAS`, que es una sola perilla
+ * para las dos precisamente porque «el presupuesto que se reparte es el del PROCESO, y el proceso es
+ * uno» (`config/env.ts`). Un presupuesto de heap y dos bolsas de peticiones que lo llenan es la
+ * misma contradicción escrita dos veces.
+ *
+ * Y no es teórica. `sendExcel` construye el workbook ENTERO en memoria, el API corre en una sola
+ * instancia fork con `max_memory_restart: '512M'` (`ecosystem.config.cjs`) y ADR-0004 midió que con
+ * el tope en 2 000 **cinco exports simultáneos suman +239 MB de los 262 disponibles** —23 MB de
+ * margen, y el sexto ni siquiera está medido—. El limitador cuenta peticiones POR MINUTO, no en
+ * vuelo, y la cuota es por usuario sin cota global: **una sola sesión** puede tener los cinco
+ * construyéndose a la vez. Con dos bolsas nuevas, esa misma sesión pasa de 5 a 10 concurrentes
+ * posibles y se come el margen entero. Que esta hoja tenga once columnas y no veintiuna no salva: el
+ * propio ADR advierte que a esa escala manda el ruido del allocator y del GC, no el número de filas.
+ *
+ * El segundo motivo es de privacidad, y es el mismo con el que comparendos razona su 5/min: la cuota
+ * multiplicada por el tope ES el techo de extracción del módulo. Con una bolsa son 10 000 filas por
+ * minuto y usuario; con dos, 20 000 — y cada fila de aquí lleva cédula, correo, teléfono y dirección
+ * del titular, más PII por fila que la de comparendos.
+ *
+ * Lo que se paga es lo que decía aquel comentario: quien acaba de bajar cinco archivos de SOAT no
+ * puede bajar el sexto de Impuestos hasta que pase el minuto. Es el intercambio correcto — el
+ * recurso que se está racionando no es «la pantalla», es el heap del proceso, y es uno.
+ *
+ * ── Por qué es UNA INSTANCIA y no dos `rateLimit()` con la misma llave ───────────────────────────
+ *
+ * `makeStore` devuelve `undefined` cuando no hay Redis (desarrollo, CI, tests), y entonces
+ * `express-rate-limit` crea un `MemoryStore` **por llamada**. Dos llamadas con el mismo
+ * `keyGenerator` compartirían el nombre de la llave y NO el contador: el freno se vería idéntico en
+ * el código y valdría el doble en ejecución. Por eso el middleware se construye aquí una vez y los
+ * dos routers importan el MISMO objeto.
+ *
+ * ── Lo que este limitador NO hace ────────────────────────────────────────────────────────────────
+ *
+ * No acota la CONCURRENCIA (no es un semáforo) ni el volumen diario. ADR-0004 dejó las dos cosas
+ * fuera de alcance a propósito, junto con el `WorkbookWriter` en streaming; esto es la cuota que el
+ * ADR sí decide, aplicada al recurso que de verdad se comparte.
+ *
+ * Y NO toca la bolsa del export de comparendos (`rl:flito-comparendos-export:`), que es anterior y
+ * vive en su módulo: unificarla también es una decisión sobre código que esta HU no trae.
+ *
+ * **Un 422 consume cuota igual que un 200, y no es un descuido**: `express-rate-limit` cuenta la
+ * petición al entrar, antes del handler. Si el export demasiado grande saliera gratis, sondear el
+ * tamaño de un filtro —«¿cuántos SOAT tiene esta compañía?»— sería ilimitado, que es justo la
+ * pregunta que el 422 evita responder.
+ *
+ * `userOrIpKey` y no la IP pelada: varios usuarios de Operaciones salen por la misma IP corporativa,
+ * y frenar por IP castigaría a la oficina entera por lo que hace una cuenta.
+ */
+export const exportColaLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-cola-export'),
+  message: { error: 'Demasiados exports seguidos, espera 1 minuto' },
+  store: makeStore('rl:flito-cola-export:'),
+});

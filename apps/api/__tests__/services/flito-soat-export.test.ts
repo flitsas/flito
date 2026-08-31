@@ -172,6 +172,22 @@ async function buildApp() {
 }
 
 /**
+ * Los DOS routers en la misma app.
+ *
+ * Es la única forma de observar que la cuota del export es UNA para las dos colas: con una app por
+ * módulo, dos bolsas y una bolsa se ven exactamente igual en verde.
+ */
+async function buildAppAmbas() {
+  const app = express();
+  app.use(express.json());
+  const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
+  const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
+  app.use(BASE, soat);
+  app.use('/api/flito/impuestos', impuestos);
+  return app;
+}
+
+/**
  * Una sesión con `sub` nuevo cada vez.
  *
  * El limitador del export cuenta 5 por minuto y usuario, y su ventana no se reinicia entre tests:
@@ -867,11 +883,72 @@ describe('el nombre del archivo no lleva datos de nadie', () => {
     expect(fuente).toMatch(/router\.post\(\s*'\/export'/);
   });
 
-  it('el limitador del export tiene bolsa PROPIA, distinta de la de la cola', () => {
-    // Con una cuota compartida, gastar los cinco exports dejaría a la pantalla sin poder paginar y,
-    // al revés, un visor abierto le comería la cuota al export. No se observa desde una petición.
+  it('el router NO declara un limitador propio: usa el COMPARTIDO de las dos colas', () => {
+    // La primera versión de esta HU le dio una bolsa a cada cola. El gate de seguridad lo tumbó: el
+    // recurso que se raciona es el heap de UN proceso —`FLITO_COLA_EXPORT_MAX_FILAS` ya es una sola
+    // perilla por eso mismo—, así que dos bolsas dejaban a una sesión con el doble de exports
+    // simultáneos posibles y doblaban el techo de extracción de PII.
+    //
+    // Se afirma sobre la FUENTE porque la vuelta atrás más probable es cómoda y silenciosa: copiar
+    // el bloque `rateLimit({…})` de vuelta al router. Con `makeStore` devolviendo `undefined` sin
+    // Redis —CI, desarrollo—, dos `rateLimit()` con la MISMA llave tendrían contadores distintos:
+    // el código se leería idéntico y el freno valdría el doble.
     const fuente = fuenteDelRouter();
-    expect(fuente).toContain("userOrIpKey('flito-soat-export')");
-    expect(fuente).toContain("makeStore('rl:flito-soat-export:')");
+    expect(fuente).toContain('exportColaLimiter');
+    expect(fuente).not.toContain('rateLimit(');
+    expect(fuente).not.toContain('flito-soat-export');
+  });
+});
+
+// ─────────────────────────── La cuota es UNA para las dos colas ──────────────────────────────────
+
+describe('cuota del export — una sola bolsa para SOAT e Impuestos', () => {
+  it('**agotar los 5 exports en SOAT devuelve 429 en el de IMPUESTOS**, con el mismo usuario', async () => {
+    // Lo que este caso defiende es el presupuesto de MEMORIA, no una cortesía entre pantallas:
+    // `sendExcel` construye el workbook entero en el heap y ADR-0004 midió que cinco simultáneos al
+    // tope suman +239 MB de los 262 que hay hasta el `max_memory_restart` de PM2. El limitador cuenta
+    // por minuto y no en vuelo, y la cuota es por usuario sin cota global, así que una sola sesión
+    // puede tenerlos todos construyéndose a la vez: con dos bolsas serían diez y el margen desaparece.
+    //
+    // Y es el techo de extracción de datos personales: cuota × tope. Con una bolsa, 10 000 filas por
+    // minuto y usuario; con dos, 20 000 — cada una con cédula, correo, teléfono y dirección.
+    const cabecera = await sesion();
+    kdb.when.scenario({
+      flito_soat: [], flito_tramites: [], flito_compradores: [], flito_impuestos: [],
+    });
+    const app = await buildAppAmbas();
+
+    for (let i = 1; i <= 5; i += 1) {
+      const r = await request(app).post(RUTA)
+        .set('Authorization', cabecera).responseType('blob').send({});
+      expect(r.status, `el export ${i} de SOAT tenía que caber en la cuota`).toBe(200);
+    }
+
+    const sexto = await request(app).post('/api/flito/impuestos/export')
+      .set('Authorization', cabecera).responseType('blob').send({});
+
+    // Con dos bolsas este sexto sería un 200 y nada más lo delataría.
+    expect(sexto.status).toBe(429);
+  });
+
+  it('la cuota es POR USUARIO: otro `sub` no arrastra el freno del anterior', async () => {
+    // Sin esto, el caso de arriba pasaría igual con una bolsa GLOBAL —que frenaría a toda la
+    // operación por lo que hace una cuenta— y sería un arreglo peor que el problema.
+    const gastada = await sesion();
+    kdb.when.scenario({
+      flito_soat: [], flito_tramites: [], flito_compradores: [], flito_impuestos: [],
+    });
+    const app = await buildAppAmbas();
+
+    for (let i = 0; i < 5; i += 1) {
+      await request(app).post(RUTA).set('Authorization', gastada).responseType('blob').send({});
+    }
+    expect((await request(app).post(RUTA).set('Authorization', gastada)
+      .responseType('blob').send({})).status).toBe(429);
+
+    const otra = await sesion();
+    const r = await request(app).post('/api/flito/impuestos/export')
+      .set('Authorization', otra).responseType('blob').send({});
+    expect(r.status).toBe(200);
   });
 });

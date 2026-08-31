@@ -6,15 +6,13 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import archiver from 'archiver';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError,
+  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
 } from '../../shared/export/cola-flito-excel.js';
 import {
   CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
@@ -239,26 +237,27 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 /**
- * Cuota del export: 5 por minuto y usuario, en una BOLSA SEPARADA de la de la cola.
+ * La cuota del export vive en `shared/export/cola-flito-excel.ts` y es **la MISMA que la de la cola
+ * de SOAT**: 5 por minuto y usuario para las dos juntas.
  *
- * Separada a propósito: con una compartida, gastar los cinco exports dejaría a la pantalla sin poder
- * paginar y, al revés, un visor abierto que pagina le comería la cuota al export. Dos gestos
- * distintos, dos presupuestos. **Y separada también de la del export de SOAT**: son dos colas y dos
- * pantallas, así que descargar la de impuestos no puede frenar la de SOAT.
+ * **Aquí decía lo contrario** —«separada también de la del export de SOAT: son dos colas y dos
+ * pantallas»— y era el error que encontró el gate de seguridad de esta HU: ese argumento choca de
+ * frente con el que sostiene `FLITO_COLA_EXPORT_MAX_FILAS`, que es UNA sola perilla para las dos
+ * colas porque «el presupuesto que se reparte es el del PROCESO, y el proceso es uno». Un
+ * presupuesto de heap y dos bolsas de peticiones que lo llenan no puede ser correcto a la vez.
  *
- * Un 422 consume cuota igual que un 200: `express-rate-limit` cuenta al entrar, antes del handler.
- * Si el export demasiado grande saliera gratis, sondear el tamaño de un filtro sería ilimitado —que
- * es justo la pregunta que el 422 evita responder.
+ * ADR-0004 midió que cinco exports simultáneos al tope suman +239 MB de los 262 que hay hasta el
+ * `max_memory_restart` de PM2, y el limitador cuenta por MINUTO y no en vuelo: una sola sesión puede
+ * tener los cinco construyéndose a la vez. Con dos bolsas serían diez. Además, cuota × tope ES el
+ * techo de extracción de datos personales del módulo (10 000 filas/min/usuario con una bolsa, 20 000
+ * con dos), y cada fila de esta hoja lleva cédula, correo, teléfono y dirección del titular.
+ *
+ * Lo que se paga: quien acaba de bajar cinco archivos de SOAT espera al minuto para el sexto de
+ * Impuestos. Es el intercambio correcto — el recurso racionado es el heap, no la pantalla.
+ *
+ * Sigue siendo una bolsa APARTE de la del listado: gastar los exports no puede dejar sin paginar a
+ * quien está trabajando, ni al revés. Lo que se unificó son las dos bolsas NUEVAS entre sí.
  */
-const exportLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey('flito-impuestos-export'),
-  message: { error: 'Demasiados exports seguidos, espera 1 minuto' },
-  store: makeStore('rl:flito-impuestos-export:'),
-});
 
 /**
  * Campos del filtro de la cola, en un esquema único del que se DERIVA el del export.
@@ -321,7 +320,7 @@ const exportSchema = colaFiltrosCampos
  * Va declarada antes que `GET /:id` por costumbre del router; no hay ambigüedad de todas formas —es
  * un POST y no existe `POST /:id` a secas—.
  */
-router.post('/export', OPS_O_GESTOR, exportLimiter, async (req: Request, res: Response) => {
+router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });

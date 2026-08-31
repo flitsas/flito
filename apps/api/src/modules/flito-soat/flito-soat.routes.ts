@@ -6,16 +6,14 @@
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
-  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError,
+  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
 } from '../../shared/export/cola-flito-excel.js';
 import { CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat } from './flito-soat.pii.js';
 import { EstadoSoat } from '@operaciones/shared-types';
@@ -145,30 +143,19 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
 });
 
 /**
- * Cuota del export: 5 por minuto y usuario, en una BOLSA SEPARADA de la de la cola.
+ * La cuota del export vive en `shared/export/cola-flito-excel.ts` y es **la MISMA que la de la cola
+ * de Impuestos**: 5 por minuto y usuario para las dos juntas.
  *
- * Separada a propósito: con una compartida, gastar los cinco exports dejaría a la pantalla sin poder
- * paginar —el usuario vería romperse la tabla por haber descargado— y, al revés, un visor abierto
- * que pagina le comería la cuota al export sin que nada lo explicara. Dos gestos distintos, dos
- * presupuestos.
+ * No es una bolsa por pantalla y eso es deliberado (corrección del gate de seguridad de esta HU):
+ * el recurso que se raciona no es la pantalla, es el heap de un único proceso —`sendExcel` construye
+ * el workbook entero en memoria y `FLITO_COLA_EXPORT_MAX_FILAS` ya es una sola perilla por ese mismo
+ * motivo—. Dos bolsas dejarían a una sesión con el doble de exports simultáneos posibles sobre el
+ * presupuesto que ADR-0004 midió para cinco, y doblarían el techo de extracción de datos personales.
+ * El razonamiento entero, con las cifras, está en el docstring de `exportColaLimiter`.
  *
- * **Un 422 consume cuota igual que un 200, y no es un descuido**: `express-rate-limit` cuenta la
- * petición al entrar, antes del handler. Si el export demasiado grande saliera gratis, sondear el
- * tamaño de un filtro —«¿cuántos SOAT tiene esta compañía?»— sería ilimitado, que es justo la
- * pregunta que el 422 evita responder.
- *
- * `userOrIpKey` y no la IP pelada: varios usuarios de Operaciones salen por la misma IP corporativa,
- * y frenar por IP castigaría a la oficina entera por lo que hace una cuenta.
+ * Sigue siendo una bolsa APARTE de la del listado: gastar los exports no puede dejar sin paginar a
+ * quien está trabajando, ni al revés. Lo que se unificó son las dos bolsas NUEVAS entre sí.
  */
-const exportLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey('flito-soat-export'),
-  message: { error: 'Demasiados exports seguidos, espera 1 minuto' },
-  store: makeStore('rl:flito-soat-export:'),
-});
 
 /**
  * Campos del filtro de la cola, en un esquema único del que se DERIVA el del export.
@@ -239,7 +226,7 @@ const exportSchema = colaFiltrosCampos
  * a mitad del archivo no es aceptable. `Cache-Control: no-store` antes de `sendExcel` porque lo que
  * sale no se guarda en ningún intermedio.
  */
-router.post('/export', OPS_O_GESTOR, exportLimiter, async (req: Request, res: Response) => {
+router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
   const parsed = exportSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });

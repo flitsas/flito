@@ -159,6 +159,20 @@ async function buildApp() {
   return app;
 }
 
+/**
+ * Los DOS routers en la misma app: con una app por módulo, dos bolsas de cuota y una sola bolsa se
+ * ven exactamente igual en verde.
+ */
+async function buildAppAmbas() {
+  const app = express();
+  app.use(express.json());
+  const { default: impuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
+  const { default: soat } = await import('../../src/modules/flito-soat/flito-soat.routes.js');
+  app.use(BASE, impuestos);
+  app.use('/api/flito/soat', soat);
+  return app;
+}
+
 /** `sub` nuevo por caso: el limitador cuenta 5/min y usuario, y su ventana no se reinicia. */
 let siguienteSub = 9500;
 const sesion = async (role: TestRole = 'admin'): Promise<string> =>
@@ -708,9 +722,43 @@ describe('el nombre del archivo no lleva datos de nadie', () => {
     expect(fuente).toMatch(/router\.post\(\s*'\/export'/);
   });
 
-  it('el limitador del export tiene bolsa PROPIA, distinta de la de SOAT y la de la cola', () => {
+  it('el router NO declara un limitador propio: usa el COMPARTIDO de las dos colas', () => {
+    // Este router llegó a documentar la decisión CONTRARIA («separada también de la del export de
+    // SOAT»), que es lo que tumbó el gate de seguridad. Se afirma sobre la fuente porque la vuelta
+    // atrás más probable es copiar el bloque `rateLimit({…})` de vuelta aquí: sin Redis, dos
+    // `rateLimit()` con la misma llave llevan contadores distintos, así que el código se leería
+    // idéntico y el freno valdría el doble.
     const fuente = fuenteDelRouter();
-    expect(fuente).toContain("userOrIpKey('flito-impuestos-export')");
-    expect(fuente).toContain("makeStore('rl:flito-impuestos-export:')");
+    expect(fuente).toContain('exportColaLimiter');
+    expect(fuente).not.toContain('rateLimit(');
+    expect(fuente).not.toContain('flito-impuestos-export');
+  });
+});
+
+// ─────────────────────────── La cuota es UNA para las dos colas ──────────────────────────────────
+
+describe('cuota del export — una sola bolsa para SOAT e Impuestos', () => {
+  it('**agotar los 5 exports en IMPUESTOS devuelve 429 en el de SOAT**, con el mismo usuario', async () => {
+    // El sentido inverso del caso gemelo de `flito-soat-export.test.ts`, y se escribe aquí en vez de
+    // dejarlo en un solo sitio porque el freno tiene DOS puertas: un limitador colgado solo del
+    // router de SOAT frenaría en una dirección y no en la otra, y ese medio arreglo pasaría con un
+    // único test. Lo que se defiende es el heap de UN proceso —`sendExcel` lo llena entero— y el
+    // techo de extracción de PII (cuota × tope), y las dos colas lo comparten.
+    const cabecera = await sesion();
+    kdb.when.scenario({
+      flito_impuestos: [], flito_compradores: [], flito_soat: [], flito_tramites: [],
+    });
+    const app = await buildAppAmbas();
+
+    for (let i = 1; i <= 5; i += 1) {
+      const r = await request(app).post(RUTA)
+        .set('Authorization', cabecera).responseType('blob').send({});
+      expect(r.status, `el export ${i} de Impuestos tenía que caber en la cuota`).toBe(200);
+    }
+
+    const sexto = await request(app).post('/api/flito/soat/export')
+      .set('Authorization', cabecera).responseType('blob').send({});
+
+    expect(sexto.status).toBe(429);
   });
 });
