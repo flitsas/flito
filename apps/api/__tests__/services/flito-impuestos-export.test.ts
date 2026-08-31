@@ -1,18 +1,27 @@
-// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909).
+// FLITO Impuestos — export a Excel de la cola filtrada (Feature #11908, HU #11909, HU #11934).
 //
 // Gemelo de `flito-soat-export.test.ts` y con la misma doctrina: lo que se afirma es el WORKBOOK
 // REAL, no la constante que lo generó. Las diferencias con el de SOAT son las que hacen que este
 // archivo exista aparte y no sea una copia:
 //
-//   · **CIUDAD sale del `innerJoin` con `flito_tramites`**, porque `flito_impuestos.tramite_id` es
-//     NOT NULL y UNIQUE: un impuesto tiene un trámite y solo uno. En SOAT hay que reconciliar.
+//   · **Los datos del trámite salen del `innerJoin` con `flito_tramites`**, porque
+//     `flito_impuestos.tramite_id` es NOT NULL y UNIQUE: un impuesto tiene un trámite y solo uno.
+//     Desde la HU #11934 eso incluye las OCHO claves de `flit_raw`, que entran como ocho expresiones
+//     más en la proyección que ya existía — cero joins nuevos y cero consultas nuevas. En SOAT no se
+//     puede: hay que leer por lote y reconciliar campo a campo.
 //   · **Los tres datos técnicos del vehículo (HU #11906) NO estaban en la proyección de esta cola.**
 //     El DTO de Impuestos no los publica y el archivo sí los pide, así que aquí se comprueba que se
-//     leen — el defecto probable de esta mitad de la HU es copiarse la proyección del listado y
-//     entregar CARROCERIA, TIPO DE SERVICIO y CILINDRAJE vacías en todas las filas.
+//     leen — el defecto probable es copiarse la proyección del listado y entregar `Carroceria`,
+//     `Servicio` y `Cilindraje` vacías en todas las filas.
 //   · **El módulo no registraba NINGÚN acceso a PII** (`grep -c logPiiAccess` daba 0 en sus ocho
 //     archivos). Aquí se fija que ahora lo hacen las dos lecturas: el export y el `GET /`.
 //   · **El rol que sobra es `auditor`** (aquí no hay `cliente`: el canal es de SOAT).
+//
+// **Lo que esta suite NO puede probar, y dónde se prueba:** `__tests__/helpers/keyed-db.ts` no evalúa
+// la proyección (`resolve(reg, name)`, línea 49), así que una expresión `sql\`… ->> 'clase'\`` no se
+// ejecuta nunca aquí. El tramo «clave de FLIT → campo» —y con él el cruce `Linea`/`Modelo`— se afirma
+// sobre el SQL RENDERIZADO en `cola-flito-derivados.test.ts`, junto con las funciones puras del
+// bloque del titular y de la ciudad del organismo.
 //
 // El tope se baja por entorno a un número pequeño en vez de montar 2 000 filas de fixture: lo que se
 // prueba es el BORDE (tope, tope+1), y el borde no depende del número.
@@ -81,27 +90,62 @@ const TABLA = 'flito_impuestos';
 // ── Fixtures ─────────────────────────────────────────────────────────────────────────────────────
 
 const IMPUESTO_A = '11111111-1111-1111-1111-1111111111aa';
+const IMPUESTO_JUR = '22222222-2222-2222-2222-2222222222aa';
 const TRAMITE_A = '33333333-3333-3333-3333-333333333333';
+const TRAMITE_JUR = '44444444-4444-4444-4444-444444444444';
 
 const PLACA = 'KLM45N';
 const VIN = '9BWZZZ377VT004251';
 const CEDULA = '5060708090';
 
-const CENTINELA_NOMBRE = 'CENTINELA-NOMBRE-PROPIETARIO';
+/**
+ * Los DOS orígenes de ciudad, distintos a propósito: el `Municipio` es del TRÁMITE (Mosquera) y la
+ * `OrganismoDettoCiudad` sale del CATÁLOGO por el código del impuesto (Palmira). Con la misma ciudad
+ * en los dos, el atajo «la ciudad ya la tengo, la copio» pasaría todos los asertos.
+ */
+const ORGANISMO = '76520';        // STRIA TTEyTTO PALMIRA
+const CIUDAD_ORGANISMO = 'Palmira';
+const MUNICIPIO = 'MOSQUERA';
+
+/** El nombre del titular, que desde la HU #11934 SÍ sale en el archivo. Viene de `flit_raw`. */
+const CENTINELA_NOMBRE = 'CENTINELA-NOMBRE-TITULAR';
+const CENTINELA_APELLIDOS = 'CENTINELA-APELLIDOS';
+const CENTINELA_RAZON = 'CENTINELA-RAZON-SOCIAL SAS';
+
+/**
+ * `flito_compradores.nombre_completo`: los dos nombres FUNDIDOS por `flit-http.adapter.ts:74`. Esto
+ * sigue siendo una PROHIBICIÓN — el archivo publica el nombre, pero desde el par SEPARADO del
+ * payload y no partiendo esta cadena por el espacio.
+ */
+const CENTINELA_CONCATENADO = 'CENTINELA CONCATENADO';
 const CENTINELA_MOTIVO = 'CENTINELA-MOTIVO-RECHAZO';
 
-/** Fila de `flito_impuestos` × joins, tal como la traería la base SIN proyectar. */
+/**
+ * Fila de `flito_impuestos` × joins, tal como la traería la base SIN proyectar.
+ *
+ * Las ocho claves de `flit_raw` entran con el nombre del CAMPO y no con el de la clave de FLIT
+ * porque `keyed-db` no evalúa la proyección: estas son las claves del `select({...})` del servicio.
+ * El cruce clave→campo se afirma en `cola-flito-derivados.test.ts`.
+ */
 const filaImpuesto = (over: Record<string, unknown> = {}) => ({
   id: IMPUESTO_A,
   tramiteId: TRAMITE_A,
   placa: PLACA,
   vin: VIN,
-  ciudad: 'MOSQUERA',
+  municipio: MUNICIPIO,
+  organismoDetto: 'STRIA TTEyTTO MOSQUERA',
   carroceria: 'FURGON',
-  tipoServicio: 'Publico',
+  servicio: 'Publico',
   cilindraje: '2400',
-  organismoAlias: 'MOSQUERA',
-  organismoCodigo: '25473',
+  organismoCodigo: ORGANISMO,
+  marca: 'KIA',
+  linea: 'STONIC',     // `flit_raw->>'modelo'` — la LÍNEA
+  modelo: '2023',      // `flit_raw->>'modeloAno'` — el AÑO
+  clase: 'CAMIONETA',
+  capacidad: '1500',
+  departamento: 'CUNDINAMARCA',
+  nombres: CENTINELA_NOMBRE,
+  apellidos: CENTINELA_APELLIDOS,
   // Lo que la proyección del export NO pide. El mock keyed devuelve la fila entera aunque el
   // `select` pidiera menos, así que estas viajan igual y sirven de centinela.
   valorLiquidado: '480000.00',
@@ -115,7 +159,7 @@ const comprador = (over: Record<string, unknown> = {}) => ({
   numeroDocumento: CEDULA,
   correo: 'pedro@empresa.co', celular: '3109876543', direccion: 'CRA 7 # 45-12',
   orden: 0,
-  nombreCompleto: CENTINELA_NOMBRE,
+  nombreCompleto: CENTINELA_CONCATENADO,
   ...over,
 });
 
@@ -188,8 +232,28 @@ const exportar = async (cabecera: string, cuerpo: unknown = {}) =>
 // ── Espías de la consulta ────────────────────────────────────────────────────────────────────────
 
 const consultas: {
-  tabla: string; columnas: string[]; limit: number | null; offset: number | null; where: unknown;
+  tabla: string; columnas: string[]; joins: string[];
+  /**
+   * El objeto de proyección TAL CUAL, no solo sus claves: `keyed-db` devuelve las filas del escenario
+   * sin mirar la proyección, así que la única forma de saber de QUÉ columna sale un campo es leer de
+   * qué está hecho. Ver `origenDe`.
+   */
+  proyeccion: Record<string, unknown>;
+  limit: number | null; offset: number | null; where: unknown;
 }[] = [];
+
+/** De qué está hecho un campo de la proyección: `col:<tabla>.<columna>` o `sql:<SQL>|<params>`. */
+function origenDe(valor: unknown): string {
+  const col = valor as { name?: unknown; table?: unknown };
+  if (col && typeof col.name === 'string' && col.table) return `col:${nombre(col.table)}.${col.name}`;
+  // Los parámetros entran en la cadena: `sql\`… ->> ${'x'}\`` deja la clave fuera del texto del SQL,
+  // y es justo la clave lo que hay que poder leer.
+  const q = new PgDialect().sqlToQuery(valor as never);
+  return `sql:${q.sql}|${(q.params as unknown[]).map(String).join(',')}`;
+}
+
+/** Los cuatro tipos de join, para poder afirmar QUÉ tablas entran en una lectura y cuáles no. */
+const JOINS = ['innerJoin', 'leftJoin', 'rightJoin', 'fullJoin'] as const;
 
 function instalarEspias(): void {
   const selectBase = kdb.select.getMockImplementation() as (...a: unknown[]) => Record<string, unknown>;
@@ -197,11 +261,19 @@ function instalarEspias(): void {
     const chain = selectBase(...args);
     const columnas = args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [];
     const consulta = {
-      tabla: '__sin_from__', columnas,
+      tabla: '__sin_from__', columnas, joins: [] as string[],
+      proyeccion: (args[0] ?? {}) as Record<string, unknown>,
       limit: null as number | null, offset: null as number | null, where: null as unknown,
     };
     const from = chain.from as (t: unknown) => unknown;
     chain.from = (tbl: unknown) => { consulta.tabla = nombre(tbl); consultas.push(consulta); return from(tbl); };
+    for (const m of JOINS) {
+      const orig = chain[m] as (...a: unknown[]) => unknown;
+      chain[m] = (tbl: unknown, ...resto: unknown[]) => {
+        consulta.joins.push(nombre(tbl));
+        return orig(tbl, ...resto);
+      };
+    }
     const limit = chain.limit as (n: number) => unknown;
     chain.limit = (n: number) => { consulta.limit = n; return limit(n); };
     const offset = chain.offset as (n: number) => unknown;
@@ -235,24 +307,35 @@ async function libro(cuerpo: Buffer): Promise<ExcelJS.Worksheet> {
 }
 
 /**
- * Las once cabeceras ESCRITAS A MANO, igual que en la suite de SOAT.
+ * Las VEINTICINCO cabeceras ESCRITAS A MANO, igual que en la suite de SOAT.
  *
  * Se repiten a propósito en los dos archivos en vez de sacarlas a un helper compartido: si vivieran
  * en un solo sitio, ese sitio sería una segunda constante de producción disfrazada de test y las dos
- * suites podrían romperse a la vez con una sola edición. El AC1 dice «exactamente estas once» de
- * cada archivo, y cada archivo lo afirma por su cuenta.
+ * suites podrían romperse a la vez con una sola edición. Cada archivo afirma por su cuenta que el
+ * documento es exactamente este.
+ *
+ * (Que la LISTA DE PRODUCCIÓN sea una sola —y no dos copias— se comprueba en ejecución, con una
+ * columna inyectada, en `flito-soat-export.test.ts`: un `toEqual` entre las cabeceras de los dos
+ * archivos pasaría igual de bien con dos copias recién hechas.)
  */
 const CABECERAS = [
-  'PLACA', 'CEDULA', 'CORREO', 'TELEFONO', 'DIRECCION', 'VIN', 'CIUDAD',
-  'CARROCERIA', 'TIPO DE SERVICIO', 'CILINDRAJE', 'ORGANISMO DE TRANSITO',
+  'Vin', 'Placa', 'Modelo', 'Servicio', 'Marca', 'Linea', 'Clase', 'Carroceria', 'Cilindraje',
+  'CapacidadCargaOPasajeros', 'Puertas', 'OrganismoDetto', 'N_I', 'ClaseDeInterlocutor',
+  'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId', 'NumeroId', 'Direccion', 'Municipio',
+  'Departamento', 'Celular', 'Correo', 'OrganismoDettoCiudad',
 ];
 
 const cabecerasDe = (hoja: ExcelJS.Worksheet): string[] =>
   (hoja.getRow(1).values as unknown[]).slice(1).map(String);
 
+/**
+ * El valor de una celda por el TEXTO de su cabecera, con el índice leído del ARCHIVO y no de
+ * `CABECERAS`: con el índice sacado de la lista escrita a mano, una permutación de `header` sin
+ * permutar `key` se leería «corregida» por el propio test.
+ */
 function celda(hoja: ExcelJS.Worksheet, nFila: number, cabecera: string): unknown {
-  const indice = CABECERAS.indexOf(cabecera);
-  expect(indice, `la cabecera «${cabecera}» no está en la lista del AC1`).toBeGreaterThanOrEqual(0);
+  const indice = cabecerasDe(hoja).indexOf(cabecera);
+  expect(indice, `la cabecera «${cabecera}» no está en el archivo`).toBeGreaterThanOrEqual(0);
   return hoja.getRow(nFila).getCell(indice + 1).value;
 }
 
@@ -283,8 +366,8 @@ beforeEach(() => {
 
 // ─────────────────────────── Las once columnas ───────────────────────────────────────────────────
 
-describe('AC1 — el archivo tiene EXACTAMENTE once columnas, en su orden', () => {
-  it('las once cabeceras, en MAYÚSCULAS y sin tildes, y `columnCount === 11`', async () => {
+describe('el archivo tiene EXACTAMENTE veinticinco columnas, en su orden', () => {
+  it('las 25 cabeceras en CamelCase literal, y `columnCount === 25`', async () => {
     kdb.when.scenario({ flito_impuestos: filas(2), flito_compradores: [] });
 
     const r = await exportar(await sesion());
@@ -292,39 +375,235 @@ describe('AC1 — el archivo tiene EXACTAMENTE once columnas, en su orden', () =
     const hoja = await libro(r.body as Buffer);
 
     expect(cabecerasDe(hoja)).toEqual(CABECERAS);
-    expect(hoja.columnCount).toBe(11);
+    expect(hoja.columnCount).toBe(25);
   });
 
-  it('NO existe una columna `MUNICIPIO`, ni `NOMBRE`, ni ninguna de fecha', async () => {
+  it('NO hay columna de fecha de creación, ni de valor pagado, ni de proveedor', async () => {
     kdb.when.scenario({ flito_impuestos: filas(1), flito_compradores: [] });
 
     const cabeceras = cabecerasDe(await libro((await exportar(await sesion())).body as Buffer));
 
-    expect(cabeceras).not.toContain('MUNICIPIO');
-    expect(cabeceras).not.toContain('NOMBRE');
-    expect(cabeceras.filter((h) => /CREAD|FECHA/.test(h))).toEqual([]);
+    // Las tres tentaciones de la OPERACIÓN de FLITO que siguen vivas: una fecha porque el filtro
+    // nuevo es por creación, el importe porque está en la fila, el proveedor porque está en la
+    // pantalla. (`Municipio` y el nombre del titular SÍ existen ahora: la HU #11934 los añadió.)
+    expect(cabeceras.filter((h) => /Cread|Fecha/i.test(h))).toEqual([]);
+    expect(cabeceras.filter((h) => /Valor|Pagad/i.test(h))).toEqual([]);
+    expect(cabeceras.filter((h) => /Proveedor/i.test(h))).toEqual([]);
   });
 
   it('**los tres datos técnicos del vehículo salen con su valor** (HU #11906)', async () => {
     // El DTO de esta cola NO los publica, así que el defecto probable es copiarse la proyección del
-    // listado: el archivo saldría con CARROCERIA, TIPO DE SERVICIO y CILINDRAJE vacías en TODAS las
+    // listado: el archivo saldría con `Carroceria`, `Servicio` y `Cilindraje` vacías en TODAS las
     // filas, se abriría sin quejarse y los asertos de cabeceras pasarían igual.
     kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
 
-    expect(celda(hoja, 2, 'CARROCERIA')).toBe('FURGON');
-    expect(celda(hoja, 2, 'TIPO DE SERVICIO')).toBe('Publico');
-    expect(celda(hoja, 2, 'CILINDRAJE')).toBe('2400');
-    // Y la ciudad, que aquí es directa (1:1 con el trámite) y no reconciliada como en SOAT.
-    expect(celda(hoja, 2, 'CIUDAD')).toBe('MOSQUERA');
+    expect(celda(hoja, 2, 'Carroceria')).toBe('FURGON');
+    expect(celda(hoja, 2, 'Servicio')).toBe('Publico');
+    expect(celda(hoja, 2, 'Cilindraje')).toBe('2400');
+    // Y el municipio, que aquí es directo (1:1 con el trámite) y no reconciliado como en SOAT.
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+  });
+});
+
+// ─────────────────────────── Cada valor bajo SU cabecera ─────────────────────────────────────────
+
+describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distinguibles', () => {
+  /** Dos filas: el bloque del titular tiene formas EXCLUYENTES (natural y jurídica). */
+  const escenarioDeDosFormas = () => kdb.when.scenario({
+    flito_impuestos: [
+      filaImpuesto(),
+      filaImpuesto({
+        id: IMPUESTO_JUR, tramiteId: TRAMITE_JUR, placa: 'ZZZ999', vin: 'VINJURIDICA00002',
+        nombres: CENTINELA_RAZON,
+        // «Solo espacios» es la forma REAL en la que llega la ausencia de apellido: ni vacío ni nulo
+        // (3 510 de 7 052 filas medidas).
+        apellidos: ' ',
+      }),
+    ],
+    flito_compradores: [
+      comprador(),
+      comprador({ id: 'c2', tramiteId: TRAMITE_JUR, numeroDocumento: '9007654321' }),
+    ],
+  });
+
+  it('**las 25 celdas de la fila natural, una por una**', async () => {
+    // El mutante que SOLO este caso mata: permutar dos `header` de `COLUMNAS_COLA_EXPORT` sin
+    // permutar sus `key`. ExcelJS escribe cada fila buscando `fila[col.key]`, así que el archivo
+    // saldría con las cabeceras nuevas y los VALORES cruzados, y el aserto de cabeceras de arriba
+    // seguiría verde.
+    escenarioDeDosFormas();
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    const c = (cabecera: string) => celda(hoja, 2, cabecera) ?? null;
+
+    expect(c('Vin')).toBe(VIN);
+    expect(c('Placa')).toBe(PLACA);
+    expect(c('Modelo')).toBe('2023');       // el AÑO
+    expect(c('Servicio')).toBe('Publico');
+    expect(c('Marca')).toBe('KIA');
+    expect(c('Linea')).toBe('STONIC');      // la LÍNEA, que FLIT manda bajo la clave `modelo`
+    expect(c('Clase')).toBe('CAMIONETA');
+    expect(c('Carroceria')).toBe('FURGON');
+    expect(c('Cilindraje')).toBe('2400');
+    expect(c('CapacidadCargaOPasajeros')).toBe('1500');
+    expect(c('Puertas')).toBe('4');
+    expect(c('OrganismoDetto')).toBe('STRIA TTEyTTO MOSQUERA');
+    expect(c('N_I')).toBe('IMPORTADO');
+    expect(c('ClaseDeInterlocutor')).toBe('PNAT');
+    expect(c('NombrePila')).toBe(CENTINELA_NOMBRE);
+    expect(c('Apellidos')).toBe(CENTINELA_APELLIDOS);
+    expect(c('RazonSocial')).toBeNull();    // excluyente con las dos de arriba
+    expect(c('ClaseId')).toBe('CC');
+    expect(c('NumeroId')).toBe(CEDULA);
+    expect(c('Direccion')).toBe('CRA 7 # 45-12');
+    expect(c('Municipio')).toBe(MUNICIPIO);
+    expect(c('Departamento')).toBe('CUNDINAMARCA');
+    expect(c('Celular')).toBe('3109876543');
+    expect(c('Correo')).toBe('pedro@empresa.co');
+    expect(c('OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
+  });
+
+  it('las tres celdas que solo tiene la fila JURÍDICA, y sus dos contrarias vacías', async () => {
+    escenarioDeDosFormas();
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    const c = (cabecera: string) => celda(hoja, 3, cabecera) ?? null;
+
+    expect(c('ClaseDeInterlocutor')).toBe('PJUR');
+    expect(c('ClaseId')).toBe('NIT');
+    expect(c('RazonSocial')).toBe(CENTINELA_RAZON);
+    expect(c('NombrePila')).toBeNull();
+    expect(c('Apellidos')).toBeNull();
+    expect(c('NumeroId')).toBe('9007654321');
+    expect(c('Placa')).toBe('ZZZ999');
+  });
+
+  it('**`Municipio` y `OrganismoDettoCiudad` son datos DISTINTOS**', async () => {
+    // Mata el atajo «la ciudad ya la tengo»: copiar `flito_tramites.ciudad` en las dos columnas.
+    // Aquí el trámite es de Mosquera y el organismo del impuesto, de Palmira.
+    escenarioDeDosFormas();
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'Municipio')).toBe('MOSQUERA');
+    expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe('Palmira');
+    expect(celda(hoja, 2, 'Municipio')).not.toBe(celda(hoja, 2, 'OrganismoDettoCiudad'));
+  });
+
+  it('un organismo FUERA del catálogo deja la ciudad vacía, no un 500', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ organismoCodigo: '99999' })],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+
+    const hoja = await libro(r.body as Buffer);
+    expect(celda(hoja, 2, 'OrganismoDettoCiudad') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+  });
+
+  it('**`modeloAno` como NÚMERO del jsonb no tumba el export**', async () => {
+    // `flit_raw` es `jsonb` de un tercero: un `.trim()` sobre ese número sería un TypeError dentro
+    // del `map` de las filas y el archivo entero respondería 500 por UNA fila.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ modelo: 2023, capacidad: 1500 })],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+
+    const hoja = await libro(r.body as Buffer);
+    expect(String(celda(hoja, 2, 'Modelo'))).toBe('2023');
+    expect(String(celda(hoja, 2, 'CapacidadCargaOPasajeros'))).toBe('1500');
+  });
+
+  it('**`Clase` está mapeada aunque FLIT no la mande hoy**', async () => {
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ clase: 'AUTOMOVIL' })],
+      flito_compradores: [comprador()],
+    });
+    const conClase = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(conClase, 2, 'Clase')).toBe('AUTOMOVIL');
+
+    // Y sin ella —el estado de hoy— la celda va vacía y la fila sale igual.
+    kdb.reset(); instalarEspias(); consultas.length = 0;
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ clase: undefined })],
+      flito_compradores: [comprador()],
+    });
+    const sinClase = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(sinClase, 2, 'Clase') ?? null).toBeNull();
+    expect(celda(sinClase, 2, 'Marca')).toBe('KIA');
+  });
+
+  it('**un trámite SIN `flit_raw` deja las cinco del titular vacías**, no `PJUR` + `NIT`', async () => {
+    // `flito_tramites.flit_raw` es nullable, y un trámite anterior al sync actual (o cargado a mano)
+    // lo tiene a NULL: las ocho expresiones `->>` devuelven NULL y aquí llegan las ocho claves
+    // vacías. Es el gemelo, dentro de Impuestos, de lo que en SOAT es el canal Cliente — y el sitio
+    // donde la regla de DOS estados (`if (!apellidos) → PJUR/NIT`) se ve de punta a punta: la fila
+    // saldría marcada persona JURÍDICA, con `NIT`, y la razón social VACÍA. Ningún aserto de
+    // cabeceras se enteraría.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({
+        nombres: null, apellidos: null,
+        marca: null, linea: null, modelo: null, clase: null, capacidad: null, departamento: null,
+      })],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.rowCount).toBe(2); // la fila SALE igual
+
+    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía sin payload`).toBeNull();
+    }
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('PJUR');
+    expect(texto).not.toContain('NIT');
+
+    // Y lo que no depende del payload sigue lleno: la fila no se vacía entera.
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+    expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
+    expect(celda(hoja, 2, 'Puertas')).toBe('4');
+  });
+
+  it('**el espacio en `apellidos` clasifica como JURÍDICA** (la forma real de la ausencia)', async () => {
+    // Los casos «natural con apellido» y «jurídica con null» quedan verdes con el mutante de no
+    // recortar (`if (apellidos)` sobre la cadena cruda). Con él, la MITAD del parque medido —3 510
+    // de 7 052 filas, cero vacías y cero nulas— se clasificaría como persona natural con un apellido
+    // de un espacio. Solo este caso lo mata.
+    for (const blanco of [' ', '  ', '\t']) {
+      kdb.reset(); instalarEspias(); consultas.length = 0;
+      kdb.when.scenario({
+        flito_impuestos: [filaImpuesto({ nombres: CENTINELA_RAZON, apellidos: blanco })],
+        flito_compradores: [comprador()],
+      });
+
+      const hoja = await libro((await exportar(await sesion())).body as Buffer);
+      expect(celda(hoja, 2, 'ClaseDeInterlocutor'), `«${JSON.stringify(blanco)}»`).toBe('PJUR');
+      expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+      expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+      expect(celda(hoja, 2, 'Apellidos') ?? null).toBeNull();
+      expect(celda(hoja, 2, 'NombrePila') ?? null).toBeNull();
+    }
   });
 });
 
 // ─────────────────────────── Lista blanca ────────────────────────────────────────────────────────
 
 describe('lista blanca — el archivo lleva lo que la lista dice y la consulta no pide más', () => {
-  it('el nombre del propietario ni se consulta ni aparece en el buffer', async () => {
+  it('**el nombre del titular SÍ sale, y NO viene de partir `nombre_completo`**', async () => {
+    // Este bloque se invierte a medias con la HU #11934: el archivo AHORA publica el nombre, pero lo
+    // saca del par SEPARADO de `flit_raw` y **no** partiendo `flito_compradores.nombre_completo`,
+    // que es la cadena que `flit-http.adapter.ts:74` funde. Esa columna sigue sin leerse: el
+    // `split(' ')` es el atajo cómodo y fallaría en cada nombre compuesto y en cada razón social.
     kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
@@ -335,9 +614,64 @@ describe('lista blanca — el archivo lleva lo que la lista dice y la consulta n
       expect(l.columnas.length, 'el select de compradores tiene que ir proyectado').toBeGreaterThan(0);
       expect(l.columnas).not.toContain('nombreCompleto');
     }
-    expect(textoDe(hoja)).not.toContain(CENTINELA_NOMBRE);
-    // Y la fila sí está: el test no pasa por no haber traído nada.
-    expect(celda(hoja, 2, 'CEDULA')).toBe(CEDULA);
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain(CENTINELA_CONCATENADO);
+    expect(texto).not.toContain('CONCATENADO');
+
+    expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
+    expect(celda(hoja, 2, 'Apellidos')).toBe(CENTINELA_APELLIDOS);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+  });
+
+  it('**la clasificación no sale de `tipo_documento`**: `CC` en la tabla y aun así `NIT` en la hoja', async () => {
+    // `flito_compradores.tipo_documento` existe y está a 0 de 7 052 para las filas del sync: solo lo
+    // escribe el canal Cliente, que en Impuestos ni siquiera existe. Un predicado sobre esa columna
+    // clasificaría el parque entero como una sola cosa. La señal es el par de nombres.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ nombres: CENTINELA_RAZON, apellidos: ' ' })],
+      flito_compradores: [comprador({ tipoDocumento: 'CC' })],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+  });
+
+  it('**`OrganismoDettoCiudad` se calcula sobre la COLUMNA normalizada, no sobre `codigoSecretaria`**', async () => {
+    // El mutante más silencioso de la HU, y no lo ve NINGÚN aserto de celdas: leer el código del
+    // organismo de `flit_raw->>'codigoSecretaria'` en vez de `flito_impuestos.organismo_codigo`. Los
+    // dos parecen el mismo dato; el del payload llega SIN el cero de relleno en 3 650 de 7 052 filas
+    // (`5001` donde el catálogo tiene `05001`), así que `getOrganismoByCodigo` devolvería `undefined`
+    // y **el 51,8 % de las filas saldría con la ciudad vacía sin un solo error**. Con una fixture que
+    // ya trae `organismoCodigo`, el archivo sale idéntico con las dos versiones.
+    kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
+
+    await exportar(await sesion());
+
+    const principal = lecturasDe(TABLA)[0];
+    expect(origenDe(principal.proyeccion.organismoCodigo)).toBe('col:flito_impuestos.organismo_codigo');
+
+    // Y ninguna expresión de la proyección toca esa clave del payload.
+    for (const [campo, valor] of Object.entries(principal.proyeccion)) {
+      expect(origenDe(valor), campo).not.toContain('codigoSecretaria');
+    }
+  });
+
+  it('la lectura principal NO gana joins nuevos: las ocho claves salen del que ya había', async () => {
+    // `conJoinsColaImpuestos` ya une `flito_tramites` 1:1 (`tramite_id` NOT NULL UNIQUE), así que las
+    // ocho expresiones `->>` entran en la proyección sin un join más y sin una consulta más. Un join
+    // añadido «para leer el payload» sería un duplicador de filas esperando a que alguien lo suelte.
+    kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
+
+    await exportar(await sesion());
+
+    const principal = lecturasDe(TABLA)[0];
+    expect(principal.joins).toEqual(['flito_tramites', 'vehicles', 'clients', 'organismos_transito_config', 'users']);
+    // Y una sola lectura de la tabla principal: el payload no cuesta una segunda pasada.
+    expect(lecturasDe(TABLA)).toHaveLength(1);
+    expect(lecturasDe('flito_tramites')).toHaveLength(0);
   });
 
   it('los importes y el motivo de rechazo no entran en la consulta ni en el archivo', async () => {
@@ -550,21 +884,23 @@ describe('fronteras — quién puede descargar y qué', () => {
 // ─────────────────────────── AC7 · celdas vacías y una fila por impuesto ─────────────────────────
 
 describe('AC7 — el dato que falta deja la celda VACÍA, y la fila sale igual', () => {
-  it('sin correo, sin cilindraje y sin ciudad: tres celdas vacías y el resto con su valor', async () => {
+  it('sin correo, sin cilindraje y sin municipio: tres celdas vacías y el resto con su valor', async () => {
     kdb.when.scenario({
-      flito_impuestos: [filaImpuesto({ cilindraje: null, ciudad: null })],
+      flito_impuestos: [filaImpuesto({ cilindraje: null, municipio: null })],
       flito_compradores: [comprador({ correo: null })],
     });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
 
-    expect(celda(hoja, 2, 'CORREO') ?? null).toBeNull();
-    expect(celda(hoja, 2, 'CILINDRAJE') ?? null).toBeNull();
-    expect(celda(hoja, 2, 'CIUDAD') ?? null).toBeNull();
-    expect(celda(hoja, 2, 'PLACA')).toBe(PLACA);
-    expect(celda(hoja, 2, 'CEDULA')).toBe(CEDULA);
-    expect(celda(hoja, 2, 'TELEFONO')).toBe('3109876543');
-    expect(celda(hoja, 2, 'ORGANISMO DE TRANSITO')).toBe('MOSQUERA');
+    expect(celda(hoja, 2, 'Correo') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Cilindraje') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Municipio') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'Celular')).toBe('3109876543');
+    expect(celda(hoja, 2, 'OrganismoDetto')).toBe('STRIA TTEyTTO MOSQUERA');
+    // El municipio ausente no arrastra a la ciudad del organismo: son datos distintos.
+    expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
 
     const texto = textoDe(hoja);
     expect(texto).not.toContain('—');
@@ -580,11 +916,13 @@ describe('AC7 — el dato que falta deja la celda VACÍA, y la fila sale igual',
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
 
     expect(hoja.rowCount).toBe(2);
-    expect(celda(hoja, 2, 'PLACA')).toBe(PLACA);
-    expect(celda(hoja, 2, 'VIN')).toBe(VIN);
-    expect(celda(hoja, 2, 'ORGANISMO DE TRANSITO')).toBe('MOSQUERA');
-    expect(celda(hoja, 2, 'CEDULA') ?? null).toBeNull();
-    expect(celda(hoja, 2, 'DIRECCION') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'Vin')).toBe(VIN);
+    expect(celda(hoja, 2, 'OrganismoDetto')).toBe('STRIA TTEyTTO MOSQUERA');
+    expect(celda(hoja, 2, 'NumeroId') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Direccion') ?? null).toBeNull();
+    // El bloque del titular NO depende del comprador: sale del payload del trámite y sigue lleno.
+    expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
   });
 
   it('DOS compradores del mismo trámite producen UNA sola fila, la del orden menor', async () => {
@@ -601,13 +939,13 @@ describe('AC7 — el dato que falta deja la celda VACÍA, y la fila sale igual',
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
 
     expect(hoja.rowCount).toBe(2);
-    expect(celda(hoja, 2, 'CEDULA')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
     expect(textoDe(hoja)).not.toContain('9999999999');
   });
 
   it('con el `orden` EMPATADO, el principal se decide por `id` y no por el azar de la consulta', async () => {
     // `orden` es `notNull().default(0)` y NO es único por trámite: sin el desempate, dos exports del
-    // mismo filtro podrían traer cédulas distintas en la misma fila.
+    // mismo filtro podrían traer documentos distintos en la misma fila.
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto()],
       flito_compradores: [
@@ -617,17 +955,25 @@ describe('AC7 — el dato que falta deja la celda VACÍA, y la fila sale igual',
     });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
-    expect(celda(hoja, 2, 'CEDULA')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
   });
 
-  it('un organismo sin alias cae a su CÓDIGO, nunca a la cadena «null»', async () => {
+  it('el organismo CRUDO de FLIT ausente deja la celda vacía — no cae al alias ni al código', async () => {
+    // `OrganismoDetto` es `flito_tramites.transito_nombre_flit`, el nombre tal como lo manda FLIT, y
+    // no el alias configurado en FLITO ni el código: la plantilla del cliente pide el crudo. La
+    // tentación es rellenar el hueco con `organismoParaExport()`, que es lo que hacía la hoja de
+    // once columnas — pondría en la celda un valor de otra procedencia con aspecto de ser el mismo.
     kdb.when.scenario({
-      flito_impuestos: [filaImpuesto({ organismoAlias: null })],
+      flito_impuestos: [filaImpuesto({ organismoDetto: null })],
       flito_compradores: [comprador()],
     });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
-    expect(celda(hoja, 2, 'ORGANISMO DE TRANSITO')).toBe('25473');
+
+    expect(celda(hoja, 2, 'OrganismoDetto') ?? null).toBeNull();
+    expect(textoDe(hoja)).not.toContain(ORGANISMO);
+    // Y la ciudad del catálogo sí sale: son dos columnas con dos orígenes distintos.
+    expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
   });
 });
 
@@ -648,7 +994,7 @@ describe('rastro — Ley 1581 art. 17 (el módulo no registraba NADA hasta esta 
     expect(orden).toEqual(['pii', 'excel']);
   });
 
-  it('`campos_accedidos` declara el correo, el celular y la dirección — y NO el nombre', async () => {
+  it('**`campos_accedidos` declara el NOMBRE del titular**, además del documento y el contacto', async () => {
     kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
 
     await exportar(await sesion());
@@ -659,9 +1005,16 @@ describe('rastro — Ley 1581 art. 17 (el módulo no registraba NADA hasta esta 
     expect(campos).toContain('direccion');
     expect(campos).toContain('ciudad');
     expect(campos).toContain('numero_documento');
-    // El archivo no lleva el nombre: declararlo haría que `campos_accedidos` dejara de decir la
-    // verdad, que es lo único que ese registro tiene que hacer.
-    expect(campos).not.toContain('nombre_completo');
+
+    // **Aquí es donde la HU #11934 invierte el aserto.** La hoja de once columnas llevaba el
+    // documento del titular y NO su nombre, así que declararlo habría sido declarar de más. La de
+    // veinticinco lo publica en `NombrePila`/`Apellidos`/`RazonSocial`: mantener la exclusión haría
+    // que el registro mintiera por omisión justo en el dato que la HU añade. Que el nombre venga de
+    // `flit_raw` y no de `flito_compradores.nombre_completo` no cambia nada — esto declara QUÉ dato
+    // personal salió del perímetro, no de qué columna se leyó.
+    expect(campos).toContain('nombre_completo');
+    // Y sigue siendo la lista del ARCHIVO, no la de la tabla: no declara de más.
+    expect(campos).not.toContain('tipo_documento');
   });
 
   it('el 422 deja `accion: search`, `filas=0` y el marcador del código', async () => {

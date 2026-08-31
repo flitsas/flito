@@ -63,11 +63,15 @@ export const RECURSO_IMPUESTO = 'flito_impuesto';
 export const CAMPOS_PII_IMPUESTO = ['nombre_completo', 'numero_documento', 'placa', 'vin'] as const;
 
 /**
- * Columnas personales que entrega el EXPORT a Excel (HU #11909).
+ * Columnas personales que entrega el EXPORT a Excel (HU #11909, HU #11934).
  *
  * Lista APARTE y no una ampliación de la de arriba: son dos lecturas distintas y cada una declara lo
- * suyo. El archivo añade `correo`, `celular`, `direccion` y `ciudad`, y **quita `nombre_completo`**
- * —lleva la CÉDULA del propietario, no su nombre (AC1, once columnas)—.
+ * suyo. Sobre la cola, el archivo añade `correo`, `celular`, `direccion` y `ciudad`.
+ *
+ * **Desde la HU #11934 vuelve a declarar `nombre_completo`.** La hoja de once columnas no llevaba el
+ * nombre del titular —solo su documento— y por eso la lista compartida lo excluía; la de veinticinco
+ * lo publica en `NombrePila`/`Apellidos`/`RazonSocial`. Aquí no hay nada que editar porque la lista
+ * compartida ya lo trae, y eso es exactamente lo que se buscaba al derivarla de ella.
  *
  * Sale de `CAMPOS_PII_COLA_EXPORT`, que es la lista de la hoja compartida por las dos colas: el
  * archivo es EL MISMO en SOAT y en Impuestos, así que su declaración de campos también tiene que

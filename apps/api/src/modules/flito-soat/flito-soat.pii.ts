@@ -54,21 +54,27 @@ export const RECURSO_SOAT = 'flito_soat';
 export const CAMPOS_PII_SOAT = ['nombre_completo', 'numero_documento', 'placa', 'vin'] as const;
 
 /**
- * Columnas personales que entrega el EXPORT a Excel de la cola (HU #11909).
+ * Columnas personales que entrega el EXPORT a Excel de la cola (HU #11909, HU #11934).
  *
  * Es una lista APARTE de `CAMPOS_PII_SOAT` y no una ampliación de aquella, por el criterio que este
  * mismo archivo fija dos párrafos más arriba: la lista de una acción describe lo que ESA acción
  * devuelve, y declarar de más ya fue un bloqueante. La cola y el detalle no entregan el correo, el
- * celular ni la dirección del propietario; el archivo sí, y hasta esta HU eso no constaba en ninguna
- * parte — `pii_access_log` habría mentido por omisión justo en lo que la HU añade.
+ * celular ni la dirección del propietario; el archivo sí, y hasta la HU #11909 eso no constaba en
+ * ninguna parte.
  *
- * Se construye SOBRE `CAMPOS_PII_SOAT` en vez de reescribirla para que las dos no puedan separarse
- * si mañana se renombra una columna, y se le resta `nombre_completo`: el archivo lleva la CÉDULA del
- * propietario y **no** su nombre (AC1, once columnas). El vocabulario compartido con la cola de
- * Impuestos —que exporta exactamente la misma hoja— vive en `shared/export/cola-flito-excel.ts`.
+ * **La HU #11934 le devuelve `nombre_completo`, que la #11909 le había restado.** Aquella resta era
+ * correcta para su hoja —once columnas, ninguna era el nombre— y dejó de serlo en cuanto el archivo
+ * ganó `NombrePila`, `Apellidos` y `RazonSocial`: mantenerla haría que `pii_access_log` mintiera por
+ * omisión exactamente en el dato que la HU añade, que es el argumento con el que se quitó. Que el
+ * nombre venga ahora de `flito_tramites.flit_raw` y no de `flito_compradores.nombre_completo` no
+ * cambia nada: esto declara QUÉ dato personal salió del perímetro, no de qué columna se leyó.
+ *
+ * Se construye SOBRE `CAMPOS_PII_SOAT` —sin restarle nada— para que las dos no puedan separarse si
+ * mañana se renombra una columna. El vocabulario compartido con la cola de Impuestos, que exporta
+ * exactamente la misma hoja, vive en `shared/export/cola-flito-excel.ts`.
  */
 export const CAMPOS_PII_SOAT_EXPORT = [
-  ...CAMPOS_PII_SOAT.filter((c) => c !== 'nombre_completo'),
+  ...CAMPOS_PII_SOAT,
   ...CAMPOS_PII_COLA_EXPORT.filter((c) => !(CAMPOS_PII_SOAT as readonly string[]).includes(c)),
 ] as const;
 

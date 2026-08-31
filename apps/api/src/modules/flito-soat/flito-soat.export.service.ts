@@ -1,8 +1,8 @@
-// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909).
+// FLITO SOAT — export a Excel de la cola filtrada (Feature #11908, HU #11909, #11934).
 //
 // La segunda lectura de `flito_soat` del módulo, y no es la de `cola()`: aquella pagina y devuelve el
-// DTO que pinta una pantalla; esta entrega el conjunto entero una sola vez y con las once columnas
-// del archivo. Lo único que comparten —y por eso vive en el servicio del listado, no aquí— es
+// DTO que pinta una pantalla; esta entrega el conjunto entero una sola vez y con las veinticinco
+// columnas del archivo. Lo único que comparten —y por eso vive en el servicio del listado, no aquí— es
 // `condicionesCola`/`conJoinsCola`: qué significa cada filtro y qué ve cada rol se decide en un solo
 // sitio, o el `.xlsx` acabaría conteniendo algo distinto de lo que el visor enseña y nadie se
 // enteraría hasta que un cliente comparase las dos cosas.
@@ -32,14 +32,16 @@
 
 import { and, asc, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import {
-  flitoCompradores, flitoSoat, flitoTramites, organismosTransitoConfig, vehicles,
-} from '../../db/schema.js';
+import { flitoCompradores, flitoSoat, flitoTramites, vehicles } from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import {
-  celdaTexto, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
-  organismoParaExport, type FilaColaExport,
+  celdaTexto, CONSTANTES_COLA_EXPORT, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
+  type FilaColaExport,
 } from '../../shared/export/cola-flito-excel.js';
+import {
+  bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, clavePar, expresionesFlitRaw, parDeClave,
+  TITULAR_VACIO, type BloqueTitular,
+} from '../../shared/export/cola-flito-derivados.js';
 import {
   comun, conJoinsCola, condicionesCola, ORIGEN_CLIENTE,
   type FiltrosCola, type SoatCtx,
@@ -73,18 +75,28 @@ const COLUMNAS_CONSULTA = {
   // el mismo vehículo, pero solo uno de los dos garantiza que la celda tenga valor.
   vin: flitoSoat.vin,
   placa: vehicles.plate,
+  // Los tres datos técnicos salen de `vehicles` y no de `flit_raw`, y es la única vía que sirve: las
+  // filas del canal Cliente tienen `vehiculo_id` pero NO trámite, así que no tienen payload. El sync
+  // ya los aterriza ahí (HU #11906) y el canal los escribe desde el RUNT (ADR-0008 §1.6).
   carroceria: vehicles.carroceria,
-  tipoServicio: vehicles.tipoServicio,
+  servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
-  organismoAlias: organismosTransitoConfig.alias,
-  organismoCodigo: organismosTransitoConfig.codigo,
+  // **`flito_soat.organismo_codigo` y NO `flit_raw->>'codigoSecretaria'`** — ver `ciudadDeOrganismo`:
+  // el del payload llega sin el cero de relleno en la mitad de las filas y dejaría la ciudad vacía
+  // sin que nada fallara. Esta columna la normalizó el sync y existe también en el canal Cliente.
+  organismoCodigo: flitoSoat.organismoCodigo,
 } as const;
 
 /**
- * Columnas de `flito_compradores` que el archivo necesita. **`nombre_completo` NO está**, y no es un
- * olvido: la hoja lleva la CÉDULA del propietario y no su nombre (AC1, once columnas), así que
- * leerlo sería traerse al proceso un dato personal que nadie va a escribir. Es la misma disciplina
- * que la proyección de arriba, aplicada a la tabla que más duele.
+ * Columnas de `flito_compradores` que el archivo necesita.
+ *
+ * **`nombre_completo` sigue SIN estar, aunque la hoja de la HU #11934 ya publique el nombre del
+ * titular.** No es una contradicción: el nombre del archivo sale de `flit_raw` —`nombres` y
+ * `apellidos` SEPARADOS, tal como los manda FLIT— y esta columna es lo contrario, los dos fundidos
+ * en una sola cadena por `flit-http.adapter.ts:74`. Partirla por el espacio para rellenar
+ * `NombrePila` y `Apellidos` sería una heurística sobre un dato que ya viene desagregado en origen, y
+ * fallaría en cada nombre compuesto y en cada razón social. Leerla «por si acaso» sería además
+ * traerse al proceso una copia peor del mismo dato personal.
  */
 const COLUMNAS_COMPRADOR = {
   id: flitoCompradores.id,
@@ -183,8 +195,33 @@ async function propietariosDe(
   return salida;
 }
 
-/** Los trámites de un lote de SOAT: su id (para buscar compradores) y su ciudad. */
-interface TramiteDeSoat { id: string; soatId: string | null; ciudad: string | null }
+/** Las ocho expresiones `->>` sobre `flito_tramites.flit_raw`, definidas una sola vez para el repo. */
+const RAW = expresionesFlitRaw(flitoTramites.flitRaw);
+
+/**
+ * Un trámite del lote: su id (para colgar al propietario), su SOAT y todo lo que el archivo saca de
+ * ÉL —tres columnas propias y las ocho claves del payload—.
+ *
+ * Los ocho campos del `jsonb` se tipan `unknown` y no `string | null` a propósito: `->>` devuelve
+ * texto en PostgreSQL, pero el tipo de una expresión `sql<...>` es una promesa de TypeScript que
+ * nadie comprueba en ejecución y el origen es JSON de un tercero. `celdaDesdeJson` es quien decide
+ * qué llega a la celda; declarar `string` aquí solo serviría para que el compilador dejara pasar un
+ * `.trim()` sobre un número.
+ */
+interface TramiteDeSoat {
+  id: string;
+  soatId: string | null;
+  municipio: string | null;
+  organismoDetto: string | null;
+  marca: unknown;
+  linea: unknown;
+  modelo: unknown;
+  clase: unknown;
+  capacidad: unknown;
+  departamento: unknown;
+  nombres: unknown;
+  apellidos: unknown;
+}
 
 /**
  * Los trámites de este lote de SOAT, en UNA sola lectura.
@@ -195,34 +232,87 @@ interface TramiteDeSoat { id: string; soatId: string | null; ciudad: string | nu
  * para 500 SOAT —pasando todos los asertos de columnas sin despeinarse— y, peor, el conteo contra el
  * tope contaría duplicados, de modo que un filtro legítimo podría recibir un 422.
  *
- * Una sola lectura para las dos cosas que hacen falta —la ciudad y por dónde colgar al propietario—
- * en vez de dos consultas a la misma tabla con el mismo filtro.
+ * **La HU #11934 no cambió eso: colgó de esta MISMA lectura las nueve columnas nuevas del trámite.**
+ * Añadir aquí ocho expresiones y un campo cuesta cero consultas más; tocar `conJoinsCola` para traer
+ * lo mismo habría metido el join que este comentario existe para no tener, y además habría cambiado
+ * el predicado que el export comparte con la pantalla.
+ *
+ * `flit_raw` **no se proyecta entera**: una expresión `->>` por clave (RN-E1). Traerla completa serían
+ * 27 claves × 2 000 filas en el heap para escribir seis celdas.
  */
 async function tramitesDe(ids: string[]): Promise<TramiteDeSoat[]> {
   if (ids.length === 0) return [];
-  return db.select({ id: flitoTramites.id, soatId: flitoTramites.soatId, ciudad: flitoTramites.ciudad })
-    .from(flitoTramites).where(inArray(flitoTramites.soatId, ids));
+  return db.select({
+    id: flitoTramites.id,
+    soatId: flitoTramites.soatId,
+    // `Municipio` es el mismo `flito_tramites.ciudad` que la hoja de once columnas rotulaba
+    // `CIUDAD`: cambia la cabecera, no el origen ni la reconciliación.
+    municipio: flitoTramites.ciudad,
+    // `OrganismoDetto` = el nombre CRUDO que manda FLIT, no el alias configurado en FLITO.
+    organismoDetto: flitoTramites.transitoNombreFlit,
+    ...RAW,
+  }).from(flitoTramites).where(inArray(flitoTramites.soatId, ids));
 }
 
+/** Lo que el archivo saca del trámite, ya reconciliado para UN SOAT. */
+interface DatosDeTramite {
+  municipio: string | null;
+  organismoDetto: string | null;
+  marca: string | null;
+  linea: string | null;
+  modelo: string | null;
+  clase: string | null;
+  capacidad: string | null;
+  departamento: string | null;
+  titular: BloqueTitular;
+}
+
+/** Lo que se escribe cuando un SOAT no tiene trámite: el canal Cliente. */
+const SIN_TRAMITE: DatosDeTramite = {
+  municipio: null, organismoDetto: null, marca: null, linea: null, modelo: null,
+  clase: null, capacidad: null, departamento: null, titular: TITULAR_VACIO,
+};
+
 /**
- * La CIUDAD de cada SOAT, reconciliada con `comun()`.
+ * Los datos de trámite de cada SOAT, cada campo reconciliado con `comun()`.
  *
- * Cuando los trámites de un mismo SOAT discrepan, la ciudad es `null` y la celda va vacía: es la
- * misma respuesta honesta que da la cola con `tipoTramite` y `fechaAprobacion`. Elegir la del primer
- * trámite pondría en el archivo un dato con aspecto de cierto que depende del orden de la consulta.
- * Las filas del canal Cliente no tienen trámite y por tanto tampoco ciudad; eso es lo esperado, no
- * un hueco a rellenar.
+ * Cuando los trámites de un mismo SOAT discrepan en un campo, ese campo es `null` y la celda va
+ * vacía: es la misma respuesta honesta que da la cola con `tipoTramite` y `fechaAprobacion`. Elegir
+ * el del primer trámite pondría en el archivo un dato con aspecto de cierto que depende del orden de
+ * la consulta. Las filas del canal Cliente no tienen trámite y por tanto no tienen ninguno de estos
+ * nueve valores; eso es lo esperado y no un hueco a rellenar — sus otras doce columnas sí se llenan
+ * y la fila sale igual.
+ *
+ * ── `nombres` y `apellidos` se reconcilian COMO PAR, con UN solo `comun()` ───────────────────────
+ *
+ * Es la trampa cara de esta mitad de la HU. Dos `comun()` independientes sobre dos trámites que
+ * coinciden en `nombres` y difieren en `apellidos` devolverían el nombre con el apellido en blanco,
+ * y **esa fila se clasificaría como persona JURÍDICA metiendo el nombre de pila de alguien en la
+ * columna `RazonSocial`** — con su `ClaseId` diciendo `NIT`. No lanza, no avisa y no lo ve ningún
+ * aserto de columnas. Se reconcilia la TUPLA (`clavePar`) y se clasifica después (`bloqueTitular`).
  */
-function ciudadesDe(tramites: TramiteDeSoat[]): Map<string, string | null> {
-  const porSoat = new Map<string, { ciudad: string | null }[]>();
+function datosDeTramitePorSoat(tramites: TramiteDeSoat[]): Map<string, DatosDeTramite> {
+  const porSoat = new Map<string, TramiteDeSoat[]>();
   for (const t of tramites) {
     if (!t.soatId) continue;
     const arr = porSoat.get(t.soatId) ?? [];
-    arr.push({ ciudad: t.ciudad }); porSoat.set(t.soatId, arr);
+    arr.push(t); porSoat.set(t.soatId, arr);
   }
 
-  const salida = new Map<string, string | null>();
-  for (const [soatId, ts] of porSoat) salida.set(soatId, comun(ts, (t) => t.ciudad));
+  const salida = new Map<string, DatosDeTramite>();
+  for (const [soatId, ts] of porSoat) {
+    salida.set(soatId, {
+      municipio: comun(ts, (t) => celdaTexto(t.municipio)),
+      organismoDetto: comun(ts, (t) => celdaTexto(t.organismoDetto)),
+      marca: comun(ts, (t) => celdaDesdeJson(t.marca)),
+      linea: comun(ts, (t) => celdaDesdeJson(t.linea)),
+      modelo: comun(ts, (t) => celdaDesdeJson(t.modelo)),
+      clase: comun(ts, (t) => celdaDesdeJson(t.clase)),
+      capacidad: comun(ts, (t) => celdaDesdeJson(t.capacidad)),
+      departamento: comun(ts, (t) => celdaDesdeJson(t.departamento)),
+      titular: bloqueTitular(parDeClave(comun(ts, (t) => clavePar(t.nombres, t.apellidos)))),
+    });
+  }
   return salida;
 }
 
@@ -259,7 +349,7 @@ export async function construirFilasExportSoat(
   if (filas.length > tope) throw new ExportColaDemasiadoGrandeError(tope);
 
   const tramites = await tramitesDe(filas.map((f) => f.id));
-  const ciudades = ciudadesDe(tramites);
+  const datos = datosDeTramitePorSoat(tramites);
   const propietarios = await propietariosDe(
     filas.map((f) => ({ id: f.id, origen: f.origen })),
     tramites,
@@ -267,22 +357,43 @@ export async function construirFilasExportSoat(
 
   return filas.map((f) => {
     const p = propietarios.get(f.id);
+    const d = datos.get(f.id) ?? SIN_TRAMITE;
+    // El orden de las claves es el de `COLUMNAS_COLA_EXPORT` para que las dos listas se lean juntas,
+    // pero NO es lo que ordena el archivo: ExcelJS empareja por `key`, y quien mueva una columna allí
+    // sin moverla aquí no rompe nada — solo cambia el sitio en que se lee esta.
     return {
+      vin: celdaTexto(f.vin),
       placa: celdaTexto(f.placa),
-      // Sin propietario registrado, las cuatro celdas van vacías y **la fila SALE igual**. Es el
+      modelo: d.modelo,
+      servicio: celdaTexto(f.servicio),
+      marca: d.marca,
+      linea: d.linea,
+      clase: d.clase,
+      carroceria: celdaTexto(f.carroceria),
+      cilindraje: celdaTexto(f.cilindraje),
+      capacidadCargaOPasajeros: d.capacidad,
+      puertas: CONSTANTES_COLA_EXPORT.puertas,
+      organismoDetto: d.organismoDetto,
+      nI: CONSTANTES_COLA_EXPORT.nI,
+      // Las cinco del titular se escriben JUNTAS desde un solo objeto y no campo a campo: son una
+      // decisión única de tres estados (ver `bloqueTitular`) y repartirlas aquí volvería a abrir la
+      // puerta a que una fila salga `PJUR` con la razón social vacía.
+      claseDeInterlocutor: d.titular.claseDeInterlocutor,
+      nombrePila: d.titular.nombrePila,
+      apellidos: d.titular.apellidos,
+      razonSocial: d.titular.razonSocial,
+      claseId: d.titular.claseId,
+      // Sin propietario registrado, estas cuatro celdas van vacías y **la fila SALE igual**. Es el
       // motivo por el que el propietario se lee en una consulta aparte y no con un JOIN: un `INNER
       // JOIN` sobre `flito_compradores` borraría del archivo, en silencio, cada SOAT al que le
       // falte el comprador — y son justo los que hay que revisar.
-      cedula: celdaTexto(p?.numeroDocumento),
-      correo: celdaTexto(p?.correo),
-      telefono: celdaTexto(p?.celular),
+      numeroId: celdaTexto(p?.numeroDocumento),
       direccion: celdaTexto(p?.direccion),
-      vin: celdaTexto(f.vin),
-      ciudad: celdaTexto(ciudades.get(f.id)),
-      carroceria: celdaTexto(f.carroceria),
-      tipoServicio: celdaTexto(f.tipoServicio),
-      cilindraje: celdaTexto(f.cilindraje),
-      organismoTransito: organismoParaExport(f.organismoAlias, f.organismoCodigo),
+      municipio: d.municipio,
+      departamento: d.departamento,
+      celular: celdaTexto(p?.celular),
+      correo: celdaTexto(p?.correo),
+      organismoDettoCiudad: ciudadDeOrganismo(f.organismoCodigo),
     };
   });
 }
