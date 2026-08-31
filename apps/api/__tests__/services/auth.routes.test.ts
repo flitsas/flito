@@ -169,6 +169,11 @@ describe('POST /api/auth/login — éxito', () => {
     // F-3: login ahora devuelve allowedPages efectivas (admin → todas las páginas).
     expect(Array.isArray(r.body.user.allowedPages)).toBe(true);
     expect(r.body.user.allowedPages).toContain('dashboard');
+    // Bug #11937: el sobre de login trae el flag (false para admin) sin JOIN extra a clients.
+    expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
+    expect(r.body.user.puedeSolicitarSoat).toBe(false);
+    expect(r.body.user.companiaId).toBeUndefined();
+    expect(selectMock).toHaveBeenCalledTimes(1);
     expect(clearLockoutMock).toHaveBeenCalledWith('admin');
     expect(registerFailedMock).not.toHaveBeenCalled();
     expect(auditMock.mock.calls[0][1].action).toBe('login');
@@ -184,6 +189,42 @@ describe('POST /api/auth/login — éxito', () => {
     const r = await request(app).post('/api/auth/login').send({ username: 'a', password: 'p' });
     expect(JSON.stringify(r.body)).not.toContain('SECRET-HASH');
     expect(r.body.user).not.toHaveProperty('passwordHash');
+  });
+});
+
+const CLIENTE_LOGIN = {
+  id: 5, username: 'u@empresa.co', passwordHash: 'h', active: true,
+  role: 'cliente', name: 'Cliente', allowedPages: null, transitoCodigo: null, companiaId: 7,
+};
+
+describe('POST /api/auth/login — `puedeSolicitarSoat` (Bug #11937)', () => {
+  it('cliente cuya compañía tiene el flag ENCENDIDO → true y la clave viene', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([{ sinTramite: true }]));
+    argonVerifyMock.mockResolvedValueOnce(true);
+    const r = await request(await buildApp()).post('/api/auth/login')
+      .send({ username: 'u@empresa.co', password: 'OK' });
+
+    expect(r.status).toBe(200);
+    expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
+    expect(r.body.user.puedeSolicitarSoat).toBe(true);
+    expect(r.body.user.companiaId).toBeUndefined();
+    expect(selectMock).toHaveBeenCalledTimes(2); // usuario + clients
+  });
+
+  it('flag APAGADO → false, y no es «no vino el campo»', async () => {
+    selectMock
+      .mockReturnValueOnce(chain([CLIENTE_LOGIN]))
+      .mockReturnValueOnce(chain([{ sinTramite: false }]));
+    argonVerifyMock.mockResolvedValueOnce(true);
+    const r = await request(await buildApp()).post('/api/auth/login')
+      .send({ username: 'u@empresa.co', password: 'OK' });
+
+    expect(r.status).toBe(200);
+    expect(Object.keys(r.body.user)).toContain('puedeSolicitarSoat');
+    expect(r.body.user.puedeSolicitarSoat).toBe(false);
+    expect(r.body.user.companiaId).toBeUndefined();
   });
 });
 
