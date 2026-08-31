@@ -1,16 +1,9 @@
-// FLITO — canal Cliente: los bloques 2 y 3 del formulario de solicitud (HU #11914, AC1).
+// FLITO — canal Cliente: los bloques del formulario de solicitud (HU #11914, #11936).
 //
 // ── Por qué cada bloque es una `<section>` con `<h2>` ────────────────────────────────────────────
 //
-// Es lo que permite saltar de bloque a bloque con un lector de pantalla, y lo que hace que «Se
-// habilita cuando el RUNT responda» se lea DENTRO de su sección y no suelta en mitad de la página.
-//
-// ── Y por qué los bloques se pintan «en espera» en vez de esconderse o salir `disabled` ─────────
-//
-// Las dos alternativas son peores. Esconderlos deja al usuario sin saber qué le van a pedir —y la
-// factura de venta hay que ir a buscarla, no está a mano—. Pintarlos `disabled` mete doce controles
-// grises que no reciben foco y que parecen una pantalla rota, que es exactamente lo que el AC1 pide
-// evitar en la ficha del RUNT y vale igual aquí.
+// Es lo que permite saltar de bloque a bloque con un lector de pantalla. Los tres bloques montan
+// sus controles desde el primer paint: el RUNT ya no es un paso del Cliente (HU #11936).
 
 import { useEffect, type ReactNode, type RefObject } from 'react';
 import FlitSelect from '../../flit/FlitSelect';
@@ -75,11 +68,6 @@ export function Seccion({ titulo, chip, children }: { titulo: string; chip?: Rea
   );
 }
 
-/** La línea de espera de un bloque que todavía no se puede llenar. */
-export function EnEspera() {
-  return <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Se habilita cuando el RUNT responda.</p>;
-}
-
 /**
  * Un campo de texto con etiqueta asociada, ayuda y error.
  *
@@ -127,16 +115,11 @@ export function Campo({ id, label, valor, onCambio, onBlur, error, ayuda, opcion
   );
 }
 
-// ───────────────────────────── Documento del propietario (bloque 1 del alta) ─────────────────────
+// ───────────────────────────── Documento del propietario (bloque 2) ──────────────────────────────
 
 /**
- * Tipo y número del catálogo RUNT. Mismos controles y mismo copy en dos sitios:
- *
- *   · **Alta, bloque 1** — ANTES de «Consultar el RUNT»: la pasarela exige el documento junto
- *     con la placa (Bug #11927).
- *   · **Subsanación, bloque 2** — se editan ahí porque en esa pantalla no hay preconsulta nueva.
- *
- * Extraído para no inventar un tercer widget ni duplicar el `FlitSelect` a mano.
+ * Tipo y número del catálogo RUNT. Mismos controles en el alta y en la subsanación: viven con
+ * el propietario (HU #11936). Extraído para no duplicar el `FlitSelect` a mano.
  */
 export function CamposDocumento({ valor, onCambio, errores, onBlur, prellenadoNumero }: {
   valor: Pick<Propietario, 'tipoDocumento' | 'numeroDocumento'>;
@@ -169,37 +152,25 @@ export function CamposDocumento({ valor, onCambio, errores, onBlur, prellenadoNu
 // ───────────────────────────── Bloque 2 · Propietario ────────────────────────────────────────────
 
 /**
- * El propietario **sí se edita** aunque el RUNT lo prellene, y el vehículo no. La frase que lo
- * explica: lo no editable es lo que decide QUÉ VEHÍCULO es y a qué organismo pertenece —lo que fija
- * el trámite y el precio—; lo editable es QUIÉN ES LA PERSONA, que es lo que va en la factura de
- * venta y lo que el RUNT puede tener desactualizado tras una compraventa reciente. Justo el caso en
- * el que este canal se usa.
+ * El propietario **sí se edita**. El vehículo (placa/VIN) no, en la subsanación: cambiarlos sería
+ * un alta encubierta sobre otro vehículo. Tipo y número viven aquí en alta y en subsanación.
  *
- * Este bloque **no tiene estado «cargando»**, y es correcto: se monta ya resuelto tras la
- * preconsulta y el catálogo de tipos de documento es estático. Tampoco tiene «error de carga», así
- * que el selector no lleva `onReintentar`: no habría nada que reintentar.
- *
- * En el **alta**, tipo y número ya se pidieron en el bloque 1: `omitirDocumento` evita montarlos
- * otra vez (serían el mismo `id` dos veces). En la **subsanación** sí van aquí: no hay preconsulta.
+ * Este bloque **no tiene estado «cargando»**: el catálogo de tipos de documento es estático.
  */
-export function BloquePropietario({ valor, onCambio, errores, onBlur, prellenados, omitirDocumento }: {
+export function BloquePropietario({ valor, onCambio, errores, onBlur, prellenados }: {
   valor: Propietario;
   onCambio: (campo: CampoPropietario, v: string) => void;
   errores: Partial<Record<CampoPropietario, string>>;
   onBlur: (campo: CampoPropietario) => void;
-  /** Campos que llegaron del RUNT. Vacío es el caso NORMAL y no se avisa de nada. */
+  /** Campos que llegaron del RUNT (subsanación). Vacío es el caso NORMAL y no se avisa de nada. */
   prellenados: ReadonlySet<CampoPropietario>;
-  /** Alta: el documento vive en el bloque 1. Subsanación: no pasar. */
-  omitirDocumento?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      {!omitirDocumento && (
-        <CamposDocumento
-          valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur}
-          prellenadoNumero={prellenados.has('numeroDocumento')}
-        />
-      )}
+      <CamposDocumento
+        valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur}
+        prellenadoNumero={prellenados.has('numeroDocumento')}
+      />
 
       <Campo
         id={ID_CAMPO.nombreCompleto} label="Nombre completo o razón social" valor={valor.nombreCompleto}

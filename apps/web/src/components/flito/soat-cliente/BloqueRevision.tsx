@@ -37,11 +37,12 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { CodigoErrorSolicitudSoat, EstadoSoat } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
-import { leerFallo } from '../../../lib/soatCliente';
+import { leerFallo, type VerificacionEstadoRunt } from '../../../lib/soatCliente';
 import StatusChip from '../../flit/StatusChip';
 import {
   FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
+import FichaRuntRevision from './FichaRuntRevision';
 import PanelRechazo from './PanelRechazo';
 
 /**
@@ -57,6 +58,11 @@ export interface RevisionSolicitud {
   reenvios: number;
   solicitadoEn: string;
   revisadoPorNombre?: string | null;
+  /** HU #11935: desenlace de la verificación RUNT. El Cliente lo recibe y esta pantalla no lo pinta. */
+  verificacionEstado: VerificacionEstadoRunt;
+  soatVigente: boolean | null;
+  soatVigenteHasta: string | null;
+  verificacionCodigo: string | null;
 }
 
 interface ProveedorSoat { id: string; nombre: string; activo: boolean }
@@ -83,6 +89,9 @@ export default function BloqueRevision({ soatId, estado, esCliente, puedeRevisar
   onCambio: () => void;
 }) {
   const [datos, setDatos] = useState<RevisionSolicitud | null | undefined>(undefined);
+  const [vehiculo, setVehiculo] = useState<{
+    marca: string | null; linea: string | null; organismoNombre: string | null;
+  }>({ marca: null, linea: null, organismoNombre: null });
   const [fallo, setFallo] = useState(false);
   const [recarga, setRecarga] = useState(0);
   const [panel, setPanel] = useState<'idle' | 'validar' | 'rechazar'>('idle');
@@ -96,8 +105,21 @@ export default function BloqueRevision({ soatId, estado, esCliente, puedeRevisar
     let vivo = true;
     setDatos(undefined);
     setFallo(false);
-    api.get<{ solicitud?: RevisionSolicitud | null }>(`/flito/soat/${soatId}`)
-      .then((d) => { if (vivo) setDatos(d.solicitud ?? null); })
+    api.get<{
+      solicitud?: RevisionSolicitud | null;
+      marca?: string | null;
+      linea?: string | null;
+      organismoNombre?: string | null;
+    }>(`/flito/soat/${soatId}`)
+      .then((d) => {
+        if (!vivo) return;
+        setDatos(d.solicitud ?? null);
+        setVehiculo({
+          marca: d.marca ?? null,
+          linea: d.linea ?? null,
+          organismoNombre: d.organismoNombre ?? null,
+        });
+      })
       .catch(() => { if (vivo) setFallo(true); });
     return () => { vivo = false; };
   }, [soatId, recarga]);
@@ -138,6 +160,20 @@ export default function BloqueRevision({ soatId, estado, esCliente, puedeRevisar
             onClick={() => setRecarga((n) => n + 1)}>
             Volver a cargar la revisión
           </button>
+        </div>
+      )}
+
+      {/* Ficha RUNT: solo lector interno. El Cliente comparte este bloque en `rechazada` y no
+          debe ver el chip de vigente — la guarda va aquí, no en el montaje del bloque. */}
+      {datos && !esCliente && (
+        <div className="mt-2">
+          <FichaRuntRevision
+            solicitud={datos}
+            marca={vehiculo.marca}
+            linea={vehiculo.linea}
+            organismoNombre={vehiculo.organismoNombre}
+            onActualizar={() => setRecarga((n) => n + 1)}
+          />
         </div>
       )}
 

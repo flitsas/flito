@@ -15,6 +15,32 @@ import {
   CodigoErrorSolicitudSoat, TIPOS_DOCUMENTO_RUNT, type EstadoSoat, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 
+// ───────────────────────────── Verificación RUNT post-alta (HU #11935 / #11936) ──────────────────
+
+/**
+ * Lo que `GET /flito/soat/:id` proyecta en `solicitud` para pintar la ficha de revisión.
+ * «vigente» no es un valor de `verificacionEstado`: es `ok` y `soatVigente === true`.
+ */
+export type VerificacionEstadoRunt = 'pendiente' | 'caido' | 'sin_registro' | 'no_cuadra' | 'ok';
+
+export interface VerificacionRunt {
+  verificacionEstado: VerificacionEstadoRunt;
+  soatVigente: boolean | null;
+  soatVigenteHasta: string | null;
+  verificacionCodigo: string | null;
+}
+
+/**
+ * Fecha de calendario en español largo («1 de febrero de 2027»).
+ *
+ * Se parte por componentes: `new Date('yyyy-mm-dd')` es medianoche UTC y en Colombia resta un día.
+ */
+export function fechaLarga(iso: string): string {
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  return new Date(anio, mes - 1, dia)
+    .toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 // ───────────────────────────── Lo que devuelve la preconsulta ────────────────────────────────────
 
 /**

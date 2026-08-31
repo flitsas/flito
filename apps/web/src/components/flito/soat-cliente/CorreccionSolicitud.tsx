@@ -1,4 +1,7 @@
-// FLITO — canal Cliente: subsanar una solicitud RECHAZADA (HU #11914, segunda mitad del AC4).
+// FLITO — canal Cliente: subsanar una solicitud RECHAZADA (HU #11914, #11936).
+//
+// HU #11936: no reintroducir «Consultar el RUNT» ni `POST /cliente/preconsulta`. Placa y VIN
+// siguen de solo lectura. El `<dl>` de vehículo es identidad guardada, no un gate.
 //
 // ── El reparto entre HUs ─────────────────────────────────────────────────────────────────────────
 //
