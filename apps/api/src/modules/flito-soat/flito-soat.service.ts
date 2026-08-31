@@ -844,6 +844,13 @@ export interface RevisionSolicitud {
   verificacionCodigo: string | null;
 }
 
+/** Columna `date` de Drizzle: string `yyyy-mm-dd`. Guardia Date por si el driver devolviera objeto. */
+function diaIso(v: unknown): string | null {
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
+  return null;
+}
+
 /**
  * Lee el satélite de una solicitud y lo proyecta según quién pregunta.
  *
@@ -889,9 +896,7 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
     solicitadoEn: r.solicitadoEn.toISOString(),
     verificacionEstado: r.verificacionEstado as RevisionSolicitud['verificacionEstado'],
     soatVigente: r.soatVigente,
-    soatVigenteHasta: r.soatVigenteHasta
-      ? (typeof r.soatVigenteHasta === 'string' ? r.soatVigenteHasta.slice(0, 10) : r.soatVigenteHasta.toISOString().slice(0, 10))
-      : null,
+    soatVigenteHasta: diaIso(r.soatVigenteHasta),
     verificacionCodigo: r.verificacionCodigo,
   };
   // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
