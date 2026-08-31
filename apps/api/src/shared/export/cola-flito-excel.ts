@@ -157,6 +157,12 @@ export interface FilaColaExport extends Record<string, string | null> {
  *
  * `ciudad` conserva el nombre de la COLUMNA aunque la cabecera del archivo sea ahora `Municipio`:
  * esta lista se cruza con la base, no con la plantilla del cliente.
+ *
+ * **`Departamento` NO está, y es una decisión, no un olvido** (David, gate de seguridad de la HU
+ * #11934): sale de `flit_raw->>'departamentoTransito'` y es la jurisdicción del ORGANISMO —acompaña a
+ * `OrganismoDetto` y a `OrganismoDettoCiudad`—, no el domicilio del titular. Si algún día se cambiara
+ * por un departamento de la dirección, tendría que entrar aquí en la misma edición; el porqué está
+ * escrito junto a la clave, en `CLAVES_FLIT_RAW`, que es donde el auto-llenado lo ejecuta solo.
  */
 export const CAMPOS_PII_COLA_EXPORT = [
   'nombre_completo', 'numero_documento', 'correo', 'celular', 'direccion', 'placa', 'vin', 'ciudad',

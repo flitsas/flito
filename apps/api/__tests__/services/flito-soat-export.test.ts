@@ -612,6 +612,49 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(String(celda(hoja, 2, 'CapacidadCargaOPasajeros'))).toBe('5');
   });
 
+  it('**una clave ANIDADA no se publica**: celda vacía y la fila sin clasificar', async () => {
+    // Corrección del gate de seguridad (Medium sobre `dcd57ea`). `->>` no falla ante un objeto: lo
+    // SERIALIZA —medido en Postgres 16, `'{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n'` devuelve
+    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las ocho
+    // claves el blob acabaría en una celda de un archivo que sale del perímetro, con datos dentro que
+    // `pii_access_log` no declara.
+    //
+    // En SOAT hay un escalón más que en Impuestos: el par pasa por `clavePar` antes de reconciliarse,
+    // así que el descarte tiene que ocurrir ANTES de que el blob se convierta en la clave de
+    // reconciliación — si no, dos trámites con el mismo blob «coincidirían» y lo publicarían.
+    //
+    // La fixture usa la CADENA que Postgres produce, no un objeto JS: es lo que de verdad llega al
+    // servicio. Este caso muerde la guarda de JS; la del SQL, que es la de verdad, se afirma sobre el
+    // SQL renderizado en `cola-flito-derivados.test.ts`.
+    const CEDULA_ANIDADA = '99887766554';
+    const BLOB = `{"primer": "ANA", "segundo": "MARIA", "cedula": "${CEDULA_ANIDADA}"}`;
+    kdb.when.scenario({
+      flito_soat: [filaSoat()],
+      flito_tramites: [
+        tramite({ nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
+        tramite({ id: TRAMITE_B, nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
+      ],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+
+    expect(hoja.rowCount).toBe(2); // una fila, y sale
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('primer');
+    expect(texto).not.toContain('segundo');
+    expect(texto).not.toContain(CEDULA_ANIDADA);
+    expect(celda(hoja, 2, 'Marca') ?? null).toBeNull();
+
+    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
+    }
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+  });
+
   it('**`Clase` está mapeada aunque FLIT no la mande hoy**', async () => {
     // Es lo que sostiene la decisión de leer de `flit_raw` en vez de hacer crecer el sync: el día que
     // FLIT empiece a mandar la clase, la columna se llena sola, sin migración y sin despliegue.

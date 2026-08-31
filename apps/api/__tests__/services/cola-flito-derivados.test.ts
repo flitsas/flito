@@ -40,7 +40,11 @@ describe('las claves de `flit_raw`: qué clave alimenta qué campo', () => {
     // concatenara en el texto del SQL, `params` vendría vacío y este aserto lo diría.
     expect(q.sql, `${campo} no extrae de flit_raw con ->>`)
       .toContain('"flito_tramites"."flit_raw" ->> ');
-    expect(q.params, `${campo} tiene que ligar su clave como parámetro`).toHaveLength(1);
+    // DOS parámetros y no uno: la clave se liga dos veces —una en el `jsonb_typeof(… -> clave)` que
+    // descarta lo no escalar y otra en el `->>` que extrae—. Que sean IGUALES es parte del contrato:
+    // comprobar la forma de una clave y extraer otra sería un descarte que no descarta nada.
+    expect(q.params, `${campo} tiene que ligar su clave como parámetro`).toHaveLength(2);
+    expect(q.params[0], `${campo} comprueba y extrae claves distintas`).toBe(q.params[1]);
     return q.params[0];
   };
 
@@ -98,12 +102,69 @@ describe('`celdaDesdeJson` — lo que puede llegar de un `jsonb` ajeno', () => {
     expect(celdaDesdeJson('  ONIX  ')).toBe('ONIX');
   });
 
-  it('la clave ausente, el null y una forma inesperada dan celda vacía, no `"[object Object]"`', () => {
+  it('la clave ausente y el null dan celda vacía', () => {
     expect(celdaDesdeJson(undefined)).toBeNull();
     expect(celdaDesdeJson(null)).toBeNull();
-    expect(celdaDesdeJson({ a: 1 })).toBeNull();
-    expect(celdaDesdeJson(['x'])).toBeNull();
     expect(celdaDesdeJson(Number.NaN)).toBeNull();
+  });
+
+  it('**el blob serializado que `->>` produce DE VERDAD se descarta**, no un objeto JS', () => {
+    // Corrección del gate de seguridad (Medium sobre `dcd57ea`). Este caso decía antes
+    // `expect(celdaDesdeJson({ a: 1 })).toBeNull()` y certificaba en verde una garantía INEXISTENTE:
+    // `celdaDesdeJson` no recibe nunca un objeto JS. Medido contra el Postgres 16 local:
+    //
+    //   select '{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n';   →  {"a": 1, "b": "ANA"}  (pg_typeof = text)
+    //   select '{"ap":["PEREZ","GOMEZ"]}'::jsonb ->> 'ap'; →  ["PEREZ", "GOMEZ"]
+    //
+    // `->>` YA serializa el objeto a texto, así que lo que llega aquí es una CADENA y la rama
+    // `typeof valor === 'string'` se la tragaba entera hasta la celda. La forma correcta del caso es
+    // la cadena que Postgres produce.
+    expect(celdaDesdeJson('{"a": 1, "b": "ANA"}')).toBeNull();
+    expect(celdaDesdeJson('["PEREZ", "GOMEZ"]')).toBeNull();
+    expect(celdaDesdeJson('  {"a": 1}  ')).toBeNull();
+  });
+
+  it('la guarda es EXACTA: un texto que solo PARECE JSON se respeta', () => {
+    // La guarda de JS es defensa en profundidad —el descarte de verdad ocurre en SQL— y por eso no
+    // puede ser una heurística de «empieza por llave»: borraría datos legítimos en silencio, que es
+    // el mismo pecado que viene a corregir. Solo descarta lo que REALMENTE parsea como objeto o array.
+    expect(celdaDesdeJson('TRANSPORTES [ABC] SAS')).toBe('TRANSPORTES [ABC] SAS');
+    expect(celdaDesdeJson('{PEREZ GOMEZ}')).toBe('{PEREZ GOMEZ}');
+    expect(celdaDesdeJson('[SIN CARROCERIA')).toBe('[SIN CARROCERIA');
+    // Escalares serializados: siguen siendo celdas válidas.
+    expect(celdaDesdeJson('2021')).toBe('2021');
+    expect(celdaDesdeJson('null')).toBe('null');
+  });
+});
+
+// ─────────────────────────── El descarte de verdad ocurre en SQL ─────────────────────────────────
+
+describe('lo no escalar se descarta en la EXTRACCIÓN, no al escribir la celda', () => {
+  const exprs = expresionesFlitRaw(flitoTramites.flitRaw);
+
+  it('**cada expresión envuelve el `->>` en un `case jsonb_typeof`**', () => {
+    // El mutante nombrado: quitar el `case` y dejar `${columna} ->> ${clave}` a secas. Es lo que
+    // había en `dcd57ea` y lo que el gate de seguridad tumbó — con él, un objeto anidado bajo
+    // cualquiera de las 8 claves llega a la celda SERIALIZADO (`{"a": 1, "b": "ANA"}`), se publica en
+    // un archivo que cruza el perímetro, `pii_access_log` no lo declara, y `bloqueTitular` clasifica
+    // esa fila como PJUR/NIT metiendo el blob en `RazonSocial`.
+    //
+    // Este aserto es el ÚNICO sitio del repo donde esa garantía se comprueba de verdad: `keyed-db` no
+    // evalúa la proyección, así que ninguna suite de export ejecuta este SQL. Lo que ellas prueban es
+    // la guarda de JS, que es la segunda línea de defensa.
+    //
+    // Medido contra Postgres 16: el `case` descarta objeto y array y CONSERVA el escalar (`ANA`), el
+    // número (`2021` → `'2021'`), la clave ausente (NULL) y la columna NULL (NULL) — o sea que no
+    // rompe el auto-llenado de `Clase`, que es lo que sostiene la decisión de diseño.
+    for (const campo of Object.keys(exprs) as (keyof typeof exprs)[]) {
+      const { sql } = renderizar(exprs[campo]);
+      expect(sql, `${campo} no descarta lo no escalar en SQL`).toContain('jsonb_typeof(');
+      expect(sql, `${campo} no descarta objetos`).toContain("when 'object' then null");
+      expect(sql, `${campo} no descarta arrays`).toContain("when 'array' then null");
+      // Y sigue extrayendo con `->>` (texto) y no con `->` (jsonb), que devolvería las cadenas
+      // entrecomilladas (`"ONIX"`).
+      expect(sql, `${campo} tiene que extraer con ->>`).toContain('->> ');
+    }
   });
 });
 

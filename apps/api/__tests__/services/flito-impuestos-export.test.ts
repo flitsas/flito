@@ -574,6 +574,46 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(celda(hoja, 2, 'Puertas')).toBe('4');
   });
 
+  it('**una clave ANIDADA no se publica**: celda vacía y la fila sin clasificar', async () => {
+    // Corrección del gate de seguridad (Medium sobre `dcd57ea`). `->>` no falla ante un objeto: lo
+    // SERIALIZA —medido en Postgres 16, `'{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n'` devuelve
+    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las ocho
+    // claves el blob entero acabaría en una celda de un archivo que sale del perímetro, sin error y
+    // sin log, y con datos que `pii_access_log` no declara.
+    //
+    // La fixture usa la CADENA que Postgres produce, no un objeto JS: es lo que de verdad llega al
+    // servicio. (Un objeto JS aquí ejercitaría una rama que no ocurre nunca — exactamente el error
+    // que el gate encontró en el test unitario.) Este caso muerde la guarda de JS; la del SQL, que
+    // es la de verdad, se afirma en `cola-flito-derivados.test.ts` sobre el SQL renderizado.
+    const CEDULA_ANIDADA = '99887766554';
+    const BLOB = `{"primer": "ANA", "segundo": "MARIA", "cedula": "${CEDULA_ANIDADA}"}`;
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ nombres: BLOB, apellidos: ' ', marca: '["KIA", "SA"]' })],
+      flito_compradores: [comprador()],
+    });
+
+    const r = await exportar(await sesion());
+    expect(r.status).toBe(200);
+    const hoja = await libro(r.body as Buffer);
+
+    // Ni entero ni troceado: nada del blob aparece en ninguna celda —incluida la cédula que venía
+    // DENTRO y que nadie declaró.
+    const texto = textoDe(hoja);
+    expect(texto).not.toContain('primer');
+    expect(texto).not.toContain('segundo');
+    expect(texto).not.toContain(CEDULA_ANIDADA);
+    expect(celda(hoja, 2, 'Marca') ?? null).toBeNull();
+
+    // Y las cinco del titular vacías: sin nombre utilizable no hay nada que clasificar. Sin esto la
+    // fila saldría `PJUR` + `NIT` con el JSON metido en `RazonSocial`.
+    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
+    }
+    // La fila SALE igual, con lo que no viene del payload.
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+  });
+
   it('**el espacio en `apellidos` clasifica como JURÍDICA** (la forma real de la ausencia)', async () => {
     // Los casos «natural con apellido» y «jurídica con null» quedan verdes con el mutante de no
     // recortar (`if (apellidos)` sobre la cadena cruda). Con él, la MITAD del parque medido —3 510

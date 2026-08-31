@@ -55,6 +55,21 @@ export const CLAVES_FLIT_RAW = {
   /** Aún NO llega en el reporte. La expresión ya está: el día que llegue, la columna se llena sola. */
   clase: 'clase',
   capacidad: 'capacidad',
+  /**
+   * El departamento del ORGANISMO DE TRÁNSITO, no el del domicilio del titular.
+   *
+   * **Decisión de David, cerrada en el gate de seguridad de esta HU, y escrita aquí porque se ejecuta
+   * sola:** la clave es `departamentoTransito` y acompaña a `OrganismoDetto` y a
+   * `OrganismoDettoCiudad`; **no** se relaciona con `Direccion`. De ahí se sigue lo único que tiene
+   * consecuencias legales — que `Departamento` **NO se declara en `CAMPOS_PII_COLA_EXPORT`**: es
+   * jurisdicción administrativa, no un dato del titular. Si fuera su domicilio habría que declararlo,
+   * como `direccion`.
+   *
+   * Va pegado a la clave y no solo en la lista PII por el diseño de auto-llenado de este módulo: la
+   * columna se rellenará sola el día que FLIT mande el campo, sin migración, sin despliegue y sin que
+   * nadie vuelva a hacerse la pregunta. Quien cambie esta clave por una del domicilio tiene que
+   * añadir el campo a la lista PII en la misma edición.
+   */
   departamento: 'departamentoTransito',
   nombres: 'nombres',
   apellidos: 'apellidos',
@@ -63,20 +78,44 @@ export const CLAVES_FLIT_RAW = {
 export type CampoFlitRaw = keyof typeof CLAVES_FLIT_RAW;
 
 /**
- * Una expresión `->>` por clave, listas para entrar en un `select({...})`.
+ * Una expresión por clave, listas para entrar en un `select({...})`.
  *
  * La clave viaja como PARÁMETRO (`->> $1`) y no concatenada en el texto del SQL: es la regla 3 de
  * AGENTS.md y aquí además hace que el test pueda leer QUÉ clave quedó ligada a qué campo, que es lo
  * único que distingue el mapeo correcto del cruzado.
  *
  * `->>` (y no `->`) porque lo que va a una celda es texto: `->` devolvería `jsonb` y un valor de
- * cadena llegaría entrecomillado (`"ONIX"`). Una clave ausente da `NULL` en las dos formas, que es
- * exactamente lo que hace falta para `clase` mientras FLIT no la mande.
+ * cadena llegaría entrecomillado (`"ONIX"`). Una clave ausente da `NULL`, que es exactamente lo que
+ * hace falta para `clase` mientras FLIT no la mande.
+ *
+ * ── El `case jsonb_typeof`: por qué el `->>` pelado no basta (gate de seguridad, Medium) ─────────
+ *
+ * **`->>` no falla ante un objeto: lo SERIALIZA.** Medido contra el Postgres 16 local:
+ *
+ *     select '{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n';    →  {"a": 1, "b": "ANA"}   (pg_typeof = text)
+ *     select '{"ap":["PEREZ","GOMEZ"]}'::jsonb ->> 'ap';  →  ["PEREZ", "GOMEZ"]
+ *
+ * O sea que el día que FLIT anide algo bajo una de estas ocho claves —mandar `nombres` como
+ * `{primer, segundo}` en vez de una cadena es el cambio más natural del mundo—, el blob entero
+ * viajaría a una celda de un archivo que SALE DEL PERÍMETRO, sin error y sin log. Con tres agravantes
+ * que se encadenan solos: `pii_access_log` no declara lo que va dentro de ese blob; `bloqueTitular`
+ * leería la fila como persona jurídica y pondría el JSON en `RazonSocial`; y este módulo está
+ * diseñado a propósito para absorber cambios de forma de FLIT **sin despliegue**, así que no hay
+ * ninguna puerta humana entre el cambio en origen y la publicación.
+ *
+ * El descarte va AQUÍ y no en `celdaDesdeJson` porque aquí la garantía es REAL —`jsonb_typeof` mira
+ * el tipo del valor en la base— mientras que en TypeScript solo puede ser una inspección del texto ya
+ * serializado. Medido: el `case` descarta objeto y array y CONSERVA el escalar (`ANA`), el número
+ * (`2021` → `'2021'`), la clave ausente (NULL) y la columna NULL (NULL). No estorba al auto-llenado
+ * de `Clase`, que es lo que sostiene la decisión de diseño.
  *
  * @param columna La columna `jsonb` de la que extraer (`flitoTramites.flitRaw`).
  */
 export function expresionesFlitRaw(columna: Column): Record<CampoFlitRaw, ReturnType<typeof sql<string | null>>> {
-  const extraer = (clave: string) => sql<string | null>`${columna} ->> ${clave}`;
+  // La clave se liga DOS veces —una para comprobar la forma, otra para extraer— y tienen que ser la
+  // misma: comprobar la forma de una clave y extraer otra sería un descarte que no descarta nada.
+  // Hay un aserto que fija esa igualdad.
+  const extraer = (clave: string) => sql<string | null>`case jsonb_typeof(${columna} -> ${clave}) when 'object' then null when 'array' then null else ${columna} ->> ${clave} end`;
   return {
     marca: extraer(CLAVES_FLIT_RAW.marca),
     linea: extraer(CLAVES_FLIT_RAW.linea),
@@ -105,14 +144,49 @@ export function expresionesFlitRaw(columna: Column): Record<CampoFlitRaw, Return
  * ese número sería un `TypeError` dentro del `map` de las filas: **el export entero devolvería 500
  * por UNA fila**, y las otras 1 999 legítimas se perderían con él.
  *
- * Los objetos y los arrays dan `null` y no `"[object Object]"`: una celda no es el sitio donde
- * enterarse de que el payload cambió de forma.
+ * ── Lo que esta función NO es, corregido tras el gate de seguridad ──────────────────────────────
+ *
+ * Aquí decía que «los objetos y los arrays dan `null`», y era falso: `->>` **serializa** el objeto
+ * antes de que esto lo vea (`{"a": 1, "b": "ANA"}`, tipo `text`), así que la rama de cadena se lo
+ * tragaba entero y lo escribía en la celda. La rama `return null` del final era inalcanzable desde la
+ * proyección, y un test la certificaba en verde pasándole un objeto JS que nunca ocurre.
+ *
+ * **El descarte de verdad vive en `expresionesFlitRaw`**, en SQL, donde `jsonb_typeof` puede mirar el
+ * tipo real. Lo de aquí abajo es defensa en profundidad para cualquier otro llamador, y es EXACTA a
+ * propósito: solo descarta lo que de verdad parsea como objeto o array, no todo lo que empiece por
+ * llave. Una heurística borraría en silencio una razón social como `TRANSPORTES [ABC] SAS`, que es el
+ * mismo pecado —publicar algo que no se decidió— con el signo cambiado.
  */
 export function celdaDesdeJson(valor: unknown): string | null {
-  if (typeof valor === 'string') return celdaTexto(valor);
+  if (typeof valor === 'string') {
+    const texto = celdaTexto(valor);
+    return texto !== null && esBlobJson(texto) ? null : texto;
+  }
   if (typeof valor === 'number') return Number.isFinite(valor) ? String(valor) : null;
   if (typeof valor === 'boolean') return String(valor);
   return null;
+}
+
+/**
+ * ¿Este texto ES un objeto o un array de JSON serializado?
+ *
+ * El prefiltro por el primer carácter no es un atajo de elegancia, es de coste: sin él habría que
+ * intentar `JSON.parse` sobre las ocho claves de cada una de las 2 000 filas del tope —16 000
+ * excepciones lanzadas por export— para descartar textos que ni siquiera lo parecen. Con él, casi
+ * todo sale por la primera línea y el `parse` solo corre sobre lo que podría serlo.
+ *
+ * Un texto que empieza por `{` o `[` pero no parsea NO se descarta: es un dato legítimo con una
+ * llave delante, y esta función no está para adivinar.
+ */
+function esBlobJson(texto: string): boolean {
+  const inicio = texto[0];
+  if (inicio !== '{' && inicio !== '[') return false;
+  try {
+    const valor: unknown = JSON.parse(texto);
+    return typeof valor === 'object' && valor !== null;
+  } catch {
+    return false;
+  }
 }
 
 // ── El bloque del titular: TRES estados, no dos ──────────────────────────────────────────────────
