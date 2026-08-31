@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import { COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS } from '@operaciones/shared-types';
+import {
+  COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
+} from '@operaciones/shared-types';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -179,6 +181,18 @@ const envSchema = z.object({
   // —multiplica por 5/min el techo de extracción del módulo— y ADR-0004 es dónde está escrito.
   COMPARENDOS_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
     .default(COMPARENDOS_EXPORT_MAX_FILAS),
+  // HU #11909 — tope de filas de un export a Excel de la cola de SOAT **o** de la de Impuestos. Una
+  // sola perilla para las dos, y no una por módulo: el presupuesto que se reparte es el del PROCESO
+  // (`sendExcel` arma el workbook entero en el heap de una única instancia fork con
+  // `max_memory_restart: '512M'`) y el proceso es uno. Dos variables independientes darían la
+  // ilusión de dos presupuestos que después se suman en el mismo heap.
+  //
+  // Mismo default, mismo techo y mismo razonamiento que la de comparendos —la medición de memoria
+  // vale igual porque el mecanismo es idéntico—, así que aplica su misma advertencia: subirla es una
+  // decisión de PRIVACIDAD disfrazada de configuración. Lo que sale de estas dos colas lleva cédula,
+  // correo y dirección del propietario del vehículo.
+  FLITO_COLA_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
+    .default(FLITO_COLA_EXPORT_MAX_FILAS),
   // Feature #11623 — tope de líneas de una boleta de conciliación. Perilla y no constante porque el
   // coste real no es leer el Excel: es que la HU siguiente asienta UNA salida de bolsa por línea, en
   // serie y dentro de una sola transacción, porque el saldo se encadena. El techo de 2 000 es el

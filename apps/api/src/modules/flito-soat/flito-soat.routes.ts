@@ -11,13 +11,20 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
-import { registrarAccesoSoat } from './flito-soat.pii.js';
+import { sendExcel } from '../../shared/utils/excel.js';
+import {
+  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
+} from '../../shared/export/cola-flito-excel.js';
+import { CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat } from './flito-soat.pii.js';
 import { EstadoSoat } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor,
   reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
+import {
+  construirFilasExportSoat, nombreArchivoExportSoat,
+} from './flito-soat.export.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 
 const router = Router();
@@ -85,10 +92,22 @@ const numeros = (v: unknown): number[] | undefined => {
   return l?.length ? l : undefined;
 };
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const fecha = (v: unknown): string | undefined => {
   const s = str(v);
-  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+  return s && FORMATO_FECHA.test(s) ? s : undefined;
 };
+
+/**
+ * La misma regla que `fecha()`, para los esquemas `zod` del export.
+ *
+ * Comparten el regex y no una copia: el motivo por el que la cadena está acotada —entra en un cast a
+ * `date`— es el mismo en los dos sitios, y dos expresiones separadas se relajarían por su cuenta.
+ * Lo que cambia es qué se hace con un valor malo: el listado lo IGNORA (un filtro roto no tumba la
+ * pantalla de quien trabaja) y el export lo rechaza con 400, porque un rango silenciosamente
+ * descartado produciría un archivo mucho mayor del que el usuario cree estar pidiendo.
+ */
+const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
 
 // GET / — cola con las 3 fronteras, filtrada y paginada.
 //
@@ -110,12 +129,159 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     gestion: req.query.gestion === 'operaciones' || req.query.gestion === 'proveedor' ? req.query.gestion : undefined,
     solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
     pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
+    // El rango nuevo de la HU #11909, con el MISMO helper `fecha()` que los otros dos: el valor
+    // entra en un cast a `date` y no puede ser texto libre. Va también aquí y no solo en el export
+    // porque el archivo tiene que ser «lo que estoy viendo»: si la pantalla no supiera filtrar por
+    // creación, el usuario no podría estar viendo lo que se descarga.
+    creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });
   await registrarAccesoSoat(req, { accion: 'search', filas: pagina.items.length });
   res.json(pagina);
+});
+
+/**
+ * La cuota del export vive en `shared/export/cola-flito-excel.ts` y es **la MISMA que la de la cola
+ * de Impuestos**: 5 por minuto y usuario para las dos juntas.
+ *
+ * No es una bolsa por pantalla y eso es deliberado (corrección del gate de seguridad de esta HU):
+ * el recurso que se raciona no es la pantalla, es el heap de un único proceso —`sendExcel` construye
+ * el workbook entero en memoria y `FLITO_COLA_EXPORT_MAX_FILAS` ya es una sola perilla por ese mismo
+ * motivo—. Dos bolsas dejarían a una sesión con el doble de exports simultáneos posibles sobre el
+ * presupuesto que ADR-0004 midió para cinco, y doblarían el techo de extracción de datos personales.
+ * El razonamiento entero, con las cifras, está en el docstring de `exportColaLimiter`.
+ *
+ * Sigue siendo una bolsa APARTE de la del listado: gastar los exports no puede dejar sin paginar a
+ * quien está trabajando, ni al revés. Lo que se unificó son las dos bolsas NUEVAS entre sí.
+ */
+
+/**
+ * Campos del filtro de la cola, en un esquema único del que se DERIVA el del export.
+ *
+ * `page`, `pageSize` y `cursor` están aquí para poder RESTARLOS abajo: el `.omit()` es lo que
+ * convierte `{"page": 2}` en un 400 en vez de en un parámetro ignorado en silencio, y aceptarlo
+ * callando dejaría creer que se descargó «la página 2» de algo. Es el mismo mecanismo que usa el
+ * export de comparendos con su `registrosQueryCampos`.
+ *
+ * `cursor` no lo usa esta cola —pagina por offset— y se declara igualmente: si mañana migra a
+ * cursor, el export tiene que seguir rechazándolo, y el sitio donde eso se decide es este.
+ */
+const colaFiltrosCampos = z.object({
+  estados: z.array(z.enum(ESTADOS)).optional(),
+  buscar: z.string().trim().min(1).optional(),
+  companias: z.array(z.number().int().positive()).optional(),
+  organismos: z.array(z.string().trim().min(1)).optional(),
+  proveedores: z.array(z.string().uuid()).optional(),
+  gestion: z.enum(['operaciones', 'proveedor']).optional(),
+  // El mismo `yyyy-mm-dd` que exige el helper `fecha()` del listado: el valor entra en un cast a
+  // `date` y no puede ser texto libre.
+  solicitadoDesde: fechaSchema.optional(), solicitadoHasta: fechaSchema.optional(),
+  pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
+  creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
+  estancado: z.boolean().optional(),
+  page: z.number().int().positive().optional(),
+  pageSize: z.number().int().positive().optional(),
+  cursor: z.string().optional(),
+});
+
+/**
+ * Cuerpo de `POST /export`: el filtro de la cola menos la paginación, y `.strict()`.
+ *
+ * `.strict()` con más motivo que en una query cualquiera: `{"organismo": "05001"}` —en singular— se
+ * ignoraría en silencio y devolvería la cola ENTERA a quien pidió la de un organismo. En un archivo
+ * de datos personales, un filtro mal escrito tiene que ser un 400 y no un export de más.
+ */
+const exportSchema = colaFiltrosCampos
+  .omit({ page: true, pageSize: true, cursor: true })
+  .strict();
+
+/**
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ *
+ * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
+ *
+ * `buscar` casa contra placa, VIN, nombre y cédula del propietario (`condicionesCola`), así que el
+ * filtro genérico de esta cola ES un dato personal y no puede viajar en la URL: AGENTS.md §14 lo
+ * prohíbe porque una query string acaba en los logs de nginx, en el historial del navegador y en el
+ * `Referer`. Y van TODOS en el cuerpo, no repartidos como en comparendos: repartir obliga a decidir
+ * caso a caso qué campo es identificativo, y esa decisión se equivoca una vez y ya está publicada.
+ * **No existe variante GET de este endpoint** — un `router.get` aquí devolvería la cédula a la URL
+ * sin romper ningún otro test.
+ *
+ * ── El rol: `OPS_O_GESTOR`, no `LECTURA` ────────────────────────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor` y `cliente`. Un archivo con la cédula, el correo y la dirección de los
+ * titulares no se le entrega a una empresa tercera (el `cliente`, Feature #11912) por el hecho de
+ * que pueda ver la cola de sus propios trámites en pantalla: ver una fila con su propietario y
+ * descargar el padrón entero en un fichero reenviable son dos gestos distintos. `auditor` queda
+ * fuera por lo mismo, y ninguno de los dos lo pide la HU. Los dos reciben 403.
+ *
+ * ── Orden de la respuesta ───────────────────────────────────────────────────────────────────────
+ *
+ * Validar → consultar (con el tope dentro) → `await` del rastro PII → cabeceras → archivo. El rastro
+ * va ANTES del primer byte (Ley 1581 art. 17): esta petición vale hasta
+ * `FLITO_COLA_EXPORT_MAX_FILAS` cédulas, correos y direcciones, y perder su constancia por un fallo
+ * a mitad del archivo no es aceptable. `Cache-Control: no-store` antes de `sendExcel` porque lo que
+ * sale no se guarda en ningún intermedio.
+ */
+router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
+  const parsed = exportSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
+    return;
+  }
+  const filtros = parsed.data;
+  const ctx = await contextoSoat(req.user!);
+
+  try {
+    // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
+    const filas = await construirFilasExportSoat(ctx, filtros);
+
+    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido: el registro tiene que decir qué
+    // se llevó alguien, y un número inflado ensucia el dato con el que se recalibra el tope.
+    await registrarAccesoSoat(req, {
+      accion: 'export',
+      campos: CAMPOS_PII_SOAT_EXPORT,
+      filas: filas.length,
+    });
+
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(res, nombreArchivoExportSoat(), COLUMNAS_COLA_EXPORT, filas);
+  } catch (e) {
+    // Si el fallo llega con la respuesta ya empezada —el archivo se estaba escribiendo—, responder
+    // reventaría con ERR_HTTP_HEADERS_SENT y taparía la causa real. Se relanza al manejador global,
+    // que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+
+    if (e instanceof ExportColaDemasiadoGrandeError) {
+      // **El export que choca con el tope también deja rastro**, y no por simetría: la consulta ya
+      // CORRIÓ —`tope + 1` filas con su cédula entraron en el proceso— y lo único que no ocurrió es
+      // la entrega. Sin esta línea, el `pii_access_log` quedaría amputado justo en la cola que
+      // ADR-0004 promete mirar para recalibrar el tope: concluiría que casi nadie se le acerca
+      // precisamente porque los que lo pasan son invisibles.
+      //
+      // `accion: 'search'` y no `'export'`: no se exportó nada, y contarlo como export estropearía
+      // los agregados de `/api/privacy/pii-access/stats`. `filas: 0` es literal, y el conteo real ni
+      // se sabe ni se sabrá —el `tope + 1` existe para no calcularlo—, así que esta fila tampoco
+      // revela cuántos SOAT tiene el filtro.
+      await registrarAccesoSoat(req, {
+        accion: 'search',
+        campos: CAMPOS_PII_SOAT_EXPORT,
+        filas: 0,
+        resultado: e.codigo,
+      });
+      // El 422 se emite AQUÍ y no en `handleError`: `SoatError` solo lleva `status` + `message` y su
+      // manejador responde `{ error }` sin `codigo`. La pantalla decide por `codigo` —«acota el
+      // filtro» frente a «revisa lo que escribiste»— y colgarlo de `SoatError` obligaría a cambiar
+      // el sobre de error de todos los demás endpoints del módulo para servir a este.
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+
+    handleError(res, e);
+  }
 });
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el usuario puede ver.

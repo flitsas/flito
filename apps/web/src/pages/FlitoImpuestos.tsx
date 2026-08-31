@@ -25,6 +25,9 @@ import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
+import {
+  AvisoExportCola, BotonExportarCola, COLA_IMPUESTOS, useExportCola, type FiltrosExportCola,
+} from '../components/flito/ExportarCola';
 import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
@@ -113,6 +116,12 @@ export default function FlitoImpuestos() {
   const [solicitadoHasta, setSolicitadoHasta] = useState('');
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
+  // «Creado en FLITO» — la fecha de REGISTRO en FLITO (`created_at`), que NO es la que pinta la
+  // columna «Creado» de la tabla: aquella es la del trámite en FLIT (`fechaCreacion`). Son dos
+  // fechas distintas y por eso el filtro lleva otro rótulo; la columna es de `columnasComunes.tsx`,
+  // la comparten cuatro pantallas y esta HU no la toca.
+  const [creadoDesde, setCreadoDesde] = useState('');
+  const [creadoHasta, setCreadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
   const [preset, setPreset] = useState<string | null>(null);
@@ -120,12 +129,17 @@ export default function FlitoImpuestos() {
 
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
 
+  // El filtro nuevo entra aquí, y no es un detalle: `hayFiltros` es lo que decide si el vacío dice
+  // «Ningún impuesto coincide con los filtros» o el texto sin filtros, y también si aparece
+  // «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
-    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado || !!gestionSel;
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
+    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
+    setCreadoDesde(''); setCreadoHasta('');
     setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   };
@@ -159,7 +173,7 @@ export default function FlitoImpuestos() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -172,12 +186,14 @@ export default function FlitoImpuestos() {
     if (solicitadoHasta) q.set('solicitadoHasta', solicitadoHasta);
     if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
     if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
+    if (creadoDesde) q.set('creadoDesde', creadoDesde);
+    if (creadoHasta) q.set('creadoHasta', creadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
     if (gestionSel) q.set('gestion', gestionSel);
     q.set('page', String(page));
     api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -193,6 +209,44 @@ export default function FlitoImpuestos() {
     if (!data || detalleId === null) return;
     if (!data.items.some((i) => i.id === detalleId)) setDetalleId(null);
   }, [data, detalleId]);
+
+  /**
+   * Lo que el export tiene que entregar: **los mismos filtros que la consulta de arriba, sin la
+   * página**. Se arma del mismo estado, así que no hay forma de que la tabla y el archivo se
+   * separen; lo único que aquí no aparece —y no puede aparecer— es `page`.
+   *
+   * Todo va en el CUERPO del POST, incluido `buscar`: el placeholder de esta cola ofrece buscar por
+   * comprador, así que ese campo lleva nombre y documento de una persona (AGENTS.md §14). En la
+   * query acabaría en el historial del navegador, en el `Referer` y en el access log del proxy.
+   *
+   * Sin `proveedores`: esta cola se reparte por organismo, no por proveedor.
+   */
+  /**
+   * `companias` va como NÚMEROS y no como el texto del multiselect, y no es cosmética: el esquema
+   * del endpoint es `z.array(z.number())` y además `.strict()`, así que `["1"]` es un 400 —no un
+   * filtro ignorado—. El control guarda `String(c.id)` porque un `<input>` no tiene enteros; la
+   * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
+   * la cola no hace falta: allí todo es texto.
+   */
+  const filtrosExport: FiltrosExportCola = {
+    ...(estado !== 'todos' ? { estados: [estado] } : {}),
+    ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
+    ...(companiasSel.length ? { companias: companiasSel.map(Number) } : {}),
+    ...(organismosSel.length ? { organismos: organismosSel } : {}),
+    ...(gestionSel ? { gestion: gestionSel } : {}),
+    ...(solicitadoDesde ? { solicitadoDesde } : {}),
+    ...(solicitadoHasta ? { solicitadoHasta } : {}),
+    ...(pagadoDesde ? { pagadoDesde } : {}),
+    ...(pagadoHasta ? { pagadoHasta } : {}),
+    ...(creadoDesde ? { creadoDesde } : {}),
+    ...(creadoHasta ? { creadoHasta } : {}),
+    ...(soloEstancado ? { estancado: true } : {}),
+  };
+  // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
+  const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
+  // Quién puede exportar: la MISMA guarda de la carga masiva de recibos, sin predicado nuevo. Deja
+  // fuera al auditor (AC6), que sí conserva todos los filtros: filtrar es leer.
+  const puedeExportar = esOperaciones || esGestor;
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -265,12 +319,35 @@ export default function FlitoImpuestos() {
       <PageHeaderCard
         title="Impuestos"
         subtitle="Gestión del impuesto vehicular por organismo. La factura de venta es precondición del envío; el pago deriva del recibo validado."
-        actions={(esOperaciones || esGestor) && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
-            Cargar recibos (masivo)
-          </button>
+        actions={(
+          <>
+            {(esOperaciones || esGestor) && (
+              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
+                Cargar recibos (masivo)
+              </button>
+            )}
+            {/* Secundario y después del primario: la acción del día de esta cola es cargar recibos,
+                no descargar. La guarda va aparte de la del primario —aunque hoy sean la misma— para
+                que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
+                se le pinta deshabilitado: no se pinta. */}
+            {puedeExportar && (
+              <BotonExportarCola ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+            )}
+          </>
         )}
       />
+
+      {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
+          del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
+      {puedeExportar && (
+        <AvisoExportCola
+          cola={COLA_IMPUESTOS}
+          ocupado={exportacion.ocupado}
+          aviso={exportacion.aviso}
+          onReintentar={exportacion.exportar}
+          onDescartar={exportacion.descartar}
+        />
+      )}
 
       <FlitCard>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -314,6 +391,11 @@ export default function FlitoImpuestos() {
           <FiltrosInteligentes presets={PRESETS} activo={preset}
             onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
 
+          {/* Antes de «Solicitado» y «Pagado»: es el orden del ciclo (creado → solicitado → pagado).
+              El rótulo es además su `aria-label`, así que los tres rangos de la pantalla tienen
+              nombres accesibles distintos. */}
+          <RangoFechas etiqueta="Creado en FLITO" valor={{ desde: creadoDesde, hasta: creadoHasta }}
+            onCambio={(r) => { setCreadoDesde(r.desde); setCreadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
             onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
