@@ -125,6 +125,64 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(page.getByText(/1 SOAT enviado/i)).toBeVisible();
   });
 
+  /**
+   * **Las tres «Solicitar» mandan solo las filas accionables, medido sobre el CUERPO** (HU #11910).
+   *
+   * El caso de arriba marca UNA fila accionable, así que no distingue `idsAccionables()` de `ids()`:
+   * con una selección homogénea los dos arrays son el mismo y el mutante sobrevive en verde. Aquí se
+   * marcan las tres —`FLIT-1003` no tiene empresa, así que no es accionable— y el aserto es la lista
+   * exacta de ids.
+   *
+   * Antes de esta HU el riesgo no existía: la casilla de las filas no accionables venía `disabled`,
+   * así que la interfaz impedía construir esta selección. Al abrirla (AC1), la única defensa que
+   * queda es esta lista, y por eso hay que asertarla.
+   *
+   * Se cubren los DOS puntos de llamada distintos: el del diálogo de aseguradora —compartido por
+   * «Solicitar SOAT» y «Solicitar ambos»— y el directo de «Solicitar Impuestos».
+   */
+  test('AC1 #11910 — con selección mixta, «Solicitar …» manda solo los accionables', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockLista(page);
+    const soat: unknown[] = [];
+    await page.route(/\/api\/flito\/tramites\/solicitar-soat$/, (route) => {
+      soat.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enviados: 2, yaEnviados: 0, autogestionados: 0, sinRegistro: 0 }) });
+    });
+    const impuestos: unknown[] = [];
+    await page.route(/\/api\/flito\/tramites\/solicitar-impuestos$/, (route) => {
+      impuestos.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enviados: 2, yaEnviados: 0, noEnviables: 0 }) });
+    });
+
+    // Los dos accionables: `TRAMITES[2]` (FLIT-1003) queda fuera por `empresaExiste: false`.
+    const ACCIONABLES = [TRAMITES[0].tramiteId, TRAMITES[1].tramiteId];
+
+    await page.goto('/flito/tramites');
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+    await expect(page.getByText('3 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText(/De las 3 filas marcadas, 2 están Asignadas/)).toBeVisible();
+
+    // ── El camino del diálogo (lo comparte «Solicitar ambos») ─────────────────────────────────
+    await page.getByRole('button', { name: 'Solicitar SOAT (2 de 3)', exact: true }).click();
+    await page.getByRole('combobox').last().selectOption(PROVEEDORES[0].id);
+    await page.getByRole('button', { name: 'Solicitar SOAT', exact: true }).last().click();
+
+    await expect.poll(() => soat.length).toBe(1);
+    // Con `ids()` en vez de `idsAccionables()` irían los tres, el rótulo seguiría diciendo
+    // «(2 de 3)» y nada más se pondría rojo.
+    expect(soat[0]).toEqual({ tramiteIds: ACCIONABLES, proveedorSoatId: PROVEEDORES[0].id });
+
+    // Solicitar vacía la selección y refresca (`ejecutar`), así que se vuelve a marcar.
+    await page.getByRole('button', { name: 'Cerrar' }).click();
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+    await expect(page.getByText('3 seleccionado(s)')).toBeVisible();
+
+    // ── El camino directo, sin diálogo ────────────────────────────────────────────────────────
+    await page.getByRole('button', { name: 'Solicitar Impuestos (2 de 3)', exact: true }).click();
+    await expect.poll(() => impuestos.length).toBe(1);
+    expect(impuestos[0]).toEqual({ tramiteIds: ACCIONABLES });
+  });
+
   test('entregar en lote reporta habilitados y no habilitados', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockLista(page);

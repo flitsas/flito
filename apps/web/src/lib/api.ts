@@ -433,8 +433,9 @@ export const api = {
    * «Archivo descargado: …» sin volver a adivinarlo.
    *
    * `alLeerCabeceras` (HU #11910) es el único hueco por el que una pantalla puede enterarse de algo
-   * que la respuesta declaró FUERA del cuerpo — el `X-Soportes-Incluidos` del ZIP parcial, que es lo
-   * que convierte «ZIP descargado» en «2 de las 5 filas marcadas tenían recibo». Recibe un LECTOR y
+   * que la respuesta declaró FUERA del cuerpo — las cabeceras de conteo del ZIP parcial, que son lo
+   * que convierte «ZIP descargado» en «2 de las 5 filas marcadas tenían recibo». Cuál de ellas se lee
+   * lo decide quien llama y no este módulo (ver `CABECERAS_ZIP_SOPORTES`). Recibe un LECTOR y
    * no el `Response` entero: con el objeto en la mano cualquier llamador podría intentar volver a
    * leer el cuerpo —que aquí ya se está consumiendo como blob— y quedarse con un stream a medias.
    * Se invoca también en las respuestas de ERROR, igual que el resto de este gancho.

@@ -18,8 +18,10 @@
 //   · **El ZIP parcial se descarga y se DICE con cifras.** El servidor omite el documento que falta
 //     en vez de tumbar el ZIP; lo que no se acepta es la versión silenciosa —un archivo más corto de
 //     lo esperado sin que nadie lo diga—, que es la misma trampa que el «Excel truncado» que la
-//     #11909 prohibió. La cifra la trae `X-Soportes-Incluidos`; sin ella el aviso queda genérico y
-//     correcto, nunca inventado.
+//     #11909 prohibió. La cifra la trae **`X-Soportes-Registros`** —filas marcadas que aportaron
+//     algo—, **no `X-Soportes-Incluidos`**, que cuenta DOCUMENTOS: en el ZIP mixto de Trámites un
+//     trámite aporta hasta tres, así que con aquella cinco marcadas podrían dar «6 de 5». Sin
+//     cabecera el aviso queda genérico y correcto, nunca inventado.
 //
 // **Nada de esto toca la URL** (AGENTS.md §14): los ids van en el CUERPO del POST y no hay variante
 // `GET` de estos endpoints. La placa entra en el nombre de cada entrada del ZIP —eso es el AC5— pero

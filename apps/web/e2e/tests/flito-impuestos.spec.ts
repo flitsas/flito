@@ -748,6 +748,17 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
    * *Mutantes que este caso mata:* (a) volver al `every()` —los dos botones desaparecen y caen los
    * dos primeros asertos—; (b) mandar `[...seleccion]` entero —el rótulo seguiría diciendo «(1 de 2)»
    * y solo el aserto del CUERPO lo caza—.
+   *
+   * **El (b) se comprueba en las DOS acciones, y esa simetría es el arreglo de un hueco real:** hasta
+   * el gate de QA de esta HU solo se pulsaba «Enviar», así que `{ ids: filasSeleccionadas… }` en
+   * `certificarLote` sobrevivía en verde. No es un mutante menor: `certificarLote` aplica
+   * `TOPE_LOTE_CERTIFICACION` al array que manda, de modo que con 9 certificables entre 11 marcadas
+   * el botón diría «Certificar (9 de 11)» y el servidor contestaría «Seleccionaste 11» —y por debajo
+   * del tope se gastarían consultas al RUNT, que se pagan por consulta, en filas que no se pueden
+   * certificar—. La mitad del tope ya estaba asertada; esta es la otra mitad.
+   *
+   * Certificar va PRIMERO porque cerrar su modal de resultado llama a `onListo()`, que vacía la
+   * selección: hacerlo al revés obligaría a volver a marcar sin que eso comprobara nada.
    */
   test('AC1 #11910 — mezclar estados ofrece las dos acciones, y cada una manda solo sus ids', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -761,6 +772,16 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
       enviados.push(route.request().postDataJSON());
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enviados: ['i1'], yaEnviados: [] }) });
     });
+    // Solo el masivo: el de fila es `/impuestos/<id>/certificar`, que no encaja con este ancla.
+    const certificados: unknown[] = [];
+    await page.route(/\/api\/flito\/impuestos\/certificar$/, (route) => {
+      certificados.push(route.request().postDataJSON());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ total: 1, certificados: 1, resultados: [{ id: 's0', resultado: 'certificado' }] }),
+      });
+    });
 
     await page.goto('/flito/impuestos');
     await page.getByLabel('Seleccionar ABC123').check();
@@ -773,11 +794,25 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     // Y el mensaje que las negaba ya no existe.
     await expect(page.getByText(/mezcla estados con acciones distintas/)).toHaveCount(0);
 
+    // ── Certificar: un id, el del Solicitado ──────────────────────────────────────────────────
+    await page.getByRole('button', { name: 'Certificar (1 de 2)' }).click();
+    await expect.poll(() => certificados.length).toBe(1);
+    // **Sobre el CUERPO, no sobre el rótulo.** Con `filasSeleccionadas.map(f => f.id)` aquí irían
+    // los dos, el rótulo seguiría diciendo «(1 de 2)» y nada más se pondría rojo.
+    expect(certificados[0]).toEqual({ ids: ['s0'] });
+
+    // Cerrar el resultado vacía la selección (`onListo`), así que se vuelve a marcar para la otra.
+    await page.getByRole('button', { name: 'Listo' }).click();
+    await expect(page.getByText('2 seleccionado(s)')).toHaveCount(0);
+    await page.getByLabel('Seleccionar ABC123').check();
+    await page.getByLabel('Seleccionar SOL000').check();
+
+    // ── Enviar: un id, el del Pendiente ───────────────────────────────────────────────────────
     await page.getByRole('button', { name: 'Enviar al gestor (1 de 2)' }).click();
     await expect.poll(() => enviados.length).toBe(1);
-    // **Sobre el CUERPO, no sobre el rótulo.** Un id, el del Pendiente: marcar más filas no amplía
-    // nunca el alcance de `enviar`.
     expect(enviados[0]).toEqual({ ids: ['i1'] });
+    // Y certificar no se volvió a pedir de rebote: cada botón manda lo suyo, una sola vez.
+    expect(certificados).toHaveLength(1);
   });
 
   /**
