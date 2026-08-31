@@ -1,55 +1,99 @@
-// FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909).
+// FLITO — el archivo `.xlsx` de las colas de SOAT e Impuestos (Feature #11908, HU #11909, #11934).
 //
-// Las dos colas exportan LA MISMA hoja: once columnas del vehículo y de su propietario. Vive aquí y
-// no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes en
-// este repo: dos listas de columnas copiadas divergen en el cambio siguiente —alguien añade una
+// Las dos colas exportan LA MISMA hoja: veinticinco columnas del vehículo y de su titular. Vive aquí
+// y no duplicado en cada módulo por el motivo que la HU deja escrito y que ya se ha cumplido antes
+// en este repo: dos listas de columnas copiadas divergen en el cambio siguiente —alguien añade una
 // columna donde está trabajando y no en la otra— y a partir de ahí el mismo botón produce dos
 // archivos distintos según la pantalla. El precedente de directorio compartido es
 // `shared/soportes/soportes-consulta.ts`, que resolvió lo mismo con los soportes de los dos módulos.
 //
-// Lo que NO vive aquí: de dónde sale cada valor. Eso es de cada módulo —el SOAT lee la ciudad de sus
-// trámites y reconcilia, el impuesto la tiene 1:1— y por eso cada uno tiene su
-// `*.export.service.ts`. Aquí solo está lo que el archivo TIENE que compartir para no divergir: qué
-// columnas hay, cómo se llaman, cómo se sella el nombre del archivo, qué error corta el export y
-// —desde la corrección del gate de seguridad— la CUOTA, que es compartida por el mismo motivo que el
-// tope: lo que se está racionando es el heap de UN proceso. Ver `exportColaLimiter` al final.
+// Lo que NO vive aquí: de dónde sale cada valor. Eso es de cada módulo —el SOAT lee los datos del
+// trámite por lote y reconcilia, el impuesto los tiene 1:1— y por eso cada uno tiene su
+// `*.export.service.ts`. Lo que sí es compartido y tampoco vive aquí: CÓMO se derivan las seis
+// columnas calculadas y las ocho claves de `flit_raw`, que están en `cola-flito-derivados.ts`
+// —funciones puras, comprobables sin generar un archivo—.
+//
+// Aquí solo está lo que el archivo TIENE que compartir para no divergir: qué columnas hay, cómo se
+// llaman, cómo se sella el nombre del archivo, qué error corta el export y —desde la corrección del
+// gate de seguridad— la CUOTA, que es compartida por el mismo motivo que el tope: lo que se está
+// racionando es el heap de UN proceso. Ver `exportColaLimiter` al final.
 
 import rateLimit from 'express-rate-limit';
 import { makeStore, userOrIpKey } from '../middleware/rateLimiter.js';
 import { TZ_COLOMBIA } from '../utils/fecha-rango.js';
 
 /**
- * Las ONCE columnas del archivo, en su orden exacto (AC1 de la HU #11909).
+ * Las VEINTICINCO columnas del archivo, en su orden exacto (HU #11934; antes eran once, HU #11909).
  *
  * Es una LISTA BLANCA escrita a mano, igual que `COLUMNAS_EXPORT` de comparendos y por lo mismo: una
  * columna personal que alguien añada mañana a la proyección de la cola no puede aparecer en un
  * archivo que sale del perímetro por el mero hecho de existir. `Object.keys(fila)` daría lo
- * contrario — y las tres celdas más sensibles de esta hoja (cédula, correo, dirección) hacen que esa
- * diferencia no sea académica.
+ * contrario — y las celdas más sensibles de esta hoja (nombre, documento, correo, dirección) hacen
+ * que esa diferencia no sea académica.
  *
- * **Las cabeceras van en MAYÚSCULAS y SIN TILDES, y son exactamente estas once.** Es decisión de
- * producto pegada en la HU: «las columnas son exactamente…». No hay `Municipio`, no hay columna de
- * fecha de creación aunque el filtro nuevo sea por ella, y no hay nombre del propietario —solo su
- * documento—. Añadir una «por conveniencia» rompe el AC1 y, en el caso del nombre, ampliaría lo que
- * el archivo publica sin que nadie lo haya decidido.
+ * **Las cabeceras van en CamelCase, literalmente como están escritas aquí.** Es la plantilla del
+ * cliente, no una convención nuestra: la regla de «MAYÚSCULAS y sin tildes» era de las once columnas
+ * de la HU #11909 y NO aplica a esta lista. `N_I` con guion bajo, `CapacidadCargaOPasajeros` y
+ * `OrganismoDettoCiudad` sin separador: quien las «normalice» rompe la carga en el sistema del
+ * cliente, que empareja por el texto exacto.
+ *
+ * Lo que esta lista sigue SIN tener, y no por olvido: la fecha de creación (aunque el filtro sea por
+ * ella), el valor pagado y el proveedor. Son los tres de la operación de FLITO; el archivo describe
+ * el vehículo y a su titular.
  *
  * Quien lea este archivo desde fuera tiene que localizar las columnas POR EL TEXTO de la cabecera y
- * no por su posición: el orden es contrato de esta HU, pero es el texto lo que se mantiene estable
- * si algún día se inserta una columna.
+ * no por su posición: el orden es contrato de la HU, pero es el texto lo que se mantiene estable si
+ * algún día se inserta una columna.
+ *
+ * **`key` es lo que empareja el valor con su columna, no `header`.** ExcelJS escribe cada fila
+ * buscando `fila[col.key]`, así que permutar dos `header` sin permutar sus `key` produce un archivo
+ * con las cabeceras correctas y los VALORES cruzados: el aserto de cabeceras sigue verde. Por eso la
+ * suite comprueba además cada valor bajo su propia cabecera, con 25 centinelas distinguibles.
  */
 export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number }[] = [
-  { header: 'PLACA', key: 'placa', width: 12 },
-  { header: 'CEDULA', key: 'cedula', width: 16 },
-  { header: 'CORREO', key: 'correo', width: 32 },
-  { header: 'TELEFONO', key: 'telefono', width: 16 },
-  { header: 'DIRECCION', key: 'direccion', width: 36 },
-  { header: 'VIN', key: 'vin', width: 20 },
-  { header: 'CIUDAD', key: 'ciudad', width: 20 },
-  { header: 'CARROCERIA', key: 'carroceria', width: 18 },
-  { header: 'TIPO DE SERVICIO', key: 'tipoServicio', width: 18 },
-  { header: 'CILINDRAJE', key: 'cilindraje', width: 12 },
-  { header: 'ORGANISMO DE TRANSITO', key: 'organismoTransito', width: 30 },
+  { header: 'Vin', key: 'vin', width: 20 },
+  { header: 'Placa', key: 'placa', width: 12 },
+  { header: 'Modelo', key: 'modelo', width: 10 },
+  { header: 'Servicio', key: 'servicio', width: 14 },
+  { header: 'Marca', key: 'marca', width: 18 },
+  { header: 'Linea', key: 'linea', width: 20 },
+  { header: 'Clase', key: 'clase', width: 18 },
+  { header: 'Carroceria', key: 'carroceria', width: 18 },
+  { header: 'Cilindraje', key: 'cilindraje', width: 12 },
+  { header: 'CapacidadCargaOPasajeros', key: 'capacidadCargaOPasajeros', width: 26 },
+  { header: 'Puertas', key: 'puertas', width: 10 },
+  { header: 'OrganismoDetto', key: 'organismoDetto', width: 30 },
+  { header: 'N_I', key: 'nI', width: 14 },
+  { header: 'ClaseDeInterlocutor', key: 'claseDeInterlocutor', width: 20 },
+  { header: 'NombrePila', key: 'nombrePila', width: 24 },
+  { header: 'Apellidos', key: 'apellidos', width: 24 },
+  { header: 'RazonSocial', key: 'razonSocial', width: 36 },
+  { header: 'ClaseId', key: 'claseId', width: 10 },
+  { header: 'NumeroId', key: 'numeroId', width: 16 },
+  { header: 'Direccion', key: 'direccion', width: 36 },
+  { header: 'Municipio', key: 'municipio', width: 20 },
+  { header: 'Departamento', key: 'departamento', width: 20 },
+  { header: 'Celular', key: 'celular', width: 16 },
+  { header: 'Correo', key: 'correo', width: 32 },
+  { header: 'OrganismoDettoCiudad', key: 'organismoDettoCiudad', width: 22 },
 ];
+
+/**
+ * Las dos columnas que valen SIEMPRE lo mismo, sea cual sea la fila.
+ *
+ * No salen de ninguna tabla y no se calculan: la plantilla del cliente las pide con un valor fijo.
+ * Están en una constante compartida —y no como literales dentro de cada `*.export.service.ts`—
+ * porque son dos, están en dos archivos y el día que el cliente cambie una, cambiarla en un solo
+ * servicio produciría dos `.xlsx` distintos del mismo documento sin que nada fallara.
+ *
+ * Son de tipo texto a propósito: `Puertas` es `'4'` y no `4`. La hoja entera es texto ya formateado
+ * (ver {@link FilaColaExport}), y un número suelto en una columna que el cliente lee como cadena se
+ * alinea distinto y se importa distinto.
+ */
+export const CONSTANTES_COLA_EXPORT = {
+  puertas: '4',
+  nI: 'IMPORTADO',
+} as const;
 
 /**
  * Una fila del archivo, con las claves de {@link COLUMNAS_COLA_EXPORT}.
@@ -57,20 +101,38 @@ export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number 
  * Extiende `Record<string, string | null>` por dos motivos, y el segundo es el que importa: el
  * primero es que `sendExcel` recibe `Record<string, unknown>[]`; el segundo es que la firma cierra
  * los VALORES a `string | null`, de modo que un `Date`, un número o un objeto no pueden acabar en
- * una celda por accidente. Todo lo que entra en esta hoja es texto ya formateado o vacío.
+ * una celda por accidente. Todo lo que entra en esta hoja es texto ya formateado o vacío — y eso
+ * importa el doble desde que seis columnas salen de un `jsonb` de un tercero.
  */
 export interface FilaColaExport extends Record<string, string | null> {
-  placa: string | null;
-  cedula: string | null;
-  correo: string | null;
-  telefono: string | null;
-  direccion: string | null;
   vin: string | null;
-  ciudad: string | null;
+  placa: string | null;
+  /** El AÑO-modelo (`flit_raw->>'modeloAno'`). NO la línea comercial: ver `CLAVES_FLIT_RAW`. */
+  modelo: string | null;
+  servicio: string | null;
+  marca: string | null;
+  /** La LÍNEA comercial (`flit_raw->>'modelo'`). El nombre de la clave de FLIT engaña. */
+  linea: string | null;
+  clase: string | null;
   carroceria: string | null;
-  tipoServicio: string | null;
   cilindraje: string | null;
-  organismoTransito: string | null;
+  capacidadCargaOPasajeros: string | null;
+  puertas: string | null;
+  organismoDetto: string | null;
+  nI: string | null;
+  claseDeInterlocutor: string | null;
+  nombrePila: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+  claseId: string | null;
+  numeroId: string | null;
+  direccion: string | null;
+  /** Antes se llamaba `CIUDAD`. Mismo valor (`flito_tramites.ciudad`), otra cabecera. */
+  municipio: string | null;
+  departamento: string | null;
+  celular: string | null;
+  correo: string | null;
+  organismoDettoCiudad: string | null;
 }
 
 /**
@@ -82,12 +144,28 @@ export interface FilaColaExport extends Record<string, string | null> {
  * la cola: son lecturas distintas y declarar de más hace que `campos_accedidos` deje de decir la
  * verdad, que es lo único que ese registro tiene que hacer.
  *
- * `nombre_completo` NO está, y es la comprobación de que la lista describe el archivo y no la tabla:
- * la hoja lleva la CÉDULA del propietario pero no su nombre. `ciudad` sí: es del trámite del
- * titular, viaja en el archivo y hasta esta HU no se registraba en ninguna parte.
+ * **`nombre_completo` ENTRA con la HU #11934, y es el cambio de esta lista.** La HU #11909 lo dejó
+ * fuera con un argumento correcto para su hoja —«lleva la CÉDULA del propietario y no su nombre»— y
+ * ese argumento dejó de ser cierto: `NombrePila`, `Apellidos` y `RazonSocial` publican el nombre del
+ * titular. Sin esta línea el registro mentiría POR OMISIÓN justo en lo que la HU añade, que es
+ * textualmente el motivo por el que se dejó fuera antes.
+ *
+ * Que el nombre venga ahora de `flito_tramites.flit_raw` y no de `flito_compradores.nombre_completo`
+ * NO cambia la declaración: `campos_accedidos` describe QUÉ dato personal salió del perímetro, no de
+ * qué columna se leyó. El vocabulario tiene que ser el del resto del `pii_access_log` —donde el
+ * nombre de una persona es `nombre_completo` en cinco módulos— o la tabla deja de ser consultable.
+ *
+ * `ciudad` conserva el nombre de la COLUMNA aunque la cabecera del archivo sea ahora `Municipio`:
+ * esta lista se cruza con la base, no con la plantilla del cliente.
+ *
+ * **`Departamento` NO está, y es una decisión, no un olvido** (David, gate de seguridad de la HU
+ * #11934): sale de `flit_raw->>'departamentoTransito'` y es la jurisdicción del ORGANISMO —acompaña a
+ * `OrganismoDetto` y a `OrganismoDettoCiudad`—, no el domicilio del titular. Si algún día se cambiara
+ * por un departamento de la dirección, tendría que entrar aquí en la misma edición; el porqué está
+ * escrito junto a la clave, en `CLAVES_FLIT_RAW`, que es donde el auto-llenado lo ejecuta solo.
  */
 export const CAMPOS_PII_COLA_EXPORT = [
-  'numero_documento', 'correo', 'celular', 'direccion', 'placa', 'vin', 'ciudad',
+  'nombre_completo', 'numero_documento', 'correo', 'celular', 'direccion', 'placa', 'vin', 'ciudad',
 ] as const;
 
 /**
@@ -97,6 +175,12 @@ export const CAMPOS_PII_COLA_EXPORT = [
  * la celda vacía teniendo el código a mano —que es un dato útil y el que aparece en el filtro— o,
  * peor, escribiría la cadena `"null"` si alguien resolviera el hueco con un `String()`. El orden es
  * el que sirve al lector: primero cómo se llama, y solo si no se sabe, cómo se identifica.
+ *
+ * **Desde la HU #11934 su único llamador es el ZIP de soportes** (`shared/soportes/soportes-zip.ts`,
+ * que nombra las carpetas por organismo): la hoja de 25 columnas ya no lleva el alias configurado en
+ * FLITO, sino `OrganismoDetto` —el nombre CRUDO que manda FLIT, `flito_tramites.transito_nombre_flit`—
+ * y `OrganismoDettoCiudad`, del catálogo. Se queda aquí y no se mueve al ZIP porque el ZIP la importa
+ * a propósito para no divergir del `.xlsx`, y ese acuerdo tiene su propio test.
  */
 export function organismoParaExport(alias: string | null, codigo: string | null): string | null {
   const nombre = alias?.trim();
@@ -111,8 +195,8 @@ export function organismoParaExport(alias: string | null, codigo: string | null)
  * `null` viaja como `null` y ExcelJS deja la celda sin escribir. Nunca `"—"` —eso lo pinta la
  * interfaz, no el backend (`flito-soat.service.ts`, comentario de los datos técnicos)—, nunca
  * `"null"` y nunca `String(null)`: una celda vacía se filtra en Excel y un texto de relleno no, y
- * además un guion en la columna CEDULA de un archivo que alguien va a conciliar es un dato inventado
- * con aspecto de cierto. Es la misma regla que ya aplica `flito-comparendos.export.service.ts`.
+ * además un guion en la columna `NumeroId` de un archivo que alguien va a conciliar es un dato
+ * inventado con aspecto de cierto. Misma regla que `flito-comparendos.export.service.ts`.
  *
  * La cadena vacía y la que solo tiene espacios se tratan como ausencia por lo mismo: `" "` en una
  * celda es indistinguible de vacío a la vista y distinto al filtrar.
@@ -203,13 +287,15 @@ export class ExportColaDemasiadoGrandeError extends Error {
  * margen, y el sexto ni siquiera está medido—. El limitador cuenta peticiones POR MINUTO, no en
  * vuelo, y la cuota es por usuario sin cota global: **una sola sesión** puede tener los cinco
  * construyéndose a la vez. Con dos bolsas nuevas, esa misma sesión pasa de 5 a 10 concurrentes
- * posibles y se come el margen entero. Que esta hoja tenga once columnas y no veintiuna no salva: el
- * propio ADR advierte que a esa escala manda el ruido del allocator y del GC, no el número de filas.
+ * posibles y se come el margen entero. **Y desde la HU #11934 la hoja ya no tiene once columnas sino
+ * veinticinco**, que es 1,67 veces la de quince con la que ADR-0004 hizo su medición: el argumento de
+ * la bolsa única no se ha aflojado con el cambio, se ha apretado. El propio ADR advierte además que a
+ * esa escala manda el ruido del allocator y del GC tanto como el número de columnas.
  *
  * El segundo motivo es de privacidad, y es el mismo con el que comparendos razona su 5/min: la cuota
  * multiplicada por el tope ES el techo de extracción del módulo. Con una bolsa son 10 000 filas por
- * minuto y usuario; con dos, 20 000 — y cada fila de aquí lleva cédula, correo, teléfono y dirección
- * del titular, más PII por fila que la de comparendos.
+ * minuto y usuario; con dos, 20 000 — y cada fila de aquí lleva NOMBRE, documento, correo, teléfono y
+ * dirección del titular, más PII por fila que la de comparendos.
  *
  * Lo que se paga es lo que decía aquel comentario: quien acaba de bajar cinco archivos de SOAT no
  * puede bajar el sexto de Impuestos hasta que pase el minuto. Es el intercambio correcto — el
