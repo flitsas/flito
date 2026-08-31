@@ -66,10 +66,19 @@ const FILA_SOLICITADO = fila({
   proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa', enviadoEn: '2026-08-02T10:00:00Z',
 });
 
+/** Campos RUNT post-alta (HU #11935). Default: espera, que es el 201. */
+const VERIFICACION_PENDIENTE = {
+  verificacionEstado: 'pendiente' as const,
+  soatVigente: null,
+  soatVigenteHasta: null,
+  verificacionCodigo: null,
+};
+
 /** El bloque `solicitud` de una solicitud SIN rechazar (la que el admin va a revisar). */
 const SOLICITUD_EN_REVISION = {
   causalNombre: null, observacion: null, revisadoEn: null,
   reenvios: 0, solicitadoEn: '2026-08-28T14:00:00Z', revisadoPorNombre: null,
+  ...VERIFICACION_PENDIENTE,
 };
 
 /** El bloque `solicitud` de una RECHAZADA, tal como lo recibe un lector INTERNO. */
@@ -77,6 +86,7 @@ const SOLICITUD_RECHAZADA_INTERNA = {
   causalNombre: CAUSALES[0].nombre, observacion: OBSERVACION,
   revisadoEn: '2026-08-28T16:00:00Z', reenvios: 0, solicitadoEn: '2026-08-28T14:00:00Z',
   revisadoPorNombre: REVISOR,
+  ...VERIFICACION_PENDIENTE,
 };
 
 /**
@@ -86,6 +96,7 @@ const SOLICITUD_RECHAZADA_INTERNA = {
 const SOLICITUD_RECHAZADA_CLIENTE = {
   causalNombre: CAUSALES[0].nombre, observacion: OBSERVACION,
   revisadoEn: '2026-08-28T16:00:00Z', reenvios: 0, solicitadoEn: '2026-08-28T14:00:00Z',
+  ...VERIFICACION_PENDIENTE,
 };
 
 interface Capturas {
@@ -94,13 +105,9 @@ interface Capturas {
   validaciones: { url: string; body: unknown }[];
   rechazos: { url: string; body: unknown }[];
   subsanaciones: string[];
-  /**
-   * El catálogo, caído o no, en un objeto MUTABLE que el test manipula.
-   *
-   * Y no un contador de intentos: `React.StrictMode` monta cada efecto DOS veces en desarrollo, así
-   * que «falla el primero y responde el segundo» se resolvería solo, sin que nadie pulsara el botón
-   * de reintento — el test pasaría midiendo StrictMode en vez de la pantalla.
-   */
+  getsDetalle: number;
+  /** Payload mutable de `GET /:id` → `solicitud`. El test lo cambia para «Actualizar verificación». */
+  solicitud: { current: unknown };
   catalogo: { caido: boolean };
 }
 
@@ -124,6 +131,8 @@ interface Opciones {
 async function mockApi(page: Page, o: Opciones = {}): Promise<Capturas> {
   const cap: Capturas = {
     colas: [], validaciones: [], rechazos: [], subsanaciones: [],
+    getsDetalle: 0,
+    solicitud: { current: o.solicitud ?? SOLICITUD_EN_REVISION },
     catalogo: { caido: o.causales === null },
   };
   const items = o.items ?? [FILA_REVISION];
@@ -144,9 +153,10 @@ async function mockApi(page: Page, o: Opciones = {}): Promise<Capturas> {
   await page.route(/\/api\/flito\/soat\/[^/?]+$/, (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     if (o.detalle404) return json(route, 404, { error: 'No encontrado' });
+    cap.getsDetalle += 1;
     const id = route.request().url().split('/').pop();
     const base = [...items, FILA_RECHAZADA].find((i) => (i as { id: string }).id === id) ?? FILA_REVISION;
-    return json(route, 200, { ...(base as object), solicitud: o.solicitud ?? SOLICITUD_EN_REVISION });
+    return json(route, 200, { ...(base as object), solicitud: cap.solicitud.current });
   });
 
   await page.route(/\/api\/flito\/soat\/causales-rechazo$/, (route) => {
@@ -588,6 +598,7 @@ test.describe('HU #11915 · AC4 — la ausencia de los controles, no un botón q
     await expect(modal.getByRole('button', { name: /Validar|Rechazar/ })).toHaveCount(0);
     await expect(modal.locator('button:disabled')).toHaveCount(0);
     await expect(modal.getByRole('region', { name: 'Revisión de la solicitud' })).toHaveCount(0);
+    await expect(modal.getByText('Esperando al RUNT')).toHaveCount(0);
   });
 
   test('el gestor no recibe el bloque aunque la fila llegue a su cola', async ({ page }) => {
@@ -653,3 +664,147 @@ test.describe('HU #11915 · AC4 — la ausencia de los controles, no un botón q
     await expect(page.getByRole('dialog').getByRole('button', { name: /Validar|Rechazar|Reactivar/ })).toHaveCount(0);
   });
 });
+
+// ═════════════════════════ HU #11936 · ficha RUNT en revisión ════════════════════════════════════
+
+test.describe('HU #11936 · AC4 — ficha RUNT en la revisión de Operaciones', () => {
+  test('espera ≠ error: chip, guiones, sin alerta de carga, Validar y Rechazar siguen', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const cap = await mockApi(page);
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+
+    const ficha = page.getByRole('region', { name: 'Verificación RUNT' });
+    await expect(ficha.getByText('Esperando al RUNT')).toBeVisible();
+    await expect(ficha.getByText('no es un error')).toBeVisible();
+    await expect(ficha.getByRole('button', { name: 'Actualizar verificación' })).toBeVisible();
+    await expect(page.getByText('No pudimos cargar los datos de la revisión.')).toHaveCount(0);
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Validar' })).toBeEnabled();
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Rechazar la solicitud' })).toBeEnabled();
+
+    const antes = cap.getsDetalle;
+    cap.solicitud.current = {
+      ...SOLICITUD_EN_REVISION,
+      verificacionEstado: 'ok', soatVigente: false,
+    };
+    await ficha.getByRole('button', { name: 'Actualizar verificación' }).click();
+    await expect.poll(() => cap.getsDetalle).toBeGreaterThan(antes);
+    await expect(page.getByText('Coincide con el RUNT')).toBeVisible();
+  });
+
+  test('caído pinta su chip y no el de vigente ni el de coincide', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, { solicitud: { ...SOLICITUD_EN_REVISION, verificacionEstado: 'caido' } });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+    const ficha = page.getByRole('region', { name: 'Verificación RUNT' });
+    await expect(ficha.getByText('RUNT no disponible')).toBeVisible();
+    await expect(ficha.getByText('Coincide con el RUNT')).toHaveCount(0);
+    await expect(ficha.getByText('SOAT vigente')).toHaveCount(0);
+    await expect(page.getByRole('dialog').getByRole('button', { name: 'Validar' })).toBeEnabled();
+  });
+
+  test('sin registro pinta su chip, no el de RUNT caído', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, { solicitud: { ...SOLICITUD_EN_REVISION, verificacionEstado: 'sin_registro' } });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+    const ficha = page.getByRole('region', { name: 'Verificación RUNT' });
+    await expect(ficha.getByText('Sin registro en el RUNT')).toBeVisible();
+    await expect(ficha.getByText('RUNT no disponible')).toHaveCount(0);
+  });
+
+  test('no cuadra pinta su chip', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, { solicitud: { ...SOLICITUD_EN_REVISION, verificacionEstado: 'no_cuadra' } });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+    await expect(page.getByRole('region', { name: 'Verificación RUNT' }).getByText('No cuadra con el RUNT')).toBeVisible();
+  });
+
+  test('ok sin vigente: chip Coincide, sin banda de póliza', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, {
+      solicitud: { ...SOLICITUD_EN_REVISION, verificacionEstado: 'ok', soatVigente: false },
+    });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+    const ficha = page.getByRole('region', { name: 'Verificación RUNT' });
+    await expect(ficha.getByText('Coincide con el RUNT')).toBeVisible();
+    await expect(ficha.getByRole('alert')).toHaveCount(0);
+    await expect(ficha.getByText('SOAT vigente')).toHaveCount(0);
+  });
+
+  test('ok + soatVigente: banda de alerta, Validar sigue activo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, {
+      solicitud: {
+        ...SOLICITUD_EN_REVISION,
+        verificacionEstado: 'ok', soatVigente: true, soatVigenteHasta: '2027-02-01',
+      },
+    });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+
+    const ficha = page.getByRole('region', { name: 'Verificación RUNT' });
+    await expect(ficha.getByText('SOAT vigente')).toBeVisible();
+    const banda = ficha.getByRole('alert');
+    await expect(banda).toContainText('Según el RUNT, la póliza está vigente hasta el 1 de febrero de 2027.');
+    await expect(banda).toContainText('Lo habitual es rechazar');
+    await expect(banda.getByText(/31 de enero/)).toHaveCount(0);
+    const validar = page.getByRole('dialog').getByRole('button', { name: 'Validar' });
+    await expect(validar).toBeVisible();
+    await expect(validar).toBeEnabled();
+  });
+
+  test('vigente sin fecha no interpola «hasta el —»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, {
+      solicitud: {
+        ...SOLICITUD_EN_REVISION,
+        verificacionEstado: 'ok', soatVigente: true, soatVigenteHasta: null,
+      },
+    });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+
+    const banda = page.getByRole('region', { name: 'Verificación RUNT' }).getByRole('alert');
+    await expect(banda).toContainText('Según el RUNT, este vehículo tiene una póliza SOAT vigente.');
+    await expect(banda.getByText(/hasta el/)).toHaveCount(0);
+  });
+
+  test('XOR humano: en idle hay los dos; al abrir Validar no está el rechazo', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockApi(page, {
+      solicitud: { ...SOLICITUD_EN_REVISION, verificacionEstado: 'ok', soatVigente: true },
+    });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+
+    const modal = page.getByRole('dialog');
+    await expect(modal.getByRole('button', { name: 'Validar' })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Rechazar la solicitud' })).toBeVisible();
+
+    await modal.getByRole('button', { name: 'Validar' }).click();
+    await expect(modal.getByRole('heading', { name: 'Validar la solicitud' })).toBeVisible();
+    await expect(modal.getByLabel('Causal del rechazo')).toHaveCount(0);
+
+    await modal.getByRole('button', { name: 'Cancelar' }).click();
+    await modal.getByRole('button', { name: 'Rechazar la solicitud' }).click();
+    await expect(modal.getByLabel('Causal del rechazo')).toBeVisible();
+    await expect(modal.getByRole('heading', { name: 'Validar la solicitud' })).toHaveCount(0);
+  });
+
+  test('el Cliente en pendiente_revision no ve la ficha ni Validar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockApi(page, { items: [FILA_REVISION] });
+    await page.goto('/flito/soat');
+    await abrirDetalle(page, 'REV222');
+
+    const modal = page.getByRole('dialog');
+    await expect(modal.getByRole('button', { name: /Validar|Rechazar/ })).toHaveCount(0);
+    await expect(modal.getByText('Esperando al RUNT')).toHaveCount(0);
+    await expect(modal.getByRole('region', { name: 'Verificación RUNT' })).toHaveCount(0);
+  });
+});
+
