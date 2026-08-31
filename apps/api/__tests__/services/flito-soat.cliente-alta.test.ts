@@ -162,35 +162,49 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
   });
 
-  it('**marca, línea, modelo, clase, cilindraje y servicio se persisten DEL RUNT, no tecleados**', async () => {
+  it('**201 aunque `consultarVehiculoRunt` nunca se resuelve** (el alta no espera a Kyverum)', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockReturnValue(new Promise(() => { /* colgada a propósito */ }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(r.body.estado).toBe('pendiente_revision');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+  });
+
+  it('**marca, línea y organismoCodigo AUSENTES en el INSERT del 201** (el cliente no los manda; el RUNT va después)', async () => {
     escenario();
     await alta(await buildApp(), await auth('cliente', siguienteUsuario()), {
-      // El formulario intenta dictar los datos técnicos. No están en el contrato: no llegan.
       campos: { marca: 'FERRARI', linea: 'F40', cilindraje: '2999', organismoCodigo: '11001' },
     });
 
     const vehiculo = espia.ultimoInsertEn('vehicles');
     expect(vehiculo).toMatchObject({
       vin: '9FKRG2222T2042405', plate: 'JNH38H',
-      brand: 'MAZDA', model: 'CX-30', year: 2026, vehicleClass: 'CAMIONETA',
-      cilindraje: '1598', tipoServicio: 'Particular',
     });
-    // Y el organismo sale del nombre que reporta el RUNT, cruzado con el catálogo: si el formulario
-    // pudiera dictarlo, elegiría a qué proveedor acaba yendo el caso.
-    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(ORGANISMO_FUNZA);
+    expect(vehiculo.brand).toBeNull();
+    expect(vehiculo.model).toBeNull();
+    expect(vehiculo.vehicleClass).toBeNull();
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
   });
 
-  it('el alta consulta el RUNT con el documento y el tipo de pasarela; persiste el de la UI', async () => {
+  it('el tipo de documento de la UI se persiste; el alta no llama a Kyverum', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), {
       campos: { tipoDocumento: 'PPT' },
     });
     expect(r.status).toBe(201);
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(
-      'JNH38H', '9FKRG2222T2042405', '1020304050', 'Y',
-    );
-    // Lo que se guarda es el tipo de la UI, no el código de la pasarela.
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
     expect(espia.ultimoInsertEn('flito_compradores').tipoDocumento).toBe('PPT');
+  });
+
+  it('**201 sin haber llamado `/preconsulta`**: crear no la invoca', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
+    // La preconsulta es otro endpoint. Este POST no la dispara ni como paso interno.
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
 
   it('el propietario va a `flito_compradores` colgado del SOAT y NO de un trámite', async () => {
@@ -213,6 +227,7 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
 
     expect(espia.ultimoInsertEn('flito_soat_solicitud')).toMatchObject({
       soatId: r.body.id, solicitadoPorId: sub, solicitadoPorNombre: 'cliente@empresa.co',
+      verificacionEstado: 'pendiente',
     });
     expect(espia.ultimoInsertEn('flito_soportes')).toMatchObject({
       tipo: 'factura_venta', soatId: r.body.id, contentType: 'application/pdf',
@@ -241,25 +256,19 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     }
   });
 
-  it('un vehículo que YA existe **y es de SU compañía** se actualiza sin borrar lo que el RUNT no trajo', async () => {
-    // La ficha dice de quién es, y eso ahora es parte del caso: la versión anterior de esta prueba
-    // no lo decía, y por ese hueco pasó en verde la escritura entre compañías.
+  it('un vehículo que YA existe **y es de SU compañía** se actualiza sin borrar lo que el alta no trajo', async () => {
     escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
-    // El RUNT no reporta cilindraje ni tipo de servicio en esta consulta.
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ cilindraje: null, tipoServicio: null }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(201);
 
-    // No hay INSERT de vehículo: se reusó el que había (`vehiculo_id` es UNIQUE en `flito_soat`).
     expect(espia.insertsEn('vehicles')).toHaveLength(0);
     const set = espia.updatesEn('vehicles').at(-1)!.datos;
-    expect(set).toMatchObject({ brand: 'MAZDA', model: 'CX-30' });
-    // La política del sync: un campo vacío NO pisa lo que ya se sabía. Si estas claves viajaran con
-    // `null`, el alta borraría el cilindraje que dejó, por ejemplo, el OCR de la tarjeta.
+    // El alta no espera al RUNT: no pisa marca/línea. Un `null` no viaja (política del sync).
+    expect(Object.keys(set)).not.toContain('brand');
+    expect(Object.keys(set)).not.toContain('model');
     expect(Object.keys(set)).not.toContain('cilindraje');
     expect(Object.keys(set)).not.toContain('tipoServicio');
-    // Y no se reescribe el dueño de una ficha que ya lo tiene, ni siquiera con el mismo valor.
     expect(Object.keys(set)).not.toContain('clientId');
   });
 });
@@ -382,89 +391,69 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
   });
 });
 
-// ───────────────────────────── AC2 — el RUNT falla ───────────────────────────
+// ───────────────────────────── AC2 — el RUNT falla: igual se crea ────────────
 
-describe('AC2 — el RUNT falla o el organismo no está en el catálogo: no se crea nada', () => {
-  /** Ninguna de estas rutas puede dejar rastro: ni fila, ni archivo en el bucket. */
-  function nadaEscrito() {
-    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
-    expect(espia.insertsEn('flito_compradores')).toHaveLength(0);
-    expect(uploadMock).not.toHaveBeenCalled();
-  }
-
-  it('RUNT caído → 503 `runt_no_disponible` (accionable: el formulario reintenta)', async () => {
+describe('AC2 — el RUNT falla o el organismo no está en el catálogo: igual se crea', () => {
+  it('RUNT caído → 201 (ya no 503); la fila nace', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(503);
-    expect(r.body.codigo).toBe('runt_no_disponible');
-    nadaEscrito();
+    expect(r.status).toBe(201);
+    expect(r.body.estado).toBe('pendiente_revision');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionEstado).toBe('pendiente');
   });
 
-  it('RUNT que responde el ECO de la consulta (vehículo no registrado) → 422, no una fila vacía', async () => {
+  it('RUNT sin registro (eco de la consulta) → 201, no 422', async () => {
     escenario();
-    // `ok:true` con todo en null salvo lo que se preguntó: es lo que devuelve la pasarela para una
-    // placa que no existe. Sin `runtSinRegistro()`, la solicitud se crearía sin marca ni organismo.
     consultarVehiculoRuntMock.mockResolvedValue({
       ok: true, data: { vehiculo: { placa: 'JNH38H', vin: '9FKRG2222T2042405' } },
     });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('runt_sin_registro');
-    nadaEscrito();
+    expect(r.status).toBe(201);
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
   });
 
-  it('organismo que no cruza con el catálogo nacional → 422 `organismo_no_catalogado`', async () => {
+  it('placa o VIN que no cuadran con el RUNT → 201 (el job anota `no_cuadra`)', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: 'XXX999', vin: 'OTROVIN12345678901' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+  });
+
+  it('organismo que no cruza con el catálogo → 201 y organismoCodigo NULL', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('organismo_no_catalogado');
-    nadaEscrito();
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
   });
 
-  it('**el 422 lleva `organismoNombre` como CAMPO, no escondido entre las comillas del mensaje**', async () => {
-    escenario();
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
-
-    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    // Con el valor exacto: la pantalla compone su propia frase («El RUNT lo reporta en X…») y no
-    // puede depender de una expresión regular sobre la prosa del servidor, que se reescribe el día
-    // que alguien mejore el texto y deja de encontrar el dato SIN que nada falle.
-    expect(r.body.organismoNombre).toBe('STRIA TTO DE MARTE');
-  });
-
-  it('el RUNT sin organismo → la clave viaja igual, con `null`: «no vino» no es «no lo mandaron»', async () => {
-    escenario();
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
-
-    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('organismo_no_catalogado');
-    expect(Object.keys(r.body)).toContain('organismoNombre');
-    expect(r.body.organismoNombre).toBeNull();
-  });
-
-  it('organismo del catálogo pero SIN configurar en esta instalación → 422, no un 500 de la FK', async () => {
-    // La segunda comprobación, la que mucha gente se salta: `flito_soat.organismo_codigo` tiene FK a
-    // `organismos_transito_config`. Sin este paso, el INSERT muere con un 23503 y el cliente recibe
-    // un 500 genérico sobre algo que sí puede corregirse pidiendo la habilitación.
+  it('organismo del catálogo pero SIN configurar en esta instalación → 201, organismo NULL', async () => {
     escenario({ organismos_transito_config: [] });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('organismo_no_catalogado');
-    nadaEscrito();
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+  });
+
+  it('**TC-AC5-01: el INSERT del 201 lleva organismoCodigo NULL**', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
   });
 });
 
-// ───────────────────────────── AC3 — SOAT vigente ────────────────────────────
+// ───────────────────────────── AC3 — SOAT vigente: se crea, no auto-solicita ─
 
-describe('AC3 — el RUNT dice que ya tiene SOAT vigente: bloqueo con código propio', () => {
-  it('**SOAT vigente por fecha → 409 `soat_vigente`, sin fila y sin compra**', async () => {
+describe('AC3 — el RUNT dice que ya tiene SOAT vigente: se crea en pendiente_revision', () => {
+  it('**SOAT vigente por fecha → 201, no 409; el estado NO pasa a solicitado**', async () => {
     escenario();
     const dentroDeUnAnio = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, {
@@ -472,50 +461,32 @@ describe('AC3 — el RUNT dice que ya tiene SOAT vigente: bloqueo con código pr
     }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(409);
-    // Código PROPIO y distinguible del 409 de RN-01: el front pinta dos cosas distintas.
-    expect(r.body.codigo).toBe('soat_vigente');
-    // El RUNT también responde en ISO según el tipo de consulta: esa rama tiene que pasar el día
-    // intacto, no caerse al `null` de «no se pudo leer».
-    expect(r.body.fechaVencimiento).toBe(dentroDeUnAnio);
-    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
-    expect(uploadMock).not.toHaveBeenCalled();
+    expect(r.status).toBe(201);
+    expect(r.body.estado).toBe('pendiente_revision');
+    expect(r.body.codigo).not.toBe('soat_vigente');
+    expect(espia.ultimoInsertEn('flito_soat').estado).toBe('pendiente_revision');
+    expect(espia.ultimoInsertEn('flito_soat').estado).not.toBe('solicitado');
   });
 
-  it('**el 409 lleva `fechaVencimiento` en `yyyy-mm-dd` cuando el RUNT la trae**', async () => {
+  it('SOAT vigente con fecha en `dd/MM/yyyy` → 201 (el aviso vive en el satélite, no en el 201)', async () => {
     escenario();
-    // Formato real de la pasarela: `dd/MM/yyyy`. Sale normalizado, que es como este producto pasa
-    // fechas de calendario por la API y lo que la web sabe rotular en español.
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2027' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(409);
-    expect(r.body.codigo).toBe('soat_vigente');
-    expect(r.body.fechaVencimiento).toBe('2027-02-01');
+    expect(r.status).toBe(201);
+    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
   });
 
-  it('el RUNT que reporta vigencia SOLO por estado → 409 SIN el campo (no se inventa una fecha)', async () => {
+  it('vigencia SOLO por estado → 201 sin auto-transición', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(409);
-    expect(r.body.codigo).toBe('soat_vigente');
-    // Ausente, no `null` ni cadena vacía: el modal elige entre DOS redacciones y la de sin fecha es
-    // una frase entera, no una con un hueco.
-    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').estado).toBe('pendiente_revision');
   });
 
-  it('una «fecha» que no lo es se descarta: el campo se omite en vez de viajar rota', async () => {
-    escenario();
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '31/02/2027' }));
-
-    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(409);
-    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
-  });
-
-  it('SOAT VENCIDO → sí se crea (el bloqueo no puede ser «siempre»)', async () => {
+  it('SOAT VENCIDO → 201 (como siempre)', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'NO VIGENTE', fechaVencimSoat: '01/02/2019' }));
 
@@ -524,7 +495,7 @@ describe('AC3 — el RUNT dice que ya tiene SOAT vigente: bloqueo con código pr
     expect(espia.insertsEn('flito_soat')).toHaveLength(1);
   });
 
-  it('el RUNT no reporta póliza → tampoco bloquea: «no se sabe» no es «lo tiene»', async () => {
+  it('el RUNT no reporta póliza → 201', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, null));
 
@@ -847,6 +818,26 @@ describe('POST /cliente/preconsulta — paso 1, sin escribir nada', () => {
     escenario();
     const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()), { placa: 'JNH38H' } as Record<string, string>);
     expect(r.status).toBe(400);
+  });
+
+  it('organismo no catalogado → 422 con `organismoNombre` como CAMPO (contrato de preconsulta intacto)', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
+
+    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('organismo_no_catalogado');
+    expect(r.body.organismoNombre).toBe('STRIA TTO DE MARTE');
+  });
+
+  it('preconsulta sin organismo en el RUNT → la clave viaja con `null`', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
+
+    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(422);
+    expect(Object.keys(r.body)).toContain('organismoNombre');
+    expect(r.body.organismoNombre).toBeNull();
   });
 });
 

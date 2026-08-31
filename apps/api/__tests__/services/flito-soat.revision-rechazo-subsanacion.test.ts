@@ -53,6 +53,7 @@ const espia = crearEspia(kdb);
 const uploadMock = vi.fn();
 const auditMock = vi.fn().mockResolvedValue(undefined);
 const piiMock = vi.fn().mockResolvedValue(undefined);
+const consultarVehiculoRuntMock = vi.fn();
 
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
@@ -61,6 +62,10 @@ vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: piiMock }));
 vi.mock('../../src/services/storage.js', () => ({
   uploadEntityDocument: uploadMock,
   firmarDescargaEntidad: vi.fn(() => '/api/files?t=x'),
+}));
+vi.mock('../../src/modules/runt/runt.service.js', () => ({
+  consultarVehiculoRunt: consultarVehiculoRuntMock,
+  consultarPersonaRunt: vi.fn(),
 }));
 
 const COMPANIA = 7;
@@ -142,6 +147,7 @@ beforeEach(() => {
   uploadMock.mockReset().mockResolvedValue('clientes/acme/soat/facturas-venta/nueva.pdf');
   auditMock.mockClear();
   piiMock.mockClear();
+  consultarVehiculoRuntMock.mockReset();
 });
 
 const validar = async (app: express.Express, token: string, cuerpo: Record<string, unknown> = { proveedorSoatId: PROVEEDOR_ID }) =>
@@ -789,5 +795,135 @@ describe('la transición es un compare-and-swap, no un UPDATE ciego (bloqueante 
     const r = await validar(await buildApp(), await auth('admin', siguienteUsuario()));
     expect(r.status).toBe(409);
     expect(espia.updatesEn('flito_soat')).toHaveLength(0);
+  });
+});
+
+// ───────────────── AC5 — leftJoin organismo; AC6 — transiciones sin esperar RUNT ─
+
+describe('AC5 — cola y detalle no ocultan la fila con organismo NULL', () => {
+  it('**TC-AC5-04: `conJoinsCola` es LEFT JOIN a organismos** (SQL PgDialect)', async () => {
+    const { PgDialect, QueryBuilder } = await import('drizzle-orm/pg-core');
+    const { flitoSoat } = await import('../../src/db/schema.js');
+    const { conJoinsCola } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+    const q = new QueryBuilder()
+      .select({ id: flitoSoat.id })
+      .from(flitoSoat)
+      .$dynamic();
+    const sql = new PgDialect().sqlToQuery(conJoinsCola(q).getSQL()).sql.toLowerCase();
+    expect(sql).toMatch(/left join "organismos_transito_config"/);
+    expect(sql).not.toMatch(/inner join "organismos_transito_config"/);
+    expect(sql).toMatch(/inner join "vehicles"/);
+    expect(sql).toMatch(/inner join "clients"/);
+  });
+
+  it('**TC-AC5-05: `detalle` también LEFT JOIN a organismos** (SQL PgDialect)', async () => {
+    const { PgDialect, QueryBuilder } = await import('drizzle-orm/pg-core');
+    const {
+      flitoSoat, vehicles, clients, organismosTransitoConfig, flitoProveedoresSoat, users,
+    } = await import('../../src/db/schema.js');
+    const { eq } = await import('drizzle-orm');
+    const q = new QueryBuilder()
+      .select({ id: flitoSoat.id })
+      .from(flitoSoat)
+      .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
+      .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
+      .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+      .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+      .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+    const sql = new PgDialect().sqlToQuery(q.getSQL()).sql.toLowerCase();
+    expect(sql).toMatch(/left join "organismos_transito_config"/);
+    expect(sql).not.toMatch(/inner join "organismos_transito_config"/);
+  });
+
+  it('**TC-AC5-06: GET /:id con organismo NULL → 200**', async () => {
+    kdb.when.scenario({
+      users: [{ c: COMPANIA, s: null }],
+      flito_tramites: [],
+      flito_compradores: [],
+      flito_soat_solicitud: [{
+        solicitadoEn: new Date('2026-08-20T10:00:00Z'),
+        revisadoPorNombre: null,
+        revisadoEn: null,
+        causalNombre: null,
+        observacion: null,
+        reenvios: 0,
+        verificacionEstado: 'pendiente',
+        soatVigente: null,
+        soatVigenteHasta: null,
+        verificacionCodigo: null,
+      }],
+    });
+    kdb.when.selectOnce('flito_soat', [filaAcceso({ organismoCodigo: null })]);
+    kdb.when.select('flito_soat', [{
+      id: SOAT_ID, vin: '9FKRG2222T2042405', estado: 'pendiente_revision', origen: 'cliente',
+      proveedorSoatId: null, gestionOperaciones: false, enviadoEn: null, pagadoEn: null,
+      valorPagado: null, motivoRechazo: null, createdAt: new Date('2026-08-20T10:00:00Z'),
+      placa: 'JNH38H', marca: null, linea: null, cilindraje: null, carroceria: null,
+      tipoServicio: null, companiaNombre: 'ACME', organismoNombre: null,
+      proveedorSoatNombre: null, proveedorSlaHoras: null, enviadoPorNombre: null,
+    }]);
+
+    const r = await request(await buildApp())
+      .get(`/api/flito/soat/${SOAT_ID}`)
+      .set('Authorization', await auth('admin', siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.id).toBe(SOAT_ID);
+    expect(r.body.organismoNombre).toBeNull();
+    expect(r.body.solicitud.verificacionEstado).toBe('pendiente');
+  });
+});
+
+describe('AC6 — validar / rechazar / subsanar no esperan la verificación', () => {
+  it('**TC-AC6-01: validar con verificación pendiente → 200 solicitado**', async () => {
+    escenario();
+    kdb.when.select('flito_soat_solicitud', [{ verificacionEstado: 'pendiente', soatVigente: null }]);
+    const r = await validar(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('solicitado');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**TC-AC6-02: rechazar con verificación pendiente → 200 rechazada**', async () => {
+    escenario();
+    kdb.when.select('flito_soat_solicitud', [{ verificacionEstado: 'pendiente', soatVigente: null }]);
+    const r = await rechazar(await buildApp(), await auth('admin', siguienteUsuario()), {
+      causalId: CAUSAL_ID, observacion: 'La factura está cortada.',
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('rechazada');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**TC-AC6-03: subsanar con verificación pendiente → 200 pendiente_revision**', async () => {
+    escenario({ soat: { estado: 'rechazada' } });
+    kdb.when.select('flito_soat_solicitud', [{ verificacionEstado: 'pendiente', soatVigente: null }]);
+    const r = await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('pendiente_revision');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**TC-AC6-04: validar con SOAT vigente en el satélite es excepción permitida (200)**', async () => {
+    escenario();
+    kdb.when.select('flito_soat_solicitud', [{
+      verificacionEstado: 'ok', soatVigente: true, soatVigenteHasta: '2027-02-01',
+    }]);
+    const r = await validar(await buildApp(), await auth('admin', siguienteUsuario()));
+    expect(r.status).toBe(200);
+    expect(r.body.estado).toBe('solicitado');
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('**TC-AC6-05: ninguna de las tres transiciones invoca `consultarVehiculoRunt`**', async () => {
+    escenario();
+    await validar(await buildApp(), await auth('admin', siguienteUsuario()));
+    escenario();
+    await rechazar(await buildApp(), await auth('admin', siguienteUsuario()), {
+      causalId: CAUSAL_ID, observacion: 'La factura está cortada.',
+    });
+    escenario({ soat: { estado: 'rechazada' } });
+    await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
   });
 });

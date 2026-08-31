@@ -452,7 +452,7 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
   return q
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
 }
@@ -594,7 +594,9 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
 
   return {
     companias: (companias as { id: number; nombre: string }[]).sort((a, b) => a.nombre.localeCompare(b.nombre)),
-    organismos: (organismos as { codigo: string; nombre: string | null }[]).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+    organismos: (organismos as { codigo: string | null; nombre: string | null }[])
+      .filter((o): o is { codigo: string; nombre: string | null } => o.codigo != null)
+      .sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
     // Los SOAT sin proveedor asignado producen una fila nula en el DISTINCT: no es un proveedor.
     proveedores: (proveedores as { id: string | null; nombre: string | null }[])
       .filter((p): p is { id: string; nombre: string } => !!p.id && !!p.nombre)
@@ -835,6 +837,18 @@ export interface RevisionSolicitud {
    * Cliente ve la causal, la observación y la fecha —lo que necesita para corregir—, no la persona.
    */
   revisadoPorNombre?: string | null;
+  /** HU #11935: desenlace de la verificación RUNT post-commit. Solo canal; el gestor no lo ve. */
+  verificacionEstado: 'pendiente' | 'caido' | 'sin_registro' | 'no_cuadra' | 'ok';
+  soatVigente: boolean | null;
+  soatVigenteHasta: string | null;
+  verificacionCodigo: string | null;
+}
+
+/** Columna `date` de Drizzle: string `yyyy-mm-dd`. Guardia Date por si el driver devolviera objeto. */
+function diaIso(v: unknown): string | null {
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
+  return null;
 }
 
 /**
@@ -861,6 +875,10 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
       causalNombre: flitoSoatCausalesRechazo.nombre,
       observacion: flitoSoatSolicitud.observacionRechazo,
       reenvios: flitoSoatSolicitud.reenvios,
+      verificacionEstado: flitoSoatSolicitud.verificacionEstado,
+      soatVigente: flitoSoatSolicitud.soatVigente,
+      soatVigenteHasta: flitoSoatSolicitud.soatVigenteHasta,
+      verificacionCodigo: flitoSoatSolicitud.verificacionCodigo,
     })
     .from(flitoSoatSolicitud)
     // LEFT y no INNER: una solicitud sin rechazar no tiene causal, y un INNER la haría desaparecer
@@ -876,6 +894,10 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
     revisadoEn: r.revisadoEn ? r.revisadoEn.toISOString() : null,
     reenvios: Number(r.reenvios),
     solicitadoEn: r.solicitadoEn.toISOString(),
+    verificacionEstado: r.verificacionEstado as RevisionSolicitud['verificacionEstado'],
+    soatVigente: r.soatVigente,
+    soatVigenteHasta: diaIso(r.soatVigenteHasta),
+    verificacionCodigo: r.verificacionCodigo,
   };
   // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
   // el admin ve lleno y el cliente ve vacío es el mismo objeto con menos datos; la clave ausente
@@ -916,7 +938,7 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
     .from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
     .where(eq(flitoSoat.id, id))
