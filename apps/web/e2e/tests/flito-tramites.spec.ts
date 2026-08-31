@@ -109,7 +109,9 @@ test.describe('FLITO — Trámites unificado', () => {
     await page.getByLabel('Seleccionar ABC123').check();
     await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Solicitar SOAT', exact: true }).click();
+    // La barra rotula con el número de filas ACCIONABLES de lo marcado (HU #11910): «(1)» aquí, y
+    // «(2 de 3)» cuando se marca algo que no lo es. El del diálogo sigue siendo «Solicitar SOAT».
+    await page.getByRole('button', { name: 'Solicitar SOAT (1)', exact: true }).click();
     // Diálogo de aseguradora.
     await expect(page.getByRole('heading', { name: /Solicitar SOAT/i })).toBeVisible();
     // El botón queda deshabilitado hasta elegir aseguradora.
@@ -133,8 +135,9 @@ test.describe('FLITO — Trámites unificado', () => {
       }) }));
 
     await page.goto('/flito/tramites');
-    await page.getByLabel('Seleccionar accionables').check();
-    await page.getByRole('button', { name: 'Entregar', exact: true }).click();
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+    // Tres filas marcadas, dos accionables (FLIT-1003 no tiene empresa): el rótulo lo dice.
+    await page.getByRole('button', { name: 'Entregar (2 de 3)', exact: true }).click();
     await expect(page.getByRole('heading', { name: /Resultado de la entrega/i })).toBeVisible();
     await expect(page.getByText(/1 trámite\(s\) entregado/i)).toBeVisible();
     await expect(page.getByText('SOAT sin resolver')).toBeVisible();
@@ -289,7 +292,9 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await page.goto('/flito/tramites');
     await expect(page.getByText('FLIT-1001')).toBeVisible();
-    await expect(page.getByLabel('Seleccionar accionables')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Seleccionar las filas de esta página')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Solicitar SOAT/ })).toHaveCount(0);
+    // AC7 de la HU #11910: la acción nueva tampoco se le pinta, ni siquiera deshabilitada.
+    await expect(page.getByRole('button', { name: /Descargar soportes/ })).toHaveCount(0);
   });
 });

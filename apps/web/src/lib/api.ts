@@ -384,6 +384,30 @@ export const api = {
     const blob = await request<Blob>('GET', path);
     entregarArchivo(blob, filename);
   },
+  /**
+   * GET que devuelve un blob **y el nombre que declaró el servidor** (HU #11910).
+   *
+   * Es `downloadPostNamed` sin la entrega: quien llama no quiere guardar el archivo todavía —lo va a
+   * pintar en un visor— pero sí necesita con qué nombre ofrecerlo después. Sin esto, la única forma
+   * de nombrar un blob traído por `get` es fabricar el nombre en el cliente, y eso es lo que dejaba
+   * la descarga individual con una convención distinta de la del ZIP.
+   *
+   * `aceptaNombre` decide qué forma se admite, igual que allí: lo que este módulo garantiza es que
+   * el nombre no sea una ruta ni lleve caracteres de control; lo que SIGNIFICA se valida donde se
+   * sabe. Si el predicado dice que no, se usa el respaldo.
+   */
+  getBlobNamed: async (
+    path: string,
+    respaldo: string,
+    aceptaNombre?: (nombre: string) => boolean,
+  ): Promise<{ blob: Blob; nombre: string }> => {
+    let nombre = respaldo;
+    const blob = await request<Blob>('GET', path, undefined, undefined, (res) => {
+      const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
+      nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
+    });
+    return { blob, nombre };
+  },
   /** POST que devuelve un PDF/blob (p.ej. generación de documentos legales) y lo descarga. */
   downloadPost: async (path: string, filename: string, body?: unknown) => {
     const blob = await request<Blob>('POST', path, body);
@@ -407,12 +431,20 @@ export const api = {
    *
    * Devuelve el nombre con el que se guardó, que es lo que la pantalla necesita para poder decir
    * «Archivo descargado: …» sin volver a adivinarlo.
+   *
+   * `alLeerCabeceras` (HU #11910) es el único hueco por el que una pantalla puede enterarse de algo
+   * que la respuesta declaró FUERA del cuerpo — el `X-Soportes-Incluidos` del ZIP parcial, que es lo
+   * que convierte «ZIP descargado» en «2 de las 5 filas marcadas tenían recibo». Recibe un LECTOR y
+   * no el `Response` entero: con el objeto en la mano cualquier llamador podría intentar volver a
+   * leer el cuerpo —que aquí ya se está consumiendo como blob— y quedarse con un stream a medias.
+   * Se invoca también en las respuestas de ERROR, igual que el resto de este gancho.
    */
   downloadPostNamed: async (
     path: string,
     respaldo: string,
     body?: unknown,
     aceptaNombre?: (nombre: string) => boolean,
+    alLeerCabeceras?: (leer: (cabecera: string) => string | null) => void,
   ): Promise<string> => {
     let nombre = respaldo;
     let respuesta = { ok: true, status: 200 };
@@ -420,6 +452,7 @@ export const api = {
       respuesta = { ok: res.ok, status: res.status };
       const declarado = nombreDeContentDisposition(res.headers.get('content-disposition'));
       nombre = declarado && (!aceptaNombre || aceptaNombre(declarado)) ? declarado : respaldo;
+      alLeerCabeceras?.((cabecera) => res.headers.get(cabecera));
     });
     if (!respuesta.ok) throw await errorVestidoDeArchivo(respuesta.status, blob);
     entregarArchivo(blob, nombre);

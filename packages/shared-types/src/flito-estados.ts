@@ -311,6 +311,135 @@ export const TipoSoporte = {
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
 
+/**
+ * Los tipos de documento que se pueden pedir en el ZIP de soportes (Feature #11908, HU #11910).
+ *
+ * ── Por qué es un catálogo NUEVO y no un subconjunto de `TipoSoporte` ────────────────────────────
+ *
+ * Porque `factura_venta` significa DOS cosas distintas según de qué cuelgue, y el que hace falta
+ * aquí no es el que está en `TipoSoporte`:
+ *
+ *   · `TipoSoporte.FACTURA_VENTA` sobre `flito_soportes.soat_id` es el adjunto que **sube el
+ *     cliente** al radicar o al subsanar (`TIPOS_SOPORTE_VISIBLES_CLIENTE` lo documenta: «es SU
+ *     PROPIO adjunto»).
+ *   · `TipoSoporteZip.FACTURA_VENTA` es la **factura de venta que emite FLIT**, que ni siquiera vive
+ *     en `flito_soportes`: es `flito_tramites.factura_venta_flit_id` → S3 de FLIT.
+ *
+ * Son dos documentos de dos orígenes con el mismo literal. Reutilizar el enum habría hecho que
+ * «marcar factura de venta» en Trámites metiera en el ZIP el adjunto del cliente creyendo que mete
+ * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera. Y `RECIBO_IMPUESTO` tampoco es
+ * un alias: en el ZIP resuelve a `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver
+ * `shared/soportes/soportes-zip.ts`), o sea a UN documento de entre DOS tipos de la tabla.
+ *
+ * Lo que este catálogo nombra es «qué puede marcar el usuario en la pantalla», no «qué fila hay en
+ * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los dos
+ * primeros, Trámites los tres.
+ */
+export const TipoSoporteZip = {
+  /** La factura de venta que emite FLIT (S3 de FLIT), NO el adjunto del canal Cliente. */
+  FACTURA_VENTA: 'factura_venta',
+  /** El recibo del organismo: el limpio (`sin_marca_agua`) y, si no existe, el marcado. */
+  RECIBO_IMPUESTO: 'recibo_impuesto',
+  /** El comprobante/póliza que sube el gestor de SOAT. Nunca el comprobante PSE de conciliación. */
+  FACTURA_SOAT: 'factura_soat',
+} as const;
+
+export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip];
+
+/**
+ * El ORDEN FIJO del catálogo, y no es decoración: es la mitad del desempate del AC5.
+ *
+ * Todas las entradas de un mismo registro se llaman igual (`PLACA-ORGANISMO`), así que el sufijo
+ * `-2`/`-3` lo decide el orden en que se recorren. Si ese orden fuera el del array que mandó la
+ * pantalla —o el de `Object.keys` de un mapa—, el mismo lote pedido dos veces produciría dos
+ * repartos distintos de los sufijos y dos ZIP no comparables. Aquí está escrito una vez y el
+ * servidor no admite otro.
+ */
+export const ORDEN_TIPOS_SOPORTE_ZIP: readonly TipoSoporteZip[] = [
+  TipoSoporteZip.FACTURA_VENTA,
+  TipoSoporteZip.RECIBO_IMPUESTO,
+  TipoSoporteZip.FACTURA_SOAT,
+];
+
+/**
+ * `codigo` del 409 cuando NINGUNO de los registros marcados tiene el tipo pedido (AC6).
+ *
+ * La pantalla decide por este código y no por el texto del mensaje. Existe para que el usuario no
+ * reciba un ZIP vacío de 22 bytes que abre y no entiende, que es lo que producía el molde heredado
+ * —escribía las cabeceras y hacía `pipe` ANTES de saber si habría contenido—.
+ */
+export const CODIGO_ZIP_SIN_SOPORTES = 'zip_sin_soportes';
+
+/**
+ * `codigo` del 422 cuando la suma de BYTES del lote se pasa del presupuesto del ZIP.
+ *
+ * ⚠️ **No es el mismo caso que {@link CODIGO_ZIP_DEMASIADOS_REGISTROS}, y el copy no puede
+ * confundirlos.** Este es por PESO: pocos documentos muy pesados, y se resuelve quitando de la
+ * selección los registros con documentos grandes. El otro es por CANTIDAD y se resuelve marcando
+ * menos filas, aunque cada una pese nada. Con un solo código el mensaje tendría que ser vago para
+ * servir a los dos, y no diría la verdad en ninguno.
+ */
+export const CODIGO_ZIP_DEMASIADO_GRANDE = 'zip_demasiado_grande';
+
+/**
+ * `codigo` del 400 cuando se marcan más de {@link ZIP_SOPORTES_MAX_REGISTROS} registros.
+ *
+ * **400 y no 422**, a diferencia del de peso: aquella petición está bien formada y lo que no cabe es
+ * el RESULTADO; esta no se debe intentar siquiera. Es el mismo criterio con el que
+ * `TOPE_LOTE_CERTIFICACION` decide su 400 —«pedir 40 registros no es un lote que salió regular, es
+ * una petición que no se debe intentar»—.
+ *
+ * Tiene código propio porque sin él caía en la rama genérica de Zod, sin `codigo`, y la pantalla
+ * enseñaba «no se pudo generar el archivo, avisa a soporte»: el mensaje inútil que el UX quería
+ * evitar, y justo en el error más fácil de provocar.
+ */
+export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
+
+/**
+ * Cuántos registros admite UNA petición de ZIP de soportes.
+ *
+ * **No es el presupuesto.** Ese va en BYTES (`FLITO_ZIP_SOPORTES_MAX_BYTES`, perilla de entorno)
+ * porque lo que cuesta es el archivo que hay detrás del id, no el id. Esto es la forma del cuerpo:
+ * un array sin cota se convierte en un `IN (…)` sin cota.
+ *
+ * Vive aquí y no solo en el API por lo mismo que `FLITO_COLA_EXPORT_MAX_FILAS`: la pantalla lo
+ * necesita para avisar ANTES de que el usuario provoque el error, y el servidor lo usa como cota
+ * dura. Con dos copias, el aviso diría un número y el backend aplicaría otro.
+ *
+ * Aun así el servidor manda el número DENTRO del mensaje del 400: el cliente lo hace eco sin tener
+ * que estar compilado contra la misma versión de este paquete.
+ */
+export const ZIP_SOPORTES_MAX_REGISTROS = 100;
+
+/**
+ * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.
+ *
+ * «Marqué 5 y solo 2 tenían soporte» se acordó como «se descarga y se avisa con cifras». El cuerpo
+ * de la respuesta es el archivo, así que el único sitio donde caben esas cifras es la cabecera. Se
+ * nombran aquí y no como literales en las dos puntas porque **el nombre de la cabecera ES el
+ * contrato**: un literal repetido en cliente y servidor se desincroniza sin que nada avise, y el
+ * síntoma sería que el aviso vuelve al genérico —en verde y sin error en ninguna parte—.
+ *
+ * ── Son DOS cifras distintas y hay que elegir la buena ───────────────────────────────────────────
+ *
+ * `incluidos` cuenta DOCUMENTOS; `registros` cuenta REGISTROS marcados que aportaron al menos uno.
+ * En SOAT casi coinciden; en el ZIP mixto de Trámites **no**, porque un trámite aporta hasta tres
+ * documentos. Para componer «2 de las 5 que marcaste» hay que usar `registros`: con `incluidos`
+ * saldría «6 de 5», una cifra falsa con aspecto de cierta.
+ *
+ * ── Lo que NO dicen, y es deliberado ─────────────────────────────────────────────────────────────
+ *
+ * Ninguna distingue POR QUÉ un registro no aportó: «no existe», «no es de este actor» y «no tiene
+ * ese documento» son el mismo silencio. Publicar la causa convertiría el ZIP en un oráculo de
+ * pertenencia, que es justo lo que evita el 409 cuando no queda ninguno.
+ */
+export const CABECERAS_ZIP_SOPORTES = {
+  /** Cuántos DOCUMENTOS lleva el archivo. */
+  incluidos: 'X-Soportes-Incluidos',
+  /** De cuántos REGISTROS marcados salió al menos un documento. */
+  registros: 'X-Soportes-Registros',
+} as const;
+
 /** Módulos parametrizables por compañía (FLITO.md). */
 export const ModuloFlito = {
   SOAT: 'soat',

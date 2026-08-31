@@ -103,13 +103,18 @@ const ANIO_MAX = 2100;
  * pasar `soat_19345678-0304.xlsx`, que es una cédula colombiana con forma de sello. Validando los
  * componentes, `19345678` muere solo: mes 56 y día 78 no existen.
  *
+ * **La extensión es un parámetro** (HU #11910) y no una tercera expresión regular: el ZIP de
+ * soportes valida `soportes_AAAAMMDD-HHmm.zip` con este mismo guardia, y dos formas escritas por
+ * separado son dos reglas que se separan. El defecto por defecto sigue siendo `xlsx`, así que los
+ * dos llamadores de la #11909 no cambian.
+ *
  * Si no encaja se cae al nombre de respaldo —nunca se propaga el nombre raro—, y eso vale también
  * para el día en que el API cambie el formato a propósito: el archivo se seguirá descargando, con un
  * nombre peor, y esto será lo que haya que actualizar. Se prefiere esa molestia visible a una
  * ventana silenciosa.
  */
-export function esNombreDeExport(prefijo: string, nombre: string): boolean {
-  const forma = new RegExp(`^${prefijo}_(\\d{4})(\\d{2})(\\d{2})-(\\d{2})(\\d{2})\\.xlsx$`);
+export function esNombreDeExport(prefijo: string, nombre: string, extension = 'xlsx'): boolean {
+  const forma = new RegExp(`^${prefijo}_(\\d{4})(\\d{2})(\\d{2})-(\\d{2})(\\d{2})\\.${extension}$`);
   const partes = forma.exec(nombre);
   if (!partes) return false;
   const [anio, mes, dia, hora, minuto] = partes.slice(1).map(Number);
@@ -348,7 +353,14 @@ export function AvisoExportCola(
   );
 }
 
-function AvisoVisible(
+/**
+ * La tarjeta del aviso. **Exportada desde la HU #11910**, que la reutiliza tal cual para el ZIP de
+ * soportes: clonarla es garantizar que dentro de tres meses las dos tengan bordes distintos.
+ *
+ * No sabe nada de exports ni de ZIP —solo de tono, texto y dos botones— y por eso se puede compartir
+ * sin que el nombre del módulo mienta.
+ */
+export function AvisoVisible(
   { aviso, onReintentar, onDescartar }:
   { aviso: AvisoExport; onReintentar: () => void; onDescartar: () => void },
 ) {

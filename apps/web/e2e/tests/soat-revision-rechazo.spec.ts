@@ -221,9 +221,25 @@ test.describe('HU #11915 · AC1 — la revisión de Operaciones', () => {
     await expect(destino.locator('option', { hasText: 'Rechazada' })).toHaveCount(0);
   });
 
-  test('las dos clases de fila conviven: la del canal no tiene casilla y la de trámite no tiene «Validar»', async ({ page }) => {
+  /**
+   * **La garantía se movió de sitio con la HU #11910, no desapareció.**
+   *
+   * Hasta esa HU la fila del canal no tenía casilla, y eso era lo que impedía «aprobar diez
+   * solicitudes sin abrir una sola factura». Desde el AC1 de la #11910 la casilla está en TODAS las
+   * filas visibles —hace falta para llevarse los soportes de una fila ya resuelta— así que lo que
+   * hay que comprobar ya no es la ausencia del control, sino que **la solicitud del canal no entra
+   * en el cuerpo de `POST /flito/soat/enviar`**. Eso es lo que el mutante tiene que romper, y es una
+   * afirmación más fuerte que la anterior: la de antes se podía cumplir dejando la fila fuera de la
+   * casilla y dentro de la petición.
+   */
+  test('las dos clases de fila conviven: la del canal se marca pero NO se envía, y la de trámite no tiene «Validar»', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockApi(page, { items: [FILA_PENDIENTE, FILA_REVISION] });
+    const enviados: unknown[] = [];
+    await page.route(/\/api\/flito\/soat\/enviar$/, (route) => {
+      enviados.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enviados: 1 }) });
+    });
     await page.goto('/flito/soat');
 
     // La de trámite: casilla sí (entra en el envío masivo), «Validar» no.
@@ -233,11 +249,20 @@ test.describe('HU #11915 · AC1 — la revisión de Operaciones', () => {
     await expect(page.getByRole('dialog').getByRole('button', { name: 'Validar' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Cerrar' }).click();
 
-    // La del canal: «Validar» sí, casilla NO. Habilitar la selección en lote para el canal sería
-    // aprobar diez solicitudes sin abrir una sola factura.
-    await expect(page.getByRole('row', { name: /REV222/ }).getByRole('checkbox')).toHaveCount(0);
+    // La del canal: «Validar» sí, y casilla también —para el ZIP de soportes—.
+    await expect(page.getByRole('row', { name: /REV222/ }).getByRole('checkbox')).toHaveCount(1);
     await abrirDetalle(page, 'REV222');
     await expect(page.getByRole('dialog').getByRole('button', { name: 'Validar' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cerrar' }).click();
+
+    // Marcadas las DOS, el envío sigue siendo solo el de la fila Pendiente.
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+    await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 2)' })).toBeVisible();
+    await page.getByLabel('Enviar a').selectOption({ index: 1 });
+    await page.getByRole('button', { name: /^Enviar/ }).click();
+
+    await expect.poll(() => enviados.length).toBe(1);
+    expect(enviados[0]).toMatchObject({ ids: [FILA_PENDIENTE.id] });
   });
 
   test('la puerta trasera se cierra: una solicitud del canal no se reversa ni cambia de proveedor', async ({ page }) => {

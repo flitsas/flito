@@ -5,7 +5,6 @@
 
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import archiver from 'archiver';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
@@ -18,18 +17,22 @@ import {
   CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
 } from './flito-impuestos.pii.js';
 import {
+  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, nombrePlacaOrganismo,
+  resolverEntradasZip, tipoPorBytes, ZipError, zipSoportesLimiter,
+} from '../../shared/soportes/soportes-zip.js';
+import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { EstadoImpuesto, ResultadoCertificacion } from '@operaciones/shared-types';
+import { EstadoImpuesto, ResultadoCertificacion, TipoSoporteZip } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
 import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
-  facturaVentaFlitConAcceso, reactivar, rechazar, reversar,
+  facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarRecibos } from './flito-recibos.service.js';
@@ -76,29 +79,6 @@ function handleError(res: Response, e: unknown): void {
 }
 
 /**
- * Qué es realmente el fichero que devolvió FLIT, mirando sus primeros bytes.
- *
- * Se mira el contenido y no la cabecera del origen porque S3 rotula todo como octet-stream. El
- * default es PDF: es lo que FLIT emite como factura de venta, y ante la duda vale más un `.pdf`
- * que un archivo sin extensión, que es justo lo que se está corrigiendo.
- */
-function tipoDeFactura(buf: Buffer): { contentType: string; extension: string } {
-  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { contentType: 'application/pdf', extension: 'pdf' };
-  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return { contentType: 'image/jpeg', extension: 'jpg' };
-  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return { contentType: 'image/png', extension: 'png' };
-  }
-  return { contentType: 'application/pdf', extension: 'pdf' };
-}
-
-/** Nombre de descarga: reconocible en la carpeta de descargas y siempre con extensión. */
-function nombreFactura(referencia: string, extension: string): string {
-  // El id de FLIT es texto libre del origen: se limpia porque va dentro de una cabecera HTTP.
-  const limpia = referencia.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 60) || 'sin-id';
-  return `factura-venta-${limpia}.${extension}`;
-}
-
-/**
  * GET /:id/factura-venta — ver/descargar la factura de venta (viene de FLIT, S3).
  *
  * La API sirve el fichero en vez de redirigir a la URL prefirmada, y esa es la diferencia entre un
@@ -110,6 +90,13 @@ function nombreFactura(referencia: string, extension: string): string {
  * El tipo se decide por los bytes, no por lo que diga el origen: si el fichero empieza por `%PDF`
  * es un PDF aunque venga rotulado como octet-stream, y si resulta ser una imagen se sirve como
  * imagen en vez de mentir con un `.pdf` que ningún visor podría abrir.
+ *
+ * **El NOMBRE cambia en la HU #11910: `PLACA-ORGANISMO.<ext>`, no `factura-venta-<idFlit>.pdf`.**
+ * El AC5 pide ese nombre «también en la descarga individual», y el motivo es de conciliación: quien
+ * baja un ZIP y luego una factura suelta acaba con dos convenciones en la misma carpeta y no puede
+ * emparejarlas. El id de FLIT sale del nombre —no es lo que la operación usa para cuadrar— y con él
+ * se va el único texto libre del origen que llegaba a una cabecera HTTP; lo que entra ahora está
+ * normalizado a `[A-Z0-9-]` por `nombrePlacaOrganismo`.
  *
  * Operaciones o gestor de impuestos (respeta la frontera del gestor). Integración FLIT.
  */
@@ -124,48 +111,86 @@ router.get('/:id/factura-venta', OPS_O_GESTOR, async (req: Request, res: Respons
   if (!upstream || !upstream.ok) { res.status(502).json({ error: 'No se pudo descargar la factura de venta desde FLIT' }); return; }
   const cuerpo = Buffer.from(await upstream.arrayBuffer());
 
-  const { contentType, extension } = tipoDeFactura(cuerpo);
+  const { contentType, extension } = tipoPorBytes(cuerpo);
   res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Length', String(cuerpo.length));
   // `inline` para que el visor de la aplicación lo pinte; el nombre es el que usa el navegador al
   // guardarlo, así que lleva extensión pase lo que pase.
-  res.setHeader('Content-Disposition', `inline; filename="${nombreFactura(factura.idFlit ?? factura.facturaId, extension)}"`);
+  const base = nombrePlacaOrganismo(factura.placa, factura.organismoAlias, factura.organismoCodigo);
+  res.setHeader('Content-Disposition', `inline; filename="${base}.${extension}"`);
   res.send(cuerpo);
 });
 
-// POST /facturas-venta/zip — descarga varias facturas de venta en un zip. Operaciones o gestor.
-const zipSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(100) });
-router.post('/facturas-venta/zip', OPS_O_GESTOR, async (req: Request, res: Response) => {
-  const parsed = zipSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  const ctx = await contextoImpuesto(req.user!);
-  const flit = getFlitAdapter();
+/**
+ * POST /soportes/zip — factura de venta y/o recibo de impuesto de los marcados, en UN ZIP (AC3).
+ *
+ * ── Sustituye a `POST /facturas-venta/zip`, que se RETIRA ────────────────────────────────────────
+ *
+ * Aquella ruta se queda sin llamadores con esta HU y no se conserva «por si acaso»: exportaba
+ * facturas con datos personales sin cuota, sin rastro en `pii_access_log` y con un `catch {}` mudo
+ * que hacía desaparecer documentos sin dejar constancia. Dejarla viva sería mantener abierta la
+ * puerta que esta HU cierra. Un cliente que la llame recibe 404.
+ *
+ * ── `tipos` es del usuario, y `.strict()` importa ────────────────────────────────────────────────
+ *
+ * El AC3 dice «factura de venta / comprobante de pago / ambos → UN ZIP», así que el vocabulario es
+ * de dos valores y el cuerpo los lleva. `.strict()` porque un campo mal escrito —`tipo` en
+ * singular— se ignoraría en silencio y el usuario recibiría un archivo con otra cosa dentro
+ * creyendo que pidió lo que marcó.
+ *
+ * **`recibo_impuesto` NO es un alias de la columna `tipo`**: resuelve a
+ * `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver `soportes-zip.ts`). Hoy el
+ * único productor es `flito-recibos.service.ts`, que escribe siempre el marcado, así que **el camino
+ * real es la caída** — la preferencia está para cuando el limpio exista.
+ *
+ * ── Roles: `OPS_O_GESTOR`, no `LECTURA` ─────────────────────────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor`, y el AC7 dice que auditoría no descarga. 403.
+ */
+const zipSoportesSchema = z.object({
+  // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
+  // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
+  ids: z.array(z.string().uuid()).min(1),
+  tipos: z.array(z.enum([TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO]))
+    .min(1).max(2),
+}).strict();
 
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', 'attachment; filename="facturas-venta.zip"');
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  archive.on('error', () => { try { res.destroy(); } catch { /* ya cerrado */ } });
-  archive.pipe(res);
-
-  let incluidas = 0;
-  for (const id of parsed.data.ids) {
-    try {
-      const factura = await facturaVentaFlitConAcceso(id, ctx);
-      if (!factura) continue;
-      const url = await flit.obtenerUrlFactura(factura.facturaId);
-      if (!url) continue;
-      const r = await fetch(url);
-      if (!r.ok) continue;
-      // Mismo criterio que la descarga individual: el tipo sale de los bytes y el nombre lleva el
-      // id del trámite, que es con lo que se concilia. Antes cada entrada se llamaba como su id de
-      // S3, ilegible dentro del zip.
-      const cuerpo = Buffer.from(await r.arrayBuffer());
-      archive.append(cuerpo, { name: nombreFactura(factura.idFlit ?? factura.facturaId, tipoDeFactura(cuerpo).extension) });
-      incluidas += 1;
-    } catch { /* omitir la factura fallida, no tumbar el zip */ }
+router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Request, res: Response) => {
+  const parsed = zipSoportesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
   }
-  await audit(req, { action: 'export', resource: 'flito_impuesto', detail: `Descarga zip de facturas de venta: ${incluidas}/${parsed.data.ids.length}` });
-  await archive.finalize();
+  const ctx = await contextoImpuesto(req.user!);
+
+  try {
+    comprobarTopeRegistrosZip(parsed.data.ids);
+    const registros = await registrosZipImpuestos(parsed.data.ids, ctx);
+    const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
+
+    // ANTES del primer byte, y esto es la deuda que la HU #11909 dejó abierta en este endpoint: el
+    // zip de facturas auditaba con `audit()` pero NO llamaba a `registrarAccesoImpuesto`, así que un
+    // lote de cien facturas con los datos del titular dentro no dejaba una sola línea del artículo 17.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export',
+      archivo: 'zip_soportes',
+      campos: CAMPOS_PII_ZIP_SOPORTES,
+      filas: entradas.length,
+    });
+    await audit(req, {
+      action: 'export', resource: 'flito_impuesto',
+      detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${entradas.length} documento(s)`,
+    });
+
+    await emitirZipSoportes(res, entradas);
+  } catch (e) {
+    if (res.headersSent) throw e;
+    if (e instanceof ZipError) {
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+    handleError(res, e);
+  }
 });
 
 // Tras una mutación devolvemos el detalle; si el actor ya no puede verlo, confirmación mínima.

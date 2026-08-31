@@ -13,6 +13,7 @@ import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import BloqueRevision from '../components/flito/soat-cliente/BloqueRevision';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
+import BarraEnvioSoat from '../components/flito/BarraEnvioSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
 import HistorialEstados from '../components/flit/HistorialEstados';
@@ -25,6 +26,9 @@ import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInte
 import {
   AvisoExportCola, BotonExportarCola, COLA_SOAT, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
+import {
+  AvisoSoportesZip, DescargarSoportesZip, ZIP_SOAT, useDescargaZip,
+} from '../components/flito/DescargarSoportesZip';
 // Ni `CeldaTramite` ni `ENCABEZADOS_COMUNES`: desde la HU #11905 esta cola dejó de girar sobre el
 // trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
 // archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
@@ -319,10 +323,32 @@ export default function FlitoSoat() {
   // auditor (AC6) y al cliente, que además tendría otro archivo —el backend le recorta de cada fila
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
   const puedeExportar = esOperaciones || esGestor;
+  // Quién puede DESCARGAR SOPORTES (HU #11910). La MISMA guarda del export, sin predicado nuevo: el
+  // gestor gana casillas que hoy no tiene, y son suyas —necesita los comprobantes de sus SOAT—. Al
+  // auditor no se le pinta la columna deshabilitada: no se le pinta (AC7).
+  const puedeDescargarSoportes = esOperaciones || esGestor;
+  // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
+  const descargaZip = useDescargaZip(ZIP_SOAT);
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  const seleccionables = useMemo(() => filas.filter((f) => f.estado === EstadoSoat.PENDIENTE), [filas]);
+  /**
+   * Qué filas se pueden MARCAR: **todas las visibles** (HU #11910, AC1). Antes eran solo las
+   * Pendiente, porque la casilla existía para una sola acción; ahora existe también para llevarse
+   * los soportes, y un Pagado es justo la fila que tiene la evidencia que alguien va a buscar.
+   */
+  const seleccionables = filas;
+  /**
+   * Qué filas del marcado se pueden ENVIAR. **Es lo que viaja en el cuerpo del POST**, y por eso se
+   * deriva aquí y no dentro de la barra: abrir la casilla sin acotar el envío convertiría «marqué 40
+   * y pulsé enviar» en «el servidor envió 6 y no dijo nada de las otras 34». El servidor ya filtra
+   * por estado dentro del `SELECT … FOR UPDATE` —no hay agujero de autorización—; lo que se evita
+   * aquí es el descarte SILENCIOSO disfrazado de éxito.
+   */
+  const enviables = useMemo(
+    () => filas.filter((f) => seleccion.has(f.id) && f.estado === EstadoSoat.PENDIENTE),
+    [filas, seleccion],
+  );
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
@@ -470,9 +496,35 @@ export default function FlitoSoat() {
           `role="status"` y `aria-busy`. */}
       {!data && !error && <PageContentSkeleton />}
 
-      {esOperaciones && seleccion.size > 0 && (
-        <BarraEnvio ids={[...seleccion]} proveedores={proveedores}
-          onEnviado={() => { setSeleccion(new Set()); refrescar(); }} onError={setError} />
+      {puedeDescargarSoportes && seleccion.size > 0 && (
+        <BarraEnvioSoat
+          marcadas={seleccion.size}
+          enviables={enviables.map((f) => f.id)}
+          puedeEnviar={esOperaciones}
+          proveedores={proveedores}
+          onEnviado={() => { setSeleccion(new Set()); refrescar(); }}
+          onError={setError}
+          descarga={(
+            <DescargarSoportesZip
+              superficie={ZIP_SOAT}
+              ids={[...seleccion]}
+              ocupado={descargaZip.ocupado}
+              onDescargar={descargaZip.descargar}
+            />
+          )}
+        />
+      )}
+
+      {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
+          limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
+      {puedeDescargarSoportes && (
+        <AvisoSoportesZip
+          ocupado={descargaZip.ocupado}
+          marcadas={descargaZip.marcadas}
+          aviso={descargaZip.aviso}
+          onReintentar={descargaZip.reintentar}
+          onDescartar={descargaZip.descartar}
+        />
       )}
 
       {data && filas.length === 0 && (
@@ -514,9 +566,12 @@ export default function FlitoSoat() {
           <FlitTable label="Pólizas SOAT">
             <thead>
               <FlitTr>
-                {esOperaciones && seleccionables.length > 0 && (
+                {/* Cuelga del PERMISO y no de «hay filas accionables»: para el auditor aquel
+                    cálculo daba vacío por casualidad, y lo que se quiere sostener es la afirmación
+                    (AC7). El nombre accesible cambia con el sentido: ya no marca «los pendientes». */}
+                {puedeDescargarSoportes && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar todos los pendientes"
+                    <input type="checkbox" aria-label="Seleccionar las filas de esta página"
                       checked={seleccion.size > 0 && seleccion.size === seleccionables.length}
                       onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
                   </FlitTh>
@@ -536,12 +591,10 @@ export default function FlitoSoat() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {esOperaciones && seleccionables.length > 0 && (
+                  {puedeDescargarSoportes && (
                     <td className="px-3 py-2">
-                      {f.estado === EstadoSoat.PENDIENTE && (
-                        <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
-                          checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
-                      )}
+                      <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
+                        checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
                     </td>
                   )}
                   <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
@@ -591,52 +644,6 @@ export default function FlitoSoat() {
         <CargaMasiva onClose={() => setCargaMasiva(false)} onListo={() => { setCargaMasiva(false); refrescar(); }} />
       )}
     </div>
-  );
-}
-
-/**
- * Valor centinela del selector de destino. La contingencia entra como una opción MÁS de la misma
- * lista, y no como una casilla aparte, porque así un solo control decide el destino: es imposible
- * pedir proveedor y Operaciones a la vez, que es justo lo que el servidor rechaza con un 400. El
- * usuario nunca llega a ver ese error porque la interfaz no le deja construirlo.
- */
-const DESTINO_OPERACIONES = '__operaciones__';
-
-function BarraEnvio({ ids, proveedores, onEnviado, onError }: {
-  ids: string[]; proveedores: Proveedor[]; onEnviado: () => void; onError: (m: string) => void;
-}) {
-  const [destino, setDestino] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const aOperaciones = destino === DESTINO_OPERACIONES;
-  const enviar = async () => {
-    setEnviando(true);
-    try {
-      await api.post('/flito/soat/enviar',
-        aOperaciones ? { ids, gestionOperaciones: true } : { ids, proveedorSoatId: destino });
-      onEnviado();
-    } catch (e) { onError(errorMessage(e)); }
-    finally { setEnviando(false); }
-  };
-  return (
-    <FlitCard>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
-        <label className="flex items-center gap-2 text-sm">
-          Enviar a
-          <select className={`${flitInp} max-w-xs`} value={destino} onChange={(e) => setDestino(e.target.value)}>
-            <option value="">Elige destino…</option>
-            <option value={DESTINO_OPERACIONES}>Gestionado por Operaciones</option>
-            <optgroup label="Proveedores">
-              {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-            </optgroup>
-          </select>
-        </label>
-        {/* Sin destino el SOAT quedaría en la cola de nadie y sin ANS con el que medirlo. */}
-        <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || !destino} onClick={enviar}>
-          {enviando ? 'Enviando…' : aOperaciones ? 'Enviar a Operaciones' : 'Enviar al gestor'}
-        </button>
-      </div>
-    </FlitCard>
   );
 }
 

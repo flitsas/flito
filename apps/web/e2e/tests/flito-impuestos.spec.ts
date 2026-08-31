@@ -322,11 +322,24 @@ test.describe('FLITO — Impuestos', () => {
 
   // El fallo que se venía a corregir: la factura se abría en una pestaña con una URL `blob:`, que
   // no lleva nombre, así que el navegador la guardaba sin extensión y no abría con doble clic.
-  test('la factura de venta de FLIT se descarga como .pdf, con el trámite en el nombre', async ({ page }) => {
+  /**
+   * El nombre lo pone el SERVIDOR desde la HU #11910 (AC5): `PLACA-ORGANISMO.<ext>`, el mismo con el
+   * que la factura sale dentro del ZIP. Antes lo fabricaba el cliente (`factura-venta-<idFlit>.pdf`)
+   * y quien bajaba un ZIP y luego una factura suelta acababa con dos convenciones en la misma
+   * carpeta, sin forma de emparejarlas.
+   *
+   * *Mutante:* volver a `nombreFacturaVenta(imp.idFlit)` — el `download` diría `factura-venta-…`.
+   */
+  test('la factura de venta de FLIT se descarga con el nombre PLACA-ORGANISMO que manda el servidor', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);
     await page.route(/\/api\/flito\/impuestos\/[^/]+\/factura-venta/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4 fake' }));
+      route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        headers: { 'content-disposition': 'inline; filename="ABC123-STTMANIZALES.pdf"' },
+        body: '%PDF-1.4 fake',
+      }));
 
     await page.goto('/flito/impuestos');
     await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
@@ -334,7 +347,33 @@ test.describe('FLITO — Impuestos', () => {
 
     const descargar = page.getByRole('link', { name: 'Descargar' });
     await expect(descargar).toBeVisible();
-    await expect(descargar).toHaveAttribute('download', 'factura-venta-FLIT-1001.pdf');
+    await expect(descargar).toHaveAttribute('download', 'ABC123-STTMANIZALES.pdf');
+  });
+
+  /**
+   * Y el guardia: un nombre que NO tiene la forma del AC5 no se propaga.
+   *
+   * `a3f9c1e0.pdf` es la forma del id de S3 —de donde se venía— y `[A-Z0-9]+` no basta para
+   * distinguirlo de una placa: lo que lo distingue es que un nombre de conciliación tiene DOS
+   * segmentos. Sin este caso, el predicado podría ser `() => true` y nadie se enteraría.
+   */
+  test('un nombre servido que no es PLACA-ORGANISMO se cae al respaldo del cliente', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.route(/\/api\/flito\/impuestos\/[^/]+\/factura-venta/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/pdf',
+        headers: { 'content-disposition': 'inline; filename="a3f9c1e0.pdf"' },
+        body: '%PDF-1.4 fake',
+      }));
+
+    await page.goto('/flito/impuestos');
+    await page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver' }).click();
+    await page.getByRole('button', { name: 'En FLIT · Ver / descargar' }).click();
+
+    await expect(page.getByRole('link', { name: 'Descargar' }))
+      .toHaveAttribute('download', 'factura-venta-FLIT-1001.pdf');
   });
 });
 
@@ -560,9 +599,11 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
 // Certificación MASIVA desde la selección (HU #11169)
 //
 // Una sola mecánica de selección para dos acciones distintas: enviar (Pendientes) y certificar
-// (Solicitados). Lo que estos casos vigilan sobre todo es que la barra NUNCA ofrezca una acción que
-// solo aplica a parte de lo marcado: el usuario pulsaría creyendo que actúa sobre los 4 que
-// seleccionó y actuaría sobre 2, sin enterarse hasta ver el resultado.
+// (Solicitados). Hasta la HU #11910 estos casos vigilaban que la barra NUNCA ofreciera una acción
+// que solo aplica a parte de lo marcado. **Esa regla se invirtió**: con la casilla abierta a
+// cualquier fila (AC1 de la #11910), negar la acción convertía el marcado en un candado. Lo que
+// vigilan ahora es lo que sustituyó a aquella prohibición: que el rótulo diga «(1 de 2)» y —lo que
+// de verdad importa— que **el cuerpo de la petición lleve solo los ids aplicables**.
 // ---------------------------------------------------------------------------
 
 /** Tres solicitados sin certificar, para poder marcar varios. */
@@ -666,9 +707,9 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     });
 
     await page.goto('/flito/impuestos');
-    await page.getByLabel('Seleccionar todos los que admiten acción masiva').check();
+    await page.getByLabel('Seleccionar las filas de esta página').check();
 
-    await expect(page.getByText('Máximo 10 por lote. Seleccionaste 11.')).toBeVisible();
+    await expect(page.getByText('Máximo 10 por lote. De las 11 marcadas, 11 se certifican.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Certificar (11)' })).toBeDisabled();
     // El aviso llega ANTES de gastar la petición: el backend la rechazaría igual, pero con 11
     // consultas al RUNT de por medio no hace falta llegar hasta ahí.
@@ -697,23 +738,73 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     await expect.poll(() => pedidas).toBeGreaterThan(antes);
   });
 
-  test('una selección que mezcla estados no ofrece ninguna acción', async ({ page }) => {
+  /**
+   * **La regresión más cara de la HU #11910, y la que sustituye al viejo «no ofrece ninguna acción».**
+   *
+   * Hasta esta HU, marcar un Pendiente y un Solicitado a la vez dejaba la barra muda. Con la casilla
+   * abierta a cualquier fila (AC1) eso convertía el marcado en un candado: bastaba una Pagada para
+   * perder «Enviar al gestor», que es la acción del día.
+   *
+   * *Mutantes que este caso mata:* (a) volver al `every()` —los dos botones desaparecen y caen los
+   * dos primeros asertos—; (b) mandar `[...seleccion]` entero —el rótulo seguiría diciendo «(1 de 2)»
+   * y solo el aserto del CUERPO lo caza—.
+   */
+  test('AC1 #11910 — mezclar estados ofrece las dos acciones, y cada una manda solo sus ids', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     // Un Pendiente (se envía) y un Solicitado (se certifica) a la vez.
     await mockLote(page, [
       { ...IMPUESTOS[0], certificacion: null },
       { ...IMPUESTOS_LOTE[0] },
     ]);
+    const enviados: unknown[] = [];
+    await page.route(/\/api\/flito\/impuestos\/enviar$/, (route) => {
+      enviados.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ enviados: ['i1'], yaEnviados: [] }) });
+    });
 
     await page.goto('/flito/impuestos');
     await page.getByLabel('Seleccionar ABC123').check();
     await page.getByLabel('Seleccionar SOL000').check();
 
-    // Ofrecer «Certificar» aquí actuaría sobre 1 de los 2 marcados sin decirlo. Se busca el botón
-    // de la BARRA —el que lleva el contador— y no el de la fila, que sí debe seguir estando.
-    await expect(page.getByRole('button', { name: /^Certificar \(/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Enviar al gestor/ })).toHaveCount(0);
-    await expect(page.getByText(/mezcla estados con acciones distintas/)).toBeVisible();
+    // Las dos acciones SE OFRECEN, y el desajuste va dentro del nombre accesible.
+    await expect(page.getByRole('button', { name: 'Enviar al gestor (1 de 2)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Certificar (1 de 2)' })).toBeVisible();
+    await expect(page.getByText(/De las 2 filas marcadas/)).toBeVisible();
+    // Y el mensaje que las negaba ya no existe.
+    await expect(page.getByText(/mezcla estados con acciones distintas/)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Enviar al gestor (1 de 2)' }).click();
+    await expect.poll(() => enviados.length).toBe(1);
+    // **Sobre el CUERPO, no sobre el rótulo.** Un id, el del Pendiente: marcar más filas no amplía
+    // nunca el alcance de `enviar`.
+    expect(enviados[0]).toEqual({ ids: ['i1'] });
+  });
+
+  /**
+   * El tope de certificación mide los CERTIFICABLES, no la selección entera (HU #11910).
+   *
+   * *Mutante:* dejar `ids.length > TOPE` — con 11 marcadas y 9 certificables el botón saldría
+   * bloqueado por un tope que no aplica a ese caso, y este test lo caza.
+   */
+  test('AC1 #11910 — 11 marcadas con 9 certificables NO bloquean «Certificar»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    const nueveCert = [...Array(9)].map((_, n) => ({
+      ...IMPUESTOS[1], id: `c${n}`, tramiteId: `tc${n}`, idFlit: `FLIT-40${n}`,
+      placa: `CER0${n}`, certificacion: null,
+    }));
+    // Dos Pagados: ni se envían ni se certifican, pero SÍ se marcan y SÍ cuentan para el ZIP.
+    const dosPagados = [0, 1].map((n) => ({
+      ...IMPUESTOS[1], id: `p${n}`, tramiteId: `tp${n}`, idFlit: `FLIT-50${n}`,
+      placa: `PAG0${n}`, estado: 'pagado', pagadoEn: '2026-08-02T12:00:00Z', certificacion: null,
+    }));
+    await mockLote(page, [...nueveCert, ...dosPagados]);
+
+    await page.goto('/flito/impuestos');
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+
+    await expect(page.getByText('11 seleccionado(s)')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Certificar (9 de 11)' })).toBeEnabled();
+    await expect(page.getByText(/Máximo 10 por lote/)).toHaveCount(0);
   });
 
   test('el gestor del organismo también certifica en bloque', async ({ page }) => {

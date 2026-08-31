@@ -105,6 +105,17 @@ export interface AccesoImpuesto {
    * un export rechazado por el tope sería indistinguible de una búsqueda cualquiera.
    */
   resultado?: string;
+  /**
+   * QUÉ archivo salió, cuando `accion: 'export'` ya no significa una sola cosa (HU #11910).
+   *
+   * Calco del campo gemelo de `flito-soat.pii.ts` y por lo mismo: desde esta HU el módulo exporta el
+   * `.xlsx` de la cola —cédula, correo, teléfono y dirección— y el ZIP de soportes, que publica la
+   * PLACA en el nombre de cada entrada. Sin este campo las dos líneas serían indistinguibles.
+   *
+   * **La ausencia significa el `.xlsx` de la cola**: así la ruta de la HU #11909 sigue diciendo la
+   * verdad sin tocarla.
+   */
+  archivo?: 'zip_soportes';
 }
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */
@@ -122,6 +133,7 @@ const MOTIVO_MAX = 200;
 export async function registrarAccesoImpuesto(req: Request, acceso: AccesoImpuesto): Promise<void> {
   const partes = [
     acceso.resultado ? `resultado=${acceso.resultado}` : null,
+    acceso.archivo ? `archivo=${acceso.archivo}` : null,
     acceso.impuestoId ? `impuesto ${acceso.impuestoId}` : null,
     acceso.filas === undefined ? null : `filas=${acceso.filas}`,
   ].filter((p): p is string => p !== null);

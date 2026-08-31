@@ -109,6 +109,20 @@ export interface AccesoSoat {
   soatId?: string | null;
   /** Cuántas filas se entregaron. Una página de 50 no es la misma lectura que un detalle. */
   filas?: number;
+  /**
+   * QUÉ archivo salió, cuando `accion: 'export'` ya no significa una sola cosa (HU #11910).
+   *
+   * Desde esta HU el módulo exporta dos cosas distintas: el `.xlsx` de la cola —once columnas con
+   * cédula, correo, teléfono y dirección— y el ZIP de comprobantes, que publica la PLACA en el
+   * nombre de cada entrada y los documentos dentro. Son dos hechos con consecuencias distintas para
+   * un titular que pregunte por el artículo 17, y sin este campo las dos líneas del `pii_access_log`
+   * serían indistinguibles: mismo `accion`, mismo `resource_tipo`, y solo `campos_accedidos` para
+   * adivinar.
+   *
+   * **La ausencia significa el `.xlsx` de la cola**, que era el único export del módulo hasta ahora:
+   * así la ruta de la HU #11909 no tiene que cambiar para seguir diciendo la verdad.
+   */
+  archivo?: 'zip_soportes';
 }
 
 /** `pii_access_log.motivo` es `varchar(200)`: pasarse sería un 22001 en vez de un rastro. */
@@ -126,6 +140,7 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
     // Primero el marcador: `motivo` se recorta por el final y esto es lo que hace la línea
     // reconocible cuando el export no llegó a entregarse.
     acceso.resultado ? `resultado=${acceso.resultado}` : null,
+    acceso.archivo ? `archivo=${acceso.archivo}` : null,
     acceso.soatId ? `soat ${acceso.soatId}` : null,
     acceso.filas === undefined ? null : `filas=${acceso.filas}`,
   ].filter((p): p is string => p !== null);
