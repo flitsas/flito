@@ -1,5 +1,6 @@
-// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta) y #11915 (revisión).
-// Montado en `/api/flito/soat`, junto al router del módulo. Contrato: ADR-0008 §6.
+// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta), #11915 (revisión) y
+// #11935 (alta sin RUNT bloqueante). Montado en `/api/flito/soat`, junto al router del módulo.
+// Contrato: ADR-0008 §6; el alta ya no espera a Kyverum (ADR-0009).
 //
 // ── Por qué un router aparte y montado en la MISMA base ──────────────────────────────────────────
 //

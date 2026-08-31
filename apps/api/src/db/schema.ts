@@ -2603,7 +2603,13 @@ export const flitoSoat = pgTable('flito_soat', {
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
   // Denormalizados y congelados: el SOAT vive más que sus trámites.
   companiaId: integer('compania_id').notNull().references(() => clients.id),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  /**
+   * Secretaría de tránsito. NOT NULL hasta la HU #11935 (ADR-0009): el canal Cliente nace sin
+   * organismo porque el RUNT ya no es compuerta del INSERT. La FK queda — un código escrito
+   * tiene que existir en `organismos_transito_config`. El sync y el trámite siguen mandando
+   * código. Cola/detalle/export hacen `leftJoin` para no ocultar la fila.
+   */
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
   proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
   proveedorSobrescrito: boolean('proveedor_sobrescrito').notNull().default(false),
   /**
@@ -2729,9 +2735,28 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   // Cuántas veces el cliente subsanó y volvió a enviar. Sirve para detectar la solicitud que va y
   // viene sin resolverse, que es la que hay que llamar por teléfono.
   reenvios: smallint('reenvios').notNull().default(0),
+  /**
+   * Verificación RUNT post-commit (HU #11935, ADR-0009). Cuatro columnas derivadas: NUNCA el
+   * payload crudo. `ok` no está en el AC2; hace falta para no dejar el éxito indistinguible de
+   * «aún no corrió». Default `pendiente` porque el INSERT del alta no espera a Kyverum.
+   */
+  verificacionEstado: varchar('verificacion_estado', { length: 20 }).notNull().default('pendiente'),
+  /** `true`/`false` solo con lectura concluyente (`ok`); `NULL` en pendiente/caído/sin registro/no cuadra. */
+  soatVigente: boolean('soat_vigente'),
+  /** Solo si `soat_vigente=true` y el RUNT trajo fecha. */
+  soatVigenteHasta: date('soat_vigente_hasta'),
+  /**
+   * Código máquina del desenlace (mismo vocabulario que `CodigoErrorSolicitudSoat`):
+   * `runt_no_disponible` · `runt_sin_registro` · `runt_no_cuadra` · `organismo_no_catalogado`.
+   */
+  verificacionCodigo: varchar('verificacion_codigo', { length: 40 }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   causalIdx: index('idx_flito_soat_solicitud_causal').on(t.causalRechazoId),
+  verificacionEstadoChk: check(
+    'flito_soat_solicitud_verificacion_estado_chk',
+    sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
+  ),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.

@@ -1,5 +1,7 @@
-// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914 (alta) y #11915 (revisión).
-// Diseño y tradeoffs: docs/adr/ADR-0008-flito-soat-canal-cliente.md
+// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914 (alta), #11915 (revisión) y
+// #11935 (alta sin RUNT bloqueante).
+// Diseño y tradeoffs: docs/adr/ADR-0008-flito-soat-canal-cliente.md (satélite, RN-01, no crudo)
+// y docs/adr/ADR-0009-flito-soat-runt-no-bloquea-alta.md (el RUNT no es compuerta del INSERT).
 //
 // ── Qué hace ─────────────────────────────────────────────────────────────────────────────────────
 //
@@ -38,14 +40,12 @@
 // que creó el sync— y un `admin` los ve todos, así que sin ese guarda la ruta de validar sería una
 // segunda puerta a `solicitado` que se salta `POST /enviar` y su destino explícito.
 //
-// ── El payload crudo del RUNT no se persiste (ADR-0008 §1.6) ────────────────────────────────────
+// El payload crudo del RUNT no se persiste (ADR-0008 §1.6, conservado por ADR-0009).
 //
-// Se guardan solo los campos derivados que el AC1 nombra: marca, línea, modelo, clase, servicio y
-// cilindraje van a `vehicles`; el organismo a `flito_soat.organismo_codigo`; el propietario a
-// `flito_compradores`. El precedente contrario —`flito_tramites.flit_raw`, que guarda el reporte
-// entero de FLIT con celular, correo y cédula en claro— existe porque el sync RECONCILIA y necesita
-// saber qué decía antes. Aquí la consulta es de una sola vez, así que guardar el crudo sería copiar
-// el peor rasgo del precedente a una tabla que nace limpia.
+// Se guardan solo los campos derivados. El RUNT ya no bloquea el INSERT (ADR-0009): el alta
+// escribe `vehicles` sin marca/organismo, `organismo_codigo` NULL y el satélite en `pendiente`,
+// y programa `verificarRuntPostAlta` con `setImmediate` tras el COMMIT. El job rellena lo que
+// el catálogo cruce. La preconsulta SÍ sigue consultando Kyverum (su contrato HTTP no cambia).
 
 import { createHash, randomUUID } from 'crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -66,22 +66,35 @@ import {
   CodigoErrorSolicitudSoat,
   ESTADO_SOAT_LABEL,
   EstadoSoat,
-  resolverCodigoOrganismoFlit,
   TipoSoporte,
   type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { ConceptoHistorial, registrarCambio } from '../../shared/historial/estado-historial.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
-import { extraerVehiculoRunt, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
-import { derivePreflightChecks } from '../tramites/preflight.js';
-import { consultarVehiculoRunt } from '../runt/runt.service.js';
-import { mapTipoDocUiToRunt } from '../runt/runt-tipo-doc.js';
+import { runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
   buscarConAcceso, enviarAlGestor, ORIGEN_CLIENTE,
   type DestinoEnvio, type SoatCtx,
 } from './flito-soat.service.js';
+import {
+  consultarRuntCrudo,
+  DATOS_RUNT_VACIOS,
+  extraerDatosCanal,
+  fechaVencimientoSoatRunt,
+  programarVerificacionRunt,
+  resolverOrganismoCatalogo,
+  soatVigenteSegunRunt,
+  type DatosRuntCanal,
+} from './flito-soat-cliente-runt.js';
+
+export {
+  extraerDatosCanal,
+  fechaVencimientoSoatRunt,
+  soatVigenteSegunRunt,
+  type DatosRuntCanal,
+} from './flito-soat-cliente-runt.js';
 
 /**
  * Error del canal con CÓDIGO además de estado HTTP.
@@ -141,145 +154,6 @@ export interface ArchivoSolicitud {
 
 /** Mayúsculas y solo alfanuméricos, igual que `runt.service.ts` normaliza lo que consulta. */
 const normalizarId = (v: string): string => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-// ───────────────────────────── Lectura del RUNT ─────────────────────────────
-
-/**
- * Lo que el canal necesita del RUNT. `null` en un campo significa «el RUNT no lo trajo», y no se
- * inventa: `vehicles` guarda null y la pantalla pinta «—».
- */
-export interface DatosRuntCanal {
-  placa: string | null;
-  vin: string | null;
-  marca: string | null;
-  linea: string | null;
-  /** Año-modelo. Texto aquí; `vehicles.year` es integer y la conversión se hace al escribir. */
-  modelo: string | null;
-  clase: string | null;
-  cilindraje: string | null;
-  tipoServicio: string | null;
-  organismoNombre: string | null;
-  /**
-   * Nombre del propietario SI el RUNT lo trae.
-   *
-   * Riesgo abierto 2 del ADR-0008, y por eso este campo es opcional en el sentido fuerte: hay dos
-   * afirmaciones contradictorias en el repo sobre si el RUNT devuelve al propietario
-   * (`certificacion-runt.ts:11` dice que no; `soat/refresh.service.ts:111` lo lee de
-   * `vehiculo.nombrePropietario`). El canal NO depende de la respuesta: el propietario que se
-   * PERSISTE es el que teclea el cliente, y esto viaja solo en la preconsulta, para que el
-   * formulario pueda pre-rellenar el nombre cuando exista. Correo, dirección y teléfono no vienen
-   * por ninguna vía y siempre los teclea la persona.
-   */
-  propietarioNombre: string | null;
-}
-
-/** Primer alias con valor útil. El RUNT no es consistente con los nombres de sus campos. */
-function alias(fuente: Record<string, unknown> | null, claves: readonly string[]): string | null {
-  if (!fuente) return null;
-  for (const k of claves) {
-    const v = fuente[k];
-    if (v === null || v === undefined) continue;
-    const s = String(v).trim();
-    if (s.length > 0 && s.toLowerCase() !== 'null') return s;
-  }
-  return null;
-}
-
-/**
- * Los diez campos del canal, a partir de la respuesta cruda.
- *
- * Los seis primeros salen de `extraerVehiculoRunt`, que es el extractor que ya resuelve los alias
- * del RUNT y está verificado contra una consulta real (`certificacion-runt.ts`). NO se reescribe:
- * duplicar las cadenas de alias es garantizar que dentro de un mes digan cosas distintas. Los
- * cuatro que faltan —cilindraje, servicio, organismo y propietario— no están en `DatosVehiculoRunt`
- * porque la certificación de impuestos no los compara, y se leen aquí con el mismo criterio.
- */
-export function extraerDatosCanal(data: unknown): DatosRuntCanal {
-  const d = (data ?? {}) as Record<string, unknown>;
-  const veh = (d.vehiculo ?? null) as Record<string, unknown> | null;
-  const tec = (d.datosTecnicos ?? null) as Record<string, unknown> | null;
-  const base = extraerVehiculoRunt(data);
-
-  return {
-    ...base,
-    cilindraje: alias(veh, ['cilindraje', 'cilindrada']) ?? alias(tec, ['cilindraje', 'cilindrada']),
-    tipoServicio: alias(veh, ['tipoServicio', 'servicio', 'nombreServicio'])
-      ?? alias(tec, ['tipoServicio', 'servicio', 'nombreServicio']),
-    organismoNombre: alias(veh, ['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
-    propietarioNombre: alias(veh, ['nombrePropietario', 'propietario', 'nombreTitular']),
-  };
-}
-
-/**
- * ¿El RUNT dice que este vehículo YA tiene SOAT vigente? (AC3)
- *
- * Se delega en `derivePreflightChecks`, que es la función PURA con la que el pre-vuelo de trámites
- * lee esa misma vigencia desde 2025 —estado textual, fecha de vencimiento y sus alias— en vez de
- * escribir aquí una segunda regla. Dos lecturas de la misma vigencia acaban discrepando, y la que
- * discrepara aquí compraría un SOAT que el vehículo ya tiene.
- *
- * Solo `status === 'ok'` bloquea. `fail` es «lo tuvo y está vencido», que es precisamente el caso
- * que este canal existe para atender, y `unknown` es «el RUNT no reporta póliza»: bloquear con una
- * respuesta no concluyente dejaría al cliente sin poder pedir un SOAT que necesita.
- */
-export function soatVigenteSegunRunt(respuestaRunt: unknown): boolean {
-  const { checks } = derivePreflightChecks({ vehiculoResp: respuestaRunt as { ok?: boolean; data?: unknown } });
-  return checks.find((c) => c.key === 'soat')?.status === 'ok';
-}
-
-/**
- * La fecha hasta la que el RUNT dice que la póliza está vigente, en `yyyy-mm-dd`, o `null`.
- *
- * ── Por qué es una función aparte de `soatVigenteSegunRunt` ─────────────────────────────────────
- *
- * Son dos preguntas distintas y conviene que no se mezclen: aquella decide SI bloquea —y esa REGLA
- * se delega entera en `derivePreflightChecks`, que ya la sabe leer por estado y por fecha—, y esta
- * solo copia un dato para que el modal pueda decir hasta cuándo. Fundirlas obligaría a que la regla
- * devolviera una estructura, y el día que el pre-vuelo cambie su forma se llevaría por delante al
- * canal.
- *
- * **No se saca del `message` del check**, que es donde ya está escrita («SOAT vigente hasta …»):
- * parsear la prosa de otro módulo es exactamente el modo de fallo que este campo viene a quitarle a
- * la pantalla. Se leen los mismos alias que lee el pre-vuelo (`fechaVencimSoat` / `fechaVencimiento`)
- * sobre el mismo objeto.
- *
- * ── Y por qué normaliza a `yyyy-mm-dd` ──────────────────────────────────────────────────────────
- *
- * El RUNT manda `dd/MM/yyyy` casi siempre e ISO a veces. `yyyy-mm-dd` es la forma en la que este
- * producto pasa fechas de CALENDARIO por la API, y es la que la web sabe rotular en español; pasar
- * el texto crudo dejaría el modal escribiendo «vigente hasta el 01/02/2027» en una pantalla donde
- * todo lo demás dice «1 de febrero de 2027». Normalizar no es inventar: es el mismo día.
- *
- * Lo que NO hace, y es la mitad del contrato: si el RUNT no manda fecha —reporta la vigencia solo
- * por estado, que es un caso frecuente y legítimo— o manda algo que no es una fecha, devuelve `null`
- * y el 409 sale SIN el campo. Ninguna fecha por defecto, ningún «hoy + un año».
- */
-export function fechaVencimientoSoatRunt(data: unknown): string | null {
-  const d = (data ?? {}) as Record<string, unknown>;
-  const bruto = Array.isArray(d.soat) ? d.soat[0] : d.soat;
-  const soat = (bruto ?? null) as Record<string, unknown> | null;
-  const valor = alias(soat, ['fechaVencimSoat', 'fechaVencimiento']);
-  if (!valor) return null;
-
-  // ISO (con o sin hora): se queda con el día.
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(valor);
-  if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
-
-  // `dd/MM/yyyy` y `dd-MM-yyyy`, que es como la manda la pasarela.
-  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(valor.trim());
-  if (dmy) return fechaValida(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
-
-  return null;
-}
-
-/** `yyyy-mm-dd` si los tres números son un día del calendario; `null` si no. */
-function fechaValida(anio: number, mes: number, dia: number): string | null {
-  if (mes < 1 || mes > 12 || dia < 1 || dia > 31 || anio < 1900 || anio > 2200) return null;
-  const d = new Date(Date.UTC(anio, mes - 1, dia));
-  // Rechaza el 31 de febrero y compañía: `Date` los desborda al mes siguiente en silencio.
-  if (d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) return null;
-  return `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-}
 
 // ───────────────────────────── Guardas del alta ─────────────────────────────
 
@@ -446,11 +320,10 @@ export interface ResultadoRunt {
 }
 
 /**
- * Consulta el RUNT y traduce cada forma de «no» en un error TIPADO (AC2 y AC3).
+ * Consulta el RUNT y traduce cada forma de «no» en un error TIPADO.
  *
- * Ninguno de estos casos crea la solicitud, y ninguno es un 500: el formulario tiene que poder
- * reintentar (RUNT caído) o corregir (organismo fuera de catálogo) sin perder lo tecleado, y para
- * eso necesita saber cuál de los cuatro le pasó.
+ * SOLO la preconsulta la usa (su contrato HTTP no cambia en esta HU). El alta ya no espera
+ * a Kyverum: ver `crearSolicitud` y `programarVerificacionRunt`.
  */
 async function consultarRunt(
   placa: string,
@@ -458,28 +331,16 @@ async function consultarRunt(
   numeroDocumento: string,
   tipoDocumento: TipoDocumentoRunt,
 ): Promise<ResultadoRunt> {
-  // Bug #11927: la pasarela Kyverum exige documento cuando va la placa; el VIN al lado no lo
-  // sustituye. El tipo se traduce aquí al código de pasarela (CC→C, PPT→Y) para no tocar
-  // `runt.service.ts`. El 3.er argumento es el NÚMERO, igual que Impuestos.
-  const tipoRunt = mapTipoDocUiToRunt(tipoDocumento) ?? tipoDocumento;
-  const respuesta = await consultarVehiculoRunt(placa, vin, numeroDocumento, tipoRunt) as { ok?: boolean; data?: unknown; message?: string };
+  const respuesta = await consultarRuntCrudo(placa, vin, numeroDocumento, tipoDocumento);
   if (!respuesta?.ok) {
     throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
       'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
   }
-  // Una placa o un VIN que el RUNT no conoce responden `ok:true` con todo en null salvo el
-  // identificador que se consultó — es el eco de la pregunta. Sin esta guarda, la solicitud se
-  // crearía con marca, línea y organismo vacíos y nadie sabría de dónde salió.
   if (runtSinRegistro(respuesta.data)) {
     throw fallo(422, CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO,
       'El RUNT no tiene registrado un vehículo con esa placa y ese VIN. Revisa los datos.');
   }
   if (soatVigenteSegunRunt(respuesta)) {
-    // La fecha viaja como campo propio y SOLO si el RUNT la trajo: el modal tiene dos redacciones —
-    // con fecha y sin ella— y la de sin fecha no es un caso degradado, es la que corresponde cuando
-    // la pasarela reporta la vigencia por estado. Interpolar un hueco vacío sería peor que no
-    // decirlo. Es el vehículo por el que pregunta su propia compañía, así que no hay frontera que
-    // cruzar aquí: lo único que se le devuelve es lo que el RUNT acaba de responderle.
     const fechaVencimiento = fechaVencimientoSoatRunt(respuesta.data);
     throw fallo(409, CodigoErrorSolicitudSoat.SOAT_VIGENTE,
       'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.',
@@ -492,27 +353,14 @@ async function consultarRunt(
 }
 
 /**
- * El organismo del RUNT, traducido a código DIVIPOLA y comprobado contra la tabla (AC2).
+ * El organismo del RUNT, traducido a código DIVIPOLA y comprobado contra la tabla.
  *
- * Son DOS comprobaciones y las dos hacen falta: `resolverCodigoOrganismoFlit` cruza el nombre contra
- * el catálogo nacional de shared-types, y `organismos_transito_config` es la tabla a la que apunta
- * la FK de `flito_soat.organismo_codigo`. Un código del catálogo que no esté configurado en esta
- * instalación haría fallar el INSERT con un 23503 — un 500 genérico donde el AC pide un error
- * accionable.
+ * La preconsulta SIGUE exigiendo catálogo (contrato HTTP sin cambios). El alta no: el job anota
+ * `organismo_no_catalogado` y deja el código NULL.
  */
 async function resolverOrganismo(nombre: string | null): Promise<string> {
-  const codigo = resolverCodigoOrganismoFlit({ nombre });
-  if (codigo) {
-    const [fila] = await db.select({ codigo: organismosTransitoConfig.codigo })
-      .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, codigo)).limit(1);
-    if (fila) return fila.codigo;
-  }
-  // `organismoNombre` va como CAMPO y no solo dentro de la frase. La pantalla necesita el dato para
-  // componer su propio texto («El RUNT lo reporta en X, que aún no está habilitado»), y sacarlo de
-  // las comillas del mensaje ata una redacción a una expresión regular: el día que alguien corrija
-  // la frase, la UI deja de encontrarlo sin que ningún test se entere. `null` cuando el RUNT no
-  // reporta organismo —que es la OTRA variante del copy— y la clave viaja igualmente, para que
-  // «no vino» se distinga de «no lo mandaron».
+  const codigo = await resolverOrganismoCatalogo(nombre);
+  if (codigo) return codigo;
   throw fallo(422, CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
     `El organismo de tránsito que reporta el RUNT${nombre ? ` («${nombre}»)` : ''} no está en el catálogo de FLITO. Escríbenos para habilitarlo.`,
     { organismoNombre: nombre ?? null });
@@ -528,14 +376,13 @@ export interface Preconsulta {
 }
 
 /**
- * Paso 1 del alta: el cliente escribe placa, VIN y documento y ve lo que el RUNT sabe del
+ * Paso 1 del wizard: el cliente escribe placa, VIN y documento y ve lo que el RUNT sabe del
  * vehículo, antes de adjuntar nada. El documento viaja porque la pasarela lo exige con la placa
  * (Bug #11927); no se consulta «solo por VIN».
  *
- * Aplica EXACTAMENTE las mismas guardas que el alta —canal encendido, RN-01, RUNT, SOAT vigente,
- * organismo— y en el mismo orden, a propósito: si la preconsulta fuera más laxa, el formulario
- * dejaría llenar diez campos y adjuntar un PDF para fallar al final; si fuera más estricta,
- * bloquearía altas legítimas. Y no escribe NADA: es una lectura.
+ * El contrato HTTP NO cambia en la HU #11935: sigue aplicando canal, RN-01, tenencia, RUNT,
+ * SOAT vigente y organismo. Lo que deja de ser es paso del ALTA — `crearSolicitud` ya no la
+ * invoca. Y no escribe NADA: es una lectura.
  */
 export async function preconsulta(
   placa: string,
@@ -702,23 +549,22 @@ export interface SolicitudCreada {
 }
 
 /**
- * El alta del canal Cliente: crear ES enviar (AC1). No hay borrador.
+ * El alta del canal Cliente: crear ES enviar (AC1). No hay borrador. El RUNT no es compuerta
+ * (ADR-0009): 201 con `pendiente_revision` y verificación fire-and-forget tras el COMMIT.
  *
  * ── El orden de los pasos es la mitad del diseño ─────────────────────────────────────────────────
  *
  *   1. Canal encendido y compañía del usuario — lo más barato y lo que más veces va a fallar.
- *   2. El adjunto es un PDF de verdad — antes de gastar una consulta al RUNT.
- *   3. RN-01 — antes de consultar el RUNT y ANTES de subir el archivo: un VIN repetido no debe dejar
- *      un objeto huérfano en el bucket.
- *   4. RUNT: disponible, con registro, sin SOAT vigente, con organismo catalogado.
- *   5. Subida a S3 — fuera de la transacción, como `cargarFactura()` (CA-11): una llamada de red
- *      dentro de una transacción la mantiene abierta el tiempo que tarde el bucket.
- *   6. La transacción: vehículo, SOAT, propietario, satélite, soporte e historial, todo o nada.
+ *   2. El adjunto es un PDF de verdad — antes de gastar S3.
+ *   3. RN-01 — ANTES de subir el archivo: un VIN repetido no debe dejar un objeto huérfano.
+ *   4. Tenencia de `vehicles` — ficha ajena = 409 recortado, sin gastar S3.
+ *   5. UUID + subida a S3 — fuera de la transacción (CA-11).
+ *   6. La transacción: vehículo SIN datos RUNT, SOAT con organismo NULL, satélite `pendiente`,
+ *      propietario, soporte e historial, todo o nada.
+ *   7. COMMIT.
+ *   8. `setImmediate(verificarRuntPostAlta)` — no se espera. El 201 no conoce el desenlace.
  *
- * El `id` del SOAT se genera AQUÍ y no lo pone la base, y no es capricho: la clave de storage se
- * nombra con él, y sin conocerlo antes habría que nombrar el objeto con la placa o el VIN —los dos
- * son cuasi-PII (AGENTS.md §14) y acabarían en una ruta de bucket que se lee en cualquier consola—,
- * o subir el archivo después y dejar la fila sin soporte si esa subida falla.
+ * El `id` del SOAT se genera AQUÍ y no lo pone la base: la clave de storage se nombra con él.
  */
 export async function crearSolicitud(
   entrada: EntradaSolicitud,
@@ -731,12 +577,7 @@ export async function crearSolicitud(
   const placa = normalizarId(entrada.placa);
   const vin = normalizarId(entrada.vin);
   await verificarRn01(vin, canal.companiaId);
-  // Y la ficha de `vehicles`, que es OTRO conjunto: hay vehículos sin SOAT que sí tienen dueño.
   await verificarTenenciaVehiculo(vin, canal.companiaId);
-
-  const { datos, organismoCodigo } = await consultarRunt(
-    placa, vin, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento,
-  );
 
   const soatId = randomUUID();
   const hash = createHash('sha256').update(archivo.buffer).digest('hex');
@@ -747,27 +588,20 @@ export async function crearSolicitud(
 
   try {
     await db.transaction(async (tx) => {
-      const vehiculoId = await upsertVehiculoRunt(tx, { placa, vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId);
+      const vehiculoId = await upsertVehiculoRunt(
+        tx, { placa, vin }, DATOS_RUNT_VACIOS, entrada.propietario, canal.companiaId, ctx, soatId,
+      );
 
       await tx.insert(flitoSoat).values({
         id: soatId,
         vin,
         vehiculoId,
-        // Los dos valores que definen el canal. `pendiente_revision` y NO `pendiente`: esa es la
-        // razón de que el estado exista (ADR-0008 §2), porque `POST /enviar` filtra por `pendiente`
-        // y despacharía al gestor una solicitud que nadie ha validado.
         origen: ORIGEN_CLIENTE,
         estado: EstadoSoat.PENDIENTE_REVISION,
-        // La compañía del USUARIO, no un campo del formulario: el cliente no elige para quién
-        // radica.
         companiaId: canal.companiaId,
-        // Del RUNT, no tecleado (AC1).
-        organismoCodigo,
+        organismoCodigo: null,
       });
 
-      // El propietario va a `flito_compradores` con `soat_id` puesto y `tramite_id` en null — el
-      // CHECK `flito_compradores_padre_chk` exige uno y solo uno. Está aquí y no en una tabla nueva
-      // porque es donde el término de búsqueda de la cola ya lo interroga (ADR-0008 §1.3).
       await tx.insert(flitoCompradores).values({
         soatId,
         nombreCompleto: entrada.propietario.nombreCompleto,
@@ -782,8 +616,8 @@ export async function crearSolicitud(
       await tx.insert(flitoSoatSolicitud).values({
         soatId,
         solicitadoPorId: ctx.userId,
-        // El nombre es el rastro durable, igual que en `flito_soportes.subido_por_nombre`.
         solicitadoPorNombre: ctx.username,
+        verificacionEstado: 'pendiente',
       });
 
       await tx.insert(flitoSoportes).values({
@@ -796,10 +630,6 @@ export async function crearSolicitud(
         subidoPorNombre: ctx.username,
       });
 
-      // El alta también es un cambio de estado: sin esta fila, el historial de una solicitud del
-      // canal empezaría en su primera revisión y nadie sabría cuándo ni quién la radicó. Participa
-      // de la MISMA transacción a propósito (`registrarCambio` recibe el ejecutor): un estado sin su
-      // fila de historial es justo el agujero que esa función existe para tapar.
       await registrarCambio(tx, {
         concepto: ConceptoHistorial.SOAT,
         registroId: soatId,
@@ -811,30 +641,13 @@ export async function crearSolicitud(
       });
     });
   } catch (e) {
-    // La ÚLTIMA línea de RN-01, y la única que sostiene la regla cuando dos peticiones con el mismo
-    // VIN corren a la vez: entre el `verificarRn01` de arriba y este INSERT cabe otra petición
-    // entera, y quien decide es el UNIQUE de la base. Se traduce al mismo 409 que la comprobación
-    // previa para que el formulario reciba una sola respuesta a una sola pregunta.
     if ((e as { code?: string })?.code === UNIQUE_VIOLATION) {
-      // `propia: false`: la carrera la pierde quien llega segundo y no se ha leído la fila ganadora.
-      // Decir «no es tuya» sería mentir la mitad de las veces, y consultarla ahora para saberlo
-      // convertiría una carrera perdida en una consulta más. Es lo prudente: el front enseña el
-      // mensaje y no ofrece abrir nada.
-      //
-      // ── Y el TEXTO es el mismo que el del vehículo ajeno, no uno propio ──────────────────────────
-      //
-      // Cierre de la segunda carga LOW de la auditoría de la #11914. Con una frase distinta, este
-      // 409 era distinguible del de `vehiculoAjeno()`, y esa diferencia es un ORÁCULO: sondeando
-      // VINes, dos intentos separaban «ese vehículo ya tiene SOAT» de «ese vehículo existe en FLITO
-      // sin SOAT», que son dos hechos sobre la cartera de otra compañía. Los tres caminos que
-      // acaban en «no es tuyo y no puedes» —VIN con SOAT ajeno, ficha de `vehicles` ajena y carrera
-      // perdida— comparten ahora código, cuerpo y frase, así que ninguno responde una pregunta que
-      // los otros dos no respondan.
       throw vehiculoAjeno();
     }
     throw e;
   }
 
+  programarVerificacionRunt(soatId);
   return { id: soatId, estado: EstadoSoat.PENDIENTE_REVISION };
 }
 

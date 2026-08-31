@@ -507,6 +507,11 @@ export const CodigoErrorSolicitudSoat = {
   RUNT_SIN_REGISTRO: 'runt_sin_registro',
   /** El organismo que reporta el RUNT no cruza con el catálogo de FLITO (AC2). */
   ORGANISMO_NO_CATALOGADO: 'organismo_no_catalogado',
+  /**
+   * Placa o VIN que el RUNT trajo DIFIERE de lo radicado (HU #11935). Un campo que el RUNT no
+   * trajo (`NO_VERIFICABLE`) no es este código. Vive en el satélite, no aborta el alta.
+   */
+  RUNT_NO_CUADRA: 'runt_no_cuadra',
   /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
   SOAT_VIGENTE: 'soat_vigente',
   /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
@@ -549,6 +554,19 @@ export const CodigoErrorSolicitudSoat = {
 
 export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * Desenlace de la verificación RUNT post-commit del canal Cliente (HU #11935, ADR-0009).
+ *
+ * `ok` no está en el AC2 (lista los desenlaces de fallo + pendiente); hace falta para no dejar
+ * el éxito indistinguible de «aún no corrió». CHECK en la base, constante aquí.
+ */
+export const ESTADOS_VERIFICACION_SOLICITUD_SOAT = [
+  'pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok',
+] as const;
+
+export type EstadoVerificacionSolicitudSoat =
+  (typeof ESTADOS_VERIFICACION_SOLICITUD_SOAT)[number];
 
 /**
  * Una causal del catálogo de rechazo, tal como la sirve `GET /flito/soat/causales-rechazo`
