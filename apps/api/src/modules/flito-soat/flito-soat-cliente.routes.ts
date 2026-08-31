@@ -118,19 +118,31 @@ const vehiculoSchema = z.object({
   vin: z.string().trim().min(5, 'El VIN es obligatorio').max(17),
 });
 
+/** Mismo criterio que el alta: PII en el cuerpo, nunca en la URL. Sin ellos la pasarela no consulta. */
+const documentoSchema = z.object({
+  tipoDocumento: z.enum(TIPOS_DOCUMENTO_RUNT),
+  numeroDocumento: z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30),
+});
+
+const preconsultaSchema = vehiculoSchema.merge(documentoSchema);
+
 /**
  * POST /cliente/preconsulta — paso 1: qué dice el RUNT de este vehículo.
  *
- * No escribe nada, pero **sí deja rastro de acceso a datos personales**: devuelve la placa, el VIN y,
- * cuando el RUNT lo trae, el nombre del propietario. Es una consulta a un registro nacional sobre un
- * vehículo que puede no ser de quien pregunta, y quien pregunta es una empresa tercera.
+ * Recibe placa, VIN **y documento** (Bug #11927): la pasarela Kyverum exige el documento cuando va
+ * la placa. Sin `tipoDocumento`/`numeroDocumento` es 400, no 503. No escribe nada, pero **sí deja
+ * rastro de acceso a datos personales**: devuelve la placa, el VIN y, cuando el RUNT lo trae, el
+ * nombre del propietario. Es una consulta a un registro nacional sobre un vehículo que puede no ser
+ * de quien pregunta, y quien pregunta es una empresa tercera.
  */
 router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, async (req: Request, res: Response) => {
-  const parsed = vehiculoSchema.safeParse(req.body);
+  const parsed = preconsultaSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const resultado = await preconsulta(parsed.data.placa, parsed.data.vin, ctx);
+    const resultado = await preconsulta(
+      parsed.data.placa, parsed.data.vin, parsed.data.numeroDocumento, parsed.data.tipoDocumento, ctx,
+    );
     await registrarAccesoRuntCliente(req, { conPropietario: resultado.propietario !== null });
     res.json(resultado);
   } catch (e) { manejarError(res, e); }
@@ -148,9 +160,7 @@ router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, async (re
  */
 const vacioANull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
 
-const altaSchema = vehiculoSchema.extend({
-  tipoDocumento: z.enum(TIPOS_DOCUMENTO_RUNT),
-  numeroDocumento: z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30),
+const altaSchema = vehiculoSchema.merge(documentoSchema).extend({
   nombreCompleto: z.string().trim().min(3, 'El nombre del propietario es obligatorio').max(200),
   correo: z.preprocess(vacioANull, z.string().trim().email('El correo no es válido').max(150).nullable().optional()),
   celular: z.preprocess(vacioANull, z.string().trim().max(30).nullable().optional()),

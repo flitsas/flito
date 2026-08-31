@@ -76,6 +76,7 @@ import { detectMime } from '../pesv/magic-number.js';
 import { extraerVehiculoRunt, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
 import { derivePreflightChecks } from '../tramites/preflight.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
+import { mapTipoDocUiToRunt } from '../runt/runt-tipo-doc.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
   buscarConAcceso, enviarAlGestor, ORIGEN_CLIENTE,
@@ -451,10 +452,17 @@ export interface ResultadoRunt {
  * reintentar (RUNT caído) o corregir (organismo fuera de catálogo) sin perder lo tecleado, y para
  * eso necesita saber cuál de los cuatro le pasó.
  */
-async function consultarRunt(placa: string, vin: string): Promise<ResultadoRunt> {
-  // Con VIN no hace falta el documento del propietario: la pasarela lo exige solo cuando se
-  // consulta por placa. Se mandan los dos porque el AC1 pide consultar con placa Y VIN.
-  const respuesta = await consultarVehiculoRunt(placa, vin) as { ok?: boolean; data?: unknown; message?: string };
+async function consultarRunt(
+  placa: string,
+  vin: string,
+  numeroDocumento: string,
+  tipoDocumento: TipoDocumentoRunt,
+): Promise<ResultadoRunt> {
+  // Bug #11927: la pasarela Kyverum exige documento cuando va la placa; el VIN al lado no lo
+  // sustituye. El tipo se traduce aquí al código de pasarela (CC→C, PPT→Y) para no tocar
+  // `runt.service.ts`. El 3.er argumento es el NÚMERO, igual que Impuestos.
+  const tipoRunt = mapTipoDocUiToRunt(tipoDocumento) ?? tipoDocumento;
+  const respuesta = await consultarVehiculoRunt(placa, vin, numeroDocumento, tipoRunt) as { ok?: boolean; data?: unknown; message?: string };
   if (!respuesta?.ok) {
     throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
       'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
@@ -520,15 +528,22 @@ export interface Preconsulta {
 }
 
 /**
- * Paso 1 del alta: el cliente escribe placa y VIN y ve lo que el RUNT sabe del vehículo, antes de
- * teclear al propietario y de adjuntar nada.
+ * Paso 1 del alta: el cliente escribe placa, VIN y documento y ve lo que el RUNT sabe del
+ * vehículo, antes de adjuntar nada. El documento viaja porque la pasarela lo exige con la placa
+ * (Bug #11927); no se consulta «solo por VIN».
  *
  * Aplica EXACTAMENTE las mismas guardas que el alta —canal encendido, RN-01, RUNT, SOAT vigente,
  * organismo— y en el mismo orden, a propósito: si la preconsulta fuera más laxa, el formulario
  * dejaría llenar diez campos y adjuntar un PDF para fallar al final; si fuera más estricta,
  * bloquearía altas legítimas. Y no escribe NADA: es una lectura.
  */
-export async function preconsulta(placa: string, vin: string, ctx: SoatCtx): Promise<Preconsulta> {
+export async function preconsulta(
+  placa: string,
+  vin: string,
+  numeroDocumento: string,
+  tipoDocumento: TipoDocumentoRunt,
+  ctx: SoatCtx,
+): Promise<Preconsulta> {
   const canal = await canalDeLaCompania(ctx);
   const placaNorm = normalizarId(placa);
   const vinNorm = normalizarId(vin);
@@ -537,7 +552,7 @@ export async function preconsulta(placa: string, vin: string, ctx: SoatCtx): Pro
   // el formulario dejaría llenar los diez campos y adjuntar el PDF para fallar al final. No entrega
   // información de más — el 409 es idéntico al de la RN-01 ajena, sin id y sin estado.
   await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
-  const { datos, organismoCodigo } = await consultarRunt(placaNorm, vinNorm);
+  const { datos, organismoCodigo } = await consultarRunt(placaNorm, vinNorm, numeroDocumento, tipoDocumento);
 
   const [organismo] = await db.select({ alias: organismosTransitoConfig.alias })
     .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, organismoCodigo)).limit(1);
@@ -719,7 +734,9 @@ export async function crearSolicitud(
   // Y la ficha de `vehicles`, que es OTRO conjunto: hay vehículos sin SOAT que sí tienen dueño.
   await verificarTenenciaVehiculo(vin, canal.companiaId);
 
-  const { datos, organismoCodigo } = await consultarRunt(placa, vin);
+  const { datos, organismoCodigo } = await consultarRunt(
+    placa, vin, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento,
+  );
 
   const soatId = randomUUID();
   const hash = createHash('sha256').update(archivo.buffer).digest('hex');
