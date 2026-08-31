@@ -94,14 +94,16 @@ router.post('/login', async (req: Request, res: Response) => {
 
   await audit(req, { action: 'login', resource: 'auth', resourceId: String(user.id), detail: `Login exitoso: ${user.username}` });
 
-  // Devolvemos allowedPages "efectivas" (rol defaults ∪ custom) igual que /me, para que el
-  // frontend pinte la navegación correcta SIN esperar un reload que dispare /me.
+  // Devolvemos allowedPages "efectivas" (rol defaults ∪ custom) y `puedeSolicitarSoat`
+  // igual que /me, para que el frontend pinte la navegación y el canal de SOAT
+  // SIN esperar un reload que dispare /me (Bug #11937).
   res.json({
     token,
     user: {
       id: user.id, name: user.name, username: user.username, role: user.role,
       allowedPages: getEffectivePages(user),
       transitoCodigo: user.transitoCodigo ?? null,
+      puedeSolicitarSoat: await puedeSolicitarSoat({ role: user.role, companiaId: user.companiaId }),
     },
   });
 });
@@ -115,12 +117,12 @@ router.post('/login', async (req: Request, res: Response) => {
  * abierta no concede nada.
  *
  * Se calcula en el servidor y no se deriva en la web de `role === 'cliente'`, porque el flag es de la
- * COMPAÑÍA y el navegador no la conoce. Viaja en `/me` y no en el sobre de la cola por lo mismo que
- * `transitoCodigo`: es un dato de ámbito del usuario, resuelve antes de que la cola termine y evita
- * que el botón parpadee de «puedo» a «no puedo».
+ * COMPAÑÍA y el navegador no la conoce. Viaja en `/me` y en el sobre de `POST /login` por lo mismo que
+ * `allowedPages`: la SPA usa ese sobre hasta el reload, y un flag ausente pinta el canal apagado
+ * (Bug #11937). `companiaId` no sale en ninguna de las dos respuestas.
  *
- * `false` para los otros once roles SIN consultar nada: ninguno tiene compañía, y un JOIN aquí lo
- * pagarían todos los logins del producto por un dato que solo usa uno.
+ * `false` para los otros once roles SIN consultar nada: el JOIN a `clients` es solo para `cliente`
+ * con `companiaId`. Un JOIN aquí lo pagarían todos los logins del producto por un dato que solo usa uno.
  */
 async function puedeSolicitarSoat(user: { role: string; companiaId: number | null }): Promise<boolean> {
   if (user.role !== 'cliente' || !user.companiaId) return false;
