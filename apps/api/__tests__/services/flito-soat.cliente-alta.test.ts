@@ -180,6 +180,19 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(ORGANISMO_FUNZA);
   });
 
+  it('el alta consulta el RUNT con el documento y el tipo de pasarela; persiste el de la UI', async () => {
+    escenario();
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), {
+      campos: { tipoDocumento: 'PPT' },
+    });
+    expect(r.status).toBe(201);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(
+      'JNH38H', '9FKRG2222T2042405', '1020304050', 'Y',
+    );
+    // Lo que se guarda es el tipo de la UI, no el código de la pasarela.
+    expect(espia.ultimoInsertEn('flito_compradores').tipoDocumento).toBe('PPT');
+  });
+
   it('el propietario va a `flito_compradores` colgado del SOAT y NO de un trámite', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
@@ -348,7 +361,7 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
 
     const r = await request(await buildApp()).post('/api/flito/soat/cliente/preconsulta')
       .set('Authorization', await auth('cliente', siguienteUsuario()))
-      .send({ placa: 'JNH38H', vin: '9FKRG2222T2042405' });
+      .send({ placa: 'JNH38H', vin: '9FKRG2222T2042405', tipoDocumento: 'CC', numeroDocumento: '1020304050' });
 
     expect(r.status).toBe(409);
     expect(r.body.propia).toBe(false);
@@ -735,8 +748,35 @@ describe('el canal es del rol `cliente`, y su ruta está inscrita en la allowlis
 // ───────────────────────────── Preconsulta ───────────────────────────────────
 
 describe('POST /cliente/preconsulta — paso 1, sin escribir nada', () => {
-  const preconsultar = async (app: express.Express, token: string, cuerpo: Record<string, string> = { placa: 'JNH38H', vin: '9FKRG2222T2042405' }) =>
+  const CUERPO_PRECONSULTA: Record<string, string> = {
+    placa: 'JNH38H', vin: '9FKRG2222T2042405',
+    tipoDocumento: 'CC', numeroDocumento: '1020304050',
+  };
+  const preconsultar = async (app: express.Express, token: string, cuerpo: Record<string, string> = CUERPO_PRECONSULTA) =>
     request(app).post('/api/flito/soat/cliente/preconsulta').set('Authorization', token).send(cuerpo);
+
+  it('sin tipoDocumento o numeroDocumento → 400, no 503 (la pasarela no se llama)', async () => {
+    escenario();
+    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()), {
+      placa: 'JNH38H', vin: '9FKRG2222T2042405',
+    });
+    expect(r.status).toBe(400);
+    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+  });
+
+  it('consulta el RUNT con placa, VIN, número de documento y tipo de pasarela (PPT→Y)', async () => {
+    escenario();
+    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()), {
+      placa: 'JNH38H', vin: '9FKRG2222T2042405',
+      tipoDocumento: 'PPT', numeroDocumento: '1020304050',
+    });
+    expect(r.status).toBe(200);
+    // Cuatro argumentos: un mutante que vuelva a `consultarVehiculoRunt(placa, vin)` muere aquí.
+    // El 4.º es el código de pasarela, no el de la UI (`PPT` no es `Y`).
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(
+      'JNH38H', '9FKRG2222T2042405', '1020304050', 'Y',
+    );
+  });
 
   it('devuelve el vehículo del RUNT, el organismo resuelto y el propietario si lo hay', async () => {
     escenario();

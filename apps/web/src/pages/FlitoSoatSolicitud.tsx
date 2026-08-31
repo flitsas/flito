@@ -46,8 +46,8 @@ import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
 import { ModalSoatVigente, ModalVinEnCola } from '../components/flito/soat-cliente/ModalesBloqueo';
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import {
-  BloqueFactura, BloquePropietario, Campo, EnEspera, ID_CAMPO, PROPIETARIO_VACIO, Seccion,
-  useFocoPrimerError, type CampoPropietario, type Propietario,
+  BloqueFactura, BloquePropietario, Campo, CamposDocumento, EnEspera, ID_CAMPO, PROPIETARIO_VACIO,
+  Seccion, useFocoPrimerError, type CampoPropietario, type Propietario,
 } from '../components/flito/soat-cliente/bloques';
 import CorreccionSolicitud from '../components/flito/soat-cliente/CorreccionSolicitud';
 
@@ -98,7 +98,10 @@ function Alta() {
   const [archivo, setArchivo] = useState<File | null>(null);
 
   /** Lo que el RUNT resolvió, junto con CON QUÉ se preguntó: eso es lo que permite invalidarlo. */
-  const [runt, setRunt] = useState<{ datos: PreconsultaRunt; en: Date; placa: string; vin: string } | null>(null);
+  const [runt, setRunt] = useState<{
+    datos: PreconsultaRunt; en: Date;
+    placa: string; vin: string; tipoDocumento: string; numeroDocumento: string;
+  } | null>(null);
   const [consultando, setConsultando] = useState(false);
   const [fallo, setFallo] = useState<FalloCanal | null>(null);
   const [modal, setModal] = useState<FalloCanal | null>(null);
@@ -120,10 +123,16 @@ function Alta() {
    */
   const [pedirFocoPlaca, setPedirFocoPlaca] = useState(0);
 
-  // Cambiar la placa o el VIN después de una consulta buena INVALIDA el resultado. Sin esto se puede
-  // enviar una solicitud con los datos técnicos de un vehículo y la placa de otro: el servidor
-  // —que consulta de nuevo— la rechazaría con un error que el usuario no sabría explicar.
-  const invalidada = runt !== null && (runt.placa !== placa.trim() || runt.vin !== vin.trim());
+  // Cambiar la placa, el VIN o el documento después de una consulta buena INVALIDA el resultado.
+  // Sin esto se puede enviar una solicitud con los datos técnicos de un vehículo y la placa de
+  // otro, o consultar el RUNT con un documento y radicar otro: el servidor —que consulta de nuevo—
+  // la rechazaría con un error que el usuario no sabría explicar.
+  const invalidada = runt !== null && (
+    runt.placa !== placa.trim()
+    || runt.vin !== vin.trim()
+    || runt.tipoDocumento !== propietario.tipoDocumento
+    || runt.numeroDocumento !== propietario.numeroDocumento.trim()
+  );
   const runtListo = runt !== null && !invalidada;
 
   const hayDatos = Boolean(placa || vin || archivo || Object.values(propietario).some(Boolean));
@@ -152,19 +161,38 @@ function Alta() {
   const consultar = async () => {
     const eP = errorPlaca(placa);
     const eV = errorVin(vin);
-    if (eP || eV) {
-      setErrores((e) => ({ ...e, placa: eP ?? undefined, vin: eV ?? undefined }));
+    const eT = errorTipoDocumento(propietario.tipoDocumento);
+    const eN = errorNumeroDocumento(propietario.numeroDocumento);
+    if (eP || eV || eT || eN) {
+      setErrores((e) => ({
+        ...e,
+        placa: eP ?? undefined, vin: eV ?? undefined,
+        tipoDocumento: eT ?? undefined, numeroDocumento: eN ?? undefined,
+      }));
       setIntento((n) => n + 1);
       return;
     }
-    setErrores((e) => ({ ...e, placa: undefined, vin: undefined }));
+    setErrores((e) => ({
+      ...e, placa: undefined, vin: undefined, tipoDocumento: undefined, numeroDocumento: undefined,
+    }));
     setConsultando(true);
     setFallo(null);
     setModal(null);
     try {
-      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta',
-        { placa: placa.trim(), vin: vin.trim() });
-      setRunt({ datos, en: new Date(), placa: placa.trim(), vin: vin.trim() });
+      // PII en el cuerpo: la pasarela RUNT del canal Cliente exige el documento junto con la placa
+      // (Bug #11927). Sin tipo/número el API responde 400 y la petición no debe salir.
+      const datos = await api.post<PreconsultaRunt>('/flito/soat/cliente/preconsulta', {
+        placa: placa.trim(),
+        vin: vin.trim(),
+        tipoDocumento: propietario.tipoDocumento,
+        numeroDocumento: propietario.numeroDocumento.trim(),
+      });
+      setRunt({
+        datos, en: new Date(),
+        placa: placa.trim(), vin: vin.trim(),
+        tipoDocumento: propietario.tipoDocumento,
+        numeroDocumento: propietario.numeroDocumento.trim(),
+      });
       // Prellenado: el RUNT casi nunca trae propietario y que no lo traiga NO es un fallo. Solo se
       // marca lo que de verdad llegó, y sigue siendo editable — el RUNT va detrás en una compraventa
       // reciente, que es justo el caso de uso de este canal.
@@ -266,7 +294,7 @@ function Alta() {
         <PageHeaderCard
           titleRef={tituloRef}
           title="Solicitud de SOAT"
-          subtitle="Consultamos el RUNT con la placa y el VIN, usted completa el propietario y adjunta la factura de venta. Al enviarla queda en revisión de FLITO."
+          subtitle="Consultamos el RUNT con la placa, el VIN y el documento del propietario; después usted completa el resto de sus datos y adjunta la factura de venta. Al enviarla queda en revisión de FLITO."
         />
       </div>
 
@@ -289,6 +317,13 @@ function Alta() {
         {avisoVin(vin) && !errores.vin && (
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{avisoVin(vin)}</p>
         )}
+
+        <div className="mt-3">
+          <CamposDocumento
+            valor={propietario} onCambio={cambiarPropietario} errores={errores}
+            onBlur={(campo) => validarCampo(campo, propietario[campo])}
+          />
+        </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
@@ -319,7 +354,7 @@ function Alta() {
 
         {invalidada && (
           <p role="alert" className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>
-            Cambió la placa o el VIN: vuelva a consultar el RUNT antes de enviar.
+            Cambió la placa, el VIN o el documento: vuelva a consultar el RUNT antes de enviar.
           </p>
         )}
 
@@ -338,6 +373,7 @@ function Alta() {
               valor={propietario} onCambio={cambiarPropietario} errores={errores}
               onBlur={(campo) => validarCampo(campo, propietario[campo])}
               prellenados={prellenados}
+              omitirDocumento
             />
           )
           : <EnEspera />}

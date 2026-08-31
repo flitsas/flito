@@ -109,6 +109,7 @@ export function Campo({ id, label, valor, onCambio, onBlur, error, ayuda, opcion
         value={valor}
         maxLength={maxLength}
         autoComplete={autoComplete}
+        required={!opcional}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy || undefined}
         onChange={(e) => onCambio(e.target.value)}
@@ -126,6 +127,45 @@ export function Campo({ id, label, valor, onCambio, onBlur, error, ayuda, opcion
   );
 }
 
+// ───────────────────────────── Documento del propietario (bloque 1 del alta) ─────────────────────
+
+/**
+ * Tipo y número del catálogo RUNT. Mismos controles y mismo copy en dos sitios:
+ *
+ *   · **Alta, bloque 1** — ANTES de «Consultar el RUNT»: la pasarela exige el documento junto
+ *     con la placa (Bug #11927).
+ *   · **Subsanación, bloque 2** — se editan ahí porque en esa pantalla no hay preconsulta nueva.
+ *
+ * Extraído para no inventar un tercer widget ni duplicar el `FlitSelect` a mano.
+ */
+export function CamposDocumento({ valor, onCambio, errores, onBlur, prellenadoNumero }: {
+  valor: Pick<Propietario, 'tipoDocumento' | 'numeroDocumento'>;
+  onCambio: (campo: CampoPropietario, v: string) => void;
+  errores: Partial<Record<CampoPropietario, string>>;
+  onBlur: (campo: CampoPropietario) => void;
+  prellenadoNumero?: boolean;
+}) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <FlitSelect
+        label="Tipo de documento"
+        value={valor.tipoDocumento}
+        opciones={OPCIONES_TIPO_DOC}
+        onChange={(v) => onCambio('tipoDocumento', v)}
+        ayuda="Como aparece en el documento del propietario."
+        error={errores.tipoDocumento ?? null}
+        required
+      />
+      <Campo
+        id={ID_CAMPO.numeroDocumento} label="Número de documento" valor={valor.numeroDocumento}
+        onCambio={(v) => onCambio('numeroDocumento', v)} onBlur={() => onBlur('numeroDocumento')}
+        error={errores.numeroDocumento} maxLength={30}
+        prellenado={prellenadoNumero}
+      />
+    </div>
+  );
+}
+
 // ───────────────────────────── Bloque 2 · Propietario ────────────────────────────────────────────
 
 /**
@@ -138,33 +178,28 @@ export function Campo({ id, label, valor, onCambio, onBlur, error, ayuda, opcion
  * Este bloque **no tiene estado «cargando»**, y es correcto: se monta ya resuelto tras la
  * preconsulta y el catálogo de tipos de documento es estático. Tampoco tiene «error de carga», así
  * que el selector no lleva `onReintentar`: no habría nada que reintentar.
+ *
+ * En el **alta**, tipo y número ya se pidieron en el bloque 1: `omitirDocumento` evita montarlos
+ * otra vez (serían el mismo `id` dos veces). En la **subsanación** sí van aquí: no hay preconsulta.
  */
-export function BloquePropietario({ valor, onCambio, errores, onBlur, prellenados }: {
+export function BloquePropietario({ valor, onCambio, errores, onBlur, prellenados, omitirDocumento }: {
   valor: Propietario;
   onCambio: (campo: CampoPropietario, v: string) => void;
   errores: Partial<Record<CampoPropietario, string>>;
   onBlur: (campo: CampoPropietario) => void;
   /** Campos que llegaron del RUNT. Vacío es el caso NORMAL y no se avisa de nada. */
   prellenados: ReadonlySet<CampoPropietario>;
+  /** Alta: el documento vive en el bloque 1. Subsanación: no pasar. */
+  omitirDocumento?: boolean;
 }) {
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <FlitSelect
-          label="Tipo de documento"
-          value={valor.tipoDocumento}
-          opciones={OPCIONES_TIPO_DOC}
-          onChange={(v) => onCambio('tipoDocumento', v)}
-          ayuda="Como aparece en el documento del propietario."
-          error={errores.tipoDocumento ?? null}
+      {!omitirDocumento && (
+        <CamposDocumento
+          valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur}
+          prellenadoNumero={prellenados.has('numeroDocumento')}
         />
-        <Campo
-          id={ID_CAMPO.numeroDocumento} label="Número de documento" valor={valor.numeroDocumento}
-          onCambio={(v) => onCambio('numeroDocumento', v)} onBlur={() => onBlur('numeroDocumento')}
-          error={errores.numeroDocumento} maxLength={30}
-          prellenado={prellenados.has('numeroDocumento')}
-        />
-      </div>
+      )}
 
       <Campo
         id={ID_CAMPO.nombreCompleto} label="Nombre completo o razón social" valor={valor.nombreCompleto}

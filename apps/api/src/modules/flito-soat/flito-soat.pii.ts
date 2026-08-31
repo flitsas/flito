@@ -152,9 +152,10 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
  * Placa y VIN siempre; el nombre del propietario solo cuando el RUNT lo trae, y por eso el registro
  * lo declara caso a caso en vez de afirmar siempre que se accedió a él.
  *
- * `numero_documento` NO está: la preconsulta no recibe ni devuelve el documento del propietario. El
- * cliente lo teclea después, en el alta, y esa ruta es una MUTACIÓN —queda en `audit_logs`, no aquí,
- * por la misma división que explica la cabecera de este archivo.
+ * `numero_documento` NO está: la preconsulta SÍ recibe el documento en el cuerpo (Bug #11927: la
+ * pasarela lo exige con la placa) pero NO lo devuelve. Esta lista es de columnas ACCEDIDAS en la
+ * respuesta, no de las que viajan de ida. El alta sí lo persiste, y esa ruta es una MUTACIÓN
+ * —queda en `audit_logs`, no aquí—, por la misma división que explica la cabecera de este archivo.
  */
 export const CAMPOS_PII_PRECONSULTA = ['placa', 'vin'] as const;
 const CAMPO_PROPIETARIO = 'nombre_completo';

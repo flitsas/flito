@@ -19,13 +19,14 @@ import {
 
 /**
  * Respuesta de `POST /flito/soat/cliente/preconsulta`, con la MISMA forma que
- * `flito-soat-cliente.service.ts:364` (`interface Preconsulta`).
+ * `flito-soat-cliente.service.ts` (`interface Preconsulta`).
  *
- * `placa` y `vin` llegan aquí dentro, pero **la ficha del RUNT no los pinta** (AC1): son los
- * normalizados de la petición, no un dato que el RUNT confirme. La pasarela devuelve el
- * identificador con el que se consultó aunque no reconozca el vehículo, así que enseñarlos bajo el
- * rótulo «Datos del RUNT» sería presentar el eco de lo que el usuario tecleó como una confirmación.
- * Se quedan arriba, en el bloque 1, que es donde él los escribió.
+ * El body de la petición es `{ placa, vin, tipoDocumento, numeroDocumento }` (PII en cuerpo,
+ * nunca en query). La ficha no pinta placa ni VIN: son los normalizados de la petición, no un
+ * dato que el RUNT confirme. La pasarela devuelve el identificador con el que se consultó aunque
+ * no reconozca el vehículo, así que enseñarlos bajo el rótulo «Datos del RUNT» sería presentar el
+ * eco de lo que el usuario tecleó como una confirmación. Se quedan arriba, en el bloque 1, que es
+ * donde él los escribió — junto con el documento, que la pasarela exige cuando va la placa.
  */
 export interface PreconsultaRunt {
   vehiculo: {

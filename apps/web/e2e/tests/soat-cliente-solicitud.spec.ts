@@ -23,6 +23,8 @@ import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../h
 
 const PLACA = 'ABC123';
 const VIN = '9BWZZZ377VT004251';
+const TIPO_DOC = 'CC';
+const NUMERO_DOC = '1020304050';
 const UUID_RECHAZADA = '11111111-2222-4333-8444-555555555555';
 
 const RE_PRECONSULTA = /\/api\/flito\/soat\/cliente\/preconsulta$/;
@@ -74,6 +76,17 @@ const falloCanal = (status: number, codigo: string, error: string, extra: Record
   ({ status, cuerpo: { error, codigo, ...extra } });
 
 /**
+ * Deja el bloque 1 listo para consultar: placa, VIN y documento del propietario.
+ * Sin los cuatro la preconsulta no sale (Bug #11927).
+ */
+async function llenarVehiculoYDocumento(page: Page) {
+  await page.getByLabel('Placa').fill(PLACA);
+  await page.getByLabel('VIN').fill(VIN);
+  await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
+  await page.getByLabel('Número de documento').fill(NUMERO_DOC);
+}
+
+/**
  * Deja la pantalla del alta con el bloque 1 ya resuelto.
  *
  * Devuelve la lista de peticiones al ALTA, que varios tests necesitan para afirmar que NO se envió
@@ -90,17 +103,14 @@ async function abrirFormularioConRunt(page: Page, respuestaAlta?: { status: numb
   await page.route(RE_PRECONSULTA, (route) => json(route, 200, RUNT_OK));
 
   await page.goto('/flito/soat/solicitud');
-  await page.getByLabel('Placa').fill(PLACA);
-  await page.getByLabel('VIN').fill(VIN);
+  await llenarVehiculoYDocumento(page);
   await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
   await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toBeVisible();
   return altas;
 }
 
-/** Rellena el bloque 2 y adjunta un PDF de mentira, que es lo que el servidor rechaza por bytes. */
+/** Rellena el resto del propietario (nombre) y adjunta un PDF de mentira. Tipo y número ya van en el bloque 1. */
 async function completarSolicitud(page: Page, { nombre = 'MARÍA FERNANDA GÓMEZ RUIZ' } = {}) {
-  await page.getByLabel('Tipo de documento').selectOption('CC');
-  await page.getByLabel('Número de documento').fill('1020304050');
   if (nombre) await page.getByLabel('Nombre completo o razón social').fill(nombre);
   await page.locator('input[type="file"]').setInputFiles({
     name: 'factura.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
@@ -172,7 +182,7 @@ test.describe('HU #11914 · AC1 — la puerta de entrada y los datos que no se t
 
     await page.getByLabel('VIN').fill(`${VIN.slice(0, -1)}9`);
 
-    await expect(page.getByText('Cambió la placa o el VIN: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(page.getByText('Cambió la placa, el VIN o el documento: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
     // La ficha vieja no puede quedarse: con ella se enviaría una solicitud con los datos técnicos de
     // un vehículo y la placa de otro.
     await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toHaveCount(0);
@@ -192,8 +202,7 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     await page.route(RE_PRECONSULTA, async (route) => { await puerta; return json(route, 200, RUNT_OK); });
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const boton = page.getByRole('button', { name: 'Consultando el RUNT…' });
@@ -213,8 +222,7 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     await page.route(RE_PRECONSULTA, (route) => json(route, f.status, f.cuerpo));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('No pudimos consultar el RUNT.')).toBeVisible();
@@ -231,8 +239,7 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     await page.route(RE_PRECONSULTA, (route) => json(route, f.status, f.cuerpo));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('El RUNT no tiene registrado ningún vehículo con esa placa y ese VIN.')).toBeVisible();
@@ -256,16 +263,16 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('Todavía no atendemos el organismo de tránsito de este vehículo.')).toBeVisible();
     await expect(page.getByText(`El RUNT lo reporta en STT DE PUEBLO CHICO, que aún no está habilitado en FLITO. Escríbale a su contacto en FLIT con la placa ${PLACA}.`)).toBeVisible();
     await expect(page.getByText(/SALIDO DEL MENSAJE/)).toHaveCount(0);
 
-    // Afirmar solo el mensaje deja vivo el mutante que pinta la ficha igual y SÍ deja avanzar.
-    await expect(page.getByLabel('Número de documento')).toHaveCount(0);
+    // Tipo y número viven en el bloque 1: afirmar que no están montados ya no distingue «no dejó
+    // avanzar». El nombre, el adjunto y Enviar sí salen solo tras un RUNT bueno.
+    await expect(page.getByLabel('Nombre completo o razón social')).toHaveCount(0);
     await expect(page.locator('input[type="file"]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Enviar la solicitud' })).toHaveCount(0);
   });
@@ -282,8 +289,7 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('El RUNT no reporta el organismo de tránsito de este vehículo, y sin ese dato no podemos radicar la solicitud.')).toBeVisible();
@@ -304,8 +310,7 @@ test.describe('HU #11914 · AC2 — el RUNT no responde de una sola manera', () 
     });
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
     await expect(page.getByText('No pudimos consultar el RUNT.')).toBeVisible();
 
@@ -329,8 +334,7 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
@@ -355,8 +359,7 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
@@ -372,8 +375,7 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
     await page.route(RE_PRECONSULTA, (route) => json(route, 409, { error: 'vigente', codigo: 'soat_vigente' }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
@@ -392,8 +394,7 @@ test.describe('HU #11914 · AC3 — el modal del SOAT vigente', () => {
     await page.route(RE_PRECONSULTA, (route) => json(route, 409, { error: 'vigente', codigo: 'soat_vigente' }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
     await page.getByRole('button', { name: 'Consultar otro vehículo' }).click();
 
@@ -417,8 +418,7 @@ test.describe('HU #11914 · AC4 — el modal de la RN-01 y el camino a la subsan
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
@@ -444,8 +444,7 @@ test.describe('HU #11914 · AC4 — el modal de la RN-01 y el camino a la subsan
     }));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
@@ -580,8 +579,7 @@ test.describe('HU #11914 · el envío', () => {
     await page.route(RE_PRECONSULTA, (route) => json(route, 200, RUNT_OK));
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
     await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toBeVisible();
     await completarSolicitud(page);
@@ -633,20 +631,124 @@ test.describe('HU #11914 · el envío', () => {
     });
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('VIN').fill(VIN);
+    await llenarVehiculoYDocumento(page);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
     await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toBeVisible();
     await completarSolicitud(page);
     await page.getByRole('button', { name: 'Enviar la solicitud' }).click();
     await expect(page).toHaveURL(/\/flito\/soat$/);
 
-    expect(cuerpoPreconsulta).toEqual({ placa: PLACA, vin: VIN });
+    expect(cuerpoPreconsulta).toEqual({
+      placa: PLACA, vin: VIN, tipoDocumento: TIPO_DOC, numeroDocumento: NUMERO_DOC,
+    });
     for (const url of [...urls, page.url()]) {
       expect(url).not.toContain(PLACA);
       expect(url).not.toContain(VIN);
       expect(url).not.toContain('1020304050');
     }
+  });
+});
+
+// ═════════════════════════ BUG #11927 · el documento viaja en la preconsulta ═════════════════════
+
+test.describe('BUG #11927 — la consulta RUNT del canal Cliente envía el documento', () => {
+  test('sin tipo ni número, Consultar el RUNT no dispara el POST', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    const llamadas: unknown[] = [];
+    await page.route(RE_PRECONSULTA, (route) => {
+      llamadas.push(route.request().postDataJSON());
+      return json(route, 200, RUNT_OK);
+    });
+
+    await page.goto('/flito/soat/solicitud');
+    await page.getByLabel('Placa').fill(PLACA);
+    await page.getByLabel('VIN').fill(VIN);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+
+    await expect(page.getByText('Elija el tipo de documento del propietario.')).toBeVisible();
+    await expect(page.getByText('Escriba el número de documento del propietario.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toHaveCount(0);
+    expect(llamadas).toHaveLength(0);
+  });
+
+  test('con placa+VIN+tipo+número, el POST incluye tipoDocumento y numeroDocumento', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    let cuerpo: unknown = null;
+    await page.route(RE_PRECONSULTA, (route) => {
+      cuerpo = route.request().postDataJSON();
+      return json(route, 200, RUNT_OK);
+    });
+
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculoYDocumento(page);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+    await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toBeVisible();
+
+    // Un mutante que vuelva a mandar solo { placa, vin } muere: faltan las dos claves.
+    expect(cuerpo).toEqual({
+      placa: PLACA, vin: VIN, tipoDocumento: TIPO_DOC, numeroDocumento: NUMERO_DOC,
+    });
+  });
+
+  test('503 runt_no_disponible se muestra con el body ya completo', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    let cuerpo: unknown = null;
+    await page.route(RE_PRECONSULTA, (route) => {
+      cuerpo = route.request().postDataJSON();
+      return json(route, 503, {
+        error: 'No fue posible consultar el RUNT en este momento.',
+        codigo: 'runt_no_disponible',
+      });
+    });
+
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculoYDocumento(page);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+
+    await expect(page.getByText('No pudimos consultar el RUNT.')).toBeVisible();
+    expect(cuerpo).toEqual({
+      placa: PLACA, vin: VIN, tipoDocumento: TIPO_DOC, numeroDocumento: NUMERO_DOC,
+    });
+    await expect(page.getByLabel('Número de documento')).toHaveValue(NUMERO_DOC);
+  });
+
+  test('los cuatro estados no se rompen: espera, carga, lleno y documento una sola vez', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+
+    await page.goto('/flito/soat/solicitud');
+    await expect(page.getByText('Se habilita cuando el RUNT responda.').first()).toBeVisible();
+    await expect(page.getByLabel('Tipo de documento')).toBeVisible();
+    await expect(page.getByLabel('Nombre completo o razón social')).toHaveCount(0);
+
+    let liberar = () => {};
+    const puerta = new Promise<void>((r) => { liberar = r; });
+    await page.route(RE_PRECONSULTA, async (route) => { await puerta; return json(route, 200, RUNT_OK); });
+
+    await llenarVehiculoYDocumento(page);
+    await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
+    await expect(page.getByText('La consulta puede tardar hasta un minuto. No cierre esta página.')).toBeVisible();
+
+    liberar();
+    await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toBeVisible();
+    await expect(page.getByLabel('Nombre completo o razón social')).toBeVisible();
+    await expect(page.getByLabel('Tipo de documento')).toHaveCount(1);
+    await expect(page.getByLabel('Número de documento')).toHaveCount(1);
+  });
+
+  test('cambiar el documento tras consultar invalida el RUNT', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await abrirFormularioConRunt(page);
+
+    await page.getByLabel('Número de documento').fill('99999999');
+
+    await expect(page.getByText('Cambió la placa, el VIN o el documento: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Datos del RUNT' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enviar la solicitud' })).toBeDisabled();
   });
 });
 
