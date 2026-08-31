@@ -30,6 +30,7 @@
 
 import type { Request } from 'express';
 import { logPiiAccess } from '../../shared/pii-audit.js';
+import { CAMPOS_PII_COLA_EXPORT } from '../../shared/export/cola-flito-excel.js';
 
 /** `resource_tipo` de una lectura de SOAT. Mismo literal con el que `audit()` anota las escrituras. */
 export const RECURSO_SOAT = 'flito_soat';
@@ -52,9 +53,51 @@ export const RECURSO_SOAT = 'flito_soat';
  */
 export const CAMPOS_PII_SOAT = ['nombre_completo', 'numero_documento', 'placa', 'vin'] as const;
 
+/**
+ * Columnas personales que entrega el EXPORT a Excel de la cola (HU #11909).
+ *
+ * Es una lista APARTE de `CAMPOS_PII_SOAT` y no una ampliación de aquella, por el criterio que este
+ * mismo archivo fija dos párrafos más arriba: la lista de una acción describe lo que ESA acción
+ * devuelve, y declarar de más ya fue un bloqueante. La cola y el detalle no entregan el correo, el
+ * celular ni la dirección del propietario; el archivo sí, y hasta esta HU eso no constaba en ninguna
+ * parte — `pii_access_log` habría mentido por omisión justo en lo que la HU añade.
+ *
+ * Se construye SOBRE `CAMPOS_PII_SOAT` en vez de reescribirla para que las dos no puedan separarse
+ * si mañana se renombra una columna, y se le resta `nombre_completo`: el archivo lleva la CÉDULA del
+ * propietario y **no** su nombre (AC1, once columnas). El vocabulario compartido con la cola de
+ * Impuestos —que exporta exactamente la misma hoja— vive en `shared/export/cola-flito-excel.ts`.
+ */
+export const CAMPOS_PII_SOAT_EXPORT = [
+  ...CAMPOS_PII_SOAT.filter((c) => c !== 'nombre_completo'),
+  ...CAMPOS_PII_COLA_EXPORT.filter((c) => !(CAMPOS_PII_SOAT as readonly string[]).includes(c)),
+] as const;
+
 export interface AccesoSoat {
-  /** `search` = la cola (un tramo). `read` = un SOAT concreto. */
-  accion: 'read' | 'search';
+  /**
+   * `search` = la cola (un tramo). `read` = un SOAT concreto. `export` = el `.xlsx` de la cola.
+   *
+   * `export` es un valor propio y no un `search` con más filas: los agregados de
+   * `/api/privacy/pii-access/stats` distinguen «alguien miró una pantalla» de «alguien se llevó un
+   * archivo fuera del perímetro», y son dos hechos con consecuencias distintas para un titular que
+   * pregunte por el artículo 17.
+   */
+  accion: 'read' | 'search' | 'export';
+  /**
+   * Qué columnas se entregaron, cuando no son las de la cola.
+   *
+   * Sin este parámetro, el export tendría que armar su propia llamada a `logPiiAccess` y el módulo
+   * volvería a tener dos formas de escribir `resource_tipo` — que es exactamente lo que este archivo
+   * existe para evitar. Por defecto, {@link CAMPOS_PII_SOAT}.
+   */
+  campos?: readonly string[];
+  /**
+   * Marcador del desenlace, cuando la lectura corrió pero no entregó nada (el 422 del export).
+   *
+   * Va DELANTE del resto en el motivo porque `motivo` se recorta por el final: sin él, la línea del
+   * export rechazado por el tope sería indistinguible de una búsqueda cualquiera, y el dato con el
+   * que ADR-0004 promete recalibrar el tope quedaría sesgado justo en la cola que se quiere medir.
+   */
+  resultado?: string;
   /**
    * El uuid del SOAT leído, en el detalle.
    *
@@ -80,6 +123,9 @@ const MOTIVO_MAX = 200;
  */
 export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Promise<void> {
   const partes = [
+    // Primero el marcador: `motivo` se recorta por el final y esto es lo que hace la línea
+    // reconocible cuando el export no llegó a entregarse.
+    acceso.resultado ? `resultado=${acceso.resultado}` : null,
     acceso.soatId ? `soat ${acceso.soatId}` : null,
     acceso.filas === undefined ? null : `filas=${acceso.filas}`,
   ].filter((p): p is string => p !== null);
@@ -91,7 +137,7 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
     // Ver la nota de `soatId`: el uuid no cabe en una columna integer, así que va en el motivo.
     resourceId: null,
     accion: acceso.accion,
-    camposAccedidos: [...CAMPOS_PII_SOAT],
+    camposAccedidos: [...(acceso.campos ?? CAMPOS_PII_SOAT)],
     motivo: motivo.slice(0, MOTIVO_MAX),
   });
 }

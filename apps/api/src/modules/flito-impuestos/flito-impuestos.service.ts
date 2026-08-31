@@ -7,6 +7,7 @@
 // leída de BD (§9.3), nunca el JWT. El gestor NUNCA ve los Pendiente.
 
 import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   auditLogs, clients, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoSoportes,
@@ -79,13 +80,30 @@ const SELECT_COLA = {
   enviadoPorNombre: users.name,
 } as const;
 
-function fromCola() {
-  return db.select(SELECT_COLA).from(flitoImpuestos)
+/**
+ * Los joins de la cola, compartidos por la página y —desde la HU #11909— por el export a Excel.
+ *
+ * Se exporta por lo mismo que `condicionesColaImpuestos`: el predicado compartido nombra columnas de
+ * `clients` (la frontera de autogestión), `flito_tramites` y `vehicles` (el término de búsqueda) y
+ * `organismos_transito_config` (el ANS del estancado), así que solo es ejecutable sobre ESTOS joins.
+ * Reescribirlos en el export dejaría la puerta abierta a que uno sumara un join que multiplica
+ * filas, y en un archivo eso no se ve como un error: se ve como más filas de las que hay.
+ *
+ * El `leftJoin` de `users` se conserva aunque el export no imprima al remitente: es un join por
+ * clave primaria —no puede duplicar ni descartar filas— y quitarlo dejaría al export sin la tabla
+ * que necesitaría cualquier condición futura que alguien añada al predicado compartido.
+ */
+export function conJoinsColaImpuestos<Q extends PgSelect>(q: Q) {
+  return q
     .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(users, eq(flitoImpuestos.enviadoPorId, users.id));
+}
+
+function fromCola() {
+  return conJoinsColaImpuestos(db.select(SELECT_COLA).from(flitoImpuestos).$dynamic());
 }
 
 type FilaCola = Awaited<ReturnType<ReturnType<typeof fromCola>['where']>>[number];
@@ -104,6 +122,18 @@ export interface FiltrosColaImpuestos {
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
+  /**
+   * Rango por CUÁNDO SE CREÓ el registro de impuesto (`flito_impuestos.created_at`), HU #11909.
+   *
+   * Eje DISTINTO de `solicitadoDesde/Hasta`, que mide `enviado_en` —cuándo se despachó al gestor—.
+   * Un impuesto nace en `pendiente` y puede tardar en enviarse, así que resolver «Creado» como un
+   * alias del rango «Solicitado» dejaría fuera justo lo que aún no se ha despachado, devolviendo
+   * igualmente filas: el filtro parecería funcionar.
+   *
+   * NO es `flito_tramites.fecha_creacion_flit` (la fecha del trámite en FLIT) aunque el DTO de la
+   * cola publique esa como `fechaCreacion`: decisión de producto pegada en la HU.
+   */
+  creadoDesde?: string; creadoHasta?: string;
   /** true = solo lo que superó el SLA de su organismo. */
   estancado?: boolean;
   page?: number; pageSize?: number;
@@ -130,8 +160,14 @@ const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLI
 /**
  * Condiciones de la cola, compartidas por la página y el conteo. `null` = la frontera del gestor
  * hace que no pueda ver nada, que no es lo mismo que «sin filtros».
+ *
+ * **`export` desde la HU #11909**: el archivo `.xlsx` tiene que contener EXACTAMENTE el conjunto que
+ * la pantalla enseña. Un predicado paralelo escrito en el servicio del export empezaría idéntico y
+ * divergiría en el primer filtro que se añada a uno y no al otro, sin que se note —los dos devuelven
+ * filas—. Y aquí dentro viven las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor):
+ * reimplementarlas fuera es la vía por la que un gestor acaba descargando lo de otro organismo.
  */
-function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
+export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
   const conds = [FRONTERA_AUTOGESTION_IMP];
 
   if (esGestor(ctx)) {
@@ -174,6 +210,12 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
   if (f.solicitadoHasta) conds.push(sql`${flitoImpuestos.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
   if (f.pagadoDesde) conds.push(sql`${flitoImpuestos.pagadoEn} >= ${f.pagadoDesde}::date`);
   if (f.pagadoHasta) conds.push(sql`${flitoImpuestos.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+  // «Creado» (HU #11909) es `flito_impuestos.created_at`, no `enviado_en` (el rango de arriba) ni la
+  // fecha del trámite en FLIT. Va aquí dentro, con los otros tres: estas condiciones las comparten
+  // la página, el `count(*)`, las facetas y el archivo, así que un solo `if` acota las cuatro y el
+  // total sigue cuadrando con lo que se descarga.
+  if (f.creadoDesde) conds.push(sql`${flitoImpuestos.createdAt} >= ${f.creadoDesde}::date`);
+  if (f.creadoHasta) conds.push(sql`${flitoImpuestos.createdAt} < (${f.creadoHasta}::date + INTERVAL '1 day')`);
 
   if (f.estancado) conds.push(EXPR_ESTANCADO_IMP);
 

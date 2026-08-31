@@ -6,10 +6,22 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import archiver from 'archiver';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
+import { sendExcel } from '../../shared/utils/excel.js';
+import {
+  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError,
+} from '../../shared/export/cola-flito-excel.js';
+import {
+  CAMPOS_PII_IMPUESTO_EXPORT, registrarAccesoImpuesto,
+} from './flito-impuestos.pii.js';
+import {
+  construirFilasExportImpuestos, nombreArchivoExportImpuestos,
+} from './flito-impuestos.export.service.js';
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -176,12 +188,29 @@ const numeros = (v: unknown): number[] | undefined => {
   return l?.length ? l : undefined;
 };
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const fecha = (v: unknown): string | undefined => {
   const s = texto(v);
-  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+  return s && FORMATO_FECHA.test(s) ? s : undefined;
 };
 
+/**
+ * La misma regla que `fecha()`, para los esquemas `zod` del export (HU #11909).
+ *
+ * Comparten el regex y no una copia. Lo que cambia es qué se hace con un valor malo: el listado lo
+ * IGNORA (un filtro roto no tumba la pantalla de quien trabaja) y el export lo rechaza con 400,
+ * porque un rango silenciosamente descartado produciría un archivo mucho mayor del que el usuario
+ * cree estar pidiendo.
+ */
+const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
+
 // GET / — cola con las 2 fronteras, filtrada y paginada.
+//
+// Deja rastro en `pii_access_log` desde la HU #11909 (Ley 1581 art. 17, AGENTS.md §16): cada fila
+// trae el nombre y la CÉDULA del propietario, y este módulo no registraba NINGUNA lectura —`grep -c
+// logPiiAccess` sobre sus ocho archivos daba 0—. Se cierra aquí y no solo en el export para no dejar
+// la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
+// con `await`, como en SOAT: `filas` no se sabe antes.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoImpuesto(req.user!);
   const estadoRaw = typeof req.query.estado === 'string' ? req.query.estado : undefined;
@@ -189,7 +218,7 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     ? estadoRaw.split(',').map((s) => s.trim()).filter((s): s is EstadoImpuesto => (ESTADOS as readonly string[]).includes(s))
     : undefined;
   const buscar = typeof req.query.buscar === 'string' ? req.query.buscar : undefined;
-  res.json(await colaImpuestos(ctx, {
+  const pagina = await colaImpuestos(ctx, {
     estados, buscar,
     companias: numeros(req.query.companias),
     organismos: lista(req.query.organismos),
@@ -197,10 +226,147 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     gestion: req.query.gestion === 'operaciones' || req.query.gestion === 'organismo' ? req.query.gestion : undefined,
     solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
     pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
+    // El rango nuevo de la HU #11909, con el MISMO helper que los otros dos. Va también aquí y no
+    // solo en el export porque el archivo tiene que ser «lo que estoy viendo»: sin este filtro en la
+    // pantalla, el usuario no podría estar viendo lo que se descarga.
+    creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
-  }));
+  });
+  await registrarAccesoImpuesto(req, { accion: 'search', filas: pagina.items.length });
+  res.json(pagina);
+});
+
+/**
+ * Cuota del export: 5 por minuto y usuario, en una BOLSA SEPARADA de la de la cola.
+ *
+ * Separada a propósito: con una compartida, gastar los cinco exports dejaría a la pantalla sin poder
+ * paginar y, al revés, un visor abierto que pagina le comería la cuota al export. Dos gestos
+ * distintos, dos presupuestos. **Y separada también de la del export de SOAT**: son dos colas y dos
+ * pantallas, así que descargar la de impuestos no puede frenar la de SOAT.
+ *
+ * Un 422 consume cuota igual que un 200: `express-rate-limit` cuenta al entrar, antes del handler.
+ * Si el export demasiado grande saliera gratis, sondear el tamaño de un filtro sería ilimitado —que
+ * es justo la pregunta que el 422 evita responder.
+ */
+const exportLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-impuestos-export'),
+  message: { error: 'Demasiados exports seguidos, espera 1 minuto' },
+  store: makeStore('rl:flito-impuestos-export:'),
+});
+
+/**
+ * Campos del filtro de la cola, en un esquema único del que se DERIVA el del export.
+ *
+ * `page`, `pageSize` y `cursor` están aquí para poder RESTARLOS abajo: el `.omit()` es lo que
+ * convierte `{"page": 2}` en un 400 en vez de en un parámetro ignorado en silencio, y aceptarlo
+ * callando dejaría creer que se descargó «la página 2» de algo.
+ *
+ * Sin `proveedores`: en Impuestos el equivalente al proveedor es el organismo, y ese filtro ya está.
+ * `gestion` es `operaciones | organismo`, no `operaciones | proveedor`.
+ */
+const colaFiltrosCampos = z.object({
+  estados: z.array(z.enum(ESTADOS)).optional(),
+  buscar: z.string().trim().min(1).optional(),
+  companias: z.array(z.number().int().positive()).optional(),
+  organismos: z.array(z.string().trim().min(1)).optional(),
+  gestion: z.enum(['operaciones', 'organismo']).optional(),
+  solicitadoDesde: fechaSchema.optional(), solicitadoHasta: fechaSchema.optional(),
+  pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
+  creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
+  estancado: z.boolean().optional(),
+  page: z.number().int().positive().optional(),
+  pageSize: z.number().int().positive().optional(),
+  cursor: z.string().optional(),
+});
+
+/**
+ * Cuerpo de `POST /export`: el filtro de la cola menos la paginación, y `.strict()`.
+ *
+ * `.strict()` con más motivo que en una query cualquiera: `{"organismo": "05001"}` —en singular— se
+ * ignoraría en silencio y devolvería la cola ENTERA a quien pidió la de un organismo. En un archivo
+ * de datos personales, un filtro mal escrito tiene que ser un 400 y no un export de más.
+ */
+const exportSchema = colaFiltrosCampos
+  .omit({ page: true, pageSize: true, cursor: true })
+  .strict();
+
+/**
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ *
+ * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
+ *
+ * `buscar` casa contra placa, VIN, id de FLIT, nombre y cédula del propietario
+ * (`condicionesColaImpuestos`), así que el filtro genérico de esta cola ES un dato personal y no
+ * puede viajar en la URL: AGENTS.md §14 lo prohíbe porque una query string acaba en los logs de
+ * nginx, en el historial del navegador y en el `Referer`. **No existe variante GET de este
+ * endpoint** — un `router.get` aquí devolvería la cédula a la URL sin romper ningún otro test.
+ *
+ * ── El rol: `OPS_O_GESTOR`, no `LECTURA` ────────────────────────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor`. Un archivo con la cédula, el correo y la dirección de los titulares
+ * es otra cosa que una pantalla de consulta, y la HU nombra a admin y gestor. `auditor` recibe 403.
+ *
+ * ── Orden de la respuesta ───────────────────────────────────────────────────────────────────────
+ *
+ * Validar → consultar (con el tope dentro) → `await` del rastro PII → cabeceras → archivo. El rastro
+ * va ANTES del primer byte: la petición vale hasta `FLITO_COLA_EXPORT_MAX_FILAS` cédulas, correos y
+ * direcciones, y perder su constancia por un fallo a mitad del archivo no es aceptable.
+ *
+ * Va declarada antes que `GET /:id` por costumbre del router; no hay ambigüedad de todas formas —es
+ * un POST y no existe `POST /:id` a secas—.
+ */
+router.post('/export', OPS_O_GESTOR, exportLimiter, async (req: Request, res: Response) => {
+  const parsed = exportSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
+    return;
+  }
+  const ctx = await contextoImpuesto(req.user!);
+
+  try {
+    // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
+    const filas = await construirFilasExportImpuestos(ctx, parsed.data);
+
+    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido.
+    await registrarAccesoImpuesto(req, {
+      accion: 'export',
+      campos: CAMPOS_PII_IMPUESTO_EXPORT,
+      filas: filas.length,
+    });
+
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(res, nombreArchivoExportImpuestos(), COLUMNAS_COLA_EXPORT, filas);
+  } catch (e) {
+    // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
+    // causa real: se relanza al manejador global, que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+
+    if (e instanceof ExportColaDemasiadoGrandeError) {
+      // El export que choca con el tope también deja rastro: la consulta CORRIÓ —`tope + 1` filas
+      // con su cédula entraron en el proceso— y lo único que no ocurrió es la entrega. `search` y no
+      // `export` porque no se exportó nada; `filas: 0` es literal y no revela cuántas hay.
+      await registrarAccesoImpuesto(req, {
+        accion: 'search',
+        campos: CAMPOS_PII_IMPUESTO_EXPORT,
+        filas: 0,
+        resultado: e.codigo,
+      });
+      // El 422 se emite AQUÍ y no en `handleError`: `ImpuestoError` solo lleva `status` + `message`
+      // y su manejador responde `{ error }` sin `codigo`. La pantalla decide por `codigo`, y
+      // colgarlo de `ImpuestoError` obligaría a cambiar el sobre de error de todos los demás
+      // endpoints del módulo para servir a este.
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+
+    handleError(res, e);
+  }
 });
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el gestor puede ver.

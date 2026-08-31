@@ -239,6 +239,19 @@ export interface FiltrosCola {
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
   /**
+   * Rango por CUÁNDO SE CREÓ la solicitud (`flito_soat.created_at`), HU #11909.
+   *
+   * Es un eje DISTINTO de `solicitadoDesde/Hasta`, que mide `enviado_en` —cuándo se despachó al
+   * gestor—. Los dos existen a la vez y confundirlos es el defecto que esta HU tiene más cerca: un
+   * SOAT nace en `pendiente` y puede pasar días sin enviarse, así que filtrar «creado en agosto»
+   * contra `enviado_en` deja fuera todo lo que aún no se ha despachado —justo la parte de la cola
+   * sobre la que se trabaja— y encima devuelve algo, así que nadie lo nota.
+   *
+   * Decisión de producto pegada en la HU: «Creado» es `created_at` de la solicitud, no la fecha del
+   * trámite en FLIT.
+   */
+  creadoDesde?: string; creadoHasta?: string;
+  /**
    * true = solo lo que superó el ANS OPERATIVO de FLIT (`ANS_OPERATIVO.SIN_GESTION_HORAS`), que es
    * una constante global.
    *
@@ -315,8 +328,16 @@ function filtrosPermitidos(ctx: SoatCtx, f: FiltrosCola): FiltrosCola {
  * El saneo de filtros va DENTRO y no en la ruta, por la misma razón por la que la frontera vive
  * aquí: esta función la comparten la página, el conteo y las facetas, así que un solo `const` cubre
  * las tres. En la ruta habría que acordarse tres veces —y las facetas ni siquiera pasan por ella.
+ *
+ * **`export` desde la HU #11909**, y no por comodidad: el export a Excel tiene que producir EXACTAMENTE
+ * el conjunto que la pantalla enseña. Un predicado paralelo escrito en el servicio del export
+ * empezaría idéntico y divergiría en el primer filtro que se añada a uno y no al otro —y la
+ * divergencia no se ve: los dos devuelven filas—. Es lo mismo que hizo el export de comparendos
+ * importando `condicionesDeFiltro` del servicio del listado. Sobre todo, aquí dentro viven las TRES
+ * fronteras: reimplementarlas fuera es la vía por la que un gestor acaba descargando lo de otro
+ * proveedor.
  */
-function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
+export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
   const f = filtrosPermitidos(ctx, filtros);
   const conds = [FRONTERA_AUTOGESTION_SOAT];
 
@@ -394,14 +415,30 @@ function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
   if (f.solicitadoHasta) conds.push(sql`${flitoSoat.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
   if (f.pagadoDesde) conds.push(sql`${flitoSoat.pagadoEn} >= ${f.pagadoDesde}::date`);
   if (f.pagadoHasta) conds.push(sql`${flitoSoat.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+  // «Creado» (HU #11909) es `created_at` de ESTA tabla y no `enviado_en`, que es el rango de arriba.
+  // Va aquí dentro, con los otros tres, y no en el servicio del export: estas condiciones las
+  // comparten la página, el `count(*)`, las facetas y el archivo, así que un solo `if` acota las
+  // cuatro y el total sigue cuadrando con lo que se descarga. Escrito en el export, la pantalla
+  // filtraría por un criterio y el `.xlsx` por otro.
+  if (f.creadoDesde) conds.push(sql`${flitoSoat.createdAt} >= ${f.creadoDesde}::date`);
+  if (f.creadoHasta) conds.push(sql`${flitoSoat.createdAt} < (${f.creadoHasta}::date + INTERVAL '1 day')`);
 
   if (f.estancado) conds.push(EXPR_ESTANCADO);
 
   return conds;
 }
 
-/** Los joins de la cola, compartidos por la página y el conteo. */
-function conJoinsCola<Q extends PgSelect>(q: Q) {
+/**
+ * Los joins de la cola, compartidos por la página, el conteo, las facetas y —desde la HU #11909— el
+ * export a Excel.
+ *
+ * Se exporta por el mismo motivo que `condicionesCola`: las condiciones nombran columnas de
+ * `clients`, `vehicles` y `organismos_transito_config`, así que el predicado compartido solo es
+ * ejecutable sobre ESTOS joins. Reescribirlos en el export dejaría abierta la puerta a que uno
+ * sumara un join que multiplica filas —y en un archivo eso no se ve como un error, se ve como más
+ * filas de las que hay.
+ */
+export function conJoinsCola<Q extends PgSelect>(q: Q) {
   return q
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
@@ -639,8 +676,13 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
  * trámite» de ese SOAT no existe: devolver el del primero pondría en la columna un dato con
  * aspecto de cierto que depende del orden de la consulta. Null es la respuesta honesta, y la
  * pantalla lo rotula «varios».
+ *
+ * **`export` desde la HU #11909**: la columna CIUDAD del archivo tiene la MISMA ambigüedad y hay que
+ * resolverla igual. La alternativa —un `innerJoin` a `flito_tramites` en la consulta del export—
+ * duplicaría la fila del SOAT una vez por trámite y falsearía además el conteo del tope, así que la
+ * ciudad se lee aparte por lote y pasa por aquí, como el resto de datos del trámite.
  */
-function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
+export function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
   if (items.length === 0) return null;
   const primero = leer(items[0]);
   if (primero === null) return null;
