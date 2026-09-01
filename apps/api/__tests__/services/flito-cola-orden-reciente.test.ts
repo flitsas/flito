@@ -33,6 +33,7 @@
 // desempata en el mismo sentido — un `asc` olvidado ahí es el defecto probable de esta HU.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { getTableName } from 'drizzle-orm';
 import { terminosDeOrden, ordenarComoPostgres } from '../helpers/orden-sql.js';
 
 const selectMock = vi.fn();
@@ -51,13 +52,23 @@ vi.mock('../../src/shared/redis.js', () => ({
 
 // ─────────────────────────────── El mock que RECUERDA cómo se ordenó ────────────────────────────
 
-interface Lectura { proyeccion: string[]; orden: unknown[] }
+interface Lectura { tabla: string; proyeccion: string[]; orden: unknown[] }
 
 type Fila = Record<string, unknown>;
 
 let lecturas: Lectura[] = [];
 /** Las filas que devuelve la consulta de la cola/el export. Cada test pone las suyas. */
 let filas: Fila[] = [];
+/**
+ * Lo que el ENSAMBLADO encuentra colgando de esas filas.
+ *
+ * No es relleno: `ensamblarCola` solo consulta `flito_compradores` si la lectura de `flito_tramites`
+ * devolvió algo (`tramiteIds.length`). Con la tabla vacía —que es como empezó esta suite— esa
+ * consulta NO SE EMITE NUNCA, y cualquier aserto sobre su orden recorre una lista vacía y pasa por no
+ * mirar nada. Los trámites de aquí son lo que hace que la consulta exista.
+ */
+let tramites: Fila[] = [];
+let compradores: Fila[] = [];
 
 const METODOS = [
   'from', 'where', 'leftJoin', 'innerJoin', 'limit', 'offset', 'groupBy', 'having', 'for', '$dynamic',
@@ -70,6 +81,7 @@ function esLecturaDeLaCola(l: Lectura): boolean {
 
 function chainEspia(proyeccion?: unknown): Record<string, unknown> {
   const lectura: Lectura = {
+    tabla: '__sin_from__',
     proyeccion: proyeccion && typeof proyeccion === 'object' ? Object.keys(proyeccion as object) : [],
     orden: [],
   };
@@ -77,13 +89,22 @@ function chainEspia(proyeccion?: unknown): Record<string, unknown> {
 
   const t: Record<string, unknown> = {};
   for (const m of METODOS) t[m] = () => t;
+  t.from = (tabla: unknown) => {
+    try { lectura.tabla = getTableName(tabla as never); } catch { lectura.tabla = '__expr__'; }
+    return t;
+  };
   t.orderBy = (...args: unknown[]) => { lectura.orden.push(...args); return t; };
   // Las filas se deciden al AWAIT y no al construir el chain: para entonces el servicio ya llamó a
   // `.orderBy()`, así que la consulta de la cola se distingue de las del ensamblado por su criterio
   // y no por la posición en que se encoló —que cambia en cuanto alguien añade una lectura.
   const run = () => Promise.resolve().then(() => {
     if (lectura.proyeccion.includes('total')) return [{ total: filas.length }];
-    return esLecturaDeLaCola(lectura) ? filas : [];
+    if (esLecturaDeLaCola(lectura)) return filas;
+    // El resto del ensamblado se responde POR TABLA. Devolver `[]` a todo —como hacía esta suite—
+    // corta la cadena en `flito_tramites` y deja la consulta de compradores sin emitir.
+    if (lectura.tabla === 'flito_tramites') return tramites;
+    if (lectura.tabla === 'flito_compradores') return compradores;
+    return [];
   });
   t.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => run().then(res, rej);
   t.catch = (rej: (e: unknown) => unknown) => run().catch(rej);
@@ -94,6 +115,8 @@ function chainEspia(proyeccion?: unknown): Record<string, unknown> {
 beforeEach(() => {
   lecturas = [];
   filas = [];
+  tramites = [];
+  compradores = [];
   selectMock.mockReset();
   selectMock.mockImplementation((p?: unknown) => chainEspia(p));
 });
@@ -102,6 +125,23 @@ beforeEach(() => {
 function ordenDeLaCola(): ReturnType<typeof terminosDeOrden> {
   const l = lecturas.find(esLecturaDeLaCola);
   if (!l) throw new Error('Ninguna consulta ordenó por `created_at`');
+  return terminosDeOrden(l.orden);
+}
+
+/**
+ * El `ORDER BY` de la consulta a esa tabla, y el FALLO si esa consulta no se emitió.
+ *
+ * El `throw` es la mitad del valor de este helper: la versión anterior de la prueba de compradores
+ * filtraba una lista de lecturas y recorría el resultado con un `for`, así que cuando la consulta no
+ * llegaba a existir el bucle iteraba cero veces y el test pasaba sin comprobar nada. Aquí, «no se
+ * consultó» es rojo.
+ */
+function ordenDeLaTabla(tabla: string): ReturnType<typeof terminosDeOrden> {
+  const l = lecturas.find((x) => x.tabla === tabla && x.orden.length > 0);
+  if (!l) {
+    const vistas = [...new Set(lecturas.map((x) => x.tabla))].join(', ');
+    throw new Error(`No se emitió ninguna consulta ORDENADA sobre ${tabla}. Tablas leídas: ${vistas}`);
+  }
   return terminosDeOrden(l.orden);
 }
 
@@ -185,6 +225,40 @@ const filaExportImpuesto = (base: { id: string; createdAt: Date }): Fila => ({
   nombres: null, apellidos: null, numeroDocumento: null, correo: null, celular: null,
   direccion: null, modelo: null, clase: null, capacidad: null, departamento: null, tipo: null,
 });
+
+/** El trámite que cuelga de la fila más nueva: sin él no se emite la consulta de compradores. */
+const TRAMITE = {
+  id: `tr-${ID_NUEVA}`, soatId: ID_NUEVA, idFlit: 'FLIT-1',
+  tipoPropiedad: 'multiple_propietario', tipoTramite: 'Traspaso',
+  fechaAprobacion: null, fechaCreacion: null, tipoTitularFlit: null,
+};
+
+/**
+ * Dos copropietarios del MISMO trámite, registrados al revés de como deben leerse.
+ *
+ * `orden = 0` es el titular principal —es quien la pantalla y el `.xlsx` publican como propietario—,
+ * y va segundo en la fixture a propósito: si la consulta dejara de ordenar, o lo hiciera al revés,
+ * el principal saldría el otro.
+ */
+const COMPRADORES = [
+  {
+    id: 'c-segundo', tramiteId: `tr-${ID_NUEVA}`, soatId: null, orden: 1,
+    nombreCompleto: 'PEDRO GOMEZ', numeroDocumento: '2020202020', tipoDocumento: null,
+    correo: null, celular: null, direccion: null, porcentajeParticipacion: null,
+  },
+  {
+    id: 'c-principal', tramiteId: `tr-${ID_NUEVA}`, soatId: null, orden: 0,
+    nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1010101010', tipoDocumento: null,
+    correo: null, celular: null, direccion: null, porcentajeParticipacion: null,
+  },
+];
+
+/** Para el orden de los compradores la clave es `orden`, no la fecha. */
+function lectorComprador(f: Fila, columna: string): number | string {
+  if (columna === 'orden') return f.orden as number;
+  if (columna === 'id') return f.id as string;
+  throw new Error(`La consulta de compradores ordenó por una columna inesperada: ${columna}`);
+}
 
 const CTX_SOAT = { userId: 1, username: 'admin', role: 'admin', proveedorSoatId: null, companiaId: null };
 const CTX_IMPUESTOS = { userId: 1, username: 'admin', role: 'admin', transitoCodigo: null };
@@ -274,24 +348,53 @@ describe('Excel de Impuestos — el archivo se lee como la pantalla (HU #11963)'
 });
 
 describe('lo que esta HU NO voltea', () => {
-  it('los COMPRADORES de un registro siguen en su orden natural (`orden` ascendente)', async () => {
-    // El orden de los propietarios DENTRO de una fila no es el de la cola: el titular principal es el
-    // `orden = 0` y voltearlo cambiaría quién sale como principal en la pantalla y en el archivo.
-    // Se afirma sobre la consulta real, no sobre el comentario.
+  // El orden de los propietarios DENTRO de un registro no es el de la cola: es quién es el titular
+  // principal. Voltearlo con el resto sería un defecto de esta HU, y hasta aquí NADIE lo vigilaba —
+  // las suites vecinas usan siempre un solo comprador con `orden: 0`, que no distingue `asc` de
+  // `desc`. Por eso la fixture trae DOS y registrados al revés.
+  it('**los COMPRADORES de un registro siguen en su orden natural: `orden` ascendente**', async () => {
+    const { cola } = await import('../../src/modules/flito-soat/flito-soat.service.js');
+    filas = TRES.map(filaSoat);
+    tramites = [TRAMITE];
+    compradores = COMPRADORES;
+
+    const r = await cola(CTX_SOAT as never, {});
+
+    // Primero: la consulta EXISTE y sus filas llegaron al DTO. Sin esto, lo de abajo sería un aserto
+    // sobre una consulta que el servicio nunca emitió — que es justo como este test pasaba antes.
+    const fila = r.items.find((i) => i.id === ID_NUEVA)!;
+    expect(fila.compradores).toHaveLength(2);
+
+    // Y el criterio, leído del SQL que emitió el servicio y aplicado a las dos filas: el principal
+    // (`orden = 0`) sale primero aunque la fixture lo registre segundo.
+    const orden = ordenDeLaTabla('flito_compradores');
+    expect(orden.map((t) => t.direccion)).toEqual(['asc']);
+    expect(ordenarComoPostgres(compradores, orden, lectorComprador).map((c) => c.id))
+      .toEqual(['c-principal', 'c-segundo']);
+    // El nombre que la cola publica como propietario es el de esa primera fila.
+    expect(fila.compradores[0].nombreCompleto).toBe('JUANA PEREZ');
+  });
+
+  it('la cola de Impuestos también lee a sus compradores por `orden` ascendente', async () => {
+    // Aquí el criterio pesa MÁS que en SOAT: `ensamblar` se queda con el PRIMER comprador de cada
+    // trámite (`principalPorTramite`) y de ahí salen `compradorNombre` y `compradorDocumento` de la
+    // cola. Con `desc`, la columna «Propietario» pasa a enseñar al copropietario.
+    const { colaImpuestos } = await import('../../src/modules/flito-impuestos/flito-impuestos.service.js');
+    filas = TRES.map(filaImpuesto);
+    compradores = COMPRADORES.map((c) => ({ ...c, tramiteId: `tr-${ID_NUEVA}` }));
+
+    const r = await colaImpuestos(CTX_IMPUESTOS as never, {});
+    expect(r.items).toHaveLength(3);
+
+    const orden = ordenDeLaTabla('flito_compradores');
+    expect(orden.map((t) => t.direccion)).toEqual(['asc']);
+    expect(ordenarComoPostgres(compradores, orden, lectorComprador)[0].id).toBe('c-principal');
+  });
+
+  it('la cola sigue descendente en SUS DOS términos, ni uno solo', async () => {
     const { cola } = await import('../../src/modules/flito-soat/flito-soat.service.js');
     filas = TRES.map(filaSoat);
     await cola(CTX_SOAT as never, {});
-
-    const porOrden = lecturas
-      .filter((l) => l.orden.length > 0)
-      .map((l) => terminosDeOrden(l.orden))
-      .filter((ts) => ts.some((t) => t.columna === 'orden'));
-
-    // Puede no haber ninguna (la fixture no trae trámites) — pero si la hay, es ascendente.
-    for (const ts of porOrden) {
-      expect(ts.every((t) => t.direccion === 'asc')).toBe(true);
-    }
-    // Y la de la cola sigue siendo descendente en SUS DOS términos, ni uno solo.
     expect(ordenDeLaCola().map((t) => t.direccion)).toEqual(['desc', 'desc']);
   });
 });
