@@ -89,7 +89,7 @@ export default function FlitModal(
             type="button"
             onClick={onClose}
             aria-label="Cerrar"
-            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-white"
+            className="flit-focus grid h-9 w-9 place-items-center rounded-lg transition-colors hover:bg-flit-card"
             style={{ color: 'var(--flit-text-muted)' }}
           >
             <IconClose className="h-5 w-5" />

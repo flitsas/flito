@@ -49,7 +49,10 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
       role="banner"
       style={{
         height: 'var(--flit-topbar-height)',
-        background: 'rgba(234, 242, 255, 0.85)',
+        // Era este mismo valor escrito a mano: --flit-bg-app al 85 %. Un hex en línea no tiene
+        // par oscuro, así que la barra se quedaba celeste con el resto de la app ya invertido
+        // (HU #11899, AC1). El alfa vive ahora en el token, que lo trae en los dos temas.
+        background: 'var(--flit-bg-topbar)',
         backdropFilter: 'blur(8px)',
         borderColor: 'var(--flit-border-soft)',
       }}
@@ -87,7 +90,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
         type="button"
         onClick={onOpenPalette}
         aria-label={`Buscar o ir a sección (${isMac ? 'Command' : 'Control'} K)`}
-        className="flit-focus group flex h-10 max-w-xl flex-1 items-center gap-3 bg-white px-3 text-left text-sm transition-colors sm:px-4"
+        className="flit-focus group flex h-10 max-w-xl flex-1 items-center gap-3 bg-flit-card px-3 text-left text-sm transition-colors sm:px-4"
         style={{
           borderRadius: 'var(--flit-radius-input)',
           border: '1px solid var(--flit-border-input)',
@@ -114,7 +117,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
         <button
           type="button"
           aria-label="Notificaciones (próximamente)"
-          className="flit-focus grid h-10 w-10 place-items-center rounded-xl transition-colors hover:bg-white"
+          className="flit-focus grid h-10 w-10 place-items-center rounded-xl transition-colors hover:bg-flit-card"
           style={{ color: 'var(--flit-text-secondary)' }}
         >
           <IconBell className="h-[18px] w-[18px]" />
@@ -128,7 +131,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
             aria-label={`Menú de usuario · ${user?.name ?? 'sesión'}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            className="flit-focus flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-white"
+            className="flit-focus flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-flit-card"
           >
             <span
               className="grid h-9 w-9 place-items-center rounded-lg text-[11px] font-semibold text-white"
@@ -152,7 +155,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
             <div
               role="menu"
               aria-label="Opciones de usuario"
-              className="absolute right-0 top-full mt-2 w-64 overflow-hidden bg-white"
+              className="absolute right-0 top-full mt-2 w-64 overflow-hidden bg-flit-card"
               style={{
                 borderRadius: 'var(--flit-radius-md)',
                 border: '1px solid var(--flit-border-soft)',
@@ -204,7 +207,7 @@ function ThemeCycleButton() {
       onClick={cycleTheme}
       aria-label={aria}
       title={title}
-      className="flit-focus relative grid h-10 w-10 place-items-center overflow-hidden rounded-xl transition-colors hover:bg-white"
+      className="flit-focus relative grid h-10 w-10 place-items-center overflow-hidden rounded-xl transition-colors hover:bg-flit-card"
       style={{ color: 'var(--flit-text-secondary)' }}
     >
       <ThemeIcon mode="light" active={current === 'light'} />

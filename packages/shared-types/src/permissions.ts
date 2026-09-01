@@ -29,6 +29,14 @@ export const USER_ROLES = [
   'mensajero',
   // Finanzas: usuarios del área financiera (contabilidad, facturación, cobros). Hoy solo el reporte de costos.
   'financiera',
+  // FLITO — Cliente (Feature #11912): usuario de una COMPAÑÍA cliente, no de la operación. Es el
+  // primer rol del producto que no pertenece a FLIT: entra desde fuera, ve una sola pantalla
+  // (`flito_soat`) y solo lo de su compañía. Esa atadura es obligatoria y va en la base
+  // (`users.compania_id` + CHECK), no en este catálogo: un `cliente` sin compañía no debe existir,
+  // y si existiera, `contextoSoat()` le devuelve cola vacía (ADR-0008 §3).
+  // NO reabre el difunto rol `operaciones`: aquel era un superusuario del dominio y se fusionó en
+  // `admin`; este es lo contrario, el rol más acotado del sistema.
+  'cliente',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -50,6 +58,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   gestor_impuestos: 'Gestor de Impuestos',
   mensajero: 'Mensajero',
   financiera: 'Financiera',
+  // Etiqueta exacta del copy de UX (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4).
+  cliente: 'Cliente',
 };
 
 // ============================================================================
@@ -82,9 +92,29 @@ export const PAGES = {
   pesv_raci: 'PESV — Matriz RACI',
   pesv_normativa: 'PESV — Tracker normativo',
   pesv_retencion: 'PESV — Retención documental',
-  // FLITO (migración packages/ → Operaciones). El slug `soat` de arriba se REUTILIZA
-  // para el portal SOAT de FLITO (reemplaza el módulo SOAT legacy). El resto son nuevos.
+  // FLITO (migración packages/ → Operaciones). El resto son nuevos.
+  //
+  // El portal SOAT de FLITO (`/flito/soat`) TENÍA el slug `soat` prestado del módulo legacy
+  // (`/soat`), porque para los tres titulares de esa llave —`admin`, `proveedor`, `auditor`— las dos
+  // pantallas tienen la misma respuesta. Desde el Feature #11912 ya no: `cliente` es el primer rol
+  // para el que la respuesta es opuesta (SÍ al portal, NO al legado), y una llave no puede dar dos
+  // respuestas. Ver `flito_soat`, unas líneas más abajo, y ADR-0008 §4.
   flito_tramites: 'FLITO — Trámites',
+  // Portal SOAT de FLITO (`/flito/soat`). Clave PROPIA desde el Feature #11912, y no la `soat` de
+  // arriba, que sigue siendo la del módulo legacy (`/soat`, `Soat.tsx`).
+  //
+  // El precedente es el de `flito_comparendos`, `flito_conciliacion` y `siigo_credenciales`: el
+  // permiso de página y la autoridad del router son dos puertas distintas. Aquí además son dos
+  // PANTALLAS distintas bajo la misma llave, que es lo que deja de sostenerse en cuanto un rol
+  // necesita entrar a una y no a la otra.
+  //
+  // El cambio es ADITIVO: `proveedor` y `auditor` reciben este slug ADEMÁS de `soat`, así que su
+  // comportamiento no cambia (y la migración 0167 se lo materializa a quien tuviera `soat`
+  // concedido a mano). El único que lo tiene SIN `soat` es `cliente`, y de ahí sale el AC4 de la
+  // HU #11913 **por construcción**: no hay que escribir en ningún router una regla que nombre al
+  // rol `cliente` para que el legado le quede cerrado — sencillamente no tiene la llave. Una regla
+  // así sería una lista negra, y se rompería en silencio con el siguiente rol que reciba `soat`.
+  flito_soat: 'FLITO — SOAT',
   flito_impuestos: 'FLITO — Impuestos',
   // Derechos de tránsito: lo que el organismo cobra por radicar (HU #10950/#10951).
   flito_derechos: 'FLITO — Derechos de tránsito',
@@ -128,6 +158,24 @@ export const PAGES = {
   // facturas todos los días, y el reporte de costos es otro trabajo con otra audiencia. Unirlas
   // obligaría a conceder la operación diaria a quien solo debe parametrizar, o al revés.
   siigo_operacion: 'Facturación electrónica — Operación',
+  // Facturación electrónica (HU #11890): las CREDENCIALES de la integración — con qué usuario se
+  // conecta FLITO a Siigo en cada ambiente, y la prueba de conexión.
+  //
+  // Clave PROPIA, y **NO se añade a ninguna fila de `ROLE_DEFAULT_PAGES`**: `admin` la obtiene por
+  // `Object.keys(PAGES)` y nadie más debe tenerla. El precedente literal es `flito_comparendos`:
+  // `credenciales.routes.ts` monta `authMiddleware, requireRole('admin')` sobre las CUATRO
+  // operaciones —listar incluida—, así que conceder la página a `financiera` o a `auditor` sería
+  // regalarles una pantalla que responde 403 en cada petición. El permiso de página y la autoridad
+  // del router son dos puertas distintas, y aquí solo se puede abrir una.
+  siigo_credenciales: 'Facturación electrónica — Credenciales',
+  // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
+  // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
+  // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
+  // del catálogo de fichas). `admin` lo obtiene por `Object.keys(PAGES)`, pero el gate de ruta
+  // NO usa `hasPage(..., 'flito_ayuda')` — eso dejaría la pantalla solo al admin.
+  // La clave `siigo_credenciales` de su catálogo de ayuda se lista solo si `user.role === 'admin'`;
+  // el PageSlug lo añadió la HU #11890, justo encima.
+  flito_ayuda: 'Ayuda FLITO',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -141,9 +189,12 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'RNDC', pages: ['rndc', 'rndc_admin'] },
   { label: 'Cumplimiento LAFT', pages: ['laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard'] },
   { label: 'Tránsito', pages: ['transito', 'transito_organismos'] },
-  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
+  // El portal FLITO lista `flito_soat` y NO `soat`: aquella clave es la del módulo legacy, que ya
+  // aparece arriba en «Operaciones». Hasta el Feature #11912 la misma clave salía en los dos
+  // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
+  { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'siigo_parametrizacion', 'siigo_operacion'] },
-  { label: 'Administración', pages: ['users', 'privacy'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales'] },
 ];
 
 // ============================================================================
@@ -161,11 +212,15 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   conductor: ['dashboard', 'pesv'],
   transito: ['dashboard', 'transito'],
   // Proveedor = Gestor SOAT de FLITO: ve su cola SOAT (filtrada por proveedor en el servidor).
-  proveedor: ['dashboard', 'soat'],
+  // `flito_soat` se SUMA a `soat` (Feature #11912): conserva las dos pantallas que ya abría, así
+  // que para él este cambio es cero. Quitarle `soat` sería otra HU y otra discusión.
+  proveedor: ['dashboard', 'soat', 'flito_soat'],
   // Auditor: read-only LAFT + vistas FLITO de solo lectura (migración D-2). No se le
   // incluye en ningún requireRole de mutación FLITO — solo lectura.
   auditor: ['dashboard', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard',
-    'flito_tramites', 'soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
+    // `flito_soat` se SUMA a `soat` (Feature #11912) por lo mismo que en `proveedor`: aditivo, para
+    // que el auditor siga leyendo exactamente las dos pantallas que leía.
+    'flito_tramites', 'soat', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica',
     // El reporte de costos consolida datos que el auditor ya ve uno a uno (SOAT, impuestos,
     // derechos). Negarle la vista agregada no protegía nada: solo le obligaba a reconstruirla.
     'finanzas_reporte_costos',
@@ -200,6 +255,17 @@ export const ROLE_DEFAULT_PAGES: Record<UserRole, readonly PageSlug[]> = {
   // cliente que Financiera cuadra y cierra. El router de `/flito/conciliacion` solo admite
   // `admin` y `financiera` (CF-08), así que la página va aquí y NO en `auditor`.
   financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion'],
+  // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
+  //
+  // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así
+  // que dárselo sería enseñarle lo ajeno o mantener una segunda versión filtrada del tablero. La
+  // consecuencia es que el `cliente` no tiene página de inicio, y eso NO se tapa aquí: lo resuelve
+  // `rutaInicio(user)` en el web, que manda a la primera página permitida (ADR-0008 §4-C).
+  //
+  // Tampoco lleva `soat`: esa es la del módulo legacy y es justo la llave que el AC4 de la HU
+  // #11913 le niega. Esto se aparta de una línea del refinamiento —que decía `['soat']`— y la
+  // desviación está razonada y aceptada en el ADR-0008 §4.
+  cliente: ['flito_soat'],
 };
 
 // Helpers de permisos PESV: en endpoints de gestión PESV, lider_pesv tiene los mismos

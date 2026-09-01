@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { resolverValidacionVigentePorDocumento, validacionesVigentesPorDocumento } from '@operaciones/shared-types';
+import { PDF_WORKER_SRC } from '../lib/pdfWorker';
 
 interface CedulaCropperProps {
   fotoCedulaFrontal: string | null;
@@ -172,17 +173,20 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     setDocLoading(true); setDocPages([]);
     if (isPdf) {
       fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} }).then(r => r.arrayBuffer()).then(async (buf) => {
-        const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-        // `isEvalSupported: false` mitiga CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): en pdfjs 3.x
-        // la matriz de fuente de un PDF malicioso acaba en un `new Function(...)` al compilar los
-        // glifos. El fix upstream es el major 3→6, hoy bloqueado por producto, así que se aplica el
-        // workaround oficial del advisory. Aquí se rasteriza a PNG sin capa de texto: el render no
-        // cambia. Aplica a LAS DOS llamadas del archivo. Guardado por `npm run check:pdfjs-eval`.
-        const pdf = await pdfjsLib.getDocument({ data: buf, isEvalSupported: false }).promise; const pngs: string[] = [];
+        // El worker lo emite el bundler desde `node_modules` (HU #11775): misma versión que la API
+        // por construcción y con hash de contenido. Ver `src/lib/pdfWorker.ts`. Aplica a LOS DOS
+        // `GlobalWorkerOptions` del archivo.
+        const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+        // pdfjs-dist v6 corrige CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8) EN LA LIBRERÍA: ya no
+        // compila los glifos con `new Function(...)`. La opción `isEvalSupported` que había aquí como
+        // workaround del advisory ya no existe en v6 (0 coincidencias en `build/pdf.mjs`, y no está en
+        // `DocumentInitParameters`), así que pasarla sería seguridad aparente. No la vuelvas a añadir.
+        // Aplica a LAS DOS llamadas del archivo.
+        const pdf = await pdfjsLib.getDocument({ data: buf }).promise; const pngs: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {
           const pg = await pdf.getPage(i); const vp = pg.getViewport({ scale: 2.0 });
           const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-          await pg.render({ canvasContext: c.getContext('2d')!, viewport: vp }).promise;
+          await pg.render({ canvas: c, viewport: vp }).promise;
           pngs.push(c.toDataURL('image/png'));
         }
         setDocPages(pngs);
@@ -198,13 +202,13 @@ export default function ExpedienteVisor({ tramiteId, vehiculo, comprador, vin, a
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(bodyData) });
     if (!res.ok) throw new Error(`Error ${res.status}`);
     const buf = await res.arrayBuffer(); const blob = new Blob([buf], { type: 'application/pdf' });
-    const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
-    // CVE-2024-4367 — misma mitigación que el `getDocument` de arriba; ver la nota allí.
-    const pdf = await pdfjsLib.getDocument({ data: buf.slice(0), isEvalSupported: false }).promise; const pngs: string[] = [];
+    const pdfjsLib = await import('pdfjs-dist'); pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+    // CVE-2024-4367 — lo corrige la propia v6; ver la nota del `getDocument` de arriba.
+    const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise; const pngs: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
       const pg = await pdf.getPage(i); const vp = pg.getViewport({ scale: 2.0 });
       const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
-      await pg.render({ canvasContext: c.getContext('2d')!, viewport: vp }).promise;
+      await pg.render({ canvas: c, viewport: vp }).promise;
       pngs.push(c.toDataURL('image/png'));
     }
     return { pages: pngs, blobUrl: URL.createObjectURL(blob) };

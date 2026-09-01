@@ -110,3 +110,28 @@ export function CeldaFechas({ creado, aprobado }: { creado: string | null; aprob
 
 /** Las cabeceras que acompañan a las celdas de arriba, para que el rótulo no divirja del contenido. */
 export const ENCABEZADOS_COMUNES = ['Trámite', 'Vehículo', 'Fechas'] as const;
+
+/**
+ * El documento del titular, con su código de tipo delante cuando el API lo resolvió: `CC 1020304050`.
+ *
+ * El código llega YA RESUELTO desde el backend (`'CC' | 'NIT' | 'PP' | 'CE'` o `null`). El `tipo`
+ * crudo de FLIT —`cc`, `n`, `ps`, `ce`— no sale del API y por eso aquí NO hay tabla de mapeo, ni
+ * `switch`, ni normalización: el front imprime lo que le dan. Dos listas —una en el API y una copia
+ * en `apps/web`— divergen en cuanto alguien añada un tipo a una sola, y este repo ya pagó esa
+ * factura antes. La lista blanca es del backend; si algún día llegara un código fuera de los cuatro,
+ * se pinta tal cual y el arreglo se hace donde vive la regla.
+ *
+ * Sin código NO se pinta prefijo alguno: ni `—`, ni un guion de relleno, ni el espacio suelto que
+ * deja un `${tipo} ${numero}` interpolado a pelo cuando `tipo` es null. Un tipo que falta no es un
+ * dato que valga la pena señalar en la fila; el número sigue siendo el mismo número.
+ *
+ * La regla del `null` vive AQUÍ y solo aquí: las tres pantallas que enseñan titulares —cola de SOAT,
+ * cola de impuestos y Gestión de trámites— llaman a esta función, de modo que no puede ocurrir que
+ * dos de ellas traten el hueco distinto.
+ */
+export const documentoConTipo = (tipo: string | null | undefined, numero: string | null | undefined): string => {
+  const num = numero?.trim() ?? '';
+  // Sin número no hay nada que rotular: el guion es el mismo hueco que ya pintaban las pantallas.
+  if (!num) return '—';
+  return tipo ? `${tipo} ${num}` : num;
+};

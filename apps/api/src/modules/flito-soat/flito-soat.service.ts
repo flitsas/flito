@@ -19,6 +19,8 @@ import {
   flitoProveedoresSoat,
   flitoRevisiones,
   flitoSoat,
+  flitoSoatCausalesRechazo,
+  flitoSoatSolicitud,
   flitoSoportes,
   flitoTramites,
   organismosTransitoConfig,
@@ -31,6 +33,7 @@ import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
+  ESTADOS_SOAT_CANAL_CLIENTE,
   ESTADOS_SOAT_VISIBLES_GESTOR,
   EstadoSoat,
   FlujoRevision,
@@ -39,38 +42,92 @@ import { ANS_OPERATIVO,
   TipoPropiedad,
   type ExtraccionSoat,
 } from '@operaciones/shared-types';
+import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
+
+/**
+ * TODOS los estados del enum, derivados y no escritos a mano (HU #11910).
+ *
+ * `Object.values` a propósito: un estado nuevo del catálogo entra aquí solo, y una lista literal se
+ * habría quedado corta en silencio — con el efecto de que el ZIP dejaría fuera registros que el
+ * actor sí puede ver, sin que nada lo dijera.
+ */
+const ESTADOS_SOAT_TODOS: readonly EstadoSoat[] = Object.values(EstadoSoat);
 
 export interface SoatCtx {
   userId: number;
   username: string;
   role: string;
   proveedorSoatId: string | null;
+  /**
+   * La compañía del usuario `cliente` (Feature #11912). `null` para el resto de roles — y también
+   * para un `cliente` al que le falte, que es el usuario que la base ya no debería permitir (CHECK
+   * `users_cliente_compania_chk`) y que aquí acaba en «no ve nada», nunca en «lo ve todo».
+   */
+  companiaId: number | null;
 }
 
 /**
  * Resuelve la atadura de visibilidad del gestor desde la BD (no del JWT): §9.3. Un cambio de
  * proveedor de un gestor surte efecto sin re-emitir token. Para el resto de roles es null.
+ *
+ * Lo mismo, y por lo mismo, con la compañía del `cliente` (Feature #11912): se lee de
+ * `users.compania_id` en cada petición y NO viaja en el token, así que moverle la compañía a alguien
+ * surte efecto sin re-emitírselo. Es una consulta más, y solo para dos de los doce roles.
  */
 export async function contextoSoat(user: { sub: number; username: string; role: string }): Promise<SoatCtx> {
   let proveedorSoatId: string | null = null;
+  let companiaId: number | null = null;
   if (user.role === 'proveedor') {
     const [u] = await db.select({ p: users.flitoProveedorSoatId }).from(users).where(eq(users.id, user.sub)).limit(1);
     proveedorSoatId = u?.p ?? null;
+  } else if (user.role === 'cliente') {
+    const [u] = await db.select({ c: users.companiaId }).from(users).where(eq(users.id, user.sub)).limit(1);
+    companiaId = u?.c ?? null;
   }
-  return { userId: user.sub, username: user.username, role: user.role, proveedorSoatId };
+  return { userId: user.sub, username: user.username, role: user.role, proveedorSoatId, companiaId };
 }
 
 const esGestor = (ctx: SoatCtx) => ctx.role === 'proveedor';
+/** Usuario de una compañía cliente (Feature #11912): ve lo de su compañía y nada más. */
+const esCliente = (ctx: SoatCtx) => ctx.role === 'cliente';
+
+/**
+ * El valor de `flito_soat.origen` que marca las filas del canal Cliente (Feature #11912).
+ *
+ * En una constante y no repartido en literales para que un `grep ORIGEN_CLIENTE` encuentre TODAS las
+ * decisiones que dependen de la puerta por la que entró la fila: la frontera de autogestión (justo
+ * debajo), la lectura del propietario en la cola, el bloque de revisión del detalle y las tres
+ * transiciones del canal (validar, rechazar, subsanar), que solo aplican a estas filas.
+ *
+ * La frase de arriba estuvo aquí siendo FALSA: la frontera conservaba el literal crudo `= 'cliente'`
+ * y el grep no la encontraba. Interpolar la constante en el `sql` la trae al redil y además la pasa
+ * como PARÁMETRO ENLAZADO en vez de inline, que es lo que AGENTS.md pide de cualquier valor que
+ * entre en una consulta — aunque este sea una constante de compilación y no pudiera ser otra cosa.
+ */
+export const ORIGEN_CLIENTE = 'cliente';
 
 /**
  * Quién entra en la cola: lo de las compañías que NO autogestionan, más lo que se desbloqueó
  * excepcionalmente (HU #10980). `COALESCE` porque la bandera del cliente es nullable.
+ *
+ * La TERCERA condición es del canal Cliente (Feature #11912) y no cubre un caso de borde: los dos
+ * flags de la compañía son independientes, así que la primera que encienda «autogestiona SOAT» y
+ * «SOAT sin trámite» a la vez radicaría solicitudes que no vería NADIE —tampoco el admin que tiene
+ * que revisarlas—. Autogestionar es comprarse el SOAT de sus trámites; lo que pide por este canal se
+ * lo está pidiendo a FLITO explícitamente, así que la frontera no le aplica.
+ *
+ * NO se reutiliza `excepcion_autogestion` para conseguir el mismo efecto: esa bandera significa «se
+ * desbloqueó ESTE SOAT pese a que la compañía autogestiona» (HU #10980), y ponerla en cada alta del
+ * canal la volvería mentira en el 100% de las filas, además de contaminar el informe que la usa.
+ * Una tercera condición explícita dice lo que pasa; una bandera reutilizada lo esconde.
  */
 const FRONTERA_AUTOGESTION_SOAT = sql`(NOT COALESCE(${clients.soatAutogestionable}, false)
-  OR ${flitoSoat.excepcionAutogestion})`;
+  OR ${flitoSoat.excepcionAutogestion}
+  OR ${flitoSoat.origen} = ${ORIGEN_CLIENTE})`;
 
 // ───────────────────────────── Cola (3 fronteras) ───────────────────────────
 
@@ -80,6 +137,14 @@ export interface SoatColaItem {
   placa: string | null;
   marca: string | null;
   linea: string | null;
+  /**
+   * Datos técnicos que trae FLIT y que el sync guarda en `vehicles` (HU #11906). Viajan como `null`
+   * cuando FLIT no los trajo: el «—» lo pinta la interfaz, no el backend. Salen del `innerJoin` con
+   * `vehicles` que la cola ya hacía, así que no cuestan una consulta más.
+   */
+  cilindraje: string | null;
+  carroceria: string | null;
+  tipoServicio: string | null;
   estado: EstadoSoat;
   tipoPropiedad: TipoPropiedad;
   esMultiplePropietario: boolean;
@@ -93,7 +158,20 @@ export interface SoatColaItem {
    * para poder decir «Operaciones, retomado de X».
    */
   gestionOperaciones: boolean;
-  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
+  /**
+   * Los propietarios de la fila, con el tipo de documento YA RESUELTO (HU #11947).
+   *
+   * `tipoDocumento` es `'CC' | 'NIT' | 'PP' | 'CE' | null` y **NO es el `tipo` crudo de FLIT**
+   * (`n`, `cc`, `ps`, `ce`, `otro`): la tabla que traduce lo uno en lo otro vive en
+   * `shared/export/cola-flito-derivados.ts` y tiene UNA sola copia en el repo (AC6). Si el crudo
+   * viajara al navegador, las tres páginas que consumen estas colas necesitarían su propia copia y
+   * las cuatro podrían divergir sin que nada fallara.
+   *
+   * `null` = el origen no lo dice: `tipo` ausente, desconocido, o —el caso que se lee entero en
+   * `ensamblarCola`— un propietario del canal Cliente, que no tiene trámite y por tanto no tiene
+   * payload del que resolverlo. Nunca se rellena con un valor por defecto.
+   */
+  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
   /**
    * Datos del trámite, homologados con las demás tablas (tipo, aprobación, creación).
@@ -116,6 +194,59 @@ export interface SoatColaItem {
   creadoEn: string;
 }
 
+/**
+ * Los campos del DTO que son de la OPERACIÓN, no del cliente (Feature #11912, corrección de
+ * seguridad de la HU #11913).
+ *
+ * El aislamiento por compañía decide QUÉ FILAS ve el `cliente`; esta lista decide QUÉ CAMPOS de esas
+ * filas. Son dos preguntas distintas y hasta aquí solo estaba respondida la primera: la forma de la
+ * respuesta se diseñó para lectores internos —Operaciones, el gestor del proveedor, auditoría— y se
+ * servía tal cual a una empresa tercera. Cada uno se va por un motivo propio:
+ *
+ *   · `proveedorSoatNombre` / `proveedorSoatId` — con qué proveedor tiene FLITO contratada la
+ *     adquisición. El id se va con el nombre: es un pseudónimo estable que agrupa las filas por
+ *     proveedor, así que dejarlo sería esconder la palabra y publicar el hecho.
+ *   · `gestionOperaciones` — la otra mitad de lo mismo: dice si el caso lo trabaja FLITO o un
+ *     tercero. Ocultar quién es el tercero y publicar que lo hay responde media pregunta.
+ *   · `valorPagado` — lo que FLITO pagó por la póliza, frente a lo que le factura al cliente.
+ *   · `enviadoPorNombre` — nombre del EMPLEADO de FLIT que la despachó; dato personal de un
+ *     trabajador entregado a otra empresa.
+ *
+ * `proveedorSlaHoras` no está en esta lista porque no está en el DTO: se consulta (`ColaRow`) y no
+ * se emite. Se deja escrito porque el informe de seguridad lo daba por expuesto y quien venga a
+ * revisarlo merece saber que se comprobó, no que se olvidó.
+ *
+ * La proyección se aplica en `ensamblarCola`, que es por donde pasan las DOS lecturas —la cola y el
+ * detalle—. Aplicarla en cada ruta habría dejado la del detalle a un olvido de distancia.
+ */
+const CAMPOS_SOLO_INTERNOS = [
+  'proveedorSoatId', 'proveedorSoatNombre', 'gestionOperaciones', 'enviadoPorNombre', 'valorPagado',
+] as const satisfies readonly (keyof SoatColaItem)[];
+type CampoSoloInterno = (typeof CAMPOS_SOLO_INTERNOS)[number];
+
+/** La fila tal como la ve una compañía cliente: sin nada de lo de arriba. */
+export type SoatColaItemCliente = Omit<SoatColaItem, CampoSoloInterno>;
+
+/** Lo que la cola devuelve: la fila entera, o la del cliente. Nunca «la entera con nulls». */
+export type SoatColaItemSalida = SoatColaItem | SoatColaItemCliente;
+
+/**
+ * Quita los campos internos, recorriendo la LISTA DE ARRIBA y no una copia escrita a mano.
+ *
+ * Una desestructuración (`const { proveedorSoatId: _p, …, ...visible } = item`) se lee mejor, pero
+ * serían DOS listas: quien añadiera un campo a `CAMPOS_SOLO_INTERNOS` sin tocar la desestructuración
+ * seguiría entregándolo, y el compilador no diría nada —las comprobaciones de propiedades de más
+ * solo aplican a literales—. Recorriendo la constante, el tipo y el borrado no pueden separarse.
+ *
+ * El `satisfies readonly (keyof SoatColaItem)[]` de la constante es la otra mitad: renombrar un
+ * campo del DTO rompe la compilación AQUÍ en vez de dejar una cadena que ya no borra nada.
+ */
+function sinCamposInternos(item: SoatColaItem): SoatColaItemCliente {
+  const visible: Record<string, unknown> = { ...item };
+  for (const campo of CAMPOS_SOLO_INTERNOS) delete visible[campo];
+  return visible as SoatColaItemCliente;
+}
+
 export interface FiltrosCola {
   estados?: EstadoSoat[];
   buscar?: string;
@@ -131,13 +262,35 @@ export interface FiltrosCola {
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
-  /** true = solo lo que superó el SLA de su proveedor. */
+  /**
+   * Rango por CUÁNDO SE CREÓ la solicitud (`flito_soat.created_at`), HU #11909.
+   *
+   * Es un eje DISTINTO de `solicitadoDesde/Hasta`, que mide `enviado_en` —cuándo se despachó al
+   * gestor—. Los dos existen a la vez y confundirlos es el defecto que esta HU tiene más cerca: un
+   * SOAT nace en `pendiente` y puede pasar días sin enviarse, así que filtrar «creado en agosto»
+   * contra `enviado_en` deja fuera todo lo que aún no se ha despachado —justo la parte de la cola
+   * sobre la que se trabaja— y encima devuelve algo, así que nadie lo nota.
+   *
+   * Decisión de producto pegada en la HU: «Creado» es `created_at` de la solicitud, no la fecha del
+   * trámite en FLIT.
+   */
+  creadoDesde?: string; creadoHasta?: string;
+  /**
+   * true = solo lo que superó el ANS OPERATIVO de FLIT (`ANS_OPERATIVO.SIN_GESTION_HORAS`), que es
+   * una constante global.
+   *
+   * Decía «el SLA de su proveedor» y era falso: ni `EXPR_ESTANCADO` ni `estaEstancado()` leen
+   * `flito_proveedores_soat.sla_horas`. La frase importa más de lo que parece desde el Feature
+   * #11912 — si este filtro discriminara por el SLA del proveedor sería un oráculo sobre un dato
+   * que el `cliente` no recibe, y habría que ignorárselo como a `gestion` y `proveedores`
+   * (`filtrosPermitidos`). No lo es, y por eso se le deja.
+   */
   estancado?: boolean;
   page?: number; pageSize?: number;
 }
 
 export interface ColaSoatPaginada {
-  items: SoatColaItem[]; total: number; page: number; pageSize: number;
+  items: SoatColaItemSalida[]; total: number; page: number; pageSize: number;
 }
 
 /**
@@ -155,13 +308,61 @@ const EXPR_ESTANCADO = sql`(${flitoSoat.estado} = ${EstadoSoat.SOLICITADO}
   AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${ANS_OPERATIVO.SIN_GESTION_HORAS}))`;
 
 /**
+ * Los filtros que este actor tiene derecho a APLICAR, que no es lo mismo que los que puede pedir.
+ *
+ * Quitarle un campo al DTO no basta si queda un filtro que particiona la cola por ese campo: con dos
+ * peticiones —`?gestion=operaciones` y `?gestion=proveedor`— el `cliente` reconstruía
+ * `gestionOperaciones` fila a fila, y con `?proveedores=<uuid>` hacía lo mismo con
+ * `proveedorSoatId`. Un filtro es un ORÁCULO: responde sí/no sobre un campo oculto, y repetido es el
+ * campo entero. Es la misma clase de fuga que `facetasCola` tenía con la lista de proveedores.
+ *
+ * Se ignoran —no dan 400— por la filosofía que ya sigue el resto de esta función: un valor que no
+ * aplica se descarta, no tumba la pantalla de quien está trabajando. Y un 400 sería, además, otro
+ * oráculo: confirmaría que el campo existe.
+ *
+ * ── Los otros nueve filtros, revisados uno a uno (por qué NO están aquí) ─────────────────────────
+ *
+ * El criterio es único: un filtro solo es oráculo si distingue por un campo que el cliente NO
+ * recibe. Los que particionan por algo que ya está en su DTO no le dicen nada nuevo.
+ *
+ *   · `estados`, `companias`, `organismos` — `estado`, `companiaNombre` y `organismoNombre` viajan
+ *     en su fila. Además su compañía ya está fijada por la frontera: pedir otra da vacío.
+ *   · `buscar` — cruza placa, VIN y los compradores, que también viajan en su fila.
+ *   · `solicitadoDesde/Hasta`, `pagadoDesde/Hasta` — `enviadoEn` y `pagadoEn` están en su DTO
+ *     (decisión de producto: el ANS es de FLIT, no del proveedor).
+ *   · `estancado` — se calcula con `estado` + `enviadoEn` + la constante global `ANS_OPERATIVO`, los
+ *     tres visibles para él, y la propia bandera `estancado` viaja en la fila.
+ *   · `page`/`pageSize` — no discriminan por ningún campo.
+ *
+ * Y no hay filtro por `valorPagado` ni por `extraccion`, los otros dos campos que el DTO le quita:
+ * si mañana se añade uno, entra en esta lista.
+ */
+function filtrosPermitidos(ctx: SoatCtx, f: FiltrosCola): FiltrosCola {
+  if (!esCliente(ctx)) return f;
+  return { ...f, gestion: undefined, proveedores: undefined };
+}
+
+/**
  * Condiciones de la cola, en un solo sitio. Las comparten la página y el conteo: si difieren, el
  * total y las filas dejan de cuadrar sin que nada avise.
  *
  * Devuelve `null` cuando la frontera del gestor hace que no pueda ver NADA — distinto de «sin
  * filtros», que sería devolver una lista vacía de condiciones y traerlo todo.
+ *
+ * El saneo de filtros va DENTRO y no en la ruta, por la misma razón por la que la frontera vive
+ * aquí: esta función la comparten la página, el conteo y las facetas, así que un solo `const` cubre
+ * las tres. En la ruta habría que acordarse tres veces —y las facetas ni siquiera pasan por ella.
+ *
+ * **`export` desde la HU #11909**, y no por comodidad: el export a Excel tiene que producir EXACTAMENTE
+ * el conjunto que la pantalla enseña. Un predicado paralelo escrito en el servicio del export
+ * empezaría idéntico y divergiría en el primer filtro que se añada a uno y no al otro —y la
+ * divergencia no se ve: los dos devuelven filas—. Es lo mismo que hizo el export de comparendos
+ * importando `condicionesDeFiltro` del servicio del listado. Sobre todo, aquí dentro viven las TRES
+ * fronteras: reimplementarlas fuera es la vía por la que un gestor acaba descargando lo de otro
+ * proveedor.
  */
-function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
+export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
+  const f = filtrosPermitidos(ctx, filtros);
   const conds = [FRONTERA_AUTOGESTION_SOAT];
 
   if (esGestor(ctx)) {
@@ -176,6 +377,17 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
       : [EstadoSoat.SOLICITADO];
     if (visibles.length === 0) return null;
     conds.push(inArray(flitoSoat.estado, visibles));
+  } else if (esCliente(ctx)) {
+    // Aislamiento por compañía (Feature #11912), simétrico al del gestor y en el MISMO sitio: estas
+    // condiciones las comparten la página, el conteo y las facetas, así que una sola rama cubre las
+    // tres. Escribirlo en la consulta de filas dejaría el total y los valores de los filtros
+    // contando lo ajeno — que es contarle al cliente que existe.
+    //
+    // Sin compañía no hay frontera que aplicar → NADA, igual que el gestor sin proveedor. El fallo
+    // por defecto es «no ve nada»; devolver una lista vacía de condiciones sería traerlo todo.
+    if (!ctx.companiaId) return null;
+    conds.push(eq(flitoSoat.companiaId, ctx.companiaId));
+    if (f.estados?.length) conds.push(inArray(flitoSoat.estado, f.estados));
   } else if (f.estados?.length) {
     conds.push(inArray(flitoSoat.estado, f.estados));
   }
@@ -192,14 +404,32 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
         sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft JOIN ${flitoCompradores} fc ON fc.tramite_id = ft.id
               WHERE ft.soat_id = ${flitoSoat.id}
                 AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
+        // La MISMA búsqueda por el OTRO padre de `flito_compradores` (Feature #11912, HU #11914).
+        //
+        // Sin esta rama, buscar por propietario devuelve MENOS FILAS DE LAS QUE HAY, en verde: una
+        // solicitud del canal Cliente tiene `tramite_id IS NULL`, así que no entra por el JOIN de
+        // arriba y el EXISTS da FALSE — el admin que filtra por el nombre del propietario para
+        // revisarla no la encuentra y nada le dice que falta. Es el peor modo de fallo de una
+        // pantalla de revisión, y por eso la auditoría de esquema lo puso como carga de esta HU.
+        //
+        // Dos EXISTS y no un LEFT JOIN con un OR dentro: cada uno usa su índice
+        // (`idx_flito_compradores_tramite` / `idx_flito_compradores_soat`), y las dos ramas se leen
+        // por separado — la del trámite puede tener VARIOS compradores por SOAT y la del canal tiene
+        // exactamente uno.
+        sql`EXISTS (SELECT 1 FROM ${flitoCompradores} fc
+              WHERE fc.soat_id = ${flitoSoat.id}
+                AND (UPPER(fc.nombre_completo) LIKE ${termTexto} OR fc.numero_documento LIKE ${termTexto}))`,
       )!,
     );
   }
 
+  // Se AÑADE a la condición de arriba, no la sustituye: un `cliente` que pida ver otra compañía
+  // obtiene la intersección, es decir, vacío. Mismo razonamiento que el filtro de proveedores.
   if (f.companias?.length) conds.push(inArray(flitoSoat.companiaId, f.companias));
   if (f.organismos?.length) conds.push(inArray(flitoSoat.organismoCodigo, f.organismos));
   // Un gestor ya está atado a su proveedor: dejarle filtrar por otro sería ruido, no una fuga —
-  // la condición de la frontera sigue vigente y el resultado sería vacío.
+  // la condición de la frontera sigue vigente y el resultado sería vacío. Para el `cliente` sí sería
+  // una fuga, y por eso los dos llegan aquí ya vacíos (`filtrosPermitidos`).
   if (f.proveedores?.length) conds.push(inArray(flitoSoat.proveedorSoatId, f.proveedores));
   if (f.gestion === 'operaciones') conds.push(eq(flitoSoat.gestionOperaciones, true));
   else if (f.gestion === 'proveedor') conds.push(eq(flitoSoat.gestionOperaciones, false));
@@ -209,20 +439,85 @@ function condicionesCola(ctx: SoatCtx, f: FiltrosCola): SQL[] | null {
   if (f.solicitadoHasta) conds.push(sql`${flitoSoat.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
   if (f.pagadoDesde) conds.push(sql`${flitoSoat.pagadoEn} >= ${f.pagadoDesde}::date`);
   if (f.pagadoHasta) conds.push(sql`${flitoSoat.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+  // «Creado» (HU #11909) es `created_at` de ESTA tabla y no `enviado_en`, que es el rango de arriba.
+  // Va aquí dentro, con los otros tres, y no en el servicio del export: estas condiciones las
+  // comparten la página, el `count(*)`, las facetas y el archivo, así que un solo `if` acota las
+  // cuatro y el total sigue cuadrando con lo que se descarga. Escrito en el export, la pantalla
+  // filtraría por un criterio y el `.xlsx` por otro.
+  if (f.creadoDesde) conds.push(sql`${flitoSoat.createdAt} >= ${f.creadoDesde}::date`);
+  if (f.creadoHasta) conds.push(sql`${flitoSoat.createdAt} < (${f.creadoHasta}::date + INTERVAL '1 day')`);
 
   if (f.estancado) conds.push(EXPR_ESTANCADO);
 
   return conds;
 }
 
-/** Los joins de la cola, compartidos por la página y el conteo. */
-function conJoinsCola<Q extends PgSelect>(q: Q) {
+/**
+ * Los joins de la cola, compartidos por la página, el conteo, las facetas y —desde la HU #11909— el
+ * export a Excel.
+ *
+ * Se exporta por el mismo motivo que `condicionesCola`: las condiciones nombran columnas de
+ * `clients`, `vehicles` y `organismos_transito_config`, así que el predicado compartido solo es
+ * ejecutable sobre ESTOS joins. Reescribirlos en el export dejaría abierta la puerta a que uno
+ * sumara un join que multiplica filas —y en un archivo eso no se ve como un error, se ve como más
+ * filas de las que hay.
+ */
+export function conJoinsCola<Q extends PgSelect>(q: Q) {
   return q
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
+}
+
+/**
+ * Los SOAT del lote que ESTE actor puede ver, para el ZIP de soportes (HU #11910).
+ *
+ * ── Por qué una consulta por LOTE y no `buscarConAcceso` id a id ─────────────────────────────────
+ *
+ * El zip anterior llamaba a la función de acceso una vez por id: N×2 consultas para 100 ids, y en el
+ * ZIP mixto de Trámites eso serían tres rondas de cien. El predicado que aplica la frontera ya está
+ * escrito y ya es compartido —`condicionesCola` + `conJoinsCola`, exportados por la HU #11909—, así
+ * que el lote entra en un solo `IN`.
+ *
+ * ── `estados: [...ESTADOS]` no es «traerlo todo», es lo contrario ────────────────────────────────
+ *
+ * `condicionesCola` con el filtro vacío acota al gestor a `solicitado` —el defecto de su PANTALLA—,
+ * y el comprobante de SOAT solo existe cuando el registro ya está `pagado`: heredar ese defecto
+ * habría dejado al gestor sin poder descargar nunca lo que él mismo subió. Pasando la lista completa
+ * de estados, la intersección con `ESTADOS_SOAT_VISIBLES_GESTOR` que hay dentro devuelve exactamente
+ * lo que `buscarConAcceso` deja pasar (`solicitado` + `pagado`), que es la frontera correcta para una
+ * descarga. Para admin y auditoría la lista completa es, en efecto, sin recorte por estado.
+ *
+ * ── Los ids que no vuelven NO se distinguen ──────────────────────────────────────────────────────
+ *
+ * No se comprueba existencia ni se informa de descartes. Un id inexistente, uno de otro proveedor y
+ * uno sin soporte producen el MISMO resultado: el archivo no está, y si no queda ninguno sale el
+ * mismo 409. Contar «3 de 40 quedaron fuera» convertiría el ZIP en un oráculo de pertenencia.
+ */
+export async function registrosZipSoat(ids: string[], ctx: SoatCtx): Promise<RegistroZip[]> {
+  if (ids.length === 0) return [];
+  const conds = condicionesCola(ctx, { estados: [...ESTADOS_SOAT_TODOS] });
+  if (conds === null) return []; // gestor sin proveedor → nada, nunca la tabla entera
+  const filas = await conJoinsCola(db.select({
+    id: flitoSoat.id,
+    createdAt: flitoSoat.createdAt,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: organismosTransitoConfig.codigo,
+  }).from(flitoSoat).$dynamic())
+    .where(and(...conds, inArray(flitoSoat.id, ids)));
+
+  return filas.map((f) => ({
+    registroId: f.id,
+    placa: f.placa,
+    organismoAlias: f.organismoAlias,
+    organismoCodigo: f.organismoCodigo,
+    createdAt: f.createdAt,
+    // La única ancla de esta superficie: el AC2 pide el comprobante del SOAT y nada más.
+    soatId: f.id,
+  }));
 }
 
 /**
@@ -245,6 +540,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       id: flitoSoat.id,
       vin: flitoSoat.vin,
       estado: flitoSoat.estado,
+      origen: flitoSoat.origen,
       proveedorSoatId: flitoSoat.proveedorSoatId,
       gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn,
@@ -255,20 +551,38 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       placa: vehicles.plate,
       marca: vehicles.brand,
       linea: vehicles.model,
+      cilindraje: vehicles.cilindraje,
+      carroceria: vehicles.carroceria,
+      tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name,
       organismoNombre: organismosTransitoConfig.alias,
       proveedorSoatNombre: flitoProveedoresSoat.nombre,
       proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
     }).from(flitoSoat).$dynamic()).where(where)
-      // Prioridad por antigüedad. El desempate por id es lo que evita que una fila salga en dos
-      // páginas (o en ninguna) cuando varias comparten el mismo instante de creación.
-      .orderBy(asc(flitoSoat.createdAt), asc(flitoSoat.id))
+      // Lo más RECIENTE arriba (HU #11963). La cola abre por lo que acaba de entrar para que una
+      // solicitud recién llegada se vea de entrada, sin paginar: decisión de David del 2026-09-01.
+      //
+      // Sustituye a la prioridad por ANTIGÜEDAD que esta consulta tuvo hasta aquí, y conviene saber
+      // qué se pierde: la lectura de cola FIFO —«qué lleva más esperando», el ángulo del SLA— ya NO
+      // está disponible en esta pantalla. Se evaluó replicar el selector `recientes`/`antiguos` de
+      // Gestión de trámites (HU #10959) para conservar las dos y se DESCARTÓ: el orden queda fijo
+      // descendente. Quien eche de menos la vista por antigüedad la pide como HU; no se recupera
+      // volteando esta línea, que es justo lo que esta nota existe para evitar.
+      //
+      // El desempate por id se voltea CON la clave, no se quita: es lo que evita que una fila salga
+      // en dos páginas (o en ninguna) cuando varias comparten el mismo instante de creación, y con
+      // `created_at desc` esa garantía solo se sostiene si el id desempata en el mismo sentido.
+      .orderBy(desc(flitoSoat.createdAt), desc(flitoSoat.id))
       .limit(pageSize).offset((page - 1) * pageSize),
   ]);
 
   return {
-    items: await ensamblarCola(rows as ColaRow[]),
+    // SIN cast a `ColaRow[]`, y es deliberado: `$dynamic()` relaja qué métodos se pueden encadenar,
+    // pero conserva el tipo de la proyección, así que el compilador SÍ compara este `select` contra
+    // `ColaRow`. Un `as ColaRow[]` aquí lavaría el tipo y dejaría a la cola sin esa comparación:
+    // quitar una columna de la proyección compilaría igual y la API devolvería el campo `undefined`.
+    items: await ensamblarCola(rows, ctx),
     total: Number(countRows[0]?.total ?? 0),
     page,
     pageSize,
@@ -294,12 +608,20 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
   const [companias, organismos, proveedores] = await Promise.all([
     conJoinsCola(db.selectDistinct({ id: clients.id, nombre: clients.name }).from(flitoSoat).$dynamic()).where(where),
     conJoinsCola(db.selectDistinct({ codigo: organismosTransitoConfig.codigo, nombre: organismosTransitoConfig.alias }).from(flitoSoat).$dynamic()).where(where),
-    conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
+    // Los proveedores NO se consultan para el `cliente`, y no es un filtro cosmético del desplegable:
+    // esta lista son los nombres de los proveedores de SUS PROPIOS SOAT, es decir, exactamente el
+    // dato que `CAMPOS_SOLO_INTERNOS` acaba de quitar de cada fila. Servirlo aquí lo devolvería
+    // entero por la puerta de al lado, y encima ordenado. No se lee lo que no se va a devolver.
+    esCliente(ctx)
+      ? Promise.resolve([] as { id: string | null; nombre: string | null }[])
+      : conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
   ]);
 
   return {
     companias: (companias as { id: number; nombre: string }[]).sort((a, b) => a.nombre.localeCompare(b.nombre)),
-    organismos: (organismos as { codigo: string; nombre: string | null }[]).sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+    organismos: (organismos as { codigo: string | null; nombre: string | null }[])
+      .filter((o): o is { codigo: string; nombre: string | null } => o.codigo != null)
+      .sort((a, b) => (a.nombre ?? '').localeCompare(b.nombre ?? '')),
     // Los SOAT sin proveedor asignado producen una fila nula en el DISTINCT: no es un proveedor.
     proveedores: (proveedores as { id: string | null; nombre: string | null }[])
       .filter((p): p is { id: string; nombre: string } => !!p.id && !!p.nombre)
@@ -308,14 +630,48 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
 }
 
 type ColaRow = {
-  id: string; vin: string; estado: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
+  id: string; vin: string; estado: string;
+  /**
+   * De qué puerta salió la fila (`tramite` | `cliente`). NO viaja al DTO: se consulta porque decide
+   * POR QUÉ PADRE hay que leer al propietario (ver `ensamblarCola`). Añadirlo a la respuesta sería
+   * publicar un detalle de implementación que ninguna pantalla pide.
+   */
+  origen: string; proveedorSoatId: string | null; gestionOperaciones: boolean; enviadoEn: Date | null;
   pagadoEn: Date | null; valorPagado: string | null; motivoRechazo: string | null; createdAt: Date;
-  placa: string | null; marca: string | null; linea: string | null; companiaNombre: string;
+  placa: string | null; marca: string | null; linea: string | null;
+  cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
+  companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
   enviadoPorNombre: string | null;
 };
 
-async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
+/**
+ * La expresión `->>` de la clave `tipo` de `flit_raw` (HU #11947), construida UNA vez.
+ *
+ * Sale de `expresionesFlitRaw` —la misma función que usan los dos exports— y no de un `sql` escrito
+ * aquí, que es lo que garantiza tres cosas a la vez: la clave va como parámetro (regla 3 de
+ * AGENTS.md), un valor no escalar se descarta en SQL con `case jsonb_typeof`, y la clave ligada es
+ * la MISMA que la del archivo. Dos definiciones de «de dónde sale el tipo» podrían divergir y la
+ * pantalla enseñaría un documento distinto del que el `.xlsx` publica.
+ */
+const TIPO_TITULAR_FLIT = expresionesFlitRaw(flitoTramites.flitRaw).tipo;
+
+/**
+ * El `ClaseId` que afirma un trámite, o `null` si no lo afirma.
+ *
+ * El API emite el código RESUELTO y no el `tipo` crudo de FLIT: ver `SoatColaItem.compradores`.
+ */
+const tipoDocumentoDeTramite = (tipo: unknown): string | null =>
+  clasificacionDeTipoFlit(tipo)?.claseId ?? null;
+
+/**
+ * Arma las filas del DTO y las PROYECTA según quién pregunta.
+ *
+ * `ctx` es obligatorio y no tiene valor por defecto, por lo mismo que `actor` en `soportesDeSoat`:
+ * un opcional haría que la fila completa se sirviera por olvido, que es exactamente cómo se coló
+ * este bloqueante. Exigirlo obliga a cada llamador nuevo a decidir a quién está sirviendo.
+ */
+async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaItemSalida[]> {
   const ids = rows.map((r) => r.id);
   const tramites = ids.length
     ? await db.select({
@@ -326,6 +682,8 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
         // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila: en la carga
         // masiva inicial todos los históricos comparten el mismo día.
         fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+        // HU #11947. Una expresión más sobre la lectura que ya se hacía: cero consultas nuevas.
+        tipoTitularFlit: TIPO_TITULAR_FLIT,
       })
         .from(flitoTramites).where(inArray(flitoTramites.soatId, ids))
     : [];
@@ -334,8 +692,40 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
     : [];
 
+  /**
+   * El propietario de las filas del canal Cliente (Feature #11912, HU #11914).
+   *
+   * `flito_compradores` cuelga de DOS padres desde la 0167, con un CHECK que exige uno y solo uno.
+   * Una fila del canal tiene `tramite_id IS NULL` y su propietario cuelga de `soat_id`, así que la
+   * consulta de arriba —que filtra por `tramite_id IN (…)`— no lo encuentra NUNCA. Sin esta segunda
+   * lectura, quien radica la solicitud abre su única pantalla y ve la fila SIN el propietario que
+   * acaba de teclear, y el admin que la revisa, lo mismo. El dato está guardado; simplemente no
+   * salía por ninguna parte.
+   *
+   * **Se consulta solo si hay filas del canal en esta página**, y de ahí que `origen` esté en la
+   * proyección: una cola de puro trámite —que es el 100% de lo que hay hoy— no paga ni una consulta
+   * más. `origen` es fiable para decidirlo porque el ÚNICO escritor de `flito_compradores.soat_id`
+   * es el alta del canal, y esa escribe las dos cosas en la misma transacción.
+   */
+  const idsCanal = rows.filter((r) => r.origen === ORIGEN_CLIENTE).map((r) => r.id);
+  const propietariosCanal = idsCanal.length
+    ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.soatId, idsCanal)).orderBy(asc(flitoCompradores.orden))
+    : [];
+  const propsPorSoat = new Map<string, typeof propietariosCanal>();
+  for (const c of propietariosCanal) {
+    // Mismo descarte defensivo que el de `tramiteId` de abajo: la consulta filtró por
+    // `soat_id IN (…)`, así que no puede ocurrir; está para que lo compruebe el compilador.
+    if (!c.soatId) continue;
+    const arr = propsPorSoat.get(c.soatId) ?? [];
+    arr.push(c); propsPorSoat.set(c.soatId, arr);
+  }
+
   const compsPorTramite = new Map<string, typeof compradores>();
   for (const c of compradores) {
+    // `tramiteId` es nullable desde el Feature #11912 (la tabla cuelga de dos padres). Esta consulta
+    // filtró por `tramite_id IN (…)`, así que el descarte no puede ocurrir; está escrito para que el
+    // compilador lo compruebe en vez de creérselo.
+    if (!c.tramiteId) continue;
     const arr = compsPorTramite.get(c.tramiteId) ?? [];
     arr.push(c); compsPorTramite.set(c.tramiteId, arr);
   }
@@ -346,12 +736,35 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
     arr.push(t); tramitesPorSoat.set(t.soatId, arr);
   }
 
-  return rows.map((r) => {
+  const completas: SoatColaItem[] = rows.map((r) => {
     const ts = tramitesPorSoat.get(r.id) ?? [];
-    const comps = ts.flatMap((t) => compsPorTramite.get(t.id) ?? []).sort((a, b) => a.orden - b.orden);
+    // Las dos vías se UNEN en vez de excluirse: el CHECK de la 0167 garantiza que una fila de
+    // `flito_compradores` cuelga de un solo padre, pero unirlas aquí hace que la columna
+    // «propietario» diga lo mismo venga la fila de donde venga, sin un `if` por origen que alguien
+    // tendría que mantener el día que aparezca un tercer camino.
+    //
+    // ── El tipo de documento se cuelga del trámite DUEÑO de cada comprador (HU #11947) ───────────
+    //
+    // Aquí NO hay nada que reconciliar y es la diferencia con el `.xlsx`: el archivo tiene UNA fila
+    // por SOAT y por eso reconcilia los trámites con `comun()`; esta lista tiene una entrada por
+    // COMPRADOR, y cada comprador cuelga de un trámite concreto, así que la relación es 1:1 y su
+    // tipo es el de SU trámite. Pasarlo por `comun()` aquí sería vaciar el dato de dos propietarios
+    // correctos porque sus trámites discrepan entre sí.
+    //
+    // Los del canal Cliente van con `null` y **no por un `if` de origen**: no tienen trámite, luego
+    // no tienen `flit_raw`, luego no tienen `tipo`. Es la misma invariante que deja las cinco
+    // columnas del titular vacías en el archivo.
+    const comps = [
+      ...(propsPorSoat.get(r.id) ?? []).map((c) => ({ ...c, tipoDocumentoFlit: null as string | null })),
+      ...ts.flatMap((t) => (compsPorTramite.get(t.id) ?? [])
+        .map((c) => ({ ...c, tipoDocumentoFlit: tipoDocumentoDeTramite(t.tipoTitularFlit) }))),
+    ].sort((a, b) => a.orden - b.orden);
     const esMultiple = ts.some((t) => t.tipoPropiedad === TipoPropiedad.MULTIPLE_PROPIETARIO);
     return {
       id: r.id, vin: r.vin, placa: r.placa, marca: r.marca, linea: r.linea,
+      // Pass-through puro, junto a marca/línea: son del vehículo, no del trámite, así que no pasan
+      // por `comun()` — no hay nada que reconciliar entre varios trámites del mismo SOAT.
+      cilindraje: r.cilindraje, carroceria: r.carroceria, tipoServicio: r.tipoServicio,
       estado: r.estado as EstadoSoat,
       tipoPropiedad: esMultiple ? TipoPropiedad.MULTIPLE_PROPIETARIO : TipoPropiedad.UNICO_PROPIETARIO,
       esMultiplePropietario: esMultiple,
@@ -360,7 +773,11 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       proveedorSoatId: r.proveedorSoatId,
       proveedorSoatNombre: r.proveedorSoatNombre,
       gestionOperaciones: r.gestionOperaciones,
-      compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
+      // `tipoDocumento` sale de `tipoDocumentoFlit` —resuelto desde `flit_raw`— y NO de la columna
+      // `flito_compradores.tipo_documento`, que sigue a 0 de 7 052 para las filas del sync: solo la
+      // escribe el canal Cliente. Publicar la columna daría un dato vacío en el 100 % de las filas
+      // que la pantalla enseña, y lleno justo en las que no tienen nada más.
+      compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, tipoDocumento: c.tipoDocumentoFlit, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
       tramitesFlit: ts.map((t) => t.idFlit),
       tipoTramite: comun(ts, (t) => t.tipoTramite),
       fechaAprobacion: aIso(comun(ts, (t) => t.fechaAprobacion)),
@@ -374,6 +791,8 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
       creadoEn: r.createdAt.toISOString(),
     };
   });
+
+  return esCliente(ctx) ? completas.map(sinCamposInternos) : completas;
 }
 
 /**
@@ -383,8 +802,13 @@ async function ensamblarCola(rows: ColaRow[]): Promise<SoatColaItem[]> {
  * trámite» de ese SOAT no existe: devolver el del primero pondría en la columna un dato con
  * aspecto de cierto que depende del orden de la consulta. Null es la respuesta honesta, y la
  * pantalla lo rotula «varios».
+ *
+ * **`export` desde la HU #11909**: la columna CIUDAD del archivo tiene la MISMA ambigüedad y hay que
+ * resolverla igual. La alternativa —un `innerJoin` a `flito_tramites` en la consulta del export—
+ * duplicaría la fila del SOAT una vez por trámite y falsearía además el conteo del tope, así que la
+ * ciudad se lee aparte por lote y pasa por aquí, como el resto de datos del trámite.
  */
-function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
+export function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
   if (items.length === 0) return null;
   const primero = leer(items[0]);
   if (primero === null) return null;
@@ -396,7 +820,13 @@ function comun<T, V>(items: T[], leer: (t: T) => V | null): V | null {
   return iguales ? primero : null;
 }
 
-/** SLA del proveedor vencido. Sin SLA configurado no hay estancamiento posible. */
+/**
+ * Solicitado hace más del ANS OPERATIVO de FLIT (`ANS_OPERATIVO.SIN_GESTION_HORAS`, 24 h), la misma
+ * constante global que usa `EXPR_ESTANCADO` en SQL. NO es el SLA del proveedor: ese vive en
+ * `flito_proveedores_soat.sla_horas` y esta función no lo lee. La distinción importa —si
+ * dependiera del proveedor, el filtro `estancado` le diría a un `cliente` con qué ANS tiene FLITO
+ * contratado a su gestor, que es justo lo que la proyección por rol le oculta (Feature #11912).
+ */
 function estaEstancado(estado: string, enviadoEn: Date | null): boolean {
   if (estado !== EstadoSoat.SOLICITADO || !enviadoEn) return false;
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
@@ -431,20 +861,141 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
     if (soat.soat.proveedorSoatId !== ctx.proveedorSoatId) return null;
     if (!(ESTADOS_SOAT_VISIBLES_GESTOR as readonly string[]).includes(soat.soat.estado)) return null;
   }
+  if (esCliente(ctx)) {
+    // La otra mitad del aislamiento por compañía (Feature #11912). Va aquí y no solo en la cola
+    // porque esta es la función que sostiene el 404-no-403: cubre de una vez el detalle, el
+    // historial, los soportes y la descarga. Un endpoint futuro del canal que olvide filtrar por
+    // compañía no puede filtrarse por accidente — o pasa por aquí, o no ve nada.
+    //
+    // 404 y no 403, por lo mismo que con el gestor: un 403 ya es un dato (confirma que el id
+    // existe). Sin compañía, `ctx.companiaId` es null y la comparación falla siempre.
+    if (soat.soat.companiaId !== ctx.companiaId) return null;
+  }
   return soat.soat;
 }
 
-export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem & { extraccion: unknown; pagadoEn: string | null }) | null> {
+/**
+ * El bloque de REVISIÓN de una solicitud del canal Cliente (Feature #11912, HU #11915).
+ *
+ * Es lo que el AC3 pide que el Cliente pueda ver de su solicitud rechazada —la causal, la
+ * observación y cuándo se revisó— y lo mismo que el admin necesita al abrirla. Viaja como bloque
+ * ANIDADO y no como campos sueltos del DTO de la cola por dos razones que conviene no perder:
+ *
+ *   · La cola no lo necesita. `SoatColaItem` lo sirven la página, el conteo y las facetas; meterle
+ *     cinco campos que solo tienen valor en el 0,x % de las filas obligaría a un LEFT JOIN más en la
+ *     consulta caliente para que 99 de cada 100 filas lo recibieran en null.
+ *   · `null` significa «esta fila no es del canal». Un bloque presente o ausente dice eso sin que la
+ *     pantalla tenga que mirar `origen`, que además NO viaja al DTO a propósito.
+ */
+export interface RevisionSolicitud {
+  /** El NOMBRE de la causal, resuelto contra el catálogo: la pantalla del Cliente no lo vuelve a pedir. */
+  causalNombre: string | null;
+  observacion: string | null;
+  revisadoEn: string | null;
+  /** Cuántas veces se subsanó y se volvió a enviar. */
+  reenvios: number;
+  solicitadoEn: string;
+  /**
+   * Quién la revisó. **Solo para lectores internos**, por lo mismo que `enviadoPorNombre` está en
+   * `CAMPOS_SOLO_INTERNOS`: es el nombre de un EMPLEADO de FLIT, y entregárselo a la empresa tercera
+   * que radicó la solicitud es un dato personal de un trabajador saliendo de la operación. El
+   * Cliente ve la causal, la observación y la fecha —lo que necesita para corregir—, no la persona.
+   */
+  revisadoPorNombre?: string | null;
+  /** HU #11935: desenlace de la verificación RUNT post-commit. Solo canal; el gestor no lo ve. */
+  verificacionEstado: 'pendiente' | 'caido' | 'sin_registro' | 'no_cuadra' | 'ok';
+  soatVigente: boolean | null;
+  soatVigenteHasta: string | null;
+  verificacionCodigo: string | null;
+}
+
+/** Columna `date` de Drizzle: string `yyyy-mm-dd`. Guardia Date por si el driver devolviera objeto. */
+function diaIso(v: unknown): string | null {
+  if (typeof v === 'string') return v.slice(0, 10);
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
+  return null;
+}
+
+/**
+ * Lee el satélite de una solicitud y lo proyecta según quién pregunta.
+ *
+ * Vive aquí y no en `flito-soat-cliente.service.ts` para no invertir la dependencia entre los dos
+ * módulos: aquel importa de este (`SoatCtx`, `buscarConAcceso`, `enviarAlGestor`), y si `detalle()`
+ * importara de vuelta una función suya el ciclo estaría hecho.
+ *
+ * **Al GESTOR no se le sirve nunca, en ningún estado.** No es una precaución de más: una solicitud
+ * validada entra en su cola en `solicitado` y él la abre con todo derecho, así que sin este corte
+ * recibiría el revisor, la fecha de radicación y el contador de reenvíos — es decir, cuántas veces
+ * FLITO le devolvió la solicitud a su cliente. Es la misma razón por la que el ADR-0008 §1.2 sacó
+ * estos campos de `flito_soat`: la fila entera de esa tabla sí le llega. La consulta ni se emite.
+ */
+async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<RevisionSolicitud | null> {
+  if (esGestor(ctx)) return null;
+
+  const [r] = await db
+    .select({
+      solicitadoEn: flitoSoatSolicitud.solicitadoEn,
+      revisadoPorNombre: flitoSoatSolicitud.revisadoPorNombre,
+      revisadoEn: flitoSoatSolicitud.revisadoEn,
+      causalNombre: flitoSoatCausalesRechazo.nombre,
+      observacion: flitoSoatSolicitud.observacionRechazo,
+      reenvios: flitoSoatSolicitud.reenvios,
+      verificacionEstado: flitoSoatSolicitud.verificacionEstado,
+      soatVigente: flitoSoatSolicitud.soatVigente,
+      soatVigenteHasta: flitoSoatSolicitud.soatVigenteHasta,
+      verificacionCodigo: flitoSoatSolicitud.verificacionCodigo,
+    })
+    .from(flitoSoatSolicitud)
+    // LEFT y no INNER: una solicitud sin rechazar no tiene causal, y un INNER la haría desaparecer
+    // entera del detalle — que es justo la fila que el admin está a punto de validar.
+    .leftJoin(flitoSoatCausalesRechazo, eq(flitoSoatSolicitud.causalRechazoId, flitoSoatCausalesRechazo.id))
+    .where(eq(flitoSoatSolicitud.soatId, soatId))
+    .limit(1);
+  if (!r) return null;
+
+  const visible: RevisionSolicitud = {
+    causalNombre: r.causalNombre,
+    observacion: r.observacion,
+    revisadoEn: r.revisadoEn ? r.revisadoEn.toISOString() : null,
+    reenvios: Number(r.reenvios),
+    solicitadoEn: r.solicitadoEn.toISOString(),
+    verificacionEstado: r.verificacionEstado as RevisionSolicitud['verificacionEstado'],
+    soatVigente: r.soatVigente,
+    soatVigenteHasta: diaIso(r.soatVigenteHasta),
+    verificacionCodigo: r.verificacionCodigo,
+  };
+  // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
+  // el admin ve lleno y el cliente ve vacío es el mismo objeto con menos datos; la clave ausente
+  // dice que ese campo no es suyo.
+  return esCliente(ctx) ? visible : { ...visible, revisadoPorNombre: r.revisadoPorNombre };
+}
+
+/**
+ * El detalle de un SOAT, proyectado para quien pregunta.
+ *
+ * `extraccion` es el volcado del OCR de la FACTURA DE LA ASEGURADORA —valor, número de factura,
+ * identificación del proveedor— y por eso viaja solo para los lectores internos: omitir
+ * `valorPagado` y mandar el mismo importe dentro de este objeto sería una proyección de adorno.
+ * Ninguna pantalla lo lee hoy (comprobado por grep en `apps/web`), así que quitarlo del canal del
+ * cliente no rompe nada.
+ */
+export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & { extraccion?: unknown; pagadoEn: string | null; solicitud?: RevisionSolicitud | null }) | null> {
   const soat = await buscarConAcceso(id, ctx); // valida la frontera del gestor (404-no-403)
   if (!soat) return null;
 
   const rows = await db
     .select({
-      id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, proveedorSoatId: flitoSoat.proveedorSoatId,
+      id: flitoSoat.id, vin: flitoSoat.vin, estado: flitoSoat.estado, origen: flitoSoat.origen,
+      proveedorSoatId: flitoSoat.proveedorSoatId,
       gestionOperaciones: flitoSoat.gestionOperaciones,
       enviadoEn: flitoSoat.enviadoEn, pagadoEn: flitoSoat.pagadoEn, valorPagado: flitoSoat.valorPagado,
       motivoRechazo: flitoSoat.motivoRechazo, createdAt: flitoSoat.createdAt,
       placa: vehicles.plate, marca: vehicles.brand, linea: vehicles.model,
+      // Por simetría con la cola. `detalle()` también alimenta `ensamblarCola`, así que si faltaran
+      // aquí el TypeScript no compilaría — la misma red que protege a `cola()` desde que su llamada
+      // dejó de ir con `as ColaRow[]`. Lo que esto evita es un detalle que dice «—» de un vehículo
+      // cuya fila en la cola sí muestra el dato.
+      cilindraje: vehicles.cilindraje, carroceria: vehicles.carroceria, tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name, organismoNombre: organismosTransitoConfig.alias,
       proveedorSoatNombre: flitoProveedoresSoat.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
@@ -452,15 +1003,23 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItem &
     .from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .innerJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
     .where(eq(flitoSoat.id, id))
     .limit(1);
 
-  const [item] = await ensamblarCola(rows);
+  const [item] = await ensamblarCola(rows, ctx);
   if (!item) return null;
-  return { ...item, extraccion: soat.extraccion, pagadoEn: soat.pagadoEn ? soat.pagadoEn.toISOString() : null };
+  const pagadoEn = soat.pagadoEn ? soat.pagadoEn.toISOString() : null;
+  // La consulta al satélite se emite SOLO para las filas del canal (Feature #11912): las de trámite
+  // —el 100 % de lo que hay hoy— no tienen fila allí, así que preguntarlo sería una consulta más por
+  // cada apertura de detalle para recibir siempre vacío. `origen` es fiable para decidirlo porque el
+  // único escritor de `flito_soat_solicitud` es este canal, y escribe las dos cosas en la misma
+  // transacción.
+  const solicitud = soat.origen === ORIGEN_CLIENTE ? await revisionDeSolicitud(id, ctx) : null;
+  if (esCliente(ctx)) return { ...item, pagadoEn, solicitud };
+  return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud };
 }
 
 // ───────────────────────────── Envío atómico (CA-04) ────────────────────────
@@ -479,13 +1038,37 @@ export interface DestinoEnvio {
 }
 
 /**
+ * Lo que cambia entre las DOS puertas que llegan a `solicitado` (Feature #11912, HU #11915).
+ *
+ * La cola de trámite parte de `pendiente`; la validación de una solicitud del canal Cliente parte de
+ * `pendiente_revision`. Todo lo demás —el bloqueo, la asignación de destino, el `enviado_por`, el
+ * historial— es EXACTAMENTE lo mismo, y por eso se parametriza el estado de partida en vez de
+ * escribir un segundo `update` que mañana diverja (ADR-0008 §6, precisión de `#6`).
+ */
+export interface OpcionesEnvio {
+  /** Estado de PARTIDA exigido. Por defecto `pendiente`, que es la cola del flujo de trámite. */
+  estadoOrigen?: EstadoSoat;
+  /** Texto del historial. Por defecto, el del envío desde la cola. */
+  motivo?: string;
+}
+
+/**
  * Envía SOAT al gestor: Pendiente → En adquisición. Solo Operaciones. La atomicidad es
  * obligatoria (CA-04): con dos usuarios despachando la misma cola, leer-luego-escribir deja
  * que ambos envíen el mismo registro. `SELECT ... FOR UPDATE OF s SKIP LOCKED` hace que el
  * segundo no vea la fila que el primero bloqueó. El destino se fija en el mismo movimiento.
+ *
+ * Desde la HU #11915 la usa TAMBIÉN la validación del admin sobre una solicitud del canal Cliente,
+ * con `estadoOrigen: 'pendiente_revision'`. Es reúso de verdad y no una copia: el `SKIP LOCKED` que
+ * impide el doble envío, la limpieza del proveedor y la fila de historial son los mismos, así que
+ * una solicitud validada y un SOAT despachado desde la cola llegan a `solicitado` idénticos — que es
+ * lo que el AC1 pide para que el proveedor la vea en su cola sin saber por qué puerta entró.
  */
-export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}): Promise<ResultadoEnvio> {
+export async function enviarAlGestor(
+  ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}, opciones: OpcionesEnvio = {},
+): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
+  const estadoOrigen = opciones.estadoOrigen ?? EstadoSoat.PENDIENTE;
 
   const enviados = await db.transaction(async (tx) => {
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
@@ -496,7 +1079,7 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: Desti
       .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
       .where(and(
         inArray(flitoSoat.id, ids),
-        eq(flitoSoat.estado, EstadoSoat.PENDIENTE),
+        eq(flitoSoat.estado, estadoOrigen),
         FRONTERA_AUTOGESTION_SOAT,
       ))
       .for('update', { of: flitoSoat, skipLocked: true });
@@ -527,10 +1110,11 @@ export async function enviarAlGestor(ids: string[], ctx: SoatCtx, destino: Desti
 
     // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
     // historial cuenta lo que pasó, no lo que se intentó.
-    const motivo = destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor';
+    const motivo = opciones.motivo
+      ?? (destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor');
     await registrarCambios(tx, idsEnviados.map((sid) => ({
       concepto: 'soat' as const, registroId: sid,
-      estadoAnterior: EstadoSoat.PENDIENTE, estadoNuevo: EstadoSoat.SOLICITADO,
+      estadoAnterior: estadoOrigen, estadoNuevo: EstadoSoat.SOLICITADO,
       motivo, usuarioId: ctx.userId, usuarioEmail: ctx.username,
     })));
 
@@ -598,6 +1182,31 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   if (!soat) throw new SoatError(404, 'El SOAT no existe');
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
   if (soat.estado === estadoDestino) throw new SoatError(400, 'El SOAT ya está en ese estado');
+
+  // ── Los dos estados del canal Cliente quedan FUERA de la reversa, en los dos sentidos ───────────
+  //
+  // Es la puerta de al lado por la que se saltaba entera la revisión de la HU #11915, y estaba
+  // abierta: la reversa NO comprobaba el estado de partida, así que un admin podía llevar una
+  // solicitud en `pendiente_revision` a `pendiente` — y `pendiente` es justo lo que filtra
+  // `POST /enviar`, de modo que la siguiente pasada de la cola la despachaba al gestor SIN QUE NADIE
+  // la hubiera validado. El AC1 dice que a `solicitado` solo se llega revisando; esto lo hace
+  // verdad en el único sitio donde vale, que es el servicio y no el botón.
+  //
+  // El sentido contrario lo prohíbe el ADR-0008 §8 por escrito: devolver a `pendiente_revision` un
+  // SOAT ya validado dejaría al gestor sin la fila de su cola y al cliente con una solicitud que
+  // creía resuelta. Se comprueba aquí y no solo en el `z.enum` de la ruta porque ese enum alimenta
+  // también el selector de la pantalla, y basta con que alguien añada allí los dos estados nuevos
+  // «para que la pill funcione» para abrir el destino sin darse cuenta.
+  //
+  // Salir de estos estados NO se queda sin camino: `POST /:id/validar` y
+  // `POST /:id/rechazar-solicitud` son las dos únicas salidas de `pendiente_revision`, y de
+  // `rechazada` se sale subsanando. La reversa es la excepción manual del ciclo de TRÁMITE.
+  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(soat.estado as EstadoSoat)) {
+    throw new SoatError(400, `Una solicitud del canal Cliente en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}" no se reversa: se valida o se rechaza desde la revisión.`);
+  }
+  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(estadoDestino)) {
+    throw new SoatError(400, `"${ESTADO_SOAT_LABEL[estadoDestino]}" es un estado del canal Cliente y no es un destino de reversa.`);
+  }
 
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
@@ -698,7 +1307,13 @@ export async function asumirEnOperaciones(id: string, motivo: string, ctx: SoatC
     await registrarCambio(tx, {
       concepto: 'soat', registroId: id,
       estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
-      motivo: `Gestión asumida por Operaciones${soat.proveedorSoatId ? ` (retomada del proveedor ${soat.proveedorSoatId})` : ''}: ${limpio}`,
+      // SIN el uuid del proveedor del que se retomó (antes: «(retomada del proveedor <uuid>)»). Ese
+      // dato es de la operación, y el historial es de las pocas cosas que un lector EXTERNO llega a
+      // pedir: metido en la frase viajaba fuera del DTO que se lo quita. No se pierde —`audit()` lo
+      // sigue anotando con el uuid en la ruta, y la columna `proveedor_soat_id` no se toca— y para
+      // el lector interno la frase decía un uuid, que no es lo que una persona lee: el nombre lo
+      // pinta el detalle.
+      motivo: `Gestión asumida por Operaciones: ${limpio}`,
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     });
     return updated;
@@ -735,7 +1350,9 @@ export async function devolverAlGestor(id: string, proveedorSoatId: string, moti
     await registrarCambio(tx, {
       concepto: 'soat', registroId: id,
       estadoAnterior: soat.estado as EstadoSoat, estadoNuevo: soat.estado as EstadoSoat,
-      motivo: `Gestión devuelta al proveedor ${proveedorSoatId}: ${limpio}`,
+      // Sin el uuid del proveedor, por lo mismo que en `asumirEnOperaciones`: `audit()` lo conserva
+      // y la columna dice a quién se devolvió. Aquí sobraba incluso para quien es de la casa.
+      motivo: `Gestión devuelta al proveedor: ${limpio}`,
       usuarioId: ctx.userId, usuarioEmail: ctx.username,
     });
     return updated;
@@ -851,7 +1468,12 @@ async function pagarEnTx(tx: Tx, soatId: string, vin: string, estadoAnterior: Es
   await registrarCambio(tx, {
     concepto: 'soat', registroId: soatId,
     estadoAnterior, estadoNuevo: EstadoSoat.PAGADO,
-    motivo: `Pago confirmado por factura. Valor ${valorTotal ?? '—'}.`,
+    // SIN el importe (antes: «Valor <valorTotal>»). Es el camino feliz —toda transición a `pagado`
+    // pasa por aquí—, así que era el más eficaz de los tres: `valorPagado` se quita del DTO del
+    // cliente y volvía a salir, en texto, por el historial. Vive en su columna (`valor_pagado`, que
+    // se escribe cuatro líneas más arriba) y en `audit_logs`, que es interno y no se sirve a nadie
+    // de fuera. Para admin, proveedor y auditoría el importe sigue en el detalle y en la bitácora.
+    motivo: 'Pago confirmado por factura.',
     usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
 

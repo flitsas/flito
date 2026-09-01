@@ -6,7 +6,8 @@
 // (CA-05), y un gestor de impuestos solo ve SU organismo (CA-10) — atadura = users.transito_codigo,
 // leída de BD (§9.3), nunca el JWT. El gestor NUNCA ve los Pendiente.
 
-import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
   auditLogs, clients, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoSoportes,
@@ -14,8 +15,10 @@ import {
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
+import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
+import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -37,6 +40,19 @@ export interface ImpuestoColaItem {
   marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
+  /**
+   * QUÉ documento es `compradorDocumento`: `'CC' | 'NIT' | 'PP' | 'CE' | null` (HU #11947).
+   *
+   * Es el código YA RESUELTO y **no el `tipo` crudo de FLIT** (`n`, `cc`, `ps`, `ce`, `otro`): la
+   * tabla que traduce lo uno en lo otro vive en `shared/export/cola-flito-derivados.ts` y tiene UNA
+   * sola copia en el repo (AC6). Si el crudo viajara al navegador, cada página que consume una cola
+   * necesitaría la suya.
+   *
+   * `null` cuando el origen no lo dice (`tipo` ausente o desconocido) y también cuando no hay
+   * comprador: sin propietario al que atribuírselo, un tipo de documento suelto sería un dato con
+   * aspecto de cierto colgado de dos celdas vacías.
+   */
+  compradorTipoDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
@@ -77,15 +93,38 @@ const SELECT_COLA = {
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
   organismoNombre: organismosTransitoConfig.alias, organismoSla: organismosTransitoConfig.flitoSlaHoras,
   enviadoPorNombre: users.name,
+  // HU #11947: el tipo de documento del titular, que FLIT manda dentro de `flit_raw` y que ninguna
+  // columna de FLITO tiene. Sale de `expresionesFlitRaw` —la misma función que usan los dos exports,
+  // así que la clave ligada es LA MISMA que la del `.xlsx` y el descarte de lo no escalar ocurre en
+  // SQL— y entra en el `innerJoin` con `flito_tramites` que esta consulta ya hacía: cero joins
+  // nuevos, cero consultas nuevas, cero migración, y `flit_raw` NO se proyecta entera.
+  tipoTitularFlit: expresionesFlitRaw(flitoTramites.flitRaw).tipo,
 } as const;
 
-function fromCola() {
-  return db.select(SELECT_COLA).from(flitoImpuestos)
+/**
+ * Los joins de la cola, compartidos por la página y —desde la HU #11909— por el export a Excel.
+ *
+ * Se exporta por lo mismo que `condicionesColaImpuestos`: el predicado compartido nombra columnas de
+ * `clients` (la frontera de autogestión), `flito_tramites` y `vehicles` (el término de búsqueda) y
+ * `organismos_transito_config` (el ANS del estancado), así que solo es ejecutable sobre ESTOS joins.
+ * Reescribirlos en el export dejaría la puerta abierta a que uno sumara un join que multiplica
+ * filas, y en un archivo eso no se ve como un error: se ve como más filas de las que hay.
+ *
+ * El `leftJoin` de `users` se conserva aunque el export no imprima al remitente: es un join por
+ * clave primaria —no puede duplicar ni descartar filas— y quitarlo dejaría al export sin la tabla
+ * que necesitaría cualquier condición futura que alguien añada al predicado compartido.
+ */
+export function conJoinsColaImpuestos<Q extends PgSelect>(q: Q) {
+  return q
     .innerJoin(flitoTramites, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
     .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(users, eq(flitoImpuestos.enviadoPorId, users.id));
+}
+
+function fromCola() {
+  return conJoinsColaImpuestos(db.select(SELECT_COLA).from(flitoImpuestos).$dynamic());
 }
 
 type FilaCola = Awaited<ReturnType<ReturnType<typeof fromCola>['where']>>[number];
@@ -104,6 +143,18 @@ export interface FiltrosColaImpuestos {
   /** Rangos yyyy-mm-dd, inclusivos por día. */
   solicitadoDesde?: string; solicitadoHasta?: string;
   pagadoDesde?: string; pagadoHasta?: string;
+  /**
+   * Rango por CUÁNDO SE CREÓ el registro de impuesto (`flito_impuestos.created_at`), HU #11909.
+   *
+   * Eje DISTINTO de `solicitadoDesde/Hasta`, que mide `enviado_en` —cuándo se despachó al gestor—.
+   * Un impuesto nace en `pendiente` y puede tardar en enviarse, así que resolver «Creado» como un
+   * alias del rango «Solicitado» dejaría fuera justo lo que aún no se ha despachado, devolviendo
+   * igualmente filas: el filtro parecería funcionar.
+   *
+   * NO es `flito_tramites.fecha_creacion_flit` (la fecha del trámite en FLIT) aunque el DTO de la
+   * cola publique esa como `fechaCreacion`: decisión de producto pegada en la HU.
+   */
+  creadoDesde?: string; creadoHasta?: string;
   /** true = solo lo que superó el SLA de su organismo. */
   estancado?: boolean;
   page?: number; pageSize?: number;
@@ -130,8 +181,14 @@ const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLI
 /**
  * Condiciones de la cola, compartidas por la página y el conteo. `null` = la frontera del gestor
  * hace que no pueda ver nada, que no es lo mismo que «sin filtros».
+ *
+ * **`export` desde la HU #11909**: el archivo `.xlsx` tiene que contener EXACTAMENTE el conjunto que
+ * la pantalla enseña. Un predicado paralelo escrito en el servicio del export empezaría idéntico y
+ * divergiría en el primer filtro que se añada a uno y no al otro, sin que se note —los dos devuelven
+ * filas—. Y aquí dentro viven las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor):
+ * reimplementarlas fuera es la vía por la que un gestor acaba descargando lo de otro organismo.
  */
-function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
+export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
   const conds = [FRONTERA_AUTOGESTION_IMP];
 
   if (esGestor(ctx)) {
@@ -174,10 +231,64 @@ function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQ
   if (f.solicitadoHasta) conds.push(sql`${flitoImpuestos.enviadoEn} < (${f.solicitadoHasta}::date + INTERVAL '1 day')`);
   if (f.pagadoDesde) conds.push(sql`${flitoImpuestos.pagadoEn} >= ${f.pagadoDesde}::date`);
   if (f.pagadoHasta) conds.push(sql`${flitoImpuestos.pagadoEn} < (${f.pagadoHasta}::date + INTERVAL '1 day')`);
+  // «Creado» (HU #11909) es `flito_impuestos.created_at`, no `enviado_en` (el rango de arriba) ni la
+  // fecha del trámite en FLIT. Va aquí dentro, con los otros tres: estas condiciones las comparten
+  // la página, el `count(*)`, las facetas y el archivo, así que un solo `if` acota las cuatro y el
+  // total sigue cuadrando con lo que se descarga.
+  if (f.creadoDesde) conds.push(sql`${flitoImpuestos.createdAt} >= ${f.creadoDesde}::date`);
+  if (f.creadoHasta) conds.push(sql`${flitoImpuestos.createdAt} < (${f.creadoHasta}::date + INTERVAL '1 day')`);
 
   if (f.estancado) conds.push(EXPR_ESTANCADO_IMP);
 
   return conds;
+}
+
+/**
+ * TODOS los estados del enum, derivados y no escritos a mano (HU #11910). Un estado nuevo entra aquí
+ * solo; una lista literal se quedaría corta en silencio.
+ */
+const ESTADOS_IMPUESTO_TODOS: readonly EstadoImpuesto[] = Object.values(EstadoImpuesto);
+
+/**
+ * Los impuestos del lote que ESTE actor puede ver, para el ZIP de soportes (HU #11910).
+ *
+ * Gemelo de `registrosZipSoat` y con el mismo razonamiento en las tres decisiones que importan:
+ *
+ *   · **Una consulta por LOTE**, con `condicionesColaImpuestos` + `conJoinsColaImpuestos`, y no una
+ *     llamada a `buscarConAcceso` por id (N×2 consultas para 100 ids).
+ *   · **`estados: [...todos]` no es «traerlo todo»**: el defecto de la PANTALLA del gestor es
+ *     `solicitado`, y el recibo solo existe cuando el impuesto ya está `pagado`. Con la lista
+ *     completa, la intersección con `ESTADOS_VISIBLES_GESTOR` que hay dentro devuelve exactamente lo
+ *     que `buscarConAcceso` deja pasar.
+ *   · **Los ids que no vuelven no se distinguen** de los que no tienen documento: el ZIP no responde
+ *     por id, y publicar cuántos quedaron fuera lo convertiría en un oráculo de pertenencia.
+ *
+ * Trae DOS anclas porque esta superficie ofrece dos tipos (AC3): el impuesto —de donde cuelga el
+ * recibo— y la factura de venta de FLIT, que no está en `flito_soportes` sino en el trámite.
+ */
+export async function registrosZipImpuestos(ids: string[], ctx: ImpuestoCtx): Promise<RegistroZip[]> {
+  if (ids.length === 0) return [];
+  const conds = condicionesColaImpuestos(ctx, { estados: [...ESTADOS_IMPUESTO_TODOS] });
+  if (conds === null) return []; // gestor sin organismo → nada, nunca la tabla entera
+  const filas = await conJoinsColaImpuestos(db.select({
+    id: flitoImpuestos.id,
+    createdAt: flitoImpuestos.createdAt,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: organismosTransitoConfig.codigo,
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+  }).from(flitoImpuestos).$dynamic())
+    .where(and(...conds, inArray(flitoImpuestos.id, ids)));
+
+  return filas.map((f) => ({
+    registroId: f.id,
+    placa: f.placa,
+    organismoAlias: f.organismoAlias,
+    organismoCodigo: f.organismoCodigo,
+    createdAt: f.createdAt,
+    impuestoId: f.id,
+    facturaVentaFlitId: f.facturaVentaFlitId,
+  }));
 }
 
 /** Cola de impuestos con las dos fronteras (CA-05 autogestión, CA-10 organismo del gestor). */
@@ -197,9 +308,13 @@ export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = 
       .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
       .leftJoin(users, eq(flitoImpuestos.enviadoPorId, users.id))
       .where(where),
-    // Desempate por id: sin él, dos impuestos creados en el mismo instante pueden salir en dos
-    // páginas o en ninguna.
-    fromCola().where(where).orderBy(asc(flitoImpuestos.createdAt), asc(flitoImpuestos.id))
+    // Lo más RECIENTE arriba (HU #11963), igual que la cola de SOAT y por la misma decisión: la cola
+    // abre por lo que acaba de entrar. Lo que deja de estar disponible aquí es la lectura por
+    // antigüedad —el ángulo del SLA—, y es a propósito: no hay selector de orden en esta pantalla.
+    //
+    // Desempate por id EN EL MISMO SENTIDO, que por eso pasa a `desc` y no se queda en `asc`: sin él,
+    // dos impuestos creados en el mismo instante pueden salir en dos páginas o en ninguna.
+    fromCola().where(where).orderBy(desc(flitoImpuestos.createdAt), desc(flitoImpuestos.id))
       .limit(pageSize).offset((page - 1) * pageSize),
   ]);
 
@@ -255,7 +370,14 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
     ? await db.select().from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, tramiteIds)).orderBy(asc(flitoCompradores.orden))
     : [];
   const principalPorTramite = new Map<string, typeof compradores[number]>();
-  for (const c of compradores) if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
+  // El `continue` no es defensivo de más: desde el Feature #11912 `flito_compradores` cuelga de dos
+  // padres y `tramiteId` es nullable. Aquí la consulta ya filtró por `tramite_id IN (…)`, así que
+  // ninguna fila del canal Cliente puede entrar; la guarda es lo que hace verdad esa frase para el
+  // compilador en vez de taparlo con un `!`.
+  for (const c of compradores) {
+    if (!c.tramiteId) continue;
+    if (!principalPorTramite.has(c.tramiteId)) principalPorTramite.set(c.tramiteId, c);
+  }
 
   // Una sola consulta para toda la página, igual que los compradores. Un LEFT JOIN en `fromCola`
   // habría servido, pero el índice único parcial ya garantiza como mucho una vigente por impuesto y
@@ -290,6 +412,10 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       fechaCreacion: aIso(r.fechaCreacion),
       estado: r.estado as EstadoImpuesto,
       compradorNombre: p?.nombreCompleto ?? null, compradorDocumento: p?.numeroDocumento ?? null,
+      // El código RESUELTO desde `flit_raw->>'tipo'` (1:1 con el trámite, sin nada que reconciliar),
+      // y NO la columna `flito_compradores.tipo_documento`, que sigue a 0 de 7 052 para las filas
+      // del sync. Sin comprador va `null`, igual que las dos celdas de arriba.
+      compradorTipoDocumento: p ? clasificacionDeTipoFlit(r.tipoTitularFlit)?.claseId ?? null : null,
       companiaNombre: r.companiaNombre, organismoCodigo: r.organismoCodigo, organismoNombre: r.organismoNombre,
       valorLiquidado: r.valorLiquidado === null ? null : Number(r.valorLiquidado),
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
@@ -347,18 +473,43 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
  * Factura de venta (S3 de FLIT) de un impuesto, respetando la frontera del gestor (404-no-403).
  * Devuelve null si el impuesto no es accesible o su trámite aún no trae factura. Integración FLIT.
  *
- * Viene acompañada del id de FLIT del trámite, que no es adorno: es el nombre con el que se
- * descarga el archivo. Nombrarlo por el id de la factura —un identificador de S3 que no aparece en
- * ninguna pantalla— deja al usuario con una carpeta de ficheros que no puede emparejar con nada.
+ * ── Qué viene con ella, y por qué CAMBIÓ en la HU #11910 ─────────────────────────────────────────
+ *
+ * Traía el `idFlit` porque era el nombre con el que se descargaba el archivo. Ahora trae **la placa
+ * y el organismo**, porque el AC5 unifica el nombre de la descarga individual con el de las entradas
+ * del ZIP: `PLACA-ORGANISMO`. El `idFlit` se queda —lo sigue leyendo quien lo necesite para
+ * trazabilidad— pero ya no decide el nombre.
+ *
+ * Los tres salen de los joins que la cola ya hace (`vehicles`, `organismos_transito_config`), así que
+ * es la misma lectura de antes con tres columnas más y ningún viaje adicional. Son `leftJoin`: el
+ * organismo del trámite es nullable y la placa del vehículo también, y su ausencia tiene que llegar
+ * hasta `SIN-ORGANISMO`/`SIN-PLACA`, no borrar la factura de la respuesta.
  */
 export async function facturaVentaFlitConAcceso(
   id: string, ctx: ImpuestoCtx,
-): Promise<{ facturaId: string; idFlit: string | null } | null> {
+): Promise<{
+  facturaId: string; idFlit: string | null;
+  placa: string | null; organismoAlias: string | null; organismoCodigo: string | null;
+} | null> {
   const imp = await buscarConAcceso(id, ctx);
   if (!imp) return null;
-  const [t] = await db.select({ facturaVentaFlitId: flitoTramites.facturaVentaFlitId, idFlit: flitoTramites.idFlit })
-    .from(flitoTramites).where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
-  return t?.facturaVentaFlitId ? { facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null } : null;
+  const [t] = await db.select({
+    facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    idFlit: flitoTramites.idFlit,
+    placa: vehicles.plate,
+    organismoAlias: organismosTransitoConfig.alias,
+    organismoCodigo: flitoTramites.organismoCodigo,
+  }).from(flitoTramites)
+    .leftJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
+    .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
+    .where(eq(flitoTramites.id, imp.tramiteId)).limit(1);
+  return t?.facturaVentaFlitId
+    ? {
+      facturaId: t.facturaVentaFlitId, idFlit: t.idFlit ?? null,
+      placa: t.placa ?? null, organismoAlias: t.organismoAlias ?? null,
+      organismoCodigo: t.organismoCodigo ?? null,
+    }
+    : null;
 }
 
 export interface ImpuestoDetalle extends ImpuestoColaItem {

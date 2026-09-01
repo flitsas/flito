@@ -14,7 +14,7 @@ const CLIENTE_COMPLETO = {
   id: 1, name: 'TRANSPORTES 3M S.A.S.', document: '900123456', documentType: 'NIT',
   phone: '3001112233', email: 'contacto@3m.co', address: 'Calle 10 # 20-30', city: 'BOGOTA D.C.',
   notes: null, active: true,
-  soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
+  soatAutogestionable: false, soatSinTramite: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
   logisticaPermiteParcial: false,
   personType: 'Company', idType: '31', checkDigit: 7, fiscalResponsibilities: ['R-99-PN'],
   countryCode: 'Co', stateCode: '11', cityCode: '11001', commercialName: null, branchOffice: 0,

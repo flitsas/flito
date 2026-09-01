@@ -24,7 +24,7 @@ export default function PageHeaderCard(
 ) {
   return (
     <div
-      className="flex flex-wrap items-center justify-between gap-4 bg-white px-6 py-5"
+      className="flex flex-wrap items-center justify-between gap-4 bg-flit-card px-6 py-5"
       style={{
         borderRadius: 'var(--flit-radius-card)',
         boxShadow: 'var(--flit-shadow-card)',

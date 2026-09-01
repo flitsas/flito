@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { NAV_ITEMS, SECTION_LABEL, type NavItem } from './navItems';
+import { NAV_ITEMS, SECTION_LABEL, navItemPermitido, type NavItem } from './navItems';
 import { effectivePages } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
 import { startViewTransition } from '../../lib/viewTransitions';
@@ -36,7 +36,7 @@ export default function CommandPalette({ open, onClose }: Props) {
   const optionId = (idx: number): string => `${listboxId}-opt-${idx}`;
 
   const allowed = useMemo(() => effectivePages(user), [user]);
-  const items = useMemo(() => NAV_ITEMS.filter((it) => allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)))), [allowed, user]);
+  const items = useMemo(() => NAV_ITEMS.filter((it) => navItemPermitido(it, user, allowed)), [allowed, user]);
 
   const filtered = useMemo<NavItem[]>(() => {
     if (!query.trim()) return items;

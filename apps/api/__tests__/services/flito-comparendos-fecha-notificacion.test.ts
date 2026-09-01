@@ -20,8 +20,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { filasSembradas, rutaMigracion } from '../helpers/field-map-sql.js';
 import {
   FECHA_NOTIFICACION, itemMunicipalNotificadoBogota, itemMunicipalNotificadoMedellin, itemSimit,
   itemSimitNotificado, numeroSimit,
@@ -38,46 +38,23 @@ const {
   homologar, podarPayload, resolverCampos, FECHA_CENTINELA_NO_NOTIFICADO,
 } = await import('../../src/modules/flito-comparendos/flito-comparendos-merge.js');
 
+/**
+ * El tercer parámetro que `resolverCampos` estrena en la HU #11878. Aquí es inerte a propósito: lo
+ * que este archivo prueba son las FECHAS, y el municipio derivado tiene su propio test
+ * (`flito-comparendos-municipio-resuelto.test.ts`). Se pasa el municipio consultado que ya usaban
+ * estos casos —el `'MEDELLIN'` del helper de abajo— con el catálogo que lo contiene.
+ */
+const CTX_MUNICIPIO = {
+  municipioFuente: 'MEDELLIN' as string | null,
+  catalogoMunicipios: ['MEDELLIN', 'BELLO'] as readonly string[],
+};
+
 // ─────────────────────────── El mapa v4, leído de la migración ──────────────────────────────────
 
-const RUTA_0164 = fileURLToPath(
-  new URL('../../src/db/migrations/0164_flito_comparendos_fecha_notificacion.sql', import.meta.url),
-);
-
-interface FilaMapa {
-  version: number; origen: string; sourcePath: string; targetField: string;
-  prioridad: number; provisional: boolean;
-}
-
-/** Quita los `--` que no vivan dentro de una cadena SQL. El mismo podador de las paridades. */
-function podarComentarios(texto: string): string {
-  let salida = '';
-  let enCadena = false;
-  for (let i = 0; i < texto.length; i++) {
-    const c = texto[i];
-    if (!enCadena && c === '-' && texto[i + 1] === '-') {
-      while (i < texto.length && texto[i] !== '\n') i++;
-      salida += '\n';
-      continue;
-    }
-    if (c === "'") enCadena = !enCadena;
-    salida += c;
-  }
-  return salida;
-}
-
-/** Las tuplas del `INSERT` de `field_map`, tal como están escritas. Extractor ESTRICTO. */
-function filasSembradas(sql: string): FilaMapa[] {
-  const tupla = /\(\s*(\d+)\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*(\d+)\s*,\s*(true|false)\s*,\s*(?:NULL|'(?:[^']*)')\s*\)/gi;
-  return [...podarComentarios(sql).matchAll(tupla)].map((m) => ({
-    version: Number(m[1]),
-    origen: m[2],
-    sourcePath: m[3],
-    targetField: m[4],
-    prioridad: Number(m[5]),
-    provisional: m[6].toLowerCase() === 'true',
-  }));
-}
+// El extractor vive en `helpers/field-map-sql.ts` desde la HU #11877: era la misma función escrita
+// aquí y en la paridad de la 0164, y dos copias del mismo parser son dos oportunidades de que una se
+// quede atrás y su archivo pase por vacuidad.
+const RUTA_0164 = rutaMigracion('0164_flito_comparendos_fecha_notificacion.sql');
 
 const MAPA_V4 = filasSembradas(readFileSync(RUTA_0164, 'utf8'));
 
@@ -265,7 +242,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const acumulador = new Map();
     acumularSimit(acumulador, [{ numeroComparendo: 'C-1' }], candidatosDe(mapa, 'simit'));
 
-    const campos = resolverCampos(acumulador.get('C-1')!, { fechaComparendo: '1900-01-01' });
+    const campos = resolverCampos(acumulador.get('C-1')!, { fechaComparendo: '1900-01-01' }, CTX_MUNICIPIO);
 
     expect(campos.fechaComparendo).toBeNull();
   });
@@ -282,6 +259,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const campos = resolverCampos(
       acumulador.get('C-1')!,
       { fechaComparendo: '1900-01-01', fechaNotificacion: '1900-01-01' },
+      CTX_MUNICIPIO,
     );
 
     expect(campos.fechaComparendo).toBeNull();
@@ -298,6 +276,7 @@ describe('AC2 · `01/01/1900` es «no notificado», no una fecha', () => {
     const campos = resolverCampos(
       acumulador.get('C-1')!,
       { fechaComparendo: '2026-05-11', fechaNotificacion: '1900-01-02' },
+      CTX_MUNICIPIO,
     );
 
     expect(campos.fechaComparendo).toBe('2026-05-11');
@@ -327,7 +306,7 @@ describe('AC1 · SIMIT prevalece; el municipal solo si SIMIT no trae fecha usabl
       candidatosDe(mapa, 'municipal'),
       'MEDELLIN',
     );
-    return resolverCampos(acumulador.get(numero)!, null);
+    return resolverCampos(acumulador.get(numero)!, null, CTX_MUNICIPIO);
   }
 
   it('**discrepan y gana SIMIT**: el contraste medido coincidía, así que aquí se fuerza que no', async () => {
@@ -360,7 +339,7 @@ describe('AC1 · SIMIT prevalece; el municipal solo si SIMIT no trae fecha usabl
     const acumulador = new Map();
     acumularSimit(acumulador, [{ numeroComparendo: 'C-1' }], candidatosDe(mapa, 'simit'));
 
-    const campos = resolverCampos(acumulador.get('C-1')!, { fechaNotificacion: '2026-03-26' });
+    const campos = resolverCampos(acumulador.get('C-1')!, { fechaNotificacion: '2026-03-26' }, CTX_MUNICIPIO);
 
     expect(campos.fechaNotificacion).toBe('2026-03-26');
   });

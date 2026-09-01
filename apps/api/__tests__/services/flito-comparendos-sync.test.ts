@@ -641,6 +641,60 @@ describe('POST /sync — merge SIMIT > municipal (AC2/CF-08)', () => {
   });
 });
 
+// ─────────── El municipio del comparendo, de punta a punta (HU #11878, AC1/AC2) ──────────────────
+//
+// El criterio y sus casos límite viven en `flito-comparendos-municipio-resuelto.test.ts`, que lo
+// interroga como función pura. Lo que hace falta comprobar AQUÍ es el CABLEADO, que es donde un
+// error sería mudo: que la corrida cargue el catálogo ENTERO, que se lo pase a `resolverCampos`, y
+// que la columna nueva y la vieja salgan de la MISMA expresión. Con el catálogo sin cargar, o con el
+// `ctx` mal armado, el criterio seguiría siendo correcto y la columna se llenaría de `null` para
+// siempre sin un solo error.
+
+describe('el municipio derivado llega hasta la escritura (HU #11878)', () => {
+  it('**una fila que solo vio el SIMIT se guarda con el municipio deducido del organismo**', async () => {
+    // El municipio está en el catálogo pero su UTS no devuelve nada, que es exactamente la situación
+    // del defecto: `municipio_fuente` se queda en `null` y el organismo («Secretaría de Medellín»,
+    // del ITEM_SIMIT) es lo único que dice de dónde es.
+    escenario({ municipios: ['MEDELLIN'] });
+    municipalMock.mockImplementation(async (_nit: string, fuente: string) =>
+      respuestaMunicipal(fuente, []));
+
+    await sync();
+
+    const escrito = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(escrito.municipioFuente, 'a nadie se le preguntó: la columna vieja no se inventa').toBeNull();
+    expect(escrito.municipioComparendo).toBe('MEDELLIN');
+    // Y el organismo intacto: la deducción no consume el texto del que salió (AC3).
+    expect(escrito.organismo).toBe('Secretaría de Medellín');
+  });
+
+  it('cuando el municipio SÍ respondió, las dos columnas salen de la misma expresión', async () => {
+    // AC1 visto desde la escritura: el escalón 1 es literalmente el valor que se guarda en
+    // `municipio_fuente`. Si alguien duplicara la cadena de `??` en vez de compartir la const, las
+    // dos podrían discrepar dentro de la misma fila y ninguna consulta lo delataría.
+    escenario({ municipios: ['BELLO'] });
+
+    await sync();
+
+    const escrito = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(escrito.municipioFuente).toBe('BELLO');
+    expect(escrito.municipioComparendo).toBe('BELLO');
+  });
+
+  it('sin catálogo no hay de dónde deducir, y eso es `null` — no un error de corrida', async () => {
+    // Un `field_map` vacío SÍ es un error (RN-12) porque dejaría el módulo sin poder identificar
+    // nada; un catálogo vacío solo significa que ningún organismo se reconoce, que es lo que había
+    // antes de esta HU. La corrida tiene que terminar normal.
+    escenario({ municipios: [] });
+
+    const r = await sync();
+
+    expect(r.status).toBe(200);
+    const escrito = insertsEn('flito_comparendos_registros')[0] as Record<string, unknown>;
+    expect(escrito.municipioComparendo).toBeNull();
+  });
+});
+
 // ─────────── La clave de negocio entre fuentes, de punta a punta (HU #11806, AC1/AC4) ────────────
 //
 // El merge ya lo prueba con funciones puras; esto mira el otro extremo, que es el que le importa al

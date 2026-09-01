@@ -27,7 +27,7 @@ El hilo principal DEBE pasar en el prompt del Task, cuando existan:
 - Comandos de verificación ya corridos (si los hay)
 
 NO releer `AGENTS.md` entero ni ADO completo si el prompt trae AC + paths.
-Solo consulta ADO si faltan AC o hay duda bloqueante.
+Solo consulta ADO si faltan AC o hay duda de producto (P9). Hueco de AC → HANDOFF `bloqueado` + preguntas. Prohibido inventar UI/AC, ampliar alcance o radicar Bug. Defecto de este cambio → se corrige aquí.
 
 ---
 

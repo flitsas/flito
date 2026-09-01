@@ -72,6 +72,13 @@ import { condicionesDeFiltro } from './flito-comparendos.registros.service.js';
  *     valor que el registro guarda y el mismo con el que se filtra, así que el archivo y la pantalla
  *     hablan del mismo dato aunque alguien renombre el municipio en la parametrización. Si en
  *     revisión se prefiere el nombre, es otro `LEFT JOIN` por `codigo_fuente` y una línea aquí.
+ *   · **Y desde la HU #11878 ese municipio es `municipio_comparendo`, no `municipio_fuente`:** el de
+ *     dónde ES el comparendo, no el de a quién se le preguntó. Es la MISMA columna por la que filtra
+ *     el visor, y eso es lo que importa: el archivo tiene que contener lo que la pantalla enseña, así
+ *     que si el filtro se muda de columna y el archivo no, un export filtrado por Medellín traería
+ *     filas con la celda «Municipio» vacía. La cabecera, el ancho y la POSICIÓN no cambian —sigue
+ *     habiendo el mismo número de columnas— y «Organismo», que es de donde sale la deducción, se
+ *     conserva intacta al lado para poder auditarla.
  */
 export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] = [
   { header: 'N.º comparendo', key: 'numeroComparendo', width: 24 },
@@ -92,7 +99,7 @@ export const COLUMNAS_EXPORT: { header: string; key: string; width: number }[] =
   { header: 'Fecha de notificación', key: 'fechaNotificacion', width: 18 },
   { header: 'Código infracción', key: 'codigoInfraccion', width: 14 },
   { header: 'Infracción', key: 'descripcionInfraccion', width: 40 },
-  { header: 'Municipio', key: 'municipioFuente', width: 16 },
+  { header: 'Municipio', key: 'municipioComparendo', width: 16 },
   { header: 'Organismo', key: 'organismo', width: 30 },
   { header: 'Monto', key: 'monto', width: 14 },
   // «Monitoreo» y no «Estado» desde la HU #11713: es el estado de MONITOREO y en el mismo archivo
@@ -128,7 +135,7 @@ const COLUMNAS_CONSULTA = {
   fechaNotificacion: flitoComparendosRegistros.fechaNotificacion,
   codigoInfraccion: flitoComparendosRegistros.codigoInfraccion,
   descripcionInfraccion: flitoComparendosRegistros.descripcionInfraccion,
-  municipioFuente: flitoComparendosRegistros.municipioFuente,
+  municipioComparendo: flitoComparendosRegistros.municipioComparendo,
   organismo: flitoComparendosRegistros.organismo,
   monto: flitoComparendosRegistros.monto,
   estado: flitoComparendosRegistros.estado,
@@ -271,7 +278,10 @@ export async function construirFilasExport(filtro: ComparendosExportRequest): Pr
     fechaNotificacion: f.fechaNotificacion,
     codigoInfraccion: f.codigoInfraccion,
     descripcionInfraccion: f.descripcionInfraccion,
-    municipioFuente: f.municipioFuente,
+    municipioComparendo: f.municipioComparendo,
+    // Y el organismo tal cual, al lado (HU #11878, AC6): es el texto del que sale la deducción del
+    // municipio, así que conservarlo es lo que permite auditar una atribución dudosa desde el propio
+    // archivo, sin volver a la base.
     organismo: f.organismo,
     monto: montoExcel(f.monto),
     estado: ETIQUETA_ESTADO[f.estado] ?? f.estado,

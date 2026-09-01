@@ -3,6 +3,7 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { getOrganismoByCodigo } from '@operaciones/shared-types';
 import FlitOrganismoCombobox from '../components/flit/FlitOrganismoCombobox';
+import FlitSelect from '../components/flit/FlitSelect';
 import { PAGES, PAGE_GROUPS, ROLE_DEFAULT_PAGES, ROLE_LABELS, USER_ROLES, isValidPage, PageSlug, UserRole } from '../lib/permissions';
 import toast from 'react-hot-toast';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -19,8 +20,21 @@ interface User {
   active: boolean;
   allowedPages: string[];
   transitoCodigo?: string | null;
+  /** Compañía del rol `cliente` (Feature #11912). Obligatoria para ese rol y prohibida en el resto. */
+  companiaId?: number | null;
   createdAt: string;
 }
+
+/** Lo que el selector necesita de `GET /flito/parametrizacion/companias`. Nada más. */
+interface Compania { id: number; nombre: string }
+
+// ── Copy del selector de compañía (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4) ──
+const COMPANIA_AYUDA = 'Define de qué compañía es este usuario: solo verá y solicitará el SOAT de esa compañía.';
+const COMPANIA_CARGANDO = 'Cargando compañías…';
+const COMPANIA_ERROR = 'No se pudieron cargar las compañías.';
+const COMPANIA_VACIO = 'No hay compañías registradas. Crea una en Clientes y proveedores antes de crear un usuario Cliente.';
+const COMPANIA_REQUERIDA = 'Selecciona la compañía del usuario Cliente.';
+const COMPANIA_RELOGIN = 'El usuario debe volver a iniciar sesión para aplicar la nueva compañía.';
 
 // Lista de roles asignables: derivada de la fuente única (los 8 roles del sistema).
 const ROLES: { value: UserRole; label: string }[] = USER_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
@@ -38,6 +52,9 @@ const ROLE_TONE: Record<UserRole, ChipTone> = {
   gestor_impuestos: 'neutral',
   mensajero: 'active',
   financiera: 'success',
+  // Gris, como `proveedor` y `conductor`: es el tono del perfil acotado y sin mando. `active` y
+  // `success` están reservados a perfiles internos, y el Cliente es el primer rol EXTERNO a FLIT.
+  cliente: 'neutral',
 };
 
 const PASSWORD_PATTERN = '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*]).{8,}$';
@@ -47,8 +64,37 @@ const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--fl
 
 const formatErrors = errorMessage;
 
+/**
+ * Catálogo de compañías para el selector del rol Cliente y para la celda «Organismo / Compañía».
+ *
+ * Se pide UNA vez por página —no por formulario— y de
+ * `GET /flito/parametrizacion/companias`, que entrega `{id, nombre, nit, banderas}`. **No** de
+ * `GET /clients`, que devuelve 26 columnas con teléfono, correo y dirección de cada compañía: para
+ * pintar un desplegable de nombres eso es PII que no hace falta pedir.
+ *
+ * Los cuatro estados los consume `CompaniaField`: `data === null && !error` es cargando.
+ */
+function useCompanias() {
+  const [data, setData] = useState<Compania[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    setData(null); setError(null);
+    api.get<Compania[]>('/flito/parametrizacion/companias')
+      .then((filas) => { if (vivo) setData(filas.map((c) => ({ id: c.id, nombre: c.nombre }))); })
+      .catch((e) => { if (vivo) setError(formatErrors(e)); });
+    return () => { vivo = false; };
+  }, [recarga]);
+
+  return { data, error, recargar: () => setRecarga((n) => n + 1) };
+}
+
 export default function Users() {
   const { user: me } = useAuth();
+  const companias = useCompanias();
+  const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -100,7 +146,10 @@ export default function Users() {
                 <Th>Nombre</Th>
                 <Th>Email</Th>
                 <Th>Rol</Th>
-                <Th>Organismo STT</Th>
+                {/* Se RENOMBRA en vez de añadir una columna octava: la celda ya ramificaba por rol
+                    para decir «a qué ámbito está atado este usuario», y una columna propia estaría
+                    vacía para 10 de los 12 roles. */}
+                <Th>Organismo / Compañía</Th>
                 <Th>Estado</Th>
                 <ThRight>Acciones</ThRight>
               </tr>
@@ -136,6 +185,17 @@ export default function Users() {
                         ) : (
                           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
                         )
+                      ) : u.role === 'cliente' ? (
+                        u.companiaId ? (
+                          // Sin nombre en el catálogo —no cargó, o la compañía ya no está— se pinta
+                          // el id en monoespaciada, igual que hace la rama de tránsito con un código
+                          // fuera de catálogo. Un hueco en blanco se confundiría con «sin asignar».
+                          nombreCompania(u.companiaId)
+                            ? <span>{nombreCompania(u.companiaId)}</span>
+                            : <span className="font-mono">{u.companiaId}</span>
+                        ) : (
+                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+                        )
                       ) : (
                         '—'
                       )}
@@ -158,8 +218,8 @@ export default function Users() {
         </div>
       </div>
 
-      {showCreate && <CreateForm onClose={() => setShowCreate(false)} onCreated={load} />}
-      {editing && <EditForm user={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {showCreate && <CreateForm companias={companias} onClose={() => setShowCreate(false)} onCreated={load} />}
+      {editing && <EditForm user={editing} companias={companias} onClose={() => setEditing(null)} onSaved={load} />}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
   );
@@ -204,7 +264,7 @@ function RowButton({ onClick, disabled, tone, children }: { onClick: () => void;
   );
 }
 
-function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoCompanias; onClose: () => void; onCreated: () => void }) {
   const [f, setF] = useState<{
     username: string;
     name: string;
@@ -213,23 +273,35 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
     role: User['role'];
     extraPages: PageSlug[];
     transitoCodigo: string;
+    companiaId: string;
   }>({
     username: '', name: '', email: '', password: '',
     role: 'proveedor',
     extraPages: [],
     transitoCodigo: '',
+    companiaId: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [errorCompania, setErrorCompania] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+    // AC2 en el cliente, y no solo en el servidor. Dos motivos medidos: el 400 del backend llega
+    // como «companiaId: Compañía requerida para el rol Cliente» —`ApiError.toUserMessage()`
+    // antepone el campo, igual que con `transitoCodigo`, y arreglarlo tocaría el formateador de
+    // errores de todo el producto—, y sobre todo que aquí NO se manda la petición: un usuario a
+    // medio crear no llega a existir.
+    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
+    setErrorCompania(null);
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { username: f.username.trim(), name: f.name.trim(), password: f.password, role: f.role };
       if (f.email.trim()) body.email = f.email.trim();
       if (f.extraPages.length > 0) body.allowedPages = f.extraPages;
       if (f.role === 'transito') body.transitoCodigo = f.transitoCodigo;
+      // Solo el rol Cliente la manda: el backend rechaza una compañía en cualquier otro rol.
+      if (f.role === 'cliente') body.companiaId = Number(f.companiaId);
       await api.post('/users', body);
       toast.success('Usuario creado');
       onCreated();
@@ -257,13 +329,24 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
         </Field>
         <Field label="Rol base">
-          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '' })} className={inputCls}>
+          {/* Cambiar de rol limpia los DOS ámbitos. Sin esto, pasar de Cliente a Proveedor y guardar
+              mandaría una compañía que el backend rechaza con un mensaje que no explica nada. */}
+          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '', companiaId: '' })} className={inputCls}>
             {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar páginas adicionales abajo.</p>
         </Field>
         {f.role === 'transito' && (
           <TransitoOrganismoField value={f.transitoCodigo} onChange={(v) => setF({ ...f, transitoCodigo: v })} required />
+        )}
+        {f.role === 'cliente' && (
+          <CompaniaField
+            companias={companias}
+            value={f.companiaId}
+            onChange={(v) => { setF({ ...f, companiaId: v }); if (v) setErrorCompania(null); }}
+            error={errorCompania}
+            onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
+          />
         )}
         <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
         <Footer onClose={onClose} submitting={submitting} label="Crear usuario" />
@@ -272,19 +355,24 @@ function CreateForm({ onClose, onCreated }: { onClose: () => void; onCreated: ()
   );
 }
 
-function EditForm({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: () => void }) {
+function EditForm({ user, companias, onClose, onSaved }: { user: User; companias: CatalogoCompanias; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     name: user.name,
     email: user.email ?? '',
     role: user.role,
     extraPages: (user.allowedPages ?? []).filter(isValidPage),
     transitoCodigo: user.transitoCodigo ?? '',
+    companiaId: user.companiaId ? String(user.companiaId) : '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [errorCompania, setErrorCompania] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+    // Mismo AC2 que en el alta, y aquí cubre además el ascenso a Cliente de quien no traía compañía.
+    if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
+    setErrorCompania(null);
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {};
@@ -299,6 +387,12 @@ function EditForm({ user, onClose, onSaved }: { user: User; onClose: () => void;
       if (JSON.stringify(currentExtra) !== JSON.stringify(nextExtra)) body.allowedPages = f.extraPages;
       if (f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '')) body.transitoCodigo = f.transitoCodigo;
       if (f.role !== 'transito' && user.transitoCodigo) body.transitoCodigo = null;
+      const companiaPrevia = user.companiaId ? String(user.companiaId) : '';
+      const companiaChanged = f.role === 'cliente' && f.companiaId !== companiaPrevia;
+      if (companiaChanged) body.companiaId = Number(f.companiaId);
+      // Un ex-Cliente no se queda atado a una compañía: el ámbito colgado no lo mira nadie y el
+      // CHECK de la base tampoco lo impide (solo exige compañía CUANDO el rol es cliente).
+      if (f.role !== 'cliente' && user.companiaId) body.companiaId = null;
       if (Object.keys(body).length === 0) { toast('Sin cambios'); setSubmitting(false); return; }
       const organismoChanged = f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '');
       await api.patch(`/users/${user.id}`, body);
@@ -306,6 +400,9 @@ function EditForm({ user, onClose, onSaved }: { user: User; onClose: () => void;
       if (organismoChanged) {
         toast('El usuario debe volver a iniciar sesión para aplicar el nuevo organismo.', { duration: 6000 });
       }
+      // La compañía es el ÁMBITO de datos del Cliente: si cambia, su sesión cae en el servidor
+      // (`debeInvalidar`) y el admin tiene que saber por qué al usuario se le cerró la sesión.
+      if (companiaChanged) toast(COMPANIA_RELOGIN, { duration: 6000 });
       onSaved();
       onClose();
     } catch (err) { toast.error(formatErrors(err)); }
@@ -322,12 +419,21 @@ function EditForm({ user, onClose, onSaved }: { user: User; onClose: () => void;
           <input type="email" maxLength={150} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={inputCls} />
         </Field>
         <Field label="Rol base">
-          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '' })} className={inputCls}>
+          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '', companiaId: e.target.value === 'cliente' ? f.companiaId : '' })} className={inputCls}>
             {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </Field>
         {f.role === 'transito' && (
           <TransitoOrganismoField value={f.transitoCodigo} onChange={(v) => setF({ ...f, transitoCodigo: v })} required />
+        )}
+        {f.role === 'cliente' && (
+          <CompaniaField
+            companias={companias}
+            value={f.companiaId}
+            onChange={(v) => { setF({ ...f, companiaId: v }); if (v) setErrorCompania(null); }}
+            error={errorCompania}
+            onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
+          />
         )}
         <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
         <Footer onClose={onClose} submitting={submitting} label="Guardar cambios" />
@@ -344,6 +450,56 @@ function TransitoOrganismoField({ value, onChange, required }: { value: string; 
         Define qué bandeja verá este usuario (aislamiento Medellín ≠ Envigado).
       </p>
     </Field>
+  );
+}
+
+type CatalogoCompanias = ReturnType<typeof useCompanias>;
+
+/**
+ * Compañía del usuario Cliente. **Sus 4 estados están aquí**, no en la página: es la única
+ * superficie con datos que esta HU añade.
+ *
+ * El widget es `FlitSelect` y no un combobox: hay 4 compañías en la base, muy por debajo del umbral
+ * (~40 opciones) a partir del cual un `<select>` nativo deja de leerse. Del patrón `transitoCodigo`
+ * se calca el MECANISMO —campo condicionado al rol, reset al cambiar de rol, borrado al salir del
+ * rol, validación en los dos sentidos e invalidación de sesión—, no el desplegable.
+ *
+ * El botón de reintento del estado de error no es opcional: un `<select disabled>` no recibe foco,
+ * así que su `aria-describedby` es inalcanzable por teclado y el botón es la única salida.
+ */
+function CompaniaField({ companias, value, onChange, error, onInvalido }: {
+  companias: CatalogoCompanias;
+  value: string;
+  onChange: (v: string) => void;
+  error: string | null;
+  onInvalido: () => void;
+}) {
+  const { data, error: errorCarga, recargar } = companias;
+  const cargando = data === null && !errorCarga;
+  const vacio = data !== null && data.length === 0;
+  const mensaje = errorCarga ? COMPANIA_ERROR : cargando ? COMPANIA_CARGANDO : vacio ? COMPANIA_VACIO : null;
+
+  return (
+    <FlitSelect
+      label="Compañía"
+      value={value}
+      onChange={onChange}
+      opciones={[
+        { valor: '', etiqueta: 'Seleccione compañía…' },
+        ...(data ?? []).map((c) => ({ valor: String(c.id), etiqueta: c.nombre })),
+      ]}
+      ayuda={COMPANIA_AYUDA}
+      mensaje={mensaje}
+      fallo={!!errorCarga}
+      disabled={cargando || vacio || !!errorCarga}
+      // Solo el error de carga se reintenta. En vacío NO se ofrece: volver a pedir el catálogo no
+      // crea compañías, y un botón que no arregla nada es peor que ninguno.
+      onReintentar={errorCarga ? recargar : undefined}
+      textoReintento="Volver a cargar compañías"
+      required
+      error={error}
+      onInvalido={onInvalido}
+    />
   );
 }
 

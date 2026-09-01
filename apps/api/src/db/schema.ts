@@ -13,7 +13,9 @@ import type { SiigoDestinatario } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
-export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera']);
+// `cliente` lo añade la migración 0167 (Feature #11912): usuario de una compañía cliente, atado a
+// ella por `users.compania_id` — obligatorio para ese rol y solo para ese rol (CHECK de la 0168).
+export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera', 'cliente']);
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -71,9 +73,33 @@ export const users = pgTable('users', {
   // proveedor SOAT — hace cumplir CA-09 en la consulta. El gestor de impuestos
   // (rol `gestor_impuestos`) reutiliza `transito_codigo` como organismo (CA-10).
   flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
+  /**
+   * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
+   * visibilidad del rol `cliente`, igual que `flitoProveedorSoatId` lo es del gestor: `contextoSoat()`
+   * la lee de AQUÍ y no del JWT, para que un cambio de compañía surta efecto sin re-emitir el token.
+   *
+   * NULLABLE en la base a propósito, como `transitoCodigo`: 11 de los 12 roles no tienen compañía y
+   * un `NOT NULL` obligaría a inventarle una a cada admin. La obligatoriedad es CONDICIONAL al rol y
+   * la sostiene el CHECK `users_cliente_compania_chk` de la migración 0168
+   * (`role <> 'cliente' OR compania_id IS NOT NULL`), que Drizzle no declara aquí porque nombra un
+   * valor del enum añadido en la 0167 y las dos cosas no caben en la misma transacción (55P04).
+   *
+   * `ON DELETE RESTRICT` explícito (ADR-0008 §3): `CASCADE` borraría usuarios al borrar una
+   * compañía, y `SET NULL` crearía por la puerta de atrás justo el estado que el AC2 declara
+   * imposible — un `cliente` sin compañía.
+   */
+  // El `(): any` es el mismo truco que `flitoProveedorSoatId` de arriba, y por el mismo motivo:
+  // `clients` se declara DESPUÉS de `users`, así que sin la anotación TypeScript no puede inferir el
+  // tipo de ninguna de las dos tablas (TS7022) y `db.select().from(users)` degrada a `any` en todo
+  // el proyecto.
+  companiaId: integer('compania_id').references((): any => clients.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   sessionInvalidatedAt: timestamp('session_invalidated_at', { withTimezone: true }),
-});
+}, (t) => ({
+  // Sirve al listado de usuarios por compañía y, sobre todo, al `ON DELETE RESTRICT`: sin él, borrar
+  // una compañía escanea `users` entera para comprobar que nadie la referencia.
+  companiaIdx: index('idx_users_compania').on(t.companiaId),
+}));
 
 export const clients = pgTable('clients', {
   id: serial('id').primaryKey(),
@@ -89,6 +115,19 @@ export const clients = pgTable('clients', {
   // FLITO (migración): parametrización por compañía. Si un módulo es autogestionable,
   // los trámites de esta compañía no entran a ese módulo FLITO (RN-02 SOAT / RN-03 Imp).
   soatAutogestionable: boolean('soat_autogestionable').notNull().default(false),
+  /**
+   * FLITO — Cliente (Feature #11912): la compañía puede pedirle a FLITO el SOAT de un vehículo que
+   * NO tiene trámite digital abierto. Es lo que habilita el canal del rol `cliente`.
+   *
+   * INDEPENDIENTE de `soatAutogestionable` y lo contrario de una sub-opción suya: aquella dice que
+   * la compañía se compra el SOAT por su cuenta y que FLITO no lo gestiona; esta dice que sus
+   * usuarios pueden pedírselo a FLITO sin trámite de por medio. Las dos a la vez son una
+   * combinación válida y esperada, y es justo la que obliga a que la frontera de autogestión de
+   * `flito-soat.service.ts` deje pasar lo que nace con `origen = 'cliente'` (ADR-0008 §5).
+   *
+   * Nace APAGADO (AC3): una compañía nueva no estrena canal sin que alguien lo decida.
+   */
+  soatSinTramite: boolean('soat_sin_tramite').notNull().default(false),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
   logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
   // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene
@@ -177,6 +216,14 @@ export const vehicles = pgTable('vehicles', {
   horasOpMes: integer('horas_op_mes'),
   rendimientoIdeal: numeric('rendimiento_ideal', { precision: 8, scale: 2 }),
   color: varchar('color', { length: 30 }),
+  // Datos técnicos que FLIT trae en el reporte de trámites y que el sync persiste en CADA corrida
+  // (HU #11906, migración 0166). Viven en `vehicles` y NO en `flito_soat` porque `resolverSoat()`
+  // hace `return` sin actualizar campos cuando el SOAT ya existe: ahí, un SOAT sincronizado antes
+  // de esta HU no se completaría jamás. `upsertVehiculo()` corre para todos los trámites siempre.
+  // Los tres son TEXTO —no integer, no enum— a propósito; el porqué está en la 0166.
+  cilindraje: varchar('cilindraje', { length: 10 }),
+  carroceria: varchar('carroceria', { length: 60 }),
+  tipoServicio: varchar('tipo_servicio', { length: 30 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -2487,7 +2534,11 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
 // flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
 // rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+// `pendiente_revision` y `rechazada` (migración 0167, Feature #11912) son del canal Cliente: los
+// escribe la HU #11914/#11915 y el SOAT que nace del sync no pasa por ellos. Se añaden al MISMO
+// enum para que una fila tenga un solo estado y `POST /enviar` (que filtra `pendiente`) siga siendo
+// correcto sin tocarlo.
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado', 'pendiente_revision', 'rechazada']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
@@ -2531,12 +2582,34 @@ export const flitoSoat = pgTable('flito_soat', {
    * `flito_soat → clients` sin pasar por `flito_tramites`.
    */
   excepcionAutogestion: boolean('excepcion_autogestion').notNull().default(false),
+  /**
+   * De qué puerta salió esta fila (Feature #11912): `tramite` (el sync de FLIT, la única que existía
+   * hasta hoy) o `cliente` (una compañía la pidió sin trámite digital).
+   *
+   * Es la ÚNICA columna del canal Cliente que vive en esta tabla, y está aquí porque es lo único que
+   * las consultas viejas necesitan poder mirar sin un JOIN: la frontera de autogestión, la cola y el
+   * tablero. Todo lo demás del canal —quién la radicó, quién la revisó, la causal del rechazo— vive
+   * en `flitoSoatSolicitud`, y el propietario en `flitoCompradores`: `buscarConAcceso()` hace
+   * `select` de esta fila ENTERA y la sirve a las rutas del gestor del proveedor, así que meter aquí
+   * PII de propietario sería una fuga que ningún test detectaría (ADR-0008 §1.2).
+   *
+   * `varchar` + CHECK y no un enum de Postgres, al revés que `estado`: `origen` nace hoy y ampliarlo
+   * es un DROP/ADD CONSTRAINT barato, mientras que un enum arrastraría a cada migración futura la
+   * trampa del 55P04 que este Feature ya paga dos veces.
+   */
+  origen: varchar('origen', { length: 10 }).notNull().default('tramite'),
   vin: varchar('vin', { length: 17 }).notNull().unique(),
   vehiculoId: integer('vehiculo_id').notNull().unique().references(() => vehicles.id),
   estado: flitoSoatEstadoEnum('estado').notNull().default('pendiente'),
   // Denormalizados y congelados: el SOAT vive más que sus trámites.
   companiaId: integer('compania_id').notNull().references(() => clients.id),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  /**
+   * Secretaría de tránsito. NOT NULL hasta la HU #11935 (ADR-0009): el canal Cliente nace sin
+   * organismo porque el RUNT ya no es compuerta del INSERT. La FK queda — un código escrito
+   * tiene que existir en `organismos_transito_config`. El sync y el trámite siguen mandando
+   * código. Cola/detalle/export hacen `leftJoin` para no ocultar la fila.
+   */
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
   proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
   proveedorSobrescrito: boolean('proveedor_sobrescrito').notNull().default(false),
   /**
@@ -2579,12 +2652,111 @@ export const flitoSoat = pgTable('flito_soat', {
 }, (t) => ({
   estadoIdx: index('idx_flito_soat_estado').on(t.estado),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
+  // Migración 0169 (HU #11914), por la auditoría de esquema. Desde la HU #11913 `compania_id` es el
+  // PREDICADO OBLIGATORIO del aislamiento del rol `cliente` —lo aplican `condicionesCola()`, que
+  // comparten la página, el conteo y las facetas, y `buscarConAcceso()`— y era la única
+  // `compania_id` del esquema sin índice, mientras `flito_derechos`, `flito_logistica_actas` y
+  // `flito_bolsa_movimientos` ya tenían el suyo. Sin él, cada pantalla del canal Cliente recorre
+  // `flito_soat` entera y descarta lo ajeno DESPUÉS de haberlo leído.
+  companiaIdx: index('idx_flito_soat_compania').on(t.companiaId),
   // NO único a propósito (ADR-0006 §8): lo crea la migración, y una póliza reexpedida o un `0` que
   // el OCR leyó como `O` haría fallar el `CREATE UNIQUE INDEX` en el despliegue, parando la cadena
   // entera por un dato viejo. El duplicado se resuelve en el cruce, delante de quien puede
   // arreglarlo (`poliza_duplicada`). Parcial: los SOAT pendientes no tienen póliza.
   polizaIdx: index('idx_flito_soat_numero_poliza').on(t.numeroPoliza)
     .where(sql`${t.numeroPoliza} IS NOT NULL`),
+  // Declarado AQUÍ y no solo en la migración 0167 a propósito: la lección que dejó escrita la 0157
+  // es que un CHECK que solo vive en la base convence a quien lee `schema.ts` de que añadir un valor
+  // no necesita migración, y el primer INSERT con el valor nuevo muere con 23514.
+  origenChk: check('flito_soat_origen_chk', sql`${t.origen} IN ('tramite', 'cliente')`),
+}));
+
+/**
+ * Causales de rechazo de una solicitud del canal Cliente (Feature #11912). Catálogo GENERAL, no por
+ * compañía: calcado de `flitoComparendosCausales`, que es el precedente del repo para esto mismo.
+ *
+ * Lo puebla y lo consume la HU #11915 (revisión); aquí solo nace la tabla, porque la 0167 es la
+ * única migración de la cadena y partirla en cuatro no ayudaría a nadie.
+ */
+export const flitoSoatCausalesRechazo = pgTable('flito_soat_causales_rechazo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nombre: varchar('nombre', { length: 120 }).notNull(),
+  activo: boolean('activo').notNull().default(true),
+  orden: smallint('orden').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  nombreUq: uniqueIndex('uq_flito_soat_causales_nombre').on(t.nombre),
+}));
+
+/**
+ * Satélite 1:1 de `flitoSoat` con TODO lo que solo existe cuando el SOAT nació del canal Cliente:
+ * quién lo radicó, quién lo revisó, la causal y la observación del rechazo, y cuántas veces se
+ * reenvió tras subsanar.
+ *
+ * **Por qué una tabla aparte y no doce columnas en `flitoSoat`** (ADR-0008 §1.2, y es la decisión
+ * cara de este modelo): `buscarConAcceso()` hace `db.select({ soat: flitoSoat, … })` —la fila
+ * ENTERA— y su resultado alimenta el detalle, el rechazo, la reversa, el traspaso y la carga de
+ * factura, que son las rutas por las que entra el GESTOR DEL PROVEEDOR. Hoy esa fila es inocua;
+ * con la observación del rechazo y los datos de contacto dentro dejaría de serlo, y la regresión
+ * sería invisible porque ningún test compara la forma de una fila.
+ *
+ * `soatId` es la PK: eso da el 1:1 gratis, sin un índice único aparte que alguien pueda olvidar.
+ *
+ * El PROPIETARIO del vehículo NO está aquí: va a `flitoCompradores`, que es donde la búsqueda de la
+ * cola ya lo interroga (§1.3).
+ *
+ * La escriben las HU #11914 (alta) y #11915 (revisión). La #11913 la crea.
+ */
+export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
+  soatId: uuid('soat_id').primaryKey().references(() => flitoSoat.id, { onDelete: 'cascade' }),
+  // Quién la radicó. El NOMBRE es el rastro durable —mismo patrón que
+  // `flitoSoportes.subidoPorNombre`— y por eso es `NOT NULL`: sobrevive a lo que le pase a la fila
+  // de `users`.
+  //
+  // La FK NO lleva `ON DELETE`, así que PostgreSQL aplica NO ACTION: borrar en duro un usuario que
+  // radicó una solicitud FALLA con 23503, no deja este id en NULL. La versión anterior de este
+  // comentario —y la prosa gemela de la migración 0167, que no se reescribe porque ya está aplicada
+  // y su sha256 registrado en `_kyverum_applied_migrations`— decía lo contrario. Que la columna
+  // admita NULL no es consecuencia de ningún borrado; quien la escribe es la HU #11914, y siempre
+  // con el usuario que radica.
+  solicitadoPorId: integer('solicitado_por_id').references(() => users.id),
+  solicitadoPorNombre: varchar('solicitado_por_nombre', { length: 150 }).notNull(),
+  solicitadoEn: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),
+  revisadoPorId: integer('revisado_por_id').references(() => users.id),
+  revisadoPorNombre: varchar('revisado_por_nombre', { length: 150 }),
+  revisadoEn: timestamp('revisado_en', { withTimezone: true }),
+  // Causal + observación del rechazo del ADMIN (estado `rechazada`). NO se reutiliza
+  // `flitoSoat.motivoRechazo`, que es el del GESTOR (`con_novedad`): otro actor, otro estado
+  // destino y otra audiencia. Mezclarlos haría ilegible el historial de una fila que pase por los
+  // dos.
+  causalRechazoId: uuid('causal_rechazo_id').references(() => flitoSoatCausalesRechazo.id),
+  observacionRechazo: text('observacion_rechazo'),
+  // Cuántas veces el cliente subsanó y volvió a enviar. Sirve para detectar la solicitud que va y
+  // viene sin resolverse, que es la que hay que llamar por teléfono.
+  reenvios: smallint('reenvios').notNull().default(0),
+  /**
+   * Verificación RUNT post-commit (HU #11935, ADR-0009). Cuatro columnas derivadas: NUNCA el
+   * payload crudo. `ok` no está en el AC2; hace falta para no dejar el éxito indistinguible de
+   * «aún no corrió». Default `pendiente` porque el INSERT del alta no espera a Kyverum.
+   */
+  verificacionEstado: varchar('verificacion_estado', { length: 20 }).notNull().default('pendiente'),
+  /** `true`/`false` solo con lectura concluyente (`ok`); `NULL` en pendiente/caído/sin registro/no cuadra. */
+  soatVigente: boolean('soat_vigente'),
+  /** Solo si `soat_vigente=true` y el RUNT trajo fecha. */
+  soatVigenteHasta: date('soat_vigente_hasta'),
+  /**
+   * Código máquina del desenlace (mismo vocabulario que `CodigoErrorSolicitudSoat`):
+   * `runt_no_disponible` · `runt_sin_registro` · `runt_no_cuadra` · `organismo_no_catalogado`.
+   */
+  verificacionCodigo: varchar('verificacion_codigo', { length: 40 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  causalIdx: index('idx_flito_soat_solicitud_causal').on(t.causalRechazoId),
+  verificacionEstadoChk: check(
+    'flito_soat_solicitud_verificacion_estado_chk',
+    sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
+  ),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
@@ -2744,12 +2916,28 @@ export const flitoImpuestoCertificaciones = pgTable('flito_impuesto_certificacio
   impuestoIdx: index('idx_flito_imp_cert_impuesto').on(t.impuestoId, t.createdAt),
 }));
 
-// Comprador(es) del vehículo. Múltiple propietario → varias filas (orden 0 = principal).
+/**
+ * Comprador(es) del vehículo. Múltiple propietario → varias filas (orden 0 = principal).
+ *
+ * Desde el Feature #11912 la tabla cuelga de DOS padres, uno y solo uno por fila: el trámite (vía
+ * `tramiteId`, como siempre) o el SOAT del canal Cliente (vía `soatId`). El nombre de la tabla ya no
+ * cuenta toda la verdad, y es un coste aceptado: la alternativa era tener el concepto «propietario
+ * del vehículo» en dos tablas distintas según de dónde viniera el SOAT, con el efecto de que el
+ * término de búsqueda de la cola —que interroga ESTA tabla— dejaría de encontrar por propietario
+ * justo las solicitudes que el admin tiene que revisar. Un filtro que devuelve menos filas de las
+ * que hay, y en verde, es el peor modo de fallo de una pantalla de revisión (ADR-0008 §1.3).
+ */
 export const flitoCompradores = pgTable('flito_compradores', {
   id: uuid('id').primaryKey().defaultRandom(),
-  tramiteId: uuid('tramite_id').notNull().references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  // Nullable desde la 0167 (antes NOT NULL): una fila del canal Cliente no tiene trámite.
+  tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'cascade' }),
+  // El otro padre. `CASCADE` como el de arriba: el propietario no sobrevive a la solicitud.
+  soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
   nombreCompleto: varchar('nombre_completo', { length: 200 }).notNull(),
   numeroDocumento: varchar('numero_documento', { length: 30 }).notNull(),
+  // Catálogo RUNT (CC, CE, TI, PAS, PPT, NIT, RC, PT). Sin CHECK y nullable: las filas que ya
+  // existen vinieron del sync sin tipo, y un valor inesperado del RUNT no debe tumbar un alta.
+  tipoDocumento: varchar('tipo_documento', { length: 5 }),
   correo: varchar('correo', { length: 150 }),
   celular: varchar('celular', { length: 30 }),
   direccion: varchar('direccion', { length: 300 }),
@@ -2757,6 +2945,12 @@ export const flitoCompradores = pgTable('flito_compradores', {
   porcentajeParticipacion: numeric('porcentaje_participacion', { precision: 5, scale: 2 }),
 }, (t) => ({
   tramiteIdx: index('idx_flito_compradores_tramite').on(t.tramiteId),
+  soatIdx: index('idx_flito_compradores_soat').on(t.soatId),
+  // «Uno y solo uno», el patrón literal que `flitoSoportes` ya usa con sus FK. Sin él, una fila
+  // podría colgar de los dos padres —y desaparecer con el CASCADE del que no la creó— o de ninguno,
+  // que es un propietario huérfano que nadie vuelve a encontrar.
+  padreChk: check('flito_compradores_padre_chk',
+    sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL)`),
 }));
 
 // Soporte (archivo) en S3: storage_key sustituye a driveItemId+ruta (decisión D-3).
@@ -2798,6 +2992,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Calcado del anterior, por el mismo motivo: un solo comprobante VIVO de cada tipo por boleta.
   boletaTipoUq: uniqueIndex('idx_flito_soportes_boleta_tipo').on(t.conciliacionBoletaId, t.tipo)
     .where(sql`${t.conciliacionBoletaId} IS NOT NULL AND ${t.descartado} = false`),
+  // Y el tercero de la familia (Feature #11912): UNA sola factura de venta viva por SOAT. La
+  // subsanación del canal Cliente vuelve a subir el archivo, y sin este índice se acumularían dos
+  // facturas vivas y la pantalla mostraría la que ordenara primero. `descartado = false` es lo que
+  // permite que la nueva entre: sin esa condición, la factura descartada bloquearía la subsanación.
+  // Acotado a `factura_venta`: los demás tipos de soporte de un SOAT sí pueden repetirse.
+  soatFacturaVentaUq: uniqueIndex('idx_flito_soportes_soat_factura_venta').on(t.soatId)
+    .where(sql`${t.soatId} IS NOT NULL AND ${t.tipo} = 'factura_venta' AND ${t.descartado} = false`),
   // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
   // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
   // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales
@@ -4397,7 +4598,26 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // Dato de FUENTE (CF-09): lo escribe el sync y ningún endpoint de gestión lo edita.
   fechaNotificacion: date('fecha_notificacion'),
   organismo: varchar('organismo', { length: 120 }),
+  // A qué municipio se le PREGUNTÓ. No cambia de significado con la HU #11878: sigue siendo la
+  // trazabilidad de la corrida —qué fuente devolvió esta fila— y es `null` en todo comparendo que
+  // solo vio el SIMIT, porque a nadie se le preguntó por él.
   municipioFuente: varchar('municipio_fuente', { length: 40 }),
+  // De qué municipio ES el comparendo (HU #11878, migración 0165). Es OTRA pregunta que la de
+  // arriba, y confundirlas es el defecto que esta columna cierra: filtrar por Medellín contra
+  // `municipio_fuente` escondía los comparendos de Medellín que solo había reportado el SIMIT, cuyo
+  // `organismo` («STRIA DE TTOyTTE MEDELLIN») sí decía de dónde eran.
+  //
+  // Lo DERIVA `municipioDelComparendo` (`flito-comparendos-merge.ts`) en dos escalones: el municipio
+  // consultado si lo hay, y si no el `codigo_fuente` del catálogo que aparezca —con límite de
+  // palabra y siendo el ÚNICO que aparece— dentro del organismo ya resuelto. `null` significa «no se
+  // sabe de dónde es», nunca cadena vacía, y ahí caen tanto lo irreconocible como lo AMBIGUO: dos
+  // municipios dentro del mismo texto no se desempatan, se declaran desconocidos.
+  //
+  // SIN FK contra `flito_comparendos_municipios`, igual que `municipio_fuente` y por el mismo
+  // motivo: renombrar un `codigo_fuente` en la parametrización se convertiría en un error de
+  // escritura sobre el histórico. Se re-deriva entera en cada sync (como `tipo_registro`), así que
+  // el catálogo que crece corrige solo lo que antes no supo reconocer.
+  municipioComparendo: varchar('municipio_comparendo', { length: 40 }),
   monto: numeric('monto', { precision: 14, scale: 2 }),
   estadoFuente: varchar('estado_fuente', { length: 80 }),
   // Comparendo o multa, y la resolución que lo convirtió (HU #11712, migración 0160). Las tres son
@@ -4464,8 +4684,14 @@ export const flitoComparendosRegistros = pgTable('flito_comparendos_registros', 
   // cola, filtrar por municipio sería recorrer la tabla entera y ordenarla para quedarse con 50
   // filas. `origen_merge` no tiene índice a propósito: son tres valores sobre toda la tabla y el
   // planner no lo usaría.
-  municipioCreadoIdx: index('idx_flito_comparendos_municipio_creado')
-    .on(t.municipioFuente, desc(t.createdAt), desc(t.id)),
+  // Desde la HU #11878 el índice del filtro va sobre `municipio_comparendo` y SUSTITUYE al de
+  // `municipio_fuente` (que la 0165 borra), no convive con él: el filtro del listado se mudó de
+  // columna y la vieja ya no aparece en ningún `WHERE` guiado por igualdad —solo en
+  // `condicionAusente`, donde quien guía es `ultimo_sync_run_id IS DISTINCT FROM` y el municipio
+  // entra como `IS NULL OR IN (...)`—. Dos índices con la misma cola sobre la tabla que más crece
+  // del módulo serían escrituras pagadas para un plan que nadie pide.
+  municipioComparendoCreadoIdx: index('idx_flito_comparendos_municipio_comparendo_creado')
+    .on(t.municipioComparendo, desc(t.createdAt), desc(t.id)),
   causalCreadoIdx: index('idx_flito_comparendos_causal_creado')
     .on(t.causalId, desc(t.createdAt), desc(t.id)),
   // `sinCausal=true` necesita un índice PARCIAL propio, y no es una duplicación del anterior: para

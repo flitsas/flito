@@ -147,6 +147,79 @@ describe('listar — arma la fila con veredicto real y compradores', () => {
     // compañía autogestiona SOAT + impuesto exento (sin registro) + asignado ⇒ listo para entregar
     expect(f.listoParaEntregar).toBe(true);
   });
+
+  // ── El tipo de documento del comprador (HU #11947) ─────────────────────────────────────────────
+
+  /** La fila del trámite, con el `tipo` del payload ya extraído por la expresión `->>`. */
+  const filaConTipo = (tipoTitularFlit: unknown) => ({
+    tramiteId: 't1', idFlit: 'F1', estadoTramite: 'asignado', placa: 'QTQ100', companiaNombre: 'ACME',
+    soatAutogestionable: false, impuestosAutogestionable: false,
+    soatEstado: null, soatValorPagado: null, soatExtraccion: null,
+    impuestoEstado: null, impuestoValorPagado: null, impuestoMarcadoPorDiferencia: false, impuestoExtraccion: null,
+    sincronizadoEn: new Date('2026-07-01T00:00:00Z'), organismoAlias: 'Tránsito X', organismoCodigo: '11001',
+    fechaCreacionFlit: new Date('2026-06-20T10:00:00Z'), creadoEn: new Date('2026-07-01T00:00:00Z'),
+    vin: 'VIN123', marca: 'Renault', linea: 'Logan', tipoVehiculo: 'automovil',
+    soatId: null, soatProveedorId: null, soatProveedorNombre: null, soatSlaHoras: null, soatEnviadoEn: null,
+    soatPagadoEn: null, soatMotivoRechazo: null,
+    impuestoId: null, impuestoFacturaVentaSoporteId: null, impuestoExtraccionFacturaVenta: null,
+    impuestoValorLiquidado: null, impuestoEnviadoEn: null, impuestoPagadoEn: null, impuestoSlaHoras: null,
+    impuestoMotivoRechazo: null,
+    tipoTitularFlit,
+  });
+
+  /**
+   * Los dos compradores del trámite. La columna `tipo_documento` de `flito_compradores` va a un
+   * valor CONTRADICTORIO a propósito: está a 0 de 7 052 para las filas del sync, y ponerla al revés
+   * es lo único que deja ver cuál de las dos fuentes manda.
+   */
+  const dosCompradores = () => [
+    { tramiteId: 't1', nombreCompleto: 'B', numeroDocumento: '2', tipoDocumento: 'CC', correo: null, celular: null, direccion: null, orden: 1, porcentajeParticipacion: null },
+    { tramiteId: 't1', nombreCompleto: 'A', numeroDocumento: '1', tipoDocumento: 'CC', correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null },
+  ];
+
+  const listarCon = async (tipoTitularFlit: unknown) => {
+    selectMock
+      .mockReturnValueOnce(chain([{ total: 1 }]))
+      .mockReturnValueOnce(chain([filaConTipo(tipoTitularFlit)]))
+      .mockReturnValueOnce(chain(dosCompradores()))
+      .mockReturnValueOnce(chain([]));
+    const { items: [f] } = await listar();
+    return f;
+  };
+
+  it('**el tipo sale del `flit_raw` del TRÁMITE, no de `flito_compradores.tipo_documento`**', async () => {
+    // El payload dice `n` y la columna dice `CC`: gana el payload, y el código sale RESUELTO
+    // (`NIT`), no crudo — la tabla que traduce tiene UNA sola copia en el repo (AC6).
+    const f = await listarCon('n');
+
+    expect(f.compradorPrincipal?.tipoDocumento).toBe('NIT');
+    // A TODOS los compradores del trámite, no solo al principal: el `tipo` es del titular del
+    // trámite y ellos cuelgan de él.
+    expect(f.compradores.map((c) => c.tipoDocumento)).toEqual(['NIT', 'NIT']);
+    expect(JSON.stringify(f)).not.toContain('"n"');
+  });
+
+  it('`cc` → `CC`, `ps` → `PP`, `ce` → `CE`, `otro` → `null`', async () => {
+    // `PP` y NUNCA `PAS`: el catálogo del RUNT es otro vocabulario y el AC8 lo deja intacto.
+    for (const [tipo, esperado] of [['cc', 'CC'], ['ps', 'PP'], ['ce', 'CE'], ['otro', null]] as const) {
+      selectMock.mockReset();
+      const f = await listarCon(tipo);
+      expect(f.compradorPrincipal?.tipoDocumento, `tipo=${tipo}`).toBe(esperado);
+    }
+  });
+
+  it('**`c`, desconocido y ausente → `null`**, y el comprador sigue saliendo entero', async () => {
+    // La rama por defecto (AC5). El mutante: devolver `CC` en vez de `null` marcaría con cédula a
+    // cada titular cuyo tipo el origen no afirma —y aquí la columna de la tabla dice `CC`, así que
+    // un `??` mal puesto quedaría verde—. `c` está a propósito: la tabla acepta `cc` y no `c`.
+    for (const tipo of ['c', 'xx', '', ' ', null, undefined]) {
+      selectMock.mockReset();
+      const f = await listarCon(tipo);
+      expect(f.compradorPrincipal?.tipoDocumento, `tipo=${JSON.stringify(tipo)}`).toBeNull();
+      expect(f.compradorPrincipal?.numeroDocumento).toBe('1');
+      expect(f.compradores).toHaveLength(2);
+    }
+  });
 });
 
 // ───────────────────────────── rutas — fronteras de rol ─────────────────────

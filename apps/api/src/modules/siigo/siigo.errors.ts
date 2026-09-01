@@ -23,30 +23,24 @@
 // durante 7 días más del 80 % de las peticiones son errores, así que ante un código desconocido
 // callar y reintentar es peor que parar y avisar.
 
+import { ETIQUETA_RESPONSABLE } from '@operaciones/shared-types';
+import type { GuiaErrorSiigo, ResponsableError } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
 import { sanearMensaje } from './siigo.redaccion.js';
+
+// La FORMA de una guía y la tabla de responsables se mudaron a `@operaciones/shared-types` en la
+// HU #11340: la bandeja de fallidos devuelve una guía por caso y la pantalla que la pinta necesita
+// el mismo tipo. Se reexportan para que todo lo que ya los importaba de aquí siga funcionando sin
+// tocar un solo archivo. **Lo que NO se movió es `guiaParaCodigo`**, y no es un olvido: depende del
+// catálogo de códigos, del saneamiento y del registro de códigos sin catalogar, que son del
+// servidor. Mover la función habría llevado el catálogo entero al navegador.
+export { ETIQUETA_RESPONSABLE };
+export type { GuiaErrorSiigo, ResponsableError };
 
 const log = loggerFor('siigo-errores');
 
 /** Código sintético cuando la respuesta no cumple la estructura documentada. */
 export const CODIGO_RESPUESTA_INESPERADA = 'respuesta_inesperada';
-
-/**
- * Quién resuelve el error.
- *
- * Las tres primeras son las del AC1. `soporte` se añadió porque hay errores que no puede tocar ni
- * quien opera ni contabilidad —una cabecera mal formada, `SIIGO_PARTNER_ID`, un código que Siigo
- * inventó ayer—: mandarlos a operación es mandarlos a un callejón sin salida.
- */
-export type ResponsableError = 'operacion' | 'contabilidad' | 'soporte' | 'automatico';
-
-/** Cómo se nombra a cada responsable en el texto que lee quien opera. */
-export const ETIQUETA_RESPONSABLE: Record<ResponsableError, string> = {
-  operacion: 'quien opera la facturación, desde FLITO',
-  contabilidad: 'contabilidad, en Siigo Nube',
-  soporte: 'soporte técnico de FLITO',
-  automatico: 'nadie: se resuelve solo',
-};
 
 /**
  * Frase de reintento (AC3).
@@ -58,6 +52,13 @@ export const ETIQUETA_RESPONSABLE: Record<ResponsableError, string> = {
 const FRASE_REINTENTO = {
   si: 'Se reintenta automáticamente: no hace falta intervenir.',
   no: 'Reintentar no lo arregla: hay que corregir el origen antes de volver a emitir.',
+  /**
+   * La tercera, que faltaba (HU #11340). Sin ella, un código que no vuelve solo pero que se
+   * desatasca reintentándolo a mano tenía que elegir entre dos frases falsas: `si` prometía que no
+   * hacía falta intervenir —y hacía falta— y `no` afirmaba que reintentar no lo arregla, que es
+   * justo lo contrario de lo que hay que hacer con él.
+   */
+  manual: 'No vuelve solo, pero reintentarlo desde la bandeja sí puede salir bien.',
 } as const;
 
 interface EntradaCatalogo {
@@ -67,8 +68,23 @@ interface EntradaCatalogo {
   accion: string;
   /** Quién lo hace. */
   responsable: ResponsableError;
-  /** Solo en los códigos transitorios. Ausente = no se reintenta, que es el defecto seguro. */
+  /**
+   * «Vuelve solo». Solo en los códigos transitorios; ausente = no vuelve, que es el defecto seguro.
+   *
+   * **Implica `responsable: 'automatico'`**, y hay una prueba que lo exige: si el sistema lo
+   * reintenta sin ayuda, no hay nadie a quien mandar a arreglarlo.
+   */
   reintentable?: true;
+  /**
+   * «No vuelve solo, pero reintentarlo a mano sirve» (HU #11340).
+   *
+   * Es la casilla de los códigos en los que el sistema ya se rindió —o que nunca reintenta, como el
+   * reenvío de un correo— y en los que aun así volver a intentarlo es lo correcto. **No implica
+   * `automatico`**: precisamente lo que dice es que hace falta que una persona pulse.
+   *
+   * Nunca se pone junto a `reintentable`: son excluyentes por definición.
+   */
+  reintentoManual?: true;
 }
 
 /**
@@ -397,6 +413,135 @@ const CATALOGO: Record<string, EntradaCatalogo> = {
     accion: 'Pide a contabilidad que revise la bodega en Siigo Nube, o selecciona otra en la parametrización de FLITO.',
     responsable: 'contabilidad',
   },
+
+  // ── Códigos que pone FLITO, no Siigo (HU #11340) ───────────────────────────────────────────
+  //
+  // **Por qué están en ESTE catálogo y no en otro.** `siigo_cola_facturacion.error_code` y
+  // `siigo_facturas.error_code` no solo guardan códigos de Siigo: el trabajador escribe ahí
+  // `no_elegible`, `emision_en_curso` o `error_interno` cuando el fallo ocurre antes de salir a la
+  // red, y el acta de envío escribe `cliente_sin_correo`. La bandeja de fallidos lee esas columnas y
+  // pide una guía por código: sin estas entradas, la mayoría de los casos que hay que operar cada
+  // día se pintaban como «un código que FLITO todavía no traduce», que es justo el mensaje genérico
+  // que toda la HU #11339 existe para no dar. Además ensuciaban `codigosSinCatalogar()`, que es la
+  // alarma de «falta un código de Siigo», con códigos nuestros que no faltaban.
+  //
+  // **Qué se marca reintentable y por qué importa.** `CODIGOS_REINTENTABLES` se deriva de aquí y lo
+  // consume `esReintentable`, que el trabajador llama en la rama `desenlace === 'fallida'`. En esa
+  // rama el código SIEMPRE viene de Siigo (`describirFallo` solo devuelve códigos nuestros con
+  // `respondio: false`, que no llega a esa rama), así que ninguna de estas entradas cambia lo que
+  // hace el trabajador: solo deciden si la bandeja ofrece reintentar o exige corregir un dato (AC3).
+  cliente_sin_correo: {
+    descripcion: 'El cliente no tiene ningún correo utilizable en su ficha.',
+    accion: 'Completa el correo de facturación en la ficha del cliente en FLITO y vuelve a pedir el envío. Reenviar ahora no manda nada: no hay a dónde.',
+    responsable: 'operacion',
+  },
+  demasiados_destinatarios: {
+    descripcion: 'El envío lleva más direcciones de las que Siigo admite.',
+    accion: 'Deja como máximo cinco direcciones en la ficha del cliente o en el envío manual y vuelve a pedirlo.',
+    responsable: 'operacion',
+  },
+  destinatario_invalido: {
+    descripcion: 'Alguna de las direcciones de correo no tiene forma de dirección.',
+    accion: 'Corrige la dirección en la ficha del cliente en FLITO y vuelve a pedir el envío.',
+    responsable: 'operacion',
+  },
+  dian_rechazada: {
+    descripcion: 'La DIAN rechazó el documento.',
+    accion: 'No se reintenta: la factura ya existe y reintentar emitiría un segundo documento. Contabilidad debe corregirla en Siigo Nube y registrar la corrección en FLITO.',
+    responsable: 'contabilidad',
+  },
+  emision_datos: {
+    descripcion: 'Faltan datos para armar la factura, o alguno no cuadra.',
+    accion: 'Revisa la liquidación y la ficha fiscal del cliente; corrígelas y vuelve a enviar el trámite a facturación.',
+    responsable: 'operacion',
+  },
+  emision_en_curso: {
+    descripcion: 'Otro proceso tenía tomada la emisión de este lote cuando le tocó el turno.',
+    // Nada salió de FLITO por nuestra parte: la clave la tenía otro. Vuelve solo y sin riesgo.
+    accion: 'No hace falta hacer nada: vuelve a intentarse solo en el próximo ciclo.',
+    responsable: 'automatico',
+    reintentable: true,
+  },
+  emision_sin_configuracion: {
+    descripcion: 'El lote no trae con qué emitir: falta comprobante, vendedor o forma de pago.',
+    accion: 'Vuelve a enviar los trámites desde el reporte de costos eligiendo la emisión. Reintentar este lote no lo arregla: la configuración se guarda al enviar.',
+    responsable: 'operacion',
+  },
+  emision_sin_correo: {
+    descripcion: 'Siigo no mandó el correo al crear la factura.',
+    accion: 'Pide el reenvío desde la bandeja: la factura está emitida y lo único que falta es la entrega.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  emision_sin_mapeo: {
+    descripcion: 'Algún concepto de la factura no tiene producto de Siigo asignado.',
+    accion: 'Completa el mapeo de conceptos en la parametrización de FLITO y vuelve a reintentar la emisión.',
+    responsable: 'operacion',
+  },
+  emision_sin_tramites: {
+    descripcion: 'El lote no tiene trámites: no hay nada que facturar.',
+    accion: 'Vuelve a enviar los trámites desde el reporte de costos. Este lote es anterior al registro de pertenencia y no se puede reconstruir.',
+    responsable: 'operacion',
+  },
+  error_interno: {
+    descripcion: 'Falló algo de FLITO antes de llegar a pedirle nada a Siigo.',
+    // `automatico` con fundamento: este código se reserva para el fallo que ocurre ANTES de salir a
+    // la red (ver `comoResultado` en el trabajador, que lo distingue de `huerfana` justo por eso).
+    // No hay documento que pueda existir en Siigo, así que la fila vuelve sola sin riesgo.
+    accion: 'Vuelve a intentarse solo. Si se repite en varias facturas, pásalo a soporte técnico con la hora exacta.',
+    responsable: 'automatico',
+    reintentable: true,
+  },
+  factura_no_emitida: {
+    descripcion: 'La factura todavía no existe en Siigo: no está emitida o falló al emitirse.',
+    accion: 'Primero hay que emitirla. Reintenta la emisión desde la bandeja; el correo se pide después.',
+    responsable: 'operacion',
+  },
+  no_elegible: {
+    descripcion: 'El trámite no cumple las condiciones para facturarse.',
+    accion: 'Mira el detalle: dice qué condición falta. Corrígela y vuelve a enviar el trámite a facturación.',
+    responsable: 'operacion',
+  },
+  reconciliada_inexistente: {
+    descripcion: 'La reconciliación comprobó que el documento no existe en Siigo.',
+    accion: 'Se puede reintentar la emisión: no hay documento ante la DIAN que pueda duplicarse.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  resuelta_a_mano: {
+    descripcion: 'Una persona comprobó en Siigo que la factura no llegó a crearse.',
+    accion: 'Ya está comprobado que no hay documento: reintentar la emisión desde la bandeja es seguro.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  siigo_no_responde: {
+    descripcion: 'Siigo no contestó: se agotaron los intentos sin recibir respuesta.',
+    accion: 'No se sabe si la petición llegó. Comprueba en Siigo Nube antes de reintentar; si no hay documento, reintentar es seguro.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  siigo_rechazo: {
+    descripcion: 'Siigo rechazó el envío del correo.',
+    // El reenvío NUNCA es automático —no hay cron que lo intente— así que `reintentable` sería
+    // mentira aunque el fallo sea pasajero. Lo que hay es un botón, y eso es `reintentoManual`.
+    accion: 'Reinténtalo desde la bandeja: suele ser pasajero. Si vuelve a fallar, mira el detalle del acta de envío.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  sin_desenlace: {
+    descripcion: 'El ciclo terminó sin que nadie dijera qué pasó con la emisión.',
+    // NO es `automatico`, y la diferencia importa: este código cubre también la fila huérfana, es
+    // decir, una emisión que PUEDE existir en Siigo. Decir «no hace falta intervenir» invitaría a
+    // reintentar a ciegas sobre un documento que quizá ya está ante la DIAN.
+    accion: 'Comprueba en Siigo Nube si la factura llegó a crearse; si no está, reintenta desde la bandeja.',
+    responsable: 'operacion',
+    reintentoManual: true,
+  },
+  sin_factura_local: {
+    descripcion: 'La emisión terminó sin dejar fila de factura en FLITO.',
+    accion: 'Compruébalo en Siigo Nube antes de tocar nada: puede existir un documento que FLITO no registró. Si no existe, vuelve a enviar el trámite.',
+    responsable: 'operacion',
+  },
 };
 
 /**
@@ -587,24 +732,6 @@ function buscarEntrada(codigo: string): { entrada: EntradaCatalogo; conocido: bo
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Guía completa de un error: qué pasó, qué hacer, quién lo hace y si vuelve solo.
- *
- * `texto` es la versión de una sola cadena, ya saneada, para pintarla tal cual en la bandeja de
- * fallidos; los campos sueltos están para agrupar y filtrar sin volver a parsear la frase.
- */
-export interface GuiaErrorSiigo {
-  codigo: string;
-  descripcion: string;
-  accion: string;
-  responsable: ResponsableError;
-  responsableEtiqueta: string;
-  reintentable: boolean;
-  /** `false` cuando el código no está en el catálogo y la guía es la genérica. */
-  conocido: boolean;
-  texto: string;
-}
-
-/**
  * Guía para un código suelto.
  *
  * Existe aparte de `SiigoApiError` porque la bandeja de fallidos lee códigos ya persistidos, cuando
@@ -616,12 +743,18 @@ export function guiaParaCodigo(
 ): GuiaErrorSiigo {
   const { entrada, conocido } = buscarEntrada(codigo);
   const reintentable = opciones.reintentable ?? entrada.reintentable === true;
+  // El reintento a mano NO se puede sobrescribir desde fuera: `opciones.reintentable` existe para
+  // que un `SiigoApiError` imponga «este lote concreto no se reintenta» sobre el defecto del
+  // catálogo, y eso es una propiedad del error vivo. Que un código se pueda desatascar pulsando un
+  // botón es una propiedad del CÓDIGO, y no cambia según quién pregunte.
+  const reintentoManual = !reintentable && entrada.reintentoManual === true;
   const campos = campoLegible(opciones.params);
   const responsableEtiqueta = ETIQUETA_RESPONSABLE[entrada.responsable];
 
   const partes = [entrada.descripcion];
   if (campos.length > 0) partes.push(`Campo: ${campos}.`);
-  partes.push(reintentable ? FRASE_REINTENTO.si : FRASE_REINTENTO.no);
+  if (reintentable) partes.push(FRASE_REINTENTO.si);
+  else partes.push(reintentoManual ? FRASE_REINTENTO.manual : FRASE_REINTENTO.no);
   partes.push(entrada.accion);
   partes.push(`Lo resuelve: ${responsableEtiqueta}.`);
 
@@ -632,6 +765,8 @@ export function guiaParaCodigo(
     responsable: entrada.responsable,
     responsableEtiqueta,
     reintentable,
+    reintentoManual,
+    sirveReintentar: reintentable || reintentoManual,
     conocido,
     // `sanearMensaje` corta volcados de SQL y acota la longitud: el mismo saneo que protege la
     // bitácora WORM protege lo que se le enseña a quien opera.

@@ -1,4 +1,11 @@
-// FLITO comparendos — instrumento de medición del coste del export (HU #11558, HU #11651).
+// FLITO — instrumento de medición del coste de un export (HU #11558, HU #11651, HU #11934).
+//
+// **Deja de ser «de comparendos» con la HU #11934**, y el cambio es el que el ADR obliga a hacer:
+// `medirExports` tenía `COLUMNAS_EXPORT` de comparendos incrustado, así que medir cualquier otra hoja
+// era imposible sin estimar por analogía. Ahora la lista de columnas es un PARÁMETRO, con esa misma
+// constante como valor por defecto para que las dos suites de comparendos no cambien ni una línea.
+// La hoja de las colas de SOAT e Impuestos —25 columnas— se mide en
+// `cola-flito-export-coste.test.ts` con este mismo instrumento y no con una regla de tres.
 //
 // Vive aquí y no dentro de un `.test.ts` desde la HU #11651: la medición dejó de ser un solo
 // escenario. El coste de UN export (secuencial) y el de DOS SIMULTÁNEOS son dos preguntas distintas
@@ -101,6 +108,7 @@ export function fila(i: number, observacion: string | null): Record<string, unkn
     codigoInfraccion: 'C29',
     descripcionInfraccion: `Estacionar en sitio prohibido o en zona de cargue ${i}`,
     municipioFuente: 'BELLO',
+    municipioComparendo: 'BELLO',
     organismo: `Secretaría de Movilidad de Bello ${i}`,
     monto: 604100 + i,
     estado: i % 7 === 0 ? 'Inactivo' : 'Activo',
@@ -116,15 +124,24 @@ export function fila(i: number, observacion: string | null): Record<string, unkn
   };
 }
 
+/** La forma mínima de una columna de `sendExcel`, para no atarse al tipo de un módulo. */
+export interface ColumnaMedida { header: string; key: string; width?: number }
+
 /**
- * Las columnas del archivo real que este generador NO produce.
+ * Las columnas del archivo real que un generador de filas NO produce.
  *
  * Vacío = la medición mide el archivo entero. No vacío = alguien añadió una columna al export y la
  * medición se quedó corta, que es exactamente lo que pasó entre la HU #11712 y la HU #11651.
+ *
+ * Los dos argumentos tienen defecto de comparendos para no tocar sus dos suites; cualquier otra hoja
+ * pasa los suyos. La comprobación importa MÁS cuanto más ancha es la hoja: en una de 25 columnas,
+ * olvidarse de generar seis se lee como «el export es barato».
  */
-export function columnasFaltantes(): string[] {
-  const generada = fila(0, null);
-  return COLUMNAS_EXPORT.map((c) => c.key).filter((k) => !(k in generada));
+export function columnasFaltantes(
+  columnas: readonly ColumnaMedida[] = COLUMNAS_EXPORT,
+  generada: Record<string, unknown> = fila(0, null),
+): string[] {
+  return columnas.map((c) => c.key).filter((k) => !(k in generada));
 }
 
 /**
@@ -162,6 +179,63 @@ export function filasRealistas(n: number): Record<string, unknown>[] {
  */
 export function filasPeorCaso(n: number): Record<string, unknown>[] {
   return Array.from({ length: n }, (_, i) => fila(i, observacionLarga(i)));
+}
+
+// ── La hoja de las colas de SOAT e Impuestos (HU #11934) ─────────────────────────────────────────
+
+/**
+ * Una fila del `.xlsx` de las colas, con **las 25 claves** de `COLUMNAS_COLA_EXPORT`.
+ *
+ * Se escribe aquí y no en el archivo de test por lo mismo que la de comparendos: la medición de un
+ * export y la de varios simultáneos viven en procesos distintos y un generador copiado divergiría.
+ *
+ * Los textos cambian por fila a propósito. `exceljs` guarda las cadenas en una tabla compartida, así
+ * que 2 000 filas idénticas comprimirían como una y la medición saldría optimista — y en una hoja de
+ * 25 columnas eso importa más, no menos: la mitad de sus valores (`Puertas`, `N_I`, `ClaseId`,
+ * `ClaseDeInterlocutor`, `Servicio`, `Clase`…) SON repetitivos de verdad, y los que no lo son hay que
+ * generarlos variados o se mide un archivo que no existe.
+ *
+ * El número de columnas NO se escribe como literal en ningún comentario de este bloque: para eso está
+ * `columnasFaltantes(COLUMNAS_COLA_EXPORT, filaCola(0))`, que convierte el desfase en un test rojo en
+ * vez de en una frase que envejece (es lo que pasó entre la HU #11712 y la #11651).
+ */
+export function filaCola(i: number): Record<string, unknown> {
+  const juridica = i % 3 === 0;
+  const razon = `TRANSPORTES Y LOGISTICA DEL ORIENTE ${i} SAS`;
+  return {
+    vin: `9BWZZZ377VT${String(i).padStart(6, '0')}`,
+    placa: `AB${String(i % 1000).padStart(4, '0')}`,
+    modelo: String(2010 + (i % 16)),
+    servicio: i % 4 === 0 ? 'Publico' : 'Particular',
+    marca: ['CHEVROLET', 'KIA', 'RENAULT', 'MAZDA', 'NISSAN'][i % 5],
+    linea: `${['ONIX', 'STONIC', 'DUSTER', 'CX-30', 'VERSA'][i % 5]} ${i % 97}`,
+    // Hoy llega vacía en todas las filas —FLIT aún no la manda— y así se mide: una celda nula no
+    // ocupa lo mismo que un texto, y suponerla llena mediría un archivo que no existe.
+    clase: null,
+    carroceria: ['SUV', 'SEDAN', 'DOBLE CABINA CON PLATON', 'SIN CARROCERIA'][i % 4],
+    cilindraje: String(1000 + (i % 3000)),
+    capacidadCargaOPasajeros: String(i % 40),
+    puertas: '4',
+    organismoDetto: `STRIA TTOyTTE MCPAL ${['FUNZA', 'MOSQUERA', 'PALMIRA', 'ENVIGADO'][i % 4]}`,
+    nI: 'IMPORTADO',
+    claseDeInterlocutor: juridica ? 'PJUR' : 'PNAT',
+    nombrePila: juridica ? null : `JUANA MARIA ${i}`,
+    apellidos: juridica ? null : `PEREZ GOMEZ ${i}`,
+    razonSocial: juridica ? razon : null,
+    claseId: juridica ? 'NIT' : 'CC',
+    numeroId: `10${String(i).padStart(8, '0')}`,
+    direccion: `CALLE ${i % 200} # ${i % 90}-${i % 60} APARTAMENTO ${i % 900}`,
+    municipio: ['FUNZA', 'MOSQUERA', 'PALMIRA', 'ENVIGADO', 'BOGOTA'][i % 5],
+    departamento: ['CUNDINAMARCA', 'VALLE DEL CAUCA', 'ANTIOQUIA'][i % 3],
+    celular: `31${String(i % 100000000).padStart(8, '0')}`,
+    correo: `titular.numero.${i}@empresadetransportes${i % 40}.com.co`,
+    organismoDettoCiudad: ['Funza', 'Mosquera', 'Palmira', 'Envigado'][i % 4],
+  };
+}
+
+/** `n` filas de la hoja de las colas, todas distinguibles. */
+export function filasCola(n: number): Record<string, unknown>[] {
+  return Array.from({ length: n }, (_, i) => filaCola(i));
 }
 
 /**
@@ -241,8 +315,17 @@ async function recolectarBasura(): Promise<void> {
  * y ninguno más: con el tope en 5 000 el proceso seguiría en 198 MB de los 262 de presupuesto. Lo
  * que baja el pico de verdad es no tener el libro entero en memoria (`WorkbookWriter`), o tener
  * menos filas.
+ *
+ * @param columnas La hoja que se está midiendo. **Es un parámetro desde la HU #11934 y no un
+ *   detalle**: el número de columnas es uno de los dos factores del tamaño del workbook, así que con
+ *   la lista incrustada este instrumento solo sabía medir una hoja y cualquier otra habría tenido
+ *   que estimarse «por analogía» — que es exactamente lo que ADR-0004 pide no hacer. El defecto es
+ *   la de comparendos para que sus dos suites sigan llamando igual.
  */
-export async function medirExports(lotes: Record<string, unknown>[][]): Promise<Medicion> {
+export async function medirExports(
+  lotes: Record<string, unknown>[][],
+  columnas: readonly ColumnaMedida[] = COLUMNAS_EXPORT,
+): Promise<Medicion> {
   const sumideros = lotes.map(() => sumidero());
 
   await recolectarBasura();
@@ -272,7 +355,7 @@ export async function medirExports(lotes: Record<string, unknown>[][]): Promise<
   await Promise.all(lotes.map((filas, i) => sendExcel(
     sumideros[i]!.res,
     `medicion-${i}.xlsx`,
-    COLUMNAS_EXPORT,
+    [...columnas],
     filas,
   )));
   const ms = Math.round(performance.now() - t0);

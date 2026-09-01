@@ -1,0 +1,44 @@
+---
+description: Cerrar vacíos de alcance ANTES de crear HUs o codear. Preguntas de producto sí; «qué sigue» no. Hallazgo fuera del pedido = pregunta, no HU/Bug.
+alwaysApply: true
+---
+
+# Planeación — cierre de vacíos (P9)
+
+Fuente: `AGENTS.md` § P9. Esta regla **prevalece** sobre «máximo una pregunta» de intake/tech-lead
+y sobre partir un pedido corto en HUs de capa (BACKEND / FRONTEND / copy) por costumbre.
+
+El anti-estancamiento de `flit-modo-desarrollo-auto` sigue vigente: **prohibido** preguntar
+«qué sigue», «puedo mergear», «avísame cuando pase el CI». Eso no es esta regla.
+Esta regla obliga a preguntar lo que **cambia el producto** antes de implementarlo.
+
+## Antes de crear HUs o de codear
+
+El hilo **no** avanza a `flit-crear-hu` ni a `backend-agent` / `frontend-agent` mientras quede
+un vacío que cambie comportamiento, persistencia, copy (error vs vacío), o alcance.
+
+1. **Contrastar el pedido con el código y la spec** (`Read`/`Grep`). Si la spec o una RN ya
+   excluyó a propósito lo que el humano pide (centinelas, ADR, campo omitido), eso es
+   **pregunta**, no implementación ni HU extra.
+2. **Ronda de cierre:** todas las preguntas que cambian código, AC o alcance, en **un** mensaje.
+   Incluir riesgos y advertencias (PII, sentinelas, integraciones que llegan vacías, densidad UX,
+   lo que el pedido no cubre). No dosificar «una pregunta» y seguir con supuestos.
+3. **Supuestos** solo para lo que **no** cambia el comportamiento, listados en el intake.
+   Un bloqueante sin respuesta → **parar**. Prohibido rellenar el hueco inventando AC, una HU
+   extra, un Bug o una «mejora» en pleno desarrollo.
+4. **El corte de HUs sigue los ítems del pedido**, no las capas. Dos cambios pedidos = hasta
+   dos HUs (o una, si van juntas). Split BACKEND/FRONTEND solo si cada una entrega un incremento
+   usable **sin** la otra. Prohibido HUs de copy / alias / «anclar aserto» nacidas de un hallazgo
+   en el ciclo.
+5. **Fuera de alcance** se declara en el intake. Un hallazgo («también habría que…», clave de
+   negocio no pedida, deuda, Bug a radicar) se **pregunta** y se deja fuera de esta ráfaga salvo
+   «sí» explícito. No se cuela como eslabón.
+
+## Durante la implementación
+
+- Hueco de AC o contradicción con el código → HANDOFF `bloqueado` + preguntas. No inventar.
+- Defecto de **este** cambio que `security-agent` / `qa-agent` / `flit-code-review` encuentre →
+  se corrige **en el mismo hilo**, en este WI, y el veredicto queda limpio. No queda como
+  «observación» abierta ni como Bug.
+- Deuda preexistente, mejora no pedida, test ajeno → **Nota** (P4). Prohibido Bug, prohibido
+  «anotar para radicar», prohibido ampliar la HU.

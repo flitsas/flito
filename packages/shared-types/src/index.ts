@@ -92,8 +92,14 @@ export * from './siigo-envio.js';
 export * from './siigo-archivo.js';
 // Cola de emisión: qué queda por facturar y cuándo le toca. Eje APARTE del estado del documento.
 export * from './siigo-cola.js';
+// Bandeja de fallidos: las tres patas (emisión, DIAN, correo) con su estado NATIVO, la guía de cada
+// error y el catálogo cerrado de motivos para darlo por perdido (Feature #11244).
+export * from './siigo-bandeja.js';
 // Monitoreo de comparendos: catálogos, token, sync y lectura del consolidado (Feature #11492).
 export * from './flito-comparendos.js';
 // Conciliación de boletas de pago externo contra los SOAT: estados, desenlaces del cruce y la
 // normalización del número de póliza, que tiene que ser la misma en la base, el API y la pantalla.
 export * from './flito-conciliacion.js';
+// Export a Excel de las colas de SOAT e Impuestos: el tope de filas que la pantalla anuncia y el
+// servidor aplica (Feature #11908, HU #11909).
+export * from './flito-cola-export.js';

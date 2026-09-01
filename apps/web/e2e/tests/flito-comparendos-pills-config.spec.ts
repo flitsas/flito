@@ -328,6 +328,9 @@ const COMPARENDO = {
   fechaComparendo: '2026-07-12',
   organismo: 'Secretaría de Movilidad de Medellín',
   municipioFuente: 'ITAGUI',
+  // De dónde ES el comparendo (HU #11878), que es lo que pintan la tabla y el panel desde la
+  // #11879. Aquí coincide con el municipio consultado: la consulta municipal respondió.
+  municipioComparendo: 'ITAGUI',
   monto: '604100.00',
   estadoFuente: 'EN COBRO COACTIVO',
   origenMerge: 'ambos',

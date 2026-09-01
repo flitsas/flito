@@ -120,3 +120,92 @@ describe('parametrización — validaciones', () => {
     expect(r.status).toBe(400);
   });
 });
+
+// ───────── HU #11913 (Feature #11912): «SOAT sin trámite» es un flag INDEPENDIENTE ─────────
+//
+// El AC3 no pide que el flag exista: pide que **no se contagie**. Un `set` mal encadenado —el
+// clásico `if (soatAutogestionable !== undefined) { …; set.soatSinTramite = false; }`— dejaría los
+// dos flags atados sin que ningún test que solo compruebe «persiste» lo notara. De ahí que estas
+// pruebas miren el objeto que llega al UPDATE y no la respuesta.
+
+/** Fila de `clients` tal como sale del `returning()` del PATCH. */
+const compania = (over: Record<string, unknown> = {}) => ({
+  id: 1, name: 'Acme', document: '900', soatAutogestionable: false, soatSinTramite: false,
+  impuestosAutogestionable: false, logisticaAutogestionable: false, logisticaPermiteParcial: false,
+  flitoCarpetaStorage: null, flitoToleranciaValorImpuesto: '0', ...over,
+});
+
+/** Captura el objeto del `.set(...)` del UPDATE y devuelve la fila que se le pida. */
+function capturarUpdate(devuelve: Record<string, unknown>) {
+  const capturado: { set?: Record<string, unknown> } = {};
+  updateMock.mockReturnValueOnce({
+    set: (v: Record<string, unknown>) => {
+      capturado.set = v;
+      return { where: () => ({ returning: () => Promise.resolve([devuelve]) }) };
+    },
+  });
+  return capturado;
+}
+
+describe('compañías — flag «SOAT sin trámite» (AC3 de la HU #11913)', () => {
+  it('GET /companias lo devuelve, y separado de la autogestión', async () => {
+    selectMock.mockReturnValueOnce(chain([compania({ soatAutogestionable: true, soatSinTramite: false })]));
+    const app = await buildApp();
+    const r = await request(app).get('/api/flito/parametrizacion/companias').set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+    // Una compañía puede autogestionar SU SOAT y NO tener abierto el canal sin trámite: son dos
+    // preguntas, y el DTO tiene que poder decir cosas distintas de cada una.
+    expect(r.body[0].soatAutogestionable).toBe(true);
+    expect(r.body[0].soatSinTramite).toBe(false);
+  });
+
+  it('PATCH del flag → persiste y NO toca la autogestión', async () => {
+    const cap = capturarUpdate(compania({ soatSinTramite: true }));
+    const app = await buildApp();
+    const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
+      .set('Authorization', await auth('admin')).send({ soatSinTramite: true });
+    expect(r.status).toBe(200);
+    expect(cap.set).toEqual({ soatSinTramite: true });
+    expect(cap.set).not.toHaveProperty('soatAutogestionable');
+    expect(r.body.soatSinTramite).toBe(true);
+  });
+
+  it('PATCH de la autogestión → NO arrastra el flag nuevo (el contagio que el AC3 prohíbe)', async () => {
+    const cap = capturarUpdate(compania({ soatAutogestionable: true, soatSinTramite: true }));
+    const app = await buildApp();
+    const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
+      .set('Authorization', await auth('admin')).send({ soatAutogestionable: true });
+    expect(r.status).toBe(200);
+    expect(cap.set).toEqual({ soatAutogestionable: true });
+    expect(cap.set).not.toHaveProperty('soatSinTramite');
+    // Y la compañía que ya tenía el canal abierto lo conserva tras encender la autogestión.
+    expect(r.body.soatSinTramite).toBe(true);
+  });
+
+  it('los dos a la vez → los dos se escriben, que es una combinación válida', async () => {
+    const cap = capturarUpdate(compania({ soatAutogestionable: true, soatSinTramite: true }));
+    const app = await buildApp();
+    const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
+      .set('Authorization', await auth('admin'))
+      .send({ soatAutogestionable: true, soatSinTramite: true });
+    expect(r.status).toBe(200);
+    expect(cap.set).toEqual({ soatAutogestionable: true, soatSinTramite: true });
+  });
+
+  it('apagar el flag → false llega al UPDATE (y no se pierde por ser «falsy»)', async () => {
+    const cap = capturarUpdate(compania({ soatSinTramite: false }));
+    const app = await buildApp();
+    const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
+      .set('Authorization', await auth('admin')).send({ soatSinTramite: false });
+    expect(r.status).toBe(200);
+    expect(cap.set).toEqual({ soatSinTramite: false });
+  });
+
+  it('el flag es de ESCRITURA de Operaciones: auditor → 403', async () => {
+    const app = await buildApp();
+    const r = await request(app).patch('/api/flito/parametrizacion/companias/1')
+      .set('Authorization', await auth('auditor')).send({ soatSinTramite: true });
+    expect(r.status).toBe(403);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+});

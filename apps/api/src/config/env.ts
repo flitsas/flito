@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import { COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS } from '@operaciones/shared-types';
+import {
+  COMPARENDOS_EXPORT_MAX_FILAS, CONCILIACION_MAX_FILAS, FLITO_COLA_EXPORT_MAX_FILAS,
+} from '@operaciones/shared-types';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -179,6 +181,50 @@ const envSchema = z.object({
   // —multiplica por 5/min el techo de extracción del módulo— y ADR-0004 es dónde está escrito.
   COMPARENDOS_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
     .default(COMPARENDOS_EXPORT_MAX_FILAS),
+  // HU #11909 — tope de filas de un export a Excel de la cola de SOAT **o** de la de Impuestos. Una
+  // sola perilla para las dos, y no una por módulo: el presupuesto que se reparte es el del PROCESO
+  // (`sendExcel` arma el workbook entero en el heap de una única instancia fork con
+  // `max_memory_restart: '512M'`) y el proceso es uno. Dos variables independientes darían la
+  // ilusión de dos presupuestos que después se suman en el mismo heap.
+  //
+  // Mismo default, mismo techo y mismo razonamiento que la de comparendos —la medición de memoria
+  // vale igual porque el mecanismo es idéntico—, así que aplica su misma advertencia: subirla es una
+  // decisión de PRIVACIDAD disfrazada de configuración. Lo que sale de estas dos colas lleva cédula,
+  // correo y dirección del propietario del vehículo.
+  FLITO_COLA_EXPORT_MAX_FILAS: z.coerce.number().int().min(1).max(20_000)
+    .default(FLITO_COLA_EXPORT_MAX_FILAS),
+  // HU #11910 — presupuesto del ZIP de soportes, EN BYTES y no en número de ids.
+  //
+  // Por qué en bytes: el ZIP mixto de Trámites (AC4) admite 100 ids × 3 tipos = 300 entradas, y lo
+  // que cuesta no es el id sino el archivo que hay detrás. Heredar el «100 ids» del zip anterior de
+  // facturas habría sido estimar por analogía sobre un caso que ya no es el mismo. La suma de
+  // `flito_soportes.tamano_bytes` del lote se comprueba ANTES de abrir el archivo: por encima de
+  // esto la ruta responde 422 y no escribe un solo byte.
+  //
+  // El default (200 MiB) sale de la MEDICIÓN de `flito-soportes-zip-coste.test.ts` y no de una
+  // analogía con ADR-0004: el `.xlsx` son objetos JS vivos en el heap y esto es I/O con compresión
+  // síncrona en el mismo hilo. Lo medido en un lote de 300 entradas (~90 MB de contenido) fue un
+  // delta de RSS de un dígito de MB —archiver va en streaming y no retiene los archivos— y un lag
+  // máximo del event loop de decenas de ms; el recurso que este tope raciona es el TIEMPO de
+  // compresión y el ancho de banda de salida, no el heap. Ver el reporte del test para la cifra.
+  //
+  // El techo duro de 1 GiB es el punto en el que la conversación deja de ser esta variable y pasa a
+  // ser «esto tiene que ser un trabajo asíncrono con enlace de descarga».
+  FLITO_ZIP_SOPORTES_MAX_BYTES: z.coerce.number().int().min(1_048_576).max(1_073_741_824)
+    .default(200 * 1024 * 1024),
+  // HU #11910 — lo que se le PRESUPUESTA a una factura de venta de FLIT, en bytes.
+  //
+  // Es un cupo declarado y no una medida, porque no hay ninguna: la factura no está en
+  // `flito_soportes` —vive en el S3 de FLIT y se alcanza por una URL prefirmada—, así que su tamaño
+  // real no se conoce hasta que la respuesta llega, y para entonces el 422 ya no se puede emitir sin
+  // haber abierto el archivo. Preguntarlo con un HEAD por factura serían 100 viajes de red antes de
+  // decidir, que es peor que el problema.
+  //
+  // 5 MiB es holgado para el PDF de una factura (el tope de subida de un soporte del módulo son 15
+  // MB) y sirve para lo único que tiene que servir: que un lote de 100 facturas no pase por delante
+  // del presupuesto declarando cero.
+  FLITO_ZIP_FACTURA_CUPO_BYTES: z.coerce.number().int().min(1).max(52_428_800)
+    .default(5 * 1024 * 1024),
   // Feature #11623 — tope de líneas de una boleta de conciliación. Perilla y no constante porque el
   // coste real no es leer el Excel: es que la HU siguiente asienta UNA salida de bolsa por línea, en
   // serie y dentro de una sola transacción, porque el saldo se encadena. El techo de 2 000 es el

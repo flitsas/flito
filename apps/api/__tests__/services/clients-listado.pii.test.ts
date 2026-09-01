@@ -163,9 +163,12 @@ describe('AC8 — la respuesta entrega columnas, no la fila entera', () => {
     // Medido en `apps/web` archivo por archivo, y por eso la lista va aquí y no en un comentario
     // suelto: si mañana alguien recorta una columna, esta prueba nombra a quién se la quita.
     const clientsTsx = [
-      // `pages/Clients.tsx` — la tabla del padrón y sus interruptores de autogestión.
+      // `pages/Clients.tsx` — la tabla del padrón y sus interruptores de autogestión, más la
+      // casilla «SOAT sin trámite» (Feature #11912, HU #11913). Viaja en ESTA ruta y no en
+      // `/flito/parametrizacion/companias`: `financiera` ve esta pantalla y no aquella ruta, así
+      // que por el otro camino la columna le quedaría vacía sin saber por qué.
       'id', 'name', 'document', 'documentType', 'city', 'phone', 'email',
-      'soatAutogestionable', 'impuestosAutogestionable',
+      'soatAutogestionable', 'soatSinTramite', 'impuestosAutogestionable',
       'logisticaAutogestionable', 'logisticaPermiteParcial',
     ];
     const fichaFiscal = [

@@ -1,4 +1,5 @@
-import type { PageSlug } from '../../lib/permissions';
+import type { PageSlug, UserRole } from '../../lib/permissions';
+import { puedeVerAyudaFlito } from '../../lib/ayudaFlito';
 
 // Catálogo único de navegación. Antes vivía en Layout.tsx pero ahora lo consumen
 // CommandPalette y FlitSidebar. Single source of truth.
@@ -41,8 +42,19 @@ export const SECTION_LABEL: Record<NavItem['section'], string> = {
   admin:         'Administración',
 };
 
+/** Visibilidad de un ítem: permiso de página + `roles` opcional. `flito_ayuda` usa el helper derivado. */
+export function navItemPermitido(
+  it: NavItem,
+  user: { role: UserRole; allowedPages?: string[] | null } | null,
+  allowed: Set<PageSlug>,
+): boolean {
+  if (it.page === 'flito_ayuda') return puedeVerAyudaFlito(user);
+  return allowed.has(it.page) && (!it.roles || (user != null && it.roles.includes(user.role)));
+}
+
 export const NAV_ITEMS: NavItem[] = [
   { page: 'dashboard',   to: '/',                                section: 'general',       label: 'Tablero',                 keywords: 'dashboard inicio home resumen' },
+  { page: 'flito_ayuda', to: '/flito/ayuda',                     section: 'general',       label: 'Ayuda FLITO',             keywords: 'ayuda manual guia ficha como se usa flito' },
   { page: 'vehicles',    to: '/vehicles',                        section: 'gestion',       label: 'Vehículos',               keywords: 'placa vin runt cargar' },
     { page: 'clients',      to: '/clients',      section: 'gestion', label: 'Clientes y proveedores', keywords: 'empresa nit razon social tarifas proveedores soat parametrizacion autogestion' },
   { page: 'tramite',     to: '/tramite',                         section: 'gestion',       label: 'Trámite Digital',         keywords: 'traspaso fur mintransporte' },
@@ -66,7 +78,12 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_comparendos', to: '/flito/comparendos',         section: 'gestion',       label: 'Comparendos',             keywords: 'comparendo simit multa infraccion placa nit transito monitoreo' },
   { page: 'flito_logistica', to: '/flito/logistica',             section: 'gestion',       label: 'Logística',               keywords: 'flito logistica documentos licencia lt placa acta despacho entrega mensajero recogida trazabilidad' },
   { page: 'flito_logistica_ruta', to: '/flito/ruta',             section: 'gestion',       label: 'Mi ruta',                 roles: ['mensajero'],         keywords: 'flito logistica mensajero ruta recogida entrega firma pwa campo' },
-  { page: 'soat',           to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin'],        keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia' },
+  // Portal SOAT de FLITO. Slug `flito_soat` —el propio, no la `soat` del módulo legacy (ADR-0008
+  // §4)— y `cliente` en `roles`. Las DOS cosas hacen falta: `navItemPermitido` exige permiso Y rol,
+  // así que con el slug solo el menú del Cliente saldría VACÍO, que es el AC1 en rojo por la puerta
+  // de atrás. `auditor` sigue fuera de `roles`, exactamente como hasta hoy: tiene el permiso para
+  // entrar por URL pero nunca tuvo la entrada de menú, y esta HU no le cambia nada.
+  { page: 'flito_soat',     to: '/flito/soat',                   section: 'gestion',       label: 'SOAT',                    roles: ['proveedor', 'admin', 'cliente'], keywords: 'flito soat cola adquisicion factura poliza gestor proveedor pagado operaciones contingencia cliente solicitud' },
   { page: 'flito_impuestos', to: '/flito/impuestos',            section: 'gestion',       label: 'Impuestos',               roles: ['gestor_impuestos', 'admin'], keywords: 'flito impuesto organismo recibo factura venta gestion pagado conciliacion operaciones contingencia' },
   { page: 'finanzas_reporte_costos', to: '/finanzas/reporte-costos', section: 'finanzas',  label: 'Reporte de costos',       keywords: 'finanzas contabilidad facturacion cobros costos reporte soat impuesto gmf derecho tramite logistica digital total' },
   // Bolsas: va en Finanzas y no en Gestión porque su dueño es el área financiera —es quien
@@ -79,7 +96,11 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'flito_conciliacion', to: '/flito/conciliacion',       section: 'finanzas',      label: 'Conciliación',            keywords: 'conciliacion boleta soat portal excel cruce poliza bolsa pse comprobante financiera cuadre recaudo' },
   // Facturación electrónica: va en Finanzas porque su dueño es contabilidad —es quien firma la
   // confirmación de cada concepto—, aunque el dominio técnico sea la integración con Siigo.
-  { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
+  // Dos entradas, y la existente se RENOMBRA: dos opciones llamadas «Facturación electrónica» en el
+  // mismo grupo es una trampa —nadie sabría cuál abrir—. Ninguna lleva `roles`: el slug ya restringe,
+  // y repetir la regla la pondría en dos sitios que pueden divergir.
+  { page: 'siigo_parametrizacion', to: '/siigo/parametrizacion',   section: 'finanzas',      label: 'Facturación electrónica · Parametrización', keywords: 'siigo facturacion electronica dian parametrizacion mapeo concepto producto catalogo emision contabilidad confirmacion tributaria iva' },
+  { page: 'siigo_operacion', to: '/siigo/operacion',               section: 'finanzas',      label: 'Facturación electrónica · Operación', keywords: 'siigo facturacion electronica dian bandeja fallidos reintento correo rechazo linea de tiempo operacion pendiente detenido' },
   { page: 'transito',    to: '/transito',                        section: 'transito',      label: 'Bandeja de trámites',     keywords: 'transito tránsito bandeja stt placa asignar pendientes' },
   { page: 'transito_organismos', to: '/transito/organismos',      section: 'transito',      label: 'Organismos STT',          keywords: 'transito organismo secretaria logo alias configuracion modalidad autogestion admin operaciones' },
   { page: 'fleet',       to: '/fleet',                           section: 'flota',         label: 'Flota',                   keywords: 'vehiculos flota carga documentos' },
@@ -127,4 +148,19 @@ export const NAV_ITEMS: NavItem[] = [
   { page: 'users',       to: '/users',                           section: 'admin',         label: 'Usuarios',                keywords: 'admin usuarios roles permisos' },
   { page: 'drive',       to: '/drive',                           section: 'admin',         label: 'Google Drive',            keywords: 'archivos drive folder' },
   { page: 'privacy',     to: '/privacy',                         section: 'admin',         label: 'Privacidad y datos',      keywords: 'ley 1581 forget anonimizar' },
+  // Credenciales de Siigo (HU #11890) — en `admin` y NO en `finanzas`, donde viven las otras dos
+  // pantallas del módulo, por dos motivos que no son de gusto:
+  //
+  //   1. El backend YA promete esta ruta por escrito, dos veces: `siigo.diagnostico.service.ts` y
+  //      `siigo.catalogos.service.ts` dicen «Regístralas en **Administración › Integración con
+  //      Siigo**». Con `section: 'admin'` y este `label`, lo que el usuario lee en el mensaje es
+  //      exactamente lo que ve en el menú — sin tocar ni una cadena del API.
+  //   2. La sección Finanzas la puebla `financiera`, que NO puede usar esta pantalla (el router
+  //      exige `admin` entero). Un ítem visible solo para `admin` entre los suyos invita a pedir
+  //      «acceso a esa de ahí» y a conceder un permiso roto.
+  //
+  // Sin campo `roles`: el slug ya restringe, y repetir la regla la pondría en dos sitios que pueden
+  // divergir. Las `keywords` traen «siigo» y «facturacion electronica» para que el Command Palette
+  // siga ofreciendo las tres pantallas juntas, que es lo único que se pierde al cambiar de sección.
+  { page: 'siigo_credenciales', to: '/siigo/credenciales',        section: 'admin',         label: 'Integración con Siigo',   keywords: 'siigo credenciales access key llave token integracion facturacion electronica dian ambiente pruebas produccion conexion probar cifrado' },
 ];

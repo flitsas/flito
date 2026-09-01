@@ -65,14 +65,15 @@ jobs:
       - name: Contraste (CommandPalette claro+oscuro · gradientes FLIT · anillo de foco)
         run: npm run check:contraste
 
-      # HU #11289 — CVE-2024-4367 (GHSA-wgrm-67xf-hhpq, CVSS 8.8): pdfjs-dist 3.x ejecuta JS de un
-      # PDF malicioso salvo que cada `getDocument` lleve `isEvalSupported: false`. El salto a v6 está
-      # bloqueado por producto, así que la mitigación es por configuración — y una opción que se
-      # olvida no rompe nada visible: compila y renderiza igual, sólo deja el eval abierto otra vez.
-      # Va aquí, entre las guardas que sólo leen fuentes, porque el CI no ejecuta la suite E2E: desde
-      # la HU #11774 solo corre el spec del visor de PDF (`e2e-visor-pdf`), que no mira esta opción.
-      - name: Mitigación CVE-2024-4367 en pdfjs (web)
-        run: npm run check:pdfjs-eval
+      # HU #11775 — origen del worker de pdf.js. pdf.js valida el handshake API↔worker en runtime y
+      # lanza si las versiones no casan; hasta esa HU el `workerSrc` era la cadena `'/pdf.worker.min.js'`
+      # apuntando a una copia manual en `public/`, de modo que subir `pdfjs-dist` sin recopiar el
+      # fichero compilaba, pasaba lint y pasaba este CI entero mientras dejaba los cuatro visores en
+      # «No se pudo abrir el documento» en el navegador. Este gate exige que la URL salga siempre de
+      # `src/lib/pdfWorker.ts` (import con `?url` → asset con hash desde node_modules) y que no
+      # reaparezca ninguna ruta escrita a mano ni ninguna copia en `public/`.
+      - name: Origen del worker de pdfjs (web)
+        run: npm run check:pdf-worker
 
       # Typecheck: el build de API es `tsc`, el de web es `tsc --noEmit && vite build`.
       - name: Build API (tsc)
@@ -212,11 +213,14 @@ jobs:
   # visor lo rasteriza (dos `<img>` con `naturalWidth > 0`).
   #
   # Por qué merece un job propio y no espera al smoke nocturno: el nocturno no bloquea nada —avisa
-  # al día siguiente, con el cambio ya en `develop`— y lo que este spec vigila es justo lo que la
-  # cadena #11775 (worker `pdf.worker.min.js` con hash en el nombre) y #11289 (salto a pdfjs v6)
-  # están a punto de mover. Un `workerSrc` que deja de resolver no rompe la compilación ni el
-  # typecheck: la pantalla sigue montando y solo enseña «Setting up fake worker failed». Sin este
-  # job, el primero en enterarse sería un usuario.
+  # al día siguiente, con el cambio ya en `develop`— y lo que este spec vigila es justo lo que mueve
+  # la cadena #11774 → #11775 → #11289. La #11775 YA la movió: el worker dejó de ser una copia fija
+  # en `public/` y hoy lo emite el bundler como artefacto con hash desde `node_modules`
+  # (`src/lib/pdfWorker.ts`, guardado por `check:pdf-worker`); de la cadena queda pendiente el salto
+  # de versión de la #11289. Desde la #11775 un especificador que no resuelve sí rompe el build
+  # (Rollup, exit 1), pero lo que el build sigue SIN ver es que el worker emitido no funcione al
+  # cargarse —MIME, caché o desajuste de versión API↔worker—: la pantalla monta igual y solo enseña
+  # «Setting up fake worker failed». Sin este job, el primero en enterarse sería un usuario.
   #
   # Es el único que descarga navegador, por eso va aparte del `build-test` (que conserva su
   # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD): son ~2 minutos de `playwright install` que no tiene sentido

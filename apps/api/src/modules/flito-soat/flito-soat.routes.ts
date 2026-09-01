@@ -11,12 +11,24 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
-import { EstadoSoat } from '@operaciones/shared-types';
+import { sendExcel } from '../../shared/utils/excel.js';
+import {
+  COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
+} from '../../shared/export/cola-flito-excel.js';
+import { CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat } from './flito-soat.pii.js';
+import {
+  CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, resolverEntradasZip,
+  ZipError, zipSoportesLimiter,
+} from '../../shared/soportes/soportes-zip.js';
+import { EstadoSoat, TipoSoporteZip } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor,
-  reactivar, rechazar, reversar, SoatError, type ArchivoSubido,
+  reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
+import {
+  construirFilasExportSoat, nombreArchivoExportSoat,
+} from './flito-soat.export.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 
 const router = Router();
@@ -38,11 +50,26 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
 });
 
-const LECTURA = requireRole('admin', 'proveedor', 'auditor');
+// `cliente` entra en LECTURA y en NINGUNA de las otras dos constantes (Feature #11912): ve la cola,
+// el detalle, el historial y los soportes —siempre acotados a su compañía por `contextoSoat()` →
+// `condicionesCola()` / `buscarConAcceso()`— y no puede mover nada. Las acciones de su canal
+// (radicar, subsanar) son rutas propias en un módulo aparte y llegan en la HU #11914.
+const LECTURA = requireRole('admin', 'proveedor', 'auditor', 'cliente');
 const OPERACIONES = requireRole('admin');
 const OPS_O_GESTOR = requireRole('admin', 'proveedor');
 
-const ESTADOS = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD] as const;
+// Los estados que el filtro de la cola acepta.
+//
+// Los dos del canal Cliente entran en la HU #11915, que es la que da al admin una cola de revisión.
+// **Sin ellos aquí, añadir la pill solo en la interfaz falla EN SILENCIO y en la peor dirección**:
+// un estado desconocido se ignora —no da 400, por la filosofía de «un filtro roto no tumba la
+// pantalla de quien trabaja»—, así que el admin pulsa «Pendiente de revisión», el filtro se descarta
+// y la cola le devuelve TODO presentándoselo como el resultado del filtro. En una pantalla de
+// revisión, ver de más creyendo que se ve de menos es el modo de fallo que hay que evitar primero.
+const ESTADOS = [
+  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
+  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA,
+] as const;
 
 function handleError(res: Response, e: unknown): void {
   if (e instanceof SoatError) { res.status(e.status).json({ error: e.message }); return; }
@@ -69,17 +96,35 @@ const numeros = (v: unknown): number[] | undefined => {
   return l?.length ? l : undefined;
 };
 /** Solo yyyy-mm-dd: el valor entra en un cast a `date` y no puede ser texto libre. */
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const fecha = (v: unknown): string | undefined => {
   const s = str(v);
-  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+  return s && FORMATO_FECHA.test(s) ? s : undefined;
 };
 
+/**
+ * La misma regla que `fecha()`, para los esquemas `zod` del export.
+ *
+ * Comparten el regex y no una copia: el motivo por el que la cadena está acotada —entra en un cast a
+ * `date`— es el mismo en los dos sitios, y dos expresiones separadas se relajarían por su cuenta.
+ * Lo que cambia es qué se hace con un valor malo: el listado lo IGNORA (un filtro roto no tumba la
+ * pantalla de quien trabaja) y el export lo rechaza con 400, porque un rango silenciosamente
+ * descartado produciría un archivo mucho mayor del que el usuario cree estar pidiendo.
+ */
+const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-dd');
+
 // GET / — cola con las 3 fronteras, filtrada y paginada.
+//
+// Deja rastro en `pii_access_log` (Ley 1581 art. 17, AGENTS.md §16): cada fila trae el nombre y la
+// CÉDULA del propietario, y desde el Feature #11912 quien barre esta lista puede ser una empresa
+// tercera. El registro va DESPUÉS de la consulta y con `await`, como en `clients.routes.ts`:
+// `filas` no se sabe antes, y esperar cuesta una inserción best-effort a cambio de que el rastro
+// esté escrito antes de que la respuesta salga.
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const estados = lista(req.query.estado)
     ?.filter((s): s is EstadoSoat => (ESTADOS as readonly string[]).includes(s));
-  res.json(await cola(ctx, {
+  const pagina = await cola(ctx, {
     estados, buscar: str(req.query.buscar),
     companias: numeros(req.query.companias),
     organismos: lista(req.query.organismos),
@@ -88,10 +133,245 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     gestion: req.query.gestion === 'operaciones' || req.query.gestion === 'proveedor' ? req.query.gestion : undefined,
     solicitadoDesde: fecha(req.query.solicitadoDesde), solicitadoHasta: fecha(req.query.solicitadoHasta),
     pagadoDesde: fecha(req.query.pagadoDesde), pagadoHasta: fecha(req.query.pagadoHasta),
+    // El rango nuevo de la HU #11909, con el MISMO helper `fecha()` que los otros dos: el valor
+    // entra en un cast a `date` y no puede ser texto libre. Va también aquí y no solo en el export
+    // porque el archivo tiene que ser «lo que estoy viendo»: si la pantalla no supiera filtrar por
+    // creación, el usuario no podría estar viendo lo que se descarga.
+    creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
     estancado: req.query.estancado === 'si',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
-  }));
+  });
+  await registrarAccesoSoat(req, { accion: 'search', filas: pagina.items.length });
+  res.json(pagina);
+});
+
+/**
+ * La cuota del export vive en `shared/export/cola-flito-excel.ts` y es **la MISMA que la de la cola
+ * de Impuestos**: 5 por minuto y usuario para las dos juntas.
+ *
+ * No es una bolsa por pantalla y eso es deliberado (corrección del gate de seguridad de esta HU):
+ * el recurso que se raciona no es la pantalla, es el heap de un único proceso —`sendExcel` construye
+ * el workbook entero en memoria y `FLITO_COLA_EXPORT_MAX_FILAS` ya es una sola perilla por ese mismo
+ * motivo—. Dos bolsas dejarían a una sesión con el doble de exports simultáneos posibles sobre el
+ * presupuesto que ADR-0004 midió para cinco, y doblarían el techo de extracción de datos personales.
+ * El razonamiento entero, con las cifras, está en el docstring de `exportColaLimiter`.
+ *
+ * Sigue siendo una bolsa APARTE de la del listado: gastar los exports no puede dejar sin paginar a
+ * quien está trabajando, ni al revés. Lo que se unificó son las dos bolsas NUEVAS entre sí.
+ */
+
+/**
+ * Campos del filtro de la cola, en un esquema único del que se DERIVA el del export.
+ *
+ * `page`, `pageSize` y `cursor` están aquí para poder RESTARLOS abajo: el `.omit()` es lo que
+ * convierte `{"page": 2}` en un 400 en vez de en un parámetro ignorado en silencio, y aceptarlo
+ * callando dejaría creer que se descargó «la página 2» de algo. Es el mismo mecanismo que usa el
+ * export de comparendos con su `registrosQueryCampos`.
+ *
+ * `cursor` no lo usa esta cola —pagina por offset— y se declara igualmente: si mañana migra a
+ * cursor, el export tiene que seguir rechazándolo, y el sitio donde eso se decide es este.
+ */
+const colaFiltrosCampos = z.object({
+  estados: z.array(z.enum(ESTADOS)).optional(),
+  buscar: z.string().trim().min(1).optional(),
+  companias: z.array(z.number().int().positive()).optional(),
+  organismos: z.array(z.string().trim().min(1)).optional(),
+  proveedores: z.array(z.string().uuid()).optional(),
+  gestion: z.enum(['operaciones', 'proveedor']).optional(),
+  // El mismo `yyyy-mm-dd` que exige el helper `fecha()` del listado: el valor entra en un cast a
+  // `date` y no puede ser texto libre.
+  solicitadoDesde: fechaSchema.optional(), solicitadoHasta: fechaSchema.optional(),
+  pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
+  creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
+  estancado: z.boolean().optional(),
+  page: z.number().int().positive().optional(),
+  pageSize: z.number().int().positive().optional(),
+  cursor: z.string().optional(),
+});
+
+/**
+ * Cuerpo de `POST /export`: el filtro de la cola menos la paginación, y `.strict()`.
+ *
+ * `.strict()` con más motivo que en una query cualquiera: `{"organismo": "05001"}` —en singular— se
+ * ignoraría en silencio y devolvería la cola ENTERA a quien pidió la de un organismo. En un archivo
+ * de datos personales, un filtro mal escrito tiene que ser un 400 y no un export de más.
+ */
+const exportSchema = colaFiltrosCampos
+  .omit({ page: true, pageSize: true, cursor: true })
+  .strict();
+
+/**
+ * POST /export — la cola filtrada, en un `.xlsx` (Feature #11908, HU #11909).
+ *
+ * ── Por qué POST y por qué TODO el filtro va en el cuerpo ────────────────────────────────────────
+ *
+ * `buscar` casa contra placa, VIN, nombre y cédula del propietario (`condicionesCola`), así que el
+ * filtro genérico de esta cola ES un dato personal y no puede viajar en la URL: AGENTS.md §14 lo
+ * prohíbe porque una query string acaba en los logs de nginx, en el historial del navegador y en el
+ * `Referer`. Y van TODOS en el cuerpo, no repartidos como en comparendos: repartir obliga a decidir
+ * caso a caso qué campo es identificativo, y esa decisión se equivoca una vez y ya está publicada.
+ * **No existe variante GET de este endpoint** — un `router.get` aquí devolvería la cédula a la URL
+ * sin romper ningún otro test.
+ *
+ * ── El rol: `OPS_O_GESTOR`, no `LECTURA` ────────────────────────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor` y `cliente`. Un archivo con la cédula, el correo y la dirección de los
+ * titulares no se le entrega a una empresa tercera (el `cliente`, Feature #11912) por el hecho de
+ * que pueda ver la cola de sus propios trámites en pantalla: ver una fila con su propietario y
+ * descargar el padrón entero en un fichero reenviable son dos gestos distintos. `auditor` queda
+ * fuera por lo mismo, y ninguno de los dos lo pide la HU. Los dos reciben 403.
+ *
+ * ── Orden de la respuesta ───────────────────────────────────────────────────────────────────────
+ *
+ * Validar → consultar (con el tope dentro) → `await` del rastro PII → cabeceras → archivo. El rastro
+ * va ANTES del primer byte (Ley 1581 art. 17): esta petición vale hasta
+ * `FLITO_COLA_EXPORT_MAX_FILAS` cédulas, correos y direcciones, y perder su constancia por un fallo
+ * a mitad del archivo no es aceptable. `Cache-Control: no-store` antes de `sendExcel` porque lo que
+ * sale no se guarda en ningún intermedio.
+ */
+router.post('/export', OPS_O_GESTOR, exportColaLimiter, async (req: Request, res: Response) => {
+  const parsed = exportSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Filtro inválido', details: parsed.error.flatten() });
+    return;
+  }
+  const filtros = parsed.data;
+  const ctx = await contextoSoat(req.user!);
+
+  try {
+    // Aquí se decide el 422: si el filtro se pasa del tope, esto lanza y no hay filas que escribir.
+    const filas = await construirFilasExportSoat(ctx, filtros);
+
+    // `filas` = las REALMENTE entregadas. No el tope, no lo pedido: el registro tiene que decir qué
+    // se llevó alguien, y un número inflado ensucia el dato con el que se recalibra el tope.
+    await registrarAccesoSoat(req, {
+      accion: 'export',
+      campos: CAMPOS_PII_SOAT_EXPORT,
+      filas: filas.length,
+    });
+
+    res.set('Cache-Control', 'no-store');
+    await sendExcel(res, nombreArchivoExportSoat(), COLUMNAS_COLA_EXPORT, filas);
+  } catch (e) {
+    // Si el fallo llega con la respuesta ya empezada —el archivo se estaba escribiendo—, responder
+    // reventaría con ERR_HTTP_HEADERS_SENT y taparía la causa real. Se relanza al manejador global,
+    // que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+
+    if (e instanceof ExportColaDemasiadoGrandeError) {
+      // **El export que choca con el tope también deja rastro**, y no por simetría: la consulta ya
+      // CORRIÓ —`tope + 1` filas con su cédula entraron en el proceso— y lo único que no ocurrió es
+      // la entrega. Sin esta línea, el `pii_access_log` quedaría amputado justo en la cola que
+      // ADR-0004 promete mirar para recalibrar el tope: concluiría que casi nadie se le acerca
+      // precisamente porque los que lo pasan son invisibles.
+      //
+      // `accion: 'search'` y no `'export'`: no se exportó nada, y contarlo como export estropearía
+      // los agregados de `/api/privacy/pii-access/stats`. `filas: 0` es literal, y el conteo real ni
+      // se sabe ni se sabrá —el `tope + 1` existe para no calcularlo—, así que esta fila tampoco
+      // revela cuántos SOAT tiene el filtro.
+      await registrarAccesoSoat(req, {
+        accion: 'search',
+        campos: CAMPOS_PII_SOAT_EXPORT,
+        filas: 0,
+        resultado: e.codigo,
+      });
+      // El 422 se emite AQUÍ y no en `handleError`: `SoatError` solo lleva `status` + `message` y su
+      // manejador responde `{ error }` sin `codigo`. La pantalla decide por `codigo` —«acota el
+      // filtro» frente a «revisa lo que escribiste»— y colgarlo de `SoatError` obligaría a cambiar
+      // el sobre de error de todos los demás endpoints del módulo para servir a este.
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+
+    handleError(res, e);
+  }
+});
+
+/**
+ * POST /soportes/zip — los comprobantes de los SOAT marcados, en un ZIP (HU #11910, AC2).
+ *
+ * ── Sin `tipos` en el cuerpo, y es una decisión ──────────────────────────────────────────────────
+ *
+ * Esta superficie tiene UN solo tipo: el comprobante que sube el gestor (`factura_soat`). Un campo
+ * `tipos` con un único valor posible sería una perilla que solo puede estar en una posición, y
+ * mañana alguien la usaría para pedir otra cosa. Las otras dos rutas sí lo llevan porque allí el
+ * usuario elige.
+ *
+ * ── El PSE de conciliación NO puede salir por aquí, y no hace falta un filtro que lo diga ────────
+ *
+ * El comprobante del pago PSE cuelga de `conciliacion_boleta_id`, y el CHECK
+ * `flito_soportes_factura_excluyente_chk` obliga a que entonces `soat_id` sea NULL. Una consulta
+ * `where soat_id IN (…) AND tipo = 'factura_soat'` no puede devolverlo ni por el ancla ni por el
+ * tipo. Añadir un `NOT tipo = 'comprobante_pse'` defensivo sugeriría que el ancla no basta —y quien
+ * lo leyera podría quitar el otro—; lo que sí hay es un test que fija las dos garantías.
+ *
+ * ── Roles: `OPS_O_GESTOR` (admin + proveedor), no `LECTURA` ──────────────────────────────────────
+ *
+ * `LECTURA` incluye `auditor` y `cliente`. El AC7 dice expresamente que auditoría no descarga, y el
+ * canal Cliente tiene su propia puerta con su propia allowlist (`TIPOS_SOPORTE_VISIBLES_CLIENTE`):
+ * una descarga masiva por ids no pasa por ella. Los dos reciben 403.
+ *
+ * ── El orden de la respuesta ─────────────────────────────────────────────────────────────────────
+ *
+ * Validar → tope de registros → frontera por LOTE → resolver entradas (409/422 aquí) → rastro PII y
+ * bitácora → cabeceras y archivo. El 409 del AC6 depende entero de que las cabeceras no se hayan
+ * escrito todavía; el molde del que sale esta ruta hacía `pipe` antes del bucle y por eso entregaba
+ * un ZIP vacío de 22 bytes. Y es el mismo orden el que permite que las cifras del aviso parcial
+ * (`X-Soportes-*`) quepan en la cabecera: `entradas` ya está resuelto antes del primer byte.
+ *
+ * Va declarada antes de `/:id` por costumbre del router.
+ */
+const zipSoportesSchema = z.object({
+  // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
+  // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
+  ids: z.array(z.string().uuid()).min(1),
+}).strict();
+
+router.post('/soportes/zip', OPS_O_GESTOR, zipSoportesLimiter, async (req: Request, res: Response) => {
+  const parsed = zipSoportesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+  const ctx = await contextoSoat(req.user!);
+
+  try {
+    comprobarTopeRegistrosZip(parsed.data.ids);
+    const registros = await registrosZipSoat(parsed.data.ids, ctx);
+    const entradas = await resolverEntradasZip(registros, [TipoSoporteZip.FACTURA_SOAT]);
+
+    // El rastro va ANTES del primer byte: la placa de cada registro sale en el nombre de su entrada
+    // y los documentos llevan dentro el nombre y el documento del titular. Una vez empezado el
+    // archivo ya no hay forma de anotar nada con la certeza de que se llegó a anotar.
+    //
+    // `filas` = las entradas RESUELTAS, no los ids pedidos. Los ids que la frontera dejó fuera no se
+    // cuentan aquí ni en ninguna parte: ese número es un oráculo de pertenencia.
+    await registrarAccesoSoat(req, {
+      accion: 'export',
+      archivo: 'zip_soportes',
+      campos: CAMPOS_PII_ZIP_SOPORTES,
+      filas: entradas.length,
+    });
+    await audit(req, {
+      action: 'export', resource: 'flito_soat',
+      detail: `Descarga zip de comprobantes SOAT: ${entradas.length} documento(s)`,
+    });
+
+    await emitirZipSoportes(res, entradas);
+  } catch (e) {
+    // Con la respuesta ya empezada, responder reventaría con ERR_HTTP_HEADERS_SENT y taparía la
+    // causa real: se relanza al manejador global, que sabe cerrar una respuesta a medias.
+    if (res.headersSent) throw e;
+    // UN solo `instanceof` para los tres desenlaces del ZIP: con uno por clase, añadir un código
+    // nuevo y olvidarse en una de las tres rutas lo devuelve a la rama genérica —sin `codigo`— y la
+    // pantalla enseña «avisa a soporte». Ya pasó con el tope de registros.
+    if (e instanceof ZipError) {
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+    handleError(res, e);
+  }
 });
 
 // GET /facetas — valores disponibles para los filtros, acotados a lo que el usuario puede ver.
@@ -104,7 +384,10 @@ router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
 router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
+  // El 404 NO se registra, y la diferencia importa: un id que no existe —o que está fuera de la
+  // frontera— no entregó datos de nadie. Anotarlo llenaría el registro de accesos que no ocurrieron.
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  await registrarAccesoSoat(req, { accion: 'read', soatId: req.params.id, filas: 1 });
   res.json(d);
 });
 
@@ -117,7 +400,10 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
-  res.json(await historialDe('soat', req.params.id));
+  // Al `cliente` se le sirve la línea de tiempo SIN el empleado que la movió (dato personal de un
+  // trabajador) y SIN el motivo (texto libre escrito para lectores internos, que además arrastraba
+  // el importe pagado y el uuid del proveedor). El porqué de cada recorte, en `OpcionesHistorial`.
+  res.json(await historialDe('soat', req.params.id, { lectorExterno: ctx.role === 'cliente' }));
 });
 
 /**
@@ -136,6 +422,13 @@ router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
  * cuando el rol es `auditor`. Desde que esta lista incluye el comprobante del pago PSE de la boleta,
  * eso son dos preguntas distintas: «¿es tuyo este SOAT?» la responde `detalle()`, y «¿tienes derecho
  * a ESTE bloque?» la responde `soportesDeSoat` con el rol. Auditoría sigue viendo todo lo demás.
+ *
+ * **Y desde la HU #11916 viaja también el ESTADO, que es la tercera pregunta** («¿ya hay algo que
+ * enseñar?»): para el `cliente`, la póliza solo sale con el SOAT en `pagado` (AC2/AC3). El estado
+ * sale del detalle que acaba de autorizar el acceso y no de una segunda lectura: son el mismo hecho,
+ * y dos lecturas podrían discrepar entre sí. Esta ruta sigue sirviendo al canal Cliente sin ninguna
+ * entrada nueva en `canal-cliente.ts` — `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde
+ * la #11913, y el archivo se descarga por `GET /api/files?…`, que es público y va firmado.
  */
 router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
@@ -143,7 +436,7 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   // Sin caché: una factura cargada hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
-  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role }));
+  res.json(await soportesDeSoat(req.params.id, { rol: ctx.role, estadoSoat: d.estado }));
 });
 
 // POST /enviar — Pendiente → En adquisición, atómico (CA-04). Solo Operaciones.
@@ -201,6 +494,12 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 });
 
 // POST /:id/reversar — reversa manual (RN-06). Solo Operaciones, motivo ≥5.
+//
+// El enum NO gana los dos estados del canal Cliente aunque `ESTADOS` (arriba) sí los tenga: son dos
+// preguntas distintas y confundirlas es lo que abre la puerta. Aquella lista dice «por qué estados se
+// puede FILTRAR»; esta dice «a qué estados se puede REVERSAR», y el ADR-0008 §8 prohíbe
+// `pendiente_revision` como destino. La defensa de verdad está en `reversar()`, que además comprueba
+// el estado de PARTIDA: este `z.enum` protege una ruta, y el servicio protege la regla.
 const reversarSchema = z.object({
   estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),

@@ -17,9 +17,35 @@
 import FlitModal from './FlitModal';
 import { flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from './flitPageKit';
 
-/** Nombre de descarga a partir de la referencia visible del trámite. Siempre con extensión. */
+/**
+ * El nombre de RESPALDO, para cuando el servidor no declara ninguno o declara uno que no encaja.
+ *
+ * Dejó de ser el nombre bueno en la HU #11910: el AC5 pide `PLACA-ORGANISMO` **también en la
+ * descarga individual**, y ese nombre lo escribe el servidor —es el único que conoce el alias del
+ * organismo y la extensión real de los bytes—. Quien baja un ZIP y luego una factura suelta acabaría
+ * con dos convenciones en la misma carpeta y sin forma de emparejarlas.
+ *
+ * Se queda porque un respaldo hace falta: si un día el API deja de mandar la cabecera, el archivo se
+ * sigue descargando con un nombre peor en vez de con el id de S3 y sin extensión, que es de donde se
+ * venía.
+ */
 export function nombreFacturaVenta(referencia: string): string {
   return `factura-venta-${referencia}.pdf`;
+}
+
+/**
+ * ¿El nombre que declaró el servidor tiene la forma del AC5, `PLACA-ORGANISMO.<ext>`?
+ *
+ * El servidor lo normaliza a `[A-Z0-9]` por segmento (`nombrePlacaOrganismo`), así que **se exigen
+ * al menos dos segmentos**: eso es lo que distingue un nombre de conciliación de un identificador
+ * suelto —un uuid de S3, un número de documento— que también cabría en `[A-Z0-9]+`.
+ *
+ * La placa dentro del nombre es deliberada y es el AC5; lo que este guardia impide es propagar
+ * cualquier otra cosa que el origen quiera poner en una cabecera HTTP. Si no encaja se cae al
+ * respaldo: nunca se propaga un nombre que no se reconoce.
+ */
+export function esNombrePlacaOrganismo(nombre: string): boolean {
+  return /^[A-Z0-9]+(?:-[A-Z0-9]+)+\.[a-z0-9]{1,8}$/.test(nombre);
 }
 
 export default function ModalFacturaVenta({ url, nombre, onCerrar }: {
