@@ -20,7 +20,7 @@
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA: es el borde HTTP quien sabe quién pidió
 // el archivo. Este servicio no toca `req`.
 
-import { and, asc, inArray } from 'drizzle-orm';
+import { and, desc, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoCompradores, flitoImpuestos, flitoTramites, vehicles } from '../../db/schema.js';
 import { env } from '../../config/env.js';
@@ -167,10 +167,11 @@ export async function construirFilasExportImpuestos(
 
   const filas = await conJoinsColaImpuestos(db.select(COLUMNAS_CONSULTA).from(flitoImpuestos).$dynamic())
     .where(and(...conds))
-    // El mismo orden del listado, con el desempate por `id`: sin él, dos impuestos creados en el
-    // mismo instante saldrían en el orden que quisiera PostgreSQL y dos descargas del mismo filtro
-    // no coincidirían.
-    .orderBy(asc(flitoImpuestos.createdAt), asc(flitoImpuestos.id))
+    // El mismo orden del listado —el archivo se lee como la pantalla— y desde la HU #11963 eso es de
+    // lo más nuevo a lo más antiguo, no al revés. El desempate por `id` sigue, en el MISMO sentido:
+    // sin él, dos impuestos creados en el mismo instante saldrían en el orden que quisiera PostgreSQL
+    // y dos descargas del mismo filtro no coincidirían.
+    .orderBy(desc(flitoImpuestos.createdAt), desc(flitoImpuestos.id))
     // Tope + 1 (RN-E3): la fila sobrante no se entrega, solo demuestra que hay más.
     .limit(tope + 1);
 

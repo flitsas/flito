@@ -30,7 +30,7 @@
 // El registro de acceso (Ley 1581 art. 17) lo pone la RUTA, como el resto de lecturas del módulo: es
 // el borde HTTP quien sabe quién pidió el archivo. Este servicio no toca `req`.
 
-import { and, asc, inArray } from 'drizzle-orm';
+import { and, desc, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoCompradores, flitoSoat, flitoTramites, vehicles } from '../../db/schema.js';
 import { env } from '../../config/env.js';
@@ -341,10 +341,15 @@ export async function construirFilasExportSoat(
 
   const filas = await conJoinsCola(db.select(COLUMNAS_CONSULTA).from(flitoSoat).$dynamic())
     .where(and(...conds))
-    // El mismo orden del listado: el archivo tiene que leerse como la pantalla, de lo más antiguo a
-    // lo más nuevo. El desempate por `id` importa igual aquí — sin él, dos altas del mismo instante
-    // saldrían en el orden que quisiera PostgreSQL y dos descargas del mismo filtro no coincidirían.
-    .orderBy(asc(flitoSoat.createdAt), asc(flitoSoat.id))
+    // El mismo orden del listado: el archivo tiene que leerse como la pantalla. La invariante no
+    // cambia con la HU #11963 —sigue siendo «como la pantalla»—, cambia el SENTIDO: de lo más nuevo
+    // a lo más antiguo, porque eso es lo que la cola enseña desde esa HU. Si un día vuelve a girar,
+    // gira aquí también o el archivo deja de ser la pantalla.
+    //
+    // El desempate por `id` importa igual aquí y viaja CON la clave (`desc` los dos): sin él, dos
+    // altas del mismo instante saldrían en el orden que quisiera PostgreSQL y dos descargas del mismo
+    // filtro no coincidirían.
+    .orderBy(desc(flitoSoat.createdAt), desc(flitoSoat.id))
     // Tope + 1 (RN-E3): la fila sobrante no se entrega, solo demuestra que hay más.
     .limit(tope + 1);
 

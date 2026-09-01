@@ -560,9 +560,20 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
     }).from(flitoSoat).$dynamic()).where(where)
-      // Prioridad por antigüedad. El desempate por id es lo que evita que una fila salga en dos
-      // páginas (o en ninguna) cuando varias comparten el mismo instante de creación.
-      .orderBy(asc(flitoSoat.createdAt), asc(flitoSoat.id))
+      // Lo más RECIENTE arriba (HU #11963). La cola abre por lo que acaba de entrar para que una
+      // solicitud recién llegada se vea de entrada, sin paginar: decisión de David del 2026-09-01.
+      //
+      // Sustituye a la prioridad por ANTIGÜEDAD que esta consulta tuvo hasta aquí, y conviene saber
+      // qué se pierde: la lectura de cola FIFO —«qué lleva más esperando», el ángulo del SLA— ya NO
+      // está disponible en esta pantalla. Se evaluó replicar el selector `recientes`/`antiguos` de
+      // Gestión de trámites (HU #10959) para conservar las dos y se DESCARTÓ: el orden queda fijo
+      // descendente. Quien eche de menos la vista por antigüedad la pide como HU; no se recupera
+      // volteando esta línea, que es justo lo que esta nota existe para evitar.
+      //
+      // El desempate por id se voltea CON la clave, no se quita: es lo que evita que una fila salga
+      // en dos páginas (o en ninguna) cuando varias comparten el mismo instante de creación, y con
+      // `created_at desc` esa garantía solo se sostiene si el id desempata en el mismo sentido.
+      .orderBy(desc(flitoSoat.createdAt), desc(flitoSoat.id))
       .limit(pageSize).offset((page - 1) * pageSize),
   ]);
 
