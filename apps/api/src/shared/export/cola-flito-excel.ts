@@ -89,6 +89,11 @@ export const COLUMNAS_COLA_EXPORT: { header: string; key: string; width: number 
  * Son de tipo texto a propósito: `Puertas` es `'4'` y no `4`. La hoja entera es texto ya formateado
  * (ver {@link FilaColaExport}), y un número suelto en una columna que el cliente lee como cadena se
  * alinea distinto y se importa distinto.
+ *
+ * **`puertas` dejó de valer «siempre» con la HU #11966, y solo para la cola de SOAT**: una fila
+ * `origen='cliente'` publica el dato del RUNT (`vehicles.puertas`) o una celda vacía. Sigue aquí
+ * porque es el valor de TODAS las filas de trámite y de todas las de Impuestos, que no tiene canal
+ * Cliente. Quien la lea sin mirar el `origen` vuelve a publicar la constante como si fuera un dato.
  */
 export const CONSTANTES_COLA_EXPORT = {
   puertas: '4',
@@ -127,8 +132,17 @@ export interface FilaColaExport extends Record<string, string | null> {
   claseId: string | null;
   numeroId: string | null;
   direccion: string | null;
-  /** Antes se llamaba `CIUDAD`. Mismo valor (`flito_tramites.ciudad`), otra cabecera. */
+  /**
+   * Antes se llamaba `CIUDAD`. **Dos fuentes desde la HU #11966, según el `origen` de la fila:**
+   * `flito_tramites.ciudad` para el trámite, `flito_compradores.municipio` —el domicilio del
+   * titular— para el canal Cliente.
+   */
   municipio: string | null;
+  /**
+   * Igual que `municipio`: para el trámite es la jurisdicción del organismo
+   * (`flit_raw->>'departamentoTransito'`) y para el canal Cliente es el DOMICILIO del titular. Los
+   * dos están declarados en {@link CAMPOS_PII_COLA_EXPORT} desde la HU #11966.
+   */
   departamento: string | null;
   celular: string | null;
   correo: string | null;
@@ -158,11 +172,23 @@ export interface FilaColaExport extends Record<string, string | null> {
  * `ciudad` conserva el nombre de la COLUMNA aunque la cabecera del archivo sea ahora `Municipio`:
  * esta lista se cruza con la base, no con la plantilla del cliente.
  *
- * **`Departamento` NO está, y es una decisión, no un olvido** (David, gate de seguridad de la HU
- * #11934): sale de `flit_raw->>'departamentoTransito'` y es la jurisdicción del ORGANISMO —acompaña a
- * `OrganismoDetto` y a `OrganismoDettoCiudad`—, no el domicilio del titular. Si algún día se cambiara
- * por un departamento de la dirección, tendría que entrar aquí en la misma edición; el porqué está
- * escrito junto a la clave, en `CLAVES_FLIT_RAW`, que es donde el auto-llenado lo ejecuta solo.
+ * **`Departamento` ENTRA con la HU #11966, y es la corrección del párrafo anterior.** Hasta esta HU
+ * la columna salía siempre de `flit_raw->>'departamentoTransito'` —la jurisdicción del ORGANISMO,
+ * que acompaña a `OrganismoDetto` y a `OrganismoDettoCiudad`— y por eso se dejó fuera con el
+ * argumento de que no es un dato del titular. Aquel párrafo escribió además su propio disparador:
+ * «si algún día se cambiara por un departamento de la dirección, tendría que entrar aquí en la misma
+ * edición». **Ese día es hoy, para la mitad Cliente del archivo**: una fila `origen='cliente'` no
+ * tiene trámite y publica `flito_compradores.departamento`, que es el DOMICILIO del titular. Que la
+ * mitad de trámite siga siendo jurisdicción no cambia la declaración —el archivo es uno y sale
+ * entero del perímetro—, y declarar de menos es lo que este archivo prohíbe. Lo mismo `municipio`,
+ * que para el canal deja de ser `flito_tramites.ciudad`.
+ *
+ * **`nombres`, `apellidos` y `razon_social` entran con la misma HU y en la misma edición.** El
+ * nombre del titular ya se declaraba como `nombre_completo` desde la #11934 —el vocabulario del
+ * `pii_access_log` es el de la base, y ahí el nombre de una persona es `nombre_completo` en cinco
+ * módulos—, pero desde esta HU el archivo lee TRES columnas nuevas de `flito_compradores` que
+ * contienen ese nombre. Se declaran por su nombre real para que el registro se pueda cruzar con la
+ * tabla, que es lo único que tiene que poder hacerse con él.
  *
  * **`tipo_documento` ENTRA con la HU #11947, y es el cambio de esta lista.** La columna `ClaseId` ya
  * salía en el archivo desde la #11934 sin constar aquí, y hasta ahora era una CONSECUENCIA de otro
@@ -175,8 +201,9 @@ export interface FilaColaExport extends Record<string, string | null> {
  * `ciudad`: esta lista se cruza con la base, no con la plantilla del cliente.
  */
 export const CAMPOS_PII_COLA_EXPORT = [
-  'nombre_completo', 'numero_documento', 'tipo_documento', 'correo', 'celular', 'direccion', 'placa',
-  'vin', 'ciudad',
+  'nombre_completo', 'nombres', 'apellidos', 'razon_social',
+  'numero_documento', 'tipo_documento', 'correo', 'celular', 'direccion', 'placa',
+  'vin', 'ciudad', 'municipio', 'departamento',
 ] as const;
 
 /**

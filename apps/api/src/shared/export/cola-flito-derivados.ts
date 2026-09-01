@@ -56,19 +56,24 @@ export const CLAVES_FLIT_RAW = {
   clase: 'clase',
   capacidad: 'capacidad',
   /**
-   * El departamento del ORGANISMO DE TRÁNSITO, no el del domicilio del titular.
+   * El departamento del ORGANISMO DE TRÁNSITO **para las filas de trámite**, no el del domicilio del
+   * titular.
    *
-   * **Decisión de David, cerrada en el gate de seguridad de esta HU, y escrita aquí porque se ejecuta
-   * sola:** la clave es `departamentoTransito` y acompaña a `OrganismoDetto` y a
-   * `OrganismoDettoCiudad`; **no** se relaciona con `Direccion`. De ahí se sigue lo único que tiene
-   * consecuencias legales — que `Departamento` **NO se declara en `CAMPOS_PII_COLA_EXPORT`**: es
-   * jurisdicción administrativa, no un dato del titular. Si fuera su domicilio habría que declararlo,
-   * como `direccion`.
+   * **Decisión de David, cerrada en el gate de seguridad de la HU #11934, y escrita aquí porque se
+   * ejecuta sola:** la clave es `departamentoTransito` y acompaña a `OrganismoDetto` y a
+   * `OrganismoDettoCiudad`; **no** se relaciona con `Direccion`.
    *
-   * Va pegado a la clave y no solo en la lista PII por el diseño de auto-llenado de este módulo: la
-   * columna se rellenará sola el día que FLIT mande el campo, sin migración, sin despliegue y sin que
-   * nadie vuelva a hacerse la pregunta. Quien cambie esta clave por una del domicilio tiene que
-   * añadir el campo a la lista PII en la misma edición.
+   * ── Lo que cambió con la HU #11966, y por qué esta clave NO ─────────────────────────────────────
+   *
+   * Aquel párrafo seguía con «que `Departamento` **NO se declara en `CAMPOS_PII_COLA_EXPORT`**», y
+   * dejaba escrito su propio disparador: «si algún día se cambiara por un departamento de la
+   * dirección, tendría que entrar aquí en la misma edición». Eso ocurrió: la columna `Departamento`
+   * del archivo **se bifurca por `origen`** desde la #11966 y, para una fila `origen='cliente'`,
+   * publica `flito_compradores.departamento` — el DOMICILIO del titular. `Departamento` y `Municipio`
+   * están declarados ya en `CAMPOS_PII_COLA_EXPORT`.
+   *
+   * Esta clave, en cambio, sigue significando lo mismo y sigue siendo solo de la mitad de trámite: no
+   * se toca, y quien la cambie por una del domicilio tiene que revisar la lista PII otra vez.
    */
   departamento: 'departamentoTransito',
   nombres: 'nombres',
@@ -449,6 +454,109 @@ export function titularDeClave(clave: string | null): ParTitular | null {
   if (clave === null) return null;
   const [tipo, nombres, apellidos] = JSON.parse(clave) as [string | null, string | null, string | null];
   return { tipo, nombres, apellidos };
+}
+
+// ── El bloque del titular del CANAL CLIENTE: lo decide `tipo_documento` ──────────────────────────
+
+/**
+ * La tabla del canal (HU #11966), hermana de {@link TABLA_TIPO_FLIT} y **deliberadamente separada**.
+ *
+ * Son dos vocabularios de dos orígenes distintos: allí el `tipo` de FLIT (`n`/`cc`/`ps`/`ce`/`otro`,
+ * medido sobre 7 052 filas) y aquí `flito_compradores.tipo_documento`, que es el catálogo
+ * `TIPOS_DOCUMENTO_RUNT` que el Cliente elige en el formulario. Fundirlas obligaría a inventar una
+ * traducción entre dos listas que nadie ha cruzado, y el primer token nuevo de cualquiera de las dos
+ * clasificaría filas de la otra.
+ *
+ * | `tipo_documento` | `ClaseDeInterlocutor` | `ClaseId` |
+ * |---|---|---|
+ * | `NIT`                       | `PJUR` | `NIT`   |
+ * | `CC`                        | `PNAT` | `CC`    |
+ * | `CE`                        | `PNAT` | `CE`    |
+ * | `PAS`                       | `PNAT` | `PP`    |
+ * | `TI` · `PPT` · `RC` · `PT`  | `PNAT` | *vacío* |
+ * | ausente · desconocido       | *el bloque entero vacío* |
+ *
+ * ── `PP` y no `PAS`: el mismo aviso que {@link CLASE_ID} ────────────────────────────────────────
+ *
+ * La CLAVE de esta tabla es `PAS` —así lo escribe `TIPOS_DOCUMENTO_RUNT`— y su VALOR es `PP`, que es
+ * lo que pide la plantilla del cliente. Son dos catálogos distintos y el AC8 de la #11947 lo dejó
+ * escrito: quien «unifique» los dos rompe la carga en el sistema del cliente sin que falle nada aquí.
+ *
+ * ── Las cuatro sin equivalente: `ClaseId` vacío, nunca `CC` ─────────────────────────────────────
+ *
+ * `TI`, `PPT`, `RC` y `PT` son personas naturales declaradas cuyo documento no tiene casilla en la
+ * plantilla. Es la misma decisión que ya toma `otro` en {@link TABLA_TIPO_FLIT}: vacío es la
+ * respuesta honesta, y poner `CC` sería inventarse el número de cédula de alguien que no la tiene.
+ *
+ * Un `Map` y no un objeto literal, por lo mismo que allí: lo que no se puso, no está.
+ */
+const TABLA_TIPO_DOCUMENTO_CANAL = new Map<string, ClasificacionTitular>([
+  ['NIT', { claseDeInterlocutor: CLASE_INTERLOCUTOR.juridica, claseId: CLASE_ID.nit }],
+  ['CC', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.cedula }],
+  ['CE', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.extranjeria }],
+  ['PAS', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.pasaporte }],
+  ['TI', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: null }],
+  ['PPT', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: null }],
+  ['RC', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: null }],
+  ['PT', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: null }],
+]);
+
+/** El titular del canal Cliente, tal como sale de `flito_compradores`. */
+export interface TitularComprador {
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+}
+
+/**
+ * Las cinco columnas del titular para una fila `origen = 'cliente'` (HU #11966, AC6).
+ *
+ * ── Por qué existe, en vez de reusar {@link bloqueTitular} ──────────────────────────────────────
+ *
+ * Aquella lee `flit_raw`, que una fila del canal NO TIENE: sin trámite no hay payload, así que
+ * `bloqueTitular` cae en su rama por defecto y devuelve {@link TITULAR_VACIO}. Eso era lo correcto
+ * hasta esta HU —no había dónde leer el nombre— y deja de serlo ahora que el canal guarda el titular
+ * PARTIDO en columnas propias. Las dos funciones deciden lo mismo desde orígenes distintos y por eso
+ * comparten el vocabulario ({@link CLASE_INTERLOCUTOR}, {@link CLASE_ID}) sin ampliarlo.
+ *
+ * ── Por qué es PURA y vive aquí ────────────────────────────────────────────────────────────────
+ *
+ * El motivo que declara la cabecera de este archivo: el mock de BD de las suites de export devuelve
+ * lo que el escenario registró y no evalúa la proyección, así que una regla escrita dentro del
+ * `filas.map(...)` de un servicio solo se puede probar generando un `.xlsx`. Aquí se prueba
+ * llamándola, con `" "`, con la clave ausente y con un tipo desconocido.
+ *
+ * `celdaTexto` limpia los tres textos —`" "` es ausencia, una sola definición de celda vacía en el
+ * archivo— pero **no decide nada**: un `CC` con el apellido en blanco es una persona natural con el
+ * apellido vacío, exactamente igual que en {@link bloqueTitular}.
+ */
+export function bloqueTitularDesdeComprador(c: TitularComprador | null | undefined): BloqueTitular {
+  if (c === null || c === undefined) return TITULAR_VACIO;
+
+  // Lo ÚNICO que vacía el bloque: sin tipo de documento no hay nada que AFIRMAR sobre el titular, y
+  // deducir `PJUR`/`NIT` de una ausencia es el defecto que la #11947 sacó de este archivo.
+  const tipo = celdaTexto(c.tipoDocumento);
+  const clase = tipo === null ? null : TABLA_TIPO_DOCUMENTO_CANAL.get(tipo.toUpperCase()) ?? null;
+  if (clase === null) return TITULAR_VACIO;
+
+  if (clase.claseDeInterlocutor === CLASE_INTERLOCUTOR.juridica) {
+    return {
+      claseDeInterlocutor: clase.claseDeInterlocutor,
+      nombrePila: null,
+      apellidos: null,
+      razonSocial: celdaTexto(c.razonSocial),
+      claseId: clase.claseId,
+    };
+  }
+
+  return {
+    claseDeInterlocutor: clase.claseDeInterlocutor,
+    nombrePila: celdaTexto(c.nombres),
+    apellidos: celdaTexto(c.apellidos),
+    razonSocial: null,
+    claseId: clase.claseId,
+  };
 }
 
 // ── La ciudad del organismo ──────────────────────────────────────────────────────────────────────

@@ -15,7 +15,9 @@ import { sendExcel } from '../../shared/utils/excel.js';
 import {
   COLUMNAS_COLA_EXPORT, ExportColaDemasiadoGrandeError, exportColaLimiter,
 } from '../../shared/export/cola-flito-excel.js';
-import { CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat } from './flito-soat.pii.js';
+import {
+  CAMPOS_PII_SOAT_DETALLE_CANAL, CAMPOS_PII_SOAT_EXPORT, registrarAccesoSoat,
+} from './flito-soat.pii.js';
 import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, resolverEntradasZip,
   ZipError, zipSoportesLimiter,
@@ -387,7 +389,14 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
   // El 404 NO se registra, y la diferencia importa: un id que no existe —o que está fuera de la
   // frontera— no entregó datos de nadie. Anotarlo llenaría el registro de accesos que no ocurrieron.
   if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
-  await registrarAccesoSoat(req, { accion: 'read', soatId: req.params.id, filas: 1 });
+  // La declaración sigue a lo que la respuesta LLEVA, no al tipo de la ruta (HU #11966): una fila del
+  // canal Cliente entrega además el titular partido, su contacto y su domicilio (`propietarioCanal`),
+  // y una de trámite no gana ni una clave. Mirar `d.propietarioCanal` y no `origen` ata las dos
+  // cosas: si mañana esa clave dejara de emitirse, el registro dejaría de declararla solo.
+  await registrarAccesoSoat(req, {
+    accion: 'read', soatId: req.params.id, filas: 1,
+    ...(d.propietarioCanal ? { campos: CAMPOS_PII_SOAT_DETALLE_CANAL } : {}),
+  });
   res.json(d);
 });
 

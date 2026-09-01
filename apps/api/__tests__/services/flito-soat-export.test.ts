@@ -217,7 +217,70 @@ const comprador = (over: Record<string, unknown> = {}) => ({
   correo: 'juana@empresa.co', celular: '3001234567', direccion: 'CALLE 1 # 2-3',
   orden: 0,
   nombreCompleto: CENTINELA_CONCATENADO,
+  // Las SEIS columnas que la HU #11966 añade a `flito_compradores`. Nulas por defecto, porque así
+  // llegan las ~7 052 filas del sync: solo las escribe el canal Cliente.
+  tipoDocumento: null, nombres: null, apellidos: null, razonSocial: null,
+  municipio: null, departamento: null,
   ...over,
+});
+
+/**
+ * El propietario de una fila del CANAL: cuelga de `soat_id` y trae el titular PARTIDO más su
+ * domicilio (HU #11966).
+ *
+ * Los centinelas son DISTINTOS de los del trámite a propósito: si una fila leyera por accidente la
+ * fuente de la otra, se vería en la celda en vez de coincidir por casualidad.
+ */
+const CENTINELA_NOMBRES_CANAL = 'CENTINELA-NOMBRES-CANAL';
+const CENTINELA_APELLIDOS_CANAL = 'CENTINELA-APELLIDOS-CANAL';
+const CENTINELA_MUNICIPIO_CANAL = 'CENTINELA-MUNICIPIO-CANAL';
+const CENTINELA_DEPARTAMENTO_CANAL = 'CENTINELA-DEPARTAMENTO-CANAL';
+const CEDULA_CANAL = '1099887766';
+
+const compradorCanal = (over: Record<string, unknown> = {}) => comprador({
+  id: 'cc1', tramiteId: null, soatId: SOAT_CANAL,
+  numeroDocumento: CEDULA_CANAL,
+  tipoDocumento: 'CC',
+  nombres: CENTINELA_NOMBRES_CANAL,
+  apellidos: CENTINELA_APELLIDOS_CANAL,
+  razonSocial: null,
+  municipio: CENTINELA_MUNICIPIO_CANAL,
+  departamento: CENTINELA_DEPARTAMENTO_CANAL,
+  ...over,
+});
+
+/**
+ * Lo que la HU #11966 añade a la fila proyectada (`flito_soat` × `vehicles` ×
+ * `organismos_transito_config`) y que **solo se lee para `origen = 'cliente'`**.
+ *
+ * Ojo con el cruce de nombres, que es la trampa que este archivo ya documenta para `flit_raw` y que
+ * se repite en la tabla: `linea` ← `vehicles.model` (la LÍNEA comercial) y `anio` ← `vehicles.year`
+ * (el AÑO). Los valores son distintos de los del trámite para que el cruce se vea.
+ *
+ * `puertas: '3'` y no `'4'`: si fuera `'4'` la celda del canal sería indistinguible de la constante
+ * de la plantilla, y el mutante «leer siempre la constante» pasaría en verde.
+ */
+const CAMPOS_VEHICULO_CANAL = {
+  marca: 'MAZDA',
+  linea: 'CX-30',
+  anio: 2026,
+  clase: 'CAMIONETA',
+  pasajerosSentados: '5',
+  puertas: '3',
+  organismoAlias: 'FUNZA-ALIAS',
+} as const;
+
+/**
+ * La fila del canal para el archivo MIXTO: VIN y placa PROPIOS, para poder localizarla entre las dos.
+ *
+ * `flito_soat.vin` es único, así que dos filas del mismo archivo no pueden compartirlo; y buscar por
+ * VIN en vez de por número de fila deja el aserto a salvo del orden de la cola, que ya cambió una vez
+ * (HU #11963).
+ */
+const VIN_CANAL = 'VINCANAL000000001';
+const filaCanalMixto = (over: Record<string, unknown> = {}) => filaSoat({
+  id: SOAT_CANAL, origen: 'cliente', vin: VIN_CANAL, placa: 'ZZZ111',
+  ...CAMPOS_VEHICULO_CANAL, ...over,
 });
 
 /** N filas de SOAT distinguibles por id y placa. */
@@ -1440,54 +1503,135 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
 
 // ─────────────────────────── Canal Cliente ───────────────────────────────────────────────────────
 
-describe('canal Cliente — sin trámite y sin `flit_raw`, la fila SALE igual', () => {
-  it('**las CINCO del titular vacías y las DOCE que no dependen del payload, llenas**', async () => {
-    // Dos defectos distintos, los dos silenciosos, y este caso los mata a la vez:
+describe('canal Cliente — la fila lee LO PERSISTIDO, no el trámite que no tiene (HU #11966)', () => {
+  /** Una fila del canal completa: `origen='cliente'`, con lo que el RUNT dejó en `vehicles`. */
+  const filaCanal = (over: Record<string, unknown> = {}) => filaSoat({
+    id: SOAT_CANAL, origen: 'cliente', ...CAMPOS_VEHICULO_CANAL, ...over,
+  });
+
+  it('**las VEINTICINCO celdas de una fila del canal, y las nueve que ANTES iban vacías** (INVERTIDO)', async () => {
+    // ── Qué afirmaba este caso hasta la HU #11966 ────────────────────────────────────────────────
     //
-    //   1. **El bloque del titular.** Sin `flit_raw` no hay `nombres` ni `apellidos`. Escribir
-    //      `if (!apellidos) → PJUR/NIT` marcaría cada fila del canal como persona JURÍDICA con la
-    //      razón social vacía: una afirmación falsa sobre la naturaleza de un titular, publicada en
-    //      un archivo que sale del perímetro, y ningún aserto de columnas se entera.
-    //   2. **El propietario.** `flito_compradores` cuelga de dos padres desde la 0167; leer solo la
-    //      vía del trámite dejaría documento, correo y dirección vacíos y el `.xlsx` se abriría sin
-    //      quejarse.
+    // «las CINCO del titular vacías y las DOCE que no dependen del payload, llenas». Era correcto
+    // mientras el canal no guardaba de dónde leer: sin `flit_raw`, `Marca`, `Linea`, `Modelo`,
+    // `Clase`, `Municipio`, `Departamento`, `OrganismoDetto`, `CapacidadCargaOPasajeros` y las cinco
+    // del titular salían en blanco. La #11966 persiste esas columnas y el archivo pasa a leerlas, así
+    // que el caso se INVIERTE en su sitio: las mismas celdas, ahora con valor.
     //
-    // Y mata además el `innerJoin` a `flito_tramites` en la lectura principal, que haría desaparecer
-    // estas filas del archivo por completo.
+    // Lo que NO se invierte y sigue vivo abajo, en su propio caso: la fila de TRÁMITE no cambia de
+    // fuente. Esa es la mitad que el mutante (b) del diseño §6 ataca.
     kdb.when.scenario({
-      flito_soat: [filaSoat({ id: SOAT_CANAL, origen: 'cliente' })],
-      flito_tramites: [], // una solicitud del canal no tiene trámite
-      flito_compradores: [comprador({ tramiteId: null, soatId: SOAT_CANAL })],
+      flito_soat: [filaCanal()],
+      flito_tramites: [], // una solicitud del canal no tiene trámite, y sigue sin tenerlo
+      flito_compradores: [compradorCanal()],
     });
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
     expect(hoja.rowCount).toBe(2); // la fila del canal está en el archivo
 
-    // Las cinco del bloque: VACÍAS, no `PJUR` + `NIT`.
-    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
-      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía en el canal Cliente`).toBeNull();
-    }
-    const texto = textoDe(hoja);
-    expect(texto).not.toContain('PJUR');
-    expect(texto).not.toContain('NIT');
+    // ── Las cinco del titular: ahora las decide `tipo_documento` del comprador ──────────────────
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+    expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRES_CANAL);
+    expect(celda(hoja, 2, 'Apellidos')).toBe(CENTINELA_APELLIDOS_CANAL);
+    expect(celda(hoja, 2, 'ClaseId')).toBe('CC');
+    // `RazonSocial` sigue vacía: es persona natural, y las dos formas son EXCLUYENTES.
+    expect(celda(hoja, 2, 'RazonSocial') ?? null).toBeNull();
+    // Y `PJUR` no aparece por ninguna parte: la clase la afirma el documento, no la deduce una
+    // ausencia. Es el defecto que la #11947 sacó del archivo y que no vuelve por la puerta del canal.
+    expect(textoDe(hoja)).not.toContain('PJUR');
 
-    // Las doce que NO dependen del payload del trámite, con su valor.
+    // ── Las nueve que dependían del trámite: ahora salen de lo persistido ───────────────────────
+    expect(celda(hoja, 2, 'Marca')).toBe('MAZDA');
+    // `Linea` ← `vehicles.model`, `Modelo` ← `vehicles.year`. El cruce es la trampa cara: el mapeo
+    // obvio (`Modelo ← model`) metería `CX-30` en una columna de años y pasaría el aserto de
+    // cabeceras sin despeinarse.
+    expect(celda(hoja, 2, 'Linea')).toBe('CX-30');
+    expect(celda(hoja, 2, 'Modelo')).toBe('2026');
+    expect(celda(hoja, 2, 'Clase')).toBe('CAMIONETA');
+    expect(celda(hoja, 2, 'Municipio')).toBe(CENTINELA_MUNICIPIO_CANAL);
+    expect(celda(hoja, 2, 'Departamento')).toBe(CENTINELA_DEPARTAMENTO_CANAL);
+    // `OrganismoDetto` usa el ALIAS del catálogo: una fila del canal no tiene FLIT, así que no tiene
+    // `transito_nombre_flit`.
+    expect(celda(hoja, 2, 'OrganismoDetto')).toBe('FUNZA-ALIAS');
+    // `CapacidadCargaOPasajeros` son PASAJEROS SENTADOS del RUNT, no una capacidad de carga (AC6).
+    expect(celda(hoja, 2, 'CapacidadCargaOPasajeros')).toBe('5');
+    // `Puertas` es el dato del RUNT y NO la constante `'4'`.
+    expect(celda(hoja, 2, 'Puertas')).toBe('3');
+    expect(celda(hoja, 2, 'Puertas')).not.toBe('4');
+
+    // ── Las que ya salían bien y siguen igual ──────────────────────────────────────────────────
     expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
     expect(celda(hoja, 2, 'Vin')).toBe(VIN);
     expect(celda(hoja, 2, 'Carroceria')).toBe('CAMIONETA');
     expect(celda(hoja, 2, 'Cilindraje')).toBe('1598');
     expect(celda(hoja, 2, 'Servicio')).toBe('Particular');
-    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA_CANAL);
     expect(celda(hoja, 2, 'Direccion')).toBe('CALLE 1 # 2-3');
     expect(celda(hoja, 2, 'Celular')).toBe('3001234567');
     expect(celda(hoja, 2, 'Correo')).toBe('juana@empresa.co');
     expect(celda(hoja, 2, 'OrganismoDettoCiudad')).toBe(CIUDAD_ORGANISMO);
-    expect(celda(hoja, 2, 'Puertas')).toBe('4');
     expect(celda(hoja, 2, 'N_I')).toBe('IMPORTADO');
 
-    // Y las del trámite, vacías: sin trámite no hay municipio, ni organismo crudo, ni payload.
-    for (const c of ['Municipio', 'OrganismoDetto', 'Marca', 'Linea', 'Modelo', 'Clase', 'Departamento']) {
-      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía sin trámite`).toBeNull();
+    // Y la cadena FUNDIDA sigue SIN publicarse: el nombre sale de las columnas partidas, nunca de
+    // `nombre_completo` cortado por el espacio. Esa prohibición no se invierte.
+    expect(textoDe(hoja)).not.toContain(CENTINELA_CONCATENADO);
+  });
+
+  it('una fila del canal con NIT sale `PJUR` + `NIT` y con la razón social', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaCanal()],
+      flito_tramites: [],
+      flito_compradores: [compradorCanal({
+        tipoDocumento: 'NIT', nombres: null, apellidos: null, razonSocial: CENTINELA_RAZON,
+      })],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+    expect(celda(hoja, 2, 'NombrePila') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Apellidos') ?? null).toBeNull();
+  });
+
+  it('**si el RUNT no trajo puertas ni pasajeros, las celdas van VACÍAS — nunca `4`**', async () => {
+    // El AC6 lo dice con esas palabras. La tentación es rellenar con la constante de la plantilla,
+    // que es exactamente la mentira que la HU viene a quitar del archivo.
+    kdb.when.scenario({
+      flito_soat: [filaCanal({ puertas: null, pasajerosSentados: null })],
+      flito_tramites: [],
+      flito_compradores: [compradorCanal()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Puertas') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'CapacidadCargaOPasajeros') ?? null).toBeNull();
+  });
+
+  it('un año nulo en `vehicles` deja `Modelo` vacío, no la cadena «null»', async () => {
+    kdb.when.scenario({
+      flito_soat: [filaCanal({ anio: null })],
+      flito_tramites: [],
+      flito_compradores: [compradorCanal()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'Modelo') ?? null).toBeNull();
+    expect(textoDe(hoja)).not.toContain('null');
+  });
+
+  it('sin propietario registrado, la fila del canal SALE igual y con sus celdas técnicas', async () => {
+    // La misma promesa que sostiene el `leftJoin` conceptual del propietario: un SOAT al que le falte
+    // el comprador es justo el que hay que revisar, y borrarlo del archivo lo escondería.
+    kdb.when.scenario({
+      flito_soat: [filaCanal()], flito_tramites: [], flito_compradores: [],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.rowCount).toBe(2);
+    expect(celda(hoja, 2, 'Marca')).toBe('MAZDA');
+    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'RazonSocial', 'ClaseId', 'Municipio', 'Departamento']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} sin propietario`).toBeNull();
     }
   });
 
@@ -1500,6 +1644,111 @@ describe('canal Cliente — sin trámite y sin `flit_raw`, la fila SALE igual', 
 
     // Una sola lectura de `flito_compradores`: la del canal solo se hace si hay filas del canal.
     expect(lecturasDe('flito_compradores')).toHaveLength(1);
+  });
+});
+
+// ─────────────────────────── La bifurcación es por `origen` ──────────────────────────────────────
+
+describe('la fila de TRÁMITE no cambia de fuente — la bifurcación es por `origen`, no por ausencia', () => {
+  it('**un SOAT de trámite HUÉRFANO sigue leyendo del trámite: nueve celdas vacías, no las de `vehicles`**', async () => {
+    // ── El mutante (b) del diseño §6, y el riesgo §7.1 ───────────────────────────────────────────
+    //
+    // La variante tentadora es bifurcar por `datos.get(f.id) === undefined`. Un SOAT
+    // `origen='tramite'` cuyo trámite se borró —o quedó con `soat_id` nulo— también cae en
+    // `undefined`, así que con esa variante pasaría a leer `vehicles` + `flito_compradores`:
+    // `Marca` y `Linea` cambiarían de normalización, `Municipio` pasaría de la ciudad del trámite al
+    // DOMICILIO del titular —dos datos distintos bajo la misma cabecera— y `Puertas` dejaría de ser
+    // `'4'`. Nadie lo vería hasta que un cliente comparase dos descargas.
+    //
+    // La fila de aquí es exactamente eso: `origen='tramite'`, sin trámite, y con `vehicles` y el
+    // comprador POBLADOS con los datos del canal. Si la bifurcación fuera por ausencia, saldrían.
+    kdb.when.scenario({
+      flito_soat: [filaSoat({ ...CAMPOS_VEHICULO_CANAL })],
+      flito_tramites: [], // el trámite ya no está
+      flito_compradores: [comprador({
+        tipoDocumento: 'CC',
+        nombres: CENTINELA_NOMBRES_CANAL,
+        apellidos: CENTINELA_APELLIDOS_CANAL,
+        municipio: CENTINELA_MUNICIPIO_CANAL,
+        departamento: CENTINELA_DEPARTAMENTO_CANAL,
+      })],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.rowCount).toBe(2);
+
+    // Las nueve del trámite, VACÍAS: es la respuesta honesta para una fila sin trámite.
+    for (const c of ['Marca', 'Linea', 'Modelo', 'Clase', 'Municipio', 'Departamento', 'OrganismoDetto',
+      'CapacidadCargaOPasajeros', 'ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} no puede leer de la fuente del canal`).toBeNull();
+    }
+    // Y `Puertas` sigue siendo la CONSTANTE de la plantilla, no el `'3'` que trae `vehicles`.
+    expect(celda(hoja, 2, 'Puertas')).toBe('4');
+
+    // Ni un centinela del canal en todo el archivo.
+    const texto = textoDe(hoja);
+    for (const centinela of [CENTINELA_NOMBRES_CANAL, CENTINELA_MUNICIPIO_CANAL, CENTINELA_DEPARTAMENTO_CANAL]) {
+      expect(texto, 'una fila de trámite no puede leer la fuente del canal').not.toContain(centinela);
+    }
+  });
+
+  it('**una fila de trámite CON trámite sale byte a byte como antes de la HU**, con `vehicles` poblado', async () => {
+    // La otra mitad: que las columnas nuevas de `vehicles` estén llenas no puede cambiar NADA en una
+    // fila de trámite. El sync podría escribirlas mañana (nada en el esquema lo impide) y el archivo
+    // tiene que seguir diciendo lo mismo.
+    kdb.when.scenario({
+      flito_soat: [filaSoat({ ...CAMPOS_VEHICULO_CANAL })],
+      flito_tramites: [tramite()],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+
+    // Del TRÁMITE, no de `vehicles`: los valores de la fixture del trámite y no los de
+    // `CAMPOS_VEHICULO_CANAL`, que son distintos a propósito.
+    expect(celda(hoja, 2, 'Marca')).toBe('CHEVROLET');
+    expect(celda(hoja, 2, 'Linea')).toBe('ONIX');
+    expect(celda(hoja, 2, 'Modelo')).toBe('2021');
+    expect(celda(hoja, 2, 'Clase')).toBe('AUTOMOVIL');
+    expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
+    expect(celda(hoja, 2, 'Departamento')).toBe('CUNDINAMARCA');
+    expect(celda(hoja, 2, 'OrganismoDetto')).toBe('STRIA TTOyTTE MCPAL FUNZA');
+    expect(celda(hoja, 2, 'CapacidadCargaOPasajeros')).toBe('5');
+    expect(celda(hoja, 2, 'Puertas')).toBe('4');
+    // El titular sigue saliendo de `flit_raw`, no de las columnas del comprador.
+    expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
+    expect(celda(hoja, 2, 'Apellidos')).toBe(CENTINELA_APELLIDOS);
+    // Ni el alias del catálogo se cuela en `OrganismoDetto`, que para el trámite es el nombre CRUDO.
+    expect(textoDe(hoja)).not.toContain('FUNZA-ALIAS');
+  });
+
+  it('**el archivo MIXTO: cada fila con su fuente, en la misma descarga**', async () => {
+    // Es donde el defecto sería más caro y menos visible: dos filas, dos fuentes, una sola hoja. El
+    // orden es `created_at desc, id desc` (HU #11963), y las dos fixtures comparten `createdAt`
+    // indefinido, así que se afirma por el VIN de cada fila en vez de por su posición.
+    kdb.when.scenario({
+      flito_soat: [filaSoat(), filaCanalMixto()],
+      flito_tramites: [tramite()],
+      flito_compradores: [comprador(), compradorCanal()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(hoja.rowCount).toBe(3);
+
+    const filaDe = (vin: string) => {
+      for (let n = 2; n <= hoja.rowCount; n++) if (celda(hoja, n, 'Vin') === vin) return n;
+      throw new Error(`no se encontró la fila con VIN ${vin}`);
+    };
+    const tramiteN = filaDe(VIN);
+    const canalN = filaDe(VIN_CANAL);
+
+    expect(celda(hoja, tramiteN, 'Marca')).toBe('CHEVROLET');
+    expect(celda(hoja, tramiteN, 'Puertas')).toBe('4');
+    expect(celda(hoja, tramiteN, 'Municipio')).toBe(MUNICIPIO);
+
+    expect(celda(hoja, canalN, 'Marca')).toBe('MAZDA');
+    expect(celda(hoja, canalN, 'Puertas')).toBe('3');
+    expect(celda(hoja, canalN, 'Municipio')).toBe(CENTINELA_MUNICIPIO_CANAL);
   });
 });
 
@@ -1559,6 +1808,20 @@ describe('rastro — Ley 1581 art. 17', () => {
     // un formato. Declararlo es lo que impide que el registro mienta por omisión en lo que la HU
     // añade, que es exactamente el criterio con el que entró `nombre_completo`.
     expect(campos).toContain('tipo_documento');
+
+    // **Y la HU #11966 invierte el tercero: `departamento`.** El párrafo de
+    // `CAMPOS_PII_COLA_EXPORT` lo dejaba fuera porque salía de `flit_raw->>'departamentoTransito'`
+    // —la jurisdicción del ORGANISMO— y escribió su propio disparador: «si algún día se cambiara por
+    // un departamento de la dirección, tendría que entrar aquí en la misma edición». Para una fila
+    // `origen='cliente'` esa columna publica ahora `flito_compradores.departamento`, el DOMICILIO del
+    // titular. Con `municipio` pasa lo mismo: deja de ser siempre `flito_tramites.ciudad`.
+    expect(campos).toContain('departamento');
+    expect(campos).toContain('municipio');
+    // Y las tres columnas partidas del nombre, que el archivo lee por su nombre real desde esta HU.
+    expect(campos).toContain('nombres');
+    expect(campos).toContain('apellidos');
+    expect(campos).toContain('razon_social');
+
     // Y sigue siendo la lista del ARCHIVO y no la de la tabla: lo que no se publica, no se declara.
     expect(campos).not.toContain('porcentaje_participacion');
     expect(campos).not.toContain('valor_pagado');
