@@ -622,13 +622,15 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
   it('**una clave ANIDADA no se publica**: celda vacía y la fila sin clasificar', async () => {
     // Corrección del gate de seguridad (Medium sobre `dcd57ea`). `->>` no falla ante un objeto: lo
     // SERIALIZA —medido en Postgres 16, `'{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n'` devuelve
-    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las ocho
+    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las nueve
     // claves el blob acabaría en una celda de un archivo que sale del perímetro, con datos dentro que
     // `pii_access_log` no declara.
     //
-    // En SOAT hay un escalón más que en Impuestos: el par pasa por `clavePar` antes de reconciliarse,
-    // así que el descarte tiene que ocurrir ANTES de que el blob se convierta en la clave de
-    // reconciliación — si no, dos trámites con el mismo blob «coincidirían» y lo publicarían.
+    // En SOAT hay un escalón más que en Impuestos: los tres campos del titular pasan por
+    // `claveTitular` —que los reconcilia como TRIPLA `[tipo, nombres, apellidos]` (HU #11947)— antes
+    // de que `comun()` los compare. El descarte tiene que ocurrir ANTES de que el valor se convierta
+    // en clave de reconciliación, y eso vale para los tres: si no, dos trámites con el mismo blob
+    // «coincidirían» y lo publicarían.
     //
     // La fixture usa la CADENA que Postgres produce, no un objeto JS: es lo que de verdad llega al
     // servicio. Este caso muerde la guarda de JS; la del SQL, que es la de verdad, se afirma sobre el
@@ -1370,8 +1372,8 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
 
     const hoja = await libro((await exportar(await sesion())).body as Buffer);
 
-    // Las CINCO del bloque vacías: el par no se pudo reconciliar, así que no hay titular que
-    // clasificar. Y en particular, el nombre NO acaba en `RazonSocial`.
+    // Las CINCO del bloque vacías: la tripla no se pudo reconciliar —discrepa en `apellidos`—, así
+    // que no hay titular que clasificar. Y en particular, el nombre NO acaba en `RazonSocial`.
     for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
       expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
     }

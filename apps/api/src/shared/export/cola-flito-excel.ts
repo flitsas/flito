@@ -10,7 +10,7 @@
 // Lo que NO vive aquí: de dónde sale cada valor. Eso es de cada módulo —el SOAT lee los datos del
 // trámite por lote y reconcilia, el impuesto los tiene 1:1— y por eso cada uno tiene su
 // `*.export.service.ts`. Lo que sí es compartido y tampoco vive aquí: CÓMO se derivan las seis
-// columnas calculadas y las ocho claves de `flit_raw`, que están en `cola-flito-derivados.ts`
+// columnas calculadas y las nueve claves de `flit_raw`, que están en `cola-flito-derivados.ts`
 // —funciones puras, comprobables sin generar un archivo—.
 //
 // Aquí solo está lo que el archivo TIENE que compartir para no divergir: qué columnas hay, cómo se

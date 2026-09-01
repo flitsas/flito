@@ -6,9 +6,9 @@
 //
 //   · **Los datos del trámite salen del `innerJoin` con `flito_tramites`**, porque
 //     `flito_impuestos.tramite_id` es NOT NULL y UNIQUE: un impuesto tiene un trámite y solo uno.
-//     Desde la HU #11934 eso incluye las OCHO claves de `flit_raw`, que entran como ocho expresiones
-//     más en la proyección que ya existía — cero joins nuevos y cero consultas nuevas. En SOAT no se
-//     puede: hay que leer por lote y reconciliar campo a campo.
+//     Desde la HU #11934 eso incluye las NUEVE claves de `flit_raw` —la novena, `tipo`, la sumó la
+//     HU #11947—, que entran como nueve expresiones más en la proyección que ya existía: cero joins
+//     nuevos y cero consultas nuevas. En SOAT no se puede: hay que leer por lote y reconciliar.
 //   · **Los tres datos técnicos del vehículo (HU #11906) NO estaban en la proyección de esta cola.**
 //     El DTO de Impuestos no los publica y el archivo sí los pide, así que aquí se comprueba que se
 //     leen — el defecto probable es copiarse la proyección del listado y entregar `Carroceria`,
@@ -584,7 +584,7 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
   it('**una clave ANIDADA no se publica**: celda vacía y la fila sin clasificar', async () => {
     // Corrección del gate de seguridad (Medium sobre `dcd57ea`). `->>` no falla ante un objeto: lo
     // SERIALIZA —medido en Postgres 16, `'{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n'` devuelve
-    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las ocho
+    // `{"a": 1, "b": "ANA"}` como `text`—, así que el día que FLIT anide algo bajo una de las nueve
     // claves el blob entero acabaría en una celda de un archivo que sale del perímetro, sin error y
     // sin log, y con datos que `pii_access_log` no declara.
     //
@@ -811,9 +811,9 @@ describe('lista blanca — el archivo lleva lo que la lista dice y la consulta n
     }
   });
 
-  it('la lectura principal NO gana joins nuevos: las ocho claves salen del que ya había', async () => {
+  it('la lectura principal NO gana joins nuevos: las nueve claves salen del que ya había', async () => {
     // `conJoinsColaImpuestos` ya une `flito_tramites` 1:1 (`tramite_id` NOT NULL UNIQUE), así que las
-    // ocho expresiones `->>` entran en la proyección sin un join más y sin una consulta más. Un join
+    // nueve expresiones `->>` entran en la proyección sin un join más y sin una consulta más. Un join
     // añadido «para leer el payload» sería un duplicador de filas esperando a que alguien lo suelte.
     kdb.when.scenario({ flito_impuestos: [filaImpuesto()], flito_compradores: [comprador()] });
 
