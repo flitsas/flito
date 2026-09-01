@@ -505,13 +505,39 @@ export const CodigoErrorSolicitudSoat = {
   RUNT_NO_DISPONIBLE: 'runt_no_disponible',
   /** El RUNT respondió, pero no tiene ese vehículo registrado (AC2). */
   RUNT_SIN_REGISTRO: 'runt_sin_registro',
-  /** El organismo que reporta el RUNT no cruza con el catálogo de FLITO (AC2). */
+  /**
+   * El organismo que reporta el RUNT no cruza con el catálogo de FLITO.
+   *
+   * **Desde la HU #11966 (ADR-0010) ya NO es un error HTTP de ninguno de los dos endpoints del
+   * canal**: el organismo no es compuerta (AC5), así que la solicitud se crea igual con
+   * `organismo_codigo` NULL y este código queda anotado en
+   * `flito_soat_solicitud.verificacion_codigo`. Se conserva en el catálogo porque sigue siendo el
+   * vocabulario de esa columna.
+   */
   ORGANISMO_NO_CATALOGADO: 'organismo_no_catalogado',
   /**
-   * Placa o VIN que el RUNT trajo DIFIERE de lo radicado (HU #11935). Un campo que el RUNT no
-   * trajo (`NO_VERIFICABLE`) no es este código. Vive en el satélite, no aborta el alta.
+   * Placa o VIN que el RUNT trajo DIFIERE de lo radicado, o los datos no corresponden con los
+   * propietarios activos del vehículo. Un campo que el RUNT no trajo (`NO_VERIFICABLE`) no es este
+   * código.
+   *
+   * **Desde la HU #11966 ABORTA el alta con un 422** (AC2), además de seguir siendo un valor del
+   * satélite para las filas históricas de la #11935. Es una respuesta de NEGOCIO —el registro sí
+   * contestó—, y por eso no puede salir como el 503 de `RUNT_NO_DISPONIBLE`: esa distinción es
+   * literalmente el AC4. Cuando lo que no cuadra es el VIN tecleado, el cuerpo lleva además
+   * `campo: 'vin'` — y **nunca** el VIN que trajo el RUNT, que convertiría el endpoint en un lector
+   * de VIN por placa.
    */
   RUNT_NO_CUADRA: 'runt_no_cuadra',
+  /**
+   * El RUNT tiene el vehículo pero **no publica su VIN**, así que no hay VIN efectivo que persistir
+   * (HU #11966, AC5: «sin VIN en la respuesta del RUNT no se crea (RN-01)»).
+   *
+   * Código propio y no `RUNT_NO_CUADRA`: «revise los datos» le dice al usuario que corrija algo
+   * suyo, y aquí no hay nada que corregir. `flito_soat.vin` es NOT NULL UNIQUE y es la columna sobre
+   * la que vive la RN-01, así que sin VIN no se puede crear la fila. Es la única forma de que la
+   * pantalla no mienta.
+   */
+  RUNT_SIN_VIN: 'runt_sin_vin',
   /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
   SOAT_VIGENTE: 'soat_vigente',
   /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
@@ -556,10 +582,35 @@ export type CodigoErrorSolicitudSoat =
   (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
 
 /**
- * Desenlace de la verificación RUNT post-commit del canal Cliente (HU #11935, ADR-0009).
+ * La familia «revise los datos»: los tres desenlaces en los que el RUNT **sí respondió** y la
+ * respuesta impide crear la solicitud (HU #11966, AC2 y AC5).
  *
- * `ok` no está en el AC2 (lista los desenlaces de fallo + pendiente); hace falta para no dejar
- * el éxito indistinguible de «aún no corrió». CHECK en la base, constante aquí.
+ * Se exporta para que la pantalla del wizard (#11967) no tenga que re-listar la familia y para que
+ * no la deduzca del estado HTTP ni del texto del mensaje: los tres son `422`, pero `422` no es
+ * sinónimo de esta familia y el mensaje cambia con cualquier corrección de estilo.
+ *
+ * **`RUNT_NO_DISPONIBLE` no está, y esa ausencia es el AC4**: «el RUNT no está disponible» es un
+ * fallo de TRANSPORTE (503) y presentarlo como «revise los datos» le pide al usuario que corrija
+ * algo que no está mal. La distinción se decide por transporte —HTTP 200 = el RUNT respondió—, no
+ * por el texto que mande Kyverum.
+ */
+export const CODIGOS_REVISE_LOS_DATOS = [
+  CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO,
+  CodigoErrorSolicitudSoat.RUNT_NO_CUADRA,
+  CodigoErrorSolicitudSoat.RUNT_SIN_VIN,
+] as const;
+
+/**
+ * Desenlace de la verificación RUNT del canal Cliente. Nace con la HU #11935 (ADR-0009) como estado
+ * de un job post-commit; **desde la HU #11966 (ADR-0010) el alta es bloqueante y una fila nueva nace
+ * en `ok`**.
+ *
+ * Los otros cuatro valores son RESIDUO HISTÓRICO: solo los llevan las solicitudes radicadas entre la
+ * #11935 y la #11966, que no se reescriben ni se reconsultan (AC6 de la #11966). Siguen aquí y en el
+ * CHECK de la base porque esas filas existen y hay que poder leerlas; no porque se puedan producir.
+ *
+ * `ok` no estaba en el AC2 de la #11935 (listaba los desenlaces de fallo + pendiente); hacía falta
+ * para no dejar el éxito indistinguible de «aún no corrió», y hoy es el único que se escribe.
  */
 export const ESTADOS_VERIFICACION_SOLICITUD_SOAT = [
   'pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok',

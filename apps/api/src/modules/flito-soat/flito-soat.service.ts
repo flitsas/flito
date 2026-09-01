@@ -909,6 +909,97 @@ export interface RevisionSolicitud {
   verificacionCodigo: string | null;
 }
 
+/**
+ * El titular de una solicitud del canal, **partido**, tal como lo necesita la pantalla de
+ * subsanación (HU #11966; lo pide el UX slim de la #11967 §6).
+ *
+ * ── Por qué NO se amplía `SoatColaItem.compradores` ─────────────────────────────────────────────
+ *
+ * Esa lista la comparten `cola()` y `detalle()` a través de `ensamblarCola`, así que ampliarla
+ * publicaría correo, celular, dirección y domicilio del titular **en cada fila del listado** — una
+ * fuga multiplicada por página y servida a todo lector interno, para un dato que necesita UNA
+ * pantalla sobre UNA fila. Esto es una clave APARTE del detalle, con su propia proyección, y por eso
+ * `cola()` no cambia ni una celda.
+ */
+export interface PropietarioCanalDetalle {
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
+  numeroDocumento: string;
+  correo: string | null;
+  celular: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+}
+
+/**
+ * El propietario guardado de una solicitud del canal, para que la subsanación no obligue al Cliente
+ * a reteclear a ciegas lo que ya está en la base.
+ *
+ * ── Las tres condiciones bajo las que se emite, y ninguna es redundante ─────────────────────────
+ *
+ *   1. **Solo filas `origen = 'cliente'`.** Se decide en `detalle()` mirando `soat.origen`, y NO por
+ *      «no encontré propietario por trámite»: es el mismo criterio que la bifurcación del export
+ *      (§7.1 del diseño de la #11966). Un SOAT de trámite no cambia lo que devuelve hoy, ni una
+ *      clave.
+ *   2. **Solo a quien pasa `buscarConAcceso`**, que es la guarda que este endpoint ya aplica antes de
+ *      llegar aquí: para un `cliente` es la frontera por compañía con 404-y-no-403, así que un
+ *      tercero no distingue «no es tuya» de «no existe». Esa es la prueba de propiedad; no hay otra.
+ *   3. **Nunca al GESTOR del proveedor POR ESTA RUTA**, igual que `revisionDeSolicitud`: una
+ *      solicitud validada entra en su cola y la abre con todo derecho, y aun así el detalle no le
+ *      arma el bloque del titular. La consulta ni se emite.
+ *
+ *      **Y «por esta ruta» es literal, no una forma de hablar.** El gestor SÍ recibe el nombre, el
+ *      documento, el contacto y el domicilio del titular de una fila del canal **en el `.xlsx` de la
+ *      cola**: `POST /export` es `OPS_O_GESTOR` y `datosDeCanal` llena `Municipio`, `Departamento` y
+ *      las cinco columnas del titular para `origen='cliente'` (AC6 de la HU #11966). Es una decisión
+ *      TOMADA y no un hueco, por lo mismo que se anotó en su día la de `Departamento`:
+ *
+ *        · `correo`, `celular` y `direccion` **ya** le llegaban por ese Excel antes de esta HU
+ *          —`COLUMNAS_COMPRADOR` los tenía en `develop`—, así que la hoja no le abre nada nuevo en
+ *          contacto; lo que añade es el nombre partido y el domicilio.
+ *        · Un gestor necesita la identidad y la dirección del propietario para EXPEDIR la póliza.
+ *          Ese es el trabajo que se le encarga, y el archivo existe para eso.
+ *
+ *      Lo que este corte garantiza, entonces, es una cosa concreta y vale la pena decirla bien: que
+ *      esos datos le lleguen **cuando se le encarga el trabajo** (una descarga explícita, con su
+ *      cuota, su tope y su línea en `pii_access_log`), y no de propina en cada respuesta de detalle
+ *      o de mutación que toque. Si algún día el export dejara de entregárselos, este párrafo se
+ *      queda corto y hay que revisarlo aquí y en `datosDeCanal`.
+ *
+ * Proyección escrita campo a campo y no `select()`: la misma regla del export (RN-E1). `orden` y
+ * `nombre_completo` no viajan —el primero no significa nada con un solo propietario; el segundo ya va
+ * en `compradores` y duplicarlo daría dos fuentes del mismo nombre en la misma respuesta—.
+ */
+async function propietarioDelCanal(soatId: string, ctx: SoatCtx): Promise<PropietarioCanalDetalle | null> {
+  if (esGestor(ctx)) return null;
+
+  const [r] = await db
+    .select({
+      tipoDocumento: flitoCompradores.tipoDocumento,
+      nombres: flitoCompradores.nombres,
+      apellidos: flitoCompradores.apellidos,
+      razonSocial: flitoCompradores.razonSocial,
+      numeroDocumento: flitoCompradores.numeroDocumento,
+      correo: flitoCompradores.correo,
+      celular: flitoCompradores.celular,
+      direccion: flitoCompradores.direccion,
+      municipio: flitoCompradores.municipio,
+      departamento: flitoCompradores.departamento,
+    })
+    .from(flitoCompradores)
+    .where(eq(flitoCompradores.soatId, soatId))
+    // Una solicitud del canal tiene EXACTAMENTE un propietario (lo escribe el alta con `orden: 0`),
+    // pero el orden se fija igual: si algún día hubiera dos, «el primero que devuelva PostgreSQL»
+    // sería un dato que cambia entre peticiones sin que nada haya cambiado en la base.
+    .orderBy(asc(flitoCompradores.orden), asc(flitoCompradores.id))
+    .limit(1);
+
+  return r ?? null;
+}
+
 /** Columna `date` de Drizzle: string `yyyy-mm-dd`. Guardia Date por si el driver devolviera objeto. */
 function diaIso(v: unknown): string | null {
   if (typeof v === 'string') return v.slice(0, 10);
@@ -979,7 +1070,13 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
  * Ninguna pantalla lo lee hoy (comprobado por grep en `apps/web`), así que quitarlo del canal del
  * cliente no rompe nada.
  */
-export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & { extraccion?: unknown; pagadoEn: string | null; solicitud?: RevisionSolicitud | null }) | null> {
+export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSalida & {
+  extraccion?: unknown;
+  pagadoEn: string | null;
+  solicitud?: RevisionSolicitud | null;
+  /** Solo en filas del canal y solo para quien no es gestor. Ver {@link PropietarioCanalDetalle}. */
+  propietarioCanal?: PropietarioCanalDetalle | null;
+}) | null> {
   const soat = await buscarConAcceso(id, ctx); // valida la frontera del gestor (404-no-403)
   if (!soat) return null;
 
@@ -1018,8 +1115,17 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
   // único escritor de `flito_soat_solicitud` es este canal, y escribe las dos cosas en la misma
   // transacción.
   const solicitud = soat.origen === ORIGEN_CLIENTE ? await revisionDeSolicitud(id, ctx) : null;
-  if (esCliente(ctx)) return { ...item, pagadoEn, solicitud };
-  return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud };
+  // Misma condición y mismo motivo que la línea de arriba (HU #11966): la consulta se emite SOLO
+  // para las filas del canal. Una fila de trámite ni siquiera gana la clave, así que su respuesta es
+  // byte a byte la de antes de esta HU.
+  const propietarioCanal = soat.origen === ORIGEN_CLIENTE ? await propietarioDelCanal(id, ctx) : null;
+  if (soat.origen !== ORIGEN_CLIENTE) {
+    return esCliente(ctx)
+      ? { ...item, pagadoEn, solicitud }
+      : { ...item, extraccion: soat.extraccion, pagadoEn, solicitud };
+  }
+  if (esCliente(ctx)) return { ...item, pagadoEn, solicitud, propietarioCanal };
+  return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud, propietarioCanal };
 }
 
 // ───────────────────────────── Envío atómico (CA-04) ────────────────────────

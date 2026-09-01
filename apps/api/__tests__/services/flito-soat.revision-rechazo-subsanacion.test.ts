@@ -156,15 +156,28 @@ const validar = async (app: express.Express, token: string, cuerpo: Record<strin
 const rechazar = async (app: express.Express, token: string, cuerpo: Record<string, unknown>) =>
   request(app).post(`/api/flito/soat/${SOAT_ID}/rechazar-solicitud`).set('Authorization', token).send(cuerpo);
 
-/** `PATCH /:id/solicitud` con los campos del formulario y, si se pide, un adjunto. */
+/**
+ * `PATCH /:id/solicitud` con los campos del formulario y, si se pide, un adjunto.
+ *
+ * **Desde la HU #11966 el cuerpo es el MISMO del alta**: el titular partido (`nombres`/`apellidos`
+ * XOR `razonSocial`) y `municipio`/`departamento` obligatorios. `nombreCompleto` salió del contrato
+ * —lo deriva el servicio—, y esa es la mitad de por qué la subsanación entró en el alcance de esa
+ * HU: si siguiera escribiendo solo la cadena fundida, la fila corregida saldría en el Excel con el
+ * nombre VIEJO —el archivo lee las columnas partidas— mientras la cola muestra el nuevo.
+ */
 const CAMPOS: Record<string, string> = {
-  tipoDocumento: 'CC', numeroDocumento: '1020304050', nombreCompleto: 'JUANA PEREZ CORREGIDA',
+  tipoDocumento: 'CC', numeroDocumento: '1020304050',
+  nombres: 'JUANA', apellidos: 'PEREZ CORREGIDA',
   correo: 'juana@empresa.co', celular: '3001234567', direccion: 'CALLE 1 # 2-3',
+  municipio: 'FUNZA', departamento: 'CUNDINAMARCA',
 };
 
-function subsanar(app: express.Express, token: string, opciones: { campos?: Record<string, string>; archivo?: Buffer } = {}) {
+function subsanar(app: express.Express, token: string, opciones: { campos?: Record<string, string | null>; archivo?: Buffer } = {}) {
   const req = request(app).patch(`/api/flito/soat/${SOAT_ID}/solicitud`).set('Authorization', token);
-  for (const [k, v] of Object.entries({ ...CAMPOS, ...opciones.campos })) req.field(k, v);
+  for (const [k, v] of Object.entries({ ...CAMPOS, ...opciones.campos })) {
+    // `null` = el campo NO se manda, que es distinto de mandarlo vacío.
+    if (v !== null) req.field(k, v);
+  }
   if (opciones.archivo) req.attach('facturaVenta', opciones.archivo, { filename: 'factura.pdf', contentType: 'application/pdf' });
   return req;
 }
@@ -473,8 +486,17 @@ describe('AC3 — el Cliente ve el rechazo y reenvía la misma fila', () => {
 
     const [comprador] = espia.updatesEn('flito_compradores');
     expect(comprador.datos).toMatchObject({
-      nombreCompleto: 'JUANA PEREZ CORREGIDA', numeroDocumento: '1020304050', tipoDocumento: 'CC',
+      numeroDocumento: '1020304050', tipoDocumento: 'CC',
+      // **HU #11966: las CINCO columnas nuevas se escriben también aquí.** Sin esta mitad, una
+      // solicitud corregida sale en el Excel con el nombre y el domicilio VIEJOS —el archivo lee
+      // estas columnas— mientras la cola muestra el nuevo. El mutante que mata: borrar cualquiera de
+      // las cinco líneas del `set` de `subsanarSolicitud`.
+      nombres: 'JUANA', apellidos: 'PEREZ CORREGIDA', razonSocial: null,
+      municipio: 'FUNZA', departamento: 'CUNDINAMARCA',
     });
+    // Y `nombre_completo` se sigue escribiendo, DERIVADO de las dos primeras: es lo que interroga la
+    // búsqueda de la cola, y las dos vías tienen que decir lo mismo o divergen en silencio.
+    expect(comprador.datos.nombreCompleto).toBe('JUANA PEREZ CORREGIDA');
 
     // Las cuatro caras del rechazo dejan de ser ciertas a la vez. Dejar la causal pondría al
     // siguiente revisor una solicitud «pendiente de revisión» con un rechazo pegado que ya no aplica.
@@ -501,6 +523,73 @@ describe('AC3 — el Cliente ve el rechazo y reenvía la misma fila', () => {
     expect(nueva).toMatchObject({ tipo: 'factura_venta', soatId: SOAT_ID });
     expect(uploadMock).toHaveBeenCalledTimes(1);
   });
+
+  it('**la subsanación aplica la MISMA partición del titular que el alta** (HU #11966)', async () => {
+    // El `superRefine` es una sola función compartida por los dos schemas. Con dos copias, corregir
+    // a persona jurídica pasaría por una puerta y no por la otra, y la fila acabaría con razón
+    // social Y nombres — que la base rechaza con 23514 (`flito_compradores_titular_chk`) y sale como
+    // 500 en la cara del Cliente.
+    const app = await buildApp();
+
+    escenario({ soat: { estado: 'rechazada' } });
+    const aJuridica = await subsanar(app, await auth('cliente', siguienteUsuario()), {
+      campos: { tipoDocumento: 'NIT', numeroDocumento: '9001234561', nombres: null, apellidos: null, razonSocial: 'TRANSPORTES SINTETICOS SAS' },
+    });
+    expect(aJuridica.status).toBe(200);
+    expect(espia.updatesEn('flito_compradores')[0].datos).toMatchObject({
+      razonSocial: 'TRANSPORTES SINTETICOS SAS', nombres: null, apellidos: null,
+      nombreCompleto: 'TRANSPORTES SINTETICOS SAS',
+    });
+
+    // Y las dos formas a la vez siguen siendo un 400, no un `set` a medias.
+    escenario({ soat: { estado: 'rechazada' } });
+    espia.reiniciar();
+    const ambas = await subsanar(app, await auth('cliente', siguienteUsuario()), {
+      campos: { razonSocial: 'TRANSPORTES SINTETICOS SAS' },
+    });
+    expect(ambas.status).toBe(400);
+    expect(espia.updatesEn('flito_compradores')).toHaveLength(0);
+  });
+
+  it('**la subsanación también acota el DERIVADO: nombre partido de 401 → 400, no 500**', async () => {
+    // `subsanacionSchema` comparte `titularCampos` y `refinarTitular` con el alta, así que comparte
+    // el camino al `22001`: el UPDATE de `flito_compradores` escribe `nombre_completo`, que es
+    // `varchar(200)` y NOT NULL. Sin la cota, este cuerpo moría dentro de la transacción y salía
+    // como 500. Va aquí y no solo en el alta porque las DOS rutas escriben esa columna.
+    escenario({ soat: { estado: 'rechazada' } });
+    const r = await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()), {
+      campos: { nombres: 'N'.repeat(200), apellidos: 'A'.repeat(200) },
+    });
+
+    expect(r.status).toBe(400);
+    expect(Object.keys(r.body.details?.fieldErrors ?? {}))
+      .toEqual(expect.arrayContaining(['nombres', 'apellidos']));
+    // Ni el propietario, ni el estado, ni el contador de reenvíos.
+    expect(espia.updatesEn('flito_compradores')).toHaveLength(0);
+    expect(espia.updatesEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('y el borde de 200 sigue entrando por la subsanación, entero y sin truncar', async () => {
+    escenario({ soat: { estado: 'rechazada' } });
+    const r = await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()), {
+      campos: { nombres: 'N'.repeat(99), apellidos: 'A'.repeat(100) },
+    });
+
+    expect(r.status).toBe(200);
+    expect(String(espia.updatesEn('flito_compradores')[0].datos.nombreCompleto)).toHaveLength(200);
+  });
+
+  it.each(['municipio', 'departamento', 'correo', 'celular', 'direccion'])(
+    'subsanar sin `%s` → 400: el canal los exige igual que en el alta',
+    async (campo) => {
+      escenario({ soat: { estado: 'rechazada' } });
+      const r = await subsanar(await buildApp(), await auth('cliente', siguienteUsuario()), {
+        campos: { [campo]: null },
+      });
+      expect(r.status).toBe(400);
+      expect(espia.updatesEn('flito_compradores')).toHaveLength(0);
+    },
+  );
 
   it('sin factura nueva: no se descarta la que había ni se sube nada', async () => {
     escenario({ soat: { estado: 'rechazada' } });

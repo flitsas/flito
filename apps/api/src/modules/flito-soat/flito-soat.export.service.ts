@@ -32,15 +32,17 @@
 
 import { and, desc, inArray } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { flitoCompradores, flitoSoat, flitoTramites, vehicles } from '../../db/schema.js';
+import {
+  flitoCompradores, flitoSoat, flitoTramites, organismosTransitoConfig, vehicles,
+} from '../../db/schema.js';
 import { env } from '../../config/env.js';
 import {
   celdaTexto, CONSTANTES_COLA_EXPORT, ExportColaDemasiadoGrandeError, nombreArchivoColaExport,
-  type FilaColaExport,
+  organismoParaExport, type FilaColaExport,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, claveTitular, expresionesFlitRaw, titularDeClave,
-  TITULAR_VACIO, type BloqueTitular,
+  bloqueTitular, bloqueTitularDesdeComprador, celdaDesdeJson, ciudadDeOrganismo, claveTitular,
+  expresionesFlitRaw, titularDeClave, TITULAR_VACIO, type BloqueTitular,
 } from '../../shared/export/cola-flito-derivados.js';
 import {
   comun, conJoinsCola, condicionesCola, ORIGEN_CLIENTE,
@@ -77,35 +79,72 @@ const COLUMNAS_CONSULTA = {
   placa: vehicles.plate,
   // Los tres datos técnicos salen de `vehicles` y no de `flit_raw`, y es la única vía que sirve: las
   // filas del canal Cliente tienen `vehiculo_id` pero NO trámite, así que no tienen payload. El sync
-  // ya los aterriza ahí (HU #11906) y el canal los escribe desde el RUNT (ADR-0008 §1.6).
+  // ya los aterriza ahí (HU #11906) y el canal los escribe desde el RUNT (ADR-0010 §Decisión 4).
   carroceria: vehicles.carroceria,
   servicio: vehicles.tipoServicio,
   cilindraje: vehicles.cilindraje,
+  /**
+   * Los SEIS de `vehicles` que la HU #11966 añade a la proyección, y que **solo se leen para filas
+   * `origen = 'cliente'`** (ver `datosDeCanal`).
+   *
+   * `brand`/`model`/`year`/`vehicleClass` existían en la tabla desde siempre y hasta esta HU el
+   * archivo no los miraba: la fila de trámite los saca de `flit_raw`, que es donde FLIT los manda y
+   * con la normalización de FLIT. Se leen ahora porque el canal no tiene payload.
+   *
+   * **Ojo con el cruce de nombres, que ya tiene su párrafo en `CLAVES_FLIT_RAW`: `vehicles.model` es
+   * la LÍNEA comercial y `vehicles.year` es el año.** El mapeo obvio (`Modelo ← vehicles.model`) mete
+   * líneas comerciales en una columna de años y pasa cualquier aserto de cabeceras.
+   *
+   * Sigue siendo lista blanca escrita campo a campo (RN-E1): no aparecen `owner_name`,
+   * `owner_document`, `notes` ni ninguna de las columnas de flota.
+   */
+  marca: vehicles.brand,
+  linea: vehicles.model,
+  anio: vehicles.year,
+  clase: vehicles.vehicleClass,
+  pasajerosSentados: vehicles.pasajerosSentados,
+  puertas: vehicles.puertas,
   // **`flito_soat.organismo_codigo` y NO `flit_raw->>'codigoSecretaria'`** — ver `ciudadDeOrganismo`:
   // el del payload llega sin el cero de relleno en la mitad de las filas y dejaría la ciudad vacía
   // sin que nada fallara. Esta columna la normalizó el sync y existe también en el canal Cliente.
   organismoCodigo: flitoSoat.organismoCodigo,
+  // El ALIAS del catálogo, para `OrganismoDetto` de las filas del canal: una fila del canal no tiene
+  // FLIT y por tanto no tiene `transito_nombre_flit`. `conJoinsCola` ya hace `leftJoin` a
+  // `organismos_transito_config`, así que esto no añade NI UNA consulta ni un join.
+  organismoAlias: organismosTransitoConfig.alias,
 } as const;
 
 /**
  * Columnas de `flito_compradores` que el archivo necesita.
  *
- * **`nombre_completo` sigue SIN estar, aunque la hoja de la HU #11934 ya publique el nombre del
- * titular.** No es una contradicción: el nombre del archivo sale de `flit_raw` —`nombres` y
- * `apellidos` SEPARADOS, tal como los manda FLIT— y esta columna es lo contrario, los dos fundidos
- * en una sola cadena por `flit-http.adapter.ts:74`. Partirla por el espacio para rellenar
- * `NombrePila` y `Apellidos` sería una heurística sobre un dato que ya viene desagregado en origen, y
- * fallaría en cada nombre compuesto y en cada razón social. Leerla «por si acaso» sería además
- * traerse al proceso una copia peor del mismo dato personal.
+ * **`nombre_completo` sigue SIN estar, y el argumento se CONSERVA y se AMPLÍA.** El nombre de una
+ * fila de TRÁMITE sale de `flit_raw` —`nombres` y `apellidos` SEPARADOS, tal como los manda FLIT— y
+ * esta columna es lo contrario, los dos fundidos en una sola cadena por `flit-http.adapter.ts:74`.
+ * Partirla por el espacio para rellenar `NombrePila` y `Apellidos` sería una heurística sobre un
+ * dato que ya viene desagregado en origen, y fallaría en cada nombre compuesto y en cada razón
+ * social. Leerla «por si acaso» sería además traerse al proceso una copia peor del mismo dato
+ * personal.
+ *
+ * **Lo que la HU #11966 añade son las columnas DESAGREGADAS que el canal sí guarda por separado**
+ * (`nombres`, `apellidos`, `razon_social`) más `tipo_documento` —que es lo que CLASIFICA al titular
+ * del canal, igual que `flit_raw->>'tipo'` clasifica al del trámite— y el domicilio
+ * (`municipio`, `departamento`). Es exactamente la misma regla de antes con el otro origen: se lee
+ * el dato partido, nunca la cadena fundida.
  */
 const COLUMNAS_COMPRADOR = {
   id: flitoCompradores.id,
   tramiteId: flitoCompradores.tramiteId,
   soatId: flitoCompradores.soatId,
+  tipoDocumento: flitoCompradores.tipoDocumento,
+  nombres: flitoCompradores.nombres,
+  apellidos: flitoCompradores.apellidos,
+  razonSocial: flitoCompradores.razonSocial,
   numeroDocumento: flitoCompradores.numeroDocumento,
   correo: flitoCompradores.correo,
   celular: flitoCompradores.celular,
   direccion: flitoCompradores.direccion,
+  municipio: flitoCompradores.municipio,
+  departamento: flitoCompradores.departamento,
   orden: flitoCompradores.orden,
 } as const;
 
@@ -113,16 +152,23 @@ const COLUMNAS_COMPRADOR = {
  * Lo que devuelve esa proyección. Se escribe a mano —y no derivado de las columnas— porque derivarlo
  * pierde la nullabilidad (`['_']['data']` da el tipo base, no `string | null`), y aquí la
  * nullabilidad es justo lo que el AC7 obliga a respetar: `correo`, `celular` y `direccion` son
- * opcionales en la tabla y su ausencia tiene que llegar hasta la celda vacía.
+ * opcionales en la tabla y su ausencia tiene que llegar hasta la celda vacía. Las seis de la HU
+ * #11966 son nullable por el mismo motivo, y además porque las ~7 052 filas del sync no las tienen.
  */
 interface Comprador {
   id: string;
   tramiteId: string | null;
   soatId: string | null;
+  tipoDocumento: string | null;
+  nombres: string | null;
+  apellidos: string | null;
+  razonSocial: string | null;
   numeroDocumento: string;
   correo: string | null;
   celular: string | null;
   direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
   orden: number;
 }
 
@@ -269,11 +315,69 @@ interface DatosDeTramite {
   titular: BloqueTitular;
 }
 
-/** Lo que se escribe cuando un SOAT no tiene trámite: el canal Cliente. */
+/**
+ * Lo que se escribe cuando un SOAT de TRÁMITE no tiene trámite que leer.
+ *
+ * Desde la HU #11966 esto **ya no describe al canal Cliente**, que tiene su propia fuente
+ * (`datosDeCanal`). Lo que queda cubriendo es el caso raro y real que el §7.1 del diseño señala: un
+ * SOAT `origen='tramite'` cuyo trámite se borró o quedó con `soat_id` nulo. Esa fila sigue saliendo
+ * con las nueve celdas vacías —que es la respuesta honesta— y **no** cambia de fuente.
+ */
 const SIN_TRAMITE: DatosDeTramite = {
   municipio: null, organismoDetto: null, marca: null, linea: null, modelo: null,
   clase: null, capacidad: null, departamento: null, titular: TITULAR_VACIO,
 };
+
+/** Lo mínimo que `datosDeCanal` necesita de la fila proyectada. Escrito así para que el test lo pueda llamar. */
+export interface FilaCanalExport {
+  marca: string | null;
+  linea: string | null;
+  anio: number | null;
+  clase: string | null;
+  pasajerosSentados: string | null;
+  organismoCodigo: string | null;
+  organismoAlias: string | null;
+}
+
+/**
+ * Las nueve celdas de una fila `origen = 'cliente'`, leídas de lo PERSISTIDO (HU #11966, AC6).
+ *
+ * Devuelve la misma forma que `datosDeTramitePorSoat` —un `DatosDeTramite`— para que la fila del
+ * archivo se escriba con UN solo objeto y no con nueve ternarios repartidos por el `map`: con
+ * ternarios, olvidarse de uno deja una celda leyendo la fuente equivocada y nada falla.
+ *
+ * ── De dónde sale cada una, y las dos trampas ───────────────────────────────────────────────────
+ *
+ *   · `modelo` (el AÑO) ← `vehicles.year`; `linea` (la LÍNEA comercial) ← `vehicles.model`. **Los
+ *     nombres están cruzados en la tabla igual que en `flit_raw`**: `vehicles.model` es la línea.
+ *     El mapeo obvio mete líneas comerciales en una columna de años y pasa cualquier aserto de
+ *     cabeceras (ver `CLAVES_FLIT_RAW`).
+ *   · `capacidad` ← `vehicles.pasajeros_sentados`, y **no** una capacidad de carga: el AC6 lo dice
+ *     con esas palabras. Si el RUNT no la trajo, la celda va vacía.
+ *   · `organismoDetto` ← el ALIAS del catálogo (`organismoParaExport`), porque una fila del canal no
+ *     tiene FLIT y por tanto no tiene `transito_nombre_flit`. Con el alias vacío cae al código, que
+ *     es un dato útil y el que aparece en el filtro.
+ *   · `municipio` y `departamento` ← el DOMICILIO del titular. Para la fila de trámite esas dos
+ *     celdas son la ciudad del trámite y la jurisdicción del organismo: **son datos distintos bajo la
+ *     misma cabecera**, y es justo por eso que la bifurcación tiene que ser por `origen` y no por
+ *     ausencia de trámite (§7.1 del diseño).
+ *   · el bloque del titular ← `bloqueTitularDesdeComprador`, que clasifica por `tipo_documento`.
+ */
+function datosDeCanal(f: FilaCanalExport, comprador: Comprador | undefined): DatosDeTramite {
+  return {
+    municipio: celdaTexto(comprador?.municipio),
+    organismoDetto: organismoParaExport(f.organismoAlias, f.organismoCodigo),
+    marca: celdaTexto(f.marca),
+    linea: celdaTexto(f.linea),
+    // `vehicles.year` es integer. `String(null)` sería la cadena `"null"` en una celda, así que la
+    // conversión se hace solo cuando hay número.
+    modelo: f.anio === null || f.anio === undefined ? null : celdaTexto(String(f.anio)),
+    clase: celdaTexto(f.clase),
+    capacidad: celdaTexto(f.pasajerosSentados),
+    departamento: celdaTexto(comprador?.departamento),
+    titular: bloqueTitularDesdeComprador(comprador ?? null),
+  };
+}
 
 /**
  * Los datos de trámite de cada SOAT, cada campo reconciliado con `comun()`.
@@ -364,7 +468,22 @@ export async function construirFilasExportSoat(
 
   return filas.map((f) => {
     const p = propietarios.get(f.id);
-    const d = datos.get(f.id) ?? SIN_TRAMITE;
+    /**
+     * **La bifurcación de la HU #11966, y se decide por `origen` — NUNCA por ausencia de trámite.**
+     *
+     * La variante tentadora (`datos.get(f.id) === undefined ? canal : tramite`) rompe el AC6 en
+     * verde: un SOAT `origen='tramite'` cuyo trámite se borró, o quedó con `soat_id` nulo, también
+     * cae en `undefined` y **cambiaría de fuente en nueve columnas** sin que nadie lo pidiera —
+     * `Marca` y `Linea` pasarían de `flit_raw` a `vehicles` (que el sync escribe, pero con otra
+     * normalización), `Municipio` pasaría de la ciudad del trámite al domicilio del titular —dos
+     * datos distintos bajo la misma cabecera— y `Puertas` dejaría de ser `'4'`. Nadie lo vería hasta
+     * que un cliente comparase dos descargas.
+     *
+     * La rama de trámite queda EXACTAMENTE como estaba, incluido el `?? SIN_TRAMITE`.
+     */
+    const d = f.origen === ORIGEN_CLIENTE
+      ? datosDeCanal(f, p)
+      : (datos.get(f.id) ?? SIN_TRAMITE);
     // El orden de las claves es el de `COLUMNAS_COLA_EXPORT` para que las dos listas se lean juntas,
     // pero NO es lo que ordena el archivo: ExcelJS empareja por `key`, y quien mueva una columna allí
     // sin moverla aquí no rompe nada — solo cambia el sitio en que se lee esta.
@@ -379,7 +498,11 @@ export async function construirFilasExportSoat(
       carroceria: celdaTexto(f.carroceria),
       cilindraje: celdaTexto(f.cilindraje),
       capacidadCargaOPasajeros: d.capacidad,
-      puertas: CONSTANTES_COLA_EXPORT.puertas,
+      // `Puertas` se bifurca en su propia celda porque no vive en `DatosDeTramite`: para el trámite
+      // es la CONSTANTE de la plantilla del cliente y para el canal es el dato del RUNT. Si el RUNT
+      // no lo trajo, la celda va VACÍA — nunca `'4'`, que sería publicar la constante como si fuera
+      // un dato medido (AC6).
+      puertas: f.origen === ORIGEN_CLIENTE ? celdaTexto(f.puertas) : CONSTANTES_COLA_EXPORT.puertas,
       organismoDetto: d.organismoDetto,
       nI: CONSTANTES_COLA_EXPORT.nI,
       // Las cinco del titular se escriben JUNTAS desde un solo objeto y no campo a campo: son una
