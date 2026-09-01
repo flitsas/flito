@@ -286,11 +286,11 @@ describe('AC5 — auditoría ve el SOAT entero MENOS el comprobante del pago', (
       return c;
     });
 
-    await soportesDeSoat(SOAT_ID, { rol: 'auditor' });
+    await soportesDeSoat(SOAT_ID, { rol: 'auditor', estadoSoat: 'pagado' });
     expect(tablas).not.toContain('flito_conciliacion_lineas');
 
     tablas.length = 0;
-    await soportesDeSoat(SOAT_ID, { rol: 'admin' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', estadoSoat: 'pagado' });
     expect(tablas).toContain('flito_conciliacion_lineas');
   });
 
@@ -317,7 +317,7 @@ describe('el puente soporte → boleta → línea → SOAT, en el where', () => 
     });
 
     const { soportesDeSoat } = await import('../../src/shared/soportes/soportes-consulta.js');
-    await soportesDeSoat(SOAT_ID, { rol: 'admin' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', estadoSoat: 'pagado' });
 
     const dialecto = new PgDialect();
     const textos = condiciones.map((c) => dialecto.sqlToQuery(c as never).sql);

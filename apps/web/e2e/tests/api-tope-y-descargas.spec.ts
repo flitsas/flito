@@ -217,20 +217,27 @@ test.describe('api.ts — el tope de tiempo cubre el CUERPO de la respuesta (HU 
     await loginAs(page, OPERACIONES_USER);
     await acelerarElTope(page);
     await mockTramites(page);
-    await estancar(page, '**/api/flito/impuestos/facturas-venta/zip', 'archivo');
+    // La HU #11910 retiró «Descargar facturas (zip)» y su endpoint; el ZIP de esta pantalla es ahora
+    // `/flito/tramites/soportes/zip`, servido por `downloadPostNamed`. Lo que este caso mide —que el
+    // tope tape la lectura del CUERPO de un archivo— no cambia de sujeto: cambia de ruta.
+    await estancar(page, '**/api/flito/tramites/soportes/zip', 'archivo');
 
     await page.goto('/flito/tramites');
     await page.getByLabel('Seleccionar XYZ789').check();
+    await page.getByRole('button', { name: 'Descargar soportes (1)' }).click();
     await Promise.all([
       cabecerasDelEstancado(page, 'archivo'),
-      page.getByRole('button', { name: 'Descargar facturas (zip)', exact: true }).click(),
+      page.getByRole('dialog').getByRole('button', { name: 'Descargar', exact: true }).click(),
     ]);
 
     expect(await topesAcelerados(page), 'el tope de api.ts dejó de casar con el acelerador').toBeGreaterThan(0);
-    // La rama del blob es la MÁS expuesta: un export puede tardar minutos en el servidor, así que es
+    // La rama del blob es la MÁS expuesta: un ZIP puede tardar minutos en el servidor, así que es
     // donde más probable es que las cabeceras salgan mucho antes que el último byte. Y aquí ya se
     // sabe que salieron: el `response` de arriba llegó con el zip a medio escribir.
-    await expect(page.getByText(MENSAJE_TOPE)).toBeVisible();
+    //
+    // El copy es el de `avisoDeError` para `status === 0`, que la #11910 reutiliza tal cual: el
+    // `ApiError(0, …)` que produce el tope es el mismo objeto, solo que lo viste otra banda.
+    await expect(page.getByText('El archivo tardó demasiado en generarse. Vuelve a intentarlo con un filtro más estrecho.')).toBeVisible();
   });
 });
 
@@ -269,11 +276,19 @@ test.describe('api.ts — la entrega de archivos libera el object URL después (
     expect(urls.revocadosEnElMismoTurno, 'se revocó en la misma vuelta síncrona del clic').toBe(0);
   });
 
-  test('AC2 — `api.downloadPost`: mismo trato para el zip de facturas', async ({ page }) => {
+  /**
+   * **Cambió de sujeto con la HU #11910 y hay que decirlo:** hasta esa HU este caso entraba por
+   * `api.downloadPost` —el viejo «Descargar facturas (zip)»— y desde ella entra por
+   * `downloadPostNamed`, que es lo que consume el ZIP de soportes. Lo que se mide no se ha movido:
+   * las tres formas de descargar comparten `entregarArchivo`, y la carrera del `revokeObjectURL` vive
+   * ahí. **Deuda declarada:** `api.downloadPost` conserva dos llamadores (los expedientes de
+   * traspaso) y esta suite ya no los ejercita; recuperar esa entrada es alcance de otra HU.
+   */
+  test('AC2 — `api.downloadPostNamed`: mismo trato para el zip de soportes', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await instrumentarObjectUrls(page);
     await mockTramites(page);
-    await page.route('**/api/flito/impuestos/facturas-venta/zip', (route) => route.fulfill({
+    await page.route('**/api/flito/tramites/soportes/zip', (route) => route.fulfill({
       status: 200,
       contentType: 'application/zip',
       body: CUERPO_ZIP,
@@ -281,12 +296,15 @@ test.describe('api.ts — la entrega de archivos libera el object URL después (
 
     await page.goto('/flito/tramites');
     await page.getByLabel('Seleccionar XYZ789').check();
+    await page.getByRole('button', { name: 'Descargar soportes (1)' }).click();
     const [descarga] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Descargar facturas (zip)', exact: true }).click(),
+      page.getByRole('dialog').getByRole('button', { name: 'Descargar', exact: true }).click(),
     ]);
 
-    expect(descarga.suggestedFilename()).toBe('facturas-venta.zip');
+    // Sin `Content-Disposition` en el mock, el nombre es el RESPALDO del cliente: nunca uno inventado
+    // con la hora del equipo de quien descarga.
+    expect(descarga.suggestedFilename()).toBe('soportes.zip');
     expect(await readFile(await descarga.path(), 'utf8')).toBe(CUERPO_ZIP);
 
     await expect.poll(async () => (await leerUrls(page)).revocados.length).toBe(1);

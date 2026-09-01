@@ -159,7 +159,10 @@ export const CLIENTS_COLUMNAS_PII = [
 export const CLIENTS_COLUMNAS_SIN_PII = [
   'id', 'documentType', 'city', 'active', 'createdAt',
   'cityTextoOrigen', 'cityConfirmadaPor', 'cityConfirmadaEn',
-  'soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable',
+  // `soatSinTramite` (Feature #11912): bandera de parametrización, como sus vecinas — dice qué
+  // canal tiene abierto la compañía, no quién es. No identifica a nadie y borrarla en un derecho al
+  // olvido dejaría a sus usuarios `cliente` sin poder pedir SOAT sin motivo.
+  'soatAutogestionable', 'soatSinTramite', 'impuestosAutogestionable', 'logisticaAutogestionable',
   'logisticaPermiteParcial', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
   'flitoProveedorSoatId',
   'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',

@@ -44,6 +44,16 @@ interface Client {
   city: string | null;
   soatAutogestionable: boolean; impuestosAutogestionable: boolean; logisticaAutogestionable: boolean;
   logisticaPermiteParcial: boolean;
+  /**
+   * «SOAT sin trámite» (Feature #11912): si los usuarios `cliente` de esta compañía pueden pedirle
+   * un SOAT a FLITO sin que haya trámite abierto. Independiente de `soatAutogestionable`.
+   *
+   * Se LEE por `GET /clients`, como sus cuatro vecinas, y se ESCRIBE por
+   * `PATCH /flito/parametrizacion/companias/:id`, también como ellas. Esa asimetría es la que ya
+   * existía; lo que no puede haber es una casilla de esta tabla que se lea por una ruta distinta a
+   * las de al lado, porque `financiera` ve esta pantalla y NO entra a parametrización.
+   */
+  soatSinTramite: boolean;
 }
 interface Proveedor {
   id: string; nombre: string; estrategia: string | null;
@@ -54,7 +64,7 @@ interface Tarifa {
   concepto: ConceptoTarifa; tipoTramite: string | null; valor: number; activo: boolean;
 }
 
-type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial';
+type FlagCampo = 'soatAutogestionable' | 'impuestosAutogestionable' | 'logisticaAutogestionable' | 'logisticaPermiteParcial' | 'soatSinTramite';
 type Tab = 'clientes' | 'proveedores';
 
 const pesos = (v: number) =>
@@ -89,14 +99,23 @@ export default function Clients() {
 // ───────────────────────────── Clientes ─────────────────────────────────────
 
 function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boolean; editaTarifas: boolean }) {
-  const [clients, setClients] = useState<Client[]>([]);
+  // `null` = cargando. Antes era `[]` desde el primer render y el `catch` ponía `[]` también, así
+  // que un fallo del servidor se leía «No hay clientes.» y no había estado de carga: tres de los
+  // cuatro estados colapsados en uno. Se paga aquí porque es sobre ESTA tabla donde se verifica que
+  // el flag persiste, y si la recarga falla el admin no puede distinguir «se perdió lo que marqué»
+  // de «no cargó».
+  const [clients, setClients] = useState<Client[] | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [tarifasDe, setTarifasDe] = useState<Client | null>(null);
   const [fiscalDe, setFiscalDe] = useState<Client | null>(null);
   const [veredictos, setVeredictos] = useState<Map<number, VeredictoCliente>>(new Map());
   const [form, setForm] = useState({ name: '', document: '', documentType: 'NIT', phone: '', email: '', address: '', city: '', notes: '' });
 
-  const load = () => { api.get<Client[]>('/clients').then(setClients).catch(() => setClients([])); };
+  const load = () => {
+    setClients(null); setErrorCarga(null);
+    api.get<Client[]>('/clients').then(setClients).catch((err) => setErrorCarga(errorMessage(err)));
+  };
 
   // Quién puede facturarse y quién no (AC5). Se pide aparte del listado: un fallo del informe no
   // puede dejar sin pantalla de clientes a quien solo venía a mirar una tarifa.
@@ -126,11 +145,13 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
   // Toggle de autogestión: PATCH del flag suelto. Optimista con reversión si falla.
   const toggleFlag = async (c: Client, campo: FlagCampo) => {
     const valor = !c[campo];
-    setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: valor } : x)));
+    setClients((prev) => (prev ?? []).map((x) => (x.id === c.id ? { ...x, [campo]: valor } : x)));
     try {
+      // El PATCH manda UNA sola clave y el servidor copia al `set` solo las claves definidas: por
+      // eso la independencia del AC3 es por construcción y no por una regla que haya que recordar.
       await api.patch(`/flito/parametrizacion/companias/${c.id}`, { [campo]: valor });
     } catch (err) {
-      setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, [campo]: !valor } : x)));
+      setClients((prev) => (prev ?? []).map((x) => (x.id === c.id ? { ...x, [campo]: !valor } : x)));
       toast.error(errorMessage(err));
     }
   };
@@ -175,7 +196,14 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
       )}
 
       <FlitCard>
-        {clients.length === 0 ? <FlitEmpty>No hay clientes.</FlitEmpty> : (
+        {errorCarga ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorCarga}</p>
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={load}>Reintentar</button>
+          </div>
+        ) : clients === null ? (
+          <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando compañías…</p>
+        ) : clients.length === 0 ? <FlitEmpty>No hay clientes.</FlitEmpty> : (
           <FlitTable>
             <thead>
               <FlitTr>
@@ -188,6 +216,10 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                 <FlitTh center>Impuestos</FlitTh>
                 <FlitTh center>Logística</FlitTh>
                 <FlitTh center>Parcial</FlitTh>
+                {/* Al FINAL del bloque de banderas y no pegada a «SOAT»: contiguas se leerían como
+                    dos variantes del mismo interruptor, que es justo el malentendido que el AC3
+                    quiere evitar. Separada, se lee como lo que es: otra cosa. */}
+                <FlitTh center>SOAT sin trámite</FlitTh>
                 <FlitTh>Facturación</FlitTh>
                 <FlitTh />
               </FlitTr>
@@ -204,6 +236,11 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
                   <CeldaFlag c={c} campo="impuestosAutogestionable" label="Impuestos" />
                   <CeldaFlag c={c} campo="logisticaAutogestionable" label="Logística" />
                   <CeldaFlag c={c} campo="logisticaPermiteParcial" label="Parcial" aria={`Entregas parciales de ${c.name}`} />
+                  {/* `aria` explícito, como «Parcial». El nombre por defecto sería «Autogestión SOAT
+                      sin trámite de X», una frase que afirma lo CONTRARIO de lo que hace la casilla
+                      —autogestionar es no pedírselo a FLITO— y que además la confundiría con la
+                      casilla «SOAT» de tres columnas antes. */}
+                  <CeldaFlag c={c} campo="soatSinTramite" label="SOAT sin trámite" aria={`SOAT sin trámite de ${c.name}`} />
                   <td className="px-3 py-2"><ChipFacturable veredicto={veredictos.get(c.id)} /></td>
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
@@ -223,6 +260,12 @@ function TabClientes({ editaAutogestion, editaTarifas }: { editaAutogestion: boo
           <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
             Marca «Autogestiona» cuando la compañía tramita SOAT, impuestos o logística por su cuenta (FLITO no la gestiona).
             «Parcial» permite generar el acta de logística con los documentos disponibles; sin marcar, el acta se retiene hasta tenerlos todos (CA-08/09).
+          </p>
+        )}
+        {editaAutogestion && (
+          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+            «SOAT» marca que la compañía compra su SOAT por su cuenta y FLITO no lo gestiona. «SOAT sin trámite» dice otra cosa:
+            que sus usuarios Cliente pueden pedirle un SOAT a FLITO sin que haya un trámite abierto. Son independientes — marcar una no cambia la otra.
           </p>
         )}
       </FlitCard>

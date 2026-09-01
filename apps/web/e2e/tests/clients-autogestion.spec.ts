@@ -8,7 +8,7 @@ const CLIENTES = [
   {
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: '3001112233', email: 'norte@x.co', address: null, city: 'Manizales', notes: null, active: true,
-    soatAutogestionable: true, impuestosAutogestionable: false, logisticaAutogestionable: false,
+    soatAutogestionable: true, soatSinTramite: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
   },
 ];
 

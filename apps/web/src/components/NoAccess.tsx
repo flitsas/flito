@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { PAGES, PageSlug } from '../lib/permissions';
+import { PAGES, rutaInicio, PageSlug } from '../lib/permissions';
+import { useAuth } from '../lib/auth';
 
 /**
  * Estado "sin acceso a sección" — reemplaza el redirect mudo a "/" de ProtectedRoute.
@@ -9,6 +10,11 @@ import { PAGES, PageSlug } from '../lib/permissions';
  */
 export default function NoAccess({ page, label }: { page?: PageSlug; label?: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const { user } = useAuth();
+  // La salida es la página de INICIO del usuario, no `/` fijo (HU #11913). Con `/` fijo, un rol sin
+  // `dashboard` volvía al `NoAccess` del tablero: el botón de escape devolvía al mismo callejón.
+  // Quien tiene `dashboard` sigue viendo «Volver al tablero», palabra por palabra.
+  const inicio = rutaInicio(user);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -58,10 +64,10 @@ export default function NoAccess({ page, label }: { page?: PageSlug; label?: str
 
         <div className="mt-8 flex justify-center">
           <Link
-            to="/"
+            to={inicio.to}
             className="inline-flex h-10 items-center justify-center rounded-xl bg-[color:var(--flit-blue)] px-5 text-sm font-medium text-[color:var(--color-text-on-accent)] transition-colors hover:bg-[color:var(--flit-blue)]-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-surface)]"
           >
-            Volver al tablero
+            {inicio.to === '/' ? 'Volver al tablero' : `Ir a ${inicio.etiqueta}`}
           </Link>
         </div>
       </div>

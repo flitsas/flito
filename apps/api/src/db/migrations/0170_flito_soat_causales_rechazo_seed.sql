@@ -1,0 +1,82 @@
+-- 0170_flito_soat_causales_rechazo_seed.sql
+-- Feature #11912 — Solicitud de SOAT sin trámite (canal Cliente). HU #11915 (revisión del admin,
+-- rechazo y subsanación).
+-- Autor: equipo FLITO. Diseño y tradeoffs: docs/adr/ADR-0008-flito-soat-canal-cliente.md §1.7
+--
+-- Sin BEGIN/COMMIT propio (ADR-DB-001: el runner ya envuelve cada archivo con `sql.begin()`).
+--
+-- ============================================================================
+-- QUÉ ARREGLA, Y POR QUÉ ES UNA MIGRACIÓN Y NO UNA PANTALLA
+-- ============================================================================
+--
+-- `flito_soat_causales_rechazo` existe desde la 0167 y está VACÍA. El AC2 de la #11915 dice que el
+-- rechazo exige una causal DE LA LISTA GENERAL más una observación, las dos; con la tabla vacía no
+-- hay ninguna causal válida que elegir, así que hoy el rechazo es literalmente imposible por falta
+-- de datos — no por falta de código. Un catálogo que nace vacío y que nadie puebla es una función
+-- que nunca se puede ejercer.
+--
+-- No se resuelve «creando las causales desde una pantalla» porque esa pantalla no existe (la #11915
+-- entrega el catálogo en modo LECTURA: `GET /flito/soat/causales-rechazo`) y porque un entorno nuevo
+-- —una instalación limpia, la BD de un desarrollador, el CD de DEV— tiene que llegar con el rechazo
+-- funcionando, no con un paso manual escrito en un README que alguien tendrá que recordar.
+--
+-- ============================================================================
+-- IDEMPOTENCIA: `ON CONFLICT (nombre) DO NOTHING`, NO `DO UPDATE`
+-- ============================================================================
+--
+-- La segunda pasada no cambia NI UNA FILA, que es el sentido fuerte que pide la cabecera de la 0167.
+-- El conflicto se resuelve contra `uq_flito_soat_causales_nombre`, el índice único por nombre que la
+-- 0167 creó.
+--
+-- `DO UPDATE SET orden = EXCLUDED.orden` habría sido «más correcto» sobre el papel —dejaría el orden
+-- siempre igual al del archivo— y se descarta por dos motivos concretos: (1) tocaría `updated_at` en
+-- cada pasada, así que la migración dejaría de ser un no-op y el `db:apply` reportaría escrituras
+-- sobre una base que no cambió; (2) pisaría lo que un administrador haya reordenado o DESACTIVADO a
+-- mano, que es exactamente lo que las columnas `activo` y `orden` existen para permitir. Una semilla
+-- siembra; no vuelve a plantar encima de lo que creció.
+--
+-- ============================================================================
+-- LA LISTA: PROPUESTA DE NEGOCIO, PENDIENTE DE CONFIRMACIÓN DE DAVID
+-- ============================================================================
+--
+-- Es la del `ux-agent` (`docs/ux/revision-rechazo-y-subsanacion.md` §6), literal y en su orden. NO
+-- es una decisión tomada: es contenido de negocio y quien lo aprueba es David. Cambiarla después es
+-- barato a propósito —basta otra migración con el mismo `ON CONFLICT`, y ningún id va codificado en
+-- el código: el servicio resuelve la causal por su `uuid`, que sale del propio catálogo.
+--
+-- Sale de cruzar lo que el Cliente APORTA en el alta contra lo que de eso puede estar mal:
+--
+--   · Placa y VIN — NO. Los valida el RUNT en la preconsulta; si no cuadran, la solicitud ni se crea.
+--   · Marca, línea, modelo, clase, servicio, cilindraje, organismo — NO. Los trae el RUNT y no se
+--     teclean; si están mal, el arreglo es ante el organismo de tránsito, no en FLITO.
+--   · Documento, nombre y datos de contacto del propietario — SÍ: los teclea una persona.
+--   · La factura de venta — SÍ, y es lo que más falla.
+--
+-- Los ejes son DISJUNTOS a propósito: 1 y 2 hablan del archivo (¿se lee? / ¿es de este vehículo?),
+-- 3 y 4 de lo tecleado (¿coincide? / ¿está completo?) y 5 es el desagüe, acotado a una acción. Sin
+-- esa separación un revisor con prisa mete todo en la primera y el catálogo deja de medir nada.
+--
+-- El criterio de redacción, que es lo que hay que respetar si algún día se añade una sexta: **si no
+-- se puede leer en voz alta por teléfono a la empresa cliente, no es un nombre de causal válido.**
+-- El `nombre` se le pinta al Cliente LITERAL y sin prefijo en «Por qué se rechazó»
+-- (`CorreccionSolicitud.tsx`), así que estas cadenas no son etiquetas de clasificación interna: son
+-- la primera frase que esa persona lee sobre su rechazo. De ahí que ninguna sea un sustantivo suelto
+-- («Documentación», «Datos») y que todas sean una afirmación completa sobre su solicitud.
+--
+-- Descartadas y por qué, que es la mitad de la propuesta: «Solicitud duplicada» (imposible, lo impide
+-- el UNIQUE de `flito_soat.vin`), «El vehículo ya tiene SOAT vigente» (lo para la preconsulta contra
+-- el RUNT), «Datos del vehículo incorrectos» (no son editables; mandaría a corregir un campo que no
+-- existe) y —la importante— «La solicitud no procede»: este canal NO tiene estado terminal de
+-- negación, `rechazada` significa «corrija y reenvíe», y una causal sin arreglo posible deja al
+-- Cliente en un bucle. Negar en firme sería un estado nuevo y otra HU.
+--
+-- `orden` 1..5, el del documento. Los nombres caben en `varchar(120)` con margen: el más largo mide
+-- 62.
+
+INSERT INTO flito_soat_causales_rechazo (nombre, orden) VALUES
+  ('Factura de venta ilegible',                                    1),
+  ('La factura de venta no corresponde al vehículo',               2),
+  ('Los datos del propietario no coinciden con la factura de venta', 3),
+  ('Faltan datos de contacto del propietario',                     4),
+  ('Se necesita otro documento',                                   5)
+ON CONFLICT (nombre) DO NOTHING;

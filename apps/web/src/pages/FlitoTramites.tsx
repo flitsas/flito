@@ -4,7 +4,7 @@
 // cada uno sigue en su propia cola. Las reglas viven en el backend; aquí solo se orquesta y reporta.
 
 import { puedeOperar } from '../lib/permissions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
@@ -27,11 +27,15 @@ import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInte
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import VisorSoportes from '../components/flit/VisorSoportes';
-import ModalFacturaVenta, { nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
+import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../components/flit/flitPageKit';
+import {
+  AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, useDescargaZip,
+} from '../components/flito/DescargarSoportesZip';
+import { documentoConTipo } from '../components/flit/columnasComunes';
 
 interface FilaSoat {
   id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
@@ -52,7 +56,11 @@ interface TramiteFila {
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
-  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; correo: string | null } | null;
+  /**
+   * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
+   * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
+   */
+  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; correo: string | null } | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
@@ -81,7 +89,13 @@ type Resultado =
 
 // Semáforo de estados (SOAT e impuestos): pendiente naranja, solicitado azul, con novedad rojo,
 // pagado verde. La autogestión (sin registro) se pinta aparte en gris.
-const TONO_SOAT: Record<EstadoSoat, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
+// `pendiente_revision` y `rechazada` (canal Cliente, Feature #11912) no nacen de un trámite y por
+// tanto no deberían asomar por esta pantalla; se completan porque el `Record` es exhaustivo, y con
+// los mismos tonos que la cola SOAT para que un estado no cambie de color según dónde se mire.
+const TONO_SOAT: Record<EstadoSoat, ChipTone> = {
+  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  pendiente_revision: 'warning', rechazada: 'danger',
+};
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
 
 const pesos = (v: number | null) => v === null ? null
@@ -224,9 +238,32 @@ export default function FlitoTramites() {
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const refrescar = () => setRecarga((n) => n + 1);
+  /**
+   * **Lo MARCADO y lo ACCIONABLE dejan de ser lo mismo** (HU #11910, AC1).
+   *
+   * Hasta esta HU `ids()` era `[...seleccion]` y eso era seguro **solo** porque la casilla de las
+   * filas no accionables venía `disabled`: la interfaz impedía construir una selección que las
+   * acciones no supieran tratar. Al abrir la casilla a cualquier fila —que es lo que pide el AC1,
+   * porque las Entregadas son justo las que tienen la evidencia completa— ese `disabled` deja de
+   * tapar el agujero, y «Entregar» empezaría a mandar al backend ids que nunca admitió.
+   *
+   * Así que se separan: `ids()` sigue siendo lo que se descarga —la descarga sí aplica a todas— y
+   * `idsAccionables()` es lo que reciben «Solicitar …» y «Entregar». Ninguna acción existente cambia
+   * a qué filas aplica; lo que cambia es que ahora se dice.
+   */
   const ids = () => [...seleccion];
+  const seleccionAccionable = filas.filter((f) => seleccion.has(f.tramiteId) && esAccionable(f));
+  const idsAccionables = () => seleccionAccionable.map((f) => f.tramiteId);
   const limpiar = () => setSeleccion(new Set());
   const n = seleccion.size;
+  const nAccionables = seleccionAccionable.length;
+  // `(2)` cuando no hay desajuste y `(2 de 3)` cuando lo hay: el número va DENTRO del nombre
+  // accesible, que es lo que se lee en el instante de decidir.
+  const cuentaAccionable = nAccionables < n ? `${nAccionables} de ${n}` : `${nAccionables}`;
+  // Quién puede DESCARGAR SOPORTES: la misma guarda de la barra. El auditor no la ve (AC7).
+  const puedeDescargarSoportes = esOperaciones;
+  // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
+  const descargaZip = useDescargaZip(ZIP_TRAMITES);
   const limpiarFiltros = () => {
     setSoatSel([]); setImpSel([]); setEmpresasSel([]); setEstadosSel([]);
     setTransitosSel([]); setCiudadesSel([]); setAutogestionSel(''); setAlertaSel('');
@@ -257,7 +294,6 @@ export default function FlitoTramites() {
   };
 
   const hayFiltros = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
-  const accionables = useMemo(() => filas.filter(esAccionable), [filas]);
 
   const ejecutar = async (fn: () => Promise<Resultado>) => {
     setEnProceso(true); setError(null);
@@ -267,30 +303,35 @@ export default function FlitoTramites() {
   };
 
   const solicitarImpuestosLote = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'impuestos', impuestos: await api.post<ResImpuestos>('/flito/tramites/solicitar-impuestos', { tramiteIds }) }));
-  const solicitarImpuestos = () => solicitarImpuestosLote(ids());
+  const solicitarImpuestos = () => solicitarImpuestosLote(idsAccionables());
   const entregar = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'entrega', entrega: await api.post<ResEntrega>('/flito/tramites/entregar', { tramiteIds }) }));
 
   // Ver la factura de venta de FLIT: el endpoint (auth) sirve el PDF; se descarga el blob y se
   // muestra en un visor (modal) desde el que también se puede descargar.
   //
-  // El nombre lleva el id del trámite y NO el del impuesto: es el que se ve en la pantalla y con el
-  // que se concilia. Con el del impuesto, la carpeta de descargas quedaba llena de uuid.
+  // **El nombre lo pone el SERVIDOR** (HU #11910, AC5): `PLACA-ORGANISMO.<ext>`, el mismo con el que
+  // sale dentro del ZIP. Antes se fabricaba aquí (`factura-venta-<idFlit>.pdf`) y quien bajaba un ZIP
+  // y luego una factura suelta acababa con dos convenciones en la misma carpeta, sin forma de
+  // emparejarlas. El cliente VALIDA la forma y cae al respaldo si no encaja; no la inventa.
   const verFactura = async (fila: TramiteFila) => {
     setError(null);
     try {
-      const blob = await api.get<Blob>(`/flito/impuestos/${fila.impuesto!.id}/factura-venta`);
-      setFactura({ url: URL.createObjectURL(blob), nombre: nombreFacturaVenta(fila.idFlit) });
+      const { blob, nombre } = await api.getBlobNamed(
+        `/flito/impuestos/${fila.impuesto!.id}/factura-venta`,
+        nombreFacturaVenta(fila.idFlit),
+        esNombrePlacaOrganismo,
+      );
+      setFactura({ url: URL.createObjectURL(blob), nombre });
     } catch (e) { setError(errorMessage(e)); }
   };
   const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
 
-  const descargarZip = async () => {
-    const impuestoIds = filas.filter((f) => seleccion.has(f.tramiteId) && f.impuesto && f.facturaVentaFlitId).map((f) => f.impuesto!.id);
-    if (impuestoIds.length === 0) { setError('Ninguno de los seleccionados tiene factura de venta en FLIT.'); return; }
-    setError(null);
-    try { await api.downloadPost('/flito/impuestos/facturas-venta/zip', 'facturas-venta.zip', { ids: impuestoIds }); }
-    catch (e) { setError(errorMessage(e)); }
-  };
+  // `descargarZip` desapareció con la HU #11910. Lo que hacía —filtrar la selección a las filas
+  // «con impuesto Y con factura de venta en FLIT» y pedir `/flito/impuestos/facturas-venta/zip` con
+  // un nombre de archivo inventado en el cliente— vive ahora en `DescargarSoportesZip`, contra
+  // `/flito/tramites/soportes/zip` y **con ids de TRÁMITE**. Aquel filtro dejaba fuera de un ZIP a
+  // una fila sin impuesto que sí tiene comprobante del SOAT; el filtro correcto lo aplica el
+  // servidor, que es el único que sabe qué documentos existen.
 
   const verHistorial = async (f: TramiteFila) => {
     setError(null);
@@ -367,14 +408,49 @@ export default function FlitoTramites() {
         <FlitCard>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{n} seleccionado(s)</span>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT</button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos</button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos</button>
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(ids())}>Entregar</button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={descargarZip}>Descargar facturas (zip)</button>
+            {/* Las cuatro acciones de siempre, sobre las filas de siempre. Si en lo marcado no hay
+                ninguna accionable no se pintan: un botón que no puede actuar sobre nada es peor que
+                su ausencia. El número del rótulo es el de las filas sobre las que SÍ actúan. */}
+            {nAccionables > 0 && (
+              <>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('soat')}>Solicitar SOAT ({cuentaAccionable})</button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={solicitarImpuestos}>Solicitar Impuestos ({cuentaAccionable})</button>
+                <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enProceso} onClick={() => setDialogo('ambos')}>Solicitar ambos ({cuentaAccionable})</button>
+                <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enProceso} onClick={() => entregar(idsAccionables())}>Entregar ({cuentaAccionable})</button>
+              </>
+            )}
+            {/* Ocupa el MISMO píxel que el viejo «Descargar facturas (zip)»: quien lo tenía
+                memorizado hace el mismo gesto y se encuentra un diálogo con «Factura de venta» ya
+                marcada, así que confirmar sin leer produce al menos lo de antes. Lo que cambia y hay
+                que declarar: el archivo ya no se llama `facturas-venta.zip`. */}
+            <DescargarSoportesZip
+              superficie={ZIP_TRAMITES}
+              ids={ids()}
+              ocupado={descargaZip.ocupado}
+              onDescargar={descargaZip.descargar}
+            />
             <button className="text-xs font-semibold" style={{ color: 'var(--flit-text-muted)' }} onClick={limpiar}>Limpiar</button>
           </div>
+          {nAccionables < n && (
+            <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+              De las {n} filas marcadas, {nAccionables} están Asignadas con empresa y secretaría
+              emparejadas y son las únicas sobre las que actúan Solicitar y Entregar.
+              Descargar soportes usa las {n}.
+            </p>
+          )}
         </FlitCard>
+      )}
+
+      {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
+          limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
+      {puedeDescargarSoportes && (
+        <AvisoSoportesZip
+          ocupado={descargaZip.ocupado}
+          marcadas={descargaZip.marcadas}
+          aviso={descargaZip.aviso}
+          onReintentar={descargaZip.reintentar}
+          onDescartar={descargaZip.descartar}
+        />
       )}
 
       {data !== null && !hayTramitesSistema && !hayFiltros && !buscar.trim() && (
@@ -448,11 +524,14 @@ export default function FlitoTramites() {
           <FlitTable>
             <thead>
               <FlitTr>
+                {/* Marca TODAS las filas de la página, no solo las accionables: la casilla ya no
+                    es la del trabajo que se puede hacer con ella (AC1). El nombre accesible cambia
+                    con el sentido. */}
                 {esOperaciones && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar accionables"
-                      checked={accionables.length > 0 && accionables.every((f) => seleccion.has(f.tramiteId))}
-                      onChange={(e) => setSeleccion(e.target.checked ? new Set(accionables.map((f) => f.tramiteId)) : new Set())} />
+                    <input type="checkbox" aria-label="Seleccionar las filas de esta página"
+                      checked={filas.length > 0 && filas.every((f) => seleccion.has(f.tramiteId))}
+                      onChange={(e) => setSeleccion(e.target.checked ? new Set(filas.map((f) => f.tramiteId)) : new Set())} />
                   </FlitTh>
                 )}
                 <FlitTh>
@@ -495,8 +574,10 @@ export default function FlitoTramites() {
                 <FlitTr key={f.tramiteId}>
                   {esOperaciones && (
                     <td className="px-3 py-2">
+                      {/* Sin `disabled` desde la HU #11910: el que estaba dejaba fuera a los
+                          Entregados, que son justo los que tienen la evidencia completa que alguien
+                          va a buscar. Lo que la fila admite lo dice ahora el rótulo de las acciones. */}
                       <input type="checkbox" aria-label={`Seleccionar ${f.vehiculo.placa}`}
-                        disabled={!esAccionable(f)} title={esAccionable(f) ? undefined : 'Solo Asignado con empresa y secretaría emparejadas'}
                         checked={seleccion.has(f.tramiteId)}
                         onChange={() => setSeleccion((s) => { const x = new Set(s); x.has(f.tramiteId) ? x.delete(f.tramiteId) : x.add(f.tramiteId); return x; })} />
                     </td>
@@ -530,7 +611,7 @@ export default function FlitoTramites() {
                     {f.compradorPrincipal ? (
                       <>
                         <div>{f.compradorPrincipal.nombreCompleto}</div>
-                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.compradorPrincipal.numeroDocumento}</div>
+                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{documentoConTipo(f.compradorPrincipal.tipoDocumento, f.compradorPrincipal.numeroDocumento)}</div>
                         {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
                       </>
                     ) : '—'}
@@ -620,10 +701,10 @@ export default function FlitoTramites() {
       )}
 
       {dialogo && (
-        <DialogoProveedor tipo={dialogo} n={filaSolicitud ? 1 : n} proveedores={proveedores} enProceso={enProceso}
+        <DialogoProveedor tipo={dialogo} n={filaSolicitud ? 1 : nAccionables} proveedores={proveedores} enProceso={enProceso}
           onCancelar={() => { setDialogo(null); setFilaSolicitud(null); }}
           onConfirmar={(proveedorSoatId) => {
-            const tramiteIds = filaSolicitud ? [filaSolicitud] : ids();
+            const tramiteIds = filaSolicitud ? [filaSolicitud] : idsAccionables();
             setDialogo(null); setFilaSolicitud(null);
             ejecutar(async () => {
               if (dialogo === 'soat') return { tipo: 'soat', soat: await api.post<ResSoat>('/flito/tramites/solicitar-soat', { tramiteIds, proveedorSoatId }) };

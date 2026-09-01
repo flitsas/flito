@@ -183,7 +183,9 @@ async function resolverSoat(revisionId: string, soporteId: string, soatId: strin
     await auditEnTx(tx, ctx, 'flito_soat', soatId, `Revisión resuelta a mano (${revisionId}): documento atado al SOAT. ${motivo.trim()}`);
   });
 
-  await marcarPagado(soatId, extraccion, { userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null });
+  // `companiaId: null` — quien resuelve una revisión es Operaciones, no un usuario de compañía
+  // (Feature #11912). Sin proveedor ni compañía, este contexto no aplica ninguna frontera.
+  await marcarPagado(soatId, extraccion, { userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
 }
 
 /**

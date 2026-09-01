@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useSearchParams } from 'react-r
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
-import { hasPage, PageSlug } from './lib/permissions';
+import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
 import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import Layout from './components/Layout';
 import NoAccess from './components/NoAccess';
@@ -32,6 +32,7 @@ const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
+const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
@@ -123,6 +124,24 @@ function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Inicio — el rol SIN `dashboard` no puede aterrizar en el tablero (HU #11913).
+//
+// `/` es la puerta de entrada de todo: el login navega ahí por defecto y el comodín `*` manda ahí
+// cualquier URL desconocida. Para quien no tiene `dashboard` eso era `NoAccess`, y el único botón
+// de `NoAccess` volvía a `/`: un bucle sin salida del que solo se sale cerrando sesión.
+//
+// Quien SÍ tiene `dashboard` —los 11 roles anteriores a `cliente`— no pasa por la rama nueva y ve
+// exactamente lo de siempre. Y si `rutaInicio` no encuentra destino devuelve `/`, así que el
+// `Navigate` no puede apuntarse a sí mismo: se cae al `NoAccess` de siempre.
+function InicioGate() {
+  const { user } = useAuth();
+  if (user && !hasPage(user, 'dashboard')) {
+    const { to } = rutaInicio(user);
+    if (to !== '/') return <Navigate to={to} replace />;
+  }
+  return <ProtectedRoute page="dashboard"><Lazy><Dashboard /></Lazy></ProtectedRoute>;
+}
+
 // TRAM-TRASPASO-F5 — gate del wizard de traspaso: el operador STT (role
 // `transito`) no usa el wizard del gestor CEA; se le redirige a su expediente
 // STT (/transito/traspaso?id=N) o a la bandeja si entra sin id.
@@ -161,7 +180,7 @@ function AppRoutes() {
       <Route path="/tramite/verificar" element={<Lazy fallback={fullScreenLoading}><PublicTramiteVerify /></Lazy>} />
       <Route path="/tramite/portal/:token" element={<Lazy fallback={fullScreenLoading}><PublicTramitePortal /></Lazy>} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route path="/" element={<ProtectedRoute page="dashboard"><Lazy><Dashboard /></Lazy></ProtectedRoute>} />
+        <Route path="/" element={<InicioGate />} />
         <Route path="/vehicles" element={<ProtectedRoute page="vehicles"><Lazy><Vehicles /></Lazy></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute page="clients"><Lazy><Clients /></Lazy></ProtectedRoute>} />
         <Route path="/soat" element={<ProtectedRoute page="soat"><Lazy><Soat /></Lazy></ProtectedRoute>} />
@@ -170,7 +189,27 @@ function AppRoutes() {
         <Route path="/tax-reader" element={<ProtectedRoute page="tax_reader"><Lazy><TaxReader /></Lazy></ProtectedRoute>} />
         <Route path="/flito/tramites" element={<ProtectedRoute page="flito_tramites"><Lazy><FlitoTramites /></Lazy></ProtectedRoute>} />
         <Route path="/flito/tablero" element={<ProtectedRoute page="flito_tablero"><Lazy><FlitoTablero /></Lazy></ProtectedRoute>} />
-        <Route path="/flito/soat" element={<ProtectedRoute page="soat"><Lazy><FlitoSoat /></Lazy></ProtectedRoute>} />
+        {/* Slug PROPIO `flito_soat` desde el Feature #11912, y ya no la `soat` prestada del módulo
+            legacy de la línea de arriba. Dos pantallas distintas dejaron de tener la misma respuesta
+            en cuanto llegó un rol —`cliente`— que entra a una y no a la otra, y una llave no puede
+            dar dos respuestas. De ahí sale el AC4 por construcción: el Cliente no tiene `soat`, así
+            que `/soat` lo frena el gate de siempre y NO hay que escribir en este router ninguna
+            regla que nombre al rol (una lista negra que habría que recordar con cada rol nuevo).
+            `admin`, `proveedor` y `auditor` conservan las dos llaves: para ellos no cambia nada. */}
+        <Route path="/flito/soat" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoat /></Lazy></ProtectedRoute>} />
+        {/* Canal Cliente (HU #11914) — el alta y su subsanación son SUB-rutas del MISMO slug
+            `flito_soat`, sin `PageSlug` nuevo y sin entrada de menú: quien puede ver la cola de su
+            compañía es quien puede pedir un SOAT para ella, y el alta no estrena permiso.
+            Y hay una segunda razón, medida: `FlitSidebar.tsx:145` pone `end={it.to === '/'}`, así
+            que para `/flito/soat` el `NavLink` NO es exacto y una sub-ruta mantiene «SOAT» con
+            `aria-current="page"`. Una ruta hermana (`/flito/solicitud`) apagaría el único ítem del
+            menú del Cliente y lo dejaría «en ninguna parte» de su propia navegación.
+            La capacidad de radicar —el flag «SOAT sin trámite» de la compañía— NO se resuelve aquí:
+            la pantalla la lee de `/auth/me` y el servidor la revalida en cada escritura. Un gate de
+            router no distinguiría «no tienes el permiso» de «tu compañía no tiene el canal», que es
+            justo lo que el AC5 pide separar. */}
+        <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/soat/solicitud/:id" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />

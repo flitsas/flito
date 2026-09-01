@@ -3,7 +3,7 @@ import { z } from 'zod';
 import argon2 from 'argon2';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { users } from '../../db/schema.js';
+import { clients, users } from '../../db/schema.js';
 import { authMiddleware, requireRole, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { isValidPage } from '../../shared/permissions.js';
@@ -63,6 +63,27 @@ const transitoCodigoSchema = z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 
   .nullable()
   .optional();
 
+// FLITO — Cliente (Feature #11912): la compañía del usuario `cliente`. Mismo patrón que
+// `transitoCodigo` —nullable + optional, con la obligatoriedad CONDICIONAL AL ROL resuelta en el
+// `superRefine`— porque es la misma idea: un ámbito que solo tiene sentido para un rol.
+//
+// Que el id EXISTA no lo puede comprobar un schema: lo comprueba el handler contra `clients` antes
+// de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
+const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
+
+// Literales del copy de UX (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4). El front los
+// muestra prefijados con el nombre del campo (`ApiError.toUserMessage`): es el comportamiento que ya
+// tiene `transitoCodigo` y no se arregla en esta HU.
+const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para el rol Cliente';
+const MSG_COMPANIA_SOBRA = 'Solo los usuarios Cliente pueden tener compañía asignada';
+const MSG_COMPANIA_NO_EXISTE = 'La compañía no existe';
+
+/** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
+async function companiaExiste(id: number): Promise<boolean> {
+  const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
+  return !!c;
+}
+
 const createSchema = z.object({
   username: z.string().min(3).max(50).regex(/^[a-zA-Z0-9_]+$/, 'Solo letras, números y guion bajo'),
   name: z.string().min(1).max(100),
@@ -71,12 +92,21 @@ const createSchema = z.object({
   role: z.enum(ALL_ROLES),
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
+  companiaId: companiaIdSchema,
 }).superRefine((d, ctx) => {
   if (d.role === 'transito' && !d.transitoCodigo) {
     ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Organismo de tránsito requerido para rol tránsito' });
   }
   if (d.role !== 'transito' && d.transitoCodigo) {
     ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Solo usuarios tránsito pueden tener organismo asignado' });
+  }
+  // AC2, capa 1 de 3 (las otras dos: el CHECK de la migración 0168 y el `return null` de
+  // `contextoSoat`). Esta es la que produce el mensaje que el admin lee en la pantalla.
+  if (d.role === 'cliente' && !d.companiaId) {
+    ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_REQUERIDA });
+  }
+  if (d.role !== 'cliente' && d.companiaId) {
+    ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_SOBRA });
   }
 });
 
@@ -86,6 +116,7 @@ const updateSchema = z.object({
   role: z.enum(ALL_ROLES).optional(),
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
+  companiaId: companiaIdSchema,
 });
 
 const userSelect = {
@@ -97,6 +128,9 @@ const userSelect = {
   active: users.active,
   allowedPages: users.allowedPages,
   transitoCodigo: users.transitoCodigo,
+  // La lista de usuarios la necesita para decir a qué compañía pertenece un `cliente`: sin ella, el
+  // dato que el AC2 vuelve obligatorio solo se vería abriendo «Editar».
+  companiaId: users.companiaId,
   createdAt: users.createdAt,
 };
 
@@ -115,11 +149,16 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const { username, name, email, password, role, allowedPages, transitoCodigo } = parsed.data;
+  const { username, name, email, password, role, allowedPages, transitoCodigo, companiaId } = parsed.data;
 
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
   if (existing.length > 0) {
     res.status(409).json({ error: 'Username ya registrado' });
+    return;
+  }
+
+  if (role === 'cliente' && !(await companiaExiste(companiaId!))) {
+    res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
     return;
   }
 
@@ -130,6 +169,9 @@ router.post('/', async (req: Request, res: Response) => {
     username, name, email: email ?? null, passwordHash, role,
     allowedPages: allowedPages ?? [],
     transitoCodigo: role === 'transito' ? transitoCodigo! : null,
+    // Solo el `cliente` la lleva. El `superRefine` ya rechazó las dos combinaciones inválidas; este
+    // ternario es lo que impide que un rol distinto la conserve por un cuerpo con campos de más.
+    companiaId: role === 'cliente' ? companiaId! : null,
   }).returning(userSelect);
 
   await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
@@ -168,6 +210,29 @@ router.patch('/:id', async (req: Request, res: Response) => {
     return;
   }
 
+  // Las mismas tres guardas que `transitoCodigo`, para la compañía del `cliente` (AC2):
+  //   1. quitarle la compañía a un cliente;
+  //   2. ponerle compañía a quien no es cliente;
+  //   3. ascender a `cliente` a alguien que no traía compañía en el cuerpo ni la tenía antes.
+  // La tercera es la que de verdad importa: sin ella, un PATCH que solo cambia el rol dejaría un
+  // `cliente` sin compañía — el usuario que el AC2 declara imposible.
+  if (roleEfectivo === 'cliente' && data.companiaId === null) {
+    res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
+    return;
+  }
+  if (data.companiaId && roleEfectivo !== 'cliente') {
+    res.status(400).json({ error: MSG_COMPANIA_SOBRA });
+    return;
+  }
+  if (roleEfectivo === 'cliente' && data.companiaId === undefined && !before.companiaId) {
+    res.status(400).json({ error: MSG_COMPANIA_REQUERIDA });
+    return;
+  }
+  if (data.companiaId && !(await companiaExiste(data.companiaId))) {
+    res.status(400).json({ error: MSG_COMPANIA_NO_EXISTE });
+    return;
+  }
+
   const updates: Record<string, unknown> = {};
   if (data.name !== undefined) updates.name = data.name;
   if (data.email !== undefined) updates.email = data.email;
@@ -177,10 +242,20 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (data.role !== undefined && data.role !== 'transito' && data.transitoCodigo === undefined) {
     updates.transitoCodigo = null;
   }
+  if (data.companiaId !== undefined) updates.companiaId = data.companiaId;
+  // Degradar a un `cliente` le quita la compañía, igual que degradar a un `transito` le quita el
+  // organismo: dejársela sería un ámbito colgado que nadie vuelve a mirar. El CHECK de la base no lo
+  // impediría (solo exige compañía CUANDO el rol es cliente), así que la limpieza es cosa de aquí.
+  if (data.role !== undefined && data.role !== 'cliente' && data.companiaId === undefined) {
+    updates.companiaId = null;
+  }
   if (Object.keys(updates).length === 0) { res.status(400).json({ error: 'Sin cambios' }); return; }
 
-  // Si cambian role, allowedPages o transitoCodigo, invalidar sesiones — el JWT cachea scope.
-  const debeInvalidar = data.role !== undefined || data.allowedPages !== undefined || data.transitoCodigo !== undefined;
+  // Si cambian role, allowedPages, transitoCodigo o companiaId, invalidar sesiones — el JWT cachea
+  // scope. `companiaId` NO viaja en el token (`contextoSoat` la lee de la BD), pero el ROL sí, y un
+  // cambio de compañía es un cambio de qué datos ve esa persona: que vuelva a entrar limpia.
+  const debeInvalidar = data.role !== undefined || data.allowedPages !== undefined
+    || data.transitoCodigo !== undefined || data.companiaId !== undefined;
   if (debeInvalidar) {
     (updates as any).sessionInvalidatedAt = new Date();
   }

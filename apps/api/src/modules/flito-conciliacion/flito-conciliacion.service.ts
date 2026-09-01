@@ -92,8 +92,9 @@ export interface SoatInfo {
    * misma fuente que `salidasDe` de la liquidación (`ids.soatOrganismo`). Si los dos caminos
    * tomaran el organismo de sitios distintos —uno del SOAT y otro del trámite, que se reescribe en
    * cada sincronización—, el mismo pago acabaría imputado a dos secretarías según quién lo asentara.
+   * `null` es valor real: el canal Cliente nace sin organismo (HU #11935); no se sustituye por `''`.
    */
-  organismoCodigo: string;
+  organismoCodigo: string | null;
 }
 
 interface BoletaPrevia {
@@ -126,7 +127,7 @@ export interface ContextoCruce {
 function infoDeFila(f: {
   id: string; numeroPoliza: string | null; estado: string; valorPagado: string | null;
   companiaId: number; companiaNombre: string | null; placa: string | null;
-  organismoCodigo: string;
+  organismoCodigo: string | null;
 }): SoatInfo {
   return {
     id: f.id,

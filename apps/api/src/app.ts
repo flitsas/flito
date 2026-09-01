@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import { sql } from 'drizzle-orm';
+import { CABECERAS_ZIP_SOPORTES } from '@operaciones/shared-types';
 import { env, corsOrigins } from './config/env.js';
 import { db, getPoolStats } from './db/client.js';
 import { errorHandler } from './shared/middleware/errorHandler.js';
@@ -22,6 +23,7 @@ import clientsRoutes from './modules/clients/clients.routes.js';
 import flitoParametrizacionRoutes from './modules/flito-parametrizacion/flito-parametrizacion.routes.js';
 import flitoSyncRoutes from './modules/flito-sync/flito-sync.routes.js';
 import flitoSoatRoutes from './modules/flito-soat/flito-soat.routes.js';
+import flitoSoatClienteRoutes from './modules/flito-soat/flito-soat-cliente.routes.js';
 import flitoImpuestosRoutes from './modules/flito-impuestos/flito-impuestos.routes.js';
 import flitoDerechosRoutes from './modules/flito-derechos/flito-derechos.routes.js';
 import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacion.routes.js';
@@ -167,6 +169,15 @@ export function createApp() {
       return cb(null, false);
     },
     credentials: true,
+    // HU #11910 — sin esto, un navegador CROSS-ORIGIN no puede leer estas cabeceras aunque el
+    // servidor las mande: `fetch` solo expone las seis de la lista segura de CORS y descarta las
+    // demás EN SILENCIO, sin error en consola ni en red. El aviso «marqué 5 y solo 2 tenían soporte»
+    // se quedaría en el genérico y nadie sabría por qué.
+    //
+    // Hoy no es load-bearing —el front va same-origin por el proxy de Vite en desarrollo y por nginx
+    // en producción—, y por eso se deja escrito: es una defensa contra el día que un cliente entre
+    // por `corsOrigins`, que existe precisamente para eso.
+    exposedHeaders: [CABECERAS_ZIP_SOPORTES.incluidos, CABECERAS_ZIP_SOPORTES.registros],
   }));
 
   // F6: Limite mayor para validacion biometrica (3 fotos base64) — debe ir ANTES del global
@@ -205,6 +216,18 @@ export function createApp() {
   app.use('/api/auth/login', authLimiter);
   app.use('/api', apiLimiter);
 
+  // ── Dónde está la frontera del rol `cliente` (Feature #11912) ───────────────────────────────
+  //
+  // No hay un `app.use` de negación aquí, y no es un olvido: en esta aplicación la autenticación
+  // NO vive en `app.ts` —cada router monta `authMiddleware`—, así que un middleware colocado en
+  // esta lista vería `req.user === undefined` y no podría decidir nada sin verificar el JWT por
+  // segunda vez en cada petición de toda la API.
+  //
+  // La negación por defecto para `cliente` —el primer principal externo a FLIT— se aplica desde el
+  // final de `authMiddleware`, que es el único punto donde la autenticación termina, con la
+  // allowlist de `shared/middleware/canal-cliente.ts`. Un router nuevo montado en esta lista nace
+  // CERRADO para ese rol; para abrirle una ruta hay que escribirla allí con su motivo.
+
   // Routes
   app.use('/api/rum', rumRoutes); // RUM Web Vitals — público (se reporta pre-login)
   app.use('/api/files', filesRoutes); // descargas por token HMAC firmado — pública (el token es la auth)
@@ -218,6 +241,12 @@ export function createApp() {
   app.use('/api/clients', clientsRoutes);
   app.use('/api/flito/parametrizacion', flitoParametrizacionRoutes);
   app.use('/api/flito/sync', flitoSyncRoutes);
+  // Las dos rutas de ESCRITURA del canal Cliente (Feature #11912, HU #11914) van en su propio router
+  // y montadas ANTES: el recurso es el mismo (`flito_soat`) y por eso comparten base, pero el router
+  // del módulo tiene el techo de líneas congelado y estas rutas traen consigo su rate limit, su
+  // validación de MIME real y su `requireRole('cliente')`. Primero el específico: hoy ningún patrón
+  // del router de abajo casa con `/cliente`, y si mañana alguien añadiera uno, gana este.
+  app.use('/api/flito/soat', flitoSoatClienteRoutes);
   app.use('/api/flito/soat', flitoSoatRoutes);
   app.use('/api/flito/impuestos', flitoImpuestosRoutes);
   app.use('/api/flito/derechos', flitoDerechosRoutes);

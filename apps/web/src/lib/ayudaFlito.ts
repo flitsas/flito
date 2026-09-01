@@ -1,5 +1,10 @@
 import { CATALOGO_AYUDA, type ClaveAyuda, type EntradaAyuda } from '../content/ayuda/catalogo';
-import { hasPage, type UserRole } from './permissions';
+// `getEffectivePages` se toma de la fuente única y NO el `hasPage` de `lib/permissions`, aunque sea
+// el mismo cálculo: desde la HU #11913 `permissions.ts` consume `NAV_ITEMS` para `rutaInicio`, y
+// `navItems.ts` consume este módulo. Importar `hasPage` cerraría el ciclo
+// permissions → navItems → ayudaFlito → permissions en tiempo de EJECUCIÓN (el import que
+// `navItems.ts` hace de `permissions.ts` es `import type`, y se borra al compilar).
+import { getEffectivePages, type UserRole } from '@operaciones/shared-types';
 
 export type UsuarioAyuda = { role: UserRole; allowedPages?: string[] | null };
 
@@ -9,9 +14,20 @@ export type UsuarioAyuda = { role: UserRole; allowedPages?: string[] | null };
  */
 export function puedeVerEntradaAyuda(user: UsuarioAyuda | null, entrada: EntradaAyuda): boolean {
   if (!user) return false;
+  // FLITO — Cliente (Feature #11912): ninguna ficha. Va aquí y no en el catálogo porque la
+  // visibilidad de «Ayuda FLITO» es DERIVADA (`puedeVerAyudaFlito` = ≥1 ficha visible): apagarla
+  // aquí retira de una vez el ítem del menú, la entrada de la ⌘K y el gate de `/flito/ayuda`, que
+  // es lo que hace literalmente verdadera la frase del AC1 «su menú muestra únicamente SOAT».
+  //
+  // Sin esta línea el Cliente vería DOS ítems: la ficha `soat` cuelga de `permiso: 'flito_soat'`
+  // (ADR-0008 §4) y él tiene ese slug. Mismo caso especial por rol que `siigo_credenciales`, justo
+  // debajo. El ADR daba por buena esa segunda entrada («consecuencia buscada»); el AC1 y el doc de
+  // UX §3.2 no, y manda el AC. Revertirlo el día que el Cliente merezca ficha propia —la #11914—
+  // es borrar esta línea.
+  if (user.role === 'cliente') return false;
   if (entrada.clave === 'siigo_credenciales') return user.role === 'admin';
   if (!entrada.permiso) return false;
-  return hasPage(user, entrada.permiso);
+  return getEffectivePages(user).includes(entrada.permiso);
 }
 
 /** Menú, paleta, índice y gate de `/flito/ayuda`: ≥1 ficha del catálogo visible. */

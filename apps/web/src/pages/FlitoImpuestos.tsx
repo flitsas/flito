@@ -5,7 +5,7 @@
 // nunca los Pendiente; Auditoría es solo lectura.
 
 import { puedeOperar } from '../lib/permissions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
   TOPE_LOTE_CERTIFICACION,
@@ -25,10 +25,16 @@ import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import ChipSinGestion from '../components/flit/ChipSinGestion';
 import RangoFechas from '../components/flit/RangoFechas';
 import FiltrosInteligentes, { type Preset } from '../components/flit/FiltrosInteligentes';
-import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+import {
+  AvisoExportCola, BotonExportarCola, COLA_IMPUESTOS, useExportCola, type FiltrosExportCola,
+} from '../components/flito/ExportarCola';
+import {
+  AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
+} from '../components/flito/DescargarSoportesZip';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES, documentoConTipo } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
-import ModalFacturaVenta, { nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
+import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
 import useDebounce from '../lib/useDebounce';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
@@ -40,6 +46,11 @@ interface ImpuestoItem {
   marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
+  /**
+   * CÓDIGO de tipo de documento ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null. NO es
+   * el `tipo` crudo de FLIT: la tabla de mapeo es del backend y el front no la duplica (HU #11947).
+   */
+  compradorTipoDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
@@ -113,6 +124,12 @@ export default function FlitoImpuestos() {
   const [solicitadoHasta, setSolicitadoHasta] = useState('');
   const [pagadoDesde, setPagadoDesde] = useState('');
   const [pagadoHasta, setPagadoHasta] = useState('');
+  // «Creado en FLITO» — la fecha de REGISTRO en FLITO (`created_at`), que NO es la que pinta la
+  // columna «Creado» de la tabla: aquella es la del trámite en FLIT (`fechaCreacion`). Son dos
+  // fechas distintas y por eso el filtro lleva otro rótulo; la columna es de `columnasComunes.tsx`,
+  // la comparten cuatro pantallas y esta HU no la toca.
+  const [creadoDesde, setCreadoDesde] = useState('');
+  const [creadoHasta, setCreadoHasta] = useState('');
   const [soloEstancado, setSoloEstancado] = useState(false);
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'organismo'>('');
   const [preset, setPreset] = useState<string | null>(null);
@@ -120,12 +137,17 @@ export default function FlitoImpuestos() {
 
   const compKey = companiasSel.join(','); const orgKey = organismosSel.join(',');
 
+  // El filtro nuevo entra aquí, y no es un detalle: `hayFiltros` es lo que decide si el vacío dice
+  // «Ningún impuesto coincide con los filtros» o el texto sin filtros, y también si aparece
+  // «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0
-    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta || soloEstancado || !!gestionSel;
+    || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
+    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
+    setCreadoDesde(''); setCreadoHasta('');
     setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoImpuesto.SOLICITADO : 'todos');
   };
@@ -159,7 +181,7 @@ export default function FlitoImpuestos() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -172,12 +194,14 @@ export default function FlitoImpuestos() {
     if (solicitadoHasta) q.set('solicitadoHasta', solicitadoHasta);
     if (pagadoDesde) q.set('pagadoDesde', pagadoDesde);
     if (pagadoHasta) q.set('pagadoHasta', pagadoHasta);
+    if (creadoDesde) q.set('creadoDesde', creadoDesde);
+    if (creadoHasta) q.set('creadoHasta', creadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
     if (gestionSel) q.set('gestion', gestionSel);
     q.set('page', String(page));
     api.get<ColaImpuestos>(`/flito/impuestos?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, soloEstancado, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasImpuestos>('/flito/impuestos/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -193,6 +217,44 @@ export default function FlitoImpuestos() {
     if (!data || detalleId === null) return;
     if (!data.items.some((i) => i.id === detalleId)) setDetalleId(null);
   }, [data, detalleId]);
+
+  /**
+   * Lo que el export tiene que entregar: **los mismos filtros que la consulta de arriba, sin la
+   * página**. Se arma del mismo estado, así que no hay forma de que la tabla y el archivo se
+   * separen; lo único que aquí no aparece —y no puede aparecer— es `page`.
+   *
+   * Todo va en el CUERPO del POST, incluido `buscar`: el placeholder de esta cola ofrece buscar por
+   * comprador, así que ese campo lleva nombre y documento de una persona (AGENTS.md §14). En la
+   * query acabaría en el historial del navegador, en el `Referer` y en el access log del proxy.
+   *
+   * Sin `proveedores`: esta cola se reparte por organismo, no por proveedor.
+   */
+  /**
+   * `companias` va como NÚMEROS y no como el texto del multiselect, y no es cosmética: el esquema
+   * del endpoint es `z.array(z.number())` y además `.strict()`, así que `["1"]` es un 400 —no un
+   * filtro ignorado—. El control guarda `String(c.id)` porque un `<input>` no tiene enteros; la
+   * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
+   * la cola no hace falta: allí todo es texto.
+   */
+  const filtrosExport: FiltrosExportCola = {
+    ...(estado !== 'todos' ? { estados: [estado] } : {}),
+    ...(buscar.trim() ? { buscar: buscar.trim() } : {}),
+    ...(companiasSel.length ? { companias: companiasSel.map(Number) } : {}),
+    ...(organismosSel.length ? { organismos: organismosSel } : {}),
+    ...(gestionSel ? { gestion: gestionSel } : {}),
+    ...(solicitadoDesde ? { solicitadoDesde } : {}),
+    ...(solicitadoHasta ? { solicitadoHasta } : {}),
+    ...(pagadoDesde ? { pagadoDesde } : {}),
+    ...(pagadoHasta ? { pagadoHasta } : {}),
+    ...(creadoDesde ? { creadoDesde } : {}),
+    ...(creadoHasta ? { creadoHasta } : {}),
+    ...(soloEstancado ? { estancado: true } : {}),
+  };
+  // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
+  const exportacion = useExportCola(COLA_IMPUESTOS, filtrosExport);
+  // Quién puede exportar: la MISMA guarda de la carga masiva de recibos, sin predicado nuevo. Deja
+  // fuera al auditor (AC6), que sí conserva todos los filtros: filtrar es leer.
+  const puedeExportar = esOperaciones || esGestor;
 
   const filas = data?.items ?? [];
   const totalPaginas = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
@@ -211,11 +273,17 @@ export default function FlitoImpuestos() {
    * #11169). Qué acción se ofrece lo decide después la barra, mirando lo seleccionado.
    */
   const puedeEnviarFila = (f: ImpuestoItem) => esOperaciones && f.estado === EstadoImpuesto.PENDIENTE;
-  const seleccionables = useMemo(
-    () => filas.filter((f) => puedeEnviarFila(f) || puedeCertificarFila(f)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filas, esOperaciones, esGestor],
-  );
+  /**
+   * Quién puede DESCARGAR SOPORTES y, con ello, quién ve la columna de casillas (HU #11910, AC7).
+   *
+   * Hasta esta HU la columna colgaba de `seleccionables.length > 0`, un cálculo que para el auditor
+   * daba vacío **por casualidad** —porque ninguna de sus filas admite enviar ni certificar—. Con la
+   * casilla abierta a cualquier fila (AC1) esa casualidad se acaba, así que pasa a colgar del
+   * permiso, que es la afirmación que se quiere sostener.
+   */
+  const puedeDescargarSoportes = esOperaciones || esGestor;
+  // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
+  const descargaZip = useDescargaZip(ZIP_IMPUESTOS);
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
@@ -265,12 +333,35 @@ export default function FlitoImpuestos() {
       <PageHeaderCard
         title="Impuestos"
         subtitle="Gestión del impuesto vehicular por organismo. La factura de venta es precondición del envío; el pago deriva del recibo validado."
-        actions={(esOperaciones || esGestor) && (
-          <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
-            Cargar recibos (masivo)
-          </button>
+        actions={(
+          <>
+            {(esOperaciones || esGestor) && (
+              <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
+                Cargar recibos (masivo)
+              </button>
+            )}
+            {/* Secundario y después del primario: la acción del día de esta cola es cargar recibos,
+                no descargar. La guarda va aparte de la del primario —aunque hoy sean la misma— para
+                que quitarle a alguien la carga masiva no le quite de paso la descarga. Al auditor NO
+                se le pinta deshabilitado: no se pinta. */}
+            {puedeExportar && (
+              <BotonExportarCola ocupado={exportacion.ocupado} onExportar={exportacion.exportar} />
+            )}
+          </>
         )}
       />
+
+      {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
+          del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
+      {puedeExportar && (
+        <AvisoExportCola
+          cola={COLA_IMPUESTOS}
+          ocupado={exportacion.ocupado}
+          aviso={exportacion.aviso}
+          onReintentar={exportacion.exportar}
+          onDescartar={exportacion.descartar}
+        />
+      )}
 
       <FlitCard>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -314,6 +405,11 @@ export default function FlitoImpuestos() {
           <FiltrosInteligentes presets={PRESETS} activo={preset}
             onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
 
+          {/* Antes de «Solicitado» y «Pagado»: es el orden del ciclo (creado → solicitado → pagado).
+              El rótulo es además su `aria-label`, así que los tres rangos de la pantalla tienen
+              nombres accesibles distintos. */}
+          <RangoFechas etiqueta="Creado en FLITO" valor={{ desde: creadoDesde, hasta: creadoHasta }}
+            onCambio={(r) => { setCreadoDesde(r.desde); setCreadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Solicitado" valor={{ desde: solicitadoDesde, hasta: solicitadoHasta }}
             onCambio={(r) => { setSolicitadoDesde(r.desde); setSolicitadoHasta(r.hasta); }} />
           <RangoFechas etiqueta="Pagado" valor={{ desde: pagadoDesde, hasta: pagadoHasta }}
@@ -334,13 +430,33 @@ export default function FlitoImpuestos() {
 
       {/* Ya no es exclusiva de Operaciones: el gestor certifica en bloque su organismo (HU #11169).
           Qué acción se ofrece lo decide la propia barra según lo seleccionado. */}
-      {seleccion.size > 0 && (
+      {puedeDescargarSoportes && seleccion.size > 0 && (
         <BarraSeleccion
           filasSeleccionadas={filas.filter((f) => seleccion.has(f.id))}
           puedeEnviarFila={puedeEnviarFila}
           puedeCertificarFila={puedeCertificarFila}
           onListo={() => { setSeleccion(new Set()); refrescar(); }}
           onError={setError}
+          descarga={(
+            <DescargarSoportesZip
+              superficie={ZIP_IMPUESTOS}
+              ids={[...seleccion]}
+              ocupado={descargaZip.ocupado}
+              onDescargar={descargaZip.descargar}
+            />
+          )}
+        />
+      )}
+
+      {/* Fuera de la barra a propósito: la descarga NO limpia la selección, pero si el usuario la
+          limpia el aviso tiene que seguir en pantalla. Se monta donde se monta el botón. */}
+      {puedeDescargarSoportes && (
+        <AvisoSoportesZip
+          ocupado={descargaZip.ocupado}
+          marcadas={descargaZip.marcadas}
+          aviso={descargaZip.aviso}
+          onReintentar={descargaZip.reintentar}
+          onDescartar={descargaZip.descartar}
         />
       )}
 
@@ -363,11 +479,13 @@ export default function FlitoImpuestos() {
           <FlitTable>
             <thead>
               <FlitTr>
-                {seleccionables.length > 0 && (
+                {/* Cuelga del PERMISO, no de «hay filas accionables» (AC7). El nombre accesible
+                    cambia con el sentido: ya no marca «los que admiten acción masiva». */}
+                {puedeDescargarSoportes && (
                   <FlitTh>
-                    <input type="checkbox" aria-label="Seleccionar todos los que admiten acción masiva"
-                      checked={seleccion.size > 0 && seleccion.size === seleccionables.length}
-                      onChange={(e) => setSeleccion(e.target.checked ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
+                    <input type="checkbox" aria-label="Seleccionar las filas de esta página"
+                      checked={seleccion.size > 0 && seleccion.size === filas.length}
+                      onChange={(e) => setSeleccion(e.target.checked ? new Set(filas.map((f) => f.id)) : new Set())} />
                   </FlitTh>
                 )}
                 {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
@@ -381,12 +499,10 @@ export default function FlitoImpuestos() {
             <tbody>
               {filas.map((f) => (
                 <FlitTr key={f.id}>
-                  {seleccionables.length > 0 && (
+                  {puedeDescargarSoportes && (
                     <td className="px-3 py-2">
-                      {seleccionables.some((s) => s.id === f.id) && (
-                        <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
-                          checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
-                      )}
+                      <input type="checkbox" aria-label={`Seleccionar ${f.placa}`}
+                        checked={seleccion.has(f.id)} onChange={() => toggle(f.id)} />
                     </td>
                   )}
                   <CeldaTramite idFlit={f.idFlit} tipoTramite={f.tipoTramite}
@@ -463,38 +579,54 @@ export default function FlitoImpuestos() {
  * alternativa —apagar las casillas de otros estados en cuanto se marca la primera— habría hecho que
  * la interfaz se moviera sola bajo el cursor.
  *
- * Una acción se ofrece solo si aplica a TODA la selección. Habilitarla para el subconjunto que sí
- * encaja sería peor que deshabilitarla: el usuario pulsaría creyendo que actúa sobre los 4 que marcó
- * y actuaría sobre 2, sin enterarse hasta ver el resultado.
+ * **Una acción se ofrece si aplica a ALGUNA marcada, y el rótulo dice a cuántas** (HU #11910). Hasta
+ * esta HU se exigía que aplicara a TODA la selección; con la casilla abierta a cualquier fila (AC1)
+ * esa regla se vuelve un candado: marcar una sola Pagada para meter su comprobante en el ZIP haría
+ * desaparecer «Enviar al gestor», que es la acción del día.
+ *
+ * El miedo que aquella regla tenía sigue siendo legítimo —«pulsaría creyendo que actúa sobre los 4
+ * que marcó y actuaría sobre 2»— y por eso el desajuste va **dentro del nombre accesible**:
+ * `Enviar al gestor (3 de 8)`, `Certificar (5 de 8)`. El rótulo es lo que se lee en el instante de
+ * decidir; una línea auxiliar se pierde al envolver la barra en pantalla estrecha. Y **la petición
+ * manda solo los ids aplicables**: marcar más filas no amplía nunca el alcance de `enviar` ni de
+ * `certificar`.
  *
  * El envío conserva sus DOS destinos (HU #11158). A diferencia de SOAT aquí no hay selector: el
  * gestor lo determina el organismo del trámite, así que «al gestor» no admite elección y los dos
  * destinos van como botones explícitos que dicen a dónde va cada uno.
  */
-function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onError }: {
+function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFila, onListo, onError, descarga }: {
   filasSeleccionadas: ImpuestoItem[];
   puedeEnviarFila: (f: ImpuestoItem) => boolean;
   puedeCertificarFila: (f: ImpuestoItem) => boolean;
   onListo: () => void;
   onError: (m: string) => void;
+  descarga: ReactNode;
 }) {
   const [enviando, setEnviando] = useState<'gestor' | 'operaciones' | null>(null);
   const [certificando, setCertificando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoLote | null>(null);
 
-  const ids = filasSeleccionadas.map((f) => f.id);
-  const todosEnviables = ids.length > 0 && filasSeleccionadas.every(puedeEnviarFila);
-  const todosCertificables = ids.length > 0 && filasSeleccionadas.every(puedeCertificarFila);
-  const mezclado = !todosEnviables && !todosCertificables;
+  const marcadas = filasSeleccionadas.length;
+  // Los DOS subconjuntos, cada uno con su propia lista de ids. Es lo que viaja en cada petición.
+  const enviables = filasSeleccionadas.filter(puedeEnviarFila).map((f) => f.id);
+  const certificables = filasSeleccionadas.filter(puedeCertificarFila).map((f) => f.id);
+  const cuenta = (aplicables: number) =>
+    aplicables < marcadas ? `${aplicables} de ${marcadas}` : `${aplicables}`;
   // El tope se lee de la constante que el backend usa para rechazar. Repetir el 10 aquí garantiza
   // que un día los dos números digan cosas distintas.
-  const sobreElTope = todosCertificables && ids.length > TOPE_LOTE_CERTIFICACION;
+  //
+  // **Mide los CERTIFICABLES, no la selección entera** (HU #11910): con 14 marcadas de las que 3 se
+  // certifican, un tope de 10 no tiene nada que bloquear, y bloquearlo dejaba al usuario sin la
+  // acción por filas que ni siquiera iban en la petición.
+  const sobreElTope = certificables.length > TOPE_LOTE_CERTIFICACION;
   const ocupado = enviando !== null || certificando;
 
   const enviar = async (aOperaciones: boolean) => {
     setEnviando(aOperaciones ? 'operaciones' : 'gestor');
     try {
-      await api.post('/flito/impuestos/enviar', aOperaciones ? { ids, gestionOperaciones: true } : { ids });
+      await api.post('/flito/impuestos/enviar',
+        aOperaciones ? { ids: enviables, gestionOperaciones: true } : { ids: enviables });
       onListo();
     }
     catch (e) { onError(errorMessage(e)); }
@@ -503,7 +635,7 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
 
   const certificarLote = async () => {
     setCertificando(true);
-    try { setResultado(await api.post<ResultadoLote>('/flito/impuestos/certificar', { ids })); }
+    try { setResultado(await api.post<ResultadoLote>('/flito/impuestos/certificar', { ids: certificables })); }
     catch (e) { onError(errorMessage(e)); }
     finally { setCertificando(false); }
   };
@@ -514,41 +646,54 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
     <>
       <FlitCard>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{ids.length} seleccionado(s)</span>
+          <span className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{marcadas} seleccionado(s)</span>
 
-          {todosEnviables && (
+          {enviables.length > 0 && (
             <>
               <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={ocupado} onClick={() => enviar(false)}>
-                {enviando === 'gestor' ? 'Enviando…' : 'Enviar al gestor'}
+                {enviando === 'gestor' ? 'Enviando…' : `Enviar al gestor (${cuenta(enviables.length)})`}
               </button>
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={ocupado} onClick={() => enviar(true)}>
-                {enviando === 'operaciones' ? 'Enviando…' : 'Gestionar en Operaciones'}
+                {enviando === 'operaciones' ? 'Enviando…' : `Gestionar en Operaciones (${cuenta(enviables.length)})`}
               </button>
             </>
           )}
 
-          {todosCertificables && (
+          {certificables.length > 0 && (
             <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={ocupado || sobreElTope} onClick={certificarLote}
               // Con concurrencia 2 y 90 s de timeout por consulta, un lote lleno puede tardar
               // minutos. Sin este aviso la pantalla parece colgada (AC3).
               title={certificando ? 'Consultando el RUNT registro a registro. Puede tardar varios minutos.' : undefined}>
-              {certificando ? `Certificando ${ids.length}… consultando RUNT` : `Certificar (${ids.length})`}
+              {certificando
+                ? `Certificando ${certificables.length}… consultando RUNT`
+                : `Certificar (${cuenta(certificables.length)})`}
             </button>
           )}
 
+          {descarga}
+
           {sobreElTope && (
             <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              Máximo {TOPE_LOTE_CERTIFICACION} por lote. Seleccionaste {ids.length}.
-            </span>
-          )}
-
-          {mezclado && (
-            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-              La selección mezcla estados con acciones distintas. Filtra por un estado para operar en bloque.
+              Máximo {TOPE_LOTE_CERTIFICACION} por lote. De las {marcadas} marcadas, {certificables.length} se certifican.
             </span>
           )}
         </div>
+
+        {/* Solo cuando hay desajuste. Sustituye al «La selección mezcla estados con acciones
+            distintas» de antes, que era la cara visible de la regla «toda la selección»: aquel
+            mensaje aparecía **en vez** de las acciones; este aparece **junto a** ellas. */}
+        {(enviables.length > 0 || certificables.length > 0)
+          && (enviables.length < marcadas || certificables.length < marcadas) && (
+          <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            De las {marcadas} filas marcadas
+            {enviables.length > 0 && enviables.length < marcadas
+              && `, ${enviables.length} están Pendientes y son las únicas que se envían`}
+            {certificables.length > 0 && certificables.length < marcadas
+              && `, ${certificables.length} admiten certificación y son las únicas que se certifican`}
+            . Descargar soportes usa las {marcadas}.
+          </p>
+        )}
       </FlitCard>
 
       {resultado && (
@@ -626,11 +771,18 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
    * con doble clic y había que renombrarlo a mano. Ahora se muestra en el visor, que descarga con
    * un nombre de verdad y en `.pdf`.
    */
+  // El nombre lo pone el SERVIDOR desde la HU #11910 (AC5): `PLACA-ORGANISMO.<ext>`, el mismo con el
+  // que sale dentro del ZIP, para que las dos descargas se puedan emparejar en la misma carpeta. El
+  // cliente valida la forma y cae al respaldo si no encaja.
   const verFactura = async () => {
     setError(null);
     try {
-      const blob = await api.get<Blob>(`/flito/impuestos/${imp.id}/factura-venta`);
-      setFactura({ url: URL.createObjectURL(blob), nombre: nombreFacturaVenta(imp.idFlit) });
+      const { blob, nombre } = await api.getBlobNamed(
+        `/flito/impuestos/${imp.id}/factura-venta`,
+        nombreFacturaVenta(imp.idFlit),
+        esNombrePlacaOrganismo,
+      );
+      setFactura({ url: URL.createObjectURL(blob), nombre });
     } catch (e) { setError(errorMessage(e)); }
   };
   const cerrarFactura = () => { if (factura) URL.revokeObjectURL(factura.url); setFactura(null); };
@@ -648,7 +800,7 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
           <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />
-          <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
+          <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={documentoConTipo(imp.compradorTipoDocumento, imp.compradorDocumento)} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
           <div>
             <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Factura de venta</dt>

@@ -339,6 +339,8 @@ async function asentarTransito(
   ctx: CtxUsuario,
   transito: Map<string, AcumuladoTransito>,
 ): Promise<string | null> {
+  // Sin organismo no hay par (secretaría, soat) que una bolsa cubra: mismo desenlace que AC1.
+  if (soat.organismoCodigo === null) return null;
   const nuevo = await registrarConsumoTransito(tx, {
     organismoCodigo: soat.organismoCodigo,
     concepto: CONCEPTO_SOAT,

@@ -125,7 +125,7 @@ describe('soportesDeSoat', () => {
   it('marca el origen para que el visor sepa agruparlo', async () => {
     kdb.when.select('flito_soportes', [soporte('sop-1', 'factura-soat.pdf', '2026-07-01T00:00:00Z')]);
 
-    const salida = await soportesDeSoat('s1', { rol: 'admin' });
+    const salida = await soportesDeSoat('s1', { rol: 'admin', estadoSoat: 'pagado' });
 
     expect(salida).toHaveLength(1);
     expect(salida[0]).toMatchObject({ origen: 'soat', nombreArchivo: 'factura-soat.pdf' });
@@ -139,8 +139,8 @@ describe('soportesDeSoat', () => {
       .select('flito_soportes', [soporte('sop-1', 'factura-soat.pdf', '2026-07-01T00:00:00Z')])
       .select('flito_conciliacion_lineas', [soporte('sop-pse', 'pse.pdf', '2026-08-20T00:00:00Z')]);
 
-    const conDerecho = await soportesDeSoat('s1', { rol: 'proveedor' });
-    const auditoria = await soportesDeSoat('s1', { rol: 'auditor' });
+    const conDerecho = await soportesDeSoat('s1', { rol: 'proveedor', estadoSoat: 'pagado' });
+    const auditoria = await soportesDeSoat('s1', { rol: 'auditor', estadoSoat: 'pagado' });
 
     expect(conDerecho.map((x) => x.origen).sort()).toEqual(['conciliacion', 'soat']);
     expect(auditoria.map((x) => x.origen)).toEqual(['soat']);

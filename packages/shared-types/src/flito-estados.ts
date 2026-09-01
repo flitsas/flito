@@ -136,6 +136,29 @@ export const EstadoSoat = {
   SOLICITADO: 'solicitado',
   CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
+  /**
+   * Los DOS estados del canal Cliente (Feature #11912, ADR-0008 §2). Solo los alcanza un SOAT con
+   * `origen = 'cliente'`: el que nace del sync de trámites sigue entrando en `pendiente` y su ciclo
+   * no cambia en nada.
+   *
+   *   pendiente_revision ── un cliente radicó la solicitud y Operaciones aún no la ha revisado.
+   *                         NO es `pendiente`: `POST /enviar` filtra por `pendiente`, así que un
+   *                         admin despachando la cola enviaría al gestor solicitudes sin validar.
+   *   rechazada          ── Operaciones la devolvió con causal y observación; el cliente subsana y
+   *                         vuelve a `pendiente_revision`.
+   *
+   * Van al MISMO enum (`flito_soat_estado`) y no a una columna aparte de la tabla satélite, para
+   * que una fila tenga un solo estado y `POST /enviar` siga siendo correcto sin tocarlo.
+   *
+   * Quien los ESCRIBE es la HU #11914 (alta) y la #11915 (revisión). La #11913 solo los declara —y
+   * eso ya obliga al compilador a completar cada `Record<EstadoSoat, X>`, que es la red que impide
+   * que una pantalla pinte un estado en blanco.
+   *
+   * El gestor del proveedor NO los ve, y no por una regla nueva: `ESTADOS_SOAT_VISIBLES_GESTOR` es
+   * una lista blanca que sigue siendo `['solicitado', 'pagado']`.
+   */
+  PENDIENTE_REVISION: 'pendiente_revision',
+  RECHAZADA: 'rechazada',
 } as const;
 
 export type EstadoSoat = (typeof EstadoSoat)[keyof typeof EstadoSoat];
@@ -145,11 +168,17 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
   solicitado: 'Solicitado',
   con_novedad: 'Con novedad',
   pagado: 'Pagado',
+  pendiente_revision: 'Pendiente de revisión',
+  rechazada: 'Rechazada',
 };
 
 /**
  * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
  * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
+ *
+ * Los dos estados del canal Cliente NO entran aquí, y es decisión escrita (ADR-0008 §2 y riesgo
+ * abierto 1): ampliar esta lista cambia el contador de auditoría del sync, que no es alcance del
+ * Feature #11912.
  */
 export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
@@ -159,9 +188,39 @@ export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
   return (ESTADOS_SOAT_BLOQUEAN_REENCOLADO as readonly string[]).includes(estado);
 }
 
-/** Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6. */
+/**
+ * Estados del SOAT visibles para el gestor (nunca `Pendiente`). Ver DECISIONES.md §6.
+ *
+ * Es una LISTA BLANCA, y por eso los dos estados del canal Cliente quedan fuera sin escribir nada:
+ * el gestor no ve lo que un cliente radicó hasta que Operaciones lo valida y pasa a `solicitado`.
+ */
 export const ESTADOS_SOAT_VISIBLES_GESTOR: readonly EstadoSoat[] = [
   'solicitado', 'pagado',
+];
+
+/**
+ * Los dos estados que SOLO existen en el canal Cliente (Feature #11912, HU #11915).
+ *
+ * Nombrados una vez y no repetidos como literales, porque de esta lista dependen tres reglas que
+ * tienen que decir lo mismo o el ciclo se abre por la costura:
+ *
+ *   1. **`reversar()` no sale de ellos.** Sin esa guarda, un admin lleva una solicitud de
+ *      `pendiente_revision` a `pendiente` y `POST /enviar` la despacha al gestor sin que nadie la
+ *      haya validado — el AC1 saltado por la puerta de al lado.
+ *   2. **`reversar()` no entra en ellos.** Lo prohíbe el ADR-0008 §8: devolver a `pendiente_revision`
+ *      un SOAT ya validado deja al gestor sin la fila y al cliente con una solicitud que creía
+ *      resuelta.
+ *   3. **La pantalla no puede ofrecerlos como destino de reversa.** `ESTADOS_OPERACIONES` de
+ *      `FlitoSoat.tsx` alimenta a la vez las pills de la cola Y el selector «Estado destino» de la
+ *      reversa; añadir ahí los dos estados para que la pill funcione abriría el destino sin que
+ *      nadie lo decidiera. La UI necesita las dos listas separadas, y esta es la que dice cuáles no
+ *      son destino.
+ *
+ * NO es lo mismo que «estados que el gestor no ve»: eso ya lo dice `ESTADOS_SOAT_VISIBLES_GESTOR`,
+ * que es una lista blanca y responde otra pregunta.
+ */
+export const ESTADOS_SOAT_CANAL_CLIENTE: readonly EstadoSoat[] = [
+  'pendiente_revision', 'rechazada',
 ];
 
 /** Estado de Impuestos: mismos cuatro estados que SOAT (ver EstadoSoat). */
@@ -252,6 +311,135 @@ export const TipoSoporte = {
 
 export type TipoSoporte = (typeof TipoSoporte)[keyof typeof TipoSoporte];
 
+/**
+ * Los tipos de documento que se pueden pedir en el ZIP de soportes (Feature #11908, HU #11910).
+ *
+ * ── Por qué es un catálogo NUEVO y no un subconjunto de `TipoSoporte` ────────────────────────────
+ *
+ * Porque `factura_venta` significa DOS cosas distintas según de qué cuelgue, y el que hace falta
+ * aquí no es el que está en `TipoSoporte`:
+ *
+ *   · `TipoSoporte.FACTURA_VENTA` sobre `flito_soportes.soat_id` es el adjunto que **sube el
+ *     cliente** al radicar o al subsanar (`TIPOS_SOPORTE_VISIBLES_CLIENTE` lo documenta: «es SU
+ *     PROPIO adjunto»).
+ *   · `TipoSoporteZip.FACTURA_VENTA` es la **factura de venta que emite FLIT**, que ni siquiera vive
+ *     en `flito_soportes`: es `flito_tramites.factura_venta_flit_id` → S3 de FLIT.
+ *
+ * Son dos documentos de dos orígenes con el mismo literal. Reutilizar el enum habría hecho que
+ * «marcar factura de venta» en Trámites metiera en el ZIP el adjunto del cliente creyendo que mete
+ * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera. Y `RECIBO_IMPUESTO` tampoco es
+ * un alias: en el ZIP resuelve a `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver
+ * `shared/soportes/soportes-zip.ts`), o sea a UN documento de entre DOS tipos de la tabla.
+ *
+ * Lo que este catálogo nombra es «qué puede marcar el usuario en la pantalla», no «qué fila hay en
+ * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los dos
+ * primeros, Trámites los tres.
+ */
+export const TipoSoporteZip = {
+  /** La factura de venta que emite FLIT (S3 de FLIT), NO el adjunto del canal Cliente. */
+  FACTURA_VENTA: 'factura_venta',
+  /** El recibo del organismo: el limpio (`sin_marca_agua`) y, si no existe, el marcado. */
+  RECIBO_IMPUESTO: 'recibo_impuesto',
+  /** El comprobante/póliza que sube el gestor de SOAT. Nunca el comprobante PSE de conciliación. */
+  FACTURA_SOAT: 'factura_soat',
+} as const;
+
+export type TipoSoporteZip = (typeof TipoSoporteZip)[keyof typeof TipoSoporteZip];
+
+/**
+ * El ORDEN FIJO del catálogo, y no es decoración: es la mitad del desempate del AC5.
+ *
+ * Todas las entradas de un mismo registro se llaman igual (`PLACA-ORGANISMO`), así que el sufijo
+ * `-2`/`-3` lo decide el orden en que se recorren. Si ese orden fuera el del array que mandó la
+ * pantalla —o el de `Object.keys` de un mapa—, el mismo lote pedido dos veces produciría dos
+ * repartos distintos de los sufijos y dos ZIP no comparables. Aquí está escrito una vez y el
+ * servidor no admite otro.
+ */
+export const ORDEN_TIPOS_SOPORTE_ZIP: readonly TipoSoporteZip[] = [
+  TipoSoporteZip.FACTURA_VENTA,
+  TipoSoporteZip.RECIBO_IMPUESTO,
+  TipoSoporteZip.FACTURA_SOAT,
+];
+
+/**
+ * `codigo` del 409 cuando NINGUNO de los registros marcados tiene el tipo pedido (AC6).
+ *
+ * La pantalla decide por este código y no por el texto del mensaje. Existe para que el usuario no
+ * reciba un ZIP vacío de 22 bytes que abre y no entiende, que es lo que producía el molde heredado
+ * —escribía las cabeceras y hacía `pipe` ANTES de saber si habría contenido—.
+ */
+export const CODIGO_ZIP_SIN_SOPORTES = 'zip_sin_soportes';
+
+/**
+ * `codigo` del 422 cuando la suma de BYTES del lote se pasa del presupuesto del ZIP.
+ *
+ * ⚠️ **No es el mismo caso que {@link CODIGO_ZIP_DEMASIADOS_REGISTROS}, y el copy no puede
+ * confundirlos.** Este es por PESO: pocos documentos muy pesados, y se resuelve quitando de la
+ * selección los registros con documentos grandes. El otro es por CANTIDAD y se resuelve marcando
+ * menos filas, aunque cada una pese nada. Con un solo código el mensaje tendría que ser vago para
+ * servir a los dos, y no diría la verdad en ninguno.
+ */
+export const CODIGO_ZIP_DEMASIADO_GRANDE = 'zip_demasiado_grande';
+
+/**
+ * `codigo` del 400 cuando se marcan más de {@link ZIP_SOPORTES_MAX_REGISTROS} registros.
+ *
+ * **400 y no 422**, a diferencia del de peso: aquella petición está bien formada y lo que no cabe es
+ * el RESULTADO; esta no se debe intentar siquiera. Es el mismo criterio con el que
+ * `TOPE_LOTE_CERTIFICACION` decide su 400 —«pedir 40 registros no es un lote que salió regular, es
+ * una petición que no se debe intentar»—.
+ *
+ * Tiene código propio porque sin él caía en la rama genérica de Zod, sin `codigo`, y la pantalla
+ * enseñaba «no se pudo generar el archivo, avisa a soporte»: el mensaje inútil que el UX quería
+ * evitar, y justo en el error más fácil de provocar.
+ */
+export const CODIGO_ZIP_DEMASIADOS_REGISTROS = 'zip_demasiados_registros';
+
+/**
+ * Cuántos registros admite UNA petición de ZIP de soportes.
+ *
+ * **No es el presupuesto.** Ese va en BYTES (`FLITO_ZIP_SOPORTES_MAX_BYTES`, perilla de entorno)
+ * porque lo que cuesta es el archivo que hay detrás del id, no el id. Esto es la forma del cuerpo:
+ * un array sin cota se convierte en un `IN (…)` sin cota.
+ *
+ * Vive aquí y no solo en el API por lo mismo que `FLITO_COLA_EXPORT_MAX_FILAS`: la pantalla lo
+ * necesita para avisar ANTES de que el usuario provoque el error, y el servidor lo usa como cota
+ * dura. Con dos copias, el aviso diría un número y el backend aplicaría otro.
+ *
+ * Aun así el servidor manda el número DENTRO del mensaje del 400: el cliente lo hace eco sin tener
+ * que estar compilado contra la misma versión de este paquete.
+ */
+export const ZIP_SOPORTES_MAX_REGISTROS = 100;
+
+/**
+ * Cabeceras con las que el ZIP dice CUÁNTO trae, para el aviso del caso parcial.
+ *
+ * «Marqué 5 y solo 2 tenían soporte» se acordó como «se descarga y se avisa con cifras». El cuerpo
+ * de la respuesta es el archivo, así que el único sitio donde caben esas cifras es la cabecera. Se
+ * nombran aquí y no como literales en las dos puntas porque **el nombre de la cabecera ES el
+ * contrato**: un literal repetido en cliente y servidor se desincroniza sin que nada avise, y el
+ * síntoma sería que el aviso vuelve al genérico —en verde y sin error en ninguna parte—.
+ *
+ * ── Son DOS cifras distintas y hay que elegir la buena ───────────────────────────────────────────
+ *
+ * `incluidos` cuenta DOCUMENTOS; `registros` cuenta REGISTROS marcados que aportaron al menos uno.
+ * En SOAT casi coinciden; en el ZIP mixto de Trámites **no**, porque un trámite aporta hasta tres
+ * documentos. Para componer «2 de las 5 que marcaste» hay que usar `registros`: con `incluidos`
+ * saldría «6 de 5», una cifra falsa con aspecto de cierta.
+ *
+ * ── Lo que NO dicen, y es deliberado ─────────────────────────────────────────────────────────────
+ *
+ * Ninguna distingue POR QUÉ un registro no aportó: «no existe», «no es de este actor» y «no tiene
+ * ese documento» son el mismo silencio. Publicar la causa convertiría el ZIP en un oráculo de
+ * pertenencia, que es justo lo que evita el 409 cuando no queda ninguno.
+ */
+export const CABECERAS_ZIP_SOPORTES = {
+  /** Cuántos DOCUMENTOS lleva el archivo. */
+  incluidos: 'X-Soportes-Incluidos',
+  /** De cuántos REGISTROS marcados salió al menos un documento. */
+  registros: 'X-Soportes-Registros',
+} as const;
+
 /** Módulos parametrizables por compañía (FLITO.md). */
 export const ModuloFlito = {
   SOAT: 'soat',
@@ -276,3 +464,124 @@ export const PRIORIDAD_POR_AMBITO: Record<AmbitoReglaProveedor, number> = {
   organismo: 20,
   global: 30,
 };
+
+// ── Canal Cliente: catálogos que la pantalla de alta y la API tienen que compartir ────────────────
+// (Feature #11912, HU #11914 — ADR-0008 §6)
+
+/**
+ * Tipos de documento del propietario, catálogo RUNT (AC1 de la HU #11914).
+ *
+ * Vive en shared-types y no en `apps/api/src/modules/runt/runt-tipo-doc.ts` porque lo necesitan LOS
+ * DOS lados: el `z.enum` del alta y el desplegable del formulario. `runt-tipo-doc.ts` sigue siendo
+ * el que TRADUCE cada uno al código de la pasarela (`CC → C`, `PPT → Y`…); esto es solo el catálogo
+ * de lo que el producto ofrece, y un test de la API afirma que los ocho valores de aquí tienen
+ * traducción allí — si alguien añade uno sin mapearlo, la consulta saldría con el tipo en blanco.
+ *
+ * El orden es el del refinamiento y es el que la pantalla pinta.
+ */
+export const TIPOS_DOCUMENTO_RUNT = ['CC', 'CE', 'TI', 'PAS', 'PPT', 'NIT', 'RC', 'PT'] as const;
+
+export type TipoDocumentoRunt = (typeof TIPOS_DOCUMENTO_RUNT)[number];
+
+/**
+ * Códigos de error del alta del canal Cliente. Van en el cuerpo (`{ error, codigo }`) JUNTO al
+ * estado HTTP, no en su lugar.
+ *
+ * **Por qué existen, y por qué en shared-types.** Los AC2, AC3 y AC4 piden tres desenlaces que el
+ * formulario tiene que distinguir para poder responder distinto: reintentar (el RUNT falló), pintar
+ * un modal («ya tiene SOAT vigente») o mandar al detalle de la solicitud que ya existe (RN-01). Tres
+ * respuestas distintas del mismo `409`/`422` no se pueden separar por el estado HTTP, y separarlas
+ * comparando el TEXTO del mensaje es lo que rompe la próxima vez que alguien corrija una tilde.
+ *
+ * Ninguno de estos códigos lleva dato del vehículo ni del propietario: son constantes, y el mensaje
+ * que los acompaña es el que se le enseña a una persona.
+ */
+export const CodigoErrorSolicitudSoat = {
+  /** El usuario `cliente` no tiene compañía (el CHECK de la 0168 lo impide; esto es la red). */
+  SIN_COMPANIA: 'sin_compania',
+  /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
+  CANAL_DESACTIVADO: 'canal_desactivado',
+  /** El RUNT no respondió o respondió un fallo (AC2) → el formulario puede reintentar. */
+  RUNT_NO_DISPONIBLE: 'runt_no_disponible',
+  /** El RUNT respondió, pero no tiene ese vehículo registrado (AC2). */
+  RUNT_SIN_REGISTRO: 'runt_sin_registro',
+  /** El organismo que reporta el RUNT no cruza con el catálogo de FLITO (AC2). */
+  ORGANISMO_NO_CATALOGADO: 'organismo_no_catalogado',
+  /**
+   * Placa o VIN que el RUNT trajo DIFIERE de lo radicado (HU #11935). Un campo que el RUNT no
+   * trajo (`NO_VERIFICABLE`) no es este código. Vive en el satélite, no aborta el alta.
+   */
+  RUNT_NO_CUADRA: 'runt_no_cuadra',
+  /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
+  SOAT_VIGENTE: 'soat_vigente',
+  /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
+  VIN_YA_TIENE_SOAT: 'vin_ya_tiene_soat',
+  /** El adjunto no es un PDF por CONTENIDO, no solo por extensión (AC5). */
+  ARCHIVO_NO_PDF: 'archivo_no_pdf',
+
+  // ── Revisión, rechazo y subsanación (HU #11915) ────────────────────────────────────────────────
+  //
+  // Se suman a los ocho de arriba en vez de estrenar un segundo catálogo: son el MISMO canal, los
+  // sirven las mismas rutas y el cliente HTTP de la web ya sabe leer `codigo` de esta lista
+  // (`apps/web/src/lib/soatCliente.ts` valida contra `Object.values(...)`). Un catálogo aparte
+  // obligaría a duplicar esa validación y a decidir en cada `catch` cuál de los dos mirar.
+
+  /** El id no existe, o no es de la compañía de quien pregunta (404-no-403 de `buscarConAcceso`). */
+  SOLICITUD_NO_ENCONTRADA: 'solicitud_no_encontrada',
+  /**
+   * La fila existe pero NO nació del canal (`origen = 'tramite'`).
+   *
+   * No es un caso teórico: un `cliente` ve en su cola TODOS los SOAT de su compañía, también los que
+   * creó el sync de trámites, y un `admin` los ve todos. Validar, rechazar o subsanar por estas
+   * rutas un SOAT de trámite metería el ciclo del canal en un flujo que no lo tiene (AC1).
+   */
+  NO_ES_DEL_CANAL: 'no_es_del_canal',
+  /** La transición no aplica desde el estado en el que está la fila (AC1, AC2, AC3). */
+  ESTADO_NO_PERMITE: 'estado_no_permite',
+  /** La causal no está en el catálogo general, o está desactivada (AC2). */
+  CAUSAL_INVALIDA: 'causal_invalida',
+  /** El rechazo llegó sin observación, o con una en blanco (AC2). */
+  OBSERVACION_REQUERIDA: 'observacion_requerida',
+  /**
+   * Validar llegó sin destino, o con los dos.
+   *
+   * No es una formalidad del formulario: un `solicitado` sin proveedor y sin contingencia es un SOAT
+   * en la cola de NADIE y sin ANS con el que medirlo — lo mismo que la HU #10979 arregló haciendo
+   * obligatorio el proveedor en el envío masivo.
+   */
+  DESTINO_REQUERIDO: 'destino_requerido',
+} as const;
+
+export type CodigoErrorSolicitudSoat =
+  (typeof CodigoErrorSolicitudSoat)[keyof typeof CodigoErrorSolicitudSoat];
+
+/**
+ * Desenlace de la verificación RUNT post-commit del canal Cliente (HU #11935, ADR-0009).
+ *
+ * `ok` no está en el AC2 (lista los desenlaces de fallo + pendiente); hace falta para no dejar
+ * el éxito indistinguible de «aún no corrió». CHECK en la base, constante aquí.
+ */
+export const ESTADOS_VERIFICACION_SOLICITUD_SOAT = [
+  'pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok',
+] as const;
+
+export type EstadoVerificacionSolicitudSoat =
+  (typeof ESTADOS_VERIFICACION_SOLICITUD_SOAT)[number];
+
+/**
+ * Una causal del catálogo de rechazo, tal como la sirve `GET /flito/soat/causales-rechazo`
+ * (Feature #11912, HU #11915).
+ *
+ * Catálogo GENERAL: no hay causales por compañía, ni aquí ni en la tabla. Lo dice el AC2 y es además
+ * el precedente del repo (`flito_comparendos_causales`).
+ *
+ * `activo` viaja aunque el endpoint solo devuelva las activas, y no es redundante: el detalle de un
+ * rechazo YA REGISTRADO tiene que poder rotular una causal que se desactivó después, y sin el campo
+ * la pantalla no distinguiría «esta causal ya no se ofrece» de «esta causal no existe».
+ */
+export interface CausalRechazoSoat {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  orden: number;
+}

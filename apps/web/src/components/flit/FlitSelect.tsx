@@ -35,7 +35,7 @@
 // abrir un panel propio. Para eso ya está `FlitOrganismoCombobox`; un `<select>` nativo se lleva
 // gratis el teclado, el lector de pantalla y el desplegable del sistema operativo en móvil.
 
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { flitInp } from './flitPageKit';
 
 export interface FlitSelectOpcion {
@@ -79,6 +79,35 @@ interface Props {
    * defecto se compone con la etiqueta del selector.
    */
   textoReintento?: string;
+  /**
+   * Aditivo (HU #11913). Baja tal cual al `<select>`: validación NATIVA, no simulada.
+   *
+   * Es la diferencia con `FlitOrganismoCombobox`, cuyo `required` es un `<input>` de 0×0 con
+   * `opacity-0` y `tabIndex={-1}` — un control que ni se enfoca de forma fiable ni se puede
+   * afirmar en un test. Los 5 usos anteriores del kit no lo pasan y quedan idénticos.
+   */
+  required?: boolean;
+  /**
+   * Aditivo (HU #11913). El mensaje de VALIDACIÓN — distinto de `mensaje`, que explica el estado
+   * del catálogo.
+   *
+   * Cuando viene: se pinta en un `<p role="alert">` (interrumpe, porque impide continuar, mientras
+   * que un catálogo que no carga no lo hace), el `<select>` recibe `aria-invalid="true"` y su
+   * `aria-describedby` suma el id del error, y **el foco se mueve al control**. Al control y no al
+   * mensaje: es donde se corrige el problema, y enfocarlo hace que el lector anuncie etiqueta,
+   * estado inválido y descripción de una vez.
+   */
+  error?: string | null;
+  /**
+   * Aditivo (HU #11913). Se llama cuando la validación NATIVA rechaza el control.
+   *
+   * Hace falta porque con `required` el navegador bloquea el envío ANTES de que corra el
+   * `onSubmit` del formulario: sin este puente, el mensaje en español de `error` no llegaría a
+   * pintarse nunca y lo único que se vería sería el globo del navegador, que ni está en el idioma
+   * del producto ni se puede afirmar en un test. Se suprime ese globo (`preventDefault`) y se deja
+   * que el consumidor ponga su propio texto.
+   */
+  onInvalido?: () => void;
 }
 
 /**
@@ -93,9 +122,17 @@ const CLASE_SELECT = `${flitInp} disabled:cursor-not-allowed `
 
 export default function FlitSelect({
   label, value, opciones, onChange, ayuda, mensaje, fallo, disabled, onReintentar, textoReintento,
+  required, error, onInvalido,
 }: Props) {
   const id = useId();
   const idMensaje = `${id}-mensaje`;
+  const idError = `${id}-error`;
+  const refSelect = useRef<HTMLSelectElement>(null);
+
+  // El foco va al control en cuanto aparece el error de validación. Depende del TEXTO y no de un
+  // booleano para que un mensaje distinto vuelva a llevar el foco; repetir el mismo no lo roba dos
+  // veces (y en el camino nativo el navegador ya lo había puesto ahí).
+  useEffect(() => { if (error) refSelect.current?.focus(); }, [error]);
 
   return (
     <div>
@@ -108,10 +145,14 @@ export default function FlitSelect({
       </label>
       <select
         id={id}
+        ref={refSelect}
         className={CLASE_SELECT}
         value={value}
         disabled={disabled}
-        aria-describedby={idMensaje}
+        required={required}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${idMensaje} ${idError}` : idMensaje}
+        onInvalid={(e) => { if (onInvalido) { e.preventDefault(); onInvalido(); } }}
         onChange={(e) => onChange(e.target.value)}
       >
         {opciones.map((o) => (
@@ -142,6 +183,11 @@ export default function FlitSelect({
           </button>
         )}
       </div>
+      {error && (
+        <p id={idError} role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>
+          {error}
+        </p>
+      )}
     </div>
   );
 }

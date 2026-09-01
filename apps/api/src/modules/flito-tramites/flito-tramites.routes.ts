@@ -4,16 +4,21 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { esAlertaOperativa } from '@operaciones/shared-types';
+import { esAlertaOperativa, TipoSoporteZip } from '@operaciones/shared-types';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soportesDeTramite } from '../../shared/soportes/soportes-consulta.js';
+import {
+  comprobarTopeRegistrosZip, emitirZipSoportes, registrarAccesoZipTramites, resolverEntradasZip,
+  ZipError, zipSoportesLimiter,
+} from '../../shared/soportes/soportes-zip.js';
 import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
 import {
   crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
-  solicitarAmbos, solicitarImpuestos, solicitarSoat, type FiltrosListado, type TramitesCtx,
+  registrosZipTramites, solicitarAmbos, solicitarImpuestos, solicitarSoat,
+  type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 
 const router = Router();
@@ -84,6 +89,72 @@ router.get('/:id/soportes', LECTURA, async (req: Request, res: Response) => {
   // Sin caché: un soporte cargado hace un minuto tiene que salir sin recargar la pantalla.
   res.set('Cache-Control', 'no-store');
   res.json(soportes);
+});
+
+/**
+ * POST /soportes/zip — el ZIP MIXTO de los trámites marcados (HU #11910, AC4).
+ *
+ * Los tres tipos a la vez y en un solo archivo: la factura de venta de FLIT, el recibo del organismo
+ * y el comprobante del SOAT. Es la superficie que da sentido al desempate del AC5 — factura + recibo
+ * + comprobante del MISMO trámite se llaman los tres `PLACA-ORGANISMO`, así que el `-3` es el caso
+ * normal aquí, no el borde.
+ *
+ * ── El rol es `OPERACIONES`, y **no `LECTURA`** ─────────────────────────────────────────────────
+ *
+ * `LECTURA` de este router es `admin` + `auditor`, y el AC7 dice que auditoría **no descarga**.
+ * Reusar la constante de al lado —que es lo que pide el cuerpo, porque las demás lecturas la usan—
+ * le abriría a auditoría una descarga masiva de documentos con datos del titular, y el error se
+ * leería como una coherencia. El mutante `OPERACIONES → LECTURA` tiene su test.
+ *
+ * ── Por qué esta ruta existe aparte y no es la de SOAT parametrizada ────────────────────────────
+ *
+ * Los ids son de OTRO espacio (`flito_tramites.id`, no `flito_soat.id`), el predicado de frontera es
+ * otro (aquí no hay ninguno: quien despacha ve el parque entero, y lo que acota es el rol) y el
+ * catálogo de tipos es otro. Un endpoint único obligaría a un `requireRole` con la unión de los tres
+ * roles y a mover la comprobación al cuerpo del handler, que es donde se olvida.
+ */
+const zipSoportesSchema = z.object({
+  // Sin `.max()`: el tope se comprueba con `comprobarTopeRegistrosZip`, que responde con
+  // `codigo` propio. Un `.max()` aquí daría un 400 de Zod indistinguible de un cuerpo roto.
+  ids: z.array(z.string().uuid()).min(1),
+  tipos: z.array(z.enum([
+    TipoSoporteZip.FACTURA_VENTA, TipoSoporteZip.RECIBO_IMPUESTO, TipoSoporteZip.FACTURA_SOAT,
+  ])).min(1).max(3),
+}).strict();
+
+router.post('/soportes/zip', OPERACIONES, zipSoportesLimiter, async (req: Request, res: Response) => {
+  const parsed = zipSoportesSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    comprobarTopeRegistrosZip(parsed.data.ids);
+    const registros = await registrosZipTramites(parsed.data.ids);
+    const entradas = await resolverEntradasZip(registros, parsed.data.tipos);
+
+    // Antes del primer byte. Este router no tenía módulo de PII propio; ver la nota de
+    // `registrarAccesoZipTramites` sobre por qué no se le hace pasar por los de las otras dos colas.
+    await registrarAccesoZipTramites(req, entradas.length);
+    await audit(req, {
+      action: 'export', resource: 'flito_tramite',
+      detail: `Descarga zip de soportes (${parsed.data.tipos.join(', ')}): ${entradas.length} documento(s)`,
+    });
+
+    await emitirZipSoportes(res, entradas);
+  } catch (e) {
+    // Con la respuesta ya empezada no se puede responder: se relanza al manejador global.
+    if (res.headersSent) throw e;
+    // UN solo `instanceof` para los tres desenlaces del ZIP: con uno por clase, añadir un código
+    // nuevo y olvidarse en una de las tres rutas lo devuelve a la rama genérica —sin `codigo`— y
+    // la pantalla enseña «avisa a soporte». Ya pasó con el tope de registros.
+    if (e instanceof ZipError) {
+      res.status(e.status).json({ error: e.message, codigo: e.codigo });
+      return;
+    }
+    throw e;
+  }
 });
 
 // POST /crear-empresa — crea la empresa (cliente) de un trámite con empresa inexistente y re-vincula
