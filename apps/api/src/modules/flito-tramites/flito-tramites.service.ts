@@ -16,6 +16,7 @@ import {
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { flitoDerechosTramite } from '../../db/schema.js';
+import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { decidir, entregar as entregarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { enviarAlGestor as enviarSoat } from '../flito-soat/flito-soat.service.js';
 import { enviarAlGestor as enviarImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
@@ -31,6 +32,19 @@ const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.u
 export interface Comprador {
   nombreCompleto: string; numeroDocumento: string; correo: string | null; celular: string | null;
   direccion: string | null; orden: number; porcentajeParticipacion: string | null;
+  /**
+   * QUÉ documento es `numeroDocumento`: `'CC' | 'NIT' | 'PP' | 'CE' | null` (HU #11947).
+   *
+   * El código YA RESUELTO desde `flit_raw->>'tipo'` del trámite dueño, **no el `tipo` crudo de FLIT**
+   * (`n`, `cc`, `ps`, `ce`, `otro`): la tabla vive en `shared/export/cola-flito-derivados.ts` y tiene
+   * UNA sola copia en el repo (AC6). Tampoco es `flito_compradores.tipo_documento`, que sigue a 0 de
+   * 7 052 para las filas del sync.
+   *
+   * Va en el comprador y no en la fila porque es un dato DEL titular; que aquí todos los compradores
+   * de un trámite compartan valor es una consecuencia de que el payload traiga un solo `tipo`, no una
+   * propiedad en la que apoyarse.
+   */
+  tipoDocumento: string | null;
 }
 export interface FilaSoat {
   id: string; estado: string; proveedorSoatId: string | null; proveedorSoatNombre: string | null;
@@ -281,6 +295,12 @@ function proyeccion() {
     fechaAprobacion: flitoTramites.fechaAprobacion,
     fechaCreacionFlit: flitoTramites.fechaCreacionFlit,
     creadoEn: flitoTramites.createdAt,
+    // HU #11947: el tipo de documento del titular, dentro de `flit_raw`. La proyección ya sale
+    // `from(flitoTramites)`, así que la columna está a mano y esto es una expresión más: cero joins,
+    // cero consultas, cero migración. Sale de `expresionesFlitRaw` —la misma función que usan las
+    // colas y los dos exports— para que la clave ligada y el descarte de lo no escalar en SQL sean
+    // LOS MISMOS en las cuatro lecturas.
+    tipoTitularFlit: expresionesFlitRaw(flitoTramites.flitRaw).tipo,
     // Extras de presentación.
     sincronizadoEn: flitoTramites.sincronizadoEn,
     organismoAlias: organismosTransitoConfig.alias,
@@ -341,10 +361,17 @@ function coincidenciaDe(extraccion: unknown): number | null {
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
-function aFila(f: FilaCruda, compradores: Comprador[]): TramiteFila {
+function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): TramiteFila {
   // decidir() (compuerta) exige autogestión booleana; sin compañía emparejada, se asume false.
   const veredicto = decidir({ ...f, soatAutogestionable: f.soatAutogestionable ?? false, impuestosAutogestionable: f.impuestosAutogestionable ?? false, companiaNombre: f.companiaNombre ?? '' });
-  const orden = [...compradores].sort((a, b) => a.orden - b.orden);
+  // HU #11947. El tipo lo afirma el TRÁMITE (`flit_raw->>'tipo'`) y se cuelga de cada uno de sus
+  // compradores: la lectura de `flito_compradores` no lo trae, y la columna homónima de esa tabla
+  // sigue a 0 de 7 052 para las filas del sync. El código va RESUELTO (`CC`/`NIT`/`PP`/`CE`), nunca
+  // el crudo de FLIT: la tabla que traduce tiene una sola copia en el repo (AC6).
+  const tipoDocumento = clasificacionDeTipoFlit(f.tipoTitularFlit)?.claseId ?? null;
+  const orden: Comprador[] = [...compradores]
+    .sort((a, b) => a.orden - b.orden)
+    .map((c) => ({ ...c, tipoDocumento }));
   const principal = orden[0] ?? null;
   const asignado = (f.flitEstado ?? '').trim().toLowerCase() === 'asignado';
   // Semáforo de gestión: gris si la empresa autogestiona SOAT e impuestos; si no, rojo/amarillo/verde
@@ -584,7 +611,11 @@ export async function listar(filtros: FiltrosListado = {}): Promise<ListadoTrami
     orden: flitoCompradores.orden, porcentajeParticipacion: flitoCompradores.porcentajeParticipacion,
   }).from(flitoCompradores).where(inArray(flitoCompradores.tramiteId, ids));
 
-  const porTramite = new Map<string, Comprador[]>();
+  // Sin `tipoDocumento`: ese no sale de `flito_compradores` sino del `flit_raw` del TRÁMITE, y lo
+  // cuelga `aFila`, que es quien tiene la fila del trámite delante. El `Omit` no es cosmético — es
+  // lo que impide que alguien complete el DTO aquí con la columna homónima de la tabla, que está a
+  // 0 de 7 052 para las filas del sync y dejaría la pantalla vacía sin que nada fallara.
+  const porTramite = new Map<string, Omit<Comprador, 'tipoDocumento'>[]>();
   for (const c of compradoresRows) {
     // Nullable desde el Feature #11912: `flito_compradores` cuelga del trámite O del SOAT del canal
     // Cliente. La consulta ya filtró por trámite, así que aquí no cae ninguna fila del canal.

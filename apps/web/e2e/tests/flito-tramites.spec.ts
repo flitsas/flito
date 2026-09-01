@@ -22,7 +22,7 @@ const TRAMITES = [
     transitoNombre: 'STT Manizales', facturaVentaFlitId: null,
     companiaNombre: 'Concesionario Norte', organismoNombre: 'STT Manizales',
     vehiculo: { vin: 'VIN0000000000001', placa: 'ABC123', marca: 'Chevrolet', linea: 'Onix' },
-    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', correo: 'ana.perez@acme.co' },
+    compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', tipoDocumento: 'CC', correo: 'ana.perez@acme.co' },
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' }],
     soat: { id: 's1', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     excepcionesAutogestion: [],
@@ -37,7 +37,7 @@ const TRAMITES = [
     transitoNombre: 'STT Pereira', facturaVentaFlitId: 'fac-xyz',
     companiaNombre: 'Concesionario Sur', organismoNombre: 'STT Pereira',
     vehiculo: { vin: 'VIN0000000000002', placa: 'XYZ789', marca: 'Renault', linea: 'Kwid' },
-    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', correo: null },
+    compradorPrincipal: { nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', tipoDocumento: 'CE', correo: null },
     compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020' }],
     soat: { id: 's2', estado: 'pagado', proveedorSoatNombre: 'Seguros Alfa', valorPagado: 450000 },
     excepcionesAutogestion: [],
@@ -52,7 +52,9 @@ const TRAMITES = [
     transitoNombre: 'STT Armenia', facturaVentaFlitId: null,
     companiaNombre: null, organismoNombre: 'STT Armenia',
     vehiculo: { vin: 'VIN0000000000003', placa: 'DEF456', marca: 'Mazda', linea: '2' },
-    compradorPrincipal: { nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' },
+    // HU #11947 (AC7): tipo desconocido en FLIT → el API resuelve `null` y la celda enseña solo el
+    // número, sin prefijo inventado ni espacio de relleno.
+    compradorPrincipal: { nombreCompleto: 'María Ruiz', numeroDocumento: '30303030', tipoDocumento: null },
     compradores: [{ nombreCompleto: 'María Ruiz', numeroDocumento: '30303030' }],
     soat: { id: 's3', estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     excepcionesAutogestion: [],
@@ -343,6 +345,27 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await expect(page.getByText(/no tiene ningún documento cargado todavía/)).toBeVisible();
   });
+
+  // HU #11947 (AC7). Aquí el documento SÍ va en la tabla, no en un modal. El código llega resuelto
+  // del API; la celda lo antepone al número y nada más. Dos códigos distintos para que un prefijo
+  // constante no pase, y el caso sin código con `textContent` en vez de `toHaveText` —que normaliza
+  // espacios— porque el mutante a matar es el `${tipo} ${numero}` que deja « 30303030».
+  for (const caso of [
+    { titular: 'Ana Pérez', esperado: 'CC 10101010' },
+    { titular: 'Luis Gómez', esperado: 'CE 20202020' },
+    { titular: 'María Ruiz', esperado: '30303030' },
+  ]) {
+    test(`AC7 — la fila de ${caso.titular} enseña el documento tal como lo resolvió el API`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mockLista(page);
+      await page.goto('/flito/tramites');
+
+      const doc = page.getByRole('row').filter({ hasText: caso.titular })
+        .getByRole('cell').filter({ hasText: caso.titular }).locator('div.tabular-nums');
+      await expect(doc).toBeVisible();
+      expect(await doc.textContent()).toBe(caso.esperado);
+    });
+  }
 
   test('auditor entra en solo lectura: sin checkboxes ni barra de acciones', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);

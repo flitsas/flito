@@ -21,7 +21,7 @@ const GESTOR_IMPUESTOS_USER = {
 const IMPUESTOS = [
   {
     id: 'i1', tramiteId: 't1', idFlit: 'FLIT-1001', placa: 'ABC123', vin: 'VIN0000000000001',
-    estado: 'pendiente', compradorNombre: 'Ana Pérez', compradorDocumento: '10101010',
+    estado: 'pendiente', compradorNombre: 'Ana Pérez', compradorDocumento: '10101010', compradorTipoDocumento: 'CC',
     companiaNombre: 'Concesionario Norte', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales',
     valorLiquidado: 120000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: null, enviadoEn: null, estancado: false, motivoRechazo: null, creadoEn: '2026-04-01T12:00:00Z',
@@ -29,7 +29,7 @@ const IMPUESTOS = [
   },
   {
     id: 'i2', tramiteId: 't2', idFlit: 'FLIT-1002', placa: 'XYZ789', vin: 'VIN0000000000002',
-    estado: 'solicitado', compradorNombre: 'Luis Gómez', compradorDocumento: '20202020',
+    estado: 'solicitado', compradorNombre: 'Luis Gómez', compradorDocumento: '20202020', compradorTipoDocumento: 'PP',
     companiaNombre: 'Concesionario Sur', organismoCodigo: 'STT-PER', organismoNombre: 'STT Pereira',
     valorLiquidado: 200000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-02T12:00:00Z',
@@ -37,7 +37,9 @@ const IMPUESTOS = [
   },
   {
     id: 'i3', tramiteId: 't3', idFlit: 'FLIT-1003', placa: 'OPS001', vin: 'VIN0000000000003',
-    estado: 'solicitado', compradorNombre: 'Marta Ruiz', compradorDocumento: '30303030',
+    // HU #11947 (AC7): tipo desconocido en FLIT, el API lo resuelve a `null` y la ficha enseña
+    // solo el número, sin prefijo ni espacio de relleno delante.
+    estado: 'solicitado', compradorNombre: 'Marta Ruiz', compradorDocumento: '30303030', compradorTipoDocumento: null,
     companiaNombre: 'Concesionario Sur', organismoCodigo: 'STT-PER', organismoNombre: 'STT Pereira',
     valorLiquidado: 150000, valorPagado: null, marcadoPorDiferencia: false, tieneFacturaVenta: true,
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-03T12:00:00Z', estancado: false, motivoRechazo: null, creadoEn: '2026-04-03T12:00:00Z',
@@ -291,6 +293,28 @@ test.describe('FLITO — Impuestos', () => {
     await expect(modal.getByRole('button', { name: 'Devolver al gestor' })).toHaveCount(0);
     await expect(modal.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
   });
+
+  // HU #11947 (AC7). El código lo resuelve el API ('CC' | 'NIT' | 'PP' | 'CE' | null); aquí solo se
+  // antepone al número. Dos códigos distintos para que un prefijo constante no pase, y el caso sin
+  // código comparado con `textContent` —no con `toHaveText`, que normaliza espacios— porque lo que
+  // hay que matar es el `${tipo} ${numero}` interpolado a pelo, que ahí deja un espacio sobrante.
+  for (const caso of [
+    { placa: 'ABC123', esperado: 'CC 10101010' },
+    { placa: 'XYZ789', esperado: 'PP 20202020' },
+    { placa: 'OPS001', esperado: '30303030' },
+  ]) {
+    test(`AC7 — el documento del comprador de ${caso.placa} sale como lo resolvió el API`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mock(page);
+      await page.goto('/flito/impuestos');
+      await page.getByRole('row').filter({ hasText: caso.placa }).getByRole('button', { name: 'Ver' }).click();
+
+      const dd = page.getByRole('dialog').locator('dt', { hasText: /^Documento$/ })
+        .locator('xpath=following-sibling::dd');
+      await expect(dd).toBeVisible();
+      expect(await dd.textContent()).toBe(caso.esperado);
+    });
+  }
 
   test('auditor ve detalle en solo lectura', async ({ page }) => {
     await loginAs(page, AUDITOR_USER);

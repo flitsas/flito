@@ -39,7 +39,7 @@ import {
   type FilaColaExport,
 } from '../../shared/export/cola-flito-excel.js';
 import {
-  bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, clavePar, expresionesFlitRaw, parDeClave,
+  bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, claveTitular, expresionesFlitRaw, titularDeClave,
   TITULAR_VACIO, type BloqueTitular,
 } from '../../shared/export/cola-flito-derivados.js';
 import {
@@ -195,14 +195,14 @@ async function propietariosDe(
   return salida;
 }
 
-/** Las ocho expresiones `->>` sobre `flito_tramites.flit_raw`, definidas una sola vez para el repo. */
+/** Las NUEVE expresiones `->>` sobre `flito_tramites.flit_raw`, definidas una sola vez para el repo. */
 const RAW = expresionesFlitRaw(flitoTramites.flitRaw);
 
 /**
  * Un trámite del lote: su id (para colgar al propietario), su SOAT y todo lo que el archivo saca de
- * ÉL —tres columnas propias y las ocho claves del payload—.
+ * ÉL —tres columnas propias y las nueve claves del payload—.
  *
- * Los ocho campos del `jsonb` se tipan `unknown` y no `string | null` a propósito: `->>` devuelve
+ * Los nueve campos del `jsonb` se tipan `unknown` y no `string | null` a propósito: `->>` devuelve
  * texto en PostgreSQL, pero el tipo de una expresión `sql<...>` es una promesa de TypeScript que
  * nadie comprueba en ejecución y el origen es JSON de un tercero. `celdaDesdeJson` es quien decide
  * qué llega a la celda; declarar `string` aquí solo serviría para que el compilador dejara pasar un
@@ -221,6 +221,8 @@ interface TramiteDeSoat {
   departamento: unknown;
   nombres: unknown;
   apellidos: unknown;
+  /** HU #11947: lo que decide las CINCO columnas del titular. No se imprime; clasifica. */
+  tipo: unknown;
 }
 
 /**
@@ -232,10 +234,10 @@ interface TramiteDeSoat {
  * para 500 SOAT —pasando todos los asertos de columnas sin despeinarse— y, peor, el conteo contra el
  * tope contaría duplicados, de modo que un filtro legítimo podría recibir un 422.
  *
- * **La HU #11934 no cambió eso: colgó de esta MISMA lectura las nueve columnas nuevas del trámite.**
- * Añadir aquí ocho expresiones y un campo cuesta cero consultas más; tocar `conJoinsCola` para traer
- * lo mismo habría metido el join que este comentario existe para no tener, y además habría cambiado
- * el predicado que el export comparte con la pantalla.
+ * **La HU #11934 no cambió eso: colgó de esta MISMA lectura las nueve columnas nuevas del trámite, y
+ * la #11947 le sumó la novena clave (`tipo`) sin tocar una consulta.** Tocar `conJoinsCola` para
+ * traer lo mismo habría metido el join que este comentario existe para no tener, y además habría
+ * cambiado el predicado que el export comparte con la pantalla.
  *
  * `flit_raw` **no se proyecta entera**: una expresión `->>` por clave (RN-E1). Traerla completa serían
  * 27 claves × 2 000 filas en el heap para escribir seis celdas.
@@ -283,13 +285,13 @@ const SIN_TRAMITE: DatosDeTramite = {
  * nueve valores; eso es lo esperado y no un hueco a rellenar — sus otras doce columnas sí se llenan
  * y la fila sale igual.
  *
- * ── `nombres` y `apellidos` se reconcilian COMO PAR, con UN solo `comun()` ───────────────────────
+ * ── `tipo`, `nombres` y `apellidos` se reconcilian COMO TRIPLA, con UN solo `comun()` ────────────
  *
- * Es la trampa cara de esta mitad de la HU. Dos `comun()` independientes sobre dos trámites que
- * coinciden en `nombres` y difieren en `apellidos` devolverían el nombre con el apellido en blanco,
- * y **esa fila se clasificaría como persona JURÍDICA metiendo el nombre de pila de alguien en la
- * columna `RazonSocial`** — con su `ClaseId` diciendo `NIT`. No lanza, no avisa y no lo ve ningún
- * aserto de columnas. Se reconcilia la TUPLA (`clavePar`) y se clasifica después (`bloqueTitular`).
+ * Es la trampa cara de esta mitad de la HU, y desde la #11947 el campo que más pesa está DENTRO de
+ * la tupla. Un `comun()` por campo sobre dos trámites del mismo VIN que coinciden en el nombre y
+ * discrepan en el `tipo` —uno `n`, otro `cc`— publicaría un nombre reconciliado con una clase que
+ * ningún trámite afirma. No lanza, no avisa y no lo ve ningún aserto de columnas. Se reconcilia la
+ * TRIPLA (`claveTitular`) y se clasifica después (`bloqueTitular`).
  */
 function datosDeTramitePorSoat(tramites: TramiteDeSoat[]): Map<string, DatosDeTramite> {
   const porSoat = new Map<string, TramiteDeSoat[]>();
@@ -310,7 +312,7 @@ function datosDeTramitePorSoat(tramites: TramiteDeSoat[]): Map<string, DatosDeTr
       clase: comun(ts, (t) => celdaDesdeJson(t.clase)),
       capacidad: comun(ts, (t) => celdaDesdeJson(t.capacidad)),
       departamento: comun(ts, (t) => celdaDesdeJson(t.departamento)),
-      titular: bloqueTitular(parDeClave(comun(ts, (t) => clavePar(t.nombres, t.apellidos)))),
+      titular: bloqueTitular(titularDeClave(comun(ts, (t) => claveTitular(t.tipo, t.nombres, t.apellidos)))),
     });
   }
   return salida;

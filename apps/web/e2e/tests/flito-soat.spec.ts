@@ -15,7 +15,7 @@ const SOAT = [
     cilindraje: '1598', carroceria: 'SEDAN', tipoServicio: 'Particular',
     estado: 'pendiente', esMultiplePropietario: false, companiaNombre: 'Concesionario Norte',
     organismoNombre: 'STT Manizales', proveedorSoatId: null, proveedorSoatNombre: null,
-    compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', orden: 0, porcentajeParticipacion: null }],
+    compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', tipoDocumento: 'CC', orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: ['FLIT-1001'], tipoTramite: 'Matricula',
     fechaAprobacion: null, fechaCreacion: '2026-03-28T10:00:00Z',
     enviadoPorNombre: null, enviadoEn: null,
@@ -30,7 +30,7 @@ const SOAT = [
     cilindraje: '220', carroceria: 'DOBLE CABINA CON PLATON', tipoServicio: 'Publico',
     estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
-    compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', orden: 0, porcentajeParticipacion: null }],
+    compradores: [{ nombreCompleto: 'Luis Gómez', numeroDocumento: '20202020', tipoDocumento: 'NIT', orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: ['FLIT-1002'], tipoTramite: 'Traspaso',
     fechaAprobacion: '2026-04-03T12:00:00Z', fechaCreacion: '2026-04-01T10:00:00Z',
     enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
@@ -44,7 +44,14 @@ const SOAT = [
     cilindraje: null, carroceria: 'SUV', tipoServicio: null,
     estado: 'pagado', esMultiplePropietario: true, companiaNombre: 'Concesionario Sur',
     organismoNombre: 'STT Pereira', proveedorSoatId: 'p1', proveedorSoatNombre: 'Seguros Alfa',
-    compradores: [{ nombreCompleto: 'Sara Ríos', numeroDocumento: '30303030', orden: 0, porcentajeParticipacion: null }],
+    // HU #11947 (AC7): FLIT mandó un tipo que no está en la tabla del backend, así que el API
+    // resuelve `null`. NO es un dato roto: el número se enseña igual, sin prefijo.
+    compradores: [
+      { nombreCompleto: 'Sara Ríos', numeroDocumento: '30303030', tipoDocumento: null, orden: 0, porcentajeParticipacion: null },
+      // El segundo copropietario SÍ trae código: los dos casos conviven en la MISMA lista, que es
+      // donde una regla de `null` escrita dos veces se delataría.
+      { nombreCompleto: 'Iván Ríos', numeroDocumento: '40404040', tipoDocumento: 'PP', orden: 1, porcentajeParticipacion: null },
+    ],
     tramitesFlit: ['FLIT-1003'], enviadoPorNombre: 'Operaciones E2E', enviadoEn: '2026-04-02T12:00:00Z',
     pagadoEn: '2026-04-05T12:00:00Z', valorPagado: 740800, estancado: false, motivoRechazo: null,
     gestionOperaciones: false,
@@ -398,6 +405,43 @@ test.describe('FLITO — Portal SOAT', () => {
     // El resto de la fila sigue entera: un campo ausente no se lleva por delante a sus vecinos.
     await expect(fila).toContainText('Múltiple propietario');
     await expect(fila).toContainText('VIN0000000000003');
+  });
+
+  // HU #11947 (AC7). El código del tipo de documento llega YA RESUELTO del API —'CC', 'NIT', 'PP',
+  // 'CE' o null— y esta pantalla solo lo antepone al número. Los tres casos van en bucle porque el
+  // fallo a matar no es «no sale el código», que se ve al primer vistazo, sino el interpolado a pelo
+  // `${tipo} ${numero}`: con código se lee idéntico y solo delata el espacio sobrante en el caso sin
+  // código. Por eso también se comparan con `textContent` y no con `toHaveText`, que normaliza los
+  // espacios y dejaría vivo justamente a ese mutante.
+  for (const caso of [
+    { placa: 'ABC123', titular: 'Ana Pérez', esperado: 'Ana Pérez · CC 10101010' },
+    // Un segundo código distinto: con solo 'CC' en los datos, un prefijo constante pasaría el test.
+    { placa: 'XYZ789', titular: 'Luis Gómez', esperado: 'Luis Gómez · NIT 20202020' },
+    { placa: 'PAG777', titular: 'Sara Ríos', esperado: 'Sara Ríos · 30303030' },
+  ]) {
+    test(`AC7 — el comprador de ${caso.placa} enseña el documento tal como lo resolvió el API`, async ({ page }) => {
+      await loginAs(page, OPERACIONES_USER);
+      await mock(page);
+      await page.goto('/flito/soat');
+      await page.getByRole('row').filter({ hasText: caso.placa }).getByRole('button', { name: 'Ver' }).click();
+
+      const linea = page.getByRole('dialog').getByRole('listitem')
+        .filter({ hasText: caso.titular }).locator('span').first();
+      await expect(linea).toBeVisible();
+      expect(await linea.textContent()).toBe(caso.esperado);
+    });
+  }
+
+  test('AC7 — con dos copropietarios, el que no trae código no contagia al que sí', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    await page.getByRole('row').filter({ hasText: 'PAG777' }).getByRole('button', { name: 'Ver' }).click();
+
+    const lineas = page.getByRole('dialog').getByRole('listitem');
+    await expect(lineas).toHaveCount(2);
+    expect(await lineas.nth(0).locator('span').first().textContent()).toBe('Sara Ríos · 30303030');
+    expect(await lineas.nth(1).locator('span').first().textContent()).toBe('Iván Ríos · PP 40404040');
   });
 
   test('el filtro inteligente «listos para enviar» no se le ofrece al gestor', async ({ page }) => {

@@ -8,10 +8,10 @@
 // servicios es de dónde sale cada valor, y eso es justo lo que justifica que haya dos:
 //
 //   · **Los datos del trámite son DIRECTOS.** `flito_impuestos.tramite_id` es NOT NULL y UNIQUE, así
-//     que un impuesto tiene un trámite y solo uno: el municipio, el organismo crudo y las ocho claves
-//     de `flit_raw` salen del `innerJoin` que la cola ya hace, como ocho expresiones más en la
-//     proyección y CERO joins nuevos. En SOAT no se puede —un SOAT es por VIN y sirve a varios
-//     trámites— y allí hay que leer por lote y reconciliar campo a campo con `comun()`.
+//     que un impuesto tiene un trámite y solo uno: el municipio, el organismo crudo y las NUEVE
+//     claves de `flit_raw` salen del `innerJoin` que la cola ya hace, como nueve expresiones más en
+//     la proyección y CERO joins nuevos. En SOAT no se puede —un SOAT es por VIN y sirve a varios
+//     trámites— y allí hay que leer por lote y reconciliar con `comun()`.
 //   · **El propietario tiene UNA sola vía.** `flito_compradores` cuelga de dos padres desde la 0167,
 //     pero las filas del canal Cliente son de SOAT: aquí solo hay `tramite_id`.
 //   · **Los tres datos técnicos del vehículo (HU #11906) no estaban en la proyección de esta cola**
@@ -71,9 +71,10 @@ const COLUMNAS_CONSULTA = {
   // `ciudadDeOrganismo`: el del payload llega sin el cero de relleno en la mitad de las filas y
   // dejaría `OrganismoDettoCiudad` vacía sin que nada fallara.
   organismoCodigo: flitoImpuestos.organismoCodigo,
-  // HU #11934: las ocho claves del payload de FLIT, una expresión `->>` cada una. Entran en la
-  // proyección que ya existía porque `conJoinsColaImpuestos` ya une `flito_tramites` 1:1 — cero joins
-  // nuevos, cero consultas nuevas, y `flit_raw` NO se proyecta entera (RN-E1).
+  // HU #11934, HU #11947: las NUEVE claves del payload de FLIT, una expresión `->>` cada una (la
+  // novena, `tipo`, no se imprime: decide las cinco columnas del titular). Entran en la proyección
+  // que ya existía porque `conJoinsColaImpuestos` ya une `flito_tramites` 1:1 — cero joins nuevos,
+  // cero consultas nuevas, y `flit_raw` NO se proyecta entera (RN-E1).
   ...expresionesFlitRaw(flitoTramites.flitRaw),
 } as const;
 
@@ -179,10 +180,10 @@ export async function construirFilasExportImpuestos(
 
   return filas.map((f) => {
     const p = propietarios.get(f.tramiteId);
-    // Las cinco columnas del titular se deciden JUNTAS y en un solo sitio: son una regla de tres
-    // estados, no un `if` por columna (ver `bloqueTitular`). Aquí no hay que reconciliar nada —el
-    // impuesto tiene un trámite y solo uno—, así que el par entra tal cual.
-    const titular = bloqueTitular({ nombres: f.nombres, apellidos: f.apellidos });
+    // Las cinco columnas del titular se deciden JUNTAS y en un solo sitio: las decide el `tipo` que
+    // afirma el origen, no un `if` por columna (ver `bloqueTitular`). Aquí no hay que reconciliar
+    // nada —el impuesto tiene un trámite y solo uno—, así que los tres campos entran tal cual.
+    const titular = bloqueTitular({ tipo: f.tipo, nombres: f.nombres, apellidos: f.apellidos });
     // El orden de las claves es el de `COLUMNAS_COLA_EXPORT` para que las dos listas se lean juntas,
     // pero NO es lo que ordena el archivo: ExcelJS empareja por `key`.
     return {

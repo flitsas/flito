@@ -90,8 +90,14 @@ describe('cola SOAT — el propietario de una solicitud del canal Cliente sale e
     const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('admin'));
     expect(r.status).toBe(200);
     // Con el VALOR, no solo la longitud: un `[{}]` pasaría un `toHaveLength(1)`.
+    //
+    // **`tipoDocumento: null` aunque la fila de la BD traiga `tipo_documento: 'CC'`** (HU #11947):
+    // el DTO publica el código resuelto desde `flit_raw->>'tipo'` del TRÁMITE, y una solicitud del
+    // canal no tiene trámite —luego no tiene payload, luego no tiene tipo—. Sale por la rama por
+    // defecto y sin un `if` de origen. Publicar la columna homónima daría `CC` justo aquí y vacío en
+    // el 100 % de las filas del sync, que es exactamente al revés de lo que hace falta.
     expect(r.body.items[0].compradores).toEqual([
-      { nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1020304050', orden: 0, porcentajeParticipacion: null },
+      { nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1020304050', tipoDocumento: null, orden: 0, porcentajeParticipacion: null },
     ]);
     // No tiene trámite y no se lo inventa: es una solicitud sin trámite digital, ese es el canal.
     expect(r.body.items[0].tramitesFlit).toEqual([]);
@@ -155,6 +161,43 @@ describe('cola SOAT — el propietario de una solicitud del canal Cliente sale e
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_CANAL}`).set('Authorization', await auth('admin'));
     expect(r.status).toBe(200);
     expect(r.body.compradores[0]).toMatchObject({ nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1020304050' });
+  });
+
+  it('**el tipo de documento sale del `tipo` del TRÁMITE dueño de cada comprador** (HU #11947)', async () => {
+    // Página mixta otra vez, y aquí la pregunta es otra: de dónde sale `tipoDocumento`.
+    //
+    //   · la fila del canal cuelga de `soat_id`, no tiene trámite → `null`, aunque su columna
+    //     `tipo_documento` diga `CC`;
+    //   · la fila de trámite cuelga de SU trámite → el código RESUELTO de `flit_raw->>'tipo'`
+    //     (`n` → `NIT`), y **no** el crudo, que es lo que hace cumplible el AC6.
+    //
+    // Aquí NO se reconcilia con `comun()`: cada comprador cuelga de un trámite concreto y la
+    // relación es 1:1. Pasarlo por `comun()` vaciaría el dato de dos propietarios correctos porque
+    // sus trámites discrepan entre sí.
+    const filaTramite = filaCola({ id: SOAT_TRAMITE, origen: 'tramite', vin: 'JN1TG4E28AW000111', estado: 'pendiente' });
+    selectMock.mockImplementationOnce(() => chain([{ total: 2 }]));
+    selectMock.mockImplementationOnce((p: Record<string, unknown>) => chainProyectado(p, [filaCola(), filaTramite]));
+    selectMock.mockImplementationOnce((p: Record<string, unknown>) => chainProyectado(p, [{
+      id: 'tr1', soatId: SOAT_TRAMITE, idFlit: 'FLIT-1', tipoPropiedad: 'unico_propietario',
+      tipoTramite: 'Traspaso', fechaAprobacion: null, fechaCreacion: null,
+      // La clave `tipo` del payload, ya extraída por la expresión `->>`.
+      tipoTitularFlit: 'n',
+    }]));
+    selectMock.mockImplementationOnce(() => chain([{ id: 'p2', tramiteId: 'tr1', soatId: null, nombreCompleto: 'TRANSPORTES ABC SAS', numeroDocumento: '9001234561', tipoDocumento: null, orden: 0, porcentajeParticipacion: null }]));
+    selectMock.mockImplementationOnce(() => chain([propietarioCanal()]));
+
+    const r = await request(await buildApp()).get('/api/flito/soat').set('Authorization', await auth('admin'));
+    expect(r.status).toBe(200);
+
+    const canal = r.body.items.find((i: { id: string }) => i.id === SOAT_CANAL);
+    const tramite = r.body.items.find((i: { id: string }) => i.id === SOAT_TRAMITE);
+
+    expect(tramite.compradores[0].tipoDocumento).toBe('NIT');
+    // El crudo de FLIT no sale del API: si viajara, cada página necesitaría su copia de la tabla.
+    expect(tramite.compradores[0].tipoDocumento).not.toBe('n');
+    expect(JSON.stringify(r.body)).not.toContain('"n"');
+    // Y el del canal sigue vacío en la MISMA respuesta: los dos casos no se cruzan.
+    expect(canal.compradores[0].tipoDocumento).toBeNull();
   });
 
   it('`origen` es de uso interno: decide por qué padre leer, y NO viaja al DTO', async () => {

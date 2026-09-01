@@ -182,13 +182,17 @@ const filaSoat = (over: Record<string, unknown> = {}) => ({
 });
 
 /**
- * Fila de `flito_tramites` tal como la devuelve `tramitesDe()`: las tres columnas propias y las ocho
- * claves de `flit_raw` **ya extraídas**, con el nombre del CAMPO y no el de la clave de FLIT.
+ * Fila de `flito_tramites` tal como la devuelve `tramitesDe()`: las tres columnas propias y las
+ * NUEVE claves de `flit_raw` **ya extraídas**, con el nombre del CAMPO y no el de la clave de FLIT.
  *
  * Que aquí se llame `linea` y no `modelo` no es una comodidad: `keyed-db` no evalúa la proyección,
  * así que estas claves son las del `select({...})` del servicio. El cruce clave→campo —el que
  * convierte `modelo` de FLIT en `Linea` y `modeloAno` en `Modelo`— vive un escalón más abajo y se
  * afirma sobre el SQL renderizado en `cola-flito-derivados.test.ts`.
+ *
+ * `tipo: 'cc'` por defecto (HU #11947): es el valor que decide las CINCO columnas del titular, y se
+ * pone explícito en cada escenario que quiera otra clase. `cc` es el segundo más frecuente del
+ * parque medido (2 393 de 7 052) y el que produce la fila natural que el resto de casos usa.
  */
 const tramite = (over: Record<string, unknown> = {}) => ({
   id: TRAMITE_A,
@@ -203,6 +207,7 @@ const tramite = (over: Record<string, unknown> = {}) => ({
   departamento: 'CUNDINAMARCA',
   nombres: CENTINELA_NOMBRE,
   apellidos: CENTINELA_APELLIDOS,
+  tipo: 'cc',           // `flit_raw->>'tipo'` — QUÉ es el titular
   ...over,
 });
 
@@ -498,6 +503,8 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
       tramite(),
       tramite({
         id: TRAMITE_JUR, soatId: SOAT_JUR,
+        // Lo que la hace jurídica es el `tipo`, no la falta de apellido (HU #11947).
+        tipo: 'n',
         nombres: CENTINELA_RAZON,
         // El apellido «solo espacios» es la forma REAL en la que llega la ausencia (3 510 de 7 052
         // filas medidas): ni vacío ni nulo.
@@ -631,8 +638,8 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     kdb.when.scenario({
       flito_soat: [filaSoat()],
       flito_tramites: [
-        tramite({ nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
-        tramite({ id: TRAMITE_B, nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
+        tramite({ tipo: 'n', nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
+        tramite({ id: TRAMITE_B, tipo: 'n', nombres: BLOB, apellidos: ' ', marca: '["CHEVROLET", "SA"]' }),
       ],
       flito_compradores: [comprador()],
     });
@@ -648,11 +655,38 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(texto).not.toContain(CEDULA_ANIDADA);
     expect(celda(hoja, 2, 'Marca') ?? null).toBeNull();
 
+    // Las TRES columnas de nombre, vacías: el blob no se publica por ninguna vía.
+    for (const c of ['NombrePila', 'Apellidos', 'RazonSocial']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
+    }
+    // Y la clase SÍ sale, porque la afirma el `tipo` —que es escalar y llegó bien— y no el nombre
+    // (HU #11947). Son dos decisiones independientes: descartar el blob no descalifica al titular, y
+    // clasificar al titular no rescata el blob.
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+  });
+
+  it('**un `tipo` ANIDADO no clasifica**: las cinco del titular vacías', async () => {
+    // La otra mitad del mismo descarte, y la que importa desde la HU #11947: si `tipo` llegara como
+    // objeto, `->>` lo serializaría a `{"documento": "cc"}` y ese texto entraría al lookup como
+    // cualquier otro token. Hoy caería en la rama por defecto de todos modos, pero la garantía que
+    // hace falta es que un valor NO ESCALAR no pueda clasificar nada — no que hoy no coincida por
+    // casualidad. La fixture usa la CADENA que Postgres produce.
+    kdb.when.scenario({
+      flito_soat: [filaSoat()],
+      flito_tramites: [tramite({ tipo: '{"documento": "cc"}' })],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
     for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
       expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
     }
+    // El nombre del titular tampoco se publica: sin clase no hay bloque.
+    expect(textoDe(hoja)).not.toContain(CENTINELA_NOMBRE);
     expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
-    expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
   });
 
   it('**`Clase` está mapeada aunque FLIT no la mande hoy**', async () => {
@@ -677,6 +711,117 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     const sinClase = await libro((await exportar(await sesion())).body as Buffer);
     expect(celda(sinClase, 2, 'Clase') ?? null).toBeNull();
     expect(celda(sinClase, 2, 'Marca')).toBe('CHEVROLET');
+  });
+});
+
+// ─────────────────────────── El titular lo decide el `tipo` (HU #11947) ─────────────────────────
+
+describe('el bloque del titular sale del `tipo` que afirma FLIT, no del apellido', () => {
+  const CINCO = ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId'] as const;
+
+  /** Un export de una sola fila con el `tipo` (y lo que haga falta) puesto. */
+  const conTipo = async (over: Record<string, unknown>) => {
+    kdb.reset(); instalarEspias(); consultas.length = 0;
+    kdb.when.scenario({
+      flito_soat: [filaSoat()],
+      flito_tramites: [tramite(over)],
+      flito_compradores: [comprador()],
+    });
+    return libro((await exportar(await sesion())).body as Buffer);
+  };
+
+  it('**`n` CON apellido → `PJUR` + `NIT`**: es el caso que la regla vieja resolvía al revés', async () => {
+    // Hay que leerlo con cuidado, porque es el aserto que de verdad separa esta HU de la #11934: con
+    // el apellido VACÍO, la regla vieja también decía `PJUR`/`NIT` y un caso escrito así pasaría sin
+    // el cambio. Con el apellido LLENO decía `PNAT`/`CC` y metía una empresa en la columna de las
+    // personas.
+    const hoja = await conTipo({ tipo: 'n', nombres: CENTINELA_RAZON, apellidos: CENTINELA_APELLIDOS });
+
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+    expect(celda(hoja, 2, 'NombrePila') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'Apellidos') ?? null).toBeNull();
+    // El apellido que SÍ venía no se publica en ninguna celda: una jurídica no tiene apellido.
+    expect(textoDe(hoja)).not.toContain(CENTINELA_APELLIDOS);
+  });
+
+  it('**`cc` con el apellido en BLANCO sigue siendo `PNAT` + `CC`** — la regresión de la #11934', async () => {
+    // Medido: `apellidos` llega como «solo espacios» en 3 510 de 7 052 filas. Con la heurística
+    // vieja esas filas salían `PJUR` + `NIT` con el NOMBRE DE UNA PERSONA en `RazonSocial`, el
+    // archivo se abría y ningún aserto de cabeceras se enteraba.
+    for (const blanco of [' ', '  ', '\t', null]) {
+      const hoja = await conTipo({ tipo: 'cc', nombres: CENTINELA_NOMBRE, apellidos: blanco });
+      expect(celda(hoja, 2, 'ClaseDeInterlocutor'), `«${JSON.stringify(blanco)}»`).toBe('PNAT');
+      expect(celda(hoja, 2, 'ClaseId')).toBe('CC');
+      expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
+      expect(celda(hoja, 2, 'Apellidos') ?? null).toBeNull();
+      expect(celda(hoja, 2, 'RazonSocial') ?? null).toBeNull();
+    }
+  });
+
+  it('`ps` → `PP` y `ce` → `CE`, con la clase y el documento comprobados JUNTOS', async () => {
+    // Por PAR y no columna a columna: un `PP` colgado de un `PJUR` sería un registro que dice dos
+    // cosas a la vez, y un aserto que solo mirase el documento no lo vería. `PP` y NUNCA `PAS`: el
+    // catálogo del RUNT es otro vocabulario y el AC8 lo deja intacto.
+    const pasaporte = await conTipo({ tipo: 'ps' });
+    expect(celda(pasaporte, 2, 'ClaseId')).toBe('PP');
+    expect(celda(pasaporte, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+    expect(textoDe(pasaporte)).not.toContain('PAS');
+
+    const extranjeria = await conTipo({ tipo: 'ce' });
+    expect(celda(extranjeria, 2, 'ClaseId')).toBe('CE');
+    expect(celda(extranjeria, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+  });
+
+  it('**`otro` → `PNAT` CON el nombre y el `ClaseId` VACÍO**, que NO es el bloque vacío del AC5', async () => {
+    // Un caso que solo mirase `ClaseId` daría verde igual con AC5 —los dos lo tienen vacío— y no
+    // distinguiría nada. Lo que los separa son las otras cuatro columnas.
+    const hoja = await conTipo({ tipo: 'otro' });
+
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+    expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
+    expect(celda(hoja, 2, 'Apellidos')).toBe(CENTINELA_APELLIDOS);
+    expect(celda(hoja, 2, 'RazonSocial') ?? null).toBeNull();
+    expect(celda(hoja, 2, 'ClaseId') ?? null).toBeNull();
+  });
+
+  it('**`c`, `""`, `"xx"` y la clave AUSENTE dejan las CINCO vacías** (AC5)', async () => {
+    // La rama por defecto, y con ella el primer mutante nombrado de la HU: devolver `{PNAT, CC}` en
+    // vez de vacío marcaría con cédula cada fila sin payload —incluido el canal Cliente entero— en
+    // un archivo que sale del perímetro.
+    //
+    // `c` está en la lista a propósito (decisión de David, 2026-09-01): la tabla acepta `cc` y NO
+    // `c`, que no aparece ni una vez en las 7 052 filas medidas.
+    for (const tipo of ['c', '', ' ', 'xx', 'CC1', null, undefined]) {
+      const hoja = await conTipo({ tipo });
+      for (const c of CINCO) {
+        expect(celda(hoja, 2, c) ?? null, `«${JSON.stringify(tipo)}» → ${c}`).toBeNull();
+      }
+      // El nombre del titular tampoco sale: sin clase, no hay bloque que publicar.
+      const texto = textoDe(hoja);
+      expect(texto).not.toContain(CENTINELA_NOMBRE);
+      expect(texto).not.toContain('PJUR');
+      // Y la fila SALE igual, con las columnas que no dependen del titular.
+      expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+      expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    }
+  });
+
+  it('**`tipo` explícito y SIN nombre: `PJUR` + `NIT` con la razón social VACÍA** (las 7 filas)', async () => {
+    // Decisión de David (2026-09-01), AC1 literal. Son 7 filas de 7 052 con `tipo` y sin nombres ni
+    // apellidos (1 `n`, 6 `cc`). La guarda de la #11934 —«sin ninguno de los dos, bloque vacío»—
+    // ya no está: aquí la clase la AFIRMA el origen y lo que falta es solo el nombre. Es lo contrario
+    // del defecto que la #11934 corrigió, donde la clase se DEDUCÍA de que no hubiera payload.
+    const juridica = await conTipo({ tipo: 'n', nombres: ' ', apellidos: ' ' });
+    expect(celda(juridica, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(juridica, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(juridica, 2, 'RazonSocial') ?? null).toBeNull();
+
+    const natural = await conTipo({ tipo: 'cc', nombres: null, apellidos: null });
+    expect(celda(natural, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+    expect(celda(natural, 2, 'ClaseId')).toBe('CC');
+    expect(celda(natural, 2, 'NombrePila') ?? null).toBeNull();
   });
 });
 
@@ -769,10 +914,13 @@ describe('lista blanca — el archivo lleva lo que la lista dice y la consulta n
     // `flito_compradores.tipo_documento` existe y está a 0 de 7 052 para las filas del sync: el
     // mapeo no lo escribe (solo el canal Cliente). Un predicado sobre esa columna clasificaría el
     // parque entero como una sola cosa —y funcionaría, al revés, justo en las filas del canal, que
-    // son las que no tienen el resto del bloque—. La señal es el par de nombres.
+    // son las que no tienen el resto del bloque—. La señal es `flit_raw->>'tipo'` (HU #11947).
+    //
+    // La fixture pone las dos fuentes en CONTRADICCIÓN a propósito —la columna dice `CC`, el payload
+    // dice `n`— porque es la única forma de ver cuál de las dos manda.
     kdb.when.scenario({
       flito_soat: [filaSoat()],
-      flito_tramites: [tramite({ nombres: CENTINELA_RAZON, apellidos: ' ' })],
+      flito_tramites: [tramite({ tipo: 'n', nombres: CENTINELA_RAZON, apellidos: ' ' })],
       flito_compradores: [comprador({ tipoDocumento: 'CC' })],
     });
 
@@ -1206,7 +1354,7 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
     expect(celda(hoja, 2, 'Linea')).toBe('ONIX');
   });
 
-  it('**el par `nombres`/`apellidos` se reconcilia COMO TUPLA, no campo a campo**', async () => {
+  it('**el titular se reconcilia COMO TUPLA, no campo a campo**', async () => {
     // Dos trámites que coinciden en `nombres` y difieren en `apellidos`. Con dos `comun()`
     // independientes esta fila saldría con el nombre y el apellido en blanco, y **se clasificaría
     // como JURÍDICA metiendo el nombre de pila de una persona en `RazonSocial`**, con su `ClaseId`
@@ -1231,6 +1379,60 @@ describe('un SOAT sirve a VARIOS trámites — sin join en la lectura principal 
     // La fila SALE igual, con lo que no depende del titular.
     expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
     expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+  });
+
+  it('**la tupla es una TRIPLA: `tipo` va DENTRO** (HU #11947)', async () => {
+    // El tercer mutante nombrado de la HU: reconciliar `tipo` con un `comun()` APARTE, dejando la
+    // tupla en el par de nombres. Hay que mirarlo por sus DOS mitades, porque cada una cae por un
+    // motivo distinto y una sola no distingue el mutante:
+    //
+    //   (a) mismos nombres, `tipo` distinto — el `comun()` aparte también da vacío aquí, así que
+    //       esta mitad NO ve el mutante; lo que mata es el atajo «me quedo con el tipo del primer
+    //       trámite», que publicaría una clase que solo afirma uno de los dos.
+    //   (b) mismo `tipo`, apellidos distintos — **aquí es donde el mutante se ve**: la tupla de
+    //       nombres no reconcilia y llega vacía, pero el `comun()` del tipo SÍ devuelve `cc`, así
+    //       que la fila sale `PNAT` + `CC` con `NombrePila` y `Apellidos` en blanco: una clase
+    //       afirmada sobre un titular que el conjunto no sabe quién es.
+    //
+    // Con la TRIPLA las dos mitades dan lo mismo —bloque vacío—, que es la respuesta que ya da la
+    // cola con `tipoTramite` cuando los trámites de un SOAT discrepan.
+    const CINCO = ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId'];
+
+    // (a) el `tipo` es lo único que discrepa.
+    kdb.when.scenario({
+      flito_soat: [filaSoat()],
+      flito_tramites: [tramite({ tipo: 'n' }), tramite({ id: TRAMITE_B, tipo: 'cc' })],
+      flito_compradores: [comprador()],
+    });
+
+    const porTipo = await libro((await exportar(await sesion())).body as Buffer);
+    expect(porTipo.rowCount).toBe(2); // UNA fila, no una por trámite
+    for (const c of CINCO) expect(celda(porTipo, 2, c) ?? null, `(a) ${c}`).toBeNull();
+    // Ni la clase de uno ni la del otro: el conjunto no afirma ninguna.
+    expect(textoDe(porTipo)).not.toContain('PJUR');
+    expect(textoDe(porTipo)).not.toContain('PNAT');
+    // Y lo que los dos trámites SÍ comparten sigue saliendo: la reconciliación no vacía la fila.
+    expect(celda(porTipo, 2, 'Linea')).toBe('ONIX');
+    expect(celda(porTipo, 2, 'Placa')).toBe(PLACA);
+
+    // (b) el `tipo` coincide y lo que discrepa es el nombre. Es la mitad que mata el `comun()`
+    // aparte: con él, la clase se publicaría igual sobre un titular en blanco.
+    kdb.reset(); instalarEspias(); consultas.length = 0;
+    kdb.when.scenario({
+      flito_soat: [filaSoat()],
+      flito_tramites: [tramite({ tipo: 'cc' }), tramite({ id: TRAMITE_B, tipo: 'cc', apellidos: 'OTRO APELLIDO' })],
+      flito_compradores: [comprador()],
+    });
+
+    const porNombre = await libro((await exportar(await sesion())).body as Buffer);
+    for (const c of CINCO) expect(celda(porNombre, 2, c) ?? null, `(b) ${c}`).toBeNull();
+    // En particular, la clase NO puede salir sola: sin saber quién es el titular, no hay qué
+    // clasificar. `PNAT` y `CC` son los valores que produciría el mutante.
+    expect(celda(porNombre, 2, 'ClaseDeInterlocutor') ?? null).toBeNull();
+    expect(celda(porNombre, 2, 'ClaseId') ?? null).toBeNull();
+    expect(textoDe(porNombre)).not.toContain('PNAT');
+    expect(textoDe(porNombre)).not.toContain(CENTINELA_NOMBRE);
+    expect(celda(porNombre, 2, 'Placa')).toBe(PLACA);
   });
 });
 
@@ -1346,8 +1548,18 @@ describe('rastro — Ley 1581 art. 17', () => {
     // `flito_compradores.nombre_completo` no cambia nada: esto declara QUÉ dato personal salió del
     // perímetro, no de qué columna se leyó.
     expect(campos).toContain('nombre_completo');
-    // Y sigue siendo la lista del ARCHIVO, no la de la tabla: no declara de más.
-    expect(campos).not.toContain('tipo_documento');
+
+    // **Y la HU #11947 invierte el segundo.** `tipo_documento` estaba EXCLUIDO aquí con el argumento
+    // de que la lista es la del archivo y no la de la tabla; el argumento decayó: la columna
+    // `ClaseId` ya salía desde la #11934, y desde esta HU es un tipo de documento AFIRMADO por el
+    // origen —`CC`, `NIT`, `PP`, `CE`— y no una consecuencia de si había apellido. `CE` en un
+    // archivo que sale del perímetro dice que el titular es extranjero: es un dato del titular, no
+    // un formato. Declararlo es lo que impide que el registro mienta por omisión en lo que la HU
+    // añade, que es exactamente el criterio con el que entró `nombre_completo`.
+    expect(campos).toContain('tipo_documento');
+    // Y sigue siendo la lista del ARCHIVO y no la de la tabla: lo que no se publica, no se declara.
+    expect(campos).not.toContain('porcentaje_participacion');
+    expect(campos).not.toContain('valor_pagado');
   });
 
   it('el 422 deja `accion: search`, `filas=0` y el marcador del código', async () => {

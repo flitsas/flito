@@ -40,8 +40,14 @@ const filaAcceso = () => ({
   dentroDeFrontera: true,
 });
 
-/** Fila del join de la cola. */
-const filaCola = () => ({
+/**
+ * Fila del join de la cola.
+ *
+ * `tipoTitularFlit` es la clave `tipo` de `flit_raw` ya extraída por la expresión `->>` que la
+ * HU #11947 sumó a `SELECT_COLA` (`keyed-db` no evalúa la proyección, así que aquí se escribe con el
+ * nombre del CAMPO, no con el de la clave de FLIT).
+ */
+const filaCola = (over: Record<string, unknown> = {}) => ({
   id: ID, tramiteId: 't1', idFlit: 'FLIT-1001', tipoTramite: 'traspaso',
   fechaAprobacion: null, fechaCreacion: null, marca: 'KIA', linea: 'K3 CROSS',
   estado: 'solicitado', organismoCodigo: '05001', valorLiquidado: null, valorPagado: null,
@@ -49,6 +55,20 @@ const filaCola = () => ({
   motivoRechazo: null, createdAt: new Date('2026-08-01T12:00:00Z'),
   placa: 'QIU744', vin: '3KPFF51ABTE156687', companiaNombre: 'Concesionario Norte',
   organismoNombre: 'STT Manizales', organismoSla: 24, enviadoPorNombre: null,
+  tipoTitularFlit: 'cc',
+  ...over,
+});
+
+/**
+ * Propietario del trámite. `tipoDocumento` es la COLUMNA de `flito_compradores`, que está a 0 de
+ * 7 052 para las filas del sync: se pone a un valor CONTRADICTORIO en los casos de la HU #11947 para
+ * poder ver cuál de las dos fuentes manda.
+ */
+const filaComprador = (over: Record<string, unknown> = {}) => ({
+  id: 'c1', tramiteId: 't1', soatId: null,
+  nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1020304050', tipoDocumento: null,
+  correo: null, celular: null, direccion: null, orden: 0, porcentajeParticipacion: null,
+  ...over,
 });
 
 const filaCert = () => ({
@@ -57,11 +77,11 @@ const filaCert = () => ({
   certificadoPorNombre: 'gestor@flitsas.io',
 });
 
-function escenario(certificaciones: unknown[]) {
+function escenario(certificaciones: unknown[], over: Record<string, unknown> = {}, compradores: unknown[] = []) {
   kdb.when
     .selectOnce(T_IMPUESTOS, [filaAcceso()])
-    .selectOnce(T_IMPUESTOS, [filaCola()])
-    .select(T_COMPRADORES, [])
+    .selectOnce(T_IMPUESTOS, [filaCola(over)])
+    .select(T_COMPRADORES, compradores)
     .select(T_CERT, certificaciones)
     .select(T_SOPORTES, []);
 }
@@ -101,5 +121,65 @@ describe('la cola expone la certificación vigente', () => {
     expect(r?.certificacion).not.toHaveProperty('snapshotRunt');
     expect(r?.certificacion).not.toHaveProperty('documentoConsultado');
     expect(JSON.stringify(r)).not.toContain('43902633');
+  });
+});
+
+// ── El tipo de documento del comprador (HU #11947) ───────────────────────────────────────────────
+//
+// Pasa por el MISMO `ensamblar` que la cola, por lo mismo que el resto de este archivo: encolar dos
+// respuestas para el `Promise.all` de conteo + página es el flake que `keyed-db` existe para evitar.
+
+describe('`compradorTipoDocumento` sale del `tipo` del payload, no de la columna', () => {
+  it('**la columna dice `CC` y el payload dice `n`: gana el payload** (`NIT`)', async () => {
+    // Las dos fuentes en contradicción a propósito: es la única forma de ver cuál manda.
+    // `flito_compradores.tipo_documento` está a 0 de 7 052 para las filas del sync —solo lo escribe
+    // el canal Cliente, que en Impuestos ni siquiera existe—, así que leerla dejaría la columna
+    // vacía en el 100 % de lo que esta pantalla enseña.
+    escenario([], { tipoTitularFlit: 'n' }, [filaComprador({ tipoDocumento: 'CC' })]);
+
+    const r = await detalleImpuesto(ID, CTX);
+
+    expect(r?.compradorTipoDocumento).toBe('NIT');
+    // Y sale el código RESUELTO, no el crudo de FLIT: si `n` viajara al navegador, la página
+    // necesitaría su propia copia de la tabla (AC6).
+    expect(r?.compradorTipoDocumento).not.toBe('n');
+    expect(JSON.stringify(r)).not.toContain('"n"');
+  });
+
+  it('`cc` → `CC`, `ps` → `PP`, `ce` → `CE`, `otro` → `null`', async () => {
+    // `PP` y NUNCA `PAS`: `TIPOS_DOCUMENTO_RUNT` es el catálogo del canal Cliente y de la
+    // certificación, otro vocabulario, que el AC8 deja intacto.
+    for (const [tipo, esperado] of [['cc', 'CC'], ['ps', 'PP'], ['ce', 'CE'], ['otro', null]] as const) {
+      kdb.reset();
+      escenario([], { tipoTitularFlit: tipo }, [filaComprador()]);
+      const r = await detalleImpuesto(ID, CTX);
+      expect(r?.compradorTipoDocumento, `tipo=${tipo}`).toBe(esperado);
+    }
+  });
+
+  it('**`c`, desconocido, vacío y ausente → `null`**, y el nombre del comprador SIGUE saliendo', async () => {
+    // La rama por defecto (AC5). El mutante que esto mata: devolver `CC` en vez de `null` marcaría
+    // con cédula a cada titular cuyo tipo el origen no afirma. `c` está en la lista a propósito: la
+    // tabla acepta `cc` y no `c` (decisión de David, 2026-09-01; `c` no aparece en las 7 052 filas).
+    for (const tipo of ['c', 'xx', '', ' ', null, undefined]) {
+      kdb.reset();
+      escenario([], { tipoTitularFlit: tipo }, [filaComprador({ tipoDocumento: 'CC' })]);
+      const r = await detalleImpuesto(ID, CTX);
+      expect(r?.compradorTipoDocumento, `tipo=${JSON.stringify(tipo)}`).toBeNull();
+      // El resto de la fila no se vacía: no saber el TIPO no borra al comprador.
+      expect(r?.compradorNombre).toBe('JUANA PEREZ');
+      expect(r?.compradorDocumento).toBe('1020304050');
+    }
+  });
+
+  it('sin comprador, el tipo va `null` aunque el payload lo afirme', async () => {
+    // `compradorNombre` y `compradorDocumento` ya van vacíos ahí; un tipo de documento suelto sería
+    // un dato con aspecto de cierto colgado de dos celdas vacías.
+    escenario([], { tipoTitularFlit: 'n' }, []);
+
+    const r = await detalleImpuesto(ID, CTX);
+
+    expect(r?.compradorNombre).toBeNull();
+    expect(r?.compradorTipoDocumento).toBeNull();
   });
 });

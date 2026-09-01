@@ -163,9 +163,20 @@ export interface FilaColaExport extends Record<string, string | null> {
  * `OrganismoDetto` y a `OrganismoDettoCiudad`—, no el domicilio del titular. Si algún día se cambiara
  * por un departamento de la dirección, tendría que entrar aquí en la misma edición; el porqué está
  * escrito junto a la clave, en `CLAVES_FLIT_RAW`, que es donde el auto-llenado lo ejecuta solo.
+ *
+ * **`tipo_documento` ENTRA con la HU #11947, y es el cambio de esta lista.** La columna `ClaseId` ya
+ * salía en el archivo desde la #11934 sin constar aquí, y hasta ahora era una CONSECUENCIA de otro
+ * dato —se deducía de si había apellido—, así que el registro podía leerse como que solo se publicaba
+ * el nombre. Desde esta HU es un tipo de documento AFIRMADO por el origen (`flit_raw->>'tipo'`), que
+ * es un dato del titular por derecho propio: dice si una persona se identifica con cédula, pasaporte
+ * o cédula de extranjería —y esto último, en un archivo que sale del perímetro, es una condición
+ * personal, no un formato—. Se declara con el nombre de columna del resto del `pii_access_log`
+ * (`flito_compradores.tipo_documento`), no con el de la cabecera del archivo, por lo mismo que
+ * `ciudad`: esta lista se cruza con la base, no con la plantilla del cliente.
  */
 export const CAMPOS_PII_COLA_EXPORT = [
-  'nombre_completo', 'numero_documento', 'correo', 'celular', 'direccion', 'placa', 'vin', 'ciudad',
+  'nombre_completo', 'numero_documento', 'tipo_documento', 'correo', 'celular', 'direccion', 'placa',
+  'vin', 'ciudad',
 ] as const;
 
 /**

@@ -31,7 +31,7 @@ import {
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_IMPUESTOS, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
-import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES } from '../components/flit/columnasComunes';
+import { CeldaTramite, CeldaVehiculo, CeldaFechas, ENCABEZADOS_COMUNES, documentoConTipo } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '../components/flit/ModalFacturaVenta';
@@ -46,6 +46,11 @@ interface ImpuestoItem {
   marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
+  /**
+   * CÓDIGO de tipo de documento ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null. NO es
+   * el `tipo` crudo de FLIT: la tabla de mapeo es del backend y el front no la duplica (HU #11947).
+   */
+  compradorTipoDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null; pagadoEn: string | null;
@@ -795,7 +800,7 @@ function DetalleImpuesto({ imp, esOperaciones, esGestor, soloLectura, onClose, o
           <Dato k="VIN" v={imp.vin} /><Dato k="Trámite FLIT" v={imp.idFlit} />
           <Dato k="Compañía" v={imp.companiaNombre} /><Dato k="Organismo" v={imp.organismoNombre ?? imp.organismoCodigo} />
           <Dato k="Gestiona" v={imp.gestionOperaciones ? 'Operaciones (contingencia)' : 'Gestor del organismo'} />
-          <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={imp.compradorDocumento ?? '—'} />
+          <Dato k="Comprador" v={imp.compradorNombre ?? '—'} /><Dato k="Documento" v={documentoConTipo(imp.compradorTipoDocumento, imp.compradorDocumento)} />
           <Dato k="Valor liquidado" v={pesos(imp.valorLiquidado)} /><Dato k="Valor pagado" v={pesos(imp.valorPagado)} />
           <div>
             <dt className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>Factura de venta</dt>

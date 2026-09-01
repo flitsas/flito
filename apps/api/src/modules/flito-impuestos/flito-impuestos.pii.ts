@@ -53,6 +53,10 @@ export const RECURSO_IMPUESTO = 'flito_impuesto';
  * la forma de una pantalla.
  *
  *   · `nombre_completo` y `numero_documento` (`flito_compradores`) — nombre y CÉDULA del propietario.
+ *   · `tipo_documento` — QUÉ documento es esa cédula (`CC`, `NIT`, `PP`, `CE`), resuelto desde
+ *     `flit_raw->>'tipo'` (HU #11947). La cola lo publica en `compradorTipoDocumento` desde esta HU,
+ *     así que entra aquí en la misma edición. Es un dato del titular y no un formato: `CE` dice que
+ *     quien figura es extranjero.
  *   · `placa` y `vin` (`vehicles`) — identifican indirectamente a ese propietario, misma
  *     clasificación que hacen `flito-conciliacion.pii.ts` y `flito-soat.pii.ts`.
  *
@@ -60,7 +64,7 @@ export const RECURSO_IMPUESTO = 'flito_impuesto';
  * hace que `campos_accedidos` deje de decir la verdad, que es lo único que este registro tiene que
  * hacer.
  */
-export const CAMPOS_PII_IMPUESTO = ['nombre_completo', 'numero_documento', 'placa', 'vin'] as const;
+export const CAMPOS_PII_IMPUESTO = ['nombre_completo', 'numero_documento', 'tipo_documento', 'placa', 'vin'] as const;
 
 /**
  * Columnas personales que entrega el EXPORT a Excel (HU #11909, HU #11934).

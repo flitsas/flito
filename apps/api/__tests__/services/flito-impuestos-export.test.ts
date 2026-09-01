@@ -123,9 +123,12 @@ const CENTINELA_MOTIVO = 'CENTINELA-MOTIVO-RECHAZO';
 /**
  * Fila de `flito_impuestos` × joins, tal como la traería la base SIN proyectar.
  *
- * Las ocho claves de `flit_raw` entran con el nombre del CAMPO y no con el de la clave de FLIT
+ * Las NUEVE claves de `flit_raw` entran con el nombre del CAMPO y no con el de la clave de FLIT
  * porque `keyed-db` no evalúa la proyección: estas son las claves del `select({...})` del servicio.
  * El cruce clave→campo se afirma en `cola-flito-derivados.test.ts`.
+ *
+ * `tipo: 'cc'` por defecto (HU #11947): es lo que decide las CINCO columnas del titular, y se pone
+ * explícito en cada escenario que quiera otra clase.
  */
 const filaImpuesto = (over: Record<string, unknown> = {}) => ({
   id: IMPUESTO_A,
@@ -146,6 +149,7 @@ const filaImpuesto = (over: Record<string, unknown> = {}) => ({
   departamento: 'CUNDINAMARCA',
   nombres: CENTINELA_NOMBRE,
   apellidos: CENTINELA_APELLIDOS,
+  tipo: 'cc',          // `flit_raw->>'tipo'` — QUÉ es el titular
   // Lo que la proyección del export NO pide. El mock keyed devuelve la fila entera aunque el
   // `select` pidiera menos, así que estas viajan igual y sirven de centinela.
   valorLiquidado: '480000.00',
@@ -416,6 +420,8 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
       filaImpuesto(),
       filaImpuesto({
         id: IMPUESTO_JUR, tramiteId: TRAMITE_JUR, placa: 'ZZZ999', vin: 'VINJURIDICA00002',
+        // Lo que la hace jurídica es el `tipo`, no la falta de apellido (HU #11947).
+        tipo: 'n',
         nombres: CENTINELA_RAZON,
         // «Solo espacios» es la forma REAL en la que llega la ausencia de apellido: ni vacío ni nulo
         // (3 510 de 7 052 filas medidas).
@@ -543,14 +549,15 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
 
   it('**un trámite SIN `flit_raw` deja las cinco del titular vacías**, no `PJUR` + `NIT`', async () => {
     // `flito_tramites.flit_raw` es nullable, y un trámite anterior al sync actual (o cargado a mano)
-    // lo tiene a NULL: las ocho expresiones `->>` devuelven NULL y aquí llegan las ocho claves
-    // vacías. Es el gemelo, dentro de Impuestos, de lo que en SOAT es el canal Cliente — y el sitio
-    // donde la regla de DOS estados (`if (!apellidos) → PJUR/NIT`) se ve de punta a punta: la fila
-    // saldría marcada persona JURÍDICA, con `NIT`, y la razón social VACÍA. Ningún aserto de
-    // cabeceras se enteraría.
+    // lo tiene a NULL: las NUEVE expresiones `->>` devuelven NULL y aquí llegan las nueve claves
+    // vacías —`tipo` incluido, que es lo que decide el bloque desde la HU #11947—. Es el gemelo,
+    // dentro de Impuestos, de lo que en SOAT es el canal Cliente, y el sitio donde tanto la regla de
+    // dos estados de la #11934 (`if (!apellidos) → PJUR/NIT`) como una rama por defecto que
+    // clasificara se verían de punta a punta: la fila saldría marcada persona JURÍDICA, con `NIT`, y
+    // la razón social VACÍA. Ningún aserto de cabeceras se enteraría.
     kdb.when.scenario({
       flito_impuestos: [filaImpuesto({
-        nombres: null, apellidos: null,
+        nombres: null, apellidos: null, tipo: null,
         marca: null, linea: null, modelo: null, clase: null, capacidad: null, departamento: null,
       })],
       flito_compradores: [comprador()],
@@ -588,7 +595,7 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     const CEDULA_ANIDADA = '99887766554';
     const BLOB = `{"primer": "ANA", "segundo": "MARIA", "cedula": "${CEDULA_ANIDADA}"}`;
     kdb.when.scenario({
-      flito_impuestos: [filaImpuesto({ nombres: BLOB, apellidos: ' ', marca: '["KIA", "SA"]' })],
+      flito_impuestos: [filaImpuesto({ tipo: 'n', nombres: BLOB, apellidos: ' ', marca: '["KIA", "SA"]' })],
       flito_compradores: [comprador()],
     });
 
@@ -604,35 +611,138 @@ describe('cada valor cae bajo la cabecera que le toca — 25 centinelas distingu
     expect(texto).not.toContain(CEDULA_ANIDADA);
     expect(celda(hoja, 2, 'Marca') ?? null).toBeNull();
 
-    // Y las cinco del titular vacías: sin nombre utilizable no hay nada que clasificar. Sin esto la
-    // fila saldría `PJUR` + `NIT` con el JSON metido en `RazonSocial`.
-    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+    // Las TRES columnas de nombre, vacías: el blob no se publica por ninguna vía.
+    for (const c of ['NombrePila', 'Apellidos', 'RazonSocial']) {
       expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
     }
+    // Y la clase SÍ sale, porque la afirma el `tipo` —escalar y bien formado— y no el nombre
+    // (HU #11947): descartar el blob no descalifica al titular, y clasificar al titular no rescata
+    // el blob. Son dos decisiones independientes.
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
     // La fila SALE igual, con lo que no viene del payload.
     expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
     expect(celda(hoja, 2, 'Municipio')).toBe(MUNICIPIO);
   });
 
-  it('**el espacio en `apellidos` clasifica como JURÍDICA** (la forma real de la ausencia)', async () => {
-    // Los casos «natural con apellido» y «jurídica con null» quedan verdes con el mutante de no
-    // recortar (`if (apellidos)` sobre la cadena cruda). Con él, la MITAD del parque medido —3 510
-    // de 7 052 filas, cero vacías y cero nulas— se clasificaría como persona natural con un apellido
-    // de un espacio. Solo este caso lo mata.
-    for (const blanco of [' ', '  ', '\t']) {
+  it('**un `tipo` ANIDADO no clasifica**: las cinco del titular vacías', async () => {
+    // La mitad que importa desde la HU #11947: si `tipo` llegara como objeto, `->>` lo serializaría
+    // y ese texto entraría al lookup como cualquier token. La garantía que hace falta es que un
+    // valor NO ESCALAR no pueda clasificar nada, no que hoy no coincida por casualidad.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ tipo: '{"documento": "cc"}' })],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+      expect(celda(hoja, 2, c) ?? null, `${c} tenía que ir vacía`).toBeNull();
+    }
+    expect(textoDe(hoja)).not.toContain(CENTINELA_NOMBRE);
+    expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+  });
+
+  it('**el espacio en `apellidos` YA NO clasifica como jurídica**: manda el `tipo` (HU #11947)', async () => {
+    // La regresión que prueba que la heurística de la #11934 murió. Con ella —«sin apellido =
+    // empresa»— la MITAD del parque medido (3 510 de 7 052 filas de «solo espacios», cero vacías y
+    // cero nulas) salía `PJUR` + `NIT` con el NOMBRE DE UNA PERSONA en `RazonSocial`. Aquí el origen
+    // dice `cc`: lo que falta es el apellido, no la clase.
+    for (const blanco of [' ', '  ', '\t', null]) {
       kdb.reset(); instalarEspias(); consultas.length = 0;
       kdb.when.scenario({
-        flito_impuestos: [filaImpuesto({ nombres: CENTINELA_RAZON, apellidos: blanco })],
+        flito_impuestos: [filaImpuesto({ tipo: 'cc', nombres: CENTINELA_NOMBRE, apellidos: blanco })],
         flito_compradores: [comprador()],
       });
 
       const hoja = await libro((await exportar(await sesion())).body as Buffer);
-      expect(celda(hoja, 2, 'ClaseDeInterlocutor'), `«${JSON.stringify(blanco)}»`).toBe('PJUR');
-      expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
-      expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+      expect(celda(hoja, 2, 'ClaseDeInterlocutor'), `«${JSON.stringify(blanco)}»`).toBe('PNAT');
+      expect(celda(hoja, 2, 'ClaseId')).toBe('CC');
+      expect(celda(hoja, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
       expect(celda(hoja, 2, 'Apellidos') ?? null).toBeNull();
-      expect(celda(hoja, 2, 'NombrePila') ?? null).toBeNull();
+      expect(celda(hoja, 2, 'RazonSocial') ?? null).toBeNull();
     }
+  });
+
+  it('**`n` CON apellido → `PJUR` + `NIT`**: el caso que la regla vieja resolvía al revés', async () => {
+    // Con el apellido VACÍO la regla de la #11934 también decía `PJUR`/`NIT`, así que un caso escrito
+    // así pasaría sin el cambio. Con el apellido LLENO decía `PNAT`/`CC`.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ tipo: 'n', nombres: CENTINELA_RAZON, apellidos: CENTINELA_APELLIDOS })],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'RazonSocial')).toBe(CENTINELA_RAZON);
+    expect(celda(hoja, 2, 'NombrePila') ?? null).toBeNull();
+    expect(textoDe(hoja)).not.toContain(CENTINELA_APELLIDOS);
+  });
+
+  it('`ps` → `PP` (NUNCA `PAS`), `ce` → `CE`, y `otro` → `PNAT` sin documento', async () => {
+    // Los tres asertos van por PAR: clase y documento juntos. `PP` es el vocabulario de la plantilla
+    // del CLIENTE; `TIPOS_DOCUMENTO_RUNT` usa `PAS` y es otro catálogo, que el AC8 deja intacto.
+    for (const [tipo, claseId] of [['ps', 'PP'], ['ce', 'CE']] as const) {
+      kdb.reset(); instalarEspias(); consultas.length = 0;
+      kdb.when.scenario({
+        flito_impuestos: [filaImpuesto({ tipo })], flito_compradores: [comprador()],
+      });
+      const hoja = await libro((await exportar(await sesion())).body as Buffer);
+      expect(celda(hoja, 2, 'ClaseId'), tipo).toBe(claseId);
+      expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+      expect(textoDe(hoja)).not.toContain('PAS');
+    }
+
+    // `otro`: clase conocida, documento NO. Es distinto del AC5 —donde no hay ni clase— y un aserto
+    // que solo mirase `ClaseId` daría verde en los dos y no distinguiría nada.
+    kdb.reset(); instalarEspias(); consultas.length = 0;
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ tipo: 'otro' })], flito_compradores: [comprador()],
+    });
+    const otro = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(otro, 2, 'ClaseDeInterlocutor')).toBe('PNAT');
+    expect(celda(otro, 2, 'NombrePila')).toBe(CENTINELA_NOMBRE);
+    expect(celda(otro, 2, 'Apellidos')).toBe(CENTINELA_APELLIDOS);
+    expect(celda(otro, 2, 'ClaseId') ?? null).toBeNull();
+  });
+
+  it('**`c`, `""`, `"xx"` y la clave ausente dejan las CINCO vacías** (AC5)', async () => {
+    // La rama por defecto, y el primer mutante nombrado de la HU: devolver `{PNAT, CC}` en vez de
+    // vacío marcaría con cédula cada fila sin payload en un archivo que sale del perímetro.
+    // `c` está en la lista a propósito: la tabla acepta `cc` y NO `c` —que no aparece ni una vez en
+    // las 7 052 filas medidas— (decisión de David, 2026-09-01).
+    for (const tipo of ['c', '', ' ', 'xx', null, undefined]) {
+      kdb.reset(); instalarEspias(); consultas.length = 0;
+      kdb.when.scenario({
+        flito_impuestos: [filaImpuesto({ tipo })], flito_compradores: [comprador()],
+      });
+
+      const hoja = await libro((await exportar(await sesion())).body as Buffer);
+      for (const c of ['ClaseDeInterlocutor', 'NombrePila', 'Apellidos', 'RazonSocial', 'ClaseId']) {
+        expect(celda(hoja, 2, c) ?? null, `«${JSON.stringify(tipo)}» → ${c}`).toBeNull();
+      }
+      const texto = textoDe(hoja);
+      expect(texto).not.toContain(CENTINELA_NOMBRE);
+      expect(texto).not.toContain('PJUR');
+      // Y la fila SALE igual con lo que no depende del titular.
+      expect(celda(hoja, 2, 'Placa')).toBe(PLACA);
+      expect(celda(hoja, 2, 'NumeroId')).toBe(CEDULA);
+    }
+  });
+
+  it('**`tipo` explícito y SIN nombre sigue clasificando**: son las 7 filas medidas', async () => {
+    // Decisión de David (2026-09-01), AC1 literal: 7 filas de 7 052 con `tipo` y sin nombres ni
+    // apellidos (1 `n`, 6 `cc`). La guarda de la #11934 —«sin ninguno de los dos, bloque vacío»— ya
+    // no está: aquí la clase la AFIRMA el origen y lo que falta es solo el nombre.
+    kdb.when.scenario({
+      flito_impuestos: [filaImpuesto({ tipo: 'n', nombres: ' ', apellidos: ' ' })],
+      flito_compradores: [comprador()],
+    });
+
+    const hoja = await libro((await exportar(await sesion())).body as Buffer);
+    expect(celda(hoja, 2, 'ClaseDeInterlocutor')).toBe('PJUR');
+    expect(celda(hoja, 2, 'ClaseId')).toBe('NIT');
+    expect(celda(hoja, 2, 'RazonSocial') ?? null).toBeNull();
   });
 });
 
@@ -666,9 +776,11 @@ describe('lista blanca — el archivo lleva lo que la lista dice y la consulta n
   it('**la clasificación no sale de `tipo_documento`**: `CC` en la tabla y aun así `NIT` en la hoja', async () => {
     // `flito_compradores.tipo_documento` existe y está a 0 de 7 052 para las filas del sync: solo lo
     // escribe el canal Cliente, que en Impuestos ni siquiera existe. Un predicado sobre esa columna
-    // clasificaría el parque entero como una sola cosa. La señal es el par de nombres.
+    // clasificaría el parque entero como una sola cosa. La señal es `flit_raw->>'tipo'` (HU #11947),
+    // y la fixture pone las dos fuentes en CONTRADICCIÓN —la columna dice `CC`, el payload dice
+    // `n`— porque es la única forma de ver cuál manda.
     kdb.when.scenario({
-      flito_impuestos: [filaImpuesto({ nombres: CENTINELA_RAZON, apellidos: ' ' })],
+      flito_impuestos: [filaImpuesto({ tipo: 'n', nombres: CENTINELA_RAZON, apellidos: ' ' })],
       flito_compradores: [comprador({ tipoDocumento: 'CC' })],
     });
 
@@ -1053,8 +1165,15 @@ describe('rastro — Ley 1581 art. 17 (el módulo no registraba NADA hasta esta 
     // `flit_raw` y no de `flito_compradores.nombre_completo` no cambia nada — esto declara QUÉ dato
     // personal salió del perímetro, no de qué columna se leyó.
     expect(campos).toContain('nombre_completo');
-    // Y sigue siendo la lista del ARCHIVO, no la de la tabla: no declara de más.
-    expect(campos).not.toContain('tipo_documento');
+
+    // **Y la HU #11947 invierte el segundo.** `tipo_documento` estaba excluido porque `ClaseId` se
+    // DEDUCÍA de si había apellido; desde esta HU es un tipo afirmado por el origen —`CC`, `NIT`,
+    // `PP`, `CE`— y sale también en el DTO de la cola. `CE` en un archivo que cruza el perímetro dice
+    // que el titular es extranjero: es un dato del titular, no un formato.
+    expect(campos).toContain('tipo_documento');
+    // Y sigue siendo la lista del ARCHIVO, no la de la tabla: lo que no se publica, no se declara.
+    expect(campos).not.toContain('valor_liquidado');
+    expect(campos).not.toContain('motivo_rechazo');
   });
 
   it('el 422 deja `accion: search`, `filas=0` y el marcador del código', async () => {
