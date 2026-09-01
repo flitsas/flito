@@ -6,7 +6,7 @@
 // (CA-05), y un gestor de impuestos solo ve SU organismo (CA-10) — atadura = users.transito_codigo,
 // leída de BD (§9.3), nunca el JWT. El gestor NUNCA ve los Pendiente.
 
-import { and, asc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import {
@@ -308,9 +308,13 @@ export async function colaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos = 
       .innerJoin(organismosTransitoConfig, eq(flitoImpuestos.organismoCodigo, organismosTransitoConfig.codigo))
       .leftJoin(users, eq(flitoImpuestos.enviadoPorId, users.id))
       .where(where),
-    // Desempate por id: sin él, dos impuestos creados en el mismo instante pueden salir en dos
-    // páginas o en ninguna.
-    fromCola().where(where).orderBy(asc(flitoImpuestos.createdAt), asc(flitoImpuestos.id))
+    // Lo más RECIENTE arriba (HU #11963), igual que la cola de SOAT y por la misma decisión: la cola
+    // abre por lo que acaba de entrar. Lo que deja de estar disponible aquí es la lectura por
+    // antigüedad —el ángulo del SLA—, y es a propósito: no hay selector de orden en esta pantalla.
+    //
+    // Desempate por id EN EL MISMO SENTIDO, que por eso pasa a `desc` y no se queda en `asc`: sin él,
+    // dos impuestos creados en el mismo instante pueden salir en dos páginas o en ninguna.
+    fromCola().where(where).orderBy(desc(flitoImpuestos.createdAt), desc(flitoImpuestos.id))
       .limit(pageSize).offset((page - 1) * pageSize),
   ]);
 
