@@ -35,6 +35,7 @@ import {
 import {
   AvisoSoportesZip, DescargarSoportesZip, ZIP_TRAMITES, useDescargaZip,
 } from '../components/flito/DescargarSoportesZip';
+import { documentoConTipo } from '../components/flit/columnasComunes';
 
 interface FilaSoat {
   id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
@@ -55,7 +56,11 @@ interface TramiteFila {
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
-  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; correo: string | null } | null;
+  /**
+   * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
+   * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
+   */
+  compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; correo: string | null } | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;
@@ -606,7 +611,7 @@ export default function FlitoTramites() {
                     {f.compradorPrincipal ? (
                       <>
                         <div>{f.compradorPrincipal.nombreCompleto}</div>
-                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.compradorPrincipal.numeroDocumento}</div>
+                        <div className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{documentoConTipo(f.compradorPrincipal.tipoDocumento, f.compradorPrincipal.numeroDocumento)}</div>
                         {f.compradores.length > 1 && <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{f.compradores.length} propietarios</span>}
                       </>
                     ) : '—'}

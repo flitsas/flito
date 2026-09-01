@@ -33,7 +33,7 @@ import {
 // trámite (RN-01: un SOAT es por VIN, no por trámite). Las otras tres tablas que comparten ese
 // archivo —impuestos, derechos y el reporte de costos— lo siguen enseñando igual, y por eso el
 // cambio se queda aquí y no allí. El vehículo lo pinta `CeldaVehiculoSoat`, local a esta página.
-import { CeldaFechas } from '../components/flit/columnasComunes';
+import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComunes';
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
@@ -58,7 +58,11 @@ interface SoatItem {
       pinta va detrás de `!esCliente`; el `?` es la red por si alguna vez se olvida una guarda. */
   proveedorSoatId?: string | null; proveedorSoatNombre?: string | null;
   gestionOperaciones?: boolean;
-  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
+  /**
+   * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
+   * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
+   */
+  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
   /** Datos del trámite. Null cuando el SOAT sirve a varios que no coinciden (es por VIN, RN-01). */
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
@@ -809,7 +813,7 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             <ul className="space-y-0.5">
               {soat.compradores.map((c) => (
                 <li key={c.orden} className="flex justify-between gap-3">
-                  <span>{c.nombreCompleto} · {c.numeroDocumento}</span>
+                  <span>{c.nombreCompleto} · {documentoConTipo(c.tipoDocumento, c.numeroDocumento)}</span>
                   {c.porcentajeParticipacion !== null && <span className="tabular-nums">{c.porcentajeParticipacion}%</span>}
                 </li>
               ))}

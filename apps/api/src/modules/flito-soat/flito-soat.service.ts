@@ -42,6 +42,7 @@ import { ANS_OPERATIVO,
   TipoPropiedad,
   type ExtraccionSoat,
 } from '@operaciones/shared-types';
+import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
@@ -157,7 +158,20 @@ export interface SoatColaItem {
    * para poder decir «Operaciones, retomado de X».
    */
   gestionOperaciones: boolean;
-  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number; porcentajeParticipacion: number | null }>;
+  /**
+   * Los propietarios de la fila, con el tipo de documento YA RESUELTO (HU #11947).
+   *
+   * `tipoDocumento` es `'CC' | 'NIT' | 'PP' | 'CE' | null` y **NO es el `tipo` crudo de FLIT**
+   * (`n`, `cc`, `ps`, `ce`, `otro`): la tabla que traduce lo uno en lo otro vive en
+   * `shared/export/cola-flito-derivados.ts` y tiene UNA sola copia en el repo (AC6). Si el crudo
+   * viajara al navegador, las tres páginas que consumen estas colas necesitarían su propia copia y
+   * las cuatro podrían divergir sin que nada fallara.
+   *
+   * `null` = el origen no lo dice: `tipo` ausente, desconocido, o —el caso que se lee entero en
+   * `ensamblarCola`— un propietario del canal Cliente, que no tiene trámite y por tanto no tiene
+   * payload del que resolverlo. Nunca se rellena con un valor por defecto.
+   */
+  compradores: Array<{ nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; orden: number; porcentajeParticipacion: number | null }>;
   tramitesFlit: string[];
   /**
    * Datos del trámite, homologados con las demás tablas (tipo, aprobación, creación).
@@ -621,6 +635,25 @@ type ColaRow = {
 };
 
 /**
+ * La expresión `->>` de la clave `tipo` de `flit_raw` (HU #11947), construida UNA vez.
+ *
+ * Sale de `expresionesFlitRaw` —la misma función que usan los dos exports— y no de un `sql` escrito
+ * aquí, que es lo que garantiza tres cosas a la vez: la clave va como parámetro (regla 3 de
+ * AGENTS.md), un valor no escalar se descarta en SQL con `case jsonb_typeof`, y la clave ligada es
+ * la MISMA que la del archivo. Dos definiciones de «de dónde sale el tipo» podrían divergir y la
+ * pantalla enseñaría un documento distinto del que el `.xlsx` publica.
+ */
+const TIPO_TITULAR_FLIT = expresionesFlitRaw(flitoTramites.flitRaw).tipo;
+
+/**
+ * El `ClaseId` que afirma un trámite, o `null` si no lo afirma.
+ *
+ * El API emite el código RESUELTO y no el `tipo` crudo de FLIT: ver `SoatColaItem.compradores`.
+ */
+const tipoDocumentoDeTramite = (tipo: unknown): string | null =>
+  clasificacionDeTipoFlit(tipo)?.claseId ?? null;
+
+/**
  * Arma las filas del DTO y las PROYECTA según quién pregunta.
  *
  * `ctx` es obligatorio y no tiene valor por defecto, por lo mismo que `actor` en `soportesDeSoat`:
@@ -638,6 +671,8 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
         // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila: en la carga
         // masiva inicial todos los históricos comparten el mismo día.
         fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
+        // HU #11947. Una expresión más sobre la lectura que ya se hacía: cero consultas nuevas.
+        tipoTitularFlit: TIPO_TITULAR_FLIT,
       })
         .from(flitoTramites).where(inArray(flitoTramites.soatId, ids))
     : [];
@@ -696,8 +731,23 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
     // `flito_compradores` cuelga de un solo padre, pero unirlas aquí hace que la columna
     // «propietario» diga lo mismo venga la fila de donde venga, sin un `if` por origen que alguien
     // tendría que mantener el día que aparezca un tercer camino.
-    const comps = [...(propsPorSoat.get(r.id) ?? []), ...ts.flatMap((t) => compsPorTramite.get(t.id) ?? [])]
-      .sort((a, b) => a.orden - b.orden);
+    //
+    // ── El tipo de documento se cuelga del trámite DUEÑO de cada comprador (HU #11947) ───────────
+    //
+    // Aquí NO hay nada que reconciliar y es la diferencia con el `.xlsx`: el archivo tiene UNA fila
+    // por SOAT y por eso reconcilia los trámites con `comun()`; esta lista tiene una entrada por
+    // COMPRADOR, y cada comprador cuelga de un trámite concreto, así que la relación es 1:1 y su
+    // tipo es el de SU trámite. Pasarlo por `comun()` aquí sería vaciar el dato de dos propietarios
+    // correctos porque sus trámites discrepan entre sí.
+    //
+    // Los del canal Cliente van con `null` y **no por un `if` de origen**: no tienen trámite, luego
+    // no tienen `flit_raw`, luego no tienen `tipo`. Es la misma invariante que deja las cinco
+    // columnas del titular vacías en el archivo.
+    const comps = [
+      ...(propsPorSoat.get(r.id) ?? []).map((c) => ({ ...c, tipoDocumentoFlit: null as string | null })),
+      ...ts.flatMap((t) => (compsPorTramite.get(t.id) ?? [])
+        .map((c) => ({ ...c, tipoDocumentoFlit: tipoDocumentoDeTramite(t.tipoTitularFlit) }))),
+    ].sort((a, b) => a.orden - b.orden);
     const esMultiple = ts.some((t) => t.tipoPropiedad === TipoPropiedad.MULTIPLE_PROPIETARIO);
     return {
       id: r.id, vin: r.vin, placa: r.placa, marca: r.marca, linea: r.linea,
@@ -712,7 +762,11 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
       proveedorSoatId: r.proveedorSoatId,
       proveedorSoatNombre: r.proveedorSoatNombre,
       gestionOperaciones: r.gestionOperaciones,
-      compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
+      // `tipoDocumento` sale de `tipoDocumentoFlit` —resuelto desde `flit_raw`— y NO de la columna
+      // `flito_compradores.tipo_documento`, que sigue a 0 de 7 052 para las filas del sync: solo la
+      // escribe el canal Cliente. Publicar la columna daría un dato vacío en el 100 % de las filas
+      // que la pantalla enseña, y lleno justo en las que no tienen nada más.
+      compradores: comps.map((c) => ({ nombreCompleto: c.nombreCompleto, numeroDocumento: c.numeroDocumento, tipoDocumento: c.tipoDocumentoFlit, orden: c.orden, porcentajeParticipacion: c.porcentajeParticipacion === null ? null : Number(c.porcentajeParticipacion) })),
       tramitesFlit: ts.map((t) => t.idFlit),
       tipoTramite: comun(ts, (t) => t.tipoTramite),
       fechaAprobacion: aIso(comun(ts, (t) => t.fechaAprobacion)),

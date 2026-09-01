@@ -1,5 +1,5 @@
-// FLITO — lo que el Excel de las colas DERIVA, y las ocho claves que lee de `flit_raw`
-// (Feature #11908, HU #11934).
+// FLITO — lo que el Excel de las colas DERIVA, y las NUEVE claves que lee de `flit_raw`
+// (Feature #11908, HU #11934, HU #11947).
 //
 // Vive aparte de `cola-flito-excel.ts` —que dice QUÉ columnas hay— porque esto dice CÓMO se calcula
 // el valor de seis de ellas, y ese cálculo tiene que ser comprobable SIN levantar un export entero.
@@ -29,7 +29,7 @@ import { sql, type Column } from 'drizzle-orm';
 import { getOrganismoByCodigo } from '@operaciones/shared-types';
 import { celdaTexto } from './cola-flito-excel.js';
 
-// ── Las ocho claves del payload de FLIT ──────────────────────────────────────────────────────────
+// ── Las nueve claves del payload de FLIT ─────────────────────────────────────────────────────────
 
 /**
  * Qué clave de `flit_raw` alimenta cada campo, con los DOS nombres cruzados escritos aquí una sola
@@ -73,6 +73,19 @@ export const CLAVES_FLIT_RAW = {
   departamento: 'departamentoTransito',
   nombres: 'nombres',
   apellidos: 'apellidos',
+  /**
+   * **Qué ES el titular, afirmado por el ORIGEN** (HU #11947): `n` · `cc` · `ps` · `ce` · `otro`.
+   *
+   * Es la clave que sustituye a la heurística de la HU #11934 —«si `apellidos` trae texto, es una
+   * persona natural»—, y la sustituye entera: ver {@link clasificacionDeTipoFlit}, que es la única
+   * copia de la tabla en el repo.
+   *
+   * Medido sobre las 7 052 filas locales de `flito_tramites`: **7 052 traen la clave, y las 7 052 con
+   * `jsonb_typeof = 'string'`**. `n` 4 634 · `cc` 2 393 · `ce` 22 · `ps` 3. `c` y `otro` no aparecen
+   * NUNCA. La cobertura es del 100 %, que es lo que permite que el bloque del titular dependa de esto
+   * y no de deducir la clase jurídica de una ausencia.
+   */
+  tipo: 'tipo',
 } as const;
 
 export type CampoFlitRaw = keyof typeof CLAVES_FLIT_RAW;
@@ -95,13 +108,19 @@ export type CampoFlitRaw = keyof typeof CLAVES_FLIT_RAW;
  *     select '{"n":{"a":1,"b":"ANA"}}'::jsonb ->> 'n';    →  {"a": 1, "b": "ANA"}   (pg_typeof = text)
  *     select '{"ap":["PEREZ","GOMEZ"]}'::jsonb ->> 'ap';  →  ["PEREZ", "GOMEZ"]
  *
- * O sea que el día que FLIT anide algo bajo una de estas ocho claves —mandar `nombres` como
+ * O sea que el día que FLIT anide algo bajo una de estas nueve claves —mandar `nombres` como
  * `{primer, segundo}` en vez de una cadena es el cambio más natural del mundo—, el blob entero
  * viajaría a una celda de un archivo que SALE DEL PERÍMETRO, sin error y sin log. Con tres agravantes
  * que se encadenan solos: `pii_access_log` no declara lo que va dentro de ese blob; `bloqueTitular`
  * leería la fila como persona jurídica y pondría el JSON en `RazonSocial`; y este módulo está
  * diseñado a propósito para absorber cambios de forma de FLIT **sin despliegue**, así que no hay
  * ninguna puerta humana entre el cambio en origen y la publicación.
+ *
+ * **`tipo` no es una excepción y es la que más lo necesita** (HU #11947): un `tipo` que llegara como
+ * objeto o como array se serializaría a `{"a": 1}`, y sin el `case` ese texto entraría al lookup de
+ * `clasificacionDeTipoFlit` como cualquier otro token. Hoy caería en la rama por defecto —bloque
+ * vacío—, pero la garantía que hace falta es que **un valor no escalar no pueda CLASIFICAR nada**, no
+ * que hoy no coincida por casualidad con ninguna entrada de la tabla.
  *
  * El descarte va AQUÍ y no en `celdaDesdeJson` porque aquí la garantía es REAL —`jsonb_typeof` mira
  * el tipo del valor en la base— mientras que en TypeScript solo puede ser una inspección del texto ya
@@ -125,6 +144,7 @@ export function expresionesFlitRaw(columna: Column): Record<CampoFlitRaw, Return
     departamento: extraer(CLAVES_FLIT_RAW.departamento),
     nombres: extraer(CLAVES_FLIT_RAW.nombres),
     apellidos: extraer(CLAVES_FLIT_RAW.apellidos),
+    tipo: extraer(CLAVES_FLIT_RAW.tipo),
   };
 }
 
@@ -171,7 +191,7 @@ export function celdaDesdeJson(valor: unknown): string | null {
  * ¿Este texto ES un objeto o un array de JSON serializado?
  *
  * El prefiltro por el primer carácter no es un atajo de elegancia, es de coste: sin él habría que
- * intentar `JSON.parse` sobre las ocho claves de cada una de las 2 000 filas del tope —16 000
+ * intentar `JSON.parse` sobre las nueve claves de cada una de las 2 000 filas del tope —18 000
  * excepciones lanzadas por export— para descartar textos que ni siquiera lo parecen. Con él, casi
  * todo sale por la primera línea y el `parse` solo corre sobre lo que podría serlo.
  *
@@ -189,13 +209,30 @@ function esBlobJson(texto: string): boolean {
   }
 }
 
-// ── El bloque del titular: TRES estados, no dos ──────────────────────────────────────────────────
+// ── El bloque del titular: lo decide el `tipo` del origen ────────────────────────────────────────
 
 /** `ClaseDeInterlocutor`, el vocabulario de la plantilla del cliente. */
 export const CLASE_INTERLOCUTOR = { natural: 'PNAT', juridica: 'PJUR' } as const;
 
-/** `ClaseId`. Va emparejado con {@link CLASE_INTERLOCUTOR} y nunca se decide por separado. */
-export const CLASE_ID = { natural: 'CC', juridica: 'NIT' } as const;
+/**
+ * `ClaseId`, el vocabulario de la plantilla del cliente. Va emparejado con
+ * {@link CLASE_INTERLOCUTOR} y nunca se decide por separado: los dos salen del mismo lookup.
+ *
+ * ── `PP` y NUNCA `PAS`: esto NO es `TIPOS_DOCUMENTO_RUNT` ────────────────────────────────────────
+ *
+ * `packages/shared-types/src/flito-estados.ts` tiene otro catálogo de tipos de documento —el del
+ * canal Cliente y el de la certificación RUNT—, y allí el pasaporte es `PAS`. **Son dos vocabularios
+ * distintos de dos consumidores distintos** y esta constante es la de la plantilla del CLIENTE, que
+ * pide `PP`. No se tipa contra `TipoDocumentoRunt` a propósito: si lo estuviera, el primero que
+ * viniera a «unificar» corregiría `PP` a `PAS`, la plantilla del cliente dejaría de cargar y no
+ * fallaría nada en el repo. El AC8 de la HU #11947 deja el catálogo del RUNT intacto.
+ *
+ * Las claves son por DOCUMENTO y no por clase de interlocutor (`natural`/`juridica`, como estaban
+ * hasta la HU #11934): desde esta HU la persona natural tiene TRES documentos posibles —`CC`, `PP`,
+ * `CE`— y un `CLASE_ID.natural` seguiría diciendo `CC`, que es exactamente la afirmación falsa que
+ * esta HU viene a quitar del archivo.
+ */
+export const CLASE_ID = { cedula: 'CC', nit: 'NIT', pasaporte: 'PP', extranjeria: 'CE' } as const;
 
 /** Las cinco columnas que se deciden juntas o no se deciden. */
 export interface BloqueTitular {
@@ -207,10 +244,11 @@ export interface BloqueTitular {
 }
 
 /**
- * Las cinco columnas vacías: no hay titular que clasificar.
+ * Las cinco columnas vacías: **el origen no dice qué es este titular**.
  *
  * Es un estado propio y no «persona jurídica sin razón social», que es la confusión cara de esta
- * HU — ver {@link bloqueTitular}.
+ * hoja. Desde la HU #11947 lo produce UNA sola causa —`tipo` ausente o desconocido (AC5)— y ya no
+ * la falta de nombre: ver {@link bloqueTitular}.
  */
 export const TITULAR_VACIO: BloqueTitular = {
   claseDeInterlocutor: null,
@@ -220,96 +258,197 @@ export const TITULAR_VACIO: BloqueTitular = {
   claseId: null,
 };
 
-/** El par de nombres tal como llega del jsonb, antes de limpiarse. */
-export interface ParTitular { nombres: unknown; apellidos: unknown }
+/** Lo que el `tipo` de FLIT decide, y que nunca se decide por separado. */
+export interface ClasificacionTitular {
+  claseDeInterlocutor: string;
+  /** `null` = clase conocida sin documento que declarar (`otro`), NO «sin clasificar». */
+  claseId: string | null;
+}
 
 /**
- * Reparte `nombres`/`apellidos` de FLIT en las cinco columnas del titular.
+ * **LA tabla del AC2, y la única copia que hay en el repo** (AC6).
  *
- * ── La regla, que tiene TRES estados y no dos ────────────────────────────────────────────────────
+ * | `tipo` normalizado | `ClaseDeInterlocutor` | `ClaseId` |
+ * |---|---|---|
+ * | `n`    | `PJUR` | `NIT`   |
+ * | `cc`   | `PNAT` | `CC`    |
+ * | `ps`   | `PNAT` | `PP`    |
+ * | `ce`   | `PNAT` | `CE`    |
+ * | `otro` | `PNAT` | *vacío* |
  *
- * | Entrada | `ClaseDeInterlocutor` | `NombrePila` | `Apellidos` | `RazonSocial` | `ClaseId` |
+ * Un `Map` y no un objeto literal indexado: la clave viene de un `jsonb` de un TERCERO, y
+ * `TABLA['constructor']` sobre un objeto literal devuelve algo que no es `undefined`. Con un `Map`,
+ * lo que no se puso no está — que es la propiedad que esta tabla necesita para que su rama por
+ * defecto signifique de verdad «no lo sé».
+ *
+ * ── `cc`, y NO `c` (decisión de David, 2026-09-01) ───────────────────────────────────────────────
+ *
+ * La lectura es ESTRICTA contra el origen medido: de las 7 052 filas locales, `cc` aparece en 2 393
+ * y **`c` no aparece ni una vez**. Aceptar `c` «por si acaso» sería añadir a la tabla un token que
+ * nadie ha visto nunca y que, si algún día llegara, significaría algo que no sabemos. Cae en la rama
+ * por defecto, igual que cualquier otro desconocido (AC5).
+ */
+const TABLA_TIPO_FLIT = new Map<string, ClasificacionTitular>([
+  ['n', { claseDeInterlocutor: CLASE_INTERLOCUTOR.juridica, claseId: CLASE_ID.nit }],
+  ['cc', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.cedula }],
+  ['ps', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.pasaporte }],
+  ['ce', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: CLASE_ID.extranjeria }],
+  // Clase conocida, documento NO: `otro` dice «es una persona natural con un documento que no está
+  // en el catálogo». `ClaseId` vacío es la respuesta honesta; poner `CC` sería inventarse el número
+  // de cédula de alguien que no la tiene.
+  ['otro', { claseDeInterlocutor: CLASE_INTERLOCUTOR.natural, claseId: null }],
+]);
+
+/**
+ * El `tipo` de FLIT tal como se busca en la tabla: recortado y en minúsculas.
+ *
+ * Vive en UNA función porque {@link clasificacionDeTipoFlit} y {@link claveTitular} tienen que
+ * normalizar IGUAL: si la reconciliación de SOAT comparara `"CC"` con `"cc"` como valores distintos,
+ * dos trámites que dicen lo mismo con otro formato dejarían la fila sin titular.
+ *
+ * Normaliza el FORMATO, no el vocabulario: `" CC "` es la misma cadena que `cc`; `c` es un token
+ * DISTINTO y sigue siendo desconocido.
+ *
+ * Pasa por `celdaDesdeJson` y no por un `.trim()` propio para que «vacío» tenga una sola definición
+ * en el archivo —`" "` es ausencia— y para que un valor no escalar (o el blob que `->>` serializaría
+ * si alguien quitara el `case jsonb_typeof`) no llegue nunca al lookup.
+ */
+function normalizarTipoFlit(tipo: unknown): string | null {
+  const texto = celdaDesdeJson(tipo);
+  return texto === null ? null : texto.toLowerCase();
+}
+
+/**
+ * Qué clase de titular afirma el origen, o `null` si no lo afirma (AC5).
+ *
+ * `null` es un valor de dominio y no un error: significa que `tipo` no llegó, llegó vacío, o llegó
+ * con un token que no está en la tabla. Los cinco campos del bloque van entonces vacíos —ver
+ * {@link bloqueTitular}—, y es lo que mantiene al canal Cliente fuera de la clasificación **por la
+ * rama por defecto y sin un `if` propio**: una fila del canal no tiene trámite, luego no tiene
+ * `flit_raw`, luego no tiene `tipo`.
+ *
+ * Es la ÚNICA copia de la tabla en el repo, y por eso el API emite el código YA RESUELTO (`CC`,
+ * `NIT`, `PP`, `CE`, `null`) en las tres colas en vez del `tipo` crudo: si `n`/`cc`/`ps`/`ce` viajaran
+ * al navegador, cada una de las tres páginas necesitaría su propia copia de esta tabla y las cuatro
+ * podrían divergir sin que nada fallara.
+ */
+export function clasificacionDeTipoFlit(tipo: unknown): ClasificacionTitular | null {
+  const clave = normalizarTipoFlit(tipo);
+  if (clave === null) return null;
+  return TABLA_TIPO_FLIT.get(clave) ?? null;
+}
+
+/** El titular tal como llega del jsonb, antes de limpiarse. */
+export interface ParTitular { tipo: unknown; nombres: unknown; apellidos: unknown }
+
+/**
+ * Reparte lo que FLIT manda del titular en las cinco columnas del archivo.
+ *
+ * ── La regla: la clase la AFIRMA el origen, no se deduce de una ausencia (HU #11947) ─────────────
+ *
+ * | `tipo` | `ClaseDeInterlocutor` | `NombrePila` | `Apellidos` | `RazonSocial` | `ClaseId` |
  * |---|---|---|---|---|---|
- * | sin par (no hay `flit_raw`, o los trámites discrepan) | vacío | vacío | vacío | vacío | vacío |
- * | con apellidos | `PNAT` | `nombres` | `apellidos` | vacío | `CC` |
- * | sin apellidos | `PJUR` | vacío | vacío | `nombres` | `NIT` |
+ * | `n`                              | `PJUR` | vacío      | vacío       | `nombres` | `NIT`   |
+ * | `cc`                             | `PNAT` | `nombres`  | `apellidos` | vacío     | `CC`    |
+ * | `ps`                             | `PNAT` | `nombres`  | `apellidos` | vacío     | `PP`    |
+ * | `ce`                             | `PNAT` | `nombres`  | `apellidos` | vacío     | `CE`    |
+ * | `otro`                           | `PNAT` | `nombres`  | `apellidos` | vacío     | vacío   |
+ * | ausente · `""` · cualquier otro  | vacío  | vacío      | vacío       | vacío     | vacío   |
  *
- * **El primer estado es el que se olvida, y olvidarlo no rompe nada a la vista.** Escribir
- * `if (!apellidos) → PJUR/NIT` colapsa los dos primeros casos: cada fila del canal Cliente —que
- * tiene `vehiculo_id` pero no trámite, así que no tiene `flit_raw`— saldría marcada `PJUR` + `NIT`
- * con la razón social VACÍA. El archivo se abre, las 25 cabeceras están, ningún aserto de columnas
- * se entera, y lo que se publica es una afirmación falsa sobre la naturaleza jurídica de un titular.
+ * ── Lo que esta HU BORRA, y por qué ──────────────────────────────────────────────────────────────
  *
- * ── Por qué el predicado es `apellidos` y no `tipo_documento` ────────────────────────────────────
+ * La HU #11934 decidía la clase por si `apellidos` traía texto. **Esa heurística ya no está**, y con
+ * ella se va la guarda `if (nombres === null && apellidos === null) return TITULAR_VACIO`: lo ÚNICO
+ * que produce el bloque vacío es que el `tipo` sea desconocido o ausente.
  *
- * `flito_compradores.tipo_documento` existe y está a 0 de 7 052 para las filas del sync: el mapeo no
- * lo escribe, solo lo hace el canal Cliente. Un predicado sobre esa columna clasificaría el parque
- * entero como una sola cosa y funcionaría —al revés— justo en las filas que no tienen el resto del
- * bloque. La señal disponible es el par de nombres.
+ * El caso que lo hace visible está medido y son 7 filas de 7 052: `tipo` explícito con `nombres` y
+ * `apellidos` vacíos (1 con `n`, 6 con `cc`). Con la guarda vieja saldrían sin clasificar; sin ella,
+ * la del `n` sale **`PJUR` + `NIT` con la `RazonSocial` vacía**, y eso es deliberado (AC1 literal,
+ * decisión de David del 2026-09-01). La diferencia con el defecto que la #11934 corrigió es exacta:
+ * allí la clase se DEDUCÍA de una ausencia —el canal Cliente, sin payload ninguno, salía marcado
+ * `PJUR`—; aquí la AFIRMA el origen y lo que falta es solo el nombre.
  *
- * ── Por qué `celdaTexto` como predicado y no un `.trim()` nuevo ──────────────────────────────────
+ * ── Por qué el predicado es `tipo` y no `apellidos` ni `tipo_documento` ──────────────────────────
  *
- * `apellidos` llega como `" "` cuando no hay apellido: medido, 3 510 filas de «solo espacios», 3 542
- * con valor, **cero vacías y cero nulas**. Un `if (apellidos)` sobre la cadena cruda las daría todas
- * por presentes y clasificaría el parque entero como persona natural. `celdaTexto` ya trata `" "`
- * como ausencia, ya está probado, y usarlo aquí es lo que mantiene una sola definición de «celda
- * vacía» en el archivo.
+ * Sustituye al párrafo de la #11934 que justificaba el par de nombres, y lo sustituye por medición:
+ *
+ *   · **`flit_raw->>'tipo'` está en 7 052 de 7 052 filas**, las 7 052 como cadena. Cobertura total:
+ *     no hay una sola fila que hoy dependa de adivinar.
+ *   · **`flito_compradores.tipo_documento` sigue a 0 de 7 052** para las filas del sync —el mapeo no
+ *     lo escribe, solo lo hace el canal Cliente—, así que un predicado sobre esa columna clasificaría
+ *     el parque entero como una sola cosa. No es una alternativa; sigue sin serlo.
+ *   · **El par de nombres no distingue lo que hay que distinguir.** `apellidos` llega como `" "` en
+ *     3 510 filas, y «sin apellido» no es «empresa»: hay 2 393 filas `cc` y 4 634 `n`, y el reparto
+ *     no coincide con el del apellido en blanco. La HU #11934 clasificaba por la forma del dato; esta
+ *     clasifica por lo que el origen dice que es.
+ *
+ * `celdaDesdeJson` sigue siendo quien limpia `nombres` y `apellidos` —`" "` es ausencia, una sola
+ * definición de celda vacía en el archivo—, pero ya no DECIDE nada: un `cc` con el apellido en
+ * blanco es una persona natural con el apellido vacío, no una empresa.
  */
 export function bloqueTitular(par: ParTitular | null | undefined): BloqueTitular {
   if (par === null || par === undefined) return TITULAR_VACIO;
 
+  // Lo ÚNICO que vacía el bloque. Sin `tipo` no hay nada que afirmar, y decir `PJUR`/`NIT` a partir
+  // de esa ausencia sería inventarse el dato más comprometido de la hoja.
+  const clase = clasificacionDeTipoFlit(par.tipo);
+  if (clase === null) return TITULAR_VACIO;
+
   const nombres = celdaDesdeJson(par.nombres);
   const apellidos = celdaDesdeJson(par.apellidos);
 
-  // Sin ninguno de los dos no hay nada que clasificar, y eso NO es una persona jurídica anónima:
-  // es una fila cuyo `flit_raw` no trae el bloque. Decir `PJUR`/`NIT` aquí sería inventarse el dato
-  // más comprometido de la hoja a partir de su ausencia.
-  if (nombres === null && apellidos === null) return TITULAR_VACIO;
-
-  if (apellidos !== null) {
+  if (clase.claseDeInterlocutor === CLASE_INTERLOCUTOR.juridica) {
     return {
-      claseDeInterlocutor: CLASE_INTERLOCUTOR.natural,
-      nombrePila: nombres,
-      apellidos,
-      razonSocial: null,
-      claseId: CLASE_ID.natural,
+      claseDeInterlocutor: clase.claseDeInterlocutor,
+      nombrePila: null,
+      apellidos: null,
+      razonSocial: nombres,
+      claseId: clase.claseId,
     };
   }
 
   return {
-    claseDeInterlocutor: CLASE_INTERLOCUTOR.juridica,
-    nombrePila: null,
-    apellidos: null,
-    razonSocial: nombres,
-    claseId: CLASE_ID.juridica,
+    claseDeInterlocutor: clase.claseDeInterlocutor,
+    nombrePila: nombres,
+    apellidos,
+    razonSocial: null,
+    claseId: clase.claseId,
   };
 }
 
 /**
- * El par ya limpio, en UNA cadena, para poder reconciliarlo con un solo `comun()`.
+ * El titular ya limpio, en UNA cadena, para poder reconciliarlo con un solo `comun()`.
  *
  * Existe por la asimetría de SOAT: un SOAT es por VIN y puede servir a VARIOS trámites (RN-01), así
- * que sus datos de trámite se reconcilian —el valor que comparten todos, o vacío—. Hacerlo con dos
- * `comun()` independientes, uno por `nombres` y otro por `apellidos`, produce un fallo silencioso y
- * concreto: dos trámites que coinciden en `nombres` y difieren en `apellidos` devolverían el nombre
- * y un apellido en blanco, y esa fila **se clasificaría como jurídica metiendo el nombre de pila de
- * una persona en la columna `RazonSocial`**. El par se reconcilia como TUPLA y se clasifica después.
+ * que sus datos de trámite se reconcilian —el valor que comparten todos, o vacío—. Hacerlo con un
+ * `comun()` por campo produce un fallo silencioso y concreto: dos trámites que coinciden en `nombres`
+ * y difieren en `apellidos` devolverían el nombre y un apellido en blanco.
  *
- * `null` = no hay par (ninguno de los dos campos trae nada), que es el primer estado de
- * {@link bloqueTitular}.
+ * **Desde la HU #11947 la tupla es una TRIPLA y `tipo` va DENTRO.** Reconciliar el `tipo` con un
+ * `comun()` aparte es el mismo defecto con el dato peor: dos trámites del mismo VIN que coinciden en
+ * el nombre y discrepan en el tipo —uno `n`, otro `cc`— darían un nombre reconciliado y un tipo
+ * vacío... o, según el orden, un `PJUR` + `NIT` construido con el nombre de una persona natural. Se
+ * reconcilia la TRIPLA y se clasifica después.
+ *
+ * El `tipo` viaja NORMALIZADO (la misma función que usa el lookup): dos trámites que dicen `cc` y
+ * `CC` dicen lo mismo y tienen que reconciliar, o el formato de una cadena dejaría la fila sin
+ * titular.
+ *
+ * `null` = no hay titular (ninguno de los TRES campos trae nada).
  */
-export function clavePar(nombres: unknown, apellidos: unknown): string | null {
+export function claveTitular(tipo: unknown, nombres: unknown, apellidos: unknown): string | null {
+  const t = normalizarTipoFlit(tipo);
   const n = celdaDesdeJson(nombres);
   const a = celdaDesdeJson(apellidos);
-  if (n === null && a === null) return null;
-  return JSON.stringify([n, a]);
+  if (t === null && n === null && a === null) return null;
+  return JSON.stringify([t, n, a]);
 }
 
-/** La vuelta de {@link clavePar}, ya lista para {@link bloqueTitular}. */
-export function parDeClave(clave: string | null): ParTitular | null {
+/** La vuelta de {@link claveTitular}, ya lista para {@link bloqueTitular}. */
+export function titularDeClave(clave: string | null): ParTitular | null {
   if (clave === null) return null;
-  const [nombres, apellidos] = JSON.parse(clave) as [string | null, string | null];
-  return { nombres, apellidos };
+  const [tipo, nombres, apellidos] = JSON.parse(clave) as [string | null, string | null, string | null];
+  return { tipo, nombres, apellidos };
 }
 
 // ── La ciudad del organismo ──────────────────────────────────────────────────────────────────────

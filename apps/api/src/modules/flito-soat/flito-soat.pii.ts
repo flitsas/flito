@@ -43,6 +43,10 @@ export const RECURSO_SOAT = 'flito_soat';
  * la forma de una pantalla.
  *
  *   · `nombre_completo` y `numero_documento` (`flito_compradores`) — nombre y CÉDULA del propietario.
+ *   · `tipo_documento` — QUÉ documento es esa cédula (`CC`, `NIT`, `PP`, `CE`), resuelto desde
+ *     `flit_raw->>'tipo'` (HU #11947). El DTO lo publica por comprador desde esta HU, así que entra
+ *     aquí en la misma edición, que es la regla que este archivo se aplica dos párrafos más abajo.
+ *     Es un dato del titular y no un formato: `CE` dice que quien figura es extranjero.
  *   · `placa` y `vin` (`vehicles`) — identifican indirectamente a ese propietario. Es la misma
  *     clasificación que ya hace `flito-conciliacion.pii.ts` con la placa y la que sostiene la regla
  *     14 de AGENTS.md, que las mantiene fuera de cualquier path y de cualquier query string.
@@ -51,7 +55,7 @@ export const RECURSO_SOAT = 'flito_soat';
  * entrega fue un bloqueante en su día y no se repite: quien añada una columna personal a la
  * proyección de `cola()`/`detalle()` la añade aquí en la misma edición.
  */
-export const CAMPOS_PII_SOAT = ['nombre_completo', 'numero_documento', 'placa', 'vin'] as const;
+export const CAMPOS_PII_SOAT = ['nombre_completo', 'numero_documento', 'tipo_documento', 'placa', 'vin'] as const;
 
 /**
  * Columnas personales que entrega el EXPORT a Excel de la cola (HU #11909, HU #11934).

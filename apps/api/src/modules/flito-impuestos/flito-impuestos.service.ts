@@ -15,6 +15,7 @@ import {
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
+import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL } from '@operaciones/shared-types';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
@@ -39,6 +40,19 @@ export interface ImpuestoColaItem {
   marca: string | null; linea: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
+  /**
+   * QUÉ documento es `compradorDocumento`: `'CC' | 'NIT' | 'PP' | 'CE' | null` (HU #11947).
+   *
+   * Es el código YA RESUELTO y **no el `tipo` crudo de FLIT** (`n`, `cc`, `ps`, `ce`, `otro`): la
+   * tabla que traduce lo uno en lo otro vive en `shared/export/cola-flito-derivados.ts` y tiene UNA
+   * sola copia en el repo (AC6). Si el crudo viajara al navegador, cada página que consume una cola
+   * necesitaría la suya.
+   *
+   * `null` cuando el origen no lo dice (`tipo` ausente o desconocido) y también cuando no hay
+   * comprador: sin propietario al que atribuírselo, un tipo de documento suelto sería un dato con
+   * aspecto de cierto colgado de dos celdas vacías.
+   */
+  compradorTipoDocumento: string | null;
   companiaNombre: string; organismoCodigo: string; organismoNombre: string | null;
   valorLiquidado: number | null; valorPagado: number | null; marcadoPorDiferencia: boolean;
   tieneFacturaVenta: boolean; enviadoPorNombre: string | null; enviadoEn: string | null;
@@ -79,6 +93,12 @@ const SELECT_COLA = {
   placa: vehicles.plate, vin: vehicles.vin, companiaNombre: clients.name,
   organismoNombre: organismosTransitoConfig.alias, organismoSla: organismosTransitoConfig.flitoSlaHoras,
   enviadoPorNombre: users.name,
+  // HU #11947: el tipo de documento del titular, que FLIT manda dentro de `flit_raw` y que ninguna
+  // columna de FLITO tiene. Sale de `expresionesFlitRaw` —la misma función que usan los dos exports,
+  // así que la clave ligada es LA MISMA que la del `.xlsx` y el descarte de lo no escalar ocurre en
+  // SQL— y entra en el `innerJoin` con `flito_tramites` que esta consulta ya hacía: cero joins
+  // nuevos, cero consultas nuevas, cero migración, y `flit_raw` NO se proyecta entera.
+  tipoTitularFlit: expresionesFlitRaw(flitoTramites.flitRaw).tipo,
 } as const;
 
 /**
@@ -388,6 +408,10 @@ async function ensamblar(rows: FilaCola[]): Promise<ImpuestoColaItem[]> {
       fechaCreacion: aIso(r.fechaCreacion),
       estado: r.estado as EstadoImpuesto,
       compradorNombre: p?.nombreCompleto ?? null, compradorDocumento: p?.numeroDocumento ?? null,
+      // El código RESUELTO desde `flit_raw->>'tipo'` (1:1 con el trámite, sin nada que reconciliar),
+      // y NO la columna `flito_compradores.tipo_documento`, que sigue a 0 de 7 052 para las filas
+      // del sync. Sin comprador va `null`, igual que las dos celdas de arriba.
+      compradorTipoDocumento: p ? clasificacionDeTipoFlit(r.tipoTitularFlit)?.claseId ?? null : null,
       companiaNombre: r.companiaNombre, organismoCodigo: r.organismoCodigo, organismoNombre: r.organismoNombre,
       valorLiquidado: r.valorLiquidado === null ? null : Number(r.valorLiquidado),
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
