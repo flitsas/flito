@@ -26,7 +26,10 @@ import {
 import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { EstadoImpuesto, ResultadoCertificacion, TipoSoporteZip } from '@operaciones/shared-types';
+import {
+  CARGA_MASIVA_MAX_ARCHIVOS, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
+  TipoSoporteZip,
+} from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
 import { construirCertificadoPdf } from './certificado-pdf.js';
@@ -50,7 +53,7 @@ const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 50 },
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: CARGA_MASIVA_MAX_ARCHIVOS },
   fileFilter: (_req, file, cb) => {
     const ok = MIMES.includes(file.mimetype) || file.originalname.toLowerCase().endsWith('.zip');
     if (ok) cb(null, true); else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
@@ -656,7 +659,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 // POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
 // gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
 // deduce de la carpeta.
-router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', 50), async (req: Request, res: Response) => {
+router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_MAX_ARCHIVOS), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;

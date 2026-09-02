@@ -22,7 +22,9 @@ import {
   CAMPOS_PII_ZIP_SOPORTES, comprobarTopeRegistrosZip, emitirZipSoportes, resolverEntradasZip,
   ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
-import { EstadoSoat, TipoSoporteZip } from '@operaciones/shared-types';
+import {
+  CARGA_MASIVA_MAX_ARCHIVOS, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoSoat, TipoSoporteZip,
+} from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor,
@@ -39,7 +41,7 @@ router.use(authMiddleware);
 const MIMES_FACTURA = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 50 },
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: CARGA_MASIVA_MAX_ARCHIVOS },
   fileFilter: (_req, file, cb) => {
     // Un ZIP puede venir con mimetype genérico; se acepta por extensión y se valida su contenido al expandir.
     const ok = MIMES_FACTURA.includes(file.mimetype) || file.originalname.toLowerCase().endsWith('.zip');
@@ -584,7 +586,7 @@ router.post('/:id/factura', OPS_O_GESTOR, upload.single('archivo'), async (req: 
 
 // POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT
 // en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06).
-router.post('/facturas', OPS_O_GESTOR, upload.array('archivos', 50), async (req: Request, res: Response) => {
+router.post('/facturas', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_MAX_ARCHIVOS), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   try {
