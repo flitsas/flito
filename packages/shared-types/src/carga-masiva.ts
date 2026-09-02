@@ -30,3 +30,21 @@ export const CARGA_MASIVA_MAX_BYTES_CRUDOS = 200 * 1024 * 1024;
  * esta HU no lo usa en el send.
  */
 export const CARGA_MASIVA_ARCHIVOS_POR_PETICION = 5;
+
+/**
+ * Tope de tiempo del CLIENTE para la carga masiva (`postConTimeout` en las dos pantallas).
+ *
+ * No es un tope de tamaño como los de arriba: mide cuánto tarda el TRABAJO. `cargarFacturasMasivo`
+ * procesa los comprobantes EN SERIE, con una llamada al motor de OCR de ~3,4 s por cada uno (medido
+ * en producción el 2026-09-02), así que una tanda llena ronda los tres minutos. Con el tope
+ * compartido de `api.ts` (90 s) el navegador abortaba y nginx registraba un 499 mientras el
+ * servidor seguía trabajando.
+ *
+ * **Acoplado a la infraestructura**, y por eso vive junto a los demás topes: este valor debe quedar
+ * por debajo de `TIMEOUT_MAX_MS` de `apps/web/src/lib/api.ts` (600 s), que a su vez debe quedar por
+ * debajo del `proxy_read_timeout` de `apps/web/nginx.conf.template` (900 s). Si nginx corta primero,
+ * el cliente recibe un 504 en vez de su propio abort. Mover uno obliga a revisar los tres.
+ *
+ * Si algún día el OCR se procesa en paralelo, este valor puede bajar.
+ */
+export const CARGA_MASIVA_OCR_TIMEOUT_MS = 300_000;

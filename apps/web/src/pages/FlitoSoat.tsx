@@ -7,7 +7,7 @@
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, CARGA_MASIVA_OCR_TIMEOUT_MS, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { mensajeErrorCargaMasiva, textoContadorCargaMasiva, validarCargaMasiva } from '../lib/carga-masiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
@@ -985,7 +985,8 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
     try {
       const form = new FormData();
       for (const f of archivos) form.append('archivos', f);
-      const r = await api.post<ResultadoMasivo>('/flito/soat/facturas', form);
+      // `post` usa el tope compartido de 90 s y no alcanza: el OCR de la tanda va en serie.
+      const r = await api.postConTimeout<ResultadoMasivo>('/flito/soat/facturas', form, CARGA_MASIVA_OCR_TIMEOUT_MS);
       setResultado(r);
     } catch (e) { setError(mensajeErrorCargaMasiva(e)); }
     finally { setEnviando(false); }
