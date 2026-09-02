@@ -1,16 +1,17 @@
-// FLITO — topes de la carga masiva de facturas SOAT y recibos de impuestos (HU #12050).
+// FLITO — topes de la carga masiva de facturas SOAT y recibos de impuestos (HU #12050 / #12051).
 //
 // Viven aquí y no en cada módulo porque los leen tres sitios que tienen que decir el mismo número:
 //
-//   · multer en `flito-soat.routes` y `flito-impuestos.routes` (`limits.fileSize` / `limits.files`);
+//   · multer en `flito-soat.routes` y `flito-impuestos.routes` (`limits.fileSize` /
+//     `CARGA_MASIVA_ARCHIVOS_POR_PETICION` en `limits.files` y `upload.array`);
 //   · nginx del contenedor web (`client_max_body_size` = `CARGA_MASIVA_MAX_BYTES_CUERPO`);
-//   · el cliente de tandas (HU #12051), que aún no consume `CARGA_MASIVA_ARCHIVOS_POR_PETICION`.
+//   · el cliente de tandas (HU #12051), que parte el lote con `partirCargaMasivaEnTandas`.
 //
-// Los valores de archivo (50 × 15 MB) no cambian en esta HU: solo dejan de estar copiados a mano.
-// El cuerpo HTTP (250 MB) y el presupuesto de bytes crudos (200 MB) son el techo real del lote;
-// 50 × 15 MB = 750 MB es el producto teórico de multer, no lo que nginx deja pasar.
+// Los valores de archivo (50 × 15 MB) no cambian: el 50 es el techo del picker; el HTTP por
+// petición es 5. El cuerpo HTTP (250 MB) y el presupuesto de bytes crudos (200 MB) son el techo
+// real del lote; 50 × 15 MB = 750 MB es el producto teórico, no lo que nginx deja pasar.
 
-/** Tope de archivos que multer acepta en una sola petición (`limits.files` + `upload.array`). */
+/** Tope del picker / lote completo. El tope HTTP por petición es `CARGA_MASIVA_ARCHIVOS_POR_PETICION`. */
 export const CARGA_MASIVA_MAX_ARCHIVOS = 50;
 
 /** Tope por archivo que multer acepta (`limits.fileSize`). 15 MiB. */
@@ -26,25 +27,30 @@ export const CARGA_MASIVA_MAX_BYTES_CUERPO = 250 * 1024 * 1024;
 export const CARGA_MASIVA_MAX_BYTES_CRUDOS = 200 * 1024 * 1024;
 
 /**
- * Archivos por petición del cliente de tandas (HU #12051). Se exporta ya para no partir el contrato;
- * esta HU no lo usa en el send.
+ * Archivos por petición del cliente de tandas (HU #12051). Lo leen multer
+ * (`limits.files` + `upload.array`) y `partirCargaMasivaEnTandas`.
  */
 export const CARGA_MASIVA_ARCHIVOS_POR_PETICION = 5;
 
 /**
- * Tope de tiempo del CLIENTE para la carga masiva (`postConTimeout` en las dos pantallas).
- *
- * No es un tope de tamaño como los de arriba: mide cuánto tarda el TRABAJO. `cargarFacturasMasivo`
- * procesa los comprobantes EN SERIE, con una llamada al motor de OCR de ~3,4 s por cada uno (medido
- * en producción el 2026-09-02), así que una tanda llena ronda los tres minutos. Con el tope
- * compartido de `api.ts` (90 s) el navegador abortaba y nginx registraba un 499 mientras el
- * servidor seguía trabajando.
- *
- * **Acoplado a la infraestructura**, y por eso vive junto a los demás topes: este valor debe quedar
- * por debajo de `TIMEOUT_MAX_MS` de `apps/web/src/lib/api.ts` (600 s), que a su vez debe quedar por
- * debajo del `proxy_read_timeout` de `apps/web/nginx.conf.template` (900 s). Si nginx corta primero,
- * el cliente recibe un 504 en vez de su propio abort. Mover uno obliga a revisar los tres.
- *
- * Si algún día el OCR se procesa en paralelo, este valor puede bajar.
+ * Tope de tiempo del CLIENTE para un POST de carga masiva (llegó en develop con HU #12050).
+ * La HU #12051 parte de a 5 y usa `TIMEOUT_TANDA_CARGA_MS` (115 s) por tanda; este 300 s
+ * queda como techo documentado frente a `TIMEOUT_MAX_MS` / nginx.
  */
 export const CARGA_MASIVA_OCR_TIMEOUT_MS = 300_000;
+
+/**
+ * Parte `items` en tandas de `size` (por defecto 5), en el mismo orden.
+ * 12 → [5, 5, 2]; 7 → [5, 2]; 5 → una tanda; 0 → [].
+ */
+export function partirCargaMasivaEnTandas<T>(
+  items: readonly T[],
+  size: number = CARGA_MASIVA_ARCHIVOS_POR_PETICION,
+): T[][] {
+  const paso = size > 0 ? size : CARGA_MASIVA_ARCHIVOS_POR_PETICION;
+  const tandas: T[][] = [];
+  for (let i = 0; i < items.length; i += paso) {
+    tandas.push(items.slice(i, i + paso));
+  }
+  return tandas;
+}

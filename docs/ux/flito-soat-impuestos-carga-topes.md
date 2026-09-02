@@ -4,8 +4,9 @@
 > Modo **slim**: los dos modales que ya existen ganan un **contador de peso**, un **corte
 > en el cliente** y **copy FLITO** cuando nginx contesta 413/504. No se rediseña el modal.
 >
-> **Fuera de alcance (HU #12051, no documentar ni pintar):** tandas automáticas de 5,
-> cola de envíos, progreso por tanda, «faltan N tandas». Esta HU no parte sola la carga.
+> **Tandas (HU #12051):** el envío de 5 en 5, el progreso `tanda k de n` y el fallo
+> parcial están en [`flito-soat-impuestos-carga-tandas.md`](./flito-soat-impuestos-carga-tandas.md).
+> Esta ficha (HU #12050) cubre picker, topes y copy 413/504.
 
 ---
 

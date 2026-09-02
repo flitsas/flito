@@ -27,7 +27,7 @@ import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
 import {
-  CARGA_MASIVA_MAX_ARCHIVOS, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
   TipoSoporteZip,
 } from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
@@ -53,7 +53,7 @@ const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: CARGA_MASIVA_MAX_ARCHIVOS },
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: CARGA_MASIVA_ARCHIVOS_POR_PETICION },
   fileFilter: (_req, file, cb) => {
     const ok = MIMES.includes(file.mimetype) || file.originalname.toLowerCase().endsWith('.zip');
     if (ok) cb(null, true); else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
@@ -659,7 +659,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 // POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
 // gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
 // deduce de la carpeta.
-router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_MAX_ARCHIVOS), async (req: Request, res: Response) => {
+router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
