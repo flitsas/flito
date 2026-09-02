@@ -67,13 +67,13 @@ Tipos cruzados: `@operaciones/shared-types`.
 9. NUNCA declares terminada una HU sin `npm run typecheck -w apps/web` en verde (salida real).
 10. NUNCA crees ramas/commits/pushes/PRs sin confirmación humana. Tampoco staging masivo: **prohibido** `git add -A` / `git add .` en cualquier forma (incluido `git add -A && git diff --cached`); para revisar el árbol usa `git status --short` y `git diff` por rutas.
 11. NUNCA incluyas parches demo en commits propuestos.
-12. NUNCA introduzcas drift visual — replica `components/flit/` y `shell/`.
+12. NUNCA introduzcas drift visual — replica `components/flit/` y `shell/`. Componer el kit no es clonar la pantalla más densa: sigue `docs/ux/_principios-flito.md` y la spec UX (una primaria, jerarquía, vacío con siguiente paso). NUNCA añadas efectos vistosos ni HEX sueltos. El producto es **FLITO**.
 
 ---
 
 ## Pre-flight
 
-1. Abre la página análoga del prompt (o una del mismo dominio) y copia estructura.
+1. Abre la página análoga del prompt (o una del mismo dominio y **del mismo público**) y copia estructura del kit, no la saturación. Si hay spec en `docs/ux/`, manda esa spec + `docs/ux/_principios-flito.md`.
 2. Confirma que el endpoint existe (`grep` en routes del módulo). Si no → para y reporta.
 3. Revisa slug en `permissions.ts` / shared-types.
 4. Si faltan AC y hay ID ADO: lectura mínima; si el prompt trae AC, no re-descubras.
