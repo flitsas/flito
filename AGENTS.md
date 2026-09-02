@@ -50,7 +50,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
 10. Toda página nueva se registra en `src/App.tsx` con `lazy()` + guarda de permiso (`hasPage` / `PageSlug`) — nunca import estático post-login.
 11. `dangerouslySetInnerHTML` solo con sanitización en la misma expresión.
 12. Accesibilidad bloqueante: `<label>` asociado a cada input, botón con texto o `aria-label`, foco visible, contraste ≥ 4.5:1.
-13. Sin drift visual: replicar patrones de `components/flit/` y `components/shell/`; colores y espaciados de las utilidades Tailwind ya usadas, no de HEX sueltos.
+13. Sin drift visual: replicar patrones de `components/flit/` y `components/shell/`; colores y espaciados de las utilidades Tailwind ya usadas, no de HEX sueltos. El prefijo `flit/` es el kit de **FLITO** (no el producto FLIT). Componer el kit con claridad (`docs/ux/_principios-flito.md`): mostrar lo que se vino a ver, una acción primaria, sin efectos vistosos.
 
 ### Seguridad y datos personales (Ley 1581 — Habeas Data)
 
@@ -314,7 +314,7 @@ el hilo principal es quien encadena.
 | Feature / descomponer HUs / DoR | Planear o refinar backlog. **P9:** ronda de cierre contra código/spec **antes** de crear HUs; corte = ítems del pedido, no capas | `tech-lead-agent` | HUs mal cortadas / alcance descubierto en desarrollo |
 | Retomar / «continúa» / «sigue con» un Feature | El Feature ya existía; la sesión es nueva o se reanudó | **Skill** `flit-modo-desarrollo-auto` **otra vez** (carga de hace horas no cuenta) | Ciclo de memoria / saltar gates |
 | Antes de código no trivial | **full:** módulo/modelo/contrato nuevo o tradeoff (PII/auth/ext). **slim:** extensión de patrón vecino. **omit:** cambio mecánico (declarar en PR) | `architecture-agent` | Diseño implícito en el diff |
-| Antes de UI nueva significativa | **full:** nueva ruta/PageSlug/wizard/bandeja o FRONTEND sin `docs/ux/`. **slim:** extensión de pantalla. **omit:** copy/a11y menor (declarar en PR) | `ux-agent` | UI inventada en el agent de código |
+| Antes de UI nueva significativa | **full:** nueva ruta/PageSlug/wizard/bandeja o FRONTEND sin `docs/ux/`. **slim:** extensión de pantalla. **omit:** copy/a11y menor (declarar en PR). Oficio: `docs/ux/_principios-flito.md` (claridad, una primaria, sin efectos; análoga del mismo público) | `ux-agent` | UI inventada o saturada en el agent de código |
 | Implementar `apps/api` | HU **o Bug** BACKEND, o diff en API/esquema/migración (**también la 1.ª HU / «solo esquema»**); tests de este WI (P1), no el directorio del módulo | `backend-agent` | Lógica fuera de patrón / HU codeada en el hilo |
 | Implementar `apps/web` | HU **o Bug** FRONTEND, o diff en páginas/componentes; E2E del spec por defecto | `frontend-agent` | 4 estados / permisos rotos |
 | Pre-PR (siempre, **cada** PR) | Antes de `create_pull_request` (aunque el humano diga «crea el PR»); `security-agent` **no** lo sustituye | **Skill** `flit-code-review` | PR sin checklist / veredicto inventado |
