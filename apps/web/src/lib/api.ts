@@ -20,12 +20,20 @@ const REQUEST_TIMEOUT_MS = 90_000;
  * todas las demás. Lo que se añade es la posibilidad de que UNA llamada pida más tiempo, y este
  * techo es lo que impide que ese permiso se convierta en «el que llama decide sin límite».
  *
- * 115 s está por DEBAJO del corte del proxy (~120 s): pasado ese punto, quien corta es nginx y el
- * cliente recibe un 502/504 en vez de su propio abort — es decir, el llamador perdería la
- * distinción entre «se me acabó el tiempo a mí» y «el servidor falló», que es justo la que la
- * consola de sincronización necesita para no pintar un fallo rojo definitivo (HU #11635).
+ * El techo va siempre por DEBAJO del corte del proxy: pasado ese punto quien corta es nginx y el
+ * cliente recibe un 502/504 en vez de su propio abort — el llamador perdería la distinción entre
+ * «se me acabó el tiempo a mí» y «el servidor falló», que es justo la que la consola de
+ * sincronización necesita para no pintar un fallo rojo definitivo (HU #11635).
+ *
+ * Era 115 s cuando `proxy_read_timeout` valía 120 s. Ese corte sube a 900 s en
+ * `apps/web/nginx.conf.template` para que quepa la carga masiva de SOAT e impuestos: su OCR es
+ * secuencial (~3,4 s por comprobante) y una tanda llena pasa de los tres minutos. 600 s deja margen
+ * de sobra por debajo de los 900 del proxy.
+ *
+ * **Los dos valores están acoplados**: si alguien baja el `proxy_read_timeout` de la plantilla, hay
+ * que bajar este techo con él, o se pierde la distinción de arriba.
  */
-const TIMEOUT_MAX_MS = 115_000;
+const TIMEOUT_MAX_MS = 600_000;
 
 /**
  * Tope efectivo de una petición: el pedido, acotado al techo, o el de siempre si no se pide nada.

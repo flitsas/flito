@@ -170,3 +170,17 @@ export const FlujoRevision = {
 } as const;
 
 export type FlujoRevision = (typeof FlujoRevision)[keyof typeof FlujoRevision];
+
+/**
+ * Tope de tiempo del cliente para las cargas MASIVAS que pasan por OCR (SOAT e impuestos).
+ *
+ * No es una cifra de red: mide cuánto tarda el TRABAJO. `cargarFacturasMasivo` procesa los
+ * comprobantes EN SERIE, con una llamada al motor de ~3,4 s por cada uno (medido en producción el
+ * 2026-09-02), así que una tanda llena —50 archivos, el tope de multer— ronda los tres minutos y se
+ * comía de largo los 90 s del tope compartido de `api.ts`: el navegador abortaba y nginx registraba
+ * un 499 mientras el servidor seguía trabajando.
+ *
+ * 300 s cubre la tanda llena con margen y queda por debajo de `TIMEOUT_MAX_MS`. Si el OCR pasa
+ * algún día a procesarse en paralelo, este valor puede bajar.
+ */
+export const CARGA_MASIVA_OCR_TIMEOUT_MS = 300_000;
