@@ -8,7 +8,7 @@ import { puedeOperar } from '../lib/permissions';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
-  TOPE_LOTE_CERTIFICACION,
+  TOPE_LOTE_CERTIFICACION, CARGA_MASIVA_OCR_TIMEOUT_MS,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import {
@@ -939,7 +939,8 @@ function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () =
       const form = new FormData();
       for (const f of archivos) form.append('archivos', f);
       form.append('sinMarcaDeAgua', String(sinMarca));
-      const r = await api.post<ResultadoRecibos>('/flito/impuestos/recibos', form);
+      // `post` usa el tope compartido de 90 s y no alcanza: el OCR de la tanda va en serie.
+      const r = await api.postConTimeout<ResultadoRecibos>('/flito/impuestos/recibos', form, CARGA_MASIVA_OCR_TIMEOUT_MS);
       setResultado(r);
     } catch (e) { setError(errorMessage(e)); }
     finally { setEnviando(false); }
