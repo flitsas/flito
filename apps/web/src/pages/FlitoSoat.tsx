@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
+import { mensajeErrorCargaMasiva, textoContadorCargaMasiva, validarCargaMasiva } from '../lib/carga-masiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import BloqueRevision from '../components/flito/soat-cliente/BloqueRevision';
@@ -976,16 +977,17 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoMasivo | null>(null);
+  const errorValidacion = validarCargaMasiva(archivos);
 
   const subir = async () => {
-    if (archivos.length === 0) return;
+    if (archivos.length === 0 || validarCargaMasiva(archivos)) return;
     setEnviando(true); setError(null);
     try {
       const form = new FormData();
       for (const f of archivos) form.append('archivos', f);
       const r = await api.post<ResultadoMasivo>('/flito/soat/facturas', form);
       setResultado(r);
-    } catch (e) { setError(errorMessage(e)); }
+    } catch (e) { setError(mensajeErrorCargaMasiva(e)); }
     finally { setEnviando(false); }
   };
 
@@ -997,11 +999,17 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
             Sube varios PDF/imágenes o un ZIP. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp}
-            onChange={(e) => setArchivos(Array.from(e.target.files ?? []))} />
-          {archivos.length > 0 && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{archivos.length} archivo(s) listos.</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+            onChange={(e) => { setArchivos(Array.from(e.target.files ?? [])); setError(null); }} />
+          {archivos.length > 0 && (
+            <p className={`text-xs${errorValidacion ? ' text-red-600' : ''}`}
+              style={errorValidacion ? undefined : { color: 'var(--flit-text-muted)' }}>
+              {textoContadorCargaMasiva(archivos)}
+            </p>
+          )}
+          {(errorValidacion || error) && <p role="alert" className="text-sm text-red-600">{errorValidacion ?? error}</p>}
           <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || archivos.length === 0} onClick={subir}>
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              disabled={enviando || archivos.length === 0 || !!errorValidacion} onClick={subir}>
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
