@@ -231,8 +231,9 @@ Consultar la matriz de `AGENTS.md`. Umbrales proporcionales:
    - **full:** nueva ruta/`PageSlug`, wizard/bandeja nueva, o HU FRONTEND sin `docs/ux/`.
    - **slim:** extensión de pantalla existente (filtros/columnas/botón) reusando `flit`/`shell`.
    - **omitir:** copy/a11y menor o extensión trivial → `ux: no aplica — extensión de <Page>`; BACKEND-only siempre omit.
+   - Oficio: `docs/ux/_principios-flito.md` (FLITO, claridad, una primaria, sin efectos). El prompt nombra el **público** (operador vs Cliente) y una análoga del mismo público.
 
-El prompt del Task debe ser **denso** (AC pegados, paths, modo slim|full). No empezar el paso 3 sin entregables cuando el disparador exige full/slim.
+El prompt del Task debe ser **denso** (AC pegados, paths, modo slim|full, público). No empezar el paso 3 sin entregables cuando el disparador exige full/slim. Un UX HANDOFF sin oficio (jerarquía / primaria / vacío útil) no desbloquea al `frontend-agent`.
 
 ### 2b. Merge a `develop` (tras CI verde)
 

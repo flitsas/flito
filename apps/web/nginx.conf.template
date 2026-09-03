@@ -22,15 +22,23 @@ server {
     # que el path original /api/... llegue intacto al backend Express.
     location /api/ {
         # Lotes de PDFs (SOAT/impuestos: multer acepta hasta 50 archivos x 15MB).
-        # Debe coincidir con el client_max_body_size del reverse-proxy del HOST.
-        client_max_body_size 100m;
+        # 250m alinea con el client_max_body_size del reverse-proxy del HOST y con
+        # CARGA_MASIVA_MAX_BYTES_CUERPO (packages/shared-types). 100m se quedaba corto:
+        # una tanda real de 35 comprobantes pesaba 228 MB y nginx la cortaba con 413
+        # antes de que la API la viera (produccion, 2026-09-02).
+        client_max_body_size 250m;
         proxy_pass http://${API_HOST}:${API_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+        # La carga masiva de SOAT/impuestos procesa el OCR en serie (~3,4 s por comprobante),
+        # asi que una tanda llena supera los tres minutos. Este corte tiene que quedar POR
+        # ENCIMA de TIMEOUT_MAX_MS de apps/web/src/lib/api.ts (600 s): si nginx corta primero,
+        # el cliente recibe 504 en vez de su propio abort y pierde la distincion entre «se me
+        # acabo el tiempo» y «el servidor fallo».
+        proxy_read_timeout 900s;
     }
 
     # Assets con hash de Vite → cache inmutable (se re-descargan solo si cambia el hash).

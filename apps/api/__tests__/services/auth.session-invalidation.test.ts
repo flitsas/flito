@@ -6,10 +6,32 @@ import { chain } from '../helpers/db.js';
 const selectMock = vi.fn();
 const updateMock = vi.fn();
 const insertMock = vi.fn();
+const deleteMock = vi.fn();
 const executeMock = vi.fn();
+const transactionMock = vi.fn();
+
+/**
+ * El objeto `db` se declara aparte porque `db.transaction` ejecuta el callback contra ESTE MISMO
+ * doble: desde la HU #12053 `PATCH /api/users/:id` delega en `actualizarUsuario`, que abre una
+ * transacción y hace DENTRO el `SELECT` de `flito_gestor_organismos` y el `UPDATE` de `users`.
+ *
+ * Aquí había un `transaction: vi.fn()` pelado, que no ejecuta el callback y resuelve `undefined`:
+ * el handler leía `r.estado` sobre `undefined`, el `errorHandler` lo servía como 500 y el
+ * `updateMock` que estos tests preparan no llegaba a llamarse nunca. Lo que no sabía de la
+ * transacción era el doble, no la ruta — la transacción es el AC4 de esa HU (el `UPDATE` de `users`
+ * y el `DELETE`/`INSERT` de la tabla puente confirman o revierten juntos).
+ */
+const dbMock = {
+  select: selectMock,
+  update: updateMock,
+  insert: insertMock,
+  delete: deleteMock,
+  execute: executeMock,
+  transaction: transactionMock,
+};
 
 vi.mock('../../src/db/client.js', () => ({
-  db: { select: selectMock, update: updateMock, insert: insertMock, delete: vi.fn(), execute: executeMock, transaction: vi.fn() },
+  db: dbMock,
   getPoolStats: vi.fn().mockResolvedValue({ utilization: 0, total: 0, idle: 0, waiting: 0 }),
 }));
 vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: vi.fn().mockResolvedValue(undefined) }));
@@ -23,6 +45,10 @@ const originalSkip = process.env.AUTH_SKIP_SESSION_INVAL_CHECK;
 
 beforeEach(async () => {
   selectMock.mockReset(); updateMock.mockReset(); insertMock.mockReset(); executeMock.mockReset();
+  deleteMock.mockReset().mockImplementation(() => chain([]));
+  // El `tx` es el mismo doble: así lo que pasa dentro de la transacción sigue viéndose en
+  // `selectMock`/`updateMock`, que es sobre lo que estos tests afirman.
+  transactionMock.mockReset().mockImplementation(async (cb: (tx: unknown) => unknown) => cb(dbMock));
   executeMock.mockResolvedValue([{ '?column?': 1 }]);
   // Activar check explícitamente en este archivo de tests (la suite global lo desactiva).
   process.env.AUTH_SKIP_SESSION_INVAL_CHECK = '';
@@ -99,6 +125,7 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
   it('cambiar role → updates incluye sessionInvalidatedAt', async () => {
     selectMock.mockReturnValueOnce(chain([{ s: null }]));        // middleware
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'lider_pesv' }])); // before
+    selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
     let capturedSet: any = null;
     updateMock.mockImplementationOnce(() => ({
       set: (s: any) => { capturedSet = s; return { where: () => ({ returning: () => Promise.resolve([{ id: 6, name: 'Edison', role: 'admin' }]) }) }; },
@@ -115,6 +142,7 @@ describe('PATCH /users/:id invalida sesiones cuando cambia role/allowedPages', (
   it('cambiar solo nombre → NO bumpea sessionInvalidatedAt', async () => {
     selectMock.mockReturnValueOnce(chain([{ s: null }]));
     selectMock.mockReturnValueOnce(chain([{ id: 6, role: 'admin' }]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos del usuario, dentro de la tx (HU #12053)
     let capturedSet: any = null;
     updateMock.mockImplementationOnce(() => ({
       set: (s: any) => { capturedSet = s; return { where: () => ({ returning: () => Promise.resolve([{ id: 6, name: 'Edison Nuevo', role: 'admin' }]) }) }; },

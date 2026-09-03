@@ -10,6 +10,12 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import {
+  OrganismosField, ProveedorSoatField, etiquetasOrganismos, nombreProveedor, resumenOrganismos,
+  useOrganismosParametrizados, useProveedoresSoat,
+  ORGANISMOS_RELOGIN, ORGANISMOS_REQUERIDO, PROVEEDOR_RELOGIN, PROVEEDOR_REQUERIDO,
+  type CatalogoOrganismos, type CatalogoProveedores,
+} from './users/AtaduraFields';
 
 interface User {
   id: number;
@@ -22,6 +28,15 @@ interface User {
   transitoCodigo?: string | null;
   /** Compañía del rol `cliente` (Feature #11912). Obligatoria para ese rol y prohibida en el resto. */
   companiaId?: number | null;
+  /** Proveedor SOAT del rol `proveedor` (HU #12053). Obligatorio para ese rol, prohibido en el resto. */
+  flitoProveedorSoatId: string | null;
+  /**
+   * Organismos del rol `gestor_impuestos` (HU #12053). **Siempre un array**, nunca `null` ni
+   * ausente: `[]` para los once roles que no son gestor. Es invariante del contrato —§3 del diseño—
+   * y por eso aquí no se escribe `?? []`: si algún día llegara vacío de otra forma, el fallo tiene
+   * que verse, no taparse.
+   */
+  organismosCodigos: string[];
   createdAt: string;
 }
 
@@ -94,6 +109,8 @@ function useCompanias() {
 export default function Users() {
   const { user: me } = useAuth();
   const companias = useCompanias();
+  const proveedores = useProveedoresSoat();
+  const organismos = useOrganismosParametrizados();
   const nombreCompania = (id: number) => companias.data?.find((c) => c.id === id)?.nombre ?? null;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,10 +163,12 @@ export default function Users() {
                 <Th>Nombre</Th>
                 <Th>Email</Th>
                 <Th>Rol</Th>
-                {/* Se RENOMBRA en vez de añadir una columna octava: la celda ya ramificaba por rol
-                    para decir «a qué ámbito está atado este usuario», y una columna propia estaría
-                    vacía para 10 de los 12 roles. */}
-                <Th>Organismo / Compañía</Th>
+                {/* Se RENOMBRA en vez de añadir columnas: la celda ya ramificaba por rol para
+                    decir «a qué ámbito está atado este usuario», y las tres columnas de la
+                    disposición B nacerían vacías para 9 de los 12 roles. Siguen siendo SIETE.
+                    «Ámbito» se lee en pareja con «Rol», que tiene justo a la izquierda: el rol dice
+                    de qué tipo es el ámbito y esta celda dice cuál. */}
+                <Th>Ámbito</Th>
                 <Th>Estado</Th>
                 <ThRight>Acciones</ThRight>
               </tr>
@@ -196,6 +215,28 @@ export default function Users() {
                         ) : (
                           <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
                         )
+                      ) : u.role === 'proveedor' ? (
+                        u.flitoProveedorSoatId ? (
+                          nombreProveedor(proveedores.data, u.flitoProveedorSoatId)
+                            ? <span>{nombreProveedor(proveedores.data, u.flitoProveedorSoatId)}</span>
+                            : <span className="font-mono">{u.flitoProveedorSoatId}</span>
+                        ) : (
+                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+                        )
+                      ) : u.role === 'gestor_impuestos' ? (
+                        u.organismosCodigos.length > 0 ? (
+                          // `title` con la lista completa es COMPLEMENTARIO, nunca el único
+                          // portador: no existe para teclado ni para táctil. La lista entera está a
+                          // un clic, en «Editar», que es además donde se puede cambiar.
+                          <span
+                            className={organismos.data ? undefined : 'font-mono'}
+                            title={etiquetasOrganismos(organismos.data, u.organismosCodigos).join(', ')}
+                          >
+                            {resumenOrganismos(etiquetasOrganismos(organismos.data, u.organismosCodigos))}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+                        )
                       ) : (
                         '—'
                       )}
@@ -218,8 +259,8 @@ export default function Users() {
         </div>
       </div>
 
-      {showCreate && <CreateForm companias={companias} onClose={() => setShowCreate(false)} onCreated={load} />}
-      {editing && <EditForm user={editing} companias={companias} onClose={() => setEditing(null)} onSaved={load} />}
+      {showCreate && <CreateForm companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setShowCreate(false)} onCreated={load} />}
+      {editing && <EditForm user={editing} companias={companias} proveedores={proveedores} organismos={organismos} onClose={() => setEditing(null)} onSaved={load} />}
       {pwdTarget && <PasswordForm user={pwdTarget} isSelf={pwdTarget.id === me?.id} onClose={() => setPwdTarget(null)} onSaved={load} />}
     </div>
   );
@@ -264,7 +305,13 @@ function RowButton({ onClick, disabled, tone, children }: { onClick: () => void;
   );
 }
 
-function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoCompanias; onClose: () => void; onCreated: () => void }) {
+function CreateForm({ companias, proveedores, organismos, onClose, onCreated }: {
+  companias: CatalogoCompanias;
+  proveedores: CatalogoProveedores;
+  organismos: CatalogoOrganismos;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [f, setF] = useState<{
     username: string;
     name: string;
@@ -274,15 +321,21 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
     extraPages: PageSlug[];
     transitoCodigo: string;
     companiaId: string;
+    flitoProveedorSoatId: string;
+    organismosCodigos: string[];
   }>({
     username: '', name: '', email: '', password: '',
     role: 'proveedor',
     extraPages: [],
     transitoCodigo: '',
     companiaId: '',
+    flitoProveedorSoatId: '',
+    organismosCodigos: [],
   });
   const [submitting, setSubmitting] = useState(false);
   const [errorCompania, setErrorCompania] = useState<string | null>(null);
+  const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
+  const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -293,7 +346,12 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
     // errores de todo el producto—, y sobre todo que aquí NO se manda la petición: un usuario a
     // medio crear no llega a existir.
     if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    setErrorCompania(null);
+    // AC3, con el mismo mecanismo y por los mismos dos motivos: el 400 del servidor llega como
+    // «flitoProveedorSoatId: Proveedor SOAT requerido…» —`ApiError.toUserMessage()` antepone el
+    // nombre del campo—, y aquí NO se manda la petición.
+    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
+    setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = { username: f.username.trim(), name: f.name.trim(), password: f.password, role: f.role };
@@ -302,6 +360,9 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
       if (f.role === 'transito') body.transitoCodigo = f.transitoCodigo;
       // Solo el rol Cliente la manda: el backend rechaza una compañía en cualquier otro rol.
       if (f.role === 'cliente') body.companiaId = Number(f.companiaId);
+      // Cada ámbito lo manda SOLO su rol: el backend rechaza el campo en cualquier otro.
+      if (f.role === 'proveedor') body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      if (f.role === 'gestor_impuestos') body.organismosCodigos = f.organismosCodigos;
       await api.post('/users', body);
       toast.success('Usuario creado');
       onCreated();
@@ -329,9 +390,19 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{PASSWORD_TITLE}</p>
         </Field>
         <Field label="Rol base">
-          {/* Cambiar de rol limpia los DOS ámbitos. Sin esto, pasar de Cliente a Proveedor y guardar
-              mandaría una compañía que el backend rechaza con un mensaje que no explica nada. */}
-          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '', companiaId: '' })} className={inputCls}>
+          {/* Cambiar de rol limpia los CUATRO ámbitos, y limpia también sus mensajes de rechazo.
+              Sin esto, pasar de Cliente a Proveedor y guardar mandaría una compañía que el backend
+              rechaza con un mensaje que no explica nada; y el error de un campo que ya no se pinta
+              volvería a robar el foco al reaparecer. En el ALTA no se conservan borradores por rol:
+              nada se ha guardado todavía, y un borrador invisible no lo pidió nadie. */}
+          <select
+            value={f.role}
+            onChange={(e) => {
+              setF({ ...f, role: e.target.value as User['role'], transitoCodigo: '', companiaId: '', flitoProveedorSoatId: '', organismosCodigos: [] });
+              setErrorProveedor(null); setErrorOrganismos(null);
+            }}
+            className={inputCls}
+          >
             {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Define los permisos por defecto. Puede ampliar páginas adicionales abajo.</p>
@@ -348,6 +419,23 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
             onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
           />
         )}
+        {f.role === 'proveedor' && (
+          <ProveedorSoatField
+            proveedores={proveedores}
+            value={f.flitoProveedorSoatId}
+            onChange={(v) => { setF({ ...f, flitoProveedorSoatId: v }); if (v) setErrorProveedor(null); }}
+            error={errorProveedor}
+            onInvalido={() => setErrorProveedor(PROVEEDOR_REQUERIDO)}
+          />
+        )}
+        {f.role === 'gestor_impuestos' && (
+          <OrganismosField
+            organismos={organismos}
+            seleccionados={f.organismosCodigos}
+            onChange={(cs) => { setF({ ...f, organismosCodigos: cs }); if (cs.length > 0) setErrorOrganismos(null); }}
+            error={errorOrganismos}
+          />
+        )}
         <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
         <Footer onClose={onClose} submitting={submitting} label="Crear usuario" />
       </form>
@@ -355,7 +443,14 @@ function CreateForm({ companias, onClose, onCreated }: { companias: CatalogoComp
   );
 }
 
-function EditForm({ user, companias, onClose, onSaved }: { user: User; companias: CatalogoCompanias; onClose: () => void; onSaved: () => void }) {
+function EditForm({ user, companias, proveedores, organismos, onClose, onSaved }: {
+  user: User;
+  companias: CatalogoCompanias;
+  proveedores: CatalogoProveedores;
+  organismos: CatalogoOrganismos;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [f, setF] = useState({
     name: user.name,
     email: user.email ?? '',
@@ -363,16 +458,25 @@ function EditForm({ user, companias, onClose, onSaved }: { user: User; companias
     extraPages: (user.allowedPages ?? []).filter(isValidPage),
     transitoCodigo: user.transitoCodigo ?? '',
     companiaId: user.companiaId ? String(user.companiaId) : '',
+    flitoProveedorSoatId: user.flitoProveedorSoatId ?? '',
+    organismosCodigos: user.organismosCodigos,
   });
   const [submitting, setSubmitting] = useState(false);
   const [errorCompania, setErrorCompania] = useState<string | null>(null);
+  const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
+  const [errorOrganismos, setErrorOrganismos] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (submitting) return;
     // Mismo AC2 que en el alta, y aquí cubre además el ascenso a Cliente de quien no traía compañía.
     if (f.role === 'cliente' && !f.companiaId) { setErrorCompania(COMPANIA_REQUERIDA); return; }
-    setErrorCompania(null);
+    // El AC3 también sobre las filas que YA existen: ascender a Proveedor / Gestor a quien no traía
+    // atadura, y editarle cualquier campo a uno heredado que se quedó sin ella. Es la mitad del AC3
+    // que más se olvida, y la única que ven los usuarios que ya están en la base.
+    if (f.role === 'proveedor' && !f.flitoProveedorSoatId) { setErrorProveedor(PROVEEDOR_REQUERIDO); return; }
+    if (f.role === 'gestor_impuestos' && f.organismosCodigos.length === 0) { setErrorOrganismos(ORGANISMOS_REQUERIDO); return; }
+    setErrorCompania(null); setErrorProveedor(null); setErrorOrganismos(null);
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {};
@@ -386,13 +490,29 @@ function EditForm({ user, companias, onClose, onSaved }: { user: User; companias
       const nextExtra = f.extraPages.slice().sort();
       if (JSON.stringify(currentExtra) !== JSON.stringify(nextExtra)) body.allowedPages = f.extraPages;
       if (f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '')) body.transitoCodigo = f.transitoCodigo;
-      if (f.role !== 'transito' && user.transitoCodigo) body.transitoCodigo = null;
+      // `user.role === 'transito'` es la guarda que faltaba, y no es cosmética: hasta esta HU el
+      // ámbito del gestor de impuestos vivía en esta misma columna, así que editarle el nombre a un
+      // gestor le mandaba `transitoCodigo: null` y lo dejaba con la cola vacía, en silencio. La
+      // 0173 se lleva ese inquilino, pero la regla se escribe igual: un guardado incidental no
+      // borra una atadura que el admin no tocó. Solo se limpia al SALIR del rol que la posee.
+      if (f.role !== 'transito' && user.role === 'transito' && user.transitoCodigo) body.transitoCodigo = null;
       const companiaPrevia = user.companiaId ? String(user.companiaId) : '';
       const companiaChanged = f.role === 'cliente' && f.companiaId !== companiaPrevia;
       if (companiaChanged) body.companiaId = Number(f.companiaId);
       // Un ex-Cliente no se queda atado a una compañía: el ámbito colgado no lo mira nadie y el
       // CHECK de la base tampoco lo impide (solo exige compañía CUANDO el rol es cliente).
       if (f.role !== 'cliente' && user.companiaId) body.companiaId = null;
+      const proveedorPrevio = user.flitoProveedorSoatId ?? '';
+      const proveedorChanged = f.role === 'proveedor' && f.flitoProveedorSoatId !== proveedorPrevio;
+      if (proveedorChanged) body.flitoProveedorSoatId = f.flitoProveedorSoatId;
+      // Degradar desde el rol limpia la atadura, igual que con la compañía: un ex-Proveedor no se
+      // queda atado a una aseguradora que ya nadie vuelve a mirar.
+      if (f.role !== 'proveedor' && user.flitoProveedorSoatId) body.flitoProveedorSoatId = null;
+      // Conjuntos y no arrays: reordenar las marcas no es un cambio, y mandar un PATCH por eso
+      // tiraría la sesión del gestor sin que nada de su ámbito hubiera cambiado.
+      const organismosChanged = f.role === 'gestor_impuestos' && !mismoConjunto(f.organismosCodigos, user.organismosCodigos);
+      if (organismosChanged) body.organismosCodigos = f.organismosCodigos;
+      if (f.role !== 'gestor_impuestos' && user.organismosCodigos.length > 0) body.organismosCodigos = [];
       if (Object.keys(body).length === 0) { toast('Sin cambios'); setSubmitting(false); return; }
       const organismoChanged = f.role === 'transito' && f.transitoCodigo !== (user.transitoCodigo ?? '');
       await api.patch(`/users/${user.id}`, body);
@@ -403,6 +523,10 @@ function EditForm({ user, companias, onClose, onSaved }: { user: User; companias
       // La compañía es el ÁMBITO de datos del Cliente: si cambia, su sesión cae en el servidor
       // (`debeInvalidar`) y el admin tiene que saber por qué al usuario se le cerró la sesión.
       if (companiaChanged) toast(COMPANIA_RELOGIN, { duration: 6000 });
+      // Los dos ámbitos nuevos entran en `debeInvalidar` del servidor, así que el admin tiene que
+      // saber por qué a ese usuario se le acaba de cerrar la sesión. Solo si CAMBIÓ de verdad.
+      if (proveedorChanged) toast(PROVEEDOR_RELOGIN, { duration: 6000 });
+      if (organismosChanged) toast(ORGANISMOS_RELOGIN, { duration: 6000 });
       onSaved();
       onClose();
     } catch (err) { toast.error(formatErrors(err)); }
@@ -419,7 +543,27 @@ function EditForm({ user, companias, onClose, onSaved }: { user: User; companias
           <input type="email" maxLength={150} value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={inputCls} />
         </Field>
         <Field label="Rol base">
-          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value as User['role'], transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '', companiaId: e.target.value === 'cliente' ? f.companiaId : '' })} className={inputCls}>
+          {/* Los campos de UN valor se vacían al salir del rol y se vuelven a elegir: es un clic, y
+              tratar al proveedor distinto que a tránsito y a compañía rompería la coherencia del
+              formulario. El MULTIVALOR no: al volver a Gestor reaparecen las marcas GUARDADAS
+              —`user.organismosCodigos`, no las que hubiera marcado sin guardar—, porque rehacer
+              seis casillas por un clic mal dado en el rol no es «un clic». La regla es explícita y
+              acotada al único campo de cardinalidad N. */}
+          <select
+            value={f.role}
+            onChange={(e) => {
+              setF({
+                ...f,
+                role: e.target.value as User['role'],
+                transitoCodigo: e.target.value === 'transito' ? f.transitoCodigo : '',
+                companiaId: e.target.value === 'cliente' ? f.companiaId : '',
+                flitoProveedorSoatId: e.target.value === 'proveedor' ? f.flitoProveedorSoatId : '',
+                organismosCodigos: e.target.value === 'gestor_impuestos' ? user.organismosCodigos : [],
+              });
+              setErrorProveedor(null); setErrorOrganismos(null);
+            }}
+            className={inputCls}
+          >
             {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </Field>
@@ -435,11 +579,35 @@ function EditForm({ user, companias, onClose, onSaved }: { user: User; companias
             onInvalido={() => setErrorCompania(COMPANIA_REQUERIDA)}
           />
         )}
+        {f.role === 'proveedor' && (
+          <ProveedorSoatField
+            proveedores={proveedores}
+            value={f.flitoProveedorSoatId}
+            onChange={(v) => { setF({ ...f, flitoProveedorSoatId: v }); if (v) setErrorProveedor(null); }}
+            error={errorProveedor}
+            onInvalido={() => setErrorProveedor(PROVEEDOR_REQUERIDO)}
+            editando
+          />
+        )}
+        {f.role === 'gestor_impuestos' && (
+          <OrganismosField
+            organismos={organismos}
+            seleccionados={f.organismosCodigos}
+            onChange={(cs) => { setF({ ...f, organismosCodigos: cs }); if (cs.length > 0) setErrorOrganismos(null); }}
+            error={errorOrganismos}
+            editando
+          />
+        )}
         <PermissionsPicker role={f.role} extraPages={f.extraPages} onChange={(pages) => setF({ ...f, extraPages: pages })} />
         <Footer onClose={onClose} submitting={submitting} label="Guardar cambios" />
       </form>
     </FlitModal>
   );
+}
+
+/** Igualdad de conjuntos: el ORDEN de los códigos no es un cambio de ámbito. */
+function mismoConjunto(a: string[], b: string[]) {
+  return a.length === b.length && a.every((c) => b.includes(c));
 }
 
 function TransitoOrganismoField({ value, onChange, required }: { value: string; onChange: (v: string) => void; required?: boolean }) {

@@ -31,7 +31,7 @@ const T_CERT = getTableName(flitoImpuestoCertificaciones);
 const T_COMPRADORES = getTableName(flitoCompradores);
 const T_SOPORTES = getTableName(flitoSoportes);
 
-const CTX = { userId: 1, username: 'ops@flitsas.io', role: 'admin', transitoCodigo: null };
+const CTX = { userId: 1, username: 'ops@flitsas.io', role: 'admin', organismos: [] };
 const ID = '71030cce-1a4c-4fb6-855d-fcc80aadc4e9';
 
 /** Fila del impuesto tal como la devuelve `buscarConAcceso` (con la frontera ya resuelta). */

@@ -24,9 +24,12 @@ import {
   construirFilasExportImpuestos, nombreArchivoExportImpuestos,
 } from './flito-impuestos.export.service.js';
 import { db } from '../../db/client.js';
-import { users } from '../../db/schema.js';
+import { flitoGestorOrganismos } from '../../db/schema.js';
 import { eq } from 'drizzle-orm';
-import { EstadoImpuesto, ResultadoCertificacion, TipoSoporteZip } from '@operaciones/shared-types';
+import {
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoImpuesto, ResultadoCertificacion,
+  TipoSoporteZip,
+} from '@operaciones/shared-types';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { certificacionVigenteConAcceso, certificarImpuesto, certificarLote } from './certificacion.service.js';
 import { construirCertificadoPdf } from './certificado-pdf.js';
@@ -50,7 +53,7 @@ const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 const MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'application/zip', 'application/x-zip-compressed'];
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024, files: 50 },
+  limits: { fileSize: CARGA_MASIVA_MAX_BYTES_ARCHIVO, files: CARGA_MASIVA_ARCHIVOS_POR_PETICION },
   fileFilter: (_req, file, cb) => {
     const ok = MIMES.includes(file.mimetype) || file.originalname.toLowerCase().endsWith('.zip');
     if (ok) cb(null, true); else cb(new Error(`Tipo de archivo no permitido: ${file.mimetype}`));
@@ -61,15 +64,20 @@ const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({ originalname: f.o
 
 /**
  * Contexto del gestor de impuestos: la atadura de visibilidad por organismo vive en
- * users.transito_codigo (§9.3), leída de BD, no del JWT. Para el resto de roles es null.
+ * `flito_gestor_organismos` (HU #12053), leída de BD, no del JWT — así un cambio de ámbito surte
+ * efecto sin re-emitir el token. Para el resto de roles la lista queda vacía.
+ *
+ * Vacía significa **no ve nada** en el caso del gestor; los demás roles ni siquiera la consultan
+ * (`esGestor(ctx)` decide antes).
  */
 export async function contextoImpuesto(user: { sub: number; username: string; role: string }): Promise<ImpuestoCtx> {
-  let transitoCodigo: string | null = null;
+  let organismos: string[] = [];
   if (user.role === 'gestor_impuestos') {
-    const [u] = await db.select({ t: users.transitoCodigo }).from(users).where(eq(users.id, user.sub)).limit(1);
-    transitoCodigo = u?.t ?? null;
+    const filas = await db.select({ codigo: flitoGestorOrganismos.organismoCodigo })
+      .from(flitoGestorOrganismos).where(eq(flitoGestorOrganismos.userId, user.sub));
+    organismos = filas.map((f) => f.codigo);
   }
-  return { userId: user.sub, username: user.username, role: user.role, transitoCodigo };
+  return { userId: user.sub, username: user.username, role: user.role, organismos };
 }
 
 function handleError(res: Response, e: unknown): void {
@@ -656,7 +664,7 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 // POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
 // gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
 // deduce de la carpeta.
-router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', 50), async (req: Request, res: Response) => {
+router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;

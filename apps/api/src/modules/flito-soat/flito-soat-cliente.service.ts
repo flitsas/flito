@@ -1,7 +1,7 @@
-// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914 (alta), #11915 (revisión) y
-// #11935 (alta sin RUNT bloqueante).
+// FLITO — SOAT, canal Cliente (lógica). Feature #11912, HU #11914 (alta), #11915 (revisión),
+// #11935 (alta sin RUNT bloqueante) y #11966 (el RUNT vuelve a ser compuerta).
 // Diseño y tradeoffs: docs/adr/ADR-0008-flito-soat-canal-cliente.md (satélite, RN-01, no crudo)
-// y docs/adr/ADR-0009-flito-soat-runt-no-bloquea-alta.md (el RUNT no es compuerta del INSERT).
+// y docs/adr/ADR-0010-flito-soat-runt-compuerta-alta.md, que SUPERSEDE al ADR-0009.
 //
 // ── Qué hace ─────────────────────────────────────────────────────────────────────────────────────
 //
@@ -40,12 +40,24 @@
 // que creó el sync— y un `admin` los ve todos, así que sin ese guarda la ruta de validar sería una
 // segunda puerta a `solicitado` que se salta `POST /enviar` y su destino explícito.
 //
-// El payload crudo del RUNT no se persiste (ADR-0008 §1.6, conservado por ADR-0009).
+// El payload crudo del RUNT no se persiste (ADR-0008 §1.6, conservado por ADR-0010).
 //
-// Se guardan solo los campos derivados. El RUNT ya no bloquea el INSERT (ADR-0009): el alta
-// escribe `vehicles` sin marca/organismo, `organismo_codigo` NULL y el satélite en `pendiente`,
-// y programa `verificarRuntPostAlta` con `setImmediate` tras el COMMIT. El job rellena lo que
-// el catálogo cruce. La preconsulta SÍ sigue consultando Kyverum (su contrato HTTP no cambia).
+// ── El RUNT es COMPUERTA del alta otra vez (HU #11966, ADR-0010) ────────────────────────────────
+//
+// Se guardan solo los campos DERIVADOS, y se guardan DENTRO de la transacción del alta: marca,
+// línea, año, clase, cilindraje, servicio, carrocería, pasajeros y puertas salen del RUNT y el
+// organismo se escribe si el nombre que reporta cruza el catálogo. Los dos endpoints del canal
+// —`POST /cliente/preconsulta` y `POST /cliente`— llaman a la MISMA compuerta
+// (`verificarRuntCompuerta`) y devuelven exactamente lo mismo ante la misma respuesta de Kyverum:
+// 503 si no respondió, 422 si respondió que no, 409 si el vehículo ya tiene SOAT vigente. Dos copias
+// de esa decisión divergen y el wizard acaba bloqueando lo que la API acepta.
+//
+// **El organismo NO es compuerta** (AC5): si el nombre no cruza catálogo, `organismo_codigo` queda
+// NULL, el satélite anota `organismo_no_catalogado` y la fila SE CREA. El
+// `422 organismo_no_catalogado` desapareció de los dos endpoints.
+//
+// Lo que la #11935 dejó y esta HU no toca: las solicitudes radicadas bajo aquella regla conservan su
+// `verificacion_estado` tal como está. Cero UPDATE sobre ellas (AC6).
 
 import { createHash, randomUUID } from 'crypto';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -72,20 +84,14 @@ import {
 import { ConceptoHistorial, registrarCambio } from '../../shared/historial/estado-historial.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
-import { runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
   buscarConAcceso, enviarAlGestor, ORIGEN_CLIENTE,
   type DestinoEnvio, type SoatCtx,
 } from './flito-soat.service.js';
 import {
-  consultarRuntCrudo,
-  DATOS_RUNT_VACIOS,
-  extraerDatosCanal,
-  fechaVencimientoSoatRunt,
-  programarVerificacionRunt,
-  resolverOrganismoCatalogo,
-  soatVigenteSegunRunt,
+  consultarYClasificar,
+  type CodigoRevise,
   type DatosRuntCanal,
 } from './flito-soat-cliente-runt.js';
 
@@ -129,18 +135,54 @@ const fallo = (status: number, codigo: CodigoErrorSolicitudSoat, mensaje: string
 
 // ───────────────────────────── Entrada ──────────────────────────────────────
 
+/**
+ * El titular tal como lo teclea el Cliente, **partido** (HU #11966, AC5).
+ *
+ * `nombres`/`apellidos` XOR `razonSocial`: lo impone Zod en la ruta (una sola puerta de escritura) y
+ * lo respalda `flito_compradores_titular_chk` en la base. `nombreCompleto` **no está y no puede
+ * estar**: es un DERIVADO (`nombreCompletoDe`) que alimenta la búsqueda de la cola. Aceptarlo del
+ * cliente dejaría dos fuentes de verdad para el mismo nombre, y la que se enseña en el Excel (los
+ * campos partidos) podría contradecir a la que se busca en la cola.
+ *
+ * Contacto y ubicación son OBLIGATORIOS para este canal (AC5) aunque las columnas sigan nullable en
+ * la tabla: la nulabilidad la necesitan las filas de trámite, que llegan sin contacto.
+ */
 export interface PropietarioSolicitud {
   tipoDocumento: TipoDocumentoRunt;
   numeroDocumento: string;
-  nombreCompleto: string;
-  correo?: string | null;
-  celular?: string | null;
-  direccion?: string | null;
+  /** Persona natural. `null` cuando el tipo es `NIT`. */
+  nombres: string | null;
+  apellidos: string | null;
+  /** Persona jurídica. `null` cuando el tipo NO es `NIT`. */
+  razonSocial: string | null;
+  correo: string;
+  celular: string;
+  direccion: string;
+  /** Municipio y departamento del DOMICILIO del titular, no del organismo (AC5). */
+  municipio: string;
+  departamento: string;
+}
+
+/**
+ * El nombre en una cadena, para `flito_compradores.nombre_completo`.
+ *
+ * Es lo que interroga la búsqueda de la cola (`condicionesCola`), que compara contra
+ * `nombre_completo` y no contra los campos partidos. Se deriva aquí —una función, un sitio— y se
+ * escribe en el alta y en la subsanación: si la subsanación siguiera escribiendo solo esta columna,
+ * una solicitud corregida saldría en el Excel con el nombre VIEJO (que se lee de `nombres`/
+ * `apellidos`) mientras la cola muestra el nuevo. Divergencia silenciosa, y por eso las dos rutas
+ * escriben las dos cosas.
+ */
+export function nombreCompletoDe(p: Pick<PropietarioSolicitud, 'nombres' | 'apellidos' | 'razonSocial'>): string {
+  if (p.razonSocial) return p.razonSocial.trim();
+  return [p.nombres, p.apellidos].filter((x): x is string => !!x && x.trim() !== '')
+    .map((x) => x.trim()).join(' ');
 }
 
 export interface EntradaSolicitud {
   placa: string;
-  vin: string;
+  /** Opcional desde la HU #11966 (AC1). El VIN EFECTIVO es el que trae el RUNT. */
+  vin: string | null;
   propietario: PropietarioSolicitud;
 }
 
@@ -316,102 +358,164 @@ async function verificarPdfReal(archivo: ArchivoSolicitud): Promise<void> {
 /** Lo que el RUNT resolvió, ya cruzado con el catálogo de organismos de FLITO. */
 export interface ResultadoRunt {
   datos: DatosRuntCanal;
-  organismoCodigo: string;
+  /**
+   * El VIN que se va a persistir: el que trajo el RUNT, normalizado (AC1).
+   *
+   * No es el que tecleó el Cliente ni un eco de la petición. Cuando el Cliente sí tecleó VIN, la
+   * compuerta ya comprobó que coinciden —si no, es un `422 runt_no_cuadra`—, así que aquí los dos
+   * valores son el mismo; cuando no lo tecleó, este es el único que existe.
+   */
+  vinEfectivo: string;
+  /** `null` = el organismo del RUNT no cruza catálogo. **No aborta** (AC5). */
+  organismoCodigo: string | null;
 }
 
 /**
- * Consulta el RUNT y traduce cada forma de «no» en un error TIPADO.
+ * LA compuerta: consulta el RUNT y traduce cada forma de «no» en un error TIPADO.
  *
- * SOLO la preconsulta la usa (su contrato HTTP no cambia en esta HU). El alta ya no espera
- * a Kyverum: ver `crearSolicitud` y `programarVerificacionRunt`.
+ * **La usan los DOS endpoints** —`preconsulta` y `crearSolicitud`— y esa es la invariante que sostiene
+ * el AC: los dos devuelven exactamente lo mismo ante la misma respuesta de Kyverum. Con dos copias,
+ * el paso 1 del wizard negaría un alta que el paso 2 acepta, o al revés.
+ *
+ * ── Los tres desenlaces, y por qué el 503 y el 422 no se pueden confundir (AC2 y AC4) ────────────
+ *
+ *   · **503 `runt_no_disponible`** — el RUNT NO respondió: timeout, red, no-200, circuito abierto o
+ *     un `throw`. El usuario puede reintentar y no hay nada que corregir.
+ *   · **422 de la familia «revise los datos»** — el RUNT SÍ respondió y su respuesta impide crear:
+ *     no cuadra con los propietarios activos, no hay vehículo, el VIN tecleado difiere, o el
+ *     registro no publica VIN. El usuario tiene que corregir algo.
+ *   · **409 `soat_vigente`** — el vehículo ya tiene SOAT. No se crea y no se compra (AC3).
+ *
+ * Quién es quién lo decide `esNegativaDeNegocio` por la señal de TRANSPORTE (HTTP 200 = respondió) y
+ * no por el texto del mensaje. Ver su docblock: es la decisión cara de esta HU.
+ *
+ * **El 422 nunca devuelve el VIN del RUNT.** Un Cliente puede sondear placas ajenas; si el desenlace
+ * «tu VIN no cuadra» respondiera con el bueno, el endpoint sería un lector de VIN por placa. Solo
+ * viaja `campo: 'vin'`, para que el formulario ponga el foco. Mismo criterio que el 409 recortado de
+ * la RN-01 (`MENSAJE_VEHICULO_AJENO`).
  */
-async function consultarRunt(
+async function verificarRuntCompuerta(
   placa: string,
-  vin: string,
+  vin: string | null,
   numeroDocumento: string,
   tipoDocumento: TipoDocumentoRunt,
 ): Promise<ResultadoRunt> {
-  const respuesta = await consultarRuntCrudo(placa, vin, numeroDocumento, tipoDocumento);
-  if (!respuesta?.ok) {
-    throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
-      'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
-  }
-  if (runtSinRegistro(respuesta.data)) {
-    throw fallo(422, CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO,
-      'El RUNT no tiene registrado un vehículo con esa placa y ese VIN. Revisa los datos.');
-  }
-  if (soatVigenteSegunRunt(respuesta)) {
-    const fechaVencimiento = fechaVencimientoSoatRunt(respuesta.data);
-    throw fallo(409, CodigoErrorSolicitudSoat.SOAT_VIGENTE,
-      'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.',
-      fechaVencimiento ? { fechaVencimiento } : undefined);
-  }
+  const desenlace = await consultarYClasificar(placa, vin, numeroDocumento, tipoDocumento);
 
-  const datos = extraerDatosCanal(respuesta.data);
-  const organismoCodigo = await resolverOrganismo(datos.organismoNombre);
-  return { datos, organismoCodigo };
+  switch (desenlace.clase) {
+    case 'caido':
+      throw fallo(503, CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
+        'No fue posible consultar el RUNT en este momento. Intenta de nuevo en unos minutos.');
+    case 'revise':
+      throw fallo(422, CODIGO_REVISE[desenlace.codigo], MENSAJE_REVISE[desenlace.codigo],
+        desenlace.campo ? { campo: desenlace.campo } : undefined);
+    case 'vigente':
+      throw fallo(409, CodigoErrorSolicitudSoat.SOAT_VIGENTE,
+        'El RUNT reporta que este vehículo ya tiene un SOAT vigente. No se puede solicitar otro.',
+        desenlace.fechaVencimiento ? { fechaVencimiento: desenlace.fechaVencimiento } : undefined);
+    case 'ok':
+      return {
+        datos: desenlace.datos,
+        vinEfectivo: desenlace.vinEfectivo,
+        organismoCodigo: desenlace.organismoCodigo,
+      };
+  }
 }
+
+/** El código de shared-types que le toca a cada desenlace «revise los datos». */
+const CODIGO_REVISE: Record<CodigoRevise, CodigoErrorSolicitudSoat> = {
+  runt_no_cuadra: CodigoErrorSolicitudSoat.RUNT_NO_CUADRA,
+  runt_sin_registro: CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO,
+  runt_sin_vin: CodigoErrorSolicitudSoat.RUNT_SIN_VIN,
+};
 
 /**
- * El organismo del RUNT, traducido a código DIVIPOLA y comprobado contra la tabla.
- *
- * La preconsulta SIGUE exigiendo catálogo (contrato HTTP sin cambios). El alta no: el job anota
- * `organismo_no_catalogado` y deja el código NULL.
+ * Lo que se le dice a la persona en cada uno. Ninguno menciona el VIN del RUNT ni el nombre del
+ * propietario que devolvió el registro: el mensaje explica qué hacer, no qué sabe el RUNT.
  */
-async function resolverOrganismo(nombre: string | null): Promise<string> {
-  const codigo = await resolverOrganismoCatalogo(nombre);
-  if (codigo) return codigo;
-  throw fallo(422, CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
-    `El organismo de tránsito que reporta el RUNT${nombre ? ` («${nombre}»)` : ''} no está en el catálogo de FLITO. Escríbenos para habilitarlo.`,
-    { organismoNombre: nombre ?? null });
-}
+const MENSAJE_REVISE: Record<CodigoRevise, string> = {
+  runt_no_cuadra:
+    'El RUNT no confirma estos datos para ese vehículo. Revisa la placa, el tipo y el número de documento del propietario.',
+  runt_sin_registro:
+    'El RUNT no tiene registrado un vehículo con esos datos. Revisa los datos.',
+  runt_sin_vin:
+    'El RUNT no publica el VIN de este vehículo, y sin VIN no podemos radicar la solicitud. Escríbenos para revisarlo.',
+};
 
 // ───────────────────────────── Preconsulta ──────────────────────────────────
 
 export interface Preconsulta {
   vehiculo: Omit<DatosRuntCanal, 'organismoNombre' | 'propietarioNombre'>;
-  organismo: { codigo: string; nombre: string | null };
+  /**
+   * `codigo` es `string | null` desde la HU #11966: el organismo dejó de ser compuerta (AC5) y el
+   * `422 organismo_no_catalogado` desapareció de los dos endpoints. Si la preconsulta siguiera
+   * bloqueando por organismo, el paso 1 del wizard negaría un alta que el paso 2 aceptaría.
+   */
+  organismo: { codigo: string | null; nombre: string | null };
   /** Solo el nombre, y solo si el RUNT lo trajo. Ver `DatosRuntCanal.propietarioNombre`. */
   propietario: { nombreCompleto: string } | null;
 }
 
 /**
- * Paso 1 del wizard: el cliente escribe placa, VIN y documento y ve lo que el RUNT sabe del
- * vehículo, antes de adjuntar nada. El documento viaja porque la pasarela lo exige con la placa
- * (Bug #11927); no se consulta «solo por VIN».
+ * Paso 1 del wizard: el cliente escribe placa, documento y —si lo tiene— el VIN, y ve lo que el RUNT
+ * sabe del vehículo antes de adjuntar nada. El documento viaja porque la pasarela lo exige con la
+ * placa (Bug #11927); no se consulta «solo por VIN».
  *
- * El contrato HTTP NO cambia en la HU #11935: sigue aplicando canal, RN-01, tenencia, RUNT,
- * SOAT vigente y organismo. Lo que deja de ser es paso del ALTA — `crearSolicitud` ya no la
- * invoca. Y no escribe NADA: es una lectura.
+ * Aplica canal, RN-01, tenencia y la compuerta del RUNT — las mismas que el alta y en el mismo
+ * orden, para que el formulario no deje llenar diez campos y adjuntar un PDF para fallar al final.
+ * Y no escribe NADA: es una lectura.
+ *
+ * ── Qué cambia con la HU #11966 ─────────────────────────────────────────────────────────────────
+ *
+ *   · `vin` es OPCIONAL (AC1). Sin él, la RN-01 y la tenencia no se pueden comprobar ANTES de
+ *     consultar —no hay clave por la que buscar—, así que se comprueban DESPUÉS, con el VIN
+ *     efectivo. Es el coste de que el VIN sea opcional y está escrito abajo.
+ *   · `vehiculo.vin` es el VIN del RUNT y no el eco de la petición: es el que se va a persistir.
+ *   · `organismo.codigo` puede ser `null`.
  */
 export async function preconsulta(
   placa: string,
-  vin: string,
+  vin: string | null,
   numeroDocumento: string,
   tipoDocumento: TipoDocumentoRunt,
   ctx: SoatCtx,
 ): Promise<Preconsulta> {
   const canal = await canalDeLaCompania(ctx);
   const placaNorm = normalizarId(placa);
-  const vinNorm = normalizarId(vin);
-  await verificarRn01(vinNorm, canal.companiaId);
-  // La misma guarda de tenencia que el alta, y en el mismo sitio: si la preconsulta fuera más laxa,
-  // el formulario dejaría llenar los diez campos y adjuntar el PDF para fallar al final. No entrega
-  // información de más — el 409 es idéntico al de la RN-01 ajena, sin id y sin estado.
-  await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
-  const { datos, organismoCodigo } = await consultarRunt(placaNorm, vinNorm, numeroDocumento, tipoDocumento);
+  const vinNorm = vin ? normalizarId(vin) : null;
 
-  const [organismo] = await db.select({ alias: organismosTransitoConfig.alias })
-    .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, organismoCodigo)).limit(1);
+  // Con VIN tecleado, las dos guardas baratas van ANTES de gastar una consulta a Kyverum. Sin él no
+  // hay por dónde buscar y se pagan después, sobre el VIN efectivo — que es el que de verdad
+  // decide, y por eso se vuelven a mirar en los dos casos.
+  if (vinNorm) {
+    await verificarRn01(vinNorm, canal.companiaId);
+    await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
+  }
+
+  const { datos, vinEfectivo, organismoCodigo } =
+    await verificarRuntCompuerta(placaNorm, vinNorm, numeroDocumento, tipoDocumento);
+
+  // Autoritativas. El 409 que producen es idéntico al de la RN-01 ajena, sin id y sin estado.
+  await verificarRn01(vinEfectivo, canal.companiaId);
+  await verificarTenenciaVehiculo(vinEfectivo, canal.companiaId);
+
+  const [organismo] = organismoCodigo
+    ? await db.select({ alias: organismosTransitoConfig.alias })
+        .from(organismosTransitoConfig).where(eq(organismosTransitoConfig.codigo, organismoCodigo)).limit(1)
+    : [];
 
   return {
     vehiculo: {
-      // La placa y el VIN que se devuelven son los NORMALIZADOS de la petición y no el eco del
-      // RUNT: son los que se van a persistir, y enseñar otros sería enseñar algo que no se guardó.
+      // La placa es la NORMALIZADA de la petición y no el eco del RUNT: es la que se va a persistir,
+      // y enseñar otra sería enseñar algo que no se guardó. El VIN, en cambio, es el del RUNT —es la
+      // única fuente posible cuando el Cliente no lo teclea, y es el que se persiste (AC1).
       placa: placaNorm,
-      vin: vinNorm,
+      vin: vinEfectivo,
       marca: datos.marca, linea: datos.linea, modelo: datos.modelo, clase: datos.clase,
       cilindraje: datos.cilindraje, tipoServicio: datos.tipoServicio,
+      carroceria: datos.carroceria,
+      pasajerosSentados: datos.pasajerosSentados,
+      puertas: datos.puertas,
     },
     organismo: { codigo: organismoCodigo, nombre: organismo?.alias ?? null },
     propietario: datos.propietarioNombre ? { nombreCompleto: datos.propietarioNombre } : null,
@@ -514,7 +618,12 @@ async function upsertVehiculoRunt(
       ...(datos.clase ? { vehicleClass: datos.clase } : {}),
       ...(datos.cilindraje ? { cilindraje: datos.cilindraje } : {}),
       ...(datos.tipoServicio ? { tipoServicio: datos.tipoServicio } : {}),
-      ownerName: propietario.nombreCompleto,
+      // Los tres de la HU #11966, con la MISMA política: un `null` del RUNT no borra lo que ya se
+      // sabía. `puertas` la escribe solo este canal (ver `vehicles.puertas` en el esquema).
+      ...(datos.carroceria ? { carroceria: datos.carroceria } : {}),
+      ...(datos.pasajerosSentados ? { pasajerosSentados: datos.pasajerosSentados } : {}),
+      ...(datos.puertas ? { puertas: datos.puertas } : {}),
+      ownerName: nombreCompletoDe(propietario),
       ownerDocument: propietario.numeroDocumento,
       updatedAt: new Date(),
     }).where(eq(vehicles.id, existente.id));
@@ -535,7 +644,10 @@ async function upsertVehiculoRunt(
     vin: entrada.vin, plate: entrada.placa, clientId: companiaId,
     brand: datos.marca, model: datos.linea, year, vehicleClass: datos.clase,
     cilindraje: datos.cilindraje, tipoServicio: datos.tipoServicio,
-    ownerName: propietario.nombreCompleto, ownerDocument: propietario.numeroDocumento,
+    carroceria: datos.carroceria,
+    pasajerosSentados: datos.pasajerosSentados,
+    puertas: datos.puertas,
+    ownerName: nombreCompletoDe(propietario), ownerDocument: propietario.numeroDocumento,
   }).returning({ id: vehicles.id });
   return creado.id;
 }
@@ -549,20 +661,29 @@ export interface SolicitudCreada {
 }
 
 /**
- * El alta del canal Cliente: crear ES enviar (AC1). No hay borrador. El RUNT no es compuerta
- * (ADR-0009): 201 con `pendiente_revision` y verificación fire-and-forget tras el COMMIT.
+ * El alta del canal Cliente: crear ES enviar (AC1). No hay borrador.
+ *
+ * **El RUNT es compuerta otra vez** (ADR-0010): o el registro confirma el vehículo y no hay SOAT
+ * vigente, o no hay fila. El 201 significa que la ficha del vehículo ya está escrita con lo que dijo
+ * el RUNT y que el satélite nace en `ok`.
  *
  * ── El orden de los pasos es la mitad del diseño ─────────────────────────────────────────────────
  *
  *   1. Canal encendido y compañía del usuario — lo más barato y lo que más veces va a fallar.
- *   2. El adjunto es un PDF de verdad — antes de gastar S3.
- *   3. RN-01 — ANTES de subir el archivo: un VIN repetido no debe dejar un objeto huérfano.
- *   4. Tenencia de `vehicles` — ficha ajena = 409 recortado, sin gastar S3.
- *   5. UUID + subida a S3 — fuera de la transacción (CA-11).
- *   6. La transacción: vehículo SIN datos RUNT, SOAT con organismo NULL, satélite `pendiente`,
- *      propietario, soporte e historial, todo o nada.
- *   7. COMMIT.
- *   8. `setImmediate(verificarRuntPostAlta)` — no se espera. El 201 no conoce el desenlace.
+ *   2. El adjunto es un PDF de verdad — antes de gastar S3 y antes de gastar una consulta a Kyverum.
+ *   3. Si vino VIN: RN-01 + tenencia — un 409 barato, ANTES del RUNT.
+ *   4. La COMPUERTA — 503 | 422 | 409-vigente. Aquí es donde el alta puede no llegar a existir.
+ *   5. VIN efectivo = el del RUNT (AC1).
+ *   6. RN-01 + tenencia sobre el VIN efectivo — AUTORITATIVAS, y las únicas que corren siempre.
+ *   7. UUID + subida a S3 — fuera de la transacción (CA-11).
+ *   8. La transacción: vehículo CON los datos del RUNT, SOAT con el organismo cruzado (o NULL),
+ *      satélite en `ok`, propietario partido, soporte e historial, todo o nada.
+ *   9. COMMIT → 201. **No hay `setImmediate`**: no queda nada por verificar.
+ *
+ * El paso 3 DUPLICA el 6 a propósito, y es el mismo patrón que ya usaba la tenencia (previa + dentro
+ * de la tx): evita gastar una consulta a Kyverum por un alta que ya se sabe que no entra. Cuando no
+ * hay VIN tecleado el paso 3 no puede correr —no hay clave por la que buscar— y se paga la consulta;
+ * es el coste de que el VIN sea opcional.
  *
  * El `id` del SOAT se genera AQUÍ y no lo pone la base: la clave de storage se nombra con él.
  */
@@ -575,7 +696,18 @@ export async function crearSolicitud(
   await verificarPdfReal(archivo);
 
   const placa = normalizarId(entrada.placa);
-  const vin = normalizarId(entrada.vin);
+  const vinTecleado = entrada.vin ? normalizarId(entrada.vin) : null;
+  if (vinTecleado) {
+    await verificarRn01(vinTecleado, canal.companiaId);
+    await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
+  }
+
+  const { datos, vinEfectivo, organismoCodigo } =
+    await verificarRuntCompuerta(placa, vinTecleado, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento);
+
+  // Sobre el VIN EFECTIVO, que es el que se va a escribir. Sin esta pareja, un alta sin VIN tecleado
+  // llegaría al INSERT sin que nadie hubiera comprobado la RN-01 del VIN que de verdad se guarda.
+  const vin = vinEfectivo;
   await verificarRn01(vin, canal.companiaId);
   await verificarTenenciaVehiculo(vin, canal.companiaId);
 
@@ -589,7 +721,7 @@ export async function crearSolicitud(
   try {
     await db.transaction(async (tx) => {
       const vehiculoId = await upsertVehiculoRunt(
-        tx, { placa, vin }, DATOS_RUNT_VACIOS, entrada.propietario, canal.companiaId, ctx, soatId,
+        tx, { placa, vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId,
       );
 
       await tx.insert(flitoSoat).values({
@@ -599,17 +731,26 @@ export async function crearSolicitud(
         origen: ORIGEN_CLIENTE,
         estado: EstadoSoat.PENDIENTE_REVISION,
         companiaId: canal.companiaId,
-        organismoCodigo: null,
+        // El cruce del catálogo, o `null` si el nombre del RUNT no cruza. `null` NO aborta (AC5):
+        // el organismo dejó de ser compuerta y Operaciones lo completa a mano.
+        organismoCodigo,
       });
 
       await tx.insert(flitoCompradores).values({
         soatId,
-        nombreCompleto: entrada.propietario.nombreCompleto,
+        // Derivado, no tecleado: es lo que interroga la búsqueda de la cola. La fuente son las cinco
+        // columnas de abajo. Ver `nombreCompletoDe`.
+        nombreCompleto: nombreCompletoDe(entrada.propietario),
+        nombres: entrada.propietario.nombres,
+        apellidos: entrada.propietario.apellidos,
+        razonSocial: entrada.propietario.razonSocial,
         numeroDocumento: entrada.propietario.numeroDocumento,
         tipoDocumento: entrada.propietario.tipoDocumento,
-        correo: entrada.propietario.correo ?? null,
-        celular: entrada.propietario.celular ?? null,
-        direccion: entrada.propietario.direccion ?? null,
+        correo: entrada.propietario.correo,
+        celular: entrada.propietario.celular,
+        direccion: entrada.propietario.direccion,
+        municipio: entrada.propietario.municipio,
+        departamento: entrada.propietario.departamento,
         orden: 0,
       });
 
@@ -617,7 +758,14 @@ export async function crearSolicitud(
         soatId,
         solicitadoPorId: ctx.userId,
         solicitadoPorNombre: ctx.username,
-        verificacionEstado: 'pendiente',
+        // La compuerta ya corrió y la fila existe: la lectura es CONCLUYENTE. `pendiente` habría
+        // sido cierto bajo la #11935, cuando el desenlace se conocía después del COMMIT.
+        verificacionEstado: 'ok',
+        // `false` y no `null`: si estuviera vigente, la compuerta habría respondido 409 y no habría
+        // fila que anotar. Es una lectura, no un hueco.
+        soatVigente: false,
+        // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
+        verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
       });
 
       await tx.insert(flitoSoportes).values({
@@ -647,7 +795,9 @@ export async function crearSolicitud(
     throw e;
   }
 
-  programarVerificacionRunt(soatId);
+  // Sin `setImmediate` y sin job: la verificación ya ocurrió, dentro de la petición. La función que
+  // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
+  // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
   return { id: soatId, estado: EstadoSoat.PENDIENTE_REVISION };
 }
 
@@ -966,10 +1116,12 @@ export async function rechazarSolicitud(
  *
  * ── Editable: el propietario ─────────────────────────────────────────────────────────────────────
  *
- * Son los seis campos que una persona TECLEA en el alta, y por tanto los únicos en los que puede
- * haberse equivocado. Dos de las CINCO causales sembradas hablan justo de ellos —«Los datos del
- * propietario no coinciden con la factura de venta» y «Faltan datos de contacto del propietario»—,
- * así que sin poder editarlos la subsanación no podría atender dos de cada cinco rechazos.
+ * Son los campos que una persona TECLEA en el alta —desde la HU #11966: tipo y número de documento,
+ * el nombre PARTIDO (nombres/apellidos o razón social), correo, celular, dirección, municipio y
+ * departamento— y por tanto los únicos en los que puede haberse equivocado. Dos de las CINCO
+ * causales sembradas hablan justo de ellos —«Los datos del propietario no coinciden con la factura
+ * de venta» y «Faltan datos de contacto del propietario»—, así que sin poder editarlos la
+ * subsanación no podría atender dos de cada cinco rechazos.
  *
  * ── Editable: la factura de venta (opcional) ─────────────────────────────────────────────────────
  *
@@ -1075,13 +1227,23 @@ export async function subsanarSolicitud(
     // El propietario, sobre la MISMA fila de `flito_compradores` que creó el alta. El `where` va por
     // `soat_id`, que es el padre de esta rama de la tabla (`flito_compradores_padre_chk`): una
     // solicitud del canal tiene exactamente un propietario y `tramite_id IS NULL`.
+    //
+    // **Las cinco columnas nuevas de la HU #11966 se escriben AQUÍ también, y no es opcional.** Si
+    // la subsanación siguiera escribiendo solo `nombre_completo`, una solicitud corregida saldría en
+    // el Excel con el nombre VIEJO —el archivo lee `nombres`/`apellidos`/`razon_social`— mientras la
+    // cola, que busca por `nombre_completo`, mostraría el nuevo. Ningún test de estado lo vería.
     await tx.update(flitoCompradores).set({
-      nombreCompleto: entrada.propietario.nombreCompleto,
+      nombreCompleto: nombreCompletoDe(entrada.propietario),
+      nombres: entrada.propietario.nombres,
+      apellidos: entrada.propietario.apellidos,
+      razonSocial: entrada.propietario.razonSocial,
       numeroDocumento: entrada.propietario.numeroDocumento,
       tipoDocumento: entrada.propietario.tipoDocumento,
-      correo: entrada.propietario.correo ?? null,
-      celular: entrada.propietario.celular ?? null,
-      direccion: entrada.propietario.direccion ?? null,
+      correo: entrada.propietario.correo,
+      celular: entrada.propietario.celular,
+      direccion: entrada.propietario.direccion,
+      municipio: entrada.propietario.municipio,
+      departamento: entrada.propietario.departamento,
     }).where(eq(flitoCompradores.soatId, id));
 
     if (subido && archivo) {

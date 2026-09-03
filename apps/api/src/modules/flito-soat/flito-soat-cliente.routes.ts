@@ -1,6 +1,8 @@
-// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta), #11915 (revisión) y
-// #11935 (alta sin RUNT bloqueante). Montado en `/api/flito/soat`, junto al router del módulo.
-// Contrato: ADR-0008 §6; el alta ya no espera a Kyverum (ADR-0009).
+// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta), #11915 (revisión),
+// #11935 (alta sin RUNT bloqueante) y #11966 (el RUNT vuelve a ser compuerta).
+// Montado en `/api/flito/soat`, junto al router del módulo.
+// Contrato: ADR-0008 §6 y ADR-0010, que SUPERSEDE al ADR-0009. Los dos endpoints del canal
+// —`POST /cliente/preconsulta` y `POST /cliente`— esperan a Kyverum y comparten la compuerta.
 //
 // ── Por qué un router aparte y montado en la MISMA base ──────────────────────────────────────────
 //
@@ -43,12 +45,13 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter } from '../../shared/middleware/rateLimiter.js';
-import { TIPOS_DOCUMENTO_RUNT } from '@operaciones/shared-types';
+import { TIPOS_DOCUMENTO_RUNT, type TipoDocumentoRunt } from '@operaciones/shared-types';
 import { contextoSoat } from './flito-soat.service.js';
 import { registrarAccesoRuntCliente } from './flito-soat.pii.js';
 import {
-  crearSolicitud, listarCausalesRechazo, preconsulta, rechazarSolicitud, SolicitudSoatError,
-  subsanarSolicitud, validarSolicitud, type ArchivoSolicitud,
+  crearSolicitud, listarCausalesRechazo, nombreCompletoDe, preconsulta, rechazarSolicitud,
+  SolicitudSoatError, subsanarSolicitud, validarSolicitud,
+  type ArchivoSolicitud, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
 
 const router = Router();
@@ -113,10 +116,28 @@ function manejarError(res: Response, e: unknown): void {
   throw e;
 }
 
-/** Placa y VIN, normalizados en el servicio. Longitudes de columna: `vehicles.plate`/`vin`. */
+/**
+ * Todo llega como `multipart/form-data` en el alta, así que TODO campo es texto: no hay booleanos ni
+ * números que Zod pueda coaccionar, y los campos que el formulario deja sin llenar llegan como
+ * cadena VACÍA, no ausentes. De ahí este `preprocess`, que los pasa a `null`.
+ *
+ * Va aquí arriba —y no junto al `altaSchema`, donde estaba— porque desde la HU #11966 lo usa también
+ * `vehiculoSchema` para el VIN opcional, que se declara antes.
+ */
+const vacioANull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
+
+/**
+ * Placa y VIN, normalizados en el servicio. Longitudes de columna: `vehicles.plate`/`vin`.
+ *
+ * **`vin` es OPCIONAL desde la HU #11966** (AC1): la mayoría de los clientes no lo tiene a mano y el
+ * VIN que se PERSISTE es el que trae el RUNT. Cuando sí lo teclean, la compuerta lo contrasta contra
+ * el del registro y responde `422 runt_no_cuadra` con `campo: 'vin'` si difieren — es decir, sigue
+ * sirviendo de comprobación, ya no de requisito. El `min(5)` se conserva para lo que sí llega: una
+ * cadena de dos caracteres no es un VIN a medio escribir, es un error del formulario.
+ */
 const vehiculoSchema = z.object({
   placa: z.string().trim().min(4, 'La placa es obligatoria').max(10),
-  vin: z.string().trim().min(5, 'El VIN es obligatorio').max(17),
+  vin: z.preprocess(vacioANull, z.string().trim().min(5, 'El VIN es demasiado corto').max(17).nullable().optional()),
 });
 
 /** Mismo criterio que el alta: PII en el cuerpo, nunca en la URL. Sin ellos la pasarela no consulta. */
@@ -142,7 +163,7 @@ router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, async (re
   try {
     const ctx = await contextoSoat(req.user!);
     const resultado = await preconsulta(
-      parsed.data.placa, parsed.data.vin, parsed.data.numeroDocumento, parsed.data.tipoDocumento, ctx,
+      parsed.data.placa, parsed.data.vin ?? null, parsed.data.numeroDocumento, parsed.data.tipoDocumento, ctx,
     );
     await registrarAccesoRuntCliente(req, { conPropietario: resultado.propietario !== null });
     res.json(resultado);
@@ -150,23 +171,102 @@ router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, async (re
 });
 
 /**
- * El cuerpo del alta. Llega como `multipart/form-data`, así que TODO campo es texto: no hay booleanos
- * ni números que Zod pueda coaccionar, y los campos opcionales llegan como cadena vacía cuando el
- * formulario los deja sin llenar — de ahí el `.transform` que los pasa a `null`.
+ * El titular tal como lo teclea el Cliente: PARTIDO y con contacto y ubicación obligatorios (AC5 de
+ * la HU #11966).
  *
- * Marca, línea, modelo, clase, servicio, cilindraje y organismo NO están aquí, y esa ausencia es el
- * AC1: salen del RUNT y no se teclean. Aceptarlos «por comodidad del formulario» permitiría radicar
- * una solicitud con los datos que a uno le apetezca y con un organismo que decide a qué proveedor
- * acaba yendo el caso.
+ * Marca, línea, modelo, clase, servicio, cilindraje, carrocería y organismo NO están aquí, y esa
+ * ausencia es el AC1: salen del RUNT y no se teclean. Aceptarlos «por comodidad del formulario»
+ * permitiría radicar una solicitud con los datos que a uno le apetezca y con un organismo que decide
+ * a qué proveedor acaba yendo el caso.
+ *
+ * **`nombreCompleto` tampoco está, y desde la #11966 tampoco se acepta.** Lo DERIVA el servicio
+ * (`nombreCompletoDe`) de los tres campos de abajo. Aceptarlo dejaría dos fuentes de verdad para el
+ * mismo nombre: la que el Excel publica (los campos partidos) y la que la cola busca
+ * (`nombre_completo`), y podrían contradecirse sin que nada fallara.
+ *
+ * `correo`, `celular`, `direccion`, `municipio` y `departamento` son OBLIGATORIOS aquí aunque sus
+ * columnas sigan nullable en la tabla: la nulabilidad la necesitan las filas de trámite, que llegan
+ * sin contacto. La regla es del CANAL, y por eso vive en el borde del canal.
  */
-const vacioANull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
+const titularCampos = {
+  nombres: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
+  apellidos: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
+  razonSocial: z.preprocess(vacioANull, z.string().trim().max(200).nullable().optional()),
+  correo: z.string().trim().email('El correo no es válido').max(150),
+  celular: z.string().trim().min(1, 'El celular es obligatorio').max(30),
+  direccion: z.string().trim().min(1, 'La dirección es obligatoria').max(300),
+  municipio: z.string().trim().min(1, 'El municipio es obligatorio').max(100),
+  departamento: z.string().trim().min(1, 'El departamento es obligatorio').max(100),
+} as const;
 
-const altaSchema = vehiculoSchema.merge(documentoSchema).extend({
-  nombreCompleto: z.string().trim().min(3, 'El nombre del propietario es obligatorio').max(200),
-  correo: z.preprocess(vacioANull, z.string().trim().email('El correo no es válido').max(150).nullable().optional()),
-  celular: z.preprocess(vacioANull, z.string().trim().max(30).nullable().optional()),
-  direccion: z.preprocess(vacioANull, z.string().trim().max(300).nullable().optional()),
-});
+/**
+ * `NIT` ⇒ razón social. Persona natural ⇒ nombres Y apellidos. **Nunca las dos cosas.**
+ *
+ * Es un `superRefine` y no dos schemas separados por dos razones: el mismo cuerpo lo comparten el
+ * alta y la subsanación, y un `z.union` de dos objetos devolvería un `flatten()` con los errores de
+ * las DOS ramas, que es ilegible para el formulario. Aquí cada error cuelga de SU campo.
+ *
+ * Lo prohibido se rechaza además de exigir lo obligatorio (`razonSocial` con un `CC` es un 400, no
+ * un campo que se ignora en silencio): la mitad negativa es la que el CHECK
+ * `flito_compradores_titular_chk` respalda en la base, y las dos tienen que decir lo mismo o el
+ * primer INSERT «válido» moriría con un 23514 y saldría como 500.
+ *
+ * ── Y la cota del DERIVADO, por el mismo argumento (bloqueante del `db-review-agent`) ────────────
+ *
+ * Ese párrafo de arriba vale igual para LONGITUDES que para el CHECK, y aquí faltaba. `nombres` y
+ * `apellidos` son dos cotas INDEPENDIENTES de 200 que alimentan una columna de 200: el máximo
+ * alcanzable es **401** (`200 + 1 + 200`), y `nombreCompletoDe()` concatena sin truncar. Los dos
+ * destinos son `varchar(200)` —`flito_compradores.nombre_completo`, que además es NOT NULL, y
+ * `vehicles.owner_name`—, así que un nombre partido que sume de más moría con
+ * `22001 value too long` DENTRO de la transacción del alta: **500 y no 400**.
+ *
+ * Se acota el DERIVADO y no cada campo a 100, que era la otra salida: bajar los dos a 100 cerraría
+ * el 401 por construcción, pero rechazaría un nombre de pila legítimo de 150 caracteres aunque el
+ * apellido fuera corto y el total cupiera de sobra. Esto rechaza exactamente lo que no cabe.
+ *
+ * **No se trunca dentro de `nombreCompletoDe`**: dejaría la cola buscando sobre una cadena recortada
+ * mientras el Excel publica los campos partidos completos — la divergencia silenciosa que esta HU
+ * vino a cerrar. Y no se amplía la columna: sería otra migración sobre 7 052 filas para un dato que
+ * solo es índice de búsqueda.
+ *
+ * Se llama a la MISMA función que deriva el nombre en el servicio, no a un `a.length + b.length + 1`
+ * escrito aquí: el día que cambie el separador o el orden, la cota lo sigue sola.
+ */
+/** `flito_compradores.nombre_completo` y `vehicles.owner_name` son los dos `varchar(200)`. */
+const MAX_NOMBRE_COMPLETO = 200;
+
+function refinarTitular(
+  d: { tipoDocumento: string; nombres?: unknown; apellidos?: unknown; razonSocial?: unknown },
+  ctx: z.RefinementCtx,
+): void {
+  const juridica = d.tipoDocumento === 'NIT';
+  const texto = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  const nombres = texto(d.nombres);
+  const apellidos = texto(d.apellidos);
+  const razonSocial = texto(d.razonSocial);
+  const error = (path: string, message: string) =>
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+
+  if (juridica) {
+    if (!razonSocial) error('razonSocial', 'La razón social es obligatoria cuando el documento es NIT');
+    if (nombres) error('nombres', 'Un NIT no lleva nombres: usa la razón social');
+    if (apellidos) error('apellidos', 'Un NIT no lleva apellidos: usa la razón social');
+    return;
+  }
+  if (!nombres) error('nombres', 'Los nombres del propietario son obligatorios');
+  if (!apellidos) error('apellidos', 'Los apellidos del propietario son obligatorios');
+  if (razonSocial) error('razonSocial', 'Una persona natural no lleva razón social: usa nombres y apellidos');
+
+  // El derivado tiene que caber en la columna. Cuelga de los DOS campos para que el formulario pueda
+  // marcar los dos: el usuario acorta el que quiera, y ninguno de los dos es «el culpable».
+  if (nombres && apellidos && nombreCompletoDe({ nombres, apellidos, razonSocial: null }).length > MAX_NOMBRE_COMPLETO) {
+    const mensaje = `El nombre y los apellidos juntos no pueden pasar de ${MAX_NOMBRE_COMPLETO} caracteres.`;
+    error('nombres', mensaje);
+    error('apellidos', mensaje);
+  }
+}
+
+const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).superRefine(refinarTitular);
 
 /**
  * POST /cliente — crear ES enviar (AC1). Sin borrador.
@@ -179,7 +279,7 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
   if (!req.file) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
 
-  const { placa, vin, tipoDocumento, numeroDocumento, nombreCompleto, correo, celular, direccion } = parsed.data;
+  const { placa, vin } = parsed.data;
   const archivo: ArchivoSolicitud = {
     originalname: req.file.originalname, mimetype: req.file.mimetype,
     buffer: req.file.buffer, size: req.file.size,
@@ -188,9 +288,19 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
   try {
     const ctx = await contextoSoat(req.user!);
     const creada = await crearSolicitud(
-      { placa, vin, propietario: { tipoDocumento, numeroDocumento, nombreCompleto, correo, celular, direccion } },
+      { placa, vin: vin ?? null, propietario: propietarioDe(parsed.data) },
       archivo, ctx,
     );
+    // **El rastro de PII que la HU #11966 devuelve a esta ruta.** Bajo la #11935 no hacía falta: el
+    // alta no consultaba el RUNT dentro de la petición. Ahora sí —consulta un registro NACIONAL
+    // sobre un vehículo que puede no ser de quien pregunta, y recibe datos del vehículo y a veces el
+    // nombre del propietario—, que es exactamente el caso que el artículo 17 de la Ley 1581 quiere
+    // poder reconstruir. Va con `motivo: 'alta'` para no confundirse con la preconsulta.
+    //
+    // `conPropietario: false`: a diferencia de la preconsulta, esta ruta NO devuelve el nombre que
+    // trae el RUNT (el 201 es `{ id, estado }`). Declararlo sería declarar de más, que ya fue un
+    // bloqueante en este módulo.
+    await registrarAccesoRuntCliente(req, { conPropietario: false, motivo: 'alta' });
     // El `detail` NO lleva placa, VIN ni documento, y no es una omisión: `audit_logs` es una tabla
     // append-only que se exporta y se lee entera, y el patrón contrario ya existe en el repo
     // (`runt.routes.ts` escribe la placa en su bitácora). El `resourceId` es el uuid del SOAT, que
@@ -202,6 +312,34 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
     res.status(201).json(creada);
   } catch (e) { manejarError(res, e); }
 });
+
+/**
+ * El titular del cuerpo validado al que espera el servicio, con la partición ya resuelta.
+ *
+ * Una sola función para el alta y la subsanación: son la MISMA lista de campos y con dos copias
+ * bastaría con que alguien añadiera uno en una para que la solicitud corregida perdiera un dato.
+ * `null` explícito y no `undefined`: lo que llega a `flito_compradores` tiene que poder BORRAR la
+ * razón social de un titular que se corrigió a persona natural.
+ */
+function propietarioDe(d: {
+  tipoDocumento: TipoDocumentoRunt; numeroDocumento: string;
+  nombres?: unknown; apellidos?: unknown; razonSocial?: unknown;
+  correo: string; celular: string; direccion: string; municipio: string; departamento: string;
+}): PropietarioSolicitud {
+  const texto = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
+  return {
+    tipoDocumento: d.tipoDocumento,
+    numeroDocumento: d.numeroDocumento,
+    nombres: texto(d.nombres),
+    apellidos: texto(d.apellidos),
+    razonSocial: texto(d.razonSocial),
+    correo: d.correo,
+    celular: d.celular,
+    direccion: d.direccion,
+    municipio: d.municipio,
+    departamento: d.departamento,
+  };
+}
 
 // ═════════════════ Revisión del admin, rechazo y subsanación (HU #11915) ═════
 
@@ -313,14 +451,7 @@ router.post('/:id/rechazar-solicitud', REVISION_OPERACIONES, async (req: Request
  * esto en un alta encubierta sobre un vehículo para el que nadie comprobó la RN-01 ni consultó el
  * RUNT, conservando el `id`, el `vehiculo_id` y el organismo del anterior.
  */
-const subsanacionSchema = z.object({
-  tipoDocumento: z.enum(TIPOS_DOCUMENTO_RUNT),
-  numeroDocumento: z.string().trim().min(4, 'El documento del propietario es obligatorio').max(30),
-  nombreCompleto: z.string().trim().min(3, 'El nombre del propietario es obligatorio').max(200),
-  correo: z.preprocess(vacioANull, z.string().trim().email('El correo no es válido').max(150).nullable().optional()),
-  celular: z.preprocess(vacioANull, z.string().trim().max(30).nullable().optional()),
-  direccion: z.preprocess(vacioANull, z.string().trim().max(300).nullable().optional()),
-});
+const subsanacionSchema = documentoSchema.extend(titularCampos).superRefine(refinarTitular);
 
 /**
  * PATCH /:id/solicitud — AC3: el Cliente corrige y reenvía LA MISMA fila, que vuelve a
@@ -343,7 +474,6 @@ router.patch('/:id/solicitud', CANAL_CLIENTE, soatClienteLimiter, upload.single(
   const parsed = subsanacionSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
 
-  const { tipoDocumento, numeroDocumento, nombreCompleto, correo, celular, direccion } = parsed.data;
   const archivo: ArchivoSolicitud | null = req.file
     ? { originalname: req.file.originalname, mimetype: req.file.mimetype, buffer: req.file.buffer, size: req.file.size }
     : null;
@@ -352,7 +482,7 @@ router.patch('/:id/solicitud', CANAL_CLIENTE, soatClienteLimiter, upload.single(
     const ctx = await contextoSoat(req.user!);
     const r = await subsanarSolicitud(
       req.params.id,
-      { propietario: { tipoDocumento, numeroDocumento, nombreCompleto, correo, celular, direccion } },
+      { propietario: propietarioDe(parsed.data) },
       archivo, ctx,
     );
     // Sin placa, sin VIN y sin documento del propietario, igual que el alta: el `resourceId` es el

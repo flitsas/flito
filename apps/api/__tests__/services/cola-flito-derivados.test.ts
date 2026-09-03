@@ -24,8 +24,9 @@ import { describe, it, expect } from 'vitest';
 import { flitoTramites } from '../../src/db/schema.js';
 import { renderizar } from '../helpers/sql-ligado.js';
 import {
-  bloqueTitular, celdaDesdeJson, ciudadDeOrganismo, clasificacionDeTipoFlit, claveTitular, CLASE_ID,
-  CLASE_INTERLOCUTOR, CLAVES_FLIT_RAW, expresionesFlitRaw, titularDeClave, TITULAR_VACIO,
+  bloqueTitular, bloqueTitularDesdeComprador, celdaDesdeJson, ciudadDeOrganismo,
+  clasificacionDeTipoFlit, claveTitular, CLASE_ID, CLASE_INTERLOCUTOR, CLAVES_FLIT_RAW,
+  expresionesFlitRaw, titularDeClave, TITULAR_VACIO,
 } from '../../src/shared/export/cola-flito-derivados.js';
 
 // ─────────────────────────── Las nueve expresiones `->>` ─────────────────────────────────────────
@@ -456,5 +457,148 @@ describe('`ciudadDeOrganismo` — del CATÁLOGO, por el código normalizado', ()
     expect(ciudadDeOrganismo('99999')).toBeNull();
     expect(ciudadDeOrganismo(null)).toBeNull();
     expect(ciudadDeOrganismo(' ')).toBeNull();
+  });
+});
+
+// ─────────────── El titular del CANAL CLIENTE (HU #11966) ────────────────────────────────────────
+//
+// La otra mitad del bloque del titular, y la que estrena esta HU: una fila `origen='cliente'` no
+// tiene `flit_raw`, así que `bloqueTitular` cae en su rama por defecto y devuelve el bloque VACÍO
+// —correcto hasta la #11966, cuando no había dónde leer el nombre—. Desde esta HU el canal guarda el
+// titular partido en columnas propias y lo clasifica `flito_compradores.tipo_documento`.
+//
+// Se prueba aquí y no en la suite de export por el motivo de la cabecera de este archivo: el mock de
+// BD devuelve lo que el escenario registró y no evalúa la proyección, así que una regla escrita
+// dentro del `filas.map(...)` solo se podría probar generando un `.xlsx`.
+
+describe('`bloqueTitularDesdeComprador` — la clase la afirma `tipo_documento`', () => {
+  const titular = (over: Partial<Parameters<typeof bloqueTitularDesdeComprador>[0]> = {}) => ({
+    tipoDocumento: 'CC', nombres: 'JUANA', apellidos: 'PEREZ', razonSocial: null, ...over,
+  });
+
+  /** Las SEIS filas de la tabla del diseño §4.2, una a una. */
+  it('**`NIT` → `PJUR` + `NIT`, con la razón social y SIN nombres**', () => {
+    expect(bloqueTitularDesdeComprador(titular({
+      tipoDocumento: 'NIT', nombres: null, apellidos: null, razonSocial: 'TRANSPORTES SINTETICOS SAS',
+    }))).toEqual({
+      claseDeInterlocutor: CLASE_INTERLOCUTOR.juridica,
+      nombrePila: null, apellidos: null,
+      razonSocial: 'TRANSPORTES SINTETICOS SAS',
+      claseId: CLASE_ID.nit,
+    });
+  });
+
+  it('`CC` → `PNAT` + `CC`, con nombres y apellidos y SIN razón social', () => {
+    expect(bloqueTitularDesdeComprador(titular())).toEqual({
+      claseDeInterlocutor: CLASE_INTERLOCUTOR.natural,
+      nombrePila: 'JUANA', apellidos: 'PEREZ', razonSocial: null,
+      claseId: CLASE_ID.cedula,
+    });
+  });
+
+  it('`CE` → `PNAT` + `CE`', () => {
+    expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: 'CE' })).claseId).toBe(CLASE_ID.extranjeria);
+    expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: 'CE' })).claseDeInterlocutor)
+      .toBe(CLASE_INTERLOCUTOR.natural);
+  });
+
+  it('**`PAS` → `PP`, NUNCA `PAS`: son dos catálogos distintos**', () => {
+    // La CLAVE es `PAS` —así lo escribe `TIPOS_DOCUMENTO_RUNT`, el catálogo del canal— y el VALOR es
+    // `PP`, que es lo que pide la plantilla del cliente. El AC8 de la #11947 lo dejó escrito: quien
+    // «unifique» los dos rompe la carga en el sistema del cliente sin que falle nada en el repo.
+    const b = bloqueTitularDesdeComprador(titular({ tipoDocumento: 'PAS' }));
+    expect(b.claseId).toBe('PP');
+    expect(b.claseId).not.toBe('PAS');
+  });
+
+  it.each(['TI', 'PPT', 'RC', 'PT'])(
+    '**`%s` → `PNAT` con `ClaseId` VACÍO, nunca `CC`**',
+    (tipo) => {
+      // Persona natural declarada con un documento que no tiene casilla en la plantilla. Vacío es la
+      // respuesta honesta; `CC` sería inventarse el número de cédula de alguien que no la tiene. Es
+      // la misma decisión que ya toma `otro` en `TABLA_TIPO_FLIT`.
+      const b = bloqueTitularDesdeComprador(titular({ tipoDocumento: tipo }));
+      expect(b.claseDeInterlocutor).toBe(CLASE_INTERLOCUTOR.natural);
+      expect(b.claseId).toBeNull();
+      // Y el nombre SÍ sale: no tener código de documento no vacía el bloque entero.
+      expect(b.nombrePila).toBe('JUANA');
+      expect(b.apellidos).toBe('PEREZ');
+    },
+  );
+
+  it('tipo ausente, vacío o desconocido → el bloque ENTERO vacío, igual que `TITULAR_VACIO`', () => {
+    // Lo ÚNICO que vacía el bloque. Deducir `PJUR`/`NIT` de una ausencia es el defecto que la #11947
+    // sacó de este archivo, y no vuelve a entrar por la puerta del canal.
+    for (const tipo of [null, '', '   ', 'XX', 'cedula']) {
+      expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: tipo })), `tipo=${JSON.stringify(tipo)}`)
+        .toEqual(TITULAR_VACIO);
+    }
+    expect(bloqueTitularDesdeComprador(null)).toEqual(TITULAR_VACIO);
+    expect(bloqueTitularDesdeComprador(undefined)).toEqual(TITULAR_VACIO);
+  });
+
+  it('el tipo se normaliza en MAYÚSCULAS y sin espacios: `" cc "` es `CC`', () => {
+    expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: ' cc ' })).claseId).toBe(CLASE_ID.cedula);
+  });
+
+  it('**`" "` en un nombre es AUSENCIA, y no vacía la clase** (misma regla que el resto del archivo)', () => {
+    // La forma real en la que llega la ausencia: ni vacío ni nulo. Un `CC` con el apellido en blanco
+    // es una persona natural con el apellido vacío, no una empresa.
+    const b = bloqueTitularDesdeComprador(titular({ apellidos: ' ' }));
+    expect(b.claseDeInterlocutor).toBe(CLASE_INTERLOCUTOR.natural);
+    expect(b.claseId).toBe(CLASE_ID.cedula);
+    expect(b.apellidos).toBeNull();
+    expect(b.nombrePila).toBe('JUANA');
+  });
+
+  it('un NIT sin razón social sale `PJUR` + `NIT` con la celda vacía, no sin clasificar', () => {
+    // Misma decisión que `bloqueTitular` toma para el `tipo: 'n'` sin nombre (AC1 de la #11947): la
+    // clase la AFIRMA el origen y lo que falta es solo el nombre.
+    const b = bloqueTitularDesdeComprador(titular({
+      tipoDocumento: 'NIT', nombres: null, apellidos: null, razonSocial: ' ',
+    }));
+    expect(b.claseDeInterlocutor).toBe(CLASE_INTERLOCUTOR.juridica);
+    expect(b.claseId).toBe(CLASE_ID.nit);
+    expect(b.razonSocial).toBeNull();
+  });
+
+  it('**los nombres del canal NUNCA salen por la rama jurídica** (ni al revés)', () => {
+    // El cruce que produciría publicar el nombre de una persona en `RazonSocial`, que es el dato más
+    // comprometido de la hoja. Una fila jurídica no lleva nombre de pila y una natural no lleva
+    // razón social, aunque las columnas vinieran pobladas —cosa que el CHECK de la base impide—.
+    const juridica = bloqueTitularDesdeComprador({
+      tipoDocumento: 'NIT', nombres: 'JUANA', apellidos: 'PEREZ', razonSocial: 'TRANSPORTES SAS',
+    });
+    expect(juridica.nombrePila).toBeNull();
+    expect(juridica.apellidos).toBeNull();
+    expect(juridica.razonSocial).toBe('TRANSPORTES SAS');
+
+    const natural = bloqueTitularDesdeComprador({
+      tipoDocumento: 'CC', nombres: 'JUANA', apellidos: 'PEREZ', razonSocial: 'TRANSPORTES SAS',
+    });
+    expect(natural.razonSocial).toBeNull();
+    expect(natural.nombrePila).toBe('JUANA');
+  });
+
+  it('**no amplía el vocabulario**: usa las MISMAS constantes que el titular de trámite', () => {
+    // Dos tablas, un vocabulario. Si el canal estrenara sus propios literales, la plantilla del
+    // cliente recibiría dos juegos de códigos para la misma columna según de dónde saliera la fila.
+    const delCanal = bloqueTitularDesdeComprador(titular());
+    const delTramite = bloqueTitular({ tipo: 'cc', nombres: 'JUANA', apellidos: 'PEREZ' });
+    expect(delCanal).toEqual(delTramite);
+
+    const jurCanal = bloqueTitularDesdeComprador(titular({
+      tipoDocumento: 'NIT', nombres: null, apellidos: null, razonSocial: 'TRANSPORTES SAS',
+    }));
+    const jurTramite = bloqueTitular({ tipo: 'n', nombres: 'TRANSPORTES SAS', apellidos: null });
+    expect(jurCanal).toEqual(jurTramite);
+  });
+
+  it('el `tipo` de FLIT y el `tipo_documento` del canal son vocabularios SEPARADOS', () => {
+    // `cc` (FLIT) no clasifica en la tabla del canal y `CC` (canal) no clasifica en la de FLIT.
+    // Fundirlas obligaría a inventar una traducción entre dos listas que nadie ha cruzado.
+    expect(bloqueTitularDesdeComprador(titular({ tipoDocumento: 'n' }))).toEqual(TITULAR_VACIO);
+    expect(bloqueTitular({ tipo: 'CC', nombres: 'JUANA', apellidos: 'PEREZ' }).claseId).toBe(CLASE_ID.cedula);
+    expect(bloqueTitular({ tipo: 'NIT', nombres: 'X', apellidos: null })).toEqual(TITULAR_VACIO);
   });
 });

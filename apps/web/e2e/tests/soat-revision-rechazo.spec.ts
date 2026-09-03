@@ -59,7 +59,15 @@ function fila(over: Record<string, unknown> = {}) {
 }
 
 const FILA_REVISION = fila();
-const FILA_RECHAZADA = fila({ id: ID_RECHAZADA, placa: 'RCH333', vin: '9BWZZZ377VT004252', estado: 'rechazada' });
+/** Rechazada del canal: el titular va PARTIDO (`propietarioCanal`, HU #11966). `compradores.nombreCompleto` no se reparte. */
+const FILA_RECHAZADA = fila({
+  id: ID_RECHAZADA, placa: 'RCH333', vin: '9BWZZZ377VT004252', estado: 'rechazada',
+  propietarioCanal: {
+    tipoDocumento: 'CC', nombres: 'María', apellidos: 'Gómez', razonSocial: null,
+    numeroDocumento: '1020304050', correo: 'cliente.e2e@example.com', celular: '3001234567',
+    direccion: 'Calle 1 # 2-3', municipio: 'Medellín', departamento: 'Antioquia',
+  },
+});
 const FILA_PENDIENTE = fila({ id: ID_PENDIENTE, placa: 'PEN111', vin: '9BWZZZ377VT004253', estado: 'pendiente' });
 const FILA_SOLICITADO = fila({
   id: ID_SOLICITADO, placa: 'SOL444', vin: '9BWZZZ377VT004254', estado: 'solicitado',
@@ -559,7 +567,11 @@ test.describe('HU #11915 · AC3 — la subsanación del Cliente', () => {
     await expect(page.getByText(CAUSALES[0].nombre, { exact: true })).toBeVisible();
     await expect(page.getByText(`«${OBSERVACION}»`)).toBeVisible();
 
-    await page.getByLabel('Tipo de documento').selectOption('CC');
+    // HU #11967: Reenviar exige el propietario partido. Sin `propietarioCanal` en el GET, la UI
+    // valida y no dispara el PATCH (el smoke se puso rojo el 2026-09-03 por eso).
+    await expect(page.getByLabel('Nombre/s')).toHaveValue('María');
+    await expect(page.getByLabel('Apellido/s')).toHaveValue('Gómez');
+    await expect(page.getByLabel('Municipio')).toHaveValue('Medellín');
     await page.getByRole('button', { name: 'Reenviar la solicitud' }).click();
 
     // La ruta existe desde esta HU: hasta ayer la allowlist del canal la negaba con un 403.

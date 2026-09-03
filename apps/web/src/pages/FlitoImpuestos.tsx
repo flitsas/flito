@@ -11,6 +11,7 @@ import {
   TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
+import { enviarCargaEnTandas, textoContadorCargaMasiva, validarCargaMasiva } from '../lib/carga-masiva';
 import {
   AccionCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
@@ -929,20 +930,21 @@ function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () =
   const [archivos, setArchivos] = useState<File[]>([]);
   const [sinMarca, setSinMarca] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enviando, setEnviando] = useState(false);
+  const [progreso, setProgreso] = useState<{ k: number; n: number } | null>(null);
   const [resultado, setResultado] = useState<ResultadoRecibos | null>(null);
+  const errorValidacion = validarCargaMasiva(archivos);
+  const enviando = progreso !== null;
 
   const subir = async () => {
-    if (archivos.length === 0) return;
-    setEnviando(true); setError(null);
-    try {
-      const form = new FormData();
-      for (const f of archivos) form.append('archivos', f);
-      form.append('sinMarcaDeAgua', String(sinMarca));
-      const r = await api.post<ResultadoRecibos>('/flito/impuestos/recibos', form);
-      setResultado(r);
-    } catch (e) { setError(errorMessage(e)); }
-    finally { setEnviando(false); }
+    if (archivos.length === 0 || validarCargaMasiva(archivos)) return;
+    setError(null);
+    const { resultado: r, error: err } = await enviarCargaEnTandas<ResultadoRecibos>(
+      '/flito/impuestos/recibos', archivos, (k, n) => setProgreso({ k, n }),
+      { sinMarcaDeAgua: String(sinMarca) },
+    );
+    if (r) setResultado(r);
+    if (err) setError(err);
+    setProgreso(null);
   };
 
   return (
@@ -952,23 +954,31 @@ function CargaRecibos({ onClose, onListo }: { onClose: () => void; onListo: () =
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
             Sube varios PDF/imágenes o un ZIP. El OCR cruza cada recibo con su impuesto en gestión por la placa; los que cuadran pasan a Pagado, el resto va a revisión.
           </p>
-          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp}
-            onChange={(e) => setArchivos(Array.from(e.target.files ?? []))} />
+          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
+            onChange={(e) => { setArchivos(Array.from(e.target.files ?? [])); setError(null); }} />
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={sinMarca} onChange={(e) => setSinMarca(e.target.checked)} />
+            <input type="checkbox" checked={sinMarca} disabled={enviando} onChange={(e) => setSinMarca(e.target.checked)} />
             Archivos sueltos sin marca de agua (en ZIP se deduce por carpeta)
           </label>
-          {archivos.length > 0 && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{archivos.length} archivo(s) listos.</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {archivos.length > 0 && (
+            <p className={`text-xs${errorValidacion ? ' text-red-600' : ''}`}
+              style={errorValidacion ? undefined : { color: 'var(--flit-text-muted)' }}>
+              {textoContadorCargaMasiva(archivos)}
+            </p>
+          )}
+          {(errorValidacion || error) && <p role="alert" className="text-sm text-red-600">{errorValidacion ?? error}</p>}
+          {enviando && progreso && progreso.n > 1 && <p role="status" aria-live="polite" className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>tanda {progreso.k} de {progreso.n}</p>}
           <div className="flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={enviando || archivos.length === 0} onClick={subir}>
+            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+              disabled={enviando || archivos.length === 0 || !!errorValidacion} onClick={subir}>
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
+            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>
           </div>
         </div>
       ) : (
         <div className="space-y-3">
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
           <div className="flex flex-wrap gap-2">
             <StatusChip tone="success">Conciliados {resultado.conciliados.length}</StatusChip>
             <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>

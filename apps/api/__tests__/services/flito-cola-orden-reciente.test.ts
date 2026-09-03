@@ -261,7 +261,7 @@ function lectorComprador(f: Fila, columna: string): number | string {
 }
 
 const CTX_SOAT = { userId: 1, username: 'admin', role: 'admin', proveedorSoatId: null, companiaId: null };
-const CTX_IMPUESTOS = { userId: 1, username: 'admin', role: 'admin', transitoCodigo: null };
+const CTX_IMPUESTOS = { userId: 1, username: 'admin', role: 'admin', organismos: [] };
 
 // ────────────────────────────────────────── Las cuatro ──────────────────────────────────────────
 
