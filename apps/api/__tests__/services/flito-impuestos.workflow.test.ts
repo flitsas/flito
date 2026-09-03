@@ -34,7 +34,8 @@ const UUID = '00000000-0000-0000-0000-0000000000cc';
 describe('flito-impuestos — RBAC', () => {
   it('gestor_impuestos → GET / (cola) 200', async () => {
     // La cola pagina desde la HU #10984: son dos consultas, el conteo y la página.
-    selectMock.mockReturnValueOnce(chain([{ t: '05001' }])); // contextoImpuesto
+    // `contextoImpuesto` lee `flito_gestor_organismos` desde la HU #12053: una fila por organismo.
+    selectMock.mockReturnValueOnce(chain([{ codigo: '05001' }]));
     selectMock.mockReturnValueOnce(chain([{ total: 0 }]));   // conteo
     selectMock.mockReturnValueOnce(chain([]));               // página vacía
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
@@ -52,8 +53,8 @@ describe('flito-impuestos — RBAC', () => {
 });
 
 describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
-  it('gestor sin organismo (transito_codigo null) → cola vacía', async () => {
-    selectMock.mockReturnValueOnce(chain([{ t: null }])); // contexto: sin organismo
+  it('gestor sin NINGÚN organismo → cola vacía', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // contexto: la tabla puente no tiene filas suyas
     const r = await request(await buildApp()).get('/api/flito/impuestos').set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
@@ -61,7 +62,7 @@ describe('flito-impuestos — fronteras (CA-05/CA-10)', () => {
   });
 
   it('gestor consulta un impuesto de OTRO organismo → 404 (no 403)', async () => {
-    selectMock.mockReturnValueOnce(chain([{ t: '05001' }])); // contexto gestor: organismo 05001
+    selectMock.mockReturnValueOnce(chain([{ codigo: '05001' }])); // contexto gestor: organismo 05001
     selectMock.mockReturnValueOnce(chain([{ imp: { id: UUID, organismoCodigo: '08001', estado: 'solicitado' }, dentroDeFrontera: true }]));
     const r = await request(await buildApp()).get(`/api/flito/impuestos/${UUID}`).set('Authorization', await auth('gestor_impuestos'));
     expect(r.status).toBe(404);

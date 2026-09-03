@@ -4,7 +4,7 @@ Cola del impuesto vehicular por organismo. La factura de venta del trámite es p
 
 ## Para quién
 
-Gestor de Impuestos (ve **Solicitado** y **Pagado** de su organismo; nunca los **Pendiente**). Administrador (ve toda la cola y puede enviar o asumir). Auditor (solo lectura).
+Gestor de Impuestos (ve **Solicitado** y **Pagado** de los organismos que el Administrador le haya asignado —pueden ser varios—; nunca los **Pendiente**). Administrador (ve toda la cola y puede enviar o asumir). Auditor (solo lectura).
 
 ## Cómo se entra
 
