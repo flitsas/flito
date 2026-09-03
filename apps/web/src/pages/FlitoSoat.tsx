@@ -9,7 +9,9 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
-import { enviarCargaEnTandas, textoContadorCargaMasiva, validarCargaMasiva } from '../lib/carga-masiva';
+import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
+import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
+import RanuraCargaMasiva from '../components/flito/RanuraCargaMasiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import BloqueRevision from '../components/flito/soat-cliente/BloqueRevision';
@@ -972,19 +974,22 @@ interface ResultadoMasivo {
   duplicados: { archivo: string; detalle: string }[]; noAsociados: { archivo: string; detalle: string }[];
 }
 
+// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
+// sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
+// SOAT ni la lee (`/flito/soat/facturas` no toca `req.body`); mandarla sería peso muerto por tanda.
 function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
-  const [archivos, setArchivos] = useState<File[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [progreso, setProgreso] = useState<{ k: number; n: number } | null>(null);
+  const { seleccion, abriendo, error, setError, elegir } = useSeleccionCargaMasiva();
+  const [progreso, setProgreso] = useState<{ desde: number; total: number } | null>(null);
   const [resultado, setResultado] = useState<ResultadoMasivo | null>(null);
-  const errorValidacion = validarCargaMasiva(archivos);
+  const errorValidacion = validarCargaMasiva(seleccion);
   const enviando = progreso !== null;
 
   const subir = async () => {
-    if (archivos.length === 0 || validarCargaMasiva(archivos)) return;
+    if (seleccion.items.length === 0 || validarCargaMasiva(seleccion)) return;
     setError(null);
     const { resultado: r, error: err } = await enviarCargaEnTandas<ResultadoMasivo>(
-      '/flito/soat/facturas', archivos, (k, n) => setProgreso({ k, n }),
+      '/flito/soat/facturas', seleccion.items, (desde, total) => setProgreso({ desde, total }),
+      undefined, { conRutas: false },
     );
     if (r) setResultado(r);
     if (err) setError(err);
@@ -996,21 +1001,16 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
+            Sube varios PDF/imágenes o un ZIP. FLITO abre el ZIP en tu computador y sube sus comprobantes de 5 en 5. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
-            onChange={(e) => { setArchivos(Array.from(e.target.files ?? [])); setError(null); }} />
-          {archivos.length > 0 && (
-            <p className={`text-xs${errorValidacion ? ' text-red-600' : ''}`}
-              style={errorValidacion ? undefined : { color: 'var(--flit-text-muted)' }}>
-              {textoContadorCargaMasiva(archivos)}
-            </p>
-          )}
-          {(errorValidacion || error) && <p role="alert" className="text-sm text-red-600">{errorValidacion ?? error}</p>}
-          {enviando && progreso && progreso.n > 1 && <p role="status" aria-live="polite" className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>tanda {progreso.k} de {progreso.n}</p>}
+            aria-label="Facturas o ZIP de la carga masiva"
+            onChange={(e) => { void elegir(Array.from(e.target.files ?? [])); }} />
+          <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
+            errorValidacion={errorValidacion} error={error} progreso={progreso} />
           <div className="flex gap-2">
             <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-              disabled={enviando || archivos.length === 0 || !!errorValidacion} onClick={subir}>
+              disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>

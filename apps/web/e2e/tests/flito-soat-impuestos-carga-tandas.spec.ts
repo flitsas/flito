@@ -3,6 +3,11 @@ import { loginAs, OPERACIONES_USER } from '../helpers/auth';
 
 // HU #12051 — tandas de la carga masiva SOAT / Impuestos. Backend mockeado:
 // 12 archivos → 3 POST secuenciales; 504 en la tanda 2 deja visible la tanda 1.
+//
+// El PARTIR de 5 en 5 sigue igual; lo que cambió con la HU #12056 es cómo se CUENTA en pantalla:
+// «tanda k de n» murió y en su lugar va «enviando i de t archivos» (i = primer archivo de la tanda
+// en curso). Con 18 o 60 tandas, «tanda» obligaba a multiplicar por 5 y es vocabulario de
+// trastienda. La palabra «tanda» no puede volver a aparecer en la UI: se comprueba abajo.
 
 const FACETAS_SOAT = {
   companias: [{ id: 1, nombre: 'Concesionario Norte' }],
@@ -59,7 +64,7 @@ const OK_SOAT_2 = {
 };
 
 test.describe('HU #12051 — tandas de carga masiva', () => {
-  test('SOAT: 12 archivos → 3 POST secuenciales y tanda k de n', async ({ page }) => {
+  test('SOAT: 12 archivos → 3 POST secuenciales y «enviando i de t archivos»', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSoat(page);
 
@@ -90,7 +95,8 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     await modal.locator('input[type="file"]').setInputFiles(archivos(12));
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
 
-    await expect(modal.getByRole('status')).toHaveText('tanda 1 de 3');
+    await expect(modal.getByText('enviando 1 de 12 archivos')).toBeVisible();
+    await expect(modal.getByText(/tanda/i)).toHaveCount(0);
     await expect(modal.getByRole('button', { name: 'Procesando…' })).toBeDisabled();
     await expect(modal.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
     release1();
@@ -103,7 +109,7 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     expect(eventos).toEqual(['start-1', 'end-1', 'start-2', 'end-2', 'start-3', 'end-3']);
   });
 
-  test('SOAT: 5 archivos no pintan tanda k de n', async ({ page }) => {
+  test('SOAT: 5 archivos no pintan progreso', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockSoat(page);
     let posts = 0;
@@ -121,7 +127,8 @@ test.describe('HU #12051 — tandas de carga masiva', () => {
     await modal.locator('input[type="file"]').setInputFiles(archivos(5));
     await modal.getByRole('button', { name: 'Subir y procesar' }).click();
     await expect(modal.getByRole('button', { name: 'Procesando…' })).toBeVisible();
-    await expect(modal.getByRole('status')).toHaveCount(0);
+    // Una sola tanda: no se pinta progreso (misma regla que tenía «tanda k de n»).
+    await expect(modal.getByText(/^enviando /)).toHaveCount(0);
     release();
     await expect(modal.getByRole('button', { name: 'Listo' })).toBeVisible();
     expect(posts).toBe(1);
