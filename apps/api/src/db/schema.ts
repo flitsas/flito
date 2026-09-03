@@ -70,8 +70,12 @@ export const users = pgTable('users', {
   especialidades: text('especialidades').array().notNull().default(sql`'{}'::text[]`),
   esConductor: boolean('es_conductor').notNull().default(false),
   // FLITO (migración): atadura de visibilidad del gestor SOAT (rol `proveedor`) a su
-  // proveedor SOAT — hace cumplir CA-09 en la consulta. El gestor de impuestos
-  // (rol `gestor_impuestos`) reutiliza `transito_codigo` como organismo (CA-10).
+  // proveedor SOAT — hace cumplir CA-09 en la consulta.
+  //
+  // El gestor de impuestos NO vive aquí: desde la HU #12053 su atadura (CA-10) es la tabla
+  // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
+  // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
+  // desde la migración 0173: fuente única, sin segundo inquilino.
   flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
@@ -2569,6 +2573,34 @@ export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * CA-10 (HU #12053, Feature #12052) — los organismos de tránsito que ve un `gestor_impuestos`.
+ *
+ * Sustituye el préstamo de `users.transito_codigo`, que es del rol `transito`, solo guardaba UNO y
+ * que el `superRefine` de `users.routes.ts` ya rechazaba para cualquier otro rol —es decir: la API
+ * declaraba ilegal el estado que el seed producía—. Desde la migración 0173, para un gestor esa
+ * columna queda NULL: **la fuente es esta tabla y solo esta tabla**.
+ *
+ * PK compuesta y sin `id` propio: la fila ES el par. Un uuid obligaría además a un índice único
+ * sobre el par —dos objetos de base de datos para un solo hecho— y nadie referencia estas filas por
+ * id.
+ *
+ * `ON DELETE` clasificado según ADR-0005: `userId` es *pertenencia* (la fila no existe sin su
+ * usuario) → CASCADE; `organismoCodigo` es RESTRICT porque borrar un organismo no puede desatar
+ * gestores en silencio, y SET NULL es imposible en una columna de la PK.
+ */
+export const flitoGestorOrganismos = pgTable('flito_gestor_organismos', {
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.organismoCodigo] }),
+  // Por el RESTRICT, no por un reporte: sin él, borrar una fila de organismos_transito_config
+  // escanea esta tabla entera. Mismo motivo, escrito, que `idx_users_compania`.
+  organismoIdx: index('idx_flito_gestor_organismos_organismo').on(t.organismoCodigo),
+}));
 
 // Modalidad de gestión del organismo con vigencia temporal (CA-04: nunca se
 // sobrescribe; la vigente es la única con hasta=NULL — índice parcial único abajo).

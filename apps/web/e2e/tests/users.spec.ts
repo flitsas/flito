@@ -5,6 +5,10 @@ import { loginAs, ADMIN_USER, PROVEEDOR_USER } from '../helpers/auth';
 // auditor asignable (USR-2/3), permisos no se recortan al editar (USR-4) y un
 // usuario restringido no accede a páginas fuera de su permiso (modelo unificado).
 // La API se mockea con page.route (no requiere backend real).
+//
+// Las filas llevan `flitoProveedorSoatId` y `organismosCodigos` desde la HU #12053: el contrato dice
+// que el segundo es SIEMPRE un array —`[]` para los once roles que no son gestor—, y un fixture que
+// se los saltara estaría probando una respuesta que la API no devuelve.
 
 const json = (body: unknown, status = 200) => ({
   status, contentType: 'application/json', body: JSON.stringify(body),
@@ -13,14 +17,14 @@ const json = (body: unknown, status = 200) => ({
 test.describe('Usuarios — gestión y permisos', () => {
   test('admin crea usuario con rol auditor → aparece en el listado', async ({ page }) => {
     const users: any[] = [
-      { id: 1, username: 'admin', name: 'Admin', email: null, role: 'admin', active: true, allowedPages: [], createdAt: new Date().toISOString() },
+      { id: 1, username: 'admin', name: 'Admin', email: null, role: 'admin', active: true, allowedPages: [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() },
     ];
 
     await page.route('**/api/users', async (route) => {
       const req = route.request();
       if (req.method() === 'POST') {
         const b = req.postDataJSON();
-        const created = { id: 99, username: b.username, name: b.name, email: b.email ?? null, role: b.role, active: true, allowedPages: b.allowedPages ?? [], createdAt: new Date().toISOString() };
+        const created = { id: 99, username: b.username, name: b.name, email: b.email ?? null, role: b.role, active: true, allowedPages: b.allowedPages ?? [], flitoProveedorSoatId: null, organismosCodigos: [], createdAt: new Date().toISOString() };
         users.push(created);
         return route.fulfill(json(created, 201));
       }
@@ -43,7 +47,7 @@ test.describe('Usuarios — gestión y permisos', () => {
   });
 
   test('editar usuario conserva/añade allowedPages (USR-4: no se recortan)', async ({ page }) => {
-    const compliance = { id: 2, username: 'cumplimiento', name: 'Cumplimiento', email: null, role: 'compliance', active: true, allowedPages: [] as string[], createdAt: new Date().toISOString() };
+    const compliance = { id: 2, username: 'cumplimiento', name: 'Cumplimiento', email: null, role: 'compliance', active: true, allowedPages: [] as string[], flitoProveedorSoatId: null, organismosCodigos: [] as string[], createdAt: new Date().toISOString() };
 
     await page.route('**/api/users', async (route) => {
       if (route.request().method() === 'GET') return route.fulfill(json([compliance]));

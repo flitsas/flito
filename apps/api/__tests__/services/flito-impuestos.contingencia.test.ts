@@ -293,7 +293,8 @@ const ORGANISMO = '08001';
 
 describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', () => {
   const comoGestor = (impFila: Record<string, unknown>) => {
-    selectMock.mockReturnValueOnce(chain([{ t: ORGANISMO }])); // contextoImpuesto
+    // `contextoImpuesto` lee `flito_gestor_organismos` desde la HU #12053.
+    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
     selectMock.mockReturnValueOnce(chain([{ imp: impFila, dentroDeFrontera: true }])); // buscarConAcceso
     selectMock.mockReturnValue(chain([]));
   };
@@ -301,7 +302,7 @@ describe('flito-impuestos — frontera del gestor del organismo (HU #11156)', ()
     impuestoEn({ organismoCodigo: ORGANISMO, ...over });
 
   it('AC1 — la cola del gestor filtra por la bandera, en la condición compartida con el conteo', async () => {
-    selectMock.mockReturnValueOnce(chain([{ t: ORGANISMO }]));
+    selectMock.mockReturnValueOnce(chain([{ codigo: ORGANISMO }]));
     const { wheres, columnas } = capturarCola();
 
     const r = await request(await buildApp()).get('/api/flito/impuestos')

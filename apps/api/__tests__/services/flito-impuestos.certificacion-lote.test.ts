@@ -51,7 +51,7 @@ const T_CERT = getTableName(flitoImpuestoCertificaciones);
 const T_VEHICLES = getTableName(vehicles);
 const T_AUDIT = getTableName(auditLogs);
 
-const CTX = { userId: 7, username: 'gestor@flitsas.io', role: 'admin', transitoCodigo: null };
+const CTX = { userId: 7, username: 'gestor@flitsas.io', role: 'admin', organismos: [] };
 
 /** Ids válidos y distinguibles: el último bloque cambia por registro. */
 const id = (n: number) => `71030cce-1a4c-4fb6-855d-fcc80aadc4e${n}`;

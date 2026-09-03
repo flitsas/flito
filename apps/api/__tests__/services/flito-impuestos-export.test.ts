@@ -1000,7 +1000,9 @@ describe('fronteras — quién puede descargar y qué', () => {
 
   it('el gestor de impuestos arrastra su frontera al WHERE del archivo', async () => {
     kdb.when.scenario({
-      users: [{ t: '25473' }],
+      // La atadura CA-10 vive en `flito_gestor_organismos` desde la HU #12053: una fila por
+      // organismo, no una columna de `users`.
+      flito_gestor_organismos: [{ codigo: '25473' }],
       flito_impuestos: filas(1), flito_compradores: [],
     });
 
@@ -1016,11 +1018,36 @@ describe('fronteras — quién puede descargar y qué', () => {
     expect(params).not.toContain('pendiente');
   });
 
-  it('un gestor SIN organismo descarga un archivo VACÍO, no la tabla entera', async () => {
+  /**
+   * TC-12053-24 — paridad pantalla ↔ archivo con la lista COMPLETA.
+   *
+   * El de arriba pasaría igual con un `eq(organismo_codigo, ctx.organismos[0])`: con un organismo,
+   * «el primero» y «todos» son el mismo SQL. Este exige los DOS códigos en los parámetros, que es
+   * lo único que distingue el `inArray` del atajo — y el atajo le entregaría al gestor un archivo
+   * más corto que la pantalla, sin error y sin que nadie lo note.
+   */
+  it('TC-12053-24: el .xlsx del gestor con DOS organismos arrastra los DOS al WHERE', async () => {
+    kdb.when.scenario({
+      flito_gestor_organismos: [{ codigo: '25473' }, { codigo: '05001' }],
+      flito_impuestos: filas(1), flito_compradores: [],
+    });
+
+    expect((await exportar(await sesion('gestor_impuestos'))).status).toBe(200);
+
+    const { sql, params } = whereDelExport();
+    expect(sql).toContain('organismo_codigo');
+    expect(params).toContain('25473');
+    expect(params).toContain('05001');
+    // Y sigue sin poder descargar lo asumido por Operaciones ni los `pendiente`.
+    expect(sql).toContain('gestion_operaciones');
+    expect(params).not.toContain('pendiente');
+  });
+
+  it('un gestor SIN NINGÚN organismo descarga un archivo VACÍO, no la tabla entera', async () => {
     // `condicionesColaImpuestos` devuelve `null` cuando no hay frontera que aplicar. El defecto que
     // esto mata es tratar ese `null` como «sin filtros»: la fixture tiene filas y no pueden salir.
     kdb.when.scenario({
-      users: [{ t: null }],
+      flito_gestor_organismos: [],
       flito_impuestos: filas(2), flito_compradores: [comprador()],
     });
 
