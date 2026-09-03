@@ -46,6 +46,7 @@ import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 
 /**
@@ -1744,27 +1745,54 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
   return r ? { ...r, estado: r.estado as EstadoSoat } : null;
 }
 
+/** Concurrencia del OCR en la carga masiva. Detalle de ejecución: no vive en shared-types. */
+const OCR_CONCURRENCIA_CARGA_MASIVA = 5;
+
 /**
  * Carga masiva de comprobantes. El gestor sube varios PDF/imágenes —o un ZIP— sin clasificar nada:
  * el OCR lee placa/VIN (o la placa del nombre del archivo como respaldo, §8.4) y cada comprobante se
  * cruza SOLO con un SOAT en adquisición. Los que cruzan y superan el umbral pasan a Pagado; los que
  * no, a revisión. Un comprobante que no cruza con ningún SOAT NO va a revisión (no hay contra qué
  * compararlo): se informa y no se guarda. Un archivo que falla no afecta a los demás.
+ *
+ * Fases (HU #12051): expandir ZIP en serie → hash CA-08 en serie (dup sin OCR) → OCR en pool de 5
+ * → cruce + archivo + persistir en serie, orden de entrada.
  */
 export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatCtx): Promise<ResultadoCargaMasiva> {
   const res: ResultadoCargaMasiva = { pagados: [], enRevision: [], duplicados: [], noAsociados: [] };
   const expandidos = await expandir(archivos);
 
+  const pendientes: { archivo: ArchivoSubido; hash: string }[] = [];
+  const hashesVistos = new Set<string>();
   for (const archivo of expandidos) {
     try {
       const hash = createHash('sha256').update(archivo.buffer).digest('hex');
-      if (await facturaDuplicada(hash)) {
+      if (hashesVistos.has(hash) || await facturaDuplicada(hash)) {
         res.duplicados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: 'Ya cargada antes (mismo archivo).' });
         continue;
       }
+      hashesVistos.add(hash);
+      pendientes.push({ archivo, hash });
+    } catch (e) {
+      const msg = e instanceof SoatError ? e.message : 'Error procesando el archivo.';
+      res.noAsociados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: msg });
+    }
+  }
 
-      const extraccion = await extraerFacturaSoat(docDe(archivo, umbralPara(null)));
-      const placaLeida = extraccion[CampoSoat.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
+  const extraidos = await conConcurrencia(pendientes, OCR_CONCURRENCIA_CARGA_MASIVA, async (item) => {
+    try {
+      return { ...item, extraccion: await extraerFacturaSoat(docDe(item.archivo, umbralPara(null))) };
+    } catch (error) {
+      return { ...item, error };
+    }
+  });
+
+  for (const item of extraidos) {
+    try {
+      if ('error' in item && item.error) throw item.error;
+      const extraccion = 'extraccion' in item ? item.extraccion : undefined;
+      if (!extraccion) throw new Error('Error procesando el archivo.');
+      const placaLeida = extraccion[CampoSoat.PLACA]?.valor ?? placaDesdeNombre(item.archivo.originalname);
       const vinLeido = extraccion[CampoSoat.VIN]?.valor ?? null;
 
       const datos = await buscarEnAdquisicion(placaLeida, vinLeido, ctx);
@@ -1773,21 +1801,21 @@ export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatC
         // que un reintento lo cruzara al aparecer el SOAT, y se retiró por decisión de negocio —los
         // comprobantes huérfanos se acumulaban sin llegar a cruzar—. Lo que queda es el aviso, con la
         // placa leída, para poder volver a subirlo cuando el SOAT exista.
-        res.noAsociados.push({ archivo: archivo.originalname, placa: placaLeida, soatId: null,
+        res.noAsociados.push({ archivo: item.archivo.originalname, placa: placaLeida, soatId: null,
           detalle: 'No cruza con ningún SOAT en adquisición. Se descarta: vuelve a cargarlo cuando el SOAT exista.' });
         continue;
       }
 
       const umbral = umbralPara(datos.umbralOcr);
       const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
-      const storageKey = await archivarFactura(datos, archivo);
-      await persistirCarga(datos, archivo, hash, storageKey, extraccion, veredicto, ctx);
+      const storageKey = await archivarFactura(datos, item.archivo);
+      await persistirCarga(datos, item.archivo, item.hash, storageKey, extraccion, veredicto, ctx);
 
-      const item: ItemCarga = { archivo: archivo.originalname, placa: datos.placa, soatId: datos.soatId, detalle: veredicto.aprobada ? 'Pagado.' : (veredicto.detalle ?? 'En revisión.') };
-      (veredicto.aprobada ? res.pagados : res.enRevision).push(item);
+      const fila: ItemCarga = { archivo: item.archivo.originalname, placa: datos.placa, soatId: datos.soatId, detalle: veredicto.aprobada ? 'Pagado.' : (veredicto.detalle ?? 'En revisión.') };
+      (veredicto.aprobada ? res.pagados : res.enRevision).push(fila);
     } catch (e) {
       const msg = e instanceof SoatError ? e.message : 'Error procesando el archivo.';
-      res.noAsociados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: msg });
+      res.noAsociados.push({ archivo: item.archivo.originalname, placa: null, soatId: null, detalle: msg });
     }
   }
   return res;

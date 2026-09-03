@@ -1,18 +1,23 @@
-// FLITO — topes de la carga masiva SOAT / Impuestos (HU #12050).
+// FLITO — topes y tandas de la carga masiva SOAT / Impuestos (HU #12050 / #12051).
 //
-// Un solo sitio para peso, copy de validación y 413/504. Los dos modales importan de aquí;
-// no se extrae un modal compartido (Impuestos tiene el checkbox) ni se parte el POST en tandas.
+// Un solo sitio para peso, copy de validación, 413/504 y el envío de 5 en 5. Los dos modales
+// importan de aquí; no se extrae un modal compartido (Impuestos tiene el checkbox).
 //
 // Los números viven en `@operaciones/shared-types`. El copy es UX
-// (`docs/ux/flito-soat-impuestos-carga-topes.md`) y no se publica en el paquete: `File` es DOM.
+// (`docs/ux/flito-soat-impuestos-carga-topes.md` y `…-carga-tandas.md`) y no se publica
+// en el paquete: `File` es DOM.
 
 import {
   CARGA_MASIVA_MAX_ARCHIVOS,
   CARGA_MASIVA_MAX_BYTES_ARCHIVO,
   CARGA_MASIVA_MAX_BYTES_CRUDOS,
   CARGA_MASIVA_MAX_BYTES_CUERPO,
+  partirCargaMasivaEnTandas,
 } from '@operaciones/shared-types';
-import { ApiError, errorMessage } from './api';
+import { ApiError, api, errorMessage } from './api';
+
+/** Tope por tanda: por debajo del corte del proxy (~120 s). No toca `REQUEST_TIMEOUT_MS` (90 s). */
+export const TIMEOUT_TANDA_CARGA_MS = 115_000;
 
 const BYTES_EN_MB = 1024 * 1024;
 
@@ -132,4 +137,55 @@ export function mensajeErrorCargaMasiva(e: unknown): string {
   if (status === 504 || status === 502 || /gateway time-?out/i.test(texto)) return COPY_504;
   if (pareceHtmlProxy(texto)) return COPY_HTML;
   return errorMessage(e);
+}
+
+/**
+ * Concatena, por clave, los arreglos de dos DTO de OCR. Las claves que no son arreglo
+ * se quedan con el valor de `a`.
+ */
+export function fusionarResultadoCarga<T extends object>(a: T, b: T): T {
+  const fusionado = { ...a };
+  for (const clave of Object.keys(b) as Array<keyof T & string>) {
+    const der = b[clave];
+    if (!Array.isArray(der)) continue;
+    const izq = fusionado[clave];
+    (fusionado as Record<string, unknown>)[clave] = Array.isArray(izq) ? izq.concat(der) : der.slice();
+  }
+  return fusionado;
+}
+
+export type ResultadoTandasCarga<T> = { resultado: T | null; error: string | null };
+
+/**
+ * Envía el lote en tandas de 5, una POST a la vez (`for` + `await`).
+ * Si la tanda k falla, `resultado` es la fusión de 1..k-1 y no reenvía esa tanda.
+ * `campos` (p. ej. `sinMarcaDeAgua`) viaja igual en cada tanda. El ZIP es un File.
+ */
+export async function enviarCargaEnTandas<T extends object>(
+  path: string,
+  archivos: readonly File[],
+  onProgreso: (k: number, n: number) => void,
+  campos?: Record<string, string>,
+): Promise<ResultadoTandasCarga<T>> {
+  const tandas = partirCargaMasivaEnTandas(archivos);
+  const n = tandas.length;
+  let acc: T | null = null;
+
+  for (let i = 0; i < tandas.length; i++) {
+    const k = i + 1;
+    onProgreso(k, n);
+    const form = new FormData();
+    for (const archivo of tandas[i]) form.append('archivos', archivo);
+    if (campos) {
+      for (const [clave, valor] of Object.entries(campos)) form.append(clave, valor);
+    }
+    try {
+      const r = await api.postConTimeout<T>(path, form, TIMEOUT_TANDA_CARGA_MS);
+      acc = acc === null ? r : fusionarResultadoCarga(acc, r);
+    } catch (e) {
+      return { resultado: acc, error: mensajeErrorCargaMasiva(e) };
+    }
+  }
+
+  return { resultado: acc, error: null };
 }

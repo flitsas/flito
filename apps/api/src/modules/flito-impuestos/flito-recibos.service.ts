@@ -21,6 +21,7 @@ import {
 import { extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
+import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -28,6 +29,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const TIPO_RECIBO = 'recibo_impuesto';
 const TIPO_RECIBO_SIN_MARCA = 'recibo_impuesto_sin_marca';
 const TIPOS_RECIBO = [TIPO_RECIBO, TIPO_RECIBO_SIN_MARCA];
+/** Concurrencia del OCR en la carga masiva. Detalle de ejecución: no vive en shared-types. */
+const OCR_CONCURRENCIA_CARGA_MASIVA = 5;
 
 /** Solo el valor total bloquea (la placa se valida aparte, es la llave). Nº recibo/fecha/año no. */
 const CAMPOS_REQUERIDOS_RECIBO: readonly CampoImpuesto[] = [CampoImpuesto.VALOR_TOTAL];
@@ -101,11 +104,40 @@ export async function cargarRecibos(archivos: ArchivoSubido[], sinMarcaDeAgua: b
   const umbral = await umbralDelGestor(ctx);
   const organismoCodigo = ctx.role === 'gestor_impuestos' ? ctx.transitoCodigo : null;
 
+  type Expandido = typeof expandidos[number];
+  const pendientes: { archivo: Expandido; hash: string }[] = [];
+  const hashesVistos = new Set<string>();
   for (const archivo of expandidos) {
     try {
-      await procesarRecibo(archivo, archivo.sinMarca, umbral, organismoCodigo, ctx, res);
+      const hash = createHash('sha256').update(archivo.buffer).digest('hex');
+      const dupId = hashesVistos.has(hash) ? 'lote' : await hashReciboYaCargado(hash);
+      if (dupId) {
+        res.duplicados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: dupId === 'lote' ? null : dupId, detalle: 'Ese pago ya está registrado: el archivo es idéntico a uno cargado antes.' });
+        continue;
+      }
+      hashesVistos.add(hash);
+      pendientes.push({ archivo, hash });
     } catch (e) {
       res.noAsociados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: (e as Error).message });
+    }
+  }
+
+  const extraidos = await conConcurrencia(pendientes, OCR_CONCURRENCIA_CARGA_MASIVA, async (item) => {
+    try {
+      return { ...item, extraccion: await extraerReciboImpuesto(docDe(item.archivo, umbral)) };
+    } catch (error) {
+      return { ...item, error };
+    }
+  });
+
+  for (const item of extraidos) {
+    try {
+      if ('error' in item && item.error) throw item.error;
+      const extraccion = 'extraccion' in item ? item.extraccion : undefined;
+      if (!extraccion) throw new Error('Error procesando el archivo.');
+      await procesarRecibo(item.archivo, item.archivo.sinMarca, umbral, organismoCodigo, ctx, res, extraccion, item.hash);
+    } catch (e) {
+      res.noAsociados.push({ archivo: item.archivo.originalname, placa: null, idFlit: null, registroId: null, detalle: (e as Error).message });
     }
   }
   return res;
@@ -117,19 +149,23 @@ async function umbralDelGestor(ctx: ImpuestoCtx): Promise<number> {
   return umbralPara(o?.u ?? null);
 }
 
-async function procesarRecibo(archivo: ArchivoSubido & { sinMarca: boolean }, sinMarca: boolean, umbral: number, organismoCodigo: string | null, ctx: ImpuestoCtx, res: ResultadoRecibos): Promise<void> {
-  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
-  const tipo = sinMarca ? TIPO_RECIBO_SIN_MARCA : TIPO_RECIBO;
-
-  // CA-08 (1): el mismo archivo, byte por byte, ya está cargado.
-  const [dupHash] = await db.select({ impuestoId: flitoSoportes.impuestoId }).from(flitoSoportes)
+async function hashReciboYaCargado(hash: string): Promise<string | null> {
+  const [dup] = await db.select({ impuestoId: flitoSoportes.impuestoId }).from(flitoSoportes)
     .where(and(eq(flitoSoportes.hash, hash), inArray(flitoSoportes.tipo, TIPOS_RECIBO), eq(flitoSoportes.descartado, false))).limit(1);
-  if (dupHash) {
-    res.duplicados.push({ archivo: archivo.originalname, placa: null, idFlit: null, registroId: dupHash.impuestoId, detalle: 'Ese pago ya está registrado: el archivo es idéntico a uno cargado antes.' });
-    return;
-  }
+  return dup?.impuestoId ?? null;
+}
 
-  const extraccion = await extraerReciboImpuesto(docDe(archivo, umbral));
+async function procesarRecibo(
+  archivo: ArchivoSubido & { sinMarca: boolean },
+  sinMarca: boolean,
+  umbral: number,
+  organismoCodigo: string | null,
+  ctx: ImpuestoCtx,
+  res: ResultadoRecibos,
+  extraccion: ExtraccionImpuesto,
+  hash: string,
+): Promise<void> {
+  const tipo = sinMarca ? TIPO_RECIBO_SIN_MARCA : TIPO_RECIBO;
   const placa = extraccion[CampoImpuesto.PLACA]?.valor ?? placaDesdeNombre(archivo.originalname);
   if (!placa) {
     // Sin placa no hay llave de cruce. Se descarta con el aviso: el fichero original sigue en manos
