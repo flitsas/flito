@@ -17,7 +17,9 @@
 // operativo, acción sugerida y quién debe resolverlo», eso tiene que salir del catálogo de verdad.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { SQL } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
+import { renderizar, gruposHuerfanos, vecesLigado } from '../helpers/sql-ligado.js';
 
 const kdb = createKeyedDb();
 vi.mock('../../src/db/client.js', () => ({ db: kdb.db, getPoolStats: vi.fn() }));
@@ -460,6 +462,51 @@ describe('AC1 — el resumen cuenta sobre el MISMO conjunto que ve la tabla', ()
       'invalid_dian_resolution', 'cliente_sin_correo', 'dian_rechazada',
     ]);
     expect(r.porCodigo.every((x) => x.reintentable === false)).toBe(true);
+  });
+});
+
+// ── Bug #12058 — que la consulta se lea bien no quiere decir que Postgres la acepte ─────────
+
+/**
+ * Todo este bloque existe porque los tres asertos de arriba estaban VERDES mientras el endpoint
+ * respondía 500 en todas las llamadas, desde el primer día.
+ *
+ * `porCodigo` se comprobaba contra filas que devuelve el mock, y la forma de la consulta, contra el
+ * TEXTO del SQL. Ninguna de las dos cosas puede ver este fallo: el texto no lleva los parámetros
+ * numerados, y con el literal interpolado dos veces en `COALESCE(codigo, …)` las dos apariciones se
+ * leen IDÉNTICAS aunque Drizzle emita `$12` y `$13`. PostgreSQL, que compara el árbol y no el valor,
+ * rechazaba la consulta entera con `42803` y el selector «Motivo» de la bandeja se quedaba sin
+ * opciones. Como en el CI no hay base que parsee nada, lo que queda de guarda es la consulta
+ * RENDERIZADA y el invariante que el motor exige.
+ */
+describe('Bug #12058 — el resumen tiene que poder PARSEARLO PostgreSQL', () => {
+  const consultaDelResumen = (): ReturnType<typeof renderizar> =>
+    renderizar(kdb.execute.mock.calls[0]![0] as SQL);
+
+  it('ninguna expresión del GROUP BY queda fuera de la proyección (el 42803 que devolvía 500)', async () => {
+    await resumenBandeja({ ambiente: 'pruebas', ahora: AHORA });
+
+    // El invariante, no la implementación: agrupar por ordinal, por el nombre de una columna ya
+    // normalizada o repitiendo la MISMA expresión son formas válidas, y cambiar de una a otra no
+    // rompe esto. Lo que no puede pasar es que una expresión agrupada no exista en el SELECT.
+    expect(gruposHuerfanos(consultaDelResumen())).toEqual([]);
+  });
+
+  it('el invariante se sostiene también con los filtros puestos, que meten su propio COALESCE', async () => {
+    await resumenBandeja({
+      ambiente: 'pruebas', clientes: [7], codigos: ['sin_desenlace'], antiguedadDiasMin: 3,
+      ahora: AHORA,
+    });
+    expect(gruposHuerfanos(consultaDelResumen())).toEqual([]);
+  });
+
+  it('el código «sin desenlace» se liga UNA sola vez: repetirlo son dos parámetros, no uno', async () => {
+    await resumenBandeja({ ambiente: 'pruebas', ahora: AHORA });
+
+    // Sin filtro por motivo el literal tiene UNA sola razón de existir —normalizar el código nulo—,
+    // así que dos apariciones solo pueden venir de haberlo escrito otra vez en el GROUP BY. (Con el
+    // filtro de `codigos` puesto sí hay una segunda, la del WHERE, y esa es legítima: no agrupa.)
+    expect(vecesLigado(consultaDelResumen(), 'sin_desenlace')).toBe(1);
   });
 });
 
