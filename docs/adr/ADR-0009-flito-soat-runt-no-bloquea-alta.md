@@ -2,7 +2,13 @@
 
 ## Estado
 
-**Propuesto** — HU [#11935](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11935) (Feature [#11912](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11912)). Pendiente de aprobación del Líder Técnico.
+**Propuesto — SUPERSEDED por [ADR-0010](./ADR-0010-flito-soat-runt-compuerta-alta.md)** (HU [#11966](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11966)).
+Nunca fue aprobado por el Líder Técnico. Su decisión rigió el código entregado en DEV/QA entre la
+HU [#11935](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11935) y la #11966: las solicitudes radicadas en ese intervalo se crearon bajo esta regla y **no
+se reescriben ni se reconsultan** (AC6 de la #11966). El cuerpo de este ADR se conserva sin cambios
+porque es la única explicación de por qué existen las cuatro columnas de verificación del satélite.
+
+*(Cabecera original: **Propuesto** — HU #11935, Feature [#11912](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11912), pendiente de aprobación del Líder Técnico.)*
 
 **Supersedes** (parcial) [ADR-0008](./ADR-0008-flito-soat-canal-cliente.md) (sigue **Propuesto**; no se reescribe):
 
@@ -44,4 +50,5 @@ Hechos medidos en `origin/develop` (worktree `flito-11935`):
 ## Relación con otros ADR
 
 - **ADR-0008** — supersede parcial, arriba.
+- **ADR-0010** — **supersede a este**, para solicitudes nuevas. Ver la cabecera de Estado.
 - **ADR-DB-001** — la `0171` no lleva `BEGIN/COMMIT` propio.

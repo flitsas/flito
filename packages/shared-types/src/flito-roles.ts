@@ -9,9 +9,13 @@
 
 import type { UserRole } from './permissions.js';
 
-/** Gestor SOAT = proveedor. Atado a un proveedor SOAT (users.proveedor_soat_id). */
+/** Gestor SOAT = proveedor. Atado a un proveedor SOAT (`users.flito_proveedor_soat_id`). */
 export const FLITO_GESTOR_SOAT_ROLE = 'proveedor' as const satisfies UserRole;
-/** Gestor de Impuestos. Atado a un organismo de tránsito (users.organismo_id). */
+/**
+ * Gestor de Impuestos. Atado a UNO O MÁS organismos de tránsito, en la tabla puente
+ * `flito_gestor_organismos` (HU #12053) — no en una columna de `users`: `transito_codigo` es del rol
+ * `transito` y solo cabía uno.
+ */
 export const FLITO_GESTOR_IMPUESTOS_ROLE = 'gestor_impuestos' as const satisfies UserRole;
 /** Auditoría FLITO = auditor (revisor fiscal), solo lectura. */
 export const FLITO_AUDITORIA_ROLE = 'auditor' as const satisfies UserRole;
@@ -19,14 +23,16 @@ export const FLITO_AUDITORIA_ROLE = 'auditor' as const satisfies UserRole;
 export const FLITO_MENSAJERO_ROLE = 'mensajero' as const satisfies UserRole;
 
 /**
- * Un gestor solo ve lo suyo: el gestor SOAT (`proveedor`) está atado a un proveedor
- * y el gestor de impuestos a un organismo. Esa atadura hace cumplir CA-09/CA-10 en
- * la consulta del servidor (leída de la columna del usuario, no del token), no en la UI.
+ * Un gestor solo ve lo suyo: el gestor SOAT (`proveedor`) está atado a UN proveedor y el gestor de
+ * impuestos a UNO O MÁS organismos. Esa atadura hace cumplir CA-09/CA-10 en la consulta del servidor
+ * —leída de la BD y no del token, para que un cambio de ámbito surta efecto sin re-emitirlo—, no en
+ * la UI. Desde la HU #12053 las dos son obligatorias al crear o editar el usuario (AC3).
  */
 export function gestorRequiereProveedor(role: UserRole): boolean {
   return role === FLITO_GESTOR_SOAT_ROLE;
 }
 
+/** El gestor de impuestos necesita **uno o más** organismos: sin ninguno no ve nada. */
 export function gestorRequiereOrganismo(role: UserRole): boolean {
   return role === FLITO_GESTOR_IMPUESTOS_ROLE;
 }

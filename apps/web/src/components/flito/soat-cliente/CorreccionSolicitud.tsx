@@ -1,7 +1,10 @@
-// FLITO — canal Cliente: subsanar una solicitud RECHAZADA (HU #11914, #11936).
+// FLITO — canal Cliente: subsanar una solicitud RECHAZADA (HU #11914, #11936, #11967).
 //
-// HU #11936: no reintroducir «Consultar el RUNT» ni `POST /cliente/preconsulta`. Placa y VIN
-// siguen de solo lectura. El `<dl>` de vehículo es identidad guardada, no un gate.
+// **Aquí NO vuelve «Consultar el RUNT»**, ni siquiera con la compuerta de la HU #11967: ningún AC lo
+// pide y las solicitudes ya radicadas no se reescriben desde esta pantalla. Placa y VIN siguen de
+// solo lectura; el `<dl>` de vehículo es identidad guardada, no un gate. Lo que sí cambia con la
+// #11967 es el propietario: se pide PARTIDO —razón social si es NIT, o nombre/s y apellido/s— con
+// contacto y ubicación obligatorios, porque el `subsanacionSchema` del backend cambió igual.
 //
 // ── El reparto entre HUs ─────────────────────────────────────────────────────────────────────────
 //
@@ -23,24 +26,26 @@
 // aquí mezclaría dos rechazos distintos en un mismo párrafo y le diría al Cliente que corrija algo
 // que nadie le ha pedido.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../../../lib/api';
-import { errorArchivo, errorCorreo, errorNombre, errorNumeroDocumento, errorTipoDocumento } from '../../../lib/soatCliente';
+import {
+  errorApellidos, errorArchivo, errorCelular, errorCorreo, errorDepartamento, errorDireccion,
+  errorMunicipio, errorNombres, errorNumeroDocumento, errorRazonSocial, errorTipoDocumento, esNit,
+} from '../../../lib/soatCliente';
 import PageContentSkeleton from '../../flit/PageContentSkeleton';
 import PageHeaderCard from '../../flit/PageHeaderCard';
 import StatusChip from '../../flit/StatusChip';
 import { FlitCard, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 import FichaRunt from './FichaRunt';
 import {
-  BloqueFactura, BloquePropietario, PROPIETARIO_VACIO, Seccion,
-  type CampoPropietario, type Propietario,
+  BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, ID_CAMPO, PROPIETARIO_VACIO, Seccion,
+  useFocoPrimerError, type CampoPropietario, type Propietario,
 } from './bloques';
 
 const COLA = '/flito/soat';
-const SIN_PRELLENAR: ReadonlySet<CampoPropietario> = new Set();
 
 /**
  * Lo que esta vista lee del detalle. Es un SUBCONJUNTO de `SoatItem` a propósito: nombrar aquí los
@@ -56,8 +61,30 @@ interface DetalleSolicitud {
   linea: string | null;
   cilindraje: string | null;
   tipoServicio: string | null;
+  carroceria: string | null;
   organismoNombre: string | null;
   compradores: Array<{ nombreCompleto: string; numeroDocumento: string; orden: number }>;
+  /**
+   * El titular GUARDADO, ya partido (HU #11966). Solo llega para el dueño de la fila y solo cuando
+   * la solicitud nació del canal (`origen = 'cliente'`); un gestor no lo recibe nunca por esta ruta.
+   *
+   * Es lo que evita que la subsanación obligue a reteclear a ciegas el nombre repartido, el
+   * municipio y el departamento que ya están en la base. Si no viene —una fila de trámite, o una API
+   * anterior a la #11966— los campos salen vacíos y se dice por qué: **el nombre fundido de
+   * `compradores` NO se reparte por el espacio**, ni aquí ni en ningún sitio.
+   */
+  propietarioCanal?: {
+    tipoDocumento: string | null;
+    nombres: string | null;
+    apellidos: string | null;
+    razonSocial: string | null;
+    numeroDocumento: string;
+    correo: string | null;
+    celular: string | null;
+    direccion: string | null;
+    municipio: string | null;
+    departamento: string | null;
+  } | null;
   /** Lo escribe la HU #11915. Ausente hoy, y su ausencia no rompe nada. */
   solicitud?: { causalNombre: string | null; observacion: string | null; revisadoEn: string | null } | null;
 }
@@ -140,30 +167,72 @@ function Envoltura({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Mismo orden VISUAL que el alta, para que el foco caiga siempre en el primer campo que falla. */
+const ORDEN_FOCO: Array<CampoPropietario | 'archivo'> = [
+  'tipoDocumento', 'numeroDocumento', ...CAMPOS_NOMBRE,
+  'correo', 'celular', 'direccion', 'municipio', 'departamento',
+];
+
 // ───────────────────────────── El formulario en modo edición ─────────────────────────────────────
 
 function Formulario({ datos }: { datos: DetalleSolicitud }) {
   const navigate = useNavigate();
+  const guardado = datos.propietarioCanal ?? null;
   const duenio = datos.compradores.find((c) => c.orden === 0) ?? datos.compradores[0] ?? null;
 
+  // Se prellena con lo PERSISTIDO, que es lo honesto: son sus propios datos, ya guardados, y
+  // pedírselos otra vez a ciegas para poder reenviar es peor producto. Del `compradores` solo se
+  // rescata el número de documento cuando el detalle no trae el titular partido; el nombre fundido
+  // NO se reparte por el espacio.
   const [propietario, setPropietario] = useState<Propietario>({
     ...PROPIETARIO_VACIO,
-    nombreCompleto: duenio?.nombreCompleto ?? '',
-    numeroDocumento: duenio?.numeroDocumento ?? '',
+    tipoDocumento: guardado?.tipoDocumento ?? '',
+    numeroDocumento: guardado?.numeroDocumento ?? duenio?.numeroDocumento ?? '',
+    nombres: guardado?.nombres ?? '',
+    apellidos: guardado?.apellidos ?? '',
+    razonSocial: guardado?.razonSocial ?? '',
+    correo: guardado?.correo ?? '',
+    celular: guardado?.celular ?? '',
+    direccion: guardado?.direccion ?? '',
+    municipio: guardado?.municipio ?? '',
+    departamento: guardado?.departamento ?? '',
   });
   const [archivo, setArchivo] = useState<File | null>(null);
   const [errores, setErrores] = useState<Partial<Record<CampoPropietario | 'archivo', string>>>({});
+  const [intento, setIntento] = useState(0);
   const [enviando, setEnviando] = useState(false);
   const [fallo, setFallo] = useState<string | null>(null);
+
+  const juridica = esNit(propietario.tipoDocumento);
+  const idPrimerError = useMemo(
+    () => {
+      const primero = ORDEN_FOCO.find((c) => errores[c]);
+      if (!primero || primero === 'tipoDocumento') return null;
+      return ID_CAMPO[primero as keyof typeof ID_CAMPO] ?? null;
+    },
+    [errores],
+  );
+  useFocoPrimerError(idPrimerError, intento);
 
   const reenviar = async () => {
     const errs: Partial<Record<CampoPropietario | 'archivo', string>> = {};
     const poner = (c: CampoPropietario, m: string | null) => { if (m) errs[c] = m; };
     poner('tipoDocumento', errorTipoDocumento(propietario.tipoDocumento));
     poner('numeroDocumento', errorNumeroDocumento(propietario.numeroDocumento));
-    poner('nombreCompleto', errorNombre(propietario.nombreCompleto));
+    // El tipo decide qué campo de nombre se exige, igual que el `superRefine` del backend: pedirle
+    // apellidos a un NIT sería exigir un dato que el servidor rechaza.
+    if (juridica) poner('razonSocial', errorRazonSocial(propietario.razonSocial));
+    else {
+      poner('nombres', errorNombres(propietario.nombres));
+      poner('apellidos', errorApellidos(propietario.apellidos));
+    }
     poner('correo', errorCorreo(propietario.correo));
+    poner('celular', errorCelular(propietario.celular));
+    poner('direccion', errorDireccion(propietario.direccion));
+    poner('municipio', errorMunicipio(propietario.municipio));
+    poner('departamento', errorDepartamento(propietario.departamento));
     setErrores(errs);
+    setIntento((n) => n + 1);
     if (Object.keys(errs).length > 0) { setFallo('Revise los datos marcados antes de enviar.'); return; }
 
     setFallo(null);
@@ -172,10 +241,18 @@ function Formulario({ datos }: { datos: DetalleSolicitud }) {
       const form = new FormData();
       form.append('tipoDocumento', propietario.tipoDocumento);
       form.append('numeroDocumento', propietario.numeroDocumento.trim());
-      form.append('nombreCompleto', propietario.nombreCompleto.trim());
+      // Razón social XOR nombre/s + apellido/s, y `nombreCompleto` ya no viaja: lo deriva el
+      // servidor. Mandarlo dejaría dos fuentes de verdad para el mismo nombre.
+      if (juridica) form.append('razonSocial', propietario.razonSocial.trim());
+      else {
+        form.append('nombres', propietario.nombres.trim());
+        form.append('apellidos', propietario.apellidos.trim());
+      }
       form.append('correo', propietario.correo.trim());
       form.append('celular', propietario.celular.trim());
       form.append('direccion', propietario.direccion.trim());
+      form.append('municipio', propietario.municipio.trim());
+      form.append('departamento', propietario.departamento.trim());
       // Opcional: sin archivo nuevo se conserva el que ya está cargado.
       if (archivo) form.append('facturaVenta', archivo);
       // Placa y VIN NO viajan: cambiarlos convertiría la subsanación en un alta encubierta sobre
@@ -222,23 +299,39 @@ function Formulario({ datos }: { datos: DetalleSolicitud }) {
             vehiculo: {
               placa: datos.placa, vin: datos.vin, marca: datos.marca, linea: datos.linea,
               modelo: null, clase: null, cilindraje: datos.cilindraje, tipoServicio: datos.tipoServicio,
+              carroceria: datos.carroceria,
+              // El detalle no los proyecta y la ficha no los pinta: no se inventan.
+              pasajerosSentados: null, puertas: null,
             },
-            organismo: { codigo: '', nombre: datos.organismoNombre },
+            organismo: { codigo: null, nombre: datos.organismoNombre },
             propietario: null,
           }}
         />
       </Seccion>
 
       <Seccion titulo="2 · Propietario">
+        {!guardado && (
+          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            Complete los datos del propietario para poder reenviar la solicitud.
+          </p>
+        )}
         <BloquePropietario
           valor={propietario}
           onCambio={(campo, v) => {
             setPropietario((p) => ({ ...p, [campo]: v }));
             setErrores((e) => ({ ...e, [campo]: undefined }));
+            // Al conmutar NIT ⇄ persona natural se descartan los errores de los TRES campos de
+            // nombre: `useFocoPrimerError` enfoca por `id`, y un error huérfano de un control que ya
+            // no está en el DOM manda el foco a `<body>`.
+            if (campo === 'tipoDocumento') {
+              setErrores((e) => ({ ...e, nombres: undefined, apellidos: undefined, razonSocial: undefined }));
+            }
           }}
           errores={errores}
+          // Aquí el documento SÍ es editable: no alimenta ninguna consulta, así que cambiarlo no
+          // invalida nada.
+          documento={{ modo: 'editable' }}
           onBlur={() => undefined}
-          prellenados={SIN_PRELLENAR}
         />
       </Seccion>
 

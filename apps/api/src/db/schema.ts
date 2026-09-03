@@ -70,8 +70,12 @@ export const users = pgTable('users', {
   especialidades: text('especialidades').array().notNull().default(sql`'{}'::text[]`),
   esConductor: boolean('es_conductor').notNull().default(false),
   // FLITO (migración): atadura de visibilidad del gestor SOAT (rol `proveedor`) a su
-  // proveedor SOAT — hace cumplir CA-09 en la consulta. El gestor de impuestos
-  // (rol `gestor_impuestos`) reutiliza `transito_codigo` como organismo (CA-10).
+  // proveedor SOAT — hace cumplir CA-09 en la consulta.
+  //
+  // El gestor de impuestos NO vive aquí: desde la HU #12053 su atadura (CA-10) es la tabla
+  // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
+  // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
+  // desde la migración 0173: fuente única, sin segundo inquilino.
   flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id),
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
@@ -224,6 +228,21 @@ export const vehicles = pgTable('vehicles', {
   cilindraje: varchar('cilindraje', { length: 10 }),
   carroceria: varchar('carroceria', { length: 60 }),
   tipoServicio: varchar('tipo_servicio', { length: 30 }),
+  /**
+   * Los DOS que solo trae el RUNT (HU #11966, migración 0172). Texto por lo mismo que los tres de
+   * arriba: el origen es texto de un tercero y `"0"`, `"05"` y `""` son distinguibles.
+   *
+   * `puertas` **la escribe solo el canal Cliente**, y eso es una regla de SERVICIO y no de esquema:
+   * `vehicles` no conoce el origen del SOAT, así que no hay CHECK que lo ate. Lo que la hace cierta
+   * es el export, que la lee solo para filas `origen = 'cliente'`; la fila de trámite conserva la
+   * constante `'4'` de la plantilla del cliente.
+   *
+   * Nullable las dos: un NOT NULL exigiría un DEFAULT para las filas que ya existen, y el único
+   * candidato de `puertas` sería `'4'` — escribir en la base la constante de la plantilla como si
+   * fuera un dato medido, que es la mentira que el AC6 de la #11966 viene a quitar del archivo.
+   */
+  pasajerosSentados: varchar('pasajeros_sentados', { length: 10 }),
+  puertas: varchar('puertas', { length: 5 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -2555,6 +2574,34 @@ export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * CA-10 (HU #12053, Feature #12052) — los organismos de tránsito que ve un `gestor_impuestos`.
+ *
+ * Sustituye el préstamo de `users.transito_codigo`, que es del rol `transito`, solo guardaba UNO y
+ * que el `superRefine` de `users.routes.ts` ya rechazaba para cualquier otro rol —es decir: la API
+ * declaraba ilegal el estado que el seed producía—. Desde la migración 0173, para un gestor esa
+ * columna queda NULL: **la fuente es esta tabla y solo esta tabla**.
+ *
+ * PK compuesta y sin `id` propio: la fila ES el par. Un uuid obligaría además a un índice único
+ * sobre el par —dos objetos de base de datos para un solo hecho— y nadie referencia estas filas por
+ * id.
+ *
+ * `ON DELETE` clasificado según ADR-0005: `userId` es *pertenencia* (la fila no existe sin su
+ * usuario) → CASCADE; `organismoCodigo` es RESTRICT porque borrar un organismo no puede desatar
+ * gestores en silencio, y SET NULL es imposible en una columna de la PK.
+ */
+export const flitoGestorOrganismos = pgTable('flito_gestor_organismos', {
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull()
+    .references(() => organismosTransitoConfig.codigo, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.organismoCodigo] }),
+  // Por el RESTRICT, no por un reporte: sin él, borrar una fila de organismos_transito_config
+  // escanea esta tabla entera. Mismo motivo, escrito, que `idx_users_compania`.
+  organismoIdx: index('idx_flito_gestor_organismos_organismo').on(t.organismoCodigo),
+}));
+
 // Modalidad de gestión del organismo con vigencia temporal (CA-04: nunca se
 // sobrescribe; la vigente es la única con hasta=NULL — índice parcial único abajo).
 export const flitoOrganismoVigencias = pgTable('flito_organismo_vigencias', {
@@ -2604,10 +2651,16 @@ export const flitoSoat = pgTable('flito_soat', {
   // Denormalizados y congelados: el SOAT vive más que sus trámites.
   companiaId: integer('compania_id').notNull().references(() => clients.id),
   /**
-   * Secretaría de tránsito. NOT NULL hasta la HU #11935 (ADR-0009): el canal Cliente nace sin
-   * organismo porque el RUNT ya no es compuerta del INSERT. La FK queda — un código escrito
-   * tiene que existir en `organismos_transito_config`. El sync y el trámite siguen mandando
-   * código. Cola/detalle/export hacen `leftJoin` para no ocultar la fila.
+   * Secretaría de tránsito. Nullable desde la HU #11935 (migración 0171) y **sigue siéndolo desde
+   * la HU #11966 (ADR-0010)**, aunque el RUNT haya vuelto a ser compuerta del alta.
+   *
+   * El organismo NO es compuerta (AC5 de la #11966): el alta escribe el código si el nombre que
+   * reporta el RUNT cruza el catálogo, y si no cruza **la fila se crea igual** con `NULL` y el
+   * satélite anotando `organismo_no_catalogado`. El `422 organismo_no_catalogado` desapareció de
+   * los dos endpoints del canal. Quien lo reintroduzca rompe ese AC.
+   *
+   * La FK queda — un código escrito tiene que existir en `organismos_transito_config`. El sync y el
+   * trámite siguen mandando código. Cola/detalle/export hacen `leftJoin` para no ocultar la fila.
    */
   organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
   proveedorSoatId: uuid('proveedor_soat_id').references(() => flitoProveedoresSoat.id),
@@ -2736,18 +2789,35 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   // viene sin resolverse, que es la que hay que llamar por teléfono.
   reenvios: smallint('reenvios').notNull().default(0),
   /**
-   * Verificación RUNT post-commit (HU #11935, ADR-0009). Cuatro columnas derivadas: NUNCA el
-   * payload crudo. `ok` no está en el AC2; hace falta para no dejar el éxito indistinguible de
-   * «aún no corrió». Default `pendiente` porque el INSERT del alta no espera a Kyverum.
+   * Desenlace de la verificación RUNT (migración 0171, HU #11935; el significado cambia con la
+   * #11966 / ADR-0010). Cuatro columnas derivadas: NUNCA el payload crudo.
+   *
+   * ── Qué significa cada valor DESDE la HU #11966 ─────────────────────────────────────────────────
+   *
+   * El RUNT volvió a ser compuerta del alta, así que una fila del canal **nace en `ok`**: si el RUNT
+   * no hubiera contestado, o hubiera contestado que no, la fila no existiría (el alta responde
+   * 503/422/409 y no inserta). `soat_vigente` nace en `false` por lo mismo — es una lectura
+   * concluyente, no un hueco.
+   *
+   * **`pendiente`, `caido`, `sin_registro` y `no_cuadra` son RESIDUO HISTÓRICO**: solo los llevan las
+   * solicitudes radicadas entre la #11935 y la #11966, cuando el alta no esperaba a Kyverum y un job
+   * post-commit anotaba el desenlace. Esas filas **no se reescriben ni se reconsultan** (AC6), así
+   * que los cuatro valores siguen en el CHECK y en la constante de shared-types. El job que los
+   * producía se borró con la #11966: sin función no hay reconsulta posible por descuido.
+   *
+   * El `default('pendiente')` se conserva por las filas que ya lo tienen y porque el INSERT del alta
+   * escribe el valor explícitamente; no describe ya el estado inicial de una fila nueva.
    */
   verificacionEstado: varchar('verificacion_estado', { length: 20 }).notNull().default('pendiente'),
-  /** `true`/`false` solo con lectura concluyente (`ok`); `NULL` en pendiente/caído/sin registro/no cuadra. */
+  /** `true`/`false` solo con lectura concluyente (`ok`); `NULL` en los cuatro estados históricos. */
   soatVigente: boolean('soat_vigente'),
-  /** Solo si `soat_vigente=true` y el RUNT trajo fecha. */
+  /** Solo si `soat_vigente=true` y el RUNT trajo fecha. Desde la #11966 el alta nace en `false`. */
   soatVigenteHasta: date('soat_vigente_hasta'),
   /**
-   * Código máquina del desenlace (mismo vocabulario que `CodigoErrorSolicitudSoat`):
-   * `runt_no_disponible` · `runt_sin_registro` · `runt_no_cuadra` · `organismo_no_catalogado`.
+   * Código máquina del desenlace (mismo vocabulario que `CodigoErrorSolicitudSoat`).
+   * Desde la #11966 el único que puede escribir una fila NUEVA es `organismo_no_catalogado`, que no
+   * aborta el alta (AC5); `runt_no_disponible`/`runt_sin_registro`/`runt_no_cuadra` son históricos —
+   * hoy salen como error HTTP y no hay fila que anotar.
    */
   verificacionCodigo: varchar('verificacion_codigo', { length: 40 }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2933,14 +3003,47 @@ export const flitoCompradores = pgTable('flito_compradores', {
   tramiteId: uuid('tramite_id').references(() => flitoTramites.id, { onDelete: 'cascade' }),
   // El otro padre. `CASCADE` como el de arriba: el propietario no sobrevive a la solicitud.
   soatId: uuid('soat_id').references(() => flitoSoat.id, { onDelete: 'cascade' }),
+  /**
+   * El nombre en UNA cadena. Lo escribe el sync fundiendo lo que FLIT manda separado
+   * (`flit-http.adapter.ts:74`), y desde la HU #11966 el canal Cliente lo escribe **derivado** de
+   * las columnas partidas de abajo (`razon_social ?? "nombres apellidos"`).
+   *
+   * Sigue siendo NOT NULL y sigue siendo lo que interroga la búsqueda de la cola
+   * (`condicionesCola`), pero **ya no es la fuente de verdad del nombre para el canal**: el Excel de
+   * una fila `origen='cliente'` lee `nombres`/`apellidos`/`razon_social`. Quien escriba una de las
+   * dos vías tiene que escribir la otra en la misma edición, o la cola y el archivo dirán cosas
+   * distintas (es lo que obligó a meter `subsanarSolicitud` en el alcance de la #11966).
+   */
   nombreCompleto: varchar('nombre_completo', { length: 200 }).notNull(),
   numeroDocumento: varchar('numero_documento', { length: 30 }).notNull(),
   // Catálogo RUNT (CC, CE, TI, PAS, PPT, NIT, RC, PT). Sin CHECK y nullable: las filas que ya
   // existen vinieron del sync sin tipo, y un valor inesperado del RUNT no debe tumbar un alta.
   tipoDocumento: varchar('tipo_documento', { length: 5 }),
+  /**
+   * El titular PARTIDO (HU #11966, migración 0172): `nombres`/`apellidos` XOR `razon_social`.
+   *
+   * Las escribe SOLO el canal Cliente. Nullable las tres —y las dos de domicilio— porque las ~7 052
+   * filas que ya existen las escribió el sync con el nombre fundido: un NOT NULL obligaría a un
+   * backfill que partiera la cadena por el espacio, la heurística que el export rechaza por escrito
+   * (falla en cada nombre compuesto y en cada razón social). Las filas de trámite siguen leyendo
+   * `flit_raw` y no necesitan estas columnas jamás.
+   */
+  nombres: varchar('nombres', { length: 200 }),
+  apellidos: varchar('apellidos', { length: 200 }),
+  razonSocial: varchar('razon_social', { length: 200 }),
   correo: varchar('correo', { length: 150 }),
   celular: varchar('celular', { length: 30 }),
   direccion: varchar('direccion', { length: 300 }),
+  /**
+   * Municipio y departamento del DOMICILIO del titular (HU #11966). No son la ciudad del trámite ni
+   * la jurisdicción del organismo: para una fila `origen='cliente'` la columna `Departamento` del
+   * Excel pasa a ser este dato personal, y por eso los dos entran en `CAMPOS_PII_COLA_EXPORT`.
+   *
+   * Texto libre, sin catálogo DIVIPOLA: el AC solo pide que sean obligatorios en la app. Es lo mismo
+   * que ya pasa con `flito_tramites.ciudad`.
+   */
+  municipio: varchar('municipio', { length: 100 }),
+  departamento: varchar('departamento', { length: 100 }),
   orden: integer('orden').notNull().default(0),
   porcentajeParticipacion: numeric('porcentaje_participacion', { precision: 5, scale: 2 }),
 }, (t) => ({
@@ -2951,6 +3054,16 @@ export const flitoCompradores = pgTable('flito_compradores', {
   // que es un propietario huérfano que nadie vuelve a encontrar.
   padreChk: check('flito_compradores_padre_chk',
     sql`(${t.tramiteId} IS NOT NULL) <> (${t.soatId} IS NOT NULL)`),
+  // «Nunca las dos cosas a la vez» (HU #11966, migración 0172). Las filas legacy lo cumplen: los
+  // tres campos NULL. NO se añade el recíproco (`tipo_documento='NIT' ⇒ razon_social IS NOT NULL`):
+  // bloquearía a un futuro escritor del sync que rellene `tipo_documento` sin razón social, y la
+  // mitad positiva ya la exige Zod en la única ruta que escribe estas columnas.
+  //
+  // Declarado AQUÍ y no solo en la migración, por la lección de la 0157: un CHECK que solo vive en
+  // la base convence a quien lee `schema.ts` de que no hace falta migración, y el primer INSERT
+  // nuevo muere con 23514.
+  titularChk: check('flito_compradores_titular_chk',
+    sql`${t.razonSocial} IS NULL OR (${t.nombres} IS NULL AND ${t.apellidos} IS NULL)`),
 }));
 
 // Soporte (archivo) en S3: storage_key sustituye a driveItemId+ruta (decisión D-3).

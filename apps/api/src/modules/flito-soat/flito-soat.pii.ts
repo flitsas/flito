@@ -82,6 +82,44 @@ export const CAMPOS_PII_SOAT_EXPORT = [
   ...CAMPOS_PII_COLA_EXPORT.filter((c) => !(CAMPOS_PII_SOAT as readonly string[]).includes(c)),
 ] as const;
 
+/**
+ * Columnas personales que **el DETALLE de una fila del canal Cliente** entrega (HU #11966).
+ *
+ * Es una TERCERA lista y no una ampliación de {@link CAMPOS_PII_SOAT}, por el criterio que este
+ * archivo se aplica desde su primera línea: la lista describe lo que ESA lectura devuelve, y
+ * declarar de más ya fue un bloqueante. El detalle de una fila de TRÁMITE sigue declarando
+ * `CAMPOS_PII_SOAT` y ni una columna más, porque no entrega ni una columna más.
+ *
+ * Lo que la clave `propietarioCanal` añade sobre la lista de la cola: el nombre PARTIDO
+ * (`nombres`/`apellidos`/`razon_social`), el contacto (`correo`, `celular`, `direccion`) y el
+ * DOMICILIO (`municipio`, `departamento`). Son datos que hasta esta HU no salían por ninguna ruta de
+ * lectura del módulo —solo por el `.xlsx`— y que ahora se sirven para que la subsanación no obligue
+ * a reteclearlos a ciegas.
+ *
+ * ── El alcance NO es `GET /:id`, y decirlo así sería falso ──────────────────────────────────────
+ *
+ * Esta lista la CONSUME `GET /:id`, que es la única lectura pura del detalle y la única que escribe
+ * una línea con ella. Pero el cuerpo que la lleva —`propietarioCanal`— sale de `detalle()`, y
+ * `detalle()` es también lo que devuelven SIETE rutas de mutación a través de `responderDetalle`
+ * (`flito-soat.routes.ts`): `:id/rechazar`, `:id/reactivar`, `:id/reversar`, `:id/proveedor`,
+ * `:id/asumir-operaciones`, `:id/devolver-gestor` y `POST /:id/factura` (esta vía
+ * `cargarFactura`, que termina en `return detalle(...)`). Para una fila del canal en `solicitado`,
+ * la respuesta de esas siete lleva las diez columnas de aquí.
+ *
+ * **Ninguna de las siete escribe en `pii_access_log`, y es correcto**: caen en la exención que este
+ * mismo archivo declara en su cabecera —las mutaciones se anotan con `audit()`, y quien las ejecuta
+ * ya recibió el dato en la lectura que las precede—. Se deja escrito porque la frase anterior decía
+ * «`GET /:id`» y quien la leyera concluiría que el detalle del canal solo viaja por ahí.
+ *
+ * Al GESTOR del proveedor no le llegan por ninguna de esas siete: `propietarioDelCanal` corta por
+ * `esGestor` antes de consultar, así que su `propietarioCanal` es `null`. Lo que sí recibe es el
+ * `.xlsx` de la cola; ver el docblock de `propietarioDelCanal`.
+ */
+export const CAMPOS_PII_SOAT_DETALLE_CANAL = [
+  ...CAMPOS_PII_SOAT,
+  'nombres', 'apellidos', 'razon_social', 'correo', 'celular', 'direccion', 'municipio', 'departamento',
+] as const;
+
 export interface AccesoSoat {
   /**
    * `search` = la cola (un tramo). `read` = un SOAT concreto. `export` = el `.xlsx` de la cola.
@@ -186,17 +224,36 @@ export const CAMPOS_PII_PRECONSULTA = ['placa', 'vin'] as const;
 const CAMPO_PROPIETARIO = 'nombre_completo';
 
 /**
- * Deja constancia de una preconsulta del canal Cliente.
+ * De cuál de los DOS endpoints salió la consulta al RUNT (HU #11966).
+ *
+ * Hasta esa HU solo la preconsulta hablaba con Kyverum dentro de la petición; el alta lo hacía
+ * después del COMMIT, fuera de cualquier `req`. Desde ADR-0010 el alta también consulta, así que hay
+ * dos consultas al mismo registro nacional con consecuencias distintas —una es una mirada, la otra
+ * termina en una solicitud radicada— y el motivo tiene que poder distinguirlas: si las dos
+ * escribieran la misma línea, «¿cuántas veces consultaron mi vehículo sin llegar a radicar nada?»
+ * dejaría de tener respuesta.
+ */
+const MOTIVO_RUNT: Record<'preconsulta' | 'alta', string> = {
+  preconsulta: 'Preconsulta RUNT del canal Cliente (paso previo al alta de solicitud de SOAT)',
+  alta: 'Consulta RUNT del canal Cliente durante el alta de la solicitud de SOAT',
+};
+
+/**
+ * Deja constancia de una consulta al RUNT desde el canal Cliente.
  *
  * La consulta es a un registro NACIONAL sobre un vehículo que puede no ser de quien pregunta, y
  * quien pregunta es una empresa tercera: es exactamente el caso que el artículo 17 de la Ley 1581
  * quiere poder reconstruir. Va con `await` y sin identificar la placa en el motivo, por lo mismo que
  * el resto del archivo: la placa es uno de los campos que este registro protege y no puede acabar
  * guardada como el MOTIVO de su propia consulta.
+ *
+ * `conPropietario` se declara CASO A CASO y no siempre: el nombre solo se accede cuando el RUNT lo
+ * trae y la respuesta lo publica. El alta lo pasa en `false` —su 201 es `{ id, estado }` y no
+ * devuelve el nombre—, y declararlo sería declarar de más, que ya fue un bloqueante en este módulo.
  */
 export async function registrarAccesoRuntCliente(
   req: Request,
-  opciones: { conPropietario: boolean },
+  opciones: { conPropietario: boolean; motivo?: 'preconsulta' | 'alta' },
 ): Promise<void> {
   await logPiiAccess(req, {
     resourceTipo: RECURSO_SOAT,
@@ -205,6 +262,6 @@ export async function registrarAccesoRuntCliente(
     camposAccedidos: opciones.conPropietario
       ? [...CAMPOS_PII_PRECONSULTA, CAMPO_PROPIETARIO]
       : [...CAMPOS_PII_PRECONSULTA],
-    motivo: 'Preconsulta RUNT del canal Cliente (alta de solicitud de SOAT)'.slice(0, MOTIVO_MAX),
+    motivo: MOTIVO_RUNT[opciones.motivo ?? 'preconsulta'].slice(0, MOTIVO_MAX),
   });
 }

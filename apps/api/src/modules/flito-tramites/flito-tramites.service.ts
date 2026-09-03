@@ -27,7 +27,7 @@ export interface TramitesCtx { userId: number; username: string; role: string }
 // Ni proveedor ni compañía: el actor de Gestión Trámites es Operaciones, así que este contexto no
 // activa la frontera del gestor ni la del canal Cliente (Feature #11912).
 const soatCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, proveedorSoatId: null, companiaId: null });
-const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, transitoCodigo: null });
+const impuestoCtx = (ctx: TramitesCtx) => ({ userId: ctx.userId, username: ctx.username, role: ctx.role, organismos: [] });
 
 export interface Comprador {
   nombreCompleto: string; numeroDocumento: string; correo: string | null; celular: string | null;

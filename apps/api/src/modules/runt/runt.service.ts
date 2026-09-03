@@ -38,12 +38,45 @@ const gatewayAuth = () => ({ Authorization: `Bearer ${env.RUNT_INTERNAL_KEY}` })
  * llegara a la interfaz como un genérico 502: el mensaje concreto es justo lo que hace falta para
  * saber si hay que revisar la llave, el cuerpo o el servicio.
  */
-function fallo(r: HttpResponse): { ok: false; message: string } {
+function fallo(r: HttpResponse): { ok: false; message: string; httpStatus?: number } {
   const msg = typeof r.data === 'object' && r.data ? (r.data as any)?.error?.message : null;
-  return { ok: false, message: typeof msg === 'string' && msg ? msg : 'Error comunicando con servicio RUNT' };
+  return {
+    ok: false,
+    message: typeof msg === 'string' && msg ? msg : 'Error comunicando con servicio RUNT',
+    // Ver {@link anotarTransporte}: el código HTTP viaja para que quien clasifique no tenga que
+    // adivinar por el texto. Aquí siempre es un no-200 (o un cuerpo que no es JSON), es decir, un
+    // fallo de transporte.
+    httpStatus: r.status,
+  };
 }
 
 interface HttpResponse { status: number | undefined; data: any; headers?: any }
+
+/**
+ * Anota el código HTTP con el que llegó un `ok:false` de la pasarela. **Aditivo: nadie más lo lee.**
+ *
+ * ── Por qué hace falta (HU #11966, ADR-0010 decisión 1) ─────────────────────────────────────────
+ *
+ * Esta función devuelve `{ ok:false, message }` en DOS situaciones que no son la misma cosa:
+ *
+ *   · la pasarela contesta **HTTP 200** con un rechazo de negocio dentro del cuerpo — «los datos no
+ *     corresponden con los propietarios activos del vehículo». El RUNT **sí respondió**;
+ *   · timeout, error de red, no-200 o circuito abierto. El RUNT **no respondió**.
+ *
+ * El canal Cliente tiene que separarlas: la primera es un 422 «revise los datos» y la segunda un 503
+ * «el RUNT no está disponible», y confundirlas es exactamente lo que el AC4 de la HU #11966 prohíbe.
+ * El repo ya distinguía el caso con un predicado sobre el TEXTO (`/propietari/i`, en
+ * `certificacion-runt.ts` y en `soat/refresh.service.ts`), que se rompe en silencio el día que
+ * Kyverum corrija una redacción. Un HTTP 200 es, por construcción, «el RUNT respondió».
+ *
+ * **Es puramente aditivo**: los dos consumidores anteriores leen `ok` y `message` y no cambian de
+ * comportamiento. La ausencia de `httpStatus` significa «no se sabe» y el canal la trata como caído,
+ * que es el defecto seguro (no crea ninguna fila).
+ */
+function anotarTransporte(data: any, httpStatus: number): any {
+  if (!data || typeof data !== 'object' || data.ok !== false) return data;
+  return { ...data, httpStatus };
+}
 
 function httpsReq(method: string, url: string, body: any, hdrs?: Record<string, string>): Promise<HttpResponse> {
   return new Promise((resolve, reject) => {
@@ -77,7 +110,8 @@ async function consultarVehiculoProxy(placa?: string, vin?: string, documento?: 
     httpsReq('POST', GATEWAY_RUNT_URL, body, gatewayAuth()),
   );
   if (r.status !== 200 || typeof r.data === 'string') return fallo(r);
-  return r.data;
+  // Un `ok:false` que llega con 200 es «el RUNT respondió que no», no «el RUNT no respondió».
+  return anotarTransporte(r.data, 200);
 }
 
 async function consultarPersonaProxy(documento: string, tipoDocumento?: string) {

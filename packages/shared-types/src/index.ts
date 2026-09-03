@@ -103,3 +103,5 @@ export * from './flito-conciliacion.js';
 // Export a Excel de las colas de SOAT e Impuestos: el tope de filas que la pantalla anuncia y el
 // servidor aplica (Feature #11908, HU #11909).
 export * from './flito-cola-export.js';
+// Carga masiva SOAT/impuestos: topes de archivos, bytes, cuerpo HTTP y tandas (HU #12050 / #12051).
+export * from './carga-masiva.js';

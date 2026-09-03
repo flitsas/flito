@@ -1,5 +1,9 @@
 # Diseño slim — HU #11935 · Alta sin RUNT bloqueante y verificación
 
+> **Superseded para solicitudes nuevas** por `docs/diseno-hu-11966-runt-compuerta-excel-cliente.md`
+> (ADR-0010). Las filas radicadas bajo este diseño **no se reescriben ni se reconsultan**. El resto
+> del documento se conserva tal cual: es la historia de una HU ya entregada, no una guía vigente.
+
 Feature #11912. Canal Cliente de `flito-soat` (no el legado `soat/`). Worktree `flito-11935`. **No se reescribe el Feature** (CF-07/10 quedan desfasados a propósito).
 
 ## Patrón reutilizado

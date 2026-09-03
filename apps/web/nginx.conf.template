@@ -22,9 +22,10 @@ server {
     # que el path original /api/... llegue intacto al backend Express.
     location /api/ {
         # Lotes de PDFs (SOAT/impuestos: multer acepta hasta 50 archivos x 15MB).
-        # Debe coincidir con el client_max_body_size del reverse-proxy del HOST.
-        # 100m se quedaba corto: una tanda real de 35 comprobantes pesaba 228 MB y nginx la
-        # cortaba con 413 antes de que la API la viera (produccion, 2026-09-02).
+        # 250m alinea con el client_max_body_size del reverse-proxy del HOST y con
+        # CARGA_MASIVA_MAX_BYTES_CUERPO (packages/shared-types). 100m se quedaba corto:
+        # una tanda real de 35 comprobantes pesaba 228 MB y nginx la cortaba con 413
+        # antes de que la API la viera (produccion, 2026-09-02).
         client_max_body_size 250m;
         proxy_pass http://${API_HOST}:${API_PORT};
         proxy_http_version 1.1;

@@ -3,8 +3,9 @@
 // (precondición) vive en flito-factura-venta.service.ts; la carga de recibos → Pagado llega en P3.
 //
 // Dos fronteras innegociables, como en SOAT: compañías que autogestionan quedan fuera SIEMPRE
-// (CA-05), y un gestor de impuestos solo ve SU organismo (CA-10) — atadura = users.transito_codigo,
-// leída de BD (§9.3), nunca el JWT. El gestor NUNCA ve los Pendiente.
+// (CA-05), y un gestor de impuestos solo ve SUS organismos (CA-10) — atadura =
+// flito_gestor_organismos (HU #12053), leída de BD, nunca el JWT; son VARIOS y la lista vacía
+// significa que no ve nada. El gestor NUNCA ve los Pendiente.
 
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
@@ -192,7 +193,10 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
   const conds = [FRONTERA_AUTOGESTION_IMP];
 
   if (esGestor(ctx)) {
-    if (!ctx.transitoCodigo) return null; // sin organismo no hay frontera → nada
+    // Sin organismos no hay frontera → nada. El retorno temprano va ANTES del `inArray` también por
+    // mecánica: `inArray` con una lista vacía no produce SQL válido en drizzle, así que llegar ahí
+    // sería un 500 donde hoy hay una cola vacía.
+    if (ctx.organismos.length === 0) return null;
     // Lo asumido por Operaciones sale de su cola. Aquí la bandera no es una comodidad: no hay
     // columna de destinatario que poner a null, así que es lo ÚNICO capaz de sacarlo — y sin ello
     // el gestor podría pagar un recibo que Operaciones ya está pagando. Dinero real, dos veces.
@@ -200,7 +204,7 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
     // Va en las condiciones COMPARTIDAS por la página, el conteo y las facetas: si viviera solo en
     // la consulta de filas, el total seguiría contándolo y nadie lo notaría.
     conds.push(eq(flitoImpuestos.gestionOperaciones, false));
-    conds.push(eq(flitoImpuestos.organismoCodigo, ctx.transitoCodigo));
+    conds.push(inArray(flitoImpuestos.organismoCodigo, ctx.organismos));
     const visibles = f.estados?.length ? f.estados.filter((e) => ESTADOS_VISIBLES_GESTOR.includes(e)) : [EstadoImpuesto.SOLICITADO];
     if (visibles.length === 0) return null;
     conds.push(inArray(flitoImpuestos.estado, visibles));
@@ -463,7 +467,8 @@ export async function buscarConAcceso(id: string, ctx: ImpuestoCtx): Promise<typ
     // Antes que el organismo: lo que asumió Operaciones deja de ser suyo aunque el organismo siga
     // siendo el mismo — y lo sigue siendo siempre, porque el impuesto se paga ante él igual.
     if (row.imp.gestionOperaciones) return null;
-    if (row.imp.organismoCodigo !== ctx.transitoCodigo) return null;
+    // Con la lista vacía esto da `null`, que es lo correcto: sin frontera no ve NADA.
+    if (!ctx.organismos.includes(row.imp.organismoCodigo)) return null;
     if (!ESTADOS_VISIBLES_GESTOR.includes(row.imp.estado as EstadoImpuesto)) return null;
   }
   return row.imp;

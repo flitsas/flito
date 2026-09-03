@@ -2,6 +2,27 @@
 // preconsulta. Un AC por bloque, y cada aserción escrita para morir si se quita el código que la
 // sostiene.
 //
+// ── Lo que la HU #11966 INVIERTE en este archivo, y por qué no se borra nada ─────────────────────
+//
+// Diez casos de esta suite afirmaban lo CONTRARIO de lo que hoy es cierto, porque la HU #11935
+// (ADR-0009) había quitado la compuerta del RUNT y la #11966 (ADR-0010) la devuelve. Se reescriben
+// **en su sitio y con su nombre**, no se borran: un verde por borrado no demuestra que la regla
+// nueva se cumpla, demuestra que ya nadie la mira. Los diez, para que se puedan buscar:
+//
+//   1. «201 aunque `consultarVehiculoRunt` nunca se resuelve»  → el alta ESPERA a Kyverum.
+//   2. «marca, línea y organismoCodigo AUSENTES en el INSERT»  → los tres se escriben del RUNT.
+//   3. «el alta no llama a Kyverum»                            → lo llama, una vez y con el tipo de pasarela.
+//   4. «201 sin haber llamado /preconsulta»                    → sigue sin invocarla, pero sí consulta el RUNT.
+//   5. «no pisa marca/línea del vehículo existente»            → las pisa con lo que dijo el RUNT.
+//   6. el `describe` «AC2 — el RUNT falla … igual se crea»     → no se crea: 503 o 422 según quién falló.
+//   7. el `describe` «AC3 — … se crea en pendiente_revision»   → 409 `soat_vigente`, y no se crea.
+//   8. «organismo que no cruza → 201 y organismoCodigo NULL»   → sigue siendo 201 (AC5), y eso NO cambia.
+//   9. «preconsulta: organismo no catalogado → 422»            → 200 con `organismo.codigo: null`.
+//  10. «placa o VIN ausentes → 400»                            → el VIN es opcional; solo la placa es 400.
+//
+// El satélite `verificacion_estado` deja de nacer en `pendiente` y nace en `ok`: la compuerta ya
+// corrió, así que la lectura es concluyente.
+//
 // ── Cómo está montada, y por qué así ─────────────────────────────────────────────────────────────
 //
 // **Se mide el INSERT, no la respuesta.** El mock de drizzle devuelve lo que el test le registre, así
@@ -68,6 +89,8 @@ function runtOk(over: Record<string, unknown> = {}, soat: unknown = { estadoSoat
         idAutomotor: '9911', estadoAutomotor: 'ACTIVO',
         marca: 'MAZDA', linea: 'CX-30', modelo: '2026', clase: 'CAMIONETA',
         cilindraje: '1598', tipoServicio: 'Particular',
+        // Los TRES de la HU #11966. `tipoCarroceria` es el nombre del campo en el payload real.
+        tipoCarroceria: 'WAGON', pasajerosSentados: '5', puertas: '5',
         organismoTransito: 'STRIA TTOyTTE MCPAL FUNZA',
         nombrePropietario: 'JUANA PEREZ',
         ...over,
@@ -76,6 +99,18 @@ function runtOk(over: Record<string, unknown> = {}, soat: unknown = { estadoSoat
     },
   };
 }
+
+/**
+ * El RUNT dice que NO, con HTTP 200 — es la NEGATIVA DE NEGOCIO del AC2.
+ *
+ * `httpStatus: 200` es la señal que `runt.service.ts` anota y que separa este desenlace del RUNT
+ * caído. El mensaje va a propósito SIN la palabra «propietario»: si el discriminador dependiera del
+ * texto, este caso saldría como 503 y el AC4 se rompería en silencio.
+ */
+const RUNT_NEGATIVA_DE_NEGOCIO = { ok: false, message: 'Consulta rechazada por el registro', httpStatus: 200 };
+
+/** El RUNT no respondió — el AC4. Sin `httpStatus`, que es lo que produce un timeout o un no-200. */
+const RUNT_CAIDO = { ok: false, message: 'Timeout 90s' };
 
 let sub = 100;
 const siguienteUsuario = () => ++sub;
@@ -109,11 +144,20 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.insert('vehicles', [{ id: VEHICULO_ID }]);
 }
 
-/** Los campos del formulario, tal como los manda el `multipart` del navegador (todo texto). */
+/**
+ * Los campos del formulario, tal como los manda el `multipart` del navegador (todo texto).
+ *
+ * **Desde la HU #11966 el propietario va PARTIDO y sin `nombreCompleto`** (AC5): ese lo deriva el
+ * servicio. `municipio` y `departamento` son obligatorios y son el DOMICILIO del titular, no la
+ * jurisdicción del organismo. `vin` sigue viajando porque el formulario lo permite, pero ya no es
+ * obligatorio: hay un caso propio para el alta sin VIN.
+ */
 const CAMPOS: Record<string, string> = {
   placa: 'jnh38h', vin: '9fkrg2222t2042405',
-  tipoDocumento: 'CC', numeroDocumento: '1020304050', nombreCompleto: 'JUANA PEREZ',
+  tipoDocumento: 'CC', numeroDocumento: '1020304050',
+  nombres: 'JUANA', apellidos: 'PEREZ',
   correo: 'juana@empresa.co', celular: '3001234567', direccion: 'CALLE 1 # 2-3',
+  municipio: 'FUNZA', departamento: 'CUNDINAMARCA',
 };
 
 /** `POST /cliente` con el adjunto que se le pase. */
@@ -162,18 +206,26 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     expect(espia.ultimoInsertEn('flito_soat').companiaId).toBe(COMPANIA);
   });
 
-  it('**201 aunque `consultarVehiculoRunt` nunca se resuelve** (el alta no espera a Kyverum)', async () => {
+  it('**el alta ESPERA a Kyverum: si el RUNT no responde, NO hay fila** (INVERTIDO por la #11966)', async () => {
+    // Este caso decía «201 aunque `consultarVehiculoRunt` nunca se resuelve», que era el AC1 de la
+    // #11935. Con ADR-0010 el RUNT es compuerta otra vez, así que la afirmación se invierte: el alta
+    // no puede terminar sin el desenlace, y el desenlace por defecto —no respondió— es un 503 que no
+    // crea nada. El mutante que mata: quitar el `await` de la compuerta y dejar pasar el INSERT.
     escenario();
-    consultarVehiculoRuntMock.mockReturnValue(new Promise(() => { /* colgada a propósito */ }));
+    consultarVehiculoRuntMock.mockResolvedValue(RUNT_CAIDO);
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
-    expect(r.status).toBe(201);
-    expect(r.body.estado).toBe('pendiente_revision');
-    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(r.status).toBe(503);
+    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
   });
 
-  it('**marca, línea y organismoCodigo AUSENTES en el INSERT del 201** (el cliente no los manda; el RUNT va después)', async () => {
+  it('**marca, línea, clase y organismoCodigo SALEN DEL RUNT en el INSERT del 201** (INVERTIDO por la #11966)', async () => {
+    // Decía «AUSENTES … el RUNT va después». Ahora la ficha se escribe DENTRO de la transacción con
+    // lo que dijo el registro (AC1), y lo que el cliente intente mandar por el multipart se sigue
+    // ignorando —esa mitad no cambia y es la que sostiene «marca y línea no se teclean»—.
     escenario();
     await alta(await buildApp(), await auth('cliente', siguienteUsuario()), {
       campos: { marca: 'FERRARI', linea: 'F40', cilindraje: '2999', organismoCodigo: '11001' },
@@ -182,40 +234,59 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     const vehiculo = espia.ultimoInsertEn('vehicles');
     expect(vehiculo).toMatchObject({
       vin: '9FKRG2222T2042405', plate: 'JNH38H',
+      brand: 'MAZDA', model: 'CX-30', year: 2026, vehicleClass: 'CAMIONETA',
+      cilindraje: '1598', tipoServicio: 'Particular',
+      // Los tres nuevos de la HU #11966. `carroceria` sale de `tipoCarroceria` del payload.
+      carroceria: 'WAGON', pasajerosSentados: '5', puertas: '5',
     });
-    expect(vehiculo.brand).toBeNull();
-    expect(vehiculo.model).toBeNull();
-    expect(vehiculo.vehicleClass).toBeNull();
-    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    // Lo que el cliente tecleó NO entra por ninguna vía: ni la marca inventada ni el organismo.
+    expect(vehiculo.brand).not.toBe('FERRARI');
+    expect(vehiculo.model).not.toBe('F40');
+    expect(vehiculo.cilindraje).not.toBe('2999');
+    // El organismo es el que CRUZA el catálogo desde el nombre del RUNT, no el del formulario.
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(ORGANISMO_FUNZA);
   });
 
-  it('el tipo de documento de la UI se persiste; el alta no llama a Kyverum', async () => {
+  it('**el tipo de documento de la UI se persiste, y el alta SÍ llama a Kyverum** (INVERTIDO por la #11966)', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()), {
       campos: { tipoDocumento: 'PPT' },
     });
     expect(r.status).toBe(201);
-    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    // Una sola consulta, con los CUATRO argumentos y con el código de PASARELA (`PPT` → `Y`), igual
+    // que la preconsulta: las dos comparten `consultarRuntCrudo`.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledWith(
+      'JNH38H', '9FKRG2222T2042405', '1020304050', 'Y',
+    );
     expect(espia.ultimoInsertEn('flito_compradores').tipoDocumento).toBe('PPT');
   });
 
-  it('**201 sin haber llamado `/preconsulta`**: crear no la invoca', async () => {
+  it('**201 sin haber llamado `/preconsulta`**: crear no la invoca, pero consulta el RUNT por su cuenta', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(201);
-    // La preconsulta es otro endpoint. Este POST no la dispara ni como paso interno.
-    expect(consultarVehiculoRuntMock).not.toHaveBeenCalled();
+    // La preconsulta sigue siendo OTRO endpoint y este POST no la dispara: no hay una segunda
+    // lectura de `clients` ni un segundo rastro de PII de preconsulta. Lo que sí hace —y es lo que
+    // cambia con la #11966— es consultar Kyverum UNA vez, por la compuerta que los dos comparten.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(1);
   });
 
-  it('el propietario va a `flito_compradores` colgado del SOAT y NO de un trámite', async () => {
+  it('el propietario va a `flito_compradores` colgado del SOAT y NO de un trámite, y va PARTIDO', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
     const propietario = espia.ultimoInsertEn('flito_compradores');
     expect(propietario).toMatchObject({
-      soatId: r.body.id, nombreCompleto: 'JUANA PEREZ', numeroDocumento: '1020304050',
+      soatId: r.body.id, numeroDocumento: '1020304050',
       tipoDocumento: 'CC', correo: 'juana@empresa.co', celular: '3001234567', direccion: 'CALLE 1 # 2-3',
+      // HU #11966 (AC5): el nombre partido y el domicilio del titular.
+      nombres: 'JUANA', apellidos: 'PEREZ', razonSocial: null,
+      municipio: 'FUNZA', departamento: 'CUNDINAMARCA',
     });
+    // `nombre_completo` sigue escribiéndose —lo busca la cola— pero es un DERIVADO: el cliente ya no
+    // lo manda. El mutante que mata: dejar de escribirlo, o escribirlo desde un campo del formulario.
+    expect(propietario.nombreCompleto).toBe('JUANA PEREZ');
     // El CHECK `flito_compradores_padre_chk` exige uno y solo uno de los dos padres: mandar también
     // `tramiteId` sería un 23514 en la base y aquí un test verde con una fila que nunca entra.
     expect(propietario.tramiteId).toBeUndefined();
@@ -227,7 +298,12 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
 
     expect(espia.ultimoInsertEn('flito_soat_solicitud')).toMatchObject({
       soatId: r.body.id, solicitadoPorId: sub, solicitadoPorNombre: 'cliente@empresa.co',
-      verificacionEstado: 'pendiente',
+      // INVERTIDO por la #11966: nacía en `pendiente` porque el desenlace se conocía después del
+      // COMMIT. Ahora la compuerta ya corrió, así que la lectura es CONCLUYENTE: `ok`, y
+      // `soatVigente: false` —si estuviera vigente no habría fila que anotar—.
+      verificacionEstado: 'ok',
+      soatVigente: false,
+      verificacionCodigo: null,
     });
     expect(espia.ultimoInsertEn('flito_soportes')).toMatchObject({
       tipo: 'factura_venta', soatId: r.body.id, contentType: 'application/pdf',
@@ -256,7 +332,11 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     }
   });
 
-  it('un vehículo que YA existe **y es de SU compañía** se actualiza sin borrar lo que el alta no trajo', async () => {
+  it('un vehículo que YA existe **y es de SU compañía** se actualiza CON los datos del RUNT (INVERTIDO por la #11966)', async () => {
+    // Decía «sin borrar lo que el alta no trajo … no pisa marca/línea», porque el alta no esperaba al
+    // RUNT. Ahora sí lo espera, así que la ficha se actualiza con lo que dijo el registro. Lo que NO
+    // se invierte —y por eso el caso de abajo existe— es la política del sync: un `null` del RUNT
+    // sigue sin viajar y sigue sin borrar lo que ya se sabía.
     escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
@@ -264,12 +344,32 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
 
     expect(espia.insertsEn('vehicles')).toHaveLength(0);
     const set = espia.updatesEn('vehicles').at(-1)!.datos;
-    // El alta no espera al RUNT: no pisa marca/línea. Un `null` no viaja (política del sync).
-    expect(Object.keys(set)).not.toContain('brand');
-    expect(Object.keys(set)).not.toContain('model');
-    expect(Object.keys(set)).not.toContain('cilindraje');
-    expect(Object.keys(set)).not.toContain('tipoServicio');
+    expect(set).toMatchObject({
+      brand: 'MAZDA', model: 'CX-30', year: 2026, vehicleClass: 'CAMIONETA',
+      cilindraje: '1598', tipoServicio: 'Particular',
+      carroceria: 'WAGON', pasajerosSentados: '5', puertas: '5',
+    });
+    // Es de su compañía: NO se readopta (`clientId` no entra en el `set`).
     expect(Object.keys(set)).not.toContain('clientId');
+  });
+
+  it('**un `null` del RUNT no BORRA lo que la ficha ya sabía** (la política del sync, intacta)', async () => {
+    // La mitad del caso anterior que NO se invierte, y hace falta suya propia: sin ella, escribir el
+    // `set` sin los `...(datos.x ? {…} : {})` pasaría verde y un RUNT que no reporta cilindraje
+    // borraría el que puso el OCR de la tarjeta de propiedad.
+    escenario({ vehicles: [{ id: VEHICULO_ID, clientId: COMPANIA }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({
+      marca: null, cilindraje: null, tipoCarroceria: null, pasajerosSentados: null, puertas: null,
+    }));
+
+    expect((await alta(await buildApp(), await auth('cliente', siguienteUsuario()))).status).toBe(201);
+
+    const set = espia.updatesEn('vehicles').at(-1)!.datos;
+    for (const campo of ['brand', 'cilindraje', 'carroceria', 'pasajerosSentados', 'puertas']) {
+      expect(Object.keys(set), `${campo} no puede viajar con null`).not.toContain(campo);
+    }
+    // Y lo que el RUNT sí trajo sigue viajando: el descarte es por campo, no por respuesta.
+    expect(set.model).toBe('CX-30');
   });
 });
 
@@ -339,7 +439,11 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
     // (mutante comprobado). Aquí la previa ve la fila libre y la de dentro la ve de otra compañía,
     // que es lo que ocurre cuando dos altas del mismo VIN se cruzan.
     escenario({ flito_soat: [], vehicles: [{ id: VEHICULO_ID, clientId: 999 }] });
-    kdb.when.selectOnce('vehicles', []); // la comprobación previa: todavía no hay ficha
+    // DOS lecturas previas desde la #11966, no una: la tenencia se mira con el VIN tecleado (antes de
+    // gastar Kyverum) y otra vez con el VIN EFECTIVO que devolvió el RUNT. Las dos ven la ficha
+    // libre; la de dentro de la transacción la ve ajena, que es lo que ocurre cuando dos altas del
+    // mismo VIN se cruzan.
+    kdb.when.selectOnce('vehicles', []).selectOnce('vehicles', []);
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
@@ -391,47 +495,80 @@ describe('tenencia del vehículo — la ficha de otra compañía no se toca', ()
   });
 });
 
-// ───────────────────────────── AC2 — el RUNT falla: igual se crea ────────────
+// ─────────────── AC2 / AC4 — el RUNT falla o responde que no: NO se crea ─────
+//
+// **`describe` INVERTIDO por la HU #11966.** Se llamaba «el RUNT falla o el organismo no está en el
+// catálogo: igual se crea» y afirmaba 201 en los cinco desenlaces. Con ADR-0010 solo UNO de los
+// cinco sigue dando 201 —el del organismo que no cruza, que es el AC5— y los otros cuatro son la
+// compuerta. Los casos se conservan uno a uno para que se vea qué afirmaba cada uno antes.
 
-describe('AC2 — el RUNT falla o el organismo no está en el catálogo: igual se crea', () => {
-  it('RUNT caído → 201 (ya no 503); la fila nace', async () => {
+describe('AC2 y AC4 — el RUNT falla o responde que no: NO se crea la fila', () => {
+  it('**RUNT caído → 503 `runt_no_disponible` (antes 201); ni una fila**', async () => {
     escenario();
-    consultarVehiculoRuntMock.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
+    consultarVehiculoRuntMock.mockResolvedValue(RUNT_CAIDO);
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(r.body.estado).toBe('pendiente_revision');
-    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
-    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionEstado).toBe('pendiente');
+    expect(r.status).toBe(503);
+    expect(r.body.codigo).toBe('runt_no_disponible');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    expect(espia.insertsEn('flito_soat_solicitud')).toHaveLength(0);
+    expect(espia.insertsEn('vehicles')).toHaveLength(0);
   });
 
-  it('RUNT sin registro (eco de la consulta) → 201, no 422', async () => {
+  it('**RUNT sin registro (eco de la consulta) → 422 `runt_sin_registro` (antes 201)**', async () => {
     escenario();
+    // La respuesta que devuelve el eco de lo consultado y nada más. `runtSinRegistro` no se fía de
+    // placa ni VIN por eso mismo: son lo que se preguntó, no lo que el registro sabe.
     consultarVehiculoRuntMock.mockResolvedValue({
       ok: true, data: { vehiculo: { placa: 'JNH38H', vin: '9FKRG2222T2042405' } },
     });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('runt_sin_registro');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
-  it('placa o VIN que no cuadran con el RUNT → 201 (el job anota `no_cuadra`)', async () => {
+  it('**placa que no cuadra con el RUNT → 422 `runt_no_cuadra` (antes 201)**', async () => {
     escenario();
-    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: 'XXX999', vin: 'OTROVIN12345678901' }));
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ placa: 'XXX999' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('runt_no_cuadra');
+    // Sin `campo`: la placa es obligatoria y es lo único que el usuario pudo escribir mal; el foco
+    // solo se dirige cuando lo que falla es el VIN opcional.
+    expect(r.body.campo).toBeUndefined();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
-  it('organismo que no cruza con el catálogo → 201 y organismoCodigo NULL', async () => {
+  it('**VIN tecleado que no cuadra → 422 `runt_no_cuadra` con `campo: vin`, y SIN el VIN del RUNT**', async () => {
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ vin: 'VINSECRETODELRUNT' }));
+
+    const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(422);
+    expect(r.body.codigo).toBe('runt_no_cuadra');
+    expect(r.body.campo).toBe('vin');
+    // **La no-fuga.** Un Cliente puede sondear placas ajenas: si el 422 devolviera el VIN bueno, el
+    // endpoint sería un lector de VIN por placa. Es el mutante (c) del diseño §6.
+    expect(JSON.stringify(r.body)).not.toContain('VINSECRETODELRUNT');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+  });
+
+  it('organismo que no cruza con el catálogo → **sigue siendo 201** y organismoCodigo NULL (AC5)', async () => {
+    // El ÚNICO de los cinco que no se invierte, y por eso el `describe` lo conserva: el organismo no
+    // volvió a ser compuerta. El mutante que mata: restaurar el `422 organismo_no_catalogado`.
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(201);
     expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    // Y queda anotado en el satélite, que es donde vive ese hecho desde la #11935.
+    expect(espia.ultimoInsertEn('flito_soat_solicitud')).toMatchObject({
+      verificacionEstado: 'ok', verificacionCodigo: 'organismo_no_catalogado',
+    });
   });
 
   it('organismo del catálogo pero SIN configurar en esta instalación → 201, organismo NULL', async () => {
@@ -442,18 +579,24 @@ describe('AC2 — el RUNT falla o el organismo no está en el catálogo: igual s
     expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
   });
 
-  it('**TC-AC5-01: el INSERT del 201 lleva organismoCodigo NULL**', async () => {
+  it('**el INSERT del 201 lleva el organismo CRUZADO cuando el nombre del RUNT sí cruza** (INVERTIDO)', async () => {
+    // Era «TC-AC5-01: el INSERT del 201 lleva organismoCodigo NULL», cierto bajo la #11935 porque el
+    // alta no consultaba. Ahora el cruce ocurre dentro de la petición.
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(201);
-    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(ORGANISMO_FUNZA);
   });
 });
 
-// ───────────────────────────── AC3 — SOAT vigente: se crea, no auto-solicita ─
+// ───────────────────────── AC3 — SOAT vigente: no se crea ni se compra ───────
+//
+// **`describe` INVERTIDO por la HU #11966.** Se llamaba «se crea en pendiente_revision» y afirmaba
+// 201 en los tres escenarios de vigencia. Con ADR-0010 son 409: el AC3 dice «no se inserta la
+// solicitud … y no se compra».
 
-describe('AC3 — el RUNT dice que ya tiene SOAT vigente: se crea en pendiente_revision', () => {
-  it('**SOAT vigente por fecha → 201, no 409; el estado NO pasa a solicitado**', async () => {
+describe('AC3 — el RUNT dice que ya tiene SOAT vigente: 409 y no se crea', () => {
+  it('**SOAT vigente por fecha → 409 `soat_vigente` (antes 201), con la fecha para el modal**', async () => {
     escenario();
     const dentroDeUnAnio = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, {
@@ -461,32 +604,39 @@ describe('AC3 — el RUNT dice que ya tiene SOAT vigente: se crea en pendiente_r
     }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(r.body.estado).toBe('pendiente_revision');
-    expect(r.body.codigo).not.toBe('soat_vigente');
-    expect(espia.ultimoInsertEn('flito_soat').estado).toBe('pendiente_revision');
-    expect(espia.ultimoInsertEn('flito_soat').estado).not.toBe('solicitado');
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('soat_vigente');
+    expect(r.body.fechaVencimiento).toBe(dentroDeUnAnio);
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
+    // «Y no se compra»: no queda ninguna fila en `solicitado` ni en ningún otro estado.
+    expect(espia.updatesEn('flito_soat')).toHaveLength(0);
   });
 
-  it('SOAT vigente con fecha en `dd/MM/yyyy` → 201 (el aviso vive en el satélite, no en el 201)', async () => {
+  it('**SOAT vigente con fecha en `dd/MM/yyyy` → 409 con la fecha normalizada a `yyyy-mm-dd`** (INVERTIDO)', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2027' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
+    expect(r.status).toBe(409);
+    // Antes este caso afirmaba que `fechaVencimiento` NO estaba en el cuerpo, porque el aviso vivía
+    // en el satélite. Ahora es el 409 quien lo lleva, y en formato ISO: la pantalla no parsea
+    // `dd/MM/yyyy`.
+    expect(r.body.fechaVencimiento).toBe('2027-02-01');
   });
 
-  it('vigencia SOLO por estado → 201 sin auto-transición', async () => {
+  it('**vigencia SOLO por estado → 409 sin fecha** (INVERTIDO)', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'VIGENTE' }));
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(201);
-    expect(espia.ultimoInsertEn('flito_soat').estado).toBe('pendiente_revision');
+    expect(r.status).toBe(409);
+    expect(r.body.codigo).toBe('soat_vigente');
+    // La clave se OMITE cuando el RUNT no manda fecha: nunca una fecha por defecto.
+    expect(Object.keys(r.body)).not.toContain('fechaVencimiento');
+    expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
-  it('SOAT VENCIDO → 201 (como siempre)', async () => {
+  it('SOAT VENCIDO → 201 (como siempre): «lo tuvo y caducó» no es vigente', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, { estadoSoat: 'NO VIGENTE', fechaVencimSoat: '01/02/2019' }));
 
@@ -495,7 +645,7 @@ describe('AC3 — el RUNT dice que ya tiene SOAT vigente: se crea en pendiente_r
     expect(espia.insertsEn('flito_soat')).toHaveLength(1);
   });
 
-  it('el RUNT no reporta póliza → 201', async () => {
+  it('el RUNT no reporta póliza → 201: `unknown` no es `vigente`', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({}, null));
 
@@ -814,30 +964,58 @@ describe('POST /cliente/preconsulta — paso 1, sin escribir nada', () => {
     expect(piiMock.mock.calls[0][1].camposAccedidos).not.toContain('nombre_completo');
   });
 
-  it('placa o VIN ausentes → 400 (y la PII sigue viajando en el cuerpo, nunca en la query)', async () => {
+  it('**la placa ausente es 400; el VIN ausente ya NO lo es** (INVERTIDO por la #11966)', async () => {
+    // Decía «placa o VIN ausentes → 400». El VIN pasó a ser opcional (AC1), así que la mitad de esa
+    // afirmación dejó de ser cierta. La otra mitad se conserva, y con ella el motivo por el que este
+    // caso existe: la PII sigue viajando en el cuerpo y nunca en la query.
+    const app = await buildApp();
+
     escenario();
-    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()), { placa: 'JNH38H' } as Record<string, string>);
-    expect(r.status).toBe(400);
+    const sinPlaca = await preconsultar(app, await auth('cliente', siguienteUsuario()), {
+      vin: '9FKRG2222T2042405', tipoDocumento: 'CC', numeroDocumento: '1020304050',
+    });
+    expect(sinPlaca.status).toBe(400);
+
+    escenario();
+    const sinVin = await preconsultar(app, await auth('cliente', siguienteUsuario()), {
+      placa: 'JNH38H', tipoDocumento: 'CC', numeroDocumento: '1020304050',
+    });
+    expect(sinVin.status).toBe(200);
+    // Y consulta la pasarela SIN VIN: por placa + documento, que es la combinación que acepta.
+    expect(consultarVehiculoRuntMock).toHaveBeenLastCalledWith('JNH38H', undefined, '1020304050', 'C');
+    // El VIN que devuelve es el del RUNT, que es el que se persistiría.
+    expect(sinVin.body.vehiculo.vin).toBe('9FKRG2222T2042405');
   });
 
-  it('organismo no catalogado → 422 con `organismoNombre` como CAMPO (contrato de preconsulta intacto)', async () => {
+  it('**organismo no catalogado → 200 con `organismo.codigo: null` (antes 422)**', async () => {
+    // INVERTIDO por la HU #11966 (AC5). Si la preconsulta siguiera bloqueando por organismo, el paso
+    // 1 del wizard negaría un alta que el paso 2 acepta — que es exactamente lo que el caso gemelo
+    // del alta demuestra que ahora entra con 201.
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA TTO DE MARTE' }));
 
     const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(r.body.codigo).toBe('organismo_no_catalogado');
-    expect(r.body.organismoNombre).toBe('STRIA TTO DE MARTE');
+    expect(r.status).toBe(200);
+    expect(r.body.organismo).toEqual({ codigo: null, nombre: null });
+    expect(r.body.codigo).toBeUndefined();
   });
 
-  it('preconsulta sin organismo en el RUNT → la clave viaja con `null`', async () => {
+  it('**preconsulta sin organismo en el RUNT → 200, `codigo` y `nombre` en null** (INVERTIDO)', async () => {
     escenario();
     consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
 
     const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()));
-    expect(r.status).toBe(422);
-    expect(Object.keys(r.body)).toContain('organismoNombre');
-    expect(r.body.organismoNombre).toBeNull();
+    expect(r.status).toBe(200);
+    expect(r.body.organismo.codigo).toBeNull();
+    expect(r.body.organismo.nombre).toBeNull();
+    // El vehículo sí viaja: no tener organismo no vacía la respuesta.
+    expect(r.body.vehiculo.marca).toBe('MAZDA');
+  });
+
+  it('los TRES campos nuevos del vehículo viajan en la preconsulta (entrada de la #11967)', async () => {
+    escenario();
+    const r = await preconsultar(await buildApp(), await auth('cliente', siguienteUsuario()));
+    expect(r.body.vehiculo).toMatchObject({ carroceria: 'WAGON', pasajerosSentados: '5', puertas: '5' });
   });
 });
 

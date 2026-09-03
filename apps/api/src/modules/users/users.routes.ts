@@ -9,6 +9,10 @@ import { audit } from '../../shared/middleware/audit.js';
 import { isValidPage } from '../../shared/permissions.js';
 import { ALL_ROLES, isKnownOrganismoCodigo } from '@operaciones/shared-types';
 import { loggerFor } from '../../shared/logger.js';
+import {
+  actualizarUsuario, crearUsuario, organismosDe, organismosDeVarios, organismosInexistentes,
+  proveedorSoatExiste, userSelect,
+} from './users.service.js';
 
 const log = loggerFor('users');
 
@@ -71,12 +75,42 @@ const transitoCodigoSchema = z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 
 // de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
 const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
 
+// FLITO (HU #12053) — el proveedor SOAT del rol `proveedor`. Mismo patrón que `companiaId`: la
+// obligatoriedad es CONDICIONAL AL ROL y vive en el `superRefine`; que el uuid EXISTA lo comprueba
+// el handler contra `flito_proveedores_soat`.
+const proveedorSoatIdSchema = z.string().uuid('Proveedor SOAT inválido').nullable().optional();
+
+/**
+ * Los organismos del `gestor_impuestos`. Es una LISTA y no un código porque el AC2 pide varios.
+ *
+ * El `isKnownOrganismoCodigo` se conserva como pre-filtro (mismo mensaje que un typo en
+ * `transitoCodigo`), pero NO basta: el catálogo de `shared-types` es el nacional y la atadura se
+ * hace contra el PARAMETRIZADO. La existencia real la comprueba el handler.
+ *
+ * Se DEDUPLICA antes de escribir: sin esto, `["05001","05001"]` choca con la PK compuesta y devuelve
+ * un 23505 servido en un 500.
+ */
+const organismosCodigosSchema = z.array(
+  z.string().regex(/^\d{5}$/, 'Código DIVIPOLA de 5 dígitos')
+    .refine((c) => isKnownOrganismoCodigo(c), 'Organismo de tránsito desconocido'),
+).max(200).transform((arr) => [...new Set(arr)]).optional();
+
 // Literales del copy de UX (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4). El front los
 // muestra prefijados con el nombre del campo (`ApiError.toUserMessage`): es el comportamiento que ya
 // tiene `transitoCodigo` y no se arregla en esta HU.
 const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para el rol Cliente';
 const MSG_COMPANIA_SOBRA = 'Solo los usuarios Cliente pueden tener compañía asignada';
 const MSG_COMPANIA_NO_EXISTE = 'La compañía no existe';
+
+// FLITO — ámbito del Proveedor y del Gestor de Impuestos (HU #12053). Literales de
+// docs/ux/usuarios-ambito-proveedor-y-gestor-impuestos.md §5.2, con el mismo tratamiento que los de
+// arriba: el front los muestra prefijados con el nombre del campo (`ApiError.toUserMessage`).
+const MSG_PROVEEDOR_REQUERIDO = 'Proveedor SOAT requerido para el rol Proveedor';
+const MSG_PROVEEDOR_SOBRA = 'Solo los usuarios Proveedor pueden tener proveedor SOAT asignado';
+const MSG_PROVEEDOR_NO_EXISTE = 'El proveedor SOAT no existe';
+const MSG_ORGANISMOS_REQUERIDOS = 'Organismos requeridos para el rol Gestor de Impuestos';
+const MSG_ORGANISMOS_SOBRAN = 'Solo los usuarios Gestor de Impuestos pueden tener organismos asignados';
+const MSG_ORGANISMOS_NO_EXISTE = 'Alguno de los organismos no existe';
 
 /** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
 async function companiaExiste(id: number): Promise<boolean> {
@@ -93,6 +127,8 @@ const createSchema = z.object({
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
   companiaId: companiaIdSchema,
+  flitoProveedorSoatId: proveedorSoatIdSchema,
+  organismosCodigos: organismosCodigosSchema,
 }).superRefine((d, ctx) => {
   if (d.role === 'transito' && !d.transitoCodigo) {
     ctx.addIssue({ code: 'custom', path: ['transitoCodigo'], message: 'Organismo de tránsito requerido para rol tránsito' });
@@ -108,6 +144,21 @@ const createSchema = z.object({
   if (d.role !== 'cliente' && d.companiaId) {
     ctx.addIssue({ code: 'custom', path: ['companiaId'], message: MSG_COMPANIA_SOBRA });
   }
+  // AC3 de la #12053, las dos ataduras y sus dos inversos. Esta es la capa que produce el mensaje
+  // que el admin lee, y la que garantiza que un alta inválida NO escriba nada: el 400 sale antes de
+  // consultar siquiera si el username está libre.
+  if (d.role === 'proveedor' && !d.flitoProveedorSoatId) {
+    ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_REQUERIDO });
+  }
+  if (d.role !== 'proveedor' && d.flitoProveedorSoatId) {
+    ctx.addIssue({ code: 'custom', path: ['flitoProveedorSoatId'], message: MSG_PROVEEDOR_SOBRA });
+  }
+  if (d.role === 'gestor_impuestos' && !d.organismosCodigos?.length) {
+    ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_REQUERIDOS });
+  }
+  if (d.role !== 'gestor_impuestos' && d.organismosCodigos?.length) {
+    ctx.addIssue({ code: 'custom', path: ['organismosCodigos'], message: MSG_ORGANISMOS_SOBRAN });
+  }
 });
 
 const updateSchema = z.object({
@@ -117,28 +168,21 @@ const updateSchema = z.object({
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
   companiaId: companiaIdSchema,
+  flitoProveedorSoatId: proveedorSoatIdSchema,
+  organismosCodigos: organismosCodigosSchema,
 });
 
-const userSelect = {
-  id: users.id,
-  username: users.username,
-  name: users.name,
-  email: users.email,
-  role: users.role,
-  active: users.active,
-  allowedPages: users.allowedPages,
-  transitoCodigo: users.transitoCodigo,
-  // La lista de usuarios la necesita para decir a qué compañía pertenece un `cliente`: sin ella, el
-  // dato que el AC2 vuelve obligatorio solo se vería abriendo «Editar».
-  companiaId: users.companiaId,
-  createdAt: users.createdAt,
-};
+// `userSelect` vive en el servicio: lo comparten las cuatro respuestas y las dos escrituras
+// transaccionales. Los organismos NO están ahí —son otra tabla y `.returning()` no hace join— y se
+// componen en cada respuesta.
 
 // === Listar usuarios =========================================================
 router.get('/', async (req: Request, res: Response) => {
   const result = await db.select(userSelect).from(users).orderBy(users.username);
+  // AC5: UNA consulta más para toda la página, agrupada por usuario. Una por fila sería N+1.
+  const porUsuario = await organismosDeVarios(result.map((u) => u.id));
   await audit(req, { action: 'export', resource: 'user', detail: `Lista usuarios (${result.length})` });
-  res.json(result);
+  res.json(result.map((u) => ({ ...u, organismosCodigos: porUsuario.get(u.id) ?? [] })));
 });
 
 // === Crear usuario ===========================================================
@@ -149,7 +193,10 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const { username, name, email, password, role, allowedPages, transitoCodigo, companiaId } = parsed.data;
+  const {
+    username, name, email, password, role, allowedPages, transitoCodigo, companiaId,
+    flitoProveedorSoatId, organismosCodigos,
+  } = parsed.data;
 
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
   if (existing.length > 0) {
@@ -162,17 +209,33 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
+  if (role === 'proveedor' && !(await proveedorSoatExiste(flitoProveedorSoatId!))) {
+    res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
+    return;
+  }
+
+  if (role === 'gestor_impuestos') {
+    const faltan = await organismosInexistentes(organismosCodigos!);
+    if (faltan.length > 0) {
+      res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
+      return;
+    }
+  }
+
   const passwordHash = await argon2.hash(password);
   // Si no envía allowedPages, queda vacío y el backend usa defaults del rol vía getEffectivePages.
   // Si envía un array (incluso vacío), se respeta y SOLO se aplican los defaults del rol al unir.
-  const [user] = await db.insert(users).values({
+  //
+  // Los tres ternarios de ámbito hacen lo mismo: el `superRefine` ya rechazó las combinaciones
+  // inválidas, y esto impide que un rol distinto conserve un ámbito por un cuerpo con campos de más.
+  const user = await crearUsuario({
     username, name, email: email ?? null, passwordHash, role,
     allowedPages: allowedPages ?? [],
     transitoCodigo: role === 'transito' ? transitoCodigo! : null,
-    // Solo el `cliente` la lleva. El `superRefine` ya rechazó las dos combinaciones inválidas; este
-    // ternario es lo que impide que un rol distinto la conserve por un cuerpo con campos de más.
     companiaId: role === 'cliente' ? companiaId! : null,
-  }).returning(userSelect);
+    flitoProveedorSoatId: role === 'proveedor' ? flitoProveedorSoatId! : null,
+    organismosCodigos: role === 'gestor_impuestos' ? organismosCodigos! : [],
+  });
 
   await audit(req, { action: 'create', resource: 'user', resourceId: String(user.id), detail: `Usuario creado: ${username} (${role})` });
   res.status(201).json(user);
@@ -233,6 +296,51 @@ router.patch('/:id', async (req: Request, res: Response) => {
     return;
   }
 
+  // Las MISMAS cuatro guardas, para las dos ataduras de la HU #12053. La tercera —ascender al rol
+  // sin traer la atadura en el cuerpo ni tenerla antes— es la que de verdad importa: sin ella un
+  // PATCH que solo cambia el rol crea el usuario que el AC3 declara imposible.
+  if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === null) {
+    res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
+    return;
+  }
+  if (data.flitoProveedorSoatId && roleEfectivo !== 'proveedor') {
+    res.status(400).json({ error: MSG_PROVEEDOR_SOBRA });
+    return;
+  }
+  if (roleEfectivo === 'proveedor' && data.flitoProveedorSoatId === undefined && !before.flitoProveedorSoatId) {
+    res.status(400).json({ error: MSG_PROVEEDOR_REQUERIDO });
+    return;
+  }
+  if (data.flitoProveedorSoatId && !(await proveedorSoatExiste(data.flitoProveedorSoatId))) {
+    res.status(400).json({ error: MSG_PROVEEDOR_NO_EXISTE });
+    return;
+  }
+
+  const organismosPedidos = data.organismosCodigos;
+  // Una lista VACÍA sobre un gestor es «quitarle todos los organismos»: el mismo 400 que quitarle la
+  // compañía a un cliente. El `[]` no es «sin cambios»: es un ámbito vacío, y un gestor sin ámbito
+  // no ve nada.
+  if (roleEfectivo === 'gestor_impuestos' && organismosPedidos !== undefined && organismosPedidos.length === 0) {
+    res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
+    return;
+  }
+  if (organismosPedidos?.length && roleEfectivo !== 'gestor_impuestos') {
+    res.status(400).json({ error: MSG_ORGANISMOS_SOBRAN });
+    return;
+  }
+  if (roleEfectivo === 'gestor_impuestos' && organismosPedidos === undefined
+      && (await organismosDe(id)).length === 0) {
+    res.status(400).json({ error: MSG_ORGANISMOS_REQUERIDOS });
+    return;
+  }
+  if (organismosPedidos?.length) {
+    const faltan = await organismosInexistentes(organismosPedidos);
+    if (faltan.length > 0) {
+      res.status(400).json({ error: `${MSG_ORGANISMOS_NO_EXISTE}: ${faltan.join(', ')}` });
+      return;
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (data.name !== undefined) updates.name = data.name;
   if (data.email !== undefined) updates.email = data.email;
@@ -249,27 +357,44 @@ router.patch('/:id', async (req: Request, res: Response) => {
   if (data.role !== undefined && data.role !== 'cliente' && data.companiaId === undefined) {
     updates.companiaId = null;
   }
-  if (Object.keys(updates).length === 0) { res.status(400).json({ error: 'Sin cambios' }); return; }
-
-  // Si cambian role, allowedPages, transitoCodigo o companiaId, invalidar sesiones — el JWT cachea
-  // scope. `companiaId` NO viaja en el token (`contextoSoat` la lee de la BD), pero el ROL sí, y un
-  // cambio de compañía es un cambio de qué datos ve esa persona: que vuelva a entrar limpia.
-  const debeInvalidar = data.role !== undefined || data.allowedPages !== undefined
-    || data.transitoCodigo !== undefined || data.companiaId !== undefined;
-  if (debeInvalidar) {
-    (updates as any).sessionInvalidatedAt = new Date();
+  if (data.flitoProveedorSoatId !== undefined) updates.flitoProveedorSoatId = data.flitoProveedorSoatId;
+  // Degradar desde `proveedor` le quita el proveedor SOAT, igual que degradar a un `cliente` le
+  // quita la compañía: dejárselo sería un ámbito colgado que nadie vuelve a mirar.
+  if (data.role !== undefined && data.role !== 'proveedor' && data.flitoProveedorSoatId === undefined) {
+    updates.flitoProveedorSoatId = null;
   }
 
-  const [updated] = await db.update(users).set(updates).where(eq(users.id, id)).returning(userSelect);
-  if (!updated) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+  /**
+   * Conjunto destino de organismos, o `null` para no tocarlo. Degradar desde `gestor_impuestos`
+   * lo VACÍA (`[]`), por el mismo motivo que las otras dos ataduras.
+   */
+  const organismosDestino: string[] | null = organismosPedidos !== undefined
+    ? organismosPedidos
+    : (data.role !== undefined && data.role !== 'gestor_impuestos' ? [] : null);
 
-  if (debeInvalidar) invalidateSessionCacheFor(id);
+  // Si cambian role, allowedPages, transitoCodigo, companiaId o el proveedor SOAT, invalidar
+  // sesiones — el JWT cachea scope. Los ámbitos NO viajan en el token (se leen de la BD), pero el
+  // ROL sí, y cambiar un ámbito cambia qué datos ve esa persona: que vuelva a entrar limpia.
+  //
+  // Lo de los organismos no se decide aquí: `actualizarUsuario` compara el conjunto anterior con el
+  // destino DENTRO de la transacción y suma su veredicto a este (AC4).
+  const invalidarPorCampos = data.role !== undefined || data.allowedPages !== undefined
+    || data.transitoCodigo !== undefined || data.companiaId !== undefined
+    || data.flitoProveedorSoatId !== undefined;
+
+  const r = await actualizarUsuario(id, { updates, organismosDestino, invalidarPorCampos });
+  if (r.estado === 'sin_cambios') { res.status(400).json({ error: 'Sin cambios' }); return; }
+  if (r.estado === 'no_encontrado') { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+
+  // DESPUÉS del commit, como ya se hacía: invalidar la caché de una transacción que luego revierte
+  // deja fuera a quien no había que sacar.
+  if (r.invalidada) invalidateSessionCacheFor(id);
 
   await audit(req, {
     action: 'update', resource: 'user', resourceId: String(id),
-    detail: `Cambios: ${Object.keys(updates).join(', ')}${data.role ? ` (rol: ${before.role}→${data.role})` : ''}${debeInvalidar ? ' [sesiones invalidadas]' : ''}`,
+    detail: `Cambios: ${r.camposCambiados.join(', ')}${data.role ? ` (rol: ${before.role}→${data.role})` : ''}${r.invalidada ? ' [sesiones invalidadas]' : ''}`,
   });
-  res.json(updated);
+  res.json(r.usuario);
 });
 
 // === Toggle activo/inactivo ==================================================
@@ -307,7 +432,9 @@ router.patch('/:id/toggle', async (req: Request, res: Response) => {
     action: 'update', resource: 'user', resourceId: String(id),
     detail: `Estado: ${before.active ? 'activo' : 'inactivo'} → ${updated.active ? 'activo' : 'inactivo'} [sesiones invalidadas]`,
   });
-  res.json(updated);
+  // Aquí SÍ hay que leerlos: devolver `[]` haría que el front borrase de la fila los organismos del
+  // gestor con solo activarlo o desactivarlo. Una consulta puntual por `user_id`; la PK la sirve.
+  res.json({ ...updated, organismosCodigos: await organismosDe(id) });
 });
 
 // === Forzar logout (admin manual) ============================================

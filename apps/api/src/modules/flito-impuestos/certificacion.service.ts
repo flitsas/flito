@@ -26,6 +26,7 @@ import {
 import { db } from '../../db/client.js';
 import { auditLogs, flitoCompradores, flitoImpuestoCertificaciones, flitoImpuestos, flitoTramites, vehicles } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
+import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
 import { compararConRunt, esTraspasoEnSincronizacion, extraerVehiculoRunt, runtSinRegistro } from './certificacion-runt.js';
 import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.js';
@@ -283,31 +284,6 @@ export interface ResultadoLoteItem {
   motivo?: MotivoNoElegible;
   /** Solo en `con_diferencias`: lo que el gestor necesita leer para saber qué corregir. */
   diferenciasBloqueantes?: ComparacionCampo[];
-}
-
-/**
- * Ejecuta `fn` sobre `items` con como mucho `limite` en vuelo a la vez.
- *
- * Sin dependencias: un pool de N obreros que van tomando el siguiente índice libre. `Promise.all`
- * sobre todos los items lanzaría el lote entero de golpe contra el RUNT y abriría el circuit breaker
- * a los cinco fallos; un `for` secuencial haría esperar al gestor el doble de lo necesario.
- *
- * Los resultados vuelven en el ORDEN de entrada, no en el de terminación: la interfaz muestra la
- * tabla en el mismo orden en que el usuario seleccionó, y que las filas bailen según cuál respondió
- * antes sería desconcertante.
- */
-async function conConcurrencia<T, R>(items: T[], limite: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const resultados = new Array<R>(items.length);
-  let siguiente = 0;
-  const obreros = Array.from({ length: Math.min(limite, items.length) }, async () => {
-    for (;;) {
-      const i = siguiente++;
-      if (i >= items.length) return;
-      resultados[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(obreros);
-  return resultados;
 }
 
 /** Traduce un desenlace individual al item del lote, sin perder el detalle. */

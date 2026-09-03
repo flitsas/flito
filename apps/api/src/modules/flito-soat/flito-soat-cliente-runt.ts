@@ -1,28 +1,21 @@
-// FLITO — SOAT, canal Cliente: lectura del RUNT y verificación post-alta (HU #11935).
-// Diseño: docs/diseno-hu-11935-alta-sin-runt-bloqueante.md · ADR-0009.
+// FLITO — SOAT, canal Cliente: lo que habla con el RUNT y CÓMO se clasifica su respuesta.
+// Diseño: docs/diseno-hu-11966-runt-compuerta-excel-cliente.md · ADR-0010 (supersede ADR-0009).
 //
-// El ALTA ya no espera a Kyverum. Este archivo concentra lo que sí habla con el RUNT:
-// el extractor (el mismo de siempre, no se reescribe), la preconsulta (sigue bloqueante:
-// su contrato HTTP no cambia) y el job fire-and-forget que corre DESPUÉS del COMMIT.
+// **El RUNT vuelve a ser compuerta del alta** (HU #11966). Los DOS endpoints del canal —la
+// preconsulta y `POST /cliente`— consultan Kyverum ANTES de escribir nada y traducen su respuesta a
+// uno de cuatro desenlaces ({@link DesenlaceRunt}). No hay job post-commit: la #11935 lo introdujo y
+// esta HU lo borra entero, que es lo que hace ESTRUCTURAL el «las filas ya radicadas no se
+// reconsultan» del AC6 — sin función, no hay reconsulta posible por descuido.
 //
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
 
 import { eq } from 'drizzle-orm';
 import {
-  CodigoErrorSolicitudSoat,
   resolverCodigoOrganismoFlit,
-  type EstadoVerificacionSolicitudSoat,
   type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import {
-  auditLogs,
-  flitoCompradores,
-  flitoSoat,
-  flitoSoatSolicitud,
-  organismosTransitoConfig,
-  vehicles,
-} from '../../db/schema.js';
+import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
 import { derivePreflightChecks } from '../tramites/preflight.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
@@ -45,6 +38,17 @@ export interface DatosRuntCanal {
   clase: string | null;
   cilindraje: string | null;
   tipoServicio: string | null;
+  /** `data.vehiculo.tipoCarroceria`. Va a `vehicles.carroceria` (HU #11966). */
+  carroceria: string | null;
+  /**
+   * Pasajeros sentados y puertas (HU #11966). Los DOS son texto y los DOS pueden faltar.
+   *
+   * Alimentan `CapacidadCargaOPasajeros` y `Puertas` del Excel para las filas del canal. Si el RUNT
+   * no los trajo, la celda va VACÍA — nunca la constante `'4'` de la plantilla, que es justo la
+   * afirmación falsa que el AC6 viene a quitar del archivo.
+   */
+  pasajerosSentados: string | null;
+  puertas: string | null;
   organismoNombre: string | null;
   /**
    * Nombre del propietario SI el RUNT lo trae.
@@ -60,12 +64,6 @@ export interface DatosRuntCanal {
   propietarioNombre: string | null;
 }
 
-/** Lo que el alta escribe en `vehicles` ANTES de consultar el RUNT: placa/VIN/propietario, nada técnico. */
-export const DATOS_RUNT_VACIOS: DatosRuntCanal = {
-  placa: null, vin: null, marca: null, linea: null, modelo: null, clase: null,
-  cilindraje: null, tipoServicio: null, organismoNombre: null, propietarioNombre: null,
-};
-
 /** Primer alias con valor útil. El RUNT no es consistente con los nombres de sus campos. */
 function alias(fuente: Record<string, unknown> | null, claves: readonly string[]): string | null {
   if (!fuente) return null;
@@ -79,25 +77,34 @@ function alias(fuente: Record<string, unknown> | null, claves: readonly string[]
 }
 
 /**
- * Los diez campos del canal, a partir de la respuesta cruda.
+ * Los TRECE campos del canal, a partir de la respuesta cruda.
  *
  * Los seis primeros salen de `extraerVehiculoRunt`, que es el extractor que ya resuelve los alias
  * del RUNT y está verificado contra una consulta real (`certificacion-runt.ts`). NO se reescribe:
  * duplicar las cadenas de alias es garantizar que dentro de un mes digan cosas distintas. Los
- * cuatro que faltan —cilindraje, servicio, organismo y propietario— no están en `DatosVehiculoRunt`
- * porque la certificación de impuestos no los compara, y se leen aquí con el mismo criterio.
+ * siete que faltan —cilindraje, servicio, carrocería, pasajeros, puertas, organismo y propietario—
+ * no están en `DatosVehiculoRunt` porque la certificación de impuestos no los compara, y se leen
+ * aquí con el mismo criterio.
+ *
+ * Las cadenas de alias de los tres nuevos (HU #11966) siguen la nomenclatura medida del payload:
+ * `tipoCarroceria`, `pasajerosSentados` y `puertas` dentro de `data.vehiculo`, con los sinónimos
+ * habituales por si el tipo de vehículo cambia la forma (una moto o un remolque no traen lo mismo).
+ * `datosTecnicos` se mira como segunda vía, igual que ya hacen cilindraje y servicio.
  */
 export function extraerDatosCanal(data: unknown): DatosRuntCanal {
   const d = (data ?? {}) as Record<string, unknown>;
   const veh = (d.vehiculo ?? null) as Record<string, unknown> | null;
   const tec = (d.datosTecnicos ?? null) as Record<string, unknown> | null;
   const base = extraerVehiculoRunt(data);
+  const dosVias = (claves: readonly string[]) => alias(veh, claves) ?? alias(tec, claves);
 
   return {
     ...base,
-    cilindraje: alias(veh, ['cilindraje', 'cilindrada']) ?? alias(tec, ['cilindraje', 'cilindrada']),
-    tipoServicio: alias(veh, ['tipoServicio', 'servicio', 'nombreServicio'])
-      ?? alias(tec, ['tipoServicio', 'servicio', 'nombreServicio']),
+    cilindraje: dosVias(['cilindraje', 'cilindrada']),
+    tipoServicio: dosVias(['tipoServicio', 'servicio', 'nombreServicio']),
+    carroceria: dosVias(['tipoCarroceria', 'carroceria', 'nombreCarroceria']),
+    pasajerosSentados: dosVias(['pasajerosSentados', 'capacidadPasajeros', 'numeroPasajeros', 'pasajeros']),
+    puertas: dosVias(['puertas', 'numeroPuertas', 'numPuertas']),
     organismoNombre: alias(veh, ['organismoTransito', 'organismoTransitoNombre', 'nombreOrganismoTransito']),
     propietarioNombre: alias(veh, ['nombrePropietario', 'propietario', 'nombreTitular']),
   };
@@ -150,7 +157,8 @@ function fechaValida(anio: number, mes: number, dia: number): string | null {
  *
  * Dos comprobaciones: `resolverCodigoOrganismoFlit` cruza el nombre contra el catálogo nacional,
  * y `organismos_transito_config` es la tabla a la que apunta la FK. Devuelve `null` si no cruza
- * — el job NO lanza: deja el organismo NULL y anota `organismo_no_catalogado`.
+ * — y `null` NO aborta nada (AC5 de la HU #11966): la fila se crea igual con el organismo vacío y
+ * el satélite anotando `organismo_no_catalogado`.
  */
 export async function resolverOrganismoCatalogo(nombre: string | null): Promise<string | null> {
   const codigo = resolverCodigoOrganismoFlit({ nombre });
@@ -161,207 +169,236 @@ export async function resolverOrganismoCatalogo(nombre: string | null): Promise<
 }
 
 /**
- * Placa o VIN del RUNT DIFIERE de la entrada. Un campo que el RUNT no trajo (`NO_VERIFICABLE`)
- * no es «no cuadra» — misma normalización que `compararCampo` de certificación.
+ * QUÉ campo del RUNT difiere de lo que se radicó, o `null` si no difiere ninguno.
+ *
+ * Un campo que el RUNT no trajo (`NO_VERIFICABLE`) no es «no cuadra» — misma normalización que
+ * `compararCampo` de certificación. Y un VIN que el cliente NO tecleó tampoco: desde la HU #11966 el
+ * VIN es opcional en la entrada y el efectivo es el del RUNT, así que no hay nada que contrastar.
+ *
+ * Devuelve el campo y no un booleano porque el 422 del VIN lleva `campo: 'vin'` para que el wizard
+ * pueda poner el foco donde toca. El de la placa no lo necesita: la placa es obligatoria y es lo
+ * único que el usuario pudo escribir mal.
  */
-export function runtNoCuadra(
-  entrada: { placa: string; vin: string },
+export function campoQueNoCuadra(
+  entrada: { placa: string; vin: string | null },
   datos: DatosRuntCanal,
-): boolean {
+): 'placa' | 'vin' | null {
   const placaRunt = normalizarIdentificador(datos.placa);
   const vinRunt = normalizarIdentificador(datos.vin);
   const placaIn = normalizarIdentificador(entrada.placa);
   const vinIn = normalizarIdentificador(entrada.vin);
-  if (placaRunt !== null && placaIn !== null && placaRunt !== placaIn) return true;
-  if (vinRunt !== null && vinIn !== null && vinRunt !== vinIn) return true;
-  return false;
+  if (placaRunt !== null && placaIn !== null && placaRunt !== placaIn) return 'placa';
+  if (vinRunt !== null && vinIn !== null && vinRunt !== vinIn) return 'vin';
+  return null;
 }
 
-export interface ResultadoRunt {
-  datos: DatosRuntCanal;
-  organismoCodigo: string;
-}
-
-export type RespuestaKyverum = { ok?: boolean; data?: unknown; message?: string };
+export type RespuestaKyverum = {
+  ok?: boolean;
+  data?: unknown;
+  message?: string;
+  /**
+   * Código HTTP con el que la pasarela contestó, cuando `ok` es `false` (HU #11966).
+   *
+   * Lo anota `runt.service.ts` y lo lee SOLO este archivo. `200` = «el RUNT respondió que no»;
+   * cualquier otro valor, o su ausencia, = «el RUNT no respondió». Ver {@link esNegativaDeNegocio}.
+   */
+  httpStatus?: number;
+};
 
 /**
- * Consulta Kyverum. No clasifica: quien llama decide si lanza (preconsulta) o persiste (job).
+ * Consulta Kyverum. No clasifica: quien llama decide qué hacer con la respuesta.
  *
  * Bug #11927: la pasarela exige documento cuando va la placa; el VIN al lado no lo sustituye.
+ *
+ * `vin` es opcional desde la HU #11966 (AC1) y se manda vacío cuando el Cliente no lo tecleó: la
+ * consulta sigue siendo por placa + documento, que es la combinación que la pasarela acepta.
  */
 export async function consultarRuntCrudo(
   placa: string,
-  vin: string,
+  vin: string | null,
   numeroDocumento: string,
   tipoDocumento: TipoDocumentoRunt,
 ): Promise<RespuestaKyverum> {
   const tipoRunt = mapTipoDocUiToRunt(tipoDocumento) ?? tipoDocumento;
-  return await consultarVehiculoRunt(placa, vin, numeroDocumento, tipoRunt) as RespuestaKyverum;
+  return await consultarVehiculoRunt(placa, vin ?? undefined, numeroDocumento, tipoRunt) as RespuestaKyverum;
 }
 
-interface ClasificacionRunt {
-  estado: EstadoVerificacionSolicitudSoat;
-  codigo: string | null;
-  soatVigente: boolean | null;
-  soatVigenteHasta: string | null;
-  datos: DatosRuntCanal | null;
-  organismoCodigo: string | null;
+/** Los códigos de la familia «revise los datos», tal como los emite la compuerta. */
+export type CodigoRevise = 'runt_no_cuadra' | 'runt_sin_registro' | 'runt_sin_vin';
+
+/**
+ * Los CUATRO desenlaces posibles de una consulta al RUNT, y el único vocabulario con el que la
+ * compuerta habla con los dos endpoints.
+ *
+ * Es un tipo de dominio y no un `SolicitudSoatError` a propósito: aquí se DECIDE qué pasó, y el
+ * servicio traduce a HTTP. Separarlo permite que la preconsulta y el alta compartan la decisión —que
+ * es la invariante del AC («los dos endpoints devuelven lo mismo ante el mismo RUNT»)— sin que este
+ * archivo tenga que conocer códigos de estado.
+ */
+export type DesenlaceRunt =
+  | { clase: 'ok'; datos: DatosRuntCanal; vinEfectivo: string; organismoCodigo: string | null }
+  | { clase: 'vigente'; fechaVencimiento: string | null }
+  | { clase: 'revise'; codigo: CodigoRevise; campo?: 'vin' }
+  | { clase: 'caido' };
+
+/**
+ * ¿Este `ok:false` es una NEGATIVA DE NEGOCIO del RUNT, o es que el RUNT no respondió?
+ *
+ * **Es la decisión cara de la HU #11966 y el AC4 entero depende de ella.** `consultarVehiculoRunt`
+ * devuelve `{ ok:false, message }` en los dos casos: cuando la pasarela contesta HTTP 200 con un
+ * rechazo («los datos no corresponden con los propietarios activos del vehículo») y cuando hay
+ * timeout, red, no-200 o circuito abierto. Tratarlos igual convierte un «no» de negocio en un 503
+ * «el RUNT no está disponible», que es exactamente lo que el AC4 prohíbe.
+ *
+ * ── Transporte PRIMERO, texto después ────────────────────────────────────────────────────────────
+ *
+ * `httpStatus === 200` es una señal ESTRUCTURAL: un 200 es, por construcción, «el RUNT respondió».
+ * No se puede romper porque Kyverum corrija una redacción. El predicado sobre el mensaje
+ * (`/propietari/i`, el mismo de `esTraspasoEnSincronizacion` y de `soat/refresh.service.ts`) se
+ * conserva DEBAJO como red: cubre la vía directa, que no pasa por la pasarela y no trae `httpStatus`.
+ *
+ * **El defecto es «caído», y eso es el seguro**: un desenlace desconocido responde 503 y no crea
+ * nada. Nunca produce un alta falsa. El precio, escrito para que se vea: si Kyverum señalara un
+ * rechazo de propietario con un no-200 **y** cambiara la redacción, el usuario leería «el RUNT no
+ * está disponible» cuando sí lo está. Por eso la compuerta loguea el desenlace con su `httpStatus`
+ * (sin placa ni documento), para poder medirlo en DEV.
+ */
+export function esNegativaDeNegocio(respuesta: RespuestaKyverum): boolean {
+  if (respuesta?.httpStatus === 200) return true;
+  return /propietari/i.test(respuesta?.message ?? '');
 }
 
-function clasificarCaido(): ClasificacionRunt {
-  return {
-    estado: 'caido',
-    codigo: CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE,
-    soatVigente: null, soatVigenteHasta: null, datos: null, organismoCodigo: null,
-  };
-}
-
-async function clasificarRespuesta(
+/**
+ * De la respuesta cruda de Kyverum al desenlace, en el ORDEN que fija el diseño §2.3.
+ *
+ * El orden importa y es el del AC:
+ *
+ *   1. `ok:false` → negativa de negocio (`runt_no_cuadra`) o caído. Nada más se puede mirar.
+ *   2. Sin registro → `runt_sin_registro`. `runtSinRegistro` no se fía del eco de la consulta.
+ *   3. Placa o VIN que difieren → `runt_no_cuadra` (+ `campo: 'vin'`).
+ *   4. Sin VIN en la respuesta → `runt_sin_vin`. Sin VIN efectivo no hay fila posible (RN-01).
+ *   5. SOAT vigente → `vigente`.
+ *   6. `ok`, con el organismo cruzado contra catálogo (o `null`, que NO aborta — AC5).
+ *
+ * La vigencia va DESPUÉS de los cuatro «revise»: si los datos del RUNT no sirven para identificar el
+ * vehículo, decir «ya tiene SOAT vigente» sería afirmar algo sobre un vehículo que no se ha
+ * confirmado que sea el que se radica.
+ */
+export async function clasificarDesenlaceRunt(
   respuesta: RespuestaKyverum,
-  entrada: { placa: string; vin: string },
-): Promise<ClasificacionRunt> {
-  if (!respuesta?.ok) return clasificarCaido();
-  if (runtSinRegistro(respuesta.data)) {
-    return {
-      estado: 'sin_registro',
-      codigo: CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO,
-      soatVigente: null, soatVigenteHasta: null, datos: null, organismoCodigo: null,
-    };
+  entrada: { placa: string; vin: string | null },
+): Promise<DesenlaceRunt> {
+  if (!respuesta?.ok) {
+    if (esNegativaDeNegocio(respuesta)) return { clase: 'revise', codigo: 'runt_no_cuadra' };
+    return { clase: 'caido' };
   }
+  if (runtSinRegistro(respuesta.data)) return { clase: 'revise', codigo: 'runt_sin_registro' };
+
   const datos = extraerDatosCanal(respuesta.data);
-  if (runtNoCuadra(entrada, datos)) {
-    return {
-      estado: 'no_cuadra',
-      codigo: CodigoErrorSolicitudSoat.RUNT_NO_CUADRA,
-      soatVigente: null, soatVigenteHasta: null, datos, organismoCodigo: null,
-    };
+
+  const campo = campoQueNoCuadra(entrada, datos);
+  if (campo !== null) {
+    // El 422 NUNCA lleva el VIN del RUNT: un Cliente puede sondear placas, y responder «el bueno es
+    // este» convertiría el endpoint en un lector de VIN por placa. Solo se dice QUÉ campo revisar.
+    return campo === 'vin'
+      ? { clase: 'revise', codigo: 'runt_no_cuadra', campo: 'vin' }
+      : { clase: 'revise', codigo: 'runt_no_cuadra' };
   }
-  const vigente = soatVigenteSegunRunt(respuesta);
-  const hasta = vigente ? fechaVencimientoSoatRunt(respuesta.data) : null;
-  const organismoCodigo = await resolverOrganismoCatalogo(datos.organismoNombre);
+
+  const vinEfectivo = normalizarIdentificador(datos.vin);
+  if (vinEfectivo === null) return { clase: 'revise', codigo: 'runt_sin_vin' };
+
+  if (soatVigenteSegunRunt(respuesta)) {
+    return { clase: 'vigente', fechaVencimiento: fechaVencimientoSoatRunt(respuesta.data) };
+  }
+
   return {
-    estado: 'ok',
-    codigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
-    soatVigente: vigente,
-    soatVigenteHasta: hasta,
+    clase: 'ok',
     datos,
-    organismoCodigo,
+    vinEfectivo,
+    organismoCodigo: await resolverOrganismoCatalogo(datos.organismoNombre),
   };
 }
 
 /**
- * Rellena `vehicles` SOLO con campos RUNT que traen valor. No toca `owner_*` (ADR-0008 §1.4
- * al revés: el job no pisa al propietario que tecleó el cliente). `null` no borra lo que ya
- * se sabía.
+ * En qué CLASE de fallo cayó la pasarela, sin echar el mensaje al log.
+ *
+ * ── Por qué un token y no `err.message` (hueco que encontró el gate B) ──────────────────────────
+ *
+ * El mensaje de un `throw` es texto de un TERCERO y puede traer dentro lo que la pasarela estuviera
+ * procesando — la placa, el VIN o el documento con el que se consultó. `logger` redacta por NOMBRE
+ * de campo (`*.password`, `*.token`…), así que una placa dentro de una cadena libre entra al log
+ * entera y no la ve nadie. Es la misma regla que `rateLimiter.ts` deja escrita: «nada de datos
+ * personales, y no por costumbre — `logger` no redacta lo que no reconoce».
+ *
+ * La suite del job que la HU #11966 borró era el único guardián de la forma de este log
+ * (`{ soatId, verificacionEstado }`, sin placa ni documento). El aserto se recupera en
+ * `flito-soat.cliente-alta-runt-compuerta.test.ts`, sobre las DOS ramas.
+ *
+ * ── Por qué se clasifica en vez de omitir ───────────────────────────────────────────────────────
+ *
+ * ADR-0010 promete poder MEDIR en DEV cuántas caídas hay y de qué tipo; con solo `desenlace: 'caido'`
+ * no se distingue un timeout de un circuito abierto. El token es un vocabulario CERRADO —cuatro
+ * valores escritos aquí—, así que por construcción no puede publicar nada del vehículo: lo que no
+ * casa ninguna regla sale como `otro`, nunca como el texto original.
  */
-async function rellenarVehiculoDesdeRunt(
-  vehiculoId: number,
-  datos: DatosRuntCanal,
-  soatId: string,
-  userId: number | null,
-  userEmail: string,
-): Promise<void> {
-  const anio = Number(datos.modelo);
-  const year = Number.isInteger(anio) && anio > 1900 && anio < 2200 ? anio : null;
-  const set: Record<string, unknown> = { updatedAt: new Date() };
-  if (datos.marca) set.brand = datos.marca;
-  if (datos.linea) set.model = datos.linea;
-  if (year !== null) set.year = year;
-  if (datos.clase) set.vehicleClass = datos.clase;
-  if (datos.cilindraje) set.cilindraje = datos.cilindraje;
-  if (datos.tipoServicio) set.tipoServicio = datos.tipoServicio;
-  const tecnicos = Object.keys(set).filter((k) => k !== 'updatedAt');
-  if (tecnicos.length === 0) return;
+const CAUSAS_CAIDA: readonly (readonly [RegExp, string])[] = [
+  [/timeout|timed out|etimedout|esockettimedout/i, 'timeout'],
+  [/econnreset|econnrefused|enotfound|eai_again|epipe|socket hang up|network/i, 'red'],
+  [/circuit|circuito/i, 'circuito'],
+];
 
-  await db.update(vehicles).set(set).where(eq(vehicles.id, vehiculoId));
-  await db.insert(auditLogs).values({
-    userId, userEmail, action: 'update', resource: 'vehicles',
-    resourceId: String(vehiculoId),
-    detail: `Verificación RUNT post-alta de solicitud SOAT del canal Cliente (${soatId}): ficha del vehículo rellenada con los datos del RUNT`,
-  });
+export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'otro' {
+  const mensaje = err instanceof Error ? err.message : String(err ?? '');
+  for (const [patron, causa] of CAUSAS_CAIDA) {
+    if (patron.test(mensaje)) return causa as 'timeout' | 'red' | 'circuito';
+  }
+  return 'otro';
 }
 
 /**
- * Verificación post-COMMIT. Cierra sobre el id, no sobre el documento. Una sola pasada.
+ * Consulta + clasificación, con el `throw` de la pasarela recogido como «caído».
  *
- * Si `verificacion_estado !== 'pendiente'`, return (idempotente). Si el proceso muere entre el
- * COMMIT y este job, la fila se queda en `pendiente` y Operaciones valida a mano (AC6).
+ * Es el ÚNICO punto por el que el canal habla con el RUNT: la preconsulta y el alta llaman aquí, y
+ * por eso los dos devuelven exactamente lo mismo ante la misma respuesta. Dos copias divergen y el
+ * wizard acaba bloqueando lo que la API acepta, o al revés.
  *
- * El log es `{ soatId, verificacionEstado }`. Prohibido placa, VIN, documento, nombre.
+ * **El log no lleva placa, VIN, documento ni nombre, y tampoco el mensaje CRUDO del error** — solo
+ * el desenlace, la señal de transporte y un token de causa de vocabulario cerrado
+ * ({@link causaDeCaida}). Es lo que hace falta para medir en DEV el riesgo de la clasificación (ver
+ * {@link esNegativaDeNegocio}) sin abrir una vía de PII en logs.
  */
-export async function verificarRuntPostAlta(soatId: string): Promise<void> {
-  const [fila] = await db
-    .select({
-      soatId: flitoSoat.id,
-      vin: flitoSoat.vin,
-      vehiculoId: flitoSoat.vehiculoId,
-      placa: vehicles.plate,
-      verificacionEstado: flitoSoatSolicitud.verificacionEstado,
-      solicitadoPorId: flitoSoatSolicitud.solicitadoPorId,
-      solicitadoPorNombre: flitoSoatSolicitud.solicitadoPorNombre,
-      tipoDocumento: flitoCompradores.tipoDocumento,
-      numeroDocumento: flitoCompradores.numeroDocumento,
-    })
-    .from(flitoSoat)
-    .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
-    .innerJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id))
-    .innerJoin(flitoCompradores, eq(flitoCompradores.soatId, flitoSoat.id))
-    .where(eq(flitoSoat.id, soatId))
-    .limit(1);
-
-  if (!fila) return;
-  if (fila.verificacionEstado !== 'pendiente') return;
-
-  const placa = fila.placa ?? '';
-  const vin = fila.vin;
-  const documento = fila.numeroDocumento ?? '';
-  const tipo = (fila.tipoDocumento ?? 'CC') as TipoDocumentoRunt;
-
-  let clasificacion: ClasificacionRunt;
+export async function consultarYClasificar(
+  placa: string,
+  vin: string | null,
+  numeroDocumento: string,
+  tipoDocumento: TipoDocumentoRunt,
+): Promise<DesenlaceRunt> {
+  let respuesta: RespuestaKyverum;
   try {
-    const respuesta = await consultarRuntCrudo(placa, vin, documento, tipo);
-    clasificacion = await clasificarRespuesta(respuesta, { placa, vin });
-  } catch {
-    clasificacion = clasificarCaido();
-  }
-
-  const ahora = new Date();
-  await db.update(flitoSoatSolicitud).set({
-    verificacionEstado: clasificacion.estado,
-    soatVigente: clasificacion.soatVigente,
-    soatVigenteHasta: clasificacion.soatVigenteHasta,
-    verificacionCodigo: clasificacion.codigo,
-    updatedAt: ahora,
-  }).where(eq(flitoSoatSolicitud.soatId, soatId));
-
-  if (clasificacion.estado === 'ok' && clasificacion.datos) {
-    await rellenarVehiculoDesdeRunt(
-      fila.vehiculoId,
-      clasificacion.datos,
-      soatId,
-      fila.solicitadoPorId,
-      fila.solicitadoPorNombre,
+    respuesta = await consultarRuntCrudo(placa, vin, numeroDocumento, tipoDocumento);
+  } catch (err: unknown) {
+    // Un `throw` no es una respuesta: el defecto seguro es «caído», que no crea nada.
+    //
+    // `causa` y NO `err.message`: el mensaje es texto de un tercero y puede traer la placa o el
+    // documento con el que se consultó. Ver `causaDeCaida`.
+    log.warn(
+      { desenlace: 'caido', causa: causaDeCaida(err), httpStatus: null },
+      'compuerta RUNT del canal Cliente',
     );
-    if (clasificacion.organismoCodigo) {
-      await db.update(flitoSoat).set({
-        organismoCodigo: clasificacion.organismoCodigo,
-        updatedAt: ahora,
-      }).where(eq(flitoSoat.id, soatId));
-    }
+    return { clase: 'caido' };
   }
 
-  log.info({ soatId, verificacionEstado: clasificacion.estado }, 'verificacion RUNT post-alta');
-}
-
-/**
- * Fire-and-forget tras el COMMIT del alta. Precedente: `tramites/lote.ts` (`setImmediate`).
- * Sin cola Redis. El 201 no espera.
- */
-export function programarVerificacionRunt(soatId: string): void {
-  setImmediate(() => {
-    verificarRuntPostAlta(soatId).catch((err: unknown) => {
-      const mensaje = err instanceof Error ? err.message : 'error';
-      log.warn({ soatId, err: mensaje }, 'verificacion RUNT post-alta fallo');
-    });
-  });
+  const desenlace = await clasificarDesenlaceRunt(respuesta, { placa, vin });
+  if (desenlace.clase === 'caido' || desenlace.clase === 'revise') {
+    log.info(
+      {
+        desenlace: desenlace.clase,
+        codigo: desenlace.clase === 'revise' ? desenlace.codigo : null,
+        httpStatus: respuesta.httpStatus ?? null,
+      },
+      'compuerta RUNT del canal Cliente',
+    );
+  }
+  return desenlace;
 }

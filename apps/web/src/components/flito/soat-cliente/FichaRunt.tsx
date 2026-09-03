@@ -1,4 +1,4 @@
-// FLITO — canal Cliente: la ficha «Datos del RUNT» (HU #11914, AC1).
+// FLITO — canal Cliente: la ficha «Datos del RUNT» (HU #11914 AC1, #11967).
 //
 // ── Por qué una ficha `<dl>` y no siete `<input disabled>` ───────────────────────────────────────
 //
@@ -75,8 +75,13 @@ export default function FichaRunt({ datos, consultadoEn, identificadoresGuardado
         <Dato k="Clase" v={dato(vehiculo.clase)} />
         <Dato k="Servicio" v={dato(vehiculo.tipoServicio)} />
         <Dato k="Cilindraje" v={dato(vehiculo.cilindraje)} />
+        {/* Carrocería SÍ (HU #11967): ayuda a reconocer el vehículo. `pasajerosSentados` y
+            `puertas` llegan en la misma respuesta y NO se pintan: son datos del archivo de
+            Operaciones y no responden a la pregunta que se hace aquí, «¿es mi vehículo?». */}
+        <Dato k="Carrocería" v={dato(vehiculo.carroceria)} />
         {/* El organismo, por su NOMBRE. El código DIVIPOLA es la clave que viaja al backend y
-            «05001» no le dice nada a nadie. */}
+            «05001» no le dice nada a nadie. **Si no cruza catálogo se pinta «—» y no pasa nada
+            más**: desde la HU #11966 el organismo no es compuerta y la solicitud se envía igual. */}
         <Dato k="Organismo de tránsito" v={dato(organismo.nombre)} ancho />
       </dl>
 
