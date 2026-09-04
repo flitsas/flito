@@ -81,9 +81,22 @@ Devuelve EXCLUSIVAMENTE este JSON:
 // ─────────────────────────────── Factura de venta ───────────────────────────
 // Porta PATRONES_NUMERO_FACTURA/FECHA_FACTURA/VALOR_VEHICULO. Doble llave: placa Y vin (§8.3). El
 // valorVehiculo es la base gravable — no confundir con el IVA ni el total con impuestos.
+//
+// ── El bloque COMPRADOR (HU #12092, Feature #12073) ──────────────────────────────────────────────
+//
+// Nueve campos del ADQUIRIENTE, para que el canal Cliente no obligue a teclear a mano lo que la
+// factura ya dice. Se amplía ESTA plantilla y no se crea una segunda: dos plantillas serían dos
+// llamadas al modelo por PDF (doble coste y doble latencia) y abrirían la puerta a que las dos
+// lecturas del MISMO documento se contradigan.
+//
+// El error caro de este bloque —el equivalente al "VALOR ASEGURADO" del SOAT— es confundir al
+// COMPRADOR con el EMISOR: en una factura de concesionario el que más se ve es el vendedor (logo,
+// NIT grande, encabezado). Por eso la instrucción lo nombra dos veces, en positivo y en negativo.
+//
+// El `correo` NO se pide: una factura de venta no lo trae, y pedirlo es invitar a inventarlo.
 export const PROMPT_FACTURA_VENTA = `Extrae los datos de esta FACTURA DE VENTA de un vehículo (emitida por un concesionario) colombiana.
 
-Campos:
+Campos del VEHÍCULO y de la factura:
 - placa: la placa asignada al vehículo, si aparece. Formato 3 letras + 3 dígitos. Transcribe tal cual (puede no estar en facturas de vehículo nuevo).
 - vin: número de identificación del vehículo (VIN / chasis / serie), 17 caracteres. Transcribe EXACTO, sin normalizar.
 - numeroFactura: consecutivo de la factura (ej. "FE-1234", "SETP990000123"). Transcribe con su prefijo y guiones tal cual. NO tomes la palabra "ELECTRÓNICA" de "FACTURA ELECTRÓNICA DE VENTA".
@@ -92,8 +105,24 @@ Campos:
     * NO tomes el IVA ni un subtotal parcial. Si solo hay un total con impuestos, tómalo con confianza "media".
     * Entero en pesos, sin puntos, sin comas, sin "$".
 
+Campos del COMPRADOR / ADQUIRIENTE:
+QUIÉN ES: la persona o empresa que COMPRA el vehículo. Búscala bajo las etiquetas "COMPRADOR", "ADQUIRIENTE", "CLIENTE", "SEÑOR(ES)" o "FACTURAR A".
+    * CRÍTICO: el comprador NO es el EMISOR de la factura. El emisor es el concesionario/vendedor: es el que lleva el logo, el encabezado y el NIT grande arriba, y a veces la firma o la resolución de facturación. NUNCA tomes los datos del emisor como los del comprador.
+    * Si no distingues con seguridad cuál de los dos bloques es el comprador, deja TODOS estos campos en null. Es preferible a copiar los del concesionario.
+- nombres: nombres de pila del comprador, cuando es una PERSONA NATURAL. null si el comprador es una empresa.
+- apellidos: apellidos del comprador, cuando es una PERSONA NATURAL. null si el comprador es una empresa.
+- razonSocial: nombre de la empresa compradora, cuando el comprador es una PERSONA JURÍDICA. null si el comprador es una persona natural.
+    * CRÍTICO (excluyentes): o devuelves nombres Y apellidos con razonSocial en null, o devuelves razonSocial con nombres Y apellidos en null. NUNCA los dos juegos a la vez. Si el documento del comprador es un NIT, es una empresa; si es una cédula, es una persona natural.
+- tipoDocumento: el tipo de documento del comprador. UNO de exactamente estos valores: CC, CE, TI, PAS, PPT, NIT, RC, PT.
+    * Si el documento no dice qué tipo es, responde null. NO lo deduzcas de que haya razón social ni de la longitud del número.
+- numeroDocumento: el número de documento del comprador (cédula o NIT), tal como aparece. NO tomes el NIT del concesionario emisor.
+- direccion: la dirección del comprador (la que aparece en SU bloque, no la del concesionario).
+- municipio: el municipio/ciudad del comprador.
+- departamento: el departamento del comprador.
+- celular: el teléfono celular o de contacto del comprador. Solo dígitos.
+
 Devuelve EXCLUSIVAMENTE este JSON:
-{"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"valorVehiculo":{"valor":null,"confianza":null}}`;
+{"placa":{"valor":null,"confianza":null},"vin":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"valorVehiculo":{"valor":null,"confianza":null},"nombres":{"valor":null,"confianza":null},"apellidos":{"valor":null,"confianza":null},"razonSocial":{"valor":null,"confianza":null},"tipoDocumento":{"valor":null,"confianza":null},"numeroDocumento":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null},"celular":{"valor":null,"confianza":null}}`;
 
 // ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
 // Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a

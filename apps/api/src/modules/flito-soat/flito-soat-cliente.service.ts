@@ -78,11 +78,13 @@ import {
   CodigoErrorSolicitudSoat,
   ESTADO_SOAT_LABEL,
   EstadoSoat,
+  type ExtraccionFacturaVenta,
   TipoSoporte,
   type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 import { ConceptoHistorial, registrarCambio } from '../../shared/historial/estado-historial.js';
-import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import { extraerFacturaVenta } from '../flito-ocr/flito-ocr.service.js';
+import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { detectMime } from '../pesv/magic-number.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import {
@@ -799,6 +801,69 @@ export async function crearSolicitud(
   // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
   // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
   return { id: soatId, estado: EstadoSoat.PENDIENTE_REVISION };
+}
+
+// ═════════ Lectura OCR de la factura de venta (Feature #12073, HU #12092) ════
+
+/**
+ * Lee la factura de venta y devuelve lo que el OCR encontró: los cinco campos documentales y los
+ * NUEVE del comprador. **No persiste, no sube nada y no crea soporte** (AC6).
+ *
+ * ── Por qué vive aquí y no en la ruta ───────────────────────────────────────────────────────────
+ *
+ * `verificarPdfReal` es privada de este archivo, y exportarla para llamarla desde el router era la
+ * salida tentadora: dejaría la validación del MIME real disponible para cualquiera y repartiría en
+ * dos archivos la decisión de qué se acepta como factura. La lógica vive donde vive esa guarda, y la
+ * ruta solo arma el `ArchivoSolicitud` con el buffer que multer le entregó.
+ *
+ * ── El orden, que es el mismo del alta y por las mismas razones ─────────────────────────────────
+ *
+ *   1. Canal encendido y compañía del usuario — lo más barato, y sin él una compañía sin el canal
+ *      abierto podría quemar llamadas a un modelo de pago con PDFs de 15 MB.
+ *   2. El adjunto es un PDF de VERDAD (bytes, no extensión) — antes de mandarle nada al encargado
+ *      externo. Un ejecutable renombrado no llega a salir de la red.
+ *   3. Si viene `solicitudId`, que sea alcanzable para quien pregunta (404-no-403). Va ANTES del OCR
+ *      a propósito: si no, cualquier cliente podría estampar en el registro del artículo 17 el uuid
+ *      de una solicitud ajena, y el rastro que la ley exige quedaría apuntando al caso equivocado.
+ *   4. La extracción. Es lo único caro y lo último que corre.
+ *
+ * ── El umbral lo pone quien llama, y aquí es el GLOBAL ──────────────────────────────────────────
+ *
+ * `umbralPara(null)` → `OCR_UMBRAL_DEFECTO`. **No** se usa `flito_proveedores_soat.umbral_ocr` por
+ * dos razones: en el momento de la lectura la solicitud todavía no existe —o está en
+ * `pendiente_revision`— y el proveedor se elige después, en `POST /:id/validar`; y ese umbral
+ * califica la lectura de la PÓLIZA que emite ese proveedor, no la de una factura de concesionario.
+ * Se pasa por `umbralPara` y no se lee `env` a pelo para que sea la misma función que el resto del
+ * repo.
+ *
+ * ── Qué pasa cuando el OCR no está ──────────────────────────────────────────────────────────────
+ *
+ * `extraerFacturaVenta` lanza `OcrNoDisponibleError(503)` y la ruta lo traduce: el formulario sigue a
+ * mano (AC6). Con el fallback local (`OCR_LOCAL=1` y sin API key) no lanza y devuelve los CATORCE
+ * campos en `null` con `confiable: false` —los nueve del comprador y los cinco documentales—, que es
+ * exactamente el AC3 y tampoco impide seguir.
+ */
+export async function leerFacturaVenta(
+  archivo: ArchivoSolicitud,
+  ctx: SoatCtx,
+  solicitudId: string | null = null,
+): Promise<ExtraccionFacturaVenta> {
+  await canalDeLaCompania(ctx);
+  await verificarPdfReal(archivo);
+
+  if (solicitudId) {
+    const soat = await buscarConAcceso(solicitudId, ctx);
+    if (!soat) {
+      throw fallo(404, CodigoErrorSolicitudSoat.SOLICITUD_NO_ENCONTRADA, 'La solicitud no existe.');
+    }
+  }
+
+  return extraerFacturaVenta({
+    nombreArchivo: archivo.originalname,
+    contentType: archivo.mimetype,
+    contenido: archivo.buffer,
+    umbral: umbralPara(null),
+  });
 }
 
 // ═════════════════ Revisión del admin, rechazo y subsanación (HU #11915) ═════

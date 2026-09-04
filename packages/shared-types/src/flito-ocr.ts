@@ -24,6 +24,17 @@ export type CampoSoat = (typeof CampoSoat)[keyof typeof CampoSoat];
  * Campos que el OCR extrae de una factura de venta.
  * Placa y VIN son ambos obligatorios (doble llave): el VIN identifica el vehículo
  * físico y la placa el trámite. `valorVehiculo` es la base gravable del impuesto.
+ *
+ * ── Los NUEVE campos del COMPRADOR (HU #12092, Feature #12073) ──────────────────────────────────
+ *
+ * La factura de venta la emite el concesionario y en ella figura QUIÉN compra: es la única fuente
+ * documental del titular que el canal Cliente tiene a mano cuando radica. Leerlos evita reteclear
+ * nueve campos, y son exactamente los que `flito_compradores` persiste — menos el correo, que una
+ * factura no trae y que por eso NO se pide (inventarlo sería el error que la regla de oro del prompt
+ * prohíbe).
+ *
+ * `nombres`/`apellidos` y `razonSocial` son EXCLUYENTES (AC2): espejan `refinarTitular` del canal y
+ * el CHECK `flito_compradores_titular_chk`. El modelo devuelve un juego u otro, nunca los dos.
  */
 export const CampoFacturaVenta = {
   PLACA: 'placa',
@@ -31,17 +42,84 @@ export const CampoFacturaVenta = {
   NUMERO_FACTURA: 'numeroFactura',
   FECHA_FACTURA: 'fechaFactura',
   VALOR_VEHICULO: 'valorVehiculo',
+  // Comprador / adquiriente — NO el emisor de la factura.
+  NOMBRES: 'nombres',
+  APELLIDOS: 'apellidos',
+  RAZON_SOCIAL: 'razonSocial',
+  TIPO_DOCUMENTO: 'tipoDocumento',
+  NUMERO_DOCUMENTO: 'numeroDocumento',
+  DIRECCION: 'direccion',
+  MUNICIPIO: 'municipio',
+  DEPARTAMENTO: 'departamento',
+  CELULAR: 'celular',
 } as const;
 
 export type CampoFacturaVenta = (typeof CampoFacturaVenta)[keyof typeof CampoFacturaVenta];
 
+/**
+ * `Record` EXHAUSTIVO a propósito: es lo que hace que ampliar el enum sin ampliar las etiquetas deje
+ * el build de shared-types en rojo (AC4 de la HU #12092, «el typecheck obliga a actualizar a los
+ * consumidores existentes»).
+ */
 export const CAMPO_FACTURA_VENTA_LABEL: Record<CampoFacturaVenta, string> = {
   placa: 'Placa',
   vin: 'VIN',
   numeroFactura: 'Número de factura',
   fechaFactura: 'Fecha de la factura',
   valorVehiculo: 'Valor del vehículo',
+  nombres: 'Nombres del comprador',
+  apellidos: 'Apellidos del comprador',
+  razonSocial: 'Razón social del comprador',
+  tipoDocumento: 'Tipo de documento del comprador',
+  numeroDocumento: 'Número de documento del comprador',
+  direccion: 'Dirección del comprador',
+  municipio: 'Municipio del comprador',
+  departamento: 'Departamento del comprador',
+  celular: 'Celular del comprador',
 };
+
+/**
+ * Los nueve campos PERSONALES del comprador, en un solo sitio.
+ *
+ * Existe para que el backend (prompt, normalizadores, registro de acceso a datos personales) y el
+ * formulario del canal no repitan la lista a mano: nueve claves copiadas en cuatro archivos son
+ * cuatro sitios donde falta una el día que se añada la décima.
+ */
+export const CAMPOS_COMPRADOR_FACTURA: readonly CampoFacturaVenta[] = [
+  CampoFacturaVenta.NOMBRES,
+  CampoFacturaVenta.APELLIDOS,
+  CampoFacturaVenta.RAZON_SOCIAL,
+  CampoFacturaVenta.TIPO_DOCUMENTO,
+  CampoFacturaVenta.NUMERO_DOCUMENTO,
+  CampoFacturaVenta.DIRECCION,
+  CampoFacturaVenta.MUNICIPIO,
+  CampoFacturaVenta.DEPARTAMENTO,
+  CampoFacturaVenta.CELULAR,
+];
+
+/**
+ * Los campos que la COLA DE REVISIÓN de Operaciones pide para una factura de venta: los cinco
+ * DOCUMENTALES de siempre, y ni uno más.
+ *
+ * ── Por qué esta lista existe y no basta con `Object.values(CampoFacturaVenta)` ─────────────────
+ *
+ * `camposEsperados()` (`flito-revisiones.service.ts`) construía la lista del formulario de revisión
+ * con `Object.values` del enum. Al ampliar el enum con los nueve campos del comprador —que esa cola
+ * NO extrae, NO persiste y NO tiene por qué mostrar—, esa pantalla se habría convertido, **en
+ * silencio y con el build verde**, en un formulario donde un admin teclea a mano el nombre, la
+ * cédula, la dirección y el celular de una persona sobre una fila que ni siquiera es del canal.
+ *
+ * La cola de revisión resuelve el CRUCE de un documento con un trámite (placa, VIN, número, fecha y
+ * valor). El titular no entra ahí: entra en el formulario del canal Cliente, que es quien lo pide y
+ * quien lo persiste. Por eso la lista se fija aquí, junto al enum que la podría desbordar.
+ */
+export const CAMPOS_REVISION_FACTURA_VENTA: readonly CampoFacturaVenta[] = [
+  CampoFacturaVenta.PLACA,
+  CampoFacturaVenta.VIN,
+  CampoFacturaVenta.NUMERO_FACTURA,
+  CampoFacturaVenta.FECHA_FACTURA,
+  CampoFacturaVenta.VALOR_VEHICULO,
+];
 
 /** Campos que el OCR extrae de un recibo de impuestos (FEATURE_IMPUESTOS §9.3). */
 export const CampoImpuesto = {

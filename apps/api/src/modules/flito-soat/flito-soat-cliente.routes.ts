@@ -46,11 +46,12 @@ import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter } from '../../shared/middleware/rateLimiter.js';
 import { TIPOS_DOCUMENTO_RUNT, type TipoDocumentoRunt } from '@operaciones/shared-types';
+import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
-import { registrarAccesoRuntCliente } from './flito-soat.pii.js';
+import { registrarAccesoRuntCliente, registrarLecturaFacturaCliente } from './flito-soat.pii.js';
 import {
-  crearSolicitud, listarCausalesRechazo, nombreCompletoDe, preconsulta, rechazarSolicitud,
-  SolicitudSoatError, subsanarSolicitud, validarSolicitud,
+  crearSolicitud, leerFacturaVenta, listarCausalesRechazo, nombreCompletoDe, preconsulta,
+  rechazarSolicitud, SolicitudSoatError, subsanarSolicitud, validarSolicitud,
   type ArchivoSolicitud, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
 
@@ -105,6 +106,11 @@ const upload = multer({
 });
 
 function manejarError(res: Response, e: unknown): void {
+  // El OCR caído sale como **503**, no como 500 (AC6 de la HU #12092). Sin esta rama, el `throw` de
+  // abajo lo entregaba al handler global de Express, que responde 500: el formulario leería «error
+  // del servidor» en vez de «el lector no está disponible ahora mismo, siga a mano», que es lo único
+  // que el AC pide poder distinguir. Es la misma línea que ya tiene `flito-derechos.routes.ts`.
+  if (e instanceof OcrNoDisponibleError) { res.status(e.status).json({ error: e.message }); return; }
   if (e instanceof SolicitudSoatError) {
     // El `codigo` viaja JUNTO al mensaje, no en su lugar: el mensaje es para la persona y el código
     // para la pantalla (AC2, AC3, AC4). `error` sigue siendo una CADENA, como en todo el repo —el
@@ -340,6 +346,73 @@ function propietarioDe(d: {
     departamento: d.departamento,
   };
 }
+
+/**
+ * El cuerpo de la lectura: **nada obligatorio salvo el adjunto**, y el `solicitudId` OPCIONAL.
+ *
+ * Es opcional porque la lectura sirve en los dos momentos del canal: durante el ALTA, cuando la
+ * solicitud todavía no existe y no hay uuid que dar, y durante la SUBSANACIÓN, cuando sí lo hay y el
+ * registro de acceso tiene que poder decir sobre qué caso se leyó (AC7).
+ *
+ * Va en el CUERPO del multipart y no como `:id` ni como query: es el mismo criterio con el que la
+ * preconsulta es un `POST` —AGENTS.md §14, nada identificable en la URL—. El uuid es opaco y ahí
+ * estaría permitido, pero ponerlo en la ruta obligaría a un patrón nuevo en la allowlist del canal y
+ * a que la lectura del alta (sin uuid) tuviera OTRA ruta distinta. Una sola ruta, un solo `porque`.
+ */
+const lecturaFacturaSchema = z.object({
+  solicitudId: z.preprocess(
+    vacioANull,
+    z.string().uuid('El identificador de la solicitud no es válido').nullable().optional(),
+  ),
+});
+
+/**
+ * POST /cliente/factura/lectura — el OCR lee el COMPRADOR de la factura de venta (HU #12092, AC6).
+ *
+ * Devuelve la extracción y **no persiste ni archiva nada**: ni objeto en storage, ni fila en
+ * `flito_soportes`, ni soporte, ni solicitud. El buffer muere con la petición. Es un PRELLENADO del
+ * formulario, y por eso cada campo viaja con su confianza y su `confiable`: quien decide qué hacer
+ * con un dato bajo umbral es la persona que ve el formulario, no esta ruta.
+ *
+ * **El orden de los middlewares es el del AC6 y está calcado de `POST /cliente`**: el limitador del
+ * canal va DELANTE de `upload.single` para que el freno actúe antes de que el proceso cargue 15 MB en
+ * memoria, no después. Invertirlos —que es lo cómodo si algún día hace falta mirar el cuerpo para
+ * decidir— convertiría el rate limit en un contador que se aplica cuando el daño ya está hecho.
+ *
+ * **Tres segmentos, sin colisión**: los patrones vecinos de este router son de dos (`/:id/validar`,
+ * `/:id/factura`, `/:id/rechazar-solicitud`), así que ninguno casa con esta ruta.
+ *
+ * La respuesta va ENVUELTA en `{ extraccion }` y no plana: deja sitio para metadatos —el umbral
+ * aplicado, por ejemplo— sin romper al front el día que hagan falta.
+ *
+ * **Ningún valor leído se escribe en los logs** (AC7): ni `audit()` —esto no cambia nada, y la
+ * bitácora de este módulo responde «quién CAMBIÓ qué»— ni un `log.debug` con el JSON extraído. Lo que
+ * queda escrito es una línea en `pii_access_log`: quién, cuándo, qué columnas y sobre qué solicitud.
+ */
+router.post(
+  '/cliente/factura/lectura',
+  CANAL_CLIENTE, soatClienteLimiter, upload.single('facturaVenta'),
+  async (req: Request, res: Response) => {
+    const parsed = lecturaFacturaSchema.safeParse(req.body ?? {});
+    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+    if (!req.file) { res.status(400).json({ error: 'Falta la factura de venta (PDF)' }); return; }
+
+    const archivo: ArchivoSolicitud = {
+      originalname: req.file.originalname, mimetype: req.file.mimetype,
+      buffer: req.file.buffer, size: req.file.size,
+    };
+    const solicitudId = parsed.data.solicitudId ?? null;
+
+    try {
+      const ctx = await contextoSoat(req.user!);
+      const extraccion = await leerFacturaVenta(archivo, ctx, solicitudId);
+      // Después de la extracción y no antes: lo que se registra es que los datos personales SE
+      // ENTREGARON. Una lectura que acabó en 503 no accedió a nada de nadie.
+      await registrarLecturaFacturaCliente(req, { solicitudId });
+      res.json({ extraccion });
+    } catch (e) { manejarError(res, e); }
+  },
+);
 
 // ═════════════════ Revisión del admin, rechazo y subsanación (HU #11915) ═════
 

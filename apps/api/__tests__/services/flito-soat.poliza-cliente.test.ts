@@ -265,14 +265,44 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
   it('la descarga NO necesitó ninguna entrada nueva en la allowlist del canal', async () => {
     // `GET /api/flito/soat/:id/soportes` ya estaba inscrita desde la #11913 y el archivo baja por
     // `GET /api/files?…`, que es público y va firmado: no pasa por `authMiddleware` y por tanto
-    // tampoco por este guarda. Se afirma el tamaño para que abrir la póliza no se convierta en la
+    // tampoco por este guarda. Lo que se afirma aquí es que abrir la póliza no se convierta en la
     // excusa para inscribir una ruta más «de paso».
     const { RUTAS_PERMITIDAS_CLIENTE, rutaPermitidaParaCliente } =
       await import('../../src/shared/middleware/canal-cliente.js');
 
     expect(rutaPermitidaParaCliente('GET', `/api/flito/soat/${SOAT_ID}/soportes`)).toBe(true);
     expect(rutaPermitidaParaCliente('GET', '/api/files')).toBe(false);
-    expect(RUTAS_PERMITIDAS_CLIENTE).toHaveLength(10); // las mismas que dejó la #11915
+
+    // Por CONTENIDO y no por conteo. Hasta la #12092 esto era un `toHaveLength(10)`, y el conteo
+    // solo no bastaba: cuando esa HU inscribió la 11.ª entrada el aserto se pudo «arreglar»
+    // cambiando el 10 por un 11, y a partir de ahí el centinela habría dejado pasar CUALQUIER ruta
+    // futura mientras el número cuadrara —justo lo que existe para impedir—. Enumerado el conjunto
+    // exacto, inscribir una ruta nueva, o cambiarle el método o el patrón a una ya inscrita, pone
+    // rojo este test NOMBRANDO la intrusa, y abrirle algo al rol `cliente` obliga a escribirlo aquí.
+    //
+    // Esta lista es además el sitio donde se lee, fuera del middleware, QUÉ puede alcanzar el rol
+    // externo: seis lecturas (GET) y cinco escrituras (cuatro POST y un PATCH). Las diez primeras
+    // las fijó la #11915. La 11.ª
+    // —`POST …/cliente/factura/lectura`, de la #12092— es la primera ruta de ESCRITURA del canal
+    // que NO PERSISTE NADA: lee el PDF adjunto, devuelve el comprador y el buffer muere con la
+    // petición (ni objeto en storage, ni soporte, ni fila). Entra igual por `requireRole('cliente')`
+    // y el rate limit del canal, y por eso está en la lista pese a no escribir en FLITO.
+    //
+    // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
+    // tal cual para que el diff del rojo señale el sitio exacto de la lista.
+    expect(RUTAS_PERMITIDAS_CLIENTE.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
+      'GET /api/auth/me',
+      'POST /api/auth/logout',
+      'GET /api/flito/soat',
+      'GET /api/flito/soat/facetas',
+      'GET /api/flito/soat/:id',
+      'GET /api/flito/soat/:id/historial',
+      'GET /api/flito/soat/:id/soportes',
+      'POST /api/flito/soat/cliente/preconsulta',
+      'POST /api/flito/soat/cliente',
+      'PATCH /api/flito/soat/:id/solicitud',
+      'POST /api/flito/soat/cliente/factura/lectura',
+    ]);
   });
 });
 
@@ -304,9 +334,14 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     }
   });
 
-  it('el canal Cliente no expone ninguna ruta que pague: sus tres escrituras son otras', async () => {
+  it('el canal Cliente no expone ninguna ruta que pague: sus cuatro escrituras son otras', async () => {
+    // El `\s*` tras el paréntesis NO es cosmético: la #12092 declara su ruta partiendo la llamada en
+    // varias líneas (`router.post(\n  '/cliente/factura/lectura',`) y el patrón anterior —anclado a
+    // `router.post('`— no la veía. El centinela seguía verde CONTANDO SEIS mientras el fichero
+    // declaraba siete: una ruta nueva escrita así habría entrado sin ponerlo rojo, que es el mutante
+    // que este test debe matar. Se enumeran todas y se comprueba que ninguna paga.
     const rutas = fuente('modules/flito-soat/flito-soat-cliente.routes.ts');
-    const declaradas = [...rutas.matchAll(/^router\.(get|post|patch|put|delete)\('([^']+)'/gm)]
+    const declaradas = [...rutas.matchAll(/^router\.(get|post|patch|put|delete)\(\s*'([^']+)'/gm)]
       .map((m) => `${m[1].toUpperCase()} ${m[2]}`);
     expect(declaradas.sort()).toEqual([
       'GET /causales-rechazo',
@@ -314,6 +349,9 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
       'POST /:id/rechazar-solicitud',
       'POST /:id/validar',
       'POST /cliente',
+      // La cuarta escritura del canal (#12092). Es de escritura por el verbo y el adjunto, no por
+      // efecto: lee el PDF y responde; no toca storage, ni `flito_soportes`, ni ninguna fila.
+      'POST /cliente/factura/lectura',
       'POST /cliente/preconsulta',
     ]);
   });
