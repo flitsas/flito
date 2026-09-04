@@ -45,7 +45,10 @@ import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { soatClienteLimiter } from '../../shared/middleware/rateLimiter.js';
-import { TIPOS_DOCUMENTO_RUNT, type TipoDocumentoRunt } from '@operaciones/shared-types';
+import {
+  CAMPOS_COMPRADOR_FACTURA, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
+  type ProcedenciaCompradorPersistida, type TipoDocumentoRunt,
+} from '@operaciones/shared-types';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
 import { registrarAccesoRuntCliente, registrarLecturaFacturaCliente } from './flito-soat.pii.js';
@@ -272,7 +275,65 @@ function refinarTitular(
   }
 }
 
-const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).superRefine(refinarTitular);
+/**
+ * El mapa de procedencia, campo por campo (HU #12093, AC2).
+ *
+ * ── Se construye desde la constante compartida, y eso es media regla ────────────────────────────
+ *
+ * Las claves salen de `CAMPOS_COMPRADOR_FACTURA` —los nueve campos que el OCR de la factura extrae
+ * del comprador (HU #12092)— y no de una lista escrita aquí. Con una copia local, el día que la
+ * factura ganara un décimo campo el formulario podría declarar su procedencia y esta ruta la
+ * rechazaría con un 400 que nadie sabría explicar. Los valores salen de `PROCEDENCIAS_DATO`, por lo
+ * mismo.
+ *
+ * ── `.strict()`: un campo desconocido es 400 y no una clave que se cae en silencio ──────────────
+ *
+ * Zod descarta por omisión las claves que no declara —es lo que hace que mandar `placa` en la
+ * subsanación no sea un error—, pero aquí el AC pide lo contrario: «un campo o valor desconocido
+ * responde 400». Y tiene sentido que así sea, al revés que en la subsanación: allí una clave de más
+ * es ruido del formulario sobre un dato que la ruta no va a tocar, y aquí es una AFIRMACIÓN sobre
+ * un dato del titular que se va a guardar. Aceptarla en silencio dejaría al front creyendo que
+ * declaró la procedencia de `correo` cuando ese campo ni se lee de la factura.
+ *
+ * Cada campo es OPCIONAL: lo que no venga se completa con `manual` en el servicio (AC3). Es la
+ * división de siempre en este router —el borde valida el vocabulario, el servicio deriva—, la misma
+ * que separa `refinarTitular` de `nombreCompletoDe`.
+ */
+const procedenciaValorSchema = z.enum(PROCEDENCIAS_DATO).optional();
+
+const procedenciaMapaSchema = z.object(
+  // `fromEntries` y no un objeto literal con las nueve claves tecleadas: la lista es la compartida.
+  // El tipo que Zod infiere de aquí es un índice `{ [k: string]: … }` en vez de las nueve claves
+  // exactas —el precio de construir el shape en tiempo de ejecución—, y por eso el borde de salida
+  // (la llamada a `crearSolicitud`) lo estrecha a `ProcedenciaCompradorPersistida`. Lo que decide
+  // qué se acepta es el `.strict()` de abajo, que sí conoce las nueve claves porque se las dio esta
+  // misma constante.
+  Object.fromEntries(CAMPOS_COMPRADOR_FACTURA.map((campo) => [campo, procedenciaValorSchema])),
+).strict();
+
+/**
+ * El alta viaja como `multipart/form-data`, así que el mapa llega como **una cadena JSON** en un
+ * campo del formulario. Esto la parsea antes de validarla.
+ *
+ * Un JSON roto NO se convierte aquí en un `throw` ni en un `{}` silencioso: se devuelve el valor tal
+ * como llegó —una cadena— y el schema de arriba lo rechaza, que es un `400 Datos inválidos` con su
+ * `details` como cualquier otro campo del formulario. Tragárselo y guardar el mapa vacío sería
+ * escribir «todo manual» sobre un alta cuyo formulario sí sabía la procedencia: el AC3 completa lo
+ * que NO se declaró, no lo que se declaró mal.
+ *
+ * Ausente o cadena vacía → `undefined`, que es el alta sin procedencia del AC3 y es válida.
+ */
+const procedenciaCruda = (v: unknown): unknown => {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'string') return v;
+  const texto = v.trim();
+  if (texto === '') return undefined;
+  try { return JSON.parse(texto); } catch { return v; }
+};
+
+const altaSchema = vehiculoSchema.merge(documentoSchema).extend(titularCampos).extend({
+  procedencia: z.preprocess(procedenciaCruda, procedenciaMapaSchema.optional()),
+}).superRefine(refinarTitular);
 
 /**
  * POST /cliente — crear ES enviar (AC1). Sin borrador.
@@ -294,7 +355,13 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
   try {
     const ctx = await contextoSoat(req.user!);
     const creada = await crearSolicitud(
-      { placa, vin: vin ?? null, propietario: propietarioDe(parsed.data) },
+      {
+        placa, vin: vin ?? null, propietario: propietarioDe(parsed.data),
+        // Lo declarado y nada más: completarlo es del servicio (`procedenciaCompleta`, AC3), que es
+        // quien tiene que garantizar el mapa sin huecos ante CUALQUIER llamador y no solo ante esta
+        // ruta. `?? null` y no `?? {}` para que «no vino» siga siendo distinguible aquí arriba.
+        procedencia: (parsed.data.procedencia as ProcedenciaCompradorPersistida | undefined) ?? null,
+      },
       archivo, ctx,
     );
     // **El rastro de PII que la HU #11966 devuelve a esta ruta.** Bajo la #11935 no hacía falta: el

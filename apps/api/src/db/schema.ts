@@ -10,6 +10,8 @@ import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, Extrac
 import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
 import type { SiigoDestinatario } from '@operaciones/shared-types';
+// SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
+import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -2820,6 +2822,29 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
    * hoy salen como error HTTP y no hay fila que anotar.
    */
   verificacionCodigo: varchar('verificacion_codigo', { length: 40 }),
+  /**
+   * Cuándo RESPONDIÓ el RUNT durante el alta (HU #12093, migración 0174).
+   *
+   * No es `solicitado_en`: aquella dice cuándo se guardó la solicitud y esta cuándo se midió el
+   * vehículo. Hoy distan milisegundos —desde ADR-0010 la consulta es compuerta y ocurre dentro de la
+   * misma petición— y por eso conviene tenerlas separadas antes de que dejen de coincidir: la ficha
+   * enseña «datos del RUNT del …», que es una afirmación sobre el registro nacional y no sobre FLITO.
+   *
+   * Nullable y SIN backfill: las solicitudes radicadas bajo la #11935 consultaban después del COMMIT
+   * (o no consultaban), así que de ellas no consta. `NULL` significa exactamente eso.
+   *
+   * **La diferencia con `solicitado_en` NO es una duración, y no debe pintarse como tal en ninguna
+   * pantalla ni reporte.** Las dos marcas salen de RELOJES DISTINTOS: `solicitado_en` es
+   * `defaultNow()`, o sea el reloj del servidor de base de datos, y esta la fija el proceso de la
+   * API con `new Date()` justo al volver del RUNT (`flito-soat-cliente.service.ts`,
+   * `verificarRuntCompuerta`) — que es lo semánticamente correcto y lo que el AC4 pide. Con API y
+   * Postgres en hosts distintos, una deriva de reloj de unos pocos segundos basta para invertir el
+   * orden aparente y enseñar «el RUNT respondió después de radicarse», o una duración negativa.
+   * No hay CHECK de ordenación entre las dos a propósito: rechazaría altas perfectamente válidas
+   * por un problema de relojes ajeno al dato. Cada columna se lee sola, y para «cuánto tardó el
+   * RUNT» hace falta medir los dos extremos con el mismo reloj, que hoy nadie hace.
+   */
+  runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   causalIdx: index('idx_flito_soat_solicitud_causal').on(t.causalRechazoId),
@@ -3044,6 +3069,24 @@ export const flitoCompradores = pgTable('flito_compradores', {
    */
   municipio: varchar('municipio', { length: 100 }),
   departamento: varchar('departamento', { length: 100 }),
+  /**
+   * De dónde salió cada dato del propietario (HU #12093, migración 0174): mapa campo →
+   * `'factura' | 'runt' | 'manual'` sobre los nueve campos de `CAMPOS_COMPRADOR_FACTURA`.
+   *
+   * `NOT NULL DEFAULT '{}'` y sin backfill. El tipo es el PERSISTIDO —un `Partial`— y no el mapa
+   * completo, a propósito: las ~7 052 filas del sync de trámites y las radicadas antes de esta HU
+   * llevan `{}`, y un `Record` completo aquí le prometería a quien lea la columna una clave que en
+   * la mitad de las filas no existe. El alta escribe siempre el mapa COMPLETO (`procedenciaCompleta`,
+   * AC3: el defecto es `manual`), que es asignable a esto.
+   *
+   * La escriben las DOS rutas del canal Cliente que escriben el comprador: el alta con lo que
+   * declaró el formulario, y la subsanación con los nueve en `manual` —sus valores acaban de
+   * llegar tecleados por una persona—. No es opcional que las dos la escriban: la subsanación
+   * reescribe los nueve campos del titular vengan cambiados o no, así que un mapa que se quedara
+   * del alta describiría, entero, valores que ya no están en la fila. Ver el docblock del `set` de
+   * `subsanarSolicitud`.
+   */
+  procedencia: jsonb('procedencia').$type<ProcedenciaCompradorPersistida>().notNull().default({}),
   orden: integer('orden').notNull().default(0),
   porcentajeParticipacion: numeric('porcentaje_participacion', { precision: 5, scale: 2 }),
 }, (t) => ({

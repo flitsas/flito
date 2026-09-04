@@ -908,6 +908,18 @@ export interface RevisionSolicitud {
   soatVigente: boolean | null;
   soatVigenteHasta: string | null;
   verificacionCodigo: string | null;
+  /**
+   * Cuándo respondió el RUNT en el alta, en ISO (HU #12093, AC4). `null` en las solicitudes
+   * anteriores a la migración 0174, que no lo tienen y de las que no se inventa.
+   *
+   * Es lo que permite a la ficha decir DE CUÁNDO son los datos del vehículo que enseña. Va en el
+   * bloque `visible` —lo ven el Cliente y el admin— porque el titular tiene derecho a saber cuándo se
+   * consultó el registro sobre su vehículo, y quien revisa necesita saber si está mirando una lectura
+   * de hace diez minutos o de hace tres semanas. **No es dato personal**: es un instante, sin placa,
+   * sin documento y sin nombre, así que no entra en ninguna lista de `flito-soat.pii.ts`. Al gestor
+   * no le llega, como todo este bloque: `revisionDeSolicitud` corta por `esGestor` antes de consultar.
+   */
+  runtConsultadoEn: string | null;
 }
 
 /**
@@ -1036,6 +1048,7 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
       soatVigente: flitoSoatSolicitud.soatVigente,
       soatVigenteHasta: flitoSoatSolicitud.soatVigenteHasta,
       verificacionCodigo: flitoSoatSolicitud.verificacionCodigo,
+      runtConsultadoEn: flitoSoatSolicitud.runtConsultadoEn,
     })
     .from(flitoSoatSolicitud)
     // LEFT y no INNER: una solicitud sin rechazar no tiene causal, y un INNER la haría desaparecer
@@ -1055,6 +1068,10 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
     soatVigente: r.soatVigente,
     soatVigenteHasta: diaIso(r.soatVigenteHasta),
     verificacionCodigo: r.verificacionCodigo,
+    // Mismo trato que `revisadoEn` y `solicitadoEn`: ISO, y `null` cuando no consta. No se sustituye
+    // por `solicitadoEn` «que es casi lo mismo» — son dos hechos distintos y esa sustitución es lo
+    // que la columna vino a evitar.
+    runtConsultadoEn: r.runtConsultadoEn ? r.runtConsultadoEn.toISOString() : null,
   };
   // La clave NO se emite con `undefined` para el cliente: se omite. Un `revisadoPorNombre: null` que
   // el admin ve lleno y el cliente ve vacío es el mismo objeto con menos datos; la clave ausente

@@ -74,11 +74,15 @@ import {
   vehicles,
 } from '../../db/schema.js';
 import {
+  CAMPOS_COMPRADOR_FACTURA,
   type CausalRechazoSoat,
   CodigoErrorSolicitudSoat,
   ESTADO_SOAT_LABEL,
   EstadoSoat,
   type ExtraccionFacturaVenta,
+  PROCEDENCIA_POR_DEFECTO,
+  type ProcedenciaComprador,
+  type ProcedenciaCompradorPersistida,
   TipoSoporte,
   type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
@@ -186,6 +190,49 @@ export interface EntradaSolicitud {
   /** Opcional desde la HU #11966 (AC1). El VIN EFECTIVO es el que trae el RUNT. */
   vin: string | null;
   propietario: PropietarioSolicitud;
+  /**
+   * De dónde salió cada dato del propietario (HU #12093, AC2). Puede venir INCOMPLETO o no venir:
+   * lo que falte se completa con `manual` (AC3, {@link procedenciaCompleta}).
+   *
+   * Va aquí y NO dentro de `PropietarioSolicitud`, y esa colocación es una decisión: ese tipo lo
+   * comparten el alta y la SUBSANACIÓN, y la subsanación no recibe procedencia (ver el docblock de
+   * `subsanarSolicitud`). Colgarla del titular obligaría a la subsanación a inventarse un valor para
+   * un campo que su ruta no acepta, o a llevarlo en `undefined` y que cada lector decidiera qué
+   * significa. Aquí, el tipo dice sin ambigüedad que este dato es del ALTA.
+   *
+   * El vocabulario lo valida Zod en la ruta —campo desconocido o valor fuera de los tres: 400— y no
+   * aquí: es una regla del borde, igual que `refinarTitular`.
+   */
+  procedencia: ProcedenciaCompradorPersistida | null;
+}
+
+/**
+ * El mapa COMPLETO que se persiste: lo declarado, y `manual` en todo lo demás (AC3).
+ *
+ * ── Por qué se completa y no se guarda tal cual llegó ───────────────────────────────────────────
+ *
+ * «Nunca nulos ni ausentes» es el AC entero. Un mapa a medias obligaría a cada lector a decidir por
+ * su cuenta qué significa una clave ausente, y la primera pantalla que decidiera «ausente = leído de
+ * la factura» estaría afirmando de un dato TECLEADO que lo puso el concesionario — que es justo la
+ * pregunta que esta HU existe para responder.
+ *
+ * ── Y por qué el defecto es `manual` y no un cuarto valor «desconocido» ─────────────────────────
+ *
+ * Porque `manual` es lo CIERTO, no lo cómodo: al alta no se llega por ninguna vía que no sea el
+ * formulario, así que un campo que llegó sin declarar procedencia lo escribió una persona. Un
+ * «desconocido» añadiría un estado que ninguna pantalla sabría pintar y que el revisor tendría que
+ * interpretar igual.
+ *
+ * Se recorre `CAMPOS_COMPRADOR_FACTURA` —la constante compartida— y no una lista escrita aquí: el
+ * día que la factura gane un décimo campo del comprador, el mapa lo gana en el mismo cambio. Con una
+ * copia local, ese campo se persistiría ausente para siempre y en verde.
+ */
+export function procedenciaCompleta(declarada: ProcedenciaCompradorPersistida | null | undefined): ProcedenciaComprador {
+  const completa = {} as ProcedenciaComprador;
+  for (const campo of CAMPOS_COMPRADOR_FACTURA) {
+    completa[campo] = declarada?.[campo] ?? PROCEDENCIA_POR_DEFECTO;
+  }
+  return completa;
 }
 
 /** El adjunto, con la misma forma que `ArchivoSubido` del módulo hermano. */
@@ -370,6 +417,16 @@ export interface ResultadoRunt {
   vinEfectivo: string;
   /** `null` = el organismo del RUNT no cruza catálogo. **No aborta** (AC5). */
   organismoCodigo: string | null;
+  /**
+   * El instante en que el RUNT RESPONDIÓ (HU #12093, AC4). Lo persiste el alta en
+   * `flito_soat_solicitud.runt_consultado_en`; la preconsulta lo recibe y no lo guarda —no hay fila.
+   *
+   * Se toma AQUÍ, en la compuerta, y no en el INSERT: entre una cosa y la otra están la subida del
+   * PDF a S3 y la apertura de la transacción, que en una petición lenta son segundos. La ficha
+   * promete «datos del RUNT del …», así que lo que tiene que quedar escrito es cuándo habló el
+   * registro nacional, no cuándo terminamos de guardar.
+   */
+  consultadoEn: Date;
 }
 
 /**
@@ -403,6 +460,11 @@ async function verificarRuntCompuerta(
   tipoDocumento: TipoDocumentoRunt,
 ): Promise<ResultadoRunt> {
   const desenlace = await consultarYClasificar(placa, vin, numeroDocumento, tipoDocumento);
+  // Inmediatamente después del `await` y antes de cualquier rama: es el instante en que el registro
+  // nacional respondió, que es lo que el AC4 pide poder enseñar. Se toma también en los desenlaces
+  // que abortan —cuesta cero y evita que el «cuándo» dependa de qué contestó el RUNT—, y solo se
+  // persiste en el que crea fila.
+  const consultadoEn = new Date();
 
   switch (desenlace.clase) {
     case 'caido':
@@ -420,6 +482,7 @@ async function verificarRuntCompuerta(
         datos: desenlace.datos,
         vinEfectivo: desenlace.vinEfectivo,
         organismoCodigo: desenlace.organismoCodigo,
+        consultadoEn,
       };
   }
 }
@@ -704,7 +767,7 @@ export async function crearSolicitud(
     await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
   }
 
-  const { datos, vinEfectivo, organismoCodigo } =
+  const { datos, vinEfectivo, organismoCodigo, consultadoEn } =
     await verificarRuntCompuerta(placa, vinTecleado, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento);
 
   // Sobre el VIN EFECTIVO, que es el que se va a escribir. Sin esta pareja, un alta sin VIN tecleado
@@ -753,6 +816,11 @@ export async function crearSolicitud(
         direccion: entrada.propietario.direccion,
         municipio: entrada.propietario.municipio,
         departamento: entrada.propietario.departamento,
+        // Los nueve campos, siempre completos y siempre en el MISMO INSERT que los valores que
+        // describen (AC2 y AC3). Escribirlo aparte —un UPDATE después del COMMIT, como hacía el
+        // satélite bajo la #11935— dejaría una ventana en la que la fila tiene los datos y no dice de
+        // dónde salieron, y una segunda escritura que puede fallar sola.
+        procedencia: procedenciaCompleta(entrada.procedencia),
         orden: 0,
       });
 
@@ -768,6 +836,10 @@ export async function crearSolicitud(
         soatVigente: false,
         // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
         verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
+        // Cuándo respondió el RUNT, no cuándo se guardó esto (HU #12093, AC4). Sale de la compuerta,
+        // que lo tomó justo al resolverse la llamada; `solicitado_en` —la columna de al lado, con su
+        // `defaultNow()`— es el otro instante, y tenerlos separados es el motivo de la columna.
+        runtConsultadoEn: consultadoEn,
       });
 
       await tx.insert(flitoSoportes).values({
@@ -1297,6 +1369,28 @@ export async function subsanarSolicitud(
     // la subsanación siguiera escribiendo solo `nombre_completo`, una solicitud corregida saldría en
     // el Excel con el nombre VIEJO —el archivo lee `nombres`/`apellidos`/`razon_social`— mientras la
     // cola, que busca por `nombre_completo`, mostraría el nuevo. Ningún test de estado lo vería.
+    //
+    // ── `procedencia` SÍ está en este `set`, y por la misma razón que las cinco de arriba ─────────
+    //
+    // Este UPDATE reescribe los NUEVE campos del comprador incondicionalmente, vengan cambiados o
+    // no. Si `procedencia` se quedara fuera, el mapa describiría valores que ya no están en la fila
+    // —no «puede que alguno», sino el mapa entero, en el 100 % de las subsanaciones— y seguiría
+    // afirmando, por ejemplo, que el nombre del titular se leyó de una factura de venta a su
+    // nombre. Es una columna de datos personales (vive en la fila del titular y afirma cosas sobre
+    // él), así que un mapa desfasado no es una molestia de pantalla: es dato inexacto y
+    // desactualizado sobre el titular (Ley 1581 art. 4 lit. d). Con esta línea, el mapa refleja
+    // SIEMPRE lo que la fila tiene, y las diez columnas se escriben en la misma transacción.
+    //
+    // El valor es `procedenciaCompleta(null)` = los nueve en `manual`, y eso no decide producto: lo
+    // decide el hecho. En una subsanación los nueve valores llegan de un formulario que una persona
+    // acaba de enviar (`subsanacionSchema` no acepta mapa alguno), así que `manual` es lo único que
+    // consta. Mismo criterio que el defecto del alta (ver {@link procedenciaCompleta}).
+    //
+    // Lo que SÍ queda como decisión de producto abierta —un AC futuro, no un hueco—: si algún día el
+    // formulario de subsanación debe mandar también el mapa completo, para distinguir el campo que
+    // el usuario REESCRIBIÓ del que dejó como estaba (hoy los dos quedan en `manual`). Ese día habrá
+    // que ampliar `subsanacionSchema` y pasar `entrada.procedencia` aquí; hasta entonces, `manual`
+    // es cierto y no hay divergencia posible entre el mapa y la fila.
     await tx.update(flitoCompradores).set({
       nombreCompleto: nombreCompletoDe(entrada.propietario),
       nombres: entrada.propietario.nombres,
@@ -1309,6 +1403,7 @@ export async function subsanarSolicitud(
       direccion: entrada.propietario.direccion,
       municipio: entrada.propietario.municipio,
       departamento: entrada.propietario.departamento,
+      procedencia: procedenciaCompleta(null),
     }).where(eq(flitoCompradores.soatId, id));
 
     if (subido && archivo) {
