@@ -233,6 +233,12 @@ const envSchema = z.object({
   // que es el número que la pantalla anuncia antes de subir el archivo.
   CONCILIACION_MAX_FILAS: z.coerce.number().int().min(1).max(2_000)
     .default(CONCILIACION_MAX_FILAS),
+  // HU #12095 — interruptor de la verificación diaria de vigencia del SOAT (00:10 de Colombia).
+  // Puerta POSITIVA, igual que DRIVE_DERECHOS_CRON_ENABLED y PRIVACY_RETENTION_CRON_ENABLED: sin el
+  // '1' explícito el cron no arranca y lo dice en el log. No se deduce del entorno porque la corrida
+  // acabará consultando una fuente externa por cada vehículo con comprobante cargado (HU #12096), y
+  // un contenedor mal configurado no debe ser suficiente para desatarla.
+  SOAT_VIGENCIA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),
