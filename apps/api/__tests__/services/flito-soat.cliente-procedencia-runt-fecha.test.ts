@@ -478,10 +478,18 @@ describe('AC5 — ni la procedencia ni la fecha se escriben en `audit_logs`', ()
     expect(escrito).toContain('pendiente_revision');
   });
 
-  it('**el rastro de PII no gana campos**: la procedencia no es un dato del titular, es su origen', async () => {
-    // `pii_access_log` declara QUÉ columnas personales se entregaron. La procedencia dice de dónde
-    // salió un dato, no cuál es; declararla sería declarar de más, que ya fue un bloqueante en este
-    // módulo. El alta sigue registrando lo de la consulta al RUNT y nada más.
+  it('**el rastro de PII no gana campos**: el alta es una mutacion, no una lectura', async () => {
+    // OJO con el porque, que no es «la procedencia no es un dato»: SI lo es —vive en la fila del
+    // titular y afirma cosas sobre el, como que existe una factura de venta a su nombre—. El motivo
+    // de que no entre aqui es otro: `pii_access_log` declara QUE columnas personales ENTREGA una
+    // LECTURA, y el alta es una MUTACION, que se anota con `audit()`. Lo unico que esta linea
+    // describe es la consulta al RUNT, y por eso son `placa` y `vin` y nada mas.
+    //
+    // La consecuencia para quien venga despues (HU #12094, que construye el mapa en el formulario):
+    // en cuanto una ruta de LECTURA devuelva `procedencia` en su respuesta, entra en la
+    // `CAMPOS_PII_*` que corresponda, en la misma edicion. Justificar la ausencia con «es el origen
+    // del dato, no el dato» serviria igual de bien para subdeclarar un campo que si se entrega, y
+    // por eso ese argumento no vale.
     escenarioAlta();
     await alta(await appAlta(), await auth('cliente', siguienteUsuario()), { nombres: 'factura' });
 
@@ -530,5 +538,119 @@ describe('AC5 — la fila que recibe el gestor no gana ninguna columna de datos 
     for (const p of proyecciones) {
       expect(p.columnas, `${p.tabla} no debe proyectar procedencia`).not.toContain('procedencia');
     }
+  });
+});
+
+// ═══════════ La SUBSANACIÓN reescribe el mapa ════════════════════════════════
+
+/**
+ * `PATCH /:id/solicitud` — la otra ruta del canal que escribe `flito_compradores`.
+ *
+ * Va en ESTE archivo y no en el de la #11915 porque lo que se prueba es la columna de esta HU: que
+ * el mapa no sobreviva a la corrección de los datos que describe. El `set` de `subsanarSolicitud`
+ * reescribe los nueve campos del titular vengan cambiados o no; si `procedencia` se quedara fuera,
+ * el mapa entero pasaría a hablar de valores que ya no están en la fila —en el 100 % de las
+ * subsanaciones, no en un caso raro— y seguiría afirmando del titular cosas como que su nombre se
+ * leyó de una factura de venta a su nombre. Sobre una columna de datos personales eso es dato
+ * inexacto, no una molestia de pantalla.
+ *
+ * Se afirma sobre el PAYLOAD del `update().set()`, no sobre la fila del escenario: el mock keyed
+ * devuelve lo que el test registró, así que leer «la fila después» probaría el mock.
+ */
+const SOAT_SUB = '66666666-6666-4666-8666-666666666666';
+
+/** Los campos del formulario de subsanación: el titular partido, sin placa ni VIN (RN-01). */
+const CAMPOS_SUBSANACION: Record<string, string> = {
+  tipoDocumento: 'CC', numeroDocumento: '1020304050',
+  nombres: 'JUANA', apellidos: 'PEREZ CORREGIDA',
+  correo: 'juana@empresa.co', celular: '3009999999', direccion: 'CARRERA 9 # 8-7',
+  municipio: 'MOSQUERA', departamento: 'CUNDINAMARCA',
+};
+
+/**
+ * El escenario del reenvío, calcado del de la #11915.
+ *
+ * La fila de `flito_compradores` nace con un mapa del ALTA que dice `factura`/`runt`: es justo el
+ * mapa que la corrección deja obsoleto, y tenerlo aquí es lo que hace legible el caso.
+ */
+function escenarioSubsanacion(procedenciaDelAlta: Record<string, string>) {
+  kdb.when.scenario({
+    users: [{ c: COMPANIA, s: null }],
+    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    flito_soat: [{ id: SOAT_SUB }],
+    flito_estado_historial: [],
+    flito_compradores: [{ id: 'c1', soatId: SOAT_SUB, tramiteId: null, procedencia: procedenciaDelAlta }],
+    flito_soportes: [],
+    flito_tramites: [],
+    flito_soat_solicitud: [],
+  });
+  kdb.when.selectOnce('flito_soat', [{
+    soat: {
+      id: SOAT_SUB, vin: '9FKRG2222T2042405', estado: 'rechazada', origen: 'cliente',
+      companiaId: COMPANIA, vehiculoId: VEHICULO_ID, organismoCodigo: ORGANISMO_FUNZA,
+      proveedorSoatId: null, gestionOperaciones: false, motivoRechazo: 'Factura ilegible', pagadoEn: null,
+    },
+    dentroDeFrontera: true,
+  }]);
+  // Lo que devuelve el `.returning()` del compare-and-swap: una fila = la transición se aplicó.
+  kdb.when.update('flito_soat', [{ id: SOAT_SUB }]);
+}
+
+const subsanar = (app: express.Express, token: string) => {
+  const req = request(app).patch(`/api/flito/soat/${SOAT_SUB}/solicitud`).set('Authorization', token);
+  for (const [k, v] of Object.entries(CAMPOS_SUBSANACION)) req.field(k, v);
+  return req;
+};
+
+describe('la subsanación reescribe `procedencia`: el mapa describe SIEMPRE lo que la fila tiene', () => {
+  it('**tras subsanar, los NUEVE campos quedan en `manual`** — el mapa del alta no sobrevive', async () => {
+    // El mutante que mata: borrar `procedencia: procedenciaCompleta(null)` del `set` de
+    // `subsanarSolicitud`. Sin esa línea la clave no aparece en el payload y este aserto es rojo,
+    // porque `toEqual` exige el mapa entero y no un subconjunto.
+    escenarioSubsanacion({ nombres: 'factura', apellidos: 'factura', direccion: 'runt' });
+
+    const r = await subsanar(await appAlta(), await auth('cliente', siguienteUsuario()));
+    expect(r.status).toBe(200);
+
+    const [comprador] = espia.updatesEn('flito_compradores');
+    expect(comprador.datos.procedencia).toEqual(
+      Object.fromEntries(CAMPOS_COMPRADOR_FACTURA.map((c) => [c, 'manual'])),
+    );
+  });
+
+  it('el mapa está COMPLETO y en el vocabulario: ni una clave de menos ni un valor fuera', async () => {
+    // La misma exigencia que el AC3 le pone al alta. Se recorre la constante compartida, así que el
+    // día que la factura gane un décimo campo del comprador esta ruta tiene que ganarlo también.
+    escenarioSubsanacion({ nombres: 'factura' });
+
+    await subsanar(await appAlta(), await auth('cliente', siguienteUsuario()));
+
+    const mapa = espia.updatesEn('flito_compradores')[0].datos.procedencia as Record<string, string>;
+    expect(Object.keys(mapa).sort()).toEqual([...CAMPOS_COMPRADOR_FACTURA].sort());
+    for (const campo of CAMPOS_COMPRADOR_FACTURA) {
+      expect([...PROCEDENCIAS_DATO], `${campo} tiene un valor fuera del vocabulario`).toContain(mapa[campo]);
+    }
+    // Y ningún valor del alta se queda pegado: `factura` ya no describe a esta fila.
+    expect(Object.values(mapa)).not.toContain('factura');
+    expect(Object.values(mapa)).not.toContain('runt');
+  });
+
+  it('**va en el MISMO `update` que los nueve campos del titular**, no en una segunda escritura', async () => {
+    // Un UPDATE aparte podría quedar fuera de la transacción o detrás de un `if`, y entonces habría
+    // un instante —o un camino— con la fila corregida y el mapa viejo. Se comprueba que hay UNA sola
+    // escritura sobre `flito_compradores` y que lleva las dos cosas.
+    escenarioSubsanacion({ nombres: 'factura' });
+
+    await subsanar(await appAlta(), await auth('cliente', siguienteUsuario()));
+
+    const updates = espia.updatesEn('flito_compradores');
+    expect(updates).toHaveLength(1);
+    expect(updates[0].datos).toMatchObject({
+      nombres: 'JUANA', apellidos: 'PEREZ CORREGIDA',
+      direccion: 'CARRERA 9 # 8-7', municipio: 'MOSQUERA',
+    });
+    expect(updates[0].datos).toHaveProperty('procedencia');
+    // Y el `where` sigue apuntando a ESTA solicitud, no a toda la tabla.
+    expect(updates[0].filtros).toContain(SOAT_SUB);
   });
 });

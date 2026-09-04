@@ -83,6 +83,8 @@ ALTER TABLE flito_compradores
 
 COMMENT ON COLUMN flito_compradores.procedencia IS
   'HU #12093: mapa campo -> factura | runt | manual para los nueve campos del comprador '
-  '(CAMPOS_COMPRADOR_FACTURA). Lo escribe SOLO el alta del canal Cliente y siempre completo; el '
-  'defecto de un campo no declarado es manual. {} = fila del sync de tramites o anterior a esta HU: '
-  'no se sabe, y no se rellena. El vocabulario lo impone Zod en la unica ruta que la escribe.';
+  '(CAMPOS_COMPRADOR_FACTURA), siempre completo. Lo escriben las DOS rutas del canal Cliente: el '
+  'alta con lo que declare el formulario, y la subsanacion con los nueve en manual, porque ahi los '
+  'valores llegan de un formulario que una persona acaba de enviar. El defecto de un campo no '
+  'declarado es manual. {} = fila del sync de tramites o anterior a esta HU: no se sabe, y no se '
+  'rellena. El vocabulario lo impone Zod en las rutas que la escriben.';

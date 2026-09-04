@@ -1370,19 +1370,27 @@ export async function subsanarSolicitud(
     // el Excel con el nombre VIEJO —el archivo lee `nombres`/`apellidos`/`razon_social`— mientras la
     // cola, que busca por `nombre_completo`, mostraría el nuevo. Ningún test de estado lo vería.
     //
-    // ── `procedencia` NO está en este `set`, y eso es una LIMITACIÓN CONOCIDA de la HU #12093 ─────
+    // ── `procedencia` SÍ está en este `set`, y por la misma razón que las cinco de arriba ─────────
     //
-    // El AC2 de la #12093 alcanza al ALTA («Given un alta del canal Cliente»), y el AC7 de la HU
-    // #12094 —la que construye el mapa en el formulario— dice «Given el envío del alta». Ninguno
-    // habla de la subsanación, así que esta ruta ni acepta el mapa (`subsanacionSchema` no lo
-    // declara) ni lo reescribe.
+    // Este UPDATE reescribe los NUEVE campos del comprador incondicionalmente, vengan cambiados o
+    // no. Si `procedencia` se quedara fuera, el mapa describiría valores que ya no están en la fila
+    // —no «puede que alguno», sino el mapa entero, en el 100 % de las subsanaciones— y seguiría
+    // afirmando, por ejemplo, que el nombre del titular se leyó de una factura de venta a su
+    // nombre. Es una columna de datos personales (vive en la fila del titular y afirma cosas sobre
+    // él), así que un mapa desfasado no es una molestia de pantalla: es dato inexacto y
+    // desactualizado sobre el titular (Ley 1581 art. 4 lit. d). Con esta línea, el mapa refleja
+    // SIEMPRE lo que la fila tiene, y las diez columnas se escriben en la misma transacción.
     //
-    // Lo que eso implica, dicho aquí en vez de descubierto: tras una subsanación, `procedencia`
-    // sigue contando de dónde salieron los datos **del alta**, no los que la fila tiene ahora. Un
-    // campo corregido a mano puede seguir figurando como `factura`. Es el mismo tipo de divergencia
-    // que la #11966 cerró para `nombre_completo` y aquí queda ABIERTA a propósito: cerrarla es
-    // decidir producto —¿todo a `manual`, o el formulario también manda el mapa al subsanar?— y esa
-    // decisión no está en ningún AC de este Feature. Ver el HANDOFF de la #12093.
+    // El valor es `procedenciaCompleta(null)` = los nueve en `manual`, y eso no decide producto: lo
+    // decide el hecho. En una subsanación los nueve valores llegan de un formulario que una persona
+    // acaba de enviar (`subsanacionSchema` no acepta mapa alguno), así que `manual` es lo único que
+    // consta. Mismo criterio que el defecto del alta (ver {@link procedenciaCompleta}).
+    //
+    // Lo que SÍ queda como decisión de producto abierta —un AC futuro, no un hueco—: si algún día el
+    // formulario de subsanación debe mandar también el mapa completo, para distinguir el campo que
+    // el usuario REESCRIBIÓ del que dejó como estaba (hoy los dos quedan en `manual`). Ese día habrá
+    // que ampliar `subsanacionSchema` y pasar `entrada.procedencia` aquí; hasta entonces, `manual`
+    // es cierto y no hay divergencia posible entre el mapa y la fila.
     await tx.update(flitoCompradores).set({
       nombreCompleto: nombreCompletoDe(entrada.propietario),
       nombres: entrada.propietario.nombres,
@@ -1395,6 +1403,7 @@ export async function subsanarSolicitud(
       direccion: entrada.propietario.direccion,
       municipio: entrada.propietario.municipio,
       departamento: entrada.propietario.departamento,
+      procedencia: procedenciaCompleta(null),
     }).where(eq(flitoCompradores.soatId, id));
 
     if (subido && archivo) {

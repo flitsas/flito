@@ -2832,6 +2832,17 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
    *
    * Nullable y SIN backfill: las solicitudes radicadas bajo la #11935 consultaban después del COMMIT
    * (o no consultaban), así que de ellas no consta. `NULL` significa exactamente eso.
+   *
+   * **La diferencia con `solicitado_en` NO es una duración, y no debe pintarse como tal en ninguna
+   * pantalla ni reporte.** Las dos marcas salen de RELOJES DISTINTOS: `solicitado_en` es
+   * `defaultNow()`, o sea el reloj del servidor de base de datos, y esta la fija el proceso de la
+   * API con `new Date()` justo al volver del RUNT (`flito-soat-cliente.service.ts`,
+   * `verificarRuntCompuerta`) — que es lo semánticamente correcto y lo que el AC4 pide. Con API y
+   * Postgres en hosts distintos, una deriva de reloj de unos pocos segundos basta para invertir el
+   * orden aparente y enseñar «el RUNT respondió después de radicarse», o una duración negativa.
+   * No hay CHECK de ordenación entre las dos a propósito: rechazaría altas perfectamente válidas
+   * por un problema de relojes ajeno al dato. Cada columna se lee sola, y para «cuánto tardó el
+   * RUNT» hace falta medir los dos extremos con el mismo reloj, que hoy nadie hace.
    */
   runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3068,8 +3079,12 @@ export const flitoCompradores = pgTable('flito_compradores', {
    * la mitad de las filas no existe. El alta escribe siempre el mapa COMPLETO (`procedenciaCompleta`,
    * AC3: el defecto es `manual`), que es asignable a esto.
    *
-   * La escribe SOLO el alta del canal Cliente. La subsanación NO la toca — ver el docblock de
-   * `subsanarSolicitud`, donde queda anotado lo que eso implica.
+   * La escriben las DOS rutas del canal Cliente que escriben el comprador: el alta con lo que
+   * declaró el formulario, y la subsanación con los nueve en `manual` —sus valores acaban de
+   * llegar tecleados por una persona—. No es opcional que las dos la escriban: la subsanación
+   * reescribe los nueve campos del titular vengan cambiados o no, así que un mapa que se quedara
+   * del alta describiría, entero, valores que ya no están en la fila. Ver el docblock del `set` de
+   * `subsanarSolicitud`.
    */
   procedencia: jsonb('procedencia').$type<ProcedenciaCompradorPersistida>().notNull().default({}),
   orden: integer('orden').notNull().default(0),
