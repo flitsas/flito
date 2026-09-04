@@ -85,7 +85,7 @@ export const CAMPO_FACTURA_VENTA_LABEL: Record<CampoFacturaVenta, string> = {
  * formulario del canal no repitan la lista a mano: nueve claves copiadas en cuatro archivos son
  * cuatro sitios donde falta una el día que se añada la décima.
  */
-export const CAMPOS_COMPRADOR_FACTURA: readonly CampoFacturaVenta[] = [
+export const CAMPOS_COMPRADOR_FACTURA = [
   CampoFacturaVenta.NOMBRES,
   CampoFacturaVenta.APELLIDOS,
   CampoFacturaVenta.RAZON_SOCIAL,
@@ -95,7 +95,24 @@ export const CAMPOS_COMPRADOR_FACTURA: readonly CampoFacturaVenta[] = [
   CampoFacturaVenta.MUNICIPIO,
   CampoFacturaVenta.DEPARTAMENTO,
   CampoFacturaVenta.CELULAR,
-];
+] as const satisfies readonly CampoFacturaVenta[];
+
+/**
+ * Los mismos nueve campos, pero como TIPO — y esa es la diferencia que hace falta (HU #12093).
+ *
+ * Hasta la #12093 la constante se anotaba `readonly CampoFacturaVenta[]`, que ENSANCHA: el tipo
+ * resultante admite `placa` o `valorVehiculo`, que no son del comprador. El mapa de procedencia
+ * (`ProcedenciaComprador`) necesita exactamente lo contrario —un `Record` que el compilador declare
+ * INCOMPLETO si le falta uno de los nueve, y ERRÓNEO si le sobra uno de los cinco documentales—, y
+ * eso solo se consigue con las literales.
+ *
+ * `as const satisfies readonly CampoFacturaVenta[]` conserva las dos cosas: el `satisfies` sigue
+ * comprobando que cada elemento es un campo del enum (una errata de tecleo sigue siendo rojo) y el
+ * `as const` deja el tipo estrecho. Los consumidores que ya existían —el `for…of` de la extracción y
+ * el spread de `extraerFacturaVenta`— no cambian: un tuple readonly de literales sigue siendo
+ * asignable a `readonly CampoFacturaVenta[]`.
+ */
+export type CampoCompradorFactura = (typeof CAMPOS_COMPRADOR_FACTURA)[number];
 
 /**
  * Los campos que la COLA DE REVISIÓN de Operaciones pide para una factura de venta: los cinco

@@ -74,11 +74,15 @@ import {
   vehicles,
 } from '../../db/schema.js';
 import {
+  CAMPOS_COMPRADOR_FACTURA,
   type CausalRechazoSoat,
   CodigoErrorSolicitudSoat,
   ESTADO_SOAT_LABEL,
   EstadoSoat,
   type ExtraccionFacturaVenta,
+  PROCEDENCIA_POR_DEFECTO,
+  type ProcedenciaComprador,
+  type ProcedenciaCompradorPersistida,
   TipoSoporte,
   type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
@@ -186,6 +190,49 @@ export interface EntradaSolicitud {
   /** Opcional desde la HU #11966 (AC1). El VIN EFECTIVO es el que trae el RUNT. */
   vin: string | null;
   propietario: PropietarioSolicitud;
+  /**
+   * De dónde salió cada dato del propietario (HU #12093, AC2). Puede venir INCOMPLETO o no venir:
+   * lo que falte se completa con `manual` (AC3, {@link procedenciaCompleta}).
+   *
+   * Va aquí y NO dentro de `PropietarioSolicitud`, y esa colocación es una decisión: ese tipo lo
+   * comparten el alta y la SUBSANACIÓN, y la subsanación no recibe procedencia (ver el docblock de
+   * `subsanarSolicitud`). Colgarla del titular obligaría a la subsanación a inventarse un valor para
+   * un campo que su ruta no acepta, o a llevarlo en `undefined` y que cada lector decidiera qué
+   * significa. Aquí, el tipo dice sin ambigüedad que este dato es del ALTA.
+   *
+   * El vocabulario lo valida Zod en la ruta —campo desconocido o valor fuera de los tres: 400— y no
+   * aquí: es una regla del borde, igual que `refinarTitular`.
+   */
+  procedencia: ProcedenciaCompradorPersistida | null;
+}
+
+/**
+ * El mapa COMPLETO que se persiste: lo declarado, y `manual` en todo lo demás (AC3).
+ *
+ * ── Por qué se completa y no se guarda tal cual llegó ───────────────────────────────────────────
+ *
+ * «Nunca nulos ni ausentes» es el AC entero. Un mapa a medias obligaría a cada lector a decidir por
+ * su cuenta qué significa una clave ausente, y la primera pantalla que decidiera «ausente = leído de
+ * la factura» estaría afirmando de un dato TECLEADO que lo puso el concesionario — que es justo la
+ * pregunta que esta HU existe para responder.
+ *
+ * ── Y por qué el defecto es `manual` y no un cuarto valor «desconocido» ─────────────────────────
+ *
+ * Porque `manual` es lo CIERTO, no lo cómodo: al alta no se llega por ninguna vía que no sea el
+ * formulario, así que un campo que llegó sin declarar procedencia lo escribió una persona. Un
+ * «desconocido» añadiría un estado que ninguna pantalla sabría pintar y que el revisor tendría que
+ * interpretar igual.
+ *
+ * Se recorre `CAMPOS_COMPRADOR_FACTURA` —la constante compartida— y no una lista escrita aquí: el
+ * día que la factura gane un décimo campo del comprador, el mapa lo gana en el mismo cambio. Con una
+ * copia local, ese campo se persistiría ausente para siempre y en verde.
+ */
+export function procedenciaCompleta(declarada: ProcedenciaCompradorPersistida | null | undefined): ProcedenciaComprador {
+  const completa = {} as ProcedenciaComprador;
+  for (const campo of CAMPOS_COMPRADOR_FACTURA) {
+    completa[campo] = declarada?.[campo] ?? PROCEDENCIA_POR_DEFECTO;
+  }
+  return completa;
 }
 
 /** El adjunto, con la misma forma que `ArchivoSubido` del módulo hermano. */
@@ -370,6 +417,16 @@ export interface ResultadoRunt {
   vinEfectivo: string;
   /** `null` = el organismo del RUNT no cruza catálogo. **No aborta** (AC5). */
   organismoCodigo: string | null;
+  /**
+   * El instante en que el RUNT RESPONDIÓ (HU #12093, AC4). Lo persiste el alta en
+   * `flito_soat_solicitud.runt_consultado_en`; la preconsulta lo recibe y no lo guarda —no hay fila.
+   *
+   * Se toma AQUÍ, en la compuerta, y no en el INSERT: entre una cosa y la otra están la subida del
+   * PDF a S3 y la apertura de la transacción, que en una petición lenta son segundos. La ficha
+   * promete «datos del RUNT del …», así que lo que tiene que quedar escrito es cuándo habló el
+   * registro nacional, no cuándo terminamos de guardar.
+   */
+  consultadoEn: Date;
 }
 
 /**
@@ -403,6 +460,11 @@ async function verificarRuntCompuerta(
   tipoDocumento: TipoDocumentoRunt,
 ): Promise<ResultadoRunt> {
   const desenlace = await consultarYClasificar(placa, vin, numeroDocumento, tipoDocumento);
+  // Inmediatamente después del `await` y antes de cualquier rama: es el instante en que el registro
+  // nacional respondió, que es lo que el AC4 pide poder enseñar. Se toma también en los desenlaces
+  // que abortan —cuesta cero y evita que el «cuándo» dependa de qué contestó el RUNT—, y solo se
+  // persiste en el que crea fila.
+  const consultadoEn = new Date();
 
   switch (desenlace.clase) {
     case 'caido':
@@ -420,6 +482,7 @@ async function verificarRuntCompuerta(
         datos: desenlace.datos,
         vinEfectivo: desenlace.vinEfectivo,
         organismoCodigo: desenlace.organismoCodigo,
+        consultadoEn,
       };
   }
 }
@@ -704,7 +767,7 @@ export async function crearSolicitud(
     await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
   }
 
-  const { datos, vinEfectivo, organismoCodigo } =
+  const { datos, vinEfectivo, organismoCodigo, consultadoEn } =
     await verificarRuntCompuerta(placa, vinTecleado, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento);
 
   // Sobre el VIN EFECTIVO, que es el que se va a escribir. Sin esta pareja, un alta sin VIN tecleado
@@ -753,6 +816,11 @@ export async function crearSolicitud(
         direccion: entrada.propietario.direccion,
         municipio: entrada.propietario.municipio,
         departamento: entrada.propietario.departamento,
+        // Los nueve campos, siempre completos y siempre en el MISMO INSERT que los valores que
+        // describen (AC2 y AC3). Escribirlo aparte —un UPDATE después del COMMIT, como hacía el
+        // satélite bajo la #11935— dejaría una ventana en la que la fila tiene los datos y no dice de
+        // dónde salieron, y una segunda escritura que puede fallar sola.
+        procedencia: procedenciaCompleta(entrada.procedencia),
         orden: 0,
       });
 
@@ -768,6 +836,10 @@ export async function crearSolicitud(
         soatVigente: false,
         // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
         verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,
+        // Cuándo respondió el RUNT, no cuándo se guardó esto (HU #12093, AC4). Sale de la compuerta,
+        // que lo tomó justo al resolverse la llamada; `solicitado_en` —la columna de al lado, con su
+        // `defaultNow()`— es el otro instante, y tenerlos separados es el motivo de la columna.
+        runtConsultadoEn: consultadoEn,
       });
 
       await tx.insert(flitoSoportes).values({
@@ -1297,6 +1369,20 @@ export async function subsanarSolicitud(
     // la subsanación siguiera escribiendo solo `nombre_completo`, una solicitud corregida saldría en
     // el Excel con el nombre VIEJO —el archivo lee `nombres`/`apellidos`/`razon_social`— mientras la
     // cola, que busca por `nombre_completo`, mostraría el nuevo. Ningún test de estado lo vería.
+    //
+    // ── `procedencia` NO está en este `set`, y eso es una LIMITACIÓN CONOCIDA de la HU #12093 ─────
+    //
+    // El AC2 de la #12093 alcanza al ALTA («Given un alta del canal Cliente»), y el AC7 de la HU
+    // #12094 —la que construye el mapa en el formulario— dice «Given el envío del alta». Ninguno
+    // habla de la subsanación, así que esta ruta ni acepta el mapa (`subsanacionSchema` no lo
+    // declara) ni lo reescribe.
+    //
+    // Lo que eso implica, dicho aquí en vez de descubierto: tras una subsanación, `procedencia`
+    // sigue contando de dónde salieron los datos **del alta**, no los que la fila tiene ahora. Un
+    // campo corregido a mano puede seguir figurando como `factura`. Es el mismo tipo de divergencia
+    // que la #11966 cerró para `nombre_completo` y aquí queda ABIERTA a propósito: cerrarla es
+    // decidir producto —¿todo a `manual`, o el formulario también manda el mapa al subsanar?— y esa
+    // decisión no está en ningún AC de este Feature. Ver el HANDOFF de la #12093.
     await tx.update(flitoCompradores).set({
       nombreCompleto: nombreCompletoDe(entrada.propietario),
       nombres: entrada.propietario.nombres,
