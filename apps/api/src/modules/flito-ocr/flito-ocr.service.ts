@@ -13,6 +13,7 @@ import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from '../tramites/anthropic.js';
 import {
   CampoSoat, CampoImpuesto, CampoFacturaVenta, CampoDerechoTramite,
+  CAMPOS_COMPRADOR_FACTURA, TIPOS_DOCUMENTO_RUNT,
   type CampoExtraido, type ExtraccionSoat, type ExtraccionImpuesto, type ExtraccionFacturaVenta,
   type ExtraccionDerechoTramite,
 } from '@operaciones/shared-types';
@@ -231,6 +232,50 @@ const textoExactoN = (v: string) => v.trim().toUpperCase() || null;     // póli
 const trimN = (v: string) => v.trim() || null;
 const anioN = (v: string) => { const m = v.match(/(?:19|20)\d{2}/); return m ? m[0] : null; };
 
+// ── Normalizadores del COMPRADOR de la factura de venta (HU #12092, AC5) ─────────────────────────
+//
+// **Lo que no cabe en su columna destino se descarta, no se trunca.** Es el mismo mecanismo que ya
+// usa `normalizarPesos`: `aCampoExtraido` convierte un `null` de la normalización en
+// `confianza: 0, confiable: false`, así que el campo llega al formulario vacío en vez de llegar con
+// un valor recortado que `altaSchema` rechazaría después con un 400 sobre algo que el usuario nunca
+// escribió. Un nombre cortado por la mitad es peor que un nombre ausente: parece correcto.
+
+/** Descarta lo que no quepa en la columna a la que este valor va a acabar yendo. */
+const cota = (max: number) => (v: string | null): string | null => (v !== null && v.length > max ? null : v);
+
+/**
+ * Texto libre del titular: se conserva tal como está escrito, solo sin espacios de borde.
+ *
+ * `trimN` y NO `textoExactoN`: este valor no se persiste directamente, se PRELLENA en un formulario
+ * que una persona lee y corrige. Forzar mayúsculas convertiría «Juana Pérez» en «JUANA PÉREZ» y
+ * obligaría a reescribirlo; el `numeroPoliza` sí se sube a mayúsculas porque es un identificador.
+ */
+const textoTitularN = (max: number) => (v: string) => cota(max)(trimN(v));
+
+/**
+ * Documento del comprador: sin puntos, comas ni espacios, en mayúsculas (AC5).
+ *
+ * **Conserva letras y el guion.** El AC nombra puntos y comas; quitar el guion borraría el dígito de
+ * verificación de un NIT («900.123.456-7» → «9001234567» pierde el 7) y quitar las letras rompería un
+ * pasaporte o una cédula de extranjería. Destino: `flito_compradores.numero_documento`, varchar(30).
+ */
+const numeroDocumentoN = (v: string) => cota(30)(v.toUpperCase().replace(/[.,\s]/g, '').trim() || null);
+
+/** Celular: SOLO dígitos (AC5). Destino `flito_compradores.celular`, varchar(30). */
+const celularN = (v: string) => cota(30)(v.replace(/\D/g, '') || null);
+
+/**
+ * Tipo de documento: uno de `TIPOS_DOCUMENTO_RUNT` o `null`, **nunca un valor inventado** (AC5).
+ *
+ * Se cruza contra la MISMA constante que valida el alta del canal (`documentoSchema`): si el modelo
+ * devuelve «CEDULA» o «NIT.», el campo llega vacío y la persona lo elige, en vez de llegar con un
+ * valor que el `z.enum` del alta rechazaría con un 400 sobre un desplegable que se rellenó solo.
+ */
+const tipoDocumentoN = (v: string): string | null => {
+  const limpio = v.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  return (TIPOS_DOCUMENTO_RUNT as readonly string[]).includes(limpio) ? limpio : null;
+};
+
 // ─────────────────────────── Extractores públicos ────────────────────────────
 
 /** Factura/póliza de SOAT. Vigencia y expedición se extraen pero NO se exigen (D-7). */
@@ -297,5 +342,61 @@ export async function extraerDerechoTramite(
   return r as ExtraccionDerechoTramite;
 }
 
-// Integración FLIT (Fase 8): la factura de venta viene de FLIT (no se analiza con OCR). El extractor
-// `extraerFacturaVenta` se retiró; SOAT y recibo de impuesto mantienen su OCR.
+/**
+ * Factura de VENTA del vehículo: los cinco campos documentales de siempre MÁS los nueve del
+ * COMPRADOR (HU #12092, Feature #12073).
+ *
+ * ── Un solo llamador, y decirlo es parte del contrato ────────────────────────────────────────────
+ *
+ * Lo usa **el canal Cliente** (`leerFacturaVenta` en `flito-soat-cliente.service.ts`) y nadie más:
+ * es una lectura que PRELLENA un formulario, no persiste nada y no decide nada. El flujo de
+ * impuestos/FLIT sigue sin analizar la factura con OCR (ver la nota del final del archivo).
+ *
+ * ── Escalación a Sonnet: los cinco campos que acaban siendo el TITULAR LEGAL ─────────────────────
+ *
+ * `numeroDocumento`, `tipoDocumento`, `nombres`, `apellidos` y `razonSocial` van a la escalación
+ * junto a la llave del vehículo y al valor. No es por importancia abstracta: son los que deciden a
+ * nombre de quién queda la solicitud, y son justo donde el error caro de esta plantilla —confundir
+ * al comprador con el concesionario emisor— produce un valor plausible y equivocado. Con catorce
+ * campos la segunda pasada se disparará casi siempre; es UNA llamada más en un endpoint que el rate
+ * limit del canal acota a 20 por ventana, y es lo que compra el «no inventar» del AC3.
+ *
+ * `direccion`, `municipio`, `departamento` y `celular` NO escalan: son datos de contacto que la
+ * persona ve y corrige en el formulario, y un error ahí no cambia de quién es el vehículo.
+ */
+export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVenta> {
+  const campos = [
+    CampoFacturaVenta.PLACA, CampoFacturaVenta.VIN, CampoFacturaVenta.NUMERO_FACTURA,
+    CampoFacturaVenta.FECHA_FACTURA, CampoFacturaVenta.VALOR_VEHICULO,
+    ...CAMPOS_COMPRADOR_FACTURA,
+  ] as const;
+  const escalacion = [
+    CampoFacturaVenta.PLACA, CampoFacturaVenta.VIN, CampoFacturaVenta.VALOR_VEHICULO,
+    CampoFacturaVenta.NUMERO_DOCUMENTO, CampoFacturaVenta.TIPO_DOCUMENTO,
+    CampoFacturaVenta.NOMBRES, CampoFacturaVenta.APELLIDOS, CampoFacturaVenta.RAZON_SOCIAL,
+  ];
+  const r = await extraer(doc, PROMPT_FACTURA_VENTA, campos, escalacion, {
+    [CampoFacturaVenta.PLACA]: placaN,
+    [CampoFacturaVenta.VIN]: vinN,
+    [CampoFacturaVenta.NUMERO_FACTURA]: textoExactoN,
+    [CampoFacturaVenta.FECHA_FACTURA]: normalizarFecha,
+    [CampoFacturaVenta.VALOR_VEHICULO]: normalizarPesos,
+    // Las cotas son las de las columnas de `flito_compradores` a las que el alta del canal manda
+    // cada valor, y las mismas que declara `titularCampos` en la ruta del canal.
+    [CampoFacturaVenta.NOMBRES]: textoTitularN(200),
+    [CampoFacturaVenta.APELLIDOS]: textoTitularN(200),
+    [CampoFacturaVenta.RAZON_SOCIAL]: textoTitularN(200),
+    [CampoFacturaVenta.TIPO_DOCUMENTO]: tipoDocumentoN,
+    [CampoFacturaVenta.NUMERO_DOCUMENTO]: numeroDocumentoN,
+    [CampoFacturaVenta.DIRECCION]: textoTitularN(300),
+    [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
+    [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
+    [CampoFacturaVenta.CELULAR]: celularN,
+  });
+  return r as ExtraccionFacturaVenta;
+}
+
+// Integración FLIT (Fase 8): en el flujo de IMPUESTOS/FLIT la factura de venta viene de FLIT y no se
+// analiza con OCR — ahí el extractor de arriba no se llama y esa decisión sigue en pie. Lo que la HU
+// #12092 reinstaura es su uso en el canal Cliente, donde la factura la adjunta el propio cliente y es
+// la única fuente documental del comprador. SOAT y recibo de impuesto mantienen su OCR de siempre.

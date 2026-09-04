@@ -265,3 +265,76 @@ export async function registrarAccesoRuntCliente(
     motivo: MOTIVO_RUNT[opciones.motivo ?? 'preconsulta'].slice(0, MOTIVO_MAX),
   });
 }
+
+// ── Canal Cliente: la LECTURA OCR de la factura de venta (Feature #12073, HU #12092) ─────────────
+
+/**
+ * Columnas personales que devuelve `POST /cliente/factura/lectura`.
+ *
+ * Es una CUARTA lista y no una ampliación de {@link CAMPOS_PII_SOAT}, por el criterio que este
+ * archivo se aplica desde su cabecera: la lista describe lo que ESA lectura devuelve, y declarar de
+ * más ya fue un bloqueante aquí. Esta ruta no lee ninguna fila de FLITO —no persiste nada y la
+ * solicitud puede ni existir todavía—: lo que hace es mandar el PDF del comprador a un ENCARGADO
+ * EXTERNO (Anthropic) y devolver los campos personales que el modelo leyó de él. Que salgan de
+ * un PDF y no de una tabla no cambia que sean datos personales de un titular que no es quien
+ * pregunta, y es exactamente el hecho que el artículo 17 de la Ley 1581 quiere poder reconstruir.
+ *
+ * Nombres de COLUMNA (`razon_social`, no `razonSocial`) por lo mismo que el resto del archivo: el
+ * registro tiene que poder cruzarse con `flito_compradores`, que es la tabla a la que estos valores
+ * acabarán yendo si la solicitud se radica.
+ *
+ * **`placa` y `vin` ENTRAN, y no se vuelven a quitar «por limpieza».** La ruta responde la extracción
+ * entera sin proyectar, así que las devuelve en cada 200: dejarlas fuera hacía que el registro
+ * subdeclarara lo divulgado, que es el defecto contrario al de declarar de más y de la misma
+ * gravedad. Este archivo ya las clasifica como dato personal en {@link CAMPOS_PII_SOAT} —identifican
+ * indirectamente al propietario— y su criterio es uno solo: la lista dice lo que la respuesta
+ * entrega. Lo que separa esta línea de una consulta a la cola no es la lista de columnas sino el
+ * `motivo` («Lectura OCR de la factura de venta del canal Cliente…») y la `accion`, que son los
+ * campos por los que ese registro se consulta; y mezclar tablas en una misma lista tampoco es nuevo,
+ * `CAMPOS_PII_SOAT` ya combina `flito_compradores` con `vehicles`. Quien quite una de las once
+ * columnas tiene que quitarla antes de la respuesta.
+ */
+export const CAMPOS_PII_LECTURA_FACTURA = [
+  'nombres', 'apellidos', 'razon_social', 'tipo_documento', 'numero_documento',
+  'direccion', 'municipio', 'departamento', 'celular',
+  'placa', 'vin',
+] as const;
+
+/**
+ * Deja constancia de una lectura OCR de la factura de venta del canal Cliente (AC7 de la #12092:
+ * «quién pidió la lectura, cuándo y sobre qué solicitud»).
+ *
+ * **No se llama a `audit()`**: en este módulo la bitácora responde «quién CAMBIÓ qué», y esta ruta no
+ * cambia nada — ni sube el archivo, ni escribe una fila, ni crea un soporte. Lo que hay que poder
+ * reconstruir es quién MIRÓ datos personales, que es justo lo que esta tabla guarda.
+ *
+ * El «sobre qué solicitud» viaja en `motivo` y no en `resource_id` porque `pii_access_log.resource_id`
+ * es `integer` y el id del SOAT es un uuid — el mismo apaño que ya documentan `registrarAccesoSoat` y
+ * `flito-conciliacion.pii.ts`. El uuid es opaco (AGENTS.md §14 lo permite); ni la placa, ni el
+ * documento, ni el VIN, ni ninguno de los valores leídos entran en el motivo: son precisamente los
+ * datos que este registro protege y no pueden acabar guardados como el MOTIVO de su propia lectura.
+ * Declarar `placa` y `vin` en {@link CAMPOS_PII_LECTURA_FACTURA} dice QUÉ se divulgó; el motivo sigue
+ * sin llevar ningún valor, y las dos cosas son independientes.
+ *
+ * Sin `solicitudId` el motivo lo dice explícitamente en vez de callar: una lectura durante el alta
+ * (todavía no hay fila) y una durante la subsanación (ya la hay) son dos hechos distintos, y si las
+ * dos escribieran la misma línea, «¿sobre qué solicitud consultaron mis datos?» dejaría de tener
+ * respuesta para la mitad de los casos.
+ */
+export async function registrarLecturaFacturaCliente(
+  req: Request,
+  opciones: { solicitudId?: string | null } = {},
+): Promise<void> {
+  const motivo = opciones.solicitudId
+    ? `Lectura OCR de la factura de venta del canal Cliente — soat ${opciones.solicitudId}`
+    : 'Lectura OCR de la factura de venta del canal Cliente — sin solicitud (alta en curso)';
+
+  await logPiiAccess(req, {
+    resourceTipo: RECURSO_SOAT,
+    // Ver la nota de `soatId` en `AccesoSoat`: el uuid no cabe en una columna integer.
+    resourceId: null,
+    accion: 'read',
+    camposAccedidos: [...CAMPOS_PII_LECTURA_FACTURA],
+    motivo: motivo.slice(0, MOTIVO_MAX),
+  });
+}

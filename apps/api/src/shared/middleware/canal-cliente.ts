@@ -142,6 +142,20 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
     metodo: 'PATCH', patron: '/api/flito/soat/:id/solicitud',
     porque: 'Subsanar y reenviar una solicitud RECHAZADA (AC3). Sin esta entrada el botón «Reenviar la solicitud» —que ya existe en el front— responde 403 y el rechazo se convierte en un callejón sin salida: el Cliente ve por qué se le devolvió y no tiene forma de corregirlo. La ruta edita la MISMA fila (mismo id, mismo VIN, ni placa ni VIN en el cuerpo) y solo desde `rechazada`; la pertenencia la resuelve `buscarConAcceso()` con 404-no-403 y lleva el rate limit del canal más la validación del MIME real del adjunto.',
   },
+  // ── La CUARTA ruta de escritura del canal (HU #12092, Feature #12073). Es la primera que no
+  // escribe NADA en FLITO —lee un PDF y devuelve lo que dice—, pero entra por la misma puerta que las
+  // otras tres: `POST` con adjunto, `requireRole('cliente')`, rate limit del canal por delante de la
+  // carga del archivo y validación del MIME real.
+  {
+    metodo: 'POST', patron: '/api/flito/soat/cliente/factura/lectura',
+    porque: 'Leer con OCR el COMPRADOR de la factura de venta para prellenar el formulario del alta y '
+      + 'de la subsanación (AC6). Sin esta entrada, el paso del wizard que evita reteclear nueve '
+      + 'campos —nombres, apellidos o razón social, tipo y número de documento, dirección, municipio, '
+      + 'departamento y celular— responde 403 y el cliente vuelve a escribirlos a mano desde el PDF '
+      + 'que acaba de adjuntar. NO persiste ni archiva nada: ni objeto en storage, ni soporte, ni '
+      + 'fila; el buffer muere con la petición. Si viene `solicitudId` (subsanación) la pertenencia la '
+      + 'resuelve `buscarConAcceso()` con 404-no-403, y va en el CUERPO del multipart, nunca en la URL.',
+  },
   // Fuera a propósito, aunque sean del mismo Feature: `GET /api/flito/soat/causales-rechazo`,
   // `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/rechazar-solicitud`. Las tres son
   // de Operaciones (AC4) y al `cliente` se le niegan DOS veces —aquí por no estar, y en su router por
