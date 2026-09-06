@@ -12,8 +12,13 @@
 // porque es la única forma de comprobar que la pantalla ramifica por el código y no por la prosa:
 // un `if (/revise/i.test(mensaje))` pasa con mocks realistas y muere aquí.
 //
-// Revisión admin: `soat-revision-rechazo.spec.ts`. La pantalla legada `/soat` y su «Verificar RUNT»
-// son otra cosa y viven en `rol-cliente-identidad.spec.ts`.
+// **HU #12079.** El circuito de revisión se retiró: ya no hay `pendiente_revision` ni `rechazada`
+// que radicar, ni subsanación, ni `soat-revision-rechazo.spec.ts`. Lo que esta HU cambia aquí es de
+// tres clases y se marca caso por caso: el RÓTULO del primario («Enviar al gestor»), el TOAST, y la
+// frase de bloqueo, que pasa de «Consulte el RUNT antes de enviar.» a la enumeración de lo que
+// falta. Lo NUEVO —la enumeración, el foco al primer campo pendiente, el modal de la ficha de la
+// compañía y la inalcanzabilidad de lo retirado— vive en `soat-envio-directo-gestor.spec.ts`.
+// La pantalla legada `/soat` y su «Verificar RUNT» viven en `rol-cliente-identidad.spec.ts`.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
@@ -23,13 +28,13 @@ const VIN = '9BWZZZ377VT004251';
 const TIPO_DOC = 'CC';
 const NUMERO_DOC = '1020304050';
 const CORREO = 'contacto@ejemplo.co';
-const UUID_RECHAZADA = '11111111-2222-4333-8444-555555555555';
+/** El uuid de una fila cualquiera. Opaco: es lo único de la solicitud que la URL llega a tocar. */
+const UUID_SOLICITUD = '11111111-2222-4333-8444-555555555555';
 
 const RE_ALTA = /\/api\/flito\/soat\/cliente$/;
 const RE_COLA = /\/api\/flito\/soat\?/;
 const RE_PRECONSULTA = /\/api\/flito\/soat\/cliente\/preconsulta$/;
 const RE_DETALLE = /\/api\/flito\/soat\/[0-9a-f-]{36}$/;
-const RE_SUBSANAR = /\/api\/flito\/soat\/[0-9a-f-]{36}\/solicitud$/;
 
 /** Lo que devuelve la preconsulta cuando el RUNT dice que sí (contrato §2.1 de la #11966). */
 const RUNT_OK = {
@@ -45,9 +50,10 @@ const RUNT_OK = {
 /** Una fila de la cola con la forma que `FlitoSoat` espera, ya recortada como al Cliente. */
 function fila(over: Record<string, unknown> = {}) {
   return {
-    id: UUID_RECHAZADA, vin: VIN, placa: PLACA, marca: 'RENAULT', linea: 'LOGAN',
+    id: UUID_SOLICITUD, vin: VIN, placa: PLACA, marca: 'RENAULT', linea: 'LOGAN',
     cilindraje: '1600', carroceria: 'SEDAN', tipoServicio: 'Particular',
-    estado: 'pendiente_revision', esMultiplePropietario: false, companiaNombre: 'Transportes Sur',
+    // `solicitado` desde la HU #12079: una solicitud del canal nace ya en gestión.
+    estado: 'solicitado', esMultiplePropietario: false, companiaNombre: 'Transportes Sur',
     organismoNombre: 'STRIA TTEyTTO MEDELLIN',
     compradores: [{ nombreCompleto: 'María Gómez', numeroDocumento: NUMERO_DOC, orden: 0, porcentajeParticipacion: null }],
     tramitesFlit: [], tipoTramite: null, fechaAprobacion: null, fechaCreacion: '2026-08-01T10:00:00Z',
@@ -60,7 +66,6 @@ function fila(over: Record<string, unknown> = {}) {
 /** El detalle de una solicitud del canal: trae además el titular GUARDADO y partido (HU #11966). */
 function detalle(over: Record<string, unknown> = {}) {
   return fila({
-    estado: 'rechazada',
     propietarioCanal: {
       tipoDocumento: TIPO_DOC, nombres: 'MARÍA FERNANDA', apellidos: 'GÓMEZ RUIZ', razonSocial: null,
       numeroDocumento: NUMERO_DOC, correo: CORREO, celular: '3001234567',
@@ -115,7 +120,7 @@ async function mockCanal(
     altas.push({ url: route.request().url(), method: route.request().method(), post: route.request().postData() });
     return opciones.alta
       ? json(route, opciones.alta.status, opciones.alta.cuerpo)
-      : json(route, 201, { id: UUID_RECHAZADA, estado: 'pendiente_revision' });
+      : json(route, 201, { id: UUID_SOLICITUD, estado: 'solicitado' });
   });
   await page.route(RE_PRECONSULTA, async (route) => {
     preconsultas.push({ post: route.request().postData() });
@@ -129,7 +134,8 @@ async function mockCanal(
 
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
 const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver a consultar' });
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar la solicitud' });
+/** HU #12079: el rótulo pasó de «Enviar al gestor» a «Enviar al gestor». */
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
 /** Los cuatro identificadores del bloque 1. El VIN es opcional y por eso se pide explícitamente. */
@@ -169,7 +175,7 @@ async function llenarTodoYConsultar(page: Page, opciones: { vin?: string } = {})
 // ═════════════════════════ AC1 · la compuerta y el orden de entrada ══════════════════════════════
 
 test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
-  test('al abrir: hay «Consultar el RUNT» y «Enviar la solicitud» está aria-disabled y NO disabled', async ({ page }) => {
+  test('al abrir: hay «Consultar el RUNT» y «Enviar al gestor» está aria-disabled y NO disabled', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     const cap = await mockCanal(page);
@@ -188,7 +194,8 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await cancelar.focus();
     await page.keyboard.press('Tab');
     await expect(enviar).toBeFocused();
-    await expect(page.getByText('Consulte el RUNT antes de enviar.')).toBeVisible();
+    // HU #12079: la frase deja de ser genérica y enumera lo que falta, empezando por el RUNT.
+    await expect(page.getByText('Para enviar falta: consultar el RUNT, Placa y 10 datos más.')).toBeVisible();
 
     await llenarVehiculo(page);
     await llenarPropietario(page);
@@ -245,7 +252,12 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(ficha.getByText(VIN)).toHaveCount(0);
     // Los datos del archivo de Operaciones no se pintan: no ayudan a reconocer el vehículo.
     await expect(ficha.getByText(/Pasajeros|Puertas/)).toHaveCount(0);
-    await expect(btnEnviar(page)).not.toHaveAttribute('aria-disabled', 'true');
+    // HU #12079: la compuerta abierta ya NO basta para activar el primario —faltan el propietario y
+    // la factura—, así que lo que prueba que la consulta surtió efecto es que el RUNT SALE de la
+    // enumeración de lo que falta. El aserto negativo es el que importa: sin él, un `ITEM_RUNT` que
+    // devolviera siempre una cadena pasaría desapercibido.
+    await expect(page.locator('#sol-falta')).not.toContainText('RUNT');
+    await expect(page.locator('#sol-falta')).toHaveText('Para enviar falta: Nombre/s, Apellido/s y 6 datos más.');
     await expect(page.getByRole('button', { name: 'Consultar de nuevo' })).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
   });
@@ -261,7 +273,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await btnEnviar(page).click();
 
     await expect(page).toHaveURL(/\/flito\/soat$/);
-    await expect(page.getByText('Solicitud enviada. FLITO la va a revisar.')).toBeVisible();
+    await expect(page.getByText('Solicitud enviada. Ya está en gestión.')).toBeVisible();
     expect(cap.altas).toHaveLength(1);
     // Ni en la consulta ni en el alta viaja `vin: ''`: la clave se OMITE. Mandarla vacía es un 400
     // del servidor que el Cliente no sabría explicarse.
@@ -349,7 +361,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(btnReconsultar(page)).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
 
-    // Y la compuerta aguanta con el formulario entero lleno: pulsar «Enviar la solicitud» —con el
+    // Y la compuerta aguanta con el formulario entero lleno: pulsar «Enviar al gestor» —con el
     // teclado, que es como se puede pulsar un `aria-disabled`— no radica nada.
     const cancelar = page.getByRole('button', { name: 'Cancelar' });
     await cancelar.focus();
@@ -581,7 +593,14 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     await btnConsultar(page).click();
     await expect(fichaRunt(page)).toBeVisible();
 
-    await btnEnviar(page).click();
+    // Con el teclado, no con `.click()`: desde la HU #12079 el primario lleva `aria-disabled` en
+    // cuanto falta un campo, y la actionability de Playwright lo trata como deshabilitado. `Enter`
+    // sobre el botón enfocado dispara el mismo `click` — y es el camino que la decisión de
+    // accesibilidad existe para preservar.
+    await page.getByRole('button', { name: 'Cancelar' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(btnEnviar(page)).toBeFocused();
+    await page.keyboard.press('Enter');
 
     const municipio = page.getByLabel('Municipio');
     await expect(municipio).toBeFocused();
@@ -608,16 +627,20 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
   });
 });
 
-// ═════════════════════════ AC5 · RN-01 y la subsanación ══════════════════════════════════════════
+// ═════════════════════════ AC5 · RN-01, el VIN ya en cola ════════════════════════════════════════
+//
+// Lo que este bloque tenía y esta HU se lleva: la subsanación (`/flito/soat/solicitud/:id`), la
+// pastilla «Rechazada» y el primario «Abrir la solicitud rechazada» del modal de RN-01, que llevaba
+// a esa ruta. RN-01 sigue entero: lo que cambia es la SALIDA que se le ofrece al Cliente.
 
-test.describe('HU #11967 · AC5 — el VIN ya en cola y la solicitud rechazada', () => {
-  test('propia y rechazada: modal RN-01, «Abrir la solicitud rechazada» y URL sin PII', async ({ page }) => {
+test.describe('HU #11967 · AC5 — el VIN ya está en la cola de FLITO', () => {
+  test('propia: modal RN-01, «Ver la solicitud» y URL sin PII ni identificadores', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
+    const cola = await mockCola(page, [fila()]);
     await page.route(RE_DETALLE, (route) => json(route, 200, detalle()));
     await mockCanal(page, {
-      preconsulta: fallo(409, 'vin_ya_tiene_soat', 'Esta solicitud ya existe y fue rechazada.', {
-        propia: true, id: UUID_RECHAZADA, estado: 'rechazada',
+      preconsulta: fallo(409, 'vin_ya_tiene_soat', 'Esta solicitud ya existe.', {
+        propia: true, id: UUID_SOLICITUD, estado: 'solicitado',
       }),
     });
 
@@ -627,11 +650,19 @@ test.describe('HU #11967 · AC5 — el VIN ya en cola y la solicitud rechazada',
 
     const modal = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
     await expect(modal).toBeVisible();
-    await modal.getByRole('link', { name: 'Abrir la solicitud rechazada' }).click();
+    await expect(modal.getByText('Puede seguir su estado desde sus SOAT.')).toBeVisible();
+    // El primario ya NO es «Abrir la solicitud rechazada»: esa ruta se retiró con la subsanación
+    // (HU #12079) y el botón habría aterrizado en el comodín `*`. El aserto negativo es la mitad que
+    // mata al mutante de dejar el enlace apuntando a una ruta que ya no existe.
+    await expect(modal.getByRole('link', { name: 'Abrir la solicitud rechazada' })).toHaveCount(0);
+    await modal.getByRole('link', { name: 'Ver la solicitud' }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/flito/soat/solicitud/${UUID_RECHAZADA}$`));
+    // El uuid viaja en el ESTADO de navegación, no en la URL.
+    await expect(page).toHaveURL(/\/flito\/soat$/);
+    expect(page.url()).not.toContain(UUID_SOLICITUD);
     expect(page.url()).not.toContain(PLACA);
     expect(page.url()).not.toContain(VIN);
+    expect(cola.items).toHaveLength(1);
   });
 
   test('AJENA: sin botón primario, sin estado y sin fecha', async ({ page }) => {
@@ -647,67 +678,16 @@ test.describe('HU #11967 · AC5 — el VIN ya en cola y la solicitud rechazada',
 
     const modal = page.getByRole('dialog', { name: 'Ese vehículo ya está en la cola de FLITO' });
     await expect(modal.getByText('Escríbale a su contacto en FLIT si cree que es un error.')).toBeVisible();
-    await expect(modal.getByRole('link', { name: 'Abrir la solicitud rechazada' })).toHaveCount(0);
     await expect(modal.getByRole('link', { name: 'Ver la solicitud' })).toHaveCount(0);
     await expect(modal.getByText(/Rechazada|Pendiente|Solicitado|Pagado|novedad/)).toHaveCount(0);
     await expect(modal.getByText(/\d{1,2}\/\d{1,2}\/\d{2,4}/)).toHaveCount(0);
   });
 
-  test('subsanar: sin «Consultar el RUNT», con lo guardado ya escrito y PATCH con el nombre partido', async ({ page }) => {
+  test('desde la cola: el detalle del Cliente no filtra la trastienda ni le ofrece el historial', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
-    await page.route(RE_DETALLE, (route) => (route.request().method() === 'GET'
-      ? json(route, 200, detalle())
-      : route.fallback()));
-    const patches: { post: string | null }[] = [];
-    await page.route(RE_SUBSANAR, (route) => {
-      patches.push({ post: route.request().postData() });
-      return json(route, 200, { id: UUID_RECHAZADA, estado: 'pendiente_revision' });
-    });
-    const cap = await mockCanal(page);
-
-    await page.goto(`/flito/soat/solicitud/${UUID_RECHAZADA}`);
-    await expect(page.getByRole('button', { name: /Consultar el RUNT|Volver a consultar/ })).toHaveCount(0);
-    // Lo guardado no se vuelve a teclear a ciegas.
-    await expect(page.getByLabel('Nombre/s')).toHaveValue('MARÍA FERNANDA');
-    await expect(page.getByLabel('Apellido/s')).toHaveValue('GÓMEZ RUIZ');
-    await expect(page.getByLabel('Municipio')).toHaveValue('Medellín');
-    await expect(page.getByLabel('Departamento')).toHaveValue('Antioquia');
-    // Y aquí la placa y el VIN SÍ están en la ficha: son lo persistido, no el eco de una consulta.
-    await expect(fichaRunt(page).getByText(VIN, { exact: true })).toBeVisible();
-
-    await page.getByRole('button', { name: 'Reenviar la solicitud' }).click();
-
-    await expect.poll(() => patches.length).toBe(1);
-    expect(cap.preconsultas).toHaveLength(0);
-    const cuerpo = patches[0].post ?? '';
-    expect(cuerpo).toContain('name="nombres"');
-    expect(cuerpo).toContain('name="departamento"');
-    expect(cuerpo).not.toContain('name="nombreCompleto"');
-    await expect(page.getByText('Solicitud enviada. FLITO la va a revisar.')).toBeVisible();
-  });
-
-  test('sin el titular guardado, la subsanación lo dice en vez de fingir que lo sabe', async ({ page }) => {
-    await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
-    await page.route(RE_DETALLE, (route) => json(route, 200, fila({ estado: 'rechazada' })));
-
-    await page.goto(`/flito/soat/solicitud/${UUID_RECHAZADA}`);
-    await expect(page.getByText('Complete los datos del propietario para poder reenviar la solicitud.')).toBeVisible();
-    // El nombre fundido de `compradores` NO se reparte por el espacio.
-    await expect(page.getByLabel('Nombre/s')).toHaveValue('');
-    await expect(page.getByLabel('Apellido/s')).toHaveValue('');
-    await expect(page.getByLabel('Número de documento')).toHaveValue(NUMERO_DOC);
-  });
-
-  test('desde la cola: la pastilla «Rechazada» existe y su detalle no filtra la trastienda', async ({ page }) => {
-    await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page, [fila({ estado: 'rechazada' })]);
+    await mockCola(page, [fila()]);
 
     await page.goto('/flito/soat');
-    await expect(page.getByRole('button', { name: 'Pendiente de revisión' })).toBeVisible();
-    await page.getByRole('button', { name: 'Rechazada', exact: true }).click();
-
     await page.getByRole('button', { name: 'Ver' }).first().click();
     const detalleModal = page.getByRole('dialog');
     await expect(detalleModal).toBeVisible();
@@ -717,7 +697,7 @@ test.describe('HU #11967 · AC5 — el VIN ya en cola y la solicitud rechazada',
 
   test('el historial SIGUE estando para Operaciones', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    await mockCola(page, [fila({ estado: 'rechazada' })]);
+    await mockCola(page, [fila()]);
 
     await page.goto('/flito/soat');
     await page.getByRole('button', { name: 'Ver' }).first().click();
@@ -855,50 +835,6 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
   });
 });
 
-// ═════════════════════════ Subsanación · los cuatro estados de la vista ══════════════════════════
-
-test.describe('HU #11967 · /flito/soat/solicitud/:id', () => {
-  test('una solicitud que ya no está rechazada NO monta el formulario', async ({ page }) => {
-    await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
-    await page.route(RE_DETALLE, (route) => json(route, 200, detalle({ estado: 'pendiente_revision' })));
-
-    await page.goto(`/flito/soat/solicitud/${UUID_RECHAZADA}`);
-    await expect(page.getByText('Esta solicitud ya no está rechazada: FLITO la está revisando. No hay nada que corregir por ahora.')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Reenviar la solicitud' })).toHaveCount(0);
-  });
-
-  test('404 — no existe o no es de su compañía, y hay salida', async ({ page }) => {
-    await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
-    await page.route(RE_DETALLE, (route) => json(route, 404, { error: 'El SOAT no existe' }));
-
-    await page.goto(`/flito/soat/solicitud/${UUID_RECHAZADA}`);
-    await expect(page.getByText('Esta solicitud no existe o no es de su compañía.')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Volver a mis SOAT' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Reintentar' })).toHaveCount(0);
-  });
-
-  test('un fallo de carga SÍ trae reintento, y el segundo intento pinta la solicitud', async ({ page }) => {
-    await loginAs(page, CLIENTE_CON_CANAL);
-    await mockCola(page);
-    let carga: 'error' | 'ok' = 'error';
-    await page.route(RE_DETALLE, (route) => (carga === 'error'
-      ? json(route, 500, { error: 'Error del servidor' })
-      : json(route, 200, detalle())));
-
-    await page.goto(`/flito/soat/solicitud/${UUID_RECHAZADA}`);
-    await expect(page.getByText('No pudimos cargar esta solicitud.')).toBeVisible();
-    carga = 'ok';
-    await page.getByRole('button', { name: 'Reintentar' }).click();
-
-    await expect(page.getByRole('button', { name: 'Reenviar la solicitud' })).toBeVisible();
-    const ficha = fichaRunt(page);
-    await expect(ficha.getByText(PLACA, { exact: true })).toBeVisible();
-    await expect(ficha.getByText(VIN, { exact: true })).toBeVisible();
-  });
-});
-
 // ═════════════════ La ficha de ayuda in-app del módulo SOAT ══════════════════════════════════════
 //
 // El AC pide que «la ficha de ayuda in-app del módulo SOAT describa la consulta previa, el VIN
@@ -928,7 +864,10 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     await page.goto('/flito/soat/solicitud');
 
     const rotuloConsulta = (await btnConsultar(page).innerText()).trim();
-    const avisoCompuerta = (await page.getByText('Consulte el RUNT antes de enviar.').innerText()).trim();
+    // HU #12079: el rótulo del primario también se lee del DOM. Es el que la ficha tiene que citar,
+    // y es el que el PO puede pedir cambiar («gestor» es vocabulario interno): si cambia aquí y no
+    // en la ficha, este test se pone rojo sin que nadie tenga que acordarse.
+    const rotuloEnviar = (await btnEnviar(page).innerText()).trim();
     // El VIN se ofrece como opcional en la propia pantalla…
     await expect(page.getByText('Si lo deja vacío, FLITO usa el que traiga el RUNT.')).toBeVisible();
     // …y el propietario se parte por tipo de documento: razón social con NIT, nombre/s y apellido/s
@@ -954,7 +893,7 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
 
     // Los tres rótulos, con el texto EXACTO que acaba de leerse de la pantalla.
-    for (const literal of [rotuloConsulta, avisoCompuerta, tituloModal]) {
+    for (const literal of [rotuloConsulta, rotuloEnviar, tituloModal]) {
       await expect(ficha, literal).toContainText(literal);
     }
 
@@ -964,8 +903,12 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
       'Pulse Consultar el RUNT',
       'Volver a consultar',
       'No se radica una solicitud del canal SOAT sin trámite sin consultar antes el RUNT',
-      // La subsanación es la excepción, y la ficha tiene que decirlo o el Cliente la buscará.
-      'Tampoco aquí se pide Consultar el RUNT',
+      // HU #12079 — lo que la ficha tiene que decir AHORA y no decía: qué se enumera cuando el
+      // botón está bloqueado, a dónde va la solicitud al enviarla y dónde se configura el gestor.
+      'Para enviar falta: consultar el RUNT, Placa y 10 datos más.',
+      'la solicitud queda en Solicitado, sale al gestor por defecto de su compañía',
+      'No pasa por ninguna revisión de FLITO',
+      'se configuran en Clientes y proveedores, en la columna SOAT sin trámite',
       // El VIN opcional.
       'el VIN es opcional',
       // El desenlace que no es del canal ni del servicio, sino de los datos.

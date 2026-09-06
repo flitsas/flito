@@ -34,13 +34,16 @@
 // ── PII ─────────────────────────────────────────────────────────────────────────────────────────
 //
 // Placa, VIN, documento, correo, celular, dirección, municipio y departamento viajan SIEMPRE en el
-// cuerpo de un `POST`. La única PII que la URL toca es el uuid opaco de `/solicitud/:id`, que
-// AGENTS.md §14 permite. **El VIN que trae el RUNT no se pinta en ninguna parte**: la respuesta lo
-// devuelve para persistirlo, y enseñarlo convertiría la pantalla en un lector de VIN por placa para
-// quien sondee placas ajenas.
+// cuerpo de un `POST`. Desde la HU #12079 la URL de esta pantalla no toca **ninguna** PII: era el
+// uuid opaco de `/solicitud/:id` —que AGENTS.md §14 permitía— y esa ruta se retiró con la
+// subsanación, así que `/flito/soat/solicitud` ya no lleva parámetros; tras crear, se navega a la
+// cola (`/flito/soat`) y no al identificador de la solicitud.
+// **El VIN que trae el RUNT no se pinta en ninguna parte**: la respuesta lo devuelve para
+// persistirlo, y enseñarlo convertiría la pantalla en un lector de VIN por placa para quien sondee
+// placas ajenas.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { CodigoErrorSolicitudSoat } from '@operaciones/shared-types';
 import { api } from '../lib/api';
@@ -66,12 +69,26 @@ import {
   BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, Campo, ID_CAMPO, PROPIETARIO_VACIO,
   Seccion, useFocoPrimerError, type CampoPropietario, type Propietario,
 } from '../components/flito/soat-cliente/bloques';
-import CorreccionSolicitud from '../components/flito/soat-cliente/CorreccionSolicitud';
 
 const COLA = '/flito/soat';
 
 /** Id de la banda de desenlace, para que el campo VIN pueda apuntar a ella con `aria-describedby`. */
 const ID_BANDA_RUNT = 'sol-desenlace-runt';
+
+/** Id de la línea que enumera lo que falta, para el `aria-describedby` del primario. */
+const ID_FALTANTES = 'sol-falta';
+
+/**
+ * El rótulo del primario (HU #12079, AC2, literal).
+ *
+ * «Gestor» es vocabulario interno y esta es la primera pantalla donde un rol externo lo lee. Queda
+ * como una cadena y no interpolado en el JSX porque hay una pregunta abierta al PO: si prefiere
+ * «Enviar la solicitud», se cambia aquí y en la ficha de ayuda, no en la estructura.
+ */
+const ROTULO_ENVIAR = 'Enviar al gestor';
+const TOAST_ENVIADA = 'Solicitud enviada. Ya está en gestión.';
+/** No es una lista de lo que falta: no falta nada, está PROHIBIDO. Por eso no pasa por la plantilla. */
+const AVISO_VIGENTE = 'Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.';
 
 type CampoFormulario = 'placa' | 'vin' | CampoPropietario | 'archivo';
 type Errores = Partial<Record<CampoFormulario, string>>;
@@ -119,7 +136,6 @@ const ROTULO_CONSULTA: Record<Consulta['fase'], string> = {
  */
 export default function FlitoSoatSolicitud() {
   const { user } = useAuth();
-  const { id } = useParams<{ id: string }>();
 
   if (!puedeSolicitarSoat(user)) {
     return (
@@ -132,7 +148,11 @@ export default function FlitoSoatSolicitud() {
     );
   }
 
-  return id ? <CorreccionSolicitud id={id} /> : <Alta />;
+  // Un solo cuerpo desde la HU #12079: la subsanación se retiró con el estado que la originaba
+  // (`rechazada`), y con ella la ruta `/flito/soat/solicitud/:id` de `App.tsx`. Sin borrar la ruta,
+  // una dirección guardada en marcadores caería aquí y pintaría un alta EN BLANCO prometiendo una
+  // solicitud existente.
+  return <Alta />;
 }
 
 // ───────────────────────────── El alta ───────────────────────────────────────────────────────────
@@ -170,7 +190,14 @@ function Alta() {
   const turno = useRef(0);
 
   const hayDatos = Boolean(placa || vin || archivo || Object.values(propietario).some(Boolean));
-  const puedeEnviar = consulta.fase === 'ok';
+  /**
+   * **La compuerta del RUNT, y solo eso.** Hasta la HU #12079 esto se llamaba `puedeEnviar` y
+   * decidía DOS cosas: el aspecto del botón y a dónde va el foco al pulsarlo. Redefinirlo para que
+   * incluyera los campos que faltan habría mandado el foco al botón «Consultar el RUNT» —un control
+   * que no tiene nada de malo— cuando lo que falta es el correo. Por eso son dos nombres: este
+   * enruta el foco, `faltantes` decide el aspecto.
+   */
+  const compuertaAbierta = consulta.fase === 'ok';
 
   useEffect(() => { tituloRef.current?.focus(); }, []);
 
@@ -335,7 +362,7 @@ function Alta() {
       // cilindraje, carrocería y organismo NO viajan nunca: los resuelve el servidor consultando
       // otra vez. La pantalla no le reenvía lo que él mismo le mostró en la preconsulta.
       await api.post('/flito/soat/cliente', form);
-      toast.success('Solicitud enviada. FLITO la va a revisar.');
+      toast.success(TOAST_ENVIADA);
       navigate(COLA);
     } catch (e) {
       encajarFallo(leerFallo(e), 'envio');
@@ -351,7 +378,11 @@ function Alta() {
    * recorrido de tabulación.
    */
   const intentarEnviar = () => {
-    if (!puedeEnviar) { consultarRef.current?.focus(); return; }
+    if (!compuertaAbierta) { consultarRef.current?.focus(); return; }
+    // Con la compuerta abierta se llama a `enviar()` **aunque falten campos**: su primera mitad ya
+    // hace `validarTodo` → `setErrores` → `setIntento + 1`, y `useFocoPrimerError` lleva el foco al
+    // primer campo inválido. Es lo que hace que pulsar el botón bloqueado siga llevando a la acción
+    // que toca, y que esa acción sea la correcta de las dos.
     void enviar();
   };
 
@@ -370,6 +401,23 @@ function Alta() {
 
   const salir = () => (hayDatos ? setConfirmarSalida(true) : navigate(COLA));
 
+  /**
+   * Lo que falta para poder enviar, **derivado de `validarTodo`** — la misma función que bloquea el
+   * envío— y nunca de un chequeo de vacíos paralelo.
+   *
+   * No es purismo: `hola@` no está vacío y sigue siendo inválido. Con dos fuentes de verdad el
+   * botón se vería activo, la pulsación no enviaría nada y el Cliente no sabría por qué.
+   *
+   * Se recalcula con cada tecla, y eso es barato: son trece expresiones regulares sobre cadenas
+   * cortas. Lo que NO hace es PINTAR: `errores` se sigue poblando en `blur` y al enviar, así que el
+   * formulario no se pone rojo mientras se teclea.
+   */
+  const faltantes = useMemo(
+    () => faltaParaEnviar(consulta.fase, placa, vin, propietario, archivo),
+    [consulta.fase, placa, vin, propietario, archivo],
+  );
+  const fraseFaltantes = vigenteCerrado ? AVISO_VIGENTE : frasePendientes(faltantes);
+
   const idPrimerError = useMemo(() => primerErrorEnfocable(errores), [errores]);
   useFocoPrimerError(idPrimerError, intento);
 
@@ -383,6 +431,9 @@ function Alta() {
   }
 
   const cargando = consulta.fase === 'cargando';
+  // Lo que decide el ASPECTO del botón. `aria-disabled` y no `disabled`: es la decisión de
+  // accesibilidad que esta pantalla ya tomó y que la HU #12079 conserva.
+  const bloqueado = faltantes.length > 0;
   const avisoLongitudVin = avisoVin(vin);
 
   return (
@@ -396,7 +447,7 @@ function Alta() {
         <PageHeaderCard
           titleRef={tituloRef}
           title="Solicitud de SOAT"
-          subtitle="Consultamos el RUNT con la placa y el documento del propietario. Usted completa el propietario y adjunta la factura de venta. Al enviarla queda en revisión de FLITO."
+          subtitle="Consultamos el RUNT con la placa y el documento del propietario. Usted completa el propietario y adjunta la factura de venta. Al enviarla, su SOAT entra en gestión de inmediato."
         />
       </div>
 
@@ -544,15 +595,18 @@ function Alta() {
                 <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>{avisoEnvio}</p>
               )}
               <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                Al enviarla, la solicitud pasa a revisión de FLITO. No se guarda como borrador.
+                Al enviarla, su SOAT entra en gestión de inmediato. No se guarda como borrador.
               </p>
               {enviando && <span role="status" className="sr-only">Enviando…</span>}
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {!puedeEnviar && (
-                  <p className="mr-auto text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-                    {vigenteCerrado
-                      ? 'Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.'
-                      : 'Consulte el RUNT antes de enviar.'}
+                {/* **Texto plano con `id`, no una región viva.** El botón la referencia con
+                    `aria-describedby` mientras está bloqueado, así que el lector anuncia «Enviar al
+                    gestor, no disponible, Para enviar falta: …» cuando el foco LLEGA al botón, que
+                    es cuando importa. Una `role="status"` aquí se reanunciaría con cada pulsación
+                    de tecla del formulario: doce campos interrumpiendo a quien escribe. */}
+                {fraseFaltantes && (
+                  <p id={ID_FALTANTES} className="mr-auto text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+                    {fraseFaltantes}
                   </p>
                 )}
                 <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={salir}>
@@ -566,12 +620,13 @@ function Alta() {
                     no se envía nada. La atenuación va EXPLÍCITA porque `aria-disabled` no dispara
                     las variantes `disabled:` de Tailwind. */}
                 <button type="button" className={flitBtnPrimary}
-                  style={puedeEnviar
-                    ? flitBtnPrimaryStyle
-                    : { ...flitBtnPrimaryStyle, opacity: 0.5, cursor: 'not-allowed' }}
-                  aria-disabled={puedeEnviar ? undefined : true}
+                  style={bloqueado
+                    ? { ...flitBtnPrimaryStyle, opacity: 0.5, cursor: 'not-allowed' }
+                    : flitBtnPrimaryStyle}
+                  aria-disabled={bloqueado ? true : undefined}
+                  aria-describedby={bloqueado && fraseFaltantes ? ID_FALTANTES : undefined}
                   disabled={enviando} onClick={intentarEnviar}>
-                  {enviando ? 'Enviando…' : 'Enviar la solicitud'}
+                  {enviando ? 'Enviando…' : ROTULO_ENVIAR}
                 </button>
               </div>
             </div>
@@ -663,10 +718,101 @@ function validarTodo(placa: string, vin: string, p: Propietario, archivo: File |
   return errs;
 }
 
-const ORDEN_FOCO: CampoFormulario[] = [
+// ─────────────────── Lo que falta para enviar, dicho por su nombre (HU #12079) ──────────────────
+
+/** El orden VISUAL de los campos: el primero que falle es al que va el foco, y el primero que se nombra. */
+const ORDEN_FOCO_BASE: CampoFormulario[] = [
   'placa', 'tipoDocumento', 'numeroDocumento', 'vin',
   ...CAMPOS_NOMBRE, 'correo', 'celular', 'direccion', 'municipio', 'departamento',
 ];
+
+/**
+ * El nombre VISIBLE de cada campo: el mismo literal que su `<label>` en `bloques.tsx`.
+ *
+ * Etiquetas y nunca valores — «Correo electrónico», jamás lo que el Cliente escribió en él —: esta
+ * frase se lee en voz alta y se pinta en pantalla, y un valor ahí sería PII en una superficie que
+ * no la necesita.
+ */
+const ETIQUETA_CAMPO: Record<CampoFormulario, string> = {
+  placa: 'Placa',
+  tipoDocumento: 'Tipo de documento',
+  numeroDocumento: 'Número de documento',
+  vin: 'VIN',
+  razonSocial: 'Razón social',
+  nombres: 'Nombre/s',
+  apellidos: 'Apellido/s',
+  correo: 'Correo electrónico',
+  celular: 'Celular',
+  direccion: 'Dirección',
+  municipio: 'Municipio',
+  departamento: 'Departamento',
+  archivo: 'Factura de venta',
+};
+
+/**
+ * El orden de la enumeración: **el del foco**, más la factura al final.
+ *
+ * Es el orden visual y el del tabulador, y es lo que hace la frase afirmable en un test: sin un
+ * orden fijo, «faltan el correo y el celular» y «faltan el celular y el correo» serían las dos
+ * correctas y ninguna comprobable.
+ */
+const ORDEN_FALTANTES: CampoFormulario[] = [...ORDEN_FOCO_BASE, 'archivo'];
+
+/**
+ * El ítem del RUNT, redactado según la fase, y **siempre el primero**.
+ *
+ * Calca `ROTULO_CONSULTA`, que es el rótulo del botón al que la frase apunta: si el botón dice
+ * «Volver a consultar», la frase no puede decir «consultar». `cargando` sigue contando —la
+ * compuerta sigue cerrada mientras el RUNT piensa— y se redacta como `inicial` porque «volver a»
+ * sería falso: es la primera consulta y está en vuelo.
+ */
+const ITEM_RUNT: Record<Consulta['fase'], string | null> = {
+  inicial: 'consultar el RUNT',
+  cargando: 'consultar el RUNT',
+  fallo: 'consultar el RUNT',
+  'sin-banda': 'consultar el RUNT',
+  invalidada: 'volver a consultar el RUNT',
+  ok: null,
+};
+
+/**
+ * Todo lo que impide enviar, en el orden del foco. Lista vacía = el botón está activo.
+ *
+ * **Se deriva de `validarTodo`**, la función que ya bloquea el envío. Nunca de un `campo === ''`
+ * paralelo: con dos fuentes de verdad, un correo mal escrito dejaría el botón activo, la pulsación
+ * no enviaría nada y el Cliente no tendría forma de saber por qué.
+ */
+function faltaParaEnviar(
+  fase: Consulta['fase'], placa: string, vin: string, p: Propietario, archivo: File | null,
+): string[] {
+  const errs = validarTodo(placa, vin, p, archivo);
+  const runt = ITEM_RUNT[fase];
+  return [
+    ...(runt ? [runt] : []),
+    ...ORDEN_FALTANTES.filter((c) => errs[c]).map((c) => ETIQUETA_CAMPO[c]),
+  ];
+}
+
+/**
+ * «Para enviar falta: A, B y C.» — **una sola plantilla**, sin variantes de singular ni de plural,
+ * para que exista UN localizador que afirmar en un test.
+ *
+ * **Tope: tres segmentos.** Con el formulario en blanco faltan doce cosas y enumerarlas todas es un
+ * párrafo que nadie lee. Cuando sobran, los dos primeros nombres y «y N datos más» — el corte va en
+ * dos y no en tres a propósito: con cuatro pendientes, «A, B, C y 1 datos más» obligaría a la
+ * variante de singular que esta plantilla existe para no tener.
+ */
+function frasePendientes(items: string[]): string | null {
+  if (items.length === 0) return null;
+  const segmentos = items.length <= 3
+    ? items
+    : [...items.slice(0, 2), `${items.length - 2} datos más`];
+  const ultimo = segmentos[segmentos.length - 1];
+  const previos = segmentos.slice(0, -1);
+  return `Para enviar falta: ${previos.length ? `${previos.join(', ')} y ${ultimo}` : ultimo}.`;
+}
+
+
 
 /**
  * El id del primer control inválido, o `null`.
@@ -675,7 +821,7 @@ const ORDEN_FOCO: CampoFormulario[] = [
  * recibir `error` y su id lo genera `useId()`. Devolver algo aquí competiría con ese foco.
  */
 function primerErrorEnfocable(errores: Errores): string | null {
-  const primero = ORDEN_FOCO.find((c) => errores[c]);
+  const primero = ORDEN_FOCO_BASE.find((c) => errores[c]);
   if (!primero || primero === 'tipoDocumento') return null;
   return ID_CAMPO[primero as keyof typeof ID_CAMPO] ?? null;
 }
