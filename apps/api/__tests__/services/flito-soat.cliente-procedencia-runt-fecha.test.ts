@@ -104,7 +104,13 @@ const auth = async (role: TestRole, id: number, extra: Record<string, unknown> =
 function escenarioAlta(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    // `proveedorId`/`activo` son lo que devuelve el `LEFT JOIN` de `resolverDestinoCanalCliente`
+    // (HU #12078), que entra por `.from(clients)`: sin ellas el alta caería en contingencia y estos
+    // casos probarían un camino que sus títulos no nombran.
+    clients: [{
+      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      proveedorId: PROVEEDOR, activo: true,
+    }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],
@@ -473,9 +479,10 @@ describe('AC5 — ni la procedencia ni la fecha se escriben en `audit_logs`', ()
     for (const prohibido of ['procedencia', 'factura_venta', 'runtConsultado', 'runt_consultado']) {
       expect(escrito, `${prohibido} no puede acabar en audit_logs`).not.toContain(prohibido);
     }
-    // Y lo que la bitácora sí dice sigue siendo lo de siempre: el uuid opaco y el estado.
+    // Y lo que la bitácora sí dice sigue siendo lo de siempre: el uuid opaco y el estado — que
+    // desde la HU #12078 es `solicitado`, porque el alta despacha.
     expect(escrito).toContain('flito_soat');
-    expect(escrito).toContain('pendiente_revision');
+    expect(escrito).toContain('solicitado');
   });
 
   it('**el rastro de PII no gana campos**: el alta es una mutacion, no una lectura', async () => {

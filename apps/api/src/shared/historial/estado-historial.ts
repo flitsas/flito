@@ -101,6 +101,26 @@ export interface ItemHistorial {
  */
 export const AUTOR_INTERNO_ANONIMO = 'FLITO';
 
+/**
+ * La imagen ESPEJO del anterior (HU #12078): cómo se nombra al actor cuando la fila la movió un
+ * empleado de la COMPAÑÍA CLIENTE y quien lee no es de esa compañía.
+ *
+ * Mismo criterio que `AUTOR_INTERNO_ANONIMO` y por eso mismo no es `null`: la fila la movió alguien
+ * y se sabe quién; lo que pasa es que a este lector no le corresponde el nombre de un trabajador de
+ * otra empresa. Decirlo así conserva la única parte que sí le sirve —de qué lado vino el cambio— sin
+ * entregar a la persona.
+ */
+export const AUTOR_COMPANIA_ANONIMO = 'La compañía';
+
+/**
+ * El único rol de `USER_ROLES` que pertenece a una COMPAÑÍA CLIENTE (Feature #11912).
+ *
+ * No es «el único rol externo a FLIT»: `proveedor` —el gestor— también es de otra empresa, y es
+ * justamente quien LEE en el caso que motiva este recorte. Lo que distingue a `cliente` es de qué
+ * lado del encargo está: el gestor y FLIT trabajan la solicitud, la compañía la radica.
+ */
+const ROL_COMPANIA_CLIENTE = 'cliente';
+
 export interface OpcionesHistorial {
   /**
    * true → quien lee esta respuesta NO es de FLIT, así que la fila se sirve recortada: el actor sale
@@ -152,6 +172,51 @@ export interface OpcionesHistorial {
    * `usuario_id`, así que se resuelve ahí, no aquí.
    */
   lectorExterno?: boolean;
+
+  /**
+   * true → el actor se NOMBRA solo si consta que NO es de la compañía cliente. El resto de la fila
+   * —el estado, el motivo, la fecha— no se toca: esto NO es `lectorExterno` en pequeño.
+   *
+   * ── El agujero que cierra (HU #12078, segunda puerta del bloqueante) ────────────────────────────
+   *
+   * `GET /flito/soat/:id/historial` es la MISMA respuesta para el admin y para el gestor del
+   * proveedor. Antes de la #12078 eso no entregaba nada de nadie: una solicitud del canal Cliente
+   * nacía en `pendiente_revision`, estado que no está en `ESTADOS_SOAT_VISIBLES_GESTOR`, así que
+   * `buscarConAcceso` le devolvía 404 y la fila de historial que escribe el RADICADOR —con su
+   * `usuarioId` y su `usuarioEmail`— era inalcanzable para él. Desde la #12078 la solicitud nace en
+   * `solicitado` y entra derecha a su cola: **la HU no creó el endpoint, le quitó el cerrojo**. Por
+   * ahí salía el mismo nombre que el DTO acababa de recortar (`enviadoPorNombreVisible`), un endpoint
+   * más allá, y con el CORREO CORPORATIVO como alternativa cuando el usuario ya no existe, que es
+   * peor: un identificador con el que se puede escribir a la persona.
+   *
+   * ── Por qué NO se resolvió encendiendo `lectorExterno` para el rol `proveedor` ──────────────────
+   *
+   * Porque ese interruptor recorta por ROL y vale para la respuesta entera, y el gestor no es un
+   * lector externo en el mismo sentido que el `cliente`: FLIT le encarga el trabajo, y saber QUÉ
+   * PERSONA de FLIT le devolvió un SOAT o se lo reasignó es su interlocutor legítimo. Encenderlo le
+   * dejaría todas las filas de trámite —el 100 % de lo que hay hoy— con «FLITO» y sin motivo. Sería
+   * una amputación, no una proyección.
+   *
+   * Este recorte es POR FILA y mira quién la escribió, no quién la lee. Lo enciende
+   * `historialConAcceso` solo para el gestor Y solo sobre una solicitud de `origen = 'cliente'`: la
+   * misma condición doble de `enviadoPorNombreVisible`, y por eso el historial de un SOAT de trámite
+   * le llega byte a byte como antes.
+   *
+   * ── Los cuatro desenlaces, y ninguno es un descuido ────────────────────────────────────────────
+   *
+   *   · Actor con rol conocido distinto de `cliente` → se nombra. Es de FLIT o del propio proveedor
+   *     que lee: en los dos casos, alguien de su lado del encargo.
+   *   · Actor `cliente` → `AUTOR_COMPANIA_ANONIMO`.
+   *   · Actor con nombre o correo pero SIN rol → tampoco se nombra, y sale `null`. `usuario_id` es
+   *     `ON DELETE SET NULL`, así que borrar al usuario deja la fila con el `usuario_email` copiado y
+   *     sin forma de saber de qué lado estaba: si se emitiera «por si acaso es de FLIT», bastaría
+   *     dar de baja al radicador para que su correo volviera a salir. `null` —«Usuario desconocido»
+   *     en la pantalla— es lo que esa fila puede afirmar de verdad, y no se disfraza de compañía
+   *     porque eso sí sería inventarse un lado.
+   *   · Fila SIN actor (`origen: 'sistema'`, o un `usuario_id` que nunca hubo) → `null`, que es
+   *     exactamente lo que devuelve hoy. Un cron no se etiqueta como «La compañía».
+   */
+  ocultarActoresDelCliente?: boolean;
 }
 
 /**
@@ -175,6 +240,10 @@ export async function historialDe(
     // El nombre del usuario si sigue existiendo; si no, el correo copiado en su momento.
     usuarioNombre: users.name,
     usuarioEmail: flitoEstadoHistorial.usuarioEmail,
+    // De qué LADO estaba quien movió la fila. No se emite nunca —no es un campo del DTO— y solo se
+    // consulta para decidir `ocultarActoresDelCliente`. Sale del mismo `leftJoin` que ya estaba, así
+    // que no añade ni una consulta ni cambia el plan; `null` cuando el usuario ya no existe.
+    usuarioRol: users.role,
     creadoEn: flitoEstadoHistorial.createdAt,
   }).from(flitoEstadoHistorial)
     .leftJoin(users, eq(flitoEstadoHistorial.usuarioId, users.id))
@@ -190,8 +259,32 @@ export async function historialDe(
     estadoNuevo: f.estadoNuevo,
     // Los dos recortes van juntos y a la vista, no repartidos: son la misma decisión.
     motivo: opciones.lectorExterno ? null : f.motivo,
-    usuario: opciones.lectorExterno ? AUTOR_INTERNO_ANONIMO : (f.usuarioNombre ?? f.usuarioEmail),
+    usuario: actorVisible(f, opciones),
     origen: f.origen,
     creadoEn: f.creadoEn.toISOString(),
   }));
+}
+
+/** Lo que el historial guarda del actor, antes de decidir si se nombra. */
+type ActorFila = { usuarioNombre: string | null; usuarioEmail: string | null; usuarioRol: string | null };
+
+/**
+ * Cómo se nombra al actor de UNA fila para ESTE lector. Los dos recortes conviven aquí y no se
+ * anidan: `lectorExterno` mira a quién LEE y vale para toda la respuesta;
+ * `ocultarActoresDelCliente` mira quién ESCRIBIÓ cada fila. El porqué de cada uno, en
+ * `OpcionesHistorial`.
+ */
+function actorVisible(f: ActorFila, opciones: OpcionesHistorial): string | null {
+  // El nombre del usuario si sigue existiendo; si no, el correo copiado en su momento. Es el valor
+  // de siempre, y el que los dos recortes tapan.
+  const actor = f.usuarioNombre ?? f.usuarioEmail;
+  if (opciones.lectorExterno) return AUTOR_INTERNO_ANONIMO;
+  if (!opciones.ocultarActoresDelCliente) return actor;
+  // Una fila sin actor no tiene a quién ocultar: `origen: 'sistema'` sigue saliendo `null`, y no se
+  // convierte en «La compañía» por pasar por aquí.
+  if (actor === null) return null;
+  if (f.usuarioRol === ROL_COMPANIA_CLIENTE) return AUTOR_COMPANIA_ANONIMO;
+  // Rol desconocido = usuario dado de baja (`ON DELETE SET NULL`). No consta de qué lado estaba, así
+  // que no se nombra: lo contrario haría del borrado de un usuario la forma de sacar su correo.
+  return f.usuarioRol ? actor : null;
 }

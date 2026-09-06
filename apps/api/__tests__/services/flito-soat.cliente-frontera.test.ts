@@ -403,14 +403,20 @@ describe('B2 — el historial no entrega nombres, correos NI el motivo interno',
     creadoEn: new Date('2026-08-01T10:00:00Z'),
   };
 
+  /**
+   * Dos consultas y no cinco desde la HU #12078: la ruta ya no arma el detalle entero para tirarlo,
+   * llama a `historialConAcceso()`, que aplica la MISMA frontera (`buscarConAcceso`) y de paso lee de
+   * esa fila el `origen` que decide la proyección. Lo que se prueba aquí no cambia ni una línea.
+   */
   const encolar = (rolCliente: boolean) => {
     if (rolCliente) selectMock.mockReturnValueOnce(chain([{ c: 7 }]));
     selectMock.mockReturnValueOnce(chain([{
-      soat: { id: SOAT_ID, companiaId: 7, estado: 'pagado', gestionOperaciones: false, proveedorSoatId: null, pagadoEn: null, extraccion: null },
+      soat: {
+        id: SOAT_ID, companiaId: 7, estado: 'pagado', origen: 'cliente',
+        gestionOperaciones: false, proveedorSoatId: null, pagadoEn: null, extraccion: null,
+      },
       dentroDeFrontera: true,
     }]));
-    selectMock.mockReturnValueOnce(chain([FILA_COLA]));
-    selectMock.mockReturnValueOnce(chain([]));
     selectMock.mockReturnValueOnce(chain([FILA_HISTORIAL]));
   };
 
