@@ -53,7 +53,9 @@ vi.mock('../../src/shared/pii-audit.js', () => ({
   logPiiAccess: (...args: unknown[]) => logPiiAccessMock(...args),
 }));
 
-const { CAMPOS_PII_LISTADO, COLUMNAS_LISTADO } = await import('../../src/modules/clients/clients.pii.js');
+const {
+  CAMPOS_PII_LISTADO, COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR,
+} = await import('../../src/modules/clients/clients.pii.js');
 const { clients } = await import('../../src/db/schema.js');
 
 beforeEach(() => {
@@ -156,7 +158,15 @@ describe('AC8 — la respuesta entrega columnas, no la fila entera', () => {
 
     // `db.select()` sin argumentos —lo de antes— deja `calls[0][0]` en `undefined`, que es
     // exactamente el defecto que este AC corrige.
-    expect(proyeccionUsada()).toBe(COLUMNAS_LISTADO);
+    //
+    // Desde la HU #12079 la proyección de ESTA ruta es `COLUMNAS_LISTADO_CON_GESTOR`: las mismas
+    // columnas de `clients` más las tres del gestor por defecto que llegan por el `LEFT JOIN`. Lo
+    // que este caso sigue fijando es que hay proyección y que las columnas del padrón están todas;
+    // el contenido de la unión se prueba en `clients-listado-gestor.test.ts`.
+    expect(proyeccionUsada()).toBe(COLUMNAS_LISTADO_CON_GESTOR);
+    for (const columna of Object.keys(COLUMNAS_LISTADO)) {
+      expect(Object.keys(proyeccionUsada() ?? {})).toContain(columna);
+    }
   });
 
   it('la proyección es lo que leen los cinco consumidores de la ruta, ni un campo menos', () => {

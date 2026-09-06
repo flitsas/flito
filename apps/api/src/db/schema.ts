@@ -146,8 +146,10 @@ export const clients = pgTable('clients', {
    *
    * **SOLO del canal sin trámite, y el nombre lo dice a propósito.** El SOAT POR TRÁMITE no la lee
    * nunca: allí Operaciones elige gestor en cada `POST /flito/soat/enviar`, que es cuando alguien
-   * mira la carga de cada uno (HU #10979). El único lector es
-   * `resolverDestinoCanalCliente()`, en `flito-soat-cliente.service.ts`.
+   * mira la carga de cada uno (HU #10979). El único lector que DECIDE con ella es
+   * `resolverDestinoCanalCliente()`, en `flito-soat-cliente.service.ts`; desde la HU #12079
+   * `GET /clients` también la lee, pero solo para MOSTRARLA —unida a `flito_proveedores_soat`, para
+   * que la ficha de la compañía diga el nombre del gestor y si está activo—, nunca para enrutar.
    *
    * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto y un `NOT NULL`
    * obligaría a inventarle un gestor a cada una. La obligatoriedad es CONDICIONAL al flag y la

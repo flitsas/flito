@@ -106,7 +106,12 @@ export function ModalVinEnCola(
     id?: string;
   },
 ) {
-  const rechazada = propia && estado === EstadoSoat.RECHAZADA;
+  // Hasta la HU #12079 había una TERCERA variante: si el choque era contra una solicitud PROPIA y
+  // rechazada, el primario era «Abrir la solicitud rechazada» y llevaba a `/flito/soat/solicitud/:id`.
+  // Esa ruta se retiró con la subsanación, así que ese botón aterrizaría en el comodín `*` — un
+  // primario roto en el sitio exacto donde el Cliente ya está bloqueado. `rechazada` deja de ser
+  // un caso: el estado se sigue NOMBRANDO en la frase (una fila antigua puede llegar así hasta que
+  // la HU #12081 las migre) y la salida es la misma que para cualquier otra solicitud propia.
   return (
     <FlitModal title="Ese vehículo ya está en la cola de FLITO" onClose={onClose} restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm">
@@ -119,24 +124,16 @@ export function ModalVinEnCola(
         </p>
 
         <p>
-          {rechazada
-            ? 'Esa solicitud fue rechazada. Para volver a enviarla, corrija lo que se le indica en ella; no cree una nueva.'
-            : propia
-              ? 'Puede seguir su estado desde sus SOAT.'
-              : 'Escríbale a su contacto en FLIT si cree que es un error.'}
+          {propia
+            ? 'Puede seguir su estado desde sus SOAT.'
+            : 'Escríbale a su contacto en FLIT si cree que es un error.'}
         </p>
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          {/* El destino lleva el uuid OPACO en el path y nada más: ni la placa ni el VIN viajan por
-              query «para ahorrar una llamada» (AGENTS.md §14). */}
-          {rechazada && id && (
-            <Link to={`${COLA}/solicitud/${id}`} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
-              Abrir la solicitud rechazada
-            </Link>
-          )}
-          {propia && !rechazada && id && (
+          {propia && id && (
             // Sin dirección propia: el detalle de la cola es un modal. El id viaja en el estado de
             // navegación —no en la URL— y la cola lo abre si esa fila está en la página cargada.
+            // Así **ninguna PII y ningún identificador viajan por el query** (AGENTS.md §14).
             <Link to={COLA} state={{ verSoatId: id }} className={flitBtnPrimary} style={flitBtnPrimaryStyle}>
               Ver la solicitud
             </Link>

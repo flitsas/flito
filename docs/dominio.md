@@ -16,6 +16,8 @@ Para Siigo (detalle técnico): [`docs/integraciones/siigo-api.md`](integraciones
 | **Facturar** (FLITO) | sellar, cerrar liquidación | Acción que marca la liquidación como `facturado` y la congela. **No** es emitir ante la DIAN. |
 | **Emisión electrónica** | factura DIAN, factura Siigo, FE | Paso **posterior** a Facturar: envío a Siigo → DIAN + PDF/correo. |
 | **Autogestión** | “ellos lo pagan”, “no lo gestiona Flito” | Parametrización por compañía: qué conceptos gestiona FLITO vs la compañía. Afecta “listo para liquidar”. |
+| **Gestor** (de SOAT) | proveedor SOAT, aseguradora, comercializadora | Fila de `flito_proveedores_soat`: a quién despacha FLITO la adquisición de una póliza. Internamente se dice **proveedor**; **«gestor» es la palabra que sale a pantalla**, incluida la que lee el rol Cliente en el botón «Enviar al gestor» (HU #12079). Un mismo texto no debe usar las dos. |
+| **Gestor por defecto** (de una compañía) | «a quién le salen sus SOAT» | El gestor al que van las solicitudes NUEVAS del canal **SOAT sin trámite** de esa compañía. Se configura en **Clientes y proveedores**, columna **SOAT sin trámite**; obligatorio para abrir el canal, y cambiarlo **no** reasigna lo ya radicado. |
 
 ## Siigo ↔ FLITO (traducción fija)
 

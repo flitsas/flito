@@ -14,11 +14,13 @@ import {
   type SiigoIdTipo,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { clients } from '../../db/schema.js';
+import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
-import { COLUMNAS_LISTADO, registrarAccesoListado } from './clients.pii.js';
+import {
+  COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR, clienteListadoDto, registrarAccesoListado,
+} from './clients.pii.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -198,14 +200,25 @@ async function parejaOcupada(document: string, branchOffice: number, excluirId?:
  * El registro va DESPUÉS de la consulta y con `await`: `filas` no se sabe antes, y `logPiiAccess`
  * es best-effort —nunca tumba la operación—, así que esperar cuesta una inserción y garantiza que
  * el rastro está escrito antes de que la respuesta salga.
+ *
+ * ── El gestor por defecto, resuelto en la misma consulta (HU #12079) ────────────────────────────
+ *
+ * `LEFT JOIN`, nunca `INNER`: el gestor es opcional —solo las compañías con el canal «SOAT sin
+ * trámite» abierto tienen uno— y con una unión interna el padrón perdería a casi todos sus clientes.
+ * Es la misma unión de una sola fila por cliente (la clave primaria del proveedor), así que no
+ * multiplica filas ni cambia el tramo que `limit`/`offset` entregan.
+ *
+ * El porqué de sacarlo por esta ruta y no por parametrización está en `clients.pii.ts`, junto a la
+ * proyección: `financiera` ve esta pantalla y no aquella.
  */
 router.get('/', LECTURA, async (req: Request, res: Response) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
-  const result = await db.select(COLUMNAS_LISTADO).from(clients)
+  const result = await db.select(COLUMNAS_LISTADO_CON_GESTOR).from(clients)
+    .leftJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId))
     .orderBy(clients.name).limit(limit).offset(offset);
   await registrarAccesoListado(req, { filas: result.length, limit, offset });
-  res.json(result);
+  res.json(result.map(clienteListadoDto));
 });
 
 router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
