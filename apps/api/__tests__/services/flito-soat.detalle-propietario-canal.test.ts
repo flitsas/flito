@@ -1,9 +1,10 @@
 // HU #11966 — `GET /flito/soat/:id` entrega el propietario PARTIDO de una solicitud del canal.
 //
-// Sale del UX slim de la #11967 §6, y el problema que resuelve es concreto: con el propietario
-// partido del AC5 y el `subsanacionSchema` exigiendo nombres/apellidos —o razón social— más
-// municipio y departamento, la pantalla de subsanación obligaría al Cliente a **reteclear a ciegas**
-// datos que ya están guardados. El detalle proyectaba solo `{ nombreCompleto, numeroDocumento,
+// Sale del UX slim de la #11967 §6. El problema que resolvió entonces era la pantalla de
+// subsanación, que obligaba al Cliente a **reteclear a ciegas** datos ya guardados; esa pantalla se
+// retiró con la HU #12080 (Feature #12074) y la clave `propietarioCanal` **se queda**: la sigue
+// leyendo la ficha del detalle, y el corte que este archivo vigila —que el GESTOR no la reciba— no
+// dependía de la subsanación. El detalle proyectaba solo `{ nombreCompleto, numeroDocumento,
 // tipoDocumento, orden, porcentajeParticipacion }` en `compradores`.
 //
 // ── Las DOS mitades, y la segunda es la que importa ─────────────────────────────────────────────
@@ -93,7 +94,9 @@ function espiarProyecciones(): void {
  */
 const filaSoat = (over: Record<string, unknown> = {}) => {
   const soat = {
-    id: SOAT_ID, origen: 'cliente', vin: '9FKRG2222T2042405', estado: 'pendiente_revision',
+    // `solicitado`: la HU #12080 retira `pendiente_revision` del enum y una fila del canal nace
+    // despachada (#12078). El estado no interviene en lo que este archivo mide.
+    id: SOAT_ID, origen: 'cliente', vin: '9FKRG2222T2042405', estado: 'solicitado',
     companiaId: COMPANIA, proveedorSoatId: null, gestionOperaciones: false,
     enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null,
     createdAt: new Date('2026-09-01T10:00:00Z'), extraccion: null,

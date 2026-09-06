@@ -97,6 +97,10 @@ describe('0167/0168 — el reparto entre los dos archivos (la trampa del 55P04)'
   });
 
   it('la 0167 añade los tres valores de enum, y con IF NOT EXISTS', () => {
+    // Se sigue afirmando sobre los TRES que la 0167 añadió, incluidos los dos que la migración 0176
+    // volvió a quitar: este archivo comprueba lo que la 0167 DICE, y la 0167 está aplicada y
+    // congelada (su sha256 vive en `_kyverum_applied_migrations`). Lo que dejó de ser cierto es la
+    // paridad con `schema.ts`, y eso se corrige más abajo, en su propio bloque.
     for (const [tipo, valor] of [
       ['user_role', 'cliente'],
       ['flito_soat_estado', 'pendiente_revision'],
@@ -194,10 +198,16 @@ describe('paridad `.sql` ↔ `schema.ts` — que las dos verdades sean la misma'
   const columnas = (t: Parameters<typeof getTableConfig>[0]) =>
     new Map(getTableConfig(t).columns.map((c) => [c.name, c]));
 
-  it('los enums de Drizzle traen los mismos valores que la 0167 añade', () => {
+  it('los enums de Drizzle dicen lo que la CADENA dejó, no solo lo que la 0167 añadió', () => {
     expect(roleEnum.enumValues).toContain('cliente');
-    expect(flitoSoatEstadoEnum.enumValues).toContain('pendiente_revision');
-    expect(flitoSoatEstadoEnum.enumValues).toContain('rechazada');
+    // **Los dos estados del canal ya NO están, y esta es la afirmación que lo fija** (HU #12080). La
+    // 0167 los añadió y la 0176 recreó el tipo sin ellos, así que `schema.ts` tiene que decir eso
+    // mismo: mientras el literal de Drizzle los declare, el código puede construir un WHERE con un
+    // valor que PostgreSQL rechaza con 22P02.
+    expect(flitoSoatEstadoEnum.enumValues).not.toContain('pendiente_revision');
+    expect(flitoSoatEstadoEnum.enumValues).not.toContain('rechazada');
+    expect([...flitoSoatEstadoEnum.enumValues].sort())
+      .toEqual(['con_novedad', 'pagado', 'pendiente', 'solicitado']);
     // `operaciones` sigue en el enum de Postgres (quitarlo obligaría a recrear el tipo) y se omite
     // del literal a propósito: no es un incumplimiento del AC4, es deuda declarada.
     expect(roleEnum.enumValues).not.toContain('operaciones');

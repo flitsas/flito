@@ -184,13 +184,13 @@ export const TIPOS_SOPORTE_VISIBLES_CLIENTE: readonly SoporteVisibleCliente[] = 
   {
     tipo: TipoSoporte.FACTURA_VENTA,
     soloEn: null,
-    porque: 'Es SU PROPIO adjunto: la única forma de que un `factura_venta` cuelgue de un `soat_id` '
-      + 'es que lo subiera el propio cliente al radicar (`POST /cliente`) o al subsanar (`PATCH '
-      + '/:id/solicitud`) — la del flujo de trámite cuelga de `flito_impuestos`, nunca de un SOAT. '
-      + 'Sin esta entrada, la pantalla de corregir un rechazo no puede responder «¿qué factura '
-      + 'tengo cargada?», que es la carga que la #11914 dejó declarada. No trae ningún dato de la '
-      + 'operación: lo escribió él. Sin `soloEn` porque el momento en que hace falta es justo '
-      + 'cuando la solicitud NO está pagada.',
+    porque: 'Es SU PROPIO adjunto: desde la HU #12080 la ÚNICA forma de que un `factura_venta` '
+      + 'cuelgue de un `soat_id` es que lo subiera el propio cliente al radicar (`POST /cliente`) '
+      + '— la del flujo de trámite cuelga de `flito_impuestos`, nunca de un SOAT. Sin esta entrada, '
+      + 'la ficha de su solicitud no puede responder «¿qué factura tengo cargada?», que es lo único '
+      + 'que le permite comprobar que adjuntó el documento correcto. No trae ningún dato de la '
+      + 'operación: lo escribió él. Sin `soloEn` porque es suyo en TODO momento y no hay ningún '
+      + 'estado en el que deje de serlo: condicionarlo sería esconderle su propio documento.',
   },
 ];
 

@@ -36,6 +36,14 @@
 // `flito-soat.cliente-alta-destino.test.ts`, que es la suite propia de esa HU. Aquí solo se corrige
 // lo que dejó de ser cierto.
 //
+// ── Lo que la HU #12080 poda, con el mismo criterio ─────────────────────────────────────────────
+//
+// `pendiente_revision` y `rechazada` salen del enum (migración 0176), así que dos casos de la RN-01
+// que montaban su escenario sobre una fila `rechazada` se reescriben sobre estados que existen
+// (`solicitado` y `pagado`). Lo que medían —que una fila PROPIA devuelve id y estado y una AJENA no
+// devuelve ninguno de los dos— no depende del estado elegido, y por eso el caso se conserva en vez
+// de borrarse. El mensaje que mandaba a «subsanar» ya no existe, y ahora se afirma su AUSENCIA.
+//
 // Por eso el escenario por defecto trae ahora una compañía CON gestor por defecto y ACTIVO: es el
 // camino feliz, y sin él todas las altas de este archivo caerían en contingencia y probarían otra
 // cosa que la que dicen sus títulos.
@@ -219,8 +227,8 @@ describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la
     // Decía `pendiente_revision`, y con el ADR-0008 §2 eso era correcto: el estado impedía que
     // `POST /enviar` —que filtra por `pendiente`— despachara al gestor algo sin validar. La HU
     // #12078 quita el paso de revisión del alta y le pone su propio control: el destino sale de la
-    // configuración de la compañía, no de una persona. `pendiente_revision` SIGUE existiendo (lo
-    // retira la HU #12080); lo que cambia es que el alta ya no pasa por ahí.
+    // configuración de la compañía, no de una persona. Y desde la HU #12080 `pendiente_revision`
+    // ni siquiera existe: la migración 0176 lo saca del enum de Postgres.
     expect(soat.estado).toBe('solicitado');
     expect(soat.id).toBe(r.body.id);
   });
@@ -699,16 +707,20 @@ describe('AC4 — RN-01: un VIN, un SOAT', () => {
     expect(uploadMock).not.toHaveBeenCalled();
   });
 
-  it('una solicitud RECHAZADA de SU compañía bloquea, y la respuesta le dice cuál abrir', async () => {
-    escenario({ flito_soat: [{ id: 'bbbb', estado: 'rechazada', companiaId: COMPANIA }] });
+  it('una solicitud EN CURSO de SU compañía bloquea, y la respuesta le dice cuál abrir', async () => {
+    // Este caso usaba `estado: 'rechazada'` y afirmaba que el mensaje mandaba a SUBSANAR. La HU
+    // #12080 retira ese estado del enum y la subsanación con él, así que el escenario se reescribe
+    // sobre un estado que sí existe. Lo que el caso mide no cambia: es SUYA, así que el 409 le
+    // devuelve el id y el estado para que abra la fila en vez de radicar otra.
+    escenario({ flito_soat: [{ id: 'bbbb', estado: 'solicitado', companiaId: COMPANIA }] });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(409);
     expect(r.body.codigo).toBe('vin_ya_tiene_soat');
-    // Es suya: puede ver el id y el estado, que ya vería en su cola, y el mensaje la manda a
-    // subsanar esa misma fila en vez de radicar otra.
-    expect(r.body).toMatchObject({ propia: true, id: 'bbbb', estado: 'rechazada' });
-    expect(r.body.error).toMatch(/subsan/i);
+    expect(r.body).toMatchObject({ propia: true, id: 'bbbb', estado: 'solicitado' });
+    // Y NO le ofrece subsanar: esa palabra desaparece del canal con la #12080. Si alguien
+    // resucitara el texto viejo, este aserto lo caza.
+    expect(r.body.error).not.toMatch(/subsan/i);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 
@@ -716,16 +728,16 @@ describe('AC4 — RN-01: un VIN, un SOAT', () => {
     // La frontera entre compañías (§4 del doc de UX y la lección de la #11913): un `cliente` puede
     // sondear VINs, y si la respuesta cambiara según el estado, cada intento respondería una
     // pregunta sobre la cartera ajena.
-    escenario({ flito_soat: [{ id: 'cccc', estado: 'rechazada', companiaId: 999 }] });
+    escenario({ flito_soat: [{ id: 'cccc', estado: 'pagado', companiaId: 999 }] });
 
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
     expect(r.status).toBe(409);
     expect(r.body.codigo).toBe('vin_ya_tiene_soat');
     expect(r.body.propia).toBe(false);
-    // Ni el identificador, ni el estado, ni una palabra que distinga «rechazada» de «pagada».
+    // Ni el identificador, ni el estado, ni una palabra que distinga «pagada» de «solicitada».
     expect(r.body.id).toBeUndefined();
     expect(r.body.estado).toBeUndefined();
-    expect(r.body.error).not.toMatch(/subsan|rechaz|pagad/i);
+    expect(r.body.error).not.toMatch(/subsan|rechaz|pagad|solicitad/i);
     expect(espia.insertsEn('flito_soat')).toHaveLength(0);
   });
 

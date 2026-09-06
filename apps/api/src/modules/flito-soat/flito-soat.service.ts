@@ -19,7 +19,6 @@ import {
   flitoProveedoresSoat,
   flitoRevisiones,
   flitoSoat,
-  flitoSoatCausalesRechazo,
   flitoSoatSolicitud,
   flitoSoportes,
   flitoTramites,
@@ -35,7 +34,6 @@ import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
   ESTADO_SOAT_LABEL,
-  ESTADOS_SOAT_CANAL_CLIENTE,
   ESTADOS_SOAT_VISIBLES_GESTOR,
   EstadoSoat,
   FlujoRevision,
@@ -928,31 +926,45 @@ export async function buscarConAcceso(id: string, ctx: SoatCtx): Promise<typeof 
 }
 
 /**
- * El bloque de REVISIÓN de una solicitud del canal Cliente (Feature #11912, HU #11915).
+ * El bloque de SOLICITUD del canal Cliente (Feature #11912). Viaja anidado en el detalle.
  *
- * Es lo que el AC3 pide que el Cliente pueda ver de su solicitud rechazada —la causal, la
- * observación y cuándo se revisó— y lo mismo que el admin necesita al abrirla. Viaja como bloque
- * ANIDADO y no como campos sueltos del DTO de la cola por dos razones que conviene no perder:
+ * ── Lo que la HU #12080 tuvo que quitar de aquí, y por qué no era opcional ──────────────────────
+ *
+ * Nació como el bloque de la REVISIÓN: la causal, la observación y quién revisó una solicitud
+ * rechazada. Ese circuito se retira (Feature #12074) y la migración 0176 borra tanto
+ * `flito_soat_causales_rechazo` como `flito_soat_solicitud.observacion_rechazo`.
+ *
+ * **Podar `causalNombre` y `observacion` no es limpieza de tipos: es lo que evita un 500.** La
+ * consulta de abajo hacía un `leftJoin` contra la tabla borrada y proyectaba la columna borrada, y
+ * este bloque se emite en TODA apertura de detalle de una fila `origen = 'cliente'`. Con la 0176
+ * aplicada y sin esta poda, `GET /flito/soat/:id` respondería 500 (42P01 / 42703) para cada
+ * solicitud del canal — un endpoint de lectura, roto para el rol que menos sabe qué hacer con un
+ * error. Ningún AC lo nombraba; se comprobó por grep que ningún consumidor de `apps/web` lee
+ * `causalNombre` ni esa `observacion`, así que la poda no le quita un dato a nadie.
+ *
+ * Lo que SIGUE aquí es lo que la 0176 no toca y el detalle sí usa: cuándo se radicó, el desenlace
+ * de la consulta al RUNT del alta y el rastro del revisor de las filas de aquel período.
+ *
+ * Viaja como bloque ANIDADO y no como campos sueltos del DTO de la cola por dos razones que conviene
+ * no perder:
  *
  *   · La cola no lo necesita. `SoatColaItem` lo sirven la página, el conteo y las facetas; meterle
- *     cinco campos que solo tienen valor en el 0,x % de las filas obligaría a un LEFT JOIN más en la
- *     consulta caliente para que 99 de cada 100 filas lo recibieran en null.
+ *     estos campos, que solo tienen valor en el 0,x % de las filas, obligaría a ensanchar la
+ *     consulta caliente para que 99 de cada 100 filas los recibieran en null.
  *   · `null` significa «esta fila no es del canal». Un bloque presente o ausente dice eso sin que la
  *     pantalla tenga que mirar `origen`, que además NO viaja al DTO a propósito.
  */
 export interface RevisionSolicitud {
-  /** El NOMBRE de la causal, resuelto contra el catálogo: la pantalla del Cliente no lo vuelve a pedir. */
-  causalNombre: string | null;
-  observacion: string | null;
+  /** Cuándo se revisó, mientras hubo revisión (HU #11915). `null` en todo lo radicado desde la #12078. */
   revisadoEn: string | null;
-  /** Cuántas veces se subsanó y se volvió a enviar. */
+  /** Cuántas veces se subsanó y se volvió a enviar. Sin escritor desde la #12080: 0 en todo lo nuevo. */
   reenvios: number;
   solicitadoEn: string;
   /**
    * Quién la revisó. **Solo para lectores internos**, por lo mismo que `enviadoPorNombre` está en
    * `CAMPOS_SOLO_INTERNOS`: es el nombre de un EMPLEADO de FLIT, y entregárselo a la empresa tercera
    * que radicó la solicitud es un dato personal de un trabajador saliendo de la operación. El
-   * Cliente ve la causal, la observación y la fecha —lo que necesita para corregir—, no la persona.
+   * Cliente ve la fecha, no la persona.
    */
   revisadoPorNombre?: string | null;
   /** HU #11935: desenlace de la verificación RUNT post-commit. Solo canal; el gestor no lo ve. */
@@ -1079,10 +1091,11 @@ function diaIso(v: unknown): string | null {
  * módulos: aquel importa de este (`SoatCtx`, `buscarConAcceso`, `enviarAlGestor`), y si `detalle()`
  * importara de vuelta una función suya el ciclo estaría hecho.
  *
- * **Al GESTOR no se le sirve nunca, en ningún estado.** No es una precaución de más: una solicitud
- * validada entra en su cola en `solicitado` y él la abre con todo derecho, así que sin este corte
- * recibiría el revisor, la fecha de radicación y el contador de reenvíos — es decir, cuántas veces
- * FLITO le devolvió la solicitud a su cliente. Es la misma razón por la que el ADR-0008 §1.2 sacó
+ * **Al GESTOR no se le sirve nunca, en ningún estado.** No es una precaución de más, y desde la HU
+ * #12078 lo es menos todavía: una solicitud del canal entra en su cola en `solicitado` NADA MÁS
+ * radicarse y él la abre con todo derecho, así que sin este corte recibiría el revisor, la fecha de
+ * radicación y el contador de reenvíos — es decir, cuántas veces FLITO le devolvió la solicitud a su
+ * cliente durante el período en que eso pasaba. Es la misma razón por la que el ADR-0008 §1.2 sacó
  * estos campos de `flito_soat`: la fila entera de esa tabla sí le llega. La consulta ni se emite.
  */
 async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<RevisionSolicitud | null> {
@@ -1093,8 +1106,6 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
       solicitadoEn: flitoSoatSolicitud.solicitadoEn,
       revisadoPorNombre: flitoSoatSolicitud.revisadoPorNombre,
       revisadoEn: flitoSoatSolicitud.revisadoEn,
-      causalNombre: flitoSoatCausalesRechazo.nombre,
-      observacion: flitoSoatSolicitud.observacionRechazo,
       reenvios: flitoSoatSolicitud.reenvios,
       verificacionEstado: flitoSoatSolicitud.verificacionEstado,
       soatVigente: flitoSoatSolicitud.soatVigente,
@@ -1103,16 +1114,14 @@ async function revisionDeSolicitud(soatId: string, ctx: SoatCtx): Promise<Revisi
       runtConsultadoEn: flitoSoatSolicitud.runtConsultadoEn,
     })
     .from(flitoSoatSolicitud)
-    // LEFT y no INNER: una solicitud sin rechazar no tiene causal, y un INNER la haría desaparecer
-    // entera del detalle — que es justo la fila que el admin está a punto de validar.
-    .leftJoin(flitoSoatCausalesRechazo, eq(flitoSoatSolicitud.causalRechazoId, flitoSoatCausalesRechazo.id))
+    // Aquí había un `leftJoin` contra `flito_soat_causales_rechazo` para resolver el nombre de la
+    // causal. Se va con la tabla (HU #12080, migración 0176): sin quitarlo, esta consulta —que se
+    // emite en cada apertura de detalle de una fila del canal— sería un 42P01 y un 500.
     .where(eq(flitoSoatSolicitud.soatId, soatId))
     .limit(1);
   if (!r) return null;
 
   const visible: RevisionSolicitud = {
-    causalNombre: r.causalNombre,
-    observacion: r.observacion,
     revisadoEn: r.revisadoEn ? r.revisadoEn.toISOString() : null,
     reenvios: Number(r.reenvios),
     solicitadoEn: r.solicitadoEn.toISOString(),
@@ -1249,37 +1258,26 @@ export interface DestinoEnvio {
 }
 
 /**
- * Lo que cambia entre las DOS puertas que llegan a `solicitado` (Feature #11912, HU #11915).
- *
- * La cola de trámite parte de `pendiente`; la validación de una solicitud del canal Cliente parte de
- * `pendiente_revision`. Todo lo demás —el bloqueo, la asignación de destino, el `enviado_por`, el
- * historial— es EXACTAMENTE lo mismo, y por eso se parametriza el estado de partida en vez de
- * escribir un segundo `update` que mañana diverja (ADR-0008 §6, precisión de `#6`).
- */
-export interface OpcionesEnvio {
-  /** Estado de PARTIDA exigido. Por defecto `pendiente`, que es la cola del flujo de trámite. */
-  estadoOrigen?: EstadoSoat;
-  /** Texto del historial. Por defecto, el del envío desde la cola. */
-  motivo?: string;
-}
-
-/**
  * Envía SOAT al gestor: Pendiente → En adquisición. Solo Operaciones. La atomicidad es
  * obligatoria (CA-04): con dos usuarios despachando la misma cola, leer-luego-escribir deja
  * que ambos envíen el mismo registro. `SELECT ... FOR UPDATE OF s SKIP LOCKED` hace que el
  * segundo no vea la fila que el primero bloqueó. El destino se fija en el mismo movimiento.
  *
- * Desde la HU #11915 la usa TAMBIÉN la validación del admin sobre una solicitud del canal Cliente,
- * con `estadoOrigen: 'pendiente_revision'`. Es reúso de verdad y no una copia: el `SKIP LOCKED` que
- * impide el doble envío, la limpieza del proveedor y la fila de historial son los mismos, así que
- * una solicitud validada y un SOAT despachado desde la cola llegan a `solicitado` idénticos — que es
- * lo que el AC1 pide para que el proveedor la vea en su cola sin saber por qué puerta entró.
+ * ── Vuelve a tener UNA sola puerta de entrada (HU #12080) ───────────────────────────────────────
+ *
+ * Entre la #11915 y hoy aceptaba un cuarto argumento, `OpcionesEnvio`, con el que la validación del
+ * admin le pasaba `estadoOrigen: 'pendiente_revision'` y su propio motivo de historial: dos puertas
+ * a `solicitado` compartiendo el mismo `update`. Al retirarse la validación ese argumento se quedó
+ * sin llamador y se BORRA en vez de conservarse «por si acaso»: `estadoOrigen` es precisamente el
+ * parámetro que permite entrar en `solicitado` desde un estado que no sea `pendiente`, o sea saltarse
+ * el filtro de la cola, y un parámetro así no debe quedar disponible sin un caso de uso que lo pida.
+ * El estado de partida vuelve a ser la constante que era.
  */
 export async function enviarAlGestor(
-  ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {}, opciones: OpcionesEnvio = {},
+  ids: string[], ctx: SoatCtx, destino: DestinoEnvio = {},
 ): Promise<ResultadoEnvio> {
   if (ids.length === 0) return { enviados: [], yaEnviados: [] };
-  const estadoOrigen = opciones.estadoOrigen ?? EstadoSoat.PENDIENTE;
+  const estadoOrigen = EstadoSoat.PENDIENTE;
 
   const enviados = await db.transaction(async (tx) => {
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
@@ -1321,8 +1319,7 @@ export async function enviarAlGestor(
 
     // Un INSERT para todo el lote. Los que se quedaron fuera por el `skipLocked` no entran: el
     // historial cuenta lo que pasó, no lo que se intentó.
-    const motivo = opciones.motivo
-      ?? (destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor');
+    const motivo = destino.gestionOperaciones ? 'Envío a gestión de Operaciones' : 'Envío al gestor';
     await registrarCambios(tx, idsEnviados.map((sid) => ({
       concepto: 'soat' as const, registroId: sid,
       estadoAnterior: estadoOrigen, estadoNuevo: EstadoSoat.SOLICITADO,
@@ -1394,30 +1391,19 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
   if (soat.estado === estadoDestino) throw new SoatError(400, 'El SOAT ya está en ese estado');
 
-  // ── Los dos estados del canal Cliente quedan FUERA de la reversa, en los dos sentidos ───────────
+  // ── Aquí vivían las dos guardas del canal Cliente, y se van con sus estados (HU #12080) ─────────
   //
-  // Es la puerta de al lado por la que se saltaba entera la revisión de la HU #11915, y estaba
-  // abierta: la reversa NO comprobaba el estado de partida, así que un admin podía llevar una
-  // solicitud en `pendiente_revision` a `pendiente` — y `pendiente` es justo lo que filtra
-  // `POST /enviar`, de modo que la siguiente pasada de la cola la despachaba al gestor SIN QUE NADIE
-  // la hubiera validado. El AC1 dice que a `solicitado` solo se llega revisando; esto lo hace
-  // verdad en el único sitio donde vale, que es el servicio y no el botón.
+  // Comprobaban que la reversa ni saliera de `pendiente_revision`/`rechazada` ni entrara en ellos:
+  // la primera cerraba la puerta de al lado por la que se saltaba entera la revisión de la #11915
+  // (llevar una solicitud sin validar a `pendiente`, que es lo que filtra `POST /enviar`), y la
+  // segunda era el ADR-0008 §8 por escrito.
   //
-  // El sentido contrario lo prohíbe el ADR-0008 §8 por escrito: devolver a `pendiente_revision` un
-  // SOAT ya validado dejaría al gestor sin la fila de su cola y al cliente con una solicitud que
-  // creía resuelta. Se comprueba aquí y no solo en el `z.enum` de la ruta porque ese enum alimenta
-  // también el selector de la pantalla, y basta con que alguien añada allí los dos estados nuevos
-  // «para que la pill funcione» para abrir el destino sin darse cuenta.
-  //
-  // Salir de estos estados NO se queda sin camino: `POST /:id/validar` y
-  // `POST /:id/rechazar-solicitud` son las dos únicas salidas de `pendiente_revision`, y de
-  // `rechazada` se sale subsanando. La reversa es la excepción manual del ciclo de TRÁMITE.
-  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(soat.estado as EstadoSoat)) {
-    throw new SoatError(400, `Una solicitud del canal Cliente en "${ESTADO_SOAT_LABEL[soat.estado as EstadoSoat]}" no se reversa: se valida o se rechaza desde la revisión.`);
-  }
-  if (ESTADOS_SOAT_CANAL_CLIENTE.includes(estadoDestino)) {
-    throw new SoatError(400, `"${ESTADO_SOAT_LABEL[estadoDestino]}" es un estado del canal Cliente y no es un destino de reversa.`);
-  }
+  // **La regla no se relaja: desaparece con lo que protegía.** La migración 0176 recrea
+  // `flito_soat_estado` sin esos dos valores y aborta si queda alguna fila en ellos, así que
+  // `soat.estado` no puede ser uno de ellos y `estadoDestino` tampoco: el `z.enum` de la ruta
+  // enumera los cuatro que quedan y el tipo de Postgres rechazaría cualquier otro con un 22P02.
+  // Dejar las dos guardas sería pedirle a `ESTADOS_SOAT_CANAL_CLIENTE` que siguiera existiendo solo
+  // para defenderse de valores inalcanzables.
 
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }

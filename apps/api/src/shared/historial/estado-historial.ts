@@ -146,26 +146,26 @@ export interface OpcionesHistorial {
    * ── La alternativa que se descartó, y por qué ───────────────────────────────────────────────────
    *
    * Se valoró servirle al cliente un motivo ACOTADO A UN CATÁLOGO de códigos en vez de callarlo. Se
-   * descarta porque ese catálogo ya existe y no es este: lo que el cliente tiene que poder leer es
-   * la causal de rechazo de SU solicitud, y eso vive en `flito_soat_causales_rechazo` +
-   * `flito_soat_solicitud.observacion_rechazo`, que sirve la HU #11915 por su propia ruta. Inventar
-   * aquí un segundo catálogo daría dos maneras de responder la misma pregunta y ninguna completa;
-   * además obligaría a codificar los ~8 puntos de llamada de `registrarCambio` para una audiencia
-   * que hoy no lee ninguno.
+   * descarta porque codificar los ~8 puntos de llamada de `registrarCambio` para una audiencia que
+   * hoy no lee ninguno es trabajo a cuenta de una necesidad que nadie ha expresado — y porque el
+   * motivo, tal como se escribe, no es un código: es una frase que un empleado redacta sobre un caso.
+   *
+   * **Aquí decía otra cosa hasta la HU #12080**, y conviene dejar dicho qué se cayó: el argumento
+   * era «ese catálogo ya existe y no es este — lo que el cliente tiene que poder leer es la causal de
+   * rechazo de SU solicitud, en `flito_soat_causales_rechazo` + `flito_soat_solicitud.
+   * observacion_rechazo`». Esas dos cosas ya no existen (Feature #12074, migración 0176): el canal no
+   * tiene revisión, así que no hay ningún rechazo de Operaciones que rotular. El corte se mantiene
+   * por su primera razón, que nunca dependió de aquel catálogo: el motivo es texto libre interno.
    *
    * Lo que el cliente conserva es la línea de tiempo entera: qué estado, desde cuál, cuándo y que lo
    * movió FLITO.
    *
-   * ── Corrección de una frase que estuvo aquí y era FALSA (HU #11915) ─────────────────────────────
+   * ── `flito_soat.motivo_rechazo` es del GESTOR, y sigue siéndolo ─────────────────────────────────
    *
-   * Decía que «el motivo del rechazo del gestor le sigue llegando por `motivoRechazo` en el DTO del
-   * detalle … lo necesita la #11915 para subsanar». **No lo necesita, y creerlo lleva a escribir el
-   * rechazo del canal en la columna equivocada.** `flito_soat.motivo_rechazo` es el rechazo del
-   * GESTOR, el que lleva a `con_novedad` (`rechazar()` en `flito-soat.service.ts`): otro actor, otro
-   * estado destino y otra audiencia. El rechazo del ADMIN sobre una solicitud del canal va a
-   * `flito_soat_solicitud` —causal del catálogo general + observación— y le llega al Cliente por el
-   * bloque `solicitud` del detalle, con su propia proyección por rol. La HU #11915 no lee ni escribe
-   * `motivo_rechazo` en ninguna parte.
+   * Merece decirse porque la confusión ya costó una corrección: esa columna es el rechazo del GESTOR,
+   * el que lleva a `con_novedad` (`rechazar()` en `flito-soat.service.ts`), y no tiene nada que ver
+   * con el rechazo del ADMIN que hubo entre la #11915 y la #12080. Aquel se escribía en
+   * `flito_soat_solicitud` y hoy no se escribe en ninguna parte. `POST /:id/rechazar` no cambia.
    *
    * Desde la HU #11914 el `cliente` radica, así que sus PROPIAS acciones ya aparecen en este
    * historial y habrá que distinguirlas cuando la pantalla quiera hacerlo: la fila guarda

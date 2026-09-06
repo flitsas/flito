@@ -67,12 +67,14 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
     expect(await pedir('cliente', 'pagado')).toEqual(['factura_soat', 'factura_venta']);
   });
 
-  for (const estado of ['pendiente_revision', 'rechazada', 'solicitado', 'con_novedad']) {
+  // Los estados NO pagados que existen. Eran seis hasta la HU #12080, que retira del enum
+  // `pendiente_revision` y `rechazada`: la lista se poda, no se reescribe con otros valores, porque
+  // lo que este bucle recorre es «todo estado que no sea `pagado`» y ese conjunto encogió.
+  for (const estado of ['pendiente', 'solicitado', 'con_novedad']) {
     it(`cliente + \`${estado}\` → sin póliza: solo lo que él mismo subió (AC3)`, async () => {
-      // La mitad negativa del AC3. La factura de venta SÍ está, y es una decisión declarada de esta
-      // HU: es su propio adjunto —la única forma de que un `factura_venta` cuelgue de un `soat_id` es
-      // que lo subiera él al radicar o al subsanar— y sin ella la pantalla de corregir un rechazo no
-      // puede responder «¿qué factura tengo cargada?».
+      // La mitad negativa del AC3. La factura de venta SÍ está, y es una decisión declarada: es su
+      // propio adjunto —la única forma de que un `factura_venta` cuelgue de un `soat_id` es que lo
+      // subiera él al radicar— y sin ella la ficha no puede responder «¿qué factura tengo cargada?».
       expect(await pedir('cliente', estado)).toEqual(['factura_venta']);
     });
   }
@@ -139,14 +141,14 @@ describe('AC2/AC3 · A — la allowlist del cliente, por tipo Y por estado', () 
 
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS);
-    await soportesDeSoat(SOAT_ID, { rol: 'cliente', estadoSoat: 'rechazada' });
-    const rechazada = espia.condicionesLeidas().map((c) => renderizar(c as never));
-    expect(ligadosA(rechazada[0], '"flito_soportes"."tipo"')).toEqual(['factura_venta']);
+    await soportesDeSoat(SOAT_ID, { rol: 'cliente', estadoSoat: 'solicitado' });
+    const noPagado = espia.condicionesLeidas().map((c) => renderizar(c as never));
+    expect(ligadosA(noPagado[0], '"flito_soportes"."tipo"')).toEqual(['factura_venta']);
 
     // Y para un rol interno no hay recorte por tipo en absoluto (`ligadosA` lanza si no lo hay).
     espia.reiniciar();
     kdb.when.select('flito_soportes', TODOS).select('flito_conciliacion_lineas', []);
-    await soportesDeSoat(SOAT_ID, { rol: 'admin', estadoSoat: 'rechazada' });
+    await soportesDeSoat(SOAT_ID, { rol: 'admin', estadoSoat: 'solicitado' });
     const admin = espia.condicionesLeidas().map((c) => renderizar(c as never));
     expect(() => ligadosA(admin[0], '"flito_soportes"."tipo"')).toThrow();
   });
@@ -208,9 +210,10 @@ function escenarioCliente(estado: string): void {
     .selectOnce('flito_soat', [filaDetalle(estado)])
     .select('flito_tramites', [])
     .select('flito_compradores', [])
+    // Sin `causalNombre` ni `observacion`: la HU #12080 los saca de la proyección de
+    // `revisionDeSolicitud` porque la 0176 borra la tabla y la columna de las que salían.
     .select('flito_soat_solicitud', [{
-      solicitadoEn: AHORA, revisadoPorNombre: null, revisadoEn: null,
-      causalNombre: null, observacion: null, reenvios: 0,
+      solicitadoEn: AHORA, revisadoPorNombre: null, revisadoEn: null, reenvios: 0,
     }])
     .select('flito_soportes', TODOS)
     .select('flito_conciliacion_lineas', [TODOS[3]]);
@@ -234,8 +237,11 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     expect(r.headers['cache-control']).toBe('no-store');
   });
 
-  it('solicitud EN REVISIÓN → 200 sin la póliza: pedirla antes de `pagado` no la entrega (AC3)', async () => {
-    escenarioCliente('pendiente_revision');
+  it('solicitud NO pagada → 200 sin la póliza: pedirla antes de `pagado` no la entrega (AC3)', async () => {
+    // Era `pendiente_revision`, estado que la HU #12080 retira del enum. `solicitado` es el estado
+    // en el que hoy nace y vive una solicitud del canal hasta que el gestor carga la póliza, así que
+    // es el que este caso tiene que mirar.
+    escenarioCliente('solicitado');
 
     const r = await request(await buildApp()).get(`/api/flito/soat/${SOAT_ID}/soportes`)
       .set('Authorization', await auth('cliente'));
@@ -252,7 +258,7 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // El intento obvio de saltarse el AC3: colgar el estado de la query. La ruta no lee ningún
     // parámetro para esto —el estado viene del detalle que acaba de autorizar el acceso—, así que
     // pedirlo con `?estado=pagado` da exactamente lo mismo que sin él.
-    escenarioCliente('rechazada');
+    escenarioCliente('con_novedad');
 
     const r = await request(await buildApp())
       .get(`/api/flito/soat/${SOAT_ID}/soportes?estado=pagado&estadoSoat=pagado`)
@@ -281,12 +287,16 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
     // rojo este test NOMBRANDO la intrusa, y abrirle algo al rol `cliente` obliga a escribirlo aquí.
     //
     // Esta lista es además el sitio donde se lee, fuera del middleware, QUÉ puede alcanzar el rol
-    // externo: seis lecturas (GET) y cinco escrituras (cuatro POST y un PATCH). Las diez primeras
-    // las fijó la #11915. La 11.ª
-    // —`POST …/cliente/factura/lectura`, de la #12092— es la primera ruta de ESCRITURA del canal
-    // que NO PERSISTE NADA: lee el PDF adjunto, devuelve el comprador y el buffer muere con la
-    // petición (ni objeto en storage, ni soporte, ni fila). Entra igual por `requireRole('cliente')`
-    // y el rate limit del canal, y por eso está en la lista pese a no escribir en FLITO.
+    // externo. **Ninguna afirmación de este bloque es un NÚMERO, y eso es deliberado**: un
+    // `toHaveLength(N)` se «arregla» cambiando la N y a partir de ahí deja pasar cualquier ruta
+    // mientras el conteo cuadre. Enumerado el conjunto por MÉTODO + PATRÓN, inscribir una ruta
+    // nueva, o cambiarle el verbo o el patrón a una ya inscrita, pone rojo este test nombrando la
+    // intrusa.
+    //
+    // **La lista ENCOGE con la HU #12080**: sale `PATCH /api/flito/soat/:id/solicitud`, la
+    // subsanación, porque el circuito de revisión al que respondía se retira entero (Feature
+    // #12074). Que un centinela así se ponga rojo al QUITAR una entrada es tan valioso como que se
+    // ponga rojo al añadirla: obliga a que la retirada de una puerta sea una decisión escrita.
     //
     // El orden es el de declaración del middleware —lecturas, luego escrituras por HU—: se afirma
     // tal cual para que el diff del rojo señale el sitio exacto de la lista.
@@ -300,9 +310,11 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'GET /api/flito/soat/:id/soportes',
       'POST /api/flito/soat/cliente/preconsulta',
       'POST /api/flito/soat/cliente',
-      'PATCH /api/flito/soat/:id/solicitud',
       'POST /api/flito/soat/cliente/factura/lectura',
     ]);
+    // Y la que se fue, nombrada: si alguien la reinscribe sin pasar por este archivo, el `toEqual`
+    // de arriba lo caza; esto dice además POR QUÉ no debería volver.
+    expect(rutaPermitidaParaCliente('PATCH', `/api/flito/soat/${SOAT_ID}/solicitud`)).toBe(false);
   });
 });
 
@@ -334,7 +346,7 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     }
   });
 
-  it('el canal Cliente no expone ninguna ruta que pague: sus cuatro escrituras son otras', async () => {
+  it('el canal Cliente no expone ninguna ruta que pague: sus tres rutas son otras', async () => {
     // El `\s*` tras el paréntesis NO es cosmético: la #12092 declara su ruta partiendo la llamada en
     // varias líneas (`router.post(\n  '/cliente/factura/lectura',`) y el patrón anterior —anclado a
     // `router.post('`— no la veía. El centinela seguía verde CONTANDO SEIS mientras el fichero
@@ -343,14 +355,14 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     const rutas = fuente('modules/flito-soat/flito-soat-cliente.routes.ts');
     const declaradas = [...rutas.matchAll(/^router\.(get|post|patch|put|delete)\(\s*'([^']+)'/gm)]
       .map((m) => `${m[1].toUpperCase()} ${m[2]}`);
+    // **Tres, desde la HU #12080.** Se van las cuatro de la revisión —`GET /causales-rechazo`,
+    // `POST /:id/validar`, `POST /:id/rechazar-solicitud` y `PATCH /:id/solicitud`— con el circuito
+    // que las justificaba (Feature #12074). Se enumera el conjunto y no su tamaño: así, tanto una
+    // ruta nueva como el regreso de una de las cuatro ponen rojo este aserto nombrándola.
     expect(declaradas.sort()).toEqual([
-      'GET /causales-rechazo',
-      'PATCH /:id/solicitud',
-      'POST /:id/rechazar-solicitud',
-      'POST /:id/validar',
       'POST /cliente',
-      // La cuarta escritura del canal (#12092). Es de escritura por el verbo y el adjunto, no por
-      // efecto: lee el PDF y responde; no toca storage, ni `flito_soportes`, ni ninguna fila.
+      // Es de escritura por el verbo y el adjunto, no por efecto: lee el PDF y responde; no toca
+      // storage, ni `flito_soportes`, ni ninguna fila (#12092).
       'POST /cliente/factura/lectura',
       'POST /cliente/preconsulta',
     ]);
@@ -366,13 +378,10 @@ describe('AC3 · C — `POST /:id/factura` (OCR) sigue siendo la única puerta a
     expect(r.status).toBe(403);
   });
 
-  it('las tres transiciones del canal dan el MISMO 409 de carrera perdida (deuda de la #11915)', async () => {
-    // `carreraPerdida()` promete en su docblock «un solo sitio para que las tres digan lo mismo», y
-    // hasta esta HU era falso en la letra: `validarSolicitud` repetía el literal. Se compara el
-    // TEXTO que queda en el módulo: una segunda copia del mensaje vuelve a romper la promesa.
-    const canal = fuente('modules/flito-soat/flito-soat-cliente.service.ts');
-    const frase = 'Otra persona acaba de mover esta solicitud.';
-    expect(canal.split(frase)).toHaveLength(2); // una sola aparición: la del helper
-    expect(canal.match(/throw carreraPerdida\(\)/g)).toHaveLength(3);
-  });
+  // Aquí vivía «las tres transiciones del canal dan el MISMO 409 de carrera perdida», que contaba
+  // tres `throw carreraPerdida()` y una sola copia de su literal. La HU #12080 borra las tres
+  // transiciones y el helper con ellas, así que el caso se va entero: reescribirlo sobre 0 sería un
+  // centinela que no vigila nada, y adaptarle el número era exactamente lo que este archivo dice en
+  // otro sitio que no hay que hacer. Lo que queda del canal es el ALTA, cuya concurrencia la cierra
+  // el UNIQUE de `flito_soat.vin` y está medida en `flito-soat.cliente-alta.test.ts`.
 });
