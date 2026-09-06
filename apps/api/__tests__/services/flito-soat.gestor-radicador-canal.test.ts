@@ -233,7 +233,8 @@ describe('detalle del gestor — la otra lectura que pasa por `ensamblarCola`', 
 // El DTO recortado arriba no cerraba el asunto, porque el mismo nombre salía un endpoint más allá y
 // por un camino que esta HU ABRIÓ SIN TOCARLO. La fila de historial del alta se escribe con el
 // radicador (`flito-soat-cliente.service.ts`), y hasta la #12078 era inalcanzable para el gestor: la
-// solicitud nacía en `pendiente_revision`, que no está en `ESTADOS_SOAT_VISIBLES_GESTOR`, así que
+// solicitud nacía en `pendiente_revision` —estado que la HU #12080 ya retiró del enum—, que no
+// está en `ESTADOS_SOAT_VISIBLES_GESTOR`, así que
 // `buscarConAcceso` respondía 404. Desde esta HU nace en `solicitado`, que sí lo está. La HU no creó
 // el endpoint: **le quitó el cerrojo**. Y lo que sale por ahí es peor que el DTO, porque cuando el
 // usuario ya no existe `historialDe` sirve el CORREO CORPORATIVO copiado en la fila.

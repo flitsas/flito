@@ -62,7 +62,10 @@ const SOAT_TRAMITE = '00000000-0000-0000-0000-0000000000t1'.replace('t', 'a');
 
 /** Fila de la cola tal como sale del join `flito_soat` × `vehicles` × … */
 const filaCola = (over: Record<string, unknown> = {}) => ({
-  id: SOAT_CANAL, vin: '9FKRG2222T2042405', estado: 'pendiente_revision', origen: 'cliente',
+  // `solicitado` y no `pendiente_revision`: la HU #12080 retira ese estado del enum, y una fila
+  // del canal nace despachada desde la #12078. Lo que este archivo mide —la proyección del
+  // propietario— no depende del estado.
+  id: SOAT_CANAL, vin: '9FKRG2222T2042405', estado: 'solicitado', origen: 'cliente',
   proveedorSoatId: null, gestionOperaciones: false, enviadoEn: null, pagadoEn: null,
   valorPagado: null, motivoRechazo: null, createdAt: new Date('2026-08-29T12:00:00.000Z'),
   placa: 'JNH38H', marca: 'MAZDA', linea: 'CX-30',
@@ -153,7 +156,7 @@ describe('cola SOAT — el propietario de una solicitud del canal Cliente sale e
   });
 
   it('el detalle de una solicitud del canal también trae al propietario', async () => {
-    selectMock.mockImplementationOnce(() => chain([{ soat: { id: SOAT_CANAL, companiaId: 7, estado: 'pendiente_revision', proveedorSoatId: null, gestionOperaciones: false, pagadoEn: null, extraccion: null }, dentroDeFrontera: true }])); // buscarConAcceso
+    selectMock.mockImplementationOnce(() => chain([{ soat: { id: SOAT_CANAL, companiaId: 7, estado: 'solicitado', proveedorSoatId: null, gestionOperaciones: false, pagadoEn: null, extraccion: null }, dentroDeFrontera: true }])); // buscarConAcceso
     selectMock.mockImplementationOnce((p: Record<string, unknown>) => chainProyectado(p, [filaCola()])); // la fila del detalle
     selectMock.mockImplementationOnce(() => chain([]));                                    // trámites
     selectMock.mockImplementationOnce(() => chain([propietarioCanal()]));                  // propietario

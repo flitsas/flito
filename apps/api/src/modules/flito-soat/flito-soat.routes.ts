@@ -63,15 +63,16 @@ const OPS_O_GESTOR = requireRole('admin', 'proveedor');
 
 // Los estados que el filtro de la cola acepta.
 //
-// Los dos del canal Cliente entran en la HU #11915, que es la que da al admin una cola de revisión.
-// **Sin ellos aquí, añadir la pill solo en la interfaz falla EN SILENCIO y en la peor dirección**:
-// un estado desconocido se ignora —no da 400, por la filosofía de «un filtro roto no tumba la
-// pantalla de quien trabaja»—, así que el admin pulsa «Pendiente de revisión», el filtro se descarta
-// y la cola le devuelve TODO presentándoselo como el resultado del filtro. En una pantalla de
-// revisión, ver de más creyendo que se ve de menos es el modo de fallo que hay que evitar primero.
+// **Podar los dos del canal Cliente (HU #12080) es obligatorio, no cosmético.** Un estado
+// desconocido se IGNORA —no da 400, por la filosofía de «un filtro roto no tumba la pantalla de
+// quien trabaja»— y ese es justo el comportamiento que hace falta aquí: un enlace guardado con
+// `?estado=pendiente_revision` cae en un filtro que se descarta y la cola devuelve todo, que es el
+// modo de fallo ya documentado y aceptado. Si el valor SIGUIERA en esta lista, en cambio, Drizzle lo
+// mandaría como literal contra una columna cuyo tipo ya no lo tiene (migración 0176) y PostgreSQL
+// respondería `22P02 invalid input value for enum`: la cola entera en 500 por un parámetro de
+// consulta viejo.
 const ESTADOS = [
   EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
-  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA,
 ] as const;
 
 function handleError(res: Response, e: unknown): void {
@@ -383,8 +384,47 @@ router.get('/facetas', LECTURA, async (req: Request, res: Response) => {
   res.json(await facetasCola(await contextoSoat(req.user!)));
 });
 
+/**
+ * Un `:id` que ni siquiera tiene forma de uuid es un 404, y se decide ANTES de consultar.
+ *
+ * ── Por qué lo trae la HU #12080, que va de otra cosa ───────────────────────────────────────────
+ *
+ * `GET /:id` casa cualquier segmento, incluido uno que no sea un identificador. Mientras existió
+ * `GET /causales-rechazo` en el router del canal —montado ANTES que este en `app.ts`— aquella ruta
+ * ganaba y la cuestión no se planteaba. Al retirarla, esa URL cae aquí con
+ * `id = 'causales-rechazo'`, y sin esta guarda el `WHERE id = 'causales-rechazo'` contra una columna
+ * `uuid` muere con `22P02 invalid input syntax` → **500**. Un cliente viejo que siga pidiendo el
+ * catálogo recibiría un error del servidor en vez de «eso ya no está».
+ *
+ * Se comprueba la FORMA y no se intenta nada más: no es una validación de negocio ni una
+ * autorización —esas siguen donde estaban, en `buscarConAcceso`—, es la traducción del único caso en
+ * que la base no puede ni empezar a buscar. Y no dice «formato inválido»: dice 404, el mismo cuerpo
+ * que un uuid que no existe, porque distinguirlos le contaría a quien sondea qué forma tienen los
+ * identificadores de este sistema.
+ *
+ * ── QUÉ forma, exactamente: es más ESTRECHA que el parser de PostgreSQL ─────────────────────────
+ *
+ * Acepta la forma CANÓNICA y solo esa: 32 dígitos hexadecimales en cinco grupos separados por
+ * guiones (`8-4-4-4-12`), indistinta a mayúsculas. PostgreSQL admite además otras escrituras del
+ * MISMO valor —medido: `7c000000000040008000000000012a01` sin guiones, y el mismo entre llaves, los
+ * lee sin quejarse—, y esas dos aquí pasan de ser una lectura real a un 404.
+ *
+ * Es una desviación consciente, no un descuido, y se deja así a propósito: **todo id que un llamador
+ * puede tener salió antes de este mismo API**, que los emite siempre canónicos (`uuid()` de Drizzle y
+ * los uuid del propio Postgres), así que no hay consumidor conocido de las otras dos formas —solo
+ * llegarían escritas a mano—. Si algún día apareciera uno legítimo, la corrección es NORMALIZAR antes
+ * de comparar, no relajar la comprobación; este párrafo existe para que esa diferencia conste como
+ * conocida y no se descubra como sorpresa.
+ *
+ * Vale también para el resto de rutas con `:id`, que hoy siguen dando 500 con un segmento no-uuid.
+ * NO se les añade aquí: es deuda PREEXISTENTE que esta HU no introduce, y ampliarla sería tocar diez
+ * rutas fuera de su alcance. Queda dicho para que se corrija con dueño.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // GET /:id — detalle (404-no-403 para el gestor ajeno)
 router.get('/:id', LECTURA, async (req: Request, res: Response) => {
+  if (!UUID_RE.test(req.params.id)) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
   const ctx = await contextoSoat(req.user!);
   const d = await detalle(req.params.id, ctx);
   // El 404 NO se registra, y la diferencia importa: un id que no existe —o que está fuera de la
@@ -507,11 +547,14 @@ router.post('/:id/reactivar', OPERACIONES, async (req: Request, res: Response) =
 
 // POST /:id/reversar — reversa manual (RN-06). Solo Operaciones, motivo ≥5.
 //
-// El enum NO gana los dos estados del canal Cliente aunque `ESTADOS` (arriba) sí los tenga: son dos
-// preguntas distintas y confundirlas es lo que abre la puerta. Aquella lista dice «por qué estados se
-// puede FILTRAR»; esta dice «a qué estados se puede REVERSAR», y el ADR-0008 §8 prohíbe
-// `pendiente_revision` como destino. La defensa de verdad está en `reversar()`, que además comprueba
-// el estado de PARTIDA: este `z.enum` protege una ruta, y el servicio protege la regla.
+// Este `z.enum` y la lista `ESTADOS` de arriba responden dos preguntas distintas —«a qué estados se
+// puede REVERSAR» y «por qué estados se puede FILTRAR»— y por eso siguen escritos por separado
+// aunque hoy enumeren lo mismo. Coincidían ya antes de la HU #12080: aquella lista tenía los dos
+// estados del canal Cliente y esta no, porque el ADR-0008 §8 prohibía `pendiente_revision` como
+// destino. Al retirarse esos estados la diferencia se evapora, pero fundirlos en una constante
+// compartida ataría las dos reglas: el día que un estado nuevo sea filtrable y no reversable —que es
+// exactamente el caso que acabamos de vivir—, sería otra vez un destino abierto sin que nadie lo
+// decidiera.
 const reversarSchema = z.object({
   estadoDestino: z.enum([EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD]),
   motivo: z.string().min(5, 'La reversa exige un motivo que explique el porqué'),

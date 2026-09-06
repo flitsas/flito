@@ -79,15 +79,12 @@ interface FacetasSoat {
   proveedores: { id: string; nombre: string }[];
 }
 
-// Los dos últimos son del canal Cliente y **ya no los escribe nadie** (HU #12079): la solicitud nace
-// en `solicitado` y va directa al gestor. Siguen aquí por una razón concreta y no por inercia — el
-// `Record<EstadoSoat, ChipTone>` es exhaustivo y `EstadoSoat` los sigue declarando; quitarlos del
-// enum es la HU #12080 y borrar las filas que quedasen, la #12081. Hasta entonces una fila antigua
-// puede llegar en cualquiera de los dos y un tono ausente se pintaría en blanco.
-// **No hay pastilla para filtrarlos** (ver los arrays de abajo): se ven si aparecen, no se buscan.
+// Cuatro estados y cuatro tonos. Aquí hubo dos entradas más —`pendiente_revision` y `rechazada`, del
+// canal Cliente— que la HU #12079 dejó sin escritor y que la #12080 retira del enum y del tipo de
+// Postgres (migración 0176, que aborta si queda alguna fila en ellos). No hace falta conservarles un
+// tono «por si llega una fila antigua»: no puede llegar ninguna.
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-  pendiente_revision: 'warning', rechazada: 'danger',
 };
 const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
@@ -99,23 +96,24 @@ const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO'
 /**
  * Los estados a los que el admin puede REVERSAR un SOAT, y NADA MÁS.
  *
- * **Sigue siendo una lista aparte aunque desde la HU #12079 su contenido coincida con el de las
- * pastillas del admin, y eso es una decisión, no un descuido.** La razón por la que nació separada
- * —no ofrecer `pendiente_revision` ni `rechazada` como destino de reversa (ADR-0008 §8)— se evapora
- * con esta HU, porque los dos estados dejan de tener pastilla. Pero las dos listas responden a
- * preguntas distintas: «por qué se puede filtrar» y «a dónde se puede devolver un SOAT». Fundirlas
- * porque hoy son iguales le regalaría a la siguiente pastilla que alguien añada un destino de
- * reversa que nadie decidió.
+ * **Sigue siendo una lista aparte aunque su contenido coincida con el de las pastillas del admin, y
+ * eso es una decisión, no un descuido.** La razón por la que nació separada —no ofrecer
+ * `pendiente_revision` ni `rechazada` como destino de reversa (ADR-0008 §8)— se evaporó del todo con
+ * la HU #12080, que retira los dos estados del enum. Pero las dos listas responden a preguntas
+ * distintas: «por qué se puede filtrar» y «a dónde se puede devolver un SOAT». Fundirlas porque hoy
+ * son iguales le regalaría a la siguiente pastilla que alguien añada un destino de reversa que nadie
+ * decidió — que es exactamente lo que acaba de pasar y de deshacerse.
  */
 const ESTADOS_DESTINO_REVERSA: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
 const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
 /**
  * Las pastillas del admin, en orden de RECORRIDO del ciclo (HU #12079).
  *
- * `pendiente_revision` y `rechazada` salen de aquí porque el circuito que los creaba se retira: una
- * solicitud del canal nace en `solicitado` y sale al gestor de su compañía sin pasar por revisión.
- * Una pastilla que filtra por un estado en el que ya no entra ninguna fila es una pantalla vacía
- * prometida.
+ * `pendiente_revision` y `rechazada` salieron de aquí porque el circuito que los creaba se retiró:
+ * una solicitud del canal nace en `solicitado` y sale al gestor de su compañía sin pasar por
+ * revisión. Una pastilla que filtra por un estado en el que ya no entra ninguna fila es una pantalla
+ * vacía prometida — y desde la HU #12080 sería además un 500: el filtro viaja al API, que ya no
+ * acepta esos valores (`ESTADOS` de `flito-soat.routes.ts`).
  */
 const ESTADOS_ADMIN: EstadoSoat[] = [
   EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
@@ -128,12 +126,13 @@ const ESTADOS_ADMIN: EstadoSoat[] = [
  * él radica. `con_novedad` va antes que `pagado` porque es lo único de esta lista que puede estar
  * esperando algo, aunque no sea él quien lo resuelva.
  *
- * ⚠ **Lo que muere con esta HU y hay que decir en voz alta:** aquí se leía que «no hace falta una
- * columna Origen porque `pendiente_revision` y `rechazada` solo existen en el canal Cliente, así que
- * el estado ya dice de dónde viene cada fila». Retirados los dos estados, **nada distingue en
- * pantalla una solicitud del canal de un SOAT nacido de un trámite**. No se añade columna —la cola
- * ya es densa, el gestor las trabaja igual y ningún AC la pide—; queda preguntado al PO, con
- * `tramitesFlit` vacío como señal ya disponible si algún día se decide.
+ * ⚠ **Lo que murió con la HU #12079 y sigue muerto:** aquí se leía que «no hace falta una columna
+ * Origen porque `pendiente_revision` y `rechazada` solo existen en el canal Cliente, así que el
+ * estado ya dice de dónde viene cada fila». Retirados los dos estados —de la pantalla entonces, del
+ * enum con la #12080—, **nada distingue en pantalla una solicitud del canal de un SOAT nacido de un
+ * trámite**. No se añade columna —la cola ya es densa, el gestor las trabaja igual y ningún AC la
+ * pide—; queda preguntado al PO, con `tramitesFlit` vacío como señal ya disponible si algún día se
+ * decide.
  */
 const ESTADOS_CLIENTE: EstadoSoat[] = [
   EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
@@ -813,8 +812,9 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           <div className="rounded-md bg-red-50 p-2 text-red-700">
             <p>Motivo de rechazo: {soat.motivoRechazo}</p>
             {/* Lo ÚNICO que se añade al retirar el circuito de revisión (HU #12079). «Corregir y
-                reenviar» se va con el estado `rechazada`, y la vía por la que al Cliente le vuelve
-                algo pasa a ser esta: una caja roja con el motivo y ningún siguiente paso. La frase
+                reenviar» se fue con el estado `rechazada` —que la #12080 borra del enum—, y la vía
+                por la que al Cliente le vuelve algo es esta: una caja roja con el motivo del GESTOR
+                (`flito_soat.motivo_rechazo`, `con_novedad`) y ningún siguiente paso. La frase
                 dice lo que de verdad ocurre —Operaciones puede **Reactivar** o **Devolver al
                 proveedor**— y no promete un canal de contacto que el producto no tiene. */}
             {esCliente && (
@@ -842,16 +842,15 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             {rechazado && esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
-            {/* Las dos acciones heredadas vuelven a ofrecerse sin condición de origen (HU #12079):
-                la #11915 se las quitaba a las filas del canal porque «Reversar» una
-                `pendiente_revision` a `pendiente` la metía en el alcance de `POST /enviar` sin que
-                nadie la hubiera validado. Retirada la revisión, la fila del canal nace en
-                `solicitado` y ese camino ya no se abre para las filas NUEVAS.
-                Ojo: en las filas LEGADAS que sigan en `pendiente_revision`, lo que sostiene la
-                prohibición del ADR-0008 §8 es el SERVIDOR —`reversar()` rechaza los estados del
-                canal como origen y como destino—, no la ausencia de riesgo. Quitar esta condición
-                de la interfaz solo hace que el botón dé 400 sobre una fila antigua; NO es excusa
-                para tocar la guarda del servicio. */}
+            {/* Las dos acciones heredadas se ofrecen sin condición de origen (HU #12079): la #11915
+                se las quitaba a las filas del canal porque «Reversar» una `pendiente_revision` a
+                `pendiente` la metía en el alcance de `POST /enviar` sin que nadie la hubiera
+                validado.
+                Desde la HU #12080 no queda ni el estado ni la fila legada: la migración 0176 recrea
+                `flito_soat_estado` sin los dos valores del canal y ABORTA si alguna fila sigue en
+                ellos, así que el riesgo que la condición cubría no tiene ya dónde ocurrir. Por eso
+                `reversar()` también perdió sus dos guardas: no se relajó una regla, se retiró con lo
+                que protegía. */}
             {esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}

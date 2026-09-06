@@ -1,37 +1,41 @@
-// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta), #11915 (revisión),
-// #11935 (alta sin RUNT bloqueante) y #11966 (el RUNT vuelve a ser compuerta).
+// FLITO — SOAT, canal Cliente (HTTP). Feature #11912, HU #11914 (alta), #11935 (alta sin RUNT
+// bloqueante), #11966 (el RUNT vuelve a ser compuerta), #12092 (lectura OCR de la factura) y
+// #12080 (retirada de la revisión de Operaciones).
 // Montado en `/api/flito/soat`, junto al router del módulo.
-// Contrato: ADR-0008 §6 y ADR-0010, que SUPERSEDE al ADR-0009. Los dos endpoints del canal
-// —`POST /cliente/preconsulta` y `POST /cliente`— esperan a Kyverum y comparten la compuerta.
+// Contrato: ADR-0008 §6 y ADR-0010, que SUPERSEDE al ADR-0009. Los dos endpoints que consultan el
+// RUNT —`POST /cliente/preconsulta` y `POST /cliente`— esperan a Kyverum y comparten la compuerta.
 //
-// ── Por qué un router aparte y montado en la MISMA base ──────────────────────────────────────────
+// ── Qué vive aquí, exactamente ───────────────────────────────────────────────────────────────────
 //
-// La base es la misma porque el recurso es el mismo (`flito_soat`) y porque el aislamiento por
-// compañía tiene que seguir pasando por `contextoSoat()`. El archivo es otro por el techo de líneas
-// de `flito-soat.routes.ts` y, sobre todo, porque aquí vive el CICLO ENTERO del canal —radicar,
-// validar, rechazar y subsanar— y tenerlo junto es lo que permite leer de una vez quién puede hacer
-// qué, con su rate limit, su validación de MIME real y su auditoría a la vista.
+// TRES rutas, las tres del rol `cliente` y las tres de la RADICACIÓN:
 //
-// Que dos de esas rutas sean del `admin` y no del `cliente` no las saca de aquí: `POST /:id/validar`
-// y `POST /:id/rechazar-solicitud` solo aplican a filas con `origen = 'cliente'` y no existen para
-// el resto del módulo. Repartirlas entre los dos archivos por el rol que las llama dejaría el ciclo
-// contado a medias en cada uno.
+//   POST /cliente/preconsulta      — qué dice el RUNT de este vehículo (paso 1 del formulario).
+//   POST /cliente                  — radicar. Crear ES enviar: la fila nace en `solicitado`.
+//   POST /cliente/factura/lectura  — el OCR lee el comprador de la factura para prellenar el alta.
+//
+// Este archivo llegó a tener el ciclo entero del canal —radicar, validar, rechazar y subsanar—
+// mientras existió la revisión de Operaciones (HU #11915). **Ya no.** El Feature #12074 la retira:
+// desde la #12078 el alta despacha al gestor por defecto de la compañía y desde la #12079 la
+// pantalla que revisaba no existe, así que la #12080 borra de aquí `GET /causales-rechazo`,
+// `POST /:id/validar`, `POST /:id/rechazar-solicitud` y `PATCH /:id/solicitud` —y con ellas el
+// último uso de `requireRole('admin')` en este router—. Lo que queda es de un solo rol y de un solo
+// momento, y por eso este archivo ya no cuenta ningún ciclo: cuenta una puerta de entrada.
+//
+// Lo que sí sigue en pie es la razón de que sea un archivo aparte montado en la MISMA base: el
+// recurso es el mismo (`flito_soat`), el aislamiento por compañía tiene que seguir pasando por
+// `contextoSoat()`, y `flito-soat.routes.ts` tiene el techo de líneas congelado.
 //
 // No hay colisión de rutas con el router del módulo: sus patrones de segundo nivel son literales
-// (`enviar`, `facturas`, `:id/rechazar`, `:id/factura`…) y ninguno casa con los de aquí —`/cliente`,
-// `/cliente/preconsulta`, `/causales-rechazo`, `/:id/validar`, `/:id/rechazar-solicitud` y
-// `PATCH /:id/solicitud`—. Ojo con el par `:id/rechazar` (allí) y `:id/rechazar-solicitud` (aquí):
-// son segmentos LITERALES distintos y Express no los confunde, pero se parecen lo bastante como para
-// que convenga decirlo. El montaje va ANTES en `app.ts` para que, si algún día se añadiera un patrón
-// que sí casara, gane el específico.
+// (`enviar`, `facturas`, `:id/rechazar`, `:id/factura`…) y ninguno casa con los de aquí, que hoy
+// cuelgan todos del segmento literal `/cliente`. El montaje va ANTES en `app.ts` para que, si algún
+// día se añadiera un patrón que sí casara, gane el específico.
 //
 // ── PII: nada identificable en la URL (AGENTS.md §14, AC5) ──────────────────────────────────────
 //
 // Placa, VIN y documento del propietario viajan SIEMPRE en el cuerpo. Por eso la preconsulta es un
 // `POST` y no un `GET` con parámetros, aunque no escriba nada: un `GET /preconsulta?placa=…` deja la
-// placa en el log de acceso de nginx, en el historial del navegador y en el `Referer`. Las rutas de
-// la #11915 siguen el mismo criterio: la observación del rechazo y los datos del propietario van en
-// el cuerpo, y en la URL solo queda el uuid del SOAT, que es opaco (AGENTS.md §14 lo permite).
+// placa en el log de acceso de nginx, en el historial del navegador y en el `Referer`. Ninguna de
+// las tres rutas lleva hoy un `:id` siquiera.
 //
 // **Deuda que esta HU NO cierra, dicho aquí para que no se dé por hecha.** El ADR-0008 §6 asignaba a
 // la #11915 mover el `GET /?buscar=` de la cola a `POST /buscar` —ese término se compara contra
@@ -53,8 +57,7 @@ import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { contextoSoat } from './flito-soat.service.js';
 import { registrarAccesoRuntCliente, registrarLecturaFacturaCliente } from './flito-soat.pii.js';
 import {
-  crearSolicitud, leerFacturaVenta, listarCausalesRechazo, nombreCompletoDe, preconsulta,
-  rechazarSolicitud, SolicitudSoatError, subsanarSolicitud, validarSolicitud,
+  crearSolicitud, leerFacturaVenta, nombreCompletoDe, preconsulta, SolicitudSoatError,
   type ArchivoSolicitud, type PropietarioSolicitud,
 } from './flito-soat-cliente.service.js';
 
@@ -74,23 +77,10 @@ router.use(authMiddleware);
  */
 const CANAL_CLIENTE = requireRole('cliente');
 
-/**
- * La revisión es de Operaciones y de nadie más (AC4).
- *
- * **`proveedor` y `cliente` quedan fuera por ENUMERACIÓN, no por exclusión.** `requireRole` es una
- * lista blanca: nombrar a `admin` deja fuera a los doce roles restantes, incluido el que se invente
- * el mes que viene. La forma tentadora —`requireRole` con todos menos dos, o un `if (role ===
- * 'proveedor') return 403`— es la lista negra que el ADR-0008 §4 acaba de sacar del router de la web,
- * y se rompe en silencio con el primer rol nuevo.
- *
- * `auditor` tampoco está, y es deliberado: auditoría observa, no ejecuta acciones.
- *
- * Para el `cliente` hay ADEMÁS una segunda cerradura: `RUTAS_PERMITIDAS_CLIENTE` no inscribe estas
- * dos rutas, así que su petición ni siquiera llega hasta aquí. Las dos hacen falta y en sentidos
- * opuestos — aquella impide que el rol alcance el resto de la API; esta, que el resto de los roles
- * alcance la acción.
- */
-const REVISION_OPERACIONES = requireRole('admin');
+// Aquí vivía `REVISION_OPERACIONES = requireRole('admin')`, el guarda de las cuatro rutas de la
+// revisión. Se va con ellas (HU #12080): un `requireRole` sin ninguna ruta que lo use no es una
+// cerradura, es una invitación a colgarle la siguiente ruta que aparezca sin volver a pensar quién
+// debería poder llamarla.
 
 /**
  * El adjunto: UN archivo, campo `facturaVenta`, 15 MB como el resto del módulo.
@@ -211,9 +201,10 @@ const titularCampos = {
 /**
  * `NIT` ⇒ razón social. Persona natural ⇒ nombres Y apellidos. **Nunca las dos cosas.**
  *
- * Es un `superRefine` y no dos schemas separados por dos razones: el mismo cuerpo lo comparten el
- * alta y la subsanación, y un `z.union` de dos objetos devolvería un `flatten()` con los errores de
- * las DOS ramas, que es ilegible para el formulario. Aquí cada error cuelga de SU campo.
+ * Es un `superRefine` y no dos schemas separados porque un `z.union` de dos objetos devolvería un
+ * `flatten()` con los errores de las DOS ramas, que es ilegible para el formulario. Aquí cada error
+ * cuelga de SU campo. (Hasta la HU #12080 lo compartían el alta y la subsanación; hoy lo usa solo
+ * el alta, y el argumento del `flatten()` sigue en pie por sí solo.)
  *
  * Lo prohibido se rechaza además de exigir lo obligatorio (`razonSocial` con un `CC` es un 400, no
  * un campo que se ignora en silencio): la mitad negativa es la que el CHECK
@@ -288,12 +279,11 @@ function refinarTitular(
  *
  * ── `.strict()`: un campo desconocido es 400 y no una clave que se cae en silencio ──────────────
  *
- * Zod descarta por omisión las claves que no declara —es lo que hace que mandar `placa` en la
- * subsanación no sea un error—, pero aquí el AC pide lo contrario: «un campo o valor desconocido
- * responde 400». Y tiene sentido que así sea, al revés que en la subsanación: allí una clave de más
- * es ruido del formulario sobre un dato que la ruta no va a tocar, y aquí es una AFIRMACIÓN sobre
- * un dato del titular que se va a guardar. Aceptarla en silencio dejaría al front creyendo que
- * declaró la procedencia de `correo` cuando ese campo ni se lee de la factura.
+ * Zod descarta por omisión las claves que no declara, pero aquí el AC pide lo contrario: «un campo
+ * o valor desconocido responde 400». Y tiene sentido que así sea: una clave de más en este mapa no
+ * es ruido del formulario sobre un dato que la ruta no va a tocar, es una AFIRMACIÓN sobre un dato
+ * del titular que se va a guardar. Aceptarla en silencio dejaría al front creyendo que declaró la
+ * procedencia de `correo` cuando ese campo ni se lee de la factura.
  *
  * Cada campo es OPCIONAL: lo que no venga se completa con `manual` en el servicio (AC3). Es la
  * división de siempre en este router —el borde valida el vocabulario, el servicio deriva—, la misma
@@ -401,10 +391,9 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
 /**
  * El titular del cuerpo validado al que espera el servicio, con la partición ya resuelta.
  *
- * Una sola función para el alta y la subsanación: son la MISMA lista de campos y con dos copias
- * bastaría con que alguien añadiera uno en una para que la solicitud corregida perdiera un dato.
- * `null` explícito y no `undefined`: lo que llega a `flito_compradores` tiene que poder BORRAR la
- * razón social de un titular que se corrigió a persona natural.
+ * La usaban el alta y la subsanación; desde la HU #12080 solo queda el alta. `null` explícito y no
+ * `undefined` porque lo que llega a `flito_compradores` tiene que poder escribir la ausencia de
+ * razón social de una persona natural, y no dejar la columna «como estuviera».
  */
 function propietarioDe(d: {
   tipoDocumento: TipoDocumentoRunt; numeroDocumento: string;
@@ -429,9 +418,14 @@ function propietarioDe(d: {
 /**
  * El cuerpo de la lectura: **nada obligatorio salvo el adjunto**, y el `solicitudId` OPCIONAL.
  *
- * Es opcional porque la lectura sirve en los dos momentos del canal: durante el ALTA, cuando la
- * solicitud todavía no existe y no hay uuid que dar, y durante la SUBSANACIÓN, cuando sí lo hay y el
- * registro de acceso tiene que poder decir sobre qué caso se leyó (AC7).
+ * Era opcional porque la lectura servía en los DOS momentos del canal: durante el ALTA, cuando la
+ * solicitud todavía no existe y no hay uuid que dar, y durante la SUBSANACIÓN, cuando sí lo había y
+ * el registro de acceso tenía que poder decir sobre qué caso se leyó (AC7). **La subsanación se
+ * retira con la HU #12080, así que hoy ningún llamador manda el campo.** Se conserva —opcional y
+ * validado como uuid— en vez de borrarlo: quitarlo obligaría a cambiar el contrato de la ruta y a
+ * tocar `registrarLecturaFacturaCliente`, que sigue queriendo saber «sobre qué caso» cuando lo hay,
+ * y el día que una lectura vuelva a ocurrir sobre una solicitud existente el rastro de PII ya está
+ * escrito. Un campo opcional que nadie manda vale `null` y no cambia ninguna respuesta.
  *
  * Va en el CUERPO del multipart y no como `:id` ni como query: es el mismo criterio con el que la
  * preconsulta es un `POST` —AGENTS.md §14, nada identificable en la URL—. El uuid es opaco y ahí
@@ -458,8 +452,8 @@ const lecturaFacturaSchema = z.object({
  * memoria, no después. Invertirlos —que es lo cómodo si algún día hace falta mirar el cuerpo para
  * decidir— convertiría el rate limit en un contador que se aplica cuando el daño ya está hecho.
  *
- * **Tres segmentos, sin colisión**: los patrones vecinos de este router son de dos (`/:id/validar`,
- * `/:id/factura`, `/:id/rechazar-solicitud`), así que ninguno casa con esta ruta.
+ * **Tres segmentos, sin colisión**: los patrones vecinos son `/cliente` y `/cliente/preconsulta`, de
+ * uno y dos segmentos, así que ninguno casa con esta ruta.
  *
  * La respuesta va ENVUELTA en `{ extraccion }` y no plana: deja sitio para metadatos —el umbral
  * aplicado, por ejemplo— sin romper al front el día que hagan falta.
@@ -492,159 +486,5 @@ router.post(
     } catch (e) { manejarError(res, e); }
   },
 );
-
-// ═════════════════ Revisión del admin, rechazo y subsanación (HU #11915) ═════
-
-/**
- * GET /causales-rechazo — el catálogo que ofrece el formulario del rechazo (AC2).
- *
- * **Solo `admin`, y esa es una desviación consciente del ADR-0008 §6, que lo abría también a
- * `cliente`.** Con el diseño que cerró el `ux-agent`, el Cliente recibe el NOMBRE de su causal ya
- * resuelto dentro de su propio detalle (`solicitud.causalNombre`), así que no necesita el catálogo
- * para nada; y el catálogo completo —qué otras cosas rechaza FLITO— es información de la operación.
- * Una entrada menos en la allowlist del canal es una decisión de exposición menos que justificar.
- *
- * Sin PII: son cinco cadenas de negocio y sus identificadores. No deja rastro en `pii_access_log`
- * por lo mismo que no lo dejan el historial ni los soportes — no proyecta ninguna columna de nadie.
- */
-router.get('/causales-rechazo', REVISION_OPERACIONES, async (_req: Request, res: Response) => {
-  res.json(await listarCausalesRechazo());
-});
-
-/**
- * El destino de la validación: uno y solo uno. Calcado del `refine` de `POST /enviar`, del que es
- * literalmente el mismo problema — a dónde va el SOAT cuando entra en la cola del gestor.
- */
-const validarSchema = z.object({
-  proveedorSoatId: z.string().uuid().optional(),
-  gestionOperaciones: z.boolean().optional(),
-}).refine(
-  (d) => Boolean(d.proveedorSoatId) !== Boolean(d.gestionOperaciones),
-  { message: 'Elige el proveedor al que se envía, o marca que la gestiona Operaciones. Una de las dos, no ambas.' },
-);
-
-/**
- * POST /:id/validar — AC1: `pendiente_revision` → `solicitado`, el MISMO estado al que llega un SOAT
- * de trámite cuando Operaciones lo envía al gestor.
- *
- * No lleva rate limit del canal (`soatClienteLimiter`) y no es un olvido: ese limitador es por
- * usuario y existe para frenar a un principal EXTERNO que consulta el RUNT y sube archivos de 15 MB.
- * Aquí el actor es un empleado despachando una cola, y veinte validaciones en quince minutos es un
- * día de trabajo normal, no un abuso.
- */
-router.post('/:id/validar', REVISION_OPERACIONES, async (req: Request, res: Response) => {
-  const parsed = validarSchema.safeParse(req.body ?? {});
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  try {
-    const ctx = await contextoSoat(req.user!);
-    const r = await validarSolicitud(req.params.id, parsed.data, ctx);
-    const destino = parsed.data.gestionOperaciones ? 'gestión de Operaciones' : `proveedor ${parsed.data.proveedorSoatId}`;
-    await audit(req, {
-      action: 'update', resource: 'flito_soat', resourceId: r.id,
-      detail: `Solicitud del canal Cliente validada (pendiente_revision→solicitado), destino ${destino}`,
-    });
-    res.json(r);
-  } catch (e) { manejarError(res, e); }
-});
-
-/**
- * El cuerpo del rechazo. Las DOS obligatorias (AC2), y la observación con LONGITUD MÍNIMA.
- *
- * `min(5)` y no `min(1)`: la observación es lo único que le dice al Cliente qué corregir —la causal
- * es un valor de catálogo, igual para todos los rechazos que la usen—, y un punto o una «x» pasan un
- * `min(1)` dejando al Cliente exactamente donde estaba. Es el mismo umbral que la reversa y el
- * traspaso de gestión ya exigen a su motivo, por la misma razón: son las decisiones que alguien
- * tendrá que poder explicar después.
- *
- * El tope de 500 es el que la pantalla cuenta («0/500»). La columna es `text` y no lo impone, así
- * que lo impone esto: sin límite, el campo que el Cliente lee entero puede llegarle con diez mil
- * caracteres.
- */
-const rechazoSchema = z.object({
-  causalId: z.string().uuid('Elige una causal del catálogo'),
-  observacion: z.string().trim()
-    .min(5, 'La observación es demasiado corta. Dile al cliente qué tiene que corregir, en una frase.')
-    .max(500),
-});
-
-/**
- * POST /:id/rechazar-solicitud — AC2: `pendiente_revision` → `rechazada`, con causal Y observación.
- *
- * **Se llama `rechazar-solicitud` y no `rechazar` porque `POST /:id/rechazar` ya existe y es OTRA
- * COSA**: el rechazo del GESTOR, que lleva a `con_novedad` y escribe `flito_soat.motivo_rechazo`.
- * Otro actor, otro estado destino y otra audiencia; reusar el nombre o la columna mezclaría los dos
- * en el historial de una fila que puede pasar por ambos (ADR-0008 §6).
- *
- * El `detail` de la bitácora lleva el uuid de la causal y NO la observación: esa la escribe una
- * persona sobre un caso concreto y puede nombrar al propietario o su documento, y `audit_logs` es
- * una tabla append-only que se exporta entera (AGENTS.md §14). Vive en su columna, con proyección.
- */
-router.post('/:id/rechazar-solicitud', REVISION_OPERACIONES, async (req: Request, res: Response) => {
-  const parsed = rechazoSchema.safeParse(req.body ?? {});
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-  try {
-    const ctx = await contextoSoat(req.user!);
-    const r = await rechazarSolicitud(req.params.id, parsed.data, ctx);
-    await audit(req, {
-      action: 'update', resource: 'flito_soat', resourceId: r.id,
-      detail: `Solicitud del canal Cliente rechazada (pendiente_revision→rechazada), causal ${parsed.data.causalId}`,
-    });
-    res.json(r);
-  } catch (e) { manejarError(res, e); }
-});
-
-/**
- * El cuerpo de la subsanación: **el propietario, y nada del vehículo** (AC3).
- *
- * Es `altaSchema` MENOS `vehiculoSchema`, y esa resta es la regla: ni `placa` ni `vin` se aceptan.
- * Zod descarta las claves que no declara, así que mandarlas no es un error — simplemente no llegan a
- * ninguna parte, que es el comportamiento correcto: la subsanación no puede cambiar de vehículo.
- * El porqué largo, en `EntradaSubsanacion` del servicio; el corto es que cambiar el VIN convertiría
- * esto en un alta encubierta sobre un vehículo para el que nadie comprobó la RN-01 ni consultó el
- * RUNT, conservando el `id`, el `vehiculo_id` y el organismo del anterior.
- */
-const subsanacionSchema = documentoSchema.extend(titularCampos).superRefine(refinarTitular);
-
-/**
- * PATCH /:id/solicitud — AC3: el Cliente corrige y reenvía LA MISMA fila, que vuelve a
- * `pendiente_revision`.
- *
- * La ruta que la HU #11914 dejó sin existir: el botón «Reenviar la solicitud» ya está escrito contra
- * ella (`CorreccionSolicitud.tsx`) y hasta hoy respondía 403 —no del router, sino de la allowlist del
- * canal, que niega por defecto lo que no está inscrito—. Entra en `RUTAS_PERMITIDAS_CLIENTE` con su
- * `porque`, junto a las dos del alta.
- *
- * `PATCH` y no `POST` porque es una modificación parcial de un recurso que ya existe, que es
- * exactamente lo que la palabra dice; y el adjunto es OPCIONAL, así que `upload.single` no exige
- * archivo: sin uno nuevo se conserva el que ya estaba cargado.
- *
- * Rate limit del canal, como las otras dos rutas de escritura del `cliente`, y por delante de
- * `upload.single` por lo mismo que en el alta: el freno tiene que actuar antes de que el proceso
- * cargue 15 MB en memoria, no después.
- */
-router.patch('/:id/solicitud', CANAL_CLIENTE, soatClienteLimiter, upload.single('facturaVenta'), async (req: Request, res: Response) => {
-  const parsed = subsanacionSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
-
-  const archivo: ArchivoSolicitud | null = req.file
-    ? { originalname: req.file.originalname, mimetype: req.file.mimetype, buffer: req.file.buffer, size: req.file.size }
-    : null;
-
-  try {
-    const ctx = await contextoSoat(req.user!);
-    const r = await subsanarSolicitud(
-      req.params.id,
-      { propietario: propietarioDe(parsed.data) },
-      archivo, ctx,
-    );
-    // Sin placa, sin VIN y sin documento del propietario, igual que el alta: el `resourceId` es el
-    // uuid del SOAT, que es opaco y basta para reconstruir el caso desde la fila.
-    await audit(req, {
-      action: 'update', resource: 'flito_soat', resourceId: r.id,
-      detail: `Subsanación de la solicitud del canal Cliente (rechazada→pendiente_revision)${archivo ? ', con factura de venta nueva' : ', sin cambiar la factura'}`,
-    });
-    res.json(r);
-  } catch (e) { manejarError(res, e); }
-});
 
 export default router;

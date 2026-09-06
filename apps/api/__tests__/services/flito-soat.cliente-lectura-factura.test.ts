@@ -90,15 +90,21 @@ const auth = async (role: string, id: number) =>
 
 /**
  * El escenario por defecto: compañía 7 con el canal ENCENDIDO y una solicitud propia en
- * `pendiente_revision`. `flito_soat` viene con la forma que `buscarConAcceso` proyecta
+ * `solicitado`. `flito_soat` viene con la forma que `buscarConAcceso` proyecta
  * (`{ soat, dentroDeFrontera }`).
+ *
+ * Estaba en `rechazada` porque el `solicitudId` opcional de esta ruta nació para la SUBSANACIÓN
+ * (HU #12092, AC7): leer de nuevo la factura de una solicitud devuelta. La HU #12080 retira ese
+ * flujo, y el campo se conserva —opcional, validado como uuid y con su `buscarConAcceso`— porque lo
+ * que estos casos miden es la FRONTERA: que un `solicitudId` ajeno dé 404 y no llegue al OCR. Esa
+ * regla no depende de que exista la subsanación, y borrarla dejaría el campo aceptado y sin vigilar.
  */
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
     clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
     flito_soat: [{
-      soat: { id: SOAT_PROPIO, companiaId: COMPANIA, estado: 'rechazada', origen: 'cliente' },
+      soat: { id: SOAT_PROPIO, companiaId: COMPANIA, estado: 'solicitado', origen: 'cliente' },
       dentroDeFrontera: true,
     }],
     ...(over as Record<string, unknown[]>),
@@ -382,7 +388,7 @@ describe('AC7 — queda escrito quién leyó, cuándo y sobre qué solicitud; y 
     // existe.
     escenario({
       flito_soat: [{
-        soat: { id: SOAT_AJENO, companiaId: 99, estado: 'rechazada', origen: 'cliente' },
+        soat: { id: SOAT_AJENO, companiaId: 99, estado: 'solicitado', origen: 'cliente' },
         dentroDeFrontera: true,
       }],
     });

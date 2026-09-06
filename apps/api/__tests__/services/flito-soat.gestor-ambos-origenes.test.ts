@@ -1,5 +1,10 @@
 // HU #11916 (Feature #11912), AC1 — el gestor del proveedor ve `solicitado` y `pagado` VENGAN DEL
-// TRÁMITE O DEL CANAL, y no ve los dos estados del canal.
+// TRÁMITE O DEL CANAL, y no ve nada más.
+//
+// **Puesto al día por la HU #12080**, que retira `pendiente_revision` y `rechazada` del enum: los
+// casos que se montaban sobre esos dos estados se reescriben sobre `pendiente`/`con_novedad`, que
+// son los que hoy quedan fuera de la lista blanca. La regla que el archivo vigila no cambia; lo que
+// cambia es el único vocabulario con el que se puede comprobar.
 //
 // ── Por qué esta HU no escribe código para su AC1, y qué se prueba entonces ──────────────────────
 //
@@ -142,33 +147,43 @@ describe('AC1 — `ESTADOS_SOAT_VISIBLES_GESTOR` es lista BLANCA, no negra', () 
     for (const q of qs) expect(ligadosA(q, COL_ESTADO)).toEqual(['solicitado', 'pagado']);
   });
 
-  it('pidiendo un estado del canal MEZCLADO con uno visible, solo pasa el visible', async () => {
+  // ── Los tres casos de abajo se montaban sobre `pendiente_revision` / `rechazada` ────────────────
+  //
+  // La HU #12080 los retira del enum Y de `ESTADOS` (`flito-soat.routes.ts`), así que un
+  // `?estado=rechazada` ya no llega al servicio: lo descarta el borde antes. Dejarlos escritos así
+  // habría sido peor que borrarlos — seguirían VERDES midiendo el filtro de la ruta mientras sus
+  // títulos hablan de `ESTADOS_SOAT_VISIBLES_GESTOR`, que es la lista que este `describe` vigila.
+  //
+  // Se reescriben sobre `pendiente`, que es el estado que SÍ acepta la ruta y que la lista blanca
+  // del gestor NO contiene. Es el mismo experimento con el único estado que hoy puede hacerlo.
+
+  it('pidiendo un estado NO visible MEZCLADO con uno visible, solo pasa el visible', async () => {
     // El mutante que este caso mata: `filter((e) => !VISIBLES.includes(e))` —la lista blanca leída al
-    // revés— dejaría pasar `rechazada` y filtraría `solicitado`. Se comprueban las dos mitades: lo
-    // que entra Y que el estado del canal no está entre los valores ligados de la consulta.
-    const { wheres: qs } = await colaDe('proveedor', '?estado=solicitado,rechazada');
+    // revés— dejaría pasar `pendiente` y filtraría `solicitado`. Se comprueban las dos mitades: lo
+    // que entra Y que el estado prohibido no está entre los valores ligados de la consulta.
+    const { wheres: qs } = await colaDe('proveedor', '?estado=solicitado,pendiente');
     for (const q of qs) {
       expect(ligadosA(q, COL_ESTADO)).toEqual(['solicitado']);
-      expect(q.params).not.toContain('rechazada');
+      expect(q.params).not.toContain('pendiente');
     }
   });
 
-  it('pidiendo SOLO estados del canal, no se consulta `flito_soat` en absoluto', async () => {
+  it('pidiendo SOLO un estado no visible, no se consulta `flito_soat` en absoluto', async () => {
     // `condicionesCola` devuelve `null` → `cola()` sale sin tocar la tabla. Con una lista negra esto
-    // sería la consulta MÁS peligrosa de todas: le devolvería al gestor las solicitudes que ningún
-    // admin ha validado todavía. Se cuenta la consulta, no las filas.
-    const { respuesta, consultas } = await colaDe('proveedor', '?estado=pendiente_revision,rechazada');
+    // sería la consulta MÁS peligrosa de todas: le devolvería al gestor los SOAT que todavía nadie
+    // le ha despachado. Se cuenta la consulta, no las filas.
+    const { respuesta, consultas } = await colaDe('proveedor', '?estado=pendiente');
     expect(respuesta.body).toEqual({ items: [], total: 0, page: 1, pageSize: 50 });
     expect(consultas).toBe(1); // solo la de `contextoSoat`
     expect(wheres).toHaveLength(1);
   });
 
-  it('el ADMIN sí puede filtrar por los dos estados del canal (la lista blanca es SOLO del gestor)', async () => {
-    // La contraparte obligatoria. Sin ella, «no aparece `rechazada` en la consulta» pasaría también
-    // si alguien rompiera el filtro para todo el mundo, y la cola de revisión del admin —que es la
-    // razón de ser de la #11915— se quedaría sin sus dos pills.
-    const { wheres: qs } = await colaDe('admin', '?estado=pendiente_revision,rechazada');
-    for (const q of qs) expect(ligadosA(q, COL_ESTADO)).toEqual(['pendiente_revision', 'rechazada']);
+  it('el ADMIN sí puede filtrar por ese estado (la lista blanca es SOLO del gestor)', async () => {
+    // La contraparte obligatoria. Sin ella, «no aparece `pendiente` en la consulta del gestor»
+    // pasaría también si alguien rompiera el filtro para todo el mundo, y la cola del admin se
+    // quedaría sin su pastilla de Pendiente.
+    const { wheres: qs } = await colaDe('admin', '?estado=pendiente,solicitado');
+    for (const q of qs) expect(ligadosA(q, COL_ESTADO)).toEqual(['pendiente', 'solicitado']);
   });
 });
 
@@ -191,12 +206,15 @@ describe('AC1 — el detalle: `buscarConAcceso` aplica la MISMA lista blanca', (
     return buscarConAcceso('00000000-0000-0000-0000-0000000000aa', ctxGestor);
   };
 
-  it('`pendiente_revision` → null (la ruta lo sirve como 404, no como 403)', async () => {
-    expect(await buscar('pendiente_revision', 'cliente')).toBeNull();
+  // Mismo cambio que arriba y por lo mismo: los dos casos de este bloque eran
+  // `pendiente_revision` → null y `rechazada` → null. Retirados esos estados (HU #12080), el único
+  // estado que la lista blanca de `buscarConAcceso` sigue teniendo que negar es `pendiente`.
+  it('`pendiente` → null (la ruta lo sirve como 404, no como 403)', async () => {
+    expect(await buscar('pendiente', 'tramite')).toBeNull();
   });
 
-  it('`rechazada` → null', async () => {
-    expect(await buscar('rechazada', 'cliente')).toBeNull();
+  it('`con_novedad` → null', async () => {
+    expect(await buscar('con_novedad', 'tramite')).toBeNull();
   });
 
   it('`solicitado` DEL CANAL → lo obtiene igual que uno de trámite (es el AC1 en positivo)', async () => {

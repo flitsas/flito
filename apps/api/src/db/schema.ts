@@ -2583,11 +2583,12 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
 // flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
 // rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
-// `pendiente_revision` y `rechazada` (migración 0167, Feature #11912) son del canal Cliente: los
-// escribe la HU #11914/#11915 y el SOAT que nace del sync no pasa por ellos. Se añaden al MISMO
-// enum para que una fila tenga un solo estado y `POST /enviar` (que filtra `pendiente`) siga siendo
-// correcto sin tocarlo.
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado', 'pendiente_revision', 'rechazada']);
+//
+// `pendiente_revision` y `rechazada` estuvieron aquí entre la 0167 y la 0176: eran la cuarentena
+// del canal Cliente. La 0176 (Feature #12074, HU #12080) RECREA el tipo sin ellos —igual que hizo
+// la 0101 con este mismo enum—, así que a diferencia de los valores viejos de arriba estos no son
+// residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
@@ -2754,28 +2755,22 @@ export const flitoSoat = pgTable('flito_soat', {
   origenChk: check('flito_soat_origen_chk', sql`${t.origen} IN ('tramite', 'cliente')`),
 }));
 
-/**
- * Causales de rechazo de una solicitud del canal Cliente (Feature #11912). Catálogo GENERAL, no por
- * compañía: calcado de `flitoComparendosCausales`, que es el precedente del repo para esto mismo.
- *
- * Lo puebla y lo consume la HU #11915 (revisión); aquí solo nace la tabla, porque la 0167 es la
- * única migración de la cadena y partirla en cuatro no ayudaría a nadie.
- */
-export const flitoSoatCausalesRechazo = pgTable('flito_soat_causales_rechazo', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 120 }).notNull(),
-  activo: boolean('activo').notNull().default(true),
-  orden: smallint('orden').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  nombreUq: uniqueIndex('uq_flito_soat_causales_nombre').on(t.nombre),
-}));
+// `flitoSoatCausalesRechazo` (`flito_soat_causales_rechazo`) vivía aquí: el catálogo del rechazo de
+// Operaciones, creado por la 0167 y sembrado por la 0170. La migración 0176 (Feature #12074, HU
+// #12080) la BORRA, con su única lectora (`GET /flito/soat/causales-rechazo`) y con la columna que
+// la referenciaba. Se retira del esquema en el mismo diff que la migración, y no después: una tabla
+// declarada aquí que no existe en la base es un `getTableConfig` verde y un 42P01 en producción.
 
 /**
  * Satélite 1:1 de `flitoSoat` con TODO lo que solo existe cuando el SOAT nació del canal Cliente:
- * quién lo radicó, quién lo revisó, la causal y la observación del rechazo, y cuántas veces se
- * reenvió tras subsanar.
+ * quién lo radicó, cuándo, el desenlace de la consulta al RUNT del alta y el rastro de la revisión
+ * que hubo entre la 0167 y la 0176 (`revisado_por_*`, `revisado_en`, `reenvios`).
+ *
+ * **Lo que la HU #12080 retiró de aquí, y por qué el resto se queda.** `causal_rechazo_id` y
+ * `observacion_rechazo` se van con la migración 0176: eran el rechazo de Operaciones, un circuito
+ * sin usuarios desde que el alta despacha sola. Las columnas del revisor y el contador de reenvíos
+ * NO se van: describen lo que de verdad ocurrió sobre las filas de aquel período, están vacías en
+ * todo lo nuevo y borrarlas sería reescribir la historia para ahorrar tres columnas nullable.
  *
  * **Por qué una tabla aparte y no doce columnas en `flitoSoat`** (ADR-0008 §1.2, y es la decisión
  * cara de este modelo): `buscarConAcceso()` hace `db.select({ soat: flitoSoat, … })` —la fila
@@ -2806,17 +2801,13 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   solicitadoPorId: integer('solicitado_por_id').references(() => users.id),
   solicitadoPorNombre: varchar('solicitado_por_nombre', { length: 150 }).notNull(),
   solicitadoEn: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),
+  // Quién revisó la solicitud y cuándo, mientras existió la revisión (HU #11915, retirada por la
+  // #12080). Ya no las escribe nadie; conservan lo que pasó en las filas de aquel período.
   revisadoPorId: integer('revisado_por_id').references(() => users.id),
   revisadoPorNombre: varchar('revisado_por_nombre', { length: 150 }),
   revisadoEn: timestamp('revisado_en', { withTimezone: true }),
-  // Causal + observación del rechazo del ADMIN (estado `rechazada`). NO se reutiliza
-  // `flitoSoat.motivoRechazo`, que es el del GESTOR (`con_novedad`): otro actor, otro estado
-  // destino y otra audiencia. Mezclarlos haría ilegible el historial de una fila que pase por los
-  // dos.
-  causalRechazoId: uuid('causal_rechazo_id').references(() => flitoSoatCausalesRechazo.id),
-  observacionRechazo: text('observacion_rechazo'),
-  // Cuántas veces el cliente subsanó y volvió a enviar. Sirve para detectar la solicitud que va y
-  // viene sin resolverse, que es la que hay que llamar por teléfono.
+  // Cuántas veces el cliente subsanó y volvió a enviar. Igual que las tres de arriba: sin escritor
+  // desde la #12080, se queda en 0 en toda fila nueva.
   reenvios: smallint('reenvios').notNull().default(0),
   /**
    * Desenlace de la verificación RUNT (migración 0171, HU #11935; el significado cambia con la
@@ -2875,7 +2866,7 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  causalIdx: index('idx_flito_soat_solicitud_causal').on(t.causalRechazoId),
+  // `idx_flito_soat_solicitud_causal` se va con su columna en la 0176.
   verificacionEstadoChk: check(
     'flito_soat_solicitud_verificacion_estado_chk',
     sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
