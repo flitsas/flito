@@ -378,11 +378,23 @@ router.post('/cliente', CANAL_CLIENTE, soatClienteLimiter, upload.single('factur
     // append-only que se exporta y se lee entera, y el patrón contrario ya existe en el repo
     // (`runt.routes.ts` escribe la placa en su bitácora). El `resourceId` es el uuid del SOAT, que
     // es opaco y basta para reconstruir el caso desde la fila.
+    //
+    // **Desde la HU #12078 dice además A QUÉ DESTINO fue** (AC7): el uuid del gestor, o que la
+    // asumió Operaciones por contingencia. Sin eso, la bitácora no puede reconstruir a dónde se
+    // despachó una solicitud que ya nadie valida a mano. El uuid de un proveedor no es dato
+    // personal —es una aseguradora— y por eso sí puede vivir en una tabla que se exporta entera.
+    const destino = creada.destino.gestionOperaciones
+      ? 'gestion_operaciones'
+      : `proveedor=${creada.destino.proveedorSoatId}`;
     await audit(req, {
       action: 'create', resource: 'flito_soat', resourceId: creada.id,
-      detail: `Alta de solicitud SOAT del canal Cliente (origen=cliente, estado=${creada.estado})`,
+      detail: `Alta de solicitud SOAT del canal Cliente (origen=cliente, estado=${creada.estado}, destino=${destino})`,
     });
-    res.status(201).json(creada);
+    // **Proyección explícita, y no `json(creada)`.** `crearSolicitud` devuelve también el destino
+    // —lo necesita el `audit()` de arriba—, y devolver el objeto entero le contaría al CLIENTE a qué
+    // aseguradora despachó su compañía: eso no es asunto suyo, y el AC1 dice `{ id, estado }`. Es el
+    // mismo patrón que mordió en la HU #12093 con el `.returning()` sin proyección.
+    res.status(201).json({ id: creada.id, estado: creada.estado });
   } catch (e) { manejarError(res, e); }
 });
 

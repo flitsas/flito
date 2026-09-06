@@ -28,7 +28,9 @@ import {
   vehicles,
 } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
-import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
+import {
+  historialDe, registrarCambio, registrarCambios, type ItemHistorial,
+} from '../../shared/historial/estado-historial.js';
 import { ANS_OPERATIVO,
   CampoSoat,
   CAMPOS_SOAT_EXTRAIDOS_SIN_EXIGIR,
@@ -212,6 +214,11 @@ export interface SoatColaItem {
  *   · `valorPagado` — lo que FLITO pagó por la póliza, frente a lo que le factura al cliente.
  *   · `enviadoPorNombre` — nombre del EMPLEADO de FLIT que la despachó; dato personal de un
  *     trabajador entregado a otra empresa.
+ *
+ * Ese último tiene desde la HU #12078 una **imagen espejo**, y vive fuera de esta lista porque no
+ * depende del rol sino del ORIGEN de cada fila: en una solicitud del canal Cliente, quien la despachó
+ * es un empleado de la compañía, y el gestor —otra empresa— tampoco lo recibe. Lo resuelve
+ * `enviadoPorNombreVisible`.
  *
  * `proveedorSlaHoras` no está en esta lista porque no está en el DTO: se consulta (`ColaRow`) y no
  * se emite. Se deja escrito porque el informe de seguridad lo daba por expuesto y quien venga a
@@ -666,11 +673,54 @@ const tipoDocumentoDeTramite = (tipo: unknown): string | null =>
   clasificacionDeTipoFlit(tipo)?.claseId ?? null;
 
 /**
+ * El `enviadoPorNombre` que le toca a ESTE lector, que depende de por qué puerta entró la fila.
+ *
+ * ── La imagen espejo de `CAMPOS_SOLO_INTERNOS` (HU #12078) ───────────────────────────────────────
+ *
+ * Aquella lista mira hacia el `cliente` y quita, entre otras cosas, `enviadoPorNombre`: «nombre del
+ * EMPLEADO de FLIT que la despachó; dato personal de un trabajador entregado a otra empresa». La
+ * misma frase, en la otra dirección, es lo que esta función resuelve.
+ *
+ * Hasta la HU #12078 la fila del canal Cliente nacía con `enviado_por_id = NULL` y solo
+ * `enviarAlGestor()` lo rellenaba, con el id del ADMIN de FLIT que la validaba. Desde esta HU **el
+ * alta ES el envío**: la fila nace en `solicitado`, con destino, y `enviado_por_id` es el usuario
+ * que radicó — es decir, **un empleado de la compañía cliente**. Esa fila entra de inmediato en la
+ * cola del gestor, y el gestor (rol `proveedor`) es una EMPRESA EXTERNA: sin este recorte, cada alta
+ * del canal le entregaría el nombre de un trabajador de otra empresa, en cada página de su cola y en
+ * cada detalle que abra.
+ *
+ * **Por qué el gestor no lo necesita**: su interlocutor ante un problema con una solicitud es la
+ * COMPAÑÍA —que sí viaja, en `companiaNombre`—, no la persona que tecleó el formulario. El nombre no
+ * cambia nada de lo que él puede hacer con la fila.
+ *
+ * **Qué NO se toca**, y es deliberado:
+ *   · `flito_soat.enviado_por_id` se sigue escribiendo. Tiene valor interno —Operaciones y la propia
+ *     compañía siguen sabiendo quién radicó— y quitarlo dejaría el alta sin actor.
+ *   · Las filas de TRÁMITE conservan el nombre para el gestor: ahí `enviado_por_id` es el admin de
+ *     FLIT que eligió despacharle ese SOAT, que es el comportamiento de siempre y el contacto
+ *     legítimo del gestor dentro de FLIT.
+ *   · La CLAVE se emite igual, con `null`, en vez de borrarse como en `sinCamposInternos`. Allí el
+ *     recorte es por ROL y vale para la respuesta entera; aquí es por FILA, y una página mixta con la
+ *     clave presente en unas filas y ausente en otras haría que la forma del DTO dependiera del
+ *     origen de cada renglón. `null` ya es un valor legítimo de este campo (una fila sin despachar) y
+ *     la pantalla lo pinta «—».
+ */
+function enviadoPorNombreVisible(
+  r: Pick<ColaRow, 'origen' | 'enviadoPorNombre'>, ctx: SoatCtx,
+): string | null {
+  return esGestor(ctx) && r.origen === ORIGEN_CLIENTE ? null : r.enviadoPorNombre;
+}
+
+/**
  * Arma las filas del DTO y las PROYECTA según quién pregunta.
  *
  * `ctx` es obligatorio y no tiene valor por defecto, por lo mismo que `actor` en `soportesDeSoat`:
  * un opcional haría que la fila completa se sirviera por olvido, que es exactamente cómo se coló
  * este bloqueante. Exigirlo obliga a cada llamador nuevo a decidir a quién está sirviendo.
+ *
+ * Son DOS recortes y no uno: `sinCamposInternos` (por rol, al final) y `enviadoPorNombreVisible`
+ * (por fila, dentro del map). Los dos pasan por aquí a propósito — es el único punto por el que van
+ * las dos lecturas, la cola y el detalle.
  */
 async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaItemSalida[]> {
   const ids = rows.map((r) => r.id);
@@ -783,7 +833,9 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
       tipoTramite: comun(ts, (t) => t.tipoTramite),
       fechaAprobacion: aIso(comun(ts, (t) => t.fechaAprobacion)),
       fechaCreacion: aIso(comun(ts, (t) => t.fechaCreacion)),
-      enviadoPorNombre: r.enviadoPorNombre,
+      // Al gestor NO se le dice quién radicó una solicitud del canal: ese nombre es de un empleado de
+      // la compañía cliente, no de FLIT. Ver `enviadoPorNombreVisible`.
+      enviadoPorNombre: enviadoPorNombreVisible(r, ctx),
       enviadoEn: r.enviadoEn ? r.enviadoEn.toISOString() : null,
       pagadoEn: r.pagadoEn ? r.pagadoEn.toISOString() : null,
       valorPagado: r.valorPagado === null ? null : Number(r.valorPagado),
@@ -1144,6 +1196,41 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
   }
   if (esCliente(ctx)) return { ...item, pagadoEn, solicitud, propietarioCanal };
   return { ...item, extraccion: soat.extraccion, pagadoEn, solicitud, propietarioCanal };
+}
+
+/**
+ * La línea de tiempo de un SOAT, con la frontera aplicada y PROYECTADA para quien pregunta.
+ * `null` = 404 (no existe, o no es suyo: 404-no-403, como el detalle).
+ *
+ * ── Por qué la ruta ya no pasa por `detalle()` ──────────────────────────────────────────────────
+ *
+ * Pasaba por él «porque es lo que aplica la frontera del gestor», y eso era cierto a medias: la
+ * frontera es `buscarConAcceso()`, que es la primera línea de `detalle()`. Lo que `detalle()` añadía
+ * eran tres consultas más —la fila del DTO, los trámites y el propietario del canal— cuyo resultado
+ * la ruta del historial tiraba entero.
+ *
+ * Y sobre todo: la decisión de proyección de esta respuesta necesita el ORIGEN del SOAT, que
+ * `detalle()` **no emite a propósito** (ver `RevisionSolicitud`). Sacarlo al DTO para que la ruta lo
+ * leyera habría publicado un campo nuevo en dos endpoints para resolver un `if` de aquí. La fila
+ * cruda que devuelve `buscarConAcceso` ya lo trae, así que la guarda y el dato que decide el recorte
+ * salen de la MISMA lectura, que es donde tenían que estar.
+ *
+ * ── Los dos recortes, y por qué son dos ────────────────────────────────────────────────────────
+ *
+ *   · `lectorExterno` (rol `cliente`): la respuesta entera, sin actor y sin motivo — Feature #11912.
+ *   · `ocultarActoresDelCliente` (gestor + `origen = 'cliente'`, HU #12078): fila a fila, no se
+ *     nombra a quien conste de la compañía cliente —ni a quien no conste de nadie—. Es la misma
+ *     condición doble de `enviadoPorNombreVisible`, porque es el mismo dato saliendo por la otra
+ *     puerta: el empleado de la compañía que radicó. Un SOAT de trámite no cambia ni un campo, y
+ *     dentro del canal el gestor sigue viendo a los de FLIT y a los suyos.
+ */
+export async function historialConAcceso(id: string, ctx: SoatCtx): Promise<ItemHistorial[] | null> {
+  const soat = await buscarConAcceso(id, ctx); // frontera del gestor y del cliente (404-no-403)
+  if (!soat) return null;
+  return historialDe('soat', id, {
+    lectorExterno: esCliente(ctx),
+    ocultarActoresDelCliente: esGestor(ctx) && soat.origen === ORIGEN_CLIENTE,
+  });
 }
 
 // ───────────────────────────── Envío atómico (CA-04) ────────────────────────

@@ -9,7 +9,6 @@ import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { historialDe } from '../../shared/historial/estado-historial.js';
 import { soportesDeSoat } from '../../shared/soportes/soportes-consulta.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
@@ -27,7 +26,7 @@ import {
 } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
-  devolverAlGestor, facetasCola, detalle, enviarAlGestor,
+  devolverAlGestor, facetasCola, detalle, enviarAlGestor, historialConAcceso,
   reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido,
 } from './flito-soat.service.js';
 import {
@@ -404,17 +403,19 @@ router.get('/:id', LECTURA, async (req: Request, res: Response) => {
 
 // GET /:id/historial — cambios de estado, del más reciente al más antiguo.
 //
-// Pasa por `detalle()` antes de leer el historial y no directo a la tabla: es lo que aplica la
-// frontera del gestor. Sin ese paso, un proveedor podría leer la historia de un SOAT de otro
-// consultando su id, que es exactamente lo que el 404-no-403 del detalle evita.
+// La frontera y la proyección se resuelven juntas, en `historialConAcceso()`, y no aquí: la
+// respuesta se recorta según el ORIGEN del SOAT —un dato que el DTO del detalle no emite— así que
+// partir la decisión entre la ruta y el servicio obligaba a publicarlo. `null` es el 404-no-403 de
+// siempre: sin ese paso, un proveedor podría leer la historia de un SOAT de otro consultando su id.
+//
+// Al `cliente` se le sirve la línea de tiempo SIN el empleado que la movió (dato personal de un
+// trabajador) y SIN el motivo (texto libre escrito para lectores internos, que además arrastraba el
+// importe pagado y el uuid del proveedor); al GESTOR de una solicitud del canal, sin el empleado de
+// la compañía que la radicó. El porqué de cada recorte, en `OpcionesHistorial`.
 router.get('/:id/historial', LECTURA, async (req: Request, res: Response) => {
-  const ctx = await contextoSoat(req.user!);
-  const d = await detalle(req.params.id, ctx);
-  if (!d) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
-  // Al `cliente` se le sirve la línea de tiempo SIN el empleado que la movió (dato personal de un
-  // trabajador) y SIN el motivo (texto libre escrito para lectores internos, que además arrastraba
-  // el importe pagado y el uuid del proveedor). El porqué de cada recorte, en `OpcionesHistorial`.
-  res.json(await historialDe('soat', req.params.id, { lectorExterno: ctx.role === 'cliente' }));
+  const items = await historialConAcceso(req.params.id, await contextoSoat(req.user!));
+  if (!items) { res.status(404).json({ error: 'El SOAT no existe' }); return; }
+  res.json(items);
 });
 
 /**

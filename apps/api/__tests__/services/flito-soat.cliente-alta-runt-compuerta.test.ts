@@ -117,7 +117,13 @@ const auth = async (id: number) => `Bearer ${await testToken({ sub: id, username
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    // `proveedorId`/`activo`: lo que devuelve el `LEFT JOIN` de `resolverDestinoCanalCliente`
+    // (HU #12078). Van aquí porque el resolutor entra por `.from(clients)` y el mock keyed responde
+    // por tabla. Sin ellas, las altas que SÍ pasan la compuerta caerían en contingencia sin decirlo.
+    clients: [{
+      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      proveedorId: '55555555-5555-4555-8555-555555555555', activo: true,
+    }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],

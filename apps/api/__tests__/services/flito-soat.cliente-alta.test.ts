@@ -23,6 +23,23 @@
 // El satélite `verificacion_estado` deja de nacer en `pendiente` y nace en `ok`: la compuerta ya
 // corrió, así que la lectura es concluyente.
 //
+// ── Lo que la HU #12078 (Feature #12074) INVIERTE, con el mismo criterio ─────────────────────────
+//
+// El alta dejó de nacer en `pendiente_revision`: nace en `solicitado` y con el destino ya escrito,
+// porque el destino ya no lo elige una persona sino el gestor por defecto de la compañía. Dos casos
+// de este archivo afirmaban lo contrario y se reescriben EN SU SITIO, no se borran:
+//
+//   1. «201 y la fila nace … estado `pendiente_revision`»   → nace en `solicitado`.
+//   2. «el alta deja su fila de historial»                  → esa fila dice `solicitado` y trae motivo.
+//
+// El resto del destino —a qué gestor, la contingencia, la auditoría y el 201 recortado— vive en
+// `flito-soat.cliente-alta-destino.test.ts`, que es la suite propia de esa HU. Aquí solo se corrige
+// lo que dejó de ser cierto.
+//
+// Por eso el escenario por defecto trae ahora una compañía CON gestor por defecto y ACTIVO: es el
+// camino feliz, y sin él todas las altas de este archivo caerían en contingencia y probarían otra
+// cosa que la que dicen sus títulos.
+//
 // ── Cómo está montada, y por qué así ─────────────────────────────────────────────────────────────
 //
 // **Se mide el INSERT, no la respuesta.** El mock de drizzle devuelve lo que el test le registre, así
@@ -68,6 +85,10 @@ vi.mock('../../src/modules/runt/runt.service.js', () => ({
 const COMPANIA = 7;
 const VEHICULO_ID = 55;
 const ORGANISMO_FUNZA = '25286';
+/** El gestor por defecto de la compañía (HU #12078). El mock keyed responde por tabla, y el
+ *  `LEFT JOIN` del resolutor entra por `.from(clients)`: por eso estas dos claves viven en la fila
+ *  de `clients` del escenario y no en una tabla aparte. */
+const PROVEEDOR_POR_DEFECTO = '55555555-5555-4555-8555-555555555555';
 
 /** PDF de verdad: `file-type` reconoce el `%PDF-` de los primeros bytes, no la extensión. */
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF\n');
@@ -135,7 +156,11 @@ const auth = async (role: string, id: number) => `Bearer ${await testToken({ sub
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    clients: [{
+      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      // HU #12078: lo que devuelve el `LEFT JOIN` de `resolverDestinoCanalCliente`.
+      proveedorId: PROVEEDOR_POR_DEFECTO, activo: true,
+    }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],
@@ -181,19 +206,22 @@ beforeEach(() => {
 
 // ───────────────────────────── AC1 — crear ES enviar ─────────────────────────
 
-describe('AC1 — el alta crea la fila del canal y la deja lista para revisión', () => {
-  it('**201 y la fila nace con `origen = cliente` y estado `pendiente_revision`**', async () => {
+describe('AC1 — el alta crea la fila del canal y la DESPACHA (invertido por la #12078)', () => {
+  it('**201 y la fila nace con `origen = cliente` y estado `solicitado`** (INVERTIDO por la #12078)', async () => {
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
     expect(r.status).toBe(201);
-    expect(r.body.estado).toBe('pendiente_revision');
+    expect(r.body.estado).toBe('solicitado');
 
     const soat = espia.ultimoInsertEn('flito_soat');
     expect(soat.origen).toBe('cliente');
-    // El estado es la decisión cara del ADR-0008 §2: `pendiente` haría que `POST /enviar` —que
-    // filtra por ese estado— despachara al gestor una solicitud que nadie ha validado.
-    expect(soat.estado).toBe('pendiente_revision');
+    // Decía `pendiente_revision`, y con el ADR-0008 §2 eso era correcto: el estado impedía que
+    // `POST /enviar` —que filtra por `pendiente`— despachara al gestor algo sin validar. La HU
+    // #12078 quita el paso de revisión del alta y le pone su propio control: el destino sale de la
+    // configuración de la compañía, no de una persona. `pendiente_revision` SIGUE existiendo (lo
+    // retira la HU #12080); lo que cambia es que el alta ya no pasa por ahí.
+    expect(soat.estado).toBe('solicitado');
     expect(soat.id).toBe(r.body.id);
   });
 
@@ -315,8 +343,10 @@ describe('AC1 — el alta crea la fila del canal y la deja lista para revisión'
     escenario();
     const r = await alta(await buildApp(), await auth('cliente', siguienteUsuario()));
 
+    // INVERTIDO por la #12078: el estado nuevo es `solicitado`. El motivo y la contingencia se
+    // prueban en `flito-soat.cliente-alta-destino.test.ts`, contra los literales exportados.
     expect(espia.ultimoInsertEn('flito_estado_historial')).toMatchObject({
-      concepto: 'soat', registroId: r.body.id, estadoAnterior: null, estadoNuevo: 'pendiente_revision',
+      concepto: 'soat', registroId: r.body.id, estadoAnterior: null, estadoNuevo: 'solicitado',
     });
   });
 

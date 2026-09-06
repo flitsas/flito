@@ -134,6 +134,32 @@ export const clients = pgTable('clients', {
    * Nace APAGADO (AC3): una compañía nueva no estrena canal sin que alguien lo decida.
    */
   soatSinTramite: boolean('soat_sin_tramite').notNull().default(false),
+  /**
+   * FLITO — Cliente (Feature #12074, HU #12078): el gestor por defecto AL QUE VAN las solicitudes
+   * que esta compañía radica por el canal SIN TRÁMITE. Desde esa HU el alta no espera a que
+   * Operaciones elija destino: nace en `solicitado` con el destino ya escrito, y sale de aquí.
+   *
+   * Vive pegada a `soatSinTramite` a propósito: son el mismo hecho partido en dos columnas —«el
+   * canal está abierto» y «hacia dónde»— y el CHECK `clients_sin_tramite_gestor_chk` (migración
+   * 0175, `soat_sin_tramite = false OR flito_proveedor_soat_sin_tramite_id IS NOT NULL`) las ata.
+   * Separarlas invitaría a leer una sin la otra.
+   *
+   * **SOLO del canal sin trámite, y el nombre lo dice a propósito.** El SOAT POR TRÁMITE no la lee
+   * nunca: allí Operaciones elige gestor en cada `POST /flito/soat/enviar`, que es cuando alguien
+   * mira la carga de cada uno (HU #10979). El único lector es
+   * `resolverDestinoCanalCliente()`, en `flito-soat-cliente.service.ts`.
+   *
+   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto y un `NOT NULL`
+   * obligaría a inventarle un gestor a cada una. La obligatoriedad es CONDICIONAL al flag y la
+   * sostiene el CHECK, que Drizzle no declara aquí porque no lo declara ninguno de `clients`.
+   *
+   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` crearía por la
+   * puerta de atrás el estado que el AC2c declara imposible —canal encendido, destino vacío— y en
+   * silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
+   * (un proveedor se retira con `activo = false`, que NO dispara la FK).
+   */
+  flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
+    .references((): any => flitoProveedoresSoat.id, { onDelete: 'restrict' }),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
   logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
   // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene

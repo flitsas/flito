@@ -232,9 +232,15 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   // `personTypeOrigen` no está en el schema —no es escribible desde fuera— pero sí se deriva de la
   // petición: quien crea un cliente declarando su tipo de persona lo está clasificando a mano, y la
   // migración 0132 solo respeta lo humano si está marcado como tal.
+  // `.returning(COLUMNAS_LISTADO)` y no `.returning()` a secas (HU #12078): la fila ENTERA sacaba a
+  // HTTP toda columna que se le añadiera a `clients` sin que nadie lo decidiera —el mismo patrón que
+  // mordió en la HU #12093—, y la que acaba de nacer (`flito_proveedor_soat_sin_tramite_id`) ni
+  // siquiera es escribible por esta ruta: `createSchema` no la acepta. Se proyecta la MISMA lista que
+  // entrega `GET /clients`, que es la unión medida de lo que leen los cinco consumidores, para que
+  // las tres respuestas del módulo digan lo mismo y la próxima columna tampoco salga sola.
   const [client] = await db.insert(clients)
     .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .returning();
+    .returning(COLUMNAS_LISTADO);
   await audit(req, {
     action: 'create',
     resource: 'client',
@@ -284,9 +290,13 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 
   // Igual que en el POST: fijar el tipo de persona a mano lo marca como `manual`, y eso es lo que
   // impide que una reejecución de la migración 0132 lo vuelva a derivar del `document_type`.
+  // Proyectado por lo mismo que el POST (HU #12078). `diffFiscal` sigue funcionando: los catorce
+  // campos de `CAMPOS_FISCALES_TRAZABLES` y `CAMPOS_FISCALES_PII` están todos en `COLUMNAS_LISTADO`.
+  // El `previo` de arriba sí se lee entero, y eso NO es un descuido: no sale por HTTP y `diffFiscal`
+  // recorre listas cerradas, así que una columna nueva no puede colarse en el `audit` por ahí.
   const [updated] = await db.update(clients)
     .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .where(eq(clients.id, id)).returning();
+    .where(eq(clients.id, id)).returning(COLUMNAS_LISTADO);
   if (!updated) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   // Su gemelo de parametrización sí auditaba; este no. Cambiar los datos de un cliente sin dejar

@@ -8,8 +8,22 @@
 // La SEGUNDA puerta de `flito_soat`. Hasta hoy toda fila nacía en `resolverSoat()`, dentro del sync
 // de trámites de FLIT; aquí la abre un usuario `cliente` de una compañía con el flag «SOAT sin
 // trámite» encendido, para un vehículo que NO tiene trámite digital. La fila nace con
-// `origen = 'cliente'` y estado `pendiente_revision`, que es lo que impide que un admin la despache
-// al gestor con `POST /enviar` —esa ruta filtra por `pendiente`— sin que nadie la haya validado.
+// `origen = 'cliente'`.
+//
+// ── Desde la HU #12078 (Feature #12074) el alta DESPACHA, y ya no espera revisión ───────────────
+//
+// La fila nacía en `pendiente_revision` y solo `POST /:id/validar` la llevaba a `solicitado`. Ahora
+// nace en `solicitado` con el DESTINO ya escrito en el mismo INSERT, y el destino sale del gestor
+// por defecto que Operaciones configura POR COMPAÑÍA (`clients.flito_proveedor_soat_sin_tramite_id`,
+// migración 0175). Sin ámbitos y sin prioridades: una compañía, un destino, una sola consulta
+// (`resolverDestinoCanalCliente`). El gestor la ve sin que nadie la valide, porque
+// `ESTADOS_SOAT_VISIBLES_GESTOR` ya contiene `solicitado`.
+//
+// **El SOAT POR TRÁMITE no cambia** (límite del PO, 2026-09-05): Operaciones sigue eligiendo gestor
+// en cada `POST /flito/soat/enviar`, y ni esa ruta ni `enviarAlGestor()` leen esa columna.
+//
+// `pendiente_revision` SIGUE EXISTIENDO —las tres transiciones de abajo y las filas ya radicadas
+// bajo la regla anterior—: retirar la cuarentena es la HU #12080, no esta.
 //
 // ── Por qué es un archivo aparte y no crece `flito-soat.service.ts` ─────────────────────────────
 //
@@ -21,7 +35,7 @@
 //
 // ── El ciclo completo del canal, y dónde acaba ───────────────────────────────────────────────────
 //
-//   POST /cliente              (#11914) — nace en `pendiente_revision`.
+//   POST /cliente              (#11914, #12078) — nace en `solicitado`, con destino resuelto.
 //   POST /:id/validar          (#11915) — el ADMIN la manda a `solicitado`, REUSANDO
 //                                         `enviarAlGestor()` con otro estado de partida (AC1).
 //   POST /:id/rechazar-solicitud (#11915) — el ADMIN la manda a `rechazada` con causal del catálogo
@@ -66,6 +80,7 @@ import {
   auditLogs,
   clients,
   flitoCompradores,
+  flitoProveedoresSoat,
   flitoSoat,
   flitoSoatCausalesRechazo,
   flitoSoatSolicitud,
@@ -720,9 +735,114 @@ async function upsertVehiculoRunt(
 /** Código de violación de unicidad de PostgreSQL. Aquí solo puede venir del VIN o del vehículo. */
 const UNIQUE_VIOLATION = '23505';
 
+// ═══════════ El destino del alta (Feature #12074, HU #12078) ═════════════════
+
+// El alias `Tx` —la convención de `tx` de los otros diez módulos— ya está declarado más abajo en
+// este mismo archivo, para las tres transiciones de la #11915. No se duplica aquí.
+
+/**
+ * El motivo del historial en el camino feliz (AC1, literal exacto).
+ *
+ * Los tres literales se EXPORTAN para que los tests los nombren en vez de copiarlos: una copia y el
+ * original divergen, y el día que diverjan el test seguiría verde afirmando sobre una cadena que ya
+ * no escribe nadie.
+ */
+export const MOTIVO_ENVIO_DIRECTO = 'Envío directo al gestor (canal Cliente)';
+
+/** El del historial cuando el destino cayó en contingencia (AC2d). */
+export const MOTIVO_ENVIO_CONTINGENCIA =
+  'Envío directo al gestor (canal Cliente): el gestor por defecto de la compañía no está disponible, la asume Operaciones';
+
+/** Lo que verá Operaciones en su bandeja, en `flito_soat.gestion_operaciones_motivo`. */
+export const MOTIVO_GESTION_OPERACIONES_ALTA =
+  'El gestor por defecto de la compañía no estaba disponible al radicar (canal Cliente).';
+
+/**
+ * A dónde va una solicitud del canal Cliente. Los dos campos de destino son excluyentes y NUNCA
+ * están los dos vacíos: o hay `proveedorSoatId`, o `gestionOperaciones` es `true` (AC1).
+ */
+export interface DestinoCanalCliente {
+  proveedorSoatId: string | null;
+  gestionOperaciones: boolean;
+  /** El literal que va a `flito_estado_historial.motivo`. Nunca vacío. */
+  motivoHistorial: string;
+  /** Solo en contingencia: lo que verá Operaciones en su bandeja. `null` en el camino feliz. */
+  contingenciaMotivo: string | null;
+}
+
+/**
+ * El destino de un alta del canal Cliente: el gestor por defecto de SU compañía (AC2).
+ *
+ * ── Por qué vive en ESTE archivo y no en `flito-soat.service.ts` ─────────────────────────────────
+ *
+ * Aquel es el archivo del SOAT POR TRÁMITE y el que exporta `enviarAlGestor()`. Poner el resolutor
+ * ahí lo dejaría a un `import` de distancia de la ruta que el AC2e declara intocable, y la primera
+ * vez que alguien «unificara el destino» las dos puertas quedarían atadas sin que nada se pusiera
+ * rojo. **La frontera de archivo ES la garantía estructural del AC2e**; el test nombrado es la
+ * segunda capa, no la primera. Operaciones sigue eligiendo gestor en cada `POST /flito/soat/enviar`,
+ * que es cuando alguien mira la carga de cada uno (HU #10979).
+ *
+ * ── Una sola consulta, y `LEFT JOIN` y no dos `select` ──────────────────────────────────────────
+ *
+ * El AC2 lo pide con esas palabras —«una compañía, un destino, una sola consulta»— y además hace
+ * falta: «sin gestor» y «gestor inactivo» son el MISMO desenlace (la contingencia) y tienen que
+ * leerse en el MISMO instante. Partirlo en dos consultas abre una ventana en la que el proveedor se
+ * desactiva entre una y otra y el alta escribe un destino que ya no atiende.
+ *
+ * `flito_reglas_proveedor_soat` NO aparece, y no por descuido: sus reglas se retiraron a propósito
+ * en la HU #10979 y su DROP sigue pendiente. Sin ámbitos, sin prioridades, sin `PRIORIDAD_POR_AMBITO`.
+ *
+ * ── El fallo por defecto es la contingencia, nunca un alta caída (AC2d) ─────────────────────────
+ *
+ * `proveedorId === null || activo !== true` es UN solo predicado para los dos casos —no configurado
+ * y configurado pero apagado—, y el `!== true` es deliberado: una fila sin `activo` (que el
+ * `LEFT JOIN` deja en `null` cuando no cruza) cuenta como no disponible. Un problema de
+ * configuración no puede impedir que un cliente radique.
+ *
+ * Recibe el `tx` y no lee de `db`: el AC2 exige que el destino se lea DENTRO de la misma
+ * transacción que lo escribe.
+ */
+export async function resolverDestinoCanalCliente(
+  tx: Tx, companiaId: number,
+): Promise<DestinoCanalCliente> {
+  const [fila] = await tx
+    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo })
+    .from(clients)
+    .leftJoin(
+      flitoProveedoresSoat,
+      eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId),
+    )
+    .where(eq(clients.id, companiaId))
+    .limit(1);
+
+  const disponible = fila?.proveedorId != null && fila.activo === true;
+  if (!disponible) {
+    return {
+      proveedorSoatId: null,
+      gestionOperaciones: true,
+      motivoHistorial: MOTIVO_ENVIO_CONTINGENCIA,
+      contingenciaMotivo: MOTIVO_GESTION_OPERACIONES_ALTA,
+    };
+  }
+  return {
+    proveedorSoatId: fila!.proveedorId,
+    gestionOperaciones: false,
+    motivoHistorial: MOTIVO_ENVIO_DIRECTO,
+    contingenciaMotivo: null,
+  };
+}
+
 export interface SolicitudCreada {
   id: string;
   estado: EstadoSoat;
+  /**
+   * A dónde fue, PARA LA AUDITORÍA del AC7 — y solo para ella.
+   *
+   * La ruta lo escribe en `audit_logs` y **no lo devuelve en el 201**, que sigue siendo
+   * `{ id, estado }`: a qué aseguradora despacha su compañía no es asunto de quien radica, y el
+   * `res.json(creada)` de antes se lo habría contado sin que nadie lo pidiera.
+   */
+  destino: DestinoCanalCliente;
 }
 
 /**
@@ -741,8 +861,9 @@ export interface SolicitudCreada {
  *   5. VIN efectivo = el del RUNT (AC1).
  *   6. RN-01 + tenencia sobre el VIN efectivo — AUTORITATIVAS, y las únicas que corren siempre.
  *   7. UUID + subida a S3 — fuera de la transacción (CA-11).
- *   8. La transacción: vehículo CON los datos del RUNT, SOAT con el organismo cruzado (o NULL),
- *      satélite en `ok`, propietario partido, soporte e historial, todo o nada.
+ *   8. La transacción: vehículo CON los datos del RUNT, **el destino resuelto** (HU #12078), SOAT en
+ *      `solicitado` con ese destino y con el organismo cruzado (o NULL), satélite en `ok`,
+ *      propietario partido, soporte e historial, todo o nada.
  *   9. COMMIT → 201. **No hay `setImmediate`**: no queda nada por verificar.
  *
  * El paso 3 DUPLICA el 6 a propósito, y es el mismo patrón que ya usaba la tenencia (previa + dentro
@@ -783,22 +904,58 @@ export async function crearSolicitud(
     soatId, archivo.originalname, archivo.buffer, archivo.mimetype,
   );
 
+  let destino!: DestinoCanalCliente;
+  // Un solo instante para `enviado_en` y para `gestion_operaciones_en`: son el mismo hecho —esta
+  // solicitud se despachó ahora— y dos `new Date()` los separarían por milisegundos sin motivo.
+  const ahora = new Date();
+
   try {
     await db.transaction(async (tx) => {
       const vehiculoId = await upsertVehiculoRunt(
         tx, { placa, vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId,
       );
 
+      // DENTRO de la transacción y ANTES del INSERT, para que el destino entre en el MISMO INSERT
+      // que el estado (AC1). Es el argumento ya escrito para `procedencia` de `flitoCompradores`:
+      // escribirlo aparte —un UPDATE después— dejaría una ventana en la que la fila está
+      // `solicitado` y no dice a dónde va, más una segunda escritura que puede fallar sola.
+      destino = await resolverDestinoCanalCliente(tx, canal.companiaId);
+
       await tx.insert(flitoSoat).values({
         id: soatId,
         vin,
         vehiculoId,
         origen: ORIGEN_CLIENTE,
-        estado: EstadoSoat.PENDIENTE_REVISION,
+        // **Crear ES despachar** (HU #12078, AC1). Nace en `solicitado`, que es el estado que
+        // `ESTADOS_SOAT_VISIBLES_GESTOR` ya deja ver al gestor: entre el alta y esa visibilidad no
+        // queda ningún paso intermedio (AC5). `pendiente_revision` sigue existiendo —la cuarentena
+        // se retira en la HU #12080—, pero el alta ya no pasa por ella.
+        estado: EstadoSoat.SOLICITADO,
         companiaId: canal.companiaId,
         // El cruce del catálogo, o `null` si el nombre del RUNT no cruza. `null` NO aborta (AC5):
         // el organismo dejó de ser compuerta y Operaciones lo completa a mano.
         organismoCodigo,
+        // Quién y cuándo la despachó. Es lo que hasta ahora escribía `enviarAlGestor()` en la
+        // validación del admin; aquí lo escribe el alta porque el alta ES el envío.
+        enviadoPorId: ctx.userId,
+        enviadoEn: ahora,
+        // El destino, en las dos ramas del mismo objeto: o proveedor, o contingencia. Nunca los dos
+        // vacíos (AC1) y nunca los dos puestos.
+        proveedorSoatId: destino.proveedorSoatId,
+        // `false`, a diferencia de `enviarAlGestor()`, que pone `true`: esa bandera significa «una
+        // persona eligió este proveedor a mano», y aquí no eligió nadie — lo dijo la configuración.
+        proveedorSobrescrito: false,
+        gestionOperaciones: destino.gestionOperaciones,
+        gestionOperacionesMotivo: destino.contingenciaMotivo,
+        gestionOperacionesEn: destino.gestionOperaciones ? ahora : null,
+        // **`null` a propósito**, y es la decisión que más fácil sería degradar. Las otras dos
+        // escrituras de esta columna (`asumirEnOperaciones` y su gemela de impuestos) ponen el
+        // usuario porque UNA PERSONA decidió el traspaso. Aquí lo decidió una configuración rota:
+        // poner el id del cliente que radica afirmaría que él pidió la contingencia, que es falso, y
+        // es la clase de fila que la regla 2 del ADR-0005 llama «un acto sin actor, indistinguible
+        // de un error de escritura». El quién y el cuándo del alta están en `enviado_por_id` y en la
+        // fila de historial.
+        gestionOperacionesPorId: null,
       });
 
       await tx.insert(flitoCompradores).values({
@@ -856,7 +1013,13 @@ export async function crearSolicitud(
         concepto: ConceptoHistorial.SOAT,
         registroId: soatId,
         estadoAnterior: null,
-        estadoNuevo: EstadoSoat.PENDIENTE_REVISION,
+        estadoNuevo: EstadoSoat.SOLICITADO,
+        // UN solo `registrarCambio` en los dos caminos, con el motivo cambiando: la solicitud tiene
+        // un principio y solo uno. **Sin el uuid del proveedor**, por la razón que
+        // `asumirEnOperaciones` ya dejó escrita al quitárselo: el historial es de lo poco que un
+        // lector externo llega a ver. El uuid del destino sí va al `audit_logs` del AC7, que el
+        // cliente no ve.
+        motivo: destino.motivoHistorial,
         usuarioId: ctx.userId,
         usuarioEmail: ctx.username,
         origen: 'usuario',
@@ -872,7 +1035,7 @@ export async function crearSolicitud(
   // Sin `setImmediate` y sin job: la verificación ya ocurrió, dentro de la petición. La función que
   // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
   // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
-  return { id: soatId, estado: EstadoSoat.PENDIENTE_REVISION };
+  return { id: soatId, estado: EstadoSoat.SOLICITADO, destino };
 }
 
 // ═════════ Lectura OCR de la factura de venta (Feature #12073, HU #12092) ════
