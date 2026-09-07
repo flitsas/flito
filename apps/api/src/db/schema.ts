@@ -12,6 +12,8 @@ import type { ComparacionCampo } from '@operaciones/shared-types';
 import type { SiigoDestinatario } from '@operaciones/shared-types';
 // SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
 import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
+// Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
+import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -2731,6 +2733,47 @@ export const flitoSoat = pgTable('flito_soat', {
    * Cuasi-PII: no viaja en path ni en query (AGENTS.md 14).
    */
   numeroPoliza: varchar('numero_poliza', { length: 60 }),
+  /**
+   * Qué dijo el RUNT la última vez que respondió sobre la vigencia de ESTE SOAT (Feature #12075,
+   * HU #12096, migración 0177). Vocabulario: {@link EstadoVigenciaSoat}.
+   *
+   * **Se llama `estado_vigencia` y no `estado`, y no es preferencia de estilo.** `flito_soat.estado`
+   * ya existe y es el enum `flito_soat_estado` con los estados de la SOLICITUD (pendiente,
+   * solicitado, con_novedad, pagado). Un `ADD COLUMN IF NOT EXISTS estado` habría sido un no-op
+   * silencioso —la columna existe— y el primer `set({ estado: 'vigente' })` habría muerto con
+   * `22P02 invalid input value for enum`. Los dos estados son ortogonales: un SOAT `pagado` puede
+   * estar `sin_registro`, y de hecho ESA combinación es el hallazgo que este Feature persigue.
+   *
+   * `varchar` + CHECK y no `pgEnum`, por la misma razón escrita en `origen`: ampliar el vocabulario
+   * es un DROP/ADD CONSTRAINT barato, mientras que un enum arrastra el 55P04 que este dominio ya
+   * pagó dos veces.
+   *
+   * El DEFAULT `no_verificado` es la verdad de las ~7 000 filas existentes: de ellas no consta
+   * ninguna consulta al RUNT. **Cero backfill** — inventar `vigente` porque están `pagado` sería
+   * escribir como hecho lo que este Feature existe para comprobar.
+   */
+  estadoVigencia: varchar('estado_vigencia', { length: 15 }).notNull().default('no_verificado'),
+  /**
+   * Cuándo RESPONDIÓ el RUNT, no cuándo se intentó (HU #12096, AC5).
+   *
+   * La corrida NO la toca cuando el RUNT se cae o el circuito está abierto: si la moviera, un mes de
+   * pasarela caída dejaría toda la cola con fecha de anoche y la antigüedad —que es la señal que
+   * este Feature mide— diría exactamente lo contrario de lo que pasa. `NULL` = de este SOAT no
+   * consta ninguna respuesta del registro.
+   */
+  verificadaEn: timestamp('verificada_en', { withTimezone: true }),
+  /** Hasta cuándo dice el RUNT que la póliza está vigente. `NULL` = respondió por estado, sin fecha. */
+  venceEl: date('vence_el'),
+  /**
+   * Número de póliza QUE REPORTA EL RUNT, normalizado igual que `numero_poliza`.
+   *
+   * Es OTRA columna a propósito: `numero_poliza` es la que el OCR sacó de la factura de FLITO y con
+   * la que se concilia una boleta de pago externo (Feature #11623). Que las dos diverjan es señal
+   * útil —una póliza reexpedida—, no ruido; pisar la del OCR con la del registro borraría la llave
+   * de conciliación sin que nada se pusiera rojo. **No se proyecta hacia la cola** (HU #12097): es
+   * cuasi-PII y colisionaría visualmente con la otra.
+   */
+  polizaRunt: varchar('poliza_runt', { length: 60 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -2753,6 +2796,20 @@ export const flitoSoat = pgTable('flito_soat', {
   // es que un CHECK que solo vive en la base convence a quien lee `schema.ts` de que añadir un valor
   // no necesita migración, y el primer INSERT con el valor nuevo muere con 23514.
   origenChk: check('flito_soat_origen_chk', sql`${t.origen} IN ('tramite', 'cliente')`),
+  // `verificada_en` NO lleva índice, y es una decisión MEDIDA (gate de esquema de la HU #12096).
+  // El que hubo aquí era INERTE por dos motivos que se refuerzan: un btree se declara
+  // `ASC NULLS LAST` y el censo ordena `ASC NULLS FIRST`, que ningún recorrido de ese índice puede
+  // suplir; y su predicado —`verificada_en IS NULL OR verificada_en < corte`, un OR de baja
+  // selectividad y SIN `LIMIT`— hace que el planificador prefiera seq scan + sort igualmente.
+  // Se indexará el día que exista una consulta de antigüedad CON `LIMIT` que lo use, con la cláusula
+  // de orden de ESA consulta y comprobando con EXPLAIN que entra. El razonamiento largo, con la
+  // medición, está en la migración 0177.
+  // Declarado AQUÍ y no solo en la 0177, misma lección de la 0157 que el CHECK de `origen`. Los
+  // TRES valores y ni uno más: `vencido` NO se persiste, se deriva de `vence_el` contra el día de
+  // Bogotá (ver `ESTADOS_VIGENCIA_SOAT` en shared-types). Un `set({ estadoVigencia: 'vencido' })`
+  // tiene que morir con 23514 y no colarse.
+  estadoVigenciaChk: check('flito_soat_estado_vigencia_chk',
+    sql`${t.estadoVigencia} IN ('vigente', 'sin_registro', 'no_verificado')`),
 }));
 
 // `flitoSoatCausalesRechazo` (`flito_soat_causales_rechazo`) vivía aquí: el catálogo del rechazo de
@@ -2871,6 +2928,73 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
     'flito_soat_solicitud_verificacion_estado_chk',
     sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
   ),
+}));
+
+/**
+ * Una fila por CORRIDA de la verificación diaria de vigencia (Feature #12075, HU #12096, mig. 0177).
+ *
+ * ── Por qué una tabla y no la clave de `system_kv` que la HU #12095 dejó ────────────────────────
+ *
+ * El estado de la corrida vivía en `system_kv['flito-soat.vigencia.corrida-dia']`: UNA clave, que el
+ * día siguiente SOBRESCRIBE. Si el 4 cerró `parcial` con vehículos sin verificar, el 5 a las 00:10
+ * esa constancia desaparecía de la base y solo quedaba en los logs. El AC5 de la #12095 pide cerrar
+ * el día «dejando constancia», y con una sola clave la constancia es efímera: sirve para DECIDIR
+ * (¿corro hoy?) y no para responder «¿qué días quedaron a medias este mes?». La 0177 retira esa
+ * clave; su cabecera deja el NOTICE con lo que se borra.
+ *
+ * ── La llave es (día, intento), no el día ───────────────────────────────────────────────────────
+ *
+ * Es lo que hace que un reintento no pise la corrida inicial: `verificados` se SUMA sobre las filas
+ * del día y `max(intento)` dice cuántas ejecuciones hubo. Con la llave solo en `dia`, el
+ * `onConflictDoUpdate` del intento 2 borraría lo que midió el intento 1 — y con el `target` mal
+ * puesto (solo `dia`, sin `intento`) borraría además la corrida del día anterior, que es exactamente
+ * la deuda que esta tabla viene a cerrar.
+ *
+ * ── Lo que NO tiene, a propósito ────────────────────────────────────────────────────────────────
+ *
+ *   · **Ninguna columna `proximo_intento_en`.** Se DERIVA de `iniciada_en + 1 h` cuando la corrida
+ *     sigue `en_curso` y quedan reintentos (CF-06: la cadencia se mide desde el ARRANQUE del
+ *     intento, no desde su cierre). Persistirla sería guardar una resta.
+ *   · **Ningún identificador de vehículo.** Ni aquí ni en `motivos`: son conteos. Un mapa
+ *     vehículo → causa convertiría esta tabla en una lista de VIN con su incidencia.
+ *   · **Ningún índice extra sobre `(dia)`**: el único, `(dia, intento)`, lo sirve por prefijo
+ *     izquierdo.
+ */
+export const flitoSoatVerificacionCorridas = pgTable('flito_soat_verificacion_corridas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Día de la corrida en Bogotá (`yyyy-mm-dd`), NO la fecha del servidor: el contenedor va en UTC. */
+  dia: date('dia').notNull(),
+  /** 1 es la corrida inicial; 2..4 son los reintentos horarios (`MAX_REINTENTOS` = 3). */
+  intento: smallint('intento').notNull(),
+  iniciadaEn: timestamp('iniciada_en', { withTimezone: true }).notNull().defaultNow(),
+  /** `NULL` = el intento arrancó y no llegó a cerrarse (el proceso murió a mitad). */
+  cerradaEn: timestamp('cerrada_en', { withTimezone: true }),
+  /**
+   * Desenlace del intento, con el MISMO vocabulario que el `EstadoCorrida` del cron —
+   * `en_curso | completa | parcial`. No se inventa otro: la lectura del cron reconstruye su
+   * `EstadoDelDia` a partir de esta columna, y dos vocabularios obligarían a una traducción que
+   * nadie recordaría mantener.
+   */
+  estado: varchar('estado', { length: 10 }).notNull().default('en_curso'),
+  /** Vehículos que el censo devolvió para ESTE intento. */
+  total: integer('total').notNull().default(0),
+  /** Resueltos con respuesta del RUNT en ESTE intento (un «no» legítimo cuenta como verificado). */
+  verificados: integer('verificados').notNull().default(0),
+  /** De los verificados, cuántos cambiaron de `estado_vigencia`. Es lo único que se audita por fila. */
+  cambiaron: integer('cambiaron').notNull().default(0),
+  /**
+   * Sin verificar por indisponibilidad de la fuente. **Mayor que cero es lo ÚNICO que reprograma el
+   * reintento horario**, así que contar aquí un fallido como verificado apaga el reintento en
+   * silencio y para siempre.
+   */
+  fallidos: integer('fallidos').notNull().default(0),
+  /** {@link ResumenMotivosCorrida}: vocabulario cerrado, conteos. Nunca un `err.message` como clave. */
+  motivos: jsonb('motivos').$type<ResumenMotivosCorrida>().notNull().default({}),
+}, (t) => ({
+  diaIntentoUq: uniqueIndex('uq_flito_soat_verif_corrida_dia_intento').on(t.dia, t.intento),
+  // Declarado aquí y en la 0177, misma lección de la 0157.
+  estadoChk: check('flito_soat_verif_corrida_estado_chk',
+    sql`${t.estado} IN ('en_curso', 'completa', 'parcial')`),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
@@ -3174,6 +3298,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Acotado a `factura_venta`: los demás tipos de soporte de un SOAT sí pueden repetirse.
   soatFacturaVentaUq: uniqueIndex('idx_flito_soportes_soat_factura_venta').on(t.soatId)
     .where(sql`${t.soatId} IS NOT NULL AND ${t.tipo} = 'factura_venta' AND ${t.descartado} = false`),
+  // Feature #12075 (migración 0177): el índice que el CENSO de la verificación diaria necesita, y
+  // NO único — `factura_soat` puede repetirse por SOAT (el único parcial único de esta tabla es el
+  // de `factura_venta`, justo encima). Hasta aquí esta tabla no tenía NINGÚN índice por `soat_id`
+  // solo: los tres de arriba son parciales sobre otras FK o sobre otro tipo, así que el `EXISTS`
+  // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
+  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
+    .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
   // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
   // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
   // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales

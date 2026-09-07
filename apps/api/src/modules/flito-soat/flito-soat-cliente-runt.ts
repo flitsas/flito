@@ -19,7 +19,7 @@
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
 
 import { eq } from 'drizzle-orm';
-import { resolverCodigoOrganismoFlit } from '@operaciones/shared-types';
+import { polizaParaColumna, resolverCodigoOrganismoFlit } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
@@ -155,6 +155,26 @@ export function fechaVencimientoSoatRunt(data: unknown): string | null {
   if (dmy) return fechaValida(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
 
   return null;
+}
+
+/**
+ * El número de póliza que el RUNT reporta, normalizado, o `null` (HU #12096).
+ *
+ * Vive aquí y no en el servicio de vigencia porque lee el MISMO bloque `data.soat` que
+ * {@link fechaVencimientoSoatRunt} y con el mismo `alias`: dos extractores del mismo nodo en
+ * archivos distintos acaban resolviendo alias distintos.
+ *
+ * Se normaliza con `polizaParaColumna` —el mismo helper que usa `pagarEnTx` para `numero_poliza`—
+ * y no «como se leyó»: la columna a la que va (`poliza_runt`) es varchar(60) y la gracia de tenerla
+ * es poder compararla con la del OCR. Dos normalizaciones distintas harían que dos veces la misma
+ * póliza pareciera reexpedida.
+ */
+export function polizaSoatRunt(data: unknown): string | null {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const bruto = Array.isArray(d.soat) ? d.soat[0] : d.soat;
+  const soat = (bruto ?? null) as Record<string, unknown> | null;
+  const valor = alias(soat, ['numeroPoliza', 'noPoliza', 'numPoliza', 'poliza']);
+  return polizaParaColumna(valor);
 }
 
 /** `yyyy-mm-dd` si los tres números son un día del calendario; `null` si no. */
