@@ -26,6 +26,8 @@ import { test, expect } from '../helpers/fixtures';
 import { loginAs, CLIENTE_CON_CANAL, FINANCIERA_USER, OPERACIONES_USER } from '../helpers/auth';
 
 const PLACA = 'ABC123';
+/** El único dato del vehículo que el Cliente teclea desde la HU #12091. */
+const VIN = '9BWZZZ377VT004251';
 const TIPO_DOC = 'CC';
 const NUMERO_DOC = '1020304050';
 const CORREO = 'contacto@ejemplo.co';
@@ -468,7 +470,7 @@ test.describe('HU #12079 · AC0 — los cuatro estados del catálogo de gestores
 /** Lo que devuelve la preconsulta cuando el RUNT dice que sí. */
 const RUNT_OK = {
   vehiculo: {
-    placa: PLACA, vin: '9BWZZZ377VT004251', marca: 'RENAULT', linea: 'LOGAN', modelo: '2026',
+    placa: PLACA, vin: VIN, marca: 'RENAULT', linea: 'LOGAN', modelo: '2026',
     clase: 'AUTOMOVIL', cilindraje: '1600', tipoServicio: 'Particular', carroceria: 'SEDAN',
     pasajerosSentados: '5', puertas: '4',
   },
@@ -493,11 +495,15 @@ async function montarAlta(page: Page) {
 const linea = (page: Page) => page.locator('#sol-falta');
 const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
 
-/** Consulta el RUNT con los cuatro identificadores, para abrir la compuerta y nada más. */
+/**
+ * Consulta el RUNT, para abrir la compuerta y nada más.
+ *
+ * HU #12091: el bloque 1 pide **un solo dato**. Tipo y número de documento se fueron al bloque del
+ * propietario y la placa desapareció, así que este helper ya no los teclea — los teclea
+ * `llenarPropietario`, que es donde viven ahora.
+ */
 async function consultarRunt(page: Page) {
-  await page.getByLabel('Placa').fill(PLACA);
-  await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
-  await page.getByLabel('Número de documento').fill(NUMERO_DOC);
+  await page.getByLabel('VIN').fill(VIN);
   await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
   await expect(page.getByText('✓ Consultado')).toBeVisible();
 }
@@ -509,7 +515,9 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
 
     // El mutante que este aserto mata es un mensaje genérico («Complete los datos obligatorios»); el
     // segundo mata enumerar sin tope, que con el formulario en blanco son doce nombres.
-    await expect(linea(page)).toHaveText('Para enviar falta: consultar el RUNT, Placa y 10 datos más.');
+    // HU #12091: «Placa» pasa a «VIN» y el conteo se queda en 10 — el bloque 1 pierde tres campos y
+    // el VIN pasa a obligatorio, así que siguen faltando doce cosas.
+    await expect(linea(page)).toHaveText('Para enviar falta: consultar el RUNT, VIN y 10 datos más.');
     await expect(linea(page)).toHaveText(/^Para enviar falta: consultar el RUNT,.* y \d+ datos más\.$/);
   });
 
@@ -543,7 +551,7 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
     await expect(linea(page)).toHaveText('Para enviar falta: Correo electrónico y Celular.');
     // Y son ETIQUETAS, nunca valores: esta frase se pinta y se lee en voz alta.
     await expect(linea(page)).not.toContainText(NUMERO_DOC);
-    await expect(linea(page)).not.toContainText(PLACA);
+    await expect(linea(page)).not.toContainText(VIN);
   });
 
   test('un valor INVÁLIDO no desaparece de la lista, que es lo que un chequeo de vacíos no ve', async ({ page }) => {
@@ -569,13 +577,15 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
     await expect(linea(page)).toHaveText('Para enviar falta: Factura de venta.');
   });
 
-  test('cambiar la placa después de consultar: la frase pasa a «volver a consultar el RUNT»', async ({ page }) => {
+  test('cambiar el VIN después de consultar: la frase pasa a «volver a consultar el RUNT»', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await montarAlta(page);
     await llenarTodo(page);
     await expect(linea(page)).toHaveCount(0);
 
-    await page.getByLabel('Placa').fill('ABC124');
+    // HU #12091: el identificador que invalida es el VIN, y es el único. Tocar el documento ya no
+    // retira la ficha — eso se comprueba en `soat-cliente-solicitud.spec.ts`.
+    await page.getByLabel('VIN').fill('9BWZZZ377VT004252');
     // Calca el rótulo del botón al que la frase apunta. Un «consultar el RUNT» aquí mandaría a un
     // botón que dice «Volver a consultar».
     await expect(linea(page)).toHaveText('Para enviar falta: volver a consultar el RUNT.');
@@ -591,9 +601,7 @@ test.describe('HU #12079 · AC1 — el botón bloqueado enumera lo que falta', (
     }));
     await page.goto('/flito/soat/solicitud');
 
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
-    await page.getByLabel('Número de documento').fill(NUMERO_DOC);
+    await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Cerrar' }).click();
 
@@ -630,9 +638,7 @@ test.describe('HU #12079 · AC1 — el botón bloqueado sigue siendo del teclado
   test('sin consultar el RUNT: el foco SÍ va al botón de consulta y no se envía nada', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     const cap = await montarAlta(page);
-    await page.getByLabel('Placa').fill(PLACA);
-    await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
-    await page.getByLabel('Número de documento').fill(NUMERO_DOC);
+    await page.getByLabel('VIN').fill(VIN);
     await llenarPropietario(page);
     await adjuntarFactura(page);
 
@@ -826,6 +832,9 @@ test.describe('HU #12079 · la ficha de ayuda in-app de Clientes y proveedores',
 // ─────────────────────────────── Auxiliares del formulario ───────────────────────────────────────
 
 async function llenarPropietario(page: Page) {
+  // El documento se edita AQUÍ desde la HU #12091: era entrada de la consulta y dejó de serlo.
+  await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
+  await page.getByLabel('Número de documento').fill(NUMERO_DOC);
   await page.getByLabel('Nombre/s').fill('MARÍA FERNANDA');
   await page.getByLabel('Apellido/s').fill('GÓMEZ RUIZ');
   await page.getByLabel('Correo electrónico').fill(CORREO);

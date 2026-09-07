@@ -21,6 +21,15 @@
 // Ninguno de los dos dispara una segunda llamada: se abren con los datos ya en la mano.
 // Por eso no tienen estado de carga ni de error. El de VIN en cola sale del 409 de
 // `POST /cliente` (RN-01). El de SOAT vigente ya no se abre desde el alta (HU #11936).
+//
+// ── Ninguno de los dos nombra ya el vehículo, y es una decisión (HU #12091) ─────────────────────
+//
+// Los dos interpolaban la PLACA, que el Cliente tecleaba. Desde la #12091 no la teclea y la pantalla
+// **no la tiene** cuando estos dos desenlaces se disparan: la RN-01 corre ANTES de llamar al RUNT,
+// así que en `vin_ya_tiene_soat` no hay respuesta de la que sacarla. Tampoco se sustituye por el
+// VIN: en una pantalla que trata de UN vehículo, «este vehículo» dice lo mismo sin meter 17
+// caracteres dentro de una frase — ni dentro del `aria-label` del diálogo, que es de donde los
+// selectores de axe arrastran los valores a los informes.
 
 import type { RefObject } from 'react';
 import { Link } from 'react-router-dom';
@@ -33,7 +42,6 @@ import { fechaLarga } from '../../../lib/soatCliente';
 const COLA = '/flito/soat';
 
 interface ComunProps {
-  placa: string;
   onClose: () => void;
   /**
    * Dónde dejar el foco al cerrar. `FlitModal` lo devuelve al disparador si sigue vivo, pero
@@ -50,7 +58,7 @@ interface ComunProps {
  * noticia —su vehículo está cubierto—, no un fallo suyo. Un modal rojo le diría que hizo algo mal.
  */
 export function ModalSoatVigente(
-  { placa, fechaVencimiento, onConsultarOtro, onClose, restoreFocusRef }: ComunProps & {
+  { fechaVencimiento, onConsultarOtro, onClose, restoreFocusRef }: ComunProps & {
     /** Del RUNT, **si viene**. Ver `FalloCanal.fechaVencimiento`: hoy el 409 no la trae. */
     fechaVencimiento?: string;
     onConsultarOtro: () => void;
@@ -66,8 +74,8 @@ export function ModalSoatVigente(
             medio de una oración. */}
         <p>
           {fechaVencimiento
-            ? `Según el RUNT, la póliza del vehículo ${placa} está vigente hasta el ${fechaLarga(fechaVencimiento)}.`
-            : `Según el RUNT, el vehículo ${placa} tiene una póliza SOAT vigente.`}
+            ? `Según el RUNT, este vehículo tiene la póliza vigente hasta el ${fechaLarga(fechaVencimiento)}.`
+            : 'Según el RUNT, este vehículo tiene una póliza SOAT vigente.'}
         </p>
 
         {/* Ni la aseguradora ni el número de póliza, aunque el RUNT los traiga: no hacen falta para
@@ -100,7 +108,7 @@ export function ModalSoatVigente(
  * salvo que `propia === true`; esto es la tercera cerradura: **sin `estado` no se escribe estado**.
  */
 export function ModalVinEnCola(
-  { placa, propia, estado, id, onClose, restoreFocusRef }: ComunProps & {
+  { propia, estado, id, onClose, restoreFocusRef }: ComunProps & {
     propia: boolean;
     estado?: EstadoSoat;
     id?: string;
@@ -119,8 +127,8 @@ export function ModalVinEnCola(
 
         <p>
           {propia && estado
-            ? `El vehículo ${placa} ya tiene una solicitud de SOAT en FLITO, en estado ${ESTADO_SOAT_LABEL[estado]}. Cada vehículo puede tener una sola.`
-            : `El vehículo ${placa} ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.`}
+            ? `Este vehículo ya tiene una solicitud de SOAT en FLITO, en estado ${ESTADO_SOAT_LABEL[estado]}. Cada vehículo puede tener una sola.`
+            : 'Este vehículo ya tiene una solicitud de SOAT en FLITO. Cada vehículo puede tener una sola.'}
         </p>
 
         <p>
