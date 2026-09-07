@@ -55,6 +55,15 @@ export interface FiltrosExportCola {
   creadoDesde?: string;
   creadoHasta?: string;
   estancado?: boolean;
+  /**
+   * Vigencia frente al RUNT (HU #12097). Solo SOAT, y **valor máquina**
+   * (`vencido|sin_registro|no_verificado`), que es lo que valida el esquema del endpoint.
+   *
+   * Declararlo aquí no es cosmética aunque el `.xlsx` no gane columnas: el cuerpo del POST se valida
+   * con `.strict()`, así que la alternativa a mandarlo bien es un 400 —o un archivo con MÁS filas de
+   * las que la pantalla enseña, que en un archivo de datos personales es peor que un error.
+   */
+  vigencia?: string;
 }
 
 /** Lo único que distingue a las dos pantallas: el prefijo del archivo y cómo se la nombra al leerla. */

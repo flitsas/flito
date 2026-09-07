@@ -7,7 +7,7 @@
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
 import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
@@ -39,6 +39,8 @@ import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComune
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
+import { textoVigenciaSoat, type VigenciaSoatCola } from '../lib/vigenciaSoatCola';
+import { CeldaVigenciaSoat, FiltroVigenciaSoat } from '../components/flito/VigenciaSoat';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -70,6 +72,21 @@ interface SoatItem {
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   enviadoPorNombre?: string | null; enviadoEn: string | null; pagadoEn: string | null;
   valorPagado?: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /**
+   * Vigencia frente al RUNT, tal como la dejó la corrida de las 00:10 (Feature #12075).
+   *
+   * Los DOS huecos significan cosas distintas y ninguno se puede colapsar en el otro:
+   *   · `undefined` — el API no lo manda. Al `cliente` nunca (es el sexto de `CAMPOS_SOLO_INTERNOS`)
+   *     y a nadie si el bundle va por delante del API, que en DEV no es teórico: el merge es el
+   *     deploy. La fila se pinta EXACTAMENTE como antes de esta HU.
+   *   · `null` — la fila no tiene comprobante cargado y por tanto no entra en la verificación
+   *     diaria. Tampoco se pinta nada: la ausencia es correcta y muda, y un «—» en la mayoría de
+   *     las filas sería un hueco que hay que explicar.
+   *
+   * `verificadaEn` puede ser `null` CON el bloque presente, y no significa «hoy falló» sino «de
+   * este SOAT no consta ninguna respuesta del registro». Leerlo sin guarda pinta «Invalid Date».
+   */
+  vigencia?: VigenciaSoatCola | null;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
 interface ColaSoat { items: SoatItem[]; total: number; page: number; pageSize: number }
@@ -186,6 +203,11 @@ export default function FlitoSoat() {
   // Al gestor no se le ofrece: su frontera ya excluye lo de Operaciones, así que «operaciones» le
   // daría siempre vacío y «proveedor» sería redundante.
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'proveedor'>('');
+  // Vigencia frente al RUNT (HU #12097). Excluyentes por construcción —un `select`, no tres
+  // casillas—, que es lo que hace verdadero el «cada uno devuelve exactamente su conjunto» del AC2:
+  // «vencido Y sin registro» no lo define ningún AC. `vigente` no se ofrece: nadie barre la cola
+  // buscando lo que está bien.
+  const [vigenciaSel, setVigenciaSel] = useState<'' | FiltroVigenciaCola>('');
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
@@ -204,13 +226,13 @@ export default function FlitoSoat() {
   // aparece «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0 || proveedoresSel.length > 0
     || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
-    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel;
+    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel || !!vigenciaSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
     setCreadoDesde(''); setCreadoHasta('');
-    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setSoloEstancado(false); setGestionSel(''); setVigenciaSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoSoat.SOLICITADO : 'todos');
   };
 
@@ -242,7 +264,7 @@ export default function FlitoSoat() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -260,10 +282,14 @@ export default function FlitoSoat() {
     if (creadoHasta) q.set('creadoHasta', creadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
     if (gestionSel) q.set('gestion', gestionSel);
+    // Valor MÁQUINA (`vencido|sin_registro|no_verificado`) y no el rótulo visible: es lo que valida
+    // el servidor, y además es lo único que puede viajar en una URL — ni placa, ni VIN, ni
+    // documento (AC2). El servidor ignora lo que no reconozca.
+    if (vigenciaSel) q.set('vigencia', vigenciaSel);
     q.set('page', String(page));
     api.get<ColaSoat>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -314,6 +340,9 @@ export default function FlitoSoat() {
     ...(creadoDesde ? { creadoDesde } : {}),
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
+    // El `.xlsx` no gana columnas en esta HU, pero SÍ tiene que traer las mismas filas: el archivo
+    // es «lo que estoy viendo», que es el contrato escrito de esta función.
+    ...(vigenciaSel ? { vigencia: vigenciaSel } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_SOAT, filtrosExport);
@@ -450,6 +479,12 @@ export default function FlitoSoat() {
               </select>
             </label>
           )}
+
+          {/* La guarda es `!esCliente` y NO la de «Gestiona» (`!esGestor && !esCliente`): al gestor
+              este filtro sí le sirve —es su reclamación—, y al Cliente el backend ni siquiera le
+              acepta el parámetro (`filtrosPermitidos`), así que ofrecérselo sería un control que no
+              hace nada. */}
+          {!esCliente && <FiltroVigenciaSoat valor={vigenciaSel} onCambio={setVigenciaSel} />}
 
           <FiltrosInteligentes presets={PRESETS} activo={preset}
             onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
@@ -601,10 +636,17 @@ export default function FlitoSoat() {
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   {!esCliente && <CeldaGestion soat={f} />}
+                  {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
+                      #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
+                      columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que
+                      aquella HU quitó. Las dos ocupaciones son casi disjuntas —«sin gestión» solo
+                      sale en `solicitado` estancado y la vigencia solo en filas con comprobante—,
+                      así que la celda sigue teniendo como mucho dos pastillas. */}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
                       {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
+                      {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
@@ -769,6 +811,15 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           {!esCliente && <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} />}
           <Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           {!esCliente && <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />}
+          {/* Los dos de la vigencia (HU #12097), de SOLO LECTURA como el resto de la ficha. El
+              rótulo es «Último dato del RUNT» en los cuatro estados —siempre es la misma cosa,
+              cuándo contestó por última vez— y uno que cambiara con el estado obligaría a leer dos
+              veces. Aquí sí va la hora y aquí sí se pinta «—»: es el nivel de auditoría, y el modal
+              ya lo hace en todos sus `<Dato>`. El número de póliza del RUNT no está ni aquí ni en
+              ninguna parte: no lo pide ningún AC, es cuasi-PII y colisiona de nombre con
+              `numero_poliza`, que es otro número. */}
+          {!esCliente && <Dato k="Vigencia" v={textoVigenciaSoat(soat.vigencia)} />}
+          {!esCliente && <Dato k="Último dato del RUNT" v={fecha(soat.vigencia?.verificadaEn ?? null)} />}
           {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
               reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
               SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}
