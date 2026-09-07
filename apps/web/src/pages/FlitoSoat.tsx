@@ -7,10 +7,7 @@
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import {
-  ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat,
-  FILTROS_VIGENCIA_COLA, esFiltroVigenciaCola, type FiltroVigenciaCola,
-} from '@operaciones/shared-types';
+import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
 import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
 import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
@@ -42,7 +39,8 @@ import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComune
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
-import { pintarVigenciaSoat, textoVigenciaSoat, type VigenciaSoatCola } from '../lib/vigenciaSoatCola';
+import { textoVigenciaSoat, type VigenciaSoatCola } from '../lib/vigenciaSoatCola';
+import { CeldaVigenciaSoat, FiltroVigenciaSoat } from '../components/flito/VigenciaSoat';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -104,24 +102,6 @@ interface FacetasSoat {
 // tono «por si llega una fila antigua»: no puede llegar ninguna.
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-};
-/**
- * Los rótulos de las tres opciones del filtro «Vigencia» (HU #12097, AC2).
- *
- * `Record<FiltroVigenciaCola, string>` y no una lista de literales: el día que el vocabulario
- * compartido gane un cuarto valor, esto no compila — que es justo lo que se quiere, porque una
- * opción sin rótulo se pintaría como un nombre de columna.
- *
- * **Dos de los tres dicen exactamente lo mismo que su chip** para no obligar a traducir en cada
- * barrido. El tercero, «Sin verificar», nombra al CONJUNTO y no a uno de sus miembros: esa lista
- * trae a la vez las filas que dicen «No se pudo consultar» y las que dicen «Sin verificar», así que
- * llamarla «No se pudo consultar» sería falso para la mitad de lo que devuelve. Es además la
- * palabra que usa el AC2.
- */
-const VIGENCIA_FILTRO_LABEL: Record<FiltroVigenciaCola, string> = {
-  vencido: 'Vencido',
-  sin_registro: 'Sin SOAT en el RUNT',
-  no_verificado: 'Sin verificar',
 };
 const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
@@ -503,21 +483,8 @@ export default function FlitoSoat() {
           {/* La guarda es `!esCliente` y NO la de «Gestiona» (`!esGestor && !esCliente`): al gestor
               este filtro sí le sirve —es su reclamación—, y al Cliente el backend ni siquiera le
               acepta el parámetro (`filtrosPermitidos`), así que ofrecérselo sería un control que no
-              hace nada. El rótulo visible es además el nombre accesible, con el mismo `<label>`
-              envolvente del de al lado: cero patrones nuevos en una barra que ya lleva nueve
-              controles. */}
-          {!esCliente && (
-            <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
-              Vigencia
-              <select className={`${flitInp} max-w-[11rem]`} value={vigenciaSel}
-                onChange={(e) => setVigenciaSel(esFiltroVigenciaCola(e.target.value) ? e.target.value : '')}>
-                <option value="">Cualquiera</option>
-                {FILTROS_VIGENCIA_COLA.map((v) => (
-                  <option key={v} value={v}>{VIGENCIA_FILTRO_LABEL[v]}</option>
-                ))}
-              </select>
-            </label>
-          )}
+              hace nada. */}
+          {!esCliente && <FiltroVigenciaSoat valor={vigenciaSel} onCambio={setVigenciaSel} />}
 
           <FiltrosInteligentes presets={PRESETS} activo={preset}
             onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
@@ -679,7 +646,7 @@ export default function FlitoSoat() {
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
                       {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
-                      {!esCliente && <CeldaVigencia vigencia={f.vigencia} />}
+                      {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
@@ -782,34 +749,6 @@ function CeldaGestion({ soat }: { soat: SoatItem }) {
         </div>
       )}
     </td>
-  );
-}
-
-/**
- * La vigencia frente al RUNT dentro de la celda «Estado» (HU #12097, AC1 y AC3).
- *
- * Devuelve `null` —nada, ni un «—»— cuando la fila no entra en la verificación diaria. Los tres
- * «vacíos por dato» de esta celda se distinguen SIN LEER: nada (sin comprobante), una línea gris
- * (nunca ha habido respuesta) y una pastilla azul con su línea (hoy se intentó y no salió).
- *
- * **Ninguna acción**: el chip es un `<span>` y la línea es texto, así que la fila no gana ni una
- * parada de tabulador. No hay «verificar ahora» y el dato no se edita (AC4, RN-D1): la verificación
- * es del proceso de las 00:10, con su candado y sus reintentos, y un botón que la disparara a mano
- * convertiría eso en N consultas sin control a un registro nacional.
- *
- * Sin `title`: no lo ve quien navega con teclado ni quien está en una tableta, y el AC1 dice que la
- * fila MUESTRA la fecha. La absoluta con hora vive en el modal.
- */
-function CeldaVigencia({ vigencia }: { vigencia?: VigenciaSoatCola | null }) {
-  const pintada = pintarVigenciaSoat(vigencia);
-  if (!pintada) return null;
-  return (
-    <>
-      {pintada.chip && <StatusChip tone={pintada.chip.tono}>{pintada.chip.etiqueta}</StatusChip>}
-      {/* Sin color propio: el dato viejo se lee en el texto, y teñirlo sería otro criterio que
-          depende del color — justo lo que el AC3 combate. */}
-      <span className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{pintada.linea}</span>
-    </>
   );
 }
 
