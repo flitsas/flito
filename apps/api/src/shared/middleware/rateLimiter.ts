@@ -143,22 +143,48 @@ export const pesvUploadLimiter = rateLimit({
 /**
  * Canal Cliente de SOAT: 20 peticiones / 15 min / usuario (Feature #11912, HU #11914, AC5).
  *
- * ── Por qué el alta necesita freno propio, y no le basta el `apiLimiter` ────────────────────────
+ * ── Por qué el canal necesita freno propio, y no le basta el `apiLimiter` ───────────────────────
  *
  * `apiLimiter` es 500/15min POR IP y está pensado para una plantilla que trabaja desde la oficina.
- * Estas dos rutas son otra cosa: las llama un principal EXTERNO —el primer rol que entra desde fuera
- * de la operación— y cada llamada dispara una consulta al RUNT (servicio de pago, por pasarela) y,
- * en el alta, además una subida de hasta 15 MB a MinIO y una escritura en cinco tablas. Una cuenta
- * de cliente comprometida podía quemar 500 consultas al RUNT y llenar el bucket antes de que nadie
+ * Estas rutas son otra cosa: las llama un principal EXTERNO —el primer rol que entra desde fuera de
+ * la operación— y cada llamada gasta algo que se paga fuera: una consulta al RUNT por pasarela y,
+ * en el alta, una subida de hasta 15 MB a MinIO más una escritura en cinco tablas. Una cuenta de
+ * cliente comprometida podía quemar 500 consultas al RUNT y llenar el bucket antes de que nadie
  * mirara.
  *
- * ── Por qué UN limitador para las DOS rutas y no uno por ruta ───────────────────────────────────
+ * **Son TRES rutas y no dos desde la HU #12092**, y la tercera merece nombrarse porque no es como
+ * las otras: `POST /cliente/factura/lectura` manda el PDF a un ENCARGADO EXTERNO de pago (el modelo
+ * que hace el OCR). No consulta el RUNT, pero es la petición más cara del canal por byte enviado, y
+ * también cuelga de este contador.
+ *
+ * ── Por qué UN contador compartido, y no uno por ruta ───────────────────────────────────────────
  *
  * Comparten llave (`soat-cliente:<sub>`), así que comparten contador, y eso es lo que se busca: el
- * flujo real es preconsultar y radicar: 2 peticiones por solicitud. 20 son diez solicitudes en
- * quince minutos, muy por encima de lo que una persona teclea y muy por debajo de lo que sirve para
- * enumerar placas contra el RUNT. Dos contadores separados dejarían la preconsulta —que es la
- * llamada CARA y la que se puede usar para sondear— con su propio presupuesto entero.
+ * flujo real es preconsultar y radicar —2 peticiones por solicitud—, así que 20 son diez solicitudes
+ * en quince minutos, muy por encima de lo que una persona teclea. Tres contadores separados le
+ * darían a cada ruta su presupuesto entero y triplicarían el techo del canal sin que nadie lo
+ * decidiera.
+ *
+ * ── LO QUE ESTE PÁRRAFO DECÍA Y ERA FALSO DESDE LA HU #12090 ────────────────────────────────────
+ *
+ * Decía que 20/15min está «muy por debajo de lo que sirve para enumerar placas contra el RUNT».
+ * Cuando se escribió era cierto por una razón que ya no existe: **enumerar era imposible a cualquier
+ * ritmo**, porque la consulta exigía el documento del propietario (Bug #11927) y el RUNT no
+ * respondía si ese documento no figuraba entre los propietarios activos del vehículo. El límite no
+ * era lo que impedía la cosecha; era el requisito de conocer al titular.
+ *
+ * Desde la #12090 la consulta va SOLO por VIN y ese requisito desapareció: cualquiera que conozca un
+ * VIN obtiene la ficha. **El limitador pasó de ser una contención de coste a ser la única barrera de
+ * ritmo entre una cuenta `cliente` y la cosecha de una flota ajena.** Y los números, dichos sin
+ * adornos, porque el párrafo viejo daba a entender un margen que no hay:
+ *
+ *   · `userOrIpKey` cuenta POR USUARIO, no por compañía: una compañía con N usuarios dispone de 20N
+ *     peticiones por ventana.
+ *   · 20/15min = 80/hora ≈ 1 920/día por usuario.
+ *   · Los VIN de una flota comparten las 11 primeras posiciones y difieren en un serial consecutivo,
+ *     así que una flota de 200 vehículos son ~200 peticiones: **unas 2,5 h** a ese ritmo.
+ *
+ * Por eso la preconsulta gana ADEMÁS un sub-límite propio: {@link soatPreconsultaLimiter}.
  *
  * `userOrIpKey` y no la IP pelada: el canal es autenticado y varios usuarios de la misma compañía
  * salen por la misma IP corporativa. Frenar por IP castigaría a la compañía por lo que hace una
@@ -173,4 +199,50 @@ export const soatClienteLimiter = rateLimit({
   handler: frenoConRastro('soat-cliente'),
   message: { error: 'Demasiadas solicitudes de SOAT. Espera unos minutos e intenta de nuevo.' },
   store: makeStore('rl:soat-cliente:'),
+});
+
+/**
+ * Sub-límite SOLO de `POST /cliente/preconsulta`: 8 / 15 min / usuario (HU #12090, bloqueante 3).
+ *
+ * ── Anidado, no paralelo ────────────────────────────────────────────────────────────────────────
+ *
+ * Va DETRÁS de {@link soatClienteLimiter} en la cadena de la ruta, así que un intento que este
+ * middleware rechace ya ha consumido su punto del contador compartido. Eso es deliberado y es lo que
+ * conserva la decisión ya razonada de arriba: la preconsulta **no** recibe un presupuesto propio que
+ * se sume a los 20, recibe un techo MÁS BAJO dentro de ellos. Sondear sigue gastando el presupuesto
+ * del canal, y las altas siguen teniendo sitio: con 8 preconsultas quedan ≥12 peticiones para las
+ * que sí crean una fila.
+ *
+ * ── Por qué 8, y qué compra ─────────────────────────────────────────────────────────────────────
+ *
+ * El flujo legítimo es 1 preconsulta + 1 alta por solicitud. 8 preconsultas en quince minutos dejan
+ * cuatro solicitudes con un reintento cada una —o dos con tres reintentos, que es el caso del RUNT
+ * caído—, muy por encima de lo que una persona teclea en ese rato. Al otro lado de la cuenta: 8/15min
+ * = 32/hora, así que la flota de 200 vehículos del párrafo de arriba pasa de **~2,5 h a ~6,3 h**.
+ *
+ * **No es una solución, es una cota, y conviene no venderla como otra cosa**: ningún límite por
+ * ventana detiene a quien tiene paciencia. Lo que hace es (a) subir el coste, (b) dejar el intento
+ * dentro de un presupuesto que la compañía también necesita para trabajar, y sobre todo (c)
+ * garantizar que cada intento queda escrito — cada preconsulta deja su línea en `pii_access_log`
+ * (`registrarAccesoRuntCliente`) y cada 429 deja un `warn` con la llave vía {@link frenoConRastro}.
+ * La detección es lo que cierra lo que el ritmo no cierra.
+ *
+ * **El valor es REVISABLE y se elige sin telemetría**: no hay medida de cuántas preconsultas gasta
+ * de verdad una solicitud en producción. 8 se elige por el flujo descrito, no por un percentil
+ * observado. Si el dato dijera que el uso legítimo roza el techo, sube; si dijera que sobra
+ * holgura, baja. Lo que no puede volver es la justificación anterior, que describía una amenaza que
+ * ya no es la real.
+ *
+ * Llave y store PROPIOS (`soat-preconsulta:`): con el prefijo del compartido, los dos limitadores
+ * escribirían sobre el mismo contador y el más estricto ganaría para las tres rutas.
+ */
+export const soatPreconsultaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('soat-preconsulta:'),
+  handler: frenoConRastro('soat-preconsulta'),
+  message: { error: 'Demasiadas consultas al RUNT. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:soat-preconsulta:'),
 });

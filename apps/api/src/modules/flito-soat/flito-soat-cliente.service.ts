@@ -72,6 +72,20 @@
 //
 // Lo que la #11935 dejó y esta HU no toca: las solicitudes radicadas bajo aquella regla conservan su
 // `verificacion_estado` tal como está. Cero UPDATE sobre ellas (AC6).
+//
+// ── Y desde la HU #12090 la compuerta se abre CON EL VIN, no con la placa ───────────────────────
+//
+// El vehículo se identifica por VIN y nada más. Placa, tipo y número de documento del propietario
+// dejan de ser entrada del vehículo: la placa pasa a ser un dato DEVUELTO por el RUNT —y es la que
+// se escribe en `vehicles.plate`— y el documento deja de viajar al registro nacional, porque la
+// modalidad de VIN no lo pide. El titular se sigue tecleando entero (es lo que va a
+// `flito_compradores`), pero ya no sirve para interrogar al RUNT.
+//
+// **Consultar por VIN NO acredita al titular** (RN-B1). La consulta por documento sí lo hacía de
+// rebote: el RUNT solo respondía si ese documento figuraba entre los propietarios activos, y ese
+// «no» era una comprobación de titularidad que salía gratis. Con el VIN no hay tal cosa: cualquiera
+// que conozca un VIN obtiene la ficha. Lo que acredita que quien radica puede radicar por ese
+// vehículo es **la factura de venta adjunta**, que es obligatoria y es lo que Operaciones revisa.
 
 import { createHash, randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
@@ -148,6 +162,74 @@ export class SolicitudSoatError extends Error {
 const fallo = (status: number, codigo: CodigoErrorSolicitudSoat, mensaje: string, datos?: Record<string, unknown>) =>
   new SolicitudSoatError(status, codigo, mensaje, datos);
 
+/**
+ * ¿Este desenlace **afirma algo sobre el VEHÍCULO** identificado por el VIN? (ADR-0012 §8.2).
+ *
+ * Es el criterio que decide si un intento fallido deja línea en `pii_access_log`, y vive aquí
+ * —junto a los `fallo()` que crean cada error— y no en el router: quien estrene un desenlace tiene
+ * que clasificarlo en el mismo sitio donde lo escribe.
+ *
+ * ── Por qué un `Record` TOTAL y no una lista de códigos ─────────────────────────────────────────
+ *
+ * Una lista (`[409, 422, 503]`, o un `Set` de códigos) deriva en silencio: el día que alguien añada
+ * un desenlace, la lista sigue compilando y el código nuevo cae por omisión del lado que le tocara
+ * — y si ese lado es «sí», se estrena un evento sobredeclarado en una tabla con seis años de
+ * retención. Un `Record<CodigoErrorSolicitudSoat, boolean>` es TOTAL: añadir un miembro al enum de
+ * `shared-types` **rompe el build** hasta que alguien decida qué es. El criterio deja de depender de
+ * que alguien se acuerde.
+ *
+ * ── Qué es «hablar del vehículo», y por qué NO es «se consultó el RUNT» ─────────────────────────
+ *
+ * El criterio no puede ser si la petición llegó a hablar con Kyverum: `vin_ya_tiene_soat` corta
+ * ANTES de la compuerta —lo produce `verificarRn01` con su lectura barata— y es justamente el
+ * desenlace que más interesa ver repetido, porque un 409 confirma que ESE VIN está en FLITO. Es una
+ * divulgación pequeña pero real sobre cartera ajena, y enumerando es señal.
+ *
+ * El criterio es: **¿la respuesta habría sido distinta con otro VIN?** Si sí, la línea describe una
+ * pregunta sobre un vehículo concreto y el titular de ese vehículo tiene derecho a verla (art. 17).
+ * Si no —`sin_compania`, `canal_desactivado`, `archivo_no_pdf`—, la respuesta habla del LLAMANTE o
+ * de su adjunto, es idéntica para cualquier VIN, y escribirla sería declarar el acceso a datos de un
+ * tercero por el que nadie llegó a preguntar. Es la misma clase de mentira que esta HU vino a cerrar
+ * en `campos_accedidos`, un nivel más arriba: allí un CAMPO sobredeclarado, aquí un EVENTO.
+ */
+export const DESENLACE_HABLA_DEL_VEHICULO: Record<CodigoErrorSolicitudSoat, boolean> = {
+  // ── Sí: la respuesta depende del VIN que se preguntó ──────────────────────────────────────────
+  /** El RUNT no respondió A ESTA consulta. Es el intento que un sondeo repite mientras la pasarela va mal. */
+  [CodigoErrorSolicitudSoat.RUNT_NO_DISPONIBLE]: true,
+  /** El registro nacional dice que no conoce ese VIN. */
+  [CodigoErrorSolicitudSoat.RUNT_SIN_REGISTRO]: true,
+  /** El VIN tecleado no coincide con el que el registro tiene para ese vehículo. */
+  [CodigoErrorSolicitudSoat.RUNT_NO_CUADRA]: true,
+  /** El registro tiene el vehículo y no publica su VIN: afirma que EXISTE. */
+  [CodigoErrorSolicitudSoat.RUNT_SIN_VIN]: true,
+  /** El RUNT reporta SOAT vigente para ese vehículo. */
+  [CodigoErrorSolicitudSoat.SOAT_VIGENTE]: true,
+  /** Ese VIN ya está en FLITO: el 409 que confirma cartera, propia o ajena. */
+  [CodigoErrorSolicitudSoat.VIN_YA_TIENE_SOAT]: true,
+
+  // ── No: la respuesta es la misma para cualquier VIN ───────────────────────────────────────────
+  /** Del USUARIO: no tiene compañía. No se llegó a mirar ningún vehículo. */
+  [CodigoErrorSolicitudSoat.SIN_COMPANIA]: false,
+  /** De la COMPAÑÍA: el canal está apagado. Ídem. */
+  [CodigoErrorSolicitudSoat.CANAL_DESACTIVADO]: false,
+  /** Del ADJUNTO: los bytes no son un PDF. Corta antes de mirar nada del vehículo. */
+  [CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF]: false,
+  /** De la SOLICITUD pedida, no de un vehículo: lo produce la lectura de factura con `solicitudId`. */
+  [CodigoErrorSolicitudSoat.SOLICITUD_NO_ENCONTRADA]: false,
+
+  // ── No, y además hoy inalcanzables por estas dos rutas ────────────────────────────────────────
+  //
+  // Sobrevivientes del circuito de revisión que la HU #12080 retiró, más el del satélite. Se
+  // clasifican igual porque el `Record` es total, y el día que alguno vuelva la decisión ya está
+  // tomada donde se ve. Ninguno depende del VIN preguntado.
+  [CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO]: false,
+  [CodigoErrorSolicitudSoat.NO_ES_DEL_CANAL]: false,
+  [CodigoErrorSolicitudSoat.ESTADO_NO_PERMITE]: false,
+  [CodigoErrorSolicitudSoat.CAUSAL_INVALIDA]: false,
+  [CodigoErrorSolicitudSoat.OBSERVACION_REQUERIDA]: false,
+  [CodigoErrorSolicitudSoat.DESTINO_REQUERIDO]: false,
+};
+
 // ───────────────────────────── Entrada ──────────────────────────────────────
 
 /**
@@ -195,9 +277,14 @@ export function nombreCompletoDe(p: Pick<PropietarioSolicitud, 'nombres' | 'apel
 }
 
 export interface EntradaSolicitud {
-  placa: string;
-  /** Opcional desde la HU #11966 (AC1). El VIN EFECTIVO es el que trae el RUNT. */
-  vin: string | null;
+  /**
+   * **Lo ÚNICO que se teclea del vehículo** (HU #12090, AC1). Era opcional bajo la #11966 y ahora es
+   * la clave de la consulta: el RUNT se interroga por VIN y devuelve todo lo demás, la placa
+   * incluida. Por eso `placa` desapareció de esta interfaz en vez de quedarse «por compatibilidad»:
+   * mientras el campo existiera, cualquier llamador podría volver a escribir en `vehicles.plate` un
+   * valor que nadie confirmó.
+   */
+  vin: string;
   propietario: PropietarioSolicitud;
   /**
    * De dónde salió cada dato del propietario (HU #12093, AC2). Puede venir INCOMPLETO o no venir:
@@ -251,8 +338,21 @@ export interface ArchivoSolicitud {
   size: number;
 }
 
-/** Mayúsculas y solo alfanuméricos, igual que `runt.service.ts` normaliza lo que consulta. */
-const normalizarId = (v: string): string => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+/**
+ * Mayúsculas y solo alfanuméricos, igual que `runt.service.ts` normaliza lo que consulta.
+ *
+ * **Se EXPORTA desde la HU #12090, y ese export es una corrección de seguridad, no una comodidad**
+ * (bloqueante 1 de la auditoría). El borde valida la longitud del VIN y esta función decide lo que
+ * de verdad sale hacia Kyverum y hacia las dos guardas: si el borde midiera sobre una cadena y esto
+ * produjera otra, el piso no valdría lo que dice — `'A-B-C'` pasa un `trim()` con CINCO caracteres y
+ * sale de aquí con TRES. Miden lo mismo porque es la MISMA función, y por eso el router la comparte
+ * en vez de escribir su propia normalización «equivalente», que es como se separan dos reglas que
+ * tenían que ser una.
+ *
+ * Se sigue llamando también aquí dentro, y no sobra: es idempotente, y `preconsulta`/`crearSolicitud`
+ * son funciones exportadas cuyo contrato no puede depender de que quien llame haya normalizado.
+ */
+export const normalizarId = (v: string): string => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 // ───────────────────────────── Guardas del alta ─────────────────────────────
 
@@ -421,9 +521,11 @@ export interface ResultadoRunt {
   /**
    * El VIN que se va a persistir: el que trajo el RUNT, normalizado (AC1).
    *
-   * No es el que tecleó el Cliente ni un eco de la petición. Cuando el Cliente sí tecleó VIN, la
-   * compuerta ya comprobó que coinciden —si no, es un `422 runt_no_cuadra`—, así que aquí los dos
-   * valores son el mismo; cuando no lo tecleó, este es el único que existe.
+   * No es el que tecleó el Cliente ni un eco de la petición. Con el VIN obligatorio (HU #12090) la
+   * compuerta ya comprobó que coinciden —si difieren es un `422 runt_no_cuadra`; si el RUNT no lo
+   * publica es un `422 runt_sin_vin`—, así que en el camino que llega aquí los dos valores son el
+   * mismo. Se conserva el del RUNT y no el tecleado porque es el que el registro CONFIRMA: la
+   * igualdad es una consecuencia de la compuerta, no una invariante que este campo deba suponer.
    */
   vinEfectivo: string;
   /** `null` = el organismo del RUNT no cruza catálogo. **No aborta** (AC5). */
@@ -459,18 +561,15 @@ export interface ResultadoRunt {
  * Quién es quién lo decide `esNegativaDeNegocio` por la señal de TRANSPORTE (HTTP 200 = respondió) y
  * no por el texto del mensaje. Ver su docblock: es la decisión cara de esta HU.
  *
- * **El 422 nunca devuelve el VIN del RUNT.** Un Cliente puede sondear placas ajenas; si el desenlace
- * «tu VIN no cuadra» respondiera con el bueno, el endpoint sería un lector de VIN por placa. Solo
- * viaja `campo: 'vin'`, para que el formulario ponga el foco. Mismo criterio que el 409 recortado de
- * la RN-01 (`MENSAJE_VEHICULO_AJENO`).
+ * **El 422 nunca devuelve el valor que el RUNT considera bueno**, y con la HU #12090 el riesgo pasó
+ * a ser simétrico: antes era filtrar el VIN a quien sondeaba placas ajenas, ahora es confirmarle el
+ * VIN correcto a quien sondea VINs —los de una flota son consecutivos—. Solo viaja `campo: 'vin'`,
+ * para que el formulario ponga el foco. Mismo criterio que el 409 recortado de la RN-01
+ * (`MENSAJE_VEHICULO_AJENO`), y lo garantiza la construcción del error: `desenlace.campo` es el
+ * único dato que entra en `datos`, y `CodigoErrorSolicitudSoat`/`MENSAJE_REVISE` son constantes.
  */
-async function verificarRuntCompuerta(
-  placa: string,
-  vin: string | null,
-  numeroDocumento: string,
-  tipoDocumento: TipoDocumentoRunt,
-): Promise<ResultadoRunt> {
-  const desenlace = await consultarYClasificar(placa, vin, numeroDocumento, tipoDocumento);
+async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
+  const desenlace = await consultarYClasificar(vin);
   // Inmediatamente después del `await` y antes de cualquier rama: es el instante en que el registro
   // nacional respondió, que es lo que el AC4 pide poder enseñar. Se toma también en los desenlaces
   // que abortan —cuesta cero y evita que el «cuándo» dependa de qué contestó el RUNT—, y solo se
@@ -508,12 +607,16 @@ const CODIGO_REVISE: Record<CodigoRevise, CodigoErrorSolicitudSoat> = {
 /**
  * Lo que se le dice a la persona en cada uno. Ninguno menciona el VIN del RUNT ni el nombre del
  * propietario que devolvió el registro: el mensaje explica qué hacer, no qué sabe el RUNT.
+ *
+ * Los dos primeros cambian con la HU #12090 y por el mismo motivo: mandaban revisar «la placa, el
+ * tipo y el número de documento», que desde esta HU no son entrada de nada. Un mensaje que pide
+ * corregir un campo que la pantalla ya no tiene es peor que no decir nada.
  */
 const MENSAJE_REVISE: Record<CodigoRevise, string> = {
   runt_no_cuadra:
-    'El RUNT no confirma estos datos para ese vehículo. Revisa la placa, el tipo y el número de documento del propietario.',
+    'El RUNT no confirma este vehículo. Revisa el VIN que escribiste.',
   runt_sin_registro:
-    'El RUNT no tiene registrado un vehículo con esos datos. Revisa los datos.',
+    'El RUNT no tiene registrado un vehículo con ese VIN. Revísalo.',
   runt_sin_vin:
     'El RUNT no publica el VIN de este vehículo, y sin VIN no podemos radicar la solicitud. Escríbenos para revisarlo.',
 };
@@ -533,43 +636,36 @@ export interface Preconsulta {
 }
 
 /**
- * Paso 1 del wizard: el cliente escribe placa, documento y —si lo tiene— el VIN, y ve lo que el RUNT
- * sabe del vehículo antes de adjuntar nada. El documento viaja porque la pasarela lo exige con la
- * placa (Bug #11927); no se consulta «solo por VIN».
+ * Paso 1 del wizard: el cliente escribe **el VIN y nada más**, y ve lo que el RUNT sabe del vehículo
+ * antes de adjuntar nada (HU #12090, AC1).
  *
  * Aplica canal, RN-01, tenencia y la compuerta del RUNT — las mismas que el alta y en el mismo
  * orden, para que el formulario no deje llenar diez campos y adjuntar un PDF para fallar al final.
  * Y no escribe NADA: es una lectura.
  *
- * ── Qué cambia con la HU #11966 ─────────────────────────────────────────────────────────────────
+ * ── Qué cambia con la HU #12090 ─────────────────────────────────────────────────────────────────
  *
- *   · `vin` es OPCIONAL (AC1). Sin él, la RN-01 y la tenencia no se pueden comprobar ANTES de
- *     consultar —no hay clave por la que buscar—, así que se comprueban DESPUÉS, con el VIN
- *     efectivo. Es el coste de que el VIN sea opcional y está escrito abajo.
- *   · `vehiculo.vin` es el VIN del RUNT y no el eco de la petición: es el que se va a persistir.
- *   · `organismo.codigo` puede ser `null`.
+ *   · La firma pierde `placa`, `numeroDocumento` y `tipoDocumento`. La consulta va por la modalidad
+ *     de VIN, que no pide documento del propietario: el Bug #11927 obligaba a mandarlo PORQUE iba la
+ *     placa, y ya no va.
+ *   · Las dos guardas baratas (RN-01 y tenencia) vuelven a correr SIEMPRE antes de Kyverum. Bajo la
+ *     #11966 no se podía —sin VIN tecleado no había clave por la que buscar— y ese era el coste
+ *     declarado del VIN opcional. Con el VIN obligatorio ese coste desaparece.
+ *   · `vehiculo.placa` es la que DEVUELVE el RUNT (AC3), y puede ser `null`. Antes era el eco
+ *     normalizado de la petición.
+ *   · `vehiculo.vin` sigue siendo el del RUNT: es el que se va a persistir.
+ *   · `organismo.codigo` puede ser `null` (#11966, AC5).
  */
-export async function preconsulta(
-  placa: string,
-  vin: string | null,
-  numeroDocumento: string,
-  tipoDocumento: TipoDocumentoRunt,
-  ctx: SoatCtx,
-): Promise<Preconsulta> {
+export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsulta> {
   const canal = await canalDeLaCompania(ctx);
-  const placaNorm = normalizarId(placa);
-  const vinNorm = vin ? normalizarId(vin) : null;
+  const vinNorm = normalizarId(vin);
 
-  // Con VIN tecleado, las dos guardas baratas van ANTES de gastar una consulta a Kyverum. Sin él no
-  // hay por dónde buscar y se pagan después, sobre el VIN efectivo — que es el que de verdad
-  // decide, y por eso se vuelven a mirar en los dos casos.
-  if (vinNorm) {
-    await verificarRn01(vinNorm, canal.companiaId);
-    await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
-  }
+  // Las dos guardas baratas, ANTES de gastar una consulta a Kyverum. Se vuelven a mirar debajo sobre
+  // el VIN efectivo porque entre una cosa y la otra hay una llamada de red entera.
+  await verificarRn01(vinNorm, canal.companiaId);
+  await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo } =
-    await verificarRuntCompuerta(placaNorm, vinNorm, numeroDocumento, tipoDocumento);
+  const { datos, vinEfectivo, organismoCodigo } = await verificarRuntCompuerta(vinNorm);
 
   // Autoritativas. El 409 que producen es idéntico al de la RN-01 ajena, sin id y sin estado.
   await verificarRn01(vinEfectivo, canal.companiaId);
@@ -582,10 +678,12 @@ export async function preconsulta(
 
   return {
     vehiculo: {
-      // La placa es la NORMALIZADA de la petición y no el eco del RUNT: es la que se va a persistir,
-      // y enseñar otra sería enseñar algo que no se guardó. El VIN, en cambio, es el del RUNT —es la
-      // única fuente posible cuando el Cliente no lo teclea, y es el que se persiste (AC1).
-      placa: placaNorm,
+      // **La placa es la del RUNT** (HU #12090, AC3), y sigue siendo «la que se va a persistir»: es
+      // el mismo valor que `upsertVehiculoRunt` escribe en `vehicles.plate`. Lo que cambió es de
+      // dónde sale. `null` cuando el registro no la publica — la pantalla pinta «—», que es lo
+      // honesto: inventar aquí el eco de una petición que ya no lleva placa sería enseñar como dato
+      // del RUNT algo que nadie confirmó.
+      placa: datos.placa,
       vin: vinEfectivo,
       marca: datos.marca, linea: datos.linea, modelo: datos.modelo, clase: datos.clase,
       cilindraje: datos.cilindraje, tipoServicio: datos.tipoServicio,
@@ -642,7 +740,7 @@ export async function preconsulta(
  */
 async function upsertVehiculoRunt(
   tx: Pick<typeof db, 'select' | 'insert' | 'update'>,
-  entrada: { placa: string; vin: string },
+  entrada: { vin: string },
   datos: DatosRuntCanal,
   propietario: PropietarioSolicitud,
   companiaId: number,
@@ -687,7 +785,14 @@ async function upsertVehiculoRunt(
     const adopta = existente.clientId == null;
     await tx.update(vehicles).set({
       ...(adopta ? { clientId: companiaId } : {}),
-      plate: entrada.placa,
+      // **La placa pasa a la política de «un campo vacío no borra lo que ya se sabía»** (§1.4), y
+      // ese condicional es la mitad de la HU #12090 en esta función. Se escribía incondicionalmente
+      // porque era un campo TECLEADO y obligatorio: no podía llegar vacía. Ahora llega del RUNT, que
+      // en la modalidad de VIN puede no publicarla, y un `plate: null` a pelo BORRARÍA la placa que
+      // la ficha ya tenía —puesta por el sync de trámites o por el OCR de la tarjeta de propiedad—
+      // sin que nadie lo pidiera. Con el condicional, «el RUNT no la trajo» deja la fila como estaba,
+      // igual que marca, línea o clase.
+      ...(datos.placa ? { plate: datos.placa } : {}),
       ...(datos.marca ? { brand: datos.marca } : {}),
       ...(datos.linea ? { model: datos.linea } : {}),
       ...(year !== null ? { year } : {}),
@@ -716,8 +821,12 @@ async function upsertVehiculoRunt(
     return existente.id;
   }
 
+  // En una fila NUEVA `null` sí es la forma correcta de decir «el RUNT no lo trajo», y la placa no
+  // es una excepción: `vehicles.plate` es nullable desde la migración 0000 y aquí no hay ningún
+  // valor previo que perder. Ver el HANDOFF de la HU #12090: el desenlace «el RUNT no publica la
+  // placa» NO existe (el simétrico `runt_sin_vin` sí), así que esta fila puede nacer sin placa.
   const [creado] = await tx.insert(vehicles).values({
-    vin: entrada.vin, plate: entrada.placa, clientId: companiaId,
+    vin: entrada.vin, plate: datos.placa, clientId: companiaId,
     brand: datos.marca, model: datos.linea, year, vehicleClass: datos.clase,
     cilindraje: datos.cilindraje, tipoServicio: datos.tipoServicio,
     carroceria: datos.carroceria,
@@ -837,6 +946,18 @@ export interface SolicitudCreada {
   id: string;
   estado: EstadoSoat;
   /**
+   * La placa que devolvió el RUNT, **solo para el rastro de PII** (ADR-0012, HU #12090).
+   *
+   * Y **no se proyecta en el 201**, igual que `destino`: la respuesta sigue siendo `{ id, estado }`.
+   * Existe porque el registro del artículo 17 escribe un HMAC de la placa además del del VIN —para
+   * que un titular que solo conoce su placa pueda ser emparejado— y esta es la ÚNICA fuente: desde
+   * esta HU la placa es un dato de salida del RUNT, no algo que el router tenga a mano. El VIN no
+   * necesitó este tratamiento porque el router ya lo tiene en `parsed.data.vin`.
+   *
+   * `null` cuando el registro no la publica, que esta misma HU dejó medido que ocurre.
+   */
+  placa: string | null;
+  /**
    * A dónde fue, PARA LA AUDITORÍA del AC7 — y solo para ella.
    *
    * La ruta lo escribe en `audit_logs` y **no lo devuelve en el 201**, que sigue siendo
@@ -857,20 +978,20 @@ export interface SolicitudCreada {
  *
  *   1. Canal encendido y compañía del usuario — lo más barato y lo que más veces va a fallar.
  *   2. El adjunto es un PDF de verdad — antes de gastar S3 y antes de gastar una consulta a Kyverum.
- *   3. Si vino VIN: RN-01 + tenencia — un 409 barato, ANTES del RUNT.
+ *   3. RN-01 + tenencia sobre el VIN TECLEADO — un 409 barato, ANTES del RUNT.
  *   4. La COMPUERTA — 503 | 422 | 409-vigente. Aquí es donde el alta puede no llegar a existir.
  *   5. VIN efectivo = el del RUNT (AC1).
- *   6. RN-01 + tenencia sobre el VIN efectivo — AUTORITATIVAS, y las únicas que corren siempre.
+ *   6. RN-01 + tenencia sobre el VIN efectivo — AUTORITATIVAS (HU #12090, AC5).
  *   7. UUID + subida a S3 — fuera de la transacción (CA-11).
- *   8. La transacción: vehículo CON los datos del RUNT, **el destino resuelto** (HU #12078), SOAT en
- *      `solicitado` con ese destino y con el organismo cruzado (o NULL), satélite en `ok`,
- *      propietario partido, soporte e historial, todo o nada.
+ *   8. La transacción: vehículo CON los datos del RUNT —**la placa incluida** (AC5)—, **el destino
+ *      resuelto** (HU #12078), SOAT en `solicitado` con ese destino y con el organismo cruzado (o
+ *      NULL), satélite en `ok`, propietario partido, soporte e historial, todo o nada.
  *   9. COMMIT → 201. **No hay `setImmediate`**: no queda nada por verificar.
  *
- * El paso 3 DUPLICA el 6 a propósito, y es el mismo patrón que ya usaba la tenencia (previa + dentro
- * de la tx): evita gastar una consulta a Kyverum por un alta que ya se sabe que no entra. Cuando no
- * hay VIN tecleado el paso 3 no puede correr —no hay clave por la que buscar— y se paga la consulta;
- * es el coste de que el VIN sea opcional.
+ * El paso 3 DUPLICA el 6 y desde la HU #12090 puede correr SIEMPRE, porque el VIN es obligatorio: la
+ * rama «sin VIN tecleado no hay clave por la que buscar» desapareció con el coste que la #11966
+ * declaraba. El 6 no se va por eso: entre el 3 y el 8 hay una llamada de red al RUNT —segundos— y es
+ * la lectura de después la que decide. Es el mismo patrón de la tenencia (previa + dentro de la tx).
  *
  * El `id` del SOAT se genera AQUÍ y no lo pone la base: la clave de storage se nombra con él.
  */
@@ -882,18 +1003,15 @@ export async function crearSolicitud(
   const canal = await canalDeLaCompania(ctx);
   await verificarPdfReal(archivo);
 
-  const placa = normalizarId(entrada.placa);
-  const vinTecleado = entrada.vin ? normalizarId(entrada.vin) : null;
-  if (vinTecleado) {
-    await verificarRn01(vinTecleado, canal.companiaId);
-    await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
-  }
+  const vinTecleado = normalizarId(entrada.vin);
+  await verificarRn01(vinTecleado, canal.companiaId);
+  await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo, consultadoEn } =
-    await verificarRuntCompuerta(placa, vinTecleado, entrada.propietario.numeroDocumento, entrada.propietario.tipoDocumento);
+  const { datos, vinEfectivo, organismoCodigo, consultadoEn } = await verificarRuntCompuerta(vinTecleado);
 
-  // Sobre el VIN EFECTIVO, que es el que se va a escribir. Sin esta pareja, un alta sin VIN tecleado
-  // llegaría al INSERT sin que nadie hubiera comprobado la RN-01 del VIN que de verdad se guarda.
+  // Sobre el VIN EFECTIVO, que es el que se va a escribir (AC5). No sobra por coincidir hoy con el
+  // tecleado —la compuerta garantiza esa igualdad—: lo que esta pareja cubre es la ventana entre la
+  // comprobación previa y el INSERT, en la que cabe otra petición entera radicando el mismo VIN.
   const vin = vinEfectivo;
   await verificarRn01(vin, canal.companiaId);
   await verificarTenenciaVehiculo(vin, canal.companiaId);
@@ -913,7 +1031,7 @@ export async function crearSolicitud(
   try {
     await db.transaction(async (tx) => {
       const vehiculoId = await upsertVehiculoRunt(
-        tx, { placa, vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId,
+        tx, { vin }, datos, entrada.propietario, canal.companiaId, ctx, soatId,
       );
 
       // DENTRO de la transacción y ANTES del INSERT, para que el destino entre en el MISMO INSERT
@@ -1036,7 +1154,7 @@ export async function crearSolicitud(
   // Sin `setImmediate` y sin job: la verificación ya ocurrió, dentro de la petición. La función que
   // la #11935 programaba aquí (`verificarRuntPostAlta`) se BORRÓ con esta HU, y ese borrado es lo
   // que hace estructural el «las filas ya radicadas no se reconsultan» del AC6.
-  return { id: soatId, estado: EstadoSoat.SOLICITADO, destino };
+  return { id: soatId, estado: EstadoSoat.SOLICITADO, placa: datos.placa, destino };
 }
 
 // ═════════ Lectura OCR de la factura de venta (Feature #12073, HU #12092) ════

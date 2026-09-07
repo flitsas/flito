@@ -30,6 +30,7 @@
 
 import type { Request } from 'express';
 import { logPiiAccess } from '../../shared/pii-audit.js';
+import { hmacPlaca, hmacVin, tokenPii } from '../../shared/utils/crypto.js';
 import { CAMPOS_PII_COLA_EXPORT } from '../../shared/export/cola-flito-excel.js';
 
 /** `resource_tipo` de una lectura de SOAT. Mismo literal con el que `audit()` anota las escrituras. */
@@ -215,10 +216,17 @@ export async function registrarAccesoSoat(req: Request, acceso: AccesoSoat): Pro
  * Placa y VIN siempre; el nombre del propietario solo cuando el RUNT lo trae, y por eso el registro
  * lo declara caso a caso en vez de afirmar siempre que se accedió a él.
  *
- * `numero_documento` NO está: la preconsulta SÍ recibe el documento en el cuerpo (Bug #11927: la
- * pasarela lo exige con la placa) pero NO lo devuelve. Esta lista es de columnas ACCEDIDAS en la
- * respuesta, no de las que viajan de ida. El alta sí lo persiste, y esa ruta es una MUTACIÓN
- * —queda en `audit_logs`, no aquí—, por la misma división que explica la cabecera de este archivo.
+ * **La lista NO cambia con la HU #12090, y merece una frase porque la entrada sí cambió.** Desde esa
+ * HU la preconsulta recibe solo el VIN —ya no la placa ni el documento del propietario— pero sigue
+ * DEVOLVIENDO placa y VIN: la placa dejó de ser el eco de la petición y pasó a ser el dato que trae
+ * el registro, que es exactamente el tipo de divulgación que esta lista existe para declarar. Quitar
+ * `placa` de aquí porque «ya no se teclea» haría que el registro subdeclarara lo que la respuesta
+ * entrega.
+ *
+ * `numero_documento` sigue sin estar, y ahora por partida doble: la preconsulta ni lo recibe ni lo
+ * devuelve. Esta lista es de columnas ACCEDIDAS en la respuesta, no de las que viajan de ida. El
+ * alta sí lo persiste, y esa ruta es una MUTACIÓN —queda en `audit_logs`, no aquí—, por la misma
+ * división que explica la cabecera de este archivo.
  */
 export const CAMPOS_PII_PRECONSULTA = ['placa', 'vin'] as const;
 const CAMPO_PROPIETARIO = 'nombre_completo';
@@ -253,17 +261,117 @@ const MOTIVO_RUNT: Record<'preconsulta' | 'alta', string> = {
  */
 export async function registrarAccesoRuntCliente(
   req: Request,
-  opciones: { conPropietario: boolean; motivo?: 'preconsulta' | 'alta' },
+  opciones: {
+    /**
+     * El VIN consultado, **obligatorio** (ADR-0012, «Contrato de las primitivas»). Se espera ya
+     * normalizado —es `parsed.data.vin`, la salida del `preprocess` de Zod— y de todas formas
+     * `hmacVin` vuelve a normalizar con la misma regla.
+     *
+     * Obligatorio y no opcional-con-defecto a propósito: un opcional convierte «se me olvidó
+     * pasarlo» en una línea sin correlación que compila, pasa los tests y no ve nadie.
+     */
+    vin: string;
+    /**
+     * La placa que DEVOLVIÓ el RUNT, cuando la devolvió (ADR-0012, «lo que NO compra» #2).
+     *
+     * `null` es un caso real y no una defensa teórica: desde la HU #12090 la placa es un dato de
+     * salida, y esta misma HU dejó medido que el registro puede no publicarla. Sin placa no se
+     * escribe su token, y eso no rompe ni el formato ni la búsqueda — cada token se busca por su
+     * propio prefijo.
+     *
+     * Existe porque el HMAC del VIN deja fuera al titular que solo conoce su PLACA, que es como la
+     * gente identifica su carro. La traducción placa→VIN por `vehicles` falla justo para la
+     * población de este canal: son los vehículos que NO tienen fila ahí.
+     */
+    placa?: string | null;
+    conPropietario: boolean;
+    motivo?: 'preconsulta' | 'alta';
+    /**
+     * El desenlace cuando la consulta **no entregó nada** (409, 422, 503).
+     *
+     * Mismo parámetro y mismo criterio que {@link AccesoSoat.resultado} —«la lectura corrió pero no
+     * entregó nada»—: no lo inventa esta HU.
+     */
+    resultado?: string;
+  },
 ): Promise<void> {
+  const intento = opciones.resultado !== undefined;
+
   await logPiiAccess(req, {
     resourceTipo: RECURSO_SOAT,
     resourceId: null,
     accion: 'read',
-    camposAccedidos: opciones.conPropietario
-      ? [...CAMPOS_PII_PRECONSULTA, CAMPO_PROPIETARIO]
-      : [...CAMPOS_PII_PRECONSULTA],
-    motivo: MOTIVO_RUNT[opciones.motivo ?? 'preconsulta'].slice(0, MOTIVO_MAX),
+    // **Un intento fallido no accedió a ningún campo, y la columna que se llama `campos_accedidos`
+    // tiene que decirlo.** Es lo que separa «se intentó» de «se accedió» sin tener que leer el
+    // motivo: un 503 del RUNT caído, un 422 o un 409 no entregaron ni la placa, ni el VIN, ni el
+    // nombre del propietario. Escribir la lista de siempre en esas líneas convertiría el registro en
+    // una cuenta de divulgaciones que nunca ocurrieron — y es con ese registro con el que se
+    // responde al artículo 17.
+    camposAccedidos: intento
+      ? []
+      : (opciones.conPropietario
+        ? [...CAMPOS_PII_PRECONSULTA, CAMPO_PROPIETARIO]
+        : [...CAMPOS_PII_PRECONSULTA]),
+    motivo: motivoRunt(opciones),
   });
+}
+
+/**
+ * El `motivo` de una consulta al RUNT del canal Cliente: **los tokens DELANTE, la prosa detrás**.
+ *
+ *     vin=v1:<32 hex> · placa=v1:<32 hex> · resultado=<codigo> · <la prosa de siempre>
+ *
+ * ── Por qué un HMAC y no el VIN ─────────────────────────────────────────────────────────────────
+ *
+ * La regla de este archivo no cambia: la placa y el VIN son datos que este registro PROTEGE y no
+ * pueden acabar guardados como el motivo de su propia consulta. Lo que entra es un identificador
+ * OPACO —AGENTS.md §14 lo permite—, del mismo tipo que el `soat <uuid>` que ya escriben las otras dos
+ * funciones de aquí: **no estrena el patrón, lo continúa**. Y sigue siendo cuasi-PII seudonimizada y
+ * no dato anónimo: con la clave y una lista de candidatos se recomputa. Sube el listón frente a un
+ * volcado del log, no frente a un compromiso del entorno, y la retención de 6 años se le aplica igual.
+ *
+ * ── Por qué el token va PRIMERO, que es una decisión y no un gusto ──────────────────────────────
+ *
+ * `motivo` se recorta con `.slice(0, MOTIVO_MAX)` y el corte cae POR EL FINAL — lo dice ya
+ * `registrarAccesoSoat` en su propio comentario. Un token al final es un token que, el día que
+ * alguien alargue la prosa, se recorta en silencio y deja la fila correlacionando NADA con 200
+ * caracteres de aspecto perfectamente sano. Delante, lo que se pierde ante un cambio de prosa es
+ * prosa.
+ *
+ * **Presupuesto medido (ADR-0012 §2), sobre `varchar(200)`:** 163 caracteres en el caso real más
+ * largo —los dos tokens y la prosa de la preconsulta— y **199** en el peor caso ARITMÉTICO, que
+ * suma además el marcador `resultado=` con el código más largo del catálogo. Ese peor caso es
+ * **inalcanzable por construcción y no por suerte**: un éxito nunca lleva `resultado`, y un intento
+ * nunca lleva `placa` — ni podría, porque si el RUNT hubiera devuelto la placa no habría intento que
+ * registrar. Se calcula igualmente porque lo que se mide es el TECHO, no lo que hoy ocurre. El
+ * `slice` se conserva como red.
+ *
+ * ── El cálculo NO puede tumbar la petición ──────────────────────────────────────────────────────
+ *
+ * `hmacVin` lanza si falta `PII_HMAC_KEY` (herencia de `hmacCedula`). Hoy es casi imposible —`env.ts`
+ * la exige al arrancar, sin `.optional()`— pero el orden de las llamadas hace que un `throw` aquí
+ * ocurra DESPUÉS de que el servicio devolvió los datos y ANTES del `res.json`: convertiría una
+ * preconsulta correcta en un 500. Si el token no se puede calcular se escribe `vin=?` y **la línea se
+ * escribe igual**. Perder el identificador es una molestia; perder la fila del artículo 17 es un
+ * incumplimiento — la misma distinción que `pii-audit.ts` ya tiene escrita en su `catch`.
+ */
+function motivoRunt(opciones: {
+  vin: string; placa?: string | null; motivo?: 'preconsulta' | 'alta'; resultado?: string;
+}): string {
+  const partes: string[] = [];
+  try {
+    partes.push(`vin=${tokenPii(hmacVin(opciones.vin))}`);
+    if (opciones.placa) partes.push(`placa=${tokenPii(hmacPlaca(opciones.placa))}`);
+  } catch {
+    // Ni el valor ni el error: lo primero es PII y lo segundo es texto que aquí no aporta. Se
+    // descarta lo que hubiera para no dejar media línea con un token y otro ausente por otro motivo.
+    partes.length = 0;
+    partes.push('vin=?');
+  }
+  if (opciones.resultado !== undefined) partes.push(`resultado=${opciones.resultado}`);
+  partes.push(MOTIVO_RUNT[opciones.motivo ?? 'preconsulta']);
+
+  return partes.join(' · ').slice(0, MOTIVO_MAX);
 }
 
 // ── Canal Cliente: la LECTURA OCR de la factura de venta (Feature #12073, HU #12092) ─────────────
