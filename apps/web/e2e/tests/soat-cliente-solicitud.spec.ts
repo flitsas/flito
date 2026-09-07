@@ -19,6 +19,12 @@
 // falta. Lo NUEVO —la enumeración, el foco al primer campo pendiente, el modal de la ficha de la
 // compañía y la inalcanzabilidad de lo retirado— vive en `soat-envio-directo-gestor.spec.ts`.
 // La pantalla legada `/soat` y su «Verificar RUNT» viven en `rol-cliente-identidad.spec.ts`.
+//
+// **HU #12091.** El bloque 1 pasó a pedir un solo dato —el VIN— y la pantalla se reordenó
+// (vehículo → factura → propietario). Lo que este archivo tenía sobre la PLACA como dato tecleado
+// está INVERTIDO caso por caso, no borrado: los helpers, el orden de entrada, el «VIN opcional», la
+// invalidación por documento y la frase de faltantes. Lo NUEVO —la ficha de once datos, los cuatro
+// desenlaces con su copy y los bordes de longitud del VIN— vive en `soat-vin-unico-ficha-runt.spec.ts`.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, CLIENTE_USER, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
@@ -138,16 +144,29 @@ const btnReconsultar = (page: Page) => page.getByRole('button', { name: 'Volver 
 const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 
-/** Los cuatro identificadores del bloque 1. El VIN es opcional y por eso se pide explícitamente. */
-async function llenarVehiculo(page: Page, { vin = '' } = {}) {
-  await page.getByLabel('Placa').fill(PLACA);
-  await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
-  await page.getByLabel('Número de documento').fill(NUMERO_DOC);
-  if (vin) await page.getByLabel('VIN').fill(vin);
+/**
+ * El bloque 1 entero, que desde la HU #12091 es **un solo campo**: el VIN.
+ *
+ * El helper se queda con su nombre y su forma —lo llaman doce tests— pero ya no teclea placa, tipo
+ * ni número: esos tres salieron del bloque del vehículo (AC1) y el documento se llena ahora con el
+ * propietario. El VIN dejó de ser opcional, así que se rellena SIEMPRE y su valor por defecto es un
+ * VIN válido en vez de la cadena vacía.
+ */
+async function llenarVehiculo(page: Page, { vin = VIN } = {}) {
+  await page.getByLabel('VIN').fill(vin);
 }
 
-/** El propietario del bloque 2, en su forma de persona natural. */
-async function llenarPropietario(page: Page, { nombres = 'MARÍA FERNANDA', apellidos = 'GÓMEZ RUIZ', municipio = 'Medellín' } = {}) {
+/**
+ * El propietario del bloque 3, en su forma de persona natural — **con su documento** (HU #12091).
+ *
+ * `documento: false` es para el único test que lo conmuta a mano (el de NIT), que tiene que elegir
+ * el tipo antes de que se monte el campo de razón social.
+ */
+async function llenarPropietario(page: Page, { nombres = 'MARÍA FERNANDA', apellidos = 'GÓMEZ RUIZ', municipio = 'Medellín', documento = true } = {}) {
+  if (documento) {
+    await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
+    await page.getByLabel('Número de documento').fill(NUMERO_DOC);
+  }
   if (nombres) await page.getByLabel('Nombre/s').fill(nombres);
   if (apellidos) await page.getByLabel('Apellido/s').fill(apellidos);
   await page.getByLabel('Correo electrónico').fill(CORREO);
@@ -195,7 +214,10 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await page.keyboard.press('Tab');
     await expect(enviar).toBeFocused();
     // HU #12079: la frase deja de ser genérica y enumera lo que falta, empezando por el RUNT.
-    await expect(page.getByText('Para enviar falta: consultar el RUNT, Placa y 10 datos más.')).toBeVisible();
+    // HU #12091: el segundo ítem ya no es «Placa» sino «VIN». El CONTEO se mantiene en 10 y eso no es
+    // casualidad: el bloque 1 pierde tres campos (placa, tipo y número) y el VIN pasa a obligatorio,
+    // mientras tipo y número reaparecen en el bloque del propietario. Doce pendientes antes y ahora.
+    await expect(page.getByText('Para enviar falta: consultar el RUNT, VIN y 10 datos más.')).toBeVisible();
 
     await llenarVehiculo(page);
     await llenarPropietario(page);
@@ -214,19 +236,22 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(btnConsultar(page)).toBeFocused();
   });
 
-  test('el orden de entrada es placa, tipo, número y VIN, y nada del RUNT se teclea', async ({ page }) => {
+  test('el orden de entrada empieza por el VIN, y ni la placa ni nada del RUNT se teclea', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
 
     await expect(page.getByRole('heading', { name: 'Solicitud de SOAT' })).toBeFocused();
-    for (const etiqueta of ['Placa', 'Tipo de documento', 'Número de documento', 'VIN']) {
-      await page.keyboard.press('Tab');
-      await expect(page.getByLabel(etiqueta)).toBeFocused();
-    }
+    // HU #12091: el orden viejo era placa → tipo → número → VIN, los cuatro en el bloque 1. Ahora el
+    // primer control de la pantalla es el VIN y el siguiente ya es el botón que consulta: entre los
+    // dos no queda nada porque el bloque 1 no tiene nada más.
+    await page.keyboard.press('Tab');
+    await expect(page.getByLabel('VIN')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(btnConsultar(page)).toBeFocused();
+    // Y la placa no se teclea en NINGÚN sitio: no cambió de bloque, se fue.
+    await expect(page.getByLabel('Placa')).toHaveCount(0);
 
     // Marca, línea, modelo y organismo no se teclean. Los DOS asertos hacen falta: un
     // `<input disabled>` conserva el rol `textbox` en varios motores, así que el primero solo no
@@ -235,7 +260,7 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(page.locator('input[disabled]')).toHaveCount(0);
   });
 
-  test('una consulta 200 abre la compuerta, trae la ficha y NO enseña el VIN del RUNT', async ({ page }) => {
+  test('una consulta 200 abre la compuerta y trae la ficha con la placa y el VIN del RUNT', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     const cap = await mockCanal(page);
@@ -248,53 +273,65 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(ficha.getByText('RENAULT')).toBeVisible();
     await expect(ficha.getByText('SEDAN')).toBeVisible();
     await expect(ficha.getByText('STRIA TTEyTTO MEDELLIN')).toBeVisible();
-    // Ni el VIN que trajo el RUNT ni la placa entran a la ficha en el alta.
-    await expect(ficha.getByText(VIN)).toHaveCount(0);
-    // Los datos del archivo de Operaciones no se pintan: no ayudan a reconocer el vehículo.
-    await expect(ficha.getByText(/Pasajeros|Puertas/)).toHaveCount(0);
+    // HU #12091, AC3: placa y VIN SÍ entran a la ficha, y la placa la encabeza. Ya no es un eco de
+    // lo tecleado —el Cliente no escribe placa— sino lo que devuelve el registro: la única prueba
+    // visible de que el RUNT habla de su vehículo. El detalle de los once datos y sus grupos se
+    // afirma en `soat-vin-unico-ficha-runt.spec.ts`; aquí basta con que los dos que ANTES se
+    // ocultaban a propósito ahora estén.
+    await expect(ficha.getByText(PLACA)).toBeVisible();
+    await expect(ficha.getByText(VIN)).toBeVisible();
+    await expect(ficha.getByText('Capacidad (pasajeros)')).toBeVisible();
+    await expect(ficha.getByText('Puertas')).toBeVisible();
     // HU #12079: la compuerta abierta ya NO basta para activar el primario —faltan el propietario y
     // la factura—, así que lo que prueba que la consulta surtió efecto es que el RUNT SALE de la
     // enumeración de lo que falta. El aserto negativo es el que importa: sin él, un `ITEM_RUNT` que
     // devolviera siempre una cadena pasaría desapercibido.
     await expect(page.locator('#sol-falta')).not.toContainText('RUNT');
-    await expect(page.locator('#sol-falta')).toHaveText('Para enviar falta: Nombre/s, Apellido/s y 6 datos más.');
+    // HU #12091: con el VIN consultado y nada más, lo que falta empieza por la factura —que ahora es
+    // el bloque 2— y sigue por el documento, que bajó al bloque del propietario.
+    await expect(page.locator('#sol-falta')).toHaveText('Para enviar falta: Factura de venta, Tipo de documento y 8 datos más.');
     await expect(page.getByRole('button', { name: 'Consultar de nuevo' })).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
   });
 
-  test('el VIN es opcional: sin escribirlo se envía, y la clave `vin` no viaja', async ({ page }) => {
+  test('el VIN es OBLIGATORIO: sin él no se consulta, y con él viaja en los dos endpoints', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     const cola = await mockCola(page);
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
-    await llenarTodoYConsultar(page);
 
+    // La inversión exacta del contrato viejo («sin escribirlo se envía»): desde la HU #12090 el VIN
+    // es LA clave de la consulta, así que sin él no hay nada que preguntar y no sale ni una petición.
+    await btnConsultar(page).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'Escriba el VIN del vehículo.' })).toBeVisible();
+    expect(cap.preconsultas).toHaveLength(0);
+
+    await llenarTodoYConsultar(page);
     cola.items = [fila()];
     await btnEnviar(page).click();
 
     await expect(page).toHaveURL(/\/flito\/soat$/);
     await expect(page.getByText('Solicitud enviada. Ya está en gestión.')).toBeVisible();
     expect(cap.altas).toHaveLength(1);
-    // Ni en la consulta ni en el alta viaja `vin: ''`: la clave se OMITE. Mandarla vacía es un 400
-    // del servidor que el Cliente no sabría explicarse.
-    expect(cap.preconsultas[0].post ?? '').not.toContain('"vin"');
-    expect(cap.altas[0].post ?? '').not.toContain('name="vin"');
-    expect(cap.altas[0].post ?? '').toContain('name="placa"');
+    // Y la placa deja de viajar en el alta: la que se persiste es la que devuelve el RUNT.
+    expect(cap.preconsultas[0].post ?? '').toContain('"vin"');
+    expect(cap.altas[0].post ?? '').toContain('name="vin"');
+    expect(cap.altas[0].post ?? '').not.toContain('name="placa"');
   });
 
-  test('la transición: cambiar UN carácter de la placa retira la ficha y cierra la compuerta', async ({ page }) => {
+  test('la transición: cambiar UN carácter del VIN retira la ficha y cierra la compuerta', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
     await llenarTodoYConsultar(page);
 
-    await page.getByLabel('Placa').fill('ABC124');
+    await page.getByLabel('VIN').fill('9BWZZZ377VT004252');
 
     await expect(fichaRunt(page)).toHaveCount(0);
     await expect(page.getByText('✓ Consultado')).toHaveCount(0);
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
-    await expect(page.getByText('Cambió la placa o el documento: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(page.getByText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
     await expect(btnReconsultar(page)).toBeVisible();
     // Y lo que escribió el Cliente NO se toca: castigar al que corrige una letra es el otro mutante.
     await expect(page.getByLabel('Correo electrónico')).toHaveValue(CORREO);
@@ -302,7 +339,11 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(page.getByText('factura.pdf', { exact: false })).toBeVisible();
   });
 
-  test('la transición también la dispara el TIPO de documento, que es el que se olvida', async ({ page }) => {
+  test('el TIPO de documento ya NO dispara la transición: dejó de ser entrada del RUNT', async ({ page }) => {
+    // La inversión de la #11967, y la decisión está escrita: desde la #12090 la consulta va solo por
+    // VIN, así que tumbar la ficha porque el Cliente corrige una tilde del documento le haría repetir
+    // una consulta que no depende de él. El aserto POSITIVO es el que importa —la ficha sigue— y el
+    // negativo mata al mutante de dejar `cambiarIdentificador` atado al documento.
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await mockCanal(page);
@@ -311,18 +352,23 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
 
     await page.getByLabel('Tipo de documento').selectOption('CE');
 
-    await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
-    await expect(page.getByText('Cambió la placa o el documento: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(fichaRunt(page)).toBeVisible();
+    await expect(page.getByText('✓ Consultado')).toBeVisible();
+    await expect(page.getByText(/vuelva a consultar el RUNT antes de enviar/)).toHaveCount(0);
     await expect(page.getByLabel('Correo electrónico')).toHaveValue(CORREO);
   });
 
-  test('la CARRERA: cambiar el tipo con la consulta EN VUELO tira la respuesta que llega tarde', async ({ page }) => {
-    // El otro test de transición cambia la placa DESPUÉS de que la respuesta aterrizó: eso prueba la
-    // invalidación, no la carrera. Aquí el identificador se cambia con la consulta todavía en el
-    // aire, que es el único camino conocido para radicar una solicitud cuyo RUNT no corresponde a lo
-    // enviado: la respuesta vieja llega tarde, pinta la ficha de OTRO vehículo y deja la compuerta
-    // abierta. Lo que lo impide es `turno`; sin él, este test se pone rojo.
+  test('cambiar el tipo con la consulta EN VUELO ya no es una carrera: la respuesta SÍ aterriza', async ({ page }) => {
+    // La inversión del caso viejo. Con la consulta por placa + documento, tocar el `<select>` del
+    // tipo mientras Kyverum pensaba era el único camino conocido para radicar una solicitud cuyo
+    // RUNT no correspondía a lo enviado, y `turno` estaba para eso. Desde la #12091 el tipo no
+    // alimenta la consulta: la respuesta que llega es la de la pregunta que se hizo, y descartarla
+    // sería tirar una consulta buena por un cambio que no la afecta.
+    //
+    // La carrera de VERDAD —cambiar el VIN en vuelo— se prueba en `soat-vin-unico-ficha-runt.spec.ts`,
+    // que es donde vive el campo que sí la provoca. Aquí sobrevive el aserto que importa: que ese
+    // `<select>` sigue siendo alcanzable durante la consulta (no se deshabilita nada, que es la
+    // decisión de foco de la #11967).
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     const cap = await mockCanal(page, { retenerPreconsulta: true });
@@ -336,39 +382,23 @@ test.describe('HU #11967 · AC1 — el RUNT es compuerta del envío', () => {
     await expect(page.getByText('La consulta puede tardar hasta un minuto. No cierre esta página.')).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
 
-    // La ventana de la carrera EXISTE porque los campos no se deshabilitan mientras se consulta
-    // —perderían el foco—, y el `<select>` del tipo de documento ni siquiera puede ser `readOnly`.
-    // El aserto no sobra: el día que alguien lo bloquee, este test dejaría de provocar la carrera y
-    // seguiría verde sin comprobar nada. Y el tipo es, además, el identificador que más se olvida.
     const tipo = page.getByLabel('Tipo de documento');
     await expect(tipo).toBeEnabled();
     await tipo.selectOption('CE');
-    await expect(page.getByText('Cambió la placa o el documento: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(page.getByText(/vuelva a consultar el RUNT antes de enviar/)).toHaveCount(0);
 
-    // Solo AHORA contesta el RUNT: es la respuesta de la pregunta que se hizo con el documento viejo.
-    const respuestaTardia = page.waitForResponse((r) => RE_PRECONSULTA.test(r.url()));
+    const respuesta = page.waitForResponse((r) => RE_PRECONSULTA.test(r.url()));
     cap.liberarPreconsulta();
-    await respuestaTardia;
-    // La respuesta ya está en el navegador. Se le deja terminar el viaje —leer el cuerpo, resolver la
-    // promesa de `api.post` y repintar— antes de exigir que no haya cambiado nada: sin esta espera, el
-    // aserto negativo pasaría por llegar ANTES que el fallo y no por ausencia de fallo. Medido: con
-    // `turno.current += 1` fuera de `invalidarConsulta`, aquí ya está pintada la ficha.
-    await page.waitForTimeout(500);
+    await respuesta;
 
-    await expect(fichaRunt(page)).toHaveCount(0);
-    await expect(page.getByText('✓ Consultado')).toHaveCount(0);
-    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
-    await expect(btnReconsultar(page)).toBeVisible();
+    await expect(fichaRunt(page)).toBeVisible();
+    await expect(page.getByText('✓ Consultado')).toBeVisible();
     expect(cap.preconsultas).toHaveLength(1);
 
-    // Y la compuerta aguanta con el formulario entero lleno: pulsar «Enviar al gestor» —con el
-    // teclado, que es como se puede pulsar un `aria-disabled`— no radica nada.
-    const cancelar = page.getByRole('button', { name: 'Cancelar' });
-    await cancelar.focus();
-    await page.keyboard.press('Tab');
-    await expect(btnEnviar(page)).toBeFocused();
-    await page.keyboard.press('Enter');
-    expect(cap.altas).toHaveLength(0);
+    // Y con la compuerta abierta y todo lleno, el primario envía: es el desenlace opuesto al viejo.
+    await expect(btnEnviar(page)).not.toHaveAttribute('aria-disabled', 'true');
+    await btnEnviar(page).click();
+    expect(cap.altas).toHaveLength(1);
   });
 
   test('un desenlace que llega en el ENVÍO también invalida el «✓ Consultado»', async ({ page }) => {
@@ -428,7 +458,7 @@ test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
     await expect(btnReconsultar(page)).toBeVisible();
   });
 
-  test('«Consultar otro vehículo» limpia los CUATRO identificadores y conserva el propietario', async ({ page }) => {
+  test('«Consultar otro vehículo» limpia SOLO el VIN y conserva el propietario entero', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await mockCanal(page, { preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.') });
@@ -440,15 +470,17 @@ test.describe('HU #11967 · AC2 — el vehículo ya tiene SOAT vigente', () => {
 
     await page.getByRole('dialog').getByRole('button', { name: 'Consultar otro vehículo' }).click();
 
-    await expect(page.getByLabel('Placa')).toHaveValue('');
+    // HU #12091: eran CUATRO identificadores y ahora es uno. El documento ya NO se borra —no es del
+    // vehículo sino del titular, y quien pide el SOAT de otro carro de su flota suele ser el mismo—:
+    // los dos asertos siguientes son la inversión del contrato viejo, no un olvido.
     await expect(page.getByLabel('VIN')).toHaveValue('');
-    await expect(page.getByLabel('Tipo de documento')).toHaveValue('');
-    await expect(page.getByLabel('Número de documento')).toHaveValue('');
+    await expect(page.getByLabel('Tipo de documento')).toHaveValue(TIPO_DOC);
+    await expect(page.getByLabel('Número de documento')).toHaveValue(NUMERO_DOC);
     await expect(page.getByLabel('Correo electrónico')).toHaveValue(CORREO);
     await expect(page.getByLabel('Nombre/s')).toHaveValue('MARÍA FERNANDA');
     await expect(page.getByText('factura.pdf', { exact: false })).toBeVisible();
     // El foco no se cae a `<body>` al desaparecer el botón que abrió el modal.
-    await expect(page.getByLabel('Placa')).toBeFocused();
+    await expect(page.getByLabel('VIN')).toBeFocused();
     await expect(btnConsultar(page)).toBeVisible();
   });
 });
@@ -480,21 +512,24 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
   test('422 runt_no_cuadra: «Revise los datos», y NO «no está disponible»', async ({ page }) => {
     const banda = await consultarCon(page, fallo(422, 'runt_no_cuadra', 'El RUNT no está disponible en este momento.'));
 
-    await expect(banda).toContainText('Revise los datos: el RUNT no encuentra ese vehículo a nombre de ese documento.');
+    // HU #12091: el copy dejó de mandar a comprobar «la placa y el documento», que el Cliente ya no
+    // teclea, y nombra el único dato que hay en el bloque 1.
+    await expect(banda).toContainText('Revise el VIN: no coincide con el que el RUNT tiene registrado.');
     await expect(page.getByText(/no está disponible/)).toHaveCount(0);
+    await expect(banda).not.toContainText(/placa/i);
   });
 
   test('los tres de la familia «revise los datos» dicen cosas DISTINTAS entre sí', async ({ page }) => {
     const banda = await consultarCon(page, fallo(422, 'runt_sin_registro', 'Revisa los datos.'));
-    await expect(banda).toContainText('el RUNT no tiene ningún vehículo registrado con esa placa');
+    await expect(banda).toContainText('El RUNT no tiene registrado ningún vehículo con ese VIN.');
 
     // `runt_sin_vin` no es «revise los datos»: no hay nada que el Cliente pueda corregir, y por eso
     // su copy no le empuja a reintentar.
     await page.unroute(RE_PRECONSULTA);
     await mockCanal(page, { preconsulta: fallo(422, 'runt_sin_vin', 'Revisa los datos.') });
     await btnReconsultar(page).click();
-    await expect(page.getByRole('alert')).toContainText('El RUNT no publica el número de chasis (VIN) de este vehículo');
-    await expect(page.getByText(/Revise los datos/)).toHaveCount(0);
+    await expect(page.getByRole('alert')).toContainText('El RUNT respondió sin el número de chasis');
+    await expect(page.getByText(/Revise el VIN/)).toHaveCount(0);
   });
 
   test('422 con campo VIN: el campo queda inválido y ENFOCADO, y la banda no dice cuál era el bueno', async ({ page }) => {
@@ -509,8 +544,11 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
     await expect(campoVin).toHaveAttribute('aria-invalid', 'true');
     await expect(campoVin).toBeFocused();
     const banda = page.getByRole('alert');
-    await expect(banda).toContainText('el VIN que escribió no es el que el RUNT tiene para esa placa');
-    await expect(banda).toContainText('déjelo vacío');
+    // HU #12091: el copy se reescribió entero. Ya no dice «el que el RUNT tiene para esa placa»
+    // —no hay placa tecleada— ni ofrece «déjelo vacío», que era la salida del VIN opcional y ahora
+    // sería un consejo imposible.
+    await expect(banda).toContainText('Revise el VIN: no coincide con el que el RUNT tiene registrado.');
+    await expect(banda).not.toContainText('déjelo vacío');
     // La fuga que nadie debe «mejorar»: el VIN del registro no se enseña en ninguna parte.
     await expect(banda).not.toContainText(VIN);
   });
@@ -520,7 +558,10 @@ test.describe('HU #11967 · AC3 — los desenlaces se distinguen por CÓDIGO', (
     // DEV lo sigue sirviendo, y en DEV el merge ES el deploy.
     const banda = await consultarCon(page, fallo(422, 'organismo_no_catalogado', 'El organismo de tránsito no está en el catálogo de FLITO.'));
 
-    await expect(banda).toContainText('El organismo de tránsito no está en el catálogo de FLITO.');
+    // HU #12091, decisión 6 del UX: la banda deja de interpolar el `mensaje` del servidor —que tutea
+    // y que en una API desfasada nombra campos que esta pantalla ya no tiene— y usa copy propio.
+    await expect(banda).toContainText('No pudimos consultar el RUNT en este momento.');
+    await expect(page.getByText('El organismo de tránsito no está en el catálogo de FLITO.')).toHaveCount(0);
     await expect(btnReconsultar(page)).toBeVisible();
     await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
   });
@@ -557,13 +598,13 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     const cap = await mockCanal(page);
     await page.goto('/flito/soat/solicitud');
 
-    await page.getByLabel('Placa').fill(PLACA);
+    await llenarVehiculo(page);
     await page.getByLabel('Tipo de documento').selectOption(TIPO_DOC);
     await page.getByLabel('Nombre/s').fill('MARÍA FERNANDA');
     await page.getByLabel('Tipo de documento').selectOption('NIT');
     await page.getByLabel('Número de documento').fill('9001234561');
     await page.getByLabel('Razón social').fill('TRANSPORTES X SAS');
-    await llenarPropietario(page, { nombres: '', apellidos: '' });
+    await llenarPropietario(page, { nombres: '', apellidos: '', documento: false });
     await adjuntarFactura(page);
     await btnConsultar(page).click();
     await expect(fichaRunt(page)).toBeVisible();
@@ -784,7 +825,9 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await page.route(RE_ALTA, (route) => route.abort('connectionfailed'));
     await btnEnviar(page).click();
 
-    await expect(page.getByText(`No sabemos si la solicitud llegó a FLITO. Vuelva a sus SOAT y busque la placa ${PLACA} antes de volver a enviarla.`)).toBeVisible();
+    // HU #12091: el aviso ya no interpola la placa —que el Cliente no teclea— ni la sustituye por el
+    // VIN, que son 17 caracteres dentro de una frase.
+    await expect(page.getByText('No sabemos si la solicitud llegó a FLITO. Vuelva a sus SOAT y busque ese VIN antes de volver a enviarla.')).toBeVisible();
     await expect(btnEnviar(page)).toHaveCount(0);
   });
 
@@ -793,13 +836,13 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await mockCola(page);
 
     await page.goto('/flito/soat/solicitud');
-    await page.getByLabel('Placa').fill(PLACA);
+    await page.getByLabel('VIN').fill(VIN);
     await page.getByRole('button', { name: '← Volver a mis SOAT' }).click();
 
     const dialogo = page.getByRole('dialog', { name: '¿Descartar la solicitud?' });
     await expect(dialogo.getByText('Lo que escribió no se guarda: no hay borradores.')).toBeVisible();
     await dialogo.getByRole('button', { name: 'Seguir llenando' }).click();
-    await expect(page.getByLabel('Placa')).toHaveValue(PLACA);
+    await expect(page.getByLabel('VIN')).toHaveValue(VIN);
 
     await page.getByRole('button', { name: '← Volver a mis SOAT' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Descartar' }).click();
@@ -822,7 +865,8 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     expect(cap.preconsultas).toHaveLength(1);
     expect(cap.altas).toHaveLength(1);
     expect(new URL(cap.altas[0].url).search).toBe('');
-    expect(cap.altas[0].post ?? '').toContain(PLACA);
+    // La placa NO viaja en el alta desde la #12090: la que se persiste la devuelve el RUNT.
+    expect(cap.altas[0].post ?? '').not.toContain(PLACA);
     expect(cap.altas[0].post ?? '').toContain(VIN);
     expect(cap.altas[0].post ?? '').toContain(NUMERO_DOC);
     expect(cap.altas[0].post ?? '').toContain(CORREO);
@@ -837,8 +881,10 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 
 // ═════════════════ La ficha de ayuda in-app del módulo SOAT ══════════════════════════════════════
 //
-// El AC pide que «la ficha de ayuda in-app del módulo SOAT describa la consulta previa, el VIN
-// opcional, el modal de vigente, el "revise los datos" y el propietario obligatorio partido».
+// El AC pide que «la ficha de ayuda in-app del módulo SOAT describa la consulta previa, el VIN, el
+// modal de vigente, el "revise los datos" y el propietario obligatorio partido». Desde la HU #12091
+// el VIN es OBLIGATORIO y el único dato del vehículo: la ficha que decía «el VIN es opcional» y
+// «escriba la placa» quedaría mintiendo, y este test es lo que lo impide.
 //
 // `flito-ayuda-fichas-gestion.spec.ts` NO lo cubre: comprueba estructura (los seis `h2`, la ruta
 // `/flito/soat`, que no diga «Esta ficha está pendiente.»), y con esa vara la ficha podría seguir
@@ -852,7 +898,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 // (Feature #11912, `user.role === 'cliente'` → `false`): el Cliente hace este trámite pero no lee la
 // ayuda in-app; quien la lee es quien lo atiende.
 test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
-  test('la ficha describe la consulta previa, el VIN, el modal, el «Revise los datos» y el propietario partido', async ({ page }) => {
+  test('la ficha describe la consulta por VIN, el modal, el «Revise el VIN» y el propietario partido', async ({ page }) => {
     // ── 1 · Lo que la pantalla dice HOY, leído del DOM ───────────────────────────────────────────
     // Los rótulos no se teclean en el test: se cogen de la pantalla y se le exigen luego a la ficha.
     // Así, el día que el botón cambie de texto, la ficha se pone roja sin que nadie se acuerde de ella.
@@ -868,8 +914,8 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     // y es el que el PO puede pedir cambiar («gestor» es vocabulario interno): si cambia aquí y no
     // en la ficha, este test se pone rojo sin que nadie tenga que acordarse.
     const rotuloEnviar = (await btnEnviar(page).innerText()).trim();
-    // El VIN se ofrece como opcional en la propia pantalla…
-    await expect(page.getByText('Si lo deja vacío, FLITO usa el que traiga el RUNT.')).toBeVisible();
+    // El VIN es el ÚNICO dato del vehículo, y la pantalla dice dónde encontrarlo…
+    await expect(page.getByText('Está en la tarjeta de propiedad y en la factura de venta. Suele tener 17 caracteres.')).toBeVisible();
     // …y el propietario se parte por tipo de documento: razón social con NIT, nombre/s y apellido/s
     // en cualquier otro caso. Las dos formas se comprueban aquí para no exigirle a la ficha una
     // conducta que la pantalla no tenga.
@@ -905,14 +951,17 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
       'No se radica una solicitud del canal SOAT sin trámite sin consultar antes el RUNT',
       // HU #12079 — lo que la ficha tiene que decir AHORA y no decía: qué se enumera cuando el
       // botón está bloqueado, a dónde va la solicitud al enviarla y dónde se configura el gestor.
-      'Para enviar falta: consultar el RUNT, Placa y 10 datos más.',
+      // HU #12091: el segundo ítem de esa frase pasó de «Placa» a «VIN».
+      'Para enviar falta: consultar el RUNT, VIN y 10 datos más.',
       'la solicitud queda en Solicitado, sale al gestor por defecto de su compañía',
       'No pasa por ninguna revisión de FLITO',
       'se configuran en Clientes y proveedores, en la columna SOAT sin trámite',
-      // El VIN opcional.
-      'el VIN es opcional',
+      // HU #12091 — el VIN dejó de ser opcional y pasó a ser el ÚNICO dato del vehículo: la ficha no
+      // puede seguir mandando a escribir la placa y el documento antes de consultar.
+      'Escriba el VIN',
+      'es el único dato del vehículo que usted escribe',
       // El desenlace que no es del canal ni del servicio, sino de los datos.
-      'Revise los datos',
+      'Revise el VIN',
       // El propietario, obligatorio entero y partido por tipo de documento.
       'complete el propietario, que ahora es obligatorio entero',
       'Si el tipo de documento es NIT, escriba la razón social; en cualquier otro caso, nombre/s y apellido/s por separado',

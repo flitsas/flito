@@ -1,18 +1,21 @@
-// FLITO — canal Cliente: los bloques del formulario de solicitud (HU #11914, #11936, #11967).
+// FLITO — canal Cliente: los bloques del formulario de solicitud (HU #11914, #11936, #11967,
+// #12091).
 //
 // ── Por qué cada bloque es una `<section>` con `<h2>` ────────────────────────────────────────────
 //
 // Es lo que permite saltar de bloque a bloque con un lector de pantalla. Los tres bloques montan
 // sus controles desde el primer paint: la compuerta de la HU #11967 es del ENVÍO, no del tecleo, y
 // doce controles grises que no reciben foco es lo que la #11936 quitó con razón.
+//
+// El ORDEN de los tres —vehículo, factura, propietario— lo decide la página, que es quien los monta.
 
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import FlitSelect from '../../flit/FlitSelect';
 import FlitUploadBox from '../../flit/FlitUploadBox';
 import { flitInp, flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
-import { esNit, etiquetaTipoDoc, MAX_MB_FACTURA, OPCIONES_TIPO_DOC, tamanoMb } from '../../../lib/soatCliente';
+import { esNit, MAX_MB_FACTURA, OPCIONES_TIPO_DOC, tamanoMb } from '../../../lib/soatCliente';
 
-// ───────────────────────────── Datos del bloque 2 ────────────────────────────────────────────────
+// ───────────────────────────── Datos del propietario ─────────────────────────────────────────────
 
 /**
  * El titular, **partido** (HU #11966, AC5) y con contacto y ubicación obligatorios.
@@ -55,9 +58,13 @@ export const CAMPOS_NOMBRE: readonly CampoPropietario[] = ['nombres', 'apellidos
  *
  * `tipoDocumento` NO está aquí a propósito: `FlitSelect` genera su id con `useId()` y se enfoca solo
  * en cuanto recibe `error`. Duplicarlo aquí sería una segunda fuente de verdad para el mismo foco.
+ *
+ * `placa` salió en la HU #12091 (AC1) con el control que lo llevaba: el Cliente ya no la teclea.
+ * `numeroDocumento` **se queda**, aunque el AC1 nombre los tres campos a la vez: no desaparece del
+ * formulario sino que cambia de bloque, y este id es con el que `useFocoPrimerError` lo alcanza en
+ * el error más común del formulario. Retirarlo dejaría el foco cayendo a `<body>`.
  */
 export const ID_CAMPO = {
-  placa: 'sol-placa',
   vin: 'sol-vin',
   numeroDocumento: 'sol-numero-documento',
   nombres: 'sol-nombres',
@@ -97,16 +104,18 @@ export function Seccion({ titulo, chip, children }: { titulo: string; chip?: Rea
  * continuar; la ayuda y la marca de procedencia son texto normal enlazado por `aria-describedby`.
  */
 export function Campo({
-  id, label, valor, onCambio, onBlur, error, ayuda, opcional, textoOpcional,
+  id, label, valor, onCambio, onBlur, error, ayuda, opcional,
   maxLength, autoComplete, inputRef, readOnly, invalido, describedByExtra,
 }: {
   id: string; label: string; valor: string; onCambio: (v: string) => void; onBlur?: () => void;
-  error?: string; ayuda?: string; opcional?: boolean;
+  error?: string; ayuda?: string;
   /**
-   * Cómo se rotula «opcional» cuando el rótulo ya lleva paréntesis —«VIN (número de chasis)»—, que
-   * con el sufijo de serie quedaría «(número de chasis) (opcional)». Mismo mecanismo, otro signo.
+   * Hoy **ningún campo de esta pantalla lo usa**: el VIN era el único opcional y la HU #12091 lo
+   * hizo obligatorio (AC1). Se conserva la capacidad —no el rótulo a medida `textoOpcional`, que
+   * existía solo para no escribir «VIN (número de chasis) (opcional)»— porque el marcador de
+   * requerido es de este componente y no de sus llamadores.
    */
-  textoOpcional?: string;
+  opcional?: boolean;
   maxLength?: number; autoComplete?: string;
   /** Para `restoreFocusRef` de los modales de bloqueo: hace falta el nodo, no su id. */
   inputRef?: RefObject<HTMLInputElement>;
@@ -118,8 +127,8 @@ export function Campo({
   readOnly?: boolean;
   /**
    * Marca el control como inválido **sin mensaje propio**, cuando quien lo explica es una banda de
-   * fuera (el `422 runt_no_cuadra` con `campo: 'vin'`). Repetir el texto bajo el campo sería decir
-   * dos veces lo mismo; no marcarlo dejaría al lector de pantalla sin saber cuál es el campo.
+   * fuera (el `422 runt_no_cuadra`). Repetir el texto bajo el campo sería decir dos veces lo mismo;
+   * no marcarlo dejaría al lector de pantalla sin saber cuál es el campo.
    */
   invalido?: boolean;
   /** Id del texto de fuera que describe el estado inválido. Se suma al `aria-describedby`. */
@@ -135,7 +144,7 @@ export function Campo({
   return (
     <div>
       <label htmlFor={id} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        {label}{opcional ? ` ${textoOpcional ?? '(opcional)'}` : ' *'}
+        {label}{opcional ? ' (opcional)' : ' *'}
       </label>
       <input
         id={id}
@@ -163,12 +172,17 @@ export function Campo({
   );
 }
 
-// ───────────────────────────── Documento del propietario (bloque 2) ──────────────────────────────
+// ───────────────────────────── Documento del propietario ─────────────────────────────────────────
 
 /**
- * Tipo y número del catálogo RUNT. **Los usan las DOS pantallas, en sitios distintos** (HU #11967):
- * el alta los monta en el bloque 1, porque son entrada de la consulta al RUNT, y la subsanación en
- * el bloque 2 junto al resto del propietario, porque allí no hay consulta que alimentar.
+ * Tipo y número del catálogo RUNT, **en el bloque del propietario y en ningún otro sitio**
+ * (HU #12091, AC1).
+ *
+ * Vivían en el bloque 1 porque la consulta por placa los exigía (Bug #11927). Desde la HU #12090 el
+ * RUNT se interroga solo por VIN: un dato que no cambia el resultado de la consulta no tiene por qué
+ * pedirse antes de ella, y arriba no hacía más que provocar la pregunta «¿y por qué me pide el
+ * documento aquí?». Con la mudanza desaparece también su eco de abajo, así que el documento vuelve
+ * a tener UNA sola aparición en la pantalla.
  */
 export function CamposDocumento({ valor, onCambio, errores, onBlur }: {
   valor: Pick<Propietario, 'tipoDocumento' | 'numeroDocumento'>;
@@ -196,31 +210,27 @@ export function CamposDocumento({ valor, onCambio, errores, onBlur }: {
   );
 }
 
-// ───────────────────────────── Bloque 2 · Propietario ────────────────────────────────────────────
+// ───────────────────────────── Bloque 3 · Propietario ────────────────────────────────────────────
 
 /**
- * El propietario **sí se edita**. El vehículo (placa/VIN) no, en la subsanación: cambiarlos sería
- * un alta encubierta sobre otro vehículo.
+ * El propietario, **entero y editable**, con su documento incluido (HU #12091, AC1).
  *
  * Este bloque **no tiene estado «cargando»**: el catálogo de tipos de documento es estático y la
  * partición NIT/natural es local. Nadie debe inventarle un `onReintentar` que no reintentaría nada.
  *
- * ── Dónde vive el documento, que no es lo mismo en las dos pantallas (HU #11967) ────────────────
+ * ── Se fue el modo `eco` ────────────────────────────────────────────────────────────────────────
  *
- * En el **alta**, tipo y número son entrada de la consulta al RUNT y viven en el bloque 1: aquí solo
- * se ENSEÑAN, en una línea de texto que dice dónde se cambian (`documento.modo === 'eco'`). Dos
- * controles para el mismo dato es la forma más barata de radicar una solicitud consultada con un
- * documento y enviada con otro.
- *
- * En la **subsanación** no hay consulta, así que los dos vuelven a ser controles editables y
- * cambiarlos no invalida nada (`documento.modo === 'editable'`).
+ * El prop `documento` tenía dos modos porque el documento era entrada de la consulta al RUNT y vivía
+ * en el bloque 1: aquí solo se ENSEÑABA, en una línea que decía dónde se cambia. Desde la #12090 la
+ * consulta va por VIN, el documento vuelve a ser un dato del propietario y nada más, y con un solo
+ * modo el prop sobra. Y es además la forma exacta que la HU #12094 necesita para prellenar campos
+ * corregibles con lo que lea de la factura: **con esta HU nacen vacíos**.
  */
-export function BloquePropietario({ valor, onCambio, errores, onBlur, documento, referenciaRunt }: {
+export function BloquePropietario({ valor, onCambio, errores, onBlur, referenciaRunt }: {
   valor: Propietario;
   onCambio: (campo: CampoPropietario, v: string) => void;
   errores: Partial<Record<CampoPropietario, string>>;
   onBlur: (campo: CampoPropietario) => void;
-  documento: { modo: 'eco'; dondeSeCambia: string } | { modo: 'editable' };
   /**
    * El nombre que el RUNT reporta como propietario, **solo como referencia** y jamás prellenado.
    *
@@ -234,16 +244,13 @@ export function BloquePropietario({ valor, onCambio, errores, onBlur, documento,
   const juridica = esNit(valor.tipoDocumento);
   return (
     <div className="space-y-3">
-      {documento.modo === 'editable'
-        ? <CamposDocumento valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur} />
-        : (
-          <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-            <span style={{ color: 'var(--flit-text-primary)' }}>
-              Documento: {valor.tipoDocumento ? `${etiquetaTipoDoc(valor.tipoDocumento)} ${valor.numeroDocumento}`.trim() : 'todavía sin elegir'}
-            </span>
-            {' · '}{documento.dondeSeCambia}
-          </p>
-        )}
+      {/* El vacío útil del bloque: qué se escribe aquí y para qué sirve. NO promete que la factura
+          vaya a precargarlo —eso es la HU #12094 y hoy no sería verdad. */}
+      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        Escriba el propietario como aparece en la factura de venta: son los datos que van en la póliza.
+      </p>
+
+      <CamposDocumento valor={valor} onCambio={onCambio} errores={errores} onBlur={onBlur} />
 
       {referenciaRunt && (
         <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
@@ -314,9 +321,15 @@ export function BloquePropietario({ valor, onCambio, errores, onBlur, documento,
   );
 }
 
-// ───────────────────────────── Bloque 3 · Factura de venta ───────────────────────────────────────
+// ───────────────────────────── Bloque 2 · Factura de venta ───────────────────────────────────────
 
 /**
+ * El bloque es una `<Seccion>` propia y va DELANTE del propietario (HU #12091, AC2): es el orden en
+ * el que el trabajo se hace de verdad —primero se sube el papel, después se copia lo que dice— y es
+ * el que la HU #12094 necesita para leerlo por OCR y precargar el propietario sin volver a reordenar
+ * la pantalla. Aquí acaba la preparación: **hoy no se pinta nada más en este bloque**, ni un aviso
+ * de lectura ni un hueco reservado que prometa algo que todavía no ocurre.
+ *
  * `FlitUploadBox` ya trae los cuatro estados (`idle | uploading | verified | rejected`) con su color,
  * su icono y su texto. Se usa tal cual, con dos añadidos que el componente no puede dar:
  *
