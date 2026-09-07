@@ -239,6 +239,21 @@ const envSchema = z.object({
   // acabará consultando una fuente externa por cada vehículo con comprobante cargado (HU #12096), y
   // un contenedor mal configurado no debe ser suficiente para desatarla.
   SOAT_VIGENCIA_CRON_ENABLED: z.string().optional().transform((v) => v === '1'),
+  // HU #12096 — cuántos vehículos se consultan al RUNT A LA VEZ dentro de la corrida de vigencia.
+  //
+  // **Default 2 y no 5, al revés que COMPARENDOS_SYNC_CONCURRENCIA de arriba**, y la diferencia no
+  // es de gusto: `consultarVehiculoRunt` sale por `withCircuitBreaker('runt-vehicle', …)`, y ese
+  // breaker es DE PROCESO y COMPARTIDO con el alta del canal Cliente, la certificación de impuestos,
+  // la preconsulta del canal y el pre-vuelo de trámites — es decir, con el camino de USUARIO. Su
+  // umbral son 5 fallos consecutivos (`services/circuitBreaker.ts`). Una corrida de madrugada que
+  // empuje 5 consultas en vuelo contra un RUNT lento abre el circuito ella sola y, mientras dure el
+  // minuto de reset, CUALQUIER persona recibe 503: eso es literalmente «degradar las consultas de
+  // usuarios», que es lo que el AC6 prohíbe. El sync de comparendos no comparte breaker con nadie y
+  // va a demanda, por eso allí 5 es barato.
+  //
+  // El techo de 8 es deliberadamente bajo por lo mismo: subirlo es una decisión sobre el camino de
+  // usuario, no sobre la velocidad del cron.
+  SOAT_VIGENCIA_CONCURRENCIA: z.coerce.number().int().min(1).max(8).default(2),
   // OPS-08 (drift-check 2026-06-01): vars antes leídas con process.env directo.
   // NIT de la empresa emisora en RNDC. FUTURO multi-tenant: tabla `empresa`.
   EMPRESA_NIT: z.string().regex(/^\d{6,12}$/, 'EMPRESA_NIT debe ser 6-12 dígitos').default('900000001'),

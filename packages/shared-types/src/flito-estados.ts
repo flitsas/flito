@@ -589,3 +589,74 @@ export type EstadoVerificacionSolicitudSoat =
 // tabla `flito_soat_causales_rechazo` que lo guardaba (migración 0176). No queda ningún productor
 // ni ningún consumidor del tipo, y dejarlo declarado invitaría a escribir una pantalla contra un
 // catálogo que ya no existe en la base.
+
+// ─────────────── Verificación diaria de vigencia contra el RUNT (Feature #12075) ─────────────────
+
+/**
+ * Lo que la verificación de las 00:10 escribe en `flito_soat.estado_vigencia` (HU #12096).
+ *
+ * **Tres valores, no cuatro**, y esa es la decisión que hay que entender antes de tocar nada:
+ * `vencido` NO se persiste. Se DERIVA en el servidor comparando `vence_el` contra el día de Bogotá,
+ * porque un SOAT que hoy está vigente mañana está vencido sin que nadie lo haya tocado — guardarlo
+ * como estado obligaría a reescribir filas cada medianoche para que la columna dejara de mentir.
+ * El vocabulario de pantalla (con `vencido` dentro) es {@link VIGENCIAS_SOAT_VISTA}.
+ *
+ * **No se confunde con `ESTADOS_VERIFICACION_SOLICITUD_SOAT`**, que es la compuerta RUNT del ALTA
+ * del canal Cliente (`pendiente|caido|sin_registro|no_cuadra|ok`), otro momento y otro dueño. El
+ * parecido de `sin_registro` es superficial: allí significa «el registro no conoce el vehículo que
+ * se está radicando» y aquí «el RUNT no reporta SOAT vigente para un vehículo que FLITO ya pagó».
+ *
+ *   · `vigente`       — el RUNT respondió y reporta póliza vigente.
+ *   · `sin_registro`  — el RUNT respondió y NO la reporta (vencida, sin póliza, o sin vehículo).
+ *   · `no_verificado` — no hubo respuesta. **No dice nada del vehículo**, y por eso no es un «no».
+ */
+export const ESTADOS_VIGENCIA_SOAT = ['vigente', 'sin_registro', 'no_verificado'] as const;
+
+export type EstadoVigenciaSoat = (typeof ESTADOS_VIGENCIA_SOAT)[number];
+
+export const esEstadoVigenciaSoat = (v: unknown): v is EstadoVigenciaSoat =>
+  typeof v === 'string' && (ESTADOS_VIGENCIA_SOAT as readonly string[]).includes(v);
+
+/**
+ * El vocabulario de PANTALLA: los tres persistidos más `vencido`, que el servidor deriva.
+ *
+ * Es también el de los tres filtros de la cola (`vencido`, `sin_registro`, `no_verificado`); no se
+ * ofrece filtrar por `vigente` porque nadie barre la cola buscando lo que está bien.
+ */
+export const VIGENCIAS_SOAT_VISTA = ['vigente', 'vencido', 'sin_registro', 'no_verificado'] as const;
+
+export type VigenciaSoatVista = (typeof VIGENCIAS_SOAT_VISTA)[number];
+
+/** Los tres que la cola acepta como filtro. `vigente` no está: ver {@link VIGENCIAS_SOAT_VISTA}. */
+export const FILTROS_VIGENCIA_COLA = ['vencido', 'sin_registro', 'no_verificado'] as const;
+
+export type FiltroVigenciaCola = (typeof FILTROS_VIGENCIA_COLA)[number];
+
+export const esFiltroVigenciaCola = (v: unknown): v is FiltroVigenciaCola =>
+  typeof v === 'string' && (FILTROS_VIGENCIA_COLA as readonly string[]).includes(v);
+
+/**
+ * Por qué no se pudo consultar. **Vocabulario CERRADO**, y ese es todo el punto.
+ *
+ * Son las mismas cuatro clases que `causaDeCaida()` del canal Cliente produce a partir del mensaje
+ * de la pasarela. Que sean cuatro tokens fijos —y no el `err.message`— es lo que permite guardarlas
+ * en `flito_soat_verificacion_corridas.motivos` y loguearlas sin abrir una vía de PII: el mensaje de
+ * un tercero puede traer dentro la placa o el VIN con los que se consultó, y `logger` no redacta lo
+ * que no reconoce.
+ */
+export const MOTIVOS_CAIDA_RUNT = ['timeout', 'red', 'circuito', 'otro'] as const;
+
+export type MotivoCaidaRunt = (typeof MOTIVOS_CAIDA_RUNT)[number];
+
+/**
+ * El `jsonb` de `flito_soat_verificacion_corridas.motivos`: cuántas caídas de cada clase, más
+ * cuántos reintentos POR VEHÍCULO se gastaron en la corrida (un total, no un mapa por vehículo —
+ * eso sería una lista de identificadores en una columna que nadie necesita para operar).
+ *
+ * Todas las claves son opcionales y su ausencia significa CERO. Un `Record` completo obligaría a
+ * escribir los cuatro ceros en cada corrida buena, que es ruido con forma de dato.
+ */
+export type ResumenMotivosCorrida = Partial<Record<MotivoCaidaRunt, number>> & {
+  /** Consultas repetidas por un mismo vehículo dentro de la corrida (tope `MAX_REINTENTOS_VEHICULO`). */
+  reintentos?: number;
+};

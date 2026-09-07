@@ -45,13 +45,21 @@
 //        volvería a lanzar la corrida de un día ya cerrado. El estado del día se persiste y se lee
 //        de la base en cada latido.
 //
-//        DÓNDE se persiste hoy: `system_kv`, el KV de estado operativo que ya usan el sync de FLIT y
-//        la salud del reconciliador. La tabla de corridas que el AC5 nombra la crea la HU #12096
-//        —esta HU tiene prohibido tocar el esquema—, así que la lectura y la escritura del estado
-//        están aisladas en `leerEstadoDelDia` / `guardarEstadoDelDia`: cuando exista la tabla, la
-//        #12096 reemplaza el cuerpo de esas dos funciones y NADA más de este archivo cambia. Lo que
-//        el AC5 exige de verdad —que el estado sobreviva al reinicio y sea el mismo para todas las
-//        instancias— ya se cumple.
+//        DÓNDE se persiste, desde la HU #12096: `flito_soat_verificacion_corridas` (migración
+//        0177), UNA FILA POR CORRIDA con llave (día, intento). Hasta entonces vivía en una sola
+//        clave de `system_kv` que el día siguiente SOBRESCRIBÍA: si el 4 cerraba `parcial` con
+//        vehículos sin verificar, el 5 a las 00:10 esa constancia desaparecía de la base y solo
+//        quedaba en los logs. Servía para DECIDIR («¿corro hoy?») y no para responder «¿qué días
+//        quedaron a medias este mes?», que es lo que el AC5 pide al decir «dejando constancia».
+//
+//        La costura prometía que la #12096 cambiaría el CUERPO de `leerEstadoDelDia` /
+//        `guardarEstadoDelDia` y nada más. Se cumplió a medias y conviene que quede escrito: las dos
+//        firmas tuvieron que crecer. `leerEstadoDelDia` recibe el DÍA —una tabla con llave (día,
+//        intento) no se puede consultar sin él, y resolverlo con `ORDER BY dia DESC LIMIT 1` sería
+//        precisamente lo que el mock de la suite no comprueba— y `guardarEstadoDelDia` recibe un
+//        segundo parámetro opcional con el resumen del recorrido, que es lo que distingue la
+//        escritura de ENTRADA (sin él) de la de CIERRE (con él). `EstadoDelDia` y `decidirCorrida`
+//        —la lógica temporal entera— no se tocaron.
 //
 // AC7    Los logs llevan host, día, intento y totales. Ni placa, ni VIN, ni documento, ni nombre: de
 //        este archivo no sale ningún identificador de vehículo ni de persona porque no llega
@@ -62,13 +70,15 @@
 //        ABC123 …')` colaría la placa por una clave (`err`) que la lista blanca del AC7 permite.
 
 import os from 'os';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { env } from '../../config/env.js';
 import { db } from '../../db/client.js';
-import { systemKv } from '../../db/schema.js';
+import { flitoSoatVerificacionCorridas } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { withLock } from '../../shared/utils/lock.js';
-import { recorrerVigenciaSoat } from './flito-soat-vigencia.service.js';
+import {
+  recorrerVigenciaSoat, type ResultadoRecorridoVigencia,
+} from './flito-soat-vigencia.service.js';
 
 const log = loggerFor('flito-soat-vigencia-cron');
 const HOST_ID = `${os.hostname()}-${process.pid}`;
@@ -127,8 +137,14 @@ const NOMBRE_LOCK = 'flito-soat-vigencia';
  */
 const LOCK_TTL_MS = 50 * 60_000;
 
-/** Clave del estado del día en `system_kv` (ver AC5 en la cabecera). */
-export const KV_CLAVE_CORRIDA = 'flito-soat.vigencia.corrida-dia';
+/**
+ * La tabla donde vive el estado del día (HU #12096, migración 0177).
+ *
+ * `KV_CLAVE_CORRIDA` vivía aquí: la clave de `system_kv` que la HU #12095 usó como estado
+ * provisional. La 0177 la BORRA de la base, así que la constante se retira del código en el mismo
+ * diff — una clave declarada que ya nadie escribe es una invitación a leerla y creerse el vacío.
+ */
+const corridas = flitoSoatVerificacionCorridas;
 
 /**
  * Cómo terminó la corrida de un día.
@@ -236,31 +252,138 @@ export function decidirCorrida(estado: EstadoDelDia | null, reloj: RelojBogota):
 
 // ─────────────────────────── Estado del día (la costura de la HU #12096) ────────────────────────
 //
-// Las DOS únicas funciones que saben dónde vive el estado. La #12096 les cambia el cuerpo por la
-// tabla de corridas y no toca nada más de este archivo.
+// Las DOS únicas funciones que saben dónde vive el estado. Traducen entre la tabla —una fila por
+// corrida, llave (día, intento)— y el `EstadoDelDia` que `decidirCorrida` consume, que NO cambió.
 
-export async function leerEstadoDelDia(): Promise<EstadoDelDia | null> {
-  const [fila] = await db.select({ v: systemKv.v }).from(systemKv)
-    .where(eq(systemKv.k, KV_CLAVE_CORRIDA)).limit(1);
-  const v = fila?.v as Partial<EstadoDelDia> | undefined;
-  if (!v || typeof v.dia !== 'string' || typeof v.estado !== 'string') return null;
+/** Un `Date` de lo que devuelva el driver, sin fiarse de que ya lo sea. */
+function aFecha(v: unknown): Date | null {
+  if (v instanceof Date) return v;
+  if (typeof v === 'string' || typeof v === 'number') {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/**
+ * El estado del día, reconstruido de la tabla de corridas.
+ *
+ * ── DOS consultas, y ninguna depende del ORDEN ──────────────────────────────────────────────────
+ *
+ * Lo natural sería `ORDER BY intento DESC LIMIT 1`, y es justo lo que NO se puede escribir: el mock
+ * de drizzle de la suite es passthrough en `orderBy` y en `limit`, así que un test sobre esa consulta
+ * sería verde con la cláusula quitada. Partirla en un AGREGADO (`max`, `sum`, `count` sobre el día) y
+ * una lectura POR LLAVE EXACTA (día + ese máximo) deja las dos comprobables: la primera por lo que
+ * calcula, la segunda por lo que liga.
+ *
+ * El agregado va **sin `GROUP BY`** a propósito. Un `GROUP BY` mal armado aquí no es un detalle de
+ * estilo: Drizzle no deduplica literales —el mismo valor interpolado dos veces son DOS parámetros—,
+ * así que una expresión repetida entre la proyección y el grupo es `42803` y un 500 en cada llamada
+ * (Bug #12058). Sin grupo, la agregación sobre un `WHERE dia = $1` devuelve exactamente una fila.
+ *
+ * ── `proximoIntentoEn` se DERIVA, no se guarda ──────────────────────────────────────────────────
+ *
+ * `iniciada_en + 1 h` mientras la corrida siga `en_curso` y queden reintentos. La cadencia se mide
+ * desde el ARRANQUE del intento (CF-06), así que la columna sería una resta persistida: un día que
+ * dejara de cuadrar con sus sumandos y nadie sabría cuál de los dos creerse.
+ *
+ * @param dia Día en Bogotá, `YYYY-MM-DD`. Lo calcula el latido con `Intl` (RN-D4).
+ */
+export async function leerEstadoDelDia(dia: string): Promise<EstadoDelDia | null> {
+  const [agregado] = await db
+    .select({
+      ultimoIntento: sql<number | null>`max(${corridas.intento})`,
+      verificados: sql<number | null>`sum(${corridas.verificados})`,
+      corridas: sql<number>`count(*)::int`,
+    })
+    .from(corridas)
+    .where(eq(corridas.dia, dia));
+
+  const ultimoIntento = Number(agregado?.ultimoIntento ?? 0);
+  // `count(*)` de un día sin corridas es 0 y `max()` es NULL: las dos cosas significan «hoy no ha
+  // corrido nada», que es lo que `decidirCorrida` entiende como día sin estado.
+  if (!agregado || Number(agregado.corridas ?? 0) === 0 || ultimoIntento === 0) return null;
+
+  const [fila] = await db
+    .select({
+      estado: corridas.estado,
+      fallidos: corridas.fallidos,
+      iniciadaEn: corridas.iniciadaEn,
+      cerradaEn: corridas.cerradaEn,
+    })
+    .from(corridas)
+    .where(and(eq(corridas.dia, dia), eq(corridas.intento, ultimoIntento)));
+  if (!fila) return null;
+
+  const estado = fila.estado as EstadoCorrida;
+  const iniciada = aFecha(fila.iniciadaEn);
+  const cerrada = aFecha(fila.cerradaEn);
+  const sigueViva = estado === 'en_curso' && ultimoIntento <= MAX_REINTENTOS;
+
   return {
-    dia: v.dia,
-    estado: v.estado as EstadoCorrida,
-    intentos: Number(v.intentos ?? 0),
-    verificados: Number(v.verificados ?? 0),
-    pendientes: Number(v.pendientes ?? 0),
-    proximoIntentoEn: typeof v.proximoIntentoEn === 'string' ? v.proximoIntentoEn : null,
-    actualizadoEn: typeof v.actualizadoEn === 'string' ? v.actualizadoEn : new Date(0).toISOString(),
+    dia,
+    estado,
+    intentos: ultimoIntento,
+    // Del DÍA entero y no del último intento: los verificados se acumulan sobre las filas del día,
+    // que es para lo que la llave lleva el `intento` dentro.
+    verificados: Number(agregado.verificados ?? 0),
+    // Del ÚLTIMO intento: `pendientes` es «cuántos quedaron sin verificar la última vez», y es lo
+    // que decide si hay reintento. Sumarlo sobre el día contaría cuatro veces al mismo vehículo.
+    pendientes: Number(fila.fallidos ?? 0),
+    proximoIntentoEn: sigueViva && iniciada ? new Date(iniciada.getTime() + REINTENTO_MS).toISOString() : null,
+    // `cerrada_en` si el intento cerró; si murió a mitad, su arranque. Nunca `now()`: esta marca
+    // dice cuándo se supo algo del día, no cuándo se preguntó.
+    actualizadoEn: (cerrada ?? iniciada ?? new Date(0)).toISOString(),
   };
 }
 
-export async function guardarEstadoDelDia(estado: EstadoDelDia): Promise<void> {
-  // El MISMO objeto en `values` y en `set`: si el upsert escribiera una cosa al insertar y otra al
-  // actualizar, el primer día del mes sería correcto y el resto no.
-  const fila = { v: estado as unknown as Record<string, unknown>, updatedAt: new Date(estado.actualizadoEn) };
-  await db.insert(systemKv).values({ k: KV_CLAVE_CORRIDA, ...fila })
-    .onConflictDoUpdate({ target: systemKv.k, set: fila });
+/**
+ * Escribe el estado del intento. **Dos escrituras por intento, y no son la misma.**
+ *
+ * `resumen` es lo que las distingue, y es deliberado que sea un parámetro y no una bandera: la
+ * escritura de ENTRADA no tiene resumen porque el recorrido todavía no ha ocurrido, y la de CIERRE
+ * lo tiene siempre. Un booleano `esCierre` permitiría cerrar sin totales, que es una fila que dice
+ * «corrí» y no dice qué hizo.
+ *
+ * **`iniciada_en` NO se toca en el cierre**, y esa es la línea que hay que mirar dos veces: es el
+ * ancla de la cadencia (`proximoIntentoEn = iniciada_en + 1 h`, CF-06). Reescribirla al cerrar haría
+ * que el reintento se midiera desde el FINAL del intento y la cadencia derivara con lo que tardara
+ * cada pasada — 00:10, 01:47, 03:39. Por eso el `set` del cierre es un objeto propio y no `…fila`.
+ *
+ * El `target` del upsert son las DOS columnas de la llave. Con `target: corridas.dia` a secas, el
+ * cierre del intento 2 machacaría la fila del intento 1 y `sum(verificados)` del día perdería lo que
+ * midió la corrida inicial — y en la primera escritura de un día nuevo, la del día anterior.
+ */
+export async function guardarEstadoDelDia(
+  estado: EstadoDelDia, resumen?: ResultadoRecorridoVigencia,
+): Promise<void> {
+  const marca = new Date(estado.actualizadoEn);
+
+  if (!resumen) {
+    // ENTRADA. `cerrada_en: null` explícito: si un intento anterior con el mismo número hubiera
+    // cerrado (reintento del mismo número tras un reinicio), dejar la marca vieja diría que este
+    // arrancó ya cerrado.
+    const entrada = { estado: estado.estado, iniciadaEn: marca, cerradaEn: null };
+    await db.insert(corridas)
+      .values({ dia: estado.dia, intento: estado.intentos, ...entrada })
+      .onConflictDoUpdate({ target: [corridas.dia, corridas.intento], set: entrada });
+    return;
+  }
+
+  const cierre = {
+    estado: estado.estado,
+    cerradaEn: marca,
+    total: resumen.considerados,
+    // De ESTE intento, no el acumulado del día: `leerEstadoDelDia` lo suma sobre las filas. Escribir
+    // aquí el acumulado (`estado.verificados`) contaría cuatro veces los del intento 1.
+    verificados: resumen.verificados,
+    cambiaron: resumen.cambiaron,
+    fallidos: estado.pendientes,
+    motivos: resumen.motivos,
+  };
+  await db.insert(corridas)
+    .values({ dia: estado.dia, intento: estado.intentos, iniciadaEn: marca, ...cierre })
+    .onConflictDoUpdate({ target: [corridas.dia, corridas.intento], set: cierre });
 }
 
 // ─────────────────────────────────────── El latido ──────────────────────────────────────────────
@@ -292,7 +415,10 @@ export async function latidoVigenciaSoat(ahora: Date = new Date()): Promise<Deci
     // La lectura va ANTES del candado y basta con una: lo que impide actuar sobre un estado viejo no
     // es el candado sino la escritura de entrada del intento en curso —el día ya está `en_curso` con
     // el reintento fechado—, así que este latido decide esperar sin necesidad de pedirlo (CF-08).
-    estado = await leerEstadoDelDia();
+    // El día se le pasa a la lectura desde la HU #12096: la tabla tiene llave (día, intento) y no se
+    // puede consultar sin él. `decidirCorrida` conserva igualmente su guarda `estado.dia !==
+    // reloj.dia` —hoy inalcanzable por esta vía— porque es la función pura que se prueba sola.
+    estado = await leerEstadoDelDia(reloj.dia);
   } catch (e) {
     log.error(
       { host: HOST_ID, dia: reloj.dia, err: nombreDeError(e) },
@@ -356,30 +482,30 @@ async function ejecutarIntento(
     intento === 1 ? 'corrida de vigencia del SOAT: arranca' : 'corrida de vigencia del SOAT: reintento',
   );
 
-  let considerados = 0;
-  let verificados = 0;
-  let pendientes = 0;
+  let resumen: ResultadoRecorridoVigencia = {
+    considerados: 0, verificados: 0, pendientes: 0, cambiaron: 0, motivos: {},
+  };
   let fallo: string | null = null;
 
   try {
     // Punto de extensión de la HU #12096. De aquí solo salen conteos: ningún identificador de
     // vehículo ni de persona llega a este archivo, que es lo que hace trivial el AC7.
-    const r = await recorrerVigenciaSoat({ dia: reloj.dia, intento });
-    considerados = r.considerados;
-    verificados = r.verificados;
-    pendientes = r.pendientes;
+    resumen = await recorrerVigenciaSoat({ dia: reloj.dia, intento });
   } catch (e) {
     // El NOMBRE del error, nunca su mensaje: ese texto viene de la #12096 y puede traer una placa.
     fallo = nombreDeError(e);
     // Un recorrido que revienta es el caso extremo de «quedaron vehículos sin verificar»: se trata
     // igual que un pendiente para que el reintento horario lo cubra. Lo que NO se hace es dar el día
     // por bueno porque la excepción se tragó el conteo.
-    pendientes = Math.max(1, pendientes);
+    resumen = { ...resumen, pendientes: Math.max(1, resumen.pendientes) };
   }
 
+  const { considerados, verificados, pendientes, cambiaron } = resumen;
   const agotados = intento > MAX_REINTENTOS;
   const cierre: EstadoCorrida = pendientes === 0 ? 'completa' : (agotados ? 'parcial' : 'en_curso');
 
+  // El resumen viaja al CIERRE y no a la entrada: es lo que distingue las dos escrituras y lo que
+  // llena `total`/`verificados`/`cambiaron`/`fallidos`/`motivos` de la fila de esta corrida.
   await guardarEstadoDelDia({
     ...base,
     estado: cierre,
@@ -387,7 +513,7 @@ async function ejecutarIntento(
     pendientes,
     proximoIntentoEn: cierre === 'en_curso' ? siguiente : null,
     actualizadoEn: new Date().toISOString(),
-  });
+  }, resumen);
 
   const datos = {
     host: HOST_ID,
@@ -396,8 +522,15 @@ async function ejecutarIntento(
     considerados,
     verificados,
     verificadosDelDia: acumuladoPrevio + verificados,
+    // Cuántos CAMBIARON de vigencia esta noche (HU #12096). Es un conteo, como el resto: la lista de
+    // cuáles vive en `audit_logs`, con su id de SOAT y sin placa.
+    cambiaron,
     pendientes,
     estado: cierre,
+    // Vocabulario CERRADO de cuatro tokens más `reintentos` (`ResumenMotivosCorrida`). Es lo que
+    // permite distinguir en DEV un timeout de un circuito abierto sin que el mensaje de la pasarela
+    // —texto de un tercero, que puede traer una placa dentro— entre nunca en el log.
+    ...(Object.keys(resumen.motivos).length > 0 ? { motivos: resumen.motivos } : {}),
     ...(fallo ? { err: fallo } : {}),
   };
 

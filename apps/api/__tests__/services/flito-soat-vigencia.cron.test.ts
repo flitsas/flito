@@ -30,9 +30,31 @@
 //      libre —el error del recorrido, que redactará la HU #12096—: una excepción con una placa en el
 //      mensaje no debe dejar rastro de ella en ninguna línea.
 
+//
+// ── Qué cambió con la HU #12096, y qué NO ───────────────────────────────────────────────────────
+//
+// El estado del día dejó de vivir en `system_kv` y pasó a `flito_soat_verificacion_corridas`, con
+// llave (día, intento). Lo que se movió en ESTE archivo es la SIMULACIÓN DE LA PERSISTENCIA —ahora
+// hay una tabla falsa que respeta el `onConflictDoUpdate` real, `set` incluido— y nada más: los 29
+// tests, sus instantes y sus asertos son los mismos. Que se pueda decir eso es justamente lo que la
+// costura de `leerEstadoDelDia` / `guardarEstadoDelDia` prometía.
+//
+// La tabla falsa NO es un `chain` que devuelve lo que el test registró: aplica los upserts como los
+// aplicaría PostgreSQL, tomando la llave del `target` que el código declara y actualizando SOLO las
+// columnas del `set`. Es lo que hace que dos mutantes caros se pongan rojos aquí —un `target` con
+// solo `dia` (que machacaría la corrida del día anterior, la deuda que esta HU cierra) y un `set` de
+// cierre que reescriba `iniciada_en` (que haría derivar la cadencia horaria)— en vez de sobrevivir
+// contra un mock que ignora los dos.
+
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { getTableName } from 'drizzle-orm';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { crearEspia } from '../helpers/espia-drizzle.js';
+
+/** El nombre real de la tabla de drizzle; `''` si lo que llega no es una tabla. */
+function nombreDeTabla(tbl: unknown): string {
+  try { return getTableName(tbl as never); } catch { return ''; }
+}
 
 // ── El huso del PROCESO, fijado a UTC para todo este archivo ────────────────────────────────────
 //
@@ -67,7 +89,16 @@ vi.mock('../../src/shared/utils/lock.js', () => ({
 
 interface Llamada { dia: string; intento: number; ts: string }
 const llamadas: Llamada[] = [];
-let respuesta = { considerados: 0, verificados: 0, pendientes: 0 };
+/**
+ * Lo que devuelve el recorrido. Se declara PARCIAL y el mock rellena el resto: `cambiaron` y
+ * `motivos` los añadió la HU #12096 y ningún test del andamiaje afirma sobre ellos —de este archivo
+ * lo que se prueba es el TIEMPO—, así que obligarlos en cada literal sería ruido que además haría
+ * ilegible qué conteo importa en cada caso.
+ */
+let respuesta: Partial<{
+  considerados: number; verificados: number; pendientes: number; cambiaron: number;
+  motivos: Record<string, number>;
+}> = {};
 let recorridoLanza: Error | null = null;
 /** Si está puesto, el recorrido se queda esperando aquí: simula un intento en vuelo. */
 let bloqueo: Promise<void> | null = null;
@@ -88,7 +119,7 @@ const recorrerMock = vi.fn(async (p: { dia: string; intento: number }) => {
   avisarEntrada?.();
   if (bloqueo) await bloqueo;
   if (recorridoLanza) throw recorridoLanza;
-  return respuesta;
+  return { considerados: 0, verificados: 0, pendientes: 0, cambiaron: 0, motivos: {}, ...respuesta };
 });
 vi.mock('../../src/modules/flito-soat/flito-soat-vigencia.service.js', () => ({
   recorrerVigenciaSoat: (p: { dia: string; intento: number }) => recorrerMock(p),
@@ -106,11 +137,11 @@ vi.mock('../../src/shared/logger.js', () => ({ logger: loggerFalso, loggerFor: (
 
 const RUTA_CRON = '../../src/modules/flito-soat/flito-soat-vigencia.cron.js';
 const {
-  KV_CLAVE_CORRIDA,
   MAX_REINTENTOS,
   ahoraEnBogota,
   decidirCorrida,
   latidoVigenciaSoat,
+  leerEstadoDelDia,
   startSoatVigenciaCron,
   stopSoatVigenciaCron,
 } = await import(RUTA_CRON);
@@ -118,30 +149,140 @@ type EstadoDelDia = Awaited<ReturnType<typeof import('../../src/modules/flito-so
 
 const espia = crearEspia(kdb);
 
-/** Estado con el que arranca el día en la base, cuando el test necesita uno previo. */
-let kvInicial: unknown = null;
+const TABLA_CORRIDAS = 'flito_soat_verificacion_corridas';
+
+// ── La tabla de corridas, simulada con las reglas de PostgreSQL ─────────────────────────────────
+
+interface FilaCorrida {
+  dia: string; intento: number;
+  iniciadaEn: Date; cerradaEn: Date | null;
+  estado: string;
+  total: number; verificados: number; cambiaron: number; fallidos: number;
+  motivos: Record<string, number>;
+}
+
+/** Los DEFAULT de la 0177: una fila insertada sin ellos nace así, no con `undefined`. */
+const DEFECTOS: Omit<FilaCorrida, 'dia' | 'intento' | 'iniciadaEn'> = {
+  cerradaEn: null, estado: 'en_curso', total: 0, verificados: 0, cambiaron: 0, fallidos: 0, motivos: {},
+};
+
+const tabla: FilaCorrida[] = [];
+
+interface Upsert {
+  valores: Record<string, unknown>;
+  /** Columnas del `target`, por su nombre EN LA BASE. */
+  llave: string[];
+  set: Record<string, unknown>;
+}
+const upserts: Upsert[] = [];
+
+/** Nombre de columna en la base -> clave del objeto de drizzle. Solo las de la llave. */
+const CLAVE_DE: Record<string, 'dia' | 'intento'> = { dia: 'dia', intento: 'intento' };
 
 /**
- * `system_kv` se simula PERSISTENTE: lo último que el cron escribió es lo que el cron lee. Sin esto
- * la idempotencia del día (AC5) sería inverificable — el mock devolvería siempre lo mismo y un cron
- * que no escribiera nada pasaría igual.
+ * Aplica el upsert COMO LO HARÍA POSTGRES: busca el conflicto por las columnas del `target` que el
+ * código declaró y, si lo encuentra, actualiza SOLO las columnas del `set`.
+ *
+ * Las dos mitades son asertos disfrazados de simulación:
+ *
+ *   · Tomar la llave del `target` REAL hace que un `target: corridas.dia` a secas colapse las cuatro
+ *     corridas del día en una fila —y, en la primera escritura de un día nuevo, se lleve la del día
+ *     anterior—, que es el mutante que esta HU viene a impedir. Con la llave escrita a mano aquí,
+ *     ese mutante sobreviviría.
+ *   · Actualizar solo el `set` hace que un cierre que reescribiera `iniciada_en` mueva el
+ *     `proximoIntentoEn` derivado y ponga rojos los tests de cadencia.
  */
-function registrarKvPersistente(): void {
-  kdb.when.select('system_kv', () => {
-    const escrito = (espia.ultimoInsertEn('system_kv') as { v?: unknown }).v;
-    const v = escrito ?? kvInicial;
-    return v ? [{ v }] : [];
+function aplicarUpsert(u: Upsert): void {
+  const v = u.valores as Partial<FilaCorrida>;
+  const i = tabla.findIndex((f) => u.llave.every((col) => {
+    const k = CLAVE_DE[col];
+    return k !== undefined && f[k] === v[k];
+  }));
+  if (i === -1) {
+    tabla.push({ ...DEFECTOS, ...(v as FilaCorrida) });
+    return;
+  }
+  Object.assign(tabla[i]!, u.set);
+}
+
+/**
+ * Engancha `db.insert` sobre la tabla de corridas para capturar `values` + `onConflictDoUpdate`.
+ *
+ * El espía de `espia-drizzle` no mira `onConflictDoUpdate` —no lo necesitaba con el KV, donde el
+ * target era la clave primaria y el `set` era el mismo objeto que los `values`—, así que este
+ * envoltorio va ENCIMA del suyo: se instala después de `espia.reiniciar()` y delega en él.
+ */
+function instalarTablaCorridas(): void {
+  const base = kdb.insert.getMockImplementation() as (t: unknown) => Record<string, unknown>;
+  kdb.insert.mockImplementation((tbl: unknown) => {
+    const chain = base(tbl);
+    if (nombreDeTabla(tbl) !== TABLA_CORRIDAS) return chain;
+
+    const values0 = chain.values as (v: unknown) => Record<string, unknown>;
+    chain.values = (v: Record<string, unknown>) => {
+      const siguiente = values0(v);
+      const occ0 = siguiente.onConflictDoUpdate as (o: unknown) => unknown;
+      siguiente.onConflictDoUpdate = (o: { target?: unknown; set?: Record<string, unknown> }) => {
+        const cols = (Array.isArray(o.target) ? o.target : [o.target])
+          .map((c) => (c as { name?: string } | undefined)?.name)
+          .filter((n): n is string => typeof n === 'string');
+        const u: Upsert = { valores: v, llave: cols, set: o.set ?? {} };
+        upserts.push(u);
+        aplicarUpsert(u);
+        return occ0(o);
+      };
+      return siguiente;
+    };
+    return chain;
   });
 }
 
-/** Estados escritos, en orden. */
-function escrituras(): NonNullable<EstadoDelDia>[] {
-  return espia.insertsEn('system_kv').map((m) => m.datos.v as NonNullable<EstadoDelDia>);
+/**
+ * Las DOS lecturas del cron, servidas de la tabla simulada.
+ *
+ * El agregado del día y la fila del último intento vuelven en el MISMO objeto: el mock enruta por
+ * tabla y las dos consultas van a la misma. Que esto no distinga una de otra es sabido y no es
+ * silencioso — lo que ata cada consulta a su forma (el agregado sin `GROUP BY`, la lectura por llave
+ * exacta) se comprueba sobre el SQL renderizado en `flito-soat-vigencia.corridas.test.ts`. Aquí lo
+ * que se prueba es que el estado del día SOBREVIVE, que es el AC5.
+ */
+function registrarCorridasPersistentes(): void {
+  kdb.when.select(TABLA_CORRIDAS, () => {
+    const dia = espia.filtros().find((v) => /^\d{4}-\d{2}-\d{2}$/.test(v));
+    if (dia === undefined) return [];
+    const delDia = tabla.filter((f) => f.dia === dia);
+    // Un agregado sin GROUP BY sobre un día sin filas devuelve UNA fila con `max` nulo y `count` 0,
+    // no cero filas. Simularlo mal haría que `leerEstadoDelDia` pareciera correcto por el camino
+    // equivocado.
+    if (delDia.length === 0) return [{ ultimoIntento: null, verificados: null, corridas: 0 }];
+    const ultimo = delDia.reduce((a, b) => (b.intento > a.intento ? b : a));
+    return [{
+      ultimoIntento: ultimo.intento,
+      verificados: delDia.reduce((s, f) => s + f.verificados, 0),
+      corridas: delDia.length,
+      estado: ultimo.estado,
+      fallidos: ultimo.fallidos,
+      iniciadaEn: ultimo.iniciadaEn,
+      cerradaEn: ultimo.cerradaEn,
+    }];
+  });
 }
 
-/** El estado que quedaría en la base. */
-function persistido(): NonNullable<EstadoDelDia> | null {
-  return escrituras().at(-1) ?? null;
+/** Upserts sobre la tabla de corridas, en orden. */
+function escrituras(): Upsert[] {
+  return upserts;
+}
+
+/**
+ * El estado del día tal como lo LEERÍA el cron: no el payload que se escribió.
+ *
+ * Es a propósito más caro que mirar el último insert. Lo que interesa afirmar es el `EstadoDelDia`
+ * reconstruido —con `proximoIntentoEn` DERIVADO de `iniciada_en` y `verificados` SUMADOS sobre el
+ * día—, que es lo que `decidirCorrida` consume. Mirar el payload dejaría sin comprobar justamente
+ * las dos operaciones que la HU #12096 añadió.
+ */
+async function persistido(dia?: string): Promise<NonNullable<EstadoDelDia> | null> {
+  return await leerEstadoDelDia(dia ?? ahoraEnBogota().dia);
 }
 
 /** Instante UTC. Bogotá es UTC-5 todo el año (Colombia no tiene horario de verano). */
@@ -152,14 +293,17 @@ function enUtc(iso: string): void {
 beforeEach(() => {
   kdb.reset();
   espia.reiniciar();
-  registrarKvPersistente();
+  // ENCIMA del espía y después de él: delega en su `values` para no perder lo que registra.
+  instalarTablaCorridas();
+  registrarCorridasPersistentes();
+  tabla.length = 0;
+  upserts.length = 0;
   withLockMock.mockReset();
   withLockMock.mockImplementation(async (_n: string, _t: number, fn: () => Promise<unknown>) => fn());
   recorrerMock.mockClear();
   llamadas.length = 0;
   registros.length = 0;
-  kvInicial = null;
-  respuesta = { considerados: 0, verificados: 0, pendientes: 0 };
+  respuesta = {};
   recorridoLanza = null;
   bloqueo = null;
   avisarEntrada = null;
@@ -206,7 +350,7 @@ describe('AC2 — la hora es la de Bogotá, no la del contenedor', () => {
     expect(d).toEqual({ accion: 'esperar', motivo: 'fuera_de_ventana' });
     expect(recorrerMock).not.toHaveBeenCalled();
     expect(withLockMock).not.toHaveBeenCalled();
-    expect(espia.insertsEn('system_kv')).toHaveLength(0);
+    expect(escrituras()).toHaveLength(0);
   });
 
   it('a las 10:00 de Bogotá el latido no hace nada', async () => {
@@ -242,13 +386,21 @@ describe('AC2 — la hora es la de Bogotá, no la del contenedor', () => {
 // ─────────────────────────── AC5 — idempotencia del día, fuera de memoria ───────────────────────
 
 describe('AC5 — la corrida del día no se repite, tampoco tras reiniciar el proceso', () => {
-  it('el estado del día se PERSISTE (no es una variable): la corrida deja fila en system_kv', async () => {
+  it('el estado del día se PERSISTE (no es una variable): la corrida deja fila en la tabla de corridas', async () => {
     enUtc('2026-09-04T05:10:00Z');
     await latidoVigenciaSoat();
 
-    const claves = espia.insertsEn('system_kv').map((m) => m.datos.k);
-    expect(claves.every((k) => k === KV_CLAVE_CORRIDA)).toBe(true);
-    expect(persistido()).toMatchObject({ dia: '2026-09-04', estado: 'completa', intentos: 1 });
+    // Las DOS escrituras del intento —entrada y cierre— van a la MISMA fila, y esa fila lleva el día
+    // de Bogotá y el número de intento. Es lo que sustituye a la clave única del KV.
+    expect(escrituras().length).toBeGreaterThan(0);
+    for (const u of escrituras()) {
+      expect(u.valores).toMatchObject({ dia: '2026-09-04', intento: 1 });
+      // El `target` del upsert son las DOS columnas de la llave. Con solo `dia`, el cierre del
+      // intento 2 machacaría la fila del 1 y —el día siguiente— la del día anterior.
+      expect(u.llave).toEqual(['dia', 'intento']);
+    }
+    expect(tabla).toHaveLength(1);
+    expect(await persistido()).toMatchObject({ dia: '2026-09-04', estado: 'completa', intentos: 1 });
   });
 
   it('reinicio dentro de la ventana → módulo recién importado (memoria limpia) y NO relanza', async () => {
@@ -283,7 +435,7 @@ describe('AC5 — la corrida del día no se repite, tampoco tras reiniciar el pr
   it('si el estado del día no se puede leer, no se corre a ciegas', async () => {
     kdb.reset();
     espia.reiniciar();
-    kdb.when.selectThrow('system_kv', new Error('base caída'));
+    kdb.when.selectThrow(TABLA_CORRIDAS, new Error('base caída'));
 
     enUtc('2026-09-04T05:10:00Z');
     const d = await latidoVigenciaSoat();
@@ -349,7 +501,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
     expect(MAX_REINTENTOS).toBe(3);
 
     // El cuarto reintento no ocurre: el día se cierra como parcial y deja constancia.
-    expect(persistido()).toMatchObject({
+    expect(await persistido()).toMatchObject({
       dia: '2026-09-04', estado: 'parcial', intentos: 4, pendientes: 6, proximoIntentoEn: null,
     });
     expect(registros.some((r) => String(r[1]).includes('PARCIAL'))).toBe(true);
@@ -360,7 +512,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
 
     enUtc('2026-09-04T05:10:00Z');
     await latidoVigenciaSoat();
-    expect(persistido()).toMatchObject({
+    expect(await persistido()).toMatchObject({
       estado: 'en_curso', intentos: 1, proximoIntentoEn: '2026-09-04T06:10:00.000Z',
     });
 
@@ -383,7 +535,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
     }
 
     expect(recorrerMock).toHaveBeenCalledTimes(1);
-    expect(persistido()).toMatchObject({ estado: 'completa', intentos: 1, proximoIntentoEn: null });
+    expect(await persistido()).toMatchObject({ estado: 'completa', intentos: 1, proximoIntentoEn: null });
   });
 
   it('el reintento lleva el MISMO día y el intento siguiente: con eso el recorrido (HU #12096) excluye lo ya verificado', async () => {
@@ -399,7 +551,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
       { dia: '2026-09-04', intento: 2 },
     ]);
     // Los verificados se ACUMULAN en el día: el reintento no vuelve a contar los de antes.
-    expect(persistido()).toMatchObject({ verificados: 4, pendientes: 3 });
+    expect(await persistido()).toMatchObject({ verificados: 4, pendientes: 3 });
   });
 
   it('un recorrido que revienta cuenta como intento con pendientes: se reprograma, no se da el día por bueno', async () => {
@@ -408,7 +560,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
     enUtc('2026-09-04T05:10:00Z');
     await latidoVigenciaSoat();
 
-    expect(persistido()).toMatchObject({
+    expect(await persistido()).toMatchObject({
       estado: 'en_curso', intentos: 1, proximoIntentoEn: '2026-09-04T06:10:00.000Z',
     });
     expect(registros.some((r) => String(r[1]).includes('el recorrido falló'))).toBe(true);
@@ -417,7 +569,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
     respuesta = { considerados: 2, verificados: 2, pendientes: 0 };
     enUtc('2026-09-04T06:10:00Z');
     expect(await latidoVigenciaSoat()).toEqual({ accion: 'correr', intento: 2, motivo: 'reintento' });
-    expect(persistido()).toMatchObject({ estado: 'completa' });
+    expect(await persistido()).toMatchObject({ estado: 'completa' });
   });
 
   it('el intento siguiente se fecha ANTES de empezar: un proceso que muere a mitad no congela el día', async () => {
@@ -431,13 +583,48 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
 
     // El intento está en vuelo y todavía no hay cierre, pero el estado YA dice cuándo se retoma: si
     // el proceso muriera ahora, a las 01:10 cualquier instancia ve un reintento vencido y sigue.
+    // Una sola escritura: la de ENTRADA. El cierre todavía no ha ocurrido.
     expect(escrituras()).toHaveLength(1);
-    expect(escrituras()[0]).toMatchObject({
+    expect(await persistido()).toMatchObject({
       estado: 'en_curso', intentos: 1, proximoIntentoEn: '2026-09-04T06:10:00.000Z',
     });
 
     soltar();
     await enCurso; // se deja terminar: un latido colgado dejaría el módulo con un intento en vuelo
+  });
+
+  it('un intento que TARDA no mueve la cadencia: el reintento sigue siendo arranque + 1 h', async () => {
+    // ── Este test existe porque un mutante SOBREVIVIÓ a los otros 32 ──────────────────────────────
+    //
+    // El mutante: que el `set` del CIERRE reescriba `iniciada_en`. Medido, sobrevivía a todo el
+    // archivo, y la razón es que en los demás tests el reloj está CONGELADO mientras el recorrido
+    // corre —el mock devuelve al instante—, así que la marca del cierre y la de la entrada son la
+    // MISMA y reescribirla no cambia nada. En producción no lo son: entre las dos hay una corrida
+    // contra el RUNT que puede durar media hora.
+    //
+    // Con el reloj movido, el mutante da 06:35 en vez de 06:10 y la cadencia horaria deja de ser
+    // fija: 00:10, 01:47, 03:39… — que es exactamente lo que CF-06 dice que NO puede pasar, porque
+    // el reintento derivaría con lo que tarde cada pasada hasta salirse del día.
+    respuesta = { considerados: 3, verificados: 1, pendientes: 2 };
+    let soltar!: () => void;
+    bloqueo = new Promise<void>((res) => { soltar = res; });
+    const entroElRecorrido = new Promise<void>((res) => { avisarEntrada = res; });
+
+    enUtc('2026-09-04T05:10:00Z');
+    const enCurso = latidoVigenciaSoat();
+    await entroElRecorrido;
+
+    // El recorrido tarda 25 minutos: el cierre ocurre a las 00:35 de Bogotá, no a las 00:10.
+    enUtc('2026-09-04T05:35:00Z');
+    soltar();
+    await enCurso;
+
+    const estado = (await persistido())!;
+    expect(estado.estado).toBe('en_curso');
+    // Desde el ARRANQUE (05:10Z), no desde el cierre (05:35Z).
+    expect(estado.proximoIntentoEn).toBe('2026-09-04T06:10:00.000Z');
+    // Y `actualizadoEn` SÍ es la del cierre: son dos marcas distintas y cada una dice lo suyo.
+    expect(estado.actualizadoEn).toBe('2026-09-04T05:35:00.000Z');
   });
 
   it('mientras un intento está en vuelo, el latido siguiente no lanza otro', async () => {
@@ -456,7 +643,7 @@ describe('AC6 — reintento cada hora, tope de tres', () => {
 
     soltar();
     await enCurso;
-    expect(persistido()).toMatchObject({ estado: 'completa' });
+    expect(await persistido()).toMatchObject({ estado: 'completa' });
   });
 });
 
@@ -563,7 +750,7 @@ describe('AC3 — la puerta es positiva', () => {
 
     stopSoatVigenciaCron();
 
-    const estado = persistido()!;
+    const estado = (await persistido())!;
     expect(estado.estado).toBe('en_curso');
     expect(estado.intentos).toBe(1);
     // Lo único que sería «a medio cerrar» es un en_curso sin fecha de retome: nadie lo recogería.
@@ -576,7 +763,12 @@ describe('AC3 — la puerta es positiva', () => {
 
 describe('AC7 — los logs llevan host, día, intento y totales, y nada más', () => {
   it('ninguna línea del cron lleva placa, VIN, documento ni nombre', async () => {
-    respuesta = { considerados: 12, verificados: 7, pendientes: 5 };
+    // Con `motivos` puesto, que es la clave nueva de la HU #12096 y el único sitio por donde podría
+    // colarse texto libre del RUNT en un log: su vocabulario es CERRADO y sus valores son conteos.
+    respuesta = {
+      considerados: 12, verificados: 7, pendientes: 5, cambiaron: 2,
+      motivos: { timeout: 3, red: 2, reintentos: 5 },
+    };
 
     const arranque = Date.parse('2026-09-04T05:00:00Z');
     for (let i = 0; i <= 5 * 12; i++) {
@@ -585,7 +777,6 @@ describe('AC7 — los logs llevan host, día, intento y totales, y nada más', (
     }
     // Y la rama del candado perdido, que también loguea.
     withLockMock.mockResolvedValue(null);
-    kvInicial = null;
     enUtc('2026-09-05T05:10:00Z');
     await latidoVigenciaSoat();
 
@@ -593,8 +784,15 @@ describe('AC7 — los logs llevan host, día, intento y totales, y nada más', (
       'host', 'dia', 'intento', 'maxReintentos', 'reintentos', 'considerados', 'verificados',
       'verificadosDelDia', 'pendientes', 'estado', 'proximoIntentoEn', 'lock', 'err',
       'zona', 'hora', 'latidoMin',
+      // Los DOS que añade la HU #12096. `cambiaron` es un conteo como el resto; `motivos` es el
+      // único valor ANIDADO de esta lista y por eso se le mira también por dentro, abajo.
+      'cambiaron', 'motivos',
     ]);
     const prohibidas = ['placa', 'vin', 'documento', 'nombre', 'cedula', 'nit', 'correo', 'email'];
+    // Vocabulario CERRADO de `ResumenMotivosCorrida`. Un aserto sobre las claves de PRIMER nivel
+    // daría verde con `motivos: { 'RUNT: placa ABC123 sin respuesta': 1 }` dentro — que es
+    // exactamente lo que pasaría si alguien usara `err.message` como clave del mapa.
+    const motivosPermitidos = new Set(['timeout', 'red', 'circuito', 'otro', 'reintentos']);
 
     expect(registros.length).toBeGreaterThan(3);
     for (const [datos] of registros) {
@@ -602,6 +800,11 @@ describe('AC7 — los logs llevan host, día, intento y totales, y nada más', (
       expect(claves.filter((k) => !permitidas.has(k))).toEqual([]);
       for (const p of prohibidas) {
         expect(claves.map((k) => k.toLowerCase())).not.toContain(p);
+      }
+      const motivos = (datos as { motivos?: Record<string, unknown> }).motivos;
+      if (motivos) {
+        expect(Object.keys(motivos).filter((k) => !motivosPermitidos.has(k))).toEqual([]);
+        for (const v of Object.values(motivos)) expect(typeof v).toBe('number');
       }
     }
   });
@@ -632,7 +835,7 @@ describe('AC7 — los logs llevan host, día, intento y totales, y nada más', (
   it('tampoco la deja el error de LECTURA del estado, que viene de la base', async () => {
     kdb.reset();
     espia.reiniciar();
-    kdb.when.selectThrow('system_kv', new Error('timeout consultando placa ABC123'));
+    kdb.when.selectThrow(TABLA_CORRIDAS, new Error('timeout consultando placa ABC123'));
 
     enUtc('2026-09-04T05:10:00Z');
     expect(await latidoVigenciaSoat()).toEqual({ accion: 'esperar', motivo: 'estado_ilegible' });

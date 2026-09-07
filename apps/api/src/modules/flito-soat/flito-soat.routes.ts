@@ -22,7 +22,8 @@ import {
   ZipError, zipSoportesLimiter,
 } from '../../shared/soportes/soportes-zip.js';
 import {
-  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, EstadoSoat, TipoSoporteZip,
+  CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, esFiltroVigenciaCola,
+  EstadoSoat, FILTROS_VIGENCIA_COLA, TipoSoporteZip,
 } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
@@ -142,6 +143,11 @@ router.get('/', LECTURA, async (req: Request, res: Response) => {
     // porque el archivo tiene que ser «lo que estoy viendo»: si la pantalla no supiera filtrar por
     // creación, el usuario no podría estar viendo lo que se descarga.
     creadoDesde: fecha(req.query.creadoDesde), creadoHasta: fecha(req.query.creadoHasta),
+    // Vigencia frente al RUNT (Feature #12075). Viaja el valor MÁQUINA —`vencido`, `sin_registro`,
+    // `no_verificado`— y nunca la etiqueta visible, y un valor desconocido se ignora como el resto:
+    // un filtro roto no tumba la pantalla de quien trabaja. La querystring de este endpoint no gana
+    // placa, VIN ni documento con esta HU: los tres buckets se nombran solos (AGENTS.md §14).
+    vigencia: esFiltroVigenciaCola(req.query.vigencia) ? req.query.vigencia : undefined,
     estancado: req.query.estancado === 'si',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
@@ -189,6 +195,11 @@ const colaFiltrosCampos = z.object({
   pagadoDesde: fechaSchema.optional(), pagadoHasta: fechaSchema.optional(),
   creadoDesde: fechaSchema.optional(), creadoHasta: fechaSchema.optional(),
   estancado: z.boolean().optional(),
+  // Feature #12075. **Declararlo aquí no es opcional aunque el `.xlsx` no gane columnas**: el
+  // esquema del `POST /export` se DERIVA de este con `.strict()`, así que un `vigencia` no declarado
+  // no sería un filtro ignorado en silencio — sería un 400 en el export en cuanto el front mande el
+  // filtro que la pantalla acaba de aplicar, y el archivo dejaría de ser «lo que estoy viendo».
+  vigencia: z.enum(FILTROS_VIGENCIA_COLA).optional(),
   page: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   cursor: z.string().optional(),
