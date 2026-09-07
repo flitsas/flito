@@ -41,6 +41,12 @@ const UUID_SOLICITUD = '11111111-2222-4333-8444-555555555555';
 const RE_ALTA = /\/api\/flito\/soat\/cliente$/;
 const RE_COLA = /\/api\/flito\/soat\?/;
 const RE_PRECONSULTA = /\/api\/flito\/soat\/cliente\/preconsulta$/;
+/**
+ * **HU #12094.** Adjuntar la factura dispara la lectura por OCR sola, y varios casos de este archivo
+ * adjuntan. Sin esta ruta esas peticiones saldrían contra el backend de verdad: `RE_ALTA` y
+ * `RE_PRECONSULTA` van anclados con `$` y no las capturan.
+ */
+const RE_LECTURA = /\/api\/flito\/soat\/cliente\/factura\/lectura$/;
 
 /** Lo que devuelve la preconsulta cuando el RUNT dice que sí. Los ONCE datos vienen en `vehiculo`. */
 const RUNT_OK = {
@@ -68,6 +74,8 @@ async function mockCanal(
 ) {
   const altas: { post: string | null }[] = [];
   const preconsultas: { post: string | null }[] = [];
+  /** Se cuenta como las demás: «se lee dos veces» y «no se lee» no se ven en el DOM. */
+  const lecturas: { post: string | null }[] = [];
   let abrir: () => void = () => {};
   const enVuelo = new Promise<void>((resolver) => { abrir = () => resolver(); });
   await page.route(RE_COLA, (route) => json(route, 200, { items: [], total: 0, page: 1, pageSize: 50 }));
@@ -79,6 +87,11 @@ async function mockCanal(
       ? json(route, opciones.alta.status, opciones.alta.cuerpo)
       : json(route, 201, { id: UUID_SOLICITUD, estado: 'solicitado' });
   });
+  await page.route(RE_LECTURA, (route) => {
+    lecturas.push({ post: route.request().postData() });
+    // Extracción VACÍA: esta HU no prellena nada y sus casos teclean el propietario a mano.
+    return json(route, 200, { extraccion: {} });
+  });
   await page.route(RE_PRECONSULTA, async (route) => {
     preconsultas.push({ post: route.request().postData() });
     if (opciones.retenerPreconsulta) await enVuelo;
@@ -87,7 +100,7 @@ async function mockCanal(
       : json(route, 200, RUNT_OK);
   });
   await page.goto('/flito/soat/solicitud');
-  return { altas, preconsultas, liberarPreconsulta: () => abrir() };
+  return { altas, preconsultas, lecturas, liberarPreconsulta: () => abrir() };
 }
 
 /**
@@ -245,6 +258,9 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
     // La placa del alta es la que devuelve el RUNT: `EntradaSolicitud` la perdió en la #12090.
     expect(cuerpo).not.toContain('name="placa"');
     expect(cuerpo).not.toContain(PLACA_RUNT);
+    // HU #12094: adjuntar leyó la factura UNA sola vez. Es lo que hace verdad el comentario del
+    // contador en `mockCanal` —«se lee dos veces» y «no se lee» no se ven en el DOM— en ESTE archivo.
+    expect(cap.lecturas).toHaveLength(1);
   });
 });
 
@@ -276,6 +292,9 @@ test.describe('HU #12091 · AC2 — el orden de la pantalla', () => {
     for (const siguiente of [
       btnConsultar(page),
       page.getByRole('button', { name: 'Quitar el archivo' }),
+      // HU #12094: con la factura adjunta el bloque 2 gana un segundo control —volver a leerla— y
+      // va DETRÁS del archivo, no delante: primero se elige el papel y después se relee.
+      page.getByRole('button', { name: 'Volver a leer' }),
       page.getByLabel('Tipo de documento'),
       page.getByLabel('Número de documento'),
     ]) {

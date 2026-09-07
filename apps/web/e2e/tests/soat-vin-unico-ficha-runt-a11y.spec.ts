@@ -36,7 +36,17 @@ const RUNT_OK = {
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-async function montarAlta(page: Page, preconsulta?: { status: number; cuerpo: unknown }) {
+/**
+ * La lectura de la factura (HU #12094). Por defecto no saca nada, que es lo que los cuatro estados de
+ * la #12091 necesitan; los casos de la #12094 pasan la suya.
+ */
+const RE_LECTURA = /\/api\/flito\/soat\/cliente\/factura\/lectura$/;
+
+async function montarAlta(
+  page: Page,
+  preconsulta?: { status: number; cuerpo: unknown },
+  lectura?: { status: number; cuerpo: unknown },
+) {
   await page.route(/\/api\/flito\/soat\?/, (route) =>
     json(route, 200, { items: [], total: 0, page: 1, pageSize: 50 }));
   await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
@@ -44,8 +54,20 @@ async function montarAlta(page: Page, preconsulta?: { status: number; cuerpo: un
   await page.route(/\/api\/flito\/soat\/cliente\/preconsulta$/, (route) => (preconsulta
     ? json(route, preconsulta.status, preconsulta.cuerpo)
     : json(route, 200, RUNT_OK)));
+  await page.route(RE_LECTURA, (route) => (lectura
+    ? json(route, lectura.status, lectura.cuerpo)
+    : json(route, 200, { extraccion: {} })));
   await page.goto('/flito/soat/solicitud');
 }
+
+async function adjuntar(page: Page) {
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'factura.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 e2e'),
+  });
+}
+
+const campo = (valor: string | null, confiable = true) =>
+  ({ valor, confianza: confiable ? 0.95 : 0.42, confiable });
 
 test.describe('HU #12091 · AC6 — accesibilidad de los cuatro estados', () => {
   test('vacío: un solo campo con label asociado, ayuda enlazada y foco visible', async ({ page }) => {
@@ -138,5 +160,99 @@ test.describe('HU #12091 · AC6 — accesibilidad de los cuatro estados', () => 
     expect(mudos, 'hay botones sin texto ni aria-label').toBe(0);
 
     esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · ficha del RUNT');
+  });
+});
+
+// ═══════════════ HU #12094 · AC8 — los estados NUEVOS del bloque 2 y la marca de revisión ════════
+//
+// Se añaden al recorrido de axe de arriba y no a un archivo aparte por el mismo motivo que aquellos
+// viven juntos: son estados de LA MISMA pantalla, y el `QA_AXE_CDN=1` que hace falta es el mismo.
+test.describe('HU #12094 · AC8 — accesibilidad de la lectura de la factura', () => {
+  test('leyendo: el aviso es un status y NADA queda deshabilitado', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    // La lectura se queda en vuelo el resto del test: ese es el estado que hay que medir.
+    await page.route(/\/api\/flito\/soat\?/, (route) =>
+      json(route, 200, { items: [], total: 0, page: 1, pageSize: 50 }));
+    await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
+      json(route, 200, { companias: [], organismos: [], proveedores: [] }));
+    await page.route(RE_LECTURA, () => new Promise(() => {}));
+    await page.goto('/flito/soat/solicitud');
+
+    await adjuntar(page);
+
+    await expect(page.getByRole('status').filter({ hasText: 'Leyendo la factura…' })).toBeVisible();
+    await expect(page.locator('input[disabled], select[disabled]')).toHaveCount(0);
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · leyendo la factura');
+  });
+
+  test('lectura caída: la banda es un alert y su reintento tiene nombre propio', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await montarAlta(page, undefined, { status: 503, cuerpo: { error: 'El lector no está disponible' } });
+
+    await adjuntar(page);
+
+    const banda = page.getByRole('alert').filter({ hasText: 'No pudimos leer la factura.' });
+    await expect(banda).toBeVisible();
+    await expect(banda.getByRole('button', { name: 'Volver a leer la factura' })).toBeVisible();
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · lectura caída');
+  });
+
+  test('leída con un campo dudoso: el chip describe el campo sin marcarlo inválido', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await montarAlta(page, undefined, {
+      status: 200,
+      cuerpo: {
+        extraccion: {
+          tipoDocumento: campo('CC'), numeroDocumento: campo('1020304050'),
+          nombres: campo('MARÍA FERNANDA'), apellidos: campo('GÓMEZ RUIZ'),
+          direccion: campo('CL 30 # 5-10'), departamento: campo('ANTIOQUIA'),
+          celular: campo('3009999999'), municipio: campo('MEDELLÍN', false),
+        },
+      },
+    });
+
+    await adjuntar(page);
+
+    // Por id: `getByLabel('Municipio')` casa por subcadena y resolvería además el botón
+    // «Confirmar municipio», que es uno de los nodos que este caso mide.
+    const municipio = page.locator('#sol-municipio');
+    await expect(municipio).toHaveValue('MEDELLÍN');
+    // `aria-invalid` NO: no es un error, es un dato correcto que quizá no lo sea. Lo que sí hay es
+    // una descripción enlazada — sin ella la marca sería solo visual.
+    await expect(municipio).not.toHaveAttribute('aria-invalid', 'true');
+    expect(await municipio.getAttribute('aria-describedby')).toContain('sol-municipio-revision');
+    await expect(page.getByRole('button', { name: 'Confirmar municipio' })).toBeVisible();
+    // Ningún botón mudo, y ninguno con el VALOR leído dentro del nombre accesible.
+    const nombres = await page.locator('button').evaluateAll(
+      (els) => els.map((el) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim()),
+    );
+    expect(nombres.filter((n) => n === '')).toHaveLength(0);
+    expect(nombres.some((n) => n.includes('MEDELLÍN'))).toBe(false);
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · factura leída con revisión');
+  });
+
+  test('banda de sobrescritura: casillas con label propio y sin robar el foco', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await montarAlta(page, undefined, {
+      status: 200,
+      cuerpo: { extraccion: { municipio: campo('MEDELLÍN'), celular: campo('3009999999') } },
+    });
+
+    await page.locator('#sol-municipio').fill('ENVIGADO');
+    await page.locator('#sol-celular').fill('3005555555');
+    const correo = page.getByLabel('Correo electrónico');
+    await correo.focus();
+    await adjuntar(page);
+
+    const banda = page.getByRole('status').filter({ hasText: 'Esta factura dice otra cosa' });
+    await expect(banda).toBeVisible();
+    await expect(banda.getByRole('checkbox', { name: 'Municipio' })).toBeChecked();
+    // La banda aparece tras una lectura que pudo tardar un minuto: NO mueve el foco de donde estaba.
+    await expect(correo).toBeFocused();
+
+    esperarSinViolacionesGraves(await correrAxe(page), 'alta del Cliente · banda de sobrescritura');
   });
 });
