@@ -13,8 +13,9 @@
 
 import { ApiError } from './api';
 import {
-  CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat, TIPOS_DOCUMENTO_RUNT,
-  type EstadoSoat, type TipoDocumentoRunt,
+  CAMPOS_COMPRADOR_FACTURA, CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat,
+  TIPOS_DOCUMENTO_RUNT,
+  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type TipoDocumentoRunt,
 } from '@operaciones/shared-types';
 
 // ───────────────────────────── Verificación RUNT post-alta (HU #11935 / #11936) ──────────────────
@@ -523,3 +524,166 @@ export function errorArchivo(f: File): string | null {
 
 /** «1,2 MB» para el rótulo del archivo ya elegido. */
 export const tamanoMb = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+// ─────────────── La lectura de la factura por OCR (HU #12094) ───────────────────────────────────
+//
+// Diseño: docs/ux/flito-soat-factura-leida-y-propietario-prellenado.md. Aquí vive lo que se puede
+// decidir SIN pintar: qué campos viajan, cómo se clasifica un fallo de la lectura y cuál es su copy.
+// La página se queda con el estado y el DOM.
+
+/**
+ * Los NUEVE campos del comprador, tal como los nombran el OCR (`CAMPOS_COMPRADOR_FACTURA`) y el
+ * mapa de procedencia del alta.
+ *
+ * **`correo` NO está entre ellos y no puede estarlo**: el esquema del borde es `.strict()` sobre
+ * exactamente esas nueve claves, así que declarar la procedencia del correo es un `400`. Es el error
+ * que se comete solo con construir el mapa desde `Object.keys(propietario)`, que tiene diez.
+ */
+export type CampoComprador = CampoCompradorFactura;
+
+/** Los nueve, en el orden de shared-types. Reexportado para no re-listarlos en la página. */
+export const CAMPOS_COMPRADOR = CAMPOS_COMPRADOR_FACTURA;
+
+const ES_COMPRADOR: ReadonlySet<string> = new Set(CAMPOS_COMPRADOR_FACTURA);
+
+/** ¿Es uno de los nueve? Estrecha el tipo para poder indexar el mapa de procedencia sin castos. */
+export const esCampoComprador = (c: string): c is CampoComprador => ES_COMPRADOR.has(c);
+
+/**
+ * Los campos del comprador que VIAJAN en el alta con el tipo de documento vigente — RN-B5, la misma
+ * excluyencia que `refinarTitular` aplica en el borde.
+ *
+ * Manda **el tipo elegido en el formulario**, nunca el que trajo la lectura: si el OCR devuelve
+ * `tipoDocumento: 'NIT'` y además `nombres`, enviar los dos es un `400` explícito («Un NIT no lleva
+ * nombres»). Y por lo mismo el mapa de procedencia se construye sobre esta lista: declarar
+ * `'factura'` sobre un campo que no se envía afirma el origen de un dato que no existe.
+ */
+export function camposQueViajan(tipoDocumento: string): CampoComprador[] {
+  const juridica = esNit(tipoDocumento);
+  return CAMPOS_COMPRADOR_FACTURA.filter((c) => (juridica
+    ? c !== 'nombres' && c !== 'apellidos'
+    : c !== 'razonSocial'));
+}
+
+/**
+ * La cota del DERIVADO `nombreCompleto`, **la misma del borde** (`MAX_NOMBRE_COMPLETO`).
+ *
+ * `nombres` y `apellidos` son dos cotas independientes de 200 sobre una columna de 200: el máximo
+ * alcanzable es 401. El servidor lo rechaza con un `400` que cuelga de los DOS campos, y sin esta
+ * guarda ese 400 aterrizaba en el aviso genérico de la tarjeta de envío —que no marca ningún campo—
+ * después de resubir el PDF entero.
+ */
+export const MAX_NOMBRE_COMPLETO = 200;
+
+/**
+ * El error de la cota combinada, **para los dos campos a la vez**.
+ *
+ * Se compone igual que `nombreCompletoDe` en el servidor —los dos recortados y unidos por un solo
+ * espacio— y no como `nombres.length + apellidos.length + 1`: el día que cambie el separador, la
+ * cota lo sigue sola.
+ */
+export function errorNombreCompleto(nombres: string, apellidos: string): string | null {
+  const n = nombres.trim();
+  const a = apellidos.trim();
+  if (!n || !a) return null;
+  return `${n} ${a}`.length > MAX_NOMBRE_COMPLETO
+    ? `El nombre y los apellidos juntos no pueden pasar de ${MAX_NOMBRE_COMPLETO} caracteres.`
+    : null;
+}
+
+/**
+ * Lo que el Cliente lee cuando la lectura NO sale. Misma forma que `DesenlaceRunt` menos el `foco`:
+ * aquí no hay ningún campo que corregir y el foco no se mueve solo (UX §8).
+ */
+export interface DesenlaceLectura {
+  titulo: string;
+  detalle: string;
+}
+
+/** El lector no respondió (`503 OcrNoDisponibleError`, que llega SIN `codigo`). */
+export const LECTURA_NO_DISPONIBLE: DesenlaceLectura = {
+  titulo: 'No pudimos leer la factura.',
+  detalle: 'No es un problema de su archivo: el lector no respondió. Puede volver a leerla, o escribir los datos del propietario a mano y enviar igual.',
+};
+
+/** `status === 0`: ni respondió ni llegó. */
+export const LECTURA_SIN_RED: DesenlaceLectura = {
+  titulo: 'No pudimos comunicarnos con FLITO para leer la factura.',
+  detalle: 'Compruebe su conexión y pulse Volver a leer la factura. También puede escribir los datos a mano y enviar igual.',
+};
+
+/**
+ * `429`. **Mensaje propio y sin reintento automático**: el limitador del canal son 20 peticiones por
+ * 15 minutos COMPARTIDAS entre preconsulta, lectura y alta, así que cada re-lectura le quita
+ * presupuesto al envío. Decir «vuelva a leerla» aquí sería empujar al Cliente contra su propio alta.
+ */
+export const LECTURA_LIMITE: DesenlaceLectura = {
+  titulo: 'Ha hecho varias lecturas seguidas y toca esperar unos minutos.',
+  detalle: 'Puede escribir los datos del propietario a mano y enviar la solicitud igual.',
+};
+
+/** La rama por defecto: un estado que esta pantalla no conoce. Nunca en silencio. */
+export const LECTURA_GENERICA: DesenlaceLectura = {
+  titulo: 'No pudimos leer la factura en este momento.',
+  detalle: 'Vuelva a leerla, o escriba los datos del propietario a mano y envíe igual.',
+};
+
+/** El motivo del rechazo del adjunto, en un solo sitio: lo pintan la lectura y el alta. */
+export const MENSAJE_ARCHIVO_NO_PDF = 'Ese archivo no es un PDF válido, aunque se llame así. Si lo exportó desde el celular, vuelva a guardarlo como PDF y súbalo otra vez.';
+
+export type ReaccionLectura =
+  /** `400 archivo_no_pdf`: no es un fallo de la lectura sino del ARCHIVO, y su sitio es la caja. */
+  | { tipo: 'archivo' }
+  /** Todo lo demás: banda dentro del bloque 2, con «Volver a leer la factura». */
+  | { tipo: 'fallo'; desenlace: DesenlaceLectura };
+
+/**
+ * Clasifica un fallo de la lectura, **por `codigo` y por estado, jamás por el texto**.
+ *
+ * El `503` del lector llega SIN `codigo` (`OcrNoDisponibleError` responde `{error}` pelado), así que
+ * aquí el estado sí discrimina: no hay otro 503 en esta ruta. El `429` lo pone el limitador del
+ * canal, que tampoco pone código.
+ */
+export function reaccionALectura(f: FalloCanal): ReaccionLectura {
+  if (f.codigo === CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF) return { tipo: 'archivo' };
+  if (f.status === 0) return { tipo: 'fallo', desenlace: LECTURA_SIN_RED };
+  if (f.status === 429) return { tipo: 'fallo', desenlace: LECTURA_LIMITE };
+  if (f.status === 503) return { tipo: 'fallo', desenlace: LECTURA_NO_DISPONIBLE };
+  return { tipo: 'fallo', desenlace: LECTURA_GENERICA };
+}
+
+/**
+ * Lo que la pantalla usa de un `200`: los NUEVE del comprador, ya sin los cinco documentales.
+ *
+ * `placa`, `vin`, `numeroFactura`, `fechaFactura` y `valorVehiculo` se descartan aquí y no más
+ * abajo: son de la cola de Operaciones y ninguno tiene campo en esta pantalla. El VIN leído **no**
+ * se compara con el tecleado ni prellena el bloque 1 — sería reabrir la compuerta del RUNT desde un
+ * PDF.
+ *
+ * `valor` llega ya normalizado por el servidor (mayúsculas del documento, celular a dígitos, tipo
+ * cruzado contra el catálogo del RUNT o `null`): **aquí no se vuelve a normalizar**. Repetirlo sería
+ * una segunda regla que diverge de la primera en la próxima corrección.
+ */
+export interface CampoLeido {
+  valor: string;
+  /** `confianza >= umbral` en el momento de la extracción. `false` con valor ⇒ hay que revisarlo. */
+  confiable: boolean;
+}
+
+/**
+ * Los campos leídos **con valor**, y solo esos.
+ *
+ * Un `{ valor: null }` no entra al mapa, y esa omisión es la regla que sostiene el AC5: cuando el
+ * lector no saca nada devuelve las nueve claves en `{valor: null, confianza: 0, confiable: false}`, y
+ * marcarlas por `confiable` a secas pondría nueve avisos ámbar y el envío bloqueado sin nada que
+ * confirmar — el AC3 tumbando al AC5. Un campo sin valor es un campo que NO SE LEYÓ.
+ */
+export function camposLeidos(extraccion: ExtraccionFacturaVenta): Partial<Record<CampoComprador, CampoLeido>> {
+  const leidos: Partial<Record<CampoComprador, CampoLeido>> = {};
+  for (const campo of CAMPOS_COMPRADOR_FACTURA) {
+    const dato = extraccion[campo];
+    if (!dato || dato.valor === null || dato.valor === '') continue;
+    leidos[campo] = { valor: dato.valor, confiable: dato.confiable };
+  }
+  return leidos;
+}

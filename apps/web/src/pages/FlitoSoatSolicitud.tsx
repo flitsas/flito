@@ -55,18 +55,22 @@
 // query: los selectores de axe arrastran valores de atributo, y una frase con 17 caracteres dentro
 // no se lee mejor que «este vehículo».
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { CodigoErrorSolicitudSoat } from '@operaciones/shared-types';
+import {
+  CodigoErrorSolicitudSoat, PROCEDENCIA_POR_DEFECTO, ProcedenciaDato,
+  type ExtraccionFacturaVenta,
+} from '@operaciones/shared-types';
 import { api } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import {
-  avisoVin, errorApellidos, errorArchivo, errorCelular, errorCorreo, errorDepartamento,
-  errorDireccion, errorMunicipio, errorNombres, errorNumeroDocumento, errorRazonSocial,
-  errorTipoDocumento, errorVin, esNit, leerFallo, normalizarVin, reaccionA,
-  DESENLACE_SIN_RED, DESENLACE_GENERICO,
-  type DesenlaceRunt, type FalloCanal, type PreconsultaRunt,
+  avisoVin, camposLeidos, camposQueViajan, errorApellidos, errorArchivo, errorCelular, errorCorreo,
+  errorDepartamento, errorDireccion, errorMunicipio, errorNombreCompleto, errorNombres,
+  errorNumeroDocumento, errorRazonSocial, errorTipoDocumento, errorVin, esCampoComprador, esNit,
+  leerFallo, normalizarVin, reaccionA, reaccionALectura,
+  DESENLACE_SIN_RED, DESENLACE_GENERICO, MENSAJE_ARCHIVO_NO_PDF,
+  type CampoComprador, type CampoLeido, type DesenlaceRunt, type FalloCanal, type PreconsultaRunt,
 } from '../lib/soatCliente';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import FlitModal from '../components/flit/FlitModal';
@@ -78,8 +82,9 @@ import { ModalSoatVigente, ModalVinEnCola } from '../components/flito/soat-clien
 import { TarjetaCanalAjeno, TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import FichaRunt from '../components/flito/soat-cliente/FichaRunt';
 import {
-  BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, Campo, ID_CAMPO, PROPIETARIO_VACIO,
-  Seccion, useFocoPrimerError, type CampoPropietario, type Propietario,
+  AvisoLectura, BandaSobrescritura, BloqueFactura, BloquePropietario, CAMPOS_NOMBRE, Campo,
+  ID_CAMPO, ID_CONFIRMAR, PROPIETARIO_VACIO, Seccion, useFocoPrimerError,
+  type CampoPropietario, type EstadoLectura, type FilaSobrescritura, type Propietario,
 } from '../components/flito/soat-cliente/bloques';
 
 const COLA = '/flito/soat';
@@ -177,6 +182,38 @@ function Alta() {
   const [vigenteCerrado, setVigenteCerrado] = useState(false);
   const [canalCaido, setCanalCaido] = useState(false);
 
+  /**
+   * La lectura de la factura (HU #12094), **con su propio estado y su propio turno**.
+   *
+   * Nada de esto se mezcla con `Consulta`: son dos peticiones distintas y compartir el contador de
+   * turno haría que consultar el RUNT cancelara una lectura sana.
+   */
+  const [lectura, setLectura] = useState<EstadoLectura>({ fase: 'inicial' });
+  /**
+   * De dónde salió cada uno de los NUEVE campos del comprador. **Solo se guarda lo que puso la
+   * lectura**: una clave ausente es `manual`, que es además el defecto del servidor.
+   *
+   * `correo` no cabe aquí ni por tipo (`CampoComprador` son nueve, no diez) ni por contrato: el
+   * esquema del borde es `.strict()` y declarar su procedencia es un `400`.
+   */
+  const [procedencia, setProcedencia] = useState<Partial<Record<CampoComprador, ProcedenciaDato>>>({});
+  /**
+   * Los campos que la lectura dejó **por revisar**: prellenados (`valor !== null`) Y con
+   * `confiable: false`.
+   *
+   * Nunca por `confiable` a secas. Cuando el lector no saca nada devuelve las nueve claves en
+   * `{valor: null, confianza: 0, confiable: false}`, y marcarlas pondría nueve avisos ámbar y el
+   * envío bloqueado sin nada que confirmar: el AC3 tumbando al AC5. La regla se aplica en un solo
+   * sitio —`camposLeidos`, que descarta los sin valor— y aquí ya solo entran campos con valor.
+   */
+  const [porRevisar, setPorRevisar] = useState<Partial<Record<CampoComprador, boolean>>>({});
+  /** Los conflictos de la lectura en curso, esperando decisión (AC6). `null` = no hay banda. */
+  const [sobrescritura, setSobrescritura] = useState<
+    { filas: FilaSobrescritura[]; leidos: Partial<Record<CampoComprador, CampoLeido>> } | null
+  >(null);
+  /** Qué filas de la banda están marcadas. Nacen todas en `true` (UX §5). */
+  const [marcados, setMarcados] = useState<Partial<Record<CampoComprador, boolean>>>({});
+
   const [errores, setErrores] = useState<Errores>({});
   const [intento, setIntento] = useState(0);
   const [enviando, setEnviando] = useState(false);
@@ -212,6 +249,32 @@ function Alta() {
    * Protege un solo campo desde la HU #12091 y hace la misma falta que cuando protegía cuatro.
    */
   const turno = useRef(0);
+
+  /**
+   * Turno de la LECTURA en vuelo, con el mismo criterio que `turno` y **un contador propio**.
+   *
+   * El daño del que protege: se adjunta la factura A, se cambia a la B con la lectura de A todavía
+   * en vuelo, y la respuesta tardía de A escribe en el formulario los datos del comprador de OTRA
+   * factura. Aquí no hay `readOnly` que ayude —la caja de subida acepta un archivo nuevo en cualquier
+   * momento, y bloquearla mientras se lee convertiría la ayuda en un peaje (AC1)—, así que esta es la
+   * ÚNICA cerradura de esta carrera. No se reusa `turno`: consultar el RUNT no puede cancelar una
+   * lectura sana.
+   */
+  const turnoLectura = useRef(0);
+
+  /**
+   * Espejos de lo que hay escrito AHORA, para la respuesta de la lectura.
+   *
+   * Entre adjuntar la factura y recibir la extracción pasa hasta un minuto, y el AC1 deja el
+   * formulario tecleable durante todo ese rato. La `propietario` que capturó el closure de
+   * `leerFactura` es la de ANTES de escribir: decidir con ella qué se sobrescribe pisaría en silencio
+   * justo lo que el AC6 protege. Los refs se sincronizan en un efecto, así que van siempre por
+   * delante del siguiente evento del usuario.
+   */
+  const propietarioRef = useRef(propietario);
+  const procedenciaRef = useRef(procedencia);
+  useEffect(() => { propietarioRef.current = propietario; }, [propietario]);
+  useEffect(() => { procedenciaRef.current = procedencia; }, [procedencia]);
 
   const hayDatos = Boolean(vin || archivo || Object.values(propietario).some(Boolean));
   /**
@@ -265,12 +328,184 @@ function Alta() {
   const cambiarPropietario = (campo: CampoPropietario, v: string) => {
     setPropietario((p) => ({ ...p, [campo]: v }));
     setErrores((e) => ({ ...e, [campo]: undefined }));
+    // **Corregir ES revisar** (AC3, UX §4.2): editar un campo leído lo saca de la cola de pendientes
+    // y lo pasa a `manual` (AC7). Obligar a corregir y además confirmar sería cobrar dos veces por el
+    // mismo trabajo, y dejarlo como `'factura'` afirmaría ante Operaciones que ese valor lo puso el
+    // concesionario cuando lo acaba de teclear una persona.
+    if (esCampoComprador(campo)) {
+      setProcedencia((m) => (m[campo] === undefined ? m : sinClave(m, campo)));
+      setPorRevisar((m) => (m[campo] === undefined ? m : sinClave(m, campo)));
+    }
     // El tipo de documento conmuta los campos de nombre, y los errores de los tres se descartan
     // aquí: `useFocoPrimerError` enfoca por `id`, y un error de «Apellido/s» con NIT elegido
     // mandaría el foco a un id que ya no está en el DOM — es decir, a `<body>`.
     if (campo === 'tipoDocumento') {
       setErrores((e) => ({ ...e, nombres: undefined, apellidos: undefined, razonSocial: undefined }));
     }
+  };
+
+  // ── La lectura de la factura (AC1, AC5, AC6, AC7) ────────────────────────────────────────────
+
+  /**
+   * Escribe en el formulario lo que la lectura trajo para esos campos, **sin pasar por
+   * `cambiarPropietario`**: eso los marcaría `manual` y perdería justo la afirmación del AC7.
+   *
+   * Y limpia su error: un campo que estaba vacío pudo haberse marcado en rojo al salir de él.
+   */
+  const escribirLeidos = (
+    campos: CampoComprador[], leidos: Partial<Record<CampoComprador, CampoLeido>>,
+  ) => {
+    if (campos.length === 0) return;
+    setPropietario((p) => {
+      const n = { ...p };
+      for (const c of campos) n[c] = leidos[c]!.valor;
+      return n;
+    });
+    setProcedencia((m) => {
+      const n = { ...m };
+      for (const c of campos) n[c] = ProcedenciaDato.FACTURA;
+      return n;
+    });
+    setPorRevisar((m) => {
+      const n = { ...m };
+      // Una lectura confiable RETIRA la marca anterior: el valor de ahora es otro, y arrastrar el
+      // pendiente de la lectura vieja bloquearía el envío por un dato que ya nadie discute.
+      for (const c of campos) { if (leidos[c]!.confiable) delete n[c]; else n[c] = true; }
+      return n;
+    });
+    setErrores((e) => {
+      const n = { ...e };
+      for (const c of campos) delete n[c];
+      return n;
+    });
+  };
+
+  /**
+   * Reparte lo leído entre lo que se escribe directo y lo que va a la banda (UX §5, las cinco reglas).
+   *
+   *   1. Campo VACÍO + valor leído → se escribe directo. No se pierde nada de nadie.
+   *   2. Campo con valor que puso LA PERSONA y que difiere → a la banda. Es lo único que el AC6
+   *      protege.
+   *   3. Campo que venía de una lectura ANTERIOR → se reemplaza directo: no hay trabajo humano que
+   *      defender, y preguntar por él enterraría en ruido las filas del punto 2.
+   *   4. Valor leído IGUAL al que ya está → no es conflicto y la procedencia **no cambia**: si lo
+   *      tecleó él, sigue siendo `manual`.
+   *   5. Valor leído NULO → nunca borra lo que hay (`camposLeidos` ni siquiera lo devuelve).
+   *
+   * La banda se abre también en la PRIMERA lectura si ya había datos tecleados. El AC6 habla de
+   * volver a leer, pero su principio es no perder lo corregido, y el orden en que el Cliente hace las
+   * cosas no lo decide esta pantalla: quien escribe el propietario y adjunta después merece el mismo
+   * aviso que quien cambia la factura.
+   */
+  const repartirLectura = (leidos: Partial<Record<CampoComprador, CampoLeido>>) => {
+    const claves = Object.keys(leidos) as CampoComprador[];
+    if (claves.length === 0) { setLectura({ fase: 'vacia' }); return; }
+
+    const actual = propietarioRef.current;
+    const origen = procedenciaRef.current;
+    const directos: CampoComprador[] = [];
+    const conflictos: CampoComprador[] = [];
+    for (const campo of claves) {
+      const escrito = actual[campo].trim();
+      const deLaPersona = escrito !== '' && origen[campo] !== ProcedenciaDato.FACTURA;
+      if (!deLaPersona) directos.push(campo);
+      else if (escrito !== leidos[campo]!.valor.trim()) conflictos.push(campo);
+    }
+
+    // Qué campos VIAJAN se decide con el tipo de documento que queda tras escribir lo directo
+    // (RN-B5). Lo que no viaja se escribe igual en el estado —volver a la otra forma devuelve lo que
+    // había, como en la conmutación CC ⇄ NIT— pero ni se cuenta, ni se marca, ni entra a la banda.
+    const tipo = directos.includes('tipoDocumento')
+      ? leidos.tipoDocumento!.valor
+      : actual.tipoDocumento;
+    const viajan = camposQueViajan(tipo);
+
+    escribirLeidos(directos, leidos);
+    setLectura({ fase: 'ok', escritos: directos.filter((c) => viajan.includes(c)).length });
+
+    const filas = conflictos.filter((c) => viajan.includes(c)).map((campo) => ({
+      campo, etiqueta: ETIQUETA_CAMPO[campo], actual: actual[campo], leido: leidos[campo]!.valor,
+    }));
+    if (filas.length > 0) {
+      setSobrescritura({ filas, leidos });
+      setMarcados(Object.fromEntries(filas.map((f) => [f.campo, true])));
+    }
+  };
+
+  /**
+   * **Arranca sola al adjuntar** (AC1) y no deshabilita nada mientras dura: la lectura es una ayuda,
+   * y bloquear el formulario mientras piensa la convertiría en un peaje (AC5).
+   *
+   * El campo del multipart es `facturaVenta`, el mismo del alta. `solicitudId` **no se manda**: en el
+   * alta no hay solicitud todavía, y el borde lo declara opcional justo para esto.
+   */
+  const leerFactura = async (f: File) => {
+    turnoLectura.current += 1;
+    const mio = turnoLectura.current;
+    setSobrescritura(null);
+    setLectura({ fase: 'leyendo' });
+    try {
+      const form = new FormData();
+      form.append('facturaVenta', f);
+      // La respuesta va ENVUELTA en `{ extraccion }`, no plana.
+      const { extraccion } = await api.post<{ extraccion: ExtraccionFacturaVenta }>(
+        '/flito/soat/cliente/factura/lectura', form,
+      );
+      if (turnoLectura.current !== mio) return;
+      repartirLectura(camposLeidos(extraccion ?? {}));
+    } catch (e) {
+      if (turnoLectura.current !== mio) return;
+      const r = reaccionALectura(leerFallo(e));
+      if (r.tipo === 'archivo') {
+        // El PDF que no lo es se caza al ADJUNTAR y su superficie es la caja de subida, no una banda
+        // de lectura: si el archivo no vale, no hay adjunto **ni** lectura que reintentar. Antes esto
+        // solo se sabía al enviar, después de haber subido el PDF entero una segunda vez.
+        setArchivo(null);
+        setErrores((er) => ({ ...er, archivo: MENSAJE_ARCHIVO_NO_PDF }));
+        setLectura({ fase: 'inicial' });
+        return;
+      }
+      setLectura({ fase: 'fallo', desenlace: r.desenlace });
+    }
+  };
+
+  /** Adjuntar dispara la lectura; un archivo que ni siquiera es PDF por su nombre no gasta subida. */
+  const elegirArchivo = (f: File) => {
+    const err = errorArchivo(f);
+    setErrores((e) => ({ ...e, archivo: err ?? undefined }));
+    setArchivo(err ? null : f);
+    if (!err) void leerFactura(f);
+  };
+
+  /**
+   * Quitar el archivo **no borra nada de lo que hay escrito**: se descarta la lectura en vuelo, cae
+   * el chip y desaparece la banda. Es el mismo criterio con el que la #12091 conserva el propietario
+   * al invalidar la consulta del RUNT.
+   */
+  const quitarArchivo = () => {
+    turnoLectura.current += 1;
+    setArchivo(null);
+    setErrores((e) => ({ ...e, archivo: undefined }));
+    setLectura({ fase: 'inicial' });
+    setSobrescritura(null);
+  };
+
+  /** Confirmar **no cambia la procedencia**: lo leído y no tocado sigue siendo `'factura'` (AC7). */
+  const confirmarRevision = (campo: CampoComprador) => {
+    setPorRevisar((m) => (m[campo] === undefined ? m : sinClave(m, campo)));
+  };
+
+  const reemplazarMarcados = () => {
+    if (!sobrescritura) return;
+    const aceptados = sobrescritura.filas.map((f) => f.campo).filter((c) => marcados[c]);
+    const viajan = camposQueViajan(propietarioRef.current.tipoDocumento);
+    escribirLeidos(aceptados, sobrescritura.leidos);
+    // Lo NO aceptado conserva valor **y** procedencia `'manual'` (AC6, literal) — y también su estado
+    // de revisado: un campo que el usuario defendió no vuelve a la cola de pendientes.
+    setSobrescritura(null);
+    setLectura((l) => (l.fase === 'ok'
+      ? { fase: 'ok', escritos: l.escritos + aceptados.filter((c) => viajan.includes(c)).length }
+      : l));
   };
 
   const validarCampo = (campo: CampoFormulario, valor: string) => {
@@ -301,10 +536,10 @@ function Alta() {
         setConsulta({ fase: 'sin-banda' });
         return;
       case 'archivo':
-        setErrores((e) => ({
-          ...e,
-          archivo: 'Ese archivo no es un PDF válido, aunque se llame así. Si lo exportó desde el celular, vuelva a guardarlo como PDF y súbalo otra vez.',
-        }));
+        // Desde la HU #12094 este 400 se caza casi siempre al ADJUNTAR —la lectura sube el mismo PDF
+        // y olfatea los mismos bytes—, así que llegar aquí es el caso raro: un archivo que pasó la
+        // lectura y no pasa el alta. El mensaje es el mismo y sale de la misma constante.
+        setErrores((e) => ({ ...e, archivo: MENSAJE_ARCHIVO_NO_PDF }));
         setIntento((n) => n + 1);
         return;
       case 'runt':
@@ -368,6 +603,17 @@ function Alta() {
       setAvisoEnvio('Revise los datos marcados antes de enviar.');
       return;
     }
+    // Con los campos válidos pero revisiones pendientes, el primario **no envía** y lleva al primer
+    // pendiente en el orden visual (AC3, UX §4.3). Con errores y revisiones a la vez mandan los
+    // errores: un campo con valor inválido no se puede dar por revisado.
+    if (pendientesRevision.length > 0) {
+      const primero = pendientesRevision[0];
+      // El tipo de documento no tiene id propio —`FlitSelect` lo genera con `useId()`—, así que su
+      // foco va al botón «Confirmar», que es el control que resuelve el pendiente.
+      const id = ID_CAMPO[primero as keyof typeof ID_CAMPO] ?? ID_CONFIRMAR[primero];
+      document.getElementById(id)?.focus();
+      return;
+    }
     setAvisoEnvio(null);
     setEnviando(true);
     try {
@@ -392,6 +638,22 @@ function Alta() {
       form.append('municipio', propietario.municipio.trim());
       form.append('departamento', propietario.departamento.trim());
       form.append('facturaVenta', archivo!);
+      /**
+       * De dónde salió cada dato del comprador (AC7), **como cadena JSON dentro del multipart**.
+       *
+       * Se declaran solo las claves de los campos que VIAJAN: declarar `'factura'` sobre un campo que
+       * no se envía afirma el origen de un dato que no existe, y una clave de más es un `400` del
+       * `.strict()`. `'runt'` no se emite nunca: ningún campo del propietario se prellena desde el
+       * registro —lo único que devuelve es `nombreCompleto`, y la #12091 lo fija como REFERENCIA—.
+       * `correo` no está y no puede estar: no es uno de los nueve.
+       */
+      const mapa: Partial<Record<CampoComprador, ProcedenciaDato>> = {};
+      for (const campo of camposQueViajan(propietario.tipoDocumento)) {
+        mapa[campo] = procedencia[campo] === ProcedenciaDato.FACTURA
+          ? ProcedenciaDato.FACTURA
+          : PROCEDENCIA_POR_DEFECTO;
+      }
+      form.append('procedencia', JSON.stringify(mapa));
       // `nombreCompleto` ya no viaja (lo deriva el servidor) y marca, línea, modelo, clase,
       // cilindraje, carrocería y organismo NO viajan nunca: los resuelve el servidor consultando
       // otra vez. La pantalla no le reenvía lo que él mismo le mostró en la preconsulta.
@@ -449,9 +711,25 @@ function Alta() {
    * cortas. Lo que NO hace es PINTAR: `errores` se sigue poblando en `blur` y al enviar, así que el
    * formulario no se pone rojo mientras se teclea.
    */
+  /**
+   * Los campos por revisar que de verdad cuentan: los marcados **que además viajan** con el tipo de
+   * documento vigente, en el ORDEN VISUAL.
+   *
+   * Es una sola fuente para las tres cosas que el AC3 pide —cuántos dice la frase, si el envío se
+   * bloquea y a cuál va el foco—; un contador aparte se desincroniza en el primer caso raro y deja
+   * la frase diciendo «revisar 2» con el botón ya activo. El filtro por `camposQueViajan` no es
+   * cosmético: un `nombres` pendiente bajo un NIT no se pinta en ninguna parte, y sin filtrarlo
+   * bloquearía el envío sin nada que confirmar en pantalla.
+   */
+  const pendientesRevision = useMemo(() => {
+    const viajan = camposQueViajan(propietario.tipoDocumento);
+    return ORDEN_FOCO_BASE.filter((c): c is CampoComprador =>
+      esCampoComprador(c) && viajan.includes(c) && porRevisar[c] === true);
+  }, [propietario.tipoDocumento, porRevisar]);
+
   const faltantes = useMemo(
-    () => faltaParaEnviar(consulta.fase, vin, propietario, archivo),
-    [consulta.fase, vin, propietario, archivo],
+    () => faltaParaEnviar(consulta.fase, vin, propietario, archivo, pendientesRevision.length),
+    [consulta.fase, vin, propietario, archivo, pendientesRevision.length],
   );
   const fraseFaltantes = vigenteCerrado ? AVISO_VIGENTE : frasePendientes(faltantes);
 
@@ -508,7 +786,14 @@ function Alta() {
             maxLength={25} autoComplete="off"
             readOnly={cargando}
             invalido={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'}
-            describedByExtra={ID_BANDA_RUNT}
+            /* Condicionado AQUÍ y no dentro de `Campo` (HU #12094): el componente enlaza
+               `describedByExtra` siempre que se le pase, porque la marca de baja confianza necesita
+               describir sin marcar inválido. Quien quiere las dos cosas juntas —este campo, cuya
+               banda solo existe con el desenlace pintado— lo dice en su llamada. Sin esto, el VIN
+               apuntaría a un id que no está en el DOM el 95 % del tiempo. */
+            describedByExtra={consulta.fase === 'fallo' && consulta.desenlace.foco === 'vin'
+              ? ID_BANDA_RUNT
+              : undefined}
           />
         </div>
 
@@ -570,19 +855,27 @@ function Alta() {
       </Seccion>
 
       {/* ── Bloque 2 · Factura de venta ─────────────────────────────────────────────────────────
-          Delante del propietario desde la HU #12091 (AC2). Aquí NO se pinta nada de la #12094 —ni
-          el estado de la lectura por OCR, ni un aviso de prellenado—: lo único que esta HU le deja
-          es el sitio. */}
-      <Seccion titulo="2 · Factura de venta">
-        <BloqueFactura
-          archivo={archivo} error={errores.archivo}
-          onElegir={(f) => {
-            const err = errorArchivo(f);
-            setErrores((e) => ({ ...e, archivo: err ?? undefined }));
-            setArchivo(err ? null : f);
-          }}
-          onQuitar={() => { setArchivo(null); setErrores((e) => ({ ...e, archivo: undefined })); }}
-        />
+          Delante del propietario desde la HU #12091 (AC2), y desde la #12094 es también donde la
+          lectura dice de sí misma en qué punto está. El chip vive en el encabezado de la sección,
+          hermano del «✓ Consultado» del bloque 1: la pantalla ya tiene ese vocabulario. */}
+      <Seccion titulo="2 · Factura de venta" chip={chipLectura(lectura)}>
+        <div className="space-y-3">
+          <BloqueFactura archivo={archivo} error={errores.archivo} onElegir={elegirArchivo} onQuitar={quitarArchivo} />
+          {/* Debajo de la caja del archivo, que es donde el tabulador las encuentra, y sin robar el
+              foco: la lectura pudo tardar un minuto y el Cliente puede estar escribiendo abajo. */}
+          <AvisoLectura
+            lectura={lectura}
+            onVolverALeer={archivo ? () => { void leerFactura(archivo); } : undefined}
+          />
+          {sobrescritura && (
+            <BandaSobrescritura
+              filas={sobrescritura.filas} marcados={marcados}
+              onAlternar={(campo) => setMarcados((m) => ({ ...m, [campo]: !m[campo] }))}
+              onReemplazar={reemplazarMarcados}
+              onConservar={() => setSobrescritura(null)}
+            />
+          )}
+        </div>
       </Seccion>
 
       {/* ── Bloque 3 · Propietario ──────────────────────────────────────────────────────────── */}
@@ -591,6 +884,8 @@ function Alta() {
           valor={propietario} onCambio={cambiarPropietario} errores={errores}
           onBlur={(campo) => validarCampo(campo, propietario[campo])}
           referenciaRunt={consulta.fase === 'ok' ? consulta.datos.propietario?.nombreCompleto ?? null : null}
+          revision={{ porRevisar, onConfirmar: confirmarRevision }}
+          prellenado={Object.keys(procedencia).length > 0}
         />
       </Seccion>
 
@@ -733,6 +1028,14 @@ function validarTodo(vin: string, p: Propietario, archivo: File | null): Errores
   campoNombre('razonSocial');
   campoNombre('nombres');
   campoNombre('apellidos');
+  // La cota del DERIVADO, la misma del borde: `nombres` y `apellidos` son dos topes independientes
+  // de 200 sobre una columna de 200, así que el máximo alcanzable es 401. Cuelga de los DOS campos
+  // —el usuario acorta el que quiera— y se frena aquí porque el `400` del servidor aterrizaba en el
+  // aviso genérico de la tarjeta de envío, que no marca ningún campo, tras subir el PDF entero.
+  if (!esNit(p.tipoDocumento) && !errs.nombres && !errs.apellidos) {
+    const msg = errorNombreCompleto(p.nombres, p.apellidos);
+    if (msg) { errs.nombres = msg; errs.apellidos = msg; }
+  }
   poner('correo', errorCorreo(p.correo));
   poner('celular', errorCelular(p.celular));
   poner('direccion', errorDireccion(p.direccion));
@@ -816,14 +1119,54 @@ const ITEM_RUNT: Record<Consulta['fase'], string | null> = {
  * no enviaría nada y el Cliente no tendría forma de saber por qué.
  */
 function faltaParaEnviar(
-  fase: Consulta['fase'], vin: string, p: Propietario, archivo: File | null,
+  fase: Consulta['fase'], vin: string, p: Propietario, archivo: File | null, porRevisar: number,
 ): string[] {
   const errs = validarTodo(vin, p, archivo);
   const runt = ITEM_RUNT[fase];
   return [
     ...(runt ? [runt] : []),
+    ...(porRevisar > 0 ? [itemRevision(porRevisar)] : []),
     ...ORDEN_FALTANTES.filter((c) => errs[c]).map((c) => ETIQUETA_CAMPO[c]),
   ];
+}
+
+/**
+ * El ítem de la revisión pendiente (HU #12094, AC3), **siempre el SEGUNDO** — detrás del RUNT, y el
+ * primero cuando el RUNT ya está resuelto.
+ *
+ * No es una preferencia de redacción: `frasePendientes` conserva los dos primeros segmentos y resume
+ * el resto, así que esa posición es la única que garantiza que el número de campos por revisar nunca
+ * caiga dentro del «y N datos más». El AC pide que el botón indique cuántos faltan por revisar; al
+ * final de la lista, en el caso más común —formulario a medias y dos lecturas dudosas— dejaría de
+ * indicarlo.
+ *
+ * Es la ÚNICA variante de singular/plural de esta plantilla, y trae su localizador para QA:
+ * `/revisar \d+ datos? leídos?/`.
+ */
+function itemRevision(n: number): string {
+  return n === 1 ? 'revisar 1 dato leído' : `revisar ${n} datos leídos`;
+}
+
+/** Copia el mapa sin una clave. Un `= undefined` dejaría la clave presente ante `in` y `Object.keys`. */
+function sinClave<K extends string, V>(mapa: Partial<Record<K, V>>, clave: K): Partial<Record<K, V>> {
+  const n = { ...mapa };
+  delete n[clave];
+  return n;
+}
+
+/**
+ * El chip del bloque 2, uno por estado de la LECTURA (UX §3).
+ *
+ * La lectura vacía **no lleva chip**: un «✓ Factura leída» sobre un bloque 3 en blanco se leería como
+ * que los datos están puestos. Lo que hay que decir ahí lo dice la línea de `AvisoLectura`.
+ */
+function chipLectura(lectura: EstadoLectura): ReactNode {
+  switch (lectura.fase) {
+    case 'leyendo': return <StatusChip tone="active">Leyendo la factura…</StatusChip>;
+    case 'ok': return <StatusChip tone="success">✓ Factura leída</StatusChip>;
+    case 'fallo': return <StatusChip tone="warning">No se pudo leer</StatusChip>;
+    default: return undefined;
+  }
 }
 
 /**

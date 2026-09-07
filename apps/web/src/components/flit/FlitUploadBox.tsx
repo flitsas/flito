@@ -61,9 +61,14 @@ export default function FlitUploadBox(
         </svg>
         <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{label}{required ? ' *' : ''}</p>
         {hint && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{hint}</p>}
-        {state === 'rejected' && <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--flit-danger)' }}>Rechazado — cargar otro</p>}
-        {state === 'verified' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-success)' }}>{count} archivo(s)</p>}
-        {state === 'uploading' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-blue)' }}>Analizando...</p>}
+        {/* Tinta y no SUPERFICIE en las tres líneas de estado (doctrina del Bug #11604): con
+            `--flit-success` —el lima de marca— este texto de 10 px medía por debajo de 4,5:1 sobre el
+            propio tinte de la caja, y axe lo marca `serious`. El defecto es anterior a la HU #12094;
+            lo destapa ella porque es la primera que corre axe con un archivo ADJUNTO. El borde, el
+            icono y el tinte del fondo conservan el color de marca: son decorativos y están exentos. */}
+        {state === 'rejected' && <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--flit-danger-ink)' }}>Rechazado — cargar otro</p>}
+        {state === 'verified' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-success-ink)' }}>{count} archivo(s)</p>}
+        {state === 'uploading' && <p className="mt-1 text-[10px]" style={{ color: 'var(--flit-blue-ink)' }}>Analizando...</p>}
       </div>
       <input
         type="file"

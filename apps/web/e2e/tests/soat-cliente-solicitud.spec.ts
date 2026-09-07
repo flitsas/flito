@@ -40,6 +40,13 @@ const UUID_SOLICITUD = '11111111-2222-4333-8444-555555555555';
 const RE_ALTA = /\/api\/flito\/soat\/cliente$/;
 const RE_COLA = /\/api\/flito\/soat\?/;
 const RE_PRECONSULTA = /\/api\/flito\/soat\/cliente\/preconsulta$/;
+/**
+ * **HU #12094.** El tercer endpoint del canal, y hace falta aquí aunque esta HU no sea la suya: desde
+ * que adjuntar dispara la lectura sola, los ~30 casos de este archivo que llaman a `adjuntarFactura`
+ * emitirían un `POST` que ningún `page.route` captura — es decir, contra el backend de verdad. Los
+ * dos patrones vecinos van anclados con `$` y no lo cogen.
+ */
+const RE_LECTURA = /\/api\/flito\/soat\/cliente\/factura\/lectura$/;
 const RE_DETALLE = /\/api\/flito\/soat\/[0-9a-f-]{36}$/;
 
 /** Lo que devuelve la preconsulta cuando el RUNT dice que sí (contrato §2.1 de la #11966). */
@@ -84,6 +91,15 @@ function detalle(over: Record<string, unknown> = {}) {
 const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
+/**
+ * El valor de un campo de TEXTO del multipart, leído del cuerpo crudo que Playwright captura
+ * (HU #12094). Se mira lo que VIAJÓ, no lo que la pantalla creía estar mandando.
+ */
+function campoMultipart(cuerpo: string, nombre: string): string | null {
+  const m = new RegExp(`name="${nombre}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`).exec(cuerpo);
+  return m ? m[1] : null;
+}
+
 async function mockCola(page: Page, items: unknown[] = []) {
   const estado = { items };
   await page.route(RE_COLA, (route) => json(route, 200, {
@@ -111,10 +127,16 @@ type Respuesta = { status: number; cuerpo: unknown };
  */
 async function mockCanal(
   page: Page,
-  opciones: { alta?: Respuesta; preconsulta?: Respuesta; retenerPreconsulta?: boolean } = {},
+  opciones: {
+    alta?: Respuesta; preconsulta?: Respuesta; retenerPreconsulta?: boolean;
+    /** Por defecto, una lectura que no saca nada: los casos de este archivo teclean a mano. */
+    lectura?: Respuesta;
+  } = {},
 ) {
   const altas: { url: string; method: string; post: string | null }[] = [];
   const preconsultas: { post: string | null }[] = [];
+  /** Se cuenta igual que las altas y las preconsultas: el contador es lo que mata «se lee dos veces». */
+  const lecturas: { url: string; post: string | null }[] = [];
   /**
    * Compuerta para dejar la preconsulta **en vuelo** el tiempo que haga falta. Es una promesa que el
    * test libera a mano —y no un `waitForTimeout` a ciegas—: la carrera se provoca en el instante
@@ -128,6 +150,14 @@ async function mockCanal(
       ? json(route, opciones.alta.status, opciones.alta.cuerpo)
       : json(route, 201, { id: UUID_SOLICITUD, estado: 'solicitado' });
   });
+  await page.route(RE_LECTURA, (route) => {
+    lecturas.push({ url: route.request().url(), post: route.request().postData() });
+    return opciones.lectura
+      ? json(route, opciones.lectura.status, opciones.lectura.cuerpo)
+      // Envuelta en `{ extraccion }` y VACÍA: sin datos leídos no hay prellenado, ningún caso de
+      // este archivo cambia de comportamiento y el AC5 queda ejercitado de paso en los ~30.
+      : json(route, 200, { extraccion: {} });
+  });
   await page.route(RE_PRECONSULTA, async (route) => {
     preconsultas.push({ post: route.request().postData() });
     if (opciones.retenerPreconsulta) await enVuelo;
@@ -135,7 +165,7 @@ async function mockCanal(
       ? json(route, opciones.preconsulta.status, opciones.preconsulta.cuerpo)
       : json(route, 200, RUNT_OK);
   });
-  return { altas, preconsultas, liberarPreconsulta: () => abrir() };
+  return { altas, preconsultas, lecturas, liberarPreconsulta: () => abrir() };
 }
 
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
@@ -621,6 +651,17 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     expect(cuerpo).not.toContain('name="nombreCompleto"');
     expect(cuerpo).toContain('name="municipio"');
     expect(cuerpo).toContain('name="departamento"');
+
+    // HU #12094 · AC7 — el mapa de procedencia obedece a la MISMA excluyencia. Declarar `nombres`
+    // con un NIT sería afirmar el origen de un dato que no se envía, y el esquema del borde es
+    // `.strict()`: una clave de más es un 400.
+    const procedencia = JSON.parse(campoMultipart(cuerpo, 'procedencia') ?? '{}') as Record<string, string>;
+    expect(Object.keys(procedencia).sort()).toEqual([
+      'celular', 'departamento', 'direccion', 'municipio', 'numeroDocumento', 'razonSocial',
+      'tipoDocumento',
+    ]);
+    // Todo tecleado a mano y la lectura sin datos: los siete son `manual` y ninguno es `runt`.
+    expect(Object.values(procedencia).every((v) => v === 'manual')).toBe(true);
   });
 
   test('enviar sin municipio lo marca, lo enfoca y no manda nada', async ({ page }) => {
@@ -665,6 +706,12 @@ test.describe('HU #11967 · AC4 — nombre partido por tipo de documento', () =>
     // Partir el nombre por el espacio es la heurística que el backend rechaza por escrito.
     await expect(page.getByLabel('Nombre/s')).toHaveValue('');
     await expect(page.getByLabel('Apellido/s')).toHaveValue('');
+    // HU #12094: y no aparece en NINGÚN control del formulario. Es lo que fija que `'runt'` no sea
+    // una procedencia emitible — no hay campo del propietario que el registro prellene.
+    const valores = await page.locator('input, select').evaluateAll(
+      (els) => els.map((el) => (el as HTMLInputElement | HTMLSelectElement).value),
+    );
+    expect(valores.some((v) => v.includes('MARÍA FERNANDA'))).toBe(false);
   });
 });
 
@@ -801,17 +848,29 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await expect(btnEnviar(page)).toHaveCount(0);
   });
 
-  test('un PDF que no lo es: la caja queda rechazada y dice POR QUÉ', async ({ page }) => {
+  // **HU #12094: el veredicto es el mismo y el MOMENTO cambia.** El rechazo por bytes se conocía al
+  // ENVIAR, después de subir el PDF entero una segunda vez; ahora lo caza la lectura, que sube el
+  // mismo archivo nada más adjuntarlo y olfatea los mismos bytes. Su superficie sigue siendo la caja
+  // del bloque 2 y su copy es el mismo: lo que se invierte es cuándo se ve.
+  test('un PDF que no lo es: la caja queda rechazada al ADJUNTAR y dice POR QUÉ', async ({ page }) => {
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
-    await mockCanal(page, { alta: fallo(400, 'archivo_no_pdf', 'La factura de venta debe ser un PDF.') });
+    const cap = await mockCanal(page, {
+      lectura: fallo(400, 'archivo_no_pdf', 'La factura de venta debe ser un PDF.'),
+    });
     await page.goto('/flito/soat/solicitud');
-    await llenarTodoYConsultar(page);
-    await btnEnviar(page).click();
+    await llenarVehiculo(page);
+    await llenarPropietario(page);
+    await adjuntarFactura(page);
 
     await expect(page.getByRole('alert')
       .filter({ hasText: 'Ese archivo no es un PDF válido, aunque se llame así.' })).toBeVisible();
     await expect(page.getByText('Rechazado — cargar otro')).toBeVisible();
+    // Sin banda de lectura: si el archivo no vale, no hay nada que volver a leer.
+    await expect(page.getByRole('button', { name: 'Volver a leer la factura' })).toHaveCount(0);
+    expect(cap.lecturas).toHaveLength(1);
+    // Y nunca se llegó al alta: el 400 dejó de costar una subida de 15 MB.
+    expect(cap.altas).toHaveLength(0);
   });
 
   test('si el envío se corta, se dice que NO se sabe si llegó — y dónde mirar', async ({ page }) => {
@@ -864,6 +923,11 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 
     expect(cap.preconsultas).toHaveLength(1);
     expect(cap.altas).toHaveLength(1);
+    // HU #12094 · la tercera petición del canal: la lectura sale UNA vez, con el PDF en el cuerpo y
+    // sin un solo parámetro en la URL.
+    expect(cap.lecturas).toHaveLength(1);
+    expect(new URL(cap.lecturas[0].url).search).toBe('');
+    expect(cap.lecturas[0].post ?? '').toContain('name="facturaVenta"');
     expect(new URL(cap.altas[0].url).search).toBe('');
     // La placa NO viaja en el alta desde la #12090: la que se persiste la devuelve el RUNT.
     expect(cap.altas[0].post ?? '').not.toContain(PLACA);
