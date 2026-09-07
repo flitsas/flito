@@ -7,19 +7,24 @@
 // esta HU lo borra entero, que es lo que hace ESTRUCTURAL el «las filas ya radicadas no se
 // reconsultan» del AC6 — sin función, no hay reconsulta posible por descuido.
 //
+// ── Y desde la HU #12090 se consulta SOLO POR VIN ────────────────────────────────────────────────
+//
+// La entrada de este archivo era `(placa, vin?, documento, tipoDocumento)`; hoy es `(vin)` y nada
+// más. La modalidad de VIN del RUNT (`tipoConsulta: '2'`) no pide documento del propietario —es la
+// consulta por placa la que lo exige (Bug #11927)—, así que el canal deja de mandar al registro
+// nacional la cédula de nadie para preguntar por un vehículo. Lo que se contrasta también cambia de
+// dueño: antes se comparaban placa y VIN contra lo tecleado; ahora la placa es un dato DEVUELTO y lo
+// único que se contrasta es el VIN. Ver {@link campoQueNoCuadra}.
+//
 // El payload crudo no se persiste (ADR-0008 §1.6, esa frase se conserva). Solo derivados.
 
 import { eq } from 'drizzle-orm';
-import {
-  resolverCodigoOrganismoFlit,
-  type TipoDocumentoRunt,
-} from '@operaciones/shared-types';
+import { resolverCodigoOrganismoFlit } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { organismosTransitoConfig } from '../../db/schema.js';
 import { extraerVehiculoRunt, normalizarIdentificador, runtSinRegistro } from '../flito-impuestos/certificacion-runt.js';
 import { derivePreflightChecks } from '../tramites/preflight.js';
 import { consultarVehiculoRunt } from '../runt/runt.service.js';
-import { mapTipoDocUiToRunt } from '../runt/runt-tipo-doc.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('flito-soat-cliente');
@@ -90,6 +95,14 @@ function alias(fuente: Record<string, unknown> | null, claves: readonly string[]
  * `tipoCarroceria`, `pasajerosSentados` y `puertas` dentro de `data.vehiculo`, con los sinónimos
  * habituales por si el tipo de vehículo cambia la forma (una moto o un remolque no traen lo mismo).
  * `datosTecnicos` se mira como segunda vía, igual que ya hacen cilindraje y servicio.
+ *
+ * **`tipoDocPropietario` NO se extrae, y no es un olvido** (HU #12090, AC2). Vive un nivel más
+ * arriba (`data.tipoDocPropietario`, hermano de `vehiculo`) y en la modalidad de VIN vale siempre
+ * `'C'`: no es lo que el registro dice del propietario, es el tipo con el que la vía directa
+ * intentó la consulta —`tiposAIntentar = ['C']` cuando hay VIN—. Leerlo aquí lo metería en
+ * `DatosRuntCanal`, y todo lo que entra ahí acaba persistido o publicado como «dato del RUNT».
+ * Quien lo necesite de verdad es la certificación de impuestos, que consulta POR PLACA y lo guarda
+ * en su propia tabla (`flito_certificaciones_runt.tipo_doc_propietario`); ese uso no cambia.
  */
 export function extraerDatosCanal(data: unknown): DatosRuntCanal {
   const d = (data ?? {}) as Record<string, unknown>;
@@ -169,25 +182,28 @@ export async function resolverOrganismoCatalogo(nombre: string | null): Promise<
 }
 
 /**
- * QUÉ campo del RUNT difiere de lo que se radicó, o `null` si no difiere ninguno.
+ * ¿El VIN que el RUNT devuelve difiere del que se tecleó? `'vin'` si difiere, `null` si no.
  *
- * Un campo que el RUNT no trajo (`NO_VERIFICABLE`) no es «no cuadra» — misma normalización que
- * `compararCampo` de certificación. Y un VIN que el cliente NO tecleó tampoco: desde la HU #11966 el
- * VIN es opcional en la entrada y el efectivo es el del RUNT, así que no hay nada que contrastar.
+ * ── Qué se contrasta desde la HU #12090, y qué dejó de contrastarse (AC3) ───────────────────────
  *
- * Devuelve el campo y no un booleano porque el 422 del VIN lleva `campo: 'vin'` para que el wizard
- * pueda poner el foco donde toca. El de la placa no lo necesita: la placa es obligatoria y es lo
- * único que el usuario pudo escribir mal.
+ * Contrastaba placa Y VIN, porque los dos eran datos TECLEADOS y los dos podían escribirse mal. Con
+ * la consulta por VIN la placa deja de ser entrada: viaja como dato DEVUELTO por el registro, y
+ * contrastar un dato contra sí mismo no es una comprobación, es una tautología que además nunca
+ * podría fallar. Queda un solo contraste, y es el que sigue teniendo sentido: lo que la persona
+ * escribió contra lo que el registro nacional dice.
+ *
+ * Un VIN que el RUNT no trajo (`NO_VERIFICABLE`) NO es «no cuadra» — misma normalización que
+ * `compararCampo` de certificación—: es {@link DesenlaceRunt} `runt_sin_vin`, que dice la verdad
+ * («el registro no publica el VIN») en vez de pedirle a la persona que corrija algo suyo. La guarda
+ * de ausencia es lo que separa los dos desenlaces y por eso no se puede simplificar a
+ * `vinRunt !== vinIn`.
+ *
+ * Devuelve el campo y no un booleano porque el 422 lleva `campo: 'vin'` para que el wizard ponga el
+ * foco donde toca — y hoy ese es además el ÚNICO campo que la persona pudo escribir mal.
  */
-export function campoQueNoCuadra(
-  entrada: { placa: string; vin: string | null },
-  datos: DatosRuntCanal,
-): 'placa' | 'vin' | null {
-  const placaRunt = normalizarIdentificador(datos.placa);
+export function campoQueNoCuadra(vinTecleado: string, datos: DatosRuntCanal): 'vin' | null {
   const vinRunt = normalizarIdentificador(datos.vin);
-  const placaIn = normalizarIdentificador(entrada.placa);
-  const vinIn = normalizarIdentificador(entrada.vin);
-  if (placaRunt !== null && placaIn !== null && placaRunt !== placaIn) return 'placa';
+  const vinIn = normalizarIdentificador(vinTecleado);
   if (vinRunt !== null && vinIn !== null && vinRunt !== vinIn) return 'vin';
   return null;
 }
@@ -206,21 +222,31 @@ export type RespuestaKyverum = {
 };
 
 /**
- * Consulta Kyverum. No clasifica: quien llama decide qué hacer con la respuesta.
+ * Consulta Kyverum **por VIN y solo por VIN** (HU #12090, AC2). No clasifica: quien llama decide.
  *
- * Bug #11927: la pasarela exige documento cuando va la placa; el VIN al lado no lo sustituye.
+ * ── Los cuatro argumentos de la llamada, y por qué son estos ────────────────────────────────────
  *
- * `vin` es opcional desde la HU #11966 (AC1) y se manda vacío cuando el Cliente no lo tecleó: la
- * consulta sigue siendo por placa + documento, que es la combinación que la pasarela acepta.
+ * `consultarVehiculoRunt(placa, vin, documento, tipoDocumento)` elige modalidad por lo que recibe, y
+ * la elige en `runt-direct.service.ts`: `vinNorm = (!placa && vin)`. Es decir, **basta con que la
+ * placa vaya para que la modalidad de VIN NO se active**, aunque el VIN también viaje. Por eso aquí
+ * la placa va `undefined` y no «vacía por si acaso»: con `''` el resultado sería el mismo hoy —es
+ * falsy— pero la intención quedaría a merced de la próxima persona que «normalice» ese predicado.
+ * Con la modalidad activa, el cuerpo que sale al RUNT lleva `tipoConsulta: '2'`, `placa: ''`,
+ * `documento: ''` y `tipoDocumento: ''` (`runt-direct.service.ts`), que es el AC2 literal.
+ *
+ * `documento` y `tipoDocumento` van en CADENA VACÍA y no en `undefined` porque aquí no hay un dato
+ * que se omite: hay un dato que esta consulta ya no tiene y no debe inventarse. La vía de la
+ * pasarela (`consultarVehiculoProxy`) los omite del cuerpo por ser falsy, así que la cédula del
+ * propietario deja de salir del perímetro para preguntar por un vehículo por las DOS vías.
+ *
+ * **`mapTipoDocUiToRunt` ya no se llama, y su ausencia es parte del AC**: traducía el tipo de
+ * documento de la UI al del RUNT, y en la modalidad de VIN no hay tipo de documento que traducir.
+ * Lo que la vía directa devuelve como `tipoDocPropietario` en esta modalidad es la constante `'C'`
+ * (`tiposAIntentar = ['C']`) — relleno fijo, no un dato del registro. Este canal no lo lee, no lo
+ * persiste y no lo publica; ver el docblock de {@link extraerDatosCanal}, que no lo extrae.
  */
-export async function consultarRuntCrudo(
-  placa: string,
-  vin: string | null,
-  numeroDocumento: string,
-  tipoDocumento: TipoDocumentoRunt,
-): Promise<RespuestaKyverum> {
-  const tipoRunt = mapTipoDocUiToRunt(tipoDocumento) ?? tipoDocumento;
-  return await consultarVehiculoRunt(placa, vin ?? undefined, numeroDocumento, tipoRunt) as RespuestaKyverum;
+export async function consultarRuntCrudo(vin: string): Promise<RespuestaKyverum> {
+  return await consultarVehiculoRunt(undefined, vin, '', '') as RespuestaKyverum;
 }
 
 /** Los códigos de la familia «revise los datos», tal como los emite la compuerta. */
@@ -275,18 +301,19 @@ export function esNegativaDeNegocio(respuesta: RespuestaKyverum): boolean {
  *
  *   1. `ok:false` → negativa de negocio (`runt_no_cuadra`) o caído. Nada más se puede mirar.
  *   2. Sin registro → `runt_sin_registro`. `runtSinRegistro` no se fía del eco de la consulta.
- *   3. Placa o VIN que difieren → `runt_no_cuadra` (+ `campo: 'vin'`).
+ *   3. El VIN devuelto difiere del tecleado → `runt_no_cuadra` + `campo: 'vin'` (HU #12090, AC3).
  *   4. Sin VIN en la respuesta → `runt_sin_vin`. Sin VIN efectivo no hay fila posible (RN-01).
  *   5. SOAT vigente → `vigente`.
  *   6. `ok`, con el organismo cruzado contra catálogo (o `null`, que NO aborta — AC5).
  *
- * La vigencia va DESPUÉS de los cuatro «revise»: si los datos del RUNT no sirven para identificar el
- * vehículo, decir «ya tiene SOAT vigente» sería afirmar algo sobre un vehículo que no se ha
- * confirmado que sea el que se radica.
+ * **El orden se conserva ENTERO** (HU #12090, AC4): lo único que cambia es QUÉ compara el paso 3, no
+ * cuándo se compara ni qué produce. La vigencia sigue DESPUÉS de los «revise»: si los datos del RUNT
+ * no sirven para identificar el vehículo, decir «ya tiene SOAT vigente» sería afirmar algo sobre un
+ * vehículo que no se ha confirmado que sea el que se radica.
  */
 export async function clasificarDesenlaceRunt(
   respuesta: RespuestaKyverum,
-  entrada: { placa: string; vin: string | null },
+  vinTecleado: string,
 ): Promise<DesenlaceRunt> {
   if (!respuesta?.ok) {
     if (esNegativaDeNegocio(respuesta)) return { clase: 'revise', codigo: 'runt_no_cuadra' };
@@ -296,13 +323,11 @@ export async function clasificarDesenlaceRunt(
 
   const datos = extraerDatosCanal(respuesta.data);
 
-  const campo = campoQueNoCuadra(entrada, datos);
-  if (campo !== null) {
-    // El 422 NUNCA lleva el VIN del RUNT: un Cliente puede sondear placas, y responder «el bueno es
-    // este» convertiría el endpoint en un lector de VIN por placa. Solo se dice QUÉ campo revisar.
-    return campo === 'vin'
-      ? { clase: 'revise', codigo: 'runt_no_cuadra', campo: 'vin' }
-      : { clase: 'revise', codigo: 'runt_no_cuadra' };
+  // El 422 NUNCA lleva el VIN del RUNT. El riesgo cambió de forma con la HU #12090 y no
+  // desapareció: antes era filtrar el VIN a quien sondeaba placas ajenas; ahora es confirmarle el
+  // VIN bueno a quien sondea VINs de una flota —que son consecutivos—. Solo se dice QUÉ revisar.
+  if (campoQueNoCuadra(vinTecleado, datos) !== null) {
+    return { clase: 'revise', codigo: 'runt_no_cuadra', campo: 'vin' };
   }
 
   const vinEfectivo = normalizarIdentificador(datos.vin);
@@ -368,20 +393,15 @@ export function causaDeCaida(err: unknown): 'timeout' | 'red' | 'circuito' | 'ot
  * ({@link causaDeCaida}). Es lo que hace falta para medir en DEV el riesgo de la clasificación (ver
  * {@link esNegativaDeNegocio}) sin abrir una vía de PII en logs.
  */
-export async function consultarYClasificar(
-  placa: string,
-  vin: string | null,
-  numeroDocumento: string,
-  tipoDocumento: TipoDocumentoRunt,
-): Promise<DesenlaceRunt> {
+export async function consultarYClasificar(vin: string): Promise<DesenlaceRunt> {
   let respuesta: RespuestaKyverum;
   try {
-    respuesta = await consultarRuntCrudo(placa, vin, numeroDocumento, tipoDocumento);
+    respuesta = await consultarRuntCrudo(vin);
   } catch (err: unknown) {
     // Un `throw` no es una respuesta: el defecto seguro es «caído», que no crea nada.
     //
-    // `causa` y NO `err.message`: el mensaje es texto de un tercero y puede traer la placa o el
-    // documento con el que se consultó. Ver `causaDeCaida`.
+    // `causa` y NO `err.message`: el mensaje es texto de un tercero y puede traer dentro el VIN con
+    // el que se consultó (antes, la placa y el documento). Ver `causaDeCaida`.
     log.warn(
       { desenlace: 'caido', causa: causaDeCaida(err), httpStatus: null },
       'compuerta RUNT del canal Cliente',
@@ -389,7 +409,7 @@ export async function consultarYClasificar(
     return { clase: 'caido' };
   }
 
-  const desenlace = await clasificarDesenlaceRunt(respuesta, { placa, vin });
+  const desenlace = await clasificarDesenlaceRunt(respuesta, vin);
   if (desenlace.clase === 'caido' || desenlace.clase === 'revise') {
     log.info(
       {
