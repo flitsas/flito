@@ -1,5 +1,6 @@
-// FLITO — la tabla de usuarios: cabeceras, filas, botones de acción y los tres estados de la lista
-// (cargando, vacío, lleno). Extraído de `pages/Users.tsx` sin cambios. HU #12175 / Feature #12072.
+// FLITO — la tabla de usuarios: cabeceras, filas, botones de acción y los CUATRO estados de la
+// lista (cargando, error, vacío, lleno). Extraído de `pages/Users.tsx` en la HU #12175; el estado de
+// error se añadió en la #12172, que es la primera que vuelve a abrir el archivo. Feature #12072.
 //
 // La celda «Ámbito» NO está aquí: vive en `Ambito.tsx`, con el bloque de campos del formulario que
 // ramifica por el mismo criterio. Aquí queda la rejilla, que es lo que la HU #12172 amplía.
@@ -11,9 +12,12 @@ import { ROLES, ROLE_TONE, type User } from './types';
 import { AmbitoCelda } from './Ambito';
 import type { CatalogoOrganismos, CatalogoProveedores } from './AtaduraFields';
 
-export default function UsersTable({ users, loading, meId, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar }: {
+export default function UsersTable({ users, loading, error, onReintentar, meId, nombreCompania, proveedores, organismos, onEditar, onContrasena, onAlternar }: {
   users: User[];
   loading: boolean;
+  /** Mensaje del fallo de carga, o `null`. Es el CUARTO estado (HU #12172): ver `EstadoError`. */
+  error: string | null;
+  onReintentar: () => void;
   meId: number | undefined;
   nombreCompania: (id: number) => string | null;
   proveedores: CatalogoProveedores;
@@ -47,8 +51,26 @@ export default function UsersTable({ users, loading, meId, nombreCompania, prove
           </thead>
           <tbody>
             {loading && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-            {!loading && users.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios</td></tr>}
-            {!loading && users.map((u) => {
+            {/* El ERROR va ANTES del vacío y lo excluye: una carga fallida deja `users` en `[]`, así
+                que sin esta rama el fallo se leería como «Sin usuarios» —un dato falso— y el usuario
+                se quedaría sin nada que pulsar. Antes de la HU #12172 ese caso solo salía por
+                `toast.error`, que se va solo a los pocos segundos. */}
+            {!loading && error && (
+              <tr><td colSpan={7} className="px-4 py-10 text-center">
+                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>No se pudo cargar la lista de usuarios</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{error}</p>
+                <button
+                  type="button"
+                  onClick={onReintentar}
+                  className="flit-focus mt-3 rounded-[10px] border px-4 py-2 text-sm font-semibold transition-opacity hover:opacity-80"
+                  style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
+                >
+                  Reintentar
+                </button>
+              </td></tr>
+            )}
+            {!loading && !error && users.length === 0 && <tr><td colSpan={7} className="py-10 text-center" style={{ color: 'var(--flit-text-muted)' }}>Sin usuarios</td></tr>}
+            {!loading && !error && users.map((u) => {
               const roleLabel = ROLES.find((r) => r.value === u.role)?.label ?? u.role;
               const isMe = u.id === meId;
               return (
