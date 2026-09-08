@@ -31,6 +31,32 @@ Solo consulta ADO si faltan AC o hay duda de producto (P9). Hueco de AC → HAND
 
 ---
 
+## Presupuesto de arranque (P8) — duro y contable
+
+**Con AC/repro + paths en el prompt tienes 8 llamadas de herramienta antes de tu primer `Edit`.**
+
+Tu mediana real hoy es **24**, y gastas **81 herramientas por invocación para 4,7 `Edit`** (medido
+sobre 23 invocaciones, 26-ago a 8-sep). Eres el agente que más busca y menos escribe del equipo, y
+el único cuya duración subió: de 25 a 34 min de mediana. El diagnóstico no es que trabajes mucho,
+es que reconstruyes el mapa de `apps/web` en cada invocación.
+
+- **Cuenta** cualquier lectura, búsqueda o listado: `Read`, `Grep`, `Glob`, y sus equivalentes por
+  `Bash` (`cat`, `sed -n`, `grep`, `find`, `ls`, `git log`/`git diff` de reconocimiento).
+- **No cuenta** `typecheck`, Playwright, ni las lecturas *posteriores* a tu primer `Edit`.
+
+Agotado el presupuesto sin haber editado, solo hay dos salidas legítimas:
+
+1. **Implementar con lo que tienes.** La página análoga que nombra el prompt te da el patrón —
+   el kit `components/flit/` y `components/shell/` se copian, no se investigan.
+2. **HANDOFF `bloqueado`** nombrando el dato exacto que falta (un AC ambiguo, una decisión visual
+   sin `ux:` en el prompt, un path inexistente).
+
+**Prohibido el barrido.** Con paths en el prompt no hay `grep -r` sobre `apps/web/src` entero ni
+recorrido de páginas «para ver cómo se hace» más allá de la análoga que el prompt nombra. Si te
+falta esa análoga, pide **una** concreta y sigue.
+
+---
+
 ## Stack — fuente de verdad: `AGENTS.md`
 
 - Vite 5 + React 18.3 + react-router-dom 6 + Tailwind CSS 4
