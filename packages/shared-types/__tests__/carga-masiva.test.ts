@@ -5,6 +5,7 @@ import {
   CARGA_MASIVA_MAX_BYTES_ARCHIVO,
   CARGA_MASIVA_MAX_BYTES_CRUDOS,
   CARGA_MASIVA_MAX_BYTES_CUERPO,
+  CARGA_MASIVA_MAX_ENTRADAS_ZIP,
   partirCargaMasivaEnTandas,
 } from '../src/carga-masiva';
 import * as barrel from '../src/index';
@@ -36,13 +37,56 @@ describe('HU #12050 — nombres y valores de los topes de carga masiva', () => {
     expect(CARGA_MASIVA_ARCHIVOS_POR_PETICION).toBe(5);
   });
 
-  it('el barrel de shared-types reexporta las cinco constantes y partirCargaMasivaEnTandas', () => {
+  it('el barrel de shared-types reexporta las seis constantes y partirCargaMasivaEnTandas', () => {
     expect(barrel.CARGA_MASIVA_MAX_ARCHIVOS).toBe(CARGA_MASIVA_MAX_ARCHIVOS);
     expect(barrel.CARGA_MASIVA_MAX_BYTES_ARCHIVO).toBe(CARGA_MASIVA_MAX_BYTES_ARCHIVO);
     expect(barrel.CARGA_MASIVA_MAX_BYTES_CUERPO).toBe(CARGA_MASIVA_MAX_BYTES_CUERPO);
     expect(barrel.CARGA_MASIVA_MAX_BYTES_CRUDOS).toBe(CARGA_MASIVA_MAX_BYTES_CRUDOS);
     expect(barrel.CARGA_MASIVA_ARCHIVOS_POR_PETICION).toBe(CARGA_MASIVA_ARCHIVOS_POR_PETICION);
+    expect(barrel.CARGA_MASIVA_MAX_ENTRADAS_ZIP).toBe(CARGA_MASIVA_MAX_ENTRADAS_ZIP);
     expect(barrel.partirCargaMasivaEnTandas).toBe(partirCargaMasivaEnTandas);
+  });
+});
+
+// HU #12056 — el navegador abre el ZIP y sus entradas viajan por las tandas de 5 que ya existían.
+// Eso parte en dos la cantidad admitida: el picker sigue en 50 y el ZIP tiene techo propio. Que
+// sean dos números DISTINTOS es la decisión, no un descuido: si alguien los iguala «para
+// simplificar», o el ZIP de 90 comprobantes deja de caber, o el picker admite 300 en una sola
+// petición. Este bloque fija los dos y su relación.
+describe('HU #12056 — techo de entradas de un ZIP abierto en el navegador', () => {
+  it('CARGA_MASIVA_MAX_ENTRADAS_ZIP es 300', () => {
+    expect(CARGA_MASIVA_MAX_ENTRADAS_ZIP).toBe(300);
+  });
+
+  it('el techo del ZIP es MAYOR que el del picker manual: no son el mismo número', () => {
+    expect(CARGA_MASIVA_MAX_ENTRADAS_ZIP).toBeGreaterThan(CARGA_MASIVA_MAX_ARCHIVOS);
+    expect(CARGA_MASIVA_MAX_ENTRADAS_ZIP).not.toBe(CARGA_MASIVA_MAX_ARCHIVOS);
+  });
+
+  it('un ZIP lleno hasta el techo se parte en tandas de 5, todas completas y en orden', () => {
+    const entradas = Array.from({ length: CARGA_MASIVA_MAX_ENTRADAS_ZIP }, (_, i) => `SIN MARCA/p${i}.pdf`);
+    const tandas = partirCargaMasivaEnTandas(entradas);
+    expect(tandas).toHaveLength(CARGA_MASIVA_MAX_ENTRADAS_ZIP / CARGA_MASIVA_ARCHIVOS_POR_PETICION);
+    expect(new Set(tandas.map((t) => t.length))).toEqual(new Set([CARGA_MASIVA_ARCHIVOS_POR_PETICION]));
+    expect(tandas.flat()).toEqual(entradas);
+  });
+
+  it('las entradas del ZIP se parten CON su ruta pegada: la tanda k lleva los pares k, no otros', () => {
+    const items = Array.from({ length: 12 }, (_, i) => ({
+      archivo: `p${i}.pdf`,
+      ruta: i % 2 === 0 ? `SIN MARCA/p${i}.pdf` : `CON MARCA/p${i}.pdf`,
+    }));
+    const tandas = partirCargaMasivaEnTandas(items);
+
+    expect(tandas.map((t) => t.length)).toEqual([5, 5, 2]);
+    for (const tanda of tandas) {
+      for (const item of tanda) {
+        expect(item.ruta.endsWith(`/${item.archivo}`)).toBe(true);
+      }
+    }
+    expect(tandas[1].map((i) => i.ruta)).toEqual([
+      'CON MARCA/p5.pdf', 'SIN MARCA/p6.pdf', 'CON MARCA/p7.pdf', 'SIN MARCA/p8.pdf', 'CON MARCA/p9.pdf',
+    ]);
   });
 });
 

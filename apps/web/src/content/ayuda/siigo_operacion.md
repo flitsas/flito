@@ -13,7 +13,7 @@ En el menú lateral, sección **Finanzas**, ítem **Facturación electrónica ·
 ## Pasos
 
 1. Si aparece **La integración con Siigo está frenada**, no se puede reintentar ni reenviar correo. El Administrador pulsa **Reactivar la integración con Siigo** (afecta a toda la facturación). No lo confunda con **Volver a intentarlo** de un caso dado por perdido.
-2. Filtre por fuente (**Todas**, **No se pudo emitir**, **Rechazada por la DIAN**, **No le llegó al cliente**), antigüedad (**Toda**, **Más de 2 días**, **Más de 5 días**) y **Qué se muestra** (**Solo lo pendiente** / **Con los dados por perdidos**). **Limpiar los filtros**.
+2. Filtre por fuente (**Todas**, **No se pudo emitir**, **Rechazada por la DIAN**, **No le llegó al cliente**), antigüedad (**Toda**, **Más de 2 días**, **Más de 5 días**) y **Qué se muestra** (**Solo lo pendiente** / **Con los dados por perdidos**). En **Motivo** elija un motivo concreto o **Todos los motivos**; cada opción trae entre paréntesis cuántos casos le corresponden, y se agrupa por el código del error, no por la frase. **Limpiar los filtros**.
 3. En **Casos detenidos**, pulse **Ver**. Según la fuente: **Reintentar la emisión** o **Reenviar el correo**; **Dar por perdido**; **Registrar una corrección** (un rechazo de la DIAN no se reintenta: emitiría un segundo documento); **Copiar enlace**.
 4. Para varios casos: marque, pulse **Reintentar N casos**. **Quitar la selección** limpia las casillas.
 5. Un caso dado por perdido se devuelve a la cola con **Volver a intentarlo**, no con «reactivar».
@@ -22,6 +22,7 @@ En el menú lateral, sección **Finanzas**, ítem **Facturación electrónica ·
 
 - Cargando: **Buscando lo que quedó detenido…**
 - Error: **No se pudo cargar la bandeja** y **Reintentar la búsqueda**. El error va antes que el vacío.
+- Error solo del filtro: **No se pudo cargar el catálogo de motivos.** El selector **Motivo** queda inhabilitado y ofrece **Volver a cargar los motivos**; la tabla y los demás filtros siguen funcionando.
 - Vacío: **No hay nada detenido. Buen día.** (sin filtros). Con filtro: **Ningún caso coincide con este filtro.** y **Quitar los filtros**.
 - Lleno: resumen, filtros y tabla **Casos detenidos** (caso, cliente, fuente y estado, guía, antigüedad, **Ver**).
 

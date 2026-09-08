@@ -58,12 +58,13 @@ export interface OrganismoParametrizado { codigo: string; alias: string | null; 
  * Los cuatro estados se derivan de aquí sin un booleano extra: `data === null && !error` es
  * cargando, `error` es fallo, `data` vacío es vacío, y `data` con filas es lleno.
  */
-function useCatalogo<T>(ruta: string, mapear: (fila: any) => T) {
+function useCatalogo<T>(ruta: string, mapear: (fila: any) => T, habilitado = true) {
   const [data, setData] = useState<T[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
+    if (!habilitado) return;
     let vivo = true;
     setData(null); setError(null);
     api.get<any[]>(ruta)
@@ -72,7 +73,7 @@ function useCatalogo<T>(ruta: string, mapear: (fila: any) => T) {
     return () => { vivo = false; };
     // `mapear` es una constante de módulo; la ruta no cambia. La recarga es la única entrada.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ruta, recarga]);
+  }, [ruta, recarga, habilitado]);
 
   return { data, error, recargar: () => setRecarga((n) => n + 1) };
 }
@@ -85,8 +86,21 @@ const aOrganismo = (o: any): OrganismoParametrizado => ({ codigo: String(o.codig
  * el que el `admin` ya puede leer hoy. Devuelve activos e inactivos: filtrar al OFRECER es trabajo
  * de la UI (decisión 9 de UX), no del servidor.
  */
-export function useProveedoresSoat() {
-  return useCatalogo<ProveedorSoat>('/flito/parametrizacion/proveedores-soat', aProveedor);
+/*
+ * `habilitado` (HU #12079). Aditivo y con defecto `true`: los dos usos de `Users.tsx` quedan
+ * idénticos.
+ *
+ * Existe porque `Clients.tsx` monta este catálogo para TODOS los roles que ven la pantalla y solo
+ * `admin` puede leer la ruta (`requireRole('admin','auditor')` y `financiera` no está). Sin la
+ * compuerta, abrir «Clientes y proveedores» como `financiera` dispararía un `GET` que responde 403
+ * y pintaría un fallo de catálogo en una pantalla donde ese catálogo ni se ofrece. Es el mismo
+ * gesto que `FlitoSoat.tsx:281` ya hace con `esOperaciones`.
+ *
+ * Con `habilitado: false` el hook se queda en `data === null` sin error — el estado «cargando» —,
+ * así que quien lo apague tiene que no renderizar el selector, que es justo lo que hace la ficha.
+ */
+export function useProveedoresSoat(habilitado = true) {
+  return useCatalogo<ProveedorSoat>('/flito/parametrizacion/proveedores-soat', aProveedor, habilitado);
 }
 
 /**

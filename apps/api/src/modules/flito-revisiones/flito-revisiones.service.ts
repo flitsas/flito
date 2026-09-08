@@ -9,8 +9,8 @@
 
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
-  CampoDerechoTramite, CampoFacturaVenta, CampoImpuesto, CampoSoat, EstadoImpuesto, EstadoSoat,
-  FlujoRevision,
+  CampoDerechoTramite, CampoImpuesto, CampoSoat, CAMPOS_REVISION_FACTURA_VENTA,
+  EstadoImpuesto, EstadoSoat, FlujoRevision,
   type CampoExtraido, type ExtraccionDerechoTramite, type ExtraccionFacturaVenta,
   type ExtraccionImpuesto, type ExtraccionSoat,
 } from '@operaciones/shared-types';
@@ -103,10 +103,23 @@ export async function listar(modulo?: FlujoRevision, incluirResueltas = false): 
   }));
 }
 
-/** Campos que la interfaz debe pedir según el flujo, para no adivinar en el cliente. */
+/**
+ * Campos que la interfaz debe pedir según el flujo, para no adivinar en el cliente.
+ *
+ * ── Por qué la factura de venta NO usa `Object.values(CampoFacturaVenta)` (HU #12092) ────────────
+ *
+ * Las otras tres ramas sí lo hacen porque su enum ES la lista de esta cola. El de la factura de
+ * venta dejó de serlo cuando la HU #12092 le añadió los nueve campos del COMPRADOR para que el canal
+ * Cliente los leyera del PDF: `Object.values` los habría arrastrado hasta aquí y esta pantalla —la
+ * cola de revisión de Operaciones, que resuelve el CRUCE de un documento con un trámite— se habría
+ * convertido, con el build verde y sin que nadie tocara este archivo, en un formulario donde un
+ * admin teclea nombre, cédula, dirección y celular de un titular sobre una fila que ni siquiera es
+ * del canal. Los cinco de {@link CAMPOS_REVISION_FACTURA_VENTA} son exactamente los que esta cola
+ * pedía antes de esa HU, y los únicos que su extracción persiste.
+ */
 export function camposEsperados(modulo: FlujoRevision): string[] {
   if (modulo === FlujoRevision.SOAT) return Object.values(CampoSoat);
-  if (modulo === FlujoRevision.FACTURA_VENTA) return Object.values(CampoFacturaVenta);
+  if (modulo === FlujoRevision.FACTURA_VENTA) return [...CAMPOS_REVISION_FACTURA_VENTA];
   if (modulo === FlujoRevision.DERECHOS) return Object.values(CampoDerechoTramite);
   return Object.values(CampoImpuesto);
 }

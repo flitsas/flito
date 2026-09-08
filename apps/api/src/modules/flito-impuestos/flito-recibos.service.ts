@@ -35,7 +35,8 @@ import {
 } from '../../db/schema.js';
 import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import {
-  CampoImpuesto, EstadoImpuesto, FlujoRevision, MotivoRevision, type ExtraccionImpuesto,
+  CampoImpuesto, CARGA_MASIVA_ARCHIVOS_POR_PETICION, EstadoImpuesto, FlujoRevision, MotivoRevision,
+  type ExtraccionImpuesto,
 } from '@operaciones/shared-types';
 import { extraerReciboImpuesto, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
@@ -112,10 +113,15 @@ function fromCandidatos() {
  * Carga masiva de recibos. `sinMarcaDeAgua` es el interruptor por defecto para archivos sueltos; en
  * un ZIP la copia (con/sin marca) se deduce de la carpeta. El limpio se procesa primero (concilia);
  * el de marca se adjunta al pago. Un archivo que falla no tumba el lote.
+ *
+ * `rutas` (HU #12056) es la ruta relativa DENTRO del ZIP de cada archivo, para las tandas que el
+ * navegador arma abriendo el ZIP él mismo. Sin ella, la deducción por carpeta moriría en silencio y
+ * todo caería al defecto del checkbox. Es opcional y solo informativa: quien decide la marca sigue
+ * siendo `esSinMarcaDeAgua`, una sola vez, dentro de `expandir`.
  */
-export async function cargarRecibos(archivos: ArchivoSubido[], sinMarcaDeAgua: boolean, ctx: ImpuestoCtx): Promise<ResultadoRecibos> {
+export async function cargarRecibos(archivos: ArchivoSubido[], sinMarcaDeAgua: boolean, ctx: ImpuestoCtx, rutas?: readonly string[]): Promise<ResultadoRecibos> {
   const res: ResultadoRecibos = { conciliados: [], enRevision: [], duplicados: [], complementos: [], noAsociados: [] };
-  const expandidos = await expandir(archivos, sinMarcaDeAgua);
+  const expandidos = await expandir(archivos, sinMarcaDeAgua, rutas);
   // El SIN marca primero: es el limpio con el que se concilia; el de marca se adjunta después.
   expandidos.sort((a, b) => Number(b.sinMarca) - Number(a.sinMarca));
 
@@ -394,12 +400,41 @@ async function archivar(cand: Candidato, archivo: ArchivoSubido): Promise<string
   return uploadEntityDocument(carpeta, cand.impuestoId, archivo.originalname, archivo.buffer, archivo.mimetype);
 }
 
-/** Expande ZIP marcando cada recibo con/sin marca de agua por su carpeta; sueltos usan el defecto. */
-async function expandir(archivos: ArchivoSubido[], defectoSinMarca: boolean): Promise<Array<ArchivoSubido & { sinMarca: boolean }>> {
+/** Tope defensivo de la ruta declarada por el cliente. Un valor más largo no es una ruta de ZIP. */
+const RUTA_MAX_LONGITUD = 1024;
+
+/**
+ * Normaliza el campo `rutas` del multipart (HU #12056). multer entrega un `string` cuando viaja un
+ * solo valor y un `string[]` cuando viajan varios, así que las dos formas valen.
+ *
+ * Cualquier otra cosa —objeto, número, un elemento que no sea texto, una ruta absurdamente larga, o
+ * más rutas de las que caben archivos en una petición— descarta la lista ENTERA: emparejar a medias
+ * es peor que caer al defecto del checkbox, y un cliente viejo o un proxy que reordene es un caso
+ * real, no una hipótesis. El emparejamiento por cardinalidad se comprueba después, en `expandir`.
+ */
+export function normalizarRutas(valor: unknown): string[] | undefined {
+  const lista = typeof valor === 'string' ? [valor] : Array.isArray(valor) ? valor : undefined;
+  if (!lista || lista.length === 0 || lista.length > CARGA_MASIVA_ARCHIVOS_POR_PETICION) return undefined;
+  if (!lista.every((v) => typeof v === 'string' && v.length <= RUTA_MAX_LONGITUD)) return undefined;
+  return lista as string[];
+}
+
+/**
+ * Expande ZIP marcando cada recibo con/sin marca de agua por su carpeta; sueltos usan la ruta
+ * declarada por el cliente (tandas de ZIP abierto en el navegador) y, a falta de ella, el defecto.
+ *
+ * La ruta declarada es TEXTO DEL CLIENTE y no sale de aquí: solo alimenta `esSinMarcaDeAgua`. El
+ * nombre con el que se archiva y se persiste sigue siendo el `originalname` de multer.
+ */
+async function expandir(archivos: ArchivoSubido[], defectoSinMarca: boolean, rutasCrudas?: readonly string[]): Promise<Array<ArchivoSubido & { sinMarca: boolean }>> {
+  // Cardinalidad que no cuadra → como si no hubieran llegado rutas. Sin excepción y sin a medias.
+  const rutas = rutasCrudas && rutasCrudas.length === archivos.length ? rutasCrudas : undefined;
   const salida: Array<ArchivoSubido & { sinMarca: boolean }> = [];
-  for (const archivo of archivos) {
+  for (const [i, archivo] of archivos.entries()) {
     const esZip = archivo.mimetype.includes('zip') || archivo.originalname.toLowerCase().endsWith('.zip');
-    if (!esZip) { salida.push({ ...archivo, sinMarca: defectoSinMarca }); continue; }
+    // El ZIP subido al API se sigue expandiendo aquí (AC7): sus entradas traen su propia ruta y
+    // cualquier `rutas` que viniera para él se ignora.
+    if (!esZip) { salida.push({ ...archivo, sinMarca: esSinMarcaDeAgua(rutas?.[i] ?? '', defectoSinMarca) }); continue; }
     const zip = await JSZip.loadAsync(archivo.buffer);
     for (const entrada of Object.values(zip.files)) {
       if (entrada.dir) continue;

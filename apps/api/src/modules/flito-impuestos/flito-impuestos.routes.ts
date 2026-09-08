@@ -38,7 +38,7 @@ import {
   facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
-import { cargarRecibos } from './flito-recibos.service.js';
+import { cargarRecibos, normalizarRutas } from './flito-recibos.service.js';
 import { OcrNoDisponibleError } from '../flito-ocr/flito-ocr.service.js';
 import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 
@@ -664,13 +664,20 @@ router.post('/:id/reversar', OPERACIONES, async (req: Request, res: Response) =>
 // POST /recibos — carga MASIVA de recibos de pago → Pagado (con/sin marca de agua). Operaciones o
 // gestor. `sinMarcaDeAgua` (campo del form) es el defecto para archivos sueltos; en ZIP la copia se
 // deduce de la carpeta.
+//
+// `rutas` (HU #12056) es OPCIONAL: cuando el navegador abre el ZIP y manda las entradas por tandas,
+// viaja un valor de texto por archivo, en el mismo orden, con la ruta relativa dentro del ZIP
+// (`SIN MARCA/ABC123.pdf`). Sin ese dato la deducción por carpeta moriría en silencio —todo al
+// defecto del checkbox—. El ZIP subido como archivo se sigue expandiendo en el API (AC7).
 router.post('/recibos', OPS_O_GESTOR, upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
   const sinMarca = req.body?.sinMarcaDeAgua === 'true' || req.body?.sinMarcaDeAgua === true;
+  // Texto del cliente: solo decide con/sin marca. No nombra el archivo ni la llave de storage.
+  const rutas = normalizarRutas(req.body?.rutas);
   try {
     const ctx = await contextoImpuesto(req.user!);
-    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx);
+    const resultado = await cargarRecibos(files.map(aArchivo), sinMarca, ctx, rutas);
     await audit(req, { action: 'upload', resource: 'flito_impuesto', detail: `Carga masiva recibos: ${resultado.conciliados.length} conciliados, ${resultado.enRevision.length} en revisión, ${resultado.complementos.length} complementos, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }

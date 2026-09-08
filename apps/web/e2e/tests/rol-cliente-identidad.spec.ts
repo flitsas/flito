@@ -35,18 +35,24 @@ const COMPANIAS = [
 // siempre `false` —que es exactamente el mutante que hay que matar—. La segunda fila, encendida, es
 // la que obliga a que el valor venga del payload. Y las dos llevan `soatAutogestionable` al revés
 // que `soatSinTramite`: si alguien cruzara las dos banderas, el par se rompe.
+const GESTOR_SURA = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+
 const CLIENTES = [
   {
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: '3001112233', email: 'norte@x.co', address: null, city: 'Manizales',
     soatAutogestionable: true, soatSinTramite: false, impuestosAutogestionable: false,
     logisticaAutogestionable: false, logisticaPermiteParcial: false,
+    // HU #12079: `GET /clients` entrega el gestor por defecto ya RESUELTO (nombre y estado), no su
+    // uuid. `null` = sin configurar, que es el caso de una compañía con el canal cerrado.
+    gestorSoatSinTramite: null,
   },
   {
     id: 2, name: 'Transportes Sur', document: '900222', documentType: 'NIT',
     phone: null, email: null, address: null, city: 'Pereira',
     soatAutogestionable: false, soatSinTramite: true, impuestosAutogestionable: false,
     logisticaAutogestionable: false, logisticaPermiteParcial: false,
+    gestorSoatSinTramite: { id: GESTOR_SURA, nombre: 'SURA', activo: true },
   },
 ];
 
@@ -275,32 +281,43 @@ test.describe('HU #11913 · AC2 — un Cliente sin compañía no se crea', () =>
 // ───────────────────────────── AC3 · el flag de la compañía ──────────────────────────────────────
 
 test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
-  test('la casilla se lee del listado —apagada y encendida— y se llama por su nombre, no «Autogestión…»', async ({ page }) => {
+  // HU #12079: la casilla de esta columna pasó a ser un BOTÓN que abre un modal, porque el canal
+  // dejó de ser un booleano suelto para ser una decisión con un parámetro obligatorio —el gestor—.
+  // Lo que el AC3 de la #11913 exige sigue exigiéndose y por eso estos dos tests siguen aquí: el
+  // control se llama por su nombre («SOAT sin trámite de X») y NO «Autogestión…», y el PATCH del
+  // canal no arrastra ninguna de las otras cuatro banderas. Lo nuevo —el modal, sus cuatro estados
+  // y el rechazo sin petición— vive en `soat-envio-directo-gestor.spec.ts`.
+  test('la columna se lee del listado —cerrada y abierta con su gestor— y se llama por su nombre', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    // UNA sola ruta: el flag viaja en `GET /clients` como sus cuatro vecinas. Si la pantalla
-    // volviera a cruzarlo con `/flito/parametrizacion/companias`, el catch-all del fixture le
-    // devolvería `[]` y la fila encendida de abajo se pintaría apagada.
+    // UNA sola ruta: el flag y su gestor viajan en `GET /clients` como las cuatro banderas vecinas.
+    // Si la pantalla volviera a cruzarlo con `/flito/parametrizacion/companias`, el catch-all del
+    // fixture le devolvería `[]` y la fila abierta de abajo se pintaría cerrada.
     await page.route(/\/api\/clients(\?|$)/, (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(CLIENTES),
     }));
 
     await page.goto('/clients');
     await expect(page.getByRole('columnheader', { name: 'SOAT sin trámite' })).toBeVisible();
-    // Apagada Y encendida. Solo el par prueba que el valor sale del payload y no de un `false` fijo.
-    await expect(page.getByRole('checkbox', { name: 'SOAT sin trámite de Concesionario Norte' })).not.toBeChecked();
-    await expect(page.getByRole('checkbox', { name: 'SOAT sin trámite de Transportes Sur' })).toBeChecked();
-    // El nombre por defecto de `CeldaFlag` afirmaría lo contrario de lo que hace la casilla. El
+    // Cerrada Y abierta. Solo el par prueba que el valor sale del payload y no de un fijo.
+    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Cerrado' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Transportes Sur: Abierto · SURA' })).toBeVisible();
+    // El nombre por defecto de `CeldaFlag` afirmaría lo contrario de lo que hace el control. El
     // aserto positivo solo no lo detecta: hace falta el negativo.
     await expect(page.getByLabel(/Autogestión SOAT sin trámite/)).toHaveCount(0);
-    // Y las vecinas van al revés en cada fila: si alguien cruzara las dos banderas, esto se rompe.
+    // Y las vecinas van al revés en cada fila: si alguien cruzara las banderas, esto se rompe.
     await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Concesionario Norte' })).toBeChecked();
     await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Transportes Sur' })).not.toBeChecked();
   });
 
-  test('encenderla manda SOLO su clave y no toca la casilla de autogestión', async ({ page }) => {
+  test('abrir el canal manda SOLO las dos claves del canal y no toca la casilla de autogestión', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await page.route(/\/api\/clients(\?|$)/, (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(CLIENTES),
+    }));
+    await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: GESTOR_SURA, nombre: 'SURA', activo: true }]),
     }));
     let body: Record<string, unknown> | null = null;
     await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, async (route) => {
@@ -309,12 +326,16 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     });
 
     await page.goto('/clients');
-    await page.getByRole('checkbox', { name: 'SOAT sin trámite de Concesionario Norte' }).check();
+    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Cerrado' }).click();
+    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
+    await modal.getByLabel('Canal abierto').check();
+    await modal.getByLabel('Gestor por defecto').selectOption(GESTOR_SURA);
+    await modal.getByRole('button', { name: 'Guardar' }).click();
 
     await expect.poll(() => body).not.toBeNull();
-    // `toEqual` y no `toMatchObject`: lo que se comprueba es que NO viaja ninguna clave más.
-    expect(body).toEqual({ soatSinTramite: true });
-    await expect(page.getByRole('checkbox', { name: 'SOAT sin trámite de Concesionario Norte' })).toBeChecked();
+    // `toEqual` y no `toMatchObject`: lo que se comprueba es que NO viaja ninguna clave más — en
+    // particular, ninguna de las otras cuatro banderas de autogestión.
+    expect(body).toEqual({ soatSinTramite: true, proveedorSoatSinTramiteId: GESTOR_SURA });
     await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Concesionario Norte' })).toBeChecked();
   });
 

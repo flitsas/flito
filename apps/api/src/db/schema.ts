@@ -10,6 +10,10 @@ import type { ExtraccionSoat, ExtraccionImpuesto, ExtraccionFacturaVenta, Extrac
 import type { ComparacionCampo } from '@operaciones/shared-types';
 // Entrega de la factura por correo (HU #11334): destinatarios con su procedencia, en columna jsonb.
 import type { SiigoDestinatario } from '@operaciones/shared-types';
+// SOAT canal Cliente (HU #12093): de dónde salió cada dato del propietario, en columna jsonb.
+import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
+// Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
+import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
 
 // El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
 // omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
@@ -132,6 +136,34 @@ export const clients = pgTable('clients', {
    * Nace APAGADO (AC3): una compañía nueva no estrena canal sin que alguien lo decida.
    */
   soatSinTramite: boolean('soat_sin_tramite').notNull().default(false),
+  /**
+   * FLITO — Cliente (Feature #12074, HU #12078): el gestor por defecto AL QUE VAN las solicitudes
+   * que esta compañía radica por el canal SIN TRÁMITE. Desde esa HU el alta no espera a que
+   * Operaciones elija destino: nace en `solicitado` con el destino ya escrito, y sale de aquí.
+   *
+   * Vive pegada a `soatSinTramite` a propósito: son el mismo hecho partido en dos columnas —«el
+   * canal está abierto» y «hacia dónde»— y el CHECK `clients_sin_tramite_gestor_chk` (migración
+   * 0175, `soat_sin_tramite = false OR flito_proveedor_soat_sin_tramite_id IS NOT NULL`) las ata.
+   * Separarlas invitaría a leer una sin la otra.
+   *
+   * **SOLO del canal sin trámite, y el nombre lo dice a propósito.** El SOAT POR TRÁMITE no la lee
+   * nunca: allí Operaciones elige gestor en cada `POST /flito/soat/enviar`, que es cuando alguien
+   * mira la carga de cada uno (HU #10979). El único lector que DECIDE con ella es
+   * `resolverDestinoCanalCliente()`, en `flito-soat-cliente.service.ts`; desde la HU #12079
+   * `GET /clients` también la lee, pero solo para MOSTRARLA —unida a `flito_proveedores_soat`, para
+   * que la ficha de la compañía diga el nombre del gestor y si está activo—, nunca para enrutar.
+   *
+   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto y un `NOT NULL`
+   * obligaría a inventarle un gestor a cada una. La obligatoriedad es CONDICIONAL al flag y la
+   * sostiene el CHECK, que Drizzle no declara aquí porque no lo declara ninguno de `clients`.
+   *
+   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` crearía por la
+   * puerta de atrás el estado que el AC2c declara imposible —canal encendido, destino vacío— y en
+   * silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
+   * (un proveedor se retira con `activo = false`, que NO dispara la FK).
+   */
+  flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
+    .references((): any => flitoProveedoresSoat.id, { onDelete: 'restrict' }),
   impuestosAutogestionable: boolean('impuestos_autogestionable').notNull().default(false),
   logisticaAutogestionable: boolean('logistica_autogestionable').notNull().default(false),
   // FLITO Logística: si acepta entregas parciales (CA-08/09). Si es false, el acta se retiene
@@ -2553,11 +2585,12 @@ export const laftAuditPlans = pgTable('laft_audit_plans', {
 // Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
 // flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
 // rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
-// `pendiente_revision` y `rechazada` (migración 0167, Feature #11912) son del canal Cliente: los
-// escribe la HU #11914/#11915 y el SOAT que nace del sync no pasa por ellos. Se añaden al MISMO
-// enum para que una fila tenga un solo estado y `POST /enviar` (que filtra `pendiente`) siga siendo
-// correcto sin tocarlo.
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado', 'pendiente_revision', 'rechazada']);
+//
+// `pendiente_revision` y `rechazada` estuvieron aquí entre la 0167 y la 0176: eran la cuarentena
+// del canal Cliente. La 0176 (Feature #12074, HU #12080) RECREA el tipo sin ellos —igual que hizo
+// la 0101 con este mismo enum—, así que a diferencia de los valores viejos de arriba estos no son
+// residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
 export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado', 'entregado', 'aprobado', 'anulado', 'rechazado']);
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
@@ -2700,6 +2733,47 @@ export const flitoSoat = pgTable('flito_soat', {
    * Cuasi-PII: no viaja en path ni en query (AGENTS.md 14).
    */
   numeroPoliza: varchar('numero_poliza', { length: 60 }),
+  /**
+   * Qué dijo el RUNT la última vez que respondió sobre la vigencia de ESTE SOAT (Feature #12075,
+   * HU #12096, migración 0177). Vocabulario: {@link EstadoVigenciaSoat}.
+   *
+   * **Se llama `estado_vigencia` y no `estado`, y no es preferencia de estilo.** `flito_soat.estado`
+   * ya existe y es el enum `flito_soat_estado` con los estados de la SOLICITUD (pendiente,
+   * solicitado, con_novedad, pagado). Un `ADD COLUMN IF NOT EXISTS estado` habría sido un no-op
+   * silencioso —la columna existe— y el primer `set({ estado: 'vigente' })` habría muerto con
+   * `22P02 invalid input value for enum`. Los dos estados son ortogonales: un SOAT `pagado` puede
+   * estar `sin_registro`, y de hecho ESA combinación es el hallazgo que este Feature persigue.
+   *
+   * `varchar` + CHECK y no `pgEnum`, por la misma razón escrita en `origen`: ampliar el vocabulario
+   * es un DROP/ADD CONSTRAINT barato, mientras que un enum arrastra el 55P04 que este dominio ya
+   * pagó dos veces.
+   *
+   * El DEFAULT `no_verificado` es la verdad de las ~7 000 filas existentes: de ellas no consta
+   * ninguna consulta al RUNT. **Cero backfill** — inventar `vigente` porque están `pagado` sería
+   * escribir como hecho lo que este Feature existe para comprobar.
+   */
+  estadoVigencia: varchar('estado_vigencia', { length: 15 }).notNull().default('no_verificado'),
+  /**
+   * Cuándo RESPONDIÓ el RUNT, no cuándo se intentó (HU #12096, AC5).
+   *
+   * La corrida NO la toca cuando el RUNT se cae o el circuito está abierto: si la moviera, un mes de
+   * pasarela caída dejaría toda la cola con fecha de anoche y la antigüedad —que es la señal que
+   * este Feature mide— diría exactamente lo contrario de lo que pasa. `NULL` = de este SOAT no
+   * consta ninguna respuesta del registro.
+   */
+  verificadaEn: timestamp('verificada_en', { withTimezone: true }),
+  /** Hasta cuándo dice el RUNT que la póliza está vigente. `NULL` = respondió por estado, sin fecha. */
+  venceEl: date('vence_el'),
+  /**
+   * Número de póliza QUE REPORTA EL RUNT, normalizado igual que `numero_poliza`.
+   *
+   * Es OTRA columna a propósito: `numero_poliza` es la que el OCR sacó de la factura de FLITO y con
+   * la que se concilia una boleta de pago externo (Feature #11623). Que las dos diverjan es señal
+   * útil —una póliza reexpedida—, no ruido; pisar la del OCR con la del registro borraría la llave
+   * de conciliación sin que nada se pusiera rojo. **No se proyecta hacia la cola** (HU #12097): es
+   * cuasi-PII y colisionaría visualmente con la otra.
+   */
+  polizaRunt: varchar('poliza_runt', { length: 60 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -2722,30 +2796,38 @@ export const flitoSoat = pgTable('flito_soat', {
   // es que un CHECK que solo vive en la base convence a quien lee `schema.ts` de que añadir un valor
   // no necesita migración, y el primer INSERT con el valor nuevo muere con 23514.
   origenChk: check('flito_soat_origen_chk', sql`${t.origen} IN ('tramite', 'cliente')`),
+  // `verificada_en` NO lleva índice, y es una decisión MEDIDA (gate de esquema de la HU #12096).
+  // El que hubo aquí era INERTE por dos motivos que se refuerzan: un btree se declara
+  // `ASC NULLS LAST` y el censo ordena `ASC NULLS FIRST`, que ningún recorrido de ese índice puede
+  // suplir; y su predicado —`verificada_en IS NULL OR verificada_en < corte`, un OR de baja
+  // selectividad y SIN `LIMIT`— hace que el planificador prefiera seq scan + sort igualmente.
+  // Se indexará el día que exista una consulta de antigüedad CON `LIMIT` que lo use, con la cláusula
+  // de orden de ESA consulta y comprobando con EXPLAIN que entra. El razonamiento largo, con la
+  // medición, está en la migración 0177.
+  // Declarado AQUÍ y no solo en la 0177, misma lección de la 0157 que el CHECK de `origen`. Los
+  // TRES valores y ni uno más: `vencido` NO se persiste, se deriva de `vence_el` contra el día de
+  // Bogotá (ver `ESTADOS_VIGENCIA_SOAT` en shared-types). Un `set({ estadoVigencia: 'vencido' })`
+  // tiene que morir con 23514 y no colarse.
+  estadoVigenciaChk: check('flito_soat_estado_vigencia_chk',
+    sql`${t.estadoVigencia} IN ('vigente', 'sin_registro', 'no_verificado')`),
 }));
 
-/**
- * Causales de rechazo de una solicitud del canal Cliente (Feature #11912). Catálogo GENERAL, no por
- * compañía: calcado de `flitoComparendosCausales`, que es el precedente del repo para esto mismo.
- *
- * Lo puebla y lo consume la HU #11915 (revisión); aquí solo nace la tabla, porque la 0167 es la
- * única migración de la cadena y partirla en cuatro no ayudaría a nadie.
- */
-export const flitoSoatCausalesRechazo = pgTable('flito_soat_causales_rechazo', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 120 }).notNull(),
-  activo: boolean('activo').notNull().default(true),
-  orden: smallint('orden').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (t) => ({
-  nombreUq: uniqueIndex('uq_flito_soat_causales_nombre').on(t.nombre),
-}));
+// `flitoSoatCausalesRechazo` (`flito_soat_causales_rechazo`) vivía aquí: el catálogo del rechazo de
+// Operaciones, creado por la 0167 y sembrado por la 0170. La migración 0176 (Feature #12074, HU
+// #12080) la BORRA, con su única lectora (`GET /flito/soat/causales-rechazo`) y con la columna que
+// la referenciaba. Se retira del esquema en el mismo diff que la migración, y no después: una tabla
+// declarada aquí que no existe en la base es un `getTableConfig` verde y un 42P01 en producción.
 
 /**
  * Satélite 1:1 de `flitoSoat` con TODO lo que solo existe cuando el SOAT nació del canal Cliente:
- * quién lo radicó, quién lo revisó, la causal y la observación del rechazo, y cuántas veces se
- * reenvió tras subsanar.
+ * quién lo radicó, cuándo, el desenlace de la consulta al RUNT del alta y el rastro de la revisión
+ * que hubo entre la 0167 y la 0176 (`revisado_por_*`, `revisado_en`, `reenvios`).
+ *
+ * **Lo que la HU #12080 retiró de aquí, y por qué el resto se queda.** `causal_rechazo_id` y
+ * `observacion_rechazo` se van con la migración 0176: eran el rechazo de Operaciones, un circuito
+ * sin usuarios desde que el alta despacha sola. Las columnas del revisor y el contador de reenvíos
+ * NO se van: describen lo que de verdad ocurrió sobre las filas de aquel período, están vacías en
+ * todo lo nuevo y borrarlas sería reescribir la historia para ahorrar tres columnas nullable.
  *
  * **Por qué una tabla aparte y no doce columnas en `flitoSoat`** (ADR-0008 §1.2, y es la decisión
  * cara de este modelo): `buscarConAcceso()` hace `db.select({ soat: flitoSoat, … })` —la fila
@@ -2776,17 +2858,13 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
   solicitadoPorId: integer('solicitado_por_id').references(() => users.id),
   solicitadoPorNombre: varchar('solicitado_por_nombre', { length: 150 }).notNull(),
   solicitadoEn: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),
+  // Quién revisó la solicitud y cuándo, mientras existió la revisión (HU #11915, retirada por la
+  // #12080). Ya no las escribe nadie; conservan lo que pasó en las filas de aquel período.
   revisadoPorId: integer('revisado_por_id').references(() => users.id),
   revisadoPorNombre: varchar('revisado_por_nombre', { length: 150 }),
   revisadoEn: timestamp('revisado_en', { withTimezone: true }),
-  // Causal + observación del rechazo del ADMIN (estado `rechazada`). NO se reutiliza
-  // `flitoSoat.motivoRechazo`, que es el del GESTOR (`con_novedad`): otro actor, otro estado
-  // destino y otra audiencia. Mezclarlos haría ilegible el historial de una fila que pase por los
-  // dos.
-  causalRechazoId: uuid('causal_rechazo_id').references(() => flitoSoatCausalesRechazo.id),
-  observacionRechazo: text('observacion_rechazo'),
-  // Cuántas veces el cliente subsanó y volvió a enviar. Sirve para detectar la solicitud que va y
-  // viene sin resolverse, que es la que hay que llamar por teléfono.
+  // Cuántas veces el cliente subsanó y volvió a enviar. Igual que las tres de arriba: sin escritor
+  // desde la #12080, se queda en 0 en toda fila nueva.
   reenvios: smallint('reenvios').notNull().default(0),
   /**
    * Desenlace de la verificación RUNT (migración 0171, HU #11935; el significado cambia con la
@@ -2820,13 +2898,103 @@ export const flitoSoatSolicitud = pgTable('flito_soat_solicitud', {
    * hoy salen como error HTTP y no hay fila que anotar.
    */
   verificacionCodigo: varchar('verificacion_codigo', { length: 40 }),
+  /**
+   * Cuándo RESPONDIÓ el RUNT durante el alta (HU #12093, migración 0174).
+   *
+   * No es `solicitado_en`: aquella dice cuándo se guardó la solicitud y esta cuándo se midió el
+   * vehículo. Hoy distan milisegundos —desde ADR-0010 la consulta es compuerta y ocurre dentro de la
+   * misma petición— y por eso conviene tenerlas separadas antes de que dejen de coincidir: la ficha
+   * enseña «datos del RUNT del …», que es una afirmación sobre el registro nacional y no sobre FLITO.
+   *
+   * Nullable y SIN backfill: las solicitudes radicadas bajo la #11935 consultaban después del COMMIT
+   * (o no consultaban), así que de ellas no consta. `NULL` significa exactamente eso.
+   *
+   * **La diferencia con `solicitado_en` NO es una duración, y no debe pintarse como tal en ninguna
+   * pantalla ni reporte.** Las dos marcas salen de RELOJES DISTINTOS: `solicitado_en` es
+   * `defaultNow()`, o sea el reloj del servidor de base de datos, y esta la fija el proceso de la
+   * API con `new Date()` justo al volver del RUNT (`flito-soat-cliente.service.ts`,
+   * `verificarRuntCompuerta`) — que es lo semánticamente correcto y lo que el AC4 pide. Con API y
+   * Postgres en hosts distintos, una deriva de reloj de unos pocos segundos basta para invertir el
+   * orden aparente y enseñar «el RUNT respondió después de radicarse», o una duración negativa.
+   * No hay CHECK de ordenación entre las dos a propósito: rechazaría altas perfectamente válidas
+   * por un problema de relojes ajeno al dato. Cada columna se lee sola, y para «cuánto tardó el
+   * RUNT» hace falta medir los dos extremos con el mismo reloj, que hoy nadie hace.
+   */
+  runtConsultadoEn: timestamp('runt_consultado_en', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  causalIdx: index('idx_flito_soat_solicitud_causal').on(t.causalRechazoId),
+  // `idx_flito_soat_solicitud_causal` se va con su columna en la 0176.
   verificacionEstadoChk: check(
     'flito_soat_solicitud_verificacion_estado_chk',
     sql`${t.verificacionEstado} IN ('pendiente', 'caido', 'sin_registro', 'no_cuadra', 'ok')`,
   ),
+}));
+
+/**
+ * Una fila por CORRIDA de la verificación diaria de vigencia (Feature #12075, HU #12096, mig. 0177).
+ *
+ * ── Por qué una tabla y no la clave de `system_kv` que la HU #12095 dejó ────────────────────────
+ *
+ * El estado de la corrida vivía en `system_kv['flito-soat.vigencia.corrida-dia']`: UNA clave, que el
+ * día siguiente SOBRESCRIBE. Si el 4 cerró `parcial` con vehículos sin verificar, el 5 a las 00:10
+ * esa constancia desaparecía de la base y solo quedaba en los logs. El AC5 de la #12095 pide cerrar
+ * el día «dejando constancia», y con una sola clave la constancia es efímera: sirve para DECIDIR
+ * (¿corro hoy?) y no para responder «¿qué días quedaron a medias este mes?». La 0177 retira esa
+ * clave; su cabecera deja el NOTICE con lo que se borra.
+ *
+ * ── La llave es (día, intento), no el día ───────────────────────────────────────────────────────
+ *
+ * Es lo que hace que un reintento no pise la corrida inicial: `verificados` se SUMA sobre las filas
+ * del día y `max(intento)` dice cuántas ejecuciones hubo. Con la llave solo en `dia`, el
+ * `onConflictDoUpdate` del intento 2 borraría lo que midió el intento 1 — y con el `target` mal
+ * puesto (solo `dia`, sin `intento`) borraría además la corrida del día anterior, que es exactamente
+ * la deuda que esta tabla viene a cerrar.
+ *
+ * ── Lo que NO tiene, a propósito ────────────────────────────────────────────────────────────────
+ *
+ *   · **Ninguna columna `proximo_intento_en`.** Se DERIVA de `iniciada_en + 1 h` cuando la corrida
+ *     sigue `en_curso` y quedan reintentos (CF-06: la cadencia se mide desde el ARRANQUE del
+ *     intento, no desde su cierre). Persistirla sería guardar una resta.
+ *   · **Ningún identificador de vehículo.** Ni aquí ni en `motivos`: son conteos. Un mapa
+ *     vehículo → causa convertiría esta tabla en una lista de VIN con su incidencia.
+ *   · **Ningún índice extra sobre `(dia)`**: el único, `(dia, intento)`, lo sirve por prefijo
+ *     izquierdo.
+ */
+export const flitoSoatVerificacionCorridas = pgTable('flito_soat_verificacion_corridas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Día de la corrida en Bogotá (`yyyy-mm-dd`), NO la fecha del servidor: el contenedor va en UTC. */
+  dia: date('dia').notNull(),
+  /** 1 es la corrida inicial; 2..4 son los reintentos horarios (`MAX_REINTENTOS` = 3). */
+  intento: smallint('intento').notNull(),
+  iniciadaEn: timestamp('iniciada_en', { withTimezone: true }).notNull().defaultNow(),
+  /** `NULL` = el intento arrancó y no llegó a cerrarse (el proceso murió a mitad). */
+  cerradaEn: timestamp('cerrada_en', { withTimezone: true }),
+  /**
+   * Desenlace del intento, con el MISMO vocabulario que el `EstadoCorrida` del cron —
+   * `en_curso | completa | parcial`. No se inventa otro: la lectura del cron reconstruye su
+   * `EstadoDelDia` a partir de esta columna, y dos vocabularios obligarían a una traducción que
+   * nadie recordaría mantener.
+   */
+  estado: varchar('estado', { length: 10 }).notNull().default('en_curso'),
+  /** Vehículos que el censo devolvió para ESTE intento. */
+  total: integer('total').notNull().default(0),
+  /** Resueltos con respuesta del RUNT en ESTE intento (un «no» legítimo cuenta como verificado). */
+  verificados: integer('verificados').notNull().default(0),
+  /** De los verificados, cuántos cambiaron de `estado_vigencia`. Es lo único que se audita por fila. */
+  cambiaron: integer('cambiaron').notNull().default(0),
+  /**
+   * Sin verificar por indisponibilidad de la fuente. **Mayor que cero es lo ÚNICO que reprograma el
+   * reintento horario**, así que contar aquí un fallido como verificado apaga el reintento en
+   * silencio y para siempre.
+   */
+  fallidos: integer('fallidos').notNull().default(0),
+  /** {@link ResumenMotivosCorrida}: vocabulario cerrado, conteos. Nunca un `err.message` como clave. */
+  motivos: jsonb('motivos').$type<ResumenMotivosCorrida>().notNull().default({}),
+}, (t) => ({
+  diaIntentoUq: uniqueIndex('uq_flito_soat_verif_corrida_dia_intento').on(t.dia, t.intento),
+  // Declarado aquí y en la 0177, misma lección de la 0157.
+  estadoChk: check('flito_soat_verif_corrida_estado_chk',
+    sql`${t.estado} IN ('en_curso', 'completa', 'parcial')`),
 }));
 
 // Trámite sincronizado desde FLIT. Llave real: id_flit. Coexiste con tramites_digitales.
@@ -3044,6 +3212,24 @@ export const flitoCompradores = pgTable('flito_compradores', {
    */
   municipio: varchar('municipio', { length: 100 }),
   departamento: varchar('departamento', { length: 100 }),
+  /**
+   * De dónde salió cada dato del propietario (HU #12093, migración 0174): mapa campo →
+   * `'factura' | 'runt' | 'manual'` sobre los nueve campos de `CAMPOS_COMPRADOR_FACTURA`.
+   *
+   * `NOT NULL DEFAULT '{}'` y sin backfill. El tipo es el PERSISTIDO —un `Partial`— y no el mapa
+   * completo, a propósito: las ~7 052 filas del sync de trámites y las radicadas antes de esta HU
+   * llevan `{}`, y un `Record` completo aquí le prometería a quien lea la columna una clave que en
+   * la mitad de las filas no existe. El alta escribe siempre el mapa COMPLETO (`procedenciaCompleta`,
+   * AC3: el defecto es `manual`), que es asignable a esto.
+   *
+   * La escriben las DOS rutas del canal Cliente que escriben el comprador: el alta con lo que
+   * declaró el formulario, y la subsanación con los nueve en `manual` —sus valores acaban de
+   * llegar tecleados por una persona—. No es opcional que las dos la escriban: la subsanación
+   * reescribe los nueve campos del titular vengan cambiados o no, así que un mapa que se quedara
+   * del alta describiría, entero, valores que ya no están en la fila. Ver el docblock del `set` de
+   * `subsanarSolicitud`.
+   */
+  procedencia: jsonb('procedencia').$type<ProcedenciaCompradorPersistida>().notNull().default({}),
   orden: integer('orden').notNull().default(0),
   porcentajeParticipacion: numeric('porcentaje_participacion', { precision: 5, scale: 2 }),
 }, (t) => ({
@@ -3112,6 +3298,13 @@ export const flitoSoportes = pgTable('flito_soportes', {
   // Acotado a `factura_venta`: los demás tipos de soporte de un SOAT sí pueden repetirse.
   soatFacturaVentaUq: uniqueIndex('idx_flito_soportes_soat_factura_venta').on(t.soatId)
     .where(sql`${t.soatId} IS NOT NULL AND ${t.tipo} = 'factura_venta' AND ${t.descartado} = false`),
+  // Feature #12075 (migración 0177): el índice que el CENSO de la verificación diaria necesita, y
+  // NO único — `factura_soat` puede repetirse por SOAT (el único parcial único de esta tabla es el
+  // de `factura_venta`, justo encima). Hasta aquí esta tabla no tenía NINGÚN índice por `soat_id`
+  // solo: los tres de arriba son parciales sobre otras FK o sobre otro tipo, así que el `EXISTS`
+  // del censo recorría `flito_soportes` entera una vez por SOAT candidato.
+  soatTipoIdx: index('idx_flito_soportes_soat_tipo').on(t.soatId, t.tipo)
+    .where(sql`${t.soatId} IS NOT NULL AND ${t.descartado} = false`),
   // «Uno y solo uno» para las DOS FK nuevas del patrón. Lo escribió la 0139 para `siigo_factura_id`
   // y lo ensancha la 0157 con `conciliacion_boleta_id`: sin ensancharlo, un soporte podía colgar de
   // una factura Y de una boleta a la vez, contar como comprobante vivo en los dos índices parciales

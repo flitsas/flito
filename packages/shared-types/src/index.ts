@@ -52,6 +52,8 @@ export * from './flito-logistica.js';
 export * from './flito-logistica-barcode.js';
 // Campos OCR (SOAT / impuesto / factura de venta) con confianza por campo y motivos de revisión.
 export * from './flito-ocr.js';
+// Canal Cliente del SOAT: de dónde salió cada dato del propietario (factura / RUNT / manual).
+export * from './flito-soat-procedencia.js';
 // Mapeo de roles FLITO → roles Operaciones y ataduras de visibilidad del gestor.
 export * from './flito-roles.js';
 // Bolsas prepago del cliente: tipos de movimiento, conceptos que consumen saldo y periodo contable.

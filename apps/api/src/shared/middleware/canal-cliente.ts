@@ -78,10 +78,13 @@ export interface RutaCliente {
  * el shell (`components/shell/*`, `App.tsx`) no pide nada al API, la ayuda in-app es markdown del
  * bundle y `/flito/parametrizacion/proveedores-soat` está detrás de `if (!esOperaciones) return`.
  *
- * **Creció con la HU #11914 (radicar) y con la #11915 (subsanar)**, que son las que le dan al canal
- * sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe con su
- * `porque` o no se escribe. La #11915 añadió UNA —la subsanación— y dejó fuera las tres de la
- * revisión, que son de Operaciones; el bloque del final de la lista dice por qué de cada una.
+ * **Creció con la HU #11914 (radicar) y con la #12092 (leer la factura)**, que son las que le dan al
+ * canal sus rutas de escritura. Añadir una entrada aquí es una decisión de exposición: se escribe
+ * con su `porque` o no se escribe.
+ *
+ * **Y también ENCOGE.** La HU #12080 retiró la de la subsanación al retirar el circuito de revisión
+ * que le daba sentido; el bloque del final de la lista dice cuál era y por qué se fue. Una entrada
+ * que sobrevive a su flujo es una puerta abierta cuya justificación ya no se puede comprobar.
  *
  * Fuera a propósito, aunque el `cliente` las use:
  *   · `POST /api/auth/login` — no pasa por `authMiddleware` (todavía no hay usuario); este guarda no
@@ -136,19 +139,43 @@ export const RUTAS_PERMITIDAS_CLIENTE: readonly RutaCliente[] = [
     metodo: 'POST', patron: '/api/flito/soat/cliente',
     porque: 'Radicar la solicitud. Es la razón de ser del canal; sin ella el rol solo mira.',
   },
-  // ── La TERCERA ruta de escritura del canal (HU #11915). Cierra el ciclo que la #11914 dejó a
-  // medias: hasta aquí el `cliente` podía radicar y ver, pero no responder a un rechazo.
+  // ── La TERCERA ruta de escritura del canal (HU #12092, Feature #12073). Es la primera que no
+  // escribe NADA en FLITO —lee un PDF y devuelve lo que dice—, pero entra por la misma puerta que las
+  // otras dos: `POST` con adjunto, `requireRole('cliente')`, rate limit del canal por delante de la
+  // carga del archivo y validación del MIME real.
+  //
+  // Su cuerpo admite un `solicitudId` OPCIONAL que hoy ningún llamador manda: lo usaba la
+  // subsanación, retirada por la HU #12080. Se conserva el campo —opcional y con su
+  // `buscarConAcceso` de 404-no-403— y se cuenta aquí, FUERA del `porque`: el `porque` tiene que
+  // decir qué se rompe HOY si esta entrada desaparece, y una explicación histórica dentro de esa
+  // cadena la vuelve imposible de auditar de un vistazo.
   {
-    metodo: 'PATCH', patron: '/api/flito/soat/:id/solicitud',
-    porque: 'Subsanar y reenviar una solicitud RECHAZADA (AC3). Sin esta entrada el botón «Reenviar la solicitud» —que ya existe en el front— responde 403 y el rechazo se convierte en un callejón sin salida: el Cliente ve por qué se le devolvió y no tiene forma de corregirlo. La ruta edita la MISMA fila (mismo id, mismo VIN, ni placa ni VIN en el cuerpo) y solo desde `rechazada`; la pertenencia la resuelve `buscarConAcceso()` con 404-no-403 y lleva el rate limit del canal más la validación del MIME real del adjunto.',
+    metodo: 'POST', patron: '/api/flito/soat/cliente/factura/lectura',
+    porque: 'Leer con OCR el COMPRADOR de la factura de venta para prellenar el formulario del alta '
+      + '(AC6). Sin esta entrada, el paso del wizard que evita reteclear nueve campos —nombres, '
+      + 'apellidos o razón social, tipo y número de documento, dirección, municipio, departamento y '
+      + 'celular— responde 403 y el cliente vuelve a escribirlos a mano desde el PDF que acaba de '
+      + 'adjuntar. NO persiste ni archiva nada: ni objeto en storage, ni soporte, ni fila; el buffer '
+      + 'muere con la petición. Nada identificable viaja en la URL: lo que la ruta necesita saber va '
+      + 'en el CUERPO del multipart.',
   },
-  // Fuera a propósito, aunque sean del mismo Feature: `GET /api/flito/soat/causales-rechazo`,
-  // `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/rechazar-solicitud`. Las tres son
-  // de Operaciones (AC4) y al `cliente` se le niegan DOS veces —aquí por no estar, y en su router por
-  // `requireRole('admin')`—. La del catálogo tampoco se le abre aunque sea una lectura sin PII: recibe
-  // el nombre de SU causal ya resuelto dentro de su detalle, así que la lista completa de lo que FLITO
-  // rechaza no le hace falta para nada, y una entrada de menos aquí es una decisión de exposición
-  // menos que justificar.
+  // ── Lo que estuvo aquí y ya no está: `PATCH /api/flito/soat/:id/solicitud` ────────────────────
+  //
+  // Era la subsanación: la ruta con la que el `cliente` respondía a un rechazo de Operaciones. La HU
+  // #12080 retira ese circuito entero —ya no hay revisión que rechace, ni estado `rechazada` al que
+  // responder— y con él sale esta entrada. Es la única forma de que la lista siga siendo lo que dice
+  // ser: una entrada cuyo `porque` describe un flujo que no existe no es documentación vieja, es una
+  // exposición que nadie puede evaluar.
+  //
+  // **El `cliente` que llame ahí recibe 403 y no 404**, y conviene saberlo antes de leer un test que
+  // lo afirme: este guarda corre al final de `authMiddleware`, o sea ANTES del enrutado de Express,
+  // así que la petición muere aquí y nunca llega al router que ya no tiene la ruta. Los demás roles,
+  // que no pasan por esta lista, sí ven el 404 de Express.
+  //
+  // Fuera a propósito y por lo mismo, aunque fueran del mismo Feature: `GET /api/flito/soat/
+  // causales-rechazo`, `POST /api/flito/soat/:id/validar` y `POST /api/flito/soat/:id/
+  // rechazar-solicitud`. Nunca estuvieron en esta lista —eran de Operaciones— y desde la #12080
+  // tampoco existen en ningún router.
 ];
 
 const escapar = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

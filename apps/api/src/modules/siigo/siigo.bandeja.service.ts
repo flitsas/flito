@@ -639,17 +639,41 @@ export async function descartesVigentes(
  *
  * `porResponsable` se calcula aquí y no en SQL a propósito: el responsable sale del catálogo de
  * códigos, que vive en TypeScript. Traerlo a la base sería copiarlo, y la copia se quedaría vieja.
+ *
+ * **El código se normaliza en su propia pata (`normalizados`) y el conteo agrupa por el NOMBRE de la
+ * columna ya normalizada: `CODIGO_SIN_DESENLACE` no puede aparecer dos veces en la consulta.** Es el
+ * Bug #12058, y no era un caso raro: la versión anterior interpolaba el literal en
+ * `COALESCE(codigo, …)` dos veces —en la lista del SELECT y en el GROUP BY— y Drizzle NO deduplica
+ * valores idénticos: cada interpolación es un parámetro propio, así que emitía dos placeholders
+ * distintos (`$12` en el SELECT y `$13` en el GROUP BY, en la llamada sin filtros). PostgreSQL
+ * decide si una expresión está agrupada comparando el ÁRBOL, no el valor que el placeholder acabará
+ * llevando: dos nodos `$n` distintos no son la misma expresión. Resultado, medido contra PostgreSQL
+ * 16.14, en toda llamada y contra cualquier ambiente,
+ * `42803: column "casos.codigo" must appear in the GROUP BY clause` → 500, y el selector «Motivo» de
+ * la bandeja sin opciones. La suite no lo vio porque afirmaba sobre el TEXTO del SQL, donde las dos
+ * interpolaciones se leen idénticas; la guarda que quedó mide la consulta RENDERIZADA.
+ *
+ * Agrupar por nombre y no por `GROUP BY 1, 2` es deliberado. El ordinal también dejaría el literal en
+ * una sola posición y también funciona —está medido—, pero es posicional: añadir mañana una columna a
+ * la proyección lo haría agrupar por otra cosa en silencio. Un nombre no se desplaza.
  */
 export async function resumenBandeja(o: OpcionesBandeja): Promise<SiigoBandejaResumen> {
   const ahora = o.ahora ?? new Date();
   const cliente = o.clientes && o.clientes.length > 0 ? condicionCliente([...o.clientes]) : SIEMPRE;
 
   const resultado = await db.execute(sql`
-    WITH casos AS (${consultaPatas(o.ambiente, cliente)})
-    SELECT fuente, COALESCE(codigo, ${CODIGO_SIN_DESENLACE}) AS codigo, COUNT(*)::int AS total
-      FROM casos
-     WHERE ${unir(condicionesExternas(o, ahora))}
-     GROUP BY fuente, COALESCE(codigo, ${CODIGO_SIN_DESENLACE})
+    WITH casos AS (${consultaPatas(o.ambiente, cliente)}),
+    -- El literal del código va AQUÍ y en ningún otro sitio: repetirlo en el GROUP BY emite un
+    -- segundo placeholder, y para PostgreSQL dos nodos $n distintos no son la misma expresión
+    -- aunque lleven el mismo valor (Bug #12058 → 42803 en toda llamada). El porqué, arriba.
+    normalizados AS (
+      SELECT fuente, COALESCE(codigo, ${CODIGO_SIN_DESENLACE}) AS codigo
+        FROM casos
+       WHERE ${unir(condicionesExternas(o, ahora))}
+    )
+    SELECT fuente, codigo, COUNT(*)::int AS total
+      FROM normalizados
+     GROUP BY fuente, codigo
   `);
 
   const porFuente = Object.fromEntries(

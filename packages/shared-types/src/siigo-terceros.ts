@@ -164,7 +164,18 @@ export const CLIENTS_COLUMNAS_SIN_PII = [
   // olvido dejaría a sus usuarios `cliente` sin poder pedir SOAT sin motivo.
   'soatAutogestionable', 'soatSinTramite', 'impuestosAutogestionable', 'logisticaAutogestionable',
   'logisticaPermiteParcial', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
-  'flitoProveedorSoatId',
+  // `flitoProveedorSoatSinTramiteId` (Feature #12074, HU #12078): el uuid del gestor por defecto al
+  // que van las solicitudes del canal sin trámite. Es parametrización, como sus vecinas — dice a qué
+  // aseguradora despacha esta compañía, no quién es nadie. Y borrarla en un derecho al olvido
+  // dejaría el canal abierto sin destino, que es justo el estado que `clients_sin_tramite_gestor_chk`
+  // prohíbe: el 23514 haría fallar la supresión entera.
+  //
+  // Ocupa el sitio de la entrada HUÉRFANA `'flitoProveedorSoatId'`, que estuvo aquí sin ser una
+  // columna de `clients` —esa vive en `users`— y que se borra en este mismo cambio. El canario
+  // (`privacy.routes.test.ts`) solo comprueba que no FALTE ninguna columna, no que no SOBRE ninguna
+  // cadena, así que la huérfana era una trampa cargada: con ella puesta, una columna de PII llamada
+  // casi igual habría pasado en verde sin que nadie la clasificara.
+  'flitoProveedorSoatSinTramiteId',
   'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',
   'countryCode', 'stateCode', 'cityCode', 'branchOffice',
   'personTypeOrigen', 'facturacionBloqueos',

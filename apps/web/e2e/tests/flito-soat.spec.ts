@@ -1,5 +1,5 @@
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER } from '../helpers/auth';
+import { loginAs, OPERACIONES_USER, AUDITOR_USER, PROVEEDOR_USER, CLIENTE_USER } from '../helpers/auth';
 
 // FLITO — Portal SOAT (Fase 6). Cola de adquisición: envío atómico al gestor,
 // detalle por VIN y solo-lectura para Auditoría. Backend mockeado.
@@ -700,5 +700,383 @@ test.describe('FLITO — Portal SOAT · contingencia (HU #11157)', () => {
     await expect(page.getByText('Solo lectura · Auditoría observa, no ejecuta acciones.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Asumir en Operaciones' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Devolver al proveedor' })).toHaveCount(0);
+  });
+});
+
+// ─────────── HU #12097 · La vigencia del SOAT en la cola, con su antigüedad y sus filtros ───────────
+//
+// Eslabón 2 de 2 del Feature #12075. La pantalla NO consulta el RUNT: pinta lo que la corrida de las
+// 00:10 dejó escrito y que `GET /flito/soat` proyecta en cada fila. Backend mockeado, como el resto
+// del archivo.
+//
+// El reloj va FIJADO con `page.clock.setFixedTime` —que congela `Date` pero deja correr los
+// temporizadores, así que React sigue programando— y las tres fechas del fixture están elegidas
+// contra dos mutantes concretos: los cubos de 24 h y el olvido de la zona.
+
+/** 02:00 en Bogotá del 7 de septiembre de 2026. Después de la medianoche, que es donde duele. */
+const AHORA_VIG = new Date('2026-09-07T07:00:00Z');
+/** La corrida de las 00:10 de HOY. */
+const VERIF_HOY = '2026-09-07T05:10:00Z';
+/** El reintento de las 03:10 de AYER: 22,8 h antes de `AHORA_VIG`, o sea «hoy» para `ms/86400000`. */
+const VERIF_AYER = '2026-09-06T08:10:00Z';
+/** La corrida del 4 de septiembre: tres días de calendario. */
+const VERIF_3_DIAS = '2026-09-04T05:10:00Z';
+
+/** Una fila `pagado` con comprobante, que es la única clase que entra en la verificación diaria. */
+function filaVigencia(id: string, placa: string, vigencia: unknown) {
+  return {
+    ...SOAT[2], id, placa, vin: `VIN000000000${id}`, esMultiplePropietario: false,
+    compradores: [], tramitesFlit: [], vigencia,
+  };
+}
+
+const SOAT_VIGENCIA = [
+  filaVigencia('v1', 'VIG001', { estado: 'vigente', verificadaEn: VERIF_HOY, venceEl: '2027-03-12' }),
+  filaVigencia('v2', 'VEN002', { estado: 'vencido', verificadaEn: VERIF_AYER, venceEl: '2026-03-12' }),
+  filaVigencia('v3', 'REG003', { estado: 'sin_registro', verificadaEn: VERIF_3_DIAS, venceEl: null }),
+  filaVigencia('v4', 'NOC004', { estado: 'no_verificado', verificadaEn: VERIF_3_DIAS, venceEl: null }),
+  // El caso que mata el `switch (estado)`: el estado dice `no_verificado` y la fecha dice que nunca
+  // hubo respuesta. Manda la fecha.
+  filaVigencia('v5', 'NUL005', { estado: 'no_verificado', verificadaEn: null, venceEl: null }),
+  // Sin comprobante: no entra en la verificación y el bloque viaja `null`.
+  { ...SOAT[0], id: 'v6', placa: 'PEN006', vin: 'VIN00000000000v6', compradores: [], tramitesFlit: [], vigencia: null },
+];
+
+/** Las URLs que pidió la cola en el test de vigencia, para comprobar QUÉ viajó. */
+const urlsVigencia: string[] = [];
+
+/**
+ * Mock de la cola con vigencia. **Ignora la pastilla de estado a propósito** —los seis registros
+ * salen siempre— para que los tres roles vean el mismo conjunto y el conteo de columnas se pueda
+ * comprobar con estas filas y no con las de arriba.
+ *
+ * El filtro `vigencia` SÍ se aplica, y con el mismo universo que el servidor: solo las filas con
+ * bloque de vigencia, y `no_verificado` trae las dos —la que tiene fecha y la que no—.
+ */
+async function mockVigencia(page: import('@playwright/test').Page) {
+  urlsVigencia.length = 0;
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROVEEDORES) }));
+  await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FACETAS) }));
+  await page.route(/\/api\/flito\/soat\?/, (route) => {
+    const url = new URL(route.request().url());
+    urlsVigencia.push(url.search);
+    const vigencia = url.searchParams.get('vigencia');
+    const items = vigencia
+      ? SOAT_VIGENCIA.filter((s) => (s.vigencia as { estado: string } | null)?.estado === vigencia)
+      : SOAT_VIGENCIA;
+    return route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ items, total: items.length, page: 1, pageSize: 50 }),
+    });
+  });
+}
+
+/** La celda «Estado» de una fila: la única que contiene el rótulo del estado del SOAT. */
+function celdaEstado(page: import('@playwright/test').Page, placa: string, rotulo: string) {
+  return page.getByRole('row').filter({ hasText: placa }).getByRole('cell').filter({ hasText: rotulo });
+}
+/** Cuántas pastillas hay en una celda: el puntito `aria-hidden` es exactamente uno por `StatusChip`. */
+function chipsDe(celda: ReturnType<typeof celdaEstado>) {
+  return celda.locator('span[aria-hidden="true"].rounded-full');
+}
+
+test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
+  // AC1 + AC3, y los cuatro casos EN LA MISMA CORRIDA: probar uno solo dejaría vivo un `default`
+  // que colapsara dos estados en la misma etiqueta.
+  test('AC1/AC3 — las cuatro superficies se distinguen por TEXTO, y cada una trae su fecha', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    const fila = (placa: string) => page.getByRole('row').filter({ hasText: placa });
+
+    // `vigente` — la fecha de vencimiento va DENTRO del chip: sin ella, «Vigente» no dice hasta cuándo.
+    await expect(fila('VIG001')).toContainText('Vigente hasta 12/03/27');
+    await expect(fila('VIG001')).toContainText('Verificado hoy');
+
+    // `vencido` — lo deriva el servidor. La línea dice «ayer» aunque no hayan pasado 24 horas desde
+    // el reintento de las 03:10: son días de calendario en Bogotá, no cubos de 24 h.
+    await expect(fila('VEN002')).toContainText('Venció el 12/03/26');
+    await expect(fila('VEN002')).toContainText('Verificado ayer');
+
+    // `sin_registro` — problema DEL VEHÍCULO. A partir de dos días entra la fecha absoluta, y va
+    // visible: nada en `title`, que no lo ve quien navega con teclado ni quien está en una tableta.
+    await expect(fila('REG003')).toContainText('Sin SOAT en el RUNT');
+    await expect(fila('REG003')).toContainText('Verificado hace 3 días (4/09/26)');
+
+    // `no_verificado` con fecha — problema NUESTRO. Otra etiqueta y otra gramática en la línea.
+    await expect(fila('NOC004')).toContainText('No se pudo consultar');
+    await expect(fila('NOC004')).toContainText('Último dato: hace 3 días (4/09/26)');
+
+    // Y el par que importa, cruzado: son cosas opuestas y ninguna de las dos se lee como la otra.
+    await expect(fila('REG003')).not.toContainText('No se pudo consultar');
+    await expect(fila('NOC004')).not.toContainText('Sin SOAT en el RUNT');
+    // La línea de `no_verificado` es la de la ÚLTIMA RESPUESTA, no la del intento de hoy.
+    await expect(fila('NOC004')).not.toContainText('Verificado hace');
+  });
+
+  // El sentinela de densidad de la #11905/#11906: la vigencia va DENTRO de la celda «Estado», así
+  // que el conteo no se mueve. Si sube a 11/10/11, alguien implementó la columna propia.
+  for (const caso of [
+    { rol: 'admin', usuario: OPERACIONES_USER, columnas: 10 },
+    { rol: 'auditor', usuario: AUDITOR_USER, columnas: 9 },
+    { rol: 'proveedor', usuario: PROVEEDOR_USER, columnas: 10 },
+  ]) {
+    test(`${caso.rol} ve la vigencia sin que la tabla gane columnas (${caso.columnas})`, async ({ page }) => {
+      await loginAs(page, caso.usuario);
+      await mockVigencia(page);
+      await page.clock.setFixedTime(AHORA_VIG);
+      await page.goto('/flito/soat');
+
+      const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+      await expect(tabla.getByRole('columnheader')).toHaveCount(caso.columnas);
+      await expect(tabla.getByRole('columnheader', { name: 'Vigencia' })).toHaveCount(0);
+      // Y está donde tiene que estar: en la misma celda que el estado del SOAT.
+      await expect(celdaEstado(page, 'REG003', 'Pagado')).toContainText('Sin SOAT en el RUNT');
+    });
+  }
+
+  test('AC1 — `verificadaEn` nulo pinta «Sin verificar» SIN pastilla, mande lo que mande el estado', async ({ page }) => {
+    // El fixture dice `no_verificado` a propósito: con un `switch (estado)` esta fila diría «No se
+    // pudo consultar» y afirmaría un fallo que puede no haber ocurrido —el comprobante se cargó
+    // ayer y la primera corrida es esta madrugada—.
+    expect((SOAT_VIGENCIA[4].vigencia as { estado: string; verificadaEn: string | null }).estado).toBe('no_verificado');
+    expect((SOAT_VIGENCIA[4].vigencia as { verificadaEn: string | null }).verificadaEn).toBeNull();
+
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    const celda = celdaEstado(page, 'NUL005', 'Pagado');
+    await expect(celda).toContainText('Sin verificar');
+    await expect(celda).not.toContainText('No se pudo consultar');
+    await expect(celda).not.toContainText('todavía');
+    // Una sola pastilla, la del estado del SOAT: aquí no hay ninguna afirmación que hacer.
+    await expect(chipsDe(celda)).toHaveCount(1);
+    // Y la que sí tiene fecha lleva las dos: la del estado y la azul de la vigencia.
+    await expect(chipsDe(celdaEstado(page, 'NOC004', 'Pagado'))).toHaveCount(2);
+  });
+
+  test('AC1 — la fila SIN comprobante no gana nada: ni chip, ni línea, ni «—»', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    const celda = celdaEstado(page, 'PEN006', 'Pendiente');
+    await expect(celda).not.toContainText('Verificado');
+    await expect(celda).not.toContainText('Sin verificar');
+    await expect(celda).not.toContainText('No se pudo consultar');
+    await expect(chipsDe(celda)).toHaveCount(1);
+  });
+
+  test('AC2 — el filtro viaja como valor máquina, sin placa ni VIN ni documento', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    // El nombre accesible del control es su rótulo visible, igual que el de «Gestiona».
+    await page.getByLabel('Vigencia').selectOption('no_verificado');
+
+    await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=no_verificado');
+    // La etiqueta visible NO viaja: lo que el servidor valida es el valor máquina.
+    expect(urlsVigencia.at(-1)).not.toContain('Sin+verificar');
+    // Y nada de identificadores en la URL del SPA.
+    const query = urlsVigencia.at(-1)!;
+    for (const dato of ['VIG001', 'NUL005', 'VIN000000000v5', '30303030', 'buscar=']) {
+      expect(query).not.toContain(dato);
+    }
+    expect([...new URLSearchParams(query).keys()].sort()).toEqual(['page', 'vigencia']);
+
+    // Y la lista «Sin verificar» trae LAS DOS, que es lo que dice su nombre: la que falló hoy y la
+    // que nunca ha tenido respuesta. Acotar el universo con `verificada_en IS NOT NULL` vaciaría la
+    // lista de fallos justo durante la avería que existe para hacerlos visibles.
+    await expect(page.getByRole('row').filter({ hasText: 'NOC004' })).toContainText('No se pudo consultar');
+    await expect(page.getByRole('row').filter({ hasText: 'NUL005' })).toContainText('Sin verificar');
+    await expect(page.getByRole('row').filter({ hasText: 'VIG001' })).toHaveCount(0);
+  });
+
+  test('AC2 — «Vencido» y «Sin SOAT en el RUNT» devuelven cada uno su conjunto', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    await page.getByLabel('Vigencia').selectOption('vencido');
+    await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=vencido');
+    await expect(page.getByRole('row').filter({ hasText: 'VEN002' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'REG003' })).toHaveCount(0);
+
+    await page.getByLabel('Vigencia').selectOption('sin_registro');
+    await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=sin_registro');
+    await expect(page.getByRole('row').filter({ hasText: 'REG003' })).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'VEN002' })).toHaveCount(0);
+  });
+
+  // Guarda de REGRESIÓN del gate B: `vigencia?: string` en `FiltrosExportCola` es una declaración
+  // INERTE —TypeScript no comprueba propiedades excedentes en un spread, así que quitarla pasa el
+  // typecheck y no rompe ningún test—. Lo único que de verdad transporta el filtro al archivo es la
+  // línea del spread de `filtrosExport`, y hasta aquí no había nada que la sujetara: borrarla no
+  // daba error ni rojo, solo un `.xlsx` con MÁS filas de las que la pantalla enseña. En un archivo
+  // de datos personales eso es sobre-exportación silenciosa, que es el peor de los dos modos de
+  // fallo. El aserto es sobre el CUERPO que sale, no sobre el tipo.
+  test('AC2 — el Excel se lleva el mismo filtro: `vigencia` viaja en el cuerpo del POST', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+
+    const exportado: Array<{ search: string; cuerpo: string; metodo: string }> = [];
+    // Se registra DESPUÉS del mock de la cola, que es lo que le da precedencia en Playwright.
+    await page.route(/\/api\/flito\/soat\/export$/, (route) => {
+      const req = route.request();
+      exportado.push({ search: new URL(req.url()).search, cuerpo: req.postData() ?? '', metodo: req.method() });
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers: { 'content-disposition': 'attachment; filename="soat_20991231-2359.xlsx"' },
+        body: 'PKFLITO-E2E',
+      });
+    });
+
+    await page.goto('/flito/soat');
+    await page.getByLabel('Vigencia').selectOption('vencido');
+    // Se espera a que la COLA ya haya pedido con el filtro: sin esto, el export podría salir con el
+    // estado anterior y el aserto mediría otra cosa.
+    await expect.poll(() => urlsVigencia.at(-1)).toContain('vigencia=vencido');
+
+    await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Exportar a Excel', exact: true }).click(),
+    ]);
+
+    expect(exportado).toHaveLength(1);
+    expect(exportado[0].metodo).toBe('POST');
+    const cuerpo = JSON.parse(exportado[0].cuerpo) as Record<string, unknown>;
+    // El valor MÁQUINA, que es lo que valida el esquema `.strict()` del endpoint: mandar el rótulo
+    // visible no sería un filtro ignorado, sería un 400 —y el archivo dejaría de existir—.
+    expect(cuerpo.vigencia, 'el export no se llevó el filtro de vigencia').toBe('vencido');
+    expect(cuerpo.vigencia).not.toBe('Vencido');
+    // Y sigue sin tocar la URL: todo va en el cuerpo (AGENTS.md §14).
+    expect(exportado[0].search).toBe('');
+  });
+
+  test('AC2 — el vacío del filtro ofrece «Limpiar filtros», y limpiarlo quita `vigencia`', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    // Respuesta vacía para el filtro: es el caso de «ningún SOAT ha vencido», que no es un fallo.
+    await page.route(/\/api\/flito\/soat\?.*vigencia=vencido/, (route) => {
+      urlsVigencia.push(new URL(route.request().url()).search);
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ items: [], total: 0, page: 1, pageSize: 50 }),
+      });
+    });
+    await page.goto('/flito/soat');
+
+    await page.getByLabel('Vigencia').selectOption('vencido');
+
+    // Sin el filtro en `hayFiltros`, aquí saldría «No hay SOAT en esta vista. Sincroniza desde el
+    // Tablero…» —falso— y el botón, que es la única salida, no aparecería.
+    await expect(page.getByText('Ningún SOAT coincide con los filtros.')).toBeVisible();
+    const limpiar = page.getByRole('button', { name: 'Limpiar filtros' });
+    await expect(limpiar).toBeVisible();
+
+    await limpiar.click();
+    await expect(page.getByLabel('Vigencia')).toHaveValue('');
+    await expect.poll(() => urlsVigencia.at(-1)).not.toContain('vigencia=');
+  });
+
+  test('AC4 — no hay «verificar ahora» en ninguna parte, y el dato no se edita', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    await expect(page.getByRole('button', { name: /Verificar/i })).toHaveCount(0);
+
+    await page.getByRole('row').filter({ hasText: 'REG003' }).getByRole('button', { name: 'Ver' }).click();
+    const ficha = page.getByRole('dialog').locator('dl');
+    // Los dos datos del modal, de solo lectura. El rótulo es el mismo en los cuatro estados.
+    await expect(ficha).toContainText('Vigencia');
+    await expect(ficha).toContainText('Sin SOAT en el RUNT');
+    await expect(ficha).toContainText('Último dato del RUNT');
+    await expect(page.getByRole('dialog').getByRole('button', { name: /Verificar/i })).toHaveCount(0);
+    // Ni un campo editable con el dato del RUNT dentro.
+    await expect(ficha.locator('input, select, textarea')).toHaveCount(0);
+    // Y el número de póliza del RUNT no está: no lo pide ningún AC y es cuasi-PII.
+    await expect(ficha).not.toContainText('Póliza');
+  });
+
+  test('AC4 — la fila sin comprobante enseña «—» en el modal, que es donde sí se pinta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    await page.getByRole('row').filter({ hasText: 'PEN006' }).getByRole('button', { name: 'Ver' }).click();
+    const vigencia = page.getByRole('dialog').locator('dl div').filter({ hasText: /^Vigencia/ });
+    await expect(vigencia).toContainText('—');
+  });
+
+  // AC5 + compatibilidad hacia atrás: en DEV el merge ES el deploy, así que el bundle puede ir por
+  // delante del API. Este es el mock de arriba, que NO trae el campo `vigencia`.
+  test('AC5 — una respuesta sin el campo `vigencia` se pinta como antes de la HU, sin reventar', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+
+    await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+    const celda = celdaEstado(page, 'PAG777', 'Pagado');
+    await expect(celda).not.toContainText('Verificado');
+    await expect(celda).not.toContainText('Sin verificar');
+    await expect(celda).not.toContainText('Invalid Date');
+    await expect(chipsDe(celda)).toHaveCount(1);
+    // Y el filtro sigue ofreciéndose: la pantalla no depende de que la respuesta traiga el campo.
+    await expect(page.getByLabel('Vigencia')).toBeVisible();
+  });
+
+  test('AC5 — el error de la cola sigue siendo uno solo, con su reintento', async ({ page }) => {
+    // Un fallo de la vigencia ES un fallo de `GET /flito/soat`: no hay superficie de error nueva ni
+    // una segunda llamada que pueda caerse por su cuenta.
+    await loginAs(page, OPERACIONES_USER);
+    await mockVigencia(page);
+    let fallos = 0;
+    await page.route(/\/api\/flito\/soat\?/, (route) => {
+      fallos += 1;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'No se pudo cargar la cola.' }) });
+    });
+    await page.goto('/flito/soat');
+
+    await expect(page.getByRole('alert')).toBeVisible();
+    await page.getByRole('button', { name: 'Reintentar' }).click();
+    await expect.poll(() => fallos).toBeGreaterThan(1);
+  });
+
+  test('el Cliente no ve nada de esta HU: ni el filtro, ni el chip, ni la línea', async ({ page }) => {
+    // El backend ya le quita `vigencia` de cada fila (`CAMPOS_SOLO_INTERNOS`) y le ignora el filtro;
+    // la pantalla no se apoya en eso y lo esconde también. Son el estado de un proceso interno de
+    // FLITO: le dirían que su póliza está en duda sin que él pueda hacer nada.
+    await loginAs(page, CLIENTE_USER);
+    await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ companias: [], organismos: [], proveedores: [] }) }));
+    await page.route(/\/api\/flito\/soat\?/, (route) => route.fulfill({
+      status: 200, contentType: 'application/json',
+      // Sin el campo, que es como llega la fila del cliente.
+      body: JSON.stringify({ items: [filaVigencia('c1', 'CLI007', undefined)], total: 1, page: 1, pageSize: 50 }),
+    }));
+    await page.clock.setFixedTime(AHORA_VIG);
+    await page.goto('/flito/soat');
+
+    await expect(page.getByRole('row').filter({ hasText: 'CLI007' })).toBeVisible();
+    await expect(page.getByLabel('Vigencia')).toHaveCount(0);
+    await expect(page.getByText('Sin verificar')).toHaveCount(0);
+    await expect(page.getByText('No se pudo consultar')).toHaveCount(0);
+    await expect(page.getByText(/^Verificado /)).toHaveCount(0);
   });
 });

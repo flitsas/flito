@@ -108,6 +108,17 @@ interface Props {
    * que el consumidor ponga su propio texto.
    */
   onInvalido?: () => void;
+  /**
+   * Aditivo (HU #12094). Va en la FILA de la etiqueta, a su derecha: un chip de estado, un botón
+   * pequeño. Sin él el marcado no cambia ni un nodo, así que los usos anteriores quedan idénticos.
+   *
+   * Existe porque la marca de baja confianza del canal Cliente se pinta sobre la etiqueta —es el
+   * patrón de `FlitoRevisiones`— y el tipo de documento es un `<select>`, no un `<input>`: sin este
+   * hueco, el único campo del bloque 3 que no podría marcarse sería justo uno de los dos que el AC2
+   * nombra. Lo que se pasa es un ADORNO de la etiqueta; la descripción accesible sigue viajando por
+   * `ayuda`, que es lo que el `aria-describedby` del control ya enlaza.
+   */
+  accesorio?: ReactNode;
 }
 
 /**
@@ -122,7 +133,7 @@ const CLASE_SELECT = `${flitInp} disabled:cursor-not-allowed `
 
 export default function FlitSelect({
   label, value, opciones, onChange, ayuda, mensaje, fallo, disabled, onReintentar, textoReintento,
-  required, error, onInvalido,
+  required, error, onInvalido, accesorio,
 }: Props) {
   const id = useId();
   const idMensaje = `${id}-mensaje`;
@@ -134,15 +145,26 @@ export default function FlitSelect({
   // veces (y en el camino nativo el navegador ya lo había puesto ahí).
   useEffect(() => { if (error) refSelect.current?.focus(); }, [error]);
 
+  const etiqueta = (
+    <label
+      htmlFor={id}
+      className={`${accesorio ? '' : 'mb-1 '}block text-[11px] font-semibold`}
+      style={{ color: 'var(--flit-text-primary)' }}
+    >
+      {label}
+    </label>
+  );
+
   return (
     <div>
-      <label
-        htmlFor={id}
-        className="mb-1 block text-[11px] font-semibold"
-        style={{ color: 'var(--flit-text-primary)' }}
-      >
-        {label}
-      </label>
+      {accesorio
+        ? (
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            {etiqueta}
+            {accesorio}
+          </div>
+        )
+        : etiqueta}
       <select
         id={id}
         ref={refSelect}

@@ -7,12 +7,13 @@
 import { puedeOperar } from '../lib/permissions';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat } from '@operaciones/shared-types';
+import { ANS_OPERATIVO, ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import { api, errorMessage } from '../lib/api';
-import { enviarCargaEnTandas, textoContadorCargaMasiva, validarCargaMasiva } from '../lib/carga-masiva';
+import { enviarCargaEnTandas, validarCargaMasiva } from '../lib/carga-masiva';
+import useSeleccionCargaMasiva from '../lib/useSeleccionCargaMasiva';
+import RanuraCargaMasiva from '../components/flito/RanuraCargaMasiva';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
-import BloqueRevision from '../components/flito/soat-cliente/BloqueRevision';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
 import BarraEnvioSoat from '../components/flito/BarraEnvioSoat';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -38,6 +39,8 @@ import { CeldaFechas, documentoConTipo } from '../components/flit/columnasComune
 import Paginacion from '../components/flit/Paginacion';
 import VisorSoportes from '../components/flit/VisorSoportes';
 import useDebounce from '../lib/useDebounce';
+import { textoVigenciaSoat, type VigenciaSoatCola } from '../lib/vigenciaSoatCola';
+import { CeldaVigenciaSoat, FiltroVigenciaSoat } from '../components/flito/VigenciaSoat';
 import {
   FlitCard, FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
@@ -69,6 +72,21 @@ interface SoatItem {
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   enviadoPorNombre?: string | null; enviadoEn: string | null; pagadoEn: string | null;
   valorPagado?: number | null; estancado: boolean; motivoRechazo: string | null; creadoEn: string;
+  /**
+   * Vigencia frente al RUNT, tal como la dejó la corrida de las 00:10 (Feature #12075).
+   *
+   * Los DOS huecos significan cosas distintas y ninguno se puede colapsar en el otro:
+   *   · `undefined` — el API no lo manda. Al `cliente` nunca (es el sexto de `CAMPOS_SOLO_INTERNOS`)
+   *     y a nadie si el bundle va por delante del API, que en DEV no es teórico: el merge es el
+   *     deploy. La fila se pinta EXACTAMENTE como antes de esta HU.
+   *   · `null` — la fila no tiene comprobante cargado y por tanto no entra en la verificación
+   *     diaria. Tampoco se pinta nada: la ausencia es correcta y muda, y un «—» en la mayoría de
+   *     las filas sería un hueco que hay que explicar.
+   *
+   * `verificadaEn` puede ser `null` CON el bloque presente, y no significa «hoy falló» sino «de
+   * este SOAT no consta ninguna respuesta del registro». Leerlo sin guarda pinta «Invalid Date».
+   */
+  vigencia?: VigenciaSoatCola | null;
 }
 interface Proveedor { id: string; nombre: string; activo: boolean }
 interface ColaSoat { items: SoatItem[]; total: number; page: number; pageSize: number }
@@ -78,15 +96,12 @@ interface FacetasSoat {
   proveedores: { id: string; nombre: string }[];
 }
 
-// Los dos últimos son del canal Cliente (Feature #11912) y hoy solo los pinta esta cola cuando el
-// admin la mira: quien los ESCRIBE es la #11914 (alta) y la #11915 (revisión). Se completan aquí
-// porque el `Record<EstadoSoat, …>` exhaustivo lo exige, y esa exigencia es justo la red que impide
-// que un estado nuevo salga en blanco. `pendiente_revision` va en `warning` —espera acción de
-// Operaciones, como el `pendiente` de la pantalla de trámites— y `rechazada` en `danger`, junto a
-// `con_novedad`, que es el otro «esto volvió sin resolverse».
+// Cuatro estados y cuatro tonos. Aquí hubo dos entradas más —`pendiente_revision` y `rechazada`, del
+// canal Cliente— que la HU #12079 dejó sin escritor y que la #12080 retira del enum y del tipo de
+// Postgres (migración 0176, que aborta si queda alguna fila en ellos). No hace falta conservarles un
+// tono «por si llega una fila antigua»: no puede llegar ninguna.
 const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-  pendiente_revision: 'warning', rechazada: 'danger',
 };
 const pesos = (v: number | null | undefined) => v === null || v === undefined ? '—'
   : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v);
@@ -96,53 +111,48 @@ const dato = (v: string | null) => (v && v.trim() ? v : '—');
 const fecha = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
 /**
- * Los estados a los que el admin puede REVERSAR un SOAT, y NADA MÁS (HU #11915).
+ * Los estados a los que el admin puede REVERSAR un SOAT, y NADA MÁS.
  *
- * Hasta esta HU esta lista alimentaba dos cosas a la vez: las pastillas de la cola Y el selector
- * «Estado destino» de la reversa. Añadirle los dos estados del canal Cliente —que es lo que hacía
- * falta para que el admin pudiera FILTRAR por «Pendiente de revisión»— le habría abierto de paso la
- * posibilidad de reversar cualquier SOAT a `pendiente_revision` o a `rechazada`, que es justo lo que
- * el ADR-0008 §8 prohíbe por escrito: devolver a `pendiente_revision` un SOAT ya validado deja al
- * gestor sin la fila y al cliente con una solicitud que creía resuelta. El servicio ya lo niega
- * (`reversar()`), pero la pantalla tampoco debe OFRECERLO.
- *
- * De ahí las dos listas separadas y el nombre nuevo: fundirlas otra vez tendría que costarle a
- * alguien escribir «destino de reversa» donde se lee «pastillas», y eso ya no se hace sin querer.
+ * **Sigue siendo una lista aparte aunque su contenido coincida con el de las pastillas del admin, y
+ * eso es una decisión, no un descuido.** La razón por la que nació separada —no ofrecer
+ * `pendiente_revision` ni `rechazada` como destino de reversa (ADR-0008 §8)— se evaporó del todo con
+ * la HU #12080, que retira los dos estados del enum. Pero las dos listas responden a preguntas
+ * distintas: «por qué se puede filtrar» y «a dónde se puede devolver un SOAT». Fundirlas porque hoy
+ * son iguales le regalaría a la siguiente pastilla que alguien añada un destino de reversa que nadie
+ * decidió — que es exactamente lo que acaba de pasar y de deshacerse.
  */
 const ESTADOS_DESTINO_REVERSA: EstadoSoat[] = [EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD];
 const ESTADOS_GESTOR: EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.PAGADO];
 /**
- * Las pastillas del admin: los SEIS estados, en orden de RECORRIDO (HU #11915).
+ * Las pastillas del admin, en orden de RECORRIDO del ciclo (HU #12079).
  *
- * `pendiente_revision` va primero porque es el trabajo del día que esta HU le crea; después el ciclo
- * de siempre (pendiente → solicitado → pagado → con novedad) y al final `rechazada`, que es lo que
- * está esperando al cliente y no a Operaciones.
- *
- * Sin esta pastilla el admin no tenía forma de encontrar lo que la HU le manda revisar salvo paginar:
- * la #11914 se la dio al Cliente (`ESTADOS_CLIENTE`) y dejó al revisor sin ella.
+ * `pendiente_revision` y `rechazada` salieron de aquí porque el circuito que los creaba se retiró:
+ * una solicitud del canal nace en `solicitado` y sale al gestor de su compañía sin pasar por
+ * revisión. Una pastilla que filtra por un estado en el que ya no entra ninguna fila es una pantalla
+ * vacía prometida — y desde la HU #12080 sería además un 500: el filtro viaja al API, que ya no
+ * acepta esos valores (`ESTADOS` de `flito-soat.routes.ts`).
  */
 const ESTADOS_ADMIN: EstadoSoat[] = [
-  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO,
-  EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.RECHAZADA,
+  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.PAGADO, EstadoSoat.CON_NOVEDAD,
 ];
 /**
- * Los SEIS estados, en orden de recorrido (HU #11914).
+ * Las pastillas del Cliente: **las mismas cuatro, en el orden de SU recorrido** (HU #12079).
  *
- * Hasta esta HU el Cliente caía en `ESTADOS_OPERACIONES`, que **no incluye `pendiente_revision` ni
- * `rechazada`** — precisamente sus dos estados propios. Con la cola paginada, encontrar una
- * rechazada entre las páginas era cuestión de suerte, y el AC4 exige que llegue a ella: sin esta
- * pastilla no hay camino desde la cola hasta la subsanación.
+ * Son las mismas y no un subconjunto: el aislamiento del Cliente es **por compañía, no por origen**
+ * (`condicionesCola`), así que en su cola conviven los SOAT nacidos de trámites de FLIT con los que
+ * él radica. `con_novedad` va antes que `pagado` porque es lo único de esta lista que puede estar
+ * esperando algo, aunque no sea él quien lo resuelva.
  *
- * Y son los seis, no los dos suyos: el aislamiento del Cliente es **por compañía, no por origen**
- * (`condicionesCola`), así que en su cola conviven los SOAT que nacieron de trámites de FLIT con los
- * que él radica. Ofrecerle solo dos filtros dejaría fuera la mayoría de sus filas.
- *
- * No hace falta además una columna «Origen»: `pendiente_revision` y `rechazada` SOLO existen en el
- * canal Cliente (ADR-0008 §8), así que el estado ya dice de dónde viene cada fila.
+ * ⚠ **Lo que murió con la HU #12079 y sigue muerto:** aquí se leía que «no hace falta una columna
+ * Origen porque `pendiente_revision` y `rechazada` solo existen en el canal Cliente, así que el
+ * estado ya dice de dónde viene cada fila». Retirados los dos estados —de la pantalla entonces, del
+ * enum con la #12080—, **nada distingue en pantalla una solicitud del canal de un SOAT nacido de un
+ * trámite**. No se añade columna —la cola ya es densa, el gestor las trabaja igual y ningún AC la
+ * pide—; queda preguntado al PO, con `tramitesFlit` vacío como señal ya disponible si algún día se
+ * decide.
  */
 const ESTADOS_CLIENTE: EstadoSoat[] = [
-  EstadoSoat.PENDIENTE_REVISION, EstadoSoat.RECHAZADA, EstadoSoat.PENDIENTE,
-  EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
+  EstadoSoat.PENDIENTE, EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD, EstadoSoat.PAGADO,
 ];
 
 export default function FlitoSoat() {
@@ -193,6 +203,11 @@ export default function FlitoSoat() {
   // Al gestor no se le ofrece: su frontera ya excluye lo de Operaciones, así que «operaciones» le
   // daría siempre vacío y «proveedor» sería redundante.
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'proveedor'>('');
+  // Vigencia frente al RUNT (HU #12097). Excluyentes por construcción —un `select`, no tres
+  // casillas—, que es lo que hace verdadero el «cada uno devuelve exactamente su conjunto» del AC2:
+  // «vencido Y sin registro» no lo define ningún AC. `vigente` no se ofrece: nadie barre la cola
+  // buscando lo que está bien.
+  const [vigenciaSel, setVigenciaSel] = useState<'' | FiltroVigenciaCola>('');
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
@@ -211,13 +226,13 @@ export default function FlitoSoat() {
   // aparece «Limpiar filtros», que es la única salida de ese vacío.
   const hayFiltros = companiasSel.length > 0 || organismosSel.length > 0 || proveedoresSel.length > 0
     || !!solicitadoDesde || !!solicitadoHasta || !!pagadoDesde || !!pagadoHasta
-    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel;
+    || !!creadoDesde || !!creadoHasta || soloEstancado || !!gestionSel || !!vigenciaSel;
 
   const limpiarFiltros = () => {
     setCompaniasSel([]); setOrganismosSel([]); setProveedoresSel([]);
     setSolicitadoDesde(''); setSolicitadoHasta(''); setPagadoDesde(''); setPagadoHasta('');
     setCreadoDesde(''); setCreadoHasta('');
-    setSoloEstancado(false); setGestionSel(''); setTexto(''); setPreset(null);
+    setSoloEstancado(false); setGestionSel(''); setVigenciaSel(''); setTexto(''); setPreset(null);
     setEstado(esGestor ? EstadoSoat.SOLICITADO : 'todos');
   };
 
@@ -249,7 +264,7 @@ export default function FlitoSoat() {
   };
 
   // Cualquier cambio de filtro vuelve a la página 1: si no, se queda en una página que ya no existe.
-  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel]);
+  useEffect(() => { setPage(1); }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel]);
 
   useEffect(() => {
     setError(null); setSeleccion(new Set());
@@ -267,10 +282,14 @@ export default function FlitoSoat() {
     if (creadoHasta) q.set('creadoHasta', creadoHasta);
     if (soloEstancado) q.set('estancado', 'si');
     if (gestionSel) q.set('gestion', gestionSel);
+    // Valor MÁQUINA (`vencido|sin_registro|no_verificado`) y no el rótulo visible: es lo que valida
+    // el servidor, y además es lo único que puede viajar en una URL — ni placa, ni VIN, ni
+    // documento (AC2). El servidor ignora lo que no reconozca.
+    if (vigenciaSel) q.set('vigencia', vigenciaSel);
     q.set('page', String(page));
     api.get<ColaSoat>(`/flito/soat?${q}`).then(setData).catch((e) => setError(errorMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, page, recarga]);
+  }, [estado, buscar, compKey, orgKey, provKey, solicitadoDesde, solicitadoHasta, pagadoDesde, pagadoHasta, creadoDesde, creadoHasta, soloEstancado, gestionSel, vigenciaSel, page, recarga]);
 
   useEffect(() => {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
@@ -321,6 +340,9 @@ export default function FlitoSoat() {
     ...(creadoDesde ? { creadoDesde } : {}),
     ...(creadoHasta ? { creadoHasta } : {}),
     ...(soloEstancado ? { estancado: true } : {}),
+    // El `.xlsx` no gana columnas en esta HU, pero SÍ tiene que traer las mismas filas: el archivo
+    // es «lo que estoy viendo», que es el contrato escrito de esta función.
+    ...(vigenciaSel ? { vigencia: vigenciaSel } : {}),
   };
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const exportacion = useExportCola(COLA_SOAT, filtrosExport);
@@ -457,6 +479,12 @@ export default function FlitoSoat() {
               </select>
             </label>
           )}
+
+          {/* La guarda es `!esCliente` y NO la de «Gestiona» (`!esGestor && !esCliente`): al gestor
+              este filtro sí le sirve —es su reclamación—, y al Cliente el backend ni siquiera le
+              acepta el parámetro (`filtrosPermitidos`), así que ofrecérselo sería un control que no
+              hace nada. */}
+          {!esCliente && <FiltroVigenciaSoat valor={vigenciaSel} onCambio={setVigenciaSel} />}
 
           <FiltrosInteligentes presets={PRESETS} activo={preset}
             onAplicar={aplicarPreset} onQuitar={limpiarFiltros} />
@@ -608,10 +636,17 @@ export default function FlitoSoat() {
                   <CeldaFechas creado={f.fechaCreacion} aprobado={f.fechaAprobacion} />
                   <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>
                   {!esCliente && <CeldaGestion soat={f} />}
+                  {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
+                      #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
+                      columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que
+                      aquella HU quitó. Las dos ocupaciones son casi disjuntas —«sin gestión» solo
+                      sale en `solicitado` estancado y la vigencia solo en filas con comprobante—,
+                      así que la celda sigue teniendo como mucho dos pastillas. */}
                   <td className="px-3 py-2">
                     <div className="flex flex-col items-start gap-1">
                       <StatusChip tone={TONO[f.estado]}>{ESTADO_SOAT_LABEL[f.estado]}</StatusChip>
                       {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
+                      {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-sm">
@@ -735,17 +770,10 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
 
   const enAdquisicion = soat.estado === EstadoSoat.SOLICITADO;
   const rechazado = soat.estado === EstadoSoat.CON_NOVEDAD;
-  // Las dos guardas del canal Cliente (HU #11915), nombradas por ESTADO y nunca por rol: la pregunta
-  // es por la FILA, no por quien la mira. `pendiente_revision` y `rechazada` solo existen en el
-  // canal (ADR-0008 §8), así que el estado ya dice de dónde viene la solicitud.
-  const enRevision = soat.estado === EstadoSoat.PENDIENTE_REVISION;
-  const rechazadaCliente = soat.estado === EstadoSoat.RECHAZADA;
-  const esFilaDelCanal = enRevision || rechazadaCliente;
-  // El bloque de revisión: los lectores INTERNOS siempre que la fila sea del canal —el auditor lo ve
-  // en solo lectura, que es su trabajo—; el Cliente solo cuando hay algo que corregir. Al gestor no
-  // le llega: los dos estados están fuera de su lista blanca y `GET /:id` le responde 404.
-  const verRevision = esFilaDelCanal
-    && (esOperaciones || soloLectura || (esCliente && rechazadaCliente));
+  // Ni `esFilaDelCanal` ni el bloque de revisión (HU #12079). Una solicitud del canal es, desde que
+  // se radica, **un SOAT en gestión como cualquier otro**: el detalle le ofrece las acciones que ya
+  // existían para `solicitado` y recupera «Reversar» y «Cambiar proveedor», que la #11915 le había
+  // quitado justamente por estar en un estado que ya no existe.
   // El traspaso de gestión solo tiene sentido mientras el SOAT está en gestión y sin pagar: en
   // Pendiente el destino se elige al enviarlo, y en Pagado el dinero ya salió.
   const traspasable = enAdquisicion || rechazado;
@@ -783,6 +811,15 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           {!esCliente && <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} />}
           <Dato k="Enviado" v={fecha(soat.enviadoEn)} />
           {!esCliente && <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />}
+          {/* Los dos de la vigencia (HU #12097), de SOLO LECTURA como el resto de la ficha. El
+              rótulo es «Último dato del RUNT» en los cuatro estados —siempre es la misma cosa,
+              cuándo contestó por última vez— y uno que cambiara con el estado obligaría a leer dos
+              veces. Aquí sí va la hora y aquí sí se pinta «—»: es el nivel de auditoría, y el modal
+              ya lo hace en todos sus `<Dato>`. El número de póliza del RUNT no está ni aquí ni en
+              ninguna parte: no lo pide ningún AC, es cuasi-PII y colisiona de nombre con
+              `numero_poliza`, que es otro número. */}
+          {!esCliente && <Dato k="Vigencia" v={textoVigenciaSoat(soat.vigencia)} />}
+          {!esCliente && <Dato k="Último dato del RUNT" v={fecha(soat.vigencia?.verificadaEn ?? null)} />}
           {/* El soporte del SOAT se carga desde aquí y hasta ahora solo se podía consultar desde el
               reporte de costos, en el que el gestor del proveedor ni siquiera entra: quien abre un
               SOAT pagado quiere ver la factura que lo pagó sin salir del detalle. */}
@@ -804,8 +841,8 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
         {/* El historial es el REGISTRO INTERNO de la operación —quién movió qué y cuándo— y hasta la
             HU #11914 se pintaba para todo el mundo, incluido el Cliente. El backend ya se lo recorta
             (la #11913 le quitó el actor y el motivo), pero la pantalla tampoco debe ofrecérselo: lo
-            que él necesita no es la línea de tiempo de la operación sino la causal de SU rechazo,
-            que es otra cosa y va en su propio bloque (`CorreccionSolicitud`). */}
+            que él necesita no es la línea de tiempo de la operación sino el estado de su SOAT y,
+            si volvió con novedad, el motivo con su siguiente paso — que van más abajo. */}
         {!esCliente && <HistorialEstados concepto="soat" registroId={soat.id} />}
 
         {soat.compradores.length > 0 && (
@@ -822,7 +859,22 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
           </div>
         )}
 
-        {soat.motivoRechazo && <p className="rounded-md bg-red-50 p-2 text-red-700">Motivo de rechazo: {soat.motivoRechazo}</p>}
+        {soat.motivoRechazo && (
+          <div className="rounded-md bg-red-50 p-2 text-red-700">
+            <p>Motivo de rechazo: {soat.motivoRechazo}</p>
+            {/* Lo ÚNICO que se añade al retirar el circuito de revisión (HU #12079). «Corregir y
+                reenviar» se fue con el estado `rechazada` —que la #12080 borra del enum—, y la vía
+                por la que al Cliente le vuelve algo es esta: una caja roja con el motivo del GESTOR
+                (`flito_soat.motivo_rechazo`, `con_novedad`) y ningún siguiente paso. La frase
+                dice lo que de verdad ocurre —Operaciones puede **Reactivar** o **Devolver al
+                proveedor**— y no promete un canal de contacto que el producto no tiene. */}
+            {esCliente && (
+              <p className="mt-1 text-sm">
+                Su solicitud sigue abierta: FLITO está resolviendo esta novedad con el gestor. No tiene que hacer nada por ahora.
+              </p>
+            )}
+          </div>
+        )}
         {soloLectura && <div className="rounded-md bg-blue-50 p-2 text-blue-800">Solo lectura · Auditoría observa, no ejecuta acciones.</div>}
         {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -841,18 +893,19 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
             {rechazado && esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
             )}
-            {/* Las dos acciones heredadas se condicionan ADEMÁS a que la fila no sea del canal
-                (HU #11915). «Reversar» se pintaba sin ninguna condición de estado, y llevar una
-                `pendiente_revision` a `pendiente` la mete en el alcance de `POST /enviar` —que
-                filtra por `pendiente`—: sería despachar al gestor una solicitud que nadie validó,
-                el AC1 saltado por la puerta de al lado. El servicio ya lo niega desde esta HU; la
-                pantalla no debe ofrecer algo por lo que el admin vaya a recibir un error.
-                «Cambiar proveedor» no rompe nada, pero elegir gestor para una solicitud que aún no
-                ha entrado en gestión es una acción sin sentido en ese punto del ciclo. */}
-            {esOperaciones && !esFilaDelCanal && (
+            {/* Las dos acciones heredadas se ofrecen sin condición de origen (HU #12079): la #11915
+                se las quitaba a las filas del canal porque «Reversar» una `pendiente_revision` a
+                `pendiente` la metía en el alcance de `POST /enviar` sin que nadie la hubiera
+                validado.
+                Desde la HU #12080 no queda ni el estado ni la fila legada: la migración 0176 recrea
+                `flito_soat_estado` sin los dos valores del canal y ABORTA si alguna fila sigue en
+                ellos, así que el riesgo que la condición cubría no tiene ya dónde ocurrir. Por eso
+                `reversar()` también perdió sus dos guardas: no se relajó una regla, se retiró con lo
+                que protegía. */}
+            {esOperaciones && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
             )}
-            {esOperaciones && !enAdquisicion && !esFilaDelCanal && (
+            {esOperaciones && !enAdquisicion && (
               <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('proveedor')}>Cambiar proveedor</button>
             )}
             {esOperaciones && traspasable && !soat.gestionOperaciones && (
@@ -903,21 +956,6 @@ function DetalleSoat({ soat, esOperaciones, esGestor, soloLectura, esCliente, pr
               onCancelar={() => { setAccion('idle'); setMotivo(''); }}
               onConfirmar={() => ejecutar(() => api.post(`/flito/soat/${soat.id}/devolver-gestor`, { proveedorSoatId, motivo }))} />
           </div>
-        )}
-
-        {/* Al FINAL y después del historial, no arriba: lo primero que hay que hacer es LEER la
-            factura de venta («Ver soporte», más arriba), y poner los dos botones antes que el
-            soporte invita a validar sin abrirlo. Y no en un modal aparte: el visor de soportes ya se
-            abre encima de este modal, y un tercer nivel es el que rompe la pila. */}
-        {verRevision && accion === 'idle' && (
-          <BloqueRevision
-            soatId={soat.id}
-            estado={soat.estado}
-            esCliente={esCliente}
-            puedeRevisar={esOperaciones && !soloLectura && enRevision}
-            proveedores={proveedores}
-            onCambio={onCambio}
-          />
         )}
 
         {accion === 'proveedor' && (
@@ -972,19 +1010,22 @@ interface ResultadoMasivo {
   duplicados: { archivo: string; detalle: string }[]; noAsociados: { archivo: string; detalle: string }[];
 }
 
+// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
+// sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
+// SOAT ni la lee (`/flito/soat/facturas` no toca `req.body`); mandarla sería peso muerto por tanda.
 function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
-  const [archivos, setArchivos] = useState<File[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [progreso, setProgreso] = useState<{ k: number; n: number } | null>(null);
+  const { seleccion, abriendo, error, setError, elegir } = useSeleccionCargaMasiva();
+  const [progreso, setProgreso] = useState<{ desde: number; total: number } | null>(null);
   const [resultado, setResultado] = useState<ResultadoMasivo | null>(null);
-  const errorValidacion = validarCargaMasiva(archivos);
+  const errorValidacion = validarCargaMasiva(seleccion);
   const enviando = progreso !== null;
 
   const subir = async () => {
-    if (archivos.length === 0 || validarCargaMasiva(archivos)) return;
+    if (seleccion.items.length === 0 || validarCargaMasiva(seleccion)) return;
     setError(null);
     const { resultado: r, error: err } = await enviarCargaEnTandas<ResultadoMasivo>(
-      '/flito/soat/facturas', archivos, (k, n) => setProgreso({ k, n }),
+      '/flito/soat/facturas', seleccion.items, (desde, total) => setProgreso({ desde, total }),
+      undefined, { conRutas: false },
     );
     if (r) setResultado(r);
     if (err) setError(err);
@@ -996,21 +1037,16 @@ function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () =>
       {!resultado ? (
         <div className="space-y-3">
           <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            Sube varios PDF/imágenes o un ZIP. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
+            Sube varios PDF/imágenes o un ZIP. FLITO abre el ZIP en tu computador y sube sus comprobantes de 5 en 5. El OCR cruza cada comprobante con un SOAT solicitado: los que superan el umbral pasan a Pagado; el resto va a revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
-            onChange={(e) => { setArchivos(Array.from(e.target.files ?? [])); setError(null); }} />
-          {archivos.length > 0 && (
-            <p className={`text-xs${errorValidacion ? ' text-red-600' : ''}`}
-              style={errorValidacion ? undefined : { color: 'var(--flit-text-muted)' }}>
-              {textoContadorCargaMasiva(archivos)}
-            </p>
-          )}
-          {(errorValidacion || error) && <p role="alert" className="text-sm text-red-600">{errorValidacion ?? error}</p>}
-          {enviando && progreso && progreso.n > 1 && <p role="status" aria-live="polite" className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>tanda {progreso.k} de {progreso.n}</p>}
+            aria-label="Facturas o ZIP de la carga masiva"
+            onChange={(e) => { void elegir(Array.from(e.target.files ?? [])); }} />
+          <RanuraCargaMasiva seleccion={seleccion} abriendo={abriendo}
+            errorValidacion={errorValidacion} error={error} progreso={progreso} />
           <div className="flex gap-2">
             <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
-              disabled={enviando || archivos.length === 0 || !!errorValidacion} onClick={subir}>
+              disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
             <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={enviando} onClick={onClose}>Cancelar</button>

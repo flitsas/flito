@@ -27,6 +27,9 @@ import { startSiigoColaCron, stopSiigoColaCron } from './modules/siigo/siigo.col
 import {
   startComparendosPurgaCron, stopComparendosPurgaCron,
 } from './modules/flito-comparendos/flito-comparendos-purga.cron.js';
+import {
+  startSoatVigenciaCron, stopSoatVigenciaCron,
+} from './modules/flito-soat/flito-soat-vigencia.cron.js';
 import { closeRedis } from './shared/redis.js';
 import { loggerFor } from './shared/logger.js';
 
@@ -82,6 +85,10 @@ const server = app.listen(env.PORT, () => {
     // FLITO: purga por retención de comparendos (HU #11511, Ley 1581). Consume
     // COMPARENDOS_RETENTION_MONTHS. Noop si COMPARENDOS_PURGA_CRON_ENABLED!=1.
     startComparendosPurgaCron();
+    // FLITO SOAT: verificación diaria de vigencia a las 00:10 de Colombia (HU #12095). Noop si
+    // SOAT_VIGENCIA_CRON_ENABLED!=1. Un solo servidor la ejecuta (candado `flito-soat-vigencia`) y
+    // un intento que deja vehículos sin verificar se reprograma cada hora, hasta tres veces.
+    startSoatVigenciaCron();
   }
 });
 
@@ -120,6 +127,7 @@ function shutdown(signal: string) {
   stopSiigoDianCron();
   stopSiigoColaCron();
   stopComparendosPurgaCron();
+  stopSoatVigenciaCron();
 
   const forceExitTimer = setTimeout(() => {
     log.error('grace expirado — forzando salida');
