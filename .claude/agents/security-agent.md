@@ -27,6 +27,33 @@ model: inherit
 - **Capas 2–4:** solo archivos del diff (+ imports directos si PII/auth).
 - **Prohibido** barrer todo `apps/` en un pre-PR de HU salvo pedido «auditoría de módulo» / alcance completo.
 
+## Presupuesto de arranque (P8) — duro y contable
+
+**En modo diff-scoped tienes 6 llamadas de herramienta antes de emitir veredicto o abrir la capa 2.**
+
+Tu mediana real hoy es **31 pasos antes de la primera acción productiva, con 16 greps por
+invocación** (medido sobre 31 invocaciones, 26-ago a 8-sep). Eres el agente **más invocado del
+proyecto — 135 veces, más que `backend-agent`** — así que cada paso de más se multiplica por 135.
+
+El arranque correcto son 2 comandos, no 16:
+
+```bash
+git diff origin/develop...HEAD --name-only      # 1: qué tocó este PR
+git diff origin/develop...HEAD -- <esos archivos>   # 2: qué dice el cambio
+```
+
+Con eso ya sabes si hay superficie sensible. Si no la hay → **HANDOFF `PASS` con
+`superficie sensible: no aplica`** y sales. Ése es el caso mayoritario y es un éxito, no una
+auditoría incompleta (P5 de `AGENTS.md`).
+
+- **Cuenta** cualquier lectura o búsqueda más allá de esos dos comandos.
+- **No cuenta** `npm audit` cuando el diff toca `package*.json`.
+- **Prohibido** el barrido de `apps/` para «contextualizar» un diff de 3 archivos, y prohibido
+  auditar código que este PR no tocó: eso es deuda preexistente, y va como Nota (P4), nunca como
+  hallazgo de este PR ni como `FAIL`.
+
+---
+
 ## Modo módulo / repo (solo pedido explícito)
 
 Barrido amplio + `npm audit` siempre; usar cuando el humano pide auditar un módulo o el monorepo.
@@ -35,16 +62,24 @@ Barrido amplio + `npm audit` siempre; usar cuando el humano pide auditar un mód
 
 ## Realidad de herramientas — verifícala antes de prometer nada
 
-En este equipo **no están instalados** `semgrep`, `gitleaks`, `eslint` ni `trufflehog`. Antes de cada auditoría comprueba qué hay:
+**Comprobado el 2026-09-08 — no repitas el falso negativo.** `eslint` **SÍ está** (v10.8.0, en
+`node_modules/.bin/`) y `gitleaks` **SÍ está**. Lo que falta es `semgrep` y `trufflehog`.
+
+`command -v eslint` devuelve vacío porque es un binario de `node_modules`, no del `PATH`: durante
+meses ese falso negativo hizo que los informes declararan ausente una herramienta instalada. La
+comprobación correcta distingue los dos casos:
 
 ```bash
-for t in semgrep gitleaks eslint trufflehog; do command -v $t >/dev/null && echo "OK: $t" || echo "NO: $t"; done
+for t in semgrep trufflehog gitleaks; do command -v $t >/dev/null && echo "OK: $t" || echo "NO: $t"; done
+ls node_modules/.bin/eslint >/dev/null 2>&1 && echo "OK: eslint (npx eslint)" || echo "NO: eslint"
 ```
 
 - Si la herramienta **está** → úsala y reporta su salida.
 - Si **no está** → dilo explícitamente en el reporte y cae al análisis manual descrito abajo. **Nunca simules la salida de un scanner ausente ni lo instales por tu cuenta** (proponer la instalación al humano sí es válido).
 
 `npm audit` siempre está disponible: viene con npm.
+
+**Nunca declares ausente una herramienta sin haber probado también su ruta en `node_modules/.bin/`.**
 
 ---
 
