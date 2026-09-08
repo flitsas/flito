@@ -31,6 +31,24 @@ export interface User {
   createdAt: string;
 }
 
+/**
+ * `GET /users/resumen` (HU #12172): el conteo por rol de TODOS los usuarios, no de la página.
+ *
+ * `porRol` llega con los DOCE roles y los vacíos en `0`. Se tipa `Partial` de todos modos, y no por
+ * desconfianza del backend: este `Record` está indexado por `UserRole`, que crece cada vez que se
+ * añade un rol al sistema. Con el tipo total, el día que exista un rol trece la pantalla leería
+ * `undefined` con cara de `number` y pintaría «undefined» sin que el compilador dijera nada. Con
+ * `Partial`, quien lo lea tiene que decidir qué hace con el hueco —hoy, no pintar el chip—.
+ *
+ * `activos` + `inactivos` es el total, y por eso el resumen NO sustituye a `X-Total-Count`: aquel
+ * cuenta las coincidencias del filtro puesto y estos cuentan el censo entero.
+ */
+export interface ResumenUsuarios {
+  porRol: Partial<Record<UserRole, number>>;
+  activos: number;
+  inactivos: number;
+}
+
 // Lista de roles asignables: derivada de la fuente única (los 8 roles del sistema).
 export const ROLES: { value: UserRole; label: string }[] = USER_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] }));
 

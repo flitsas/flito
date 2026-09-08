@@ -42,8 +42,19 @@ test.describe('Usuarios — gestión y permisos', () => {
     await page.getByRole('button', { name: /crear usuario/i }).click();
 
     // Tras crear, la página recarga el listado → debe aparecer la fila del auditor.
-    await expect(page.getByText('auditor_e2e')).toBeVisible();
-    await expect(page.getByText('Auditor (revisor fiscal)')).toBeVisible();
+    //
+    // El aserto del ROL va acotado a la tabla desde la HU #12172: el filtro por rol pone las doce
+    // etiquetas en un `<option>`, así que `getByText('Auditor (revisor fiscal)')` a secas pasó a
+    // resolver DOS elementos —la opción y la celda— y el caso caía por violación de modo estricto.
+    // Ese, y solo ese, es el motivo de `getByRole('table')`: desambigua el locator sin aflojar la
+    // aserción, que sigue siendo «la fila está en el listado».
+    //
+    // Lo que NO es motivo, para que nadie lo vuelva a escribir: la opción del desplegable no podía
+    // dar el aserto por bueno. Playwright considera `hidden` un `<option>` dentro de un `<select>`
+    // cerrado, así que el locator sin acotar fallaba con «Expected: visible / Received: hidden»
+    // —comprobado con sonda— y jamás se habría satisfecho sin que el usuario se creara.
+    await expect(page.getByRole('table').getByText('auditor_e2e')).toBeVisible();
+    await expect(page.getByRole('table').getByText('Auditor (revisor fiscal)')).toBeVisible();
   });
 
   test('editar usuario conserva/añade allowedPages (USR-4: no se recortan)', async ({ page }) => {
