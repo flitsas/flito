@@ -58,7 +58,22 @@ const RUNT_OK = {
   },
   organismo: { codigo: '05001', nombre: 'STRIA TTEyTTO MEDELLIN' },
   propietario: null as { nombreCompleto: string } | null,
+  // HU #12213: la clave viaja SIEMPRE en el 200, y `null` es el caso normal —el SOAT no está por
+  // vencerse—. Declararla aquí es lo que hace que los ~30 casos de este archivo ejerciten de paso
+  // el camino sin aviso: si la pantalla lo pintara con `null`, media docena se pondrían rojos.
+  vigenciaProxima: null as { venceEl: string } | null,
 };
+
+/** El mismo 200 pero **sin la clave**: una API por detrás del bundle, que en DEV pasa (HU #12213). */
+const RUNT_SIN_LA_CLAVE = {
+  vehiculo: RUNT_OK.vehiculo, organismo: RUNT_OK.organismo, propietario: RUNT_OK.propietario,
+};
+
+/** Un 200 que SÍ trae aviso. `venceEl` en `yyyy-mm-dd`, como lo manda el servidor. */
+const runtConAviso = (venceEl: unknown) => ({
+  status: 200,
+  cuerpo: { ...RUNT_OK, vigenciaProxima: { venceEl } },
+});
 
 /** Una fila de la cola con la forma que `FlitoSoat` espera, ya recortada como al Cliente. */
 function fila(over: Record<string, unknown> = {}) {
@@ -1034,5 +1049,215 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
     for (const frase of promesas) {
       await expect(ficha, frase).toContainText(frase);
     }
+  });
+});
+
+// ═══════════════ HU #12213 · el aviso de vigencia próxima que NO bloquea el envío ════════════════
+//
+// Los DOS caminos del mismo desenlace del RUNT, que es lo que la HU parte en dos:
+//
+//   · falta un mes o MENOS → `200` con `vigenciaProxima` → banda informativa y **se envía igual**.
+//   · falta MÁS de un mes  → `409 soat_vigente` → el modal de siempre, intacto, y cero altas.
+//
+// Se prueban juntos y en el mismo archivo a propósito: el mutante que hay que matar es el que
+// **confunde uno con otro** —bloquear cuando debía avisar, o avisar cuando debía bloquear— y ese
+// solo muere si las dos afirmaciones conviven. Cada caso del camino que avisa lleva su aserto
+// NEGATIVO del otro (`sin modal`, `sin banda de error`), porque «se ve el aviso» pasa igual en una
+// pantalla que además abrió el modal encima.
+//
+// **La pantalla no calcula el umbral** (AC3) y aquí se comprueba de la única forma que lo prueba:
+// los mocks mandan fechas absurdas para el reloj del test —una de 2026 y otra de 2099— y las dos
+// avisan, porque quien decidió fue el servidor. Un front que restara fechas fallaría con la segunda.
+test.describe('HU #12213 · AC1/AC3 — vigencia próxima: avisa y deja enviar', () => {
+  test('el aviso sale ENCIMA de la ficha, con la fecha larga, y la solicitud llega a enviarse', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cola = await mockCola(page);
+    const cap = await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await llenarPropietario(page);
+    await adjuntarFactura(page);
+    await btnConsultar(page).click();
+
+    // `role="status"` y NO `alert` (AC5): es la consecuencia de una acción del usuario, no un fallo.
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    await expect(aviso).toBeVisible();
+    await expect(aviso).toContainText('Puede continuar');
+    // La fecha, en largo y **sin el desfase del huso**: `new Date('2026-10-05')` es medianoche UTC y
+    // en Colombia (−05) diría el 4. El aserto negativo es el que lo mata; el positivo solo, no.
+    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT vigente, hasta el 5 de octubre de 2026.');
+    await expect(aviso).not.toContainText('4 de octubre');
+    await expect(aviso).toContainText('Falta un mes o menos para que venza, así que sí puede enviar esta solicitud.');
+
+    // El malentendido caro de esta HU: si esto se lee como un error, la persona abandona creyendo
+    // que no puede pedir el SOAT. Ni registro de fallo, ni el modal que bloquea, ni banda de error.
+    await expect(aviso).not.toContainText(/revise|vuelva|no pudimos/i);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    // El número de póliza no viaja en el 200 y no se pinta aunque alguien lo cuele en el cuerpo.
+    await expect(aviso).not.toContainText(/p[óo]liza/i);
+
+    // ENCIMA de la ficha, no dentro ni debajo: la respuesta a «¿puedo seguir?» llega antes que once
+    // pares etiqueta–valor. `innerText` respeta el orden del DOM, así que compara posiciones reales.
+    const vehiculo = page.getByRole('region', { name: '1 · Vehículo' });
+    const texto = await vehiculo.innerText();
+    expect(texto.indexOf('todavía tiene SOAT vigente')).toBeGreaterThanOrEqual(0);
+    expect(texto.indexOf('todavía tiene SOAT vigente')).toBeLessThan(texto.indexOf('Datos del RUNT'));
+    await expect(fichaRunt(page)).toBeVisible();
+
+    // Y AC1 de verdad: la compuerta quedó abierta y el envío se completa. Sin esto, el test pasaría
+    // en una pantalla que pinta el aviso y deja el primario bloqueado.
+    cola.items = [fila()];
+    await btnEnviar(page).click();
+    await expect(page).toHaveURL(/\/flito\/soat$/);
+    expect(cap.altas).toHaveLength(1);
+  });
+
+  test('el umbral lo decide el SERVIDOR: una fecha lejanísima en un 200 también avisa y deja enviar', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    const cola = await mockCola(page);
+    const cap = await mockCanal(page, { preconsulta: runtConAviso('2099-12-31') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await llenarPropietario(page);
+    await adjuntarFactura(page);
+    await btnConsultar(page).click();
+
+    // AC3: la pantalla NO resta fechas. Un front que se inventara el mes calendario callaría aquí
+    // —faltan setenta años— y este es el único caso que lo destapa.
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' }))
+      .toContainText('hasta el 31 de diciembre de 2099');
+
+    cola.items = [fila()];
+    await btnEnviar(page).click();
+    await expect(page).toHaveURL(/\/flito\/soat$/);
+    expect(cap.altas).toHaveLength(1);
+  });
+
+  test('sin fecha legible se cambia la FRASE entera y nunca se escribe «hasta el»', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await mockCanal(page, { preconsulta: runtConAviso('') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await btnConsultar(page).click();
+
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    await expect(aviso).toContainText('Este vehículo todavía tiene SOAT vigente y le falta un mes o menos para vencerse, así que sí puede enviar esta solicitud.');
+    // Ni el hueco a medio rellenar, ni un «Invalid Date» dentro de la oración, ni un guion.
+    await expect(aviso).not.toContainText('hasta el');
+    await expect(aviso).not.toContainText(/invalid/i);
+    await expect(aviso).not.toContainText('—');
+    await expect(fichaRunt(page)).toBeVisible();
+  });
+
+  test('un venceEl con otro formato tampoco se rotula a medias', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    // `dd/MM/yyyy` es el formato CRUDO de la pasarela: si un día se colara sin normalizar, partirlo
+    // por guiones daría «NaN de undefined». Sale la redacción de respaldo, entera.
+    await mockCanal(page, { preconsulta: runtConAviso('05/10/2026') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await btnConsultar(page).click();
+
+    const aviso = page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' });
+    await expect(aviso).toContainText('y le falta un mes o menos para vencerse');
+    await expect(aviso).not.toContainText('hasta el');
+    await expect(aviso).not.toContainText(/nan|undefined|invalid/i);
+  });
+});
+
+test.describe('HU #12213 · AC2/AC4 — el 409 sigue bloqueando y los estados no se confunden', () => {
+  test('MÁS de un mes: el modal de siempre, sin aviso, sin ficha y cero altas', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    const cap = await mockCanal(page, {
+      preconsulta: fallo(409, 'soat_vigente', 'Ya tiene SOAT vigente.', { fechaVencimiento: '2027-02-01' }),
+    });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await llenarPropietario(page);
+    await adjuntarFactura(page);
+    await btnConsultar(page).click();
+
+    // El modal de la #11967, intacto. Esta HU no lo toca.
+    const modal = page.getByRole('dialog', { name: 'Este vehículo ya tiene SOAT vigente' });
+    await expect(modal).toBeVisible();
+    await expect(modal.getByText(/vigente hasta el 1 de febrero de 2027/)).toBeVisible();
+
+    // Y NADA del camino que avisa: ni la frase, ni la ficha, ni la compuerta abierta. Este es el
+    // aserto que mata al mutante que invierte la condición y avisa cuando debía bloquear.
+    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('Puede continuar')).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Cerrar' }).click();
+    await expect(fichaRunt(page)).toHaveCount(0);
+    await expect(btnEnviar(page)).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText('Este vehículo tiene SOAT vigente según el RUNT: no se puede radicar la solicitud.')).toBeVisible();
+    expect(cap.altas).toHaveLength(0);
+  });
+
+  test('`vigenciaProxima: null` no pinta NADA, y una API sin la clave se comporta igual', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await mockCanal(page);
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await btnConsultar(page).click();
+
+    await expect(fichaRunt(page)).toBeVisible();
+    await expect(page.getByText('Puede continuar')).toHaveCount(0);
+    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+
+    // La misma pantalla contra una API por detrás del bundle: la clave AUSENTE es `null`, no un
+    // aviso vacío ni un «undefined» pintado. En DEV el merge es el deploy y esto pasa de verdad.
+    await page.route(RE_PRECONSULTA, (route) => json(route, 200, RUNT_SIN_LA_CLAVE));
+    await page.getByLabel('VIN').fill(VIN.slice(0, 16));
+    await page.getByLabel('VIN').fill(VIN);
+    await btnReconsultar(page).click();
+    await expect(fichaRunt(page)).toBeVisible();
+    await expect(page.getByText('Puede continuar')).toHaveCount(0);
+    await expect(page.getByText(/undefined|invalid/i)).toHaveCount(0);
+  });
+
+  test('un 503 después de un aviso RETIRA el aviso: no queda una buena noticia bajo una banda roja', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await btnConsultar(page).click();
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' })).toBeVisible();
+
+    // La segunda consulta falla. Las rutas de Playwright se resuelven en orden inverso al registro,
+    // así que esta gana sobre la de `mockCanal`.
+    await page.route(RE_PRECONSULTA, (route) =>
+      json(route, 503, { error: 'Revise los datos.', codigo: 'runt_no_disponible' }));
+    await page.getByRole('button', { name: 'Consultar de nuevo' }).click();
+
+    // AC4: el 503 se ve como 503 —`alert`, y su frase, no la del 422— y el aviso desapareció con la
+    // ficha. Las fases de `Consulta` son excluyentes y esto lo comprueba en una sola sesión.
+    const banda = page.getByRole('alert').filter({ hasText: 'El RUNT no está disponible' });
+    await expect(banda).toBeVisible();
+    await expect(banda).not.toContainText('Revise');
+    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(page.getByText('Puede continuar')).toHaveCount(0);
+    await expect(fichaRunt(page)).toHaveCount(0);
+  });
+
+  test('editar el VIN después del aviso lo retira junto con la ficha y lo dice', async ({ page }) => {
+    await loginAs(page, CLIENTE_CON_CANAL);
+    await mockCola(page);
+    await mockCanal(page, { preconsulta: runtConAviso('2026-10-05') });
+    await page.goto('/flito/soat/solicitud');
+    await llenarVehiculo(page);
+    await btnConsultar(page).click();
+    await expect(page.getByRole('status').filter({ hasText: 'todavía tiene SOAT vigente' })).toBeVisible();
+
+    await page.getByLabel('VIN').fill(`${VIN.slice(0, 16)}9`);
+
+    await expect(page.getByText('Cambió el VIN: vuelva a consultar el RUNT antes de enviar.')).toBeVisible();
+    await expect(page.getByText('todavía tiene SOAT vigente')).toHaveCount(0);
+    await expect(fichaRunt(page)).toHaveCount(0);
   });
 });
