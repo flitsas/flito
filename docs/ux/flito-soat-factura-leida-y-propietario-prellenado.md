@@ -156,7 +156,7 @@ pantalla:
 |---|---|
 | `503` (OCR no disponible) | **«No pudimos leer la factura.»** / **«No es un problema de su archivo: el lector no respondió. Puede volver a leerla, o escribir los datos del propietario a mano y enviar igual.»** |
 | Sin red | **«No pudimos comunicarnos con FLITO para leer la factura.»** / **«Compruebe su conexión y pulse Volver a leer la factura. También puede escribir los datos a mano y enviar igual.»** |
-| `429` (límite del canal) | **«Ha hecho varias lecturas seguidas y toca esperar unos minutos.»** / **«Puede escribir los datos del propietario a mano y enviar la solicitud igual.»** |
+| `429` (límite **propio de la lectura**, 12/15 min; HU #12214) | **«Ha hecho varias lecturas seguidas y toca esperar unos minutos.»** / **«Puede escribir los datos del propietario a mano y enviar la solicitud ahora: el envío no se ve afectado por este límite.»** |
 | `413` (archivo demasiado grande) | **No es de aquí**: lo atrapa `errorArchivo` antes de subir nada, con el copy que ya existe. La lectura ni se lanza |
 | `400 archivo_no_pdf` | **No es de aquí**: es el `rejected` de `FlitUploadBox` con su `role="alert"` de siempre. Si el PDF no es PDF, no hay archivo adjunto **ni** lectura que reintentar |
 | Rama por defecto | **«No pudimos leer la factura en este momento.»** / **«Vuelva a leerla, o escriba los datos del propietario a mano y envíe igual.»** |
