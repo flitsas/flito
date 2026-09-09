@@ -2,9 +2,13 @@
 
 ## Estado
 
-**Propuesto** — Feature [#11495](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11495) (17b), HU [#11556](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11556).
+**Aprobado** — 2026-09-09. Aprobador: **David Chica**. Feature [#11495](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11495) (17b), HU [#11556](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11556).
 
-El Líder Técnico (David) aprobó el **2026-08-18** el diseño de la HU #11556, y con él la cláusula concreta `ON DELETE RESTRICT` de `flito_comparendos_registros.gestion_actualizada_por` (migración `0154`), además de la creación de este ADR. La **regla general** que aquí se propone —las tres categorías y su aplicación a toda FK futura hacia `users`— queda en `Propuesto` hasta que se apruebe como política del repo.
+La aprobación llegó en dos tiempos, y conviene distinguirlos. El **2026-08-18** el Líder Técnico aprobó el diseño de la HU #11556 y con él la cláusula concreta `ON DELETE RESTRICT` de `flito_comparendos_registros.gestion_actualizada_por` (migración `0154`), además de la creación de este ADR; la **regla general** —las tres categorías y su aplicación a toda FK futura hacia `users`— quedó en `Propuesto`. El **2026-09-09**, al aprobarse el ADR-0014 del Feature [#12072](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12072), se aprobó también esa regla general: **es política del repo**.
+
+Qué significa en la práctica: rige de la migración `0154` hacia adelante, no se aplica retroactivamente (ver «Lo que este ADR NO hace»), y el `db-review-agent` la exige en cada PR cuyo diff toque `schema.ts` o una migración.
+
+*Nota de vocabulario:* las notas del Feature #12072 hablaban de promoverlo a «Aceptado». Se usa **Aprobado**, que es el estado que ya empleaba el ADR-0007 y el que recibieron el ADR-0014 y el ADR-0015 el mismo día. Un solo vocabulario para el mismo estado.
 
 Origen: hallazgo del `db-review-agent` durante la HU [#11555](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/11555), al señalar que `flito_comparendos_registros.causal_id` quedó en `NO ACTION` **por omisión y no por decisión escrita**.
 
@@ -24,6 +28,8 @@ El dato relevante no es cuál gana, sino que **la mayoría absoluta —125 de 16
 - `SET NULL` aparece siempre en columnas de **autoría blanda** —`created_by`, `updated_by`, `uploaded_by`, `actor_user_id`—, donde la fila conserva todo su sentido sin saber quién la creó.
 - `RESTRICT` aparece en filas que **son prueba** y pierden su valor probatorio sin la persona: quién registró una operación en efectivo bajo SARLAFT, quién generó un reporte a la UIAF, a qué conductor se le hizo una prueba de alcoholemia o un checklist.
 - `CASCADE` aparece en filas que **no existen sin el usuario**: su perfil de conductor, sus documentos, su asistencia a una capacitación, su KYC de empleado. Ahí la fila no habla *de* un acto, es una extensión del propio usuario.
+
+> **Recuento al día de la aprobación (2026-09-09).** Las cifras de la tabla de arriba se midieron el **2026-08-18** y siguen siendo las correctas para esa fecha. Vueltas a medir sobre `develop` con `grep -c "references(() => users.id" apps/api/src/db/schema.ts`: **170** columnas, **43** con cláusula (28 `set null`, 8 `restrict`, 7 `cascade`) y **127** sin ella. Entraron seis columnas nuevas desde entonces y la proporción no se movió: el 75 % sigue sin expresar ninguna decisión. La regla no se aplica a esas 127 — se aplica a la 171.
 
 En el módulo `flito-comparendos` las **cinco** FKs hacia `users` existentes (`nits.created_by`, `nits.updated_by`, `token_simit.created_by`, `token_simit.updated_by`, `sync_runs.iniciado_por`) están en el grupo de las 125: sin cláusula, sin decisión.
 
