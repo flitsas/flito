@@ -15,11 +15,46 @@ import type { ProcedenciaCompradorPersistida } from '@operaciones/shared-types';
 // Verificación diaria de vigencia del SOAT (HU #12096): motivos de caída de una corrida, en jsonb.
 import type { ResumenMotivosCorrida } from '@operaciones/shared-types';
 
-// El valor 'operaciones' sigue existiendo en el enum de Postgres (deprecado, sin usuarios) pero se
-// omite del literal para que users.role no lo incluya a nivel de tipos: el operador FLITO ES admin.
-// `cliente` lo añade la migración 0167 (Feature #11912): usuario de una compañía cliente, atado a
-// ella por `users.compania_id` — obligatorio para ese rol y solo para ese rol (CHECK de la 0168).
+// OBSOLETO desde la migración 0178 (HU #12169): la fuente de verdad de qué roles existen es la tabla
+// `permisosRoles`, no este tipo. Ninguna columna lo usa ya — `users.role` pasó a varchar(40) con FK
+// al catálogo. Se CONSERVA declarado (y el tipo se conserva en la base) porque es la única vía de
+// vuelta si hubiera que revertir la 0178; borrar la constante no borraría el tipo y dejaría este
+// archivo diciendo menos de lo que la base contiene. NO añadirle valores: un rol nuevo es una FILA.
+// (`operaciones` sigue vivo en el enum de Postgres, deprecado y sin usuarios; nunca entró al literal
+// y tampoco entra al catálogo, porque se fusionó en `admin`.)
 export const roleEnum = pgEnum('user_role', ['admin', 'proveedor', 'transito', 'compliance', 'lider_pesv', 'supervisor_flota', 'conductor', 'auditor', 'gestor_impuestos', 'mensajero', 'financiera', 'cliente']);
+
+// HU #12169 — El catálogo de roles. Sustituye al enum `user_role` como fuente de verdad de qué roles
+// existen: aquí una FILA es un rol, y el administrador puede crear y borrar filas (CF-03, CF-05),
+// cosa que sobre un enum de Postgres no es difícil, es imposible.
+//
+// `codigo` es la PK y es INMUTABLE: 276 `requireRole('…')` de `apps/api/src/modules` lo comparan como
+// literal, así que renombrarlo no es editar un rol, es cambiar el sistema. Lo editable es `nombre`; la
+// FK de `users.role` lo declara con `ON UPDATE RESTRICT` para que lo diga la base y no un comentario.
+export const permisosRoles = pgTable('permisos_roles', {
+  codigo: varchar('codigo', { length: 40 }).primaryKey(),
+  nombre: varchar('nombre', { length: 80 }).notNull(),
+  descripcion: text('descripcion'),
+  // 'ninguno' | 'compania' | 'proveedor_soat' | 'organismos_transito'. El ROL dice si se enlaza y a
+  // QUÉ tipo (RN-A3); el usuario dice a cuál. Lo hacen cumplir los dos triggers de la 0178
+  // (`users_ambito_trg` y `users_ambito_organismos_trg`), que Drizzle no sabe declarar.
+  tipoEnlace: varchar('tipo_enlace', { length: 24 }).notNull().default('ninguno'),
+  // 'interno' | 'externo'. Esta HU lo PERSISTE; quien lo consume es el motor de la #12082/#12083.
+  // Hasta entonces la frontera del canal Cliente sigue colgando del literal de `canal-cliente.ts`.
+  tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
+  // Candado de BORRADO (ADR-0015 §Decisión 5), no marca de origen: true ⇒ el rol no se borra. Solo
+  // `admin` (permanente) y `cliente` (temporal, hasta la #12082 AC8). Editar sigue permitido (CF-04).
+  esSistema: boolean('es_sistema').notNull().default(false),
+  // Gobierna la ASIGNACIÓN, no la autenticación: un usuario con rol inactivo sigue entrando.
+  activo: boolean('activo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  tipoEnlaceChk: check('permisos_roles_tipo_enlace_chk',
+    sql`${t.tipoEnlace} IN ('ninguno','compania','proveedor_soat','organismos_transito')`),
+  tipoPrincipalChk: check('permisos_roles_tipo_principal_chk',
+    sql`${t.tipoPrincipal} IN ('interno','externo')`),
+}));
 
 export const laftKindEnum = pgEnum('laft_kind', ['PN', 'PJ']);
 export const laftRiskLevelEnum = pgEnum('laft_risk_level', ['bajo', 'medio', 'alto']);
@@ -65,7 +100,11 @@ export const users = pgTable('users', {
   name: varchar('name', { length: 100 }).notNull(),
   email: varchar('email', { length: 150 }),
   passwordHash: text('password_hash').notNull(),
-  role: roleEnum('role').notNull(),
+  // HU #12169: era `roleEnum('role')`. Ahora es el CÓDIGO de una fila de `permisos_roles`.
+  // `ON DELETE RESTRICT` = CF-05/RN-A8 (un rol con usuarios no se borra, y lo impide la base);
+  // `ON UPDATE RESTRICT` = el código es inmutable (ver la cabecera de `permisosRoles`).
+  role: varchar('role', { length: 40 }).notNull()
+    .references(() => permisosRoles.codigo, { onDelete: 'restrict', onUpdate: 'restrict' }),
   active: boolean('active').notNull().default(true),
   allowedPages: text('allowed_pages').array().notNull().default(sql`'{}'::text[]`),
   // TRAM-MT-01: organismo DIVIPOLA asignado a usuarios rol `transito` (bandeja aislada).
@@ -86,11 +125,16 @@ export const users = pgTable('users', {
    * visibilidad del rol `cliente`, igual que `flitoProveedorSoatId` lo es del gestor: `contextoSoat()`
    * la lee de AQUÍ y no del JWT, para que un cambio de compañía surta efecto sin re-emitir el token.
    *
-   * NULLABLE en la base a propósito, como `transitoCodigo`: 11 de los 12 roles no tienen compañía y
-   * un `NOT NULL` obligaría a inventarle una a cada admin. La obligatoriedad es CONDICIONAL al rol y
-   * la sostiene el CHECK `users_cliente_compania_chk` de la migración 0168
-   * (`role <> 'cliente' OR compania_id IS NOT NULL`), que Drizzle no declara aquí porque nombra un
-   * valor del enum añadido en la 0167 y las dos cosas no caben en la misma transacción (55P04).
+   * NULLABLE en la base a propósito, como `transitoCodigo`: la mayoría de los roles no tienen
+   * compañía y un `NOT NULL` obligaría a inventarle una a cada admin. La obligatoriedad es
+   * CONDICIONAL AL ROL y desde la migración 0178 (HU #12169) ya no la sostiene un CHECK: el
+   * `users_cliente_compania_chk` de la 0168 —que nombraba el literal 'cliente'— se ELIMINÓ y en su
+   * lugar está el `CONSTRAINT TRIGGER users_ambito_trg`, que lee `permisos_roles.tipo_enlace` del rol
+   * de la fila. Drizzle tampoco lo declara aquí, ahora por otro motivo: no tiene primitiva para
+   * `CREATE CONSTRAINT TRIGGER`. Vive solo en el SQL de la 0178.
+   *
+   * El cambio no es de estilo: un CHECK no puede consultar otra tabla, así que jamás habría cubierto
+   * un rol NUEVO creado por el administrador con `tipo_enlace = 'compania'`.
    *
    * `ON DELETE RESTRICT` explícito (ADR-0008 §3): `CASCADE` borraría usuarios al borrar una
    * compañía, y `SET NULL` crearía por la puerta de atrás justo el estado que el AC2 declara
@@ -107,6 +151,9 @@ export const users = pgTable('users', {
   // Sirve al listado de usuarios por compañía y, sobre todo, al `ON DELETE RESTRICT`: sin él, borrar
   // una compañía escanea `users` entera para comprobar que nadie la referencia.
   companiaIdx: index('idx_users_compania').on(t.companiaId),
+  // HU #12169: mismo argumento que el de arriba, para el `ON DELETE RESTRICT` de `users_role_fkey`.
+  // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
+  roleIdx: index('idx_users_role').on(t.role),
 }));
 
 export const clients = pgTable('clients', {

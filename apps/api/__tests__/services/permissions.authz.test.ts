@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Request, Response } from 'express';
-import { getEffectivePages, requirePage } from '../../src/shared/permissions.js';
+import { getEffectivePages, paginasPorDefecto, requirePage } from '../../src/shared/permissions.js';
+// HU #12169 — la tabla de defaults y la tupla de los doce, para el caso «ninguna regresión» del AC5.
+import { ROLE_DEFAULT_PAGES, USER_ROLES } from '@operaciones/shared-types';
 import type { UserRole } from '../../src/shared/middleware/auth.js';
 import { testToken } from '../helpers/auth.js';
 
@@ -222,5 +224,42 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
     const flito = shared.PAGE_GROUPS.find((g) => g.label === 'FLITO (SOAT e Impuestos)')!;
     expect(flito.pages).toContain('flito_soat');
     expect(flito.pages).not.toContain('soat');
+  });
+});
+
+// ───────── HU #12169 (AC5): la frontera entre lo que es TIPO y lo que es DATO ─────────
+//
+// `UserRole` deja de ser la fuente de verdad de qué roles existen —eso es la tabla `permisos_roles`—
+// y pasa a ser la lista de los doce que el CÓDIGO conoce por su nombre. La consecuencia práctica está
+// aquí: `getEffectivePages` recibe un `RoleCode`, que puede ser un rol creado por el administrador.
+//
+// **Mutante nombrado:** cambiar el `?? []` de `paginasPorDefecto` por `?? Object.keys(PAGES)` deja en
+// rojo el primer caso — y es la mutación que de verdad da miedo, porque convierte «rol nuevo sin
+// pantallas» en «rol nuevo con TODAS», que es exactamente el fallo por defecto al revés.
+describe('paginasPorDefecto — roles como dato (HU #12169, AC5)', () => {
+  it('un rol que creó el administrador no tiene defaults: `[]`, no todo', () => {
+    expect(paginasPorDefecto('consulta_cliente')).toEqual([]);
+    // Y por el camino largo: sus páginas son EXACTAMENTE sus allowedPages, ni una más.
+    expect(getEffectivePages({ role: 'consulta_cliente', allowedPages: ['flito_soat'] }))
+      .toEqual(['flito_soat']);
+    expect(getEffectivePages({ role: 'consulta_cliente' })).toEqual([]);
+  });
+
+  it('los doce de sistema devuelven lo MISMO que la tabla, uno por uno (ninguna regresión)', () => {
+    for (const rol of USER_ROLES) {
+      expect(paginasPorDefecto(rol)).toEqual(ROLE_DEFAULT_PAGES[rol]);
+    }
+  });
+
+  it('un rol nuevo NO hereda las páginas de nadie ni por parecido de nombre', () => {
+    // `admin_regional` empieza por `admin`: si alguien "optimizara" con un `startsWith` o un
+    // `includes`, este caso lo caza. El fallo por defecto es no ver nada.
+    expect(paginasPorDefecto('admin_regional')).toEqual([]);
+    expect(getEffectivePages({ role: 'admin_regional' })).toEqual([]);
+  });
+
+  it('un rol nuevo con páginas concedidas ve solo las VÁLIDAS del catálogo de páginas', () => {
+    expect(getEffectivePages({ role: 'rol_nuevo', allowedPages: ['dashboard', 'pagina_que_no_existe'] }))
+      .toEqual(['dashboard']);
   });
 });

@@ -1,8 +1,13 @@
 import { z } from 'zod';
 
-// Roles, catálogo de páginas y permisos por defecto (fuente única).
-// Exporta UserRole, USER_ROLES, ALL_ROLES, userRoleSchema, ROLE_LABELS,
-// PAGES, PAGE_GROUPS, PageSlug, ROLE_DEFAULT_PAGES, getEffectivePages, isValidPage, ...
+// Roles de SISTEMA, catálogo de páginas y permisos por defecto (fuente única).
+// Desde la HU #12169 la lista de roles que EXISTEN vive en la tabla `permisos_roles`;
+// lo de aquí son los doce que el código conoce por su nombre (ver la frontera escrita
+// sobre `USER_ROLES`). Para el rol de un usuario, el tipo es `RoleCode`.
+// Exporta UserRole, RoleCode, USER_ROLES, ALL_ROLES, ROLE_LABELS, PAGES, PAGE_GROUPS,
+// PageSlug, ROLE_DEFAULT_PAGES, paginasPorDefecto, getEffectivePages, isValidPage, ...
+// (no exporta ningún `userRoleSchema`: este módulo es puro y no tiene zod; el comentario
+// que lo anunciaba llevaba años sin definición detrás.)
 export * from './permissions.js';
 
 // EPIC TRAM-INNOV · A5 — catálogo de tipologías de trámite + checklist dinámico.
