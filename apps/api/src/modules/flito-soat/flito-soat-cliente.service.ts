@@ -540,6 +540,18 @@ export interface ResultadoRunt {
    * registro nacional, no cuándo terminamos de guardar.
    */
   consultadoEn: Date;
+  /**
+   * El aviso de vigencia próxima, o `null` si el RUNT no reporta SOAT vigente (HU #12212).
+   *
+   * **Requerido y nullable, no opcional**, y es la misma forma que `propietario: {...} | null`: así
+   * los DOS `return` de {@link verificarRuntCompuerta} tienen que decidir qué ponen. Con `?` el
+   * `case 'ok'` habría podido omitirlo y el campo habría quedado `undefined` —indistinguible de «no
+   * lo calculamos»— en la rama más transitada.
+   *
+   * `poliza` llega hasta aquí porque se PERSISTE en `flito_soat.poliza_runt`; NO se publica en el
+   * 200 de la preconsulta. Ver {@link Preconsulta.vigenciaProxima}.
+   */
+  vigenciaProxima: { venceEl: string; poliza: string | null } | null;
 }
 
 /**
@@ -593,6 +605,18 @@ async function verificarRuntCompuerta(vin: string): Promise<ResultadoRunt> {
         vinEfectivo: desenlace.vinEfectivo,
         organismoCodigo: desenlace.organismoCodigo,
         consultadoEn,
+        vigenciaProxima: null,
+      };
+    // El RUNT reporta SOAT vigente, pero le queda un mes o menos: **es un alta permitida**, no un
+    // 409. Devuelve el MISMO payload que `ok` —el vehículo es el mismo y la fila que se crea es la
+    // misma— más el aviso. Todo lo que separa este caso del anterior es ese objeto.
+    case 'renovacion_anticipada':
+      return {
+        datos: desenlace.datos,
+        vinEfectivo: desenlace.vinEfectivo,
+        organismoCodigo: desenlace.organismoCodigo,
+        consultadoEn,
+        vigenciaProxima: { venceEl: desenlace.venceEl, poliza: desenlace.poliza },
       };
   }
 }
@@ -633,6 +657,25 @@ export interface Preconsulta {
   organismo: { codigo: string | null; nombre: string | null };
   /** Solo el nombre, y solo si el RUNT lo trajo. Ver `DatosRuntCanal.propietarioNombre`. */
   propietario: { nombreCompleto: string } | null;
+  /**
+   * «Este vehículo ya tiene SOAT y vence pronto; se puede renovar por anticipado» (HU #12212, AC1).
+   *
+   * ── El contrato, que la HU #12213 consume tal cual ──────────────────────────────────────────────
+   *
+   *   · La clave está **SIEMPRE presente**. `null` = no hay aviso. Nunca ausente, nunca `undefined`:
+   *     el front distingue «no hay» de «el back no lo mandó» sin adivinar.
+   *   · `venceEl` es `yyyy-mm-dd` y **no es nullable dentro del objeto**. Sin fecha no hay aviso —es
+   *     el 409 de siempre (AC3)—, así que un `{ venceEl: null }` sería un estado inalcanzable.
+   *
+   * ── Por qué NO viaja la póliza ──────────────────────────────────────────────────────────────────
+   *
+   * Desde la HU #12090 rige la RN-B1 escrita en la ruta: **cualquiera que conozca un VIN obtiene la
+   * ficha**, porque consultar por VIN ya no acredita al titular. Publicar aquí el número de póliza
+   * sería una divulgación NUEVA y cosechable enumerando VIN, sobre un dato que hoy no sale por
+   * ninguna vía —la HU #12097 se negó por lo mismo a proyectar `poliza_runt` hacia la cola—. El AC1
+   * pide la fecha; la póliza se persiste en servidor y ahí se queda.
+   */
+  vigenciaProxima: { venceEl: string } | null;
 }
 
 /**
@@ -665,7 +708,7 @@ export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsult
   await verificarRn01(vinNorm, canal.companiaId);
   await verificarTenenciaVehiculo(vinNorm, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo } = await verificarRuntCompuerta(vinNorm);
+  const { datos, vinEfectivo, organismoCodigo, vigenciaProxima } = await verificarRuntCompuerta(vinNorm);
 
   // Autoritativas. El 409 que producen es idéntico al de la RN-01 ajena, sin id y sin estado.
   await verificarRn01(vinEfectivo, canal.companiaId);
@@ -693,6 +736,10 @@ export async function preconsulta(vin: string, ctx: SoatCtx): Promise<Preconsult
     },
     organismo: { codigo: organismoCodigo, nombre: organismo?.alias ?? null },
     propietario: datos.propietarioNombre ? { nombreCompleto: datos.propietarioNombre } : null,
+    // Se PROYECTA, no se reenvía: de `{ venceEl, poliza }` sale solo la fecha. La póliza se queda en
+    // el servidor (RN-B1). El objeto se reconstruye a mano y no con un spread por eso mismo — un
+    // `...vigenciaProxima` publicaría el campo que se añadiera mañana sin que nadie lo decidiera.
+    vigenciaProxima: vigenciaProxima ? { venceEl: vigenciaProxima.venceEl } : null,
   };
 }
 
@@ -1007,7 +1054,8 @@ export async function crearSolicitud(
   await verificarRn01(vinTecleado, canal.companiaId);
   await verificarTenenciaVehiculo(vinTecleado, canal.companiaId);
 
-  const { datos, vinEfectivo, organismoCodigo, consultadoEn } = await verificarRuntCompuerta(vinTecleado);
+  const { datos, vinEfectivo, organismoCodigo, consultadoEn, vigenciaProxima } =
+    await verificarRuntCompuerta(vinTecleado);
 
   // Sobre el VIN EFECTIVO, que es el que se va a escribir (AC5). No sobra por coincidir hoy con el
   // tecleado —la compuerta garantiza esa igualdad—: lo que esta pareja cubre es la ventana entre la
@@ -1075,6 +1123,27 @@ export async function crearSolicitud(
         // de un error de escritura». El quién y el cuándo del alta están en `enviado_por_id` y en la
         // fila de historial.
         gestionOperacionesPorId: null,
+        // ── Renovación anticipada: se guarda LO QUE EL RUNT DIJO, y nada más (HU #12212, AC9) ────
+        //
+        // Las dos claves van **ausentes** cuando no hay aviso, no `null` explícito: es la misma
+        // mecánica de `payloadDeDesenlace` en el servicio de vigencia, y la diferencia importa —una
+        // clave ausente deja el default de la columna en paz, un `null` lo pisa—.
+        //
+        // Lo que NO se escribe aquí, y es parte del mismo AC:
+        //   · `numero_poliza` — es la llave de conciliación del OCR (Feature #11623). Pisarla con la
+        //     del registro la borraría sin que nada se pusiera rojo. Por eso `poliza_runt` existe.
+        //   · `verificada_en` — significa «cuándo respondió el RUNT sobre ESTE SOAT», que aún no
+        //     existe: el que se está radicando no es el que el RUNT reporta. Escribirla sacaría la
+        //     fila del censo del día (`verificada_en < corte`) y le quitaría su `NULLS FIRST`.
+        //   · `estado_vigencia` — queda en su default `no_verificado`. Ponerle `'vigente'` haría
+        //     que, en cuanto pasara `vence_el` —a un mes o menos, o sea antes de que FLITO pague—,
+        //     la fila cumpliera exactamente `condicionVigencia('vencido')` y la cola afirmara «el
+        //     SOAT que FLITO pagó está vencido» sobre una solicitud ni siquiera pagada.
+        //
+        // La combinación `vence_el` poblado + `estado_vigencia = 'no_verificado'` YA EXISTE en
+        // producción: `payloadDeDesenlace` la produce cada noche que el RUNT no responde, y sus dos
+        // lectores la resuelven bien. Esto no estrena un estado, lo reutiliza.
+        ...(vigenciaProxima ? { venceEl: vigenciaProxima.venceEl, polizaRunt: vigenciaProxima.poliza } : {}),
       });
 
       await tx.insert(flitoCompradores).values({
@@ -1107,8 +1176,16 @@ export async function crearSolicitud(
         // La compuerta ya corrió y la fila existe: la lectura es CONCLUYENTE. `pendiente` habría
         // sido cierto bajo la #11935, cuando el desenlace se conocía después del COMMIT.
         verificacionEstado: 'ok',
-        // `false` y no `null`: si estuviera vigente, la compuerta habría respondido 409 y no habría
-        // fila que anotar. Es una lectura, no un hueco.
+        // `false` y no `null`: es una lectura concluyente, no un hueco.
+        //
+        // **Sigue en `false` también en el alta por renovación anticipada** (HU #12212), donde el
+        // RUNT SÍ reportó una póliza vigente, y eso es deliberado: su único lector la pinta como el
+        // rótulo «vigente» del detalle (`apps/web/src/lib/soatCliente.ts`: «vigente» es
+        // `verificacionEstado === 'ok' && soatVigente === true`), así que ponerla en `true` estrenaría
+        // en esa pantalla un estado que nadie diseñó y que además diría «este SOAT está vigente»
+        // sobre la solicitud NUEVA, que no lo está. Lo que el RUNT reportó queda escrito donde tiene
+        // lector: `flito_soat.vence_el` y `flito_soat.poliza_runt`, arriba. Si la ficha del canal
+        // tiene que enseñar el aviso, es trabajo de la HU #12213 y de esta pareja de columnas.
         soatVigente: false,
         // El único código que puede llevar una fila NUEVA. `null` cuando el organismo sí cruzó.
         verificacionCodigo: organismoCodigo ? null : CodigoErrorSolicitudSoat.ORGANISMO_NO_CATALOGADO,

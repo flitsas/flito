@@ -273,6 +273,11 @@ router.post('/cliente/preconsulta', CANAL_CLIENTE, soatClienteLimiter, soatPreco
     // `flito-soat.cliente-runt-por-vin.test.ts`. La placa, en cambio, solo puede venir del RUNT.
     await registrarAccesoRuntCliente(req, {
       vin, placa: resultado.vehiculo.placa, conPropietario: resultado.propietario !== null,
+      // El 200 con renovación anticipada divulga ADEMÁS hasta cuándo vence el SOAT que el RUNT
+      // reporta (HU #12212). Sin esta línea, `campos_accedidos` sub-declararía justo en las
+      // respuestas que dicen más. Se deriva del resultado y no del cuerpo de la petición: lo que el
+      // registro tiene que anotar es lo que SALIÓ, no lo que se pidió.
+      conVigenciaProxima: resultado.vigenciaProxima !== null,
     });
     res.json(resultado);
   } catch (e) {

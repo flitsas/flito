@@ -528,18 +528,28 @@ describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () 
 
 describe('los DOS endpoints devuelven lo mismo ante el mismo RUNT (una sola compuerta)', () => {
   /**
-   * Los cinco desenlaces con los que la compuerta puede cortar, y el par (status, codigo) esperado.
+   * Los SEIS desenlaces con los que la compuerta puede cortar, y el par (status, codigo) esperado.
    *
    * Se recorren contra `POST /cliente` y contra `POST /cliente/preconsulta` con el MISMO mock: si
    * alguien copiara la compuerta en uno de los dos, la copia divergiría en el primer cambio y este
    * bloque lo vería. El wizard bloqueando lo que la API acepta es el fallo que esto previene.
+   *
+   * **La HU #12212 no quita ninguno**: el 409 `soat_vigente` sigue vivo, y lo que cambia es cuándo
+   * se emite. Los dos casos de vigencia de abajo son los que lo fijan —vencimiento a MÁS de un mes,
+   * y vigente SIN fecha—, que son justo las dos formas en las que la renovación anticipada NO
+   * aplica. El alta que sí permite está en `flito-soat.cliente-renovacion-anticipada.test.ts`.
    */
   const DESENLACES = [
     { nombre: 'RUNT caído', runt: () => CAIDO_SIN_STATUS, status: 503, codigo: 'runt_no_disponible' },
     { nombre: 'negativa de negocio', runt: () => NEGATIVA_DE_NEGOCIO, status: 422, codigo: 'runt_no_cuadra' },
     { nombre: 'sin registro', runt: () => ({ ok: true, data: { vehiculo: { placa: PLACA, vin: VIN_RUNT } } }), status: 422, codigo: 'runt_sin_registro' },
     { nombre: 'VIN que no cuadra', runt: () => runtOk({ vin: 'VINQUENOCUADRA01' }), status: 422, codigo: 'runt_no_cuadra' },
-    { nombre: 'SOAT vigente', runt: () => runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' }), status: 409, codigo: 'soat_vigente' },
+    // 2030 es una fecha que está a más de un mes de cualquier día en el que esta suite pueda correr,
+    // así que el caso no caduca ni se vuelve verde por el calendario.
+    { nombre: 'SOAT vigente a más de un mes', runt: () => runtOk({}, { estadoSoat: 'VIGENTE', fechaVencimSoat: '01/02/2030' }), status: 409, codigo: 'soat_vigente' },
+    // Defecto seguro del AC3 de la #12212: «vigente» sin fecha no permite afirmar que falta un mes
+    // o menos, así que se queda en el 409 de siempre.
+    { nombre: 'SOAT vigente SIN fecha', runt: () => runtOk({}, { estadoSoat: 'VIGENTE' }), status: 409, codigo: 'soat_vigente' },
   ] as const;
 
   it.each(DESENLACES)('$nombre → $status `$codigo` en el ALTA y en la PRECONSULTA', async ({ runt, status, codigo }) => {
