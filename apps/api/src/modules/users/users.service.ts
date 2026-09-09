@@ -15,10 +15,11 @@
 //     NOTHING` de lo que falta, que además preserva el `created_at` de lo que no cambió.
 
 import { and, eq, ilike, inArray, notInArray, or, sql, type SQL } from 'drizzle-orm';
-import { ALL_ROLES, type UserRole } from '@operaciones/shared-types';
+import { ALL_ROLES, type RoleCode, type UserRole } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoGestorOrganismos, flitoProveedoresSoat, organismosTransitoConfig, users,
+  clients, flitoGestorOrganismos, flitoProveedoresSoat, organismosTransitoConfig, permisosRoles,
+  users,
 } from '../../db/schema.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -77,6 +78,29 @@ export async function proveedorSoatExiste(id: string): Promise<boolean> {
   const [p] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
     .where(eq(flitoProveedoresSoat.id, id)).limit(1);
   return !!p;
+}
+
+/**
+ * La fila del rol si es ASIGNABLE —existe en el catálogo y está `activo`—; `null` si no (HU #12169,
+ * AC6 + CF-03). Es la hermana de `companiaExiste()` y `proveedorSoatExiste()`, y está aquí por el
+ * mismo motivo: sin ella, un código de rol inventado sería un 23503 de la FK servido en un 500.
+ *
+ * Sustituye a `z.enum(ALL_ROLES)`: el catálogo es DATO y un esquema de Zod es una constante
+ * compilada. Con esto, un rol que el administrador acaba de crear se puede asignar de inmediato, sin
+ * publicar una versión (CF-03).
+ *
+ * **Sí exige `activo`**, a diferencia de `proveedorSoatExiste()` (que a propósito no lo exige). No es
+ * incoherencia: allí el ámbito inactivo ya está asignado y rechazarlo rompería una edición ajena al
+ * campo; aquí `activo = false` significa «no ofrecer más este rol» y su único efecto útil es impedir
+ * ASIGNACIONES NUEVAS. Un usuario que ya tiene un rol desactivado sigue entrando y trabajando:
+ * `activo` gobierna la asignación, no la autenticación.
+ */
+export async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | null> {
+  const [r] = await db.select({ tipoEnlace: permisosRoles.tipoEnlace })
+    .from(permisosRoles)
+    .where(and(eq(permisosRoles.codigo, codigo), eq(permisosRoles.activo, true)))
+    .limit(1);
+  return r ?? null;
 }
 
 /**
@@ -146,7 +170,12 @@ export interface CrearUsuarioInput {
   name: string;
   email: string | null;
   passwordHash: string;
-  role: typeof users.$inferInsert['role'];
+  /**
+   * El CÓDIGO del rol (HU #12169). Ya no es `users.$inferInsert['role']` —que era la unión cerrada
+   * del enum— porque puede ser un rol que creó el administrador. Quien garantiza que existe es
+   * `rolAsignable()` en la ruta, y por debajo la FK `users_role_fkey`.
+   */
+  role: RoleCode;
   allowedPages: string[];
   transitoCodigo: string | null;
   companiaId: number | null;

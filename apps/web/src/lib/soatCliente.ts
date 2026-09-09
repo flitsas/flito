@@ -686,13 +686,22 @@ export const LECTURA_SIN_RED: DesenlaceLectura = {
 };
 
 /**
- * `429`. **Mensaje propio y sin reintento automático**: el limitador del canal son 20 peticiones por
- * 15 minutos COMPARTIDAS entre preconsulta, lectura y alta, así que cada re-lectura le quita
- * presupuesto al envío. Decir «vuelva a leerla» aquí sería empujar al Cliente contra su propio alta.
+ * `429`. **Mensaje propio, y desde la HU #12214 ya no dice que releer cueste el envío.**
+ *
+ * Hasta esa HU esto era cierto y por eso estaba escrito aquí: el limitador del canal eran 20
+ * peticiones por 15 minutos COMPARTIDAS entre preconsulta, lectura y alta, así que cada re-lectura le
+ * quitaba presupuesto al envío y ofrecer «vuelva a leerla» era empujar al Cliente contra su propio
+ * alta. **La lectura tiene ahora contador propio** (`soatLecturaFacturaLimiter`, 12/15min/usuario,
+ * aparte del compartido), así que agotarla no toca el presupuesto del alta: quien vea este 429 puede
+ * enviar la solicitud AHORA mismo con los datos a mano.
+ *
+ * Sigue sin haber reintento automático, y ahora por un motivo distinto: la ventana es de quince
+ * minutos, así que un reintento inmediato volvería a dar 429. Lo que se ofrece es la salida que no
+ * depende del reloj —escribirlos a mano— dicha ya sin la advertencia que dejó de ser verdad.
  */
 export const LECTURA_LIMITE: DesenlaceLectura = {
   titulo: 'Ha hecho varias lecturas seguidas y toca esperar unos minutos.',
-  detalle: 'Puede escribir los datos del propietario a mano y enviar la solicitud igual.',
+  detalle: 'Puede escribir los datos del propietario a mano y enviar la solicitud ahora: el envío no se ve afectado por este límite.',
 };
 
 /** La rama por defecto: un estado que esta pantalla no conoce. Nunca en silencio. */
@@ -714,8 +723,9 @@ export type ReaccionLectura =
  * Clasifica un fallo de la lectura, **por `codigo` y por estado, jamás por el texto**.
  *
  * El `503` del lector llega SIN `codigo` (`OcrNoDisponibleError` responde `{error}` pelado), así que
- * aquí el estado sí discrimina: no hay otro 503 en esta ruta. El `429` lo pone el limitador del
- * canal, que tampoco pone código.
+ * aquí el estado sí discrimina: no hay otro 503 en esta ruta. El `429` lo pone el limitador de la
+ * LECTURA —el suyo propio desde la HU #12214, ya no el compartido del canal—, que tampoco pone
+ * código.
  */
 export function reaccionALectura(f: FalloCanal): ReaccionLectura {
   if (f.codigo === CodigoErrorSolicitudSoat.ARCHIVO_NO_PDF) return { tipo: 'archivo' };

@@ -12,7 +12,7 @@ import { ALL_ROLES, ROLE_LABELS, isKnownOrganismoCodigo, type UserRole } from '@
 import { loggerFor } from '../../shared/logger.js';
 import {
   actualizarUsuario, crearUsuario, listarUsuarios, nombresDeAmbito, organismosDe, organismosDeVarios,
-  organismosInexistentes, proveedorSoatExiste, resumenUsuarios, userSelect,
+  organismosInexistentes, proveedorSoatExiste, resumenUsuarios, rolAsignable, userSelect,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 
@@ -64,8 +64,11 @@ router.patch('/:id/password', authMiddleware, async (req: Request, res: Response
 // Los MISMOS tres filtros los comparten el listado y la descarga: `/export` baja lo que la pantalla
 // está mostrando, no la tabla entera. Por eso el schema es uno solo.
 //
-// `rol` se valida contra `ALL_ROLES` —el catálogo VIVO— y no contra una lista escrita a mano: un
-// código inexistente sale como 400 de validación y no como una lista vacía que parece un dato.
+// `rol` se valida contra `ALL_ROLES` —los doce códigos de SISTEMA— y no contra una lista escrita a
+// mano: un código inexistente sale como 400 de validación y no como una lista vacía que parece un dato.
+// Desde la HU #12169 `ALL_ROLES` ya NO es el catálogo vivo (eso es la tabla `permisos_roles`), así que
+// este filtro no sabe de un rol creado por el administrador. Es deuda DECLARADA y acotada al filtro:
+// la pantalla que ofrece el catálogo completo es la #12085, y ella trae este `z.enum` con ella.
 // `q` vacío (`?q=`) NO es un error: es «sin filtro», que es lo que manda el front al borrar la caja.
 const listadoQuerySchema = z.object({
   rol: z.enum(ALL_ROLES).optional(),
@@ -222,6 +225,24 @@ const MSG_ORGANISMOS_REQUERIDOS = 'Organismos requeridos para el rol Gestor de I
 const MSG_ORGANISMOS_SOBRAN = 'Solo los usuarios Gestor de Impuestos pueden tener organismos asignados';
 const MSG_ORGANISMOS_NO_EXISTE = 'Alguno de los organismos no existe';
 
+// HU #12169 — el rol es DATO, no una constante compilada. Mismo tratamiento que la compañía y el
+// proveedor: el mensaje lo lee el admin en la pantalla, y el 400 sale antes de escribir nada.
+const MSG_ROL_NO_ASIGNABLE = 'El rol no existe o está inactivo';
+
+/**
+ * El código de un rol: FORMA, no pertenencia (HU #12169, AC6). Sustituye a `z.enum(ALL_ROLES)`, que
+ * cerraba la lista en tiempo de compilación y hacía imposible asignar un rol recién creado (CF-03).
+ *
+ * Que el código EXISTA y esté activo no lo puede comprobar un esquema: lo comprueba el handler
+ * contra `permisos_roles` con `rolAsignable()`, igual que `companiaExiste()`. Es el precedente
+ * explícito del repo: «validación de existencia — en el handler, no en Zod».
+ *
+ * El regex es el mismo alfabeto de los doce códigos actuales y el que la #12084 impondrá al crear:
+ * minúsculas, dígitos y guion bajo, empezando por letra. `max(40)` es el ancho de la PK.
+ */
+const codigoRolSchema = z.string().min(1).max(40)
+  .regex(/^[a-z][a-z0-9_]*$/, 'El código de rol solo admite minúsculas, números y guion bajo');
+
 /** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
 async function companiaExiste(id: number): Promise<boolean> {
   const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
@@ -233,7 +254,7 @@ const createSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email().max(150).optional().or(z.literal('').transform(() => undefined)),
   password: z.string().min(8).regex(PASSWORD_REGEX, PASSWORD_MSG),
-  role: z.enum(ALL_ROLES),
+  role: codigoRolSchema,
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
   companiaId: companiaIdSchema,
@@ -274,7 +295,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   email: z.string().email().max(150).optional().or(z.literal('').transform(() => null)).nullable(),
-  role: z.enum(ALL_ROLES).optional(),
+  role: codigoRolSchema.optional(),
   allowedPages: allowedPagesSchema.optional(),
   transitoCodigo: transitoCodigoSchema,
   companiaId: companiaIdSchema,
@@ -316,6 +337,14 @@ router.post('/', async (req: Request, res: Response) => {
     username, name, email, password, role, allowedPages, transitoCodigo, companiaId,
     flitoProveedorSoatId, organismosCodigos,
   } = parsed.data;
+
+  // AC6: la pertenencia se pregunta al CATÁLOGO, no a una constante. Va lo primero porque un rol que
+  // no existe no merece ni la consulta del username, y porque la FK `users_role_fkey` lo rechazaría
+  // igual pero como un 23503 servido en un 500.
+  if (!(await rolAsignable(role))) {
+    res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
+    return;
+  }
 
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
   if (existing.length > 0) {
@@ -370,6 +399,13 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
   const [before] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   if (!before) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+
+  // AC6, misma comprobación que en el alta y SOLO si el cuerpo trae `role`: editarle el nombre a un
+  // usuario cuyo rol se desactivó después no puede fallar por un campo que el admin no tocó.
+  if (data.role !== undefined && !(await rolAsignable(data.role))) {
+    res.status(400).json({ error: MSG_ROL_NO_ASIGNABLE });
+    return;
+  }
 
   // Si se está degradando a un admin, asegurar que quede al menos otro admin activo.
   if (data.role && data.role !== 'admin' && before.role === 'admin') {

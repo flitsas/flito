@@ -7,18 +7,23 @@ import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { loggerFor } from '../logger.js';
 import { guardiaCanalCliente } from './canal-cliente.js';
-import type { UserRole } from '@operaciones/shared-types';
+import type { RoleCode, UserRole } from '@operaciones/shared-types';
 
 const log = loggerFor('auth');
 
 // Re-export para compatibilidad: módulos que importaban UserRole desde aquí siguen
 // funcionando. La definición canónica vive en @operaciones/shared-types.
-export type { UserRole };
+// `RoleCode` se re-exporta por lo mismo: es el tipo del rol de UN USUARIO desde la HU #12169.
+export type { UserRole, RoleCode };
 
 export interface JwtPayload {
   sub: number;
   username: string;
-  role: UserRole;
+  // HU #12169: el rol del token es el CÓDIGO de una fila de `permisos_roles`, que puede ser uno que
+  // creó el administrador. `requireRole(...roles: string[])` no se toca: ya compara con `includes`,
+  // así que las 276 guardas siguen siendo listas blancas de códigos de sistema y siguen negando por
+  // defecto a cualquier rol nuevo — la dirección correcta mientras la #12083 no las reconduzca.
+  role: RoleCode;
   // Páginas custom concedidas al usuario (además de los defaults del rol). Embebidas en el
   // JWT al login. Ausente en tokens viejos → requirePage cae a defaults del rol (degradación segura).
   allowedPages?: string[];

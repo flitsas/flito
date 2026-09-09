@@ -97,39 +97,47 @@ async function main(): Promise<void> {
   ]);
 
   // ── Usuarios (roles del grande: operaciones/proveedor/gestor_impuestos/auditor) ─
+  //
+  // Los usuarios y las ataduras de los gestores van en UNA transacción desde la HU #12169, y no es
+  // cosmética: el `CONSTRAINT TRIGGER users_ambito_organismos_trg` de la 0178 es DEFERRED y se
+  // evalúa en el COMMIT. Con dos sentencias sueltas (autocommit) el INSERT de los gestores confirma
+  // ANTES de que existan sus organismos y la base lo rechaza —comprobado: «El rol gestor_impuestos
+  // exige al menos un organismo»—. Es el mismo orden y el mismo motivo que `crearUsuario()`.
   const hash = await argon2.hash(CONTRASENA_DEMO);
-  await db.insert(users).values([
-    // El operador FLITO ES admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
-    { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'admin' },
-    // Dos gestores del MISMO proveedor: permite demostrar CA-04 (toma atómica de la misma cola).
-    { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
-    { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
-    // Gestor del otro proveedor: demuestra CA-09 (aislamiento entre proveedores).
-    { username: 'gestor.estado', name: 'Gestor Seguros del Estado', email: 'gestor.estado@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: estado.id },
-    // Gestores de impuestos. Su atadura (CA-10) NO va aquí desde la HU #12053: `transito_codigo` es
-    // del rol `transito` y solo cabía UNO. Va en `flito_gestor_organismos`, abajo.
-    { username: 'gestor.medellin', name: 'Gestor Movilidad Medellín', email: 'gestor.medellin@flito.co', passwordHash: hash, role: 'gestor_impuestos' },
-    { username: 'gestor.envigado', name: 'Gestor Tránsito Envigado', email: 'gestor.envigado@flito.co', passwordHash: hash, role: 'gestor_impuestos' },
-    { username: 'auditoria', name: 'Auditoría FLIT', email: 'auditoria@flito.co', passwordHash: hash, role: 'auditor' },
-    // Logística — mensajero de campo (PWA, Fase 2). Ve solo su ruta asignada (CA-11).
-    { username: 'mensajero', name: 'Mensajero FLIT', email: 'mensajero@flito.co', passwordHash: hash, role: 'mensajero' },
-    // Finanzas — usuario del área financiera. Hoy solo el Reporte de costos.
-    { username: 'financiera', name: 'Finanzas FLIT', email: 'financiera@flito.co', passwordHash: hash, role: 'financiera' },
-  ]).onConflictDoNothing();
+  await db.transaction(async (tx) => {
+    await tx.insert(users).values([
+      // El operador FLITO ES admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
+      { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'admin' },
+      // Dos gestores del MISMO proveedor: permite demostrar CA-04 (toma atómica de la misma cola).
+      { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
+      { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
+      // Gestor del otro proveedor: demuestra CA-09 (aislamiento entre proveedores).
+      { username: 'gestor.estado', name: 'Gestor Seguros del Estado', email: 'gestor.estado@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: estado.id },
+      // Gestores de impuestos. Su atadura (CA-10) NO va aquí desde la HU #12053: `transito_codigo` es
+      // del rol `transito` y solo cabía UNO. Va en `flito_gestor_organismos`, abajo.
+      { username: 'gestor.medellin', name: 'Gestor Movilidad Medellín', email: 'gestor.medellin@flito.co', passwordHash: hash, role: 'gestor_impuestos' },
+      { username: 'gestor.envigado', name: 'Gestor Tránsito Envigado', email: 'gestor.envigado@flito.co', passwordHash: hash, role: 'gestor_impuestos' },
+      { username: 'auditoria', name: 'Auditoría FLIT', email: 'auditoria@flito.co', passwordHash: hash, role: 'auditor' },
+      // Logística — mensajero de campo (PWA, Fase 2). Ve solo su ruta asignada (CA-11).
+      { username: 'mensajero', name: 'Mensajero FLIT', email: 'mensajero@flito.co', passwordHash: hash, role: 'mensajero' },
+      // Finanzas — usuario del área financiera. Hoy solo el Reporte de costos.
+      { username: 'financiera', name: 'Finanzas FLIT', email: 'financiera@flito.co', passwordHash: hash, role: 'financiera' },
+    ]).onConflictDoNothing();
 
-  // La atadura CA-10 de los dos gestores (HU #12053). Se leen sus ids en vez de asumirlos: el
-  // `onConflictDoNothing` de arriba puede no haber insertado nada.
-  const gestores = await db.select({ id: users.id, username: users.username }).from(users)
-    .where(inArray(users.username, ['gestor.medellin', 'gestor.envigado']));
-  const idDe = (username: string) => gestores.find((g) => g.username === username)?.id;
-  const ataduras = [
-    { username: 'gestor.medellin', organismoCodigo: ORG.MEDELLIN },
-    { username: 'gestor.envigado', organismoCodigo: ORG.ENVIGADO },
-  ].flatMap(({ username, organismoCodigo }) => {
-    const userId = idDe(username);
-    return userId ? [{ userId, organismoCodigo }] : [];
+    // La atadura CA-10 de los dos gestores (HU #12053). Se leen sus ids en vez de asumirlos: el
+    // `onConflictDoNothing` de arriba puede no haber insertado nada.
+    const gestores = await tx.select({ id: users.id, username: users.username }).from(users)
+      .where(inArray(users.username, ['gestor.medellin', 'gestor.envigado']));
+    const idDe = (username: string) => gestores.find((g) => g.username === username)?.id;
+    const ataduras = [
+      { username: 'gestor.medellin', organismoCodigo: ORG.MEDELLIN },
+      { username: 'gestor.envigado', organismoCodigo: ORG.ENVIGADO },
+    ].flatMap(({ username, organismoCodigo }) => {
+      const userId = idDe(username);
+      return userId ? [{ userId, organismoCodigo }] : [];
+    });
+    if (ataduras.length > 0) await tx.insert(flitoGestorOrganismos).values(ataduras).onConflictDoNothing();
   });
-  if (ataduras.length > 0) await db.insert(flitoGestorOrganismos).values(ataduras).onConflictDoNothing();
 
   const linea = '─'.repeat(72);
   console.log(`\n${linea}\n  FLITO — parametrización sembrada\n${linea}\n

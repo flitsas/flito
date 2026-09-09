@@ -306,49 +306,64 @@ describe('bloqueante 3 — la preconsulta lleva su propio sub-límite, anidado b
     expect(cadena.indexOf(soatClienteLimiter)).toBeLessThan(cadena.indexOf(soatPreconsultaLimiter));
   });
 
-  it('**el sub-límite NO se aplica al alta ni a la lectura de factura**', async () => {
+  it('**el sub-límite NO se aplica al alta**, que sigue bajo el contador del canal', async () => {
     // Es de la preconsulta y de nadie más: ponerlo en el alta frenaría la petición que sí crea una
     // fila, que es la que no hay motivo para racionar más allá del contador del canal.
     const { soatClienteLimiter, soatPreconsultaLimiter } = await import('../../src/shared/middleware/rateLimiter.js');
+    const cadena = await middlewaresDe('/cliente');
 
-    for (const ruta of ['/cliente', '/cliente/factura/lectura']) {
-      const cadena = await middlewaresDe(ruta);
-      expect(cadena, `${ruta} sigue bajo el contador del canal`).toContain(soatClienteLimiter);
-      expect(cadena, `${ruta} no lleva el sub-límite de la preconsulta`).not.toContain(soatPreconsultaLimiter);
-    }
+    expect(cadena, 'el alta sigue bajo el contador del canal').toContain(soatClienteLimiter);
+    expect(cadena, 'el alta no lleva el sub-límite de la preconsulta').not.toContain(soatPreconsultaLimiter);
   });
 
-  it('**agotado el sub-límite, la novena preconsulta es 429 y no consulta el RUNT**', async () => {
+  it('**la lectura de factura ya NO cuelga del contador del canal** (HU #12214, AC2)', async () => {
+    // Hasta la #12214 esta ruta iba con `soatClienteLimiter` y cada relectura le quitaba presupuesto
+    // al envío. Ahora lleva el suyo y NINGUNO de los otros dos: si alguien devuelve el compartido a
+    // esta cadena «para no bajar la guardia», el AC2 vuelve a estar roto aunque el limitador nuevo
+    // siga puesto — por eso el aserto que manda aquí es el `not.toContain`.
+    const { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } =
+      await import('../../src/shared/middleware/rateLimiter.js');
+    const cadena = await middlewaresDe('/cliente/factura/lectura');
+
+    expect(cadena, 'la lectura lleva su limitador propio').toContain(soatLecturaFacturaLimiter);
+    expect(cadena, 'la lectura NO puede gastar el presupuesto del envío').not.toContain(soatClienteLimiter);
+    expect(cadena, 'ni el sub-límite de la preconsulta').not.toContain(soatPreconsultaLimiter);
+  });
+
+  it('**el techo son 15: la 15.ª preconsulta pasa y la 16.ª es 429 sin consultar el RUNT** (HU #12214, AC1)', async () => {
     // El comportamiento, y no la introspección del middleware: `express-rate-limit` v8 no publica
-    // sus `options` en el objeto devuelto, así que el número 8 se afirma ejerciéndolo. Mismo usuario
-    // en las nueve peticiones para que el contador cuente.
+    // sus `options` en el objeto devuelto, así que el número se afirma ejerciéndolo. Mismo usuario
+    // en las dieciséis peticiones para que el contador cuente.
+    //
+    // Las DOS mitades hacen falta: sin la 15.ª en 200 este test seguiría verde con el techo viejo de
+    // 8, que es justo el número que la HU #12214 viene a subir.
     const app = await buildApp();
     const token = await auth(siguienteUsuario());
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 15; i++) {
       escenario();
       expect((await preconsultar(app, token)).status, `la petición ${i + 1} debería pasar`).toBe(200);
     }
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(8);
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(15);
 
     escenario();
-    const novena = await preconsultar(app, token);
-    expect(novena.status).toBe(429);
-    // Y el freno actúa ANTES de gastar la consulta de pago: nueve intentos, ocho consultas.
-    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(8);
+    const decimosexta = await preconsultar(app, token);
+    expect(decimosexta.status).toBe(429);
+    // Y el freno actúa ANTES de gastar la consulta de pago: dieciséis intentos, quince consultas.
+    expect(consultarVehiculoRuntMock).toHaveBeenCalledTimes(15);
   });
 
   it('**el sub-límite tiene contador PROPIO: agotarlo NO deja al usuario sin poder radicar**', async () => {
     // Es lo que separa un sub-límite de un límite a secas, y se mide por comportamiento. Con el
     // mismo prefijo de llave que el compartido, los dos limitadores escribirían sobre el mismo
-    // contador: agotar las 8 preconsultas dejaría al usuario a 8 de 20 —no a 0—, pero un contador
+    // contador: agotar las 15 preconsultas dejaría al usuario a 15 de 20 —no a 0—, pero un contador
     // compartido y mal prefijado haría que el `max` más estricto ganara también para el alta, y este
     // 201 sería un 429. El alta es la petición que SÍ crea valor y no hay motivo para racionarla más
     // allá del contador del canal.
     const app = await buildApp();
     const token = await auth(siguienteUsuario());
 
-    for (let i = 0; i < 8; i++) { escenario(); await preconsultar(app, token); }
+    for (let i = 0; i < 15; i++) { escenario(); await preconsultar(app, token); }
     escenario();
     expect((await preconsultar(app, token)).status, 'el sub-límite está agotado').toBe(429);
 
@@ -361,17 +376,173 @@ describe('bloqueante 3 — la preconsulta lleva su propio sub-límite, anidado b
     // `userOrIpKey`. Es la decisión ya escrita del limitador compartido y el sub-límite la hereda:
     // frenar por IP castigaría a toda la compañía por lo que hace una cuenta. Se deja medido porque
     // también es el límite de lo que este freno puede prometer — una compañía con N usuarios dispone
-    // de 8N preconsultas por ventana, y eso está dicho en el docblock.
+    // de 15N preconsultas por ventana, y eso está dicho en el docblock.
     const app = await buildApp();
     const primero = await auth(siguienteUsuario());
 
-    for (let i = 0; i < 8; i++) { escenario(); await preconsultar(app, primero); }
+    for (let i = 0; i < 15; i++) { escenario(); await preconsultar(app, primero); }
     escenario();
     expect((await preconsultar(app, primero)).status).toBe(429);
 
     escenario();
     expect((await preconsultar(app, await auth(siguienteUsuario()))).status).toBe(200);
   });
+});
+
+// ═══════════ HU #12214 — la lectura sale del contador del envío ══════════════
+
+describe('HU #12214 — agotar la LECTURA no le quita presupuesto al envío, y NINGÚN no-200 del RUNT sale como 429', () => {
+  /**
+   * Una lectura SIN adjunto. Sirve porque el limitador va delante de multer y del handler (eso lo
+   * mide la suite hermana, `flito-soat.cliente-lectura-factura.test.ts`), así que la petición gasta
+   * su punto igual y muere en un 400 «falta la factura» **sin llamar al OCR** — que es lo que
+   * permite ejercer aquí el contador de la lectura sin montar el mock de Anthropic.
+   */
+  const lecturaSinAdjunto = (app: express.Express, token: string) =>
+    request(app).post('/api/flito/soat/cliente/factura/lectura').set('Authorization', token);
+
+  it('**agotado el contador de la lectura, el alta sigue radicando** (AC2)', async () => {
+    // El aserto central de la HU. Veintiuna lecturas: doce pasan el limitador y mueren en 400, y las
+    // nueve siguientes son 429. Ese reparto es idéntico con el cableado VIEJO —la lectura anidada
+    // bajo el compartido daría los mismos doce 400 y los mismos nueve 429—, así que lo que separa un
+    // cableado del otro es SOLO la última línea: con el compartido puesto, esas 21 peticiones habrían
+    // consumido las 20 del canal y el alta saldría 429.
+    const app = await buildApp();
+    const token = await auth(siguienteUsuario());
+
+    const estados: number[] = [];
+    for (let i = 0; i < 21; i++) estados.push((await lecturaSinAdjunto(app, token)).status);
+
+    expect(estados.slice(0, 12), 'las doce primeras pasan el limitador').toEqual(Array(12).fill(400));
+    expect(estados.slice(12), 'de la 13.ª en adelante, 429').toEqual(Array(9).fill(429));
+
+    escenario();
+    const radicar = await alta(app, token);
+    expect(radicar.status, 'el envío no gastó ni una petición en las lecturas').toBe(201);
+  });
+
+  it('**la lectura tampoco consume el sub-límite de la preconsulta** (AC5, por comportamiento)', async () => {
+    // Tres contadores independientes: con las 13 lecturas gastadas, las 15 preconsultas siguen
+    // enteras. Un prefijo de llave compartido entre estos dos se vería aquí y en ningún otro sitio.
+    const app = await buildApp();
+    const token = await auth(siguienteUsuario());
+
+    for (let i = 0; i < 13; i++) await lecturaSinAdjunto(app, token);
+
+    for (let i = 0; i < 15; i++) {
+      escenario();
+      expect((await preconsultar(app, token)).status, `preconsulta ${i + 1} tras agotar la lectura`).toBe(200);
+    }
+  });
+
+  /**
+   * Un `https` falso que contesta con el status pedido y **un cuerpo PERFECTAMENTE VÁLIDO**.
+   *
+   * Las dos mitades importan.
+   *
+   * · **La capa**: `consultarVehiculoProxy` evalúa `r.status !== 200` sobre lo que devuelve
+   *   `httpsReq`, y ahí —en `fallo()`— es donde el status upstream muere. Mockear `runt.service`
+   *   —como hace el resto de esta suite— saltaría justamente el trozo de código que el AC6 afirma, y
+   *   es lo que dejaba el `429` como decoración: cambiarlo por `418` no movía nada porque ese valor
+   *   no lo leía nadie.
+   *
+   * · **El cuerpo**: es `runtOk()`, el mismo payload que produce un 200 legítimo. Sin eso el 503
+   *   saldría igual pero POR EL CUERPO —un JSON que la compuerta no reconoce también acaba en
+   *   `caido`— y el test volvería a no medir el status. Con un cuerpo bueno, lo ÚNICO que separa el
+   *   200 del 503 es el código HTTP, que es exactamente la afirmación del AC6. Medido: con este
+   *   cuerpo y `status: 200` la ruta responde 200 (el control positivo de más abajo).
+   */
+  function httpsQueContesta(status: number) {
+    const request = (_opciones: unknown, cb: (r: unknown) => void) => {
+      const oyentes: Record<string, ((...a: unknown[]) => void)[]> = {};
+      const respuesta = {
+        statusCode: status,
+        headers: {},
+        on(ev: string, fn: (...a: unknown[]) => void) { (oyentes[ev] ||= []).push(fn); return respuesta; },
+      };
+      const peticion = {
+        setTimeout() { return peticion; },
+        on() { return peticion; },
+        write() { return true; },
+        destroy() { /* no usado */ },
+        end() {
+          cb(respuesta);
+          queueMicrotask(() => {
+            for (const fn of oyentes.data ?? []) fn(Buffer.from(JSON.stringify(runtOk())));
+            for (const fn of oyentes.end ?? []) fn();
+          });
+        },
+      };
+      return peticion;
+    };
+    return { default: { request }, request };
+  }
+
+  /**
+   * La respuesta REAL del canal cuando la pasarela del RUNT contesta `status`.
+   *
+   * Desmoquea `runt.service` —para que corra `consultarVehiculoProxy` de verdad— y moquea `https` en
+   * su lugar, con el registro de módulos reiniciado a ambos lados para no contaminar al resto de la
+   * suite, que sí depende del mock del servicio.
+   */
+  async function respuestaConUpstream(status: number) {
+    vi.resetModules();
+    vi.doUnmock('../../src/modules/runt/runt.service.js');
+    vi.doMock('https', () => httpsQueContesta(status));
+    try {
+      escenario();
+      return await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+    } finally {
+      vi.doUnmock('https');
+      vi.doMock('../../src/modules/runt/runt.service.js', () => ({
+        consultarVehiculoRunt: consultarVehiculoRuntMock,
+        consultarPersonaRunt: vi.fn(),
+      }));
+      vi.resetModules();
+    }
+  }
+
+  it('**control positivo: con 200 y ESE MISMO cuerpo, la pasarela falsa produce una preconsulta OK**', async () => {
+    // Sin este caso, los cuatro de abajo probarían «un JSON cualquiera acaba en 503» y no «el status
+    // decide». Aquí se fija el otro extremo: mismo transporte, mismo cuerpo, mismo montaje, y el
+    // canal responde 200. A partir de aquí, cualquier 503 de los siguientes es atribuible al código
+    // HTTP y a nada más.
+    const r = await respuestaConUpstream(200);
+
+    expect(r.status, 'el cuerpo inyectado es una respuesta válida del RUNT').toBe(200);
+  });
+
+  it('**un 429 de la pasarela del RUNT sale como 503 `runt_no_disponible`** (AC6, camino real)', async () => {
+    // Lo que de verdad ocurre, y no lo que la nota técnica decía: este canal NO pasa por
+    // `upstreamHttpStatus` (esa es la vía del proxy CEA de trámites). El 429 muere antes, en
+    // `runt.service.consultarVehiculoProxy`, que colapsa cualquier respuesta no-200 en `{ok:false}`
+    // vía `fallo()`; la compuerta lo clasifica como `caido` y la ruta responde 503.
+    //
+    // Si esta ruta llegara a devolver un 429 de verdad, el front lo leería como «límite del canal» y
+    // mandaría al usuario a esperar quince minutos por un fallo del proveedor. El 429 de este canal
+    // es SIEMPRE de un limitador propio.
+    const r = await respuestaConUpstream(429);
+
+    expect(r.status, 'un 429 upstream jamás se repite tal cual').not.toBe(429);
+    expect(r.status).toBe(503);
+    expect(r.body.codigo).toBe('runt_no_disponible');
+  });
+
+  it.each([500, 503, 418, 404])(
+    '**y con %i pasa EXACTAMENTE lo mismo: el status upstream no se ramifica en ningún punto**',
+    async (status) => {
+      // La mitad que convierte la afirmación del AC6 en estructural y no en una coincidencia. Que el
+      // 429 salga como 503 no probaría nada por sí solo si hubiera una rama por status en alguna
+      // parte: bastaría con que alguien la añadiera para OTRO código y el caso de arriba seguiría
+      // verde. Aquí se afirma la ausencia de ramificación — cuatro códigos distintos, incluidos dos
+      // que ni siquiera son errores de servicio, con el MISMO desenlace y con el MISMO cuerpo bueno
+      // que en 200 daba 200.
+      const r = await respuestaConUpstream(status);
+
+      expect(r.status, `el upstream ${status} no puede cambiar el desenlace`).toBe(503);
+      expect(r.body.codigo).toBe('runt_no_disponible');
+    },
+  );
 });
 
 // ═══════════ ADR-0012 — el HMAC del VIN (y de la placa) en `motivo` ══════════
