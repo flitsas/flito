@@ -296,15 +296,58 @@ describe.skipIf(!URL_BASE)('0179 — contra la base real (seed, backfill e idemp
     expect(error?.code).toBe('23514');
   });
 
+  // ── El paso 0: la ventana del token viejo ──────────────────────────────────────────────────────
+  //
+  // Se simula la PRIMERA aplicacion tirando las tres tablas dentro de la transaccion que revierte:
+  // el paso 0 se condiciona a `to_regclass('permisos_funciones') IS NULL`, asi que sobre la base ya
+  // migrada NO corre —y ese es justo el otro caso, el de la idempotencia—. Sin tirarlas, este caso
+  // pasaria en verde sin ejecutar ni una vez la linea que dice comprobar.
+  it('AC4 — la primera aplicacion invalida la sesion de los `admin`, que se quedarian con 2 de 43', async () => {
+    const { antes, admins, otros } = await enTx(async (tx) => {
+      await tx`UPDATE users SET session_invalidated_at = NULL`;
+      const a = (await tx`SELECT count(*)::int AS n FROM users WHERE session_invalidated_at IS NOT NULL`)[0].n;
+      await tx`DROP TABLE IF EXISTS permisos_usuario_funcion, permisos_rol_funcion, permisos_funciones CASCADE`;
+      await tx.unsafe(SQL_0179);
+      return {
+        antes: a,
+        admins: (await tx`SELECT count(*)::int AS n FROM users
+                           WHERE role = 'admin' AND session_invalidated_at IS NULL`)[0].n,
+        otros: (await tx`SELECT count(*)::int AS n FROM users
+                          WHERE role <> 'admin' AND session_invalidated_at IS NOT NULL`)[0].n,
+      };
+    });
+
+    expect(antes).toBe(0);                 // se partio de cero marcas: el bump es de esta migracion
+    expect(admins).toBe(0);                // ni un admin se queda sin invalidar
+    // Y NADIE mas: los once roles no-admin resuelven igual con su token viejo, porque
+    // `paginasPorDefecto` les devuelve sus defaults compilados. Bumpearlos seria cerrar la sesion de
+    // todo el sistema para arreglar algo que a ninguno le pasa.
+    expect(otros).toBe(0);
+  }, 60_000);
+
+  it('el UPDATE del paso 0 esta acotado a `admin` tambien en el texto del SQL', async () => {
+    // El caso de arriba prueba el EFECTO sobre esta base, donde hay 2 admin y 8 no-admin. Este ata el
+    // PREDICADO: si manana la base de pruebas no tuviera un no-admin, aquel caso pasaria con el
+    // `WHERE` podado y nadie lo notaria.
+    expect(SIN_COMENTARIOS)
+      .toMatch(/UPDATE users SET session_invalidated_at = now\(\) WHERE role = 'admin'/);
+    expect((SIN_COMENTARIOS.match(/UPDATE\s+users/gi) ?? [])).toHaveLength(1);
+  });
+
   it('idempotencia fuerte: aplicar el archivo por segunda vez no cambia ni una fila (AC1)', async () => {
     // Se aplica el SQL NUEVO sobre la base ya migrada, dentro de una transacción que revierte. No se
     // reconstruye la cadena entera con un CREATE DATABASE: eso probaría otra cosa y tardaría minutos.
     const { antes, despues } = await enTx(async (tx) => {
+      // `users` entra en la huella, y no es cosmetica: el paso 0 escribe en esa tabla y la version
+      // anterior de este caso solo miraba las tres de permisos, asi que un `UPDATE ... now()`
+      // incondicional habria pasado en verde rompiendo la promesa del AC1. Se incluye
+      // `session_invalidated_at` COLUMNA A COLUMNA por eso mismo.
       const huella = async () => (await tx`
         SELECT
           (SELECT md5(string_agg(codigo||modulo||nombre_negocio||descripcion||tipo||activo::text, ',' ORDER BY codigo)) FROM permisos_funciones) AS f,
           (SELECT md5(string_agg(rol_codigo||funcion_codigo, ',' ORDER BY rol_codigo, funcion_codigo)) FROM permisos_rol_funcion) AS rf,
-          (SELECT md5(string_agg(user_id::text||funcion_codigo||efecto, ',' ORDER BY user_id, funcion_codigo)) FROM permisos_usuario_funcion) AS uf
+          (SELECT md5(string_agg(user_id::text||funcion_codigo||efecto, ',' ORDER BY user_id, funcion_codigo)) FROM permisos_usuario_funcion) AS uf,
+          (SELECT md5(string_agg(id::text||role||coalesce(session_invalidated_at::text,'-'), ',' ORDER BY id)) FROM users) AS u
       `)[0];
       const a = await huella();
       await tx.unsafe(SQL_0179);

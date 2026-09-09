@@ -15,13 +15,64 @@
 --     El unico bloque DO va con dollar-quoting ETIQUETADO, y su etiqueta NO se cita con sus dolares
 --     en ningun comentario: el escaner corre ANTES de quitar comentarios y emparejaria mal. Le costo
 --     un exit 2 a la 0178.
---   · Idempotente en sentido fuerte (AC1): la segunda pasada no cambia ni una fila. De ahi el
---     `IF NOT EXISTS` de las tablas y el `ON CONFLICT DO NOTHING` de las tres siembras. NO se usa
---     `DO UPDATE` en ninguna: moveria filas en la segunda pasada y romperia el AC1.
+--   · Idempotente en sentido fuerte (AC1): la segunda pasada no cambia ni una fila, y eso incluye
+--     `users` y no solo las tres tablas de permisos. De ahi el `IF NOT EXISTS` de las tablas y el
+--     `ON CONFLICT DO NOTHING` de las tres siembras. NO se usa `DO UPDATE` en ninguna: moveria filas
+--     en la segunda pasada y romperia el AC1. El unico UPDATE del archivo es el del paso 0, y va
+--     condicionado a que sea la PRIMERA aplicacion — ver alli por que no basta con `now()` a secas.
 --   · El SEED NO SE TECLEA (AC4). Sale de `npm run permisos:seed -w apps/api`, que lo construye
 --     leyendo PAGES/PAGE_GROUPS/ROLE_DEFAULT_PAGES y las guardas `requireRole` del propio codigo
 --     (apps/api/src/modules/permisos/). Volver a correrlo reproduce byte por byte el bloque de abajo;
 --     si diverge, es que el codigo y el seed se separaron.
+
+-- ── Paso 0 — Cerrar las sesiones de `admin` que se quedarian a medias ───────────────────────────
+--
+-- ESTE PASO VA PRIMERO, y el orden importa por dos motivos distintos: uno de correccion (abajo) y
+-- uno de idempotencia (`to_regclass`, mas abajo todavia).
+--
+-- El problema, medido el 9/09/2026 y no deducido:
+--   · `authMiddleware` arma `req.user.allowedPages` desde el PAYLOAD DEL JWT (shared/middleware/
+--     auth.ts:161-165), nunca de la base.
+--   · `requirePage` resuelve con `getEffectivePages(req.user)` (shared/permissions.ts:29), que desde
+--     esta HU YA NO tiene el comodin de `admin`.
+--   · El token dura 24 h (auth.routes.ts) y hay 47 rutas con `requirePage`.
+--   · Los dos `admin` de la base local suman 4 slugs en `allowed_pages` — la columna cruda.
+-- Juntando las cuatro: un administrador con sesion viva en el momento del despliegue sigue con un
+-- token cuyo `allowedPages` es la columna cruda, y sin el comodin eso son 2 paginas de 43. El `/me`
+-- si le devuelve la lista resuelta, asi que veria el MENU ENTERO y recibiria 403 en casi todo. Ese
+-- sintoma —la pantalla dice que si y el servidor dice que no— es el mas caro de diagnosticar que hay.
+-- Falla cerrado, si; pero le entrega el producto roto a quien tiene que validar la HU.
+--
+-- La cura es la que ya usa `PATCH /users`: bumpear `session_invalidated_at`. `authMiddleware` rechaza
+-- con 401 todo token cuyo `iat` sea <= esa marca (auth.ts:155-158) y el usuario vuelve a entrar con
+-- un token resuelto. Las dos cachés de la marca son de 60 s (auth.ts:83-84), asi que el efecto tarda
+-- a lo sumo un minuto en propagarse.
+--
+-- SOLO `admin`, y es una decision, no una omision. Los otros once roles NO estan afectados:
+-- `paginasPorDefecto` les sigue devolviendo sus defaults COMPILADOS, asi que su token viejo resuelve
+-- exactamente lo mismo antes y despues de esta HU. Medido en la base local: los seis roles no-admin
+-- tienen CERO slugs en `allowed_pages`; viven enteros de sus defaults. Bumpear a todos cerraria la
+-- sesion de cada usuario del sistema para arreglar algo que a ninguno le pasa.
+--
+-- Y por que `to_regclass` y no un `UPDATE ... now()` a secas: porque el AC1 promete que la segunda
+-- pasada no cambia NI UNA FILA, y un `now()` incondicional la romperia como afirmacion aunque el test
+-- no lo viera (su huella cubria solo las tres tablas de permisos, no `users`). Tampoco vale
+-- `GREATEST(session_invalidated_at, <literal fijo>)`: seria idempotente, pero el literal se escribe
+-- HOY y el despliegue ocurre despues, asi que todo token emitido entre una cosa y la otra sobrevive
+-- —justo los que hay que cerrar—. La condicion correcta no es sobre el VALOR sino sobre si esta es
+-- la primera aplicacion, y eso se lee sin inventar nada: si `permisos_funciones` todavia no existe,
+-- es la primera. En la segunda pasada existe, el UPDATE no corre y no se toca una sola fila.
+DO $sesiones$
+DECLARE n int;
+BEGIN
+  IF to_regclass('public.permisos_funciones') IS NULL THEN
+    UPDATE users SET session_invalidated_at = now() WHERE role = 'admin';
+    GET DIAGNOSTICS n = ROW_COUNT;
+    RAISE NOTICE '0179: % sesiones de admin invalidadas — sus tokens traen el allowed_pages crudo', n;
+  ELSE
+    RAISE NOTICE '0179: permisos_funciones ya existia — no se re-invalida ninguna sesion (2a pasada)';
+  END IF;
+END $sesiones$;
 
 -- ── Paso 1 — El catalogo de funciones (AC1) ─────────────────────────────────────────────────────
 -- `codigo` es PK textual e inmutable, igual que en `permisos_roles`: es el literal que la #12082 va

@@ -232,7 +232,16 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
 
 // ============================================================================
 // Permisos por defecto por rol — base que se UNE con allowedPages del usuario.
-// Admin tiene acceso a TODO independiente del campo allowed_pages.
+//
+// Aquí decía «Admin tiene acceso a TODO independiente del campo allowed_pages», y desde la HU #12081
+// es FALSO: esa frase describía el comodín que el AC4 retiró. `admin` ya no tiene fila en esta tabla
+// —el objeto de abajo es total sobre los otros once y volver a escribir `admin:` no compila— y sus 43
+// páginas se las da el reparto sembrado en `permisos_rol_funcion`, una a una. El acceso total pasó de
+// ser una rama del programa a ser configuración (CF-13, RN-A1, ADR-0015 §Decisión 4).
+//
+// Quien las resuelve en el servidor es `paginasEfectivasDeUsuario` (apps/api/src/shared/
+// permisos-efectivos.ts); esta tabla es lo que el navegador conoce, y el navegador ya no sabe nada
+// especial de `admin`.
 // ============================================================================
 const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> = {
   compliance: ['dashboard', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'privacy', 'pesv', 'pesv_raci', 'pesv_normativa', 'pesv_retencion'],
