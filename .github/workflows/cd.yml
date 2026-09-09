@@ -53,8 +53,8 @@ jobs:
             release)
               env_name=pdn
               gh_env=production
-              front_domain=operaciones.flitsas.online
-              api_domain=api.operaciones.flitsas.online
+              front_domain=operaciones.flitsas.com
+              api_domain=api.operaciones.flitsas.com
               image_tag=pdn
               front_port=6051; api_port=6052
               ;;
