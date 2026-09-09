@@ -513,14 +513,206 @@ describe('el log de la compuerta no lleva PII, en NINGUNA de sus dos ramas', () 
     expect(causaDeCaida('ETIMEDOUT')).toBe('timeout');
   });
 
-  it('un alta que SALE BIEN no escribe nada en el log de la compuerta', async () => {
-    // El log es para medir los desenlaces que preocupan (ADR-0010). Escribir una línea por alta
-    // correcta lo llenaría de ruido y, sobre todo, multiplicaría por N las ocasiones de fuga.
+  it('**un alta que SALE BIEN escribe UNA línea, y solo el organismo** (INVERTIDO por Bug #12179)', async () => {
+    // ── Este caso decía «no escribe nada en el log», y era cierto y era el problema ───────────────
+    //
+    // El argumento original —el log es para medir los desenlaces que preocupan, y una línea por alta
+    // correcta es ruido y ocasiones de fuga— se sostenía mientras el desenlace `ok` no tuviera nada
+    // que medir. El Bug #12179 demuestra que sí lo tiene: el «—» de «Organismo de tránsito» tiene
+    // DOS causas indistinguibles desde la UI (el RUNT no lo mandó / el canal no lo cruzó), el nombre
+    // crudo no se persiste en ninguna fila —ADR-0008 §1.6— y por eso la nota del work item («llega
+    // nulo desde Kyverum») no se pudo ni confirmar ni desmentir en su momento.
+    //
+    // Lo que NO cambia, y por eso el caso se reescribe con su nombre en vez de borrarse: la línea
+    // sigue sin poder llevar PII. Las claves se afirman EXACTAS —no `toMatchObject`— porque lo que
+    // decide si esto es una fuga es lo que NO está.
     escenario();
     await alta(await buildApp(), await auth(siguienteUsuario()));
 
-    expect(logMock.info).not.toHaveBeenCalled();
+    expect(logMock.info).toHaveBeenCalledTimes(1);
+    expect(Object.keys(ultimoLog('info')).sort()).toEqual(['desenlace', 'organismoCatalogado', 'organismoRunt']);
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok',
+      organismoRunt: 'STRIA TTOyTTE MCPAL FUNZA',
+      organismoCatalogado: true,
+    });
     expect(logMock.warn).not.toHaveBeenCalled();
+
+    // Un organismo de tránsito es una entidad pública; la placa, el VIN, el documento y el nombre
+    // del propietario viajan en el MISMO nodo del payload y ninguno puede acompañarlo.
+    const escrito = JSON.stringify(logMock.info.mock.calls);
+    for (const pii of [PLACA, VIN_RUNT, DOCUMENTO, 'JUANA', 'juana@empresa.co']) {
+      expect(escrito, `${pii} no puede acabar en el log`).not.toContain(pii);
+    }
+  });
+});
+
+// ═══════════════ Bug #12179 — el organismo que el RUNT SÍ manda ══════════════
+
+/**
+ * **El defecto: «Organismo de tránsito: —» con el RUNT respondiendo el organismo.**
+ *
+ * `resolverOrganismoCatalogo` cruzaba el nombre con `resolverCodigoOrganismoFlit`, que exige
+ * IGUALDAD EXACTA normalizada contra la redacción propia de FLIT. El RUNT redacta distinto, así que
+ * el canal escribía `organismo_codigo = NULL` y `verificacion_codigo = 'organismo_no_catalogado'`
+ * aunque el registro hubiera mandado el organismo.
+ *
+ * **Por qué ninguno de los cinco specs del canal lo vio**: todos los fixtures del camino feliz
+ * mandan `organismoTransito: 'STRIA TTOyTTE MCPAL FUNZA'`, una cadena copiada LITERAL del catálogo
+ * —la única forma que garantiza el match exacto—. De ahí que aquí no se use ni una sola cadena
+ * copiada del catálogo: con una copia, estos casos pasarían igual con el resolutor roto.
+ *
+ * El código resuelto se afirma sobre `espia.filtrosUsados()`, el valor ENLAZADO del `where` con el
+ * que se consulta `organismos_transito_config`. La fila que ese SELECT devuelve la pone el mock —que
+ * ignora el filtro—, así que afirmar sobre ella probaría el mock; el parámetro, no.
+ */
+describe('Bug #12179 — la redacción del RUNT cruza el catálogo, y cuando no cruza el alta SIGUE', () => {
+  const MEDELLIN = '05001';
+  /** La variante que el propio `organismos-transito.ts` documenta. NO es la redacción del catálogo. */
+  const COMO_LO_DICE_EL_RUNT = 'STRIA DE TTOyTTE MEDELLIN';
+  /** El negativo real: un organismo que no existe. */
+  const NO_CATALOGADO = 'STRIA TTO DE MARTE';
+
+  it('**una redacción del RUNT distinta de la del catálogo SÍ resuelve código**', async () => {
+    // El caso que reproduce el bug de QA. Con el resolutor exacto de antes esto sale `null`, el log
+    // dice `organismoCatalogado: false` y la ficha pinta «—». Es el mutante (a) del HANDOFF.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.filtrosUsados(), 'el código que salió del emparejador, no el que devolvió el mock')
+      .toContain(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionCodigo).toBeNull();
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: COMO_LO_DICE_EL_RUNT, organismoCatalogado: true,
+    });
+  });
+
+  it('**la PRECONSULTA publica el organismo resuelto: es la pantalla LITERAL del repro**', async () => {
+    // El TC que QA echó en falta. El reporte del Bug es «Organismo de tránsito: —» en la ficha
+    // «Datos del RUNT» del wizard, y esa ficha se pinta con lo que devuelve ESTE endpoint. Lo único
+    // que lo cubría era un caso preexistente cuyo fixture es la cadena copiada del catálogo — el
+    // mismo vicio que ocultó el defecto—, así que el repro no estaba cerrado en su propia pantalla.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    const r = await preconsultar(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(200);
+    expect(r.body.organismo).toEqual({ codigo: MEDELLIN, nombre: 'MEDELLIN' });
+
+    // ── Por qué se CUENTAN dos enlaces y no basta con `toContain` ────────────────────────────────
+    //
+    // El `nombre` del cuerpo NO prueba nada por sí solo: lo fabrica `keyed-db`, que ignora el
+    // `where` y devuelve la fila registrada para la tabla. Con la consulta del alias rota —su
+    // `where` apuntando a un literal constante— el cuerpo sale IDÉNTICO, la ficha volvería a pintar
+    // «—» en producción y este caso seguiría verde. `toContain(MEDELLIN)` tampoco alcanzaba: ese
+    // enlace ya lo produce la OTRA consulta, la de la comprobación de la FK en
+    // `resolverOrganismoCatalogo`, así que se satisface aunque la del alias no exista.
+    //
+    // Lo que sí es del código y el mock no puede fabricar son los valores ENLAZADOS de cada `where`.
+    // Son DOS consultas distintas y las dos tienen que preguntar por el código RESUELTO: la de la FK
+    // y la del alias. Contarlas es lo que fija que el alias se busca POR ese código y no se hereda
+    // de la fila que el mock tenga registrada.
+    expect(espia.filtrosUsados().filter((f) => f === MEDELLIN)).toHaveLength(2);
+  });
+
+  it('**`datosTecnicos` es la SEGUNDA VÍA del organismo, como para sus cinco vecinos**', async () => {
+    // El organismo era el único de los trece que se leía solo de `data.vehiculo`. El RUNT reparte
+    // los campos entre los dos nodos sin contrato estable. El mutante que mata: volver a `alias(veh, …)`.
+    const base = runtOk({ organismoTransito: null });
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ...base,
+      data: { ...(base.data as Record<string, unknown>), datosTecnicos: { organismoTransito: COMO_LO_DICE_EL_RUNT } },
+    });
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.filtrosUsados()).toContain(MEDELLIN);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBe(MEDELLIN);
+  });
+
+  it('el nodo `vehiculo` GANA cuando los dos traen organismo: la segunda vía es respaldo', async () => {
+    const base = runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT });
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue({
+      ...base,
+      data: { ...(base.data as Record<string, unknown>), datosTecnicos: { organismoTransito: 'STRIA DE TTOyTTE CALI' } },
+    });
+
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain(MEDELLIN);
+    expect(espia.filtrosUsados(), 'Cali es el respaldo, y aquí no hacía falta').not.toContain('76001');
+  });
+
+  it('**un organismo que NO existe sigue siendo `null` y NO aborta el alta** (AC5 de la HU #11966)', async () => {
+    // La otra mitad, y es la que impide que el emparejador tolerante se vuelva «lo primero que haya».
+    // El mutante que mata: devolver el primer organismo del catálogo cuando no hay coincidencia.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: NO_CATALOGADO }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status, 'el organismo NO es compuerta del alta').toBe(201);
+    expect(r.body.codigo).toBeUndefined();
+    expect(espia.insertsEn('flito_soat')).toHaveLength(1);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    expect(espia.ultimoInsertEn('flito_soat_solicitud').verificacionCodigo).toBe('organismo_no_catalogado');
+    // Ni siquiera se preguntó por la tabla: sin código del catálogo no hay nada que comprobar.
+    expect(espia.filtrosUsados()).not.toContain(ORGANISMO_FUNZA);
+    // Y el log dice CUÁL de las dos causas fue: el RUNT lo mandó, el catálogo no lo reconoce.
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: NO_CATALOGADO, organismoCatalogado: false,
+    });
+  });
+
+  it('**el RUNT sin organismo: `null` sin romper, y el log lo distingue del no catalogado**', async () => {
+    // La causa que la nota del work item daba por sentada. Con esta línea deja de ser una premisa:
+    // `organismoRunt: null` es «Kyverum no lo mandó» y solo eso.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: null }));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status).toBe(201);
+    expect(espia.ultimoInsertEn('flito_soat').organismoCodigo).toBeNull();
+    expect(ultimoLog('info')).toEqual({
+      desenlace: 'ok', organismoRunt: null, organismoCatalogado: false,
+    });
+  });
+
+  it('los dos pares ambiguos del catálogo, extremo a extremo: Floridablanca no es Florida', async () => {
+    // La ambigüedad se decide en `shared-types` y allí está el recorrido de los 119; aquí se
+    // comprueba que el canal usa ESE emparejador y no otro, con el par que más fácil se rompe.
+    const app = await buildApp();
+
+    escenario({ organismos_transito_config: [{ codigo: '68276', alias: 'FLORIDABLANCA' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA DE TTOyTTE FLORIDABLANCA' }));
+    expect((await alta(app, await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain('68276');
+    expect(espia.filtrosUsados(), 'Floridablanca no puede resolver a Florida').not.toContain('76275');
+
+    espia.reiniciar();
+    escenario({ organismos_transito_config: [{ codigo: '76275', alias: 'FLORIDA' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: 'STRIA DE TTOyTTE FLORIDA' }));
+    expect((await alta(app, await auth(siguienteUsuario()))).status).toBe(201);
+    expect(espia.filtrosUsados()).toContain('76275');
+    expect(espia.filtrosUsados()).not.toContain('68276');
+  });
+
+  it('**el nombre crudo del organismo NO se persiste en ninguna fila** (ADR-0008 §1.6 sigue en pie)', async () => {
+    // Lo que se guarda es el CÓDIGO. El nombre crudo solo va al log, que es lo que el Bug necesita
+    // para poder medir y lo que el ADR no prohíbe.
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtOk({ organismoTransito: COMO_LO_DICE_EL_RUNT }));
+
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(201);
+    expect(JSON.stringify(espia.inserts.map((m) => m.datos))).not.toContain(COMO_LO_DICE_EL_RUNT);
   });
 });
 

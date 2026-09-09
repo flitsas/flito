@@ -46,6 +46,16 @@ vi.mock('../../src/modules/runt/runt.service.js', () => ({
   consultarPersonaRunt: vi.fn(),
 }));
 
+/**
+ * El logger, espiado. Lo añade el Bug #12179: la compuerta escribe una línea por cada desenlace que
+ * RESUELVE organismo, y la renovación anticipada es uno de ellos —lleva el mismo `PayloadOk`—. Sin
+ * este mock no hay forma de afirmar la FORMA de esa línea, que es lo único que separa «se mide el
+ * organismo» de «se filtra PII en logs».
+ */
+const logMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+logMock.child.mockReturnValue(logMock);
+vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
+
 const COMPANIA = 7;
 const VEHICULO_ID = 55;
 const ORGANISMO_FUNZA = '25286';
@@ -173,6 +183,8 @@ beforeEach(() => {
   uploadMock.mockReset().mockResolvedValue('clientes/acme/soat/facturas-venta/abc.pdf');
   auditMock.mockClear();
   piiMock.mockClear();
+  logMock.info.mockClear();
+  logMock.warn.mockClear();
 });
 
 // ═══════════ El día de hoy: Colombia, no el reloj del proceso (AC4) ══════════
@@ -559,5 +571,68 @@ describe('rastro PII — el aviso de vigencia se declara en `campos_accedidos` c
     expect(r.status).toBe(409);
     const registro = piiMock.mock.calls[0][1];
     expect(registro.camposAccedidos).toEqual([]);
+  });
+});
+
+// ═══════ El log de la compuerta también cubre esta clase (Bug #12179) ════════
+
+describe('Bug #12179 — una renovación anticipada también escribe la línea del organismo', () => {
+  const MEDELLIN = '05001';
+  /** La redacción variada del RUNT. NO es la cadena del catálogo: con una copia, el caso no prueba nada. */
+  const COMO_LO_DICE_EL_RUNT = 'STRIA DE TTOyTTE MEDELLIN';
+
+  /** La respuesta del RUNT con póliza por vencer Y el organismo redactado a su manera. */
+  function runtRenovacionConOrganismo(nombreOrganismo: string | null) {
+    const base = runtVigenteHasta(aDias(10));
+    const data = base.data as { vehiculo: Record<string, unknown> };
+    return { ...base, data: { ...data, vehiculo: { ...data.vehiculo, organismoTransito: nombreOrganismo } } };
+  }
+
+  /**
+   * **El hueco que abrió el rebase, y por qué este caso vive aquí.**
+   *
+   * La línea de log del Bug #12179 se escribía bajo `desenlace.clase === 'ok'`. La HU #12212 añadió
+   * `renovacion_anticipada`, que lleva el MISMO `PayloadOk` —resuelve organismo, radica y persiste
+   * `organismo_codigo` igual que cualquier alta—, así que esa familia entera dejó de loguear sin que
+   * nada avisara: el rebase fue limpio en texto y los seis specs pasaban. La guarda pasa a apoyarse
+   * en la presencia del payload (`'organismoCodigo' in desenlace`), de modo que un sexto desenlace
+   * con el mismo payload entre solo.
+   */
+  it('**la línea se escribe con `desenlace: renovacion_anticipada`, mismas claves y sin PII**', async () => {
+    escenario({ organismos_transito_config: [{ codigo: MEDELLIN, alias: 'MEDELLIN' }] });
+    consultarVehiculoRuntMock.mockResolvedValue(runtRenovacionConOrganismo(COMO_LO_DICE_EL_RUNT));
+
+    const r = await alta(await buildApp(), await auth(siguienteUsuario()));
+
+    expect(r.status, 'la renovación anticipada SÍ crea la solicitud').toBe(201);
+    expect(logMock.info).toHaveBeenCalledTimes(1);
+
+    // Las claves EXACTAS y las mismas tres que el desenlace `ok`: lo que decide si esto es una fuga
+    // es lo que NO está. `venceEl` y `poliza` viajan en este desenlace y no pueden entrar aquí — el
+    // número de póliza es cuasi-PII y no tiene relación con lo que la línea mide.
+    const escrito = logMock.info.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(Object.keys(escrito).sort()).toEqual(['desenlace', 'organismoCatalogado', 'organismoRunt']);
+    expect(escrito).toEqual({
+      desenlace: 'renovacion_anticipada',
+      organismoRunt: COMO_LO_DICE_EL_RUNT,
+      organismoCatalogado: true,
+    });
+
+    const todo = JSON.stringify(logMock.info.mock.calls);
+    for (const pii of [PLACA, VIN_RUNT, POLIZA_RUNT, '1020304050', 'JUANA', 'juana@empresa.co']) {
+      expect(todo, `${pii} no puede acabar en el log`).not.toContain(pii);
+    }
+  });
+
+  it('y distingue las dos causas del «—» también en esta clase', async () => {
+    // La otra mitad: sin organismo del RUNT la línea sigue escribiéndose y dice CUÁL de las dos
+    // causas fue. Es lo que hace la renovación medible igual que el alta normal.
+    escenario();
+    consultarVehiculoRuntMock.mockResolvedValue(runtRenovacionConOrganismo(null));
+
+    expect((await alta(await buildApp(), await auth(siguienteUsuario()))).status).toBe(201);
+    expect(logMock.info.mock.calls.at(-1)?.[0]).toEqual({
+      desenlace: 'renovacion_anticipada', organismoRunt: null, organismoCatalogado: false,
+    });
   });
 });
