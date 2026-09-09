@@ -9,6 +9,25 @@
 // ============================================================================
 // Roles del sistema
 // ============================================================================
+// ── LA FRONTERA (HU #12169) ──────────────────────────────────────────────────
+// El código de SISTEMA se tipa con `UserRole`; los roles que crea el administrador
+// son DATO y se leen de `permisos_roles`, nunca de un tipo.
+//
+// Desde la migración 0178 esta tupla YA NO es la fuente de verdad de qué roles
+// existen: eso es la tabla `permisos_roles`, y `users.role` es un varchar con FK a
+// ella. Lo que esta tupla sigue siendo —y por eso no se toca— es la lista de los
+// doce códigos que el CÓDIGO conoce por su nombre, y la que da exhaustividad en
+// compilación a los tres `Record<UserRole, …>` (ROLE_LABELS, ROLE_DEFAULT_PAGES y
+// ROLES_POR_ACCION de siigo-permisos.ts).
+//
+// Añadir aquí un rol nuevo NO lo crea: crearlo es insertar una fila (CF-03). Esta
+// tupla solo crece cuando el código va a tratar ese rol por su nombre, y entonces
+// hay que sembrar también su fila en `permisos_roles`.
+//
+// Para leer el rol de UN USUARIO usa `RoleCode`, no `UserRole`: puede ser un código
+// que el administrador acaba de crear y que no tiene entrada en ninguna tabla de
+// este archivo.
+//
 // Tupla canónica. UserRole y ALL_ROLES se derivan de aquí para que no puedan
 // desincronizarse (antes vivían en 3 sitios con conteos distintos: 8/7/4).
 export const USER_ROLES = [
@@ -40,6 +59,20 @@ export const USER_ROLES = [
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
+
+/**
+ * El rol de un usuario TAL COMO VIAJA: el código de una fila de `permisos_roles` (HU #12169).
+ *
+ * Los doce de sistema (`UserRole`) siguen en el autocompletado; cualquier otro código es un rol que
+ * creó el administrador y NO tiene entrada en ninguna tabla de este archivo. Un `Record<UserRole,…>`
+ * NO se puede indexar con esto: usa `paginasPorDefecto()`.
+ *
+ * Honestidad sobre lo que este tipo NO da: `string & {}` mantiene el autocompletado sin cerrar el
+ * tipo, pero no protege contra un literal mal escrito — `role === 'admn'` compila. Esa protección se
+ * pierde con el catálogo editable y la recuperan la FK `users_role_fkey` (un código inventado no
+ * entra en la base) y la validación contra el catálogo de `users.routes.ts` (ADR-0015 §Decisión 4).
+ */
+export type RoleCode = UserRole | (string & {});
 
 // Roles asignables al crear/editar un usuario. Hoy = todos los roles del sistema
 // (incluye `auditor`, que antes faltaba y volvía el rol inasignable por el producto).
@@ -279,12 +312,31 @@ export function isValidPage(slug: string): slug is PageSlug {
 }
 
 /**
+ * Páginas por defecto del rol (HU #12169). Un rol que creó el administrador no tiene fila en
+ * `ROLE_DEFAULT_PAGES`, y entonces son `[]`: sus páginas serán exactamente sus `allowedPages`, ni una
+ * más. El fallo por defecto es «no ve nada» —la misma dirección que el `return null` de
+ * `contextoSoat()` (ADR-0008 §3)—: un rol nuevo nace sin pantallas y el admin le concede, nunca al revés.
+ *
+ * Encapsula la indexación porque `ROLE_DEFAULT_PAGES` es total sobre `UserRole` y un `RoleCode` no es
+ * indexable con seguridad: el `?? []` de aquí era código muerto hasta esta HU y ahora hace su trabajo.
+ */
+export function paginasPorDefecto(role: RoleCode): readonly PageSlug[] {
+  return (ROLE_DEFAULT_PAGES as Record<string, readonly PageSlug[] | undefined>)[role] ?? [];
+}
+
+/**
  * Combina los defaults del rol con las páginas personalizadas del usuario.
  * Admin siempre obtiene TODO. Otros roles: union(rol_defaults, user.allowedPages válidas).
+ *
+ * `role` es `RoleCode` desde la HU #12169: puede ser un rol creado por el administrador, que aporta
+ * `[]` de defaults. NOTA DE ALCANCE: el atajo `role === 'admin'` y la fila `admin` de
+ * `ROLE_DEFAULT_PAGES` se conservan. El ADR-0015 §Decisión 4 los retira, pero solo puede hacerlo
+ * cuando la #12081 haya sembrado las marcas de `admin`; retirarlos antes deja al administrador con
+ * cero páginas. Ese cambio pertenece a la #12081, no a esta HU (cuyo AC5 no lo pide).
  */
-export function getEffectivePages(user: { role: UserRole; allowedPages?: string[] | null }): PageSlug[] {
+export function getEffectivePages(user: { role: RoleCode; allowedPages?: string[] | null }): PageSlug[] {
   if (user.role === 'admin') return Object.keys(PAGES) as PageSlug[];
-  const fromRole = ROLE_DEFAULT_PAGES[user.role] ?? [];
+  const fromRole = paginasPorDefecto(user.role);
   const fromUser = (user.allowedPages ?? []).filter(isValidPage);
   return Array.from(new Set([...fromRole, ...fromUser]));
 }

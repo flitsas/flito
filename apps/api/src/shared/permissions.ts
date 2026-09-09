@@ -12,6 +12,9 @@ export {
   PESV_ADMIN_ROLES,
   FLEET_OPS_ROLES,
   getEffectivePages,
+  // HU #12169: la lectura de los defaults de UN rol, que ya no se puede indexar a mano porque el rol
+  // puede ser uno que creó el administrador y no tiene fila.
+  paginasPorDefecto,
   isValidPage,
 } from '@operaciones/shared-types';
 export type { PageSlug } from '@operaciones/shared-types';

@@ -63,6 +63,23 @@ vi.mock('../../src/shared/middleware/auth.js', async (importOriginal) => {
   return { ...actual, invalidateSessionCacheFor: (id: number) => invalidarCacheMock(id) };
 });
 
+/**
+ * HU #12169 (AC6) — `rolAsignable()` pregunta a la tabla `permisos_roles`, y esa consulta NO puede
+ * entrar en la cola posicional de `selectMock`: cada `mockReturnValueOnce` de este archivo está
+ * casado con una consulta concreta del handler, y meter una más al principio del alta desplazaría la
+ * cola de la veintena larga de casos que ya existen. Se envuelve el SERVICIO —no se sustituye— con
+ * `importOriginal`, igual que arriba con `auth`: `crearUsuario`, `actualizarUsuario` y las lecturas
+ * de organismos siguen siendo las de verdad, que es lo que estos tests prueban.
+ *
+ * La consulta REAL de `rolAsignable` (qué tabla, con qué condición, y el `activo = true`) se vigila
+ * aparte, en `users.rol-asignable.test.ts`. Un mock aquí no podría probarla: probaría el mock.
+ */
+const rolAsignableMock = vi.fn();
+vi.mock('../../src/modules/users/users.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/modules/users/users.service.js')>();
+  return { ...actual, rolAsignable: (codigo: string) => rolAsignableMock(codigo) };
+});
+
 // ── Mocks que RESPETAN la proyección ─────────────────────────────────────────────────────────────
 //
 // El `chain` de los helpers devuelve la fila ENTERA aunque el `select`/`returning` pidiera menos, así
@@ -129,6 +146,9 @@ beforeEach(() => {
   argonHashMock.mockReset().mockResolvedValue('HASHED');
   argonVerifyMock.mockReset();
   auditMock.mockClear();
+  // Por defecto, el rol del cuerpo existe y está activo: es el caso de los ~25 tests que ya había y
+  // que no van de esto. Los casos del AC6 lo sobrescriben con `mockResolvedValueOnce(null)`.
+  rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'ninguno' });
 });
 
 async function buildApp() {
@@ -1010,5 +1030,98 @@ describe('GET /api/users — el listado trae las DOS ataduras (AC5)', () => {
     expect(r.status).toBe(200);
     // Devolver `[]` aquí haría que el front vaciara la celda «Ámbito» con solo desactivar al gestor.
     expect(r.body.organismosCodigos).toEqual([ORG_A, ORG_B]);
+  });
+});
+
+// ───────── HU #12169 (AC6): el rol se valida contra el CATÁLOGO, no contra la constante ─────────
+//
+// Lo que cambia y por qué importa: hasta esta HU el rol se validaba con `z.enum(ALL_ROLES)`, una
+// constante COMPILADA. Con ella, un rol que el administrador acaba de crear era inasignable hasta la
+// siguiente publicación — CF-03 imposible. Ahora la forma la mira Zod y la PERTENENCIA se le pregunta
+// a `permisos_roles`.
+//
+// **Mutante nombrado del AC7:** quitar la llamada a `rolAsignable` del `POST` deja en rojo
+// «rol inexistente → 400» (pasaría a 201 sobre el mock, y en base sería un 23503 servido como 500).
+describe('POST /api/users — el rol se pregunta al catálogo (HU #12169, AC6)', () => {
+  const BODY = {
+    username: 'rol_nuevo_user', name: 'Usuario de rol nuevo', email: 'rn@x.com',
+    password: STRONG_PWD, role: 'consulta_cliente', allowedPages: [],
+  };
+
+  it('rol inexistente en el catálogo → 400 con mensaje, y no se escribe NADA', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue(null);
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send(BODY);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El rol no existe o está inactivo');
+    expect(insertMock).not.toHaveBeenCalled();
+    // Y ni siquiera se consultó el username: el rol se mira ANTES que nada.
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
+  it('rol que existe pero está INACTIVO → 400: `activo` gobierna la asignación', async () => {
+    // `rolAsignable` ya exige `activo` en su consulta (ver users.rol-asignable.test.ts): un rol
+    // desactivado le sale como `null` igual que uno inexistente, y el handler responde lo mismo.
+    rolAsignableMock.mockReset().mockResolvedValue(null);
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, role: 'mensajero' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El rol no existe o está inactivo');
+  });
+
+  it('CF-03: un rol RECIÉN CREADO por el administrador se asigna de inmediato → 201', async () => {
+    // Este es el caso que `z.enum(ALL_ROLES)` hacía imposible: `consulta_cliente` no está en
+    // USER_ROLES y no lo estará nunca; es una fila del catálogo.
+    rolAsignableMock.mockReset().mockResolvedValue({ tipoEnlace: 'ninguno' });
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send(BODY);
+
+    expect(r.status).toBe(201);
+    expect(rolAsignableMock).toHaveBeenCalledWith('consulta_cliente');
+    expect(r.body.role).toBe('consulta_cliente');
+    const [escrito] = filasDe('users');
+    expect((escrito.valores as { role: string }).role).toBe('consulta_cliente');
+  });
+
+  it('la FORMA sigue siendo cosa de Zod: un código con mayúsculas o espacios ni llega al catálogo', async () => {
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, role: 'Consulta Cliente' });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Datos inválidos');
+    expect(rolAsignableMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /api/users/:id — el rol se pregunta al catálogo (HU #12169, AC6)', () => {
+  it('cambiar a un rol inexistente → 400 y no se actualiza nada', async () => {
+    rolAsignableMock.mockReset().mockResolvedValue(null);
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }])); // el usuario
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5')
+      .set('Authorization', `Bearer ${token}`).send({ role: 'rol_inventado' });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('El rol no existe o está inactivo');
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('editar SIN tocar el rol no consulta el catálogo: un rol desactivado después no bloquea la edición', async () => {
+    // Es la regla del AC6 leída al derecho: `activo` gobierna la ASIGNACIÓN, no la autenticación ni
+    // la edición. Si esto consultara siempre, cambiarle el nombre a un usuario cuyo rol se desactivó
+    // fallaría con un mensaje sobre un campo que el administrador no tocó.
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'mensajero', active: true }]));
+    selectMock.mockReturnValueOnce(chain([])); // organismos previos
+    updateMock.mockReturnValueOnce(updateProyectado({ id: 5, role: 'mensajero' }, () => {}));
+    selectMock.mockReturnValueOnce(chain([])); // organismos finales
+
+    const token = await testToken({ sub: 1, role: 'admin' });
+    const r = await request(await buildApp()).patch('/api/users/5')
+      .set('Authorization', `Bearer ${token}`).send({ name: 'Nombre nuevo' });
+
+    expect(r.status).toBe(200);
+    expect(rolAsignableMock).not.toHaveBeenCalled();
   });
 });
