@@ -1,7 +1,7 @@
 # Diseño — HU #12169: el modelo de datos de roles, de enum de Postgres a catálogo editable
 
 **Feature** [#12072](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12072) · **HU** [#12169](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12169) (8 SP, Iteration 3)
-**ADR**: [ADR-0015](./adr/ADR-0015-roles-como-catalogo-editable.md) — **Propuesto**, pendiente del Líder Técnico. No lo aprueba ningún agente.
+**ADR**: [ADR-0015](./adr/ADR-0015-roles-como-catalogo-editable.md) — **Aprobado** el 2026-09-09 por David Chica, con dos decisiones de producto que este diseño ya incorpora: solo `admin` es rol de sistema (§Decisión 5) y el atajo de `admin` en `getEffectivePages` se retira (§Decisión 4).
 **Oleada 0 del Feature**: sin esta HU, CF-03 (crear un rol) y CF-05 (borrar un rol) no son difíciles, son **imposibles**. La #12081 (0179) y la #12086 (0180) dependen de la tabla que crea esta.
 **Migración**: `0178_permisos_roles_modelo.sql`. La escribe `backend-agent`; este documento no crea migraciones.
 
@@ -136,19 +136,21 @@ Los dos `DEFAULT` no están en el AC1 y se añaden a propósito: el `INSERT` de 
 ```sql
 INSERT INTO permisos_roles (codigo, nombre, tipo_enlace, tipo_principal, es_sistema) VALUES
   ('admin',            'Administrador',            'ninguno',             'interno', true),
-  ('proveedor',        'Proveedor',                'proveedor_soat',      'interno', true),
-  ('transito',         'Tránsito',                 'organismos_transito', 'interno', true),
-  ('compliance',       'Cumplimiento (LAFT)',      'ninguno',             'interno', true),
-  ('lider_pesv',       'Líder PESV',               'ninguno',             'interno', true),
-  ('supervisor_flota', 'Supervisor de flota',      'ninguno',             'interno', true),
-  ('conductor',        'Conductor',                'ninguno',             'interno', true),
-  ('auditor',          'Auditor (revisor fiscal)', 'ninguno',             'interno', true),
-  ('gestor_impuestos', 'Gestor de Impuestos',      'organismos_transito', 'interno', true),
-  ('mensajero',        'Mensajero',                'ninguno',             'interno', true),
-  ('financiera',       'Financiera',               'ninguno',             'interno', true),
+  ('proveedor',        'Proveedor',                'proveedor_soat',      'interno', false),
+  ('transito',         'Tránsito',                 'organismos_transito', 'interno', false),
+  ('compliance',       'Cumplimiento (LAFT)',      'ninguno',             'interno', false),
+  ('lider_pesv',       'Líder PESV',               'ninguno',             'interno', false),
+  ('supervisor_flota', 'Supervisor de flota',      'ninguno',             'interno', false),
+  ('conductor',        'Conductor',                'ninguno',             'interno', false),
+  ('auditor',          'Auditor (revisor fiscal)', 'ninguno',             'interno', false),
+  ('gestor_impuestos', 'Gestor de Impuestos',      'organismos_transito', 'interno', false),
+  ('mensajero',        'Mensajero',                'ninguno',             'interno', false),
+  ('financiera',       'Financiera',               'ninguno',             'interno', false),
   ('cliente',          'Cliente',                  'compania',            'externo', true)
 ON CONFLICT (codigo) DO NOTHING;
 ```
+
+- **`es_sistema` va en `true` en DOS filas, no en las doce** — decisión de producto del 9/09/2026, recogida en la **Decisión 5 del ADR-0015**: de los doce roles actuales solo `admin` es de sistema. `cliente` lleva el candado **temporalmente**, porque la frontera del canal externo todavía se dispara por su literal (`canal-cliente.ts:54`); la **#12082 AC8** la traslada a `tipo_principal` y, con ella, `cliente` pasa a `false`. Los otros diez nacen borrables: lo único que los protege es tener usuarios (`ON DELETE RESTRICT` → `23503`).
 
 - Los 12 `nombre` son **literalmente** `ROLE_LABELS` (`permissions.ts:49-63`), tildes incluidas. Si divergen, la pantalla mostrará dos etiquetas distintas para el mismo rol según de dónde las lea.
 - `ON CONFLICT DO NOTHING`, **no** `DO UPDATE`: con `DO UPDATE` la segunda pasada movería `updated_at` en 12 filas y el AC1 («no cambia ni una fila») quedaría incumplido por la propia migración.
@@ -268,7 +270,9 @@ export const permisosRoles = pgTable('permisos_roles', {
   // 'interno' | 'externo'. La frontera del canal Cliente deja de colgar del nombre del rol.
   // Esta HU lo PERSISTE; quien lo consume es el motor de la #12082/#12083.
   tipoPrincipal: varchar('tipo_principal', { length: 10 }).notNull().default('interno'),
-  // Marca de origen, NO un candado: el AC3 y CF-04 dicen que los 12 se editan y se borran igual.
+  // Candado de borrado (ADR-0015 §Decisión 5): true => el rol NO se borra y la API lo expone como
+  // `borrable: false` con su motivo. Solo `admin` (permanente) y `cliente` (temporal, hasta la
+  // #12082 AC8). Editar nombre/descripción/matriz sigue permitido en los doce, según CF-04.
   esSistema: boolean('es_sistema').notNull().default(false),
   activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -455,7 +459,13 @@ export function paginasPorDefecto(role: RoleCode): readonly PageSlug[] {
 
 Efecto lateral bueno y medido: `apps/web/src/lib/permissions.ts:29` hace hoy un cast a `{ role: UserRole }` sobre un objeto cuyo `role` ya es `string`. Con la firma ensanchada **ese cast se borra**. Un cast menos, no uno más.
 
-`user.role === 'admin'` dentro de `getEffectivePages` (`:284`) se queda: `admin` es un código de sistema y comparar contra un literal de `UserRole` sigue siendo correcto. Que un rol creado desde el panel no pueda obtener «todas las páginas» por llamarse de otra forma es lo que RN-A1 pide (el acceso total es configuración, se marca).
+`user.role === 'admin'` dentro de `getEffectivePages` **se retira** — corregido el 9/09/2026 por decisión de producto, ADR-0015 §Decisión 4. La versión anterior de este diseño lo conservaba, y con él **CF-13 no se puede cumplir**: el cuadro del rol Administrador o queda de solo lectura, que es lo que CF-13 prohíbe, o queda editable y miente. `admin` pasa a obtener sus páginas y funciones porque están **marcadas**, sembradas por el backfill de la #12081, igual que cualquier otro rol. Lo que se gana es que RN-A1 valga también para `admin`: el acceso total es configuración y se marca, sin excepciones cableadas. Lo que se paga es que la invariante anti-bloqueo de la **#12084 AC4** deja de ser una red de seguridad y pasa a ser obligatoria.
+
+**Y son dos atajos, no uno.** El `if` vive en `permissions.ts:286`, pero `ROLE_DEFAULT_PAGES` vuelve a regalarlo todo en su primera entrada: `admin: Object.keys(PAGES) as PageSlug[]` (`:205`). Retirar solo el `if` no cambiaría nada. Se retiran los dos y `admin` queda con lo que le siembre el backfill de la #12081.
+
+*Efecto en CF-16:* ninguno el día del cambio. Los dos caminos devuelven hoy exactamente el mismo conjunto, así que retirar el `if` es neutro en comportamiento y la paridad no depende de que el backfill acierte a la primera.
+
+*Referencias corregidas, medidas con `awk NR` el 9/09/2026:* atajo en la `:286` (este diseño decía `:284`), `?? []` en la `:287` (el ADR-0015 decía `:285`).
 
 ### 4.5 `z.enum(ALL_ROLES)` — la respuesta del AC6
 

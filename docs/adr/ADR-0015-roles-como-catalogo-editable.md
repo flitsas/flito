@@ -2,7 +2,12 @@
 
 ## Estado
 
-**Propuesto** — HU [#12169](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12169) (Feature [#12072](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12072)). **Pendiente de aprobación del Líder Técnico**: no lo aprueba ningún agente.
+**Aprobado** — 2026-09-09. Aprobador: **David Chica**. HU [#12169](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12169) (Feature [#12072](https://dev.azure.com/FlitDevOps/FLIT%20-%20FLITO/_workitems/edit/12072)).
+
+La aprobación llegó con **dos decisiones de producto** que este documento incorpora y que **cambian lo que la versión propuesta decía**:
+
+1. **De los doce roles actuales, solo `admin` es de sistema**; los otros once son borrables. `es_sistema` deja de ser una marca de origen y pasa a ser un candado — nueva **Decisión 5**.
+2. **Se retira el atajo `role === 'admin'`** de `getEffectivePages`, para que CF-13 se cumpla de verdad — corrección dentro de la **Decisión 4**.
 
 **Diseño detallado**: [`docs/diseno-hu-12169-roles-catalogo-editable.md`](../diseno-hu-12169-roles-catalogo-editable.md) — DDL, trigger, frontera de tipos y lista de archivos.
 
@@ -164,7 +169,28 @@ Lo que esto **cuesta**, dicho sin adornos: `req.user.role === 'admn'` deja de se
 
 Para `ROLE_DEFAULT_PAGES` la respuesta ya estaba escrita en el repo: `getEffectivePages` tiene un `?? []` (`permissions.ts:285`) que hoy es código muerto porque el `Record` es total. Con roles como dato **empieza a trabajar**, y un rol nuevo obtiene exactamente sus `allowedPages` y nada más. **El fallo por defecto es «no ve nada»** — la misma dirección que el `return null` de `contextoSoat()` (ADR-0008 §3) y que `rolesDe()` en `siigo-permisos.ts:88`. Un rol nace sin pantallas y el administrador le concede; nunca al revés.
 
+**Corrección del 9/09/2026 — el atajo de `admin` se retira (decisión de producto).** La versión propuesta de este ADR conservaba, por omisión, el `if (user.role === 'admin') return Object.keys(PAGES)` de `permissions.ts:286`. Con ese atajo en pie, **CF-13 no se puede cumplir**: el cuadro del rol Administrador o es de solo lectura —lo que CF-13 prohíbe— o es editable y **miente**, porque desmarcar no haría nada. Se retira. `admin` obtiene sus 68 funciones porque están **marcadas** en `permisos_rol_funcion`, que es lo que le siembra el backfill de la #12081, y su cuadro se edita como el de cualquier otro rol.
+
+Esto **hace exigible**, no recomendable, la invariante anti-bloqueo de la #12084 AC4: sin el atajo, `admin` deja de tener ningún privilegio cableado en el código, y el primer desmarcado accidental dejaría FLITO sin nadie capaz de administrar. La invariante se evalúa dentro de la transacción con `SELECT … FOR UPDATE` y cubre las cinco operaciones de CF-12.
+
+**Son DOS atajos, no uno — medido el 9/09/2026 y no dicho por ninguno de los tres documentos.** Además del `if` de la `:286`, la propia tabla lo regala: `ROLE_DEFAULT_PAGES` abre con `admin: Object.keys(PAGES) as PageSlug[]` (`permissions.ts:205`). Retirar solo el `if` **no cambia nada**, porque la línea siguiente vuelve a darle todo por la tabla. Hay que retirar los dos, y el reparto de `admin` pasa a ser lo que le siembre el backfill de la #12081.
+
+Y de ahí sale una **buena noticia para CF-16**: como hoy los dos caminos dan lo mismo —el `if` y la entrada de la tabla devuelven ambos `Object.keys(PAGES)`—, retirar el `if` es **neutro en comportamiento**. Nadie gana ni pierde una pantalla el día del cambio, y la paridad se sostiene sin depender de que el backfill acierte a la primera.
+
+*Nota de precisión sobre las referencias:* el atajo está en la `:286` —como decía la ficha UX de la #12085, que era la única de los tres documentos que lo tenía bien—; el `?? []` que este ADR citaba en la `:285` está en la **:287**, y el diseño de la #12169 lo citaba en la `:284`. Medido con `awk NR` sobre `develop` el 9/09/2026.
+
 Y para `z.enum(ALL_ROLES)`, el precedente también estaba escrito: **la forma en Zod, la existencia en el handler**, exactamente como `companiaExiste()` y `proveedorSoatExiste()`. Zod comprueba que el código tiene forma de código; `rolAsignable()` pregunta al catálogo y responde 400 si no existe o está inactivo. La FK es la tercera capa, por si alguna vez se llega hasta ella.
+
+### Decisión 5 — Roles de sistema: solo `admin`, y `es_sistema` pasa a ser un candado
+
+Decisión de producto del 9/09/2026: **de los doce roles actuales solo `admin` es de sistema**; los otros once se borran como cualquier otro. Eso cambia la semántica de la columna. `es_sistema` deja de ser «marca de origen, **NO** un candado» —como lo escribía el diseño de la #12169— y pasa a ser **exactamente un candado**: si es `true`, el rol no se borra, y la API lo expone como `borrable: false` con su `motivoNoBorrable` para que la pantalla explique el porqué en vez de enseñar un botón apagado.
+
+El backfill del §Paso 2 del diseño lo refleja: `es_sistema = true` en **dos** filas, no en las doce.
+
+- **`admin` — candado permanente.** 276 guardas `requireRole('admin')` cuelgan de ese código y, retirado el atajo por la Decisión 4, es además el único camino a la administración. Borrarlo deja FLITO sin nadie que administre.
+- **`cliente` — candado temporal, con su fecha de caducidad escrita.** Hoy la frontera del canal externo se dispara por el literal `'cliente'` (`canal-cliente.ts:54`, `soportes-consulta.ts:198`): borrar el rol abriría la superficie interna al usuario de compañía. La **#12082 AC8** traslada esa frontera a `tipo_principal`; el día que aterrice, este candado pierde su motivo y `cliente` pasa a `es_sistema = false`. **Retirarlo es un AC de la #12082**, no una tarea suelta que dependa de que alguien se acuerde.
+
+Los otros diez quedan en `false`. Lo único que impide borrarlos es tener usuarios (`ON DELETE RESTRICT` → `23503`), que es justo lo que RN-A8 pide. Borrar uno que tenga guardas cableadas —`lider_pesv`, con 51— las deja negando a todo el mundo, y conviene decir que **es reversible**: como la PK es el código textual (Decisión 1), volver a crear el rol con el mismo código restaura esas guardas sin migración ni despliegue. Esa reversibilidad barata es la que hace asumible la decisión.
 
 ---
 
