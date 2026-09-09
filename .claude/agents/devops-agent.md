@@ -45,7 +45,7 @@ Smoke/synthetic de **PDN** siguen requiriendo autorización humana explícita (`
 |---|---|---|---|---|
 | `develop` | dev | dev.operaciones.flitsas.online | api.dev.operaciones.flitsas.online | 4051 / 4052 |
 | `staging` | qa | qa.operaciones.flitsas.online | api.qa.operaciones.flitsas.online | 5051 / 5052 |
-| `release` | pdn | operaciones.flitsas.online | api.operaciones.flitsas.online | 6051 / 6052 |
+| `release` | pdn | operaciones.flitsas.com | api.operaciones.flitsas.com | 6051 / 6052 |
 
 Hechos del pipeline que condicionan mi trabajo:
 - Deploy por SSH a un VPS Hostinger con `docker-compose.prod.yml`; cada ambiente es un `COMPOSE_PROJECT_NAME=flito-<env>` aislado.
