@@ -52,7 +52,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { soatClienteLimiter, soatPreconsultaLimiter } from '../../shared/middleware/rateLimiter.js';
+import { soatClienteLimiter, soatPreconsultaLimiter, soatLecturaFacturaLimiter } from '../../shared/middleware/rateLimiter.js';
 import {
   CAMPOS_COMPRADOR_FACTURA, PROCEDENCIAS_DATO, TIPOS_DOCUMENTO_RUNT,
   type ProcedenciaCompradorPersistida, type TipoDocumentoRunt,
@@ -651,10 +651,24 @@ const lecturaFacturaSchema = z.object({
  * formulario, y por eso cada campo viaja con su confianza y su `confiable`: quien decide qué hacer
  * con un dato bajo umbral es la persona que ve el formulario, no esta ruta.
  *
- * **El orden de los middlewares es el del AC6 y está calcado de `POST /cliente`**: el limitador del
- * canal va DELANTE de `upload.single` para que el freno actúe antes de que el proceso cargue 15 MB en
- * memoria, no después. Invertirlos —que es lo cómodo si algún día hace falta mirar el cuerpo para
- * decidir— convertiría el rate limit en un contador que se aplica cuando el daño ya está hecho.
+ * **El orden de los middlewares es el del AC6 de la HU #12092** (el AC6 de la #12214 es otro: el del
+ * 429 upstream): el limitador va DELANTE de `upload.single` para que el freno actúe antes de que el
+ * proceso cargue 15 MB en memoria, no después. Invertirlos —que es lo
+ * cómodo si algún día hace falta mirar el cuerpo para decidir— convertiría el rate limit en un
+ * contador que se aplica cuando el daño ya está hecho.
+ *
+ * **Y desde la HU #12214 el limitador es `soatLecturaFacturaLimiter` y NO `soatClienteLimiter`.** La
+ * ruta sale del contador compartido del canal y se queda solo con el suyo (12/15min/usuario); no va
+ * anidada como la preconsulta, y esa asimetría es la HU entera. La preconsulta se anida porque lo que
+ * se busca es un techo MÁS BAJO dentro de los 20; aquí se busca lo contrario, que releer la factura
+ * NO le quite presupuesto al envío de la misma solicitud que se está prellenando. Anidarla dejaría
+ * ese gasto intacto.
+ *
+ * No es un descuento de seguridad: el freno sigue puesto y sigue delante de multer. Lo que cambia es
+ * de qué bolsillo sale. Esta ruta no consulta el RUNT ni escribe una fila, así que no participa de la
+ * cosecha que el contador compartido raciona —el razonamiento está entero en el docblock de
+ * `soatClienteLimiter`—; lo suyo es coste por byte contra un encargado externo, y eso se raciona en
+ * su propio contador.
  *
  * **Tres segmentos, sin colisión**: los patrones vecinos son `/cliente` y `/cliente/preconsulta`, de
  * uno y dos segmentos, así que ninguno casa con esta ruta.
@@ -668,7 +682,7 @@ const lecturaFacturaSchema = z.object({
  */
 router.post(
   '/cliente/factura/lectura',
-  CANAL_CLIENTE, soatClienteLimiter, upload.single('facturaVenta'),
+  CANAL_CLIENTE, soatLecturaFacturaLimiter, upload.single('facturaVenta'),
   async (req: Request, res: Response) => {
     const parsed = lecturaFacturaSchema.safeParse(req.body ?? {});
     if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }

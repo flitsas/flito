@@ -175,19 +175,25 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
     expect(r.body.placa).toBeUndefined();
   });
 
-  it('**el rate limit del canal va DELANTE de la carga del archivo** (orden de middlewares)', async () => {
+  it('**el rate limit va DELANTE de la carga del archivo** (orden de middlewares)', async () => {
     // El AC6 lo pide explícitamente. No se mide con un 429 —que llegaría igual en las dos
     // ordenaciones— sino sobre la pila REAL de la ruta: si alguien mueve `upload.single` delante del
     // limitador «para poder mirar el cuerpo», el freno pasaría a actuar DESPUÉS de que el proceso
     // haya cargado 15 MB en memoria, que es justo lo que el limitador existe para evitar.
+    //
+    // Desde la HU #12214 el limitador de esta ruta es el SUYO (`soatLecturaFacturaLimiter`) y no el
+    // compartido del canal: releer la factura ya no le quita presupuesto al envío. Lo que no cambia
+    // es esta regla de orden — el freno, sea cual sea, va antes de multer.
     const { default: router } = await import('../../src/modules/flito-soat/flito-soat-cliente.routes.js');
     const capa = (router as unknown as { stack: Array<{ route?: { path: string; stack: Array<{ handle: unknown; name: string }> } }> })
       .stack.find((l) => l.route?.path === '/cliente/factura/lectura');
     expect(capa, 'la ruta no está montada en el router del canal').toBeDefined();
 
-    const { soatClienteLimiter } = await import('../../src/shared/middleware/rateLimiter.js');
+    const { soatLecturaFacturaLimiter, soatClienteLimiter } = await import('../../src/shared/middleware/rateLimiter.js');
     const handlers = capa!.route!.stack;
-    const iLimitador = handlers.findIndex((h) => h.handle === soatClienteLimiter);
+    const iLimitador = handlers.findIndex((h) => h.handle === soatLecturaFacturaLimiter);
+    expect(handlers.map((h) => h.handle), 'la lectura no puede volver al contador compartido (AC2)')
+      .not.toContain(soatClienteLimiter);
     // Multer no exporta su middleware: se identifica por nombre, que es como se identifica en
     // cualquier stack de Express.
     const iMulter = handlers.findIndex((h) => h.name === 'multerMiddleware');
@@ -197,14 +203,19 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
     expect(iLimitador).toBeLessThan(iMulter);
   });
 
-  it('el limitador frena al usuario que insiste, y solo a ese usuario', async () => {
+  it('**el techo son 12: la 12.ª lectura pasa el freno y la 13.ª es 429** (HU #12214)', async () => {
+    // El canal va APAGADO en este escenario a propósito: las que pasan el limitador mueren en 403 y
+    // no llaman al OCR, así que lo que se mide es el contador y nada más. Las dos mitades hacen
+    // falta: sin el «la 12.ª todavía pasa», el test seguiría verde con cualquier techo menor.
     escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
     const app = await buildApp();
     const insistente = await auth('cliente', siguienteUsuario());
 
-    let ultimo = 0;
-    for (let i = 0; i < 21; i++) ultimo = (await lectura(app, insistente)).status;
-    expect(ultimo).toBe(429);
+    const estados: number[] = [];
+    for (let i = 0; i < 13; i++) estados.push((await lectura(app, insistente)).status);
+
+    expect(estados.slice(0, 12), 'las doce primeras pasan el limitador').toEqual(Array(12).fill(403));
+    expect(estados[12], 'la 13.ª la frena el limitador de la lectura').toBe(429);
 
     // Otro usuario de la misma compañía —misma IP en el test— sigue pasando: la llave es el `sub`.
     expect((await lectura(app, await auth('cliente', siguienteUsuario()))).status).toBe(403);

@@ -262,10 +262,11 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
 
     await expect(page.getByRole('alert')
       .filter({ hasText: 'Ha hecho varias lecturas seguidas y toca esperar unos minutos.' })).toBeVisible();
-    // El limitador es COMPARTIDO con el alta: cada re-lectura le quita presupuesto al envío, así que
-    // ni se reintenta solo ni se dice «vuelva a leerla».
+    // Desde la HU #12214 el limitador de la lectura NO es el del alta: tiene contador propio, así que
+    // el mensaje ya no advierte de un presupuesto compartido que no existe. Sigue sin reintento
+    // automático porque la ventana es de quince minutos, no porque releer cueste el envío.
     await expect(page.getByText('No pudimos leer la factura.')).toHaveCount(0);
-    await expect(page.getByText('Puede escribir los datos del propietario a mano y enviar la solicitud igual.')).toBeVisible();
+    await expect(page.getByText('Puede escribir los datos del propietario a mano y enviar la solicitud ahora: el envío no se ve afectado por este límite.')).toBeVisible();
     expect(cap.lecturas).toHaveLength(1);
   });
 
